@@ -711,18 +711,22 @@ export class npcSheet extends foundry.appv1.sheets.ActorSheet {
             let roll = new Roll("1d100");
             await roll.evaluate();
 
+            // Defensive access to avoid TypeError when .system.lucky_numbers/unlucky_numbers are missing
+            const lucky = this.actor?.system?.lucky_numbers || {};
+            const unlucky = this.actor?.system?.unlucky_numbers || {};
+
             if (this.actor.system.wounded == true) {
               if (
-                roll.total == this.actor.system.lucky_numbers.ln1 ||
-                roll.total == this.actor.system.lucky_numbers.ln2 ||
-                roll.total == this.actor.system.lucky_numbers.ln3 ||
-                roll.total == this.actor.system.lucky_numbers.ln4 ||
-                roll.total == this.actor.system.lucky_numbers.ln5 ||
-                roll.total == this.actor.system.lucky_numbers.ln6 ||
-                roll.total == this.actor.system.lucky_numbers.ln7 ||
-                roll.total == this.actor.system.lucky_numbers.ln8 ||
-                roll.total == this.actor.system.lucky_numbers.ln9 ||
-                roll.total == this.actor.system.lucky_numbers.ln10
+                roll.total == lucky.ln1 ||
+                roll.total == lucky.ln2 ||
+                roll.total == lucky.ln3 ||
+                roll.total == lucky.ln4 ||
+                roll.total == lucky.ln5 ||
+                roll.total == lucky.ln6 ||
+                roll.total == lucky.ln7 ||
+                roll.total == lucky.ln8 ||
+                roll.total == lucky.ln9 ||
+                roll.total == lucky.ln10
               ) {
                 contentString = `<h2>${element.getAttribute("name")}</h2
                   <p></p><b>Target Number: [[${
@@ -731,12 +735,12 @@ export class npcSheet extends foundry.appv1.sheets.ActorSheet {
                   <b>Result: [[${roll.result}]]</b><p></p>
                   <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
               } else if (
-                roll.total == this.actor.system.unlucky_numbers.ul1 ||
-                roll.total == this.actor.system.unlucky_numbers.ul2 ||
-                roll.total == this.actor.system.unlucky_numbers.ul3 ||
-                roll.total == this.actor.system.unlucky_numbers.ul4 ||
-                roll.total == this.actor.system.unlucky_numbers.ul5 ||
-                roll.total == this.actor.system.unlucky_numbers.ul6
+                roll.total == unlucky.ul1 ||
+                roll.total == unlucky.ul2 ||
+                roll.total == unlucky.ul3 ||
+                roll.total == unlucky.ul4 ||
+                roll.total == unlucky.ul5 ||
+                roll.total == unlucky.ul6
               ) {
                 contentString = `<h2>${element.getAttribute("name")}</h2
                   <p></p><b>Target Number: [[${
@@ -758,16 +762,16 @@ export class npcSheet extends foundry.appv1.sheets.ActorSheet {
               }
             } else {
               if (
-                roll.total == this.actor.system.lucky_numbers.ln1 ||
-                roll.total == this.actor.system.lucky_numbers.ln2 ||
-                roll.total == this.actor.system.lucky_numbers.ln3 ||
-                roll.total == this.actor.system.lucky_numbers.ln4 ||
-                roll.total == this.actor.system.lucky_numbers.ln5 ||
-                roll.total == this.actor.system.lucky_numbers.ln6 ||
-                roll.total == this.actor.system.lucky_numbers.ln7 ||
-                roll.total == this.actor.system.lucky_numbers.ln8 ||
-                roll.total == this.actor.system.lucky_numbers.ln9 ||
-                roll.total == this.actor.system.lucky_numbers.ln10
+                roll.total == lucky.ln1 ||
+                roll.total == lucky.ln2 ||
+                roll.total == lucky.ln3 ||
+                roll.total == lucky.ln4 ||
+                roll.total == lucky.ln5 ||
+                roll.total == lucky.ln6 ||
+                roll.total == lucky.ln7 ||
+                roll.total == lucky.ln8 ||
+                roll.total == lucky.ln9 ||
+                roll.total == lucky.ln10
               ) {
                 contentString = `<h2>${element.getAttribute("name")}</h2
                 <p></p><b>Target Number: [[${
@@ -776,12 +780,12 @@ export class npcSheet extends foundry.appv1.sheets.ActorSheet {
                 <b>Result: [[${roll.result}]]</b><p></p>
                 <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
               } else if (
-                roll.total == this.actor.system.unlucky_numbers.ul1 ||
-                roll.total == this.actor.system.unlucky_numbers.ul2 ||
-                roll.total == this.actor.system.unlucky_numbers.ul3 ||
-                roll.total == this.actor.system.unlucky_numbers.ul4 ||
-                roll.total == this.actor.system.unlucky_numbers.ul5 ||
-                roll.total == this.actor.system.unlucky_numbers.ul6
+                roll.total == unlucky.ul1 ||
+                roll.total == unlucky.ul2 ||
+                roll.total == unlucky.ul3 ||
+                roll.total == unlucky.ul4 ||
+                roll.total == unlucky.ul5 ||
+                roll.total == unlucky.ul6
               ) {
                 contentString = `<h2>${element.getAttribute("name")}</h2
                 <p></p><b>Target Number: [[${
@@ -863,17 +867,21 @@ export class npcSheet extends foundry.appv1.sheets.ActorSheet {
             let roll = new Roll("1d100");
             await roll.evaluate();
 
+            // Defensive access to avoid TypeError when .system.lucky_numbers/unlucky_numbers are missing
+            const lucky = this.actor?.system?.lucky_numbers || {};
+            const unlucky = this.actor?.system?.unlucky_numbers || {};
+
             if (
-              roll.result == this.actor.system.lucky_numbers.ln1 ||
-              roll.result == this.actor.system.lucky_numbers.ln2 ||
-              roll.result == this.actor.system.lucky_numbers.ln3 ||
-              roll.result == this.actor.system.lucky_numbers.ln4 ||
-              roll.result == this.actor.system.lucky_numbers.ln5 ||
-              roll.result == this.actor.system.lucky_numbers.ln6 ||
-              roll.result == this.actor.system.lucky_numbers.ln7 ||
-              roll.result == this.actor.system.lucky_numbers.ln8 ||
-              roll.result == this.actor.system.lucky_numbers.ln9 ||
-              roll.result == this.actor.system.lucky_numbers.ln10
+              roll.result == lucky.ln1 ||
+              roll.result == lucky.ln2 ||
+              roll.result == lucky.ln3 ||
+              roll.result == lucky.ln4 ||
+              roll.result == lucky.ln5 ||
+              roll.result == lucky.ln6 ||
+              roll.result == lucky.ln7 ||
+              roll.result == lucky.ln8 ||
+              roll.result == lucky.ln9 ||
+              roll.result == lucky.ln10
             ) {
               contentString = `<h2>${element.getAttribute("name")}</h2>
               <p></p><b>Target Number: [[${
@@ -884,12 +892,12 @@ export class npcSheet extends foundry.appv1.sheets.ActorSheet {
               <b>Result: [[${roll.result}]]</b><p></p>
               <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
             } else if (
-              roll.result == this.actor.system.unlucky_numbers.ul1 ||
-              roll.result == this.actor.system.unlucky_numbers.ul2 ||
-              roll.result == this.actor.system.unlucky_numbers.ul3 ||
-              roll.result == this.actor.system.unlucky_numbers.ul4 ||
-              roll.result == this.actor.system.unlucky_numbers.ul5 ||
-              roll.result == this.actor.system.unlucky_numbers.ul6
+              roll.result == unlucky.ul1 ||
+              roll.result == unlucky.ul2 ||
+              roll.result == unlucky.ul3 ||
+              roll.result == unlucky.ul4 ||
+              roll.result == unlucky.ul5 ||
+              roll.result == unlucky.ul6
             ) {
               contentString = `<h2>${element.getAttribute("name")}</h2>
                   <p></p><b>Target Number: [[${
@@ -1412,12 +1420,16 @@ export class npcSheet extends foundry.appv1.sheets.ActorSheet {
             let roll = new Roll("1d100");
             await roll.evaluate();
 
+            // Defensive access to avoid TypeError when .system.lucky_numbers/unlucky_numbers are missing
+            const lucky = this.actor?.system?.lucky_numbers || {};
+            const unlucky = this.actor?.system?.unlucky_numbers || {};
+
             if (
-              roll.total == this.actor.system.lucky_numbers.ln1 ||
-              roll.total == this.actor.system.lucky_numbers.ln2 ||
-              roll.total == this.actor.system.lucky_numbers.ln3 ||
-              roll.total == this.actor.system.lucky_numbers.ln4 ||
-              roll.total == this.actor.system.lucky_numbers.ln5
+              roll.total == lucky.ln1 ||
+              roll.total == lucky.ln2 ||
+              roll.total == lucky.ln3 ||
+              roll.total == lucky.ln4 ||
+              roll.total == lucky.ln5
             ) {
               contentString = `<h2>${element.name} Resistance</h2>
             <p></p><b>Target Number: [[${
@@ -1426,11 +1438,11 @@ export class npcSheet extends foundry.appv1.sheets.ActorSheet {
             <b>Result: [[${roll.result}]]</b><p></p>
             <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
             } else if (
-              roll.total == this.actor.system.unlucky_numbers.ul1 ||
-              roll.total == this.actor.system.unlucky_numbers.ul2 ||
-              roll.total == this.actor.system.unlucky_numbers.ul3 ||
-              roll.total == this.actor.system.unlucky_numbers.ul4 ||
-              roll.total == this.actor.system.unlucky_numbers.ul5
+              roll.total == unlucky.ul1 ||
+              roll.total == unlucky.ul2 ||
+              roll.total == unlucky.ul3 ||
+              roll.total == unlucky.ul4 ||
+              roll.total == unlucky.ul5
             ) {
               contentString = `<h2>${element.name} Resistance</h2>
             <p></p><b>Target Number: [[${

@@ -382,16 +382,18 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
   }
 
   _updateModPrice() {
+    // Defensive access to avoid TypeError when .system.priceMod is missing
+    const priceMod = Number(this.actor?.system?.priceMod ?? 0);
+    
     for (let item of this.actor.items.filter((item) =>
       item.hasOwnProperty("modPrice")
     )) {
-      item.system.modPrice = (
-        item.system.price +
-        item.system.price * (this.actor.system.priceMod / 100)
-      ).toFixed(0);
+      const basePrice = Number(item?.system?.price ?? 0);
+      item.system = item.system || {};
+      item.system.modPrice = Math.round(basePrice + basePrice * (priceMod / 100));
       item.update({
         "system.modPrice": item.system.modPrice,
-        "system.price": item.system.price,
+        "system.price": basePrice,
       });
     }
   }
@@ -530,14 +532,17 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
     const merchantItems = this.actor.items.filter((item) =>
       item.system.hasOwnProperty("modPrice")
     );
-    this.actor.system.priceMod = Number(this.actor.system.priceMod + 5);
+    
+    // Defensive access to avoid TypeError when .system.priceMod is missing
+    const currentPriceMod = Number(this.actor?.system?.priceMod ?? 0);
+    this.actor.system.priceMod = currentPriceMod + 5;
     this.actor.update({ "system.priceMod": this.actor.system.priceMod });
 
     for (let item of merchantItems) {
-      item.system.modPrice = (
-        item.system.price +
-        item.system.price * (this.actor.system.priceMod / 100)
-      ).toFixed(0);
+      const basePrice = Number(item?.system?.price ?? 0);
+      const priceMod = Number(this.actor?.system?.priceMod ?? 0);
+      item.system = item.system || {};
+      item.system.modPrice = Math.round(basePrice + basePrice * (priceMod / 100));
       await item.update({ "system.modPrice": item.system.modPrice });
     }
   }
@@ -547,14 +552,17 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
     const merchantItems = this.actor.items.filter((item) =>
       item.system.hasOwnProperty("modPrice")
     );
-    this.actor.system.priceMod = Number(this.actor.system.priceMod - 5);
+    
+    // Defensive access to avoid TypeError when .system.priceMod is missing
+    const currentPriceMod = Number(this.actor?.system?.priceMod ?? 0);
+    this.actor.system.priceMod = currentPriceMod - 5;
     this.actor.update({ "system.priceMod": this.actor.system.priceMod });
 
     for (let item of merchantItems) {
-      item.system.modPrice = (
-        item.system.price +
-        item.system.price * (this.actor.system.priceMod / 100)
-      ).toFixed(0);
+      const basePrice = Number(item?.system?.price ?? 0);
+      const priceMod = Number(this.actor?.system?.priceMod ?? 0);
+      item.system = item.system || {};
+      item.system.modPrice = Math.round(basePrice + basePrice * (priceMod / 100));
       await item.update({ "system.modPrice": item.system.modPrice });
     }
   }
@@ -834,18 +842,22 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
             let roll = new Roll("1d100");
             await roll.evaluate();
 
+            // Defensive access to avoid TypeError when .system.lucky_numbers/unlucky_numbers are missing
+            const lucky = this.actor?.system?.lucky_numbers || {};
+            const unlucky = this.actor?.system?.unlucky_numbers || {};
+
             if (this.actor.system.wounded == true) {
               if (
-                roll.total == this.actor.system.lucky_numbers.ln1 ||
-                roll.total == this.actor.system.lucky_numbers.ln2 ||
-                roll.total == this.actor.system.lucky_numbers.ln3 ||
-                roll.total == this.actor.system.lucky_numbers.ln4 ||
-                roll.total == this.actor.system.lucky_numbers.ln5 ||
-                roll.total == this.actor.system.lucky_numbers.ln6 ||
-                roll.total == this.actor.system.lucky_numbers.ln7 ||
-                roll.total == this.actor.system.lucky_numbers.ln8 ||
-                roll.total == this.actor.system.lucky_numbers.ln9 ||
-                roll.total == this.actor.system.lucky_numbers.ln10
+                roll.total == lucky.ln1 ||
+                roll.total == lucky.ln2 ||
+                roll.total == lucky.ln3 ||
+                roll.total == lucky.ln4 ||
+                roll.total == lucky.ln5 ||
+                roll.total == lucky.ln6 ||
+                roll.total == lucky.ln7 ||
+                roll.total == lucky.ln8 ||
+                roll.total == lucky.ln9 ||
+                roll.total == lucky.ln10
               ) {
                 contentString = `<h2>${element.getAttribute("name")}</h2
                   <p></p><b>Target Number: [[${
@@ -854,12 +866,12 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
                   <b>Result: [[${roll.result}]]</b><p></p>
                   <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
               } else if (
-                roll.total == this.actor.system.unlucky_numbers.ul1 ||
-                roll.total == this.actor.system.unlucky_numbers.ul2 ||
-                roll.total == this.actor.system.unlucky_numbers.ul3 ||
-                roll.total == this.actor.system.unlucky_numbers.ul4 ||
-                roll.total == this.actor.system.unlucky_numbers.ul5 ||
-                roll.total == this.actor.system.unlucky_numbers.ul6
+                roll.total == unlucky.ul1 ||
+                roll.total == unlucky.ul2 ||
+                roll.total == unlucky.ul3 ||
+                roll.total == unlucky.ul4 ||
+                roll.total == unlucky.ul5 ||
+                roll.total == unlucky.ul6
               ) {
                 contentString = `<h2>${element.getAttribute("name")}</h2
                   <p></p><b>Target Number: [[${
@@ -881,16 +893,16 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
               }
             } else {
               if (
-                roll.total == this.actor.system.lucky_numbers.ln1 ||
-                roll.total == this.actor.system.lucky_numbers.ln2 ||
-                roll.total == this.actor.system.lucky_numbers.ln3 ||
-                roll.total == this.actor.system.lucky_numbers.ln4 ||
-                roll.total == this.actor.system.lucky_numbers.ln5 ||
-                roll.total == this.actor.system.lucky_numbers.ln6 ||
-                roll.total == this.actor.system.lucky_numbers.ln7 ||
-                roll.total == this.actor.system.lucky_numbers.ln8 ||
-                roll.total == this.actor.system.lucky_numbers.ln9 ||
-                roll.total == this.actor.system.lucky_numbers.ln10
+                roll.total == lucky.ln1 ||
+                roll.total == lucky.ln2 ||
+                roll.total == lucky.ln3 ||
+                roll.total == lucky.ln4 ||
+                roll.total == lucky.ln5 ||
+                roll.total == lucky.ln6 ||
+                roll.total == lucky.ln7 ||
+                roll.total == lucky.ln8 ||
+                roll.total == lucky.ln9 ||
+                roll.total == lucky.ln10
               ) {
                 contentString = `<h2>${element.getAttribute("name")}</h2
                 <p></p><b>Target Number: [[${
@@ -899,12 +911,12 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
                 <b>Result: [[${roll.result}]]</b><p></p>
                 <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
               } else if (
-                roll.total == this.actor.system.unlucky_numbers.ul1 ||
-                roll.total == this.actor.system.unlucky_numbers.ul2 ||
-                roll.total == this.actor.system.unlucky_numbers.ul3 ||
-                roll.total == this.actor.system.unlucky_numbers.ul4 ||
-                roll.total == this.actor.system.unlucky_numbers.ul5 ||
-                roll.total == this.actor.system.unlucky_numbers.ul6
+                roll.total == unlucky.ul1 ||
+                roll.total == unlucky.ul2 ||
+                roll.total == unlucky.ul3 ||
+                roll.total == unlucky.ul4 ||
+                roll.total == unlucky.ul5 ||
+                roll.total == unlucky.ul6
               ) {
                 contentString = `<h2>${element.getAttribute("name")}</h2
                 <p></p><b>Target Number: [[${
@@ -980,17 +992,21 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
             let roll = new Roll("1d100");
             await roll.evaluate();
 
+            // Defensive access to avoid TypeError when .system.lucky_numbers/unlucky_numbers are missing
+            const lucky = this.actor?.system?.lucky_numbers || {};
+            const unlucky = this.actor?.system?.unlucky_numbers || {};
+
             if (
-              roll.result == this.actor.system.lucky_numbers.ln1 ||
-              roll.result == this.actor.system.lucky_numbers.ln2 ||
-              roll.result == this.actor.system.lucky_numbers.ln3 ||
-              roll.result == this.actor.system.lucky_numbers.ln4 ||
-              roll.result == this.actor.system.lucky_numbers.ln5 ||
-              roll.result == this.actor.system.lucky_numbers.ln6 ||
-              roll.result == this.actor.system.lucky_numbers.ln7 ||
-              roll.result == this.actor.system.lucky_numbers.ln8 ||
-              roll.result == this.actor.system.lucky_numbers.ln9 ||
-              roll.result == this.actor.system.lucky_numbers.ln10
+              roll.result == lucky.ln1 ||
+              roll.result == lucky.ln2 ||
+              roll.result == lucky.ln3 ||
+              roll.result == lucky.ln4 ||
+              roll.result == lucky.ln5 ||
+              roll.result == lucky.ln6 ||
+              roll.result == lucky.ln7 ||
+              roll.result == lucky.ln8 ||
+              roll.result == lucky.ln9 ||
+              roll.result == lucky.ln10
             ) {
               contentString = `<h2>${element.getAttribute("name")}</h2>
                 <p></p><b>Target Number: [[${
@@ -1001,12 +1017,12 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
                 <b>Result: [[${roll.result}]]</b><p></p>
                 <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
             } else if (
-              roll.result == this.actor.system.unlucky_numbers.ul1 ||
-              roll.result == this.actor.system.unlucky_numbers.ul2 ||
-              roll.result == this.actor.system.unlucky_numbers.ul3 ||
-              roll.result == this.actor.system.unlucky_numbers.ul4 ||
-              roll.result == this.actor.system.unlucky_numbers.ul5 ||
-              roll.result == this.actor.system.unlucky_numbers.ul6
+              roll.result == unlucky.ul1 ||
+              roll.result == unlucky.ul2 ||
+              roll.result == unlucky.ul3 ||
+              roll.result == unlucky.ul4 ||
+              roll.result == unlucky.ul5 ||
+              roll.result == unlucky.ul6
             ) {
               contentString = `<h2>${element.getAttribute("name")}</h2>
                     <p></p><b>Target Number: [[${
@@ -1081,17 +1097,21 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
             let roll = new Roll("1d100");
             await roll.evaluate();
 
+            // Defensive access to avoid TypeError when .system.lucky_numbers/unlucky_numbers are missing
+            const lucky = this.actor?.system?.lucky_numbers || {};
+            const unlucky = this.actor?.system?.unlucky_numbers || {};
+
             if (
-              roll.total == this.actor.system.lucky_numbers.ln1 ||
-              roll.total == this.actor.system.lucky_numbers.ln2 ||
-              roll.total == this.actor.system.lucky_numbers.ln3 ||
-              roll.total == this.actor.system.lucky_numbers.ln4 ||
-              roll.total == this.actor.system.lucky_numbers.ln5 ||
-              roll.total == this.actor.system.lucky_numbers.ln6 ||
-              roll.total == this.actor.system.lucky_numbers.ln7 ||
-              roll.total == this.actor.system.lucky_numbers.ln8 ||
-              roll.total == this.actor.system.lucky_numbers.ln9 ||
-              roll.total == this.actor.system.lucky_numbers.ln10
+              roll.total == lucky.ln1 ||
+              roll.total == lucky.ln2 ||
+              roll.total == lucky.ln3 ||
+              roll.total == lucky.ln4 ||
+              roll.total == lucky.ln5 ||
+              roll.total == lucky.ln6 ||
+              roll.total == lucky.ln7 ||
+              roll.total == lucky.ln8 ||
+              roll.total == lucky.ln9 ||
+              roll.total == lucky.ln10
             ) {
               contentString = `<h2 style='font-size: large'>${element.name}</h2>
               <p></p><b>Target Number: [[${
@@ -1100,12 +1120,12 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
               <b>Result: [[${roll.result}]]</b><p></p>
               <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
             } else if (
-              roll.total == this.actor.system.unlucky_numbers.ul1 ||
-              roll.total == this.actor.system.unlucky_numbers.ul2 ||
-              roll.total == this.actor.system.unlucky_numbers.ul3 ||
-              roll.total == this.actor.system.unlucky_numbers.ul4 ||
-              roll.total == this.actor.system.unlucky_numbers.ul5 ||
-              roll.total == this.actor.system.unlucky_numbers.ul6
+              roll.total == unlucky.ul1 ||
+              roll.total == unlucky.ul2 ||
+              roll.total == unlucky.ul3 ||
+              roll.total == unlucky.ul4 ||
+              roll.total == unlucky.ul5 ||
+              roll.total == unlucky.ul6
             ) {
               contentString = `<h2 style='font-size: large'>${element.name}</h2>
                 <p></p><b>Target Number: [[${
@@ -1582,12 +1602,16 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
             let roll = new Roll("1d100");
             await roll.evaluate();
 
+            // Defensive access to avoid TypeError when .system.lucky_numbers/unlucky_numbers are missing
+            const lucky = this.actor?.system?.lucky_numbers || {};
+            const unlucky = this.actor?.system?.unlucky_numbers || {};
+
             if (
-              roll.total == this.actor.system.lucky_numbers.ln1 ||
-              roll.total == this.actor.system.lucky_numbers.ln2 ||
-              roll.total == this.actor.system.lucky_numbers.ln3 ||
-              roll.total == this.actor.system.lucky_numbers.ln4 ||
-              roll.total == this.actor.system.lucky_numbers.ln5
+              roll.total == lucky.ln1 ||
+              roll.total == lucky.ln2 ||
+              roll.total == lucky.ln3 ||
+              roll.total == lucky.ln4 ||
+              roll.total == lucky.ln5
             ) {
               contentString = `<h2 style='font-size: large;'${
                 element.name
@@ -1598,11 +1622,11 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
             <b>Result: [[${roll.result}]]</b><p></p>
             <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>`;
             } else if (
-              roll.total == this.actor.system.unlucky_numbers.ul1 ||
-              roll.total == this.actor.system.unlucky_numbers.ul2 ||
-              roll.total == this.actor.system.unlucky_numbers.ul3 ||
-              roll.total == this.actor.system.unlucky_numbers.ul4 ||
-              roll.total == this.actor.system.unlucky_numbers.ul5
+              roll.total == unlucky.ul1 ||
+              roll.total == unlucky.ul2 ||
+              roll.total == unlucky.ul3 ||
+              roll.total == unlucky.ul4 ||
+              roll.total == unlucky.ul5
             ) {
               contentString = `<h4>${element.name} Resistance</h4>
             <p></p><b>Target Number: [[${
