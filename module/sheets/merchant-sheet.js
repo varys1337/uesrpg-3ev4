@@ -389,7 +389,7 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
       item.hasOwnProperty("modPrice")
     )) {
       const basePrice = Number(item?.system?.price ?? 0);
-      if (!item.system) item.system = {};
+      if (!item.system || typeof item.system !== 'object') item.system = {};
       item.system.modPrice = Math.round(basePrice + basePrice * (priceMod / 100));
       item.update({
         "system.modPrice": item.system.modPrice,
@@ -541,7 +541,7 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
     for (let item of merchantItems) {
       const basePrice = Number(item?.system?.price ?? 0);
       const priceMod = Number(this.actor?.system?.priceMod ?? 0);
-      if (!item.system) item.system = {};
+      if (!item.system || typeof item.system !== 'object') item.system = {};
       item.system.modPrice = Math.round(basePrice + basePrice * (priceMod / 100));
       await item.update({ "system.modPrice": item.system.modPrice });
     }
@@ -561,7 +561,7 @@ export class merchantSheet extends foundry.appv1.sheets.ActorSheet {
     for (let item of merchantItems) {
       const basePrice = Number(item?.system?.price ?? 0);
       const priceMod = Number(this.actor?.system?.priceMod ?? 0);
-      if (!item.system) item.system = {};
+      if (!item.system || typeof item.system !== 'object') item.system = {};
       item.system.modPrice = Math.round(basePrice + basePrice * (priceMod / 100));
       await item.update({ "system.modPrice": item.system.modPrice });
     }
