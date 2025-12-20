@@ -125,6 +125,8 @@
                         <div class="item-characteristic-container">
                             <h2>Characteristics</h2>
                             <div class="modifier-container">
+                                {{!-- Defensive guards to avoid rendering errors when characteristicBonus is missing --}}
+                                {{#if item.system.characteristicBonus}}
                                 <div class="grid-container">
                                     <div>Strength</div>
                                     <div><input type="number" name="system.characteristicBonus.strChaBonus" value="{{item.system.characteristicBonus.strChaBonus}}"></div>
@@ -157,6 +159,40 @@
                                     <div>Luck</div>
                                     <div><input type="number" name="system.characteristicBonus.lckChaBonus" value="{{item.system.characteristicBonus.lckChaBonus}}"></div>
                                 </div>
+                                {{else}}
+                                <div class="grid-container">
+                                    <div>Strength</div>
+                                    <div><input type="number" name="system.characteristicBonus.strChaBonus" value="0"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Endurance</div>
+                                    <div><input type="number" name="system.characteristicBonus.endChaBonus" value="0"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Agility</div>
+                                    <div><input type="number" name="system.characteristicBonus.agiChaBonus" value="0"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Intelligence</div>
+                                    <div><input type="number" name="system.characteristicBonus.intChaBonus" value="0"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Willpower</div>
+                                    <div><input type="number" name="system.characteristicBonus.wpChaBonus" value="0"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Perception</div>
+                                    <div><input type="number" name="system.characteristicBonus.prcChaBonus" value="0"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Personality</div>
+                                    <div><input type="number" name="system.characteristicBonus.prsChaBonus" value="0"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Luck</div>
+                                    <div><input type="number" name="system.characteristicBonus.lckChaBonus" value="0"></div>
+                                </div>
+                                {{/if}}
                             </div>
                         </div>
                         <div class="item-resistance-container">
