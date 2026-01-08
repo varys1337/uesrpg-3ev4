@@ -1834,47 +1834,8 @@ if (isLucky(this.actor, roll.result)) {
       if (!spell) return;
     }
     
-    // 3. Check if healing spell
-    const damageType = (spell.system?.damageType ?? "").toLowerCase();
-    const isHealing = damageType === "healing";
+    // 3. Check if attack spell and targets exist
     const targets = [...(game.user.targets ?? [])];
-    
-    if (isHealing && targets.length > 0) {
-      // Apply healing directly, no opposed test
-      const healFormula = spell.system?.damageFormula || spell.system?.damage || "1d6";
-      const healRoll = await new Roll(healFormula).evaluate();
-      
-      for (const target of targets) {
-        const actor = target.actor || await fromUuid(target.uuid);
-        if (!actor) continue;
-        
-        const currentHP = Number(actor.system?.resources?.hp?.value ?? 0);
-        const maxHP = Number(actor.system?.resources?.hp?.max ?? 0);
-        const newHP = Math.min(maxHP, currentHP + healRoll.total);
-        
-        await actor.update({ "system.resources.hp.value": newHP });
-        
-        await ChatMessage.create({
-          content: `
-            <div style="padding:10px; background:rgba(0,200,0,0.1); border-left:3px solid green;">
-              <h3>💚 ${spell.name} — Healing Applied</h3>
-              <p><b>Target:</b> ${actor.name}</p>
-              <p><b>Healing:</b> ${healRoll.total}</p>
-              <p><b>HP:</b> ${currentHP} → ${newHP}</p>
-            </div>
-          `,
-          speaker: ChatMessage.getSpeaker({ actor: this.actor })
-        });
-      }
-      
-      // Consume MP (default to restrained for healing as it's beneficial magic, not combat)
-      const { consumeSpellMagicka } = await import("../magic/magicka-utils.js");
-      const spellOptions = { isRestrained: true };
-      await consumeSpellMagicka(this.actor, spell, spellOptions);
-      return;
-    }
-    
-    // 4. Check if attack spell and targets exist
     const isAttack = Boolean(spell.system?.isAttackSpell);
     
     if (isAttack && targets.length > 0) {
@@ -1896,69 +1857,52 @@ if (isLucky(this.actor, roll.result)) {
    */
   async _showSpellOptionsDialog(spell) {
     const wpBonus = Math.floor(Number(this.actor.system?.characteristics?.wp?.total ?? 0) / 10);
+    const hasOverload = Boolean(spell.system?.hasOverload);
+    const baseCost = Number(spell.system?.cost ?? 0);
     
     const content = `
-      <div class="uesrpg-spell-options" style="padding: 10px;">
-        <h3 style="margin-top: 0; color: #8a2be2;">🔮 ${spell.name} — Casting Options</h3>
-        
-        <div class="option-section" style="margin-bottom: 15px; padding: 10px; background: rgba(0,0,0,0.05); border-radius: 3px;">
-          <h4 style="margin: 0 0 8px 0;">Spell Restraint</h4>
-          <p style="font-size: 11px; margin-bottom: 8px;">Reduce MP cost by your Willpower bonus (${wpBonus}) to a minimum of 1.</p>
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" name="isRestrained" checked style="width: auto;" />
-            <span>Use Spell Restraint (Recommended)</span>
+      <form class="uesrpg-spell-options">
+        <h3>${spell.name}</h3>
+        <div class="form-group">
+          <label>MP Cost: <b>${baseCost}</b></label>
+        </div>
+        <div class="form-group" style="margin-top: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="restrain" checked />
+            <span><b>Spell Restraint</b> (reduce cost by ${wpBonus} to min 1)</span>
           </label>
         </div>
-        
-        ${spell.system?.hasOverload ? `
-          <div class="option-section" style="margin-bottom: 15px; padding: 10px; background: rgba(138,43,226,0.1); border-radius: 3px;">
-            <h4 style="margin: 0 0 8px 0;">⚡ Overload</h4>
-            <p style="font-size: 11px; margin-bottom: 8px;">Double MP cost for bonus effect: ${spell.system?.overloadEffect || '2x cost, enhanced effect'}</p>
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" name="isOverloaded" style="width: auto;" />
-              <span>Overload Spell</span>
-            </label>
-          </div>
-        ` : ''}
-        
-        <p class="hint" style="font-size: 11px; font-style: italic; opacity: 0.8; margin-top: 10px;">
-          MP is consumed regardless of hit/miss per RAW Chapter 6.
-        </p>
-      </div>
+        ${hasOverload ? `
+        <div class="form-group" style="margin-top: 8px;">
+          <label style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="overload" />
+            <span><b>Overload</b> (${spell.system.overloadEffect || 'double cost for enhanced effect'})</span>
+          </label>
+        </div>` : ''}
+      </form>
     `;
     
-    return new Promise((resolve) => {
-      new Dialog({
-        title: "Spell Casting Options",
-        content,
-        buttons: {
-          cast: {
-            label: "Cast Spell",
-            callback: (html) => {
-              const element = html?.[0];
-              if (!element) {
-                resolve(null);
-                return;
-              }
-              const form = element.querySelector('form') || element;
-              const isRestrained = form.querySelector('[name="isRestrained"]')?.checked ?? true;
-              const isOverloaded = form.querySelector('[name="isOverloaded"]')?.checked ?? false;
-              
-              resolve({
-                isRestrained,
-                isOverloaded,
-                restraintValue: isRestrained ? wpBonus : 0
-              });
-            }
-          },
-          cancel: {
-            label: "Cancel",
-            callback: () => resolve(null)
+    return Dialog.wait({
+      title: "Spell Options",
+      content,
+      buttons: {
+        cast: {
+          label: "Cast",
+          callback: (html) => {
+            const root = html instanceof HTMLElement ? html : html?.[0];
+            const form = root?.querySelector("form");
+            return {
+              isRestrained: form?.restrain?.checked ?? false,
+              isOverloaded: form?.overload?.checked ?? false,
+              restraintValue: wpBonus,
+              baseCost
+            };
           }
         },
-        default: "cast"
-      }).render(true);
-    });
+        cancel: { label: "Cancel", callback: () => null }
+      },
+      default: "cast"
+    }, { width: 420 });
   }
 
   /**

@@ -1055,9 +1055,7 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
     
     if (this.item?.type !== "spell") return;
     
-    const currentLevels = Array.isArray(this.item.system.scaling?.levels) 
-      ? this.item.system.scaling.levels 
-      : [];
+    const currentLevels = this.item.system.scaling?.levels ?? [];
     const nextLevelNum = currentLevels.length + 1;
     
     if (nextLevelNum > 7) {
@@ -1087,9 +1085,7 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
     const index = Number(event.currentTarget.closest("tr")?.dataset?.index ?? -1);
     if (index < 0) return;
     
-    const currentLevels = Array.isArray(this.item.system.scaling?.levels) 
-      ? this.item.system.scaling.levels 
-      : [];
+    const currentLevels = this.item.system.scaling?.levels ?? [];
     const newLevels = currentLevels.filter((_, i) => i !== index);
     
     await this.item.update({ "system.scaling.levels": newLevels });
