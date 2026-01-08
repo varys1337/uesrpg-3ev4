@@ -18,6 +18,7 @@ import { shouldBackfire, triggerBackfire } from "./backfire.js";
 import { safeUpdateChatMessage } from "../helpers/chat-message-socket.js";
 import { requireUserCanRollActor } from "../helpers/permissions.js";
 import { computeSkillTN } from "../skills/skill-tn.js";
+import { renderMagicDamageButtons } from "./damage-application.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 const _FLAG_KEY = "magicOpposed";
@@ -74,19 +75,29 @@ function _renderCard(data, messageId) {
   const spellLevel = a.spellLevel ?? 1;
   const spellCost = a.spellCost ?? 0;
   
-  // Attacker section
+  // Build TN breakdown
   const aTNLabel = a.tn?.finalTN != null ? String(a.tn.finalTN) : "—";
+  const aTNBreakdown = a.tn?.modifiers ? a.tn.modifiers.map(m => 
+    `<div style="font-size:11px; opacity:0.8; margin-left:10px;">${m.label}: ${m.value >= 0 ? '+' : ''}${m.value}</div>`
+  ).join("") : "";
+  
+  // Attacker section
   const attackerActions = !a.result
-    ? `<button class="uesrpg-magic-opposed-btn" data-action="attacker-roll" style="margin-top:8px;">Roll Casting Test</button>`
+    ? `<button class="uesrpg-magic-opposed-btn" data-action="attacker-roll" style="width:100%; margin-top:8px; padding:8px; background:#8a2be2; color:white; border:none; border-radius:3px; cursor:pointer; font-weight:bold;">Cast Spell (Roll 1d100)</button>`
     : "";
   
   // Defender section
-  const dTNLabel = d.tn != null ? String(d.tn) : "—";
+  const dBlockTN = d.blockTN != null ? String(d.blockTN) : "—";
+  const dEvadeTN = d.evadeTN != null ? String(d.evadeTN) : "—";
   const defenderActions = (a.result && !d.result && !d.noDefense)
     ? `
-      <button class="uesrpg-magic-opposed-btn" data-action="defender-roll-block" style="margin-top:8px;">Block</button>
-      <button class="uesrpg-magic-opposed-btn" data-action="defender-roll-evade" style="margin-top:8px; margin-left:4px;">Evade</button>
-      <button class="uesrpg-magic-opposed-btn" data-action="defender-no-defense" style="margin-top:8px; margin-left:4px;">No Defense</button>
+      <h4 style="margin:8px 0;">🛡️ Defender: Choose Defense</h4>
+      <p class="hint" style="font-size:11px; font-style:italic; opacity:0.8; margin-bottom:8px;">Spells can only be Block or Evade (no Parry/Counter per RAW)</p>
+      <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <button class="uesrpg-magic-opposed-btn" data-action="defender-roll-block" style="flex:1; padding:6px; background:#4169e1; color:white; border:none; border-radius:3px; cursor:pointer; font-size:12px;">Block (${dBlockTN})</button>
+        <button class="uesrpg-magic-opposed-btn" data-action="defender-roll-evade" style="flex:1; padding:6px; background:#228b22; color:white; border:none; border-radius:3px; cursor:pointer; font-size:12px;">Evade (${dEvadeTN})</button>
+        <button class="uesrpg-magic-opposed-btn" data-action="defender-no-defense" style="flex:1; padding:6px; background:#666; color:white; border:none; border-radius:3px; cursor:pointer; font-size:12px;">No Defense</button>
+      </div>
     `
     : "";
   
@@ -94,46 +105,97 @@ function _renderCard(data, messageId) {
   let outcomeLine = "";
   if (data.outcome) {
     const winner = data.outcome.winner;
+    const attackerWins = winner === "attacker";
     const outcomeText = data.outcome.text ?? "";
-    const color = winner === "attacker" ? "green" : (winner === "defender" ? "blue" : "gray");
-    outcomeLine = `<div style="margin-top:12px; padding:8px; background:rgba(0,0,0,0.05); border-left:3px solid ${color}; font-weight:600;">${outcomeText}</div>`;
+    const bgColor = attackerWins ? "rgba(0, 200, 0, 0.1)" : "rgba(0, 100, 200, 0.1)";
+    const borderColor = attackerWins ? "green" : "blue";
+    
+    let damageInfo = "";
+    if (attackerWins && data.outcome.damage) {
+      damageInfo = `
+        <div style="margin-top:6px;">
+          <b>Damage:</b> ${data.outcome.damage} ${data.outcome.damageType}
+          ${a.result?.isCriticalSuccess ? '<span style="display:block; color:green; font-style:italic; margin-top:4px;">(MAX damage from critical)</span>' : ''}
+        </div>
+      `;
+      
+      // Add damage buttons if we have target info
+      if (data.outcome.damageButtons) {
+        damageInfo += `<div style="margin-top:8px;">${data.outcome.damageButtons}</div>`;
+      }
+    }
+    
+    const mpInfo = data.outcome.mpConsumed != null ? `
+      <div style="margin-top:10px; padding:8px; background:rgba(0,0,0,0.05); border-radius:3px;">
+        <b>MP Consumed:</b> ${data.outcome.mpConsumed} (${data.outcome.mpRemaining} MP remaining)
+      </div>
+    ` : "";
+    
+    outcomeLine = `
+      <div style="margin-top:12px; padding:10px; background:${bgColor}; border-left:3px solid ${borderColor}; border-radius:3px;">
+        <h4 style="margin:0 0 6px 0; color:${borderColor};">${attackerWins ? '✅ Spell Hit!' : '🛡️ Spell Defended!'}</h4>
+        <div style="font-size:12px;">
+          <div style="padding:4px 0; border-bottom:1px solid rgba(0,0,0,0.1);"><b>Caster Roll:</b> ${a.result.rollTotal} (${a.result.degree} DoS)</div>
+          <div style="padding:4px 0;"><b>Defender ${d.defenseType ?? 'Defense'}:</b> ${d.result?.rollTotal ?? '—'} (${d.result?.degree ?? 0} Do${d.result?.isSuccess ? 'S' : 'F'})</div>
+        </div>
+        ${damageInfo}
+        ${mpInfo}
+      </div>
+    `;
   }
   
-  const aTNBreakdown = a.tn?.modifiers ? a.tn.modifiers.map(m => `<div style="font-size:11px; opacity:0.8;">${m.label}: ${m.value >= 0 ? '+' : ''}${m.value}</div>`).join("") : "";
+  // Build spell options display
+  let spellOptionsHTML = "";
+  if (a.spellOptions) {
+    const opts = [];
+    if (a.spellOptions.isRestrained) {
+      opts.push(`✓ Spell Restraint (-${a.spellOptions.restraintValue} MP, min 1)`);
+    }
+    if (a.spellOptions.isOverloaded) {
+      opts.push(`⚡ Overload (2x MP cost, bonus effect)`);
+    }
+    if (opts.length > 0) {
+      spellOptionsHTML = `<div style="margin-bottom:8px; font-size:12px;">${opts.map(o => `<div style="padding:3px 0;">${o}</div>`).join('')}</div>`;
+    }
+  }
   
   return `
-  <div class="ues-magic-opposed-card" data-message-id="${messageId}" style="padding:6px 6px;">
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start;">
-      <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12);">
-        <div style="display:flex; justify-content:space-between; align-items:baseline;">
-          <div style="font-size:16px; font-weight:700;">Caster</div>
-          <div style="font-size:13px;"><b>${a.tokenName ?? a.name}</b></div>
-        </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Spell:</b> ${spell} ${spellSchool ? `(${spellSchool} ${spellLevel})` : ""}</div>
-          <div><b>MP Cost:</b> ${spellCost}</div>
-          <div><b>TN:</b> ${aTNLabel}</div>
-          ${a.result ? `<div><b>Roll:</b> ${a.result.rollTotal} — ${_fmtDegree(a.result)}${a.result.isCriticalSuccess ? ' <span style="color:green;">CRITICAL</span>' : ''}${a.result.isCriticalFailure ? ' <span style="color:red;">CRITICAL FAIL</span>' : ''}</div>` : ""}
+  <div class="ues-magic-opposed-card" data-message-id="${messageId}" style="padding:8px; border:1px solid rgba(138,43,226,0.3); background:rgba(138,43,226,0.05);">
+    <div class="opposed-header" style="margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid rgba(138,43,226,0.4);">
+      <h3 style="margin:0 0 4px 0; color:#8a2be2; font-size:16px;">🔮 ${spell} ${spellSchool ? `(${spellSchool} ${spellLevel})` : ""}</h3>
+      <div style="display:flex; align-items:center; justify-content:center; gap:10px; font-size:13px;">
+        <span style="font-weight:bold;">${a.tokenName ?? a.name}</span>
+        <span style="opacity:0.7;">vs</span>
+        <span style="font-weight:bold;">${d.tokenName ?? d.name}</span>
+      </div>
+    </div>
+    
+    ${!a.result ? `
+      <div class="opposed-state-pending">
+        <h4 style="margin:8px 0; color:#666;">⏳ Awaiting Caster Roll</h4>
+        <div style="background:rgba(0,0,0,0.05); padding:8px; margin-bottom:8px; border-radius:3px;">
+          <div style="margin-bottom:4px;"><b>Casting TN:</b> ${aTNLabel}</div>
           ${aTNBreakdown}
         </div>
+        ${spellOptionsHTML}
         ${attackerActions}
       </div>
-      <div style="padding-left:2px;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline;">
-          <div style="font-size:16px; font-weight:700;">Target</div>
-          <div style="font-size:13px;"><b>${d.tokenName ?? d.name}</b></div>
-        </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Defense:</b> ${d.defenseType ?? "—"}</div>
-          <div><b>TN:</b> ${dTNLabel}</div>
-          ${d.result ? `<div><b>Roll:</b> ${d.result.rollTotal} — ${_fmtDegree(d.result)}</div>` : ""}
-          ${d.noDefense ? '<div style="color:red; font-style:italic;">No Defense</div>' : ""}
+    ` : ""}
+    
+    ${a.result && !d.result && !d.noDefense ? `
+      <div class="opposed-state-defense">
+        <h4 style="margin:8px 0;">🎲 Caster Rolled: ${a.result.rollTotal}</h4>
+        <div style="margin-bottom:12px;">
+          ${a.result.isCriticalSuccess ? '<span style="color:green; font-weight:bold;">⭐ CRITICAL SUCCESS!</span>' : ''}
+          <span style="display:block; margin-top:4px;">${a.result.degree} Degrees of Success</span>
         </div>
         ${defenderActions}
       </div>
-    </div>
+    ` : ""}
+    
     ${outcomeLine}
   </div>`;
+}
 }
 
 async function _updateCard(message, data) {
@@ -223,6 +285,10 @@ export const MagicOpposedWorkflow = {
     // Compute casting TN
     const tn = computeMagicCastingTN(attacker, spell, cfg.spellOptions ?? {});
     
+    // Pre-compute defense TNs for defender
+    const blockTN = _computeDefenseTN(defender, "block");
+    const evadeTN = _computeDefenseTN(defender, "evade");
+    
     const data = {
       context: {
         schemaVersion: 1,
@@ -257,6 +323,8 @@ export const MagicOpposedWorkflow = {
         defenseType: null,
         result: null,
         tn: null,
+        blockTN,
+        evadeTN,
         noDefense: false
       },
       outcome: null
@@ -390,13 +458,22 @@ export const MagicOpposedWorkflow = {
     
     data.outcome = { ...outcome, text: outcomeText };
     
+    // Consume magicka (happens regardless of hit/miss per RAW p.128 line 191)
+    const currentMP = Number(attacker.system?.resources?.mp?.value ?? 0);
+    const consumed = Number(spell.system?.cost ?? 0);
+    const newMP = Math.max(0, currentMP - consumed);
+    await consumeSpellMagicka(attacker, spell, data.attacker.spellOptions);
+    
+    data.outcome.mpConsumed = consumed;
+    data.outcome.mpRemaining = newMP;
+    
     // Apply effects if attacker wins
     if (attackerWins) {
-      const isDamaging = Boolean(spell.system?.damage);
+      const isDamaging = Boolean(spell.system?.damageFormula || spell.system?.damage);
       const isCritical = Boolean(aResult.isCriticalSuccess);
       
       if (isDamaging) {
-        // Roll and apply damage
+        // Roll damage
         let damageRoll = await rollSpellDamage(spell, {
           isCritical,
           isOverloaded: data.attacker.spellOptions?.isOverloaded,
@@ -404,17 +481,25 @@ export const MagicOpposedWorkflow = {
         });
         
         const damageValue = Number(damageRoll.total);
+        const damageType = spell.system?.damageType || "magic";
         
-        // Apply damage to defender's HP
-        const currentHP = Number(defender.system?.resources?.hp?.value ?? 0);
-        const newHP = Math.max(0, currentHP - damageValue);
-        await defender.update({ "system.resources.hp.value": newHP });
+        // Store damage info in outcome
+        data.outcome.damage = damageValue;
+        data.outcome.damageType = damageType;
         
-        // Post damage to chat
-        await ChatMessage.create({
-          speaker: ChatMessage.getSpeaker({ actor: attacker }),
-          content: `<div class="uesrpg-damage"><b>${spell.name}</b> deals <b>${damageValue}</b> damage to ${defender.name}${isCritical ? " (CRITICAL - Maximum Damage!)" : ""}!</div>`
-        });
+        // Generate damage application buttons
+        const targets = [{
+          uuid: defender.uuid,
+          name: defender.name
+        }];
+        
+        data.outcome.damageButtons = renderMagicDamageButtons(
+          targets,
+          damageValue,
+          damageType,
+          spell,
+          { isCritical }
+        );
       } else {
         // Apply non-damaging spell effect
         await applySpellEffect(defender, spell, {
@@ -423,9 +508,6 @@ export const MagicOpposedWorkflow = {
         });
       }
     }
-    
-    // Consume magicka (happens regardless of hit/miss per RAW p.128 line 191)
-    await consumeSpellMagicka(attacker, spell, data.attacker.spellOptions);
     
     await _updateCard(message, data);
   }
