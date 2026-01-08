@@ -146,11 +146,8 @@
 }
 
 /* Hide legacy fields section */
-.spell-sheet .legacy-fields {
-  display: none;
-}
-
-.spell-sheet .attribute-tab-container h3:contains("Legacy Fields") {
+.spell-sheet .legacy-fields,
+.spell-sheet .attribute-tab-container > h3[data-legacy="true"] {
   display: none;
 }
 

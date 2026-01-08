@@ -459,13 +459,14 @@ export const MagicOpposedWorkflow = {
     data.outcome = { ...outcome, text: outcomeText };
     
     // Consume magicka (happens regardless of hit/miss per RAW p.128 line 191)
-    const currentMP = Number(attacker.system?.resources?.mp?.value ?? 0);
-    const consumed = Number(spell.system?.cost ?? 0);
-    const newMP = Math.max(0, currentMP - consumed);
     await consumeSpellMagicka(attacker, spell, data.attacker.spellOptions);
     
+    // Get MP info for display
+    const currentMP = Number(attacker.system?.resources?.mp?.value ?? 0);
+    const consumed = Number(spell.system?.cost ?? 0);
+    
     data.outcome.mpConsumed = consumed;
-    data.outcome.mpRemaining = newMP;
+    data.outcome.mpRemaining = Math.max(0, currentMP - consumed);
     
     // Apply effects if attacker wins
     if (attackerWins) {

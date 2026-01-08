@@ -7,6 +7,15 @@
  */
 
 /**
+ * Get current MP value for an actor
+ * @param {Actor} actor - The actor
+ * @returns {number} Current MP value
+ */
+function getCurrentMP(actor) {
+  return Number(actor.system?.resources?.mp?.value ?? 0);
+}
+
+/**
  * Initialize upkeep system hooks
  */
 export function initializeUpkeepSystem() {
@@ -99,7 +108,7 @@ async function promptUpkeep(actor, effect) {
   const spell = await fromUuid(flags.spellUuid);
   const upkeepCost = flags.upkeepCost || spell?.system?.cost || 0;
   
-  const currentMP = Number(actor.system?.resources?.mp?.value ?? 0);
+  const currentMP = getCurrentMP(actor);
   const canAfford = currentMP >= upkeepCost;
   
   const spellSchool = flags.spellSchool || spell?.system?.school || "";
@@ -155,7 +164,7 @@ export async function handleUpkeepConfirm(effectId, actorId, upkeepCost) {
   if (!effect) return;
   
   // Deduct MP
-  const currentMP = Number(actor.system?.resources?.mp?.value ?? 0);
+  const currentMP = getCurrentMP(actor);
   const newMP = Math.max(0, currentMP - upkeepCost);
   await actor.update({ "system.resources.mp.value": newMP });
   

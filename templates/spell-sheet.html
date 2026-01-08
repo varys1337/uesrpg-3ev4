@@ -88,7 +88,7 @@
           <div class="attribute-row">
             <label>Range</label>
             <select name="system.rangeType" style="width: 120px;">
-              <option value="none">None</option>
+              <option value="none" {{#if (eq item.system.rangeType "none")}}selected{{/if}}>None</option>
               <option value="ranged" {{#if (eq item.system.rangeType "ranged")}}selected{{/if}}>Ranged</option>
               <option value="melee" {{#if (eq item.system.rangeType "melee")}}selected{{/if}}>Melee</option>
               <option value="aoe" {{#if (eq item.system.rangeType "aoe")}}selected{{/if}}>AoE</option>
