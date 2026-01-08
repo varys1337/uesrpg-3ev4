@@ -1935,7 +1935,12 @@ if (isLucky(this.actor, roll.result)) {
           cast: {
             label: "Cast Spell",
             callback: (html) => {
-              const form = html[0].querySelector('form') || html[0];
+              const element = html?.[0];
+              if (!element) {
+                resolve(null);
+                return;
+              }
+              const form = element.querySelector('form') || element;
               const isRestrained = form.querySelector('[name="isRestrained"]')?.checked ?? true;
               const isOverloaded = form.querySelector('[name="isOverloaded"]')?.checked ?? false;
               
