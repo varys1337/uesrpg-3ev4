@@ -179,16 +179,18 @@
               <th>Damage/Heal Formula</th>
               <th>Effect Strength</th>
               <th>Duration (rounds)</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {{#each item.system.scaling.levels as |lvl idx|}}
-            <tr>
+            <tr data-index="{{idx}}">
               <td>{{lvl.level}}</td>
               <td><input type="number" name="system.scaling.levels.{{idx}}.cost" value="{{lvl.cost}}" min="0" /></td>
               <td><input type="text" name="system.scaling.levels.{{idx}}.damageFormula" value="{{lvl.damageFormula}}" placeholder="e.g., 1d6" /></td>
               <td><input type="number" name="system.scaling.levels.{{idx}}.effectStrength" value="{{lvl.effectStrength}}" /></td>
               <td><input type="number" name="system.scaling.levels.{{idx}}.duration" value="{{lvl.duration}}" min="0" /></td>
+              <td><button type="button" class="remove-scaling-level" title="Remove Level"><i class="fas fa-trash"></i></button></td>
             </tr>
             {{/each}}
           </tbody>
