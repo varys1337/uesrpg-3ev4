@@ -76,7 +76,16 @@ async function checkUpkeepSpells(actor) {
   });
   
   for (const effect of effects) {
-    await promptUpkeep(actor, effect);
+    // Check if already prompted this round to avoid duplicates
+    const alreadyPrompted = effect.getFlag("uesrpg-3ev4", "upkeepPrompted");
+    const promptedRound = effect.getFlag("uesrpg-3ev4", "upkeepPromptedRound");
+    const currentRound = game.combat?.round ?? 0;
+    
+    if (!alreadyPrompted || promptedRound !== currentRound) {
+      await promptUpkeep(actor, effect);
+      await effect.setFlag("uesrpg-3ev4", "upkeepPrompted", true);
+      await effect.setFlag("uesrpg-3ev4", "upkeepPromptedRound", currentRound);
+    }
   }
 }
 
@@ -90,27 +99,38 @@ async function promptUpkeep(actor, effect) {
   const spell = await fromUuid(flags.spellUuid);
   const upkeepCost = flags.upkeepCost || spell?.system?.cost || 0;
   
-  const currentMP = Number(actor.system?.magicka?.value ?? 0);
+  const currentMP = Number(actor.system?.resources?.mp?.value ?? 0);
   const canAfford = currentMP >= upkeepCost;
   
+  const spellSchool = flags.spellSchool || spell?.system?.school || "";
+  const spellLevel = flags.spellLevel || spell?.system?.level || 1;
+  
   const content = `
-    <div class="uesrpg-upkeep-prompt">
-      <h3>🔮 Spell Upkeep Required</h3>
-      <p><b>Actor:</b> ${actor.name}</p>
-      <p><b>Spell:</b> ${spell?.name || effect.name}</p>
-      <p><b>Upkeep Cost:</b> ${upkeepCost} MP</p>
-      <p><b>Current MP:</b> ${currentMP} MP</p>
-      ${!canAfford ? '<p style="color:red;"><b>⚠️ Insufficient Magicka!</b></p>' : ''}
-    </div>
-    <div class="uesrpg-upkeep-buttons" data-effect-id="${effect.id}" data-actor-id="${actor.id}" data-upkeep-cost="${upkeepCost}">
-      <button type="button" class="upkeep-confirm" ${!canAfford ? 'disabled' : ''}>Upkeep (Pay ${upkeepCost} MP)</button>
-      <button type="button" class="upkeep-cancel">End Spell</button>
+    <div class="uesrpg-upkeep-prompt" style="padding: 10px; background: rgba(138, 43, 226, 0.1); border-left: 3px solid #8a2be2;">
+      <h3 style="margin-top: 0; color: #8a2be2;">🔮 Spell Upkeep Required</h3>
+      <div class="upkeep-info" style="margin-bottom: 10px;">
+        <p style="margin: 4px 0;"><b>Caster:</b> ${actor.name}</p>
+        <p style="margin: 4px 0;"><b>Spell:</b> ${spell?.name || effect.name} ${spellSchool ? `(${spellSchool} ${spellLevel})` : ""}</p>
+        <p style="margin: 4px 0;"><b>Upkeep Cost:</b> ${upkeepCost} MP</p>
+        <p style="margin: 4px 0;"><b>Current MP:</b> ${currentMP} MP</p>
+        ${!canAfford ? '<p style="color:red; font-weight: bold; margin: 4px 0;">⚠️ Insufficient Magicka!</p>' : ''}
+        <p class="hint" style="font-style: italic; opacity: 0.8; margin: 8px 0 4px 0;">Spell will expire at end of this round unless upkept.</p>
+      </div>
+      <div class="uesrpg-upkeep-buttons" data-effect-id="${effect.id}" data-actor-id="${actor.id}" data-upkeep-cost="${upkeepCost}" style="display: flex; gap: 8px;">
+        <button type="button" class="upkeep-confirm" ${!canAfford ? 'disabled' : ''} style="flex: 1; padding: 6px 12px; background: #8a2be2; color: white; border: none; border-radius: 3px; cursor: ${!canAfford ? 'not-allowed' : 'pointer'}; opacity: ${!canAfford ? '0.5' : '1'};">
+          Pay ${upkeepCost} MP
+        </button>
+        <button type="button" class="upkeep-cancel" style="flex: 1; padding: 6px 12px; background: #666; color: white; border: none; border-radius: 3px; cursor: pointer;">
+          End Spell
+        </button>
+      </div>
     </div>
   `;
   
   await ChatMessage.create({
     content,
     speaker: ChatMessage.getSpeaker({ actor }),
+    whisper: game.user.isGM ? [] : [game.user.id],
     flags: {
       "uesrpg-3ev4": {
         upkeepPrompt: true,
@@ -135,9 +155,9 @@ export async function handleUpkeepConfirm(effectId, actorId, upkeepCost) {
   if (!effect) return;
   
   // Deduct MP
-  const currentMP = Number(actor.system?.magicka?.value ?? 0);
+  const currentMP = Number(actor.system?.resources?.mp?.value ?? 0);
   const newMP = Math.max(0, currentMP - upkeepCost);
-  await actor.update({ "system.magicka.value": newMP });
+  await actor.update({ "system.resources.mp.value": newMP });
   
   // Refresh duration
   const currentRound = game.combat?.round ?? 0;
@@ -147,6 +167,10 @@ export async function handleUpkeepConfirm(effectId, actorId, upkeepCost) {
     "duration.startRound": currentRound,
     "duration.startTime": game.time.worldTime
   });
+  
+  // Clear prompted flags to allow new prompt next round
+  await effect.unsetFlag("uesrpg-3ev4", "upkeepPrompted");
+  await effect.unsetFlag("uesrpg-3ev4", "upkeepPromptedRound");
   
   ui.notifications.info(`${effect.name} upkept for ${duration.rounds} more rounds.`);
 }
