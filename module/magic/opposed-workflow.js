@@ -196,7 +196,6 @@ function _renderCard(data, messageId) {
     ${outcomeLine}
   </div>`;
 }
-}
 
 async function _updateCard(message, data) {
   data.context = data.context ?? {};

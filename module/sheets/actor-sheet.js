@@ -1834,8 +1834,47 @@ if (isLucky(this.actor, roll.result)) {
       if (!spell) return;
     }
     
-    // 3. Check if attack spell and targets exist
+    // 3. Check if healing spell
+    const damageType = (spell.system?.damageType ?? "").toLowerCase();
+    const isHealing = damageType === "healing";
     const targets = [...(game.user.targets ?? [])];
+    
+    if (isHealing && targets.length > 0) {
+      // Apply healing directly, no opposed test
+      const healFormula = spell.system?.damageFormula || "1d6";
+      const healRoll = await new Roll(healFormula).evaluate();
+      
+      for (const target of targets) {
+        const actor = target.actor || await fromUuid(target.uuid);
+        if (!actor) continue;
+        
+        const currentHP = Number(actor.system?.resources?.hp?.value ?? 0);
+        const maxHP = Number(actor.system?.resources?.hp?.max ?? 0);
+        const newHP = Math.min(maxHP, currentHP + healRoll.total);
+        
+        await actor.update({ "system.resources.hp.value": newHP });
+        
+        await ChatMessage.create({
+          content: `
+            <div style="padding:10px; background:rgba(0,200,0,0.1); border-left:3px solid green;">
+              <h3>💚 ${spell.name} — Healing Applied</h3>
+              <p><b>Target:</b> ${actor.name}</p>
+              <p><b>Healing:</b> ${healRoll.total}</p>
+              <p><b>HP:</b> ${currentHP} → ${newHP}</p>
+            </div>
+          `,
+          speaker: ChatMessage.getSpeaker({ actor: this.actor })
+        });
+      }
+      
+      // Consume MP
+      const { consumeSpellMagicka } = await import("../magic/magicka-utils.js");
+      const spellOptions = { isRestrained: true }; // Default to restrained for healing
+      await consumeSpellMagicka(this.actor, spell, spellOptions);
+      return;
+    }
+    
+    // 4. Check if attack spell and targets exist
     const isAttack = Boolean(spell.system?.isAttackSpell);
     
     if (isAttack && targets.length > 0) {
