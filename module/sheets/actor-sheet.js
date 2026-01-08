@@ -1841,7 +1841,7 @@ if (isLucky(this.actor, roll.result)) {
     
     if (isHealing && targets.length > 0) {
       // Apply healing directly, no opposed test
-      const healFormula = spell.system?.damageFormula || "1d6";
+      const healFormula = spell.system?.damageFormula || spell.system?.damage || "1d6";
       const healRoll = await new Roll(healFormula).evaluate();
       
       for (const target of targets) {
@@ -1867,9 +1867,9 @@ if (isLucky(this.actor, roll.result)) {
         });
       }
       
-      // Consume MP
+      // Consume MP (default to restrained for healing as it's beneficial magic, not combat)
       const { consumeSpellMagicka } = await import("../magic/magicka-utils.js");
-      const spellOptions = { isRestrained: true }; // Default to restrained for healing
+      const spellOptions = { isRestrained: true };
       await consumeSpellMagicka(this.actor, spell, spellOptions);
       return;
     }
