@@ -1,7 +1,7 @@
 {
   "title": "UESRPG 3ev4",
   "description": "A system used to play the UESRPG (Unofficial Elder Scrolls Roleplaying Game) 3ev4 d100 system.",
-  "version": "1.0.0-RC.82",
+  "version": "0.0.1",
   "esmodules": [
     "src/system.js"
   ],
