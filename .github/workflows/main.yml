@@ -35,7 +35,7 @@ jobs:
       - name: Compile compendium packs (packs/src -> packs/*)
         run: npm run packs-compile
 
-      # Fail-fast verification: ensures compilation actually produced LevelDB packs like your packs.zip example.
+      # Fail-fast verification: ensures compilation actually produced LevelDB packs (v13+).
       - name: Verify compiled packs exist and look like LevelDB
         shell: bash
         run: |
@@ -82,20 +82,27 @@ jobs:
 
           echo "Compiled packs verification passed."
 
+      # Build a distributable ZIP that includes compiled packs but excludes YAML sources (packs/src)
       - name: Build system zip (uesrpg-3ev4.zip)
         shell: bash
         run: |
+          rm -rf dist
+          mkdir -p dist
+
+          # Copy everything into dist EXCEPT: git metadata, CI, dev tooling, and packs/src (YAML sources)
+          rsync -a . dist/ \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude "node_modules/" \
+            --exclude "automation/" \
+            --exclude "packs/src/" \
+            --exclude ".editorconfig" \
+            --exclude ".gitattributes" \
+            --exclude "package.json" \
+            --exclude "package-lock.json"
+
           rm -f uesrpg-3ev4.zip
-          zip -r uesrpg-3ev4.zip . \
-            -x ".git/**" \
-               ".github/**" \
-               "automation/**" \
-               "node_modules/**" \
-               "packs/src/**" \
-               ".editorconfig" \
-               ".gitattributes" \
-               "package.json" \
-               "package-lock.json"
+          (cd dist && zip -r ../uesrpg-3ev4.zip .)
 
       # Verify the ZIP contains compiled packs and does not contain packs/src (YAML)
       - name: Verify ZIP contents (compiled packs included, YAML sources excluded)
@@ -110,7 +117,7 @@ jobs:
           with zipfile.ZipFile(zpath) as zf:
             names = zf.namelist()
 
-          # Helper: allow optional prefix (in case the archive has a top-level folder)
+          # Allow optional prefix (in case the archive has a top-level folder)
           # e.g. "uesrpg-3ev4/packs/foo/CURRENT" or "packs/foo/CURRENT"
           src_rx = re.compile(r'(^|.*/)?packs/src/', re.IGNORECASE)
           current_rx = re.compile(r'(^|.*/)?packs/[^/]+/CURRENT$')
