@@ -37,6 +37,7 @@ jobs:
 
       # Fail-fast verification: ensures compilation actually produced LevelDB packs like your packs.zip example.
       - name: Verify compiled packs exist and look like LevelDB
+        shell: bash
         run: |
           echo "Listing packs directory:"
           ls -la packs || true
@@ -82,6 +83,7 @@ jobs:
           echo "Compiled packs verification passed."
 
       - name: Build system zip (uesrpg-3ev4.zip)
+        shell: bash
         run: |
           rm -f uesrpg-3ev4.zip
           zip -r uesrpg-3ev4.zip . \
@@ -95,31 +97,55 @@ jobs:
                "package.json" \
                "package-lock.json"
 
-      # Verify the ZIP contains compiled packs and does not contain packs/src
+      # Verify the ZIP contains compiled packs and does not contain packs/src (YAML)
       - name: Verify ZIP contents (compiled packs included, YAML sources excluded)
+        shell: bash
         run: |
-          echo "Validating ZIP contents..."
-          unzip -Z1 uesrpg-3ev4.zip > zip-contents.txt
+          python3 - <<'PY'
+          import re
+          import sys
+          import zipfile
 
-          if grep -q '^packs/src/' zip-contents.txt; then
-            echo "ERROR: ZIP contains packs/src (YAML sources). This must be excluded."
-            grep '^packs/src/' zip-contents.txt | head -n 50 || true
-            exit 1
-          fi
+          zpath = "uesrpg-3ev4.zip"
+          with zipfile.ZipFile(zpath) as zf:
+            names = zf.namelist()
 
-          # Look for at least one compiled pack signature inside ZIP: packs/<packName>/CURRENT
-          if ! grep -E -q '^packs/[^/]+/CURRENT$' zip-contents.txt; then
-            echo "ERROR: ZIP does not appear to contain compiled LevelDB packs (missing packs/<packName>/CURRENT)."
-            echo "Sample of ZIP contents:"
-            head -n 200 zip-contents.txt || true
-            exit 1
-          fi
+          # Helper: allow optional prefix (in case the archive has a top-level folder)
+          # e.g. "uesrpg-3ev4/packs/foo/CURRENT" or "packs/foo/CURRENT"
+          src_rx = re.compile(r'(^|.*/)?packs/src/', re.IGNORECASE)
+          current_rx = re.compile(r'(^|.*/)?packs/[^/]+/CURRENT$')
 
-          echo "ZIP verification passed."
+          src_hits = [n for n in names if src_rx.search(n)]
+          if src_hits:
+            print("ERROR: ZIP contains packs/src (YAML sources). Examples:")
+            for n in src_hits[:50]:
+              print(" ", n)
+            sys.exit(1)
+
+          current_hits = [n for n in names if current_rx.search(n)]
+          if not current_hits:
+            print("ERROR: ZIP does not appear to contain compiled LevelDB packs (missing packs/<packName>/CURRENT).")
+            print("First 200 entries:")
+            for n in names[:200]:
+              print(" ", n)
+
+            packs_related = [n for n in names if "packs/" in n]
+            print(f"Entries containing 'packs/': {len(packs_related)}")
+            for n in packs_related[:200]:
+              print(" ", n)
+            sys.exit(1)
+
+          print(f"Found {len(current_hits)} compiled pack CURRENT entries. Examples:")
+          for n in current_hits[:20]:
+            print(" ", n)
+
+          print("ZIP verification passed.")
+          PY
 
       - name: Create GitHub Release (if missing)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           tag="${{ github.ref_name }}"
           if gh release view "$tag" >/dev/null 2>&1; then
@@ -132,6 +158,7 @@ jobs:
       - name: Upload release assets (system.json + uesrpg-3ev4.zip)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           tag="${{ github.ref_name }}"
           gh release upload "$tag" system.json uesrpg-3ev4.zip --clobber
