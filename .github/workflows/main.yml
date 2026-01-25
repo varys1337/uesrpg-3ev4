@@ -27,9 +27,59 @@ jobs:
       - name: Install dependencies (CI)
         run: npm ci
 
-      # Compiles YAML source in packs/src/** into Foundry-ready compiled packs in packs/** (excluding packs/src).
+      # Ensure deterministic output (no stale compiled packs)
+      - name: Clean compiled packs (packs/* excluding packs/src)
+        run: npm run packs-clean
+
+      # Compiles YAML source in packs/src/** into Foundry-ready LevelDB packs in packs/** (excluding packs/src).
       - name: Compile compendium packs (packs/src -> packs/*)
         run: npm run packs-compile
+
+      # Fail-fast verification: ensures compilation actually produced LevelDB packs like your packs.zip example.
+      - name: Verify compiled packs exist and look like LevelDB
+        run: |
+          echo "Listing packs directory:"
+          ls -la packs || true
+
+          # Ensure there is at least one compiled pack folder besides "src"
+          compiled_count=$(find packs -mindepth 1 -maxdepth 1 -type d -not -name src | wc -l)
+          if [ "$compiled_count" -lt 1 ]; then
+            echo "ERROR: No compiled packs were produced in packs/ (only packs/src exists)."
+            exit 1
+          fi
+
+          # Each compiled LevelDB pack folder should contain CURRENT and MANIFEST-*
+          # Additionally verify there is at least one data file (*.ldb or *.sst)
+          while IFS= read -r d; do
+            echo "Checking compiled pack folder: $d"
+
+            if [ ! -f "$d/CURRENT" ]; then
+              echo "ERROR: Missing CURRENT in $d"
+              ls -la "$d" || true
+              exit 1
+            fi
+
+            if ! ls "$d"/MANIFEST-* >/dev/null 2>&1; then
+              echo "ERROR: Missing MANIFEST-* in $d"
+              ls -la "$d" || true
+              exit 1
+            fi
+
+            if ! find "$d" -maxdepth 1 -type f \( -name "*.ldb" -o -name "*.sst" \) | head -n 1 | grep -q .; then
+              echo "ERROR: No LevelDB data files (*.ldb or *.sst) found in $d"
+              ls -la "$d" || true
+              exit 1
+            fi
+
+            # Sanity: compiled pack folder should not contain YAML
+            if find "$d" -maxdepth 1 -type f \( -name "*.yml" -o -name "*.yaml" \) | head -n 1 | grep -q .; then
+              echo "ERROR: YAML files found in compiled pack folder $d (unexpected)"
+              ls -la "$d" || true
+              exit 1
+            fi
+          done < <(find packs -mindepth 1 -maxdepth 1 -type d -not -name src)
+
+          echo "Compiled packs verification passed."
 
       - name: Build system zip (uesrpg-3ev4.zip)
         run: |
@@ -44,6 +94,28 @@ jobs:
                ".gitattributes" \
                "package.json" \
                "package-lock.json"
+
+      # Verify the ZIP contains compiled packs and does not contain packs/src
+      - name: Verify ZIP contents (compiled packs included, YAML sources excluded)
+        run: |
+          echo "Validating ZIP contents..."
+          unzip -Z1 uesrpg-3ev4.zip > zip-contents.txt
+
+          if grep -q '^packs/src/' zip-contents.txt; then
+            echo "ERROR: ZIP contains packs/src (YAML sources). This must be excluded."
+            grep '^packs/src/' zip-contents.txt | head -n 50 || true
+            exit 1
+          fi
+
+          # Look for at least one compiled pack signature inside ZIP: packs/<packName>/CURRENT
+          if ! grep -E -q '^packs/[^/]+/CURRENT$' zip-contents.txt; then
+            echo "ERROR: ZIP does not appear to contain compiled LevelDB packs (missing packs/<packName>/CURRENT)."
+            echo "Sample of ZIP contents:"
+            head -n 200 zip-contents.txt || true
+            exit 1
+          fi
+
+          echo "ZIP verification passed."
 
       - name: Create GitHub Release (if missing)
         env:
