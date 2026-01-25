@@ -223,9 +223,10 @@
       "type": "module"
     }
   ],
-  "compatibility": {
-    "minimum": "12",
-    "verified": "13"
-  },
+"compatibility": {
+  "minimum": "13",
+  "verified": "13.351",
+  "maximum": "13"
+},
   "socket": true
 }
