@@ -11,6 +11,7 @@
  */
 
 import { getDifficultyByKey } from "../skills/skill-tn.js";
+import { evaluateAEModifierKeysDetailed } from "../active-effects/modifier-evaluator.js";
 
 /**
  * Safely coerce a value into a finite number.
@@ -44,6 +45,25 @@ function _bool(v) {
   if (s === "true" || s === "1" || s === "yes" || s === "on") return true;
   if (s === "false" || s === "0" || s === "no" || s === "off" || s === "") return false;
   return Boolean(v);
+}
+
+/**
+ * Normalize a modifier lane key component to a safe, stable token.
+ * Matches the normalization used by skill TN computations.
+ *
+ * Examples:
+ *  - "Destruction" => "destruction"
+ *  - "Destruction Magic" => "destructionmagic"
+ *
+ * @param {*} s
+ * @returns {string}
+ */
+function _normalizeKey(s) {
+  return String(s ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9_]/g, "");
 }
 
 /**
@@ -500,11 +520,62 @@ export function getMagicSkillLevel(actor, school) {
  * @returns {object} - { baseTN, spellcastingLevel, spellLevel, modifiers, finalTN }
  */
 export function computeMagicCastingTN(actor, spell, options = {}) {
-  const school = _str(spell?.system?.school).toLowerCase();
+  const schoolRaw = _str(spell?.system?.school);
+  const school = schoolRaw.toLowerCase();
+  const schoolKey = _normalizeKey(schoolRaw || school);
 
   const difficultyKeyRaw = _str(options?.difficultyKey ?? options?.difficulty ?? "average");
   const diff = getDifficultyByKey(difficultyKeyRaw.trim().toLowerCase());
   const difficultyMod = _num(diff?.mod, 0);
+
+  // Resolve the embedded magic skill for this school (PCs). We also use the
+  // resolved skill name as a fallback key for AE authoring, in case the school
+  // label and the item name don't normalize to the same token.
+  const magicSkill = (actor?.type === "NPC")
+    ? null
+    : actor?.items?.find(i =>
+      i.type === "magicSkill" &&
+      _str(i.name).toLowerCase().includes(school)
+    );
+  const magicSkillKey = magicSkill ? _normalizeKey(magicSkill.name) : "";
+
+  // Active Effects can contribute to casting TN via deterministic modifier keys.
+  // Supported keys (additive/override semantics are handled by the evaluator):
+  // - system.modifiers.tests.all
+  // - system.modifiers.skills._all
+  // - system.modifiers.skills.<schoolKey>
+  // - system.modifiers.skills.<magicSkillKey> (fallback)
+  // Optional virtual keys (no schema required):
+  // - system.modifiers.magic.castingTN._all
+  // - system.modifiers.magic.castingTN.<schoolKey>
+  // - system.modifiers.magic.castingTN.<magicSkillKey> (fallback)
+  const keySet = new Set([
+    "system.modifiers.tests.all",
+    "system.modifiers.skills._all",
+    "system.modifiers.magic.castingTN._all"
+  ]);
+  if (schoolKey) {
+    keySet.add(`system.modifiers.skills.${schoolKey}`);
+    keySet.add(`system.modifiers.magic.castingTN.${schoolKey}`);
+  }
+  if (magicSkillKey && magicSkillKey !== schoolKey) {
+    keySet.add(`system.modifiers.skills.${magicSkillKey}`);
+    keySet.add(`system.modifiers.magic.castingTN.${magicSkillKey}`);
+  }
+
+  const aeKeys = Array.from(keySet);
+  const aeResult = evaluateAEModifierKeysDetailed(actor, aeKeys, {
+    context: {
+      attackMode: "magic",
+      itemUuid: String(spell?.uuid ?? "")
+    },
+    enforceConditions: true,
+    dedupeByOrigin: true,
+    debug: false
+  });
+
+  const aeTotalsByKey = aeResult?.totalsByKey ?? {};
+  const aeModifier = aeKeys.reduce((sum, k) => sum + (Number(aeTotalsByKey?.[k] ?? 0) || 0), 0);
 
   // NPCs do not use embedded Magic Skill items for casting.
   // They rely on the NPC sheet "Magic Profession" lane (system.professions.magic).
@@ -530,9 +601,10 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
       { label: "Wound Penalty", value: woundPenalty }
     ];
 
+    if (aeModifier !== 0) modifiers.push({ label: "Active Effects", value: aeModifier });
     if (manualMod !== 0) modifiers.push({ label: "Manual Modifier", value: manualMod });
 
-    const finalTN = Math.max(0, baseTN + difficultyMod + fatiguePenalty + carryPenalty + woundPenalty + manualMod);
+    const finalTN = Math.max(0, baseTN + difficultyMod + fatiguePenalty + carryPenalty + woundPenalty + aeModifier + manualMod);
     return {
       baseTN,
       spellcastingLevel,
@@ -542,12 +614,6 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
       finalTN
     };
   }
-
-  // Find magic skill for this school
-  const magicSkill = actor?.items?.find(i =>
-    i.type === "magicSkill" &&
-    _str(i.name).toLowerCase().includes(school)
-  );
 
   // Base TN from skill or WP bonus fallback
   const wpBonus = getActorWillpowerBonus(actor);
@@ -577,11 +643,15 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     { label: "Wound Penalty", value: woundPenalty }
   ];
 
+  if (aeModifier !== 0) {
+    modifiers.push({ label: "Active Effects", value: aeModifier });
+  }
+
   if (manualMod !== 0) {
     modifiers.push({ label: "Manual Modifier", value: manualMod });
   }
 
-  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + manualMod;
+  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + aeModifier + manualMod;
 
   return {
     baseTN,
