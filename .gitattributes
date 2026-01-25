@@ -1,1 +1,4 @@
 * text=auto
+
+# Never treat compiled LevelDB packs as text
+packs/** binary
