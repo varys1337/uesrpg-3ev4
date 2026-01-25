@@ -157,13 +157,15 @@ if (actor && (skillName || profKey)) {
   }
 }
 
-  // Active Effects: skill-specific and global modifiers.
+  // Active Effects: global test modifiers + skill-specific lanes.
   // Supported keys:
+  // - system.modifiers.tests.all
   // - system.modifiers.skills._all
   // - system.modifiers.skills.<normalizedSkillName>
+  //
   // We evaluate these deterministically at roll-time to support both ADD and OVERRIDE modes.
   const _aeSkillNorm = _normalizeKey(skillItem?.name);
-  const _aeSkillKeys = ["system.modifiers.skills._all"];
+  const _aeSkillKeys = ["system.modifiers.tests.all", "system.modifiers.skills._all"];
   if (_aeSkillNorm) _aeSkillKeys.push(`system.modifiers.skills.${_aeSkillNorm}`);
   const _aeSkillResolved = actor ? evaluateAEModifierKeys(actor, _aeSkillKeys) : {};
 
@@ -220,24 +222,35 @@ export function computeSkillTNFromData({
 
   // Active Effects: skill-specific and global modifiers.
   // Supported keys (dynamic):
-  // - system.modifiers.skills.<normalizedSkillName>
+  // - system.modifiers.tests.all
   // - system.modifiers.skills._all
+  // - system.modifiers.skills.<normalizedSkillName>
   //
   // We evaluate these deterministically at roll-time to support both ADD and OVERRIDE modes.
   const normName = _normalizeKey(skill?.name);
-  const keys = ["system.modifiers.skills._all"];
-  if (normName) keys.push(`system.modifiers.skills.${normName}`);
-
   const resolved = aeSkillResolved ?? {};
 
-  const allSkillBonus = _asNumber(resolved["system.modifiers.skills._all"]?.total ?? 0);
-  if (allSkillBonus) {
-    breakdown.push({ label: "Bonus", value: allSkillBonus, source: "aeSkillAll" });
+  // Global test lane
+  const allTestBonus = _asNumber(resolved["system.modifiers.tests.all"] ?? 0);
+  if (allTestBonus) {
+    breakdown.push({ label: "Effects: All Tests", value: allTestBonus, source: "aeTestsAll" });
   }
 
-  const specificBonus = normName ? _asNumber(resolved[`system.modifiers.skills.${normName}`]?.total ?? 0) : 0;
+  // Global skill lane
+  const allSkillBonus = _asNumber(resolved["system.modifiers.skills._all"] ?? 0);
+  if (allSkillBonus) {
+    breakdown.push({ label: "Effects: All Skills", value: allSkillBonus, source: "aeSkillAll" });
+  }
+
+  // Skill-specific lane
+  const specificBonus = normName ? _asNumber(resolved[`system.modifiers.skills.${normName}`] ?? 0) : 0;
   if (specificBonus) {
-    breakdown.push({ label: "Bonus", value: specificBonus, source: "aeSkillSpecific" });
+    const labelName = String(skill?.name ?? "").trim();
+    breakdown.push({
+      label: labelName ? `Effects: ${labelName}` : "Effects: Skill",
+      value: specificBonus,
+      source: "aeSkillSpecific"
+    });
   }
 
   // Combat Style unopposed checks: include combat TN modifiers (attacker side).
