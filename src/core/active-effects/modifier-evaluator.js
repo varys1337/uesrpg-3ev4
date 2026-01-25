@@ -45,7 +45,12 @@ export function evaluateAEModifierKeys(actor, keys, options = {}) {
  * @param {import("foundry").documents.BaseActor} actor
  * @param {string[]} keys
  * @param {AEEvaluateOptions} [options]
- * @returns {{ totalsByKey: Record<string, number>, entries: Array<{label:string, value:number, source:"ae", effectId?:string, effectUuid?:string}>, resolvedByKey: Record<string, number> }}
+ * @returns {{
+ *   totalsByKey: Record<string, number>,
+ *   entries: Array<{label:string, value:number, source:"ae", effectId?:string, effectUuid?:string}>,
+ *   resolvedByKey: Record<string, number>,
+ *   detailsByKey: Record<string, { total: number, contributions: Array<{ label: string, value: number, mode: string, priority?: number, effectId?: string, effectUuid?: string }> }>
+ * }}
  */
 export function evaluateAEModifierKeysDetailed(actor, keys, options = {}) {
   return _evaluateCore(actor, keys, options);
@@ -67,16 +72,30 @@ function _evaluateCore(actor, keys, options = {}) {
   /** @type {Map<string, { label: string, order: number, value: number, effectId?: string, effectUuid?: string }>} */
   const entriesByEffect = new Map();
 
+  /**
+   * Detailed attribution by key.
+   *
+   * @type {Record<string, { total: number, contributions: Array<{ label: string, value: number, mode: string, priority?: number, effectId?: string, effectUuid?: string }> }>}
+   */
+  const detailsByKey = {};
+
   if (!actor || keySet.size === 0) {
-    return { totalsByKey, entries: [], resolvedByKey: totalsByKey };
+    return { totalsByKey, entries: [], resolvedByKey: totalsByKey, detailsByKey };
   }
 
   const effects = _collectApplicableEffects(actor, { dedupeByOrigin, debug });
 
-  // Track per-key per-effect contributions so OVERRIDE can replace prior values deterministically.
+  // We aggregate ADD contributions across all effects and independently select the OVERRIDE
+  // candidate by priority.
   /** @type {Map<string, Map<string, number>>} */
-  const byKeyByEffect = new Map();
-  for (const k of keySet) byKeyByEffect.set(k, new Map());
+  const addByKeyByEffect = new Map();
+  for (const k of keySet) addByKeyByEffect.set(k, new Map());
+
+  /** @type {Map<string, { effKey: string, value: number, priority: number, order: number }>} */
+  const overrideByKey = new Map();
+
+  // Global stable order for change tie-breaking.
+  let changeOrder = 0;
 
   for (let idx = 0; idx < effects.length; idx++) {
     const effect = effects[idx];
@@ -114,19 +133,21 @@ function _evaluateCore(actor, keys, options = {}) {
         });
       }
 
-      const mapForKey = byKeyByEffect.get(key);
-      if (!mapForKey) continue;
-
       if (_isAddMode(mode)) {
+        const mapForKey = addByKeyByEffect.get(key);
+        if (!mapForKey) continue;
         const prev = mapForKey.get(effKey) ?? 0;
         mapForKey.set(effKey, prev + numeric);
         continue;
       }
 
       if (_isOverrideMode(mode)) {
-        // OVERRIDE replaces all prior contributions for that key.
-        mapForKey.clear();
-        mapForKey.set(effKey, numeric);
+        const priority = _getChangePriority(change);
+        const cand = { effKey, value: numeric, priority, order: changeOrder++ };
+        const best = overrideByKey.get(key);
+        if (!best || cand.priority > best.priority || (cand.priority === best.priority && cand.order > best.order)) {
+          overrideByKey.set(key, cand);
+        }
         continue;
       }
 
@@ -136,18 +157,48 @@ function _evaluateCore(actor, keys, options = {}) {
 
   // Finalize totals by key and entries by effect (aggregate across all keys)
   for (const key of keySet) {
-    const mapForKey = byKeyByEffect.get(key);
-    if (!mapForKey) continue;
+    const addMap = addByKeyByEffect.get(key);
+    const bestOverride = overrideByKey.get(key);
 
-    let keyTotal = 0;
-    for (const v of mapForKey.values()) keyTotal += (Number(v) || 0);
-    totalsByKey[key] = keyTotal;
+    /** @type {Array<{ label: string, value: number, mode: string, priority?: number, effectId?: string, effectUuid?: string }>} */
+    const contributions = [];
 
-    for (const [effKey, v] of mapForKey.entries()) {
-      const entry = entriesByEffect.get(effKey);
-      if (!entry) continue;
-      entry.value += (Number(v) || 0);
+    let addTotal = 0;
+    if (addMap) {
+      for (const [effKey, v] of addMap.entries()) {
+        const n = Number(v) || 0;
+        if (!n) continue;
+        addTotal += n;
+        const entry = entriesByEffect.get(effKey);
+        if (entry) entry.value += n;
+        contributions.push({
+          label: entry?.label ?? "Active Effect",
+          value: n,
+          mode: "ADD",
+          effectId: entry?.effectId,
+          effectUuid: entry?.effectUuid
+        });
+      }
     }
+
+    let overrideTotal = 0;
+    if (bestOverride) {
+      overrideTotal = Number(bestOverride.value) || 0;
+      const entry = entriesByEffect.get(bestOverride.effKey);
+      if (entry) entry.value += overrideTotal;
+      contributions.push({
+        label: entry?.label ?? "Active Effect",
+        value: overrideTotal,
+        mode: "OVERRIDE",
+        priority: Number(bestOverride.priority) || 0,
+        effectId: entry?.effectId,
+        effectUuid: entry?.effectUuid
+      });
+    }
+
+    const keyTotal = addTotal + overrideTotal;
+    totalsByKey[key] = keyTotal;
+    detailsByKey[key] = { total: keyTotal, contributions };
   }
 
   // Convert to ordered breakdown, omitting zero-value entries.
@@ -162,7 +213,51 @@ function _evaluateCore(actor, keys, options = {}) {
       effectUuid: e.effectUuid
     }));
 
-  return { totalsByKey, entries, resolvedByKey: totalsByKey };
+  return { totalsByKey, entries, resolvedByKey: totalsByKey, detailsByKey };
+}
+
+/**
+ * Build a standardized breakdown list from detailsByKey.
+ *
+ * This helper is intentionally UI-agnostic: it aggregates per-effect totals and returns
+ * stable, display-ready entries. Callers may still choose to bucket by key if desired.
+ *
+ * @param {Record<string, { total: number, contributions: Array<{ label: string, value: number, mode: string, priority?: number, effectId?: string, effectUuid?: string }> }>} detailsByKey
+ * @returns {Array<{ label: string, value: number, source: "ae", effectId?: string, effectUuid?: string, detail?: string }>}
+ */
+export function buildAEBreakdownEntries(detailsByKey) {
+  const byEffect = new Map();
+
+  for (const detail of Object.values(detailsByKey ?? {})) {
+    const contribs = Array.isArray(detail?.contributions) ? detail.contributions : [];
+    for (const c of contribs) {
+      const value = Number(c?.value ?? 0) || 0;
+      if (!value) continue;
+
+      const label = String(c?.label ?? "Active Effect");
+      const effectId = c?.effectId;
+      const effectUuid = c?.effectUuid;
+      const key = String(effectUuid ?? effectId ?? label);
+
+      const prev = byEffect.get(key);
+      if (prev) {
+        prev.value += value;
+      } else {
+        byEffect.set(key, {
+          label,
+          value,
+          source: "ae",
+          effectId,
+          effectUuid,
+          // Optional detail string: include mode/priority only when caller needs it.
+          detail: undefined
+        });
+      }
+    }
+  }
+
+  // Preserve stable ordering where possible: Effect UUIDs embed document order/identity.
+  return Array.from(byEffect.values()).filter(e => (Number(e.value) || 0) !== 0);
 }
 
 /**
@@ -285,4 +380,22 @@ function _isOverrideMode(mode) {
   const CONST_MODES = globalThis?.CONST?.ACTIVE_EFFECT_MODES;
   if (CONST_MODES && mode === CONST_MODES.OVERRIDE) return true;
   return false;
+}
+
+function _getChangePriority(change) {
+  // EffectChangeData.priority exists in Foundry v13. Prefer it directly.
+  const pr = Number(change?.priority);
+  if (Number.isFinite(pr)) return pr;
+
+  // Defensive fallback: Foundry exposes defaults on ActiveEffectConfig.
+  const defaults = globalThis?.ActiveEffectConfig?.DEFAULT_PRIORITIES;
+  if (defaults && typeof defaults === "object") {
+    const mode = change?.mode;
+    if (typeof mode === "number" && Number.isFinite(mode) && mode in defaults) {
+      const n = Number(defaults[mode]);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+
+  return 0;
 }
