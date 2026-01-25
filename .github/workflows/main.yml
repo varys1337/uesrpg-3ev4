@@ -1,65 +1,65 @@
-name: Create Release
+name: Build and Publish Foundry System (GitHub Release Assets)
 
 on:
   push:
     tags:
-      - v*
+      - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    name: create release for pushed tag
+  build_release_assets:
+    name: Build zip and upload release assets
     runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      tag: ${{ github.ref_name }}
-    steps:
-      - name: create release
-        run:
-          echo "creating release for tag $tag" &&
-          gh release create "$tag" --repo="$GITHUB_REPOSITORY" --title="$tag" --generate-notes --prerelease
 
-      - name: checkout repo
+    steps:
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: get system compatibility
-        id: foundry_compatibility
-        run: >
-          node ./automation/echo-compatibility-version minimum >> $GITHUB_OUTPUT &&
-          node ./automation/echo-compatibility-version verified >> $GITHUB_OUTPUT
-
-      - name: compile compendium packs
-        run: npm install && node ./automation/ldb-packager.mjs compile
-
-      - name: create system bundle
-        run: zip uesrpg-bundle_${{ github.ref_name }}.zip -r . -x .git/\* .github/\* automation/\* .gitignore node_modules/\* packs/src/\* .editorconfig .gitattributes package.json package-lock.json
-
-      - name: upload system bundle
-        run: gh release upload "$tag" uesrpg-bundle_${{ github.ref_name }}.zip
-
-      - name: release to foundry
-        uses: fjogeleit/http-request-action@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          url: https://api.foundryvtt.com/_api/packages/release_version/
-          method: POST
-          customHeaders: >
-            {
-              "Content-Type": "application/json",
-              "Authorization": "${{ secrets.FOUNDRY_RELEASE_TOKEN }}"
-            }
-          data: >
-            {
-              "id": "uesrpg-3ev4",
-              "release": {
-                "version": "${{ github.ref_name }}",
-                "manifest": "https://raw.githubusercontent.com/jamesjtb/uesrpg-3ev4/refs/tags/${{ github.ref_name }}/system.json",
-                "notes": "https://github.com/jamesjtb/uesrpg-3ev4/releases/tag/${{ github.ref_name }}",
-                "compatibility": {
-                  "minimum": "${{ steps.foundry_compatibility.outputs.minimum }}",
-                  "verified": "${{ steps.foundry_compatibility.outputs.verified }}",
-                  "maximum": ""
-                }
-              }
-            }
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies (CI)
+        run: npm ci
+
+      # Compiles YAML source in packs/src/** into Foundry-ready compiled packs in packs/** (excluding packs/src).
+      - name: Compile compendium packs (packs/src -> packs/*)
+        run: npm run packs-compile
+
+      - name: Build system zip (uesrpg-3ev4.zip)
+        run: |
+          rm -f uesrpg-3ev4.zip
+          zip -r uesrpg-3ev4.zip . \
+            -x ".git/**" \
+               ".github/**" \
+               "automation/**" \
+               "node_modules/**" \
+               "packs/src/**" \
+               ".editorconfig" \
+               ".gitattributes" \
+               "package.json" \
+               "package-lock.json"
+
+      - name: Create GitHub Release (if missing)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release for $tag already exists."
+          else
+            echo "Creating release for $tag"
+            gh release create "$tag" --repo="$GITHUB_REPOSITORY" --title="$tag" --generate-notes
+          fi
+
+      - name: Upload release assets (system.json + uesrpg-3ev4.zip)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          gh release upload "$tag" system.json uesrpg-3ev4.zip --clobber
