@@ -12,9 +12,9 @@ console.log(`Updating system.json with version '${packageVersion}'`);
 const systemJson = readFileSync(systemFilePath, systemFileEncoding);
 const systemObj = JSON.parse(systemJson);
 
-const manifestUrl = `https://raw.githubusercontent.com/jamesjtb/uesrpg-3ev4/refs/tags/${packageVersion}/system.json`;
+const manifestUrl = `https://raw.githubusercontent.com/varys1337/uesrpg-3ev4/refs/tags/${packageVersion}/system.json`;
 
-const downloadPath = `https://github.com/jamesjtb/uesrpg-3ev4/releases/download/${packageVersion}/uesrpg-bundle_${packageVersion}.zip`;
+const downloadPath = `https://github.com/varys1337/uesrpg-3ev4/releases/download/${packageVersion}/uesrpg-bundle_${packageVersion}.zip`;
 
 
 systemObj.version = packageVersion;
