@@ -248,6 +248,69 @@ async function previewPlaceTemplate(templateDoc, origin, maxRangeMeters) {
     let active = true;
     let raf = null;
 
+    // Guardrails: ensure template placement doesn't accidentally interact with tokens.
+    // When tokens remain interactive, clicking a token can select it or open its sheet instead of committing the template.
+    // We temporarily disable token interactivity during the preview placement loop, then restore it in cleanup.
+    const previousActiveLayer = canvas?.activeLayer ?? null;
+    const prevTokensInteractiveChildren = canvas?.tokens?.interactiveChildren;
+    const prevTokensInteractive = canvas?.tokens?.interactive;
+    const prevTokensEventMode = canvas?.tokens?.eventMode;
+    const tokenStates = [];
+    let restoredLayer = false;
+
+    try {
+      // Prefer activating the templates layer for placement semantics.
+      canvas?.templates?.activate?.();
+    } catch (_e) {
+      // ignore
+    }
+
+    if (canvas?.tokens) {
+      try {
+        if (typeof prevTokensInteractiveChildren === "boolean") canvas.tokens.interactiveChildren = false;
+        if (typeof prevTokensInteractive === "boolean") canvas.tokens.interactive = false;
+        if (typeof prevTokensEventMode === "string") canvas.tokens.eventMode = "none";
+
+        const placeables = canvas.tokens.placeables ?? [];
+        for (const tok of placeables) {
+          const obj = tok?.object ?? tok;
+          if (!obj) continue;
+          tokenStates.push({
+            token: obj,
+            eventMode: obj.eventMode,
+            interactive: obj.interactive,
+            interactiveChildren: obj.interactiveChildren
+          });
+          try { obj.eventMode = "none"; } catch (_e) {}
+          try { obj.interactive = false; } catch (_e) {}
+          try { obj.interactiveChildren = false; } catch (_e) {}
+        }
+      } catch (_e) {}
+    }
+
+    const restoreCanvasState = () => {
+      if (canvas?.tokens) {
+        try {
+          if (typeof prevTokensInteractiveChildren === "boolean") canvas.tokens.interactiveChildren = prevTokensInteractiveChildren;
+          if (typeof prevTokensInteractive === "boolean") canvas.tokens.interactive = prevTokensInteractive;
+          if (typeof prevTokensEventMode === "string") canvas.tokens.eventMode = prevTokensEventMode;
+
+          for (const entry of tokenStates) {
+            const obj = entry?.token;
+            if (!obj) continue;
+            try { if (entry.eventMode !== undefined) obj.eventMode = entry.eventMode; } catch (_e) {}
+            try { if (entry.interactive !== undefined) obj.interactive = entry.interactive; } catch (_e) {}
+            try { if (entry.interactiveChildren !== undefined) obj.interactiveChildren = entry.interactiveChildren; } catch (_e) {}
+          }
+        } catch (_e) {}
+      }
+
+      if (!restoredLayer && previousActiveLayer && typeof previousActiveLayer.activate === "function") {
+        restoredLayer = true;
+        try { previousActiveLayer.activate(); } catch (_e) {}
+      }
+    };
+
     const cleanup = async (result) => {
       if (!active) return;
       active = false;
@@ -262,6 +325,7 @@ async function previewPlaceTemplate(templateDoc, origin, maxRangeMeters) {
       try { canvas.stage.off("pointerdown", onDown); } catch (_e) {}
       try { canvas.stage.off("rightdown", onRightDown); } catch (_e) {}
 
+      restoreCanvasState();
       resolve(result);
     };
 
@@ -272,13 +336,41 @@ async function previewPlaceTemplate(templateDoc, origin, maxRangeMeters) {
       }
     };
 
+
+    // If the user clicks on a token, we want a clean and predictable placement:
+    // commit the template centered on that token (instead of depending on click accuracy).
+    const coercePointToTokenCenter = (pt) => {
+      const placeables = canvas?.tokens?.placeables ?? [];
+      if (!placeables.length || !pt) return pt;
+
+      // Iterate from top-most to bottom-most token (end to start) to prefer front-most token.
+      for (let i = placeables.length - 1; i >= 0; i -= 1) {
+        const tok = placeables[i];
+        const tokObj = tok?.object ?? tok;
+        const x = Number(tokObj?.x ?? tokObj?.document?.x);
+        const y = Number(tokObj?.y ?? tokObj?.document?.y);
+        const w = Number(tokObj?.w ?? tokObj?.width ?? 0);
+        const h = Number(tokObj?.h ?? tokObj?.height ?? 0);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) continue;
+
+        const inside = pt.x >= x && pt.x <= (x + w) && pt.y >= y && pt.y <= (y + h);
+        if (!inside) continue;
+
+        const c = tokObj?.center;
+        if (c && Number.isFinite(c.x) && Number.isFinite(c.y)) return { x: c.x, y: c.y };
+        return { x: x + (w / 2), y: y + (h / 2) };
+      }
+      return pt;
+    };
+
     const onMove = async (ev) => {
       if (!active) return;
       const data = ev?.data ?? ev;
       const pos = data?.getLocalPosition ? data.getLocalPosition(canvas.stage) : null;
       if (!pos) return;
 
-      const snapped = snapPoint({ x: pos.x, y: pos.y });
+      let snapped = snapPoint({ x: pos.x, y: pos.y });
+      snapped = coercePointToTokenCenter(snapped);
 
       // Don't range gate during preview - allow free movement
       // Range gating will happen only when the template is committed (on click)
@@ -301,7 +393,8 @@ async function previewPlaceTemplate(templateDoc, origin, maxRangeMeters) {
       const pos = data?.getLocalPosition ? data.getLocalPosition(canvas.stage) : null;
       if (!pos) return;
 
-      const snapped = snapPoint({ x: pos.x, y: pos.y });
+      let snapped = snapPoint({ x: pos.x, y: pos.y });
+      snapped = coercePointToTokenCenter(snapped);
 
       if (Number.isFinite(maxRangeMeters) && maxRangeMeters > 0 && origin) {
         const d = measureDistanceMeters(origin, snapped);

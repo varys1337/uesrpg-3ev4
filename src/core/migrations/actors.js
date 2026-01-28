@@ -53,6 +53,15 @@ function _ensureResistanceDefaults(sys) {
 export async function migrateActorsIfNeeded() {
   if (!game.user.isGM) return;
 
+  const currentVersion = String(game.system?.version ?? "").trim() || "0";
+  let state = {};
+  try {
+    state = JSON.parse(String(game.settings.get(MODULE_ID, "migrationState") ?? "{}")) ?? {};
+  } catch (_e) {
+    state = {};
+  }
+  if (state?.actors === currentVersion) return;
+
   try {
     const updates = [];
 
@@ -92,6 +101,10 @@ export async function migrateActorsIfNeeded() {
       console.log(`${MODULE_ID} | Migrating ${updates.length} actor(s)`);
       await Actor.updateDocuments(updates, { diff: false });
     }
+
+    // Record migration version after a successful pass (even if no updates were needed).
+    state.actors = currentVersion;
+    await game.settings.set(MODULE_ID, "migrationState", JSON.stringify(state));
   } catch (err) {
     console.error(`${MODULE_ID} | Actor migration failed`, err);
     ui.notifications?.error?.("UESRPG actor migration failed; check console for details.");

@@ -6,6 +6,8 @@
  * and opposing effects override each other.
  */
 
+import { MagicTimekeeping } from "./timekeeping-helper.js";
+
 /**
  * Apply spell Active Effects to target(s) with duration tracking
  * @param {Actor} casterActor - The caster of the spell
@@ -20,16 +22,64 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
   const { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } = await import("../../utils/authority-proxy.js");
 
   const spellUuid = spell.uuid;
-  let duration = computeSpellDuration(spell);
   const durData = spell.system?.duration ?? {};
   const durValue = Number(durData.value ?? 0);
   const durUnit = durData.unit ?? "rounds";
+  const hasUpkeep = Boolean(spell.system?.hasUpkeep);
   const noListedDuration = (durUnit === "instant") || (durValue <= 0);
-  // RAW: If a spell has Upkeep but no listed duration, treat it as 1 round for upkeep purposes.
-  if (Boolean(spell.system?.hasUpkeep) && Number.isFinite(duration.rounds) && (duration.rounds ?? 0) <= 0 && (duration.seconds ?? 0) <= 0) {
-    const rt = CONFIG.time?.roundTime || 6;
-    duration = { rounds: 1, seconds: rt };
+
+  // Compute the nominal duration from item data.
+  let duration = computeSpellDuration(spell);
+
+  // RAW (Upkeep cadence): if a spell has Upkeep but no listed duration, treat it as 1 round.
+  // IMPORTANT: this must *not* be tracked as "instant" or it will never prompt/expire correctly.
+  if (hasUpkeep && noListedDuration) {
+    const rt = MagicTimekeeping.roundTimeSeconds();
+    duration = { rounds: 1, seconds: rt, unit: "rounds" };
   }
+
+  // Determine tracking mode for the resulting target effects.
+  // - "rounds" track via combat when combat is active, otherwise via seconds (world-time).
+  // - longer durations track via seconds (world-time).
+  // - "instant" means no duration tracking (used for instantaneous spell results; typically no AEs).
+  const isCombat = MagicTimekeeping.isCombatActive();
+  const effectiveUnit = (hasUpkeep && noListedDuration) ? "rounds" : durUnit;
+  const trackingMode = (() => {
+    if (effectiveUnit === "instant") return "none";
+    if (effectiveUnit === "permanent") return "permanent";
+    if (effectiveUnit === "rounds") return isCombat ? "combat" : "time";
+    return "time";
+  })();
+  const nowTime = MagicTimekeeping.nowWorldTimeSeconds();
+  const nowRound = MagicTimekeeping.combatRound();
+  const nowTurn = MagicTimekeeping.combatTurn();
+
+  // Build an ActiveEffect duration object with correct start markers.
+  // IMPORTANT: Foundry only updates combat-based durations when combat advances.
+  // If we're not in combat, we must use seconds-based durations.
+  const _buildEffectDuration = () => {
+    if (trackingMode === "none") return { startTime: nowTime, seconds: 0, rounds: 0, turns: 0, combat: null };
+    if (trackingMode === "permanent") return { startTime: nowTime, seconds: Infinity, rounds: Infinity, turns: 0, combat: null };
+    if (trackingMode === "combat") {
+      return {
+        combat: game?.combat?.id ?? null,
+        startTime: nowTime,
+        startRound: nowRound,
+        startTurn: nowTurn,
+        rounds: Number.isFinite(duration.rounds) ? duration.rounds : 0,
+        seconds: Number.isFinite(duration.seconds) ? duration.seconds : 0,
+        turns: 0
+      };
+    }
+    // trackingMode === "time"
+    return {
+      combat: null,
+      startTime: nowTime,
+      seconds: Number.isFinite(duration.seconds) ? duration.seconds : 0,
+      rounds: 0,
+      turns: 0
+    };
+  };
 
   
   // Remove existing effects from same spell (no stacking per RAW)
@@ -60,12 +110,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
       img: ef.img || spell.img,
       origin: spellUuid,
       disabled: false,
-      duration: {
-        rounds: duration.rounds,
-        seconds: duration.seconds,
-        startRound: game.combat?.round,
-        startTime: game.time.worldTime
-      },
+      duration: _buildEffectDuration(),
       changes: foundry.utils.duplicate(ef.changes ?? []),
       flags: {
         "uesrpg-3ev4": {
@@ -75,7 +120,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
           spellSchool: spell.system.school,
           spellLevel: spell.system.level,
           casterUuid: casterActor.uuid,
-          originalCastWorldTime: game.time.worldTime,
+          originalCastWorldTime: nowTime,
           noListedDuration,
           hasUpkeep: Boolean(spell.system?.hasUpkeep),
           upkeepCost: options.actualCost || spell.system.cost,
@@ -90,41 +135,49 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
     toCreate.push(effectData);
   }
 
-  // Upkeep tracker: create one effect if none were provided by the item.
-  if (!toCreate.length && Boolean(spell.system?.hasUpkeep)) {
-    const effectGroup = `spell.effect.${spell.id || spellUuid}.upkeep`;
-    toCreate.push({
-      name: spell.name,
-      img: spell.img,
-      origin: spellUuid,
-      disabled: false,
-      duration: {
-        rounds: duration.rounds,
-        seconds: duration.seconds,
-        startRound: game.combat?.round,
-        startTime: game.time.worldTime
-      },
-      changes: [],
-      flags: {
-        "uesrpg-3ev4": {
-          spellEffect: true,
-          spellUuid,
-          spellName: spell.name,
-          spellSchool: spell.system.school,
-          spellLevel: spell.system.level,
-          casterUuid: casterActor.uuid,
-          originalCastWorldTime: game.time.worldTime,
-          noListedDuration,
-          hasUpkeep: true,
-          upkeepCost: options.actualCost || spell.system.cost,
-          owner: "system",
-          effectGroup: effectGroup,
-          stackRule: "refresh",
-          source: "spell"
+  // Duration tracker: create one tracking effect if none were provided by the item.
+// - For Upkeep spells with no embedded effects, this tracker is the Upkeep handle.
+// - For non-Upkeep spells that still have a duration but no embedded effects, this tracker exists solely to enforce expiry.
+  if (!toCreate.length) {
+    const hasUpkeep = Boolean(spell.system?.hasUpkeep);
+    const hasFiniteDuration =
+      (Number.isFinite(duration?.seconds) && duration.seconds > 0) ||
+      (Number.isFinite(duration?.rounds) && duration.rounds > 0);
+
+    if (hasUpkeep || hasFiniteDuration) {
+      const effectGroup = hasUpkeep
+        ? `spell.effect.${spell.id || spellUuid}.upkeep`
+        : `spell.effect.${spell.id || spellUuid}.duration`;
+
+      toCreate.push({
+        name: spell.name,
+        img: spell.img,
+        origin: spellUuid,
+        disabled: false,
+        duration: _buildEffectDuration(),
+        changes: [],
+        flags: {
+          "uesrpg-3ev4": {
+            spellEffect: true,
+            spellUuid,
+            spellName: spell.name,
+            spellSchool: spell.system.school,
+            spellLevel: spell.system.level,
+            casterUuid: casterActor.uuid,
+            originalCastWorldTime: nowTime,
+            noListedDuration,
+            hasUpkeep,
+            upkeepCost: hasUpkeep ? (options.actualCost || spell.system.cost) : 0,
+            owner: "system",
+            effectGroup: effectGroup,
+            stackRule: "refresh",
+            source: "spell"
+          }
         }
-      }
-    });
+      });
+    }
   }
+
   
   if (toCreate.length) {
     if (targetActor.isOwner) await targetActor.createEmbeddedDocuments("ActiveEffect", toCreate);
@@ -140,7 +193,12 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
 function computeSpellDuration(spell) {
   const dur = spell.system.duration || {};
   const value = Number(dur.value ?? 0);
-  const unit = dur.unit || "rounds";
+  const unitRaw = String(dur.unit || "rounds").toLowerCase();
+  const unit = (unitRaw === "round") ? "rounds"
+    : (unitRaw === "minute") ? "minutes"
+    : (unitRaw === "hour") ? "hours"
+    : (unitRaw === "day") ? "days"
+    : unitRaw;
   
   let rounds = 0;
   let seconds = 0;
@@ -150,7 +208,7 @@ function computeSpellDuration(spell) {
       return { rounds: 0, seconds: 0 };
     case "rounds":
       rounds = value;
-      seconds = value * (CONFIG.time.roundTime || 6);
+      seconds = value * MagicTimekeeping.roundTimeSeconds();
       break;
     case "minutes":
       rounds = value * 10; // 1 minute = 10 rounds
@@ -367,4 +425,51 @@ function extractSpellChanges(spell) {
   // ];
   
   return [];
+}
+
+
+/**
+ * Best-effort out-of-combat spell effect expiration reconciliation.
+ * Some external timekeeping modules advance time without triggering Foundry's internal expiry ticks for embedded effects.
+ * We aggressively clean up expired spell effects based on duration.startTime + duration.seconds when not in combat.
+ *
+ * GM-only: ensures a single authoritative writer.
+ *
+ * @param {number} [nowTime]
+ */
+export async function purgeExpiredSpellEffects(nowTime = MagicTimekeeping.nowWorldTimeSeconds()) {
+  if (game.combat) return;
+  if (!game.user?.isGM) return;
+
+  const t = Number(nowTime);
+  if (!Number.isFinite(t) || t <= 0) return;
+
+  const { requestDeleteEmbeddedDocuments } = await import("../../utils/authority-proxy.js");
+
+  for (const actor of (MagicTimekeeping.relevantActorsArray?.() ?? Array.from(game.actors ?? []))) {
+    const ids = [];
+    for (const ef of (actor.effects ?? [])) {
+      if (!ef?.duration) continue;
+      const flags = ef.flags?.["uesrpg-3ev4"];
+      if (!flags?.spellEffect) continue;
+      if (flags?.hasUpkeep) continue;
+
+      const seconds = Number(ef.duration.seconds ?? 0);
+      const startTime = Number(ef.duration.startTime ?? 0);
+
+      if (!Number.isFinite(seconds) || seconds === Infinity) continue;
+      if (!(seconds > 0) || !(startTime > 0)) continue;
+
+      const expiresAt = startTime + seconds;
+      if (Number.isFinite(expiresAt) && expiresAt <= t) ids.push(ef.id);
+    }
+
+    if (ids.length) {
+      try {
+        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
+      } catch (err) {
+        console.error("UESRPG | spell-effects | purgeExpiredSpellEffects failed", { actor: actor?.name, ids }, err);
+      }
+    }
+  }
 }

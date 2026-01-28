@@ -4,7 +4,7 @@
  * Spell upkeep system for UESRPG 3ev4.
  *
  * RAW intent (Chapter 6):
- * - The caster can, as a Free Action, refresh the effect and duration of a spell with the Upkeep
+ * - The caster can, as a a Free Action, refresh the effect and duration of a spell with the Upkeep
  *   attribute when it ends by paying the original cost they paid for the spell.
  * - Upkeep must use the original target(s) and requires that spell requirements (e.g., range) are still met.
  * - If a spell has no listed duration, treat it as having a 1 round duration for the purposes of upkeep.
@@ -16,21 +16,35 @@
  *   casting test again.
  * - Upkeep prompts are grouped by spell instance: {casterUuid, spellUuid, originalCastWorldTime}.
  *   This prevents duplicate prompts when the same spell instance applied multiple effects/targets.
+ * - Prompt de-duplication is tracked on the spell-created ActiveEffect(s) themselves via flags, not on the caster,
+ *   so that unlinked token actors do not cause repeated prompt spam.
  */
 
 import { getSpellMaxRangeMeters, getSpellRangeType } from "./spell-range.js";
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { MagicTimekeeping } from "./timekeeping-helper.js";
+import { classifySpellForRouting } from "./spell-routing.js";
+import { AttackTracker } from "../combat/attack-tracker.js";
+
+const _FLAG_NS = "uesrpg-3ev4";
+const _promptLocks = new Set();
+const _recentPromptCache = new Map();
+let _realtimeScanInFlight = false;
 
 function _roundTimeSeconds() {
-  return Number(CONFIG.time?.roundTime ?? 6) || 6;
+  return MagicTimekeeping.roundTimeSeconds();
 }
 
 function _currentRound() {
-  return Number(game.combat?.round ?? 0) || 0;
+  return MagicTimekeeping.combatRound();
+}
+
+function _currentTurn() {
+  return MagicTimekeeping.combatTurn();
 }
 
 function _nowWorldTime() {
-  return Number(game.time?.worldTime ?? 0) || 0;
+  return MagicTimekeeping.nowWorldTimeSeconds();
 }
 
 function _str(v) {
@@ -40,6 +54,99 @@ function _str(v) {
 function _num(v, d = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
+}
+
+function _fromUuidSync(uuid) {
+  const resolver = foundry?.utils?.fromUuidSync ?? globalThis.fromUuidSync;
+  if (typeof resolver !== "function") return null;
+  try {
+    return resolver(uuid);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function _getCasterCombatTurnIndex(casterUuid) {
+  const combat = game.combat;
+  if (!combat || !casterUuid) return null;
+  const doc = _fromUuidSync(casterUuid);
+  const actor = doc?.documentName === "Actor" ? doc : doc?.actor;
+  if (!actor) return null;
+  const combatants = typeof combat.getCombatantsByActor === "function"
+    ? combat.getCombatantsByActor(actor)
+    : [];
+  const combatant = Array.isArray(combatants) ? combatants[0] : null;
+  if (!combatant) return null;
+  const turns = Array.isArray(combat.turns) ? combat.turns : Array.from(combat.combatants ?? []);
+  const idx = turns.findIndex(c => c?.id === combatant.id);
+  if (idx < 0) return null;
+  return idx;
+}
+
+function _promptSignature(promptContext) {
+  if (!promptContext) return "";
+  if (promptContext.mode === "realtime") return `rt:${_num(promptContext.endTime, 0)}`;
+  if (promptContext.mode === "combat") return `cb:${_num(promptContext.endRound, 0)}:${_num(promptContext.endTurn, 0)}`;
+  return "";
+}
+
+function _isRecentlyPrompted(groupKey, promptContext) {
+  const signature = _promptSignature(promptContext);
+  if (!groupKey || !signature) return false;
+  const key = `${groupKey}::${signature}`;
+  const entry = _recentPromptCache.get(key);
+  if (!entry) return false;
+  const ttl = Math.max(1, _roundTimeSeconds());
+  if ((_nowWorldTime() - entry.time) <= ttl) return true;
+  _recentPromptCache.delete(key);
+  return false;
+}
+
+function _markRecentlyPrompted(groupKey, promptContext) {
+  const signature = _promptSignature(promptContext);
+  if (!groupKey || !signature) return;
+  const key = `${groupKey}::${signature}`;
+  _recentPromptCache.set(key, { time: _nowWorldTime() });
+}
+
+async function _withPromptLock(groupKey, promptContext, fn) {
+  if (typeof fn !== "function") return;
+  const signature = _promptSignature(promptContext);
+  const lockKey = signature ? `${groupKey}::${signature}` : String(groupKey || "");
+  if (_promptLocks.has(lockKey)) return;
+  _promptLocks.add(lockKey);
+  try {
+    await fn();
+  } finally {
+    _promptLocks.delete(lockKey);
+  }
+}
+
+function _getActorEffect(actor, effectId) {
+  if (!actor?.effects?.get || !effectId) return null;
+  return actor.effects.get(effectId) ?? null;
+}
+
+async function _safeUpdateEffect(effect, updates) {
+  if (!effect || !updates) return false;
+  if (!effect.id) return false;
+  const parent = effect.parent;
+  if (!parent) return false;
+  if (parent?.effects?.get && !parent.effects.get(effect.id)) return false;
+
+  if (game.user?.isGM || effect.isOwner) {
+    try {
+      await effect.update(updates);
+      return true;
+    } catch (err) {
+      const msg = String(err?.message ?? err);
+      if (msg.includes("does not exist") || msg.includes("No Document")) return false;
+      console.error("UESRPG | upkeep-workflow | Failed to update effect", { effectId: effect?.id, err });
+      return false;
+    }
+  }
+
+  return requestUpdateDocument(effect, updates);
 }
 
 function _groupKeyFromFlags(flags) {
@@ -74,11 +181,9 @@ function _measureDistanceMeters(aToken, bToken) {
     // Use v13 measurePath API with fallback to deprecated measureDistances
     if (typeof canvas.grid.measurePath === "function") {
       const path = canvas.grid.measurePath([{ ray }], { gridSpaces: true });
-      // API may return object with distance property or array of distances
       const d = path?.distance ?? (Array.isArray(path) && path.length > 0 ? path[0] : null);
       if (Number.isFinite(d)) return d;
     } else {
-      // Fallback for compatibility
       const distances = canvas.grid.measureDistances([{ ray }], { gridSpaces: true });
       const d = Array.isArray(distances) ? distances[0] : null;
       if (Number.isFinite(d)) return d;
@@ -103,101 +208,198 @@ function _getTokenForActorOnScene(actor, scene) {
     const doc = t?.document ?? t;
     if (doc?.scene?.id && doc.scene.id !== scene.id) continue;
     if (doc?.parent?.id && doc.parent.id !== scene.id) continue;
-    // Prefer placeable token objects
     return t?.object ?? t;
   }
   return null;
 }
 
-function _readPromptedState(casterActor) {
-  const st = casterActor.getFlag("uesrpg-3ev4", "upkeepPrompted") ?? {};
+function _getEffectEndTime(effect) {
+  const d = effect?.duration ?? {};
+  const seconds = _num(d.seconds, 0);
+  const startTime = _num(d.startTime, 0);
+  if (!(seconds > 0) || !(startTime > 0)) return null;
+  return startTime + seconds;
+}
+
+function _getEffectCombatBoundary(effect, flags) {
+  const d = effect?.duration ?? {};
+  const srRaw = d.startRound;
+  const stRaw = d.startTurn;
+  if (srRaw === null || srRaw === undefined) return null;
+  if (stRaw === null || stRaw === undefined) return null;
+
+  const startRound = _num(srRaw, 0);
+  const startTurn = _num(stRaw, 0);
+
+  const roundsRaw = _num(d.rounds, 0);
+  const roundsForUpkeep = Boolean(flags?.noListedDuration) ? 1 : roundsRaw;
+  if (!(roundsForUpkeep > 0)) return null;
+
+  const casterTurnIndex = _getCasterCombatTurnIndex(_str(flags?.casterUuid));
+  const endTurn = Number.isFinite(Number(casterTurnIndex)) ? _num(casterTurnIndex, startTurn) : startTurn;
+
   return {
-    turnRound: _num(st.turnRound, -1),
-    turnKeys: Array.isArray(st.turnKeys) ? st.turnKeys : [],
-    roundEndRound: _num(st.roundEndRound, -1),
-    roundEndKeys: Array.isArray(st.roundEndKeys) ? st.roundEndKeys : [],
-    realtimeAt: _num(st.realtimeAt, 0),
-    realtimeKeys: Array.isArray(st.realtimeKeys) ? st.realtimeKeys : []
+    endRound: startRound + roundsForUpkeep,
+    endTurn
   };
 }
 
-async function _writePromptedState(casterActor, next) {
-  try {
-    await casterActor.setFlag("uesrpg-3ev4", "upkeepPrompted", next);
-  } catch (_e) {
-    // no-op
+function _isWithinRealtimeWindow(effect, nowTime) {
+  const endTime = _getEffectEndTime(effect);
+  if (endTime == null) return false;
+
+  const rt = _roundTimeSeconds();
+
+  // Prompt window:
+  // - last "round" before expiry
+  // - and a grace window after expiry to support calendar time jumps.
+  return (nowTime >= (endTime - rt)) && (nowTime < (endTime + rt));
+}
+
+async function _collectExpiringGroupsRealtime(nowTimeOverride = null) {
+  const groups = new Map();
+  const nowTime = Number.isFinite(Number(nowTimeOverride)) ? Number(nowTimeOverride) : _nowWorldTime();
+
+  for (const targetActor of (MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []))) {
+    for (const effect of (targetActor.effects ?? [])) {
+      const flags = effect.flags?.[_FLAG_NS];
+      if (!flags?.spellEffect || !flags?.hasUpkeep) continue;
+
+      if (!_isWithinRealtimeWindow(effect, nowTime)) continue;
+
+      const endTime = _getEffectEndTime(effect);
+      if (endTime == null) continue;
+
+      // De-dup: do not keep emitting prompts for the same expiry boundary.
+      const promptedEndTime = _num(flags?.upkeepPromptedEndTime, 0);
+      if (promptedEndTime && promptedEndTime === endTime) continue;
+
+      const gk = _groupKeyFromFlags(flags);
+      if (!gk) continue;
+
+      const entry = groups.get(gk) ?? {
+        groupKey: gk,
+        casterUuid: _str(flags.casterUuid),
+        spellUuid: _str(flags.spellUuid),
+        originalCastWorldTime: _num(flags.originalCastWorldTime, 0),
+        spellName: _str(flags.spellName || effect.name),
+        upkeepCosts: new Set(),
+        effectRefs: [],
+        promptContext: {
+          mode: "realtime",
+          endTime,
+          atWorldTime: nowTime
+        }
+      };
+
+      entry.upkeepCosts.add(_num(flags.upkeepCost, 0));
+      entry.effectRefs.push({ targetActorId: targetActor.id, effectId: effect.id });
+
+      // If we somehow see multiple endTimes for a group, prompt on the earliest.
+      if (_num(entry.promptContext?.endTime, endTime) > endTime) entry.promptContext.endTime = endTime;
+
+      groups.set(gk, entry);
+    }
   }
+
+  return { groups, nowTime };
 }
 
-function _isPromptedCombatTurn(state, nowRound, groupKey) {
-  if (state.turnRound !== nowRound) return false;
-  return state.turnKeys.includes(groupKey);
+async function _collectExpiringGroupsCombatTurnStart(nextRound, nextTurn) {
+  const groups = new Map();
+  const nowTime = _nowWorldTime();
+  const nr = _num(nextRound, _currentRound());
+  const nt = _num(nextTurn, _currentTurn());
+
+  for (const targetActor of (MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []))) {
+    for (const effect of (targetActor.effects ?? [])) {
+      const flags = effect.flags?.[_FLAG_NS];
+      if (!flags?.spellEffect || !flags?.hasUpkeep) continue;
+
+      const boundary = _getEffectCombatBoundary(effect, flags);
+      if (!boundary) continue;
+
+      if (boundary.endRound !== nr || boundary.endTurn !== nt) continue;
+
+      // De-dup: do not keep emitting prompts for the same expiry boundary.
+      const pr = _num(flags?.upkeepPromptedCombatRound, -999999);
+      const pt = _num(flags?.upkeepPromptedCombatTurn, -999999);
+      if (pr === boundary.endRound && pt === boundary.endTurn) continue;
+
+      const gk = _groupKeyFromFlags(flags);
+      if (!gk) continue;
+
+      const entry = groups.get(gk) ?? {
+        groupKey: gk,
+        casterUuid: _str(flags.casterUuid),
+        spellUuid: _str(flags.spellUuid),
+        originalCastWorldTime: _num(flags.originalCastWorldTime, 0),
+        spellName: _str(flags.spellName || effect.name),
+        upkeepCosts: new Set(),
+        effectRefs: [],
+        promptContext: {
+          mode: "combat",
+          endRound: boundary.endRound,
+          endTurn: boundary.endTurn,
+          atWorldTime: nowTime
+        }
+      };
+
+      entry.upkeepCosts.add(_num(flags.upkeepCost, 0));
+      entry.effectRefs.push({ targetActorId: targetActor.id, effectId: effect.id });
+      groups.set(gk, entry);
+    }
+  }
+
+  return { groups, nowTime };
 }
 
-function _isPromptedCombatRoundEnd(state, nowRound, groupKey) {
-  if (state.roundEndRound !== nowRound) return false;
-  return state.roundEndKeys.includes(groupKey);
-}
+async function _markEffectsPromptedForGroup(groupKey, promptContext) {
+  if (!groupKey || !promptContext) return;
 
-function _isPromptedRealtime(state, nowTime, groupKey) {
-  // 3 second anti-spam window
-  if ((nowTime - state.realtimeAt) < 3) return state.realtimeKeys.includes(groupKey);
-  return false;
-}
+  const matches = await _collectCurrentEffectsForGroup(groupKey);
+  if (!matches.length) return;
 
-async function _markPromptedCombatTurn(casterActor, state, nowRound, groupKey, nowTime) {
-  const nextKeys = (state.turnRound === nowRound)
-    ? (state.turnKeys.includes(groupKey) ? state.turnKeys : state.turnKeys.concat([groupKey]))
-    : [groupKey];
+  for (const m of matches) {
+    const updates = {
+      [`flags.${_FLAG_NS}.upkeepPromptedAtWorldTime`]: _num(promptContext.atWorldTime, _nowWorldTime())
+    };
 
-  await _writePromptedState(casterActor, {
-    ...state,
-    turnRound: nowRound,
-    turnKeys: nextKeys,
-    realtimeAt: nowTime
-  });
-}
+    if (promptContext.mode === "realtime") {
+      const endTime = _num(promptContext.endTime, 0);
+      if (endTime > 0) updates[`flags.${_FLAG_NS}.upkeepPromptedEndTime`] = endTime;
+    } else if (promptContext.mode === "combat") {
+      updates[`flags.${_FLAG_NS}.upkeepPromptedCombatRound`] = _num(promptContext.endRound, 0);
+      updates[`flags.${_FLAG_NS}.upkeepPromptedCombatTurn`] = _num(promptContext.endTurn, 0);
+    }
 
-async function _markPromptedCombatRoundEnd(casterActor, state, nowRound, groupKey, nowTime) {
-  const nextKeys = (state.roundEndRound === nowRound)
-    ? (state.roundEndKeys.includes(groupKey) ? state.roundEndKeys : state.roundEndKeys.concat([groupKey]))
-    : [groupKey];
-
-  await _writePromptedState(casterActor, {
-    ...state,
-    roundEndRound: nowRound,
-    roundEndKeys: nextKeys,
-    realtimeAt: nowTime
-  });
-}
-
-async function _markPromptedRealtime(casterActor, state, nowTime, groupKey) {
-  const nextKeys = state.realtimeKeys.includes(groupKey)
-    ? state.realtimeKeys
-    : state.realtimeKeys.concat([groupKey]);
-
-  await _writePromptedState(casterActor, {
-    ...state,
-    realtimeAt: nowTime,
-    realtimeKeys: nextKeys
-  });
+    const live = _getActorEffect(m.targetActor, m.effect?.id);
+    if (!live) continue;
+    const ok = await _safeUpdateEffect(live, updates);
+    if (!ok) continue;
+  }
 }
 
 /**
  * Initialize upkeep system hooks.
  */
 export function initializeUpkeepSystem() {
-  // Combat cadence
-  // We prompt upkeep *once* at the end of the final round for both listed-duration and no-listed-duration spells.
-  // This avoids missed prompts for 1-round listed durations (cast during the caster's turn) and prevents
-  // duplicate prompts (caster turn + round end).
+  // Combat cadence: prompt at the beginning of the relevant combat turn (not at round start).
   Hooks.on("preUpdateCombat", async (combat, changed) => {
     if (!combat) return;
-    if (!game.user?.isGM) return; // single authoritative prompt source (GM always present per project rules)
-    if (!Object.prototype.hasOwnProperty.call(changed ?? {}, "round")) return;
+    if (!game.user?.isGM) return; // single authoritative prompt source
 
-    const endingRound = _num(combat.round, 0);
-    await _checkUpkeepCombatRoundTransition(combat, endingRound);
+    const hasTurn = Object.prototype.hasOwnProperty.call(changed ?? {}, "turn");
+    const hasRound = Object.prototype.hasOwnProperty.call(changed ?? {}, "round");
+    if (!hasTurn && !hasRound) return;
+
+    const nextRound = hasRound ? _num(changed.round, _num(combat.round, 0)) : _num(combat.round, 0);
+    const nextTurn = hasTurn ? _num(changed.turn, _num(combat.turn, 0)) : _num(combat.turn, 0);
+
+    // Only prompt when the combat actually advances.
+    if (nextRound === _num(combat.round, 0) && nextTurn === _num(combat.turn, 0)) return;
+
+    await _checkUpkeepCombatTurnStart(nextRound, nextTurn);
   });
 
   // Out of combat cadence: periodic scan (best-effort)
@@ -206,12 +408,19 @@ export function initializeUpkeepSystem() {
     if (!game.user?.isGM) return;
     await _checkUpkeepRealtime();
   });
+
+  // Calendaria advances time via its own calendar UI. Ensure Upkeep prompts still fire in realtime mode.
+  Hooks.on("calendaria.dateTimeChange", (data) => {
+    if (game.combat) return;
+    const nowTime = Number(data?.worldTime ?? game.time?.worldTime ?? 0) || 0;
+    void _checkUpkeepRealtime(nowTime);
+  });
+
   // Bind chat message listeners for upkeep buttons (group-based)
   const bindListeners = (message, html) => {
-    const data = message?.flags?.["uesrpg-3ev4"]?.upkeepGroup;
+    const data = message?.flags?.[_FLAG_NS]?.upkeepGroup;
     if (!data) return;
 
-    // Normalize to HTMLElement (v13 provides HTMLElement directly)
     let root = null;
     if (html instanceof HTMLElement) {
       root = html;
@@ -228,7 +437,7 @@ export function initializeUpkeepSystem() {
 
     const confirmBtn = root.querySelector(".uesrpg-upkeep-confirm");
     const cancelBtn = root.querySelector(".uesrpg-upkeep-cancel");
-    
+
     if (!confirmBtn && !cancelBtn) {
       console.warn("UESRPG | upkeep-workflow | Upkeep buttons not found in card", { hasData: !!data });
       return;
@@ -278,110 +487,43 @@ export function initializeUpkeepSystem() {
     }
   };
 
-  // v13: renderChatMessageHTML provides an HTMLElement.
   Hooks.on("renderChatMessageHTML", bindListeners);
 }
 
-function _isWithinCombatRoundTransitionWindow(effect, flags, endedRound) {
-  if (!effect?.duration) return false;
+async function _checkUpkeepCombatTurnStart(nextRound, nextTurn) {
+  const { groups } = await _collectExpiringGroupsCombatTurnStart(nextRound, nextTurn);
 
-  const sr = effect.duration.startRound;
-  const startRound = (sr === null || sr === undefined) ? endedRound : _num(sr, endedRound);
-
-  const roundsRaw = _num(effect.duration.rounds, 0);
-  const roundsForUpkeep = Boolean(flags?.noListedDuration) ? 1 : roundsRaw;
-  if (!(roundsForUpkeep > 0)) return false;
-
-  const endRound = startRound + roundsForUpkeep;
-  const promptAtEndOfRound = endRound - 1;
-  return endedRound === promptAtEndOfRound;
+  for (const group of groups.values()) {
+    const casterDoc = await fromUuid(group.casterUuid);
+    const casterActor = casterDoc?.documentName === "Actor" ? casterDoc : casterDoc?.actor;
+    if (!casterActor) continue;
+    await _withPromptLock(group.groupKey, group.promptContext, async () => {
+      await _createUpkeepPrompt(group, casterActor);
+      await _markEffectsPromptedForGroup(group.groupKey, group.promptContext);
+    });
+  }
 }
 
-function _isWithinRealtimeWindow(effect, flags, nowTime) {
-  if (!effect?.duration) return false;
+async function _checkUpkeepRealtime(nowTimeOverride = null) {
+  if (_realtimeScanInFlight) return;
+  _realtimeScanInFlight = true;
+  try {
+    const { groups } = await _collectExpiringGroupsRealtime(nowTimeOverride);
 
-  const seconds = _num(effect.duration.seconds, 0);
-  const startTime = _num(effect.duration.startTime, 0);
-  if (!(seconds > 0) || !(startTime > 0)) return false;
+    for (const group of groups.values()) {
+      const casterDoc = await fromUuid(group.casterUuid);
+      const casterActor = casterDoc?.documentName === "Actor" ? casterDoc : casterDoc?.actor;
+      if (!casterActor) continue;
+      if (_isRecentlyPrompted(group.groupKey, group.promptContext)) continue;
 
-  const rt = _roundTimeSeconds();
-  const remaining = (startTime + seconds) - nowTime;
-  return (remaining > 0 && remaining <= rt);
-}
-
-async function _collectExpiringGroups({ mode, combat, cadence, endedRound } = {}) {
-  const groups = new Map();
-  const nowTime = _nowWorldTime();
-
-  const ended = (mode === "combat") ? _num(endedRound, _currentRound()) : null;
-
-  for (const targetActor of (game.actors ?? [])) {
-    for (const effect of (targetActor.effects ?? [])) {
-      const flags = effect.flags?.["uesrpg-3ev4"];
-      if (!flags?.spellEffect || !flags?.hasUpkeep) continue;
-
-      let within = false;
-      if (mode === "combat") {
-        if (cadence === "roundTransition") within = _isWithinCombatRoundTransitionWindow(effect, flags, ended);
-      } else {
-        within = _isWithinRealtimeWindow(effect, flags, nowTime);
-      }
-      if (!within) continue;
-
-      const gk = _groupKeyFromFlags(flags);
-      if (!gk) continue;
-
-      const entry = groups.get(gk) ?? {
-        groupKey: gk,
-        casterUuid: _str(flags.casterUuid),
-        spellUuid: _str(flags.spellUuid),
-        originalCastWorldTime: _num(flags.originalCastWorldTime, 0),
-        spellName: _str(flags.spellName || effect.name),
-        upkeepCosts: new Set(),
-        effectRefs: []
-      };
-
-      entry.upkeepCosts.add(_num(flags.upkeepCost, 0));
-      entry.effectRefs.push({ targetActorId: targetActor.id, effectId: effect.id });
-      groups.set(gk, entry);
+      await _withPromptLock(group.groupKey, group.promptContext, async () => {
+        await _createUpkeepPrompt(group, casterActor);
+        _markRecentlyPrompted(group.groupKey, group.promptContext);
+        await _markEffectsPromptedForGroup(group.groupKey, group.promptContext);
+      });
     }
-  }
-
-  return { groups, nowTime };
-}
-
-async function _checkUpkeepCombatRoundTransition(combat, endedRound) {
-  const { groups, nowTime } = await _collectExpiringGroups({ mode: "combat", combat, cadence: "roundTransition", endedRound });
-
-  for (const group of groups.values()) {
-    const casterDoc = await fromUuid(group.casterUuid);
-    const casterActor = casterDoc?.documentName === "Actor" ? casterDoc : casterDoc?.actor;
-    if (!casterActor) continue;
-
-    // GM prompts on behalf of the table; whisper to owners.
-    // If no explicit owners exist, also whisper to active GMs (at least the current GM).
-
-    const state = _readPromptedState(casterActor);
-    if (_isPromptedCombatRoundEnd(state, endedRound, group.groupKey)) continue;
-
-    await _markPromptedCombatRoundEnd(casterActor, state, endedRound, group.groupKey, nowTime);
-    await _createUpkeepPrompt(group, casterActor);
-  }
-}
-
-async function _checkUpkeepRealtime() {
-  const { groups, nowTime } = await _collectExpiringGroups({ mode: "realtime", cadence: "realtime" });
-
-  for (const group of groups.values()) {
-    const casterDoc = await fromUuid(group.casterUuid);
-    const casterActor = casterDoc?.documentName === "Actor" ? casterDoc : casterDoc?.actor;
-    if (!casterActor) continue;
-
-    const state = _readPromptedState(casterActor);
-    if (_isPromptedRealtime(state, nowTime, group.groupKey)) continue;
-
-    await _markPromptedRealtime(casterActor, state, nowTime, group.groupKey);
-    await _createUpkeepPrompt(group, casterActor);
+  } finally {
+    _realtimeScanInFlight = false;
   }
 }
 
@@ -424,7 +566,7 @@ async function _createUpkeepPrompt(group, casterActor) {
     content,
     speaker: ChatMessage.getSpeaker({ actor: casterActor }),
     flags: {
-      "uesrpg-3ev4": {
+      [_FLAG_NS]: {
         upkeepGroup: {
           groupKey: group.groupKey,
           casterActorId: casterActor.id,
@@ -439,7 +581,6 @@ async function _createUpkeepPrompt(group, casterActor) {
     }
   };
 
-  // Important: Do not set whisper: [] (invisible to everyone). Only set whisper when there are recipients.
   if (whisperIds.length) msgData.whisper = whisperIds;
 
   await ChatMessage.create(msgData);
@@ -449,9 +590,9 @@ async function _collectCurrentEffectsForGroup(groupKey) {
   const { casterUuid, spellUuid, originalCastWorldTime } = _parseGroupKey(groupKey);
   const matches = [];
 
-  for (const targetActor of (game.actors ?? [])) {
+  for (const targetActor of (MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []))) {
     for (const effect of (targetActor.effects ?? [])) {
-      const flags = effect.flags?.["uesrpg-3ev4"];
+      const flags = effect.flags?.[_FLAG_NS];
       if (!flags?.spellEffect || !flags?.hasUpkeep) continue;
       if (_str(flags.casterUuid) !== casterUuid) continue;
       if (_str(flags.spellUuid) !== spellUuid) continue;
@@ -470,7 +611,6 @@ async function _validateUpkeepRange({ casterActor, spell, matches }) {
   const maxRange = getSpellMaxRangeMeters(spell);
   if (!Number.isFinite(maxRange) || maxRange <= 0) return { ok: true, failures: [] };
 
-  // Best-effort: require tokens on the active scene for measurement.
   const scene = canvas?.scene ?? null;
   if (!scene) return { ok: true, failures: [] };
 
@@ -480,7 +620,7 @@ async function _validateUpkeepRange({ casterActor, spell, matches }) {
   const failures = [];
   for (const m of matches) {
     const targetToken = _getTokenForActorOnScene(m.targetActor, scene);
-    if (!targetToken) continue; // cannot verify
+    if (!targetToken) continue;
 
     const d = _measureDistanceMeters(casterToken, targetToken);
     if (Number.isFinite(d) && d > maxRange) {
@@ -497,22 +637,17 @@ async function _validateUpkeepRange({ casterActor, spell, matches }) {
  * @param {ChatMessage} message
  */
 export async function handleUpkeepGroupConfirm(message) {
-  const data = message?.flags?.["uesrpg-3ev4"]?.upkeepGroup;
+  const data = message?.flags?.[_FLAG_NS]?.upkeepGroup;
   if (!data) return;
 
-  // CRITICAL FIX: Re-fetch the caster actor to ensure we have the latest state
   const casterDoc = await fromUuid(data.casterUuid);
   const casterActor = casterDoc?.documentName === "Actor" ? casterDoc : casterDoc?.actor;
-  
+
   if (!casterActor) {
     console.error("UESRPG | upkeep-workflow | Could not resolve caster actor", data.casterUuid);
     ui.notifications?.error?.("Could not find caster actor.");
     return;
   }
-
-  console.log(`UESRPG | upkeep-workflow | Upkeep confirm initiated for ${casterActor.name} (type: ${casterActor.type})`);
-  console.log(`UESRPG | upkeep-workflow | Current user: ${game.user.name}, isGM: ${game.user.isGM}`);
-  console.log(`UESRPG | upkeep-workflow | Actor isOwner: ${casterActor.isOwner}`);
 
   const matches = await _collectCurrentEffectsForGroup(data.groupKey);
   if (!matches.length) {
@@ -528,8 +663,8 @@ export async function handleUpkeepGroupConfirm(message) {
   const anyNoListed = matches.some(m => Boolean(m.flags?.noListedDuration));
   if (anyNoListed) {
     const originalCast = _num(data.originalCastWorldTime, 0);
-    const lastCast = _num(casterActor.getFlag("uesrpg-3ev4", "lastSpellCastWorldTime"), 0);
-    const lastSpellUuid = casterActor.getFlag("uesrpg-3ev4", "lastSpellCastSpellUuid");
+    const lastCast = _num(casterActor.getFlag(_FLAG_NS, "lastSpellCastWorldTime"), 0);
+    const lastSpellUuid = casterActor.getFlag(_FLAG_NS, "lastSpellCastSpellUuid");
     const spellUuid = _str(data.spellUuid);
 
     if (lastCast > originalCast && lastSpellUuid && _str(lastSpellUuid) !== spellUuid) {
@@ -543,7 +678,7 @@ export async function handleUpkeepGroupConfirm(message) {
     const rangeCheck = await _validateUpkeepRange({ casterActor, spell, matches });
     if (!rangeCheck.ok) {
       const parts = rangeCheck.failures
-        .map(f => `${f.actorName} (${Math.round(f.distance * 10) / 10}m > ${f.maxRange}m)`) 
+        .map(f => `${f.actorName} (${Math.round(f.distance * 10) / 10}m > ${f.maxRange}m)`)
         .join(", ");
       ui.notifications?.warn?.(`Cannot upkeep: out of range: ${parts}.`);
       return;
@@ -553,56 +688,87 @@ export async function handleUpkeepGroupConfirm(message) {
   // Spend Magicka once
   const upkeepCost = _num(data.upkeepCost, 0);
   const currentMP = _num(casterActor.system?.magicka?.value, 0);
-  
-  console.log(`UESRPG | upkeep-workflow | Upkeep check: cost=${upkeepCost}, current=${currentMP}`);
-  
+
   if (upkeepCost > currentMP) {
     ui.notifications?.warn?.("Not enough Magicka to upkeep this spell.");
     return;
   }
 
-  // CRITICAL FIX: Always use requestUpdateDocument for consistency
-  // This ensures proper permission handling through the authority proxy
   const newMagicka = currentMP - upkeepCost;
-  console.log(`UESRPG | upkeep-workflow | Deducting ${upkeepCost} magicka, new value: ${newMagicka}`);
-  
+
   try {
-    // Use authority proxy for ALL actors (PC and NPC) to ensure proper permission routing
     await requestUpdateDocument(casterActor, { "system.magicka.value": newMagicka });
-    console.log(`UESRPG | upkeep-workflow | Magicka updated successfully via authority proxy`);
   } catch (err) {
     console.error("UESRPG | upkeep-workflow | Failed to update magicka", err);
     ui.notifications?.error?.("Failed to deduct magicka. See console.");
     return;
   }
 
+  // RAW: If a spell has the Attack attribute, then upkeeping the spell counts toward the
+  // maximum attacks per round limit.
+  if (game.combat && spell) {
+    const cls = classifySpellForRouting(spell);
+    if (cls.isAttack) {
+      try {
+        await AttackTracker.incrementAttacks(casterActor);
+        const warning = AttackTracker.getLimitWarning(casterActor);
+        if (warning) ui.notifications?.warn?.(warning);
+      } catch (err) {
+        console.error("UESRPG | upkeep-workflow | Failed to increment attack counter for upkeep", err);
+      }
+    }
+  }
+
   // Refresh duration by resetting start markers on all currently-matched effects
   const nowRound = _currentRound();
+  const nowTurn = _currentTurn();
   const nowTime = _nowWorldTime();
 
   for (const m of matches) {
-    const duration = m.effect.duration ?? {};
+    const live = _getActorEffect(m.targetActor, m.effect?.id);
+    if (!live) continue;
+    const duration = live.duration ?? {};
     const rounds = _num(duration.rounds, 0);
 
     const updates = {
-      "duration.startTime": nowTime
+      "duration.startTime": nowTime,
+      "disabled": false
     };
 
-    // If this effect uses combat rounds, refresh the round marker too.
+    if (game.combat) updates["duration.combat"] = game.combat.id;
+    else updates["duration.combat"] = null;
+
+    // No-listed-duration upkeep requires a 1-round cadence even outside combat.
+    // Ensure seconds is never zero so realtime upkeep windows can trigger.
+    if (Boolean(m.flags?.noListedDuration)) {
+      const rt = _roundTimeSeconds();
+      const sec = _num(duration.seconds, 0);
+      if (!(sec > 0)) updates["duration.seconds"] = rt;
+    }
+
     if (game.combat) {
       updates["duration.startRound"] = nowRound;
+      updates["duration.startTurn"] = nowTurn;
 
-      // Defensive: if no-listed-duration spell drifted to 0 rounds, keep it as 1.
       if (Boolean(m.flags?.noListedDuration) && rounds <= 0) {
         updates["duration.rounds"] = 1;
       }
+
+      if (Boolean(m.flags?.noListedDuration)) {
+        const rt = _roundTimeSeconds();
+        const sec = _num(duration.seconds, 0);
+        if (!(sec > 0)) updates["duration.seconds"] = rt;
+      }
     }
 
-    try {
-      await requestUpdateDocument(m.effect, updates);
-    } catch (err) {
-      console.error("UESRPG | upkeep-workflow | Failed to refresh effect duration", err);
-    }
+    // Clear prompt de-dup flags so a later expiry will prompt cleanly.
+    updates[`flags.${_FLAG_NS}.upkeepPromptedEndTime`] = null;
+    updates[`flags.${_FLAG_NS}.upkeepPromptedCombatRound`] = null;
+    updates[`flags.${_FLAG_NS}.upkeepPromptedCombatTurn`] = null;
+    updates[`flags.${_FLAG_NS}.expiredAtWorldTime`] = null;
+    updates[`flags.${_FLAG_NS}.upkeepAwaiting`] = null;
+
+    await _safeUpdateEffect(live, updates);
   }
 
   ui.notifications?.info?.(`${data.spellName} upkept.`);
@@ -613,12 +779,12 @@ export async function handleUpkeepGroupConfirm(message) {
  * @param {ChatMessage} message
  */
 export async function handleUpkeepGroupCancel(message) {
-  const data = message?.flags?.["uesrpg-3ev4"]?.upkeepGroup;
+  const data = message?.flags?.[_FLAG_NS]?.upkeepGroup;
   if (!data) return;
 
   const matches = await _collectCurrentEffectsForGroup(data.groupKey);
   if (!matches.length) return;
-  // Permission-safe delete: group by target actor.
+
   const byActor = new Map();
   for (const m of matches) {
     const actor = m.targetActor;
@@ -629,7 +795,21 @@ export async function handleUpkeepGroupCancel(message) {
   }
 
   for (const [actor, ids] of byActor.entries()) {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
+    const liveEffects = ids.map(id => _getActorEffect(actor, id)).filter(Boolean);
+    if (!liveEffects.length) continue;
+
+    for (const ef of liveEffects) {
+      await _safeUpdateEffect(ef, { [`flags.${_FLAG_NS}.upkeepAwaiting`]: null });
+    }
+
+    const liveIds = liveEffects.map(e => e.id);
+    try {
+      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", liveIds);
+    } catch (err) {
+      const msg = String(err?.message ?? err);
+      if (msg.includes("does not exist") || msg.includes("No Document")) continue;
+      console.error("UESRPG | upkeep-workflow | Failed to delete upkeep effects", { actor: actor?.uuid, ids: liveIds, err });
+    }
   }
 
   ui.notifications?.info?.(`${data.spellName} ended.`);

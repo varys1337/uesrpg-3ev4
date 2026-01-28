@@ -70,8 +70,37 @@ export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allo
   let isCriticalSuccess = false;
   let isCriticalFailure = false;
 
-  const luckyNums = Object.values(actor?.system?.lucky_numbers || {}).map(n => Number(n));
-  const unluckyNums = Object.values(actor?.system?.unlucky_numbers || {}).map(n => Number(n));
+
+  const lnData = actor?.system?.lucky_numbers ?? {};
+  const ulData = actor?.system?.unlucky_numbers ?? {};
+
+  const lnKeys = ["ln1","ln2","ln3","ln4","ln5","ln6","ln7","ln8","ln9","ln10"];
+  const ulKeys = ["ul1","ul2","ul3","ul4","ul5","ul6"];
+
+  // Active slot counts are derived in actor prepareData (and may be modified by AE keys).
+  // Fallback (defensive): derive from Luck Bonus if the actor is missing derived fields.
+  const lb = Number(actor?.system?.characteristics?.lck?.bonus ?? 0);
+  const fallbackLucky = Math.clamp(Math.trunc(lb), 0, lnKeys.length);
+  const fallbackUnlucky = Math.clamp(Math.trunc(Math.max(0, 5 - lb)), 0, ulKeys.length);
+
+  const luckyMax = Number.isFinite(Number(lnData._activeSlots)) ? Math.clamp(Math.trunc(Number(lnData._activeSlots)), 0, lnKeys.length) : fallbackLucky;
+  const unluckyMax = Number.isFinite(Number(ulData._activeSlots)) ? Math.clamp(Math.trunc(Number(ulData._activeSlots)), 0, ulKeys.length) : fallbackUnlucky;
+
+  // Only the first N slots are active for crit matching.
+  // Special case: ln6 ("Thief" extra lucky number) remains active if set, even when N < 6.
+  const activeLuckyKeys = lnKeys.slice(0, luckyMax);
+  if (!activeLuckyKeys.includes("ln6") && Number(lnData.ln6) > 0) activeLuckyKeys.push("ln6");
+
+  const activeUnluckyKeys = ulKeys.slice(0, unluckyMax);
+
+  const luckyNums = activeLuckyKeys
+    .map(k => Number(lnData[k]))
+    .filter(n => Number.isFinite(n) && n > 0);
+
+  const unluckyNums = activeUnluckyKeys
+    .map(k => Number(ulData[k]))
+    .filter(n => Number.isFinite(n) && n > 0);
+
 
   if (allowLucky && luckyNums.includes(total)) isCriticalSuccess = true;
   if (allowUnlucky && unluckyNums.includes(total)) isCriticalFailure = true;

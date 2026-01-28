@@ -42,11 +42,30 @@ const _actorCombatState = new Map();
 //------------------------------------------------------------------------------
 
 function _effectsOf(actor) {
-  return Array.isArray(actor?.effects) ? Array.from(actor.effects) : [];
+  try {
+    if (!actor?.effects) return [];
+    // Foundry collections are iterable; prefer .contents when available.
+    return Array.isArray(actor.effects?.contents) ? actor.effects.contents : Array.from(actor.effects);
+  } catch (_e) {
+    return [];
+  }
 }
 
 function _normKey(k) {
   return String(k ?? "").trim().toLowerCase();
+}
+
+
+function _debugEnabled() {
+  try {
+    return game?.settings?.get("uesrpg-3ev4", "effectsProxyDebug") === true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+function _dbg(...args) {
+  if (_debugEnabled()) console.debug(...args);
 }
 
 function _isFrenziedEffect(effect) {
@@ -64,6 +83,40 @@ function _isFrenziedEffect(effect) {
 
   const nm = _normKey(effect.name);
   return nm.startsWith(CONDITION_KEY) || nm === "frenzied";
+}
+
+const _LEGACY_SB_KEY = "system.characteristics.str.bonus";
+
+
+const _REQUIRED_CHANGE_KEYS = new Set([
+  "system.modifiers.wound_threshold.value",
+  "system.modifiers.characteristics.str",
+  "system.modifiers.skills.frenziedPenalty",
+  "system.traits.immunity.stunned",
+  "system.traits.immunity.panic",
+  "system.traits.immunity.horror",
+  "system.traits.immunity.passiveWounds"
+]);
+
+function _needsFrenziedChangesRepair(changes) {
+  try {
+    if (!Array.isArray(changes) || changes.length === 0) return true;
+
+    // Legacy key used by older Frenzied effects
+    if (changes.some(c => String(c?.key ?? "") === _LEGACY_SB_KEY)) return true;
+
+    // Older builds used a direct woundPenalty override which is now superseded by passive wound suppression immunity.
+    if (changes.some(c => String(c?.key ?? "") === "system.woundPenalty")) return true;
+
+    const keys = new Set(changes.map(c => String(c?.key ?? "")));
+    for (const req of _REQUIRED_CHANGE_KEYS) {
+      if (!keys.has(req)) return true;
+    }
+
+    return false;
+  } catch (_e) {
+    return true;
+  }
 }
 
 async function _dedup(actor) {
@@ -154,11 +207,13 @@ export function _mkFrenziedChanges(actor) {
       priority: 20 
     },
     
-    // +SB (Strength Bonus contributes to damage)
+    // +SB (Strength Bonus)
+    // NOTE: In UESRPG, most roll TN and several derived stats key off STR total (and derive SB from total).
+    // Implement SB +N by raising STR total by +10 per +1 SB so the bonus is reflected consistently.
     { 
-      key: "system.characteristics.str.bonus", 
+      key: "system.modifiers.characteristics.str", 
       mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
-      value: String(mods.sbBonus), 
+      value: String(Number(mods.sbBonus) * 10), 
       priority: 20 
     },
     
@@ -174,11 +229,29 @@ export function _mkFrenziedChanges(actor) {
       priority: 20 
     },
     
-    // Suppress passive wound penalty
+    // Immunities: Stunned + fear equivalents (Panic/Horror) + passive wound effects
     { 
-      key: "system.woundPenalty", 
-      mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE, 
-      value: "0", 
+      key: "system.traits.immunity.stunned", 
+      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      value: "1", 
+      priority: 30 
+    },
+    { 
+      key: "system.traits.immunity.panic", 
+      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      value: "1", 
+      priority: 30 
+    },
+    { 
+      key: "system.traits.immunity.horror", 
+      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      value: "1", 
+      priority: 30 
+    },
+    { 
+      key: "system.traits.immunity.passiveWounds", 
+      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      value: "1", 
       priority: 30 
     }
   ];
@@ -206,7 +279,7 @@ function _registerFrenziedRepairHook() {
 
       // Check if changes are missing or empty
       const currentChanges = Array.isArray(effect.changes) ? effect.changes : [];
-      if (currentChanges.length === 0) {
+      if (_needsFrenziedChangesRepair(currentChanges)) {
         const actor = effect.parent;
         if (!actor || !actor.system) return;
 
@@ -217,24 +290,25 @@ function _registerFrenziedRepairHook() {
             // Double-check actor is still valid
             const refreshedActor = game.actors.get(actor.id);
             if (!refreshedActor || !refreshedActor.system) {
-              console.debug("UESRPG | Frenzied | Actor no longer valid for repair", { actorId: actor.id });
+              _dbg("UESRPG | Frenzied | Actor no longer valid for repair", { actorId: actor.id });
               return;
             }
 
             const refreshedEffect = refreshedActor.effects.get(effect.id);
             if (!refreshedEffect) {
-              console.debug("UESRPG | Frenzied | Effect no longer exists", { effectId: effect.id });
+              _dbg("UESRPG | Frenzied | Effect no longer exists", { effectId: effect.id });
               return;
             }
 
-            // Check again if changes are still empty
-            const stillEmpty = !Array.isArray(refreshedEffect.changes) || refreshedEffect.changes.length === 0;
-            if (!stillEmpty) {
-              console.debug("UESRPG | Frenzied | Effect already has changes, skipping repair", { effectId: effect.id });
+            // Check again if changes still need repair (missing or legacy key)
+            const refreshedChanges = Array.isArray(refreshedEffect.changes) ? refreshedEffect.changes : [];
+            const stillNeedsRepair = _needsFrenziedChangesRepair(refreshedChanges);
+            if (!stillNeedsRepair) {
+              _dbg("UESRPG | Frenzied | Effect already has valid changes, skipping repair", { effectId: effect.id });
               return;
             }
 
-            console.warn("UESRPG | Frenzied | Repairing effect with missing changes", { 
+            _dbg("UESRPG | Frenzied | Repairing effect with missing/legacy changes", { 
               effectId: effect.id,
               actor: refreshedActor.name 
             });
@@ -248,8 +322,8 @@ function _registerFrenziedRepairHook() {
             }));
 
             if (changesToApply.length > 0) {
-              await refreshedEffect.update({ changes: changesToApply }, { diff: false });
-              console.log("UESRPG | Frenzied | Effect repaired with changes", { 
+              await requestUpdateDocument(refreshedEffect, { changes: changesToApply });
+              _dbg("UESRPG | Frenzied | Effect repaired with changes", { 
                 effectId: effect.id,
                 changesCount: changesToApply.length 
               });
@@ -261,15 +335,55 @@ function _registerFrenziedRepairHook() {
       }
     } catch (err) {
       // Silently fail - repair is non-critical
-      console.debug("UESRPG | Frenzied | Repair hook error", err);
+      _dbg("UESRPG | Frenzied | Repair hook error", err);
     }
   });
 }
 
-// Register the repair hook on ready
-Hooks.once("ready", () => {
-  _registerFrenziedRepairHook();
-});
+async function _repairLegacyFrenziedEffectsOnReady() {
+  if (game?.user?.isGM !== true) return;
+
+  const actors = Array.isArray(game?.actors?.contents)
+    ? game.actors.contents
+    : Array.from(game?.actors ?? []);
+
+  let repaired = 0;
+
+  for (const actor of actors) {
+    if (!actor) continue;
+    const effects = _effectsOf(actor).filter(_isFrenziedEffect);
+    if (!effects.length) continue;
+
+    for (const effect of effects) {
+      const currentChanges = Array.isArray(effect?.changes) ? effect.changes : [];
+      if (!_needsFrenziedChangesRepair(currentChanges)) continue;
+
+      const changes = _mkFrenziedChanges(actor);
+      const changesToApply = Array.isArray(changes)
+        ? changes.map(c => ({
+            key: String(c.key ?? ""),
+            mode: Number(c.mode ?? CONST.ACTIVE_EFFECT_MODES.ADD),
+            value: String(c.value ?? ""),
+            priority: Number(c.priority ?? 20)
+          }))
+        : [];
+
+      if (!changesToApply.length) continue;
+
+      try {
+        await requestUpdateDocument(effect, { changes: changesToApply });
+        repaired += 1;
+      } catch (err) {
+        console.warn("UESRPG | Frenzied | Legacy repair failed", { actor: actor?.name, effectId: effect?.id, err });
+      }
+    }
+  }
+
+  if (repaired > 0) {
+    _dbg(`UESRPG | Frenzied | Repaired ${repaired} effect(s) with missing/legacy changes on ready`);
+  }
+}
+
 
 // Register a preCreateActiveEffect hook to inject changes if they're missing
 // This MUST run BEFORE condition-automation.js hook (which returns early for frenzied)
@@ -301,7 +415,7 @@ function _registerFrenziedPreCreateHook() {
       
       // If changes are missing or empty, inject them
       const currentChanges = Array.isArray(data?.changes) ? data.changes : [];
-      if (currentChanges.length === 0) {
+      if (_needsFrenziedChangesRepair(currentChanges)) {
         const changes = _mkFrenziedChanges(parent);
         const changesToApply = changes.map(c => ({
           key: String(c.key ?? ""),
@@ -328,7 +442,7 @@ function _registerFrenziedPreCreateHook() {
         data.flags[FLAG_SCOPE].stackRule = "override";
         data.flags[FLAG_SCOPE].source = "condition";
         
-        console.log("UESRPG | Frenzied | Injected changes via preCreateActiveEffect hook", {
+        _dbg("UESRPG | Frenzied | Injected changes via preCreateActiveEffect hook", {
           actor: parent.name,
           changesCount: changesToApply.length,
           changes: changesToApply.map(c => ({ key: c.key, value: c.value }))
@@ -340,27 +454,28 @@ function _registerFrenziedPreCreateHook() {
   }, { once: false });
 }
 
-// Register on init to ensure it runs early
-Hooks.once("init", () => {
-  _registerFrenziedPreCreateHook();
-  
-  // Also register createActiveEffect hook to immediately fix missing changes
+
+function _registerFrenziedCreateHook() {
+  if (game.uesrpg?._frenziedCreateHookRegistered) return;
+  if (!game.uesrpg) game.uesrpg = {};
+  game.uesrpg._frenziedCreateHookRegistered = true;
+
   Hooks.on("createActiveEffect", async (effect, options, userId) => {
     try {
       // Only process for the creating user
       if (game.userId !== userId) return;
-      
+
       const actor = effect.parent;
       if (!actor || actor.documentName !== "Actor") return;
-      
+
       // Check if this is a Frenzied effect
       const isFrenzied = effect?.flags?.[FLAG_SCOPE]?.condition?.key === CONDITION_KEY ||
                          effect?.flags?.core?.statusId === CONDITION_KEY;
       if (!isFrenzied) return;
-      
+
       // Check if changes are missing
       const currentChanges = Array.isArray(effect.changes) ? effect.changes : [];
-      if (currentChanges.length === 0) {
+      if (_needsFrenziedChangesRepair(currentChanges)) {
         // Immediately update with changes
         const changes = _mkFrenziedChanges(actor);
         const changesToApply = changes.map(c => ({
@@ -369,10 +484,10 @@ Hooks.once("init", () => {
           value: String(c.value ?? ""),
           priority: Number(c.priority ?? 20)
         }));
-        
+
         if (changesToApply.length > 0) {
-          await effect.update({ changes: changesToApply }, { diff: false });
-          console.log("UESRPG | Frenzied | Fixed missing changes immediately after creation", {
+          await requestUpdateDocument(effect, { changes: changesToApply });
+          _dbg("UESRPG | Frenzied | Fixed missing changes immediately after creation", {
             effectId: effect.id,
             actor: actor.name,
             changesCount: changesToApply.length
@@ -383,7 +498,7 @@ Hooks.once("init", () => {
       console.warn("UESRPG | Frenzied | createActiveEffect hook error", err);
     }
   });
-});
+}
 
 //------------------------------------------------------------------------------
 // Public API
@@ -409,7 +524,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
     const existingChanges = Array.isArray(existing.changes) ? existing.changes : [];
     
     // If changes are missing, add them
-    if (existingChanges.length === 0) {
+    if (_needsFrenziedChangesRepair(existingChanges)) {
       const changes = _mkFrenziedChanges(actor);
       const changesToApply = changes.map(c => ({
         key: String(c.key ?? ""),
@@ -685,6 +800,20 @@ export async function promptWillpowerTest(actor) {
 export function registerFrenzied() {
   if (_registered) return;
   _registered = true;
+
+  // Register Frenzied-specific AE shaping/repair hooks explicitly through the system init path.
+  // This avoids hook registration as a side effect of importing this module.
+  try {
+    _registerFrenziedPreCreateHook();
+    _registerFrenziedCreateHook();
+    Hooks.once("ready", async () => {
+      _registerFrenziedRepairHook();
+      await _repairLegacyFrenziedEffectsOnReady();
+    });
+  } catch (err) {
+    console.warn("UESRPG | Frenzied | Failed to register Frenzied hooks", err);
+  }
+
 
   // Combat end: remove Frenzied from all participants (GM-only)
   Hooks.on("deleteCombat", async (combat, options, userId) => {

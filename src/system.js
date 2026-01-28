@@ -15,6 +15,7 @@ import {
 } from "./core/stamina/stamina-integration-hooks.js";
 import { AttackTracker } from "./core/combat/attack-tracker.js";
 import { initializeUpkeepSystem } from "./core/magic/upkeep-workflow.js";
+import { initializeSpellEffectExpirationSystem } from "./core/magic/spell-effect-expiration.js";
 import { initializeDamageApplication } from "./core/magic/damage-application.js";
 
 Hooks.once('ready', async function () {
@@ -25,6 +26,7 @@ Hooks.once('ready', async function () {
   
   // Initialize spell upkeep system
   initializeUpkeepSystem();
+  initializeSpellEffectExpirationSystem();
   
   // Initialize magic damage application
   initializeDamageApplication();

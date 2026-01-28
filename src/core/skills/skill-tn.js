@@ -253,6 +253,14 @@ export function computeSkillTNFromData({
     });
   }
 
+  // Frenzied condition penalty lane
+  // Key: system.modifiers.skills.frenziedPenalty
+  // Applies to all skill tests except STR/AGI/END-based skills.
+  const frenziedPenalty = _asNumber(resolved["system.modifiers.skills.frenziedPenalty"] ?? 0);
+  if (frenziedPenalty && !_isPhysicalSkill(skill)) {
+    breakdown.push({ label: "Effects: Frenzied", value: frenziedPenalty, source: "aeFrenziedPenalty" });
+  }
+
   // Combat Style unopposed checks: include combat TN modifiers (attacker side).
   // These are applied via Actor-level modifiers or transferred item effects.
   // We prefer provenance-carrying entries when provided by the caller.
@@ -319,13 +327,6 @@ export function computeSkillTNFromData({
   // This does not require schema changes; callers may supply actorSystem.environment via effects/modules.
   const envPenalty = _asNumber(actorSystem?.environment?.skillPenalties?.[nameKey]);
   if (envPenalty) breakdown.push({ label: "Environment", value: envPenalty, source: "environment" });
-
-  // Frenzied skill penalty (non-physical tests only)
-  const frenziedPenalty = _asNumber(actorSystem?.modifiers?.skills?.frenziedPenalty);
-  if (frenziedPenalty && !_isPhysicalSkill(skill)) {
-    breakdown.push({ label: "Frenzied", value: frenziedPenalty, source: "frenzied" });
-  }
-
   // Difficulty (RAW Chapter 1)
   const diff = getDifficultyByKey(difficultyKey);
   if (diff?.mod) breakdown.push({ label: `Difficulty: ${diff.label}`, value: diff.mod, source: "difficulty" });

@@ -249,9 +249,21 @@ async function _migrateActorItems() {
 export async function migrateItemsIfNeeded() {
   // Lightweight normalization pass; safe to run on every startup.
   if (!game.user.isGM) return;
+  const currentVersion = String(game.system?.version ?? "").trim() || "0";
+  let state = {};
+  try {
+    state = JSON.parse(String(game.settings.get(MODULE_ID, "migrationState") ?? "{}")) ?? {};
+  } catch (_e) {
+    state = {};
+  }
+  if (state?.items === currentVersion) return;
   try {
     await _migrateWorldItems();
     await _migrateActorItems();
+
+    // Record migration version after a successful pass.
+    state.items = currentVersion;
+    await game.settings.set(MODULE_ID, "migrationState", JSON.stringify(state));
   } catch (err) {
     console.error(`${MODULE_ID} | Item migration failed`, err);
     ui.notifications?.error?.("UESRPG item migration failed; check console for details.");

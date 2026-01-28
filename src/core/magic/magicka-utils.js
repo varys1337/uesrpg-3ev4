@@ -10,6 +10,8 @@
  * - Package 1 normalizes reads without migrating or renaming any data fields.
  */
 
+import { MagicTimekeeping } from "./timekeeping-helper.js";
+
 import { getDifficultyByKey } from "../skills/skill-tn.js";
 import { evaluateAEModifierKeysDetailed } from "../active-effects/modifier-evaluator.js";
 
@@ -64,6 +66,37 @@ function _normalizeKey(s) {
     .toLowerCase()
     .replace(/\s+/g, "")
     .replace(/[^a-z0-9_]/g, "");
+}
+
+function _collectSpellCostModifierKeys(spell) {
+  const keySet = new Set([
+    "system.modifiers.magic.cost._all"
+  ]);
+
+  const schoolKey = _normalizeKey(spell?.system?.school);
+  if (schoolKey) keySet.add(`system.modifiers.magic.cost.${schoolKey}`);
+
+  return Array.from(keySet);
+}
+
+function _evaluateSpellCostAEModifier(actor, spell) {
+  try {
+    const keys = _collectSpellCostModifierKeys(spell);
+    if (!keys.length) return { total: 0, breakdown: [] };
+    return evaluateAEModifierKeysDetailed(actor, keys, { labelPrefix: "Magic Cost" });
+  } catch (_e) {
+    return { total: 0, breakdown: [] };
+  }
+}
+
+function _computeSpellBaseCost(actor, spell, options = {}) {
+  const baseCostRaw = getSpellCost(spell, options.level ?? null);
+  const { total: aeModifierRaw, breakdown } = _evaluateSpellCostAEModifier(actor, spell);
+  const aeModifier = _num(aeModifierRaw, 0);
+
+  // Costs are integers in this system; treat AE modifiers as additive then clamp.
+  const baseCost = Math.max(0, Math.floor(baseCostRaw + aeModifier));
+  return { baseCost, baseCostRaw, aeModifier, aeBreakdown: breakdown };
 }
 
 /**
@@ -200,7 +233,7 @@ export function getActorWillpowerBonus(actor) {
  * @returns {{ cost:number, baseCost:number, wpBonus:number, isRestrained:boolean, isOverloaded:boolean, isOvercharged:boolean }}
  */
 export function computeSpellMagickaCost(actor, spell, options = {}) {
-  const baseCost = getSpellCost(spell, options.level ?? null);
+  const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, options);
 
   const isRestrained = _bool(options.isRestrained);
   const isOverloaded = _bool(options.isOverloaded);
@@ -217,7 +250,17 @@ export function computeSpellMagickaCost(actor, spell, options = {}) {
   }
 
   cost = Math.max(0, Math.floor(cost));
-  return { cost, baseCost, wpBonus, isRestrained, isOverloaded, isOvercharged };
+  return {
+    cost,
+    baseCost,
+    baseCostRaw,
+    aeModifier,
+    aeBreakdown,
+    wpBonus,
+    isRestrained,
+    isOverloaded,
+    isOvercharged
+  };
 }
 
 /**
@@ -231,8 +274,8 @@ export function computeSpellMagickaCost(actor, spell, options = {}) {
  * @returns {{ cost:number, baseCost:number }}
  */
 export function computeSpellAttemptMagickaCost(actor, spell, options = {}) {
-  const baseCost = getSpellCost(spell, options.level ?? null);
-  return { cost: baseCost, baseCost };
+  const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, options);
+  return { cost: baseCost, baseCost, baseCostRaw, aeModifier, aeBreakdown };
 }
 
 /**
@@ -267,7 +310,7 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
 
   if (!isSuccess) return { refund: 0, finalCost: spent, breakdown: "" };
 
-  const baseCost = getSpellCost(spell, options.level ?? null);
+  const { baseCost } = _computeSpellBaseCost(actor, spell, options);
   if (baseCost <= 0) return { refund: 0, finalCost: 0, breakdown: "" };
 
   const wpBonus = getActorWillpowerBonus(actor);
@@ -303,6 +346,47 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
 export async function consumeSpellMagicka(actor, spell, options = {}) {
   const { cost: attemptCost, baseCost } = computeSpellAttemptMagickaCost(actor, spell, options);
 
+  // RAW: if you are currently maintaining (Upkeep) a spell with no listed duration, you cannot cast a different spell.
+  // We enforce this at cast-time so the restriction is deterministic across all cast entry points.
+  try {
+    const activeNoDuration = (() => {
+  try {
+    const casterUuid = String(actor?.uuid ?? "");
+    if (!casterUuid) return null;
+
+    const actors = MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []);
+    for (const a of actors) {
+      for (const ef of (a?.effects ?? [])) {
+        const f = ef?.flags?.["uesrpg-3ev4"];
+        if (!f?.spellEffect) continue;
+        if (!f?.hasUpkeep || !f?.noListedDuration) continue;
+        if (ef?.disabled) continue;
+        if (String(f?.casterUuid ?? "") !== casterUuid) continue;
+        return ef;
+      }
+    }
+  } catch (_e) {
+    /* no-op */
+  }
+  return null;
+})();
+
+if (activeNoDuration) {
+      const maintainedUuid = String(activeNoDuration?.flags?.["uesrpg-3ev4"]?.spellUuid ?? "");
+      const castingUuid = String(spell?.uuid ?? "");
+      if (maintainedUuid && castingUuid && maintainedUuid !== castingUuid) {
+        ui.notifications?.warn?.(
+          `You cannot cast another spell while maintaining ${activeNoDuration?.name ?? "an upkept spell"} (no listed duration).`
+        );
+        const current = getActorMagicka(actor);
+        return { ok: false, consumed: 0, remaining: current, previous: current, required: attemptCost, baseCost };
+      }
+    }
+  } catch (_e) {
+    // no-op
+  }
+
+
   const current = getActorMagicka(actor);
   const remaining = current - attemptCost;
 
@@ -327,7 +411,7 @@ export async function consumeSpellMagicka(actor, spell, options = {}) {
   // Best-effort only: this flag is used by the upkeep workflow to enforce
   // the "no other spell since" rule for spells with no listed duration.
   try {
-    await actor.setFlag("uesrpg-3ev4", "lastSpellCastWorldTime", Number(game.time?.worldTime ?? 0) || 0);
+    await actor.setFlag("uesrpg-3ev4", "lastSpellCastWorldTime", Number(MagicTimekeeping.nowWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0);
     await actor.setFlag("uesrpg-3ev4", "lastSpellCastSpellUuid", String(spell?.uuid ?? ""));
   } catch (_e) {
     // no-op

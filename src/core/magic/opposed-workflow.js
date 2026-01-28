@@ -70,6 +70,42 @@ function _resolveToken(docOrUuid) {
   return null;
 }
 
+
+function _spellHasFiniteDuration(spell) {
+  const dur = spell?.system?.duration ?? {};
+  const unit = String(dur.unit ?? "rounds");
+  const value = Number(dur.value ?? 0) || 0;
+  if (!value) return false;
+  // Units that represent a finite duration which should be tracked/represented as a target AE even when there are no embedded AEs.
+  return ["rounds", "minutes", "hours", "days"].includes(unit);
+}
+
+function _spellNeedsEffectApplication(spell) {
+  if (!spell) return false;
+  if (Boolean(spell.system?.hasUpkeep)) return true;
+  if ((spell.effects?.size ?? 0) > 0) return true;
+  return _spellHasFiniteDuration(spell);
+}
+
+function _getBlockingNoDurationUpkeep(actor, pendingSpellUuid) {
+  const effects = actor?.effects ?? [];
+  for (const e of effects) {
+    if (e?.disabled) continue;
+    const f = e?.flags?.["uesrpg-3ev4"];
+    if (!f?.spellEffect) continue;
+    if (!f?.hasUpkeep) continue;
+    if (!f?.noListedDuration) continue;
+    const activeSpellUuid = String(f?.spellUuid ?? e?.origin ?? "");
+    if (pendingSpellUuid && String(pendingSpellUuid) === activeSpellUuid) continue;
+    return {
+      effectId: e.id,
+      spellUuid: activeSpellUuid,
+      spellName: String(f?.spellName ?? e?.name ?? "Upkept Spell")
+    };
+  }
+  return null;
+}
+
 function _fmtSigned(n) {
   const v = Number(n ?? 0) || 0;
   return v >= 0 ? `+${v}` : `${v}`;
@@ -1101,6 +1137,13 @@ export const MagicOpposedWorkflow = {
 
     const spellOptions = cfg.spellOptions ?? {};
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
+
+    // Cast-time RAW gating: while maintaining an Upkeep spell with no listed duration, the caster cannot cast other spells.
+    const blocking = _getBlockingNoDurationUpkeep(attacker, spell?.uuid ?? null);
+    if (blocking) {
+      ui.notifications.warn(`${attacker.name} cannot cast another spell while maintaining ${blocking.spellName} (no listed duration Upkeep).`);
+      return null;
+    }
     const healingDirect = isHealingSpell(spell);
 
     const isAoE = Boolean(cfg?.aoe?.isAoE || cfg?.context?.aoe?.isAoE || cfg?.isAoE);
@@ -1197,6 +1240,13 @@ export const MagicOpposedWorkflow = {
     
     // Compute casting TN
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
+
+    // Cast-time RAW gating: while maintaining an Upkeep spell with no listed duration, the caster cannot cast other spells.
+    const blocking = _getBlockingNoDurationUpkeep(attacker, spell?.uuid ?? null);
+    if (blocking) {
+      ui.notifications.warn(`${attacker.name} cannot cast another spell while maintaining ${blocking.spellName} (no listed duration Upkeep).`);
+      return null;
+    }
 
     // Spend AP (casting always costs 1 AP in the current action economy).
     const apCost = 1;
@@ -1333,6 +1383,13 @@ export const MagicOpposedWorkflow = {
 
     const spellOptions = cfg.spellOptions ?? {};
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
+
+    // Cast-time RAW gating: while maintaining an Upkeep spell with no listed duration, the caster cannot cast other spells.
+    const blocking = _getBlockingNoDurationUpkeep(attacker, spell?.uuid ?? null);
+    if (blocking) {
+      ui.notifications.warn(`${attacker.name} cannot cast another spell while maintaining ${blocking.spellName} (no listed duration Upkeep).`);
+      return null;
+    }
 
     const apCost = 1;
     const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
@@ -1481,6 +1538,16 @@ export const MagicOpposedWorkflow = {
       if (data.attacker.result) return;
       if (!requireUserCanRollActor(game.user, attacker)) return;
 
+      // Gate commit if the actor cannot currently pay the AP cost (prevents dead commits).
+      if (game.combat) {
+        const apCost = Number(data.attacker.apCost ?? 1) || 1;
+        const currentAP = Number(foundry.utils.getProperty(attacker, "system.action_points.value") ?? 0);
+        if (currentAP < apCost) {
+          ui.notifications.warn(`Not enough Action Points to commit casting (${currentAP}/${apCost}).`);
+          return;
+        }
+      }
+
       _ensureBankedScaffold(data);
       data.attacker.banked.committed = true;
       data.attacker.banked.committedAt = Date.now();
@@ -1501,6 +1568,16 @@ export const MagicOpposedWorkflow = {
       if (!bankMode) return;
       if (defender?.result || defender?.noDefense) return;
       if (!requireUserCanRollActor(game.user, defenderActor)) return;
+
+      // Gate commit if defender cannot currently pay the AP cost for their chosen defense.
+      if (game.combat) {
+        const apCost = Number(defender?.apCost ?? 1) || 1;
+        const currentAP = Number(foundry.utils.getProperty(defenderActor, "system.action_points.value") ?? 0);
+        if (currentAP < apCost) {
+          ui.notifications.warn(`Not enough Action Points to commit defense (${currentAP}/${apCost}).`);
+          return;
+        }
+      }
 
       _ensureBankedScaffold(data);
       
@@ -1800,7 +1877,7 @@ export const MagicOpposedWorkflow = {
 
       // Apply spell effects if applicable
       if (!damageResult?.spellAbsorbed) {
-        if (Boolean(spell.system?.hasUpkeep) || (spell.effects?.size ?? 0) > 0) {
+        if (_spellNeedsEffectApplication(spell)) {
           await applySpellEffectsToTarget(attacker, defenderActor, spell, { 
             actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0), 
             originalCastTime: Number(data.context?.originalCastWorldTime ?? game.time?.worldTime ?? 0) || 0 
@@ -1994,7 +2071,7 @@ export const MagicOpposedWorkflow = {
         });
 
         if (!damageResult?.spellAbsorbed) {
-          if (Boolean(spell.system?.hasUpkeep) || (spell.effects?.size ?? 0) > 0) {
+          if (_spellNeedsEffectApplication(spell)) {
             await applySpellEffectsToTarget(attacker, defender, spell, { actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0), originalCastTime: Number(data.context?.originalCastWorldTime ?? game.time?.worldTime ?? 0) || 0 });
           }
         } else {
@@ -2007,7 +2084,7 @@ export const MagicOpposedWorkflow = {
       }
 
       // Non-damaging direct spell: apply effects immediately.
-      if ((spell.effects?.size ?? 0) > 0) {
+      if (_spellNeedsEffectApplication(spell)) {
         await applySpellEffectsToTarget(attacker, defender, spell, { actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0), originalCastTime: Number(data.context?.originalCastWorldTime ?? game.time?.worldTime ?? 0) || 0 });
       } else {
         await applySpellEffect(defender, spell, {
@@ -2120,7 +2197,7 @@ export const MagicOpposedWorkflow = {
         });
 
         if (!damageResult?.spellAbsorbed) {
-          if (Boolean(spell.system?.hasUpkeep) || (spell.effects?.size ?? 0) > 0) {
+          if (_spellNeedsEffectApplication(spell)) {
             await applySpellEffectsToTarget(attacker, defender, spell, { actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0), originalCastTime: Number(data.context?.originalCastWorldTime ?? game.time?.worldTime ?? 0) || 0 });
           }
         } else {
@@ -2133,7 +2210,7 @@ export const MagicOpposedWorkflow = {
       }
 
       // Non-damaging direct spell: apply effects immediately.
-      if ((spell.effects?.size ?? 0) > 0) {
+      if (_spellNeedsEffectApplication(spell)) {
         await applySpellEffectsToTarget(attacker, defender, spell, { actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0), originalCastTime: Number(data.context?.originalCastWorldTime ?? game.time?.worldTime ?? 0) || 0 });
       } else {
         await applySpellEffect(defender, spell, {
@@ -2313,14 +2390,14 @@ export const MagicOpposedWorkflow = {
         //  - non-damaging secondary effects that accompany a damaging spell
         // Damage resolution remains authoritative; the marker/effects are additive.
         if (!damageResult?.spellAbsorbed) {
-          if (Boolean(spell.system?.hasUpkeep) || (spell.effects?.size ?? 0) > 0) {
+          if (_spellNeedsEffectApplication(spell)) {
             await applySpellEffectsToTarget(attacker, defender, spell, { actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0), originalCastTime: Number(data.context?.originalCastWorldTime ?? game.time?.worldTime ?? 0) || 0 });
           }
         } else {
           finalOutcome.spellAbsorbed = true;
         }
       } else if (attackerWins) {
-        if ((spell.effects?.size ?? 0) > 0) {
+        if (_spellNeedsEffectApplication(spell)) {
           await applySpellEffectsToTarget(attacker, defender, spell, { actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0), originalCastTime: Number(data.context?.originalCastWorldTime ?? game.time?.worldTime ?? 0) || 0 });
         } else {
           await applySpellEffect(defender, spell, {

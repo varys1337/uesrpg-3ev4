@@ -34,6 +34,7 @@ import {
   getAimStateFromEffect,
   getEnabledEffectByKey,
   resolveTokenForActor,
+  resolveRangeGatedTokenForActor,
   spendActionPoints
 } from "./combat-actions-utils.js";
 import { AimAudit } from "../../core/combat/aim-audit.js";
@@ -1958,7 +1959,7 @@ let spell = preselectedSpell;
     // - Ranged/Melee: reject out-of-range targets before any rolls.
     // - AoE: place a MeasuredTemplate and derive targets from the template area.
     const rangeType = getSpellRangeType(spell);
-    const attackerToken = this.token?.object ?? this.token;
+    const attackerToken = this.token?.object ?? this.token ?? resolveRangeGatedTokenForActor(this.actor);
 
     // Token is only required for range-gated spells.
     if ((rangeType === "ranged" || rangeType === "melee" || rangeType === "aoe") && !attackerToken) {

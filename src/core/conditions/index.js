@@ -34,7 +34,12 @@ export function registerConditions() {
       log = false;
     }
 
-    auditConditionRegistry({ log });
+    const audit = auditConditionRegistry();
+if (log && Array.isArray(audit?.warnings) && audit.warnings.length) {
+  try {
+    console.warn("UESRPG | Condition registry audit warnings", audit.warnings);
+  } catch (_e) {}
+}
   });
 
   registerConditionHooks();

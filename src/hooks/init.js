@@ -96,6 +96,17 @@ async function registerSettings() {
     onChange: delayedReload,
   });
 
+  // Migration bookkeeping. This is intentionally hidden (config:false) and stores JSON.
+  // Migrations remain idempotent even if this setting is cleared.
+  game.settings.register("uesrpg-3ev4", "migrationState", {
+    name: "Migration State",
+    hint: "Internal migration bookkeeping for the UESRPG system.",
+    scope: "world",
+    config: false,
+    default: "{}",
+    type: String,
+  });
+
   // Opposed workflow diagnostics
   game.settings.register("uesrpg-3ev4", "opposedDebug", {
     name: "Opposed Debug Logging",
@@ -385,6 +396,21 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
         await effect.update({ transfer: true });
       } catch (err) {
         console.error("UESRPG | Default Item AE transfer create fallback failed", err);
+      }
+    });
+  }
+
+  if (!game.uesrpg._upkeepDeleteGuardHook) {
+    game.uesrpg._upkeepDeleteGuardHook = true;
+    Hooks.on("preDeleteActiveEffect", (effect, options) => {
+      try {
+        const flags = effect?.flags?.["uesrpg-3ev4"];
+        if (!flags?.spellEffect || !flags?.hasUpkeep) return;
+        if (!flags?.upkeepAwaiting) return;
+        if (options?.uesrpgAllowUpkeepDelete) return;
+        return false;
+      } catch (err) {
+        console.error("UESRPG | Upkeep delete guard failed", err);
       }
     });
   }

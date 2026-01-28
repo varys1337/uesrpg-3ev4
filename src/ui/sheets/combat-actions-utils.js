@@ -105,6 +105,36 @@ export function resolveTokenForActor(actor) {
 }
 
 /**
+ * Resolve a Token for range-gated actions (spells, etc.) with ambiguity guardrails.
+ *
+ * Rules:
+ * - If the actor has a controlled token, use it.
+ * - Otherwise, if the actor has exactly ONE owned token on the canvas, use it.
+ * - Otherwise (no token or multiple tokens), return null to avoid guessing.
+ *
+ * This is intentionally stricter than resolveTokenForActor() because range-gated
+ * workflows can create templates, measure distances, and apply effects and should
+ * not silently pick an arbitrary token when multiple exist.
+ *
+ * @param {Actor} actor
+ * @returns {Token|null}
+ */
+export function resolveRangeGatedTokenForActor(actor) {
+  if (!actor || !canvas?.tokens) return null;
+
+  const controlled = Array.isArray(canvas.tokens.controlled) ? canvas.tokens.controlled : [];
+  const controlledMatch = controlled.find(t => t?.actor?.id === actor.id) ?? null;
+  if (controlledMatch) return controlledMatch;
+
+  const placeables = Array.isArray(canvas.tokens.placeables) ? canvas.tokens.placeables : [];
+  const owned = placeables.filter(t => t?.actor?.id === actor.id && t.isOwner);
+  if (owned.length === 1) return owned[0] ?? null;
+
+  return null;
+}
+
+
+/**
  * Resolve the first targeted token for the current user.
  *
  * @returns {Token|null}

@@ -248,10 +248,18 @@ export function isActorImmuneToCondition(actor, conditionKey) {
   if (!actor || !k) return false;
 
   // Allow ActiveEffects or sheet-derived flags to set condition immunities without requiring item parsing.
-  // This is intentionally permissive: if an AE populates system.traits.immunity.<key> truthy,
-  // the condition engine should respect it.
+  // ActiveEffect values are often strings; treat any non-zero numeric value as "true".
   try {
-    if (actor?.system?.traits?.immunity && actor.system.traits.immunity[k]) return true;
+    const raw = actor?.system?.traits?.immunity?.[k];
+    if (raw === true) return true;
+    if (raw === false || raw == null) {
+      // keep evaluating (traits/talents/powers may still grant immunity)
+    } else {
+      const n = Number(raw);
+      if (Number.isFinite(n)) return n !== 0;
+      const s = String(raw).trim().toLowerCase();
+      if (s === "true" || s === "yes" || s === "on") return true;
+    }
   } catch (_e) {}
 
   const profile = getActorTraitDamageProfile(actor);

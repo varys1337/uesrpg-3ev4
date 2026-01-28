@@ -16,6 +16,7 @@ import {
   getAimStateFromEffect,
   getEnabledEffectByKey,
   resolveTokenForActor,
+  resolveRangeGatedTokenForActor,
   spendActionPoints
 } from "./combat-actions-utils.js";
 import { buildSpecialActionsForActor, getActiveCombatStyleId, getExplicitActiveCombatStyleItem, isSpecialActionUsableNow } from "../../core/combat/combat-style-utils.js";
@@ -2064,7 +2065,7 @@ let spell = preselectedSpell;
     // - Ranged/Melee: reject out-of-range targets before any rolls.
     // - AoE: place a MeasuredTemplate and derive targets from the template area.
     const rangeType = getSpellRangeType(spell);
-    const attackerToken = this.token?.object ?? this.token;
+    const attackerToken = this.token?.object ?? this.token ?? resolveRangeGatedTokenForActor(this.actor);
 
     // Token is only required for range-gated spells.
     if ((rangeType === "ranged" || rangeType === "melee" || rangeType === "aoe") && !attackerToken) {
@@ -2136,7 +2137,7 @@ if (shouldUseTargetedSpellWorkflow(spell, workingTargets)) {
 	      const { MagicOpposedWorkflow } = await import("../../core/magic/opposed-workflow.js");
 	      await MagicOpposedWorkflow.castUnopposed({
 	        attackerActorUuid: this.actor.uuid,
-	        attackerTokenUuid: this.token?.document?.uuid ?? this.token?.uuid ?? null,
+	        attackerTokenUuid: attackerToken?.document?.uuid ?? attackerToken?.uuid ?? null,
 	        spellUuid: spell.uuid,
 	        spellOptions,
 	        castActionType

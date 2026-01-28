@@ -1,17 +1,13 @@
 UESRPG 3ev4 — Active Effects Guide (Foundry VTT v13.351)
 
-This document describes the Active Effects (AE) framework implemented for the UESRPG 3ev4 system in Foundry VTT v13.351.It serves as:
+ This document describes the Active Effects (AE) framework implemented for the UESRPG 3ev4 system in Foundry VTT v13.351.It serves as:
 - A reference for content creators (items, talents, traits)
 - A debugging guide for maintainers
 - A roadmap marker distinguishing implemented vs deferred AE lanes
 - All listed effects are deterministic, stack-safe, and tested, unless explicitly marked otherwise.
 
-1.1 Core Design Principles - Deterministic evaluation
-- The system does not rely on Foundry auto-applying AE changes
-- All AE changes are explicitly read and evaluated by the system
-- Results are derived at roll-time or prepare-data time, never stored permanently
 
-1.2 ADD vs OVERRIDE semantics
+ADD vs OVERRIDE semantics
 For every supported modifier key:
 ADD: stack-safe summation
 OVERRIDE: deterministic replacement
@@ -19,10 +15,20 @@ Highest-priority OVERRIDE wins
 OVERRIDE suppresses all ADD for the same key
 OVERRIDE is API-correct and normalized across numeric and string modes.
 
-1.3 Transfer semantics (locked)
+Transfer semantics (locked)
 Weapons / Armor: effects apply only if item.system.equipped === true
 Talents / Traits: effects always apply
-Spells: intentionally deferred; not part of this guide
+Spells: WIP , not yet properly introduced
+
+1. Characteristics 
+system.modifiers.characteristics.str
+system.modifiers.characteristics.agi
+system.modifiers.characteristics.end
+system.modifiers.characteristics.per
+system.modifiers.characteristics.wil
+system.modifiers.characteristics.int
+system.modifiers.characteristics.cha
+system.modifiers.characteristics.luc
 
 2. Combat & Rolls Attribute Keys
 2.1 Combat Target Numbers (TN)
@@ -42,13 +48,50 @@ Applies to:
 - Shown in UI: Full provenance in TN breakdown (collapsible)
 
 2.2 Skills Attribute Keys
-Global
+Global lanes (apply to all skills, including Magic Skills)
+system.modifiers.tests.all
 system.modifiers.skills._all
 
 Per-skill
 system.modifiers.skills.<skillKey>
 
 !!! Applies at roll-time only, never mutates stored skill values. !!!
+
+2.3 Spell casting TN (the spell casting test)
+
+These are evaluated inside computeMagicCastingTN() and summed into the TN breakdown.
+Global lanes (apply to all casting)
+
+system.modifiers.tests.all
+system.modifiers.skills._all
+system.modifiers.magic.castingTN._all (virtual lane; supported even if not present in template data)
+School-specific lanes (spell’s system.school)
+Supported school keys in this system are:
+alteration
+conjuration
+destruction
+illusion
+mysticism
+necromancy
+restoration
+
+Author any of:
+system.modifiers.skills.alteration
+system.modifiers.skills.conjuration
+system.modifiers.skills.destruction
+system.modifiers.skills.illusion
+system.modifiers.skills.mysticism
+system.modifiers.skills.necromancy
+system.modifiers.skills.restoration
+
+And/or the casting-only equivalents:
+system.modifiers.magic.castingTN.alteration
+system.modifiers.magic.castingTN.conjuration
+system.modifiers.magic.castingTN.destruction
+system.modifiers.magic.castingTN.illusion
+system.modifiers.magic.castingTN.mysticism
+system.modifiers.magic.castingTN.necromancy
+system.modifiers.magic.castingTN.restoration	
 
 3. Damage System Attribute Keys
 3.1 Attacker-side modifiers
@@ -81,14 +124,32 @@ system.modifiers.combat.armorRating
 system.modifiers.combat.armorRating.<LocationKey>
 
 Resistances
+system.resistance.fireR
 system.modifiers.resistance.fireR
+system.traits.resistance.fire
+
+system.resistance.frostR
 system.modifiers.resistance.frostR
+system.traits.resistance.frost
+
+system.resistance.shockR
 system.modifiers.resistance.shockR
+system.traits.resistance.shock
+
+system.resistance.poisonR
 system.modifiers.resistance.poisonR
-system.modifiers.resistance.magicR
-system.modifiers.resistance.silverR
-system.modifiers.resistance.sunlightR
-system.modifiers.resistance.physicalR
+system.resistances.poison
+system.traits.resistance.poison
+
+system.resistance.diseaseR
+system.modifiers.resistance.diseaseR
+system.resistances.disease
+system.traits.resistance.disease
+
+system.resistance.magicR / system.modifiers.resistance.magicR
+system.resistance.silverR / system.modifiers.resistance.silverR
+system.resistance.sunlightR / system.modifiers.resistance.sunlightR
+system.resistance.physicalR / system.modifiers.resistance.physicalR
 
 Natural Toughness (RAW-aligned)
 system.modifiers.resistance.natToughness
@@ -108,12 +169,24 @@ initiative.value (by design; initiative is derived)
 
 system.modifiers.speed.base
 system.modifiers.speed.bonus
+system.modifiers.speed.value
+
+// Applied after all recalculations and movement restriction semantics so OVERRIDE truly sets the final speed. Swim speed is re-derived from the final ground speed while preserving the existing swim-bonus pipeline.
 
 5. Resources (Max values only)
 Supported
 system.modifiers.hp.max
+
+Magicka resource (derived max/value adjustments used by casting and upkeep)
+These are explicitly supported in actor.js as deterministic AE lanes (ADD / OVERRIDE semantics per lane), and they affect derived system.magicka.* values used during play:
+system.modifiers.magicka.base
+system.modifiers.magicka.bonus
 system.modifiers.magicka.max
+system.modifiers.magicka.value
+// Guidance: Prefer these system.modifiers.magicka.* lanes over directly changing system.magicka.max/value, because Magicka max/value are derived and clamped during actor data preparation.
+
 system.modifiers.stamina.max
+
 system.modifiers.luck_points.max
 
 Behavior: Max values are derived. Current values are clamped only if exceeding max. No direct mutation of current values via AE
@@ -121,7 +194,9 @@ Behavior: Max values are derived. Current values are clamped only if exceeding m
 6. Wound Threshold Attribute Keys
 system.modifiers.wound_threshold.bonus
 system.modifiers.wound_threshold.value
-Applies after form/trait adjustments.
+system.traits.immunity.passiveWounds - the actor’s passive wound penalty is suppressed when return true (ADD/OVERRID // 1) 
+
+//Applies after form/trait adjustments.
 
 7. Carry & Encumbrance Attribute Keys
 7.1 Carry capacity
@@ -202,6 +277,37 @@ Works for:
 | Exhaustion | `system.traits.immunity.exhaustion` |
 
 
+11.Initiative Rating (IR)
+Current/override + “special formula replacement”
+system.modifiers.initiative.bonus (ADD / OVERRIDE)
+system.modifiers.initiative.base (ADD / OVERRIDE)
+system.modifiers.initiative.value (ADD / OVERRIDE
+
+Special-formula (deterministic) support
+
+system.modifiers.initiative.mult.agi (ADD / OVERRIDE; default 1; ADD treated as delta on top of 1)
+system.modifiers.initiative.mult.int (ADD / OVERRIDE; default 1; ADD treated as delta on top of 1)
+system.modifiers.initiative.mult.prc (ADD / OVERRIDE; default 1; ADD treated as delta on top of 1)
+system.modifiers.initiative.flat (ADD / OVERRIDE; default 0)
+
+Computed as
+IR = AB*mAgi + IB*mInt + PcB*mPrc + flat + bonus, then:
+
+legacy item-based replacement (replace.ini) still runs,
+then system.modifiers.initiative.value applies (ADD/OVERRIDE) last.
+
+12. Action Points
+system.modifiers.action_points.max (ADD / OVERRIDE)
+system.modifiers.action_points.value (ADD / OVERRIDE)
+
+13. Lucky / Unlucky Numbers (crit matching only)
+
+
+system.modifiers.lucky_numbers.max (ADD / OVERRIDE)
+( Alias: system.modifiers.lucky_numbers.value)
+
+system.modifiers.unlucky_numbers.max (ADD / OVERRIDE)
+(Alias: system.modifiers.unlucky_numbers.value)
 
 11. Deferred / Not Implemented (by design)
 
@@ -212,3 +318,11 @@ These are explicitly not implemented yet and safe to ignore until future updates
 - Armor mobility penalties as explicit AE lanes (currently handled internally, not AE-exposed)
 - Initiative “current value” overrides
 - Any AE mutating stored document data
+
+
+## .value Semantics (Current Values)
+
+For deterministic Active Effect keys ending in `.value` that target a current pool (HP, Magicka, Stamina, Luck Points, Action Points), the `.value` lane modifies the actor’s **current** value.
+
+- If a `.value` modifier is present (ADD or OVERRIDE), the system allows the current value to exceed max (overcap) while the effect is active.
+- Without a `.value` modifier, current values are clamped to `[0, max]`.

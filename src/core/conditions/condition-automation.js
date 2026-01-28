@@ -18,7 +18,7 @@
  */
 
 import { applyDamageResolved } from "../combat/damage-resolver.js";
-import { hasCondition } from "./condition-engine.js";
+import { hasCondition, isImmuneToCondition } from "./condition-engine.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 const MODE_ADD = (globalThis.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2);
@@ -287,6 +287,15 @@ export function registerConditionAutomationHooks() {
 
         const key = _getConditionKeyFromAECreateData(data);
         if (!key) return;
+
+        // Global immunity gate: if the Actor is immune to this condition, block creation from any UI entry point.
+        // This specifically ensures right-click Token HUD condition toggles cannot bypass immunity flags.
+        if (isImmuneToCondition(parent, key)) {
+          try {
+            ui?.notifications?.warn?.(`${parent.name} is immune to ${key}.`);
+          } catch (_err) {}
+          return false;
+        }
 
         // Frenzied is handled by frenzied.js with dynamic talent-based changes
         // Skip it here to avoid interfering with its custom changes

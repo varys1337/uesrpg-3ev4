@@ -15,7 +15,7 @@
 
 import { applyDamage, DAMAGE_TYPES } from "../combat/damage-automation.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
-import { isActorSkeletal, isActorUndead, isActorUndeadBloodless } from "../traits/trait-registry.js";
+import { isActorSkeletal, isActorUndead, isActorUndeadBloodless, isActorImmuneToCondition as isActorImmuneToConditionProfile } from "../traits/trait-registry.js";
 
 let _conditionHooksRegistered = false;
 
@@ -36,6 +36,17 @@ function _coreStatusIdForKey(key) {
   if (!k) return null;
   const ids = _knownStatusIds();
   return ids.has(k) ? k : null;
+}
+
+function _immunityFlagIsTrue(raw) {
+  if (raw === true) return true;
+  if (raw === false || raw == null) return false;
+
+  const n = Number(raw);
+  if (Number.isFinite(n)) return n !== 0;
+
+  const s = String(raw).trim().toLowerCase();
+  return s === "true" || s === "yes" || s === "on";
 }
 
 function _effectHasCoreStatus(effect, key) {
@@ -680,20 +691,27 @@ export function isImmuneToCondition(actor, key) {
   const k = _normalizeConditionKey(key);
   if (!actor || !k) return false;
 
+  // Built-in immunity list (currently used by Undead and similar traits).
+  // Keep this inside the immunity predicate so ALL entry points (including Token HUD) are gated.
+  if (isActorUndead(actor)) {
+    const blocked = new Set(["dazed", "deafened", "poisoned", "disease"]);
+    if (blocked.has(k)) return true;
+  }
+
   const lane = actor?.system?.traits?.immunity ?? null;
-  if (!lane || typeof lane !== "object") return false;
+  if (lane && typeof lane === "object") {
+    // Optional: global immunity (rare, but supported).
+    if (_immunityFlagIsTrue(lane._all)) return true;
+    if (_immunityFlagIsTrue(lane[k])) return true;
+  }
 
-  const raw = lane?.[k];
-  if (raw === true) return true;
-  if (raw === false || raw == null) return false;
+  // Derived trait profile immunity (Talents/Traits/Powers parsing).
+  // IMPORTANT: do not require lane presence; items may provide immunity without populating system.traits.immunity.
+  try {
+    if (isActorImmuneToConditionProfile(actor, k)) return true;
+  } catch (_e) {}
 
-  // Numeric or numeric-string.
-  const n = Number(raw);
-  if (Number.isFinite(n)) return n !== 0;
-
-  // Final fallback: treat common truthy strings as true.
-  const s = String(raw).trim().toLowerCase();
-  return s === "true" || s === "yes" || s === "on";
+  return false;
 }
 
 export async function applyCondition(actor, key, { origin = null, source = null } = {}) {
@@ -1244,7 +1262,7 @@ export function registerConditionHooks() {
  *
  * Returns an object: { ok: boolean, warnings: string[] }.
  */
-export function auditConditionRegistry() {
+export function auditConditionRegistry(_options = {}) {
   const warnings = [];
 
   const reg = STATIC_CONDITIONS ?? {};

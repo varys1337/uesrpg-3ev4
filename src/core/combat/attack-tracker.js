@@ -13,6 +13,8 @@ export class AttackTracker {
    */
   static async incrementAttacks(actor) {
     if (!actor) return;
+
+    const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
     
     // Ensure combat_tracking exists with safe defaults
     const tracking = actor.system?.combat_tracking ?? {
@@ -34,7 +36,7 @@ export class AttackTracker {
     
     attacks += 1;
     
-    await actor.update({
+    await requestUpdateDocument(actor, {
       "system.combat_tracking.attacks_this_round": attacks,
       "system.combat_tracking.last_reset_round": currentRound,
       "system.combat_tracking.last_reset_turn": currentTurn
@@ -70,12 +72,14 @@ export class AttackTracker {
    */
   static async resetAttacks(actor) {
     if (!actor) return;
+
+    const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
     
     const combat = game.combat;
     const currentRound = combat?.round ?? 0;
     const currentTurn = combat?.turn ?? 0;
     
-    await actor.update({
+    await requestUpdateDocument(actor, {
       "system.combat_tracking.attacks_this_round": 0,
       "system.combat_tracking.attacks_this_turn": 0,
       "system.combat_tracking.last_reset_round": currentRound,

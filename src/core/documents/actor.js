@@ -7,6 +7,7 @@
 import { isTransferEffectActive } from "../active-effects/transfer.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 import { collectTraitDamageModifiers, getResistanceKeyForTraitType, getActorTraitValue, isActorUndead } from "../traits/trait-registry.js";
+import { isNPC } from "../rules/npc-rules.js";
 
 export class SimpleActor extends Actor {
   async _preCreate(data, options, user) {
@@ -122,6 +123,7 @@ export class SimpleActor extends Actor {
     system.stamina ??= { value: 0, max: 0, bonus: 0 };
     system.magicka ??= { value: 0, max: 0, bonus: 0 };
     system.luck_points ??= { value: 0, max: 0, bonus: 0 };
+    system.action_points ??= { value: 0, max: 0 };
 
     // Modifier lanes (Active Effects)
     system.modifiers ??= {};
@@ -131,6 +133,13 @@ export class SimpleActor extends Actor {
     system.modifiers.magicka ??= { base: 0, bonus: 0, max: 0, value: 0 };
     system.modifiers.stamina ??= { base: 0, bonus: 0, max: 0, value: 0 };
     system.modifiers.luck_points ??= { base: 0, bonus: 0, max: 0, value: 0 };
+
+    // Initiative / Speed / Action Points / Lucky Numbers modifier lanes (Active Effects)
+    system.modifiers.initiative ??= { base: 0, bonus: 0, value: 0, flat: 0, mult: { agi: 1, int: 1, prc: 1 } };
+    system.modifiers.speed ??= { value: 0 };
+    system.modifiers.action_points ??= { max: 0, value: 0 };
+    system.modifiers.lucky_numbers ??= { max: 0, value: 0 };
+    system.modifiers.unlucky_numbers ??= { max: 0, value: 0 };
 
     // Derived stats containers
     system.initiative ??= { base: 0, value: 0, bonus: 0 };
@@ -728,6 +737,104 @@ export class SimpleActor extends Actor {
   }
   
   
+
+  /**
+   * Read deterministic AE modifiers for Initiative Rating (IR).
+   *
+   * Supported keys:
+   *  - system.modifiers.initiative.bonus (ADD / OVERRIDE)
+   *  - system.modifiers.initiative.base (ADD / OVERRIDE)
+   *  - system.modifiers.initiative.value (ADD / OVERRIDE)
+   *
+   * Special formula support (safe, deterministic; no expression parsing):
+   *  - system.modifiers.initiative.mult.agi (ADD / OVERRIDE) : default 1; ADD is treated as delta on top of 1.
+   *  - system.modifiers.initiative.mult.int (ADD / OVERRIDE) : default 1; ADD is treated as delta on top of 1.
+   *  - system.modifiers.initiative.mult.prc (ADD / OVERRIDE) : default 1; ADD is treated as delta on top of 1.
+   *  - system.modifiers.initiative.flat (ADD / OVERRIDE)     : default 0; applied after multipliers.
+   */
+  _getInitiativeAEModifiers() {
+    const keys = {
+      bonus: "system.modifiers.initiative.bonus",
+      base: "system.modifiers.initiative.base",
+      value: "system.modifiers.initiative.value",
+      flat: "system.modifiers.initiative.flat",
+      multAgi: "system.modifiers.initiative.mult.agi",
+      multInt: "system.modifiers.initiative.mult.int",
+      multPrc: "system.modifiers.initiative.mult.prc"
+    };
+
+    const map = this._collectAEModifiersForKeys(Object.values(keys));
+
+    return {
+      bonus: map[keys.bonus] ?? { add: 0, override: null },
+      base: map[keys.base] ?? { add: 0, override: null },
+      value: map[keys.value] ?? { add: 0, override: null },
+      flat: map[keys.flat] ?? { add: 0, override: null },
+      mult: {
+        agi: map[keys.multAgi] ?? { add: 0, override: null },
+        int: map[keys.multInt] ?? { add: 0, override: null },
+        prc: map[keys.multPrc] ?? { add: 0, override: null }
+      }
+    };
+  }
+
+  /**
+   * Read deterministic AE modifiers for Speed.
+   *
+   * Supported keys:
+   *  - system.modifiers.speed.value (ADD / OVERRIDE)
+   *
+   * Notes:
+   *  - This is applied late in prepareData so OVERRIDE can set the final speed.
+   */
+  _getSpeedAEModifiers() {
+    const key = "system.modifiers.speed.value";
+    const map = this._collectAEModifiersForKeys([key]);
+    return { value: map[key] ?? { add: 0, override: null } };
+  }
+
+  /**
+   * Read deterministic AE modifiers for Action Points.
+   *
+   * Supported keys:
+   *  - system.modifiers.action_points.max (ADD / OVERRIDE)
+   *  - system.modifiers.action_points.value (ADD / OVERRIDE)
+   */
+  _getActionPointsAEModifiers() {
+    const keys = {
+      max: "system.modifiers.action_points.max",
+      value: "system.modifiers.action_points.value"
+    };
+    const map = this._collectAEModifiersForKeys(Object.values(keys));
+    return {
+      max: map[keys.max] ?? { add: 0, override: null },
+      value: map[keys.value] ?? { add: 0, override: null }
+    };
+  }
+
+  /**
+   * Read deterministic AE modifiers for Lucky/Unlucky active slot counts.
+   *
+   * Primary contract keys:
+   *  - system.modifiers.lucky_numbers.max (ADD / OVERRIDE)
+   *  - system.modifiers.unlucky_numbers.max (ADD / OVERRIDE)
+   *
+   * Aliases supported (treated as the same semantic lanes):
+   *  - system.modifiers.lucky_numbers.value
+   *  - system.modifiers.unlucky_numbers.value
+   */
+  _getLuckyUnluckySlotAEModifiers() {
+    const lucky = this._collectAEModifiersForKeySetMerged([
+      "system.modifiers.lucky_numbers.max",
+      "system.modifiers.lucky_numbers.value"
+    ]);
+    const unlucky = this._collectAEModifiersForKeySetMerged([
+      "system.modifiers.unlucky_numbers.max",
+      "system.modifiers.unlucky_numbers.value"
+    ]);
+    return { lucky, unlucky };
+  }
+
   /**
    * Read deterministic AE modifiers for Carry/Encumbrance.
    *
@@ -910,6 +1017,17 @@ export class SimpleActor extends Actor {
   
     _hasWoundPenaltySuppression(actorData) {
       if (isActorUndead(this)) return true;
+      // Passive wound effect suppression immunity (e.g. Frenzy).
+      // Implemented as a boolean-semantic numeric flag: system.traits.immunity.passiveWounds
+      try {
+        const raw = actorData?.system?.traits?.immunity?.passiveWounds;
+        if (raw === true) return true;
+        const n = Number(raw);
+        if (Number.isFinite(n) && n !== 0) return true;
+        const s = String(raw ?? "").trim().toLowerCase();
+        if (s === "true" || s === "yes" || s === "on") return true;
+      } catch (_e) {}
+
       const scope = game.system?.id ?? "uesrpg-3ev4";
       const effectsRaw = actorData?.effects;
       const effects = Array.isArray(effectsRaw) ? effectsRaw : (effectsRaw ? Array.from(effectsRaw) : []);
@@ -1187,9 +1305,55 @@ export class SimpleActor extends Actor {
     actorSystemData.speed.swimSpeed += agg.doubleSwimSpeed ? (agg.swimBonus * 2) : agg.swimBonus;
     actorSystemData.speed.flySpeed = agg.flyBonus || this._flyCalc(actorData);
 
-    actorSystemData.initiative.base = agiBonus + intBonus + prcBonus + (actorSystemData.initiative.bonus);
-    actorSystemData.initiative.value = actorSystemData.initiative.base;
-    actorSystemData.initiative.value = this._iniCalc(actorData);
+    // Initiative Rating (IR): derived formula + deterministic AE lanes
+    // Base formula (default): IR = AB + IB + PcB + bonus
+    // Special formula support: IR = AB*mAgi + IB*mInt + PcB*mPrc + flat + bonus
+    {
+      const iniAE = this._getInitiativeAEModifiers();
+
+      const asNum = (v, d = 0) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : d;
+      };
+
+      const multFrom = (m) => {
+        if (m?.override != null) return asNum(m.override, 1);
+        // ADD is treated as delta on top of 1
+        return 1 + asNum(m?.add ?? 0, 0);
+      };
+
+      const mAgi = multFrom(iniAE.mult?.agi);
+      const mInt = multFrom(iniAE.mult?.int);
+      const mPrc = multFrom(iniAE.mult?.prc);
+
+      const flat = (iniAE.flat?.override != null) ? asNum(iniAE.flat.override, 0) : asNum(iniAE.flat?.add ?? 0, 0);
+
+      // Base component from characteristic bonuses (post-AE characteristic-bonus stage)
+      let baseComponent = (asNum(agiBonus) * mAgi) + (asNum(intBonus) * mInt) + (asNum(prcBonus) * mPrc) + flat;
+
+      // Bonus component (from items/talents) with AE support
+      let bonusComponent = asNum(actorSystemData.initiative.bonus ?? 0, 0);
+      if (iniAE.bonus?.override != null) bonusComponent = asNum(iniAE.bonus.override, 0);
+      else if (iniAE.bonus?.add) bonusComponent = bonusComponent + asNum(iniAE.bonus.add, 0);
+
+      // Base lane AE support (applies to baseComponent only)
+      if (iniAE.base?.override != null) baseComponent = asNum(iniAE.base.override, 0);
+      else if (iniAE.base?.add) baseComponent = baseComponent + asNum(iniAE.base.add, 0);
+
+      const baseTotal = Math.trunc(baseComponent + bonusComponent);
+
+      actorSystemData.initiative.bonus = bonusComponent;
+      actorSystemData.initiative.base = baseTotal;
+
+      // Item-based replacement (legacy trait/talent replace.ini semantics)
+      let value = asNum(this._iniCalc(actorData), baseTotal);
+
+      // Final value lane AE support (post-replacement)
+      if (iniAE.value?.override != null) value = asNum(iniAE.value.override, value);
+      else if (iniAE.value?.add) value = value + asNum(iniAE.value.add, 0);
+
+      actorSystemData.initiative.value = Math.trunc(value);
+    }
 
 
 // Health / Magicka / Stamina / Luck Points
@@ -1220,8 +1384,12 @@ actorSystemData.hp.base = Math.ceil(actorSystemData.characteristics.end.total / 
   // Optional value targeting; always clamp to [0, max]
   if (hpAE.value.override != null) actorSystemData.hp.value = Number(hpAE.value.override);
   else if (hpAE.value.add) actorSystemData.hp.value = Number(actorSystemData.hp.value ?? 0) + Number(hpAE.value.add ?? 0);
-
+const hp_allowOvercap = (hpAE.value.override != null) || (Number(hpAE.value.add ?? 0) !== 0);
+if (hp_allowOvercap) {
+  actorSystemData.hp.value = Math.max(0, Number(actorSystemData.hp.value ?? 0));
+} else {
   actorSystemData.hp.value = Math.clamp(Number(actorSystemData.hp.value ?? 0), 0, Number(actorSystemData.hp.max ?? 0));
+}
 }
 
 // Magicka
@@ -1239,8 +1407,12 @@ actorSystemData.magicka.max = actorSystemData.characteristics.int.total + actorS
 
   if (mAE.value.override != null) actorSystemData.magicka.value = Number(mAE.value.override);
   else if (mAE.value.add) actorSystemData.magicka.value = Number(actorSystemData.magicka.value ?? 0) + Number(mAE.value.add ?? 0);
-
+const magicka_allowOvercap = (mAE.value.override != null) || (Number(mAE.value.add ?? 0) !== 0);
+if (magicka_allowOvercap) {
+  actorSystemData.magicka.value = Math.max(0, Number(actorSystemData.magicka.value ?? 0));
+} else {
   actorSystemData.magicka.value = Math.clamp(Number(actorSystemData.magicka.value ?? 0), 0, Number(actorSystemData.magicka.max ?? 0));
+}
 }
 
 // Stamina
@@ -1257,8 +1429,12 @@ actorSystemData.stamina.max = endBonus + actorSystemData.stamina.bonus;
 
   if (sAE.value.override != null) actorSystemData.stamina.value = Number(sAE.value.override);
   else if (sAE.value.add) actorSystemData.stamina.value = Number(actorSystemData.stamina.value ?? 0) + Number(sAE.value.add ?? 0);
-
+const stamina_allowOvercap = (sAE.value.override != null) || (Number(sAE.value.add ?? 0) !== 0);
+if (stamina_allowOvercap) {
+  actorSystemData.stamina.value = Math.max(0, Number(actorSystemData.stamina.value ?? 0));
+} else {
   actorSystemData.stamina.value = Math.clamp(Number(actorSystemData.stamina.value ?? 0), 0, Number(actorSystemData.stamina.max ?? 0));
+}
 }
 
 // Luck Points
@@ -1275,8 +1451,12 @@ actorSystemData.luck_points.max = lckBonus + actorSystemData.luck_points.bonus;
 
   if (lAE.value.override != null) actorSystemData.luck_points.value = Number(lAE.value.override);
   else if (lAE.value.add) actorSystemData.luck_points.value = Number(actorSystemData.luck_points.value ?? 0) + Number(lAE.value.add ?? 0);
-
+const luck_points_allowOvercap = (lAE.value.override != null) || (Number(lAE.value.add ?? 0) !== 0);
+if (luck_points_allowOvercap) {
+  actorSystemData.luck_points.value = Math.max(0, Number(actorSystemData.luck_points.value ?? 0));
+} else {
   actorSystemData.luck_points.value = Math.clamp(Number(actorSystemData.luck_points.value ?? 0), 0, Number(actorSystemData.luck_points.max ?? 0));
+}
 }
 
     // Carry Rating (base formula) + deterministic AE modifiers
@@ -1463,7 +1643,13 @@ actorSystemData.luck_points.max = lckBonus + actorSystemData.luck_points.bonus;
         const excess = Math.abs(Math.trunc(spMax));
         actorSystemData.stamina.max = 0;
         // Ensure current SP does not exceed the new max.
-        actorSystemData.stamina.value = Math.min(Number(actorSystemData.stamina.value ?? 0), 0);
+        // If a deterministic AE `.value` modifier is present for Stamina, we allow overcap and do not
+// force current SP down to 0 here. Otherwise, keep the normal invariant (value <= max).
+const sAE = this._getResourceAEModifiers('stamina');
+const stamina_allowOvercap = (sAE.value.override != null) || (Number(sAE.value.add ?? 0) !== 0);
+actorSystemData.stamina.value = stamina_allowOvercap
+  ? Math.max(0, Number(actorSystemData.stamina.value ?? 0))
+  : 0;
         actorSystemData.fatigue.bonus = Number(actorSystemData.fatigue.bonus ?? 0) + excess;
       }
     }
@@ -1494,6 +1680,83 @@ actorSystemData.luck_points.max = lckBonus + actorSystemData.luck_points.bonus;
 // - Prone: movement costs double -> effective ground Speed is halved (round down)
 // - Immobilized/Restrained/Paralyzed/Unconscious: cannot move (Speed 0)
 this._applyMovementRestrictionSemantics(actorData, actorSystemData);
+
+    // AE: Final Speed lane (ADD/OVERRIDE) applied after movement restriction semantics.
+    // Key: system.modifiers.speed.value
+    {
+      const spdAE = this._getSpeedAEModifiers();
+      const m = spdAE?.value ?? { add: 0, override: null };
+
+      if (m.override != null) actorSystemData.speed.value = Number(m.override);
+      else if (m.add) actorSystemData.speed.value = Number(actorSystemData.speed.value ?? 0) + Number(m.add);
+
+      actorSystemData.speed.value = Math.max(0, Math.trunc(Number(actorSystemData.speed.value ?? 0)));
+
+      // Keep swimSpeed consistent with final ground speed while preserving the existing swim bonus pipeline.
+      const baseSwim = Math.floor(Number(actorSystemData.speed.value ?? 0) / 2);
+      const swimBonus = (typeof agg !== "undefined")
+        ? (Number(agg.doubleSwimSpeed ? (agg.swimBonus * 2) : agg.swimBonus) || 0)
+        : 0;
+      actorSystemData.speed.swimSpeed = Math.max(0, baseSwim + swimBonus);
+    }
+
+    // AE: Action Points deterministic lanes (ADD/OVERRIDE).
+    // Keys:
+    //  - system.modifiers.action_points.max
+    //  - system.modifiers.action_points.value
+    {
+      const apAE = this._getActionPointsAEModifiers();
+      const asNum = (v, d = 0) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : d;
+      };
+
+      let max = asNum(actorSystemData.action_points?.max ?? 0, 0);
+      if (apAE.max?.override != null) max = asNum(apAE.max.override, max);
+      else if (apAE.max?.add) max = max + asNum(apAE.max.add, 0);
+      max = Math.max(0, Math.trunc(max));
+
+      let value = asNum(actorSystemData.action_points?.value ?? 0, 0);
+      if (apAE.value?.override != null) value = asNum(apAE.value.override, value);
+      else if (apAE.value?.add) value = value + asNum(apAE.value.add, 0);
+
+      actorSystemData.action_points.max = max;
+      actorSystemData.action_points.value = Math.clamp(Math.trunc(value), 0, max);
+    }
+
+    // AE: Lucky / Unlucky active slot counts for critical matching.
+    // Primary keys:
+    //  - system.modifiers.lucky_numbers.max (alias: .value)
+    //  - system.modifiers.unlucky_numbers.max (alias: .value)
+    //
+    // Interpretation: only the first N slots are considered active for crit matching.
+    // This does NOT mutate stored lucky/unlucky numbers.
+    {
+      const slotAE = this._getLuckyUnluckySlotAEModifiers();
+      const asNum = (v, d = 0) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : d;
+      };
+
+      const lb = asNum(actorSystemData.characteristics?.lck?.bonus ?? 0, 0);
+      const baseLucky = lb;
+      const baseUnlucky = Math.max(0, 5 - lb);
+
+      const luckySlots = (slotAE.lucky?.override != null)
+        ? asNum(slotAE.lucky.override, baseLucky)
+        : (baseLucky + asNum(slotAE.lucky?.add ?? 0, 0));
+
+      const unluckySlots = (slotAE.unlucky?.override != null)
+        ? asNum(slotAE.unlucky.override, baseUnlucky)
+        : (baseUnlucky + asNum(slotAE.unlucky?.add ?? 0, 0));
+
+      actorSystemData.lucky_numbers ??= {};
+      actorSystemData.unlucky_numbers ??= {};
+
+      actorSystemData.lucky_numbers._activeSlots = Math.clamp(Math.trunc(luckySlots), 0, 10);
+      actorSystemData.unlucky_numbers._activeSlots = Math.clamp(Math.trunc(unluckySlots), 0, 6);
+    }
+
 
     // Set Skill professions to regular professions (This is a fucking mess, but it's the way it's done for now...)
     for (let prof in actorSystemData.professions) {
@@ -1708,9 +1971,55 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
     actorSystemData.speed.swimSpeed += agg.doubleSwimSpeed ? (agg.swimBonus * 2) : agg.swimBonus;
     actorSystemData.speed.flySpeed = agg.flyBonus || this._flyCalc(actorData);
 
-    actorSystemData.initiative.base = agiBonus + intBonus + prcBonus + (actorSystemData.initiative.bonus);
-    actorSystemData.initiative.value = actorSystemData.initiative.base;
-    actorSystemData.initiative.value = this._iniCalc(actorData);
+    // Initiative Rating (IR): derived formula + deterministic AE lanes
+    // Base formula (default): IR = AB + IB + PcB + bonus
+    // Special formula support: IR = AB*mAgi + IB*mInt + PcB*mPrc + flat + bonus
+    {
+      const iniAE = this._getInitiativeAEModifiers();
+
+      const asNum = (v, d = 0) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : d;
+      };
+
+      const multFrom = (m) => {
+        if (m?.override != null) return asNum(m.override, 1);
+        // ADD is treated as delta on top of 1
+        return 1 + asNum(m?.add ?? 0, 0);
+      };
+
+      const mAgi = multFrom(iniAE.mult?.agi);
+      const mInt = multFrom(iniAE.mult?.int);
+      const mPrc = multFrom(iniAE.mult?.prc);
+
+      const flat = (iniAE.flat?.override != null) ? asNum(iniAE.flat.override, 0) : asNum(iniAE.flat?.add ?? 0, 0);
+
+      // Base component from characteristic bonuses (post-AE characteristic-bonus stage)
+      let baseComponent = (asNum(agiBonus) * mAgi) + (asNum(intBonus) * mInt) + (asNum(prcBonus) * mPrc) + flat;
+
+      // Bonus component (from items/talents) with AE support
+      let bonusComponent = asNum(actorSystemData.initiative.bonus ?? 0, 0);
+      if (iniAE.bonus?.override != null) bonusComponent = asNum(iniAE.bonus.override, 0);
+      else if (iniAE.bonus?.add) bonusComponent = bonusComponent + asNum(iniAE.bonus.add, 0);
+
+      // Base lane AE support (applies to baseComponent only)
+      if (iniAE.base?.override != null) baseComponent = asNum(iniAE.base.override, 0);
+      else if (iniAE.base?.add) baseComponent = baseComponent + asNum(iniAE.base.add, 0);
+
+      const baseTotal = Math.trunc(baseComponent + bonusComponent);
+
+      actorSystemData.initiative.bonus = bonusComponent;
+      actorSystemData.initiative.base = baseTotal;
+
+      // Item-based replacement (legacy trait/talent replace.ini semantics)
+      let value = asNum(this._iniCalc(actorData), baseTotal);
+
+      // Final value lane AE support (post-replacement)
+      if (iniAE.value?.override != null) value = asNum(iniAE.value.override, value);
+      else if (iniAE.value?.add) value = value + asNum(iniAE.value.add, 0);
+
+      actorSystemData.initiative.value = Math.trunc(value);
+    }
 
 
 // Health / Magicka / Stamina / Luck Points
@@ -1721,19 +2030,27 @@ actorSystemData.hp.base = Math.ceil(actorSystemData.characteristics.end.total / 
 {
   const hpAE = this._getResourceAEModifiers('hp');
 
-  const base = (hpAE.base.override != null) ? Number(hpAE.base.override) : (Number(actorSystemData.hp.base ?? 0) + Number(hpAE.base.add ?? 0));
-  const bonus = (hpAE.bonus.override != null) ? Number(hpAE.bonus.override) : (Number(actorSystemData.hp.bonus ?? 0) + Number(hpAE.bonus.add ?? 0));
+  const base = (hpAE.base.override != null)
+    ? Number(hpAE.base.override)
+    : (Number(actorSystemData.hp.base ?? 0) + Number(hpAE.base.add ?? 0));
+  const bonus = (hpAE.bonus.override != null)
+    ? Number(hpAE.bonus.override)
+    : (Number(actorSystemData.hp.bonus ?? 0) + Number(hpAE.bonus.add ?? 0));
 
   actorSystemData.hp.base = base;
   actorSystemData.hp.bonus = bonus;
 
   const computedMax = Number(base) + Number(bonus);
-  actorSystemData.hp.max = (hpAE.max.override != null) ? Number(hpAE.max.override) : (computedMax + Number(hpAE.max.add ?? 0));
+  actorSystemData.hp.max = (hpAE.max.override != null)
+    ? Number(hpAE.max.override)
+    : (computedMax + Number(hpAE.max.add ?? 0));
 
   if (hpAE.value.override != null) actorSystemData.hp.value = Number(hpAE.value.override);
   else if (hpAE.value.add) actorSystemData.hp.value = Number(actorSystemData.hp.value ?? 0) + Number(hpAE.value.add ?? 0);
 
-  actorSystemData.hp.value = Math.clamp(Number(actorSystemData.hp.value ?? 0), 0, Number(actorSystemData.hp.max ?? 0));
+  const hp_allowOvercap = (hpAE.value.override != null) || (Number(hpAE.value.add ?? 0) !== 0);
+  if (hp_allowOvercap) actorSystemData.hp.value = Math.max(0, Number(actorSystemData.hp.value ?? 0));
+  else actorSystemData.hp.value = Math.clamp(Number(actorSystemData.hp.value ?? 0), 0, Number(actorSystemData.hp.max ?? 0));
 }
 
 // Magicka
@@ -1741,7 +2058,9 @@ actorSystemData.magicka.max = actorSystemData.characteristics.int.total + actorS
 {
   const mAE = this._getResourceAEModifiers('magicka');
 
-  const bonus = (mAE.bonus.override != null) ? Number(mAE.bonus.override) : (Number(actorSystemData.magicka.bonus ?? 0) + Number(mAE.bonus.add ?? 0));
+  const bonus = (mAE.bonus.override != null)
+    ? Number(mAE.bonus.override)
+    : (Number(actorSystemData.magicka.bonus ?? 0) + Number(mAE.bonus.add ?? 0));
   actorSystemData.magicka.bonus = bonus;
 
   const computedMax = Number(actorSystemData.magicka.max ?? 0) + Number(mAE.base.add ?? 0);
@@ -1751,7 +2070,9 @@ actorSystemData.magicka.max = actorSystemData.characteristics.int.total + actorS
   if (mAE.value.override != null) actorSystemData.magicka.value = Number(mAE.value.override);
   else if (mAE.value.add) actorSystemData.magicka.value = Number(actorSystemData.magicka.value ?? 0) + Number(mAE.value.add ?? 0);
 
-  actorSystemData.magicka.value = Math.clamp(Number(actorSystemData.magicka.value ?? 0), 0, Number(actorSystemData.magicka.max ?? 0));
+  const magicka_allowOvercap = (mAE.value.override != null) || (Number(mAE.value.add ?? 0) !== 0);
+  if (magicka_allowOvercap) actorSystemData.magicka.value = Math.max(0, Number(actorSystemData.magicka.value ?? 0));
+  else actorSystemData.magicka.value = Math.clamp(Number(actorSystemData.magicka.value ?? 0), 0, Number(actorSystemData.magicka.max ?? 0));
 }
 
 // Stamina
@@ -1759,7 +2080,9 @@ actorSystemData.stamina.max = endBonus + actorSystemData.stamina.bonus;
 {
   const sAE = this._getResourceAEModifiers('stamina');
 
-  const bonus = (sAE.bonus.override != null) ? Number(sAE.bonus.override) : (Number(actorSystemData.stamina.bonus ?? 0) + Number(sAE.bonus.add ?? 0));
+  const bonus = (sAE.bonus.override != null)
+    ? Number(sAE.bonus.override)
+    : (Number(actorSystemData.stamina.bonus ?? 0) + Number(sAE.bonus.add ?? 0));
   actorSystemData.stamina.bonus = bonus;
 
   const computedMax = Number(actorSystemData.stamina.max ?? 0) + Number(sAE.base.add ?? 0);
@@ -1769,7 +2092,9 @@ actorSystemData.stamina.max = endBonus + actorSystemData.stamina.bonus;
   if (sAE.value.override != null) actorSystemData.stamina.value = Number(sAE.value.override);
   else if (sAE.value.add) actorSystemData.stamina.value = Number(actorSystemData.stamina.value ?? 0) + Number(sAE.value.add ?? 0);
 
-  actorSystemData.stamina.value = Math.clamp(Number(actorSystemData.stamina.value ?? 0), 0, Number(actorSystemData.stamina.max ?? 0));
+  const stamina_allowOvercap = (sAE.value.override != null) || (Number(sAE.value.add ?? 0) !== 0);
+  if (stamina_allowOvercap) actorSystemData.stamina.value = Math.max(0, Number(actorSystemData.stamina.value ?? 0));
+  else actorSystemData.stamina.value = Math.clamp(Number(actorSystemData.stamina.value ?? 0), 0, Number(actorSystemData.stamina.max ?? 0));
 }
 
 // Luck Points
@@ -1777,7 +2102,9 @@ actorSystemData.luck_points.max = lckBonus + actorSystemData.luck_points.bonus;
 {
   const lAE = this._getResourceAEModifiers('luck_points');
 
-  const bonus = (lAE.bonus.override != null) ? Number(lAE.bonus.override) : (Number(actorSystemData.luck_points.bonus ?? 0) + Number(lAE.bonus.add ?? 0));
+  const bonus = (lAE.bonus.override != null)
+    ? Number(lAE.bonus.override)
+    : (Number(actorSystemData.luck_points.bonus ?? 0) + Number(lAE.bonus.add ?? 0));
   actorSystemData.luck_points.bonus = bonus;
 
   const computedMax = Number(actorSystemData.luck_points.max ?? 0) + Number(lAE.base.add ?? 0);
@@ -1787,8 +2114,11 @@ actorSystemData.luck_points.max = lckBonus + actorSystemData.luck_points.bonus;
   if (lAE.value.override != null) actorSystemData.luck_points.value = Number(lAE.value.override);
   else if (lAE.value.add) actorSystemData.luck_points.value = Number(actorSystemData.luck_points.value ?? 0) + Number(lAE.value.add ?? 0);
 
-  actorSystemData.luck_points.value = Math.clamp(Number(actorSystemData.luck_points.value ?? 0), 0, Number(actorSystemData.luck_points.max ?? 0));
+  const luck_points_allowOvercap = (lAE.value.override != null) || (Number(lAE.value.add ?? 0) !== 0);
+  if (luck_points_allowOvercap) actorSystemData.luck_points.value = Math.max(0, Number(actorSystemData.luck_points.value ?? 0));
+  else actorSystemData.luck_points.value = Math.clamp(Number(actorSystemData.luck_points.value ?? 0), 0, Number(actorSystemData.luck_points.max ?? 0));
 }
+
 
     // Carry Rating (base formula) + deterministic AE modifiers
     const carryAEs = this._getCarryAEModifiers();
@@ -1965,6 +2295,83 @@ actorSystemData.luck_points.max = lckBonus + actorSystemData.luck_points.bonus;
 // - Immobilized/Restrained/Paralyzed/Unconscious: cannot move (Speed 0)
 this._applyMovementRestrictionSemantics(actorData, actorSystemData);
 
+    // AE: Final Speed lane (ADD/OVERRIDE) applied after movement restriction semantics.
+    // Key: system.modifiers.speed.value
+    {
+      const spdAE = this._getSpeedAEModifiers();
+      const m = spdAE?.value ?? { add: 0, override: null };
+
+      if (m.override != null) actorSystemData.speed.value = Number(m.override);
+      else if (m.add) actorSystemData.speed.value = Number(actorSystemData.speed.value ?? 0) + Number(m.add);
+
+      actorSystemData.speed.value = Math.max(0, Math.trunc(Number(actorSystemData.speed.value ?? 0)));
+
+      // Keep swimSpeed consistent with final ground speed while preserving the existing swim bonus pipeline.
+      const baseSwim = Math.floor(Number(actorSystemData.speed.value ?? 0) / 2);
+      const swimBonus = (typeof agg !== "undefined")
+        ? (Number(agg.doubleSwimSpeed ? (agg.swimBonus * 2) : agg.swimBonus) || 0)
+        : 0;
+      actorSystemData.speed.swimSpeed = Math.max(0, baseSwim + swimBonus);
+    }
+
+    // AE: Action Points deterministic lanes (ADD/OVERRIDE).
+    // Keys:
+    //  - system.modifiers.action_points.max
+    //  - system.modifiers.action_points.value
+    {
+      const apAE = this._getActionPointsAEModifiers();
+      const asNum = (v, d = 0) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : d;
+      };
+
+      let max = asNum(actorSystemData.action_points?.max ?? 0, 0);
+      if (apAE.max?.override != null) max = asNum(apAE.max.override, max);
+      else if (apAE.max?.add) max = max + asNum(apAE.max.add, 0);
+      max = Math.max(0, Math.trunc(max));
+
+      let value = asNum(actorSystemData.action_points?.value ?? 0, 0);
+      if (apAE.value?.override != null) value = asNum(apAE.value.override, value);
+      else if (apAE.value?.add) value = value + asNum(apAE.value.add, 0);
+
+      actorSystemData.action_points.max = max;
+      actorSystemData.action_points.value = Math.clamp(Math.trunc(value), 0, max);
+    }
+
+    // AE: Lucky / Unlucky active slot counts for critical matching.
+    // Primary keys:
+    //  - system.modifiers.lucky_numbers.max (alias: .value)
+    //  - system.modifiers.unlucky_numbers.max (alias: .value)
+    //
+    // Interpretation: only the first N slots are considered active for crit matching.
+    // This does NOT mutate stored lucky/unlucky numbers.
+    {
+      const slotAE = this._getLuckyUnluckySlotAEModifiers();
+      const asNum = (v, d = 0) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : d;
+      };
+
+      const lb = asNum(actorSystemData.characteristics?.lck?.bonus ?? 0, 0);
+      const baseLucky = lb;
+      const baseUnlucky = Math.max(0, 5 - lb);
+
+      const luckySlots = (slotAE.lucky?.override != null)
+        ? asNum(slotAE.lucky.override, baseLucky)
+        : (baseLucky + asNum(slotAE.lucky?.add ?? 0, 0));
+
+      const unluckySlots = (slotAE.unlucky?.override != null)
+        ? asNum(slotAE.unlucky.override, baseUnlucky)
+        : (baseUnlucky + asNum(slotAE.unlucky?.add ?? 0, 0));
+
+      actorSystemData.lucky_numbers ??= {};
+      actorSystemData.unlucky_numbers ??= {};
+
+      actorSystemData.lucky_numbers._activeSlots = Math.clamp(Math.trunc(luckySlots), 0, 10);
+      actorSystemData.unlucky_numbers._activeSlots = Math.clamp(Math.trunc(unluckySlots), 0, 6);
+    }
+
+
     // Set Skill professions to regular professions (This is a fucking mess, but it's the way it's done for now...)
     for (let prof in actorSystemData.professions) {
       if (prof === 'profession1'||prof === 'profession2'||prof === 'profession3'||prof === 'commerce') {
@@ -2038,8 +2445,8 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
       actorSystemData.fatigue.penalty = 0;
     }
 
-    // Set Lucky/Unlucky Numbers based on Threat Category
-    if (actorSystemData.threat == "minorSolo") {
+    // Set Lucky/Unlucky Numbers based on Threat Category (NPCs only)
+    if (isNPC(this) && actorSystemData.threat == "minorSolo") {
       actorSystemData.unlucky_numbers.ul1 = 95;
       actorSystemData.unlucky_numbers.ul2 = 96;
       actorSystemData.unlucky_numbers.ul3 = 97;
@@ -2056,7 +2463,7 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
       actorSystemData.lucky_numbers.ln8 = 0;
       actorSystemData.lucky_numbers.ln9 = 0;
       actorSystemData.lucky_numbers.ln10 = 0;
-    } else if (actorSystemData.threat == "minorGroup") {
+    } else if (isNPC(this) && actorSystemData.threat == "minorGroup") {
       actorSystemData.unlucky_numbers.ul1 = 0;
       actorSystemData.unlucky_numbers.ul2 = 96;
       actorSystemData.unlucky_numbers.ul3 = 97;
@@ -2073,7 +2480,7 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
       actorSystemData.lucky_numbers.ln8 = 0;
       actorSystemData.lucky_numbers.ln9 = 0;
       actorSystemData.lucky_numbers.ln10 = 0;
-    } else if (actorSystemData.threat == "majorSolo") {
+    } else if (isNPC(this) && actorSystemData.threat == "majorSolo") {
       actorSystemData.unlucky_numbers.ul1 = 0;
       actorSystemData.unlucky_numbers.ul2 = 0;
       actorSystemData.unlucky_numbers.ul3 = 97;
@@ -2090,7 +2497,7 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
       actorSystemData.lucky_numbers.ln8 = 0;
       actorSystemData.lucky_numbers.ln9 = 0;
       actorSystemData.lucky_numbers.ln10 = 0;
-    } else if (actorSystemData.threat == "majorGroup") {
+    } else if (isNPC(this) && actorSystemData.threat == "majorGroup") {
       actorSystemData.unlucky_numbers.ul1 = 0;
       actorSystemData.unlucky_numbers.ul2 = 0;
       actorSystemData.unlucky_numbers.ul3 = 0;
@@ -2107,7 +2514,7 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
       actorSystemData.lucky_numbers.ln8 = 0;
       actorSystemData.lucky_numbers.ln9 = 0;
       actorSystemData.lucky_numbers.ln10 = 0;
-    } else if (actorSystemData.threat == "deadlySolo") {
+    } else if (isNPC(this) && actorSystemData.threat == "deadlySolo") {
       actorSystemData.unlucky_numbers.ul1 = 0;
       actorSystemData.unlucky_numbers.ul2 = 0;
       actorSystemData.unlucky_numbers.ul3 = 0;
@@ -2124,7 +2531,7 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
       actorSystemData.lucky_numbers.ln8 = 0;
       actorSystemData.lucky_numbers.ln9 = 0;
       actorSystemData.lucky_numbers.ln10 = 0;
-    } else if (actorSystemData.threat == "deadlyGroup") {
+    } else if (isNPC(this) && actorSystemData.threat == "deadlyGroup") {
       actorSystemData.unlucky_numbers.ul1 = 0;
       actorSystemData.unlucky_numbers.ul2 = 0;
       actorSystemData.unlucky_numbers.ul3 = 0;
@@ -2141,7 +2548,7 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
       actorSystemData.lucky_numbers.ln8 = 0;
       actorSystemData.lucky_numbers.ln9 = 0;
       actorSystemData.lucky_numbers.ln10 = 0;
-    } else if (actorSystemData.threat == "legendarySolo") {
+    } else if (isNPC(this) && actorSystemData.threat == "legendarySolo") {
       actorSystemData.unlucky_numbers.ul1 = 0;
       actorSystemData.unlucky_numbers.ul2 = 0;
       actorSystemData.unlucky_numbers.ul3 = 0;
@@ -2158,7 +2565,7 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
       actorSystemData.lucky_numbers.ln8 = 8;
       actorSystemData.lucky_numbers.ln9 = 9;
       actorSystemData.lucky_numbers.ln10 = 10;
-    } else if (actorSystemData.threat == "legendaryGroup") {
+    } else if (isNPC(this) && actorSystemData.threat == "legendaryGroup") {
       actorSystemData.unlucky_numbers.ul1 = 0;
       actorSystemData.unlucky_numbers.ul2 = 0;
       actorSystemData.unlucky_numbers.ul3 = 0;
