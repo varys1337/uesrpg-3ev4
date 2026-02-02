@@ -16,6 +16,18 @@ export function canUseLuck(actor) {
   if (!actor) return false;
   if (!isNPC(actor)) return true;
   try {
+    // Primary rule: NPCs do not have Luck unless explicitly allowed.
+    // Supported allow signals:
+    // - A trait item with system.activation.flags.npcLuckAllowed === true
+    // - Legacy/GM override actor flag flags.uesrpg-3ev4.npcLuckAllowed
+    const items = actor.items ? Array.from(actor.items.values?.() ?? actor.items ?? []) : [];
+    const allowedByTrait = items.some(i => {
+      if (!i) return false;
+      if (String(i.type ?? "").toLowerCase() !== "trait") return false;
+      return i.system?.activation?.flags?.npcLuckAllowed === true;
+    });
+    if (allowedByTrait) return true;
+
     return actor.getFlag?.(SYSTEM_ID, NPC_LUCK_FLAG) === true;
   } catch (_e) {
     return false;
@@ -36,6 +48,10 @@ export function canUseHeroicActions(actor) {
     const hasEliteTrait = items.some(i => {
       if (!i) return false;
       if (String(i.type ?? "").toLowerCase() !== "trait") return false;
+
+      // Prefer canonical traitKey if present.
+      const tKey = String(i.system?.traitKey ?? "").trim().toLowerCase();
+      if (tKey === "elite") return true;
 
       const name = String(i.name ?? "").trim().toLowerCase();
       if (name === "elite") return true;

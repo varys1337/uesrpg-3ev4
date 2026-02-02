@@ -335,7 +335,7 @@ async function _handleHudToggle(app, actor, statusId) {
     // Frenzied: requires custom application for talent-based dynamic changes
     const active = hasCondition(actor, statusId);
     if (active) {
-      await removeFrenzied(actor, { applySPLoss: false }); // No SP loss on manual toggle
+      await removeFrenzied(actor);
     } else {
       await applyFrenzied(actor, { source: "Token HUD", voluntary: true });
     }

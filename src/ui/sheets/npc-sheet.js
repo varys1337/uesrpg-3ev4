@@ -2,13 +2,18 @@
  * Extend the basic ActorSheet with some very simple modifications
  * @extends {ActorSheet}
  */
-import { getDamageTypeFromWeapon } from "../../core/combat/combat-utils.js";
+import { getAttackModeFromWeapon, getDamageTypeFromWeapon, recordDashStart } from "../../core/combat/combat-utils.js";
+import { hasCondition } from "../../core/conditions/condition-engine.js";
 import { requireUserCanRollActor } from "../../utils/permissions.js";
 import { doTestRoll, formatDegree } from "../../utils/degree-roll-helper.js";
+import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../core/traits/awareness-talents.js";
+import { hasTalent } from "../../core/traits/talents-api.js";
+import { hasOpponentWithTalentInMeleeRange } from "../../core/traits/combat-proximity.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../core/skills/skill-tn.js";
 import { buildSkillRollRequest, normalizeSkillRollOptions } from "../../core/skills/roll-request.js";
 import { SkillOpposedWorkflow } from "../../core/skills/opposed-workflow.js";
 import { OpposedWorkflow } from "../../core/combat/opposed-workflow.js";
+import { setLastMeleeWeaponForActor } from "../canvas/reach-visualizer-state.js";
 import { postItemToChat } from "./shared-handlers.js";
 import {
   buildCombatQuickContext,
@@ -22,6 +27,7 @@ import {
 import { buildSpecialActionsForActor, getActiveCombatStyleId, getExplicitActiveCombatStyleItem, isSpecialActionUsableNow } from "../../core/combat/combat-style-utils.js";
 import { AimAudit } from "../../core/combat/aim-audit.js";
 import { createOrUpdateStatusEffect } from "../../core/active-effects/status-effect.js";
+import { buildEffectDuration } from "../../core/time/effect-duration.js";
 import { getSpecialActionById } from "../../core/config/special-actions.js";
 import {
   getCollapsedGroups,
@@ -360,22 +366,8 @@ async activateListeners(html) {
 
 
 
-    const buildTemporaryDuration = ({ rounds = null, seconds = null } = {}) => {
-      const combat = game.combat ?? null;
-      if (combat && combat.started) {
-        const r = Number(rounds);
-        const out = {
-          startRound: Number(combat.round ?? 0) || 0,
-          startTurn: Number(combat.turn ?? 0) || 0,
-        };
-        if (Number.isFinite(r) && r > 0) out.rounds = r;
-        return out;
-      }
-
-      const s = Number(seconds);
-      const startTime = Number(game?.time?.worldTime ?? 0) || 0;
-      if (Number.isFinite(s) && s > 0) return { startTime, seconds: s };
-      return {};
+    const buildTemporaryDuration = ({ rounds = null, turns = null, seconds = null } = {}) => {
+      return buildEffectDuration({ actor: this.actor, rounds, turns, seconds });
     };
 
     const _deleteEffect = async (effect) => {
@@ -527,7 +519,12 @@ async activateListeners(html) {
         const tn = base + fatiguePenalty + carryPenalty + woundPenalty;
 
         const label = String(btn?.dataset?.label ?? "Attack");
-        const attackMode = label.toLowerCase().includes("ranged") ? "ranged" : "melee";
+        const weaponItem = this.actor?.items?.get?.(weaponId);
+        const attackMode = weaponItem?.system?.attackMode;
+
+        if (attackMode === "melee") {
+          try { void setLastMeleeWeaponForActor(this.actor.id, weaponId); } catch (_e) { /* no-op */ }
+        }
 
         await OpposedWorkflow.createPending({
           attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
@@ -544,6 +541,11 @@ async activateListeners(html) {
       }
 
       case "disengage": {
+        const selfToken = resolveTokenForActor(this.actor);
+        if (selfToken && hasOpponentWithTalentInMeleeRange(selfToken, "unrelenting")) {
+          ui.notifications.warn("Disengage is prevented by Unrelenting (opponent in melee range).");
+          return;
+        }
         if (!(await requireAP("Disengage", 1))) return;
         await breakAimChainIfPresent();
         await postActionCard(
@@ -790,6 +792,7 @@ async activateListeners(html) {
           "Dash",
           "<p>The character can use this action in order to move up to their Speed. If this is done on their Turn, this movement is added to their base movement for that Turn. This action can be used to allow a character to move several times their Speed during a round.</p>"
         );
+        await recordDashStart(this.actor);
         return;
       }
 
@@ -889,7 +892,9 @@ async activateListeners(html) {
         // Check for Power Draw stamina effect
         const { applyPowerDrawBonus } = await import("../../core/stamina/stamina-integration-hooks.js");
         const powerDrawReduction = await applyPowerDrawBonus(this.actor, rangedWeapon);
-        let effectiveReloadCost = Math.max(0, reloadCost - powerDrawReduction);
+        const hasRapidReload = hasTalent(this.actor, "rapidreload") || hasTalent(this.actor, "dualrapidreloadfighter");
+        const talentReloadReduction = hasRapidReload ? 1 : 0;
+        let effectiveReloadCost = Math.max(0, reloadCost - powerDrawReduction - talentReloadReduction);
         
         // Check AP availability
         const currentAP = Number(this.actor.system?.action_points?.value ?? 0);
@@ -910,8 +915,11 @@ async activateListeners(html) {
         });
         
         // Build chat message content
-        const powerDrawNote = powerDrawReduction > 0 
-          ? `<p><em>Power Draw bonus: -${powerDrawReduction} AP</em></p>` 
+        const powerDrawNote = powerDrawReduction > 0
+          ? `<p><em>Power Draw bonus: -${powerDrawReduction} AP</em></p>`
+          : "";
+        const talentNote = talentReloadReduction > 0
+          ? `<p><em>Rapid Reload: -${talentReloadReduction} AP</em></p>`
           : "";
         
         // Send chat message
@@ -926,8 +934,9 @@ async activateListeners(html) {
               </header>
               <div class="card-content">
                 <p><strong>${this.actor.name}</strong> reloads <strong>${rangedWeapon.name}</strong>.</p>
-                <p><em>AP Cost: ${effectiveReloadCost}${powerDrawReduction > 0 ? ` (${reloadCost} - ${powerDrawReduction})` : ""}</em></p>
+                <p><em>AP Cost: ${effectiveReloadCost}${(powerDrawReduction > 0 || talentReloadReduction > 0) ? ` (${reloadCost}${powerDrawReduction > 0 ? ` - ${powerDrawReduction}` : ""}${talentReloadReduction > 0 ? ` - ${talentReloadReduction}` : ""})` : ""}</em></p>
                 ${powerDrawNote}
+                ${talentNote}
                 <p>Remaining AP: ${newAP}</p>
               </div>
             </div>
@@ -1704,6 +1713,10 @@ async _onProfessionsRoll(event) {
     allowUnlucky: true
   });
 
+  // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
+  await applyKeenIntuitionToResult(this.actor, profSkillItem?.name ?? "", res, { allowPrompt: true });
+  await applyHyperAwarenessToResult(this.actor, profSkillItem?.name ?? "", res, { allowPrompt: true });
+
   const degreeLine = res.isSuccess
     ? `<b style="color:green;">SUCCESS — ${formatDegree(res)}</b>`
     : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(res)}</b>`;
@@ -1829,6 +1842,10 @@ async _onDefendRoll(event) {
     allowUnlucky: true
   });
 
+  // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
+  await applyKeenIntuitionToResult(this.actor, skillItem?.name ?? "", res, { allowPrompt: true });
+  await applyHyperAwarenessToResult(this.actor, skillItem?.name ?? "", res, { allowPrompt: true });
+
   const degreeLine = res.isSuccess
     ? `<b style="color:green;">SUCCESS — ${formatDegree(res)}</b>`
     : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(res)}</b>`;
@@ -1892,7 +1909,17 @@ async _onDefendRoll(event) {
   const finalDamage = resolvedSupRoll ? Math.max(roll.total, resolvedSupRoll.total) : roll.total;
   
   // Get damage type from weapon
-  const damageType = window.Uesrpg3e?.utils?.getDamageTypeFromWeapon(item) || 'physical';
+  const damageType = getDamageTypeFromWeapon(item) || 'physical';
+  const attackMode = getAttackModeFromWeapon(item);
+  const attackHidden = hasCondition(this.actor, "hidden");
+  const ammoUuid = (() => {
+    if (attackMode !== "ranged") return "";
+    const ammoId = String(item.system?.ammoId ?? "").trim();
+    if (!ammoId) return "";
+    const ammo = this.actor.items.get(ammoId);
+    if (!ammo || ammo.type !== "ammunition") return "";
+    return String(ammo.uuid ?? "");
+  })();
   
   // Get targeted actors for damage application
   const targets = Array.from(game.user.targets || []);
@@ -1903,9 +1930,20 @@ async _onDefendRoll(event) {
       applyDamageButtons += `
         <button class="apply-damage-btn" 
                 data-actor-id="${target.actor.id}" 
+                data-target-uuid="${target.actor.uuid}"
+                data-attacker-actor-uuid="${this.actor.uuid}"
+                data-weapon-uuid="${item.uuid}"
+                data-ammo-uuid="${ammoUuid}"
                 data-damage="${finalDamage}" 
                 data-type="${damageType}" 
                 data-location="${hit_loc}"
+                data-damage-type="${damageType}"
+                data-hit-location="${hit_loc}"
+                data-dos-bonus="0"
+                data-penetration="0"
+                data-attack-mode="${attackMode}"
+                data-attack-hidden="${attackHidden ? "1" : "0"}"
+                data-source="${item.name}"
                 style="margin:  0.25rem; padding: 0.25rem 0.5rem; background: #8b0000; color: white; border:  none; border-radius: 3px; cursor: pointer;">
           Apply ${finalDamage} ${damageType} damage to ${target.name} (${hit_loc})
         </button>`;

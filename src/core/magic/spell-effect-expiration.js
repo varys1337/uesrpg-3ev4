@@ -283,12 +283,11 @@ export function initializeSpellEffectExpirationSystem() {
 
   // Combat: combat turn/round progression does not reliably emit world-time changes.
   // We therefore expire spell effects on combat updates as well.
-  Hooks.on("updateCombat", async (_combat, changed) => {
+  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
     if (!game.user?.isGM) return;
-    const hasTurnOrRound = Object.prototype.hasOwnProperty.call(changed ?? {}, "turn")
-      || Object.prototype.hasOwnProperty.call(changed ?? {}, "round");
-    if (!hasTurnOrRound) return;
-    await _expireSpellEffects({ nowTime: MagicTimekeeping.nowWorldTimeSeconds(), source: "combat" });
+    if (payload?.source !== "combat") return;
+    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+    await _expireSpellEffects({ nowTime: _num(payload?.worldTime, MagicTimekeeping.nowWorldTimeSeconds()), source: "combat" });
   });
 
   Hooks.on("createCombat", async () => {
@@ -296,4 +295,14 @@ export function initializeSpellEffectExpirationSystem() {
     if (!game.user?.isGM) return;
     await _expireSpellEffects({ nowTime: MagicTimekeeping.nowWorldTimeSeconds(), source: "combat" });
   });
+}
+
+// Exported helpers for other time-bound systems (combat, conditions) to reuse
+// the same expiration semantics without duplicating logic.
+export function isEffectExpiredByWorldTime(effect, nowTime) {
+  return _isExpiredByWorldTime(effect, nowTime);
+}
+
+export function isEffectExpiredByCombat(effect, combat, options = {}) {
+  return _isExpiredByCombat(effect, combat, options);
 }

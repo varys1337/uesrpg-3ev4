@@ -39,6 +39,14 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
     data.editable = data.options.editable;
     const itemData = data.item;
 
+    // Convenience flags for templates (AppV1 Handlebars has limited boolean expressions).
+    data.canEditReloadAPCost = Boolean(
+      data.editable &&
+      data.item?.type === "weapon" &&
+      String(data.item?.system?.attackMode ?? "") === "ranged" &&
+      data.item?.system?.gmOverride?.useBaseStats === true
+    );
+
     // Enrich Description (AppV1-safe)
     data.item.system.enrichedDescription = await foundry.applications.ux.TextEditor.implementation.enrichHTML(
       itemData.system.description,
@@ -396,6 +404,23 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
       formData["system.reach"] = reachValue;
     } else {
       formData["system.reach"] = "";
+    }
+
+    // Weapon Reload mirroring:
+    // - The weapon sheet exposes a dedicated Reload AP Cost field (system.reloadState.reloadAPCost).
+    // - Combat automation derives reloadState from the structured Reload quality when present.
+    // - When the Reload field is editable (Manual Base Stats), keep both in sync.
+    if (Object.prototype.hasOwnProperty.call(formData, "system.reloadState.reloadAPCost") && this.item?.type === "weapon") {
+      const raw = Number(formData["system.reloadState.reloadAPCost"]);
+      const reloadAPCost = Number.isFinite(raw) ? Math.max(0, Math.trunc(raw)) : 0;
+      formData["system.reloadState.reloadAPCost"] = reloadAPCost;
+      formData["system.reloadState.requiresReload"] = reloadAPCost > 0;
+
+      // Remove any existing structured Reload entries, then re-add if present.
+      for (let i = structured.length - 1; i >= 0; i--) {
+        if (structured[i] && structured[i].key === "reload") structured.splice(i, 1);
+      }
+      if (reloadAPCost > 0) structured.push({ key: "reload", value: reloadAPCost });
     }
 
     // Deterministic ordering is useful for JSON exports/diffs.

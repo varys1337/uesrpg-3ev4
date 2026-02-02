@@ -10,6 +10,8 @@
  * We therefore tick wound automation at the end of each combatant's own turn.
  */
 
+import { isActiveGMUser } from "./wound-schema.js";
+
 let _registered = false;
 
 /** @type {Map<string, {round: number, turn: number, combatantId: string|null}>} */
@@ -56,10 +58,15 @@ export function registerWoundCombatTicker({ tickActorEndTurn } = {}) {
     _combatState.delete(String(combat.id));
   });
 
-  Hooks.on("updateCombat", async (combat, changes) => {
+  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
     // Avoid double-ticks from multiple connected clients: only the GM runs deterministic ticking.
-    if (game?.user?.isGM !== true) return;
+    if (!isActiveGMUser(game.user)) return;
+    if (payload?.source !== "combat") return;
+    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+    const combat = game?.combat ?? null;
     if (!combat?.id) return;
+    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
 
     const prev = _getState(combat);
     if (!prev) {
@@ -67,11 +74,11 @@ export function registerWoundCombatTicker({ tickActorEndTurn } = {}) {
       return;
     }
 
-    const relevant = ("round" in (changes ?? {})) || ("turn" in (changes ?? {})) || ("combatantId" in (changes ?? {}));
-    if (!relevant) return;
-
     const prevCombatantId = prev.combatantId;
+    const next = _snapshotCombat(combat);
+    const advanced = (next.round !== prev.round) || (next.turn !== prev.turn) || (next.combatantId !== prevCombatantId);
     _setState(combat);
+    if (!advanced) return;
 
     if (!tickFn || !prevCombatantId) return;
 

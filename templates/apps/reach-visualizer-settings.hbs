@@ -1,0 +1,146 @@
+<form class="uesrpg-form" autocomplete="off">
+  <header class="sheet-header">
+    <h2>Reach Visualizer</h2>
+    <p class="notes">
+      Visualize active melee reach on the canvas.
+      <br/>
+      <em>Grid-aware</em> supports square and hex grids and falls back to smooth rings on gridless scenes.
+    </p>
+  </header>
+
+  <fieldset>
+    <legend>Behaviour</legend>
+
+    <div class="form-group">
+      <label>Enabled</label>
+      <input type="checkbox" name="enabled" {{checked settings.enabled}} />
+    </div>
+
+    <div class="form-group">
+      <label title="Which tokens get an overlay drawn.">Display on</label>
+      <select name="behaviour">
+        {{selectOptions behaviourChoices selected=settings.behaviour}}
+      </select>
+      <p class="hint">Controls which tokens qualify for an overlay. Visibility rules are applied afterwards.</p>
+    </div>
+
+    <div class="form-group">
+      <label title="When the overlay is shown for qualifying tokens.">Visibility</label>
+      <select name="visibility">
+        {{selectOptions visibilityChoices selected=settings.visibility}}
+      </select>
+      <p class="hint">
+        <strong>Dynamic</strong> shows all qualifying tokens at Passive Opacity and highlights the hovered token at Active Opacity.
+      </p>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Source of truth</legend>
+
+    <div class="form-group">
+      <label title="How the active melee reach is determined for an actor.">Active reach source</label>
+      <select name="reachSource">
+        {{selectOptions reachSourceChoices selected=settings.reachSource}}
+      </select>
+      <p class="hint">
+        “Last-used” is stored per user and updates when you initiate a melee attack from a sheet.
+        Falls back to max equipped reach when unknown.
+      </p>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Appearance</legend>
+
+    <div class="form-group">
+      <label title="How the reach boundary is drawn.">Shape</label>
+      <select name="shape">
+        {{selectOptions shapeChoices selected=settings.shape}}
+      </select>
+      <p class="hint">
+        Grid-aware boundaries are outlined on the grid.
+        On hex scenes, reach uses an AoE-style emanation (radius in hexes).
+        On gridless scenes it automatically falls back to smooth rings.
+      </p>
+    </div>
+
+    <div class="form-group">
+      <label title="Color scheme for multi-token readability.">Color mode</label>
+      <select name="colorMode">
+        {{selectOptions colorModeChoices selected=settings.colorMode}}
+      </select>
+      <p class="hint">In disposition mode: friendly / neutral / hostile tokens are color-coded.</p>
+    </div>
+
+    <div class="form-group rv-uniform-color-row">
+      <label title="Used when Color mode is set to Uniform color.">Uniform color</label>
+      <input type="color" name="uniformColor" value="{{settings.uniformColor}}" />
+      <p class="hint">Applies to all overlays when Uniform color is selected.</p>
+    </div>
+
+    <div class="form-group rv-opacity-single">
+      <label title="Opacity applied to the overlay rings.">Opacity</label>
+      <div class="form-fields">
+        <input type="range" name="opacity" min="0.05" max="1" step="0.05" value="{{settings.opacity}}" data-range-value="opacity" />
+        <span class="range-value" data-range-value="opacity">{{settings.opacity}}</span>
+      </div>
+    </div>
+
+    <div class="rv-opacity-dynamic">
+      <div class="form-group">
+        <label title="Opacity for non-hovered tokens in Dynamic mode.">Passive opacity</label>
+        <div class="form-fields">
+          <input type="range" name="passiveOpacity" min="0.05" max="1" step="0.05" value="{{settings.passiveOpacity}}" data-range-value="passiveOpacity" />
+          <span class="range-value" data-range-value="passiveOpacity">{{settings.passiveOpacity}}</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label title="Opacity for the hovered token in Dynamic mode.">Active opacity</label>
+        <div class="form-fields">
+          <input type="range" name="activeOpacity" min="0.05" max="1" step="0.05" value="{{settings.activeOpacity}}" data-range-value="activeOpacity" />
+          <span class="range-value" data-range-value="activeOpacity">{{settings.activeOpacity}}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label title="Line thickness in pixels.">Line width</label>
+      <div class="form-fields">
+        <input type="range" name="lineWidth" min="1" max="12" step="1" value="{{settings.lineWidth}}" data-range-value="lineWidth" />
+        <span class="range-value" data-range-value="lineWidth">{{settings.lineWidth}}</span>
+      </div>
+    </div>
+
+    <p class="hint">
+      Minimum reach is always shown when present (dashed inner boundary). Maximum reach is shown as a solid boundary.
+    </p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Labels</legend>
+
+    <div class="form-group">
+      <label>Show reach label</label>
+      <input type="checkbox" name="showLabel" {{checked settings.showLabel}} />
+      <p class="hint">Shows the active melee reach value above the token.</p>
+    </div>
+
+    <div class="form-group">
+      <label title="When you have exactly one target, show distance to that target on the controlled token(s).">Show target distance</label>
+      <input type="checkbox" name="showTargetDistance" {{checked settings.showTargetDistance}} />
+      <p class="hint">Only shown when exactly one target is set and the token is controlled.</p>
+    </div>
+
+    <div class="form-group">
+      <label title="If enabled, includes vertical elevation in the target distance (3D).">Include elevation (3D)</label>
+      <input type="checkbox" name="includeElevation" {{checked settings.includeElevation}} />
+      <p class="hint">Uses token elevation (in scene units) combined with Foundry’s horizontal grid-distance rules.</p>
+    </div>
+  </fieldset>
+
+  <footer class="sheet-footer flexrow">
+    <button type="submit"><i class="fas fa-save"></i> Save Settings</button>
+  </footer>
+</form>

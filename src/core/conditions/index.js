@@ -3,6 +3,7 @@
  */
 
 import { registerConditionHooks, ConditionsAPI, auditConditionRegistry } from "./condition-engine.js";
+export { CONDITION_KEYS } from "./condition-engine.js";
 import { registerConditionTurnTicker } from "./turn-ticker.js";
 import { registerSystemStatusEffects, registerStatusHudInterop } from "./status-hud.js";
 

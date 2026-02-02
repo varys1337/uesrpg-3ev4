@@ -249,10 +249,15 @@ export function registerBleeding() {
     _combatState.delete(String(combat.id));
   });
 
-  Hooks.on("updateCombat", async (combat) => {
+  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
     // Deterministic ticking: GM only.
     if (game?.user?.isGM !== true) return;
+    if (payload?.source !== "combat") return;
+    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+    const combat = game?.combat ?? null;
     if (!combat?.id) return;
+    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
 
     const prev = _getState(combat);
     const next = {

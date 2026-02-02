@@ -54,9 +54,20 @@ function addDiceBonus(dice, bonus) {
   return `${d}${b >= 0 ? "+" : ""}${b}`;
 }
 
+function halveDiceExpression(dice) {
+  const d = normalizeDiceExpression(dice);
+  if (!d) return "0";
+  if (/^-?\d+(?:\.\d+)?$/.test(d)) return String(Math.floor(Number(d) / 2));
+  return `floor((${d})/2)`;
+}
+
 function safeNumber(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function shouldUseBaseStats(itemData) {
+  return itemData?.gmOverride?.useBaseStats === true;
 }
 
 function hasLegacyQuality(qualitiesText, needle) {
@@ -98,6 +109,14 @@ function hasStructuredQuality(qualitiesStructured, key) {
   return qualitiesStructured.some(q => (q?.key ?? q) === key);
 }
 
+function _parseRangeTriplet(text) {
+  const raw = String(text ?? "").trim();
+  if (!raw) return null;
+  const m = raw.match(/^(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)$/);
+  if (!m) return null;
+  return { close: Number(m[1]), effective: Number(m[2]), long: Number(m[3]) };
+}
+
 export class SimpleItem extends Item {
   async _preCreate(data, options, user) {
     await super._preCreate(data, options, user);
@@ -130,21 +149,29 @@ export class SimpleItem extends Item {
     // This preliminary injection allows type-specific prepare methods (like _prepareWeaponItem) 
     // to access qualitiesStructuredInjected for features that depend on manual qualities (like Reload).
     if (['weapon','armor','ammunition'].includes(this.type)) {
+      itemData.gmOverride = itemData.gmOverride ?? {};
+      const sourceId = this?.flags?.core?.sourceId;
+      const mat = String(itemData.material ?? itemData.ammoMaterial ?? "standard").toLowerCase();
+      const qual = String(itemData.qualityLevel ?? "common").toLowerCase();
+      const shouldDefaultBase = Boolean(sourceId) && (mat !== "standard" || qual !== "common");
+      if (itemData.gmOverride.useBaseStats === undefined && shouldDefaultBase) {
+        itemData.gmOverride.useBaseStats = true;
+      }
       this._injectAutoQualities(itemData);
     }
 
     // STEP 2: Prepare data based on item type - defensive guards for hasOwnProperty
     // These methods can now use qualitiesStructuredInjected (with manual qualities).
     // They also create autoQualitiesStructured for material/quality-derived qualities.
-    if (this.isEmbedded && this.actor?.system != null) {
-      if (this.system && Object.prototype.hasOwnProperty.call(this.system, 'modPrice')) { this._prepareMerchantItem(actorData, itemData) }
-      if (this.type === 'armor') { this._prepareArmorItem(actorData, itemData) }
-      if (this.type === 'item') { this._prepareNormalItem(actorData, itemData) }
-      if (this.type === 'weapon') { this._prepareWeaponItem(actorData, itemData) }
-      if (this.type === 'ammunition') { this._prepareAmmunitionItem(actorData, itemData) }
-      if (this.system && Object.prototype.hasOwnProperty.call(this.system, 'skillArray') && actorData.type === 'Player Character') { this._prepareModSkillItems(actorData, itemData) }
-      if (this.system && Object.prototype.hasOwnProperty.call(this.system, 'baseCha')) { this._prepareCombatStyleData(actorData, itemData) }
-      if (this.type == 'container') { this._prepareContainerItem(actorData, itemData) }}
+    const hasActor = this.isEmbedded && this.actor?.system != null;
+    if (hasActor && this.system && Object.prototype.hasOwnProperty.call(this.system, 'modPrice')) { this._prepareMerchantItem(actorData, itemData) }
+    if (this.type === 'armor') { this._prepareArmorItem(actorData, itemData) }
+    if (this.type === 'item') { this._prepareNormalItem(actorData, itemData) }
+    if (this.type === 'weapon') { this._prepareWeaponItem(actorData, itemData) }
+    if (this.type === 'ammunition') { this._prepareAmmunitionItem(actorData, itemData) }
+    if (hasActor && this.system && Object.prototype.hasOwnProperty.call(this.system, 'skillArray') && actorData.type === 'Player Character') { this._prepareModSkillItems(actorData, itemData) }
+    if (hasActor && this.system && Object.prototype.hasOwnProperty.call(this.system, 'baseCha')) { this._prepareCombatStyleData(actorData, itemData) }
+    if (hasActor && this.type == 'container') { this._prepareContainerItem(actorData, itemData) }
 
     // STEP 3: Final injection of auto-granted qualities into the computed structured list.
     // This re-runs after prepare methods to include autoQualitiesStructured (material/quality-derived).
@@ -273,6 +300,7 @@ export class SimpleItem extends Item {
   _prepareArmorItem(actorData, itemData) {
     // RAW: Armor has two classes (partial/full) and shields use BR; these profiles are derived
     // from the Chapter 7 tables and then modified by quality and certain traits.
+    const useBaseStats = shouldUseBaseStats(itemData);
     const baseEnc = safeNumber(itemData.enc, 0);
     const basePrice = safeNumber(itemData.price, 0);
 
@@ -305,6 +333,19 @@ export class SimpleItem extends Item {
     };
 
     const materialKey = String(itemData.material || "").trim();
+
+    if (useBaseStats) {
+      itemData.armorEffective = safeNumber(itemData.armor, 0);
+      itemData.blockRatingEffective = safeNumber(itemData.blockRating, 0);
+      itemData.magic_arEffective = safeNumber(itemData.magic_ar, 0);
+      itemData.magic_brEffective = safeNumber(itemData.magic_br, 0);
+      itemData.special_ar_typeEffective = itemData.special_ar_type ?? "";
+      itemData.encEffective = baseEnc;
+      itemData.priceEffective = basePrice;
+      itemData.weightClassEffective = itemData.weightClass ?? "none";
+      itemData.enchant_levelEffective = safeNumber(itemData.enchant_level, 0);
+      return;
+    }
 
     if (isShield) {
       const shieldProfile = UESRPG.SHIELD_PROFILES?.[materialKey] ?? null;
@@ -350,6 +391,13 @@ export class SimpleItem extends Item {
       }
     }
 
+    // Runed (armor/shield): +25% price (derived only).
+    const hasRuned = (itemData.qualitiesStructured || []).some(q => String(q?.key ?? "").toLowerCase() === "runed")
+      || hasLegacyQuality(itemData.qualities, "runed");
+    if (!useBaseStats && hasRuned) {
+      derivedPrice = Math.round(Number(derivedPrice ?? 0) * 1.25);
+    }
+
     itemData.encEffective = derivedEnc;
     itemData.priceEffective = derivedPrice;
     itemData.weightClassEffective = derivedWeightClass;
@@ -365,6 +413,7 @@ export class SimpleItem extends Item {
     itemData.weapon2H ? itemData.damage3 = itemData.damage2 : itemData.damage3 = itemData.damage
 
     // --- Derived (non-persisted) effective stats ---
+    const useBaseStats = shouldUseBaseStats(itemData);
     const baseDamage = normalizeDiceExpression(itemData.damage);
     const baseDamage2 = normalizeDiceExpression(itemData.damage2);
     const baseEnc = safeNumber(itemData.enc, 0);
@@ -381,9 +430,17 @@ export class SimpleItem extends Item {
     const isThrown = hasStructuredQuality(itemData.qualitiesStructured, "thrown") || hasLegacyQuality(itemData.qualities, "thrown");
     const useMeleeMaterial = (attackMode === "melee") || (attackMode === "ranged" && isThrown);
 
-    const mRule = useMeleeMaterial
-      ? (UESRPG.WEAPON_MATERIAL_RULES_MELEE?.[matKey] ?? null)
-      : (UESRPG.WEAPON_MATERIAL_RULES_RANGED?.[matKey] ?? null);
+    const injected = itemData.qualitiesStructuredInjected ?? itemData.qualitiesStructured ?? [];
+    const traits = Array.isArray(itemData.qualitiesTraits) ? itemData.qualitiesTraits : [];
+    const isSling = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "sling")
+      || traits.some(t => String(t ?? "").toLowerCase() === "sling")
+      || hasLegacyQuality(itemData.qualities, "sling");
+
+    const mRule = isSling
+      ? (UESRPG.WEAPON_MATERIAL_RULES_SLING?.[matKey] ?? null)
+      : (useMeleeMaterial
+        ? (UESRPG.WEAPON_MATERIAL_RULES_MELEE?.[matKey] ?? null)
+        : (UESRPG.WEAPON_MATERIAL_RULES_RANGED?.[matKey] ?? null));
 
     const damageMod = safeNumber(mRule?.damageMod, 0);
     const encDelta = safeNumber(mRule?.encDelta, 0);
@@ -405,15 +462,31 @@ export class SimpleItem extends Item {
     const applyHalfDamage = (special === "bone") || (special === "wood" && !woodException);
 
     // NOTE: We avoid rewriting base fields; these are used by sheets & future automation.
-    itemData.damageEffective = applyHalfDamage ? String(baseDamage) : addDiceBonus(baseDamage, damageMod);
-    itemData.damage2Effective = applyHalfDamage ? String(baseDamage2) : addDiceBonus(baseDamage2, damageMod);
-    itemData.damage3Effective = itemData.weapon2H ? itemData.damage2Effective : itemData.damageEffective;
+    if (useBaseStats) {
+      itemData.damageEffective = String(baseDamage);
+      itemData.damage2Effective = String(baseDamage2);
+      itemData.damage3Effective = itemData.weapon2H ? itemData.damage2Effective : itemData.damageEffective;
+      itemData.encEffective = baseEnc;
+      itemData.priceEffective = basePrice;
+      itemData.enchant_levelEffective = safeNumber(itemData.enchant_level, 0);
+    } else {
+      itemData.damageEffective = applyHalfDamage ? halveDiceExpression(baseDamage) : addDiceBonus(baseDamage, damageMod);
+      itemData.damage2Effective = applyHalfDamage ? halveDiceExpression(baseDamage2) : addDiceBonus(baseDamage2, damageMod);
+      itemData.damage3Effective = itemData.weapon2H ? itemData.damage2Effective : itemData.damageEffective;
 
-    itemData.encEffective = baseEnc + encDelta;
-    itemData.priceEffective = Math.round(basePrice * matPriceMult * qualityPriceMult);
+      itemData.encEffective = baseEnc + encDelta;
+      itemData.priceEffective = Math.round(basePrice * matPriceMult * qualityPriceMult);
 
-    // Enchant level is defined by material.
-    if (mRule?.enchantLevel != null) itemData.enchant_levelEffective = safeNumber(mRule.enchantLevel, 0);
+      // Enchant level is defined by material.
+      if (mRule?.enchantLevel != null) itemData.enchant_levelEffective = safeNumber(mRule.enchantLevel, 0);
+    }
+
+    // Runed (weapon): +25% price (derived only).
+    const hasRuned = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "runed")
+      || hasLegacyQuality(itemData.qualities, "runed");
+    if (!useBaseStats && hasRuned) {
+      itemData.priceEffective = Math.round(Number(itemData.priceEffective ?? 0) * 1.25);
+    }
 
     // Store auto-qualities (material + quality), without mutating the user's toggle list.
     const materialAuto = Array.isArray(mRule?.autoQualities) ? mRule.autoQualities : [];
@@ -426,14 +499,25 @@ export class SimpleItem extends Item {
     let reloadAPCost = 0;
     let requiresReload = false;
 
-    if (itemData.attackMode === "ranged") {
-      const injected = itemData.qualitiesStructuredInjected ?? [];
+    if (attackMode === "ranged") {
+      // Stored (world/pack) base value; used as a fallback for legacy items that don't have structured Reload yet.
+      const storedRaw = Number(itemData?.reloadState?.reloadAPCost ?? 0);
+      const stored = Number.isFinite(storedRaw) ? Math.max(0, Math.trunc(storedRaw)) : 0;
+
       const reloadQuality = injected.find(q => String(q?.key ?? "").toLowerCase() === "reload");
-      
-      if (reloadQuality && reloadQuality.value !== undefined) {
-        reloadAPCost = Math.max(0, Number(reloadQuality.value) || 0);
-        requiresReload = reloadAPCost > 0;
+      const qRaw = (reloadQuality && reloadQuality.value !== undefined) ? Number(reloadQuality.value) : NaN;
+      const fromQuality = Number.isFinite(qRaw) ? Math.max(0, Math.trunc(qRaw)) : null;
+
+      // Manual Base Stats: allow Reload to be authored directly on the item (Reload field on the sheet).
+      if (useBaseStats) {
+        reloadAPCost = stored;
+      } else if (fromQuality != null) {
+        reloadAPCost = fromQuality;
+      } else {
+        reloadAPCost = stored;
       }
+
+      requiresReload = reloadAPCost > 0;
     }
 
     // Store in derived state (non-persisted)
@@ -444,9 +528,40 @@ export class SimpleItem extends Item {
     if (itemData.reloadState.isLoaded === undefined) {
       itemData.reloadState.isLoaded = true;
     }
+
+    // Derived range bands (ranged only): apply material range modifiers when available.
+    if (attackMode === "ranged") {
+      const parsed = _parseRangeTriplet(itemData.range);
+      if (parsed && Number.isFinite(parsed.long)) {
+        const rangeMod = (!useBaseStats && mRule?.rangeMod != null) ? safeNumber(mRule.rangeMod, 0) : 0;
+        const close = Math.max(0, Number(parsed.close) + rangeMod);
+        const medium = Math.max(0, Number(parsed.effective) + rangeMod);
+        const long = Math.max(0, Number(parsed.long) + rangeMod);
+
+        itemData.rangeBandsDerived = {
+          kind: isThrown ? "thrown" : "ranged",
+          source: "rangeField",
+          close: Number(parsed.close) || 0,
+          medium: Number(parsed.effective) || 0,
+          long: Number(parsed.long) || 0,
+          rangeMod,
+          display: `${close}/${medium}/${long}`
+        };
+        itemData.rangeBandsDerivedEffective = {
+          kind: isThrown ? "thrown" : "ranged",
+          source: "rangeField",
+          close,
+          medium,
+          long,
+          rangeMod,
+          display: `${close}/${medium}/${long}`
+        };
+      }
+    }
   }
 
   _prepareAmmunitionItem(actorData, itemData) {
+    const useBaseStats = shouldUseBaseStats(itemData);
     const baseDamage = normalizeDiceExpression(itemData.damage);
     const basePricePer10 = safeNumber(itemData.pricePer10, 0);
     const matKey = String(itemData.ammoMaterial || "iron").toLowerCase();
@@ -455,10 +570,17 @@ export class SimpleItem extends Item {
     const damageMod = safeNumber(mRule?.damageMod, 0);
 
     // Derived effective values; we do not overwrite stored user inputs.
-    itemData.damageEffective = addDiceBonus(baseDamage, damageMod);
-    itemData.enchant_levelEffective = safeNumber(mRule?.enchantLevel, 0);
-    itemData.pricePer10Effective = (mRule?.pricePer10 != null) ? safeNumber(mRule.pricePer10, 0) : basePricePer10;
-    itemData.pricePerShotEffective = Math.round((itemData.pricePer10Effective / 10) * 100) / 100;
+    if (useBaseStats) {
+      itemData.damageEffective = String(baseDamage);
+      itemData.enchant_levelEffective = safeNumber(itemData.enchant_level, 0);
+      itemData.pricePer10Effective = basePricePer10;
+      itemData.pricePerShotEffective = Math.round((basePricePer10 / 10) * 100) / 100;
+    } else {
+      itemData.damageEffective = addDiceBonus(baseDamage, damageMod);
+      itemData.enchant_levelEffective = safeNumber(mRule?.enchantLevel, 0);
+      itemData.pricePer10Effective = (mRule?.pricePer10 != null) ? safeNumber(mRule.pricePer10, 0) : basePricePer10;
+      itemData.pricePerShotEffective = Math.round((itemData.pricePer10Effective / 10) * 100) / 100;
+    }
 
     const materialAuto = Array.isArray(mRule?.autoQualities) ? mRule.autoQualities : [];
     itemData.autoQualitiesStructured = materialAuto
@@ -547,9 +669,20 @@ async _duplicateContainedItemsOnActor(actorData, itemData) {
   }
   _untrainedException(actorData) {
     // Defensive guard: safe property access and array filtering
-    const attribute = actorData.items?.filter(item => item?.system?.untrainedException == true) || [];
+    const items = actorData.items ?? [];
+    const attribute = items?.filter(item => item?.system?.untrainedException == true) || [];
+
+    // Chapter 4 (Arms Master): ignore the usual -20 untrained penalty for Combat Styles.
+    // We treat possession of the Arms Master talent as an implicit untrained-exception.
+    const hasArmsMaster = Array.isArray(items) && items.some((i) => {
+      if (String(i?.type ?? "") !== "talent") return false;
+      const slug = String(i?.system?.slug ?? i?.system?.key ?? i?.system?.id ?? "").toLowerCase();
+      const name = String(i?.name ?? "").toLowerCase();
+      return slug === "armsmaster" || name === "arms master";
+    });
+
     if (this.type !== "combatStyle") return 0;
-    return attribute.length >= 1 ? 20 : 0;
+    return (attribute.length >= 1 || hasArmsMaster) ? 20 : 0;
   }
 
 }

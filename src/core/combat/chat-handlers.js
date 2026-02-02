@@ -89,10 +89,15 @@ async function _onApplyDamage(ev, message) {
   const source = btn.dataset.source || (message?.speaker?.alias ?? "Unknown");
   const penetrateArmorForTriggers = String(btn.dataset.penetrateArmor ?? "0") === "1";
 	const forcefulImpact = String(btn.dataset.forcefulImpact ?? "0") === "1";
-	const pressAdvantage = String(btn.dataset.pressAdvantage ?? "0") === "1";
+  const pressAdvantage = String(btn.dataset.pressAdvantage ?? "0") === "1";
   const ignoreReduction = String(btn.dataset.ignoreReduction ?? "0") === "1";
   const magicSource = String(btn.dataset.magicSource ?? "0") === "1";
   const sourceItemUuid = btn.dataset.sourceItemUuid || null;
+  const attackMode = String(btn.dataset.attackMode ?? "").trim() || null;
+  const attackFromHidden = (String(btn.dataset.attackHidden ?? "").trim() === "1")
+    ? true
+    : (String(btn.dataset.attackHidden ?? "").trim() === "0" ? false : null);
+  const ammoUuid = String(btn.dataset.ammoUuid ?? "").trim() || null;
 
   // Optional enrichment for RAW weapon trait bonuses.
   // If present, these are resolved safely and passed through to applyDamage().
@@ -140,6 +145,9 @@ async function _onApplyDamage(ev, message) {
     attackerActor,
     magicSource,
     sourceItemUuid,
+    attackMode,
+    attackFromHidden,
+    ammoUuid,
   });
 }
 

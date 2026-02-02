@@ -11,6 +11,7 @@
 import { hasCondition, applyCondition, removeCondition } from "../conditions/condition-engine.js";
 import { getSpecialActionById } from "../config/special-actions.js";
 import { ActionEconomy } from "./action-economy.js";
+import { TimeService, buildEffectDuration } from "../time/index.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 
@@ -982,10 +983,13 @@ async function _executeBash({ actor, target, winner, actorName, targetName, isAu
 
 async function _executeBlindOpponent({ actor, target, winner, actorName, targetName, isAutoWin }) {
   if (winner === "attacker" || isAutoWin) {
-    const combat = game.combat ?? null;
-    const duration = combat?.started
-      ? { rounds: 1, startRound: combat.round ?? 0, startTurn: combat.turn ?? 0 }
-      : { seconds: 6 };
+    const roundSeconds = Math.max(1, Number(TimeService.getRoundTimeSeconds?.() ?? 6) || 6);
+    const duration = buildEffectDuration({
+      actor: target,
+      rounds: 1,
+      seconds: roundSeconds,
+      preferCombat: true
+    });
 
     await applyCondition(target, "blinded", { source: "blindOpponent" });
 
@@ -1017,10 +1021,13 @@ async function _executeDisarm({ actor, target, winner, actorName, targetName, is
 
 async function _executeFeint({ actor, target, winner, actorName, targetName, isAutoWin }) {
   if (winner === "attacker" || isAutoWin) {
-    const combat = game.combat ?? null;
-    const duration = combat?.started
-      ? { rounds: 1, startRound: combat.round ?? 0, startTurn: combat.turn ?? 0 }
-      : { seconds: 6 };
+    const roundSeconds = Math.max(1, Number(TimeService.getRoundTimeSeconds?.() ?? 6) || 6);
+    const duration = buildEffectDuration({
+      actor: target,
+      rounds: 1,
+      seconds: roundSeconds,
+      preferCombat: true
+    });
 
     await applyCondition(target, "feinted", { source: "feint" });
 

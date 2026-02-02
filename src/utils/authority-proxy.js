@@ -329,7 +329,14 @@ function _sanitizeGenericUpdatePayload(doc, payload) {
 
   // TokenDocument: extremely conservative.
   if (docName === "Token") {
+    // Allow only the minimal fields we need for safe, deterministic position swaps
+    // (e.g., Defender combat talent). Keep this intentionally narrow.
+    const allowedTokenKeys = new Set(["x", "y"]);
     for (const [k, v] of Object.entries(payload)) {
+      if (allowedTokenKeys.has(k)) {
+        out[k] = _deepClonePlain(v);
+        continue;
+      }
       if (k === "flags" && v && typeof v === "object") {
         out.flags = _deepClonePlain(v);
         continue;

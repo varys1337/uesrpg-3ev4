@@ -1,0 +1,31 @@
+<form class="uesrpg talents-settings" autocomplete="off">
+  <fieldset>
+    <legend>Talents</legend>
+
+    <div class="form-group">
+      <label>Gladiator — Automation Mode</label>
+      <select name="gladiatorAutomationMode" style="width:100%;">
+        <option value="disabled" {{#if (eq gladiatorAutomationMode "disabled")}}selected{{/if}}>Disabled</option>
+        <option value="original" {{#if (eq gladiatorAutomationMode "original")}}selected{{/if}}>Original (Make)</option>
+        <option value="updated" {{#if (eq gladiatorAutomationMode "updated")}}selected{{/if}}>Updated (Can)</option>
+      </select>
+      <p class="notes"><b>Original (Make):</b> "If the character is the target of a melee attack while within the melee range of at least two opponents, then they make a free defensive reaction against that attack, but only once per round."</p>
+      <p class="notes"><b>Updated (Can):</b> "If the character is the target of a melee attack while within the melee range of at least two opponents, then they can make a free defensive reaction against that attack, but only once per round."</p>
+      <p class="notes"><b>Disabled:</b> Gladiator automation is not applied.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Enable Mighty Cleave automation</label>
+      <input type="checkbox" name="enableMightyCleave" {{checked enableMightyCleave}}>
+    </div>
+
+    <div class="form-group">
+      <label>Enable Follow-up Strike automation</label>
+      <input type="checkbox" name="enableFollowUpStrike" {{checked enableFollowUpStrike}}>
+    </div>
+  </fieldset>
+
+  <footer class="sheet-footer flexrow">
+    <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+  </footer>
+</form>

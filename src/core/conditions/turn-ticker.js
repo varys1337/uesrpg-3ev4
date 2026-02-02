@@ -2,7 +2,7 @@
  * src/core/conditions/turn-ticker.js
  *
  * Deterministic end-of-turn condition ticking.
- * Runs GM-only on updateCombat.
+ * Runs GM-only on uesrpg.combatTimeChanged.
  *
  * Also handles start-of-turn expiry for temporary action effects (e.g., Defensive Stance)
  * flagged with `flags.uesrpg.expiresOnTurnStart === true`.
@@ -15,6 +15,27 @@ import { postRegenerationPrompt } from "../traits/trait-automation.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 let _registered = false;
+
+/** @type {Map<string, {round: number, turn: number, combatantId: string|null}>} */
+const _combatState = new Map();
+
+function _snapshotCombat(combat) {
+  return {
+    round: Number(combat?.round ?? 0),
+    turn: Number(combat?.turn ?? 0),
+    combatantId: combat?.combatant?.id ?? combat?.combatantId ?? null
+  };
+}
+
+function _setState(combat) {
+  if (!combat?.id) return;
+  _combatState.set(String(combat.id), _snapshotCombat(combat));
+}
+
+function _getState(combat) {
+  if (!combat?.id) return null;
+  return _combatState.get(String(combat.id)) ?? null;
+}
 
 function _getPreviousCombatant(combat, changed) {
   if (!combat) return null;
@@ -132,11 +153,43 @@ export function registerConditionTurnTicker() {
   if (_registered) return;
   _registered = true;
 
-  Hooks.on("updateCombat", async (combat, changed, options, userId) => {
+  if (game?.combat) _setState(game.combat);
+
+  Hooks.on("createCombat", (combat) => {
+    _setState(combat);
+  });
+
+  Hooks.on("deleteCombat", (combat) => {
+    if (!combat?.id) return;
+    _combatState.delete(String(combat.id));
+  });
+
+  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
     try {
       if (!game.user?.isGM) return;
-      // Only react to the GM's combat updates.
-      if (userId && game.userId && userId !== game.userId) return;
+      if (payload?.source !== "combat") return;
+      if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+      const combat = game.combat ?? null;
+      if (!combat?.id) return;
+      if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
+
+      const prev = _getState(combat);
+      const next = _snapshotCombat(combat);
+
+      if (!prev) {
+        _setState(combat);
+        return;
+      }
+
+      const changed = {};
+      if (prev.round !== next.round) changed.round = next.round;
+      if (prev.turn !== next.turn) changed.turn = next.turn;
+      if (prev.combatantId !== next.combatantId) changed.combatantId = next.combatantId;
+
+      _setState(combat);
+
+      if (!Object.keys(changed).length) return;
 
       const prevCombatant = _getPreviousCombatant(combat, changed);
       const actor = prevCombatant?.actor ?? null;

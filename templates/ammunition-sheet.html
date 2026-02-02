@@ -32,8 +32,12 @@
                     <div class="item-resource">
                         <div class="stat-value-label">
                             {{#if item.system.priceEffective}}
-                                <input type="text" value="{{item.system.priceEffective}}" readonly/>
-                                <input type="text" name="system.price" value="{{item.system.price}}" data-dtype="Number" style="display:none"/>
+                                {{#unless item.system.gmOverride.useBaseStats}}
+                                    <input type="text" value="{{item.system.priceEffective}}" readonly/>
+                                    <input type="text" name="system.price" value="{{item.system.price}}" data-dtype="Number" style="display:none"/>
+                                {{else}}
+                                    <input type="text" name="system.price" value="{{item.system.price}}" data-dtype="Number"/>
+                                {{/unless}}
                             {{else}}
                                 <input type="text" name="system.price" value="{{item.system.price}}" data-dtype="Number"/>
                             {{/if}}
@@ -45,8 +49,12 @@
                     <div class="item-resource">
                         <div class="stat-value-label">
                             {{#if item.system.damageEffective}}
-                                <input type="text" value="{{item.system.damageEffective}}" readonly/>
-                                <input type="text" name="system.damage" value="{{item.system.damage}}" data-dtype="Number" style="display:none"/>
+                                {{#unless item.system.gmOverride.useBaseStats}}
+                                    <input type="text" value="{{item.system.damageEffective}}" readonly/>
+                                    <input type="text" name="system.damage" value="{{item.system.damage}}" data-dtype="Number" style="display:none"/>
+                                {{else}}
+                                    <input type="text" name="system.damage" value="{{item.system.damage}}" data-dtype="Number"/>
+                                {{/unless}}
                             {{else}}
                                 <input type="text" name="system.damage" value="{{item.system.damage}}" data-dtype="Number"/>
                             {{/if}}
@@ -119,6 +127,10 @@
                                     <select name="system.ammoMaterial">
                                         {{selectOptions ammoMaterialOptions selected=item.system.ammoMaterial}}
                                     </select>
+                                </div>
+                                <div>Manual Base Stats</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.gmOverride.useBaseStats" {{checked item.system.gmOverride.useBaseStats}}>
                                 </div>
 
                                 <div>Ignore ENC</div>

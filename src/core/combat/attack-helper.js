@@ -61,8 +61,10 @@ export async function performWeaponAttack(attackerToken, defenderToken, weapon, 
 
   // Get penetration if weapon has it
   const penetration = Number(weapon?.system?.penetration ?? 0);
-  // Automatically Apply Damage is core behavior (always on).
-  const autoApplyDamage = true;
+  // Default to confirmation (Apply Damage button); callers can override.
+  const autoApplyDamage = (typeof options.autoApplyDamage === "boolean")
+    ? options.autoApplyDamage
+    : false;
 
   // Perform opposed roll with damage
   const result = await OpposedRoll.perform(attackerToken, defenderToken, {

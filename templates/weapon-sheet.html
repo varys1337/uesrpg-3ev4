@@ -19,8 +19,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.encEffective}}
-                                    <input type="text" value="{{item.system.encEffective}}" readonly/>
-                                    <input type="number" name="system.enc" value="{{item.system.enc}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.encEffective}}" readonly/>
+                                        <input type="number" name="system.enc" value="{{item.system.enc}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="number" name="system.enc" value="{{item.system.enc}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="number" name="system.enc" value="{{item.system.enc}}"/>
                                 {{/if}}
@@ -32,8 +36,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.priceEffective}}
-                                    <input type="text" value="{{item.system.priceEffective}}" readonly/>
-                                    <input type="number" name="system.price" value="{{item.system.price}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.priceEffective}}" readonly/>
+                                        <input type="number" name="system.price" value="{{item.system.price}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="number" name="system.price" value="{{item.system.price}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="number" name="system.price" value="{{item.system.price}}"/>
                                 {{/if}}
@@ -69,8 +77,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.damageEffective}}
-                                    <input type="text" value="{{item.system.damageEffective}}" readonly/>
-                                    <input type="text" name="system.damage" value="{{item.system.damage}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.damageEffective}}" readonly/>
+                                        <input type="text" name="system.damage" value="{{item.system.damage}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="text" name="system.damage" value="{{item.system.damage}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="text" name="system.damage" value="{{item.system.damage}}"/>
                                 {{/if}}
@@ -82,8 +94,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.damage2Effective}}
-                                    <input type="text" value="{{item.system.damage2Effective}}" readonly/>
-                                    <input type="text" name="system.damage2" value="{{item.system.damage2}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.damage2Effective}}" readonly/>
+                                        <input type="text" name="system.damage2" value="{{item.system.damage2}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="text" name="system.damage2" value="{{item.system.damage2}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="text" name="system.damage2" value="{{item.system.damage2}}"/>
                                 {{/if}}
@@ -139,6 +155,10 @@
                                     <select name="system.material">
                                         {{selectOptions weaponMaterialOptions selected=item.system.material}}
                                     </select>
+                                </div>
+                                <div class="weapon-field-row">
+                                    <label>Manual Base Stats</label>
+                                    <input class="checkbox" type="checkbox" name="system.gmOverride.useBaseStats" {{checked item.system.gmOverride.useBaseStats}}>
                                 </div>
 
                                 <div class="weapon-field-row">
@@ -210,10 +230,14 @@
                                     <input type="checkbox" name="system.consumeAmmo" {{checked item.system.consumeAmmo}}>
                                 </div>
 
-                                <div class="weapon-field-row">
-                                    <label>Reload Cost (AP)</label>
-                                    <input type="number" name="system.reloadState.reloadAPCost" value="{{item.system.reloadState.reloadAPCost}}" min="0" step="1" readonly style="background: #f0f0f0;"/>
-                                </div>
+                                 <div class="weapon-field-row">
+                                     <label>Reload Cost (AP)</label>
+                                     {{#if canEditReloadAPCost}}
+                                     <input type="number" name="system.reloadState.reloadAPCost" value="{{item.system.reloadState.reloadAPCost}}" min="0" step="1"/>
+                                     {{else}}
+                                     <input type="number" value="{{item.system.reloadState.reloadAPCost}}" min="0" step="1" disabled style="background: #f0f0f0;"/>
+                                     {{/if}}
+                                 </div>
                                 
                                 <div class="weapon-field-row">
                                     <label>Loaded</label>

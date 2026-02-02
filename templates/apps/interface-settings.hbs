@@ -1,0 +1,33 @@
+<form class="uesrpg interface-settings" autocomplete="off">
+  <fieldset>
+    <legend>Interface</legend>
+
+    <div class="form-group">
+      <label>System Font</label>
+      <select name="changeUiFont">
+        {{selectOptions fontChoices selected=changeUiFont}}
+      </select>
+      <p class="notes">Requires a reload to apply.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Do Not Show Dialogue on Startup</label>
+      <input type="checkbox" name="noStartUpDialog" {{checked noStartUpDialog}}>
+    </div>
+
+    <div class="form-group">
+      <label>Sort Actor Items Alphabetically</label>
+      <input type="checkbox" name="sortAlpha" {{checked sortAlpha}}>
+    </div>
+
+    <div class="form-group">
+      <label>Sheets: Enable Loadout</label>
+      <input type="checkbox" name="enableLoadouts" {{checked enableLoadouts}}>
+    </div>
+  </fieldset>
+
+  <footer class="sheet-footer flexrow">
+    <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+  </footer>
+</form>
+

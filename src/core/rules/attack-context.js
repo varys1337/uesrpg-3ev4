@@ -26,7 +26,11 @@ export function getAttackContext(item, actor = null) {
   const sys = item?.system ?? {};
 
   const isWeapon = item?.type === "weapon";
-  const isShield = item?.type === "armor" && (sys.item_cat === "shield" || sys.category === "shield");
+  const isShield = item?.type === "armor" && (
+    sys.isShield === true ||
+    sys.item_cat === "shield" ||
+    sys.category === "shield"
+  );
 
   /** @type {"melee"|"ranged"} */
   const attackMode = (isWeapon && (sys.attackMode === "ranged" || sys.attackMode === "melee"))

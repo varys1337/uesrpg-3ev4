@@ -384,6 +384,10 @@ async function _markEffectsPromptedForGroup(groupKey, promptContext) {
  * Initialize upkeep system hooks.
  */
 export function initializeUpkeepSystem() {
+  // Guard against multi-registration on hot reload.
+  if (globalThis.__UESRPG_UPKEEP_SYSTEM_HOOKS_INSTALLED__) return;
+  globalThis.__UESRPG_UPKEEP_SYSTEM_HOOKS_INSTALLED__ = true;
+
   // Combat cadence: prompt at the beginning of the relevant combat turn (not at round start).
   Hooks.on("preUpdateCombat", async (combat, changed) => {
     if (!combat) return;
@@ -402,18 +406,40 @@ export function initializeUpkeepSystem() {
     await _checkUpkeepCombatTurnStart(nextRound, nextTurn);
   });
 
-  // Out of combat cadence: periodic scan (best-effort)
-  Hooks.on("updateWorldTime", async () => {
-    if (game.combat) return;
+  // Combat cadence (time service): respond to centralized combat time ingress.
+  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
+    const p = payload ?? {};
+    const source = String(p.source ?? "");
+    const combat = p.combat ?? null;
+
+    // Only react to the pre-advance intent payloads to match existing "start of turn" behavior.
+    if (source !== "combatTurn" && source !== "combatRound") return;
+    if (String(combat?.phase ?? "") !== "pre") return;
     if (!game.user?.isGM) return;
-    await _checkUpkeepRealtime();
+
+    // Only handle when combat is started (ignore idle combat documents).
+    if (!(game.combat?.started || combat?.started)) return;
+
+    const nextRound = _num(combat?.round, _currentRound());
+    const nextTurn = _num(combat?.turn, _currentTurn());
+    await _checkUpkeepCombatTurnStart(nextRound, nextTurn);
   });
 
-  // Calendaria advances time via its own calendar UI. Ensure Upkeep prompts still fire in realtime mode.
-  Hooks.on("calendaria.dateTimeChange", (data) => {
-    if (game.combat) return;
-    const nowTime = Number(data?.worldTime ?? game.time?.worldTime ?? 0) || 0;
-    void _checkUpkeepRealtime(nowTime);
+  // Out of combat cadence: listen to the system-normalized time dispatcher.
+  // This covers core time advancement and optional Calendaria UI changes without duplicating ingress.
+  Hooks.on("uesrpg.timeChanged", async (payload) => {
+    const p = payload ?? {};
+    const source = String(p.source ?? "");
+
+    // Only treat canonical (out-of-combat) time changes as realtime cadence.
+    if (source !== "worldTime" && source !== "calendaria") return;
+
+    // If combat is running, upkeep cadence is handled by combat cadence hooks.
+    if (game.combat?.started || Boolean(p?.combat?.started)) return;
+    if (!game.user?.isGM) return;
+
+    const nowTime = Number(p.worldTime ?? game.time?.worldTime ?? 0) || 0;
+    await _checkUpkeepRealtime(nowTime);
   });
 
   // Bind chat message listeners for upkeep buttons (group-based)

@@ -14,6 +14,7 @@
 
 import { skillHelper, skillModHelper } from "../../utils/skillCalcHelper.js";
 import { collectCombatTNModifiersFromAE } from "../active-effects/combat-tn-modifiers.js";
+import { hasTalent } from "../traits/talents-api.js";
 
 /**
  * Read combat TN modifiers from actor.system.modifiers.combat.*.
@@ -70,6 +71,61 @@ function getCharTotal(actor, key) {
   return asNumber(actor?.system?.characteristics?.[key]?.total ?? actor?.system?.characteristics?.[key]?.value ?? 0);
 }
 
+// --- Governing characteristic parsing -------------------------------------
+
+// Map common characteristic tokens/words used in item.system.governingCha/baseCha.
+// NOTE: Keep this purely local to TN logic (schema-safe, no data mutation).
+const GOV_CHA_ALIASES = Object.freeze({
+  str: "str",
+  strength: "str",
+  end: "end",
+  endurance: "end",
+  agi: "agi",
+  agility: "agi",
+  int: "int",
+  intelligence: "int",
+  wp: "wp",
+  willpower: "wp",
+  prc: "prc",
+  perception: "prc",
+  prs: "prs",
+  presence: "prs",
+  personality: "prs",
+  lck: "lck",
+  luck: "lck"
+});
+
+function _parseGoverningChaKeys(governingRaw, actor) {
+  const raw = String(governingRaw ?? "").trim().toLowerCase();
+  if (!raw) return [];
+
+  // Split on commas, slashes, semicolons, or whitespace sequences.
+  const parts = raw.split(/[,/;]+|\s+/g).map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return [];
+
+  const available = new Set(Object.keys(actor?.system?.characteristics ?? {}));
+  const out = [];
+
+  for (const p of parts) {
+    const key = GOV_CHA_ALIASES[p];
+    if (key && (available.size === 0 || available.has(key))) out.push(key);
+  }
+
+  // Dedupe but keep deterministic order.
+  return [...new Set(out)];
+}
+
+function _getDominantGoverningChaTotal(actor, governingRaw) {
+  const keys = _parseGoverningChaKeys(governingRaw, actor);
+  if (!keys.length) return null;
+  let best = null;
+  for (const k of keys) {
+    const v = getCharTotal(actor, k);
+    if (best == null || v > best) best = v;
+  }
+  return best;
+}
+
 // --- Size-to-Hit (Chapter 5) ----------------------------------------------
 
 const SIZE_INDEX = {
@@ -108,29 +164,12 @@ function _sizeToHitModForTargetSize(size) {
 }
 
 function computeSizeToHitModifier({ attackerSize, targetSize, attackMode } = {}) {
-  const aIdx = _sizeIndex(attackerSize);
-  const tIdx = _sizeIndex(targetSize);
   const mode = String(attackMode ?? "melee").toLowerCase();
 
-  // Ranged: apply the size-to-hit table directly.
-  if (mode === "ranged") return _sizeToHitModForTargetSize(targetSize);
-
-  // Melee: apply only the conditional clauses in Chapter 5.
-  // RAW nuance:
-  //  - Puny/Tiny: harder to hit by attackers of larger size.
-  //  - Small: penalty applies at range only (NOT in melee).
-  //  - Huge/Enormous: easier to hit by attackers of smaller size.
-  const tNorm = _normalizeSize(targetSize);
-
-  if (aIdx > tIdx && (tNorm === "puny" || tNorm === "tiny")) {
-    return _sizeToHitModForTargetSize(tNorm);
-  }
-
-  if (aIdx < tIdx && (tNorm === "huge" || tNorm === "enormous")) {
-    return _sizeToHitModForTargetSize(tNorm);
-  }
-
-  return 0;
+  // Size-to-Hit Effects (Chapter 5) apply to attacks "at range".
+  // Never apply these modifiers to melee attacks/counter-attacks/defenses.
+  if (mode !== "ranged") return 0;
+  return _sizeToHitModForTargetSize(targetSize);
 }
 
 export function listCombatStyles(actor) {
@@ -239,6 +278,20 @@ export function hasEquippedShield(actor) {
   });
 }
 
+function _hasEquippedShieldType(actor, typeKey) {
+  const target = String(typeKey ?? "").toLowerCase();
+  if (!target) return false;
+  return (actor?.items ?? []).some(i => {
+    if (i.type !== "armor") return false;
+    if (!i.system?.equipped) return false;
+    const isShield = Boolean(i.system?.isShieldEffective ?? i.system?.isShield);
+    const itemCat = String(i.system?.item_cat ?? "").toLowerCase();
+    if (!isShield && itemCat !== "shield" && !String(i.name ?? "").toLowerCase().includes("shield")) return false;
+    const shieldType = String(i.system?.shieldType ?? "normal").toLowerCase();
+    return shieldType === target;
+  });
+}
+
 function computeCombatStyleTN(styleItem) {
   // styleItem.system.value is already computed in prepareData with penalties/bonuses.
   const value = asNumber(styleItem?.system?.value ?? 0);
@@ -275,21 +328,103 @@ function computeBlockTN(defender, styleItem) {
 
   // Chapter 5: wound penalties are derived from Wound Active Effects and exposed via system.woundPenalty.
   // Do not use legacy system.wounded flags.
-  return strTotal + styleBonus + miscValue + itemSkillBonus + fatiguePenalty + woundPenalty;
+  let tn = strTotal + styleBonus + miscValue + itemSkillBonus + fatiguePenalty + woundPenalty;
+
+  // Tower shields: +10 to block tests (RAW).
+  if (_hasEquippedShieldType(defender, "tower")) tn += 10;
+
+  return tn;
 }
 
-function computeEvadeTN(defender) {
-if (defender?.type === "NPC") {
-  const sys = defender?.system ?? {};
-  const base = Number(sys?.professions?.evade ?? 0);
-  const woundPenalty = Number(sys?.woundPenalty ?? 0);
-  const fatiguePenalty = Number(sys?.fatigue?.penalty ?? 0);
-  return base + fatiguePenalty + woundPenalty;
+/**
+ * Compute a defender TN override which uses an alternative skill but swaps its governing
+ * characteristic base to a different characteristic.
+ *
+ * This supports Fearsome: Persuade (Strength) as an Evade reaction option.
+ *
+ * Heuristic (schema-safe):
+ * - If the referenced skill item declares `system.governingCha` (or `system.baseCha`), we assume
+ *   the stored `system.value` includes that governing characteristic total, and we swap the
+ *   characteristic by: (skillTN - oldChaTotal + newChaTotal).
+ * - If the governing characteristic is missing/unrecognized, we fall back to: (skillTN + newChaTotal).
+ *
+ * @param {Actor} defender
+ * @param {object} tnOverride
+ * @returns {{ tn: number, label: string }|null}
+ */
+export function computeDefenderTNOverride(defender, tnOverride) {
+  if (!defender || !tnOverride || typeof tnOverride !== "object") return null;
+
+  const skillName = String(tnOverride.skillName ?? "").trim();
+  const newChaKey = String(tnOverride.fallbackCharacteristic ?? tnOverride.characteristicKey ?? "").trim().toLowerCase();
+  if (!skillName || !newChaKey) return null;
+
+  // NPCs: treat as characteristic-only (no per-skill item context available).
+  if (defender.type === "NPC") {
+    const tn = getCharTotal(defender, newChaKey);
+    return { tn, label: `${skillName} (${newChaKey.toUpperCase()})` };
+  }
+
+  const skillItem = (defender.items ?? []).find(i => i.type === "skill" && String(i.name ?? "").toLowerCase() === skillName.toLowerCase());
+  if (!skillItem) {
+    const tn = getCharTotal(defender, newChaKey);
+    return { tn, label: `${skillName} (${newChaKey.toUpperCase()})` };
+  }
+
+  const skillTN = asNumber(skillItem.system?.value ?? 0);
+
+  // Many skills (including Persuade) have multiple governing characteristics.
+  // In derived data, the system TN commonly uses the *best* governing characteristic.
+  // For overrides like Persuade (Strength), we must:
+  //   1) remove the currently-applied governing characteristic contribution (dominant), then
+  //   2) add the requested characteristic contribution.
+  const governingRaw = String(skillItem.system?.governingCha ?? skillItem.system?.baseCha ?? "");
+  const dominantGovTotal = _getDominantGoverningChaTotal(defender, governingRaw);
+  const newChaTotal = getCharTotal(defender, newChaKey);
+
+  if (Number.isFinite(Number(dominantGovTotal)) && Number.isFinite(Number(newChaTotal))) {
+    // Only swap when the derived TN plausibly contains the governing characteristic.
+    // If it doesn't (legacy/odd data), swapping would be destructive.
+    if (skillTN >= dominantGovTotal) {
+      const tn = (skillTN - dominantGovTotal) + newChaTotal;
+      return { tn, label: `${skillName} (${newChaKey.toUpperCase()})` };
+    }
+  }
+
+  // Fallback: conservative composition.
+  // If we can't determine a dominant governing characteristic, treat `skillTN` as the
+  // non-characteristic portion and add the requested characteristic.
+  const tn = skillTN + newChaTotal;
+  return { tn, label: `${skillName} (${newChaKey.toUpperCase()})` };
 }
+
+function computeEvadeTN(defender, { tnOverride = null } = {}) {
+  if (defender?.type === "NPC") {
+    const sys = defender?.system ?? {};
+    const base = Number(sys?.professions?.evade ?? 0);
+    const woundPenalty = Number(sys?.woundPenalty ?? 0);
+    const fatiguePenalty = Number(sys?.fatigue?.penalty ?? 0);
+    return base + fatiguePenalty + woundPenalty;
+  }
+
+  if (tnOverride) {
+    const override = computeDefenderTNOverride(defender, tnOverride);
+    if (override && Number.isFinite(Number(override.tn))) return Number(override.tn);
+  }
 
   const evadeItem = (defender?.items ?? []).find(i => i.type === "skill" && String(i.name ?? "").toLowerCase() === "evade");
   const evadeTN = asNumber(evadeItem?.system?.value ?? 0);
-  if (evadeTN) return evadeTN;
+  if (evadeTN) {
+    if (hasTalent(defender, "observant")) {
+      const override = computeDefenderTNOverride(defender, {
+        skillName: "Evade",
+        fallbackCharacteristic: "prc"
+      });
+      const alt = Number(override?.tn ?? NaN);
+      if (Number.isFinite(alt)) return Math.max(evadeTN, alt);
+    }
+    return evadeTN;
+  }
   return getCharTotal(defender, "agi");
 }
 
@@ -341,8 +476,17 @@ export function computeTN({
     baseLabel = "Base TN";
   } else if (role === "defender") {
     if (defenseType === "evade") {
-      baseTN = computeEvadeTN(actor);
-      baseLabel = "Base TN";
+      // Standardized TN override contract (used by Fearsome and other talent scaffolding).
+      // Back-compat: accept `context.evadeOverride`.
+      const tnOverride = context?.tnOverride ?? context?.evadeOverride ?? null;
+      const overrideResult = computeDefenderTNOverride(actor, tnOverride);
+      if (overrideResult) {
+        baseTN = overrideResult.tn;
+        baseLabel = overrideResult.label;
+      } else {
+        baseTN = computeEvadeTN(actor);
+        baseLabel = "Base TN";
+      }
     } else if (defenseType === "block") {
       const shieldOk = hasEquippedShield(actor);
       if (!shieldOk) {

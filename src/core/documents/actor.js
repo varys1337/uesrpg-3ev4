@@ -6,7 +6,7 @@
 
 import { isTransferEffectActive } from "../active-effects/transfer.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
-import { collectTraitDamageModifiers, getResistanceKeyForTraitType, getActorTraitValue, isActorUndead } from "../traits/trait-registry.js";
+import { applyTraitDerived, collectTraitDamageModifiers, getResistanceKeyForTraitType, getActorTraitValue, isActorUndead } from "../traits/trait-registry.js";
 import { isNPC } from "../rules/npc-rules.js";
 
 export class SimpleActor extends Actor {
@@ -1286,9 +1286,7 @@ export class SimpleActor extends Actor {
 
     actorSystemData.ui = actorSystemData.ui ?? {};
     actorSystemData.ui.traitAutomation = agg.traitDamage ?? null;
-
-    actorSystemData.ui = actorSystemData.ui ?? {};
-    actorSystemData.ui.traitAutomation = agg.traitDamage ?? null;
+    applyTraitDerived(actorSystemData, actorSystemData.ui.traitAutomation);
 
     //Derived Calculations
     if (this._isMechanical(actorData) == true) {
@@ -2734,6 +2732,15 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
     const attribute = items.filter(item => item?.system?.halfSpeed === true);
     let speed = Number(actorData?.system?.speed?.base ?? 0);
     if (attribute.length >= 1) speed = Math.ceil(speed / 2);
+    const hasTowerShield = items.some(item => {
+      if (!item || item.type !== "armor") return false;
+      const sys = item.system ?? {};
+      if (sys.equipped !== true) return false;
+      const isShield = Boolean(sys.isShieldEffective ?? sys.isShield);
+      if (!isShield && String(sys.item_cat ?? "").toLowerCase() !== "shield") return false;
+      return String(sys.shieldType ?? "normal").toLowerCase() === "tower";
+    });
+    if (hasTowerShield) speed = Math.max(0, speed - 1);
     return speed;
   }
 
@@ -2814,8 +2821,18 @@ this._applyMovementRestrictionSemantics(actorData, actorSystemData);
     return 0;
   }
   _untrainedException(actorData) {
-    const attribute = (actorData.items || []).filter(item => item?.system?.untrainedException == true);
-    return attribute.length >= 1 ? 20 : 0;
+    const items = actorData.items || [];
+    const attribute = items.filter(item => item?.system?.untrainedException == true);
+
+    // Chapter 4 (Arms Master): ignore the usual -20 untrained penalty for Combat Styles.
+    const hasArmsMaster = Array.isArray(items) && items.some((i) => {
+      if (String(i?.type ?? "") !== "talent") return false;
+      const slug = String(i?.system?.slug ?? i?.system?.key ?? i?.system?.id ?? "").toLowerCase();
+      const name = String(i?.name ?? "").toLowerCase();
+      return slug === "armsmaster" || name === "arms master";
+    });
+
+    return (attribute.length >= 1 || hasArmsMaster) ? 20 : 0;
   }
 
   _isMechanical(actorData) {

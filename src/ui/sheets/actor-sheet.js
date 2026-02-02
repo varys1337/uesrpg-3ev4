@@ -8,16 +8,17 @@ import { isUnlucky } from "../../utils/skillCalcHelper.js";
 import chooseBirthsignPenalty from "../dialogs/choose-birthsign-penalty.js";
 import { characteristicAbbreviations } from "../../utils/maps/characteristics.js";
 import renderErrorDialog from '../dialogs/error-dialog.js';
-import { applyPhysicalExertionBonus, applyPhysicalExertionToSkill, applyPowerAttackBonus } from "../../core/stamina/stamina-integration-hooks.js";
+import { applyPhysicalExertionBonus, applyPowerAttackBonus, consumePhysicalExertionForSkill, getPhysicalExertionSkillBonus } from "../../core/stamina/stamina-integration-hooks.js";
 import coreRaces from "./racemenu/data/core-races.js";
 import coreVariants from "./racemenu/data/core-variants.js";
 import { renderRaceCards } from "./racemenu/render-race-cards.js";
 import khajiitFurstocks from './racemenu/data/khajiit-furstocks.js';
 import expandedRaces from "./racemenu/data/expanded-races.js";
 import { calculateDegrees } from "../../utils/diceHelper.js";
-import { getDamageTypeFromWeapon, getHitLocationFromRoll } from "../../core/combat/combat-utils.js";
+import { getDamageTypeFromWeapon, getHitLocationFromRoll, recordDashStart } from "../../core/combat/combat-utils.js";
 import { OpposedRoll } from "../../core/combat/opposed-rolls.js";
 import { OpposedWorkflow } from "../../core/combat/opposed-workflow.js";
+import { setLastMeleeWeaponForActor } from "../canvas/reach-visualizer-state.js";
 import { classifySpellForRouting, getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog } from "../../core/magic/spell-routing.js";
 import { filterTargetsBySpellRange, getSpellAoEConfig, getSpellRangeType, placeAoETemplateAndCollectTargets } from "../../core/magic/spell-range.js";
 import { SkillOpposedWorkflow } from "../../core/skills/opposed-workflow.js";
@@ -26,6 +27,9 @@ import { isItemEffectActive } from "../../core/active-effects/transfer.js";
 import { getSpecialActionById } from "../../core/config/special-actions.js";
 import { doTestRoll, formatDegree } from "../../utils/degree-roll-helper.js";
 import { requireUserCanRollActor } from "../../utils/permissions.js";
+import { hasTalent } from "../../core/traits/talents-api.js";
+import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../core/traits/awareness-talents.js";
+import { hasOpponentWithTalentInMeleeRange } from "../../core/traits/combat-proximity.js";
 import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug } from "../../core/skills/roll-request.js";
 import { postItemToChat } from "./shared-handlers.js";
 import {
@@ -39,6 +43,7 @@ import {
 } from "./combat-actions-utils.js";
 import { AimAudit } from "../../core/combat/aim-audit.js";
 import { createOrUpdateStatusEffect } from "../../core/active-effects/status-effect.js";
+import { buildEffectDuration } from "../../core/time/effect-duration.js";
 import { buildSpecialActionsForActor, getActiveCombatStyleId, getExplicitActiveCombatStyleItem, isSpecialActionUsableNow } from "../../core/combat/combat-style-utils.js";
 import {
   getCollapsedGroups,
@@ -397,25 +402,8 @@ async activateListeners(html) {
 
 
 
-    const buildTemporaryDuration = ({ rounds = null, seconds = null } = {}) => {
-      const combat = game.combat ?? null;
-      const combatant = combat?.combatants?.find?.((c) => c?.actor?.id === this.actor.id) ?? null;
-      const inStartedCombat = Boolean(combat && combat.started && combatant);
-
-      if (inStartedCombat) {
-        const r = Number(rounds);
-        const out = {
-          startRound: Number(combat.round ?? 0) || 0,
-          startTurn: Number(combat.turn ?? 0) || 0,
-        };
-        if (Number.isFinite(r) && r > 0) out.rounds = r;
-        return out;
-      }
-
-      const s = Number(seconds);
-      const startTime = Number(game?.time?.worldTime ?? 0) || 0;
-      if (Number.isFinite(s) && s > 0) return { startTime, seconds: s };
-      return {};
+    const buildTemporaryDuration = ({ rounds = null, turns = null, seconds = null } = {}) => {
+      return buildEffectDuration({ actor: this.actor, rounds, turns, seconds });
     };
 
     const _deleteEffect = async (effect) => {
@@ -576,7 +564,12 @@ async activateListeners(html) {
         const tn = base + fatiguePenalty + carryPenalty + woundPenalty;
 
         const label = String(btn?.dataset?.label ?? "Attack");
-        const attackMode = label.toLowerCase().includes("ranged") ? "ranged" : "melee";
+        const weaponItem = this.actor?.items?.get?.(weaponId);
+        const attackMode = weaponItem?.system?.attackMode;
+
+        if (attackMode === "melee") {
+          try { void setLastMeleeWeaponForActor(this.actor.id, weaponId); } catch (_e) { /* no-op */ }
+        }
 
         await OpposedWorkflow.createPending({
           attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
@@ -593,6 +586,11 @@ async activateListeners(html) {
       }
 
       case "disengage": {
+        const selfToken = resolveTokenForActor(this.actor);
+        if (selfToken && hasOpponentWithTalentInMeleeRange(selfToken, "unrelenting")) {
+          ui.notifications.warn("Disengage is prevented by Unrelenting (opponent in melee range).");
+          return;
+        }
         if (!(await requireAP("Disengage", 1))) return;
         // Aim chain breaks if any action other than Aim or firing the aimed weapon/spell is taken.
         await breakAimChainIfPresent();
@@ -854,6 +852,7 @@ async activateListeners(html) {
           "Dash",
           `<p>${baseDescription}${sprintNote}. ${turnDescription}</p>${sprintDetails}`
         );
+        await recordDashStart(this.actor);
         return;
       }
 
@@ -953,7 +952,9 @@ async activateListeners(html) {
         // Check for Power Draw stamina effect
         const { applyPowerDrawBonus } = await import("../../core/stamina/stamina-integration-hooks.js");
         const powerDrawReduction = await applyPowerDrawBonus(this.actor, rangedWeapon);
-        let effectiveReloadCost = Math.max(0, reloadCost - powerDrawReduction);
+        const hasRapidReload = hasTalent(this.actor, "rapidreload") || hasTalent(this.actor, "dualrapidreloadfighter");
+        const talentReloadReduction = hasRapidReload ? 1 : 0;
+        let effectiveReloadCost = Math.max(0, reloadCost - powerDrawReduction - talentReloadReduction);
         
         // Check AP availability
         const currentAP = Number(this.actor.system?.action_points?.value ?? 0);
@@ -977,6 +978,10 @@ async activateListeners(html) {
         const powerDrawNote = powerDrawReduction > 0 
           ? `<p><em>Power Draw bonus: -${powerDrawReduction} AP</em></p>` 
           : "";
+        const talentNote = talentReloadReduction > 0
+          ? `<p><em>Rapid Reload: -${talentReloadReduction} AP</em></p>`
+          : "";
+
         
         // Send chat message
         await ChatMessage.create({
@@ -990,8 +995,9 @@ async activateListeners(html) {
               </header>
               <div class="card-content">
                 <p><strong>${this.actor.name}</strong> reloads <strong>${rangedWeapon.name}</strong>.</p>
-                <p><em>AP Cost: ${effectiveReloadCost}${powerDrawReduction > 0 ? ` (${reloadCost} - ${powerDrawReduction})` : ""}</em></p>
+                <p><em>AP Cost: ${effectiveReloadCost}${(powerDrawReduction > 0 || talentReloadReduction > 0) ? ` (${reloadCost}${powerDrawReduction > 0 ? ` - ${powerDrawReduction}` : ""}${talentReloadReduction > 0 ? ` - ${talentReloadReduction}` : ""})` : ""}</em></p>
                 ${powerDrawNote}
+                ${talentNote}
                 <p>Remaining AP: ${newAP}</p>
               </div>
             </div>
@@ -1748,7 +1754,7 @@ if (isLucky(this.actor, roll.result)) {
     });
 
     // Check for Physical Exertion stamina effect for STR/END skills
-    const staminaBonus = await applyPhysicalExertionToSkill(this.actor, skillItem);
+    const staminaBonus = getPhysicalExertionSkillBonus(this.actor, skillItem);
     const resMods = buildResistanceBonusMods(decl.resistanceSelected ?? []);
     const resBonus = resMods.reduce((sum, m) => sum + Number(m.value ?? 0), 0);
 
@@ -1756,7 +1762,7 @@ if (isLucky(this.actor, roll.result)) {
       actor: this.actor,
       skillItem,
       targetToken: null,
-      options: { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod + staminaBonus, useSpec: Boolean(decl.useSpec) },
+      options: { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec) },
       context: { source: "sheet", quick: quickShift }
     });
     skillRollDebug("untargeted request", request);
@@ -1765,7 +1771,7 @@ if (isLucky(this.actor, roll.result)) {
       actor: this.actor,
       skillItem,
       difficultyKey: decl.difficultyKey,
-      manualMod: decl.manualMod + staminaBonus,
+      manualMod: decl.manualMod,
       useSpecialization: hasSpec && decl.useSpec,
       situationalMods: resMods
     });
@@ -1794,6 +1800,13 @@ if (isLucky(this.actor, roll.result)) {
     if (staminaBonus > 0) tags.push(`<span class="tag">Physical Exertion +${staminaBonus}</span>`);
 
     const res = await doTestRoll(this.actor, { rollFormula: SYSTEM_ROLL_FORMULA, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
+
+    // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
+    await applyKeenIntuitionToResult(this.actor, skillItem?.name ?? "", res, { allowPrompt: true });
+    await applyHyperAwarenessToResult(this.actor, skillItem?.name ?? "", res, { allowPrompt: true });
+    if (staminaBonus > 0) {
+      await consumePhysicalExertionForSkill(this.actor, skillItem);
+    }
 
     skillRollDebug("untargeted result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 

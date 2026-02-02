@@ -181,15 +181,21 @@ let _tickerRegistered = false;
 const _combatState = new Map();
 
 function _getState(combat) {
-  return _combatState.get(String(combat?.id ?? ""));
+  if (!combat?.id) return null;
+  return _combatState.get(String(combat.id));
 }
 
 function _setState(combat) {
-  _combatState.set(String(combat.id), {
-    round: Number(combat.round ?? 0),
-    turn: Number(combat.turn ?? 0),
-    combatantId: String(combat.combatantId ?? "")
-  });
+  if (!combat?.id) return;
+  _combatState.set(String(combat.id), _snapshotCombat(combat));
+}
+
+function _snapshotCombat(combat) {
+  return {
+    round: Number(combat?.round ?? 0),
+    turn: Number(combat?.turn ?? 0),
+    combatantId: String(combat?.combatantId ?? "")
+  };
 }
 
 /**
@@ -260,13 +266,6 @@ async function _promptStartOfTurn(combat) {
       whisper: []
     });
   } catch (_err) {}
-}
-
-function _shouldTick(combat, changes) {
-  if (!combat?.id) return false;
-  if (!changes) return false;
-  // Tick on turn or round changes
-  return Object.prototype.hasOwnProperty.call(changes, "turn") || Object.prototype.hasOwnProperty.call(changes, "round") || Object.prototype.hasOwnProperty.call(changes, "combatantId");
 }
 
 export function registerConditionAutomationHooks() {
@@ -352,10 +351,14 @@ export function registerConditionAutomationHooks() {
     _combatState.delete(String(combat.id));
   });
 
-  Hooks.on("updateCombat", async (combat, changes) => {
+  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
     if (game?.user?.isGM !== true) return;
+    if (payload?.source !== "combat") return;
+    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+    const combat = game?.combat ?? null;
     if (!combat?.id) return;
-    if (!_shouldTick(combat, changes)) return;
+    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
 
     const prev = _getState(combat);
     if (!prev) {
@@ -365,14 +368,9 @@ export function registerConditionAutomationHooks() {
 
     // Determine if a turn ended
     const prevCombatantId = prev.combatantId;
-    const newCombatantId = String(combat.combatantId ?? "");
+    const next = _snapshotCombat(combat);
 
-    const prevRound = prev.round;
-    const prevTurn = prev.turn;
-    const newRound = Number(combat.round ?? 0);
-    const newTurn = Number(combat.turn ?? 0);
-
-    const advanced = (newRound !== prevRound) || (newTurn !== prevTurn) || (newCombatantId !== prevCombatantId);
+    const advanced = (next.round !== prev.round) || (next.turn !== prev.turn) || (next.combatantId !== prevCombatantId);
     if (!advanced) return;
 
     // Tick the combatant who just finished

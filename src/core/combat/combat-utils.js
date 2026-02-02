@@ -12,7 +12,7 @@
  *  - Prefer explicit system fields when present; fall back to qualities/traits
  */
 
-import { DAMAGE_TYPES } from "./damage-automation.js";
+import { DAMAGE_TYPES, itemHasToken } from "./damage-automation.js";
 
 const _KNOWN_DAMAGE_TYPES = new Set(Object.values(DAMAGE_TYPES).map((v) => String(v).toLowerCase()));
 
@@ -89,6 +89,180 @@ export function getDamageTypeFromWeapon(weapon) {
   }
 
   return DAMAGE_TYPES.PHYSICAL;
+}
+
+/**
+ * Infer attack mode from a weapon item.
+ *
+ * @param {Item|null} weapon
+ * @returns {"melee"|"ranged"|""}
+ */
+export function getAttackModeFromWeapon(weapon) {
+  if (!weapon) return "";
+  const sys = weapon.system ?? {};
+  const modeRaw = String(sys.attackMode ?? sys.weaponType ?? sys.type ?? "").toLowerCase();
+  if (modeRaw.includes("ranged")) return "ranged";
+  if (itemHasToken(weapon, "thrown")) return "ranged";
+  if (modeRaw.includes("melee")) return "melee";
+  return "melee";
+}
+
+/**
+ * Resolve weapon handedness in a way that supports "hand-and-a-half" weapons.
+ *
+ * Contract:
+ *  - system.hands is a numeric enum-ish value:
+ *      0  = unspecified
+ *      1  = 1H
+ *      1.5 = hand-and-a-half (versatile)
+ *      2  = 2H
+ *  - For hand-and-a-half weapons, the *effective* handedness depends on whether the
+ *    weapon is currently being wielded in two hands (system.weapon2H).
+ *
+ * Heuristic (requested): when 1 < hands < 2, treat it as 1.5H and derive the
+ * effective handedness from weapon2H:
+ *  - weapon2H true  => effective 2H
+ *  - weapon2H false => effective 1H
+ *
+ * @param {Item|null} weapon
+ * @returns {{
+ *   hands: number,
+ *   isHandAndAHalf: boolean,
+ *   effectiveHands: 0|1|2,
+ *   isOneHanded: boolean,
+ *   isTwoHanded: boolean
+ * }}
+ */
+export function getEffectiveWeaponHands(weapon) {
+  const raw = Number(weapon?.system?.hands ?? 0);
+  const hands = Number.isFinite(raw) ? raw : 0;
+
+  const isHandAndAHalf = (hands > 1 && hands < 2);
+  const wield2H = Boolean(weapon?.system?.weapon2H);
+
+  // Hand-and-a-half is a *category*; effective is determined by wield state.
+  if (isHandAndAHalf) {
+    const effectiveHands = wield2H ? 2 : 1;
+    return {
+      hands,
+      isHandAndAHalf: true,
+      effectiveHands,
+      isOneHanded: effectiveHands === 1,
+      isTwoHanded: effectiveHands === 2
+    };
+  }
+
+  const isTwoHanded = hands >= 2;
+  const isOneHanded = (hands > 0 && hands <= 1);
+  /** @type {0|1|2} */
+  const effectiveHands = isTwoHanded ? 2 : (isOneHanded ? 1 : 0);
+
+  return {
+    hands,
+    isHandAndAHalf: false,
+    effectiveHands,
+    isOneHanded,
+    isTwoHanded
+  };
+}
+
+const DASH_FLAG_SCOPE = "uesrpg-3ev4";
+const DASH_FLAG_KEY = "dashContext";
+
+function _getTokenCenterPoint(token) {
+  return token?.center ?? token?.object?.center ?? null;
+}
+
+/**
+ * Record dash start data for an actor's active tokens.
+ *
+ * @param {Actor} actor
+ * @param {{tokens?: Token[]}} [opts]
+ * @returns {Promise<boolean>}
+ */
+export async function recordDashStart(actor, { tokens = null } = {}) {
+  if (!actor) return false;
+  let list = Array.isArray(tokens) ? tokens : null;
+  if (!list || !list.length) {
+    list = actor.getActiveTokens?.(true) ?? [];
+  }
+  if (!list.length) {
+    list = actor.getActiveTokens?.() ?? [];
+  }
+  if (!list.length) return false;
+
+  const speed = Number(actor.system?.speed?.value ?? 0) || 0;
+  const combat = (game.combat && game.combat.started) ? game.combat : null;
+
+  const base = {
+    at: Date.now(),
+    speed,
+    sceneId: canvas?.scene?.id ?? null
+  };
+
+  if (combat) {
+    base.combatId = combat.id;
+    base.round = Number(combat.round ?? 0) || 0;
+    base.turn = Number(combat.turn ?? 0) || 0;
+  }
+
+  for (const token of list) {
+    const center = _getTokenCenterPoint(token);
+    if (!center) continue;
+    const payload = { ...base, tokenId: token.id, x: center.x, y: center.y };
+    const doc = token?.document ?? token;
+    if (!doc) continue;
+    if (typeof doc.setFlag === "function") {
+      await doc.setFlag(DASH_FLAG_SCOPE, DASH_FLAG_KEY, payload);
+    } else if (typeof doc.update === "function") {
+      await doc.update({ [`flags.${DASH_FLAG_SCOPE}.${DASH_FLAG_KEY}`]: payload });
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Read dash context from a token or token document.
+ *
+ * @param {Token|TokenDocument|null} token
+ * @returns {object|null}
+ */
+export function getTokenDashContext(token) {
+  const doc = token?.document ?? token;
+  if (!doc) return null;
+  try {
+    const raw = (typeof doc.getFlag === "function")
+      ? doc.getFlag(DASH_FLAG_SCOPE, DASH_FLAG_KEY)
+      : doc?.flags?.[DASH_FLAG_SCOPE]?.[DASH_FLAG_KEY];
+    return (raw && typeof raw === "object") ? raw : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * Clear dash context for a token or token document.
+ *
+ * @param {Token|TokenDocument|null} token
+ * @returns {Promise<boolean>}
+ */
+export async function clearTokenDashContext(token) {
+  const doc = token?.document ?? token;
+  if (!doc) return false;
+  try {
+    if (typeof doc.unsetFlag === "function") {
+      await doc.unsetFlag(DASH_FLAG_SCOPE, DASH_FLAG_KEY);
+      return true;
+    }
+    if (typeof doc.update === "function") {
+      await doc.update({ [`flags.${DASH_FLAG_SCOPE}.${DASH_FLAG_KEY}`]: null });
+      return true;
+    }
+  } catch (_e) {
+    return false;
+  }
+  return false;
 }
 
 /**

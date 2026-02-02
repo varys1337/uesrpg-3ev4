@@ -21,6 +21,7 @@ import { UESRPG } from "../constants.js";
 import { requestCreateActiveEffect } from "../../utils/active-effect-proxy.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { isActorImmuneToDamageType, isActorIncorporeal, getActorTraitValue } from "../traits/trait-registry.js";
+import { hasTalent } from "../traits/talents-api.js";
 
 export const DAMAGE_TYPES = {
   HEALING: "healing",
@@ -244,6 +245,7 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
   let resistance = 0;
   // RAW: Natural Toughness reduces incoming damage of all types and functions like AR but is not armor.
   let toughness = Number(actorData.resistance?.natToughness ?? 0);
+  let coverageClass = "none";
 
   const base = { armor: 0, resistance: 0, toughness };
   const ae = {
@@ -266,6 +268,13 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
 
       const covered = getCoveredLocations(item);
       if (!covered.has(propertyName)) continue;
+      let armorClass = String(item.system?.armorClass || "partial").toLowerCase();
+      if (isProneForArmor && armorClass === "full") armorClass = "partial";
+      if (armorClass === "full") {
+        coverageClass = "full";
+      } else if (coverageClass !== "full") {
+        coverageClass = "partial";
+      }
 
       // Automation should always prefer derived effective values.
       let ar = (item.system?.armorEffective != null)
@@ -460,7 +469,7 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
   }
 
   const total = armor + resistance + toughness;
-  return { armor, resistance, toughness, total, penetrated: 0, base, ae };
+  return { armor, resistance, toughness, total, penetrated: 0, base, ae, coverage: { class: coverageClass } };
 }
 
 /**
@@ -474,6 +483,8 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
  * @param {number} options.dosBonus
  * @param {string} options.hitLocation
  * @param {boolean} options.ignoreArmor
+ * @param {boolean} options.ignoreArmorOnly
+ * @param {Item|null} options.ammo
  * @returns {{
  *   rawDamage:number,
  *   dosBonus:number,
@@ -490,6 +501,7 @@ export function calculateDamage(rawDamage, damageType, targetActor, options = {}
     dosBonus = 0,
     hitLocation = "Body",
     ignoreArmor = false,
+    ignoreArmorOnly = false,
     // Advantage: Penetrate Armor — does not change AR, but treats armored locations as less protected
     // for the purpose of trigger-style effects (e.g., Slashing).
     penetrateArmorForTriggers = false,
@@ -497,6 +509,7 @@ export function calculateDamage(rawDamage, damageType, targetActor, options = {}
     // ("The Big Three": Crushing, Splitting, Slashing).
     weapon = null,
     attackerActor = null,
+    ammo = null,
   } = options;
 
   /** @type {{armor:number,resistance:number,toughness:number,total:number,penetrated:number}} */
@@ -513,10 +526,16 @@ export function calculateDamage(rawDamage, damageType, targetActor, options = {}
 
     // Penetration reduces ARMOR only (not resistance/toughness)
     originalArmor = Number(reductions.armor ?? 0);
-    const penetratedArmor = Math.max(0, originalArmor - Number(penetration || 0));
-    reductions.penetrated = Math.max(0, originalArmor - penetratedArmor);
-    reductions.armor = penetratedArmor;
-    reductions.total = reductions.armor + reductions.resistance + reductions.toughness;
+    if (ignoreArmorOnly) {
+      reductions.penetrated = 0;
+      reductions.armor = 0;
+      reductions.total = reductions.resistance + reductions.toughness;
+    } else {
+      const penetratedArmor = Math.max(0, originalArmor - Number(penetration || 0));
+      reductions.penetrated = Math.max(0, originalArmor - penetratedArmor);
+      reductions.armor = penetratedArmor;
+      reductions.total = reductions.armor + reductions.resistance + reductions.toughness;
+    }
   }
 
   // Base damage = raw + DoS bonus (existing behavior)
@@ -527,9 +546,11 @@ export function calculateDamage(rawDamage, damageType, targetActor, options = {}
   const qualBonus = computeBigThreeBonus({
     damageType,
     weapon,
+    ammo,
     attackerActor,
     originalArmor,
-    triggerArmor: penetrateArmorForTriggers ? 0 : originalArmor,
+    triggerArmor: (ignoreArmorOnly || penetrateArmorForTriggers) ? 0 : originalArmor,
+    triggerArmorClass: (ignoreArmorOnly || penetrateArmorForTriggers) ? "none" : (reductions.coverage?.class ?? "none"),
     baseTotalDamage,
     reductionsTotal: reductions.total,
   });
@@ -561,52 +582,171 @@ export function calculateDamage(rawDamage, damageType, targetActor, options = {}
  *  - The cap for Crushing uses the target location's armor *before* penetration.
  *  - Splitting triggers based on damage after reductions, before applying the Splitting bonus.
  */
-function computeBigThreeBonus({ damageType, weapon, attackerActor, originalArmor, triggerArmor, baseTotalDamage, reductionsTotal }) {
+function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, originalArmor, triggerArmor, triggerArmorClass, baseTotalDamage, reductionsTotal }) {
   if (String(damageType ?? "").toLowerCase() !== "physical") return 0;
   if (!weapon || !attackerActor) return 0;
 
-  // Resolve attacker STR bonus (schema: actor.system.characteristics.str.bonus)
-  const strBonus = Number(attackerActor?.system?.characteristics?.str?.bonus ?? 0) || 0;
-  const viciousValue = Math.max(0, Number(getActorTraitValue(attackerActor, "vicious", { mode: "max" })) || 0);
-  const effectiveBonus = viciousValue > 0 ? viciousValue : strBonus;
-
-  // Pull structured qualities (manual + injected) if available.
-  let structured = Array.isArray(weapon?.system?.qualitiesStructuredInjected)
-    ? weapon.system.qualitiesStructuredInjected
-    : Array.isArray(weapon?.system?.qualitiesStructured)
-      ? weapon.system.qualitiesStructured
-      : [];
-  if (!structured.length) {
-    const activationStructured = Array.isArray(weapon?.system?.activation?.damage?.qualitiesStructured)
-      ? weapon.system.activation.damage.qualitiesStructured
-      : [];
-    if (activationStructured.length) structured = activationStructured;
+  // Resolve ammo from the weapon if not provided (non-persistent, best-effort).
+  let ammoItem = ammo ?? null;
+  if (!ammoItem && weapon?.system?.ammoId) {
+    const ammoId = String(weapon.system.ammoId ?? "").trim();
+    if (ammoId) {
+      ammoItem = weapon?.actor?.items?.get?.(ammoId) ?? attackerActor?.items?.get?.(ammoId) ?? null;
+    }
   }
 
-  const getQualityValue = (key) => {
-    const q = structured.find(e => String(e?.key ?? e ?? "").toLowerCase() === key);
-    if (!q) return null;
-    const v = q?.value;
-    const n = Number(v);
-    return Number.isFinite(n) && n !== 0 ? n : null;
+  const collectQualities = (item, { includeActivation = false } = {}) => {
+    if (!item) return [];
+    const sys = item.system ?? {};
+    const out = [];
+
+    const structured = Array.isArray(sys.qualitiesStructuredInjected)
+      ? sys.qualitiesStructuredInjected
+      : Array.isArray(sys.qualitiesStructured)
+        ? sys.qualitiesStructured
+        : [];
+    for (const q of structured) {
+      if (!q) continue;
+      const key = String(q?.key ?? q ?? "").trim();
+      if (!key) continue;
+      out.push({ key, value: q?.value });
+    }
+
+    const traits = Array.isArray(sys.qualitiesTraitsInjected)
+      ? sys.qualitiesTraitsInjected
+      : Array.isArray(sys.qualitiesTraits)
+        ? sys.qualitiesTraits
+        : [];
+    for (const t of traits) {
+      if (!t) continue;
+      const key = String(t ?? "").trim();
+      if (!key) continue;
+      out.push({ key, value: null });
+    }
+
+    if (includeActivation) {
+      const activationStructured = Array.isArray(sys.activation?.damage?.qualitiesStructured)
+        ? sys.activation.damage.qualitiesStructured
+        : [];
+      for (const q of activationStructured) {
+        if (!q) continue;
+        const key = String(q?.key ?? q ?? "").trim();
+        if (!key) continue;
+        out.push({ key, value: q?.value });
+      }
+
+      const activationTraits = Array.isArray(sys.activation?.damage?.qualitiesTraits)
+        ? sys.activation.damage.qualitiesTraits
+        : [];
+      for (const t of activationTraits) {
+        if (!t) continue;
+        const key = String(t ?? "").trim();
+        if (!key) continue;
+        out.push({ key, value: null });
+      }
+    }
+
+    return out;
   };
 
-  const hasQuality = (key) => structured.some(e => String(e?.key ?? e ?? "").toLowerCase() === key);
+  const qualityMap = new Map();
+  const addQuality = (key, value) => {
+    const k = String(key ?? "").toLowerCase().trim();
+    if (!k) return;
+    const n = Number(value);
+    const v = Number.isFinite(n) && n !== 0 ? n : null;
+
+    if (!qualityMap.has(k)) {
+      qualityMap.set(k, { value: v });
+      return;
+    }
+    if (v == null) return;
+    const cur = qualityMap.get(k)?.value;
+    if (cur == null || v > cur) {
+      qualityMap.set(k, { value: v });
+    }
+  };
+
+  for (const q of collectQualities(weapon, { includeActivation: true })) addQuality(q.key, q.value);
+  for (const q of collectQualities(ammoItem)) addQuality(q.key, q.value);
+
+  const hasQuality = (key) => qualityMap.has(String(key ?? "").toLowerCase());
+  const getQualityValue = (key) => {
+    const k = String(key ?? "").toLowerCase();
+    if (!qualityMap.has(k)) return null;
+    const v = qualityMap.get(k)?.value;
+    return (v == null) ? null : Number(v);
+  };
+
+  // Resolve attacker characteristic bonuses.
+  const strBonus = Number(attackerActor?.system?.characteristics?.str?.bonus ?? 0) || 0;
+  const prcBonus = Number(attackerActor?.system?.characteristics?.prc?.bonus ?? 0) || 0;
+  const agiBonus = Number(attackerActor?.system?.characteristics?.agi?.bonus ?? 0) || 0;
+
+  const viciousValue = Math.max(0, Number(getActorTraitValue(attackerActor, "vicious", { mode: "max" })) || 0);
+  const baseStrengthBonus = viciousValue > 0 ? viciousValue : strBonus;
+
+  const hasPerfectHit = hasTalent(attackerActor, "perfecthit");
+  const hasCrackshot = hasTalent(attackerActor, "crackshot");
+
+  const weaponMode = String(weapon?.system?.attackMode ?? weapon?.system?.weaponType ?? weapon?.system?.type ?? "").toLowerCase();
+  const isRangedWeapon = weaponMode.includes("ranged");
+  const isThrown = itemHasToken(weapon, "thrown")
+    || (String(weapon?.system?.rangeBandsDerivedEffective?.kind ?? weapon?.system?.rangeBandsDerived?.kind ?? "") === "thrown");
+  // RAW: Thrown weapons ignore Big Three bonuses only when making ranged attacks.
+  if (isThrown && isRangedWeapon) return 0;
+
+  const arrowType = String(ammoItem?.system?.arrowType ?? "").toLowerCase().trim();
+  const isArrowAmmo = Boolean(ammoItem)
+    && (arrowType === "" || arrowType === "none" || !arrowType.includes("bolt"));
+  const isArrowAttack = isRangedWeapon && !isThrown && isArrowAmmo;
+  if (isArrowAttack) {
+    if (arrowType === "slashing") addQuality("slashing", null);
+    if (arrowType === "splitting") addQuality("splitting", null);
+  }
+
+  const pickBonus = (qualityKey) => {
+    const k = String(qualityKey ?? "").toLowerCase();
+    if (k === "crushing") {
+      return hasPerfectHit ? prcBonus : baseStrengthBonus;
+    }
+    if (k === "slashing" || k === "splitting") {
+      if (hasCrackshot && isArrowAttack) return agiBonus;
+      if (hasPerfectHit) return prcBonus;
+      return baseStrengthBonus;
+    }
+    return baseStrengthBonus;
+  };
 
   let bonus = 0;
 
   // Crushing (X)
   if (hasQuality("crushing")) {
-    const x = getQualityValue("crushing") ?? effectiveBonus;
+    const x = getQualityValue("crushing") ?? pickBonus("crushing");
     const cap = Math.max(0, Number(originalArmor ?? 0));
     bonus += Math.max(0, Math.min(Math.max(0, x), cap));
   }
 
+  const normalizeClass = (v) => {
+    const s = String(v ?? "").toLowerCase().trim();
+    if (s === "full" || s === "partial" || s === "none") return s;
+    return "";
+  };
+  const hasExploitWeakness = hasQuality("exploitWeakness");
+  let effectiveArmorClass = normalizeClass(triggerArmorClass);
+  if (!effectiveArmorClass) {
+    effectiveArmorClass = (Number(triggerArmor ?? 0) > 0) ? "full" : "none";
+  }
+  if (hasExploitWeakness) {
+    if (effectiveArmorClass === "full") effectiveArmorClass = "partial";
+    else if (effectiveArmorClass === "partial") effectiveArmorClass = "none";
+  }
+
   // Slashing (X)
   if (hasQuality("slashing")) {
-    const isUnarmored = Number(triggerArmor ?? originalArmor ?? 0) <= 0;
+    const isUnarmored = effectiveArmorClass === "none" || Number(triggerArmor ?? originalArmor ?? 0) <= 0;
     if (isUnarmored) {
-      const x = getQualityValue("slashing") ?? effectiveBonus;
+      const x = getQualityValue("slashing") ?? pickBonus("slashing");
       bonus += Math.max(0, x);
     }
   }
@@ -615,7 +755,7 @@ function computeBigThreeBonus({ damageType, weapon, attackerActor, originalArmor
   if (hasQuality("splitting")) {
     const initialFinal = Math.max(0, Number(baseTotalDamage ?? 0) - Number(reductionsTotal ?? 0));
     if (initialFinal >= 1) {
-      const x = getQualityValue("splitting") ?? effectiveBonus;
+      const x = getQualityValue("splitting") ?? pickBonus("splitting");
       bonus += Math.max(0, x);
     }
   }

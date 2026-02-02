@@ -392,6 +392,23 @@ const TOKEN_HUD_CONDITION_ORDER = [
 /** @type {Set<string>} */
 export const SYSTEM_TOKEN_HUD_STATUS_ID_SET = new Set(TOKEN_HUD_CONDITION_ORDER);
 
+/**
+ * Canonical condition keys for traits and immunities.
+ * Built from the Token HUD list plus any static conditions not shown in the HUD.
+ */
+export const CONDITION_KEYS = Object.freeze((() => {
+  const out = new Set();
+  for (const key of TOKEN_HUD_CONDITION_ORDER) {
+    const k = _normalizeConditionKey(key);
+    if (k) out.add(k);
+  }
+  for (const key of Object.keys(STATIC_CONDITIONS ?? {})) {
+    const k = _normalizeConditionKey(key);
+    if (k) out.add(k);
+  }
+  return Array.from(out);
+})());
+
 /** @type {Set<string>} */
 export const TOKEN_HUD_XVALUE_STATUS_ID_SET = new Set(["bleeding", "burning"]);
 

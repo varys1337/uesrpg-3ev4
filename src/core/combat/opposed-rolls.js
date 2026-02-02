@@ -9,7 +9,8 @@
 import { doTestRoll, resolveOpposed } from "../../utils/degree-roll-helper.js";
 import { calculateDamage, DAMAGE_TYPES } from "./damage-automation.js";
 import { applyDamageResolved } from "./damage-resolver.js";
-import { getHitLocationFromRoll } from "./combat-utils.js";
+import { getAttackModeFromWeapon, getHitLocationFromRoll } from "./combat-utils.js";
+import { hasCondition } from "../conditions/condition-engine.js";
 
 export const OpposedRoll = {
   /**
@@ -28,7 +29,7 @@ export const OpposedRoll = {
     weapon = null,
     damageRoll = null,
     damageType = DAMAGE_TYPES.PHYSICAL,
-    autoApplyDamage = true,
+    autoApplyDamage = false,
     hitLocation = null,
     penetration = 0
   } = {}) {
@@ -78,6 +79,17 @@ damageCalc,
         hitLocation: hitLoc,
         damageType
       };
+
+      const attackMode = getAttackModeFromWeapon(weapon);
+      const attackHidden = hasCondition(attacker, "hidden");
+      const ammoUuid = (() => {
+        if (attackMode !== "ranged") return "";
+        const ammoId = String(weapon?.system?.ammoId ?? "").trim();
+        if (!ammoId) return "";
+        const ammo = attacker.items?.get?.(ammoId) ?? null;
+        if (!ammo || ammo.type !== "ammunition") return "";
+        return String(ammo.uuid ?? "");
+      })();
       
       // Build damage HTML
       damageHtml = `
@@ -94,10 +106,13 @@ damageCalc,
               data-target-uuid="${defender.uuid}"
               data-attacker-actor-uuid="${attacker.uuid}"
               data-weapon-uuid="${weapon?.uuid ?? ''}"
+              data-ammo-uuid="${ammoUuid}"
               data-damage="${rawDamage}"
               data-damage-type="${damageType}"
               data-hit-location="${hitLoc}"
               data-penetration="${penetration || 0}"
+              data-attack-mode="${attackMode}"
+              data-attack-hidden="${attackHidden ? "1" : "0"}"
               data-source="${weapon ? weapon.name : attacker.name}">
               Apply Damage
             </button>` : ''}
@@ -114,6 +129,9 @@ penetration,
           source: weapon ? weapon.name : attacker.name,
           attackerActor: attacker,
           weapon,
+          attackMode,
+          attackFromHidden: attackHidden,
+          ammoUuid,
         });
       }
     }

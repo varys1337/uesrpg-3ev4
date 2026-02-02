@@ -48,7 +48,9 @@ export function computeDefenseAvailability({
   attackerWeaponTraits,
   defenderHasSmallWeapon,
   defenderHasShield,
-  allowedDefenseTypes
+  allowedDefenseTypes,
+  // Talent / feature overrides (schema-safe; optional)
+  allowParryRanged = false
 } = {}) {
   const mode = _lower(attackMode);
   const isRangedAttack = (mode === "ranged");
@@ -90,8 +92,10 @@ export function computeDefenseAvailability({
 
   // Parry restrictions.
   if (isRangedAttack) {
-    allowed.parry = false;
-    reasons.parry.push("Ranged attacks cannot be parried.");
+    if (!allowParryRanged) {
+      allowed.parry = false;
+      reasons.parry.push("Ranged attacks cannot be parried.");
+    }
   }
   if (attackerHasFlail) {
     allowed.parry = false;

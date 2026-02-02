@@ -1,3 +1,5 @@
+import { CONDITION_KEYS as CANONICAL_CONDITION_KEYS } from "../conditions/index.js";
+
 const DAMAGE_TYPE_MAP = {
   // RAW: "Resistance (Normal Weapons, X)" is treated as Physical resistance.
   // We map it to a dedicated resistance lane (physicalR).
@@ -15,7 +17,7 @@ const DAMAGE_TYPE_MAP = {
 // Condition immunities (Immunity (Paralysis, Panic, Horror), etc.).
 // These are not damage types; they gate application of ActiveEffect-backed conditions.
 // NOTE: This is intentionally a conservative list matching the system condition keys.
-const CONDITION_TYPE_MAP = {
+const LEGACY_CONDITION_TYPE_MAP = {
   blinded: { label: "Blinded", conditionKey: "blinded" },
   deafened: { label: "Deafened", conditionKey: "deafened" },
   crippled: { label: "Crippled", conditionKey: "crippled" },
@@ -33,13 +35,69 @@ const CONDITION_TYPE_MAP = {
   paralysis: { label: "Paralysis", conditionKey: "paralysis" }
 };
 
+function _humanizeConditionKey(key) {
+  const raw = String(key ?? "").trim();
+  if (!raw) return "";
+  return raw
+    .replace(/[_-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+let _CONDITION_TYPE_MAP = null;
+let _CONDITION_TYPE_MAP_SOURCE = "unset";
+
+function _getConditionTypeMap() {
+  let canonical = [];
+  try {
+    canonical = Array.isArray(CANONICAL_CONDITION_KEYS) ? CANONICAL_CONDITION_KEYS : [];
+  } catch (_e) {
+    canonical = [];
+  }
+
+  if (_CONDITION_TYPE_MAP && (_CONDITION_TYPE_MAP_SOURCE === "canonical" || !canonical.length)) {
+    return _CONDITION_TYPE_MAP;
+  }
+
+  if (canonical.length) {
+    const map = {};
+    for (const key of canonical) {
+      const k = String(key ?? "").trim().toLowerCase();
+      if (!k) continue;
+      const legacy = LEGACY_CONDITION_TYPE_MAP[k];
+      map[k] = {
+        label: legacy?.label ?? _humanizeConditionKey(k),
+        conditionKey: legacy?.conditionKey ?? k
+      };
+    }
+
+    _CONDITION_TYPE_MAP = { ...LEGACY_CONDITION_TYPE_MAP, ...map };
+    _CONDITION_TYPE_MAP_SOURCE = "canonical";
+    return _CONDITION_TYPE_MAP;
+  }
+
+  if (!_CONDITION_TYPE_MAP) {
+    _CONDITION_TYPE_MAP = { ...LEGACY_CONDITION_TYPE_MAP };
+    _CONDITION_TYPE_MAP_SOURCE = "legacy";
+  }
+
+  return _CONDITION_TYPE_MAP;
+}
+
 const CATEGORY_KEYS = ["resistance", "weakness", "immunity"];
+const CONDITION_KEY_ALIASES = {
+  paralysis: "paralyzed"
+};
 
 export const TRAIT_REGISTRY = {
   resistance: { label: "Resistance", types: DAMAGE_TYPE_MAP },
   weakness: { label: "Weakness", types: DAMAGE_TYPE_MAP },
   // Immunity supports both damage-type immunities and condition immunities.
-  immunity: { label: "Immunity", types: { ...DAMAGE_TYPE_MAP, ...CONDITION_TYPE_MAP } }
+  get immunity() {
+    return { label: "Immunity", types: { ...DAMAGE_TYPE_MAP, ..._getConditionTypeMap() } };
+  }
 };
 
 function _normalizeKey(value) {
@@ -48,6 +106,19 @@ function _normalizeKey(value) {
 
 function _normalizeToken(value) {
   return _normalizeKey(value).replace(/[\s._-]+/g, "");
+}
+
+function _tokenizeForMatch(value) {
+  return _normalizeKey(value).split(/[^a-z0-9]+/g).filter(Boolean);
+}
+
+function _tokensContainAll(tokens, desired) {
+  if (!desired.length) return true;
+  const set = new Set(tokens);
+  for (const t of desired) {
+    if (!set.has(t)) return false;
+  }
+  return true;
 }
 
 function _normalizeCategory(value) {
@@ -72,7 +143,10 @@ function _normalizeDamageType(value) {
 function _normalizeConditionType(value) {
   const raw = _normalizeKey(value).replace(/[\s_-]+/g, "");
   if (!raw) return "";
-  for (const key of Object.keys(CONDITION_TYPE_MAP)) {
+  const alias = CONDITION_KEY_ALIASES[raw];
+  const conditionMap = _getConditionTypeMap();
+  if (alias && conditionMap[alias]) return alias;
+  for (const key of Object.keys(conditionMap)) {
     if (key.replace(/[\s_-]+/g, "") === raw) return key;
   }
   return "";
@@ -107,7 +181,7 @@ function _parseTraitKey(traitKey = "", traitParam = "") {
 
   if (!category || !type) return null;
   // "type" can be a damage type or a condition type (immunity only).
-  const def = DAMAGE_TYPE_MAP[type] ?? CONDITION_TYPE_MAP[type];
+  const def = DAMAGE_TYPE_MAP[type] ?? _getConditionTypeMap()[type];
   if (!def) return null;
 
   return { category, type, def };
@@ -136,16 +210,29 @@ function _matchesTraitSignature(sig, key, param = null) {
   const desiredKeyFlat = _normalizeToken(desiredKeyRaw);
   if (!desiredKeyFlat) return false;
 
+  const keyTokens = _tokenizeForMatch(sig.keyRaw);
+  const paramTokens = _tokenizeForMatch(sig.paramRaw);
+  const allTokens = keyTokens.concat(paramTokens);
+  const desiredKeyTokens = _tokenizeForMatch(desiredKeyRaw);
+
   if (param != null && param !== "") {
     const desiredParamRaw = _normalizeKey(param);
     const desiredParamFlat = _normalizeToken(desiredParamRaw);
     if (!desiredParamFlat) return false;
+    const desiredParamTokens = _tokenizeForMatch(desiredParamRaw);
+
+    if (_tokensContainAll(keyTokens, desiredKeyTokens) && _tokensContainAll(paramTokens, desiredParamTokens)) return true;
+    if (_tokensContainAll(allTokens, desiredKeyTokens) && _tokensContainAll(allTokens, desiredParamTokens)) return true;
 
     if (sig.keyFlat === desiredKeyFlat && sig.paramFlat === desiredParamFlat) return true;
     if (sig.keyFlat === `${desiredKeyFlat}${desiredParamFlat}`) return true;
     if (sig.keyRaw === `${desiredKeyRaw}.${desiredParamRaw}`) return true;
     return false;
   }
+
+  if (_tokensContainAll(keyTokens, desiredKeyTokens)) return true;
+  if (_tokensContainAll(paramTokens, desiredKeyTokens)) return true;
+  if (_tokensContainAll(allTokens, desiredKeyTokens)) return true;
 
   if (sig.keyFlat === desiredKeyFlat) return true;
   if (sig.paramFlat === desiredKeyFlat) return true;
@@ -166,10 +253,27 @@ function _buildEmptyProfile() {
     base.weakness[key] = 0;
     base.immunity[key] = false;
   }
-  for (const key of Object.keys(CONDITION_TYPE_MAP)) {
+  for (const key of Object.keys(_getConditionTypeMap())) {
     base.immunityConditions[key] = false;
   }
   return base;
+}
+
+function _isValidTraitProfile(profile) {
+  if (!profile || typeof profile !== "object") return false;
+  if (!profile.resistance || !profile.weakness || !profile.immunity || !profile.immunityConditions) return false;
+  if (!profile.flags || typeof profile.flags !== "object") return false;
+
+  for (const key of Object.keys(DAMAGE_TYPE_MAP)) {
+    if (!Object.prototype.hasOwnProperty.call(profile.resistance, key)) return false;
+    if (!Object.prototype.hasOwnProperty.call(profile.weakness, key)) return false;
+    if (!Object.prototype.hasOwnProperty.call(profile.immunity, key)) return false;
+  }
+  for (const key of Object.keys(_getConditionTypeMap())) {
+    if (!Object.prototype.hasOwnProperty.call(profile.immunityConditions, key)) return false;
+  }
+
+  return true;
 }
 
 export function getResistanceKeyForTraitType(typeKey) {
@@ -231,8 +335,28 @@ export function collectTraitDamageModifiers(items = []) {
 
 export function getActorTraitDamageProfile(actor) {
   const profile = actor?.system?.ui?.traitAutomation;
-  if (profile && typeof profile === "object") return profile;
+  if (profile && typeof profile === "object" && _isValidTraitProfile(profile)) return profile;
   return collectTraitDamageModifiers(actor?.items ?? []);
+}
+
+export function applyTraitDerived(actorSystemData, traitProfile) {
+  if (!actorSystemData || typeof actorSystemData !== "object") return;
+  if (!_isValidTraitProfile(traitProfile)) return;
+
+  actorSystemData.traits = actorSystemData.traits ?? {};
+  const resistances = actorSystemData.traits.resistance = actorSystemData.traits.resistance ?? {};
+  const immunities = actorSystemData.traits.immunity = actorSystemData.traits.immunity ?? {};
+
+  for (const [typeKey, value] of Object.entries(traitProfile.resistance ?? {})) {
+    const v = Number(value);
+    if (!Number.isFinite(v)) continue;
+    resistances[typeKey] = v;
+  }
+
+  for (const [conditionKey, isImmune] of Object.entries(traitProfile.immunityConditions ?? {})) {
+    if (isImmune !== true) continue;
+    immunities[conditionKey] = true;
+  }
 }
 
 export function isActorImmuneToDamageType(actor, damageType) {

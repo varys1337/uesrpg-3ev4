@@ -10,9 +10,25 @@
  * - This is a lightweight normalization pass intended to be safe to run on every startup.
  */
 
+import { applyDefaults } from "./apply-defaults.js";
+import { DEFAULTS } from "./item-defaults.generated.js";
+
 const MODULE_ID = "uesrpg-3ev4";
 
 /** @typedef {"melee"|"ranged"} AttackMode */
+
+const _NON_NUMERIC_ALLOWLIST = {
+  weapon: ["damage", "damage2", "damage3"],
+  armor: ["armor", "blockRating", "special_ar", "magic_ar"],
+  ammunition: ["damage"]
+};
+
+function _isNonNumericString(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return !Number.isFinite(Number(trimmed));
+}
 
 function _debugEnabled() {
   try {
@@ -267,5 +283,202 @@ export async function migrateItemsIfNeeded() {
   } catch (err) {
     console.error(`${MODULE_ID} | Item migration failed`, err);
     ui.notifications?.error?.("UESRPG item migration failed; check console for details.");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Always-safe normalization (not version-gated)
+// ---------------------------------------------------------------------------
+
+function _deepCloneSystem(sys) {
+  try {
+    return foundry?.utils?.deepClone ? foundry.utils.deepClone(sys ?? {}) : structuredClone(sys ?? {});
+  } catch (_e) {
+    return JSON.parse(JSON.stringify(sys ?? {}));
+  }
+}
+
+function _ensureArmorItemCatNonBreaking(system) {
+  // Non-breaking guardrail: template.json defines armor.item_cat as a mapping object,
+  // but runtime code expects a string category in some places.
+  // Normalization must NOT convert types.
+  if (!Object.prototype.hasOwnProperty.call(system, "item_cat")) {
+    system.item_cat = "";
+    return true;
+  }
+  return false;
+}
+
+function _applyLegacyGuardrails(item, system) {
+  const update = { changed: false, deleteEquippped: false };
+
+  // Fix legacy typo: equippped -> equipped
+  if (Object.prototype.hasOwnProperty.call(system, "equippped")) {
+    if (!Object.prototype.hasOwnProperty.call(system, "equipped")) {
+      system.equipped = !!system.equippped;
+      update.changed = true;
+    }
+    try {
+      delete system.equippped;
+    } catch (_e) {
+      // ignore
+    }
+    update.deleteEquippped = true;
+    update.changed = true;
+  }
+
+  // Reach migration: lift structured reach into system.reach and strip it.
+  try {
+    const structured = Array.isArray(system.qualitiesStructured) ? system.qualitiesStructured : [];
+    const reachEntry = structured.find((q) => String(q?.key ?? "").toLowerCase() === "reach") ?? null;
+    const reachFromStructured = Number(reachEntry?.value ?? 0);
+
+    const reachFromSystem = Number(system.reach ?? 0);
+    const systemHasReach = Number.isFinite(reachFromSystem) && reachFromSystem !== 0;
+
+    if (!systemHasReach && Number.isFinite(reachFromStructured) && reachFromStructured !== 0) {
+      system.reach = reachFromStructured;
+      update.changed = true;
+    }
+
+    if (reachEntry) {
+      const filtered = structured.filter((q) => String(q?.key ?? "").toLowerCase() !== "reach");
+      if (filtered.length !== structured.length) {
+        system.qualitiesStructured = filtered;
+        update.changed = true;
+      }
+    }
+  } catch (_e) {
+    // best-effort only
+  }
+
+  // reachMin sanitize (numeric, >= 0)
+  if (system.reachMin === undefined || system.reachMin === null || system.reachMin === "") {
+    system.reachMin = 0;
+    update.changed = true;
+  } else {
+    const n = Number(system.reachMin);
+    if (!Number.isFinite(n) || n < 0) {
+      system.reachMin = 0;
+      update.changed = true;
+    }
+  }
+
+  // enchant_level sanitize: invalid => 0, and strip legacy "1" without transfer effects
+  try {
+    const raw = system.enchant_level;
+    const n = Number(raw);
+    if (raw === undefined || raw === null || raw === "" || !Number.isFinite(n)) {
+      system.enchant_level = 0;
+      update.changed = true;
+    } else if (n === 1 && !_itemHasTransferEffects(item)) {
+      system.enchant_level = 0;
+      update.changed = true;
+    }
+  } catch (_e) {
+    // ignore
+  }
+
+  return update;
+}
+
+function _normalizeItemSystem(item) {
+  const type = item?.type;
+  if (!type || !Object.prototype.hasOwnProperty.call(DEFAULTS?.itemSystem ?? {}, type)) return null;
+
+  const currentSystem = _deepCloneSystem(item.system);
+  const ignorePaths = (DEFAULTS.__meta?.ignorePathsByType?.[type] ?? []).slice();
+  const allowNonNumeric = _NON_NUMERIC_ALLOWLIST[type] ?? [];
+  for (const key of allowNonNumeric) {
+    if (_isNonNumericString(currentSystem[key])) ignorePaths.push(key);
+  }
+  const { result: system, changed: defaultsChanged } = applyDefaults(currentSystem, DEFAULTS.itemSystem[type], { coerce: true, ignorePaths });
+
+  let changed = !!defaultsChanged;
+  let deleteEquippped = false;
+
+  // Attack mode canonicalization (weapon only): melee|ranged
+  if (type === "weapon") {
+    const hasValid = system.attackMode === "melee" || system.attackMode === "ranged";
+    if (!hasValid) {
+      const inferred = _inferAttackMode(item, system);
+      system.attackMode = inferred ?? "melee";
+      changed = true;
+      if (!inferred && _debugEnabled()) {
+        const ident = `${item?.type ?? "item"}:${item?.name ?? item?.id ?? "<unknown>"}`;
+        console.warn(`${MODULE_ID} | attackMode inference fallback (defaulted to melee) for ${ident}`);
+      }
+    }
+  }
+
+  // Non-breaking armor.item_cat behavior
+  if (type === "armor") {
+    if (_ensureArmorItemCatNonBreaking(system)) changed = true;
+  }
+
+  // Ammunition per-10 pricing backfill (legacy)
+  if (type === "ammunition") {
+    if (system.pricePer10 === undefined || system.pricePer10 === null) {
+      const legacy = Number(system.price ?? 0);
+      system.pricePer10 = Number.isFinite(legacy) ? legacy : 0;
+      changed = true;
+    }
+  }
+
+  // Legacy guardrails (shared)
+  const legacy = _applyLegacyGuardrails(item, system);
+  if (legacy.changed) changed = true;
+  if (legacy.deleteEquippped) deleteEquippped = true;
+
+  if (!changed && !deleteEquippped) return null;
+
+  const update = { system };
+  if (deleteEquippped) update["system.-=equippped"] = null;
+  return update;
+}
+
+async function _normalizeWorldItems() {
+  const updates = [];
+  for (const item of game.items.contents) {
+    if (!["weapon", "armor", "ammunition"].includes(item.type)) continue;
+    const update = _normalizeItemSystem(item);
+    if (update) {
+      update._id = item.id;
+      updates.push(update);
+    }
+  }
+
+  if (updates.length) {
+    console.log(`${MODULE_ID} | Normalizing ${updates.length} world item(s)`);
+    await Item.updateDocuments(updates, { diff: false });
+  }
+}
+
+async function _normalizeActorItems() {
+  for (const actor of game.actors.contents) {
+    const updates = [];
+    for (const item of actor.items.contents) {
+      if (!["weapon", "armor", "ammunition"].includes(item.type)) continue;
+      const update = _normalizeItemSystem(item);
+      if (update) {
+        update._id = item.id;
+        updates.push(update);
+      }
+    }
+    if (updates.length) {
+      console.log(`${MODULE_ID} | Normalizing ${updates.length} item(s) on actor ${actor.name}`);
+      await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+    }
+  }
+}
+
+export async function normalizeItems() {
+  if (!game.user.isGM) return;
+  try {
+    await _normalizeWorldItems();
+    await _normalizeActorItems();
+  } catch (err) {
+    console.error(`${MODULE_ID} | Item normalization failed`, err);
+    ui.notifications?.error?.("UESRPG item normalization failed; check console for details.");
   }
 }

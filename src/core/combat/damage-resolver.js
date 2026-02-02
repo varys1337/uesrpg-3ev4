@@ -17,10 +17,14 @@
  */
 
 import { applyDamage, calculateDamage, DAMAGE_TYPES, applyForcefulImpact, ensureUnconsciousEffect, isItemMagicSource, itemHasToken } from "./damage-automation.js";
+import { applyTalentDamageModifiers, getEnemyWoundThresholdDelta } from "../traits/combat-talents.js";
+import { hasTalent } from "../traits/talents-api.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 import { isTransferEffectActive } from "../active-effects/transfer.js";
 import { isActorIncorporeal, getActorTraitValue, getDiseaseResistancePercent, hasActorTrait, isActorUndead } from "../traits/trait-registry.js";
 import { postDiseasedCheckCard } from "../traits/trait-automation.js";
+import { applyBleeding, hasCondition } from "../conditions/condition-engine.js";
+import { getAttackModeFromWeapon } from "./combat-utils.js";
 
 /**
  * Normalize hit location values to engine keys used by damage-automation.js.
@@ -323,6 +327,10 @@ function buildDamageContext(payload = {}) {
   const penetration = asNumber(payload.penetration ?? 0);
   const hitLocation = normalizeHitLocation(payload.hitLocation ?? payload.location ?? "Body");
   const damageType = normalizeDamageType(payload.damageType ?? DAMAGE_TYPES.PHYSICAL);
+  const attackModeRaw = String(payload.attackMode ?? "").trim().toLowerCase();
+  const attackFromHidden = (typeof payload.attackFromHidden === "boolean")
+    ? payload.attackFromHidden
+    : (String(payload.attackFromHidden ?? "").trim() === "1" ? true : (String(payload.attackFromHidden ?? "").trim() === "0" ? false : null));
 
   let weapon = payload.weapon ?? null;
   if (!weapon && payload.weaponUuid) {
@@ -343,6 +351,21 @@ function buildDamageContext(payload = {}) {
     weapon = payload.sourceItem;
   }
 
+  let ammo = payload.ammo ?? null;
+  if (!ammo && payload.ammoUuid) {
+    try {
+      ammo = fromUuidSync(payload.ammoUuid) ?? null;
+    } catch (_err) {
+      ammo = null;
+    }
+  }
+  if (!ammo && payload.ammoId && weapon?.actor?.items?.get) {
+    const ammoId = String(payload.ammoId ?? "").trim();
+    if (ammoId) {
+      ammo = weapon.actor.items.get(ammoId) ?? null;
+    }
+  }
+
   const options = {
     // Damage-automation options (kept stable)
     ignoreReduction: payload.ignoreReduction === true,
@@ -357,6 +380,9 @@ function buildDamageContext(payload = {}) {
     // Optional enrichment
     weapon,
     attackerActor: payload.attackerActor ?? null,
+    ammo,
+    attackMode: attackModeRaw || null,
+    attackFromHidden,
     magicSource: payload.magicSource === true,
   };
 
@@ -364,6 +390,48 @@ function buildDamageContext(payload = {}) {
   _toggleKnownOption(payload, options, "ignoreResistance");
 
   return { rawDamage, damageType, options };
+}
+
+const PENDING_SNEAK_TTL_MS = 30000;
+
+function _getSystemId() {
+  return String(game?.system?.id ?? "uesrpg-3ev4");
+}
+
+function _consumePendingSneakAttack(attackerActor, { weapon = null, attackMode = null } = {}) {
+  try {
+    if (!attackerActor || typeof attackerActor.getFlag !== "function") return false;
+    const systemId = _getSystemId();
+    const pending = attackerActor.getFlag(systemId, "combat.pendingSneakAttack");
+    if (!pending || typeof pending !== "object") return false;
+
+    const ageMs = Date.now() - Number(pending.at ?? 0);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > PENDING_SNEAK_TTL_MS) {
+      if (typeof attackerActor.unsetFlag === "function") {
+        attackerActor.unsetFlag(systemId, "combat.pendingSneakAttack").catch(() => {});
+      }
+      return false;
+    }
+
+    const pendingWeapon = String(pending.weaponUuid ?? "").trim();
+    const weaponUuid = String(weapon?.uuid ?? "").trim();
+    if (pendingWeapon) {
+      if (!weaponUuid || pendingWeapon !== weaponUuid) return false;
+    }
+
+    const pendingMode = String(pending.attackMode ?? "").trim().toLowerCase();
+    const mode = String(attackMode ?? "").trim().toLowerCase();
+    if (pendingMode) {
+      if (!mode || pendingMode !== mode) return false;
+    }
+
+    if (typeof attackerActor.unsetFlag === "function") {
+      attackerActor.unsetFlag(systemId, "combat.pendingSneakAttack").catch(() => {});
+    }
+    return true;
+  } catch (_e) {
+    return false;
+  }
 }
 
 
@@ -472,6 +540,45 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   }
 
+  // --- Talent-derived damage modifiers (Sneak Attack / Assassinate / Unarmed Prowess) ---
+  const weaponItem = ctx.options?.weapon ?? null;
+  const weaponCtx = (weaponItem && weaponItem.type === "weapon") ? weaponItem : null;
+  const attackMode = ctx.options?.attackMode || (weaponCtx ? getAttackModeFromWeapon(weaponCtx) : null);
+  ctx.options.attackMode = attackMode || null;
+
+  if (attackerActor) {
+    const pendingHidden = _consumePendingSneakAttack(attackerActor, { weapon: weaponCtx, attackMode });
+    if (pendingHidden) ctx.options.attackFromHidden = true;
+  }
+
+  // Unarmed Prowess: add STR bonus to hand-to-hand damage.
+  if (weaponCtx && attackerActor && itemHasToken(weaponCtx, "handToHand") && hasTalent(attackerActor, "unarmedprowess")) {
+    const dmgFormula = String(weaponCtx.system?.damageEffective ?? weaponCtx.system?.damage ?? "").toLowerCase();
+    const hasStrInFormula = dmgFormula.includes("@str") || /\bstr\b/.test(dmgFormula) || /\bstrength\b/.test(dmgFormula) || /\bsb\b/.test(dmgFormula);
+    if (!hasStrInFormula) {
+      const sb = Number(attackerActor.system?.characteristics?.str?.bonus ?? 0) || 0;
+      if (sb > 0) ctx.rawDamage = Math.max(0, Number(ctx.rawDamage || 0) + sb);
+    }
+  }
+
+  const talentContext = {
+    attackFromHidden: ctx.options?.attackFromHidden,
+    talentDamageBonus: 0,
+    talentNotes: [],
+    sneakIgnoreArmorOnly: false,
+    _isSneakAttack: false
+  };
+
+  if (weaponCtx && attackerActor) {
+    applyTalentDamageModifiers({
+      attacker: attackerActor,
+      target: targetActor,
+      attackerToken: null,
+      weapon: weaponCtx,
+      damageContext: talentContext
+    });
+  }
+
   // --- Typed bonus damage (single application workflow)
   // We must support additional damage types in ONE damage application click.
   // Policy:
@@ -494,6 +601,22 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       defender: ctx.options?.aeBreakdown?.defender ?? [],
     },
   });
+
+  // Sneak Attack bonus component (if any)
+  const sneakBonus = Math.max(0, Number(talentContext?.talentDamageBonus ?? 0));
+  if (sneakBonus > 0) {
+    components.push({
+      kind: "sneak",
+      amount: sneakBonus,
+      damageType: ctx.damageType,
+      applyDefenderAdjust: false,
+      ignoreArmorOnly: talentContext?.sneakIgnoreArmorOnly === true,
+      sourceLabel: `${ctx.options.source ?? "Attack"} - Sneak Attack`,
+      breakdown: {
+        talentNotes: Array.isArray(talentContext?.talentNotes) ? talentContext.talentNotes : [],
+      },
+    });
+  }
 
   // Typed bonus components
   const typedBonusDamage = (attackerActor ? collectTypedBonusDamage(attackerActor) : null);
@@ -519,7 +642,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   const currentHP = Number(targetActor.system?.hp?.value ?? 0);
   const maxHP = Number(targetActor.system?.hp?.max ?? 1);
 
-  const woundThreshold = (() => {
+  const baseWoundThreshold = (() => {
     const wt = targetActor.system?.wound_threshold;
     if (wt && typeof wt === "object") {
       const v = Number(wt.value ?? wt.total ?? wt.base);
@@ -534,10 +657,24 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   const isUnlinkedToken = !!(activeToken && targetActor.prototypeToken && targetActor.prototypeToken.actorLink === false);
   const updateTarget = isUnlinkedToken ? activeToken.actor : targetActor;
 
+  let woundThreshold = baseWoundThreshold;
+  let woundThresholdDelta = 0;
+  if (weaponCtx && attackerActor) {
+    const mode = String(attackMode ?? "").toLowerCase().trim();
+    if (mode === "melee" || mode === "ranged") {
+      const delta = getEnemyWoundThresholdDelta({ attacker: attackerActor, attackMode: mode });
+      if (Number.isFinite(delta) && delta !== 0) {
+        woundThresholdDelta = delta;
+        woundThreshold = Math.max(0, Number(baseWoundThreshold || 0) + Number(delta));
+      }
+    }
+  }
+
   const defenderIncorporeal = isActorIncorporeal(updateTarget);
   const sourceItem = ctx.options?.weapon ?? null;
-  const attackIsMagic = ctx.options.magicSource === true || isItemMagicSource(sourceItem);
-  const isSilverSource = _isSilverSource(sourceItem);
+  const ammoItem = ctx.options?.ammo ?? null;
+  const attackIsMagic = ctx.options.magicSource === true || isItemMagicSource(sourceItem) || isItemMagicSource(ammoItem);
+  const isSilverSource = _isSilverSource(sourceItem) || _isSilverSource(ammoItem);
   const isSunlightSource = _isSunlightSource(sourceItem);
   const incorporealBlock = defenderIncorporeal && !attackIsMagic;
 
@@ -546,6 +683,15 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   let totalApplied = 0;
   let woundTriggered = false;
   const traitNotes = [];
+  if (woundThresholdDelta && attackerActor) {
+    if (hasTalent(attackerActor, "cripplingstrikes")) {
+      traitNotes.push("Crippling Strikes: WT -1");
+    } else if (hasTalent(attackerActor, "eyeofvengeance")) {
+      traitNotes.push("Eye of Vengeance: WT -1");
+    } else {
+      traitNotes.push(`Wound Threshold: ${woundThresholdDelta}`);
+    }
+  }
 
   // Spell Absorption (X): negate magic-typed bonus damage and restore MP.
   const spellAbsorptionValue = _maxTraitValue(updateTarget, "spellAbsorption");
@@ -585,6 +731,8 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   for (const c of components) {
     const isPrimary = c.kind === "primary";
+    const componentIgnoreArmor = isPrimary ? (ctx.options?.ignoreArmor === true) : (c.ignoreArmor === true);
+    const componentIgnoreArmorOnly = c.ignoreArmorOnly === true;
 
     const calc = ctx.options?.ignoreReduction === true
       ? {
@@ -604,6 +752,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
           penetrateArmorForTriggers: isPrimary ? (ctx.options?.penetrateArmorForTriggers === true) : false,
           weapon: isPrimary ? (ctx.options?.weapon ?? null) : null,
           attackerActor: isPrimary ? (ctx.options?.attackerActor ?? null) : null,
+          ammo: isPrimary ? (ctx.options?.ammo ?? null) : null,
+          ignoreArmor: componentIgnoreArmor,
+          ignoreArmorOnly: componentIgnoreArmorOnly,
         });
 
     let baseFinal = Number(calc.finalDamage || 0);
@@ -629,6 +780,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       finalDamage: baseFinal,
       finalApplied: adjusted,
       spellAbsorbed: c.spellAbsorbed === true,
+      ignoreArmorOnly: c.ignoreArmorOnly === true,
       incorporealBlock: incorporealBlock ? { isBlocked: true, reason: "non-magic source" } : null,
       incorporealAttack: calc.incorporealAttack ?? null,
       breakdown: c.breakdown ?? null,
@@ -677,6 +829,24 @@ export async function applyDamageResolved(targetActor, payload = {}) {
           r.finalApplied = applied - reduceBy;
           remaining += reduceBy;
         }
+      }
+    }
+  }
+
+  // Cutthroat: apply Bleeding after post-mitigation damage when applicable.
+  if (totalApplied > 0 && attackerActor && weaponCtx && hasTalent(attackerActor, "cutthroat")) {
+    let bleedAdd = 0;
+    const sneakApplied = Number(results.find(r => r.kind === "sneak")?.finalApplied ?? 0) || 0;
+    if (sneakApplied > 0) bleedAdd += 1;
+
+    const hasSmall = itemHasToken(weaponCtx, "small");
+    if (hasSmall && hasCondition(updateTarget, "bleeding")) bleedAdd += 1;
+
+    if (bleedAdd > 0) {
+      try {
+        await applyBleeding(updateTarget, bleedAdd, { origin: ctx.options?.origin ?? null, source: "Cutthroat" });
+      } catch (err) {
+        console.warn("UESRPG | Cutthroat bleeding application failed", err);
       }
     }
   }
@@ -863,9 +1033,20 @@ export async function applyDamageResolved(targetActor, payload = {}) {
         if (r.weaponBonus) rawLines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">Weapon bonus: ${fmt(r.weaponBonus)} (${wName})</span></div>`);
         if (attackerDealtEntries.length) rawLines.push(renderEntryLines("AE dealt", attackerDealtEntries));
         if (attackerPenEntries.length) rawLines.push(renderEntryLines("AE penetration", attackerPenEntries));
+      } else if (r.kind === "sneak") {
+        rawLines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">Talent: Sneak Attack</span></div>`);
+        const tnotes = Array.isArray(r.breakdown?.talentNotes) ? r.breakdown.talentNotes : [];
+        for (const note of tnotes) {
+          rawLines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${note}</span></div>`);
+        }
+        if (r.ignoreArmorOnly) {
+          rawLines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">Assassinate: AR ignored for bonus</span></div>`);
+        }
       } else {
         // Typed bonus
-        const typedEntries = Array.isArray(r.breakdown?.entries) ? r.breakdown.entries : [];
+        const typedEntries = Array.isArray(r.breakdown?.entries)
+          ? r.breakdown.entries
+          : (Array.isArray(r.breakdown?.attackerTyped) ? r.breakdown.attackerTyped : []);
         if (typedEntries.length) {
           const formatted = typedEntries
             .map(e => ({ label: String(e.label ?? "Effect"), value: Number(e.value ?? 0) || 0 }))

@@ -11,6 +11,10 @@ import { initializeChatHandlers, registerCombatChatHooks } from "../core/combat/
 import { registerSkillTNDebug } from "../utils/dev/skill-tn-debug.js";
 import { registerActorSelectDebug } from "../utils/dev/actor-select-debug.js";
 import { registerDebugSettingsMenu } from "../utils/dev/debug-settings.js";
+import { registerReachVisualizerSettingsMenu, registerReachVisualizerSettingsStorage } from "../ui/apps/reach-visualizer-settings.js";
+import { registerInterfaceSettingsMenu } from "../ui/apps/interface-settings.js";
+import { registerTalentsSettingsMenu } from "../ui/apps/talents-settings.js";
+import { registerCombatSettingsMenu } from "../ui/apps/combat-settings.js";
 import { registerOpposedDiagnostics } from "../utils/dev/opposed-diagnostics.js";
 import { registerConditions } from "../core/conditions/index.js";
 import { registerWounds } from "../core/wounds/index.js";
@@ -19,6 +23,7 @@ import { applyDamage, applyHealing, DAMAGE_TYPES } from "../core/combat/damage-a
 import { applyDamageResolved } from "../core/combat/damage-resolver.js";
 import { registerChatMessageSocket } from "../utils/chat-message-socket.js";
 import { registerActiveEffectProxy } from "../utils/active-effect-proxy.js";
+import { registerReachVisualizer } from "../ui/canvas/reach-visualizer.js";
 
 /**
  * Preload Handlebars partials used by system sheets.
@@ -54,7 +59,7 @@ async function registerSettings() {
     hint: "Changes main Font",
     scope: "world",
     requiresReload: true,
-    config: true,
+    config: false,
     type: String,
     choices: {
       "Cyrodiil": "Сyrodiil - Default",
@@ -67,7 +72,7 @@ async function registerSettings() {
     name: "Do Not Show Dialog on Startup",
     hint: "Checking this box hides the startup popup dialog informing the user on additional game resources.",
     scope: "world",
-    config: true,
+    config: false,
     default: false,
     type: Boolean,
   });
@@ -90,7 +95,7 @@ async function registerSettings() {
     name: "Sort Actor Items Alphabetically",
     hint: "If checked, Actor items are automatically sorted alphabetically. Otherwise, items are not sorted and are organized manually.",
     scope: "world",
-    config: true,
+    config: false,
     default: true,
     type: Boolean,
     onChange: delayedReload,
@@ -220,13 +225,31 @@ async function registerSettings() {
   default: false
 });
 
+  game.settings.register("uesrpg-3ev4", "debugActorSelect", {
+    name: "Actor Select: Debug Logging",
+    hint: "When enabled (client-only), logs TN-relevant actor context whenever you control a token (developer utility).",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false
+  });
+
+  game.settings.register("uesrpg-3ev4", "woundsDebug", {
+    name: "Wounds: Debug Logging",
+    hint: "When enabled, wound automation logs structured diagnostic information to the browser console.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean
+  });
+
 
   // Combat sheet UI: optional Action Economy gating for quick actions
   game.settings.register("uesrpg-3ev4", "enableActionEconomyUI", {
     name: "Combat Sheet: Action Economy UI",
     hint: "When enabled, Combat tab quick action buttons are disabled when the actor has 0 Action Points.",
     scope: "world",
-    config: true,
+    config: false,
     default: false,
     type: Boolean,
   });
@@ -236,9 +259,38 @@ async function registerSettings() {
     name: "Sheets: Enable Equipment Loadouts",
     hint: "When enabled, the Items tab shows a per-user Loadout bar (save/apply equipped-state snapshots).",
     scope: "world",
-    config: true,
+    config: false,
     default: false,
     type: Boolean,
+  });
+
+
+  // Talents automation: optional enforcement toggles (Chapter 4)
+  game.settings.register("uesrpg-3ev4", "enableMightyCleave", {
+    name: "Talents: Enable Mighty Cleave automation",
+    hint: "When enabled, Mighty Cleave can create a follow-up attack button on opposed cards (requires the talent). Disabled by default to avoid changing table enforcement assumptions.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "enableFollowUpStrike", {
+    name: "Talents: Enable Follow-up Strike automation",
+    hint: "When enabled, Follow-up Strike can create a free follow-up attack button on opposed cards (requires the talent). Disabled by default to avoid changing table enforcement assumptions.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "gladiatorAutomationMode", {
+    name: "Talents: Gladiator automation mode",
+    hint: "Controls Gladiator free-defense behavior (Disabled, Original/Make, Updated/Can).",
+    scope: "world",
+    config: false,
+    default: "original",
+    type: String,
   });
 
   // Client-only diagnostics panel on actor sheets (used for testing)
@@ -253,6 +305,15 @@ async function registerSettings() {
 
   // Register a dedicated Debugging menu to avoid clutter in System Settings.
   registerDebugSettingsMenu();
+
+  // Subcategory menus to keep System Settings uncluttered.
+  registerInterfaceSettingsMenu();
+  registerTalentsSettingsMenu();
+  registerCombatSettingsMenu();
+
+  // Reach Visualizer submenu (client scoped)
+  registerReachVisualizerSettingsStorage();
+  registerReachVisualizerSettingsMenu();
 
 }
 
@@ -425,7 +486,8 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
    * @type {String}
    */
   CONFIG.Combat.initiative = {
-    formula: "1d6 + @initiative.base",
+    // Use the derived initiative value so Active Effects can influence initiative reliably.
+    formula: "1d6 + @initiative.value",
     decimals: 0,
   };
 
@@ -455,6 +517,8 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
   registerCombatChatHooks();
   registerChatMessageSocket();
   registerActiveEffectProxy();
+  // Canvas tool: visualize melee reach for controlled tokens.
+  registerReachVisualizer();
 
   // DERIVED_DATA_CACHE_INVALIDATION_V1
   // Ensure edits to embedded Item bonuses (Talents / Traits / Powers, but also any other embedded

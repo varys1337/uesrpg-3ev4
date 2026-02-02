@@ -1,0 +1,62 @@
+.uesrpg-stamina-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.uesrpg-stamina-status {
+  padding: 10px;
+  border-radius: 4px;
+  background: #2a6b2a;
+  color: #fff;
+}
+
+.uesrpg-stamina-status.is-warning {
+  background: #4a1a1a;
+}
+
+.uesrpg-stamina-status__line {
+  margin: 0;
+  font-weight: 600;
+}
+
+.uesrpg-stamina-warning {
+  margin: 6px 0 0 0;
+  color: #ffb3b3;
+  font-size: 12px;
+}
+
+.uesrpg-stamina-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.uesrpg-stamina-select {
+  width: 100%;
+  padding: 5px;
+  margin-top: 5px;
+}
+
+.uesrpg-stamina-power-attack {
+  margin-top: 10px;
+}
+
+.uesrpg-stamina-power-attack.is-hidden {
+  display: none;
+}
+
+.uesrpg-stamina-input {
+  width: 100%;
+  padding: 5px;
+  margin-top: 5px;
+}
+
+.uesrpg-stamina-note {
+  font-style: italic;
+  opacity: 0.8;
+  margin: 4px 0 0 0;
+}

@@ -8,8 +8,9 @@
  *  - Does not mutate documents.
  */
 
-import { collectCombatTNModifierEntries } from "../combat/tn.js";
+import { collectCombatTNModifierEntries, computeDefenderTNOverride } from "../combat/tn.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
+import { hasTalent } from "../traits/talents-api.js";
 
 export const SKILL_DIFFICULTIES = Object.freeze([
   { key: "effortless", label: "Effortless", mod: 40 },
@@ -42,6 +43,30 @@ function _normalizeKey(s) {
     .replace(/\s+/g, "")
     .replace(/[^a-z0-9_]/g, "");
 }
+
+function _maybeAddObservantEvadeMod(actor, skillItem, situationalMods) {
+  if (!actor || !skillItem || !Array.isArray(situationalMods)) return;
+  if (_normalizeKey(skillItem?.name) !== "evade") return;
+  if (!hasTalent(actor, "observant")) return;
+
+  const baseTN = _asNumber(skillItem?.system?.value ?? 0);
+  const override = computeDefenderTNOverride(actor, {
+    skillName: "Evade",
+    fallbackCharacteristic: "prc"
+  });
+  const altTN = _asNumber(override?.tn ?? NaN);
+  if (!Number.isFinite(altTN)) return;
+
+  const delta = altTN - baseTN;
+  if (delta > 0) {
+    situationalMods.push({
+      key: "talent:observant",
+      label: "Observant (Evade as Perception)",
+      value: delta,
+      source: "talent"
+    });
+  }
+}
 function _isAgilityBasedSkill(skillItem) {
   // Skills can encode governing characteristics as a single token ("Agi"),
   // a full word ("Agility"), or a comma/space separated list ("Str, Agi").
@@ -61,6 +86,11 @@ function _isAgilityBasedSkill(skillItem) {
 function _isPhysicalSkill(skill) {
   const gov = String(skill?.system?.governingCha ?? skill?.system?.baseCha ?? skill?.governingCharacteristic ?? "").trim().toLowerCase();
   return /\bstr\b|\bstrength\b|\bagi\b|\bagility\b|\bend\b|\bendurance\b/.test(gov);
+}
+
+function _isStrOrEndSkill(skill) {
+  const gov = String(skill?.system?.governingCha ?? skill?.system?.baseCha ?? skill?.governingCharacteristic ?? "").trim().toLowerCase();
+  return /\bstr\b|\bstrength\b|\bend\b|\bendurance\b/.test(gov);
 }
 
 function _collectItemSkillBonuses(actor, skill) {
@@ -110,10 +140,6 @@ function _isCombatStyle(skillItem) {
   return (skillItem?.type === "combatStyle") || /combat style/i.test(String(skillItem?.name || ""));
 }
 
-function _normSkillKey(s) {
-  return String(s ?? "").trim().toLowerCase().replace(/\s+/g, "");
-}
-
 export function computeSkillTN({
   actor,
   skillItem,
@@ -124,38 +150,7 @@ export function computeSkillTN({
 } = {}) {
   // Derive item-based skill bonuses from equipped items that use the legacy `system.skillArray` format.
   // This allows the chat card breakdown to attribute bonuses to specific items.
-  
-const skillName = String(skillItem?.name ?? "").trim();
-const profKey = String(skillItem?._professionKey ?? "").trim();
-const itemBonuses = [];
-const seen = new Set();
-
-if (actor && (skillName || profKey)) {
-  const candidates = new Set();
-  if (skillName) candidates.add(_normSkillKey(skillName));
-  if (profKey) candidates.add(_normSkillKey(profKey));
-
-  for (const item of actor.items ?? []) {
-    const sys = item?.system;
-    if (!sys?.equipped) continue;
-    if (!Array.isArray(sys.skillArray) || sys.skillArray.length === 0) continue;
-
-    for (const entry of sys.skillArray) {
-      const eName = String(entry?.name ?? "").trim();
-      const eVal = _asNumber(entry?.value);
-      if (!eName || !eVal) continue;
-
-      const k = _normSkillKey(eName);
-      if (!candidates.has(k)) continue;
-
-      const sig = `${item.id}|${k}|${eVal}`;
-      if (seen.has(sig)) continue;
-      seen.add(sig);
-
-      itemBonuses.push({ itemName: item.name, value: eVal });
-    }
-  }
-}
+  const itemBonuses = _collectItemSkillBonuses(actor, skillItem);
 
   // Active Effects: global test modifiers + skill-specific lanes.
   // Supported keys:
@@ -165,9 +160,34 @@ if (actor && (skillName || profKey)) {
   //
   // We evaluate these deterministically at roll-time to support both ADD and OVERRIDE modes.
   const _aeSkillNorm = _normalizeKey(skillItem?.name);
-  const _aeSkillKeys = ["system.modifiers.tests.all", "system.modifiers.skills._all"];
-  if (_aeSkillNorm) _aeSkillKeys.push(`system.modifiers.skills.${_aeSkillNorm}`);
-  const _aeSkillResolved = actor ? evaluateAEModifierKeys(actor, _aeSkillKeys) : {};
+  const _aeProfessionNorm = _normalizeKey(skillItem?._professionKey);
+  const _aeSkillKeys = new Set([
+    "system.modifiers.tests.all",
+    "system.modifiers.skills._all",
+    "system.modifiers.skills.frenziedPenalty",
+    "system.modifiers.skills.physicalExertion"
+  ]);
+  if (_aeSkillNorm) _aeSkillKeys.add(`system.modifiers.skills.${_aeSkillNorm}`);
+  if (_aeProfessionNorm) _aeSkillKeys.add(`system.modifiers.skills.${_aeProfessionNorm}`);
+  const _aeSkillResolved = actor ? evaluateAEModifierKeys(actor, Array.from(_aeSkillKeys)) : {};
+
+  const fallbackSituational = [];
+  if (
+    actor &&
+    !_isCombatStyle({ type: skillItem?.type, name: skillItem?.name }) &&
+    _isStrOrEndSkill({ system: skillItem?.system ?? {} }) &&
+    !_asNumber(_aeSkillResolved["system.modifiers.skills.physicalExertion"] ?? 0)
+  ) {
+    const hasLegacy = actor.effects?.some(e =>
+      !e.disabled && e?.flags?.uesrpg?.key === "stamina-physical-exertion"
+    );
+    if (hasLegacy) {
+      fallbackSituational.push({ key: "physicalExertion", label: "Physical Exertion", value: 20, source: "staminaLegacy" });
+    }
+  }
+
+  const situational = Array.isArray(situationalMods) ? [...situationalMods] : [];
+  _maybeAddObservantEvadeMod(actor, skillItem, situational);
 
   return computeSkillTNFromData({
     actorSystem: actor?.system ?? {},
@@ -176,7 +196,8 @@ if (actor && (skillName || profKey)) {
     skill: {
       name: skillItem?.name,
       type: skillItem?.type,
-      system: skillItem?.system ?? {}
+      system: skillItem?.system ?? {},
+      _professionKey: skillItem?._professionKey
     },
     itemBonuses,
     aeSkillResolved: _aeSkillResolved,
@@ -193,7 +214,7 @@ if (actor && (skillName || profKey)) {
     difficultyKey,
     manualMod,
     useSpecialization,
-    situationalMods
+    situationalMods: [...situational, ...fallbackSituational]
   });
 }
 
@@ -243,6 +264,7 @@ export function computeSkillTNFromData({
   }
 
   // Skill-specific lane
+  const normProfession = _normalizeKey(skill?._professionKey);
   const specificBonus = normName ? _asNumber(resolved[`system.modifiers.skills.${normName}`] ?? 0) : 0;
   if (specificBonus) {
     const labelName = String(skill?.name ?? "").trim();
@@ -253,12 +275,30 @@ export function computeSkillTNFromData({
     });
   }
 
+  const professionBonus = (normProfession && normProfession !== normName)
+    ? _asNumber(resolved[`system.modifiers.skills.${normProfession}`] ?? 0)
+    : 0;
+  if (professionBonus) {
+    const labelName = String(skill?._professionKey ?? "").trim();
+    breakdown.push({
+      label: labelName ? `Effects: ${labelName}` : "Effects: Profession",
+      value: professionBonus,
+      source: "aeSkillProfession"
+    });
+  }
+
   // Frenzied condition penalty lane
   // Key: system.modifiers.skills.frenziedPenalty
   // Applies to all skill tests except STR/AGI/END-based skills.
   const frenziedPenalty = _asNumber(resolved["system.modifiers.skills.frenziedPenalty"] ?? 0);
   if (frenziedPenalty && !_isPhysicalSkill(skill)) {
     breakdown.push({ label: "Effects: Frenzied", value: frenziedPenalty, source: "aeFrenziedPenalty" });
+  }
+
+  // Physical Exertion bonus (STR/END-based skills only; not Combat Style).
+  const physicalExertion = _asNumber(resolved["system.modifiers.skills.physicalExertion"] ?? 0);
+  if (physicalExertion && _isStrOrEndSkill(skill) && !_isCombatStyle({ type: skill?.type, name: skill?.name })) {
+    breakdown.push({ label: "Physical Exertion", value: physicalExertion, source: "staminaPhysicalExertion" });
   }
 
   // Combat Style unopposed checks: include combat TN modifiers (attacker side).

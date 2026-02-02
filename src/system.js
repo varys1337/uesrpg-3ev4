@@ -1,5 +1,5 @@
-import { migrateItemsIfNeeded } from "./core/migrations/items.js";
-import { migrateActorsIfNeeded } from "./core/migrations/actors.js";
+import { migrateItemsIfNeeded, normalizeItems } from "./core/migrations/items.js";
+import { migrateActorsIfNeeded, normalizeActors } from "./core/migrations/actors.js";
 import startupHandler from './hooks/startup.js';
 import initHandler from './hooks/init.js';
 import { dumpAEKeys } from "./utils/dev/ae-keys-dump.js";
@@ -17,9 +17,12 @@ import { AttackTracker } from "./core/combat/attack-tracker.js";
 import { initializeUpkeepSystem } from "./core/magic/upkeep-workflow.js";
 import { initializeSpellEffectExpirationSystem } from "./core/magic/spell-effect-expiration.js";
 import { initializeDamageApplication } from "./core/magic/damage-application.js";
+import { initializeTimeService } from "./core/time/index.js";
 
 Hooks.once('ready', async function () {
   console.log(`UESRPG | Ready`);
+  await normalizeActors();
+  await normalizeItems();
   await migrateActorsIfNeeded();
   await migrateItemsIfNeeded();
   await startupHandler();
@@ -45,6 +48,9 @@ Hooks.once("init", async function() {
   // Expose AE key inspection helper
   game.uesrpg = game.uesrpg || {};
   game.uesrpg.dumpAEKeys = dumpAEKeys;
+
+  // Initialize system-wide time API
+  initializeTimeService();
   
   // Expose stamina helpers
   game.uesrpg.stamina = {

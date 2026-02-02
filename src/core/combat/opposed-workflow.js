@@ -14,13 +14,14 @@
  *  - The opposed chat card is then updated with the numeric outcomes and final resolution.
  */
 
-import { doTestRoll, computeResultFromRollTotal } from "../../utils/degree-roll-helper.js";
+import {  maybeApplyDefenderIntercept,
+ doTestRoll, computeResultFromRollTotal } from "../../utils/degree-roll-helper.js";
 import { UESRPG } from "../constants.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { DefenseDialog } from "./defense-dialog.js";
 import { computeTN, listCombatStyles, hasEquippedShield, variantMod as computeVariantMod } from "./tn.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "./defense-options.js";
-import { getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget } from "./combat-utils.js";
+import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget, getTokenDashContext, clearTokenDashContext, getEffectiveWeaponHands } from "./combat-utils.js";
 import { getBlockValue, normalizeHitLocation } from "./mitigation.js";
 import { DAMAGE_TYPES } from "./damage-automation.js";
 import { ActionEconomy } from "./action-economy.js";
@@ -30,23 +31,40 @@ import { requestCreateActiveEffect } from "../../utils/active-effect-proxy.js";
 import { buildSpecialActionsForActor, isSpecialActionUsableNow } from "./combat-style-utils.js";
 import { SPECIAL_ACTIONS, getSpecialActionById } from "../config/special-actions.js";
 import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "../stamina/stamina-dialog.js";
-import { isActorSkeletal } from "../traits/trait-registry.js";
+import { isActorSkeletal, isActorUndead } from "../traits/trait-registry.js";
 import { canTokenEscapeTemplate } from "../../utils/aoe-utils.js";
+import { TimeService, buildEffectDuration } from "../time/index.js";
+import { MagicTimekeeping } from "../magic/timekeeping-helper.js";
+import { isEffectExpiredByCombat, isEffectExpiredByWorldTime } from "../magic/spell-effect-expiration.js";
+
+import {
+  applyAttackerTalentPreTN,
+  applyCombatTalentDoSAdjustments,
+  getDefenseTalentOverrides,
+  getEvadeOverrideContext,
+  applyDefenderTalentTNMods
+} from "../traits/combat-talents.js";
+
+import { hasTalent } from "../traits/talents-api.js";
+import { anyOtherTokensInMeleeOfEither, countOpponentsInMeleeRange, getMeleeReachMeters } from "../traits/combat-proximity.js";
+import { applySenseLossPenaltyAdjustments, applyHyperAwarenessToResult } from "../traits/awareness-talents.js";
 
 
-function _collectSensorySituationalMods(decl) {
+function _collectSensorySituationalMods(decl, actor = null) {
   const out = [];
   if (!decl) return out;
-  if (decl.applyBlinded) out.push({ key: "blinded", label: "Blinded (sight)", value: -30 });
-  if (decl.applyDeafened) out.push({ key: "deafened", label: "Deafened (hearing)", value: -30 });
+  if (decl.applyBlinded) out.push({ key: "blinded", conditionKey: "blinded", label: "Blinded (sight)", value: -30, source: "sense-loss" });
+  if (decl.applyDeafened) out.push({ key: "deafened", conditionKey: "deafened", label: "Deafened (hearing)", value: -30, source: "sense-loss" });
+  applySenseLossPenaltyAdjustments(out, actor);
   return out;
 }
 
-function _collectDefenseSensorySituationalMods(choice) {
+function _collectDefenseSensorySituationalMods(choice, actor = null) {
   const out = [];
   if (!choice) return out;
-  if (choice.applyBlinded) out.push({ key: "blinded", label: "Blinded (sight)", value: -30 });
-  if (choice.applyDeafened) out.push({ key: "deafened", label: "Deafened (hearing)", value: -30 });
+  if (choice.applyBlinded) out.push({ key: "blinded", conditionKey: "blinded", label: "Blinded (sight)", value: -30, source: "sense-loss" });
+  if (choice.applyDeafened) out.push({ key: "deafened", conditionKey: "deafened", label: "Deafened (hearing)", value: -30, source: "sense-loss" });
+  applySenseLossPenaltyAdjustments(out, actor);
   return out;
 }
 
@@ -62,6 +80,197 @@ function _normalizeKey(v) {
   return String(v ?? "")
     .toLowerCase()
     .replace(/[\s_-]+/g, "");
+}
+
+function _getSystemId() {
+  // Prefer runtime system id; fall back to the canonical package id.
+  return String(game?.system?.id ?? "uesrpg-3ev4");
+}
+
+function _getActiveCombatRoundContext() {
+  const combat = game?.combat ?? null;
+  const combatId = combat?.id ?? null;
+  const round = Number(combat?.round ?? 0);
+  const started = Boolean(combat?.started);
+  // Defensive: only treat as "in combat" when there is an active encounter with a positive round.
+  const inCombat = Boolean(combatId) && started && Number.isFinite(round) && round > 0;
+  return { inCombat, combatId, round };
+}
+
+function _getGladiatorAutomationMode() {
+  const raw = _safeGetSetting("uesrpg-3ev4", "gladiatorAutomationMode", "original");
+  if (raw === false) return "disabled";
+  if (raw === true) return "original";
+  const key = String(raw ?? "").toLowerCase();
+  if (key === "disabled") return "disabled";
+  if (key === "updated" || key === "can") return "updated";
+  if (key === "original" || key === "make") return "original";
+  return "original";
+}
+
+function _getGladiatorRoundContext() {
+  const { inCombat, combatId, round } = _getActiveCombatRoundContext();
+  if (inCombat) {
+    return {
+      inCombat: true,
+      combatId,
+      round,
+      roundKey: `combat:${combatId}:${round}`
+    };
+  }
+
+  const roundSeconds = Math.max(1, Number(TimeService.getRoundTimeSeconds?.() ?? 6) || 6);
+  const wt = Number(TimeService.getWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0;
+  const worldRound = Math.floor(wt / roundSeconds);
+  return {
+    inCombat: false,
+    combatId: null,
+    round: worldRound,
+    worldRound,
+    worldTime: wt,
+    roundKey: `world:${worldRound}`
+  };
+}
+
+function _getGladiatorContext({ defender, defenderToken, attackMode } = {}) {
+  const mode = _getGladiatorAutomationMode();
+  const base = { mode, triggered: false, available: false, usedThisRound: false, roundCtx: null };
+  try {
+    if (mode === "disabled") return base;
+    if (!defender || !defenderToken) return base;
+    if (String(attackMode ?? "") !== "melee") return base;
+    if (!hasTalent(defender, "gladiator")) return base;
+
+    // RAW: "within melee range of at least two opponents".
+    const reachMeters = getMeleeReachMeters(defender);
+    const opponents = countOpponentsInMeleeRange(defenderToken, { reachMeters });
+    if (opponents < 2) return base;
+
+    const roundCtx = _getGladiatorRoundContext();
+    const systemId = _getSystemId();
+    const used = defender.getFlag(systemId, "talents.gladiator.freeReaction") ?? null;
+    const usedKey = used?.roundKey ?? (used?.combatId && used?.round ? `combat:${used.combatId}:${used.round}` : null);
+    const usedThisRound = Boolean(usedKey && usedKey === roundCtx.roundKey);
+
+    return {
+      mode,
+      triggered: true,
+      available: !usedThisRound,
+      usedThisRound,
+      roundCtx
+    };
+  } catch (_e) {
+    return base;
+  }
+}
+
+function _getEquippedWeaponItems(actor) {
+  const weaponMap = new Map();
+  const addWeapon = (it) => {
+    if (!it || it.type !== 'weapon') return;
+    if (!it.id) return;
+    weaponMap.set(String(it.id), it);
+  };
+
+  try {
+    const ew = actor?.system?.equippedWeapons;
+    const boundIds = [
+      ew?.primaryWeapon?.id,
+      ew?.secondaryWeapon?.id,
+      ew?.equippedWeapons?.primaryWeapon?.id,
+      ew?.equippedWeapons?.secondaryWeapon?.id
+    ].filter(Boolean);
+
+    for (const id of boundIds) {
+      const bound = actor?.items?.get?.(id);
+      if (bound) addWeapon(bound);
+    }
+  } catch (_e) {
+    // ignore
+  }
+
+  for (const it of (actor?.items ?? [])) {
+    if (!it || it.type !== 'weapon') continue;
+    if (!it.system || !Object.prototype.hasOwnProperty.call(it.system, 'equipped')) continue;
+    if (it.system.equipped === true) addWeapon(it);
+  }
+
+  return Array.from(weaponMap.values());
+}
+
+/**
+ * Unstoppable Might (Chapter 4)
+ *  - While dual wielding hand-and-a-half weapons, still use the two-handed damage value.
+ *  - May wield a two-handed weapon in one hand (i.e. alongside another weapon or a shield).
+ *  - While using either of these special wield modes, cannot Parry or Counter-Attack.
+ *
+ * NOTE: We avoid brittle inference; prompts confirm special wield usage when needed.
+ */
+function _getUnstoppableMightWeaponEligibility(weapon) {
+  if (!weapon || weapon.type !== "weapon") return { eligible: false, isHandAndAHalf: false, isTwoHanded: false, effectiveHands: 0 };
+  const handed = getEffectiveWeaponHands(weapon);
+  const isHandAndAHalf = Boolean(handed?.isHandAndAHalf);
+  const isTwoHanded = Boolean(handed?.isTwoHanded) && !isHandAndAHalf;
+  const eligible = isHandAndAHalf || isTwoHanded;
+  return { eligible, isHandAndAHalf, isTwoHanded, effectiveHands: Number(handed?.effectiveHands ?? 0) || 0 };
+}
+
+function _hasUnstoppableMightEligibleWeapons(actor) {
+  if (!actor) return false;
+  const equippedWeapons = _getEquippedWeaponItems(actor);
+  const meleeWeapons = equippedWeapons.filter(w => String(getAttackModeFromWeapon(w) ?? '').toLowerCase() === 'melee');
+  return meleeWeapons.some(w => _getUnstoppableMightWeaponEligibility(w).eligible);
+}
+
+async function _promptUnstoppableMightUsage({ actorName = "Actor", purpose = "attack" } = {}) {
+  const details = purpose === "defense"
+    ? "<p>If yes, Parry and Counter-Attack are unavailable while wielding this way.</p>"
+    : "<p>If yes, two-handed damage will be used for this attack.</p>";
+  return await _promptYesNo({
+    title: "Unstoppable Might",
+    content: `
+      <div class="uesrpg">
+        <p><b>${actorName}</b> is using a special wield mode?</p>
+        <ul>
+          <li>Dual wielding hand-and-a-half weapons (use two-handed damage)</li>
+          <li>Wielding a two-handed weapon in one hand</li>
+        </ul>
+        ${details}
+      </div>
+    `,
+    yesLabel: "Using Special Wield",
+    noLabel: "Normal Wield"
+  });
+}
+
+async function _markGladiatorFreeReactionUsed(defender, { combatId = null, round = null, worldRound = null, worldTime = null, roundKey = null } = {}) {
+  if (!defender || !roundKey) return;
+  const systemId = _getSystemId();
+  const key = `flags.${systemId}.talents.gladiator.freeReaction`;
+
+  const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
+  await requestUpdateDocument(defender, {
+    [key]: {
+      combatId,
+      round,
+      worldRound,
+      worldTime,
+      roundKey,
+      usedAt: Date.now()
+    }
+  });
+}
+
+function _getFreeDefenseReactionContext({ defenderData, gladiator = null } = {}) {
+  // Defender intercept grants 0 AP defense (Block/Parry/Counter only). The 1 AP intercept cost
+  // is paid up-front inside maybeApplyDefenderIntercept().
+  if (defenderData?.defenderIntercept?.freeDefense === true) {
+    return { free: true, source: "defender" };
+  }
+
+  if (gladiator) return { free: true, source: "gladiator", gladiatorCtx: gladiator };
+
+  return { free: false, source: null };
 }
 
 function _weaponHasQuality(weapon, qualityKey, { allowLegacy = true } = {}) {
@@ -181,19 +390,17 @@ function _parseRangeTriplet(text) {
   return { close: Number(m[1]), effective: Number(m[2]), long: Number(m[3]) };
 }
 
-function _measureTokenDistance(tokenA, tokenB) {
+function _measurePointDistance(a, b) {
   try {
-    const a = tokenA?.center ?? tokenA?.object?.center ?? null;
-    const b = tokenB?.center ?? tokenB?.object?.center ?? null;
     if (!a || !b) return null;
 
     // v13: Use namespaced Ray from foundry.canvas.geometry
     const ray = new foundry.canvas.geometry.Ray(a, b);
 
     // Preferred: BaseGrid.measurePath (v13+)
-    const grid = canvas?.grid?.grid;
+    const grid = canvas?.grid;
     if (grid && typeof grid.measurePath === "function") {
-      const result = grid.measurePath([a, b], { gridSpaces: true });
+      const result = grid.measurePath([a, b]);
       const dist = result?.distance ?? result?.totalDistance ?? null;
       if (Number.isFinite(dist)) return dist;
     }
@@ -209,9 +416,238 @@ function _measureTokenDistance(tokenA, tokenB) {
 
     return null;
   } catch (err) {
-    console.warn("UESRPG | Failed to measure token distance", err);
+    console.warn("UESRPG | Failed to measure point distance", err);
     return null;
   }
+}
+
+function _measureTokenDistance(tokenA, tokenB) {
+  const a = tokenA?.center ?? tokenA?.object?.center ?? null;
+  const b = tokenB?.center ?? tokenB?.object?.center ?? null;
+  return _measurePointDistance(a, b);
+}
+
+async function _promptYesNo({ title, content, yesLabel = "Yes", noLabel = "No" } = {}) {
+  return new Promise(resolve => {
+    const dlg = new Dialog({
+      title: title ?? "Confirm",
+      content: `<div style="min-width:340px;">${content ?? ""}</div>`,
+      buttons: {
+        yes: {
+          label: yesLabel,
+          callback: () => resolve(true)
+        },
+        no: {
+          label: noLabel,
+          callback: () => resolve(false)
+        }
+      },
+      default: "no",
+      close: () => resolve(false)
+    });
+    dlg.render(true);
+  });
+}
+
+async function _promptSelectToken({ title, prompt, tokens = [] } = {}) {
+  const choices = (Array.isArray(tokens) ? tokens : []).filter(t => t?.id && t?.name);
+  if (choices.length === 0) return null;
+  if (choices.length === 1) return choices[0];
+
+  const options = choices
+    .map(t => `<option value="${t.id}">${t.name}</option>`)
+    .join("");
+  const content = `
+    <div style="min-width:360px;">
+      <p style="margin:0 0 0.5em 0;">${prompt ?? "Select a target."}</p>
+      <select name="tokenId" style="width:100%;">${options}</select>
+    </div>`;
+
+  return new Promise(resolve => {
+    const dlg = new Dialog({
+      title: title ?? "Select Target",
+      content,
+      buttons: {
+        ok: {
+          label: "OK",
+          callback: html => {
+            const tokenId = html?.find?.("select[name='tokenId']")?.val?.() ?? null;
+            const token = choices.find(t => t.id === tokenId) ?? null;
+            resolve(token);
+          }
+        },
+        cancel: {
+          label: "Cancel",
+          callback: () => resolve(null)
+        }
+      },
+      default: "ok",
+      close: () => resolve(null)
+    });
+    dlg.render(true);
+  });
+}
+
+function _getEquippedOneHandMeleeWeapons(actor) {
+  const weapons = [];
+  for (const it of (actor?.items ?? [])) {
+    if (!it || it.type !== "weapon") continue;
+    if (it.system?.equipped !== true) continue;
+    const mode = getAttackModeFromWeapon(it);
+    if (String(mode ?? "").toLowerCase() !== "melee") continue;
+    const hands = getEffectiveWeaponHands(it);
+    if (Number(hands) !== 1) continue;
+    weapons.push(it);
+  }
+  return weapons;
+}
+
+function _getOtherDualWieldWeaponUuid(actor, currentWeaponUuid) {
+  const weapons = _getEquippedOneHandMeleeWeapons(actor);
+  if (weapons.length < 2) return null;
+  const cur = String(currentWeaponUuid ?? "");
+  const other = weapons.find(w => String(w.uuid) !== cur) ?? null;
+  return other?.uuid ?? null;
+}
+
+async function _spendStaminaPoints(actor, amount, { silent = true } = {}) {
+  if (!actor) return false;
+  const n = Math.max(0, Math.trunc(Number(amount) || 0));
+  if (n <= 0) return true;
+
+  const cur = Number(actor.system?.resources?.stamina?.value ?? 0) || 0;
+  const next = cur - n;
+  if (isActorUndead(actor) && next < 0) {
+    ui.notifications?.warn?.("Undead cannot spend Stamina below 0.");
+    return false;
+  }
+
+  const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
+  const ok = await requestUpdateDocument(actor, { "system.resources.stamina.value": next }, { silent });
+  return !!ok;
+}
+
+async function _maybeEnableFollowUpStrike({ data, attacker, attackerResult } = {}) {
+  if (!data || !attacker || !attackerResult) return;
+  if (data?.context?.followUpStrike?.active) return; // this is already the follow-up attack
+  if (data?.context?.followUpStrike?.eligible) return; // already enabled on this card
+  if (!_safeGetSetting("uesrpg-3ev4", "enableFollowupStrike", false)) return;
+  if (attackerResult.isSuccess !== false) return;
+  if (!hasTalent(attacker, "followupstrike")) return;
+
+  // RAW: only while dual wielding.
+  const currentWeaponUuid = data?.context?.weaponUuid ?? null;
+  const otherWeaponUuid = _getOtherDualWieldWeaponUuid(attacker, currentWeaponUuid);
+  if (!otherWeaponUuid) return;
+
+  data.context = data.context ?? {};
+  data.context.followUpStrike = {
+    eligible: true,
+    used: false,
+    sourceWeaponUuid: currentWeaponUuid ?? null,
+    otherWeaponUuid
+  };
+}
+
+async function _maybeApplyMightyCleave({ data, attacker, attackerToken, primaryDefenderToken, weapon, declaration } = {}) {
+  if (!data || !attacker || !attackerToken || !primaryDefenderToken || !weapon || !declaration) return false;
+  if (!_safeGetSetting("uesrpg-3ev4", "enableMightyCleave", false)) return false;
+  if (!hasTalent(attacker, "mightycleave")) return false;
+  if (String(declaration.variant ?? "normal") !== "allOut") return false;
+  if (String(data?.context?.attackMode ?? "melee") !== "melee") return false;
+  if (Number(getEffectiveWeaponHands(weapon)) < 2) return false;
+  if (data?.context?.mightyCleave?.enabled) return true;
+
+  // Build candidate token list.
+  const primary = primaryDefenderToken;
+  const distanceLimit = 2;
+
+  const reachFor = (tok) => {
+    const ctx = _computeMeleeReachContext({ attackerToken, defenderToken: tok, weapon });
+    return ctx?.inRange === true;
+  };
+  const withinTwoMetersOfPrimary = (tok) => {
+    const d = _measureTokenDistance(primary, tok);
+    return Number.isFinite(d) && d <= distanceLimit;
+  };
+
+  const isValidCandidate = (tok) => {
+    if (!tok || tok === primary) return false;
+    if (tok === attackerToken) return false;
+    if (!tok.actor) return false;
+    if (!reachFor(tok)) return false;
+    if (!withinTwoMetersOfPrimary(tok)) return false;
+    return true;
+  };
+
+  // Prefer already-targeted tokens, else scan all placeables.
+  const targeted = Array.from(game?.user?.targets ?? []).filter(isValidCandidate);
+  const pool = targeted.length ? targeted : (Array.isArray(canvas?.tokens?.placeables) ? canvas.tokens.placeables.filter(isValidCandidate) : []);
+  if (pool.length === 0) return false;
+
+  const use = await _promptYesNo({
+    title: "Mighty Cleave",
+    content: `<p>Use <b>Mighty Cleave</b> to add a second target within 2m of ${primary.name}?</p>`,
+    yesLabel: "Use Mighty Cleave",
+    noLabel: "No"
+  });
+  if (!use) return false;
+
+  const chosen = await _promptSelectToken({
+    title: "Mighty Cleave",
+    prompt: "Choose the second target (must be within melee reach and within 2m of the first target).",
+    tokens: pool
+  });
+  if (!chosen) return false;
+
+  // Final validation (distance + reach).
+  const between = _measureTokenDistance(primary, chosen);
+  if (!Number.isFinite(between) || between > distanceLimit) {
+    ui.notifications?.warn?.("Mighty Cleave requires the two targets to be within 2 meters of each other.");
+    return false;
+  }
+  const reachCtx2 = _computeMeleeReachContext({ attackerToken, defenderToken: chosen, weapon });
+  if (!reachCtx2?.inRange) {
+    ui.notifications?.warn?.("Second target is not within melee reach for Mighty Cleave.");
+    return false;
+  }
+
+  // Add defender entry (do not change the currently selected defender lane).
+  const tokenUuid = chosen.document?.uuid ?? null;
+  const actorUuid = chosen.actor?.uuid ?? null;
+  if (!actorUuid) return false;
+
+  const exists = (data.defenders ?? []).some(d => (d?.tokenUuid && tokenUuid && d.tokenUuid === tokenUuid) || d?.actorUuid === actorUuid);
+  if (!exists) {
+    data.defenders = Array.isArray(data.defenders) ? data.defenders : [];
+    data.defenders.push({
+      actorUuid,
+      tokenUuid,
+      tokenName: chosen.name ?? null,
+      name: chosen.actor?.name ?? chosen.name,
+      label: null,
+      testLabel: null,
+      defenseLabel: null,
+      target: null,
+      defenseType: null,
+      result: null,
+      noDefense: false,
+      banked: { committed: false, committedAt: null, committedBy: null },
+      tn: null,
+      outcome: null,
+      advantage: null
+    });
+  }
+
+  data.context = data.context ?? {};
+  data.context.mightyCleave = {
+    enabled: true,
+    primaryTokenUuid: primary.document?.uuid ?? null,
+    secondaryTokenUuid: tokenUuid
+  };
+  // RAW: This attack cannot gain advantages.
+  data.context.noAdvantageGain = true;
+  return true;
 }
 
 
@@ -588,6 +1024,27 @@ function _resolveToken(docOrUuid) {
   return null;
 }
 
+function _isIsolatedDuelByTokens(tokenA, tokenB) {
+  try {
+    if (!tokenA || !tokenB) return false;
+    if (!globalThis?.canvas?.ready) return false;
+    const reachA = getMeleeReachMeters(tokenA.actor);
+    const reachB = getMeleeReachMeters(tokenB.actor);
+    // If there are any tokens within melee range of either combatant (excluding the duel pair), duel is not isolated.
+    return !anyOtherTokensInMeleeOfEither(tokenA, tokenB, { reachMetersA: reachA, reachMetersB: reachB });
+  } catch (_e) {
+    return false;
+  }
+}
+
+function _canUseExploitAdvantage(actor, { actorTokenUuid = null, opponentTokenUuid = null } = {}) {
+  if (!actor || !hasTalent(actor, "exploitadvantage")) return false;
+  const aTok = actorTokenUuid ? _resolveToken(actorTokenUuid) : null;
+  const oTok = opponentTokenUuid ? _resolveToken(opponentTokenUuid) : null;
+  if (!aTok || !oTok) return false;
+  return _isIsolatedDuelByTokens(aTok, oTok);
+}
+
 function _canControlActor(actor) {
   return game.user.isGM || actor?.isOwner;
 }
@@ -906,11 +1363,9 @@ async function _getDefenseGatingContext({ attacker, defender, data }) {
         attackerWeaponTraits.flail = _weaponHasQuality(w, 'flail', { allowLegacy: false });
         attackerWeaponTraits.entangling = _weaponHasQuality(w, 'entangling');
 
-        const handsRaw = Number(w.system?.hands ?? 0);
-        const hands = Number.isFinite(handsRaw) ? handsRaw : 0;
+        const handed = getEffectiveWeaponHands(w);
         const traitTwoHanded = _weaponHasQuality(w, 'twoHanded', { allowLegacy: true });
-        const wield2H = Boolean(w.system?.weapon2H);
-        attackerWeaponTraits.isTwoHanded = Boolean(traitTwoHanded || wield2H || hands >= 2);
+        attackerWeaponTraits.isTwoHanded = Boolean(traitTwoHanded || handed?.isTwoHanded);
       }
     }
 
@@ -958,6 +1413,53 @@ function _getTokenMovementAction(token) {
   const doc = token?.document ?? null;
   const raw = doc?.movementAction ?? doc?.movement?.action ?? doc?.movement?.mode ?? "";
   return String(raw ?? "").toLowerCase();
+}
+
+function _getWeaponReachMeters(weapon, actor) {
+  const reach = Number(weapon?.system?.reach ?? weapon?.system?.reachMax ?? weapon?.system?.reachMeters ?? NaN);
+  if (Number.isFinite(reach) && reach > 0) return reach;
+  return getMeleeReachMeters(actor);
+}
+
+function _getThunderChargeEligibility({ attacker, attackerToken, defenderToken, weapon }) {
+  if (!attacker || !attackerToken || !defenderToken) return { eligible: false, reason: "missing-token" };
+  if (!hasTalent(attacker, "thundercharge")) return { eligible: false, reason: "no-talent" };
+
+  const mode = getAttackModeFromWeapon(weapon);
+  if (mode !== "melee") return { eligible: false, reason: "not-melee" };
+
+  const dash = getTokenDashContext(attackerToken);
+  if (!dash) return { eligible: false, reason: "no-dash" };
+
+  const combat = (game.combat && game.combat.started) ? game.combat : null;
+  if (!combat) return { eligible: false, reason: "no-combat" };
+
+  const dashRound = Number(dash.round ?? -1);
+  const dashTurn = Number(dash.turn ?? -1);
+  if (dash.combatId && dash.combatId !== combat.id) return { eligible: false, reason: "combat-mismatch" };
+  if (dashRound !== Number(combat.round ?? -2)) return { eligible: false, reason: "round-mismatch" };
+  if (dashTurn !== Number(combat.turn ?? -2)) return { eligible: false, reason: "turn-mismatch" };
+
+  const start = { x: Number(dash.x ?? NaN), y: Number(dash.y ?? NaN) };
+  const end = attackerToken?.center ?? attackerToken?.object?.center ?? null;
+  const target = defenderToken?.center ?? defenderToken?.object?.center ?? null;
+  if (!end || !target || !Number.isFinite(start.x) || !Number.isFinite(start.y)) {
+    return { eligible: false, reason: "no-position" };
+  }
+
+  const startDist = _measurePointDistance(start, target);
+  const endDist = _measurePointDistance(end, target);
+  if (startDist == null || endDist == null) {
+    return { eligible: false, reason: "no-distance" };
+  }
+
+  const reach = _getWeaponReachMeters(weapon, attacker);
+
+  if (startDist < 4) return { eligible: false, reason: "start-too-close" };
+  if (startDist <= reach) return { eligible: false, reason: "start-in-melee" };
+  if (endDist > reach) return { eligible: false, reason: "not-in-melee" };
+
+  return { eligible: true, startDist, endDist, reach };
 }
 
 async function _inferAttackModeFromPreferredWeapon(actor) {
@@ -1012,6 +1514,17 @@ function _userHasActorOwnership(user, actor) {
   }
 }
 
+function _safeGetSetting(namespace, key, fallback = false) {
+  try {
+    const full = `${namespace}.${key}`;
+    if (game?.settings?.settings?.has?.(full) === false) return fallback;
+    if (typeof game?.settings?.get === "function") return game.settings.get(namespace, key);
+  } catch (_e) {
+    // ignore and fall back
+  }
+  return fallback;
+}
+
 function _opposedFlags(parentMessageId, stage, extra = null) {
   // Thread all workflow messages to the originating opposed card for easier debugging and filtering.
   // Optionally include additional metadata under the same flag lane.
@@ -1057,7 +1570,11 @@ function _renderRollLine({ result = null, noDefense = false } = {}) {
   if (!result) return "";
   const total = _extractRollTotal(result);
   const totalText = (total == null) ? "??" : String(total);
-  return `<div><b>Roll:</b> ${totalText} ?? ${_fmtDegree(result)}</div>`;
+  const notes = Array.isArray(result?.talentNotes) ? result.talentNotes.filter(Boolean) : [];
+  const notesHtml = notes.length
+    ? `<div class="uesrpg-opposed-notes" style="font-size:0.85em; opacity:0.85;">${notes.map(n => `<div>${n}</div>`).join("")}</div>`
+    : "";
+  return `<div><b>Roll:</b> ${totalText} ?? ${_fmtDegree(result)}</div>${notesHtml}`;
 }
 function _cleanupAutoRollContext(ctx) {
   if (!ctx || typeof ctx !== "object") return;
@@ -1108,7 +1625,17 @@ function _renderCard(data, messageId) {
     })();
 
     const attackerActions = (() => {
-      if (a.result) return "";
+      if (a.result) {
+        const fus = data?.context?.followUpStrike;
+        if (
+          _safeGetSetting("uesrpg-3ev4", "enableFollowupStrike", false) &&
+          fus?.eligible === true && fus?.used !== true &&
+          a.result?.isSuccess === false
+        ) {
+          return `<div style="margin-top:6px;">${_btn("Follow-up Strike (1 SP)", "followup-strike", { "defender-index": 0 })}</div>`;
+        }
+        return "";
+      }
       if (bankMode) {
         if (!aCommitted) return `<div style="margin-top:6px;">${_btn("Commit Attack", "attacker-commit")}</div>`;
         return "";
@@ -1381,7 +1908,17 @@ function _renderCard(data, messageId) {
   })();
 
   const attackerActions = (() => {
-    if (a.result) return "";
+    if (a.result) {
+      const fus = data?.context?.followUpStrike;
+      if (
+        _safeGetSetting("uesrpg-3ev4", "enableFollowupStrike", false) &&
+        fus?.eligible === true && fus?.used !== true &&
+        a.result?.isSuccess === false
+      ) {
+        return `<div style="margin-top:6px;">${_btn("Follow-up Strike (1 SP)", "followup-strike", { "defender-index": 0 })}</div>`;
+      }
+      return "";
+    }
 
     if (bankMode) {
       if (!aCommitted) {
@@ -1957,7 +2494,7 @@ async function _ensureResolvedForPostActions(message, data, { defenderIndex = nu
 }
 
 async function _attackerDeclareDialog(attackerActor, attackerLabel, { styles = [], selectedStyleUuid = null, defaultWeaponUuid = null,
-    defaultVariant = "normal", defaultManual = 0, defaultCirc = 0 } = {}) {
+    defaultVariant = "normal", defaultManual = 0, defaultCirc = 0, attackerToken = null, defenderToken = null } = {}) {
   const showStyleSelect = Array.isArray(styles) && styles.length >= 2;
 
   // Weapon selection is required for deterministic weapon-quality automation (range bands, flail gating, etc.).
@@ -2098,7 +2635,7 @@ async function _attackerDeclareDialog(attackerActor, attackerLabel, { styles = [
       buttons: {
         ok: {
           label: "Continue",
-          callback: (html) => {
+          callback: async (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
             if (!root) return settle(null);
             const styleUuid = root.querySelector('select[name="styleUuid"]')?.value
@@ -2120,7 +2657,34 @@ async function _attackerDeclareDialog(attackerActor, attackerLabel, { styles = [
 
             const baseApCost = 1;
             // `apCost` is the *additional* AP cost for the chosen variant (RAW: All Out Attack is +1 AP).
-            const apCost = (variant === "allOut") ? 1 : 0;
+            let apCost = (variant === "allOut") ? 1 : 0;
+            let thunderChargeApplied = false;
+
+            if (variant === "allOut") {
+              try {
+                let weapon = null;
+                if (weaponUuid) {
+                  const w = await fromUuid(String(weaponUuid));
+                  weapon = (w?.type === "weapon") ? w : null;
+                }
+                const eligible = _getThunderChargeEligibility({
+                  attacker: attackerActor,
+                  attackerToken,
+                  defenderToken,
+                  weapon
+                });
+                if (eligible?.eligible) {
+                  apCost = 0;
+                  thunderChargeApplied = true;
+                  if (attackerToken) {
+                    await clearTokenDashContext(attackerToken);
+                  }
+                }
+              } catch (_e) {
+                // Fail safe: keep default AP cost.
+              }
+            }
+
             const totalApCost = baseApCost + apCost;
 
             const ap = Number(foundry.utils.getProperty(attackerActor, "system.action_points.value") ?? 0);
@@ -2129,7 +2693,7 @@ async function _attackerDeclareDialog(attackerActor, attackerLabel, { styles = [
               return;
             }
 
-            return settle({ styleUuid, weaponUuid, variant, manualMod, circumstanceMod, precisionLocation, apCost, applyBlinded, applyDeafened });
+            return settle({ styleUuid, weaponUuid, variant, manualMod, circumstanceMod, precisionLocation, apCost, applyBlinded, applyDeafened, thunderChargeApplied });
           }
         },
         cancel: {
@@ -2260,6 +2824,7 @@ function _resolveOutcomeRAW(data, defender = null) {
 }
 
 function _computeAdvantageRAW(data, outcome, defender = null) {
+  if (data?.context?.noAdvantageGain) return { attacker: 0, defender: 0 };
   // RAW: advantage is only gained in melee when:
   //  - exactly one character fails (winner gains 1 advantage)
   //  - a critical success occurs (winner gains 1 advantage)
@@ -2308,6 +2873,16 @@ function _computeAdvantageRAW(data, outcome, defender = null) {
   const attackMode = getContextAttackMode(data?.context);
   if (winnerKey === "attacker" && attackMode !== "melee") adv = 0;
 
+  // Buckler: defender always gains Advantage on a successful Parry win.
+  if (winnerKey === "defender") {
+    const defSide = (defender ?? data?.defender) ?? null;
+    const defActor = defender ?? _resolveDoc(data?.defender?.actorUuid) ?? null;
+    const dt = String(defSide?.defenseType ?? "");
+    if (dt === "parry" && defActor && _hasEquippedShieldType(defActor, "buckler")) {
+      adv = Math.max(adv, 1);
+    }
+  }
+
   return winnerKey === "attacker"
     ? { attacker: adv, defender: 0 }
     : { attacker: 0, defender: adv };
@@ -2333,14 +2908,101 @@ async function _createTemporaryEffect(actor, effectData) {
   }
 }
 
-function _advantageDurationData(rounds = 1) {
-  const clock = _combatClock();
-  if (clock.inCombat) {
-    return { rounds, startRound: clock.round, startTurn: clock.turn };
-  }
-  // Fallback: 6-second rounds (best-effort). Duration enforcement is still handled by Foundry.
-  return { seconds: Math.max(1, rounds) * 6, startTime: game.time?.worldTime ?? 0 };
+function _advantageDurationData(actor, rounds = 1) {
+  const r = Math.max(1, Number(rounds ?? 1) || 1);
+  const roundSeconds = Math.max(1, Number(TimeService.getRoundTimeSeconds?.() ?? 6) || 6);
+  return buildEffectDuration({
+    actor,
+    rounds: r,
+    seconds: r * roundSeconds,
+    preferCombat: true
+  });
 }
+
+const _ADVANTAGE_KEYS = new Set(["pressAdvantage", "overextend", "overwhelm"]);
+let _advantageExpiryRegistered = false;
+
+function _isAdvantageEffect(effect) {
+  if (!effect) return false;
+  const f = effect?.flags?.uesrpg ?? null;
+  if (!f || f.category !== "advantage") return false;
+  const key = String(f.key ?? "");
+  return _ADVANTAGE_KEYS.has(key);
+}
+
+function _isAdvantageEffectExpired(effect, { worldTime = null, combat = null } = {}) {
+  if (!effect) return false;
+  const d = effect.duration ?? {};
+  const rounds = Number(d.rounds ?? 0) || 0;
+  const wt = Number(worldTime ?? TimeService.getWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0;
+  const c = combat ?? (game?.combat ?? null);
+
+  if (rounds > 0) {
+    if (!c?.started) return true;
+    const combatId = String(c?.id ?? "");
+    const effectCombatId = String(d.combat ?? "");
+    if (effectCombatId && combatId && effectCombatId !== combatId) return true;
+    return isEffectExpiredByCombat(effect, c);
+  }
+
+  return isEffectExpiredByWorldTime(effect, wt);
+}
+
+async function _expireAdvantageEffects({ worldTime = null, combat = null } = {}) {
+  if (!game.user?.isGM) return;
+
+  const wt = Number(worldTime ?? TimeService.getWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0;
+  const c = combat ?? (game?.combat ?? null);
+
+  const actors = MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []);
+  for (const actor of actors) {
+    const effects = actor?.effects ?? [];
+    const toDelete = [];
+    for (const ef of effects) {
+      if (!_isAdvantageEffect(ef)) continue;
+      if (_isAdvantageEffectExpired(ef, { worldTime: wt, combat: c })) {
+        if (ef?.id) toDelete.push(ef.id);
+      }
+    }
+
+    if (!toDelete.length) continue;
+    const existingIds = toDelete.filter((id) => actor.effects?.get?.(id));
+    if (!existingIds.length) continue;
+
+    try {
+      await actor.deleteEmbeddedDocuments("ActiveEffect", existingIds);
+    } catch (err) {
+      const msg = String(err?.message ?? err ?? "");
+      if (!msg.includes("does not exist")) {
+        console.warn("UESRPG | Advantage expiry failed", { actor: actor?.uuid, err });
+      }
+    }
+  }
+}
+
+function _registerAdvantageExpirationHooks() {
+  if (_advantageExpiryRegistered) return;
+  _advantageExpiryRegistered = true;
+
+  if (globalThis.__UESRPG_ADVANTAGE_EXPIRY_HOOKS__) return;
+  globalThis.__UESRPG_ADVANTAGE_EXPIRY_HOOKS__ = true;
+
+  Hooks.on("uesrpg.timeChanged", async (payload) => {
+    if (!game.user?.isGM) return;
+    const source = String(payload?.source ?? "");
+    if (source !== "worldTime" && source !== "calendaria") return;
+    await _expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });
+  });
+
+  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
+    if (!game.user?.isGM) return;
+    if (payload?.source !== "combat") return;
+    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+    await _expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });
+  });
+}
+
+_registerAdvantageExpirationHooks();
 
 // --- Aim (Chapter 5 Action) helpers ----------------------------------------
 
@@ -2425,10 +3087,13 @@ async function _consumeOrBreakAimAfterAttack(actor, { attackMode, itemUuid } = {
 }
 
 
-async function _applyPressAdvantageEffect(attacker, defender, { attackerTokenUuid = null, defenderTokenUuid = null } = {}) {
+async function _applyPressAdvantageEffect(attacker, defender, { attackerTokenUuid = null, defenderTokenUuid = null, doubleEffect = false } = {}) {
   if (!attacker) return null;
   const opponentUuid = defender?.uuid ?? null;
-  const duration = _advantageDurationData(1);
+  const duration = _advantageDurationData(attacker, 1);
+
+  const canDouble = Boolean(doubleEffect && _canUseExploitAdvantage(attacker, { actorTokenUuid: attackerTokenUuid, opponentTokenUuid: defenderTokenUuid }));
+  const tnDelta = canDouble ? 20 : 10;
 
   const effectData = {
     name: "Press Advantage",
@@ -2440,7 +3105,7 @@ async function _applyPressAdvantageEffect(attacker, defender, { attackerTokenUui
       {
         key: "system.modifiers.combat.opposed.attackTN",
         mode: CONST.ACTIVE_EFFECT_MODES.ADD,
-        value: 10,
+        value: tnDelta,
         priority: 20
       }
     ],
@@ -2459,7 +3124,8 @@ async function _applyPressAdvantageEffect(attacker, defender, { attackerTokenUui
     // Opponent-scoped: only applies against this opponent and only for melee attacks
     conditions: {
       ...(opponentUuid ? { opponentUuid } : {}),
-      attackMode: "melee"
+      attackMode: "melee",
+      ...(canDouble ? { requireIsolatedDuel: true } : {})
     }
   }
 }};
@@ -2467,9 +3133,13 @@ async function _applyPressAdvantageEffect(attacker, defender, { attackerTokenUui
   return await _createTemporaryEffect(attacker, effectData);
 }
 
-async function _applyOverextendEffect(opponent, { defenderUuid = null, defenderTokenUuid = null, opponentTokenUuid = null } = {}) {
+async function _applyOverextendEffect(opponent, { defenderUuid = null, defenderTokenUuid = null, opponentTokenUuid = null, doubleEffect = false } = {}) {
   if (!opponent) return null;
-  const duration = _advantageDurationData(1);
+  const duration = _advantageDurationData(opponent, 1);
+
+  const defenderActor = defenderUuid ? _resolveDoc(defenderUuid) : null;
+  const canDouble = Boolean(doubleEffect && defenderActor && _canUseExploitAdvantage(defenderActor, { actorTokenUuid: defenderTokenUuid, opponentTokenUuid }));
+  const tnDelta = canDouble ? -20 : -10;
 
   const effectData = {
     name: "Overextended",
@@ -2481,7 +3151,7 @@ async function _applyOverextendEffect(opponent, { defenderUuid = null, defenderT
       {
         key: "system.modifiers.combat.opposed.attackTN",
         mode: CONST.ACTIVE_EFFECT_MODES.ADD,
-        value: -10,
+        value: tnDelta,
         priority: 20
       }
     ],
@@ -2500,7 +3170,8 @@ async function _applyOverextendEffect(opponent, { defenderUuid = null, defenderT
     // Opponent-scoped: affects the target's next attack test (any attack type) against this defender.
     // RAW: "The opponent’s next attack test within 1 round is made at a -10 penalty."
     conditions: {
-      ...(defenderUuid ? { opponentUuid: defenderUuid } : {})
+      ...(defenderUuid ? { opponentUuid: defenderUuid } : {}),
+      ...(canDouble ? { requireIsolatedDuel: true } : {})
     }
   }
 }};
@@ -2510,7 +3181,7 @@ async function _applyOverextendEffect(opponent, { defenderUuid = null, defenderT
 
 async function _applyOverwhelmEffect(opponent, { defenderUuid = null } = {}) {
   if (!opponent) return null;
-  const duration = _advantageDurationData(1);
+  const duration = _advantageDurationData(opponent, 1);
 
   // Marker effect: AoO suppression is enforced elsewhere (action pipeline milestone).
   const effectData = {
@@ -2607,10 +3278,28 @@ async function _consumeHiddenAfterAttack(actor) {
   }
 }
 
-async function _promptDefenderAdvantage({ defenderActor, attackerActor, advantageCount = 0 } = {}) {
+async function _markPendingSneakAttack(actor, { weaponUuid = null, attackMode = null } = {}) {
+  try {
+    if (!actor) return;
+    if (!hasTalent(actor, "sneakattack") && !hasTalent(actor, "assassinate")) return;
+    const systemId = _getSystemId();
+    await actor.setFlag(systemId, "combat.pendingSneakAttack", {
+      at: Date.now(),
+      weaponUuid: weaponUuid ?? null,
+      attackMode: attackMode ?? null
+    });
+  } catch (err) {
+    console.warn("UESRPG | opposed-workflow | failed to mark pending Sneak Attack", err);
+  }
+}
+
+async function _promptDefenderAdvantage({ defenderActor, attackerActor, advantageCount = 0, defenderTokenUuid = null, opponentTokenUuid = null } = {}) {
   if (!defenderActor || advantageCount <= 0) return null;
 
   const max = Number(advantageCount || 0);
+
+  const hasExploitTalent = Boolean(defenderActor && hasTalent(defenderActor, "exploitadvantage"));
+  const exploitEligible = Boolean(hasExploitTalent && _canUseExploitAdvantage(defenderActor, { actorTokenUuid: defenderTokenUuid, opponentTokenUuid }));
 
   // Known Special Actions are derived ONLY from the actor's active combat style.
   // Defender advantage usage is reaction context: only Secondary actions are offered.
@@ -2652,6 +3341,9 @@ async function _promptDefenderAdvantage({ defenderActor, attackerActor, advantag
             <span class="uesrpg-adv-choice__desc">Opponent’s next attack within 1 round suffers -10.</span>
           </span>
         </label>
+        ${hasExploitTalent ? `
+        <p class="hint" style="margin:0.25rem 0 0 0;">${exploitEligible ? "Exploit Advantage: Overextend is doubled (-20) (isolated duel)." : "Exploit Advantage: requires an isolated duel to double Overextend."}</p>
+        ` : ``}
         <label class="uesrpg-adv-choice">
           <input type="checkbox" name="overwhelm" />
           <span class="uesrpg-adv-choice__label">
@@ -2691,6 +3383,7 @@ async function _promptDefenderAdvantage({ defenderActor, attackerActor, advantag
 
             const q = (name) => form.querySelector(`[name="${name}"]`);
             const overextend = Boolean(q("overextend")?.checked);
+            const overextendDouble = Boolean(overextend && exploitEligible);
             const overwhelm = Boolean(q("overwhelm")?.checked);
 
             const selectedSpecial = [];
@@ -2706,10 +3399,10 @@ async function _promptDefenderAdvantage({ defenderActor, attackerActor, advantag
               return false;
             }
 
-            return settle({ overextend, overwhelm, specialActionsSelected: selectedSpecial });
+            return settle({ overextend, overextendDouble, overwhelm, specialActionsSelected: selectedSpecial });
           }
         },
-        skip: { label: "Skip", callback: () => settle({ overextend: false, overwhelm: false, specialActionsSelected: [] }) }
+        skip: { label: "Skip", callback: () => settle({ overextend: false, overextendDouble: false, overwhelm: false, specialActionsSelected: [] }) }
       },
       default: "apply",
       close: () => settle(null)
@@ -2730,6 +3423,7 @@ async function _promptDefenderAdvantage({ defenderActor, attackerActor, advantag
         if (c) c.textContent = `${count} / ${max} selected`;
 
         for (const el of listAllCheckboxes()) {
+          
           if (Boolean(el.checked)) {
             el.disabled = false;
             continue;
@@ -2740,6 +3434,10 @@ async function _promptDefenderAdvantage({ defenderActor, attackerActor, advantag
 
       for (const el of listAllCheckboxes()) {
         el.addEventListener("change", (ev) => {
+          if (ev.currentTarget?.dataset?.free === "true") {
+            updateUi();
+            return;
+          }
           const count = computeSelectedCount();
           if (count > max) {
             ev.currentTarget.checked = false;
@@ -2777,7 +3475,9 @@ async function _maybeResolveDefenderAdvantage(message, data) {
     const choice = await _promptDefenderAdvantage({
       defenderActor: defender,
       attackerActor: attacker,
-      advantageCount: adv
+      advantageCount: adv,
+      defenderTokenUuid: data.defender?.tokenUuid ?? null,
+      opponentTokenUuid: data.attacker?.tokenUuid ?? null
     });
 
     data.advantageSpent.defender = true;
@@ -2788,7 +3488,14 @@ async function _maybeResolveDefenderAdvantage(message, data) {
 
     if (!choice) return;
 
-    if (choice.overextend) await _applyOverextendEffect(attacker, { defenderUuid: defender.uuid, defenderTokenUuid: data.defender?.tokenUuid ?? null, opponentTokenUuid: data.attacker?.tokenUuid ?? null });
+    if (choice.overextend) {
+      await _applyOverextendEffect(attacker, {
+        defenderUuid: defender.uuid,
+        defenderTokenUuid: data.defender?.tokenUuid ?? null,
+        opponentTokenUuid: data.attacker?.tokenUuid ?? null,
+        doubleEffect: Boolean(choice.overextendDouble)
+      });
+    }
     if (choice.overwhelm) await _applyOverwhelmEffect(attacker, { defenderUuid: defender.uuid });
   } catch (err) {
     console.error("UESRPG | Defender Advantage resolution failed.", { messageId: message?.id, err });
@@ -2817,9 +3524,31 @@ function _listEquippedShields(actor) {
   });
 }
 
+function _hasEquippedShieldType(actor, typeKey) {
+  const target = String(typeKey ?? "").toLowerCase();
+  if (!target) return false;
+  return (actor?.items ?? []).some(i => {
+    if (i.type !== "armor") return false;
+    if (i.system?.equipped !== true) return false;
+    const isShield = Boolean(i.system?.isShieldEffective ?? i.system?.isShield);
+    if (!isShield && String(i.system?.item_cat ?? "").toLowerCase() !== "shield") return false;
+    const shieldType = String(i.system?.shieldType ?? "normal").toLowerCase();
+    return shieldType === target;
+  });
+}
+
 // Block Rating resolver is centralized in module/combat/mitigation.js
 
-async function _promptWeaponAndAdvantages({ attackerActor, advantageCount = 0, attackMode = "melee", defaultWeaponUuid = null, defaultHitLocation = "Body", allowNoWeapon = false }) {
+async function _promptWeaponAndAdvantages({
+  attackerActor,
+  advantageCount = 0,
+  attackMode = "melee",
+  defaultWeaponUuid = null,
+  defaultHitLocation = "Body",
+  allowNoWeapon = false,
+  attackerTokenUuid = null,
+  opponentTokenUuid = null
+}) {
   const weapons = _listEquippedWeapons(attackerActor);
   if (!weapons.length && !allowNoWeapon) {
     ui.notifications.warn("No equipped weapons found.");
@@ -2837,6 +3566,12 @@ async function _promptWeaponAndAdvantages({ attackerActor, advantageCount = 0, a
     .join("\n");
 
   const hasPressAdvantage = (getContextAttackMode({ attackMode }) === "melee");
+
+  const hasExploitTalent = Boolean(attackerActor && hasTalent(attackerActor, "exploitadvantage"));
+  const exploitEligible = Boolean(hasExploitTalent && hasPressAdvantage && _canUseExploitAdvantage(attackerActor, {
+    actorTokenUuid: attackerTokenUuid,
+    opponentTokenUuid: opponentTokenUuid
+  }));
 
   // Known Special Actions are derived ONLY from the actor's active combat style.
   // For attacker spend: Primary must be usable now; Secondary is always usable.
@@ -2924,6 +3659,9 @@ async function _promptWeaponAndAdvantages({ attackerActor, advantageCount = 0, a
               <span class="uesrpg-adv-choice__title">Press Advantage</span>
             </span>
           </label>
+          ${hasExploitTalent ? `
+            <p class="hint" style="margin:0.25rem 0 0 0;">${exploitEligible ? "Exploit Advantage: Press Advantage is doubled (+20) (isolated duel)." : "Exploit Advantage: requires an isolated duel to double Press Advantage."}</p>
+          ` : ``}
           ` : ``}
 
           ${knownSpecial.length ? `
@@ -2970,6 +3708,7 @@ async function _promptWeaponAndAdvantages({ attackerActor, advantageCount = 0, a
             const penetrateArmor = Boolean(q("penetrateArmor")?.checked);
             const forcefulImpact = Boolean(q("forcefulImpact")?.checked);
             const pressAdvantage = Boolean(q("pressAdvantage")?.checked);
+            const pressAdvantageDouble = Boolean(pressAdvantage && exploitEligible);
 
             const selectedSpecial = [];
             for (const sa of knownSpecial) {
@@ -2991,6 +3730,7 @@ async function _promptWeaponAndAdvantages({ attackerActor, advantageCount = 0, a
               penetrateArmor,
               forcefulImpact,
               pressAdvantage,
+              pressAdvantageDouble,
               specialActionsSelected: selectedSpecial
             });
           }
@@ -3011,10 +3751,9 @@ async function _promptWeaponAndAdvantages({ attackerActor, advantageCount = 0, a
       const defaultLoc = String(form.querySelector('input[name="defaultHitLocation"]')?.value ?? "Body");
 
       const listAllCheckboxes = () => [...form.querySelectorAll('input[type="checkbox"]')];
-      const computeSelectedCount = () => listAllCheckboxes().filter(el => Boolean(el.checked)).length;
+      const computeSelectedCount = () => listAllCheckboxes().filter(el => el?.dataset?.free !== "true").filter(el => Boolean(el.checked)).length;
 
-      const updateUi = () => {
-        if (precisionSelect) {
+      const updateUi = () => {        if (precisionSelect) {
           const ps = form.querySelector('input[type="checkbox"][name="precisionStrike"]');
           const psOn = Boolean(ps?.checked);
           precisionSelect.disabled = !psOn;
@@ -3026,6 +3765,7 @@ async function _promptWeaponAndAdvantages({ attackerActor, advantageCount = 0, a
         if (c) c.textContent = `${count} / ${max} selected`;
 
         for (const el of listAllCheckboxes()) {
+          if (el?.dataset?.free === "true") continue;
           if (Boolean(el.checked)) {
             el.disabled = false;
             continue;
@@ -3066,7 +3806,7 @@ async function _promptWeaponAndAdvantages({ attackerActor, advantageCount = 0, a
 
 
 
-async function _rollWeaponDamage({ weapon, preConsumedAmmo = null }) {
+async function _rollWeaponDamage({ weapon, preConsumedAmmo = null, context = null }) {
   const addFlatBonus = (expr, bonus) => {
     const b = Number(bonus || 0);
     if (!Number.isFinite(b) || b === 0) return String(expr ?? "0");
@@ -3077,6 +3817,23 @@ async function _rollWeaponDamage({ weapon, preConsumedAmmo = null }) {
 
   let damageString =
     (weapon.system.damage3Effective ?? weapon.system.damage3 ?? weapon.system.damage2Effective ?? weapon.system.damage2 ?? weapon.system.damageEffective ?? weapon.system.damage) || "0";
+
+  // Unstoppable Might (Chapter 4): special wield modes can override the effective damage value.
+  // We apply this only when the attacker explicitly confirms special wield usage.
+  try {
+    const actor = weapon?.actor ?? null;
+    const umActive = Boolean(context?.unstoppableMight?.active);
+    if (actor && umActive && hasTalent(actor, 'unstoppablemight')) {
+      const handed = getEffectiveWeaponHands(weapon);
+      const isHandAndAHalfOneHand = Boolean(handed?.isHandAndAHalf) && Number(handed?.effectiveHands ?? 0) === 1;
+      const isTrueTwoHanded = Boolean(handed?.isTwoHanded) && !Boolean(handed?.isHandAndAHalf);
+      if (isHandAndAHalfOneHand || isTrueTwoHanded) {
+        damageString = (weapon.system.damage2Effective ?? weapon.system.damage2 ?? damageString) || damageString;
+      }
+    }
+  } catch (err) {
+    console.warn('UESRPG | opposed-workflow | Unstoppable Might damage override failed', err);
+  }
 
   /** @type {{ammoUuid:string, qtyAfter:number, ammoName:string}|null} */
   let pendingAmmo = null;
@@ -3095,6 +3852,9 @@ async function _rollWeaponDamage({ weapon, preConsumedAmmo = null }) {
     const hasThrown = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "thrown")
       || traits.some(t => String(t ?? "").toLowerCase() === "thrown")
       || (String(weapon.system?.rangeBandsDerivedEffective?.kind ?? weapon.system?.rangeBandsDerived?.kind ?? "") === "thrown");
+    const hasSling = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "sling")
+      || traits.some(t => String(t ?? "").toLowerCase() === "sling")
+      || _weaponHasTraitText(weapon, "sling");
     if (hasThrown) {
       // Leave pendingAmmo null and do not gate on ammo.
     } else {
@@ -3128,22 +3888,24 @@ async function _rollWeaponDamage({ weapon, preConsumedAmmo = null }) {
         return null;
       }
 
-      const ammoExpr = normalizeDiceExpression(ammo.system?.damageEffective ?? ammo.system?.damage ?? "0");
-      let ammoBonus = 0;
-      try {
-        const r = await safeEvaluateRoll(ammoExpr);
-        ammoBonus = Number(r.total) || 0;
-      } catch (err) {
-        console.warn("UESRPG | Failed to evaluate ammunition damage expression", { ammoId, ammoExpr, err });
+      if (!hasSling) {
+        const ammoExpr = normalizeDiceExpression(ammo.system?.damageEffective ?? ammo.system?.damage ?? "0");
+        let ammoBonus = 0;
+        try {
+          const r = await safeEvaluateRoll(ammoExpr);
+          ammoBonus = Number(r.total) || 0;
+        } catch (err) {
+          console.warn("UESRPG | Failed to evaluate ammunition damage expression", { ammoId, ammoExpr, err });
+        }
+        damageString = addFlatBonus(damageString, ammoBonus);
       }
-      damageString = addFlatBonus(damageString, ammoBonus);
 
       // Ammo is already consumed earlier; do not schedule consumption here.
       pendingAmmo = null;
     } else if (ammoId) {
       // Ammo is configured but consumption is disabled; treat ammo as optional damage modifier.
       const ammo = weapon.actor.items.get(ammoId);
-      if (ammo?.type === "ammunition") {
+      if (ammo?.type === "ammunition" && !hasSling) {
         const ammoExpr = normalizeDiceExpression(ammo.system?.damageEffective ?? ammo.system?.damage ?? "0");
         let ammoBonus = 0;
         try {
@@ -3728,6 +4490,90 @@ if (stage === "attacker-roll") {
         }
       }
     }
+
+    // Buckler: +1 DoS on successful Parry.
+    if (stage === "defender-roll" && data.defender?.result?.isSuccess && !Number(data.defender.result.bucklerBonus)) {
+      const dt = String(data.defender?.defenseType ?? "");
+      if (dt === "parry") {
+        try {
+          if (_hasEquippedShieldType(expectedActor, "buckler")) {
+            data.defender.result.degree = Math.max(1, (Number(data.defender.result.degree) || 1) + 1);
+            data.defender.result.bucklerBonus = 1;
+            data.defender.result.textual = data.defender.result.isSuccess
+              ? `${data.defender.result.degree} DoS`
+              : `${data.defender.result.degree} DoF`;
+            dirty = true;
+          }
+        } catch (err) {
+          console.warn("UESRPG | opposed-workflow | buckler bonus lookup failed", err);
+        }
+      }
+    }
+
+    // Combat talents: post-roll DoS adjustments (bonus DoS / skill-rank replacement).
+    // In banking/external roll commit, do NOT prompt; use stored choices if present.
+    try {
+      const aActor = _resolveActor(data?.attacker?.actorUuid);
+      const dActor = _resolveActor(data?.defender?.actorUuid);
+      const aTok = _resolveToken(data?.attacker?.tokenUuid);
+      const dTok = _resolveToken(data?.defender?.tokenUuid);
+
+      if (stage === "attacker-roll" && data?.attacker?.result && aActor && dActor) {
+        const storedChoice = meta?.commit?.attacker?.talentDoSChoice ?? null;
+        const storedSource = meta?.commit?.attacker?.talentDoSChoiceSource ?? null;
+        if (storedChoice) data.attacker.result.talentDoSChoice = storedChoice;
+        if (storedSource) data.attacker.result.talentDoSChoiceSource = storedSource;
+
+        const adj = await applyCombatTalentDoSAdjustments({
+          attacker: aActor,
+          defender: dActor,
+          attackerToken: aTok,
+          defenderToken: dTok,
+          side: "attacker",
+          result: data.attacker.result,
+          defenseType: "",
+          styleUuid: data.attacker.itemUuid ?? null,
+          testLabel: data.attacker.label ?? data.attacker.testLabel ?? null,
+          allowPrompt: false,
+          weaponUuid: data?.context?.weaponUuid ?? null
+        });
+        if (adj?.changed) dirty = true;
+        if (Array.isArray(adj?.notes) && adj.notes.length) data.attacker.result.talentNotes = adj.notes;
+      }
+
+      if (stage === "defender-roll" && data?.defender?.result && aActor && dActor) {
+        const storedChoice = meta?.commit?.defender?.talentDoSChoice ?? null;
+        const storedSource = meta?.commit?.defender?.talentDoSChoiceSource ?? null;
+        if (storedChoice) data.defender.result.talentDoSChoice = storedChoice;
+        if (storedSource) data.defender.result.talentDoSChoiceSource = storedSource;
+
+        const adj = await applyCombatTalentDoSAdjustments({
+          attacker: aActor,
+          defender: dActor,
+          attackerToken: aTok,
+          defenderToken: dTok,
+          side: "defender",
+          result: data.defender.result,
+          defenseType: data.defender.defenseType,
+          styleUuid: null,
+          testLabel: data.defender.testLabel ?? data.defender.label ?? null,
+          allowPrompt: false,
+          weaponUuid: data?.context?.weaponUuid ?? null
+        });
+        if (adj?.changed) dirty = true;
+        if (Array.isArray(adj?.notes) && adj.notes.length) data.defender.result.talentNotes = adj.notes;
+
+        // Hyper Awareness: apply stored choice for Evade results without prompting.
+        if (String(data.defender.defenseType ?? "") === "evade") {
+          if (meta?.commit?.defender?.hyperAwarenessChoice) {
+            data.defender.result.hyperAwarenessChoice = meta.commit.defender.hyperAwarenessChoice;
+          }
+          await applyHyperAwarenessToResult(dActor, "Evade", data.defender.result, { allowPrompt: false });
+        }
+      }
+    } catch (err) {
+      console.warn("UESRPG | combat talent DoS adjustment (external roll commit) failed", err);
+    }
     if (stage === "defender-roll") {
       await _maybeSetAoEEvadeEscape(data, data.defender, expectedActor);
       dirty = true;
@@ -3749,6 +4595,13 @@ if (stage === "attacker-roll") {
       const outcome = _applyAoEEvadeOutcome(data, baseOutcome);
       _setDefenderOutcome(data, data.defender, outcome);
       _setDefenderAdvantage(data, data.defender, _computeAdvantageRAW(data, outcome, data.defender));
+
+      if (data.context?.attackFromHidden === true && outcome?.winner === "attacker") {
+        await _markPendingSneakAttack(expectedActor, {
+          weaponUuid: data.context?.weaponUuid ?? null,
+          attackMode: data.context?.attackMode ?? null
+        });
+      }
 
       const allResolved = _getDefenderEntries(data).every(def => Boolean(_getDefenderOutcome(data, def)));
       if (allResolved) {
@@ -4107,6 +4960,10 @@ if (stage === "attacker-roll") {
     const seededAttackMode = cfg.attackMode ? String(cfg.attackMode) : await _inferAttackModeFromPreferredWeapon(attacker);
 
     const isAoE = Boolean(cfg?.aoe?.isAoE || cfg?.context?.aoe?.isAoE || cfg?.isAoE);
+    const isFollowUpStrike = Boolean(cfg?.followUpStrike);
+    const skipApDeduction = Boolean(cfg?.skipAttackerAPDeduction || isFollowUpStrike);
+    const skipAttackCountIncrement = Boolean(cfg?.skipAttackCountIncrement || isFollowUpStrike);
+    const isFreeActionAttack = Boolean(cfg?.isFreeActionAttack || isFollowUpStrike);
     const data = {
         context: {
           schemaVersion: 1,
@@ -4122,7 +4979,16 @@ if (stage === "attacker-roll") {
           aoe: cfg?.aoe ? foundry.utils.deepClone(cfg.aoe) : undefined,
           isAoE: cfg?.isAoE ?? undefined,
           activation: cfg.activation ?? null,
-          skipAttackerAPDeduction: Boolean(cfg.skipAttackerAPDeduction),
+          skipAttackerAPDeduction: skipApDeduction,
+          skipAttackCountIncrement,
+          isFreeActionAttack,
+          followUpStrike: isFollowUpStrike
+            ? {
+                active: true,
+                penalty: -20,
+                sourceWeaponUuid: cfg?.followUpStrikeSourceWeaponUuid ?? null
+              }
+            : undefined,
           bankChoicesEnabled: true,
           autoRollRequested: false,
         autoRollRequestedAt: null,
@@ -4193,9 +5059,9 @@ if (stage === "attacker-roll") {
 
     const { defender: defenderData, defenderIndex, defenders, isMulti } = _selectDefenderEntry(data, opts);
     const attacker = _resolveActor(data.attacker.actorUuid);
-    const defender = defenderData ? _resolveActor(defenderData.actorUuid) : null;
+    let defender = defenderData ? _resolveActor(defenderData.actorUuid) : null;
     const aToken = _resolveToken(data.attacker.tokenUuid);
-    const dToken = defenderData ? _resolveToken(defenderData.tokenUuid) : null;
+    let dToken = defenderData ? _resolveToken(defenderData.tokenUuid) : null;
 
     if (!attacker || !defender) {
       ui.notifications.warn("Opposed Test: could not resolve attacker/defender.");
@@ -4249,6 +5115,52 @@ if (stage === "attacker-roll") {
 
       await this._autoRollBanked(message.id, { trigger: "manual" });
       return;
+    }
+
+    // Follow-up Strike (Chapter 4): spend 1 SP to spawn a free follow-up attack with the other weapon at -20.
+    if (action === "followup-strike") {
+      if (!_safeGetSetting("uesrpg-3ev4", "enableFollowupStrike", false)) return false;
+      const ctx = data?.context ?? {};
+      const fus = ctx.followUpStrike;
+      if (!fus?.eligible || fus?.used) {
+        ui.notifications.warn("Follow-up Strike is not available.");
+        return false;
+      }
+
+      if (!attacker) {
+        ui.notifications.warn("Unable to resolve attacker.");
+        return false;
+      }
+
+      const defIndex = Number(options?.["defender-index"] ?? 0);
+      const allDefenders = _getDefenderEntries(data);
+      const def = allDefenders?.[defIndex] ?? allDefenders?.[0] ?? null;
+      if (!def?.tokenUuid) {
+        ui.notifications.warn("Unable to resolve target for Follow-up Strike.");
+        return false;
+      }
+
+      const spOk = await _spendStaminaPoints(attacker, 1, { silent: false });
+      if (!spOk) return false;
+
+      ctx.followUpStrike = { ...fus, used: true };
+      data.context = ctx;
+      await _updateCard(message, data);
+
+      await this.createPending({
+        attackerTokenUuid: data?.attacker?.tokenUuid,
+        defenderTokenUuids: [def.tokenUuid],
+        attackerActorUuid: data?.attacker?.actorUuid,
+        attackerItemUuid: data?.attacker?.itemUuid,
+        attackerLabel: `${data?.attacker?.label ?? "Attack"} (Follow-up Strike)`,
+        attackerTarget: data?.attacker?.target ?? null,
+        weaponUuid: fus.otherWeaponUuid,
+        followUpStrike: true,
+        // Preserve forced hit location if the original workflow enforced it.
+        forcedHitLocation: data?.context?.forcedHitLocation ?? null
+      });
+
+      return true;
     }
 
     // --- Attacker Actions ---
@@ -4331,7 +5243,9 @@ if (stage === "attacker-roll") {
           defaultWeaponUuid: data.context?.weaponUuid ?? null,
           defaultVariant: data.attacker.variant ?? "normal",
           defaultManual: data.attacker.manualMod ?? 0,
-          defaultCirc: data.attacker.circumstanceMod ?? 0
+          defaultCirc: data.attacker.circumstanceMod ?? 0,
+          attackerToken: aToken ?? null,
+          defenderToken: dToken ?? null
         });
         if (!decl) return;
 
@@ -4340,10 +5254,12 @@ if (stage === "attacker-roll") {
         data.context.weaponUuid = decl.weaponUuid || data.context.weaponUuid || null;
 
         // Normalize attackMode from the explicitly selected weapon (covers thrown weapons where weaponType may be melee).
+        let declaredWeapon = null;
         if (data.context.weaponUuid) {
           try {
             const w = await fromUuid(String(data.context.weaponUuid));
             if (w?.type === "weapon") {
+              declaredWeapon = w;
               const wt = String(w.system?.attackMode ?? w.system?.weaponType ?? w.system?.type ?? "").toLowerCase();
               data.context.attackMode = (wt.includes("ranged") || _weaponHasQuality(w, "thrown")) ? "ranged" : "melee";
             }
@@ -4352,12 +5268,23 @@ if (stage === "attacker-roll") {
           }
         }
 
+        // Unstoppable Might (Chapter 4): prompt for special wield usage (explicit confirmation).
+        data.context.unstoppableMight = null;
+        if (declaredWeapon && hasTalent(attacker, "unstoppablemight")) {
+          const attackMode = String(declaredWeapon.system?.attackMode ?? "melee").toLowerCase();
+          const wCtx = _getUnstoppableMightWeaponEligibility(declaredWeapon);
+          if (attackMode === "melee" && wCtx.eligible) {
+            const useSpecial = await _promptUnstoppableMightUsage({ actorName: attacker.name, purpose: "attack" });
+            data.context.unstoppableMight = { active: Boolean(useSpecial), weaponUuid: declaredWeapon.uuid };
+          }
+        }
+
         const attackerMovementAction = _getTokenMovementAction(aToken);
 
         // IMPORTANT: Do not spend AP until after we have produced a real roll message.
         // This prevents AP loss if the workflow fails before resolving the roll.
         // AP: any attack costs 1 AP; variant AP cost is additive (e.g., All Out Attack is +1 AP).
-        const baseApCost = (String(data.mode ?? "attack") === "attack") ? 1 : 0;
+        const baseApCost = (String(data.mode ?? "attack") === "attack" && !data?.context?.isFreeActionAttack) ? 1 : 0;
         const extraApCost = Number(decl.apCost ?? 0) || 0;
         pendingApCost = baseApCost + extraApCost;
 
@@ -4372,7 +5299,21 @@ if (stage === "attacker-roll") {
 
         const manualMod = Number(decl.manualMod) || 0;
         const circumstanceMod = Number(decl.circumstanceMod) || 0;
-        const situationalMods = _collectSensorySituationalMods(decl);
+        const situationalMods = _collectSensorySituationalMods(decl, attacker);
+
+        // Follow-up Strike (Chapter 4): on a failed dual-wield attack, spend 1 SP to make a free follow-up
+        // attack with the other weapon at -20, which does not count toward attacks per round.
+        if (data?.context?.followUpStrike?.active) {
+          situationalMods.push({
+            key: "talent:followupstrike",
+            label: "Follow-up Strike",
+            value: -20,
+            source: "talent"
+          });
+          data.context.isFreeActionAttack = true;
+          data.context.skipAttackerAPDeduction = true;
+          data.context.skipAttackCountIncrement = true;
+        }
 
         // Range computation for ranged attacks.
         // Rules (Chapter 7): Close = +10, Medium = +0, Long = -20, beyond Long = cannot attack.
@@ -4385,6 +5326,19 @@ if (stage === "attacker-roll") {
             if (data.context.weaponUuid) weapon = await fromUuid(String(data.context.weaponUuid));
           } catch (_e) {
             weapon = null;
+          }
+
+          // Mighty Cleave (Chapter 4): optional second target for All Out Attack while wielding a weapon in two hands.
+          // This must be selected at declaration time, rolls once, and each defender defends separately.
+          if (String(data.context?.attackMode ?? "melee") === "melee") {
+            await _maybeApplyMightyCleave({
+              data,
+              attacker,
+              attackerToken: aToken,
+              primaryDefenderToken: dToken,
+              weapon,
+              declaration: decl
+            });
           }
 
           if (String(data.context?.attackMode ?? "melee") === "ranged") {
@@ -4428,6 +5382,12 @@ if (stage === "attacker-roll") {
         if (String(data.context?.attackMode ?? "melee") === "ranged" && defender && isActorSkeletal(defender)) {
           situationalMods.push({ key: "skeletal", label: "Skeletal (ranged)", value: -20 });
         }
+
+        // Combat talent: Precise (cancel Precision Strike penalty).
+        // This is implemented as a +20 situational modifier when the attacker chose the
+        // precision variant and has the Precise talent.
+        applyAttackerTalentPreTN({ attacker, declaration: decl, situationalMods });
+
         const tn = computeTN({
           actor: attacker,
           role: "attacker",
@@ -4530,6 +5490,42 @@ if (stage === "attacker-roll") {
       // At this point we are rolling (either standard workflow or banked roll).
       const finalTN = Number(data.attacker.target ?? 0) || 0;
 
+      // Attack-per-round gating (RAW + Dual Fighter)
+      // Default RAW: 2 attacks per round.
+      // Dual Fighter (Chapter 4): while dual wielding, a conditional 3rd melee attack can be allowed
+      // if, across the round, each weapon is used to attack at least once.
+      try {
+        const attackModeNow = String(data?.context?.attackMode ?? "").toLowerCase();
+
+        // Resolve current weapon to an embedded Item id to support Dual Fighter gating.
+        let weaponIdNow = "";
+        const weaponUuidNow = String(data?.context?.weaponUuid ?? "").trim();
+        if (weaponUuidNow) {
+          try {
+            const w = await fromUuid(weaponUuidNow);
+            if (w?.documentName === "Item") weaponIdNow = String(w.id);
+          } catch (_e) {
+            weaponIdNow = "";
+          }
+        }
+
+        const limit = AttackTracker.getAttackLimit(attacker, {
+          attackMode: attackModeNow,
+          weaponId: weaponIdNow
+        });
+        const count = AttackTracker.getAttackCount(attacker);
+        if (count >= limit) {
+          const warning = AttackTracker.getLimitWarning(attacker, {
+            attackMode: attackModeNow,
+            weaponId: weaponIdNow
+          });
+          if (warning) ui.notifications?.warn?.(warning);
+          return;
+        }
+      } catch (err) {
+        console.warn("UESRPG | Attack limit check failed", err);
+      }
+
       // Consume ammunition at attack time (per system rules and project direction).
       // Hard requirement: ranged (non-thrown) attacks must have ammo even if no damage card is ever produced.
       const ammoOk = await _preConsumeAttackAmmo(attacker, data);
@@ -4558,7 +5554,31 @@ if (stage === "attacker-roll") {
 
       // Perform a real Foundry roll + message so Dice So Nice triggers.
       const res = await doTestRoll(attacker, { rollFormula: "1d100", target: finalTN, allowLucky: true, allowUnlucky: true });
-      await res.roll.toMessage({
+
+      // Combat talents: post-roll DoS adjustments (bonus DoS / skill-rank replacement prompts).
+      // Run before posting the roll message so we can propagate the choice to the banking path.
+      try {
+        const adj = await applyCombatTalentDoSAdjustments({
+          attacker,
+          defender,
+          attackerToken: aToken,
+          defenderToken: dToken,
+          side: "attacker",
+          result: res,
+          defenseType: "",
+          styleUuid: data.attacker.itemUuid ?? null,
+          testLabel: data.attacker.label ?? data.attacker.testLabel ?? null,
+          weaponUuid: data?.context?.weaponUuid ?? null,
+          allowPrompt: true
+        });
+        if (Array.isArray(adj?.notes) && adj.notes.length) {
+          res.talentNotes = adj.notes;
+        }
+      } catch (err) {
+        console.warn("UESRPG | combat talent DoS adjustment (attacker) failed", err);
+      }
+
+      const rollMessage = await res.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
         flavor: `${data.attacker.label} — Attacker Roll`,
         rollMode: game.settings.get("core", "rollMode"),
@@ -4577,11 +5597,22 @@ if (stage === "attacker-roll") {
               target: data.attacker.target,
               tn: data.attacker.tn,
               itemUuid: data.attacker.itemUuid,
-              label: data.attacker.label
+              label: data.attacker.label,
+              talentDoSChoice: res?.talentDoSChoice ?? null,
+              talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null
             }
           }
         })
       });
+
+      // Bank committed rolls immediately when this client has authority.
+      if (isRollCommitted && rollMessage && (game.user.isGM || message.isAuthor)) {
+        try {
+          await this.applyExternalRollMessage(rollMessage);
+        } catch (err) {
+          console.warn("UESRPG | opposed-workflow | immediate attacker banking failed", err);
+        }
+      }
 
       // Consume one-shot Advantage-derived effects after they have been applied to this attack test.
       // RAW: Press Advantage / Overextend apply to the next attack test within 1 round.
@@ -4613,9 +5644,20 @@ if (stage === "attacker-roll") {
       
       // Increment attack counter after AP is spent successfully
       // This ensures attacks only count if they were properly resourced
-      if (apOk) {
+      if (apOk && !data?.context?.skipAttackCountIncrement) {
         try {
           await AttackTracker.incrementAttacks(attacker);
+          const usedWeaponId = await AttackTracker.recordWeaponUse(
+            attacker,
+            data?.context?.weaponUuid ?? data?.attacker?.preConsumedAmmo?.weaponUuid ?? null
+          );
+
+          // Post-attack limit warnings (RAW: 2 attacks per round; Dual Fighter can allow a conditional 3rd melee attack).
+          const warn = AttackTracker.getLimitWarning(attacker, {
+            attackMode,
+            weaponId: usedWeaponId
+          });
+          if (warn) ui.notifications?.warn?.(warn);
         } catch (err) {
           console.error("UESRPG | Failed to increment attack counter", { actor: attacker?.uuid, err });
           // Don't break the workflow if attack tracking fails
@@ -4639,12 +5681,21 @@ if (stage === "attacker-roll") {
         degree: res.degree,
         textual: res.textual,
         isCriticalSuccess: res.isCriticalSuccess,
-        isCriticalFailure: res.isCriticalFailure
+        isCriticalFailure: res.isCriticalFailure,
+        talentDoSChoice: res?.talentDoSChoice ?? null,
+        talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+        ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
       };
+
+      // Combat talents: DoS adjustments already applied before roll message posting.
+
+      // Follow-up Strike (Chapter 4): on a failed dual-wield attack, allow spending 1 SP to create
+      // a free follow-up attack with the other weapon at -20.
+      await _maybeEnableFollowUpStrike({ data, attacker, attackerResult: data.attacker.result });
 
       // Chapter 5 (Hidden): enemies cannot defend against attacks made by hidden characters.
       if (data.context?.attackFromHidden === true) {
-        for (const def of defenders) {
+        for (const def of _getDefenderEntries(data)) {
           if (!def || def.result || def.noDefense === true) continue;
           def.noDefense = true;
           def.defenseType = "none";
@@ -4751,6 +5802,19 @@ if (stage === "attacker-roll") {
     if (action === "defender-commit" || action === "defender-roll-committed") {
       const isCommit = action === "defender-commit";
       const isRollCommitted = action === "defender-roll-committed";
+
+      // Defender talent: adjacent ally may intercept this incoming attack (once per workflow).
+      if (isCommit) {
+        try {
+          const applied = await maybeApplyDefenderIntercept({ data, defenderData: data.defender, defenderToken: dToken });
+          if (applied) {
+            defender = _resolveActor(data.defender.actorUuid);
+            dToken = _resolveToken(data.defender.tokenUuid);
+          }
+        } catch (err) {
+          console.warn("UESRPG | Defender intercept failed", err);
+        }
+      }
 
       // CORRECTED: Feint gating - force No Defense if Feinted by this specific attacker
       const feintedEffect = defender.effects.find(e => 
@@ -4889,11 +5953,58 @@ if (stage === "attacker-roll") {
       if (isCommit) {
         const { attackerWeaponTraits, defenderHasSmallWeapon } = await _getDefenseGatingContext({ attacker, defender, data });
 
+        // Combat talent: Lightning Reflexes (allow Parry vs ranged weapon attacks, at -20).
+        const defenseTalentOverrides = getDefenseTalentOverrides({
+          defender,
+          attackMode: data.context?.attackMode ?? "melee",
+          attackerWeaponTraits
+        });
+
+        // Combat talent: Fearsome (OPTIONAL) — the defender may use Persuade(Strength) in place of Evade
+        // when taking an Evade reaction against melee attacks.
+        // We do NOT auto-apply this override; we prompt right after the defender selects "Evade".
+        const fearsomeContext = getEvadeOverrideContext({
+          defender,
+          attackMode: data.context?.attackMode ?? "melee"
+        });
+
+        const interceptAllowed = Array.isArray(defenderData?.defenderIntercept?.allowedDefenseTypes)
+          ? defenderData.defenderIntercept.allowedDefenseTypes
+          : null;
+        let allowedDefenseTypes = isAoE ? ["block", "evade"] : null;
+        if (interceptAllowed) {
+          allowedDefenseTypes = allowedDefenseTypes
+            ? allowedDefenseTypes.filter((t) => interceptAllowed.includes(t))
+            : Array.from(interceptAllowed);
+        }
+
+        // Unstoppable Might (Chapter 4): prompt for special wield usage to gate Parry/Counter.
+        const umEligible = hasTalent(defender, "unstoppablemight") && _hasUnstoppableMightEligibleWeapons(defender);
+        const allowsParryCounter = !allowedDefenseTypes || allowedDefenseTypes.includes("parry") || allowedDefenseTypes.includes("counter");
+        if (umEligible && allowsParryCounter) {
+          const useSpecial = await _promptUnstoppableMightUsage({ actorName: defender.name, purpose: "defense" });
+          if (useSpecial) {
+            const base = ["evade", "block"]; // block will be disabled automatically if no shield
+            allowedDefenseTypes = allowedDefenseTypes
+              ? allowedDefenseTypes.filter((t) => base.includes(t))
+              : base;
+            data.defender.unstoppableMight = { disallowParryCounter: true };
+          }
+        }
+
+        const gladiatorCtx = _getGladiatorContext({
+          defender,
+          defenderToken: dToken,
+          attackMode: data.context?.attackMode ?? "melee"
+        });
+
         const choice = await DefenseDialog.show(defender, {
           attackerContext: data.attacker,
           attackerWeaponTraits,
           defenderHasSmallWeapon,
-          allowedDefenseTypes: isAoE ? ["block", "evade"] : null,
+          allowedDefenseTypes,
+          allowParryRanged: defenseTalentOverrides.allowParryRanged,
+          gladiator: gladiatorCtx?.triggered ? gladiatorCtx : null,
           context: {
             opponentUuid: attacker?.uuid ?? null,
             attackMode: data.context?.attackMode ?? "melee",
@@ -4901,6 +6012,35 @@ if (stage === "attacker-roll") {
           }
         });
         if (!choice) return;
+
+        // Fearsome (OPTIONAL): if Evade was selected and Fearsome is available, prompt for which test to roll.
+        let fearsomeTNOverride = null;
+        if (choice.defenseType === "evade" && fearsomeContext?.fearsome?.available) {
+          const usePersuade = await new Promise((resolve) => {
+            new Dialog({
+              title: "Fearsome",
+              content: `
+                <div class="uesrpg">
+                  <p><b>${defender.name}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.</p>
+                  <p>Choose which test to roll for this reaction.</p>
+                </div>
+              `,
+              buttons: {
+                evade: { label: "Use Evade", callback: () => resolve(false) },
+                persuade: { label: "Use Persuade (Strength)", callback: () => resolve(true) }
+              },
+              default: "evade",
+              close: () => resolve(false)
+            }).render(true);
+          });
+
+          if (usePersuade) {
+            fearsomeTNOverride = fearsomeContext.fearsome.payload;
+            data.defender.fearsomeChoice = "persuade";
+          } else {
+            data.defender.fearsomeChoice = "evade";
+          }
+        }
 
         // Defense option availability normalization (single canonical rules-layer).
         // This is a defensive server-side validation: UI already prevents illegal selection,
@@ -4911,7 +6051,8 @@ if (stage === "attacker-roll") {
             attackerWeaponTraits,
             defenderHasSmallWeapon,
             defenderHasShield: hasEquippedShield(defender),
-            allowedDefenseTypes: isAoE ? ["block", "evade"] : null
+            allowedDefenseTypes,
+            allowParryRanged: defenseTalentOverrides.allowParryRanged
           });
           const requested = String(choice.defenseType ?? "evade");
           const normalized = normalizeDefenseType(requested, availability, "evade");
@@ -4933,17 +6074,27 @@ if (stage === "attacker-roll") {
         // Spend immediately upon selecting the defense choice to prevent later desync.
 
         if (choice.defenseType && choice.defenseType !== "none") {
+          const gladiatorFreeRequested = gladiatorCtx?.mode === "updated"
+            ? Boolean(choice?.gladiatorFree)
+            : (gladiatorCtx?.mode === "original");
+          const gladiatorFree = Boolean(gladiatorCtx?.triggered && gladiatorCtx?.available && gladiatorFreeRequested);
+          const freeCtx = _getFreeDefenseReactionContext({
+            defenderData,
+            gladiator: gladiatorFree ? gladiatorCtx?.roundCtx : null
+          });
 
-          const ok = await ActionEconomy.spendAP(defender, 1, { reason: `reaction:${choice.defenseType}`, silent: true });
-
-          if (!ok) {
-
-            ui.notifications.warn(`${defender.name} does not have enough Action Points to perform a defensive reaction. Choose No Defense instead.`);
-
-            return;
-
+          if (freeCtx.free) {
+            if (freeCtx.source === "gladiator" && freeCtx.gladiatorCtx) {
+              await _markGladiatorFreeReactionUsed(defender, freeCtx.gladiatorCtx);
+              defenderData.gladiator = { freeReactionApplied: true, ...freeCtx.gladiatorCtx };
+            }
+          } else {
+            const ok = await ActionEconomy.spendAP(defender, 1, { reason: `reaction:${choice.defenseType}`, silent: true });
+            if (!ok) {
+              ui.notifications.warn(`${defender.name} does not have enough Action Points to perform a defensive reaction. Choose No Defense instead.`);
+              return;
+            }
           }
-
         }
 
 
@@ -4971,7 +6122,7 @@ if (stage === "attacker-roll") {
 
         const manualMod = _asNumber(choice.manualMod ?? 0);
         const circumstanceMod = _asNumber(choice.circumstanceMod ?? 0);
-        const situationalMods = _collectDefenseSensorySituationalMods(choice);
+        const situationalMods = _collectDefenseSensorySituationalMods(choice, defender);
         const tn = computeTN({
           actor: defender,
           role: "defender",
@@ -4983,8 +6134,18 @@ if (stage === "attacker-roll") {
           context: {
             opponentUuid: attacker?.uuid ?? null,
             attackMode: data.context?.attackMode ?? "melee",
-            movementAction: defenderMovementAction
+            movementAction: defenderMovementAction,
+          ...(fearsomeTNOverride ? { tnOverride: fearsomeTNOverride } : {})
           }
+        });
+
+        // Apply defender-side TN mods from combat talents (e.g., Lightning Reflexes ranged parry -20).
+        applyDefenderTalentTNMods({
+          defender,
+          defenseType: choice.defenseType,
+          attackMode: data.context?.attackMode ?? "melee",
+          tn,
+          attackerWeaponTraits
         });
 
         data.defender.target = tn.finalTN;
@@ -5041,7 +6202,35 @@ if (stage === "attacker-roll") {
       // Roll committed defense lane.
       const res = await doTestRoll(defender, { rollFormula: "1d100", target: Number(data.defender.target), allowLucky: true, allowUnlucky: true });
 
-      await res.roll.toMessage({
+      // Hyper Awareness: Evade tests may choose rolled DoS or Observe rank.
+      if (String(data.defender.defenseType ?? "") === "evade") {
+        await applyHyperAwarenessToResult(defender, "Evade", res, { allowPrompt: true });
+      }
+
+      // Combat talents: post-roll DoS adjustments (bonus DoS / skill-rank replacement prompts).
+      // Run before posting the roll message so we can propagate the choice to the banking path.
+      try {
+        const adj = await applyCombatTalentDoSAdjustments({
+          attacker,
+          defender,
+          attackerToken: aToken,
+          defenderToken: dToken,
+          side: "defender",
+          result: res,
+          defenseType: data.defender.defenseType,
+          styleUuid: null,
+          testLabel: data.defender.testLabel ?? data.defender.label ?? null,
+          allowPrompt: true
+        });
+        if (Array.isArray(adj?.notes) && adj.notes.length) {
+          res.talentNotes = adj.notes;
+        }
+      } catch (err) {
+        console.warn("UESRPG | combat talent DoS adjustment (defender) failed", err);
+      }
+
+
+      const rollMessage = await res.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
         flavor: `${data.defender.label} — Defender Roll`,
         rollMode: game.settings.get("core", "rollMode"),
@@ -5055,11 +6244,23 @@ if (stage === "attacker-roll") {
               testLabel: data.defender.testLabel,
               target: data.defender.target,
               targetLabel: data.defender.targetLabel,
-              tn: data.defender.tn
+              tn: data.defender.tn,
+              talentDoSChoice: res?.talentDoSChoice ?? null,
+              talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+              hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
             }
           }
         })
       });
+
+      // Bank committed rolls immediately when this client has authority.
+      if (rollMessage && (game.user.isGM || message.isAuthor)) {
+        try {
+          await this.applyExternalRollMessage(rollMessage);
+        } catch (err) {
+          console.warn("UESRPG | opposed-workflow | immediate defender banking failed", err);
+        }
+      }
 
       // Banked-choice auto-roll: do not write roll results directly into the parent card.
       // The roll chat message will be banked into the parent card by the createChatMessage hook.
@@ -5210,6 +6411,16 @@ if (stage === "attacker-roll") {
         return;
       }
 
+      // Combat talent: Defender — allow an adjacent ally to intercept this incoming attack.
+      // This can rewrite the current defender lane (actor/token) and swap token positions.
+      if (dToken) {
+        const applied = await maybeApplyDefenderIntercept({ data, defenderData, defenderToken: dToken });
+        if (applied) {
+          // Re-resolve defender + token after the intercept rewrite.
+          defender = defenderData ? _resolveActor(defenderData.actorUuid) : defender;
+          dToken = defenderData ? _resolveToken(defenderData.tokenUuid) : dToken;
+        }
+      }
 
 
       const defenderMovementAction = _getTokenMovementAction(dToken);
@@ -5219,11 +6430,58 @@ if (stage === "attacker-roll") {
       // Keep this deterministic and schema-safe.
       const { attackerWeaponTraits, defenderHasSmallWeapon } = await _getDefenseGatingContext({ attacker, defender, data });
 
+      // Combat talent: Lightning Reflexes (allow Parry vs ranged weapon attacks, at -20).
+      const defenseTalentOverrides = getDefenseTalentOverrides({
+        defender,
+        attackMode: data.context?.attackMode ?? "melee",
+        attackerWeaponTraits
+      });
+
+      // Combat talent: Fearsome (OPTIONAL) — the defender may use Persuade(Strength) in place of Evade
+      // when taking an Evade reaction against melee attacks.
+      // We do NOT auto-apply this override; we prompt right after the defender selects "Evade".
+      const fearsomeContext = getEvadeOverrideContext({
+        defender,
+        attackMode: data.context?.attackMode ?? "melee"
+      });
+
+      const interceptAllowed = Array.isArray(defenderData?.defenderIntercept?.allowedDefenseTypes)
+        ? defenderData.defenderIntercept.allowedDefenseTypes
+        : null;
+      let allowedDefenseTypes = isAoE ? ["block", "evade"] : null;
+      if (interceptAllowed) {
+        allowedDefenseTypes = allowedDefenseTypes
+          ? allowedDefenseTypes.filter((t) => interceptAllowed.includes(t))
+          : Array.from(interceptAllowed);
+      }
+
+      // Unstoppable Might (Chapter 4): prompt for special wield usage to gate Parry/Counter.
+      const umEligible = hasTalent(defender, "unstoppablemight") && _hasUnstoppableMightEligibleWeapons(defender);
+      const allowsParryCounter = !allowedDefenseTypes || allowedDefenseTypes.includes("parry") || allowedDefenseTypes.includes("counter");
+      if (umEligible && allowsParryCounter) {
+        const useSpecial = await _promptUnstoppableMightUsage({ actorName: defender.name, purpose: "defense" });
+        if (useSpecial) {
+          const base = ["evade", "block"]; // block will be disabled automatically if no shield
+          allowedDefenseTypes = allowedDefenseTypes
+            ? allowedDefenseTypes.filter((t) => base.includes(t))
+            : base;
+          data.defender.unstoppableMight = { disallowParryCounter: true };
+        }
+      }
+
+      const gladiatorCtx = _getGladiatorContext({
+        defender,
+        defenderToken: dToken,
+        attackMode: data.context?.attackMode ?? "melee"
+      });
+
       const choice = await DefenseDialog.show(defender, {
         attackerContext: data.attacker,
         attackerWeaponTraits,
         defenderHasSmallWeapon,
-        allowedDefenseTypes: isAoE ? ["block", "evade"] : null,
+        allowedDefenseTypes,
+        allowParryRanged: defenseTalentOverrides.allowParryRanged,
+        gladiator: gladiatorCtx?.triggered ? gladiatorCtx : null,
         context: {
           opponentUuid: attacker?.uuid ?? null,
           attackMode: data.context?.attackMode ?? "melee",
@@ -5231,6 +6489,35 @@ if (stage === "attacker-roll") {
         }
       });
       if (!choice) return;
+
+      // Fearsome (OPTIONAL): if Evade was selected and Fearsome is available, prompt for which test to roll.
+      let fearsomeTNOverride = null;
+      if (choice.defenseType === "evade" && fearsomeContext?.fearsome?.available) {
+        const usePersuade = await new Promise((resolve) => {
+          new Dialog({
+            title: "Fearsome",
+            content: `
+              <div class="uesrpg">
+                <p><b>${defender.name}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.</p>
+                <p>Choose which test to roll for this reaction.</p>
+              </div>
+            `,
+            buttons: {
+              evade: { label: "Use Evade", callback: () => resolve(false) },
+              persuade: { label: "Use Persuade (Strength)", callback: () => resolve(true) }
+            },
+            default: "evade",
+            close: () => resolve(false)
+          }).render(true);
+        });
+
+        if (usePersuade) {
+          fearsomeTNOverride = fearsomeContext.fearsome.payload;
+          data.defender.fearsomeChoice = "persuade";
+        } else {
+          data.defender.fearsomeChoice = "evade";
+        }
+      }
 
       // Defense option availability normalization (single canonical rules-layer).
       // This is a defensive server-side validation: UI already prevents illegal selection,
@@ -5241,7 +6528,8 @@ if (stage === "attacker-roll") {
           attackerWeaponTraits,
           defenderHasSmallWeapon,
           defenderHasShield: hasEquippedShield(defender),
-          allowedDefenseTypes: isAoE ? ["block", "evade"] : null
+          allowedDefenseTypes,
+          allowParryRanged: defenseTalentOverrides.allowParryRanged
         });
         const requested = String(choice.defenseType ?? "evade");
         const normalized = normalizeDefenseType(requested, availability, "evade");
@@ -5263,17 +6551,27 @@ if (stage === "attacker-roll") {
       // Spend immediately upon selecting the defense choice to prevent later desync.
 
       if (choice.defenseType && choice.defenseType !== "none") {
+        const gladiatorFreeRequested = gladiatorCtx?.mode === "updated"
+          ? Boolean(choice?.gladiatorFree)
+          : (gladiatorCtx?.mode === "original");
+        const gladiatorFree = Boolean(gladiatorCtx?.triggered && gladiatorCtx?.available && gladiatorFreeRequested);
+        const freeCtx = _getFreeDefenseReactionContext({
+          defenderData,
+          gladiator: gladiatorFree ? gladiatorCtx?.roundCtx : null
+        });
 
-        const ok = await ActionEconomy.spendAP(defender, 1, { reason: `reaction:${choice.defenseType}`, silent: true });
-
-        if (!ok) {
-
-          ui.notifications.warn(`${defender.name} does not have enough Action Points to perform a defensive reaction. Choose No Defense instead.`);
-
-          return;
-
+        if (freeCtx.free) {
+          if (freeCtx.source === "gladiator" && freeCtx.gladiatorCtx) {
+            await _markGladiatorFreeReactionUsed(defender, freeCtx.gladiatorCtx);
+            defenderData.gladiator = { freeReactionApplied: true, ...freeCtx.gladiatorCtx };
+          }
+        } else {
+          const ok = await ActionEconomy.spendAP(defender, 1, { reason: `reaction:${choice.defenseType}`, silent: true });
+          if (!ok) {
+            ui.notifications.warn(`${defender.name} does not have enough Action Points to perform a defensive reaction. Choose No Defense instead.`);
+            return;
+          }
         }
-
       }
 
 
@@ -5306,7 +6604,7 @@ if (stage === "attacker-roll") {
 
       const manualMod = _asNumber(choice.manualMod ?? 0);
       const circumstanceMod = _asNumber(choice.circumstanceMod ?? 0);
-      const situationalMods = _collectDefenseSensorySituationalMods(choice);
+      const situationalMods = _collectDefenseSensorySituationalMods(choice, defender);
       const tn = computeTN({
         actor: defender,
         role: "defender",
@@ -5314,12 +6612,23 @@ if (stage === "attacker-roll") {
         styleUuid: choice.styleUuid ?? choice.styleId ?? null,
         manualMod,
         circumstanceMod,
-	        situationalMods,
+        situationalMods,
         context: {
           opponentUuid: attacker?.uuid ?? null,
           attackMode: data.context?.attackMode ?? "melee",
-          movementAction: defenderMovementAction
+          movementAction: defenderMovementAction,
+          ...(fearsomeTNOverride ? { tnOverride: fearsomeTNOverride } : {})
         }
+      });
+
+      // Combat talents that modify defender TN outside the base TN computation.
+      // (Lightning Reflexes: Parry vs ranged at -20)
+      applyDefenderTalentTNMods({
+        defender,
+        defenseType: choice.defenseType,
+        attackMode: data.context?.attackMode ?? "melee",
+        tn,
+        attackerWeaponTraits
       });
 
       data.defender.target = tn.finalTN;
@@ -5343,6 +6652,34 @@ if (stage === "attacker-roll") {
         await _updateCard(message, data);
       } else {
         const res = await doTestRoll(defender, { rollFormula: "1d100", target: data.defender.target, allowLucky: true, allowUnlucky: true });
+
+        // Hyper Awareness: Evade tests may choose rolled DoS or Observe rank.
+        if (choice.defenseType === "evade") {
+          await applyHyperAwarenessToResult(defender, "Evade", res, { allowPrompt: true });
+        }
+
+        // Combat talents: post-roll DoS adjustments (bonus DoS / skill-rank replacement prompts).
+        // Run before posting the roll message so we can propagate the choice to the banking path.
+        try {
+          const adj = await applyCombatTalentDoSAdjustments({
+            attacker,
+            defender,
+            attackerToken: aToken,
+            defenderToken: dToken,
+            side: "defender",
+            result: res,
+            defenseType: choice.defenseType,
+            styleUuid: null,
+            testLabel: data.defender.testLabel ?? data.defender.label ?? null,
+            allowPrompt: true
+          });
+          if (Array.isArray(adj?.notes) && adj.notes.length) {
+            res.talentNotes = adj.notes;
+          }
+        } catch (err) {
+          console.warn("UESRPG | combat talent DoS adjustment (defender) failed", err);
+        }
+
         // IMPORTANT: The defender may not have permission to update the parent opposed card
         // (ChatMessage authored by the attacker). We therefore include the computed TN and
         // defense choice metadata in the roll message flags so the GM/author banking hook can
@@ -5361,7 +6698,10 @@ if (stage === "attacker-roll") {
                 testLabel: data.defender.testLabel,
                 target: data.defender.target,
                 targetLabel: data.defender.targetLabel,
-                tn: data.defender.tn
+                tn: data.defender.tn,
+                talentDoSChoice: res?.talentDoSChoice ?? null,
+                talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+                hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
               }
             }
           })
@@ -5374,7 +6714,10 @@ if (stage === "attacker-roll") {
           degree: res.degree,
           textual: res.textual,
           isCriticalSuccess: res.isCriticalSuccess,
-          isCriticalFailure: res.isCriticalFailure
+          isCriticalFailure: res.isCriticalFailure,
+          talentDoSChoice: res?.talentDoSChoice ?? null,
+          talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+          ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
         };
 
         // Dueling Weapon: grants +1 Degree of Success on successful Parry or Counter-Attack.
@@ -5396,6 +6739,8 @@ if (stage === "attacker-roll") {
             console.warn("UESRPG | opposed-workflow | dueling weapon bonus lookup failed", err);
           }
         }
+
+        // Combat talents: DoS adjustments already applied before roll message posting.
         await _maybeSetAoEEvadeEscape(data, data.defender, defender);
         
         // Resolve immediately if the attacker has already rolled.
@@ -5454,7 +6799,9 @@ if (stage === "attacker-roll") {
       }
 
       const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
-      const shareDamage = isAoE || _isMultiDefender(data);
+      // Shared damage is only appropriate for AoE workflows. Multi-defender (e.g., Mighty Cleave)
+      // rolls damage per target by RAW.
+      const shareDamage = isAoE;
       let sharedDamage = shareDamage ? (data.context?.sharedDamage ?? null) : null;
       const sharedSelection = shareDamage ? (data.context?.sharedDamageSelection ?? null) : null;
 
@@ -5477,6 +6824,8 @@ if (stage === "attacker-roll") {
         attackerActor: attacker,
         attackMode,
         advantageCount: advCount,
+        attackerTokenUuid: data.attacker?.tokenUuid ?? null,
+        opponentTokenUuid: data.defender?.tokenUuid ?? null,
         defaultWeaponUuid: data.context?.lastWeaponUuid ?? _getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? null,
         defaultHitLocation: baseHitLocation,
         allowNoWeapon,
@@ -5493,6 +6842,7 @@ if (stage === "attacker-roll") {
         penetrateArmor: Boolean(selection.penetrateArmor),
         forcefulImpact: Boolean(selection.forcefulImpact),
         pressAdvantage: Boolean(selection.pressAdvantage),
+        pressAdvantageDouble: Boolean(selection.pressAdvantageDouble),
         specialActionsSelected: Array.isArray(selection.specialActionsSelected) ? selection.specialActionsSelected.slice() : []
       };
       await _updateCard(message, data);
@@ -5512,7 +6862,11 @@ if (stage === "attacker-roll") {
 
       if (selection.pressAdvantage && attackMode === "melee") {
         const defenderActor = _resolveDoc(data?.defender?.actorUuid);
-        await _applyPressAdvantageEffect(attacker, defenderActor, { attackerTokenUuid: data.attacker?.tokenUuid ?? null, defenderTokenUuid: data.defender?.tokenUuid ?? null });
+        await _applyPressAdvantageEffect(attacker, defenderActor, {
+          attackerTokenUuid: data.attacker?.tokenUuid ?? null,
+          defenderTokenUuid: data.defender?.tokenUuid ?? null,
+          doubleEffect: Boolean(selection.pressAdvantageDouble)
+        });
       }
 
       // Execute Special Advantage automation (free + auto-win)
@@ -5740,10 +7094,15 @@ if (stage === "attacker-roll") {
         const sourceItemUuid = activationCtx?.itemUuid ?? "";
         const weaponUuidForDamage = sourceItemUuid ? "" : (weapon?.uuid ?? "");
 
+        const attackMode = getContextAttackMode(data.context);
+        const attackHidden = data.context?.attackFromHidden === true;
+        const ammoUuid = data.attacker?.preConsumedAmmo?.ammoUuid ?? "";
+
         const applyBtn = `<button type="button" class="apply-damage-btn"
           data-target-uuid="${defender.uuid}"
           data-attacker-actor-uuid="${attacker.uuid}"
           data-weapon-uuid="${weaponUuidForDamage}"
+          data-ammo-uuid="${ammoUuid}"
           data-source-item-uuid="${sourceItemUuid}"
           data-damage="${dmg.finalDamage}"
           data-damage-type="${damageType}"
@@ -5753,6 +7112,8 @@ if (stage === "attacker-roll") {
           data-penetrate-armor="${selection.penetrateArmor ? "1" : "0"}"
 	      data-forceful-impact="${selection.forcefulImpact ? "1" : "0"}"
 	      data-press-advantage="${selection.pressAdvantage ? "1" : "0"}"
+          data-attack-mode="${attackMode}"
+          data-attack-hidden="${attackHidden ? "1" : "0"}"
           data-magic-source="${magicSource ? "1" : "0"}"
           data-source="${sourceLabel}">
           Apply Damage → ${dToken?.name ?? defender.name}
@@ -5778,7 +7139,7 @@ if (stage === "attacker-roll") {
       const reuseShared = Boolean(sharedDamage && sharedDamage.mode === "weapon" && (!sharedDamage.weaponUuid || sharedDamage.weaponUuid === weapon?.uuid));
       const dmg = reuseShared
         ? _inflateSharedDamage(sharedDamage)
-        : await _rollWeaponDamage({ weapon, preConsumedAmmo: data.attacker?.preConsumedAmmo ?? null });
+        : await _rollWeaponDamage({ weapon, preConsumedAmmo: data.attacker?.preConsumedAmmo ?? null, context: data.context ?? null });
       if (!dmg) return;
       if (shareDamage && (!sharedDamage || sharedDamage.mode !== "weapon")) {
         sharedDamage = _buildSharedDamagePayload({ mode: "weapon", dmg, weaponUuid: weapon?.uuid ?? null, damageType: getDamageTypeFromWeapon(weapon) });
@@ -5802,10 +7163,14 @@ if (stage === "attacker-roll") {
         ? `<div style="margin-top:0.25rem;font-size:x-small;line-height:1.2;">Roll A: ${rollATotal ?? "?"}<br>Roll B: ${rollBTotal}${extraNotes}</div>`
         : (extraNotes ? `<div style="margin-top:0.25rem;font-size:x-small;line-height:1.2;">${extraNotes}</div>` : "");
 
+      const attackHidden = data.context?.attackFromHidden === true;
+      const ammoUuid = data.attacker?.preConsumedAmmo?.ammoUuid ?? "";
+
       const applyBtn = `<button type="button" class="apply-damage-btn"
         data-target-uuid="${defender.uuid}"
         data-attacker-actor-uuid="${attacker.uuid}"
           data-weapon-uuid="${weapon?.uuid ?? ""}"
+        data-ammo-uuid="${ammoUuid}"
         data-damage="${dmg.finalDamage}"
         data-damage-type="${damageType}"
         data-hit-location="${hitLocation}"
@@ -5814,6 +7179,8 @@ if (stage === "attacker-roll") {
         data-penetrate-armor="${selection.penetrateArmor ? "1" : "0"}"
 	      data-forceful-impact="${selection.forcefulImpact ? "1" : "0"}"
 	      data-press-advantage="${selection.pressAdvantage ? "1" : "0"}"
+        data-attack-mode="${attackMode}"
+        data-attack-hidden="${attackHidden ? "1" : "0"}"
         data-source="${weapon.name}">
         Apply Damage → ${dToken?.name ?? defender.name}
       </button>`;
@@ -5904,6 +7271,8 @@ if (stage === "attacker-roll") {
       const selection = await _promptWeaponAndAdvantages({
         attackerActor: defender,
         advantageCount: advCount,
+        attackerTokenUuid: data.defender?.tokenUuid ?? null,
+        opponentTokenUuid: data.attacker?.tokenUuid ?? null,
         defaultWeaponUuid: data.context?.lastDefenderWeaponUuid ?? _getPreferredWeaponUuid(defender, { meleeOnly: true }) ?? null,
         defaultHitLocation: baseHitLocation,
       });
@@ -5932,7 +7301,8 @@ if (stage === "attacker-roll") {
             targetActor,
             {
               attackerTokenUuid: data.defender?.tokenUuid ?? null,
-              defenderTokenUuid: data.attacker?.tokenUuid ?? null
+              defenderTokenUuid: data.attacker?.tokenUuid ?? null,
+              doubleEffect: Boolean(selection.pressAdvantageDouble)
             }
           );
         } catch (err) {
@@ -5946,15 +7316,26 @@ if (stage === "attacker-roll") {
         : getHitLocationFromRoll(data.defender?.result?.rollTotal ?? 0);
       const hitLocation = resolveHitLocationForTarget(targetActor, hitLocationRaw);
 
-      const dmg = await _rollWeaponDamage({ weapon, preConsumedAmmo: data.attacker?.preConsumedAmmo ?? null });
+      const dmg = await _rollWeaponDamage({ weapon, preConsumedAmmo: data.attacker?.preConsumedAmmo ?? null, context: data.context ?? null });
       if (!dmg) return;
       const damageType = getDamageTypeFromWeapon(weapon);
+      const counterAttackMode = getAttackModeFromWeapon(weapon);
+      const counterHidden = hasCondition(defender, "hidden");
+      const counterAmmoUuid = (() => {
+        if (counterAttackMode !== "ranged") return "";
+        const ammoId = String(weapon.system?.ammoId ?? "").trim();
+        if (!ammoId) return "";
+        const ammo = weapon.actor?.items?.get?.(ammoId) ?? null;
+        if (!ammo || ammo.type !== "ammunition") return "";
+        return String(ammo.uuid ?? "");
+      })();
 
       // Counter-attack: defender is the striker, original attacker is the target.
       const applyBtn = `<button type="button" class="apply-damage-btn"
         data-target-uuid="${attacker.uuid}"
         data-attacker-actor-uuid="${defender.uuid}"
         data-weapon-uuid="${weapon.uuid}"
+        data-ammo-uuid="${counterAmmoUuid}"
         data-damage="${dmg.finalDamage}"
         data-damage-type="${damageType}"
         data-hit-location="${hitLocation}"
@@ -5963,6 +7344,8 @@ if (stage === "attacker-roll") {
         data-penetrate-armor="${selection.penetrateArmor ? "1" : "0"}"
         data-forceful-impact="${selection.forcefulImpact ? "1" : "0"}"
         data-press-advantage="${selection.pressAdvantage ? "1" : "0"}"
+        data-attack-mode="${counterAttackMode}"
+        data-attack-hidden="${counterHidden ? "1" : "0"}"
         data-source="${weapon.name}">
         Apply Damage → ${aToken?.name ?? attacker.name}
       </button>`;
@@ -6035,7 +7418,9 @@ if (stage === "attacker-roll") {
       const choice = await _promptDefenderAdvantage({
         defenderActor: defender,
         attackerActor: attacker,
-        advantageCount: advCount
+        advantageCount: advCount,
+        defenderTokenUuid: data.defender?.tokenUuid ?? null,
+        opponentTokenUuid: data.attacker?.tokenUuid ?? null
       });
 
       // If the dialog was closed, do not mark as spent.
@@ -6066,7 +7451,8 @@ if (stage === "attacker-roll") {
         await _applyOverextendEffect(attacker, {
           defenderUuid: defender.uuid,
           defenderTokenUuid: data.defender?.tokenUuid ?? null,
-          opponentTokenUuid: data.attacker?.tokenUuid ?? null
+          opponentTokenUuid: data.attacker?.tokenUuid ?? null,
+          doubleEffect: Boolean(choice.overextendDouble)
         });
       }
       if (choice.overwhelm) {
@@ -6186,7 +7572,9 @@ if (stage === "attacker-roll") {
       }
 
       const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
-      const shareDamage = isAoE || _isMultiDefender(data);
+        // Shared damage is only appropriate for AoE workflows. Multi-defender (e.g., Mighty Cleave)
+        // rolls damage per target by RAW.
+        const shareDamage = isAoE;
       let sharedDamage = shareDamage ? (data.context?.sharedDamage ?? null) : null;
       const sharedSelection = shareDamage ? (data.context?.sharedDamageSelection ?? null) : null;
 
@@ -6202,6 +7590,8 @@ if (stage === "attacker-roll") {
         attackerActor: attacker,
         attackMode: data.context?.attackMode ?? "melee",
         advantageCount: 0,
+        attackerTokenUuid: data.attacker?.tokenUuid ?? null,
+        opponentTokenUuid: data.defender?.tokenUuid ?? null,
         defaultWeaponUuid: data.context?.lastWeaponUuid ?? _getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? null,
       });
       if (!selection) return;
@@ -6221,7 +7611,7 @@ if (stage === "attacker-roll") {
       const reuseShared = Boolean(sharedDamage && sharedDamage.mode === "weapon" && (!sharedDamage.weaponUuid || sharedDamage.weaponUuid === weapon?.uuid));
       const dmg = reuseShared
         ? _inflateSharedDamage(sharedDamage)
-        : await _rollWeaponDamage({ weapon, preConsumedAmmo: data.attacker?.preConsumedAmmo ?? null });
+        : await _rollWeaponDamage({ weapon, preConsumedAmmo: data.attacker?.preConsumedAmmo ?? null, context: data.context ?? null });
       if (!dmg) return;
       if (shareDamage && (!sharedDamage || sharedDamage.mode !== "weapon")) {
         sharedDamage = _buildSharedDamagePayload({ mode: "weapon", dmg, weaponUuid: weapon?.uuid ?? null, damageType: getDamageTypeFromWeapon(weapon) });
@@ -6247,15 +7637,20 @@ if (stage === "attacker-roll") {
         const forcedLoc = data?.context?.forcedHitLocation ?? "Body";
         const hitLocation = resolveHitLocationForTarget(defender, forcedLoc);
         const reducedDamage = Math.ceil(Number(dmg.finalDamage) / 2);
+        const attackHidden = data.context?.attackFromHidden === true;
+        const ammoUuid = data.attacker?.preConsumedAmmo?.ammoUuid ?? "";
         const applyBtn = `<button type="button" class="apply-damage-btn"
           data-target-uuid="${defender.uuid}"
           data-attacker-actor-uuid="${attacker.uuid}"
           data-weapon-uuid="${weapon.uuid}"
+          data-ammo-uuid="${ammoUuid}"
           data-damage="${reducedDamage}"
           data-damage-type="${damageType}"
           data-hit-location="${hitLocation}"
           data-dos-bonus="0"
           data-penetration="0"
+          data-attack-mode="${attackMode}"
+          data-attack-hidden="${attackHidden ? "1" : "0"}"
           data-source="${weapon.name}">
           Apply Block Damage → ${dToken?.name ?? defender.name}
         </button>`;
@@ -6315,11 +7710,14 @@ if (stage === "attacker-roll") {
         data-target-uuid="${defender.uuid}"
         data-attacker-actor-uuid="${attacker.uuid}"
         data-weapon-uuid="${weapon.uuid}"
+        data-ammo-uuid="${data.attacker?.preConsumedAmmo?.ammoUuid ?? ""}"
         data-damage="${dmg.finalDamage}"
         data-damage-type="${damageType}"
         data-hit-location="${resolvedShieldArm}"
         data-dos-bonus="0"
         data-penetration="0"
+        data-attack-mode="${attackMode}"
+        data-attack-hidden="${data.context?.attackFromHidden === true ? "1" : "0"}"
         data-source="${weapon.name}">
         Apply Block Damage → ${dToken?.name ?? defender.name}
       </button>`;

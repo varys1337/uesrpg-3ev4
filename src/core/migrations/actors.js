@@ -110,3 +110,54 @@ export async function migrateActorsIfNeeded() {
     ui.notifications?.error?.("UESRPG actor migration failed; check console for details.");
   }
 }
+
+// ---------------------------------------------------------------------------
+// Always-safe normalization (not version-gated)
+// ---------------------------------------------------------------------------
+
+export async function normalizeActors() {
+  if (!game.user.isGM) return;
+  try {
+    const updates = [];
+
+    for (const actor of game.actors.contents) {
+      const sys = actor.system;
+
+      // Repair invalid system payload.
+      if (!_isPlainObject(sys)) {
+        updates.push({
+          _id: actor.id,
+          system: {
+            resistance: {
+              diseaseR: 0,
+              fireR: 0,
+              frostR: 0,
+              shockR: 0,
+              poisonR: 0,
+              magicR: 0,
+              natToughness: 0,
+              silverR: 0,
+              sunlightR: 0,
+              physicalR: 0
+            }
+          }
+        });
+        continue;
+      }
+
+      const update = _ensureResistanceDefaults(sys);
+      if (Object.keys(update).length) {
+        update._id = actor.id;
+        updates.push(update);
+      }
+    }
+
+    if (updates.length) {
+      console.log(`${MODULE_ID} | Normalizing ${updates.length} actor(s)`);
+      await Actor.updateDocuments(updates, { diff: false });
+    }
+  } catch (err) {
+    console.error(`${MODULE_ID} | Actor normalization failed`, err);
+    ui.notifications?.error?.("UESRPG actor normalization failed; check console for details.");
+  }
+}

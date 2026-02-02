@@ -20,8 +20,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.encEffective}}
-                                    <input type="text" value="{{item.system.encEffective}}" readonly/>
-                                    <input type="number" name="system.enc" value="{{item.system.enc}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.encEffective}}" readonly/>
+                                        <input type="number" name="system.enc" value="{{item.system.enc}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="number" name="system.enc" value="{{item.system.enc}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="number" name="system.enc" value="{{item.system.enc}}"/>
                                 {{/if}}
@@ -33,8 +37,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.priceEffective}}
-                                    <input type="text" value="{{item.system.priceEffective}}" readonly/>
-                                    <input type="number" name="system.price" value="{{item.system.price}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.priceEffective}}" readonly/>
+                                        <input type="number" name="system.price" value="{{item.system.price}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="number" name="system.price" value="{{item.system.price}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="number" name="system.price" value="{{item.system.price}}"/>
                                 {{/if}}
@@ -56,8 +64,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.armorEffective}}
-                                    <input type="text" value="{{item.system.armorEffective}}" readonly/>
-                                    <input type="number" name="system.armor" value="{{item.system.armor}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.armorEffective}}" readonly/>
+                                        <input type="number" name="system.armor" value="{{item.system.armor}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="number" name="system.armor" value="{{item.system.armor}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="number" name="system.armor" value="{{item.system.armor}}"/>
                                 {{/if}}
@@ -69,8 +81,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.magic_arEffective}}
-                                    <input type="text" value="{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}" readonly/>
-                                    <input type="text" name="system.magic_ar" value="{{item.system.magic_ar}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}" readonly/>
+                                        <input type="text" name="system.magic_ar" value="{{item.system.magic_ar}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="text" name="system.magic_ar" value="{{item.system.magic_ar}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="text" name="system.magic_ar" value="{{item.system.magic_ar}}"/>
                                 {{/if}}
@@ -82,8 +98,12 @@
                         <div class="item-resource">
                             <div class="stat-value-label">
                                 {{#if item.system.blockRatingEffective}}
-                                    <input type="text" value="{{item.system.blockRatingEffective}}" readonly/>
-                                    <input type="text" name="system.blockRating" value="{{item.system.blockRating}}" style="display:none"/>
+                                    {{#unless item.system.gmOverride.useBaseStats}}
+                                        <input type="text" value="{{item.system.blockRatingEffective}}" readonly/>
+                                        <input type="text" name="system.blockRating" value="{{item.system.blockRating}}" style="display:none"/>
+                                    {{else}}
+                                        <input type="text" name="system.blockRating" value="{{item.system.blockRating}}"/>
+                                    {{/unless}}
                                 {{else}}
                                     <input type="text" name="system.blockRating" value="{{item.system.blockRating}}"/>
                                 {{/if}}
@@ -154,6 +174,12 @@
                                     <select name="system.material">
                                       {{selectOptions armorMaterialOptions selected=item.system.material}}
                                     </select>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Manual Base Stats</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.gmOverride.useBaseStats" {{checked item.system.gmOverride.useBaseStats}}>
                                 </div>
                             </div>
                             <div class="grid-container">

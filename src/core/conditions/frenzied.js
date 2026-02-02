@@ -27,15 +27,65 @@
 
 import { hasCondition } from "./condition-engine.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { TimeService } from "../time/index.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const CONDITION_KEY = "frenzied";
+const FRENZIED_END_GUARD_PATH = `${FLAG_PATH}.frenzied.endSpend`;
 
 let _registered = false;
 
 /** @type {Map<string, {combatId: string|null}>} */
 const _actorCombatState = new Map();
+
+function _getFrenziedEndRoundContext() {
+  const combat = game?.combat ?? null;
+  const combatId = combat?.id ?? null;
+  const round = Number(combat?.round ?? 0);
+  const inCombat = Boolean(combatId) && Boolean(combat?.started) && Number.isFinite(round) && round > 0;
+
+  if (inCombat) {
+    return {
+      inCombat: true,
+      combatId,
+      round,
+      roundKey: `combat:${combatId}:${round}`
+    };
+  }
+
+  const roundSeconds = Math.max(1, Number(TimeService.getRoundTimeSeconds?.() ?? 6) || 6);
+  const wt = Number(TimeService.getWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0;
+  const worldRound = Math.floor(wt / roundSeconds);
+  return {
+    inCombat: false,
+    combatId: null,
+    round: worldRound,
+    worldRound,
+    worldTime: wt,
+    roundKey: `world:${worldRound}`
+  };
+}
+
+function _getFrenziedEndGuard(actor) {
+  try {
+    if (typeof actor?.getFlag === "function") return actor.getFlag(FLAG_SCOPE, "frenzied.endSpend");
+    return actor?.flags?.[FLAG_SCOPE]?.frenzied?.endSpend ?? null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function _isFrenziedEndGuarded(actor, { effectId, roundKey } = {}) {
+  if (!actor || !roundKey) return false;
+  const guard = _getFrenziedEndGuard(actor);
+  if (!guard || typeof guard !== "object") return false;
+  const guardKey = guard?.roundKey ?? (guard?.combatId && guard?.round ? `combat:${guard.combatId}:${guard.round}` : null);
+  if (!guardKey) return false;
+  if (guardKey !== roundKey) return false;
+  if (effectId && guard?.effectId && String(guard.effectId) === String(effectId)) return true;
+  return false;
+}
 
 //------------------------------------------------------------------------------
 // Helpers
@@ -179,7 +229,19 @@ function _getTalentModifiers(actor) {
     spBonus = 2;
   }
 
-  return { wtBonus, sbBonus, spBonus, skillPenalty, spLossOnEnd };
+  return {
+    wtBonus,
+    sbBonus,
+    spBonus,
+    skillPenalty,
+    spLossOnEnd,
+    talents: {
+      berserker: hasBerserker,
+      controlledAnger: hasControlled,
+      tisButAScratch: hasTisScratch,
+      rageFueledFrenzy: hasRageFueled
+    }
+  };
 }
 
 //------------------------------------------------------------------------------
@@ -500,6 +562,30 @@ function _registerFrenziedCreateHook() {
   });
 }
 
+function _registerFrenziedDeleteHook() {
+  if (globalThis.__UESRPG_FRENZIED_DELETE_HOOK__) return;
+  globalThis.__UESRPG_FRENZIED_DELETE_HOOK__ = true;
+
+  Hooks.on("deleteActiveEffect", async (effect, _options, userId) => {
+    try {
+      const activeGM = game.users?.activeGM ?? null;
+      if (activeGM) {
+        if (game.user.id !== activeGM.id) return;
+      } else if (game.user.id !== userId) {
+        return;
+      }
+
+      const actor = effect?.parent ?? null;
+      if (!actor || actor.documentName !== "Actor") return;
+      if (!_isFrenziedEffect(effect)) return;
+
+      await _applyFrenziedEndEffects(actor, { effectId: effect.id, reason: "removed" });
+    } catch (err) {
+      console.warn("UESRPG | Frenzied | delete hook failed", err);
+    }
+  });
+}
+
 //------------------------------------------------------------------------------
 // Public API
 //------------------------------------------------------------------------------
@@ -673,67 +759,85 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
   }
 }
 
+function _formatFrenziedEndModifiers(mods) {
+  const out = [];
+  if (mods?.talents?.controlledAnger) out.push("Controlled Anger (SP loss 0)");
+  else if (mods?.talents?.berserker) out.push("Berserker (SP loss 1)");
+  return out.length ? out.join(", ") : "None";
+}
+
+async function _applyFrenziedEndEffects(actor, { effectId = null, applySPLoss = true, reason = "ended" } = {}) {
+  if (!actor) return { applied: false };
+  const roundCtx = _getFrenziedEndRoundContext();
+  if (_isFrenziedEndGuarded(actor, { effectId, roundKey: roundCtx.roundKey })) {
+    return { applied: false, skipped: true };
+  }
+
+  const mods = _getTalentModifiers(actor);
+  const spLoss = applySPLoss ? Math.max(0, Number(mods.spLossOnEnd ?? 0) || 0) : 0;
+  const currentSP = Number(actor.system?.stamina?.value ?? 0);
+  const newSP = spLoss > 0 ? Math.max(1, currentSP - spLoss) : currentSP;
+
+  const guardPayload = {
+    effectId: effectId ?? null,
+    roundKey: roundCtx.roundKey,
+    combatId: roundCtx.combatId ?? null,
+    round: roundCtx.round ?? null,
+    worldRound: roundCtx.worldRound ?? null,
+    worldTime: roundCtx.worldTime ?? null,
+    usedAt: Date.now(),
+    reason: String(reason ?? "ended")
+  };
+
+  const updates = { [FRENZIED_END_GUARD_PATH]: guardPayload };
+  if (spLoss > 0 && Number.isFinite(newSP)) {
+    updates["system.stamina.value"] = newSP;
+  }
+
+  try {
+    await requestUpdateDocument(actor, updates);
+  } catch (err) {
+    console.warn("UESRPG | Frenzied | SP loss update failed", err);
+  }
+
+  const modLabel = _formatFrenziedEndModifiers(mods);
+  const spLine = spLoss > 0
+    ? `Spent ${spLoss} Stamina Point${spLoss > 1 ? "s" : ""} (now ${newSP} SP).`
+    : `No Stamina spent (now ${newSP} SP).`;
+
+  try {
+    await ChatMessage.create({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor }),
+      content: `<div class="uesrpg-condition-card" style="padding:8px; border:1px solid rgba(200,0,0,0.3); background:rgba(200,0,0,0.05);">
+        <h3 style="margin:0 0 8px 0; color:rgba(200,0,0,0.9);">Frenzy Ended: ${actor.name}</h3>
+        <p style="margin:4px 0;"><b>${spLine}</b></p>
+        <p style="margin:4px 0; opacity:0.9;"><b>Modifiers:</b> ${modLabel}</p>
+      </div>`,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER
+    });
+  } catch (err) {
+    console.warn("UESRPG | Frenzied | chat message failed", err);
+  }
+
+  return { applied: true, spLoss, newSP, mods };
+}
+
 /**
  * Remove Frenzied condition and apply SP loss.
  *
  * @param {Actor} actor
  * @param {object} options
  * @param {boolean} options.applySPLoss - Whether to apply SP loss (default: true)
- * @param {string} options.reason - Reason for ending: "encounter" (encounter ended) or "snapped" (Willpower test success)
+ * @param {string} options.reason - Reason for ending (audit only)
  */
-export async function removeFrenzied(actor, { applySPLoss = true, reason = "encounter" } = {}) {
+export async function removeFrenzied(actor, { applySPLoss = true, reason = "ended" } = {}) {
   if (!actor) return;
 
   const effect = await _dedup(actor);
   if (!effect) return;
 
-  // Apply SP loss before removing effect
-  if (applySPLoss && reason === "encounter") {
-    const mods = _getTalentModifiers(actor);
-    const spLoss = mods.spLossOnEnd;
-    
-    if (spLoss > 0) {
-      const currentSP = Number(actor.system?.stamina?.value ?? 0);
-      // RAW: SP loss "cannot kill them" - minimum 1 SP remains
-      const newSP = Math.max(1, currentSP - spLoss);
-      
-      try {
-        await requestUpdateDocument(actor, { "system.stamina.value": newSP });
-        
-        // Chat notification for encounter end (with SP loss)
-        await ChatMessage.create({
-          user: game.user.id,
-          speaker: ChatMessage.getSpeaker({ actor }),
-          content: `<div class="uesrpg-condition-card" style="padding:8px; border:1px solid rgba(200,0,0,0.3); background:rgba(200,0,0,0.05);">
-            <h3 style="margin:0 0 8px 0; color:rgba(200,0,0,0.9);">Frenzy Ended: ${actor.name}</h3>
-            <p style="margin:4px 0;"><b>Encounter ended - Lost ${spLoss} Stamina Point${spLoss > 1 ? 's' : ''}</b> (now ${newSP} SP).</p>
-            <hr style="margin:8px 0; border:none; border-top:1px solid rgba(0,0,0,0.2);">
-            <p style="margin:4px 0; opacity:0.9;"><b>RAW:</b> Once the encounter has ended, the character snaps out of their frenzied state and loses 2 SP (this cannot kill them).</p>
-          </div>`,
-          style: CONST.CHAT_MESSAGE_STYLES.OTHER
-        });
-      } catch (err) {
-        console.warn("UESRPG | Frenzied | SP loss failed", err);
-      }
-    }
-  } else if (reason === "snapped") {
-    // Chat notification for Willpower test success (no SP loss)
-    try {
-      await ChatMessage.create({
-        user: game.user.id,
-        speaker: ChatMessage.getSpeaker({ actor }),
-        content: `<div class="uesrpg-condition-card" style="padding:8px; border:1px solid rgba(0,150,0,0.3); background:rgba(0,150,0,0.05);">
-          <h3 style="margin:0 0 8px 0; color:rgba(0,150,0,0.9);">Frenzy Ended: ${actor.name}</h3>
-          <p style="margin:4px 0;"><b>Snapped out via Willpower test - No Stamina loss.</b></p>
-          <hr style="margin:8px 0; border:none; border-top:1px solid rgba(0,0,0,0.2);">
-          <p style="margin:4px 0; opacity:0.9;"><b>RAW:</b> The character can test Willpower at -20 as a Secondary Action during combat to attempt to snap out of frenzy, which ends the condition without SP loss.</p>
-        </div>`,
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
-    } catch (err) {
-      console.warn("UESRPG | Frenzied | chat message failed", err);
-    }
-  }
+  await _applyFrenziedEndEffects(actor, { effectId: effect.id, applySPLoss, reason });
 
   // Remove effect
   try {
@@ -781,7 +885,7 @@ export async function promptWillpowerTest(actor) {
           });
 
           if (success) {
-            await removeFrenzied(actor, { applySPLoss: false, reason: "snapped" });
+            await removeFrenzied(actor, { reason: "snapped" });
           }
         }
       },
@@ -806,6 +910,7 @@ export function registerFrenzied() {
   try {
     _registerFrenziedPreCreateHook();
     _registerFrenziedCreateHook();
+    _registerFrenziedDeleteHook();
     Hooks.once("ready", async () => {
       _registerFrenziedRepairHook();
       await _repairLegacyFrenziedEffectsOnReady();

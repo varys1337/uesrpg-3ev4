@@ -20,23 +20,19 @@ import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { isActorUndead, isActorUndeadBloodless } from "../traits/trait-registry.js";
 import { applyGroupedEffect, getEffectGroup } from "../../utils/ae-grouping.js";
+import { registerWoundSocket, requestWoundsGM } from "./wound-socket.js";
+import { registerWoundCombatTicker } from "./wound-ticker.js";
+import { SHOCK_MAGIC_TYPES, normalizeDamageTypeKey, normalizeHitLocation, isActiveGMUser, isWoundsDebugEnabled, SHOCK_KINDS } from "./wound-schema.js";
 
 let _woundHooksRegistered = false;
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
+const _SHOCK_IN_FLIGHT = new Set();
 
 
 function _isDebugEnabled() {
-  try {
-    return Boolean(
-      game.settings?.get(FLAG_SCOPE, "opposedDebug") ||
-      game.settings?.get(FLAG_SCOPE, "debugSkillTN") ||
-      game.settings?.get(FLAG_SCOPE, "skillRollDebug")
-    );
-  } catch (_e) {
-    return false;
-  }
+  return isWoundsDebugEnabled();
 }
 
 function _dlog(...args) {
@@ -50,67 +46,9 @@ function _wlog(...args) {
 }
 
 // --- Shock Test automation (Chapter 5: Advanced Mechanics) ---
-
-const SHOCK_MAGIC_TYPES = ["fire", "frost", "shock", "poison", "magic"];
-
-function _normalizeDamageTypeKey(dt) {
-  const k = String(dt ?? "").trim().toLowerCase();
-  // Treat common aliases as canonical keys.
-  if (k === "electric" || k === "lightning") return "shock";
-  return k;
-}
-
-function _normalizeHitLocationKey(hitLocation) {
-  // Keep this local and conservative; hit location schemas can vary across sheets.
-  const s = String(hitLocation ?? "").trim();
-  if (!s) return "";
-  const low = s.toLowerCase();
-  if (low.includes("head")) return "Head";
-  if (low.includes("arm")) return low.includes("left") ? "Left Arm" : low.includes("right") ? "Right Arm" : "Arm";
-  if (low.includes("leg")) return low.includes("left") ? "Left Leg" : low.includes("right") ? "Right Leg" : "Leg";
-  if (low.includes("hand")) return low.includes("left") ? "Left Hand" : low.includes("right") ? "Right Hand" : "Hand";
-  if (low.includes("foot") || low.includes("feet")) return low.includes("left") ? "Left Foot" : low.includes("right") ? "Right Foot" : "Foot";
-  if (low.includes("torso") || low.includes("body") || low.includes("chest") || low.includes("abd")) return "Body";
-  // Fall back to title-cased original string.
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function _hitRegionFromLocation(normalizedLocation) {
-  const l = String(normalizedLocation ?? "").toLowerCase();
-  if (!l) return "body";
-  if (l.includes("head")) return "head";
-  if (l.includes("arm") || l.includes("leg") || l.includes("hand") || l.includes("foot")) return "limb";
-  return "body";
-}
-
-function _hitLocationKey(normalizedLocation) {
-  const l = String(normalizedLocation ?? '').toLowerCase();
-  if (!l) return '';
-  if (l.includes('head')) return 'head';
-  if (l.includes('body') || l.includes('torso') || l.includes('chest') || l.includes('abd')) return 'body';
-  if (l.includes('left') && l.includes('arm')) return 'leftArm';
-  if (l.includes('right') && l.includes('arm')) return 'rightArm';
-  if (l.includes('left') && l.includes('hand')) return 'leftHand';
-  if (l.includes('right') && l.includes('hand')) return 'rightHand';
-  if (l.includes('left') && l.includes('leg')) return 'leftLeg';
-  if (l.includes('right') && l.includes('leg')) return 'rightLeg';
-  if (l.includes('left') && (l.includes('foot') || l.includes('feet'))) return 'leftFoot';
-  if (l.includes('right') && (l.includes('foot') || l.includes('feet'))) return 'rightFoot';
-  // Fallback: collapse to an identifier-ish key.
-  return String(normalizedLocation ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(' ')
-    .map((w, i) => i === 0 ? w : (w.charAt(0).toUpperCase() + w.slice(1)))
-    .join('');
-}
-
-
 function _computeDominantMagicType(damageAppliedByType = {}) {
   const entries = Object.entries(damageAppliedByType ?? {})
-    .map(([k, v]) => [ _normalizeDamageTypeKey(k), Number(v) || 0 ])
+    .map(([k, v]) => [ normalizeDamageTypeKey(k), Number(v) || 0 ])
     .filter(([k, v]) => SHOCK_MAGIC_TYPES.includes(k) && v > 0);
 
   if (!entries.length) return { chosen: null, candidates: [] };
@@ -135,8 +73,13 @@ function _woundsFlag(effect) {
   return effect?.getFlag?.(FLAG_SCOPE, "wounds") ?? effect?.flags?.[FLAG_SCOPE]?.wounds ?? null;
 }
 
-async function _applyShockUnconditional(actor, { region, hitLocationNorm, applicationId } = {}) {
+async function _applyShockUnconditional(actor, { hitLocation, applicationId } = {}) {
   if (!actor) return;
+
+  const loc = hitLocation ?? normalizeHitLocation("Body");
+  const region = loc?.region ?? "body";
+  const hitLocationLabel = loc?.label ?? "Body";
+  const hitLocationKey = loc?.key ?? "body";
 
   // Per Chapter 5, these effects apply when the wound is inflicted (regardless of Shock test result).
   if (region === "body") {
@@ -153,7 +96,7 @@ async function _applyShockUnconditional(actor, { region, hitLocationNorm, applic
 
   // For limb/head we create tracking AEs. These are non-HUD, non-migrating markers.
   if (region === "limb") {
-    const name = `Crippled Limb (${hitLocationNorm || "Limb"})`;
+    const name = `Crippled Limb (${hitLocationLabel || "Limb"})`;
     await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [
       {
         name,
@@ -164,8 +107,8 @@ async function _applyShockUnconditional(actor, { region, hitLocationNorm, applic
             wounds: {
               kind: "shockCripple",
               applicationId: String(applicationId ?? ""),
-              hitLocation: hitLocationNorm ?? null,
-              hitLocationKey: _hitLocationKey(hitLocationNorm)
+              hitLocation: hitLocationLabel ?? null,
+              hitLocationKey: hitLocationKey
             }
           })
         }
@@ -195,8 +138,13 @@ async function _applyShockUnconditional(actor, { region, hitLocationNorm, applic
   }
 }
 
-async function _applyShockFailConsequence(actor, { region, hitLocationNorm, applicationId } = {}) {
+async function _applyShockFailConsequence(actor, { hitLocation, applicationId } = {}) {
   if (!actor) return;
+
+  const loc = hitLocation ?? normalizeHitLocation("Body");
+  const region = loc?.region ?? "body";
+  const hitLocationLabel = loc?.label ?? "Body";
+  const hitLocationKey = loc?.key ?? "body";
 
   if (region === "body") {
     const name = "Crippled Body (Shock)";
@@ -210,8 +158,8 @@ async function _applyShockFailConsequence(actor, { region, hitLocationNorm, appl
             wounds: {
               kind: "shockCrippleBody",
               applicationId: String(applicationId ?? ""),
-              hitLocation: hitLocationNorm ?? "Body",
-              hitLocationKey: _hitLocationKey(hitLocationNorm ?? "Body")
+              hitLocation: hitLocationLabel ?? "Body",
+              hitLocationKey: hitLocationKey
             }
           })
         }
@@ -221,7 +169,7 @@ async function _applyShockFailConsequence(actor, { region, hitLocationNorm, appl
   }
 
   if (region === "limb") {
-    const name = `Lost Limb (${hitLocationNorm || "Limb"})`;
+    const name = `Lost Limb (${hitLocationLabel || "Limb"})`;
     await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [
       {
         name,
@@ -232,8 +180,8 @@ async function _applyShockFailConsequence(actor, { region, hitLocationNorm, appl
             wounds: {
               kind: "shockLostLimb",
               applicationId: String(applicationId ?? ""),
-              hitLocation: hitLocationNorm ?? null,
-              hitLocationKey: _hitLocationKey(hitLocationNorm)
+              hitLocation: hitLocationLabel ?? null,
+              hitLocationKey: hitLocationKey
             }
           })
         }
@@ -272,7 +220,7 @@ async function _applyShockFailConsequence(actor, { region, hitLocationNorm, appl
 async function _applyShockMagicSideEffect(actor, { chosenType, damageAppliedByType = {} } = {}) {
   if (!actor || !chosenType) return { note: null };
 
-  const type = _normalizeDamageTypeKey(chosenType);
+  const type = normalizeDamageTypeKey(chosenType);
   if (type === "shock") {
     const loss = Number(damageAppliedByType?.shock ?? damageAppliedByType?.Shock ?? 0) || 0;
     if (loss > 0) {
@@ -350,9 +298,10 @@ function _getWhisperRecipientsForActor(actor) {
   }
   return Array.from(ids);
 }
-async function _postShockTestChatCard({ actor, woundEffect, hitLocationNorm, damageAppliedByType, applicationId } = {}) {
+async function _postShockTestChatCard({ actor, woundEffect, hitLocation, damageAppliedByType, applicationId } = {}) {
   if (!actor || !woundEffect) return;
   const endTN = Number(actor.system?.characteristics?.end?.total ?? 0) || 0;
+  const hitLocationLabel = hitLocation?.label ?? String(hitLocation ?? "");
 
   const cardHtml = `
   <div class="uesrpg-chat-card" data-card="shock">
@@ -361,7 +310,7 @@ async function _postShockTestChatCard({ actor, woundEffect, hitLocationNorm, dam
     </header>
     <div class="card-content">
       <p><strong>Target:</strong> ${actor.name}</p>
-      <p><strong>Wound Location:</strong> ${hitLocationNorm || "(unknown)"}</p>
+      <p><strong>Wound Location:</strong> ${hitLocationLabel || "(unknown)"}</p>
       <p><strong>Endurance TN:</strong> ${endTN}</p>
     </div>
     <footer class="card-footer">
@@ -376,7 +325,7 @@ async function _postShockTestChatCard({ actor, woundEffect, hitLocationNorm, dam
         actorUuid: actor.uuid,
         woundEffectId: woundEffect.id,
         applicationId: String(applicationId ?? ""),
-        hitLocation: hitLocationNorm ?? null,
+        hitLocation: hitLocationLabel ?? null,
         damageAppliedByType: damageAppliedByType ?? null
       }
     }
@@ -761,7 +710,8 @@ export async function createWoundFromDamage(actor, { damage = 0, hitLocation = "
   const amt = Math.max(0, _toNumber(damage, 0));
   if (amt <= 0) return;
 
-  const loc = String(hitLocation || "Body");
+  const loc = normalizeHitLocation(hitLocation ?? "Body");
+  const locLabel = loc?.label ?? "Body";
   const ts = Date.now();
 
 
@@ -772,14 +722,14 @@ export async function createWoundFromDamage(actor, { damage = 0, hitLocation = "
   }
 
   const woundEffect = _mkEffect({
-    name: `Wound (${loc})`,
+    name: `Wound (${locLabel})`,
     icon: "icons/svg/skull.svg",
     origin,
     flags: {
       wounds: {
         kind: "wound",
         applicationId: appId,
-        hitLocation: loc,
+        hitLocation: locLabel,
         damage: amt,
         treated: false,
         progress: 0,
@@ -1110,13 +1060,16 @@ async function _removeShockMarkersForApplication(actor, applicationId, { removeL
   const appId = String(applicationId ?? "").trim();
   if (!appId) return;
 
+  const shockKinds = new Set(SHOCK_KINDS);
+  const lostKinds = new Set(["shockLostLimb", "shockLostEar", "shockLostEye"]);
+
   const toDelete = _effects(actor).filter((ef) => {
     const wf = _woundsFlag(ef) ?? {};
     if (String(wf.applicationId ?? "") !== appId) return false;
     const kind = String(wf.kind ?? "");
-    if (kind === "shockCripple" || kind === "shockCrippleBody" || kind === "shockStunned") return true;
-    if (removeLost && (kind === "shockLostLimb" || kind === "shockLostEar" || kind === "shockLostEye")) return true;
-    return false;
+    if (!shockKinds.has(kind)) return false;
+    if (!removeLost && lostKinds.has(kind)) return false;
+    return true;
   });
 
   if (!toDelete.length) return;
@@ -1146,111 +1099,155 @@ export async function resolveShockTestFromChat(...args) {
   if (String(action ?? "") !== "shock-roll") return;
   if (!actorUuid || !woundEffectId) return;
 
-  const actor = await fromUuid(String(actorUuid));
-  if (!actor) {
-    ui.notifications?.warn?.("Shock: actor not found.");
-    return;
-  }
-
-  const woundEf = actor.effects?.get?.(String(woundEffectId)) ?? null;
-  if (!woundEf) {
-    ui.notifications?.warn?.("Shock: wound effect not found.");
-    return;
-  }
-
-  const w = woundEf.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
-  if (w.shockResolved === true) {
-    ui.notifications?.info?.("Shock test already resolved for this wound.");
-    return;
-  }
-
-  const hitLocationNorm = _normalizeHitLocationKey(w.hitLocation ?? "Body");
-  const region = _hitRegionFromLocation(hitLocationNorm);
-  const endTN = Number(actor.system?.characteristics?.end?.total ?? 0) || 0;
-  if (endTN <= 0) {
-    ui.notifications?.warn?.("Shock: invalid Endurance TN.");
-    return;
-  }
-
-  const test = await doTestRoll(actor, { target: endTN, rollFormula: "1d100", allowLucky: false, allowUnlucky: false });
-  const passed = !!test?.isSuccess;
-
-  // Post a real roll message for Dice So Nice (blind GM).
-  try {
-    await test.roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `Shock Test — ${actor.name} (END)`,
-      rollMode: "roll",
-      whisper: _getWhisperRecipientsForActor(actor)
+  if (!isActiveGMUser(game.user)) {
+    requestWoundsGM("resolveShock", {
+      actorUuid: String(actorUuid),
+      data: { woundEffectId: String(woundEffectId), action: String(action ?? "") }
     });
-  } catch (_e) {
-    // Non-blocking.
+    return;
   }
 
-  let failNote = null;
-  if (!passed) {
-    const r = await _applyShockFailConsequence(actor, { region, hitLocationNorm, applicationId: w.applicationId ?? null });
-    failNote = r?.note ?? null;
-  }
+  const inflightKey = `${actorUuid}:${woundEffectId}`;
+  if (_SHOCK_IN_FLIGHT.has(inflightKey)) return;
+  _SHOCK_IN_FLIGHT.add(inflightKey);
 
-  let magicNote = null;
-  const damageAppliedByType = w.damageAppliedByType ?? null;
-  const dom = _computeDominantMagicType(damageAppliedByType);
-  if (dom?.candidates?.length) {
-    let chosen = dom.chosen;
+  let woundEf = null;
+  let resolvingSet = false;
 
-    if (!chosen && dom.candidates.length > 1) {
-      // RAW: attacker chooses; in chat-card resolution we delegate the choice to the user clicking the button
-      // (typically GM). This remains deterministic and auditable.
-      const buttons = {};
-      for (const c of dom.candidates) {
-        buttons[c] = { label: c.toUpperCase(), callback: () => c };
-      }
-      chosen = await Dialog.wait({
-        title: "Magic Shock Side Effect (Tie)",
-        content: `<p>Multiple magic types contributed equally to this wound. Choose which side effect applies.</p>`,
-        buttons,
-        default: dom.candidates[0]
-      });
+  try {
+    const actor = await fromUuid(String(actorUuid));
+    if (!actor) {
+      ui.notifications?.warn?.("Shock: actor not found.");
+      return;
     }
 
-    const mr = await _applyShockMagicSideEffect(actor, { chosenType: chosen, damageAppliedByType });
-    magicNote = mr?.note ?? null;
-  }
+    woundEf = actor.effects?.get?.(String(woundEffectId)) ?? null;
+    if (!woundEf) {
+      ui.notifications?.warn?.("Shock: wound effect not found.");
+      return;
+    }
 
-  // Activate passive wound effects (Chapter 5: Passive Effects) now that Shock is resolved.
-  await _activateWoundPassiveState(actor, { resetBloodLoss: true });
+    const w = woundEf.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
+    if (w.shockResolved === true) {
+      ui.notifications?.info?.("Shock test already resolved for this wound.");
+      return;
+    }
 
-  // Mark resolved on the wound effect to prevent double application.
-  try {
-    await requestUpdateDocument(woundEf, {
-      [`${FLAG_PATH}.wounds.shockResolved`]: true,
-      [`${FLAG_PATH}.wounds.shockResolvedAt`]: Date.now(),
-      [`${FLAG_PATH}.wounds.shockPassed`]: passed
-    });
-  } catch (_e) {
-    // Non-blocking.
-  }
+    if (w.shockResolving === true) {
+      ui.notifications?.info?.("Shock test already resolving.");
+      return;
+    }
 
-  // Post a deterministic result summary.
-  try {
-    const parts = [];
-    parts.push(`<p><strong>Target:</strong> ${actor.name}</p>`);
-    parts.push(`<p><strong>Wound Location:</strong> ${hitLocationNorm}</p>`);
-    parts.push(`<p><strong>Shock Test (END):</strong> ${passed ? "Success" : "Failure"}</p>`);
-    if (failNote) parts.push(`<p><strong>Failure Consequence:</strong> ${failNote}</p>`);
-    if (magicNote) parts.push(`<p><strong>Magic Side Effect:</strong> ${magicNote}</p>`);
+    const hitLocation = normalizeHitLocation(w.hitLocation ?? "Body");
+    const endTN = Number(actor.system?.characteristics?.end?.total ?? 0) || 0;
+    if (endTN <= 0) {
+      ui.notifications?.warn?.("Shock: invalid Endurance TN.");
+      return;
+    }
 
-    const whisper = _getWhisperRecipientsForActor(actor);
-    await ChatMessage.create({
-      user: game.user.id,
-      speaker: ChatMessage.getSpeaker({ actor }),
-      content: `<div class="uesrpg-chat-card" data-card="shock-result"><header class="card-header"><h3>Shock Result</h3></header><div class="card-content">${parts.join("\n")}</div></div>`,
-      whisper: whisper,
-      blind: false
-    });
-  } catch (_e) {
-    // Non-blocking.
+    try {
+      await requestUpdateDocument(woundEf, {
+        [`${FLAG_PATH}.wounds.shockResolving`]: true,
+        [`${FLAG_PATH}.wounds.shockResolvingAt`]: Date.now()
+      });
+      resolvingSet = true;
+    } catch (_e) {
+      // Non-blocking.
+    }
+
+    const test = await doTestRoll(actor, { target: endTN, rollFormula: "1d100", allowLucky: false, allowUnlucky: false });
+    const passed = !!test?.isSuccess;
+
+    // Post a real roll message for Dice So Nice (blind GM).
+    try {
+      await test.roll.toMessage({
+        speaker: ChatMessage.getSpeaker({ actor }),
+        flavor: `Shock Test — ${actor.name} (END)`,
+        rollMode: "roll",
+        whisper: _getWhisperRecipientsForActor(actor)
+      });
+    } catch (_e) {
+      // Non-blocking.
+    }
+
+    let failNote = null;
+    if (!passed) {
+      const r = await _applyShockFailConsequence(actor, { hitLocation, applicationId: w.applicationId ?? null });
+      failNote = r?.note ?? null;
+    }
+
+    let magicNote = null;
+    const damageAppliedByType = w.damageAppliedByType ?? null;
+    const dom = _computeDominantMagicType(damageAppliedByType);
+    if (dom?.candidates?.length) {
+      let chosen = dom.chosen;
+
+      if (!chosen && dom.candidates.length > 1) {
+        // RAW: attacker chooses; in chat-card resolution we delegate the choice to the user clicking the button
+        // (typically GM). This remains deterministic and auditable.
+        const buttons = {};
+        for (const c of dom.candidates) {
+          buttons[c] = { label: c.toUpperCase(), callback: () => c };
+        }
+        chosen = await Dialog.wait({
+          title: "Magic Shock Side Effect (Tie)",
+          content: `<p>Multiple magic types contributed equally to this wound. Choose which side effect applies.</p>`,
+          buttons,
+          default: dom.candidates[0]
+        });
+      }
+
+      const mr = await _applyShockMagicSideEffect(actor, { chosenType: chosen, damageAppliedByType });
+      magicNote = mr?.note ?? null;
+    }
+
+    // Activate passive wound effects (Chapter 5: Passive Effects) now that Shock is resolved.
+    await _activateWoundPassiveState(actor, { resetBloodLoss: true });
+
+    // Mark resolved on the wound effect to prevent double application.
+    try {
+      await requestUpdateDocument(woundEf, {
+        [`${FLAG_PATH}.wounds.shockResolved`]: true,
+        [`${FLAG_PATH}.wounds.shockResolvedAt`]: Date.now(),
+        [`${FLAG_PATH}.wounds.shockPassed`]: passed,
+        [`${FLAG_PATH}.wounds.shockResolving`]: false
+      });
+      resolvingSet = false;
+    } catch (_e) {
+      // Non-blocking.
+    }
+
+    // Post a deterministic result summary.
+    try {
+      const parts = [];
+      parts.push(`<p><strong>Target:</strong> ${actor.name}</p>`);
+      parts.push(`<p><strong>Wound Location:</strong> ${hitLocation?.label ?? "Body"}</p>`);
+      parts.push(`<p><strong>Shock Test (END):</strong> ${passed ? "Success" : "Failure"}</p>`);
+      if (failNote) parts.push(`<p><strong>Failure Consequence:</strong> ${failNote}</p>`);
+      if (magicNote) parts.push(`<p><strong>Magic Side Effect:</strong> ${magicNote}</p>`);
+
+      const whisper = _getWhisperRecipientsForActor(actor);
+      await ChatMessage.create({
+        user: game.user.id,
+        speaker: ChatMessage.getSpeaker({ actor }),
+        content: `<div class="uesrpg-chat-card" data-card="shock-result"><header class="card-header"><h3>Shock Result</h3></header><div class="card-content">${parts.join("\n")}</div></div>`,
+        whisper: whisper,
+        blind: false
+      });
+    } catch (_e) {
+      // Non-blocking.
+    }
+  } finally {
+    _SHOCK_IN_FLIGHT.delete(inflightKey);
+    if (resolvingSet && woundEf) {
+      try {
+        await requestUpdateDocument(woundEf, {
+          [`${FLAG_PATH}.wounds.shockResolving`]: false
+        });
+      } catch (_e) {
+        // Non-blocking.
+      }
+    }
   }
 }
 
@@ -1359,7 +1356,8 @@ export function canNaturalHeal(actor) {
 export function registerWoundHooks() {
   if (_woundHooksRegistered) return;
   _woundHooksRegistered = true;
-  Hooks.on("uesrpgDamageApplied", async (actor, data) => {
+
+  const onDamageApplied = async (actor, data) => {
     try {
       if (!actor) return;
       if (data?.woundTriggered !== true) return;
@@ -1388,8 +1386,7 @@ export function registerWoundHooks() {
         }
       }
 
-      const hitLocationNorm = _normalizeHitLocationKey(w.hitLocation ?? data?.hitLocation ?? "Body");
-      const region = _hitRegionFromLocation(hitLocationNorm);
+      const hitLocation = normalizeHitLocation(w.hitLocation ?? data?.hitLocation ?? "Body");
       const damageAppliedByType = data?.damageAppliedByType ?? null;
 
       // Persist details for later resolution (button click). This also provides idempotency.
@@ -1405,8 +1402,7 @@ export function registerWoundHooks() {
 
       // Apply immediate (non-conditional) shock effects at wound time.
       await _applyShockUnconditional(actor, {
-        region,
-        hitLocationNorm,
+        hitLocation,
         applicationId: appId || null
       });
 
@@ -1414,16 +1410,16 @@ export function registerWoundHooks() {
       await _postShockTestChatCard({
         actor,
         woundEffect: woundDoc,
-        hitLocationNorm,
+        hitLocation,
         damageAppliedByType,
         applicationId: appId || null
       });
     } catch (err) {
       console.warn("UESRPG | Wound creation failed", err);
     }
-  });
+  };
 
-  Hooks.on("uesrpgHealingApplied", async (actor, data) => {
+  const onHealingApplied = async (actor, data) => {
     try {
       if (!actor) return;
 
@@ -1438,6 +1434,45 @@ export function registerWoundHooks() {
         await _applyHealingForestall(actor, effectiveHealed);
         await _advanceTreatedWoundHealing(actor, effectiveHealed);
       }
+    } catch (err) {
+      console.warn("UESRPG | Wound healing interaction failed", err);
+    }
+  };
+
+  registerWoundSocket({
+    onDamageApplied,
+    onHealingApplied,
+    onResolveShock: async (actor, data) => {
+      const woundEffectId = data?.woundEffectId ?? null;
+      const action = data?.action ?? "shock-roll";
+      await resolveShockTestFromChat({ actorUuid: actor.uuid, woundEffectId, action });
+    }
+  });
+
+  registerWoundCombatTicker({ tickActorEndTurn: tickWoundsEndTurn });
+
+  Hooks.on("uesrpgDamageApplied", async (actor, data) => {
+    try {
+      if (!actor) return;
+      if (data?.woundTriggered !== true) return;
+      if (!isActiveGMUser(game.user)) {
+        requestWoundsGM("damageApplied", { actorUuid: actor.uuid, data });
+        return;
+      }
+      await onDamageApplied(actor, data);
+    } catch (err) {
+      console.warn("UESRPG | Wound creation failed", err);
+    }
+  });
+
+  Hooks.on("uesrpgHealingApplied", async (actor, data) => {
+    try {
+      if (!actor) return;
+      if (!isActiveGMUser(game.user)) {
+        requestWoundsGM("healingApplied", { actorUuid: actor.uuid, data });
+        return;
+      }
+      await onHealingApplied(actor, data);
     } catch (err) {
       console.warn("UESRPG | Wound healing interaction failed", err);
     }

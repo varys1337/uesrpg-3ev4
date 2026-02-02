@@ -17,6 +17,9 @@ import { hasCondition } from "../conditions/condition-engine.js";
 import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug, validateSkillRollRequest } from "./roll-request.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../traits/trait-resistance-ui.js";
+import { consumePhysicalExertionForSkill } from "../stamina/stamina-integration-hooks.js";
+import { applySenseLossPenaltyAdjustments, applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../traits/awareness-talents.js";
+import { hasTalent, normalizeTalentKey } from "../traits/talents-api.js";
 
 const _SKILL_ROLL_SETTINGS_NS = "uesrpg-3ev4";
 const _FLAG_NS = "uesrpg-3ev4";
@@ -28,6 +31,54 @@ const _DEFAULT_COMBAT_STYLE_DEFENSE_TYPE = "parry";
 // Banked-choice (meta-limiting) automation locks.
 // Prevents duplicate auto-roll starts from multiple hook triggers.
 const _bankedAutoRollLocalLocks = new Set();
+
+function _esc(value) {
+  const raw = String(value ?? "");
+  if (foundry?.utils?.escapeHTML) return foundry.utils.escapeHTML(raw);
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function _buildSensorySituationalMods(decl, actor = null, { skillName = null } = {}) {
+  const mods = [];
+  if (decl?.applyBlinded) mods.push({ key: "blinded", conditionKey: "blinded", label: "Blinded (sight)", value: -30, source: "sense-loss" });
+  if (decl?.applyDeafened) mods.push({ key: "deafened", conditionKey: "deafened", label: "Deafened (hearing)", value: -30, source: "sense-loss" });
+
+  // Observe already receives a -30 penalty from the Blinded/Deafened condition AEs.
+  // When that penalty is already applied, convert Honed Senses / One with All into an offset.
+  const skillKey = normalizeTalentKey(skillName);
+  if (skillKey === "observe" && actor) {
+    const hasBlind = hasCondition(actor, "blinded");
+    const hasDeaf = hasCondition(actor, "deafened");
+    for (const mod of mods) {
+      if (mod?.key === "blinded" && hasBlind) mod.applyMode = "offset";
+      if (mod?.key === "deafened" && hasDeaf) mod.applyMode = "offset";
+    }
+  }
+
+  // Awareness talent automation: Honed Senses / One with All.
+  applySenseLossPenaltyAdjustments(mods, actor);
+  return mods;
+}
+
+function _maybeAddInvisibleTrackingPenalty({ skillLabel, targetActor, situationalMods } = {}) {
+  if (!targetActor || !Array.isArray(situationalMods)) return;
+  if (normalizeTalentKey(skillLabel) !== "survival") return;
+  if (!hasTalent(targetActor, "invisible")) return;
+
+  if (!situationalMods.some(m => String(m?.key ?? "") === "talent:invisible")) {
+    situationalMods.push({
+      key: "talent:invisible",
+      label: "Invisible (Tracking)",
+      value: -20,
+      source: "talent"
+    });
+  }
+}
 
 function _bothSidesCommitted(data) {
   return Boolean(data?.attacker?.committedAt) && Boolean(data?.defender?.committedAt);
@@ -166,9 +217,10 @@ function _renderBreakdown(tnObj) {
   const rows = (tnObj?.breakdown ?? []).map(b => {
     const v = Number(b.value ?? 0);
     const sign = v >= 0 ? "+" : "";
+    const label = _esc(b.label);
     // Keep numeric modifiers from wrapping (e.g. "-10" should not split into "-1" and "0").
     return `<div style="display:flex; justify-content:space-between; gap:10px;">
-      <span>${b.label}</span>
+      <span>${label}</span>
       <span style="white-space:nowrap; flex:0 0 auto;">${sign}${v}</span>
     </div>`;
   }).join("");
@@ -183,6 +235,10 @@ function _renderBreakdown(tnObj) {
 function _renderCard(data, messageId) {
   const a = data.attacker;
   const d = data.defender;
+  const aName = _esc(a.tokenName ?? a.name ?? "");
+  const dName = _esc(d.tokenName ?? d.name ?? "");
+  const aSkillLabel = _esc(a.skillLabel ?? "");
+  const dSkillLabel = _esc(d.skillLabel ?? "(choose)");
 
   // Banked-choice mode: do not reveal TN/choice details until both sides have committed.
   const bankMode = true;
@@ -210,7 +266,7 @@ function _renderCard(data, messageId) {
     : "";
 
   const outcomeLine = data.outcome
-    ? `<div style="margin-top:10px;"><b>Outcome:</b> ${data.outcome.text ?? ""}</div>`
+    ? `<div style="margin-top:10px;"><b>Outcome:</b> ${_esc(data.outcome.text ?? "")}</div>`
     : (() => {
         const phase = String(data?.context?.phase ?? "pending");
         const waitingSince = Number(data?.context?.waitingSince ?? 0);
@@ -231,10 +287,10 @@ function _renderCard(data, messageId) {
       <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12);">
         <div style="display:flex; justify-content:space-between; align-items:baseline;">
           <div style="font-size:16px; font-weight:700;">Actor</div>
-          <div style="font-size:13px;"><b>${a.tokenName ?? a.name}</b></div>
+          <div style="font-size:13px;"><b>${aName}</b></div>
         </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Skill:</b> ${a.skillLabel}</div>${_renderDeclared(a.declared, a.tn)}
+          <div><b>Skill:</b> ${aSkillLabel}</div>${_renderDeclared(a.declared, a.tn)}
           <div><b>TN:</b> ${aTNLabel}</div>
           ${a.result ? `<div><b>Roll:</b> ${a.result.rollTotal} — ${_fmtDegree(a.result)}${a.result.isCriticalSuccess ? ' <span style="color:green">CRITICAL</span>' : ''}${a.result.isCriticalFailure ? ' <span style="color:red">CRITICAL FAIL</span>' : ''}</div>` : ""}
           ${_renderBreakdown(a.tn)}
@@ -244,10 +300,10 @@ function _renderCard(data, messageId) {
       <div style="padding-left:2px;">
         <div style="display:flex; justify-content:space-between; align-items:baseline;">
           <div style="font-size:16px; font-weight:700;">Target</div>
-          <div style="font-size:13px;"><b>${d.tokenName ?? d.name}</b></div>
+          <div style="font-size:13px;"><b>${dName}</b></div>
         </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Skill:</b> ${d.skillLabel ?? "(choose)"}</div>${_renderDeclared(d.declared, d.tn)}
+          <div><b>Skill:</b> ${dSkillLabel}</div>${_renderDeclared(d.declared, d.tn)}
           <div><b>TN:</b> ${dTNLabel}</div>
           ${d.result ? `<div><b>Roll:</b> ${d.result.rollTotal} — ${_fmtDegree(d.result)}${d.result.isCriticalSuccess ? ' <span style="color:green">CRITICAL</span>' : ''}${d.result.isCriticalFailure ? ' <span style="color:red">CRITICAL FAIL</span>' : ''}</div>` : ""}
           ${_renderBreakdown(d.tn)}
@@ -301,11 +357,13 @@ async function _skillRollDialog({
           ${skills.map(s => {
             const sel = (s.uuid === selectedSkillUuid) ? "selected" : "";
             const hasSpec = s.hasSpec ? "1" : "0";
-            return `<option value="${s.uuid}" data-has-spec="${hasSpec}" ${sel}>${s.name}</option>`;
+            const optValue = _esc(s.uuid);
+            const optLabel = _esc(s.name);
+            return `<option value="${optValue}" data-has-spec="${hasSpec}" ${sel}>${optLabel}</option>`;
           }).join("\n")}
         </select>
       </div>`
-    : `<input type="hidden" name="skillUuid" value="${selectedSkillUuid ?? ""}" />`;
+    : `<input type="hidden" name="skillUuid" value="${_esc(selectedSkillUuid ?? "")}" />`;
 
   const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
     const sel = d.key === defaultDifficultyKey ? "selected" : "";
@@ -606,7 +664,7 @@ async function _executeSpecialActionIfWinner(data) {
           await ChatMessage.create({
             user: game.user.id,
             speaker: ChatMessage.getSpeaker({ actor: attackerActor }),
-            content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${result.message}</p></div>`,
+            content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${_esc(result.message)}</p></div>`,
             style: CONST.CHAT_MESSAGE_STYLES.OTHER
           });
         }
@@ -761,7 +819,7 @@ if (!authorUser) return;
 
     let dirty = false;
 
-    const applyResult = async (side) => {
+    const applyResult = async (side, { talentChoices = null } = {}) => {
       if (!side?.actorUuid) return null;
 
       let actor = null;
@@ -784,6 +842,16 @@ if (!authorUser) return;
         allowLucky: true,
         allowUnlucky: true
       });
+
+      if (talentChoices && typeof talentChoices === "object") {
+        if (talentChoices.keenIntuitionChoice) res.keenIntuitionChoice = talentChoices.keenIntuitionChoice;
+        if (talentChoices.hyperAwarenessChoice) res.hyperAwarenessChoice = talentChoices.hyperAwarenessChoice;
+      }
+
+      // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
+      // Do not prompt in banked/external rolls; use stored choices when available.
+      await applyKeenIntuitionToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false });
+      await applyHyperAwarenessToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false });
 
       return {
         rollTotal: res.rollTotal,
@@ -819,7 +887,9 @@ if (!authorUser) return;
           return;
         }
       } else {
-        const r = await applyResult(data.attacker);
+        const r = await applyResult(data.attacker, {
+          talentChoices: meta?.commit?.attacker?.talentChoices ?? null
+        });
         if (!r) return;
         data.attacker.result = r;
         if (rollId) {
@@ -838,7 +908,9 @@ if (!authorUser) return;
           return;
         }
       } else {
-        const r = await applyResult(data.defender);
+        const r = await applyResult(data.defender, {
+          talentChoices: meta?.commit?.defender?.talentChoices ?? null
+        });
         if (!r) return;
         data.defender.result = r;
         if (rollId) {
@@ -1059,12 +1131,6 @@ if (!authorUser) return;
       // Normalize + clamp UI inputs.
       decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
 
-      // Normalize + clamp UI inputs.
-      decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
-
-      // Normalize+clamp options from UI.
-      decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
-
       const resMods = buildResistanceBonusMods(decl?.resistanceSelected ?? []);
 
       // Handle Combat Style or Combat profession separately
@@ -1081,11 +1147,7 @@ if (!authorUser) return;
       if (resolved.type === "combatStyle") {
         // Combat Style roll
         const { computeTN } = await import("../combat/tn.js");
-        const situationalMods = [];
-        if (decl?.applyBlinded) situationalMods.push({ label: "Blinded (sight)", value: -30 });
-        if (decl?.applyDeafened) situationalMods.push({ label: "Deafened (hearing)", value: -30 });
-        if (resMods.length) situationalMods.push(...resMods);
-        if (resMods.length) situationalMods.push(...resMods);
+        const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
         
         tn = computeTN({
@@ -1100,9 +1162,7 @@ if (!authorUser) return;
       } else if (resolved.type === "profession" && resolved.professionKey === "combat") {
         // NPC Combat profession
         const { computeTN } = await import("../combat/tn.js");
-        const situationalMods = [];
-        if (decl?.applyBlinded) situationalMods.push({ label: "Blinded (sight)", value: -30 });
-        if (decl?.applyDeafened) situationalMods.push({ label: "Deafened (hearing)", value: -30 });
+        const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
         
         tn = computeTN({
@@ -1129,23 +1189,13 @@ if (!authorUser) return;
         if (manualMod) {
           breakdown.push({ key: "manual", label: "Manual Modifier", value: manualMod, source: "manual" });
         }
-        
-        if (decl?.applyBlinded) {
-          totalMod += -30;
-          breakdown.push({ key: "blinded", label: "Blinded (sight)", value: -30, source: "condition" });
-        }
-        if (decl?.applyDeafened) {
-          totalMod += -30;
-          breakdown.push({ key: "deafened", label: "Deafened (hearing)", value: -30, source: "condition" });
-        }
 
-        if (resMods.length) {
-          for (const mod of resMods) {
-            const value = Number(mod?.value ?? 0) || 0;
-            if (!value) continue;
-            totalMod += value;
-            breakdown.push({ key: mod.key ?? "resistance", label: mod.label ?? "Resistance Bonus", value, source: mod.source ?? "resistanceTrait" });
-          }
+        const sensoryMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
+        for (const mod of sensoryMods) {
+          const value = Number(mod?.value ?? 0) || 0;
+          if (!value) continue;
+          totalMod += value;
+          breakdown.push({ key: mod.key ?? "condition", label: mod.label ?? "Condition", value, source: mod.source ?? "condition" });
         }
 
         if (resMods.length) {
@@ -1165,10 +1215,13 @@ if (!authorUser) return;
         // Regular skill roll
         skillItem = resolved.item;
         const allowSpec = _hasSpecializations(skillItem);
-        const situationalMods = [];
-        if (decl?.applyBlinded) situationalMods.push({ label: "Blinded (sight)", value: -30 });
-        if (decl?.applyDeafened) situationalMods.push({ label: "Deafened (hearing)", value: -30 });
+        const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: skillItem?.name ?? skillLabel });
         if (resMods.length) situationalMods.push(...resMods);
+        _maybeAddInvisibleTrackingPenalty({
+          skillLabel: skillItem?.name ?? skillLabel,
+          targetActor: defender,
+          situationalMods
+        });
         tn = computeSkillTN({
           actor: attacker,
           skillItem,
@@ -1214,26 +1267,52 @@ if (!authorUser) return;
 
       const res = await doTestRoll(attacker, { rollFormula: "1d100", target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
+      // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
+      await applyKeenIntuitionToResult(attacker, skillLabel, res, { allowPrompt: true });
+      await applyHyperAwarenessToResult(attacker, skillLabel, res, { allowPrompt: true });
+
       skillRollDebug("opposed attacker result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 
       const rollFlags = request ? {
         uesrpg: { rollRequest: request },
         "uesrpg-3ev4": {
           rollRequest: request,
-          ..._skillOpposedMetaFlag(message.id, "attacker-roll")
+          ..._skillOpposedMetaFlag(message.id, "attacker-roll", {
+            commit: {
+              attacker: {
+                talentChoices: {
+                  keenIntuitionChoice: res?.keenIntuitionChoice ?? null,
+                  hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
+                }
+              }
+            }
+          })
         }
       } : {
         "uesrpg-3ev4": {
-          ..._skillOpposedMetaFlag(message.id, "attacker-roll")
+          ..._skillOpposedMetaFlag(message.id, "attacker-roll", {
+            commit: {
+              attacker: {
+                talentChoices: {
+                  keenIntuitionChoice: res?.keenIntuitionChoice ?? null,
+                  hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
+                }
+              }
+            }
+          })
         }
       };
 
       await res.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
-        flavor: `${data.attacker.skillLabel} — Opposed Skill (Actor)`,
+        flavor: `${_esc(data.attacker.skillLabel)} — Opposed Skill (Actor)`,
         flags: rollFlags,
         rollMode: game.settings.get("core", "rollMode")
       });
+      
+      if (skillItem) {
+        await consumePhysicalExertionForSkill(attacker, skillItem);
+      }
 
       data.attacker.result = {
         rollTotal: res.rollTotal,
@@ -1347,9 +1426,7 @@ if (!authorUser) return;
       if (resolved.type === "combatStyle") {
         // Combat Style roll
         const { computeTN } = await import("../combat/tn.js");
-        const situationalMods = [];
-        if (decl?.applyBlinded) situationalMods.push({ label: "Blinded (sight)", value: -30 });
-        if (decl?.applyDeafened) situationalMods.push({ label: "Deafened (hearing)", value: -30 });
+        const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
         
         tn = computeTN({
           actor: defender,
@@ -1364,9 +1441,7 @@ if (!authorUser) return;
       } else if (resolved.type === "profession" && resolved.professionKey === "combat") {
         // NPC Combat profession
         const { computeTN } = await import("../combat/tn.js");
-        const situationalMods = [];
-        if (decl?.applyBlinded) situationalMods.push({ label: "Blinded (sight)", value: -30 });
-        if (decl?.applyDeafened) situationalMods.push({ label: "Deafened (hearing)", value: -30 });
+        const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
         
         tn = computeTN({
           actor: defender,
@@ -1393,14 +1468,13 @@ if (!authorUser) return;
         if (manualMod) {
           breakdown.push({ key: "manual", label: "Manual Modifier", value: manualMod, source: "manual" });
         }
-        
-        if (decl?.applyBlinded) {
-          totalMod += -30;
-          breakdown.push({ key: "blinded", label: "Blinded (sight)", value: -30, source: "condition" });
-        }
-        if (decl?.applyDeafened) {
-          totalMod += -30;
-          breakdown.push({ key: "deafened", label: "Deafened (hearing)", value: -30, source: "condition" });
+
+        const sensoryMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
+        for (const mod of sensoryMods) {
+          const value = Number(mod?.value ?? 0) || 0;
+          if (!value) continue;
+          totalMod += value;
+          breakdown.push({ key: mod.key ?? "condition", label: mod.label ?? "Condition", value, source: mod.source ?? "condition" });
         }
         
         const finalTN = baseValue + totalMod;
@@ -1411,9 +1485,7 @@ if (!authorUser) return;
         // Regular skill roll
         defSkill = resolved.item;
         const allowSpec = _hasSpecializations(defSkill);
-        const situationalMods = [];
-        if (decl?.applyBlinded) situationalMods.push({ label: "Blinded (sight)", value: -30 });
-        if (decl?.applyDeafened) situationalMods.push({ label: "Deafened (hearing)", value: -30 });
+        const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: defSkill?.name ?? skillLabel });
         if (resMods.length) situationalMods.push(...resMods);
         tn = computeSkillTN({
           actor: defender,
@@ -1460,6 +1532,10 @@ if (!authorUser) return;
 
       const res = await doTestRoll(defender, { rollFormula: "1d100", target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
+      // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
+      await applyKeenIntuitionToResult(defender, skillLabel, res, { allowPrompt: true });
+      await applyHyperAwarenessToResult(defender, skillLabel, res, { allowPrompt: true });
+
       skillRollDebug("opposed defender result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 
       const rollFlags = request ? {
@@ -1472,7 +1548,11 @@ if (!authorUser) return;
                 skillUuid: data.defender.skillUuid,
                 skillLabel: data.defender.skillLabel,
                 declared: data.defender.declared,
-                tn
+                tn,
+                talentChoices: {
+                  keenIntuitionChoice: res?.keenIntuitionChoice ?? null,
+                  hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
+                }
               }
             }
           })
@@ -1485,7 +1565,11 @@ if (!authorUser) return;
                 skillUuid: data.defender.skillUuid,
                 skillLabel: data.defender.skillLabel,
                 declared: data.defender.declared,
-                tn
+                tn,
+                talentChoices: {
+                  keenIntuitionChoice: res?.keenIntuitionChoice ?? null,
+                  hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
+                }
               }
             }
           })
@@ -1494,10 +1578,14 @@ if (!authorUser) return;
 
       await res.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
-        flavor: `${data.defender.skillLabel} — Opposed Skill (Target)`,
+        flavor: `${_esc(data.defender.skillLabel)} — Opposed Skill (Target)`,
         flags: rollFlags,
         rollMode: game.settings.get("core", "rollMode")
       });
+      
+      if (defSkill) {
+        await consumePhysicalExertionForSkill(defender, defSkill);
+      }
 
       data.defender.result = {
         rollTotal: res.rollTotal,

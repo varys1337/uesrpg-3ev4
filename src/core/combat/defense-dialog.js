@@ -16,6 +16,7 @@
 import { computeTN, listCombatStyles, hasEquippedShield } from "./tn.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "./defense-options.js";
+import { applySenseLossPenaltyAdjustments } from "../traits/awareness-talents.js";
 
 function asNumber(v) {
   if (v == null) return 0;
@@ -48,16 +49,20 @@ export class DefenseDialog extends Dialog {
     const defenderHasSmallWeapon = !!(options.defenderHasSmallWeapon);
     const attackMode = String(options?.context?.attackMode ?? options?.attackMode ?? "melee");
     const allowedDefenseTypes = Array.isArray(options.allowedDefenseTypes) ? options.allowedDefenseTypes : null;
+    const allowParryRanged = Boolean(options.allowParryRanged);
 
     const availability = computeDefenseAvailability({
       attackMode,
       attackerWeaponTraits,
       defenderHasSmallWeapon,
       defenderHasShield: shieldOk,
-      allowedDefenseTypes
+      allowedDefenseTypes,
+      allowParryRanged
     });
 
     const defaultDefenseType = normalizeDefenseType(requestedDefaultDefenseType, availability, "evade");
+
+    const gladiator = options.gladiator ?? null;
 
     const content = DefenseDialog._renderContent({
       styles,
@@ -70,7 +75,8 @@ export class DefenseDialog extends Dialog {
       hasBlinded,
       hasDeafened,
       defaultApplyBlinded,
-      defaultApplyDeafened
+      defaultApplyDeafened,
+      gladiator
     });
 
     super({
@@ -98,6 +104,7 @@ export class DefenseDialog extends Dialog {
     this._attackMode = attackMode;
     this._attackerWeaponTraits = attackerWeaponTraits;
     this._defenderHasSmallWeapon = defenderHasSmallWeapon;
+    this._allowParryRanged = allowParryRanged;
     this._html = null;
   }
 
@@ -112,7 +119,8 @@ export class DefenseDialog extends Dialog {
     hasBlinded,
     hasDeafened,
     defaultApplyBlinded,
-    defaultApplyDeafened
+    defaultApplyDeafened,
+    gladiator
   }) {
     const styleOptions = styles
       .map(s => `<option value="${s.uuid}" ${s.uuid === defaultStyleUuid ? "selected" : ""}>${Handlebars.escapeExpression(s.name)}</option>`)
@@ -160,6 +168,26 @@ export class DefenseDialog extends Dialog {
     <p class="notes">Check only if this defense relies primarily on the impaired sense.</p>
   </div>` : ``;
 
+    const gladiatorMode = String(gladiator?.mode ?? "disabled");
+    const gladiatorTriggered = Boolean(gladiator?.triggered);
+    const gladiatorAvailable = Boolean(gladiator?.available);
+    const showGladiator = gladiatorTriggered && gladiatorMode !== "disabled";
+
+    const gladiatorBlock = showGladiator ? `
+  <div class="form-group" style="margin-top:8px;">
+    <label><b>Gladiator</b></label>
+    ${gladiatorMode === "updated"
+      ? `
+      <label style="display:flex; align-items:center; gap:8px;">
+        <input type="checkbox" name="gladiatorFree" ${gladiatorAvailable ? "" : "disabled"} />
+        <span>Gladiator: Make this defense free (1/round)</span>
+      </label>
+      ${gladiatorAvailable ? `` : `<p class="notes">Already used this round.</p>`}
+      `
+      : `
+      <p class="notes">${gladiatorAvailable ? "Gladiator: This defense is free (1/round)." : "Gladiator: Already used this round."}</p>
+      `}
+  </div>` : ``;
 
     return `
 <form class="uesrpg defense-dialog">
@@ -179,6 +207,8 @@ export class DefenseDialog extends Dialog {
   </div>
 
   ${sensoryRow}
+
+  ${gladiatorBlock}
 
   ${showStyle ? `
   <div class="form-group">
@@ -238,7 +268,8 @@ export class DefenseDialog extends Dialog {
       attackMode: this._attackMode,
       attackerWeaponTraits: this._attackerWeaponTraits,
       defenderHasSmallWeapon: this._defenderHasSmallWeapon,
-      defenderHasShield: shieldOk
+      defenderHasShield: shieldOk,
+      allowParryRanged: this._allowParryRanged
     });
     const checked = html.find('input[name="defenseType"]:checked');
     const v = String(checked.val() ?? "evade");
@@ -280,7 +311,8 @@ export class DefenseDialog extends Dialog {
       attackMode: this._attackMode,
       attackerWeaponTraits: this._attackerWeaponTraits,
       defenderHasSmallWeapon: this._defenderHasSmallWeapon,
-      defenderHasShield: shieldOk
+      defenderHasShield: shieldOk,
+      allowParryRanged: this._allowParryRanged
     });
 
     const blockRadio = html.find('input[name="defenseType"][value="block"]');
@@ -309,8 +341,13 @@ export class DefenseDialog extends Dialog {
     const applyBlinded = Boolean(html.find('input[name="applyBlinded"]').prop("checked"));
     const applyDeafened = Boolean(html.find('input[name="applyDeafened"]').prop("checked"));
     const situationalMods = [];
-    if (applyBlinded && hasCondition(this._defender, "blinded")) situationalMods.push({ label: "Blinded (sight)", value: -30, source: "condition" });
-    if (applyDeafened && hasCondition(this._defender, "deafened")) situationalMods.push({ label: "Deafened (hearing)", value: -30, source: "condition" });
+    if (applyBlinded && hasCondition(this._defender, "blinded")) {
+      situationalMods.push({ key: "blinded", conditionKey: "blinded", label: "Blinded (sight)", value: -30, source: "sense-loss" });
+    }
+    if (applyDeafened && hasCondition(this._defender, "deafened")) {
+      situationalMods.push({ key: "deafened", conditionKey: "deafened", label: "Deafened (hearing)", value: -30, source: "sense-loss" });
+    }
+    applySenseLossPenaltyAdjustments(situationalMods, this._defender);
 
     const styleUuid = this._getSelectedStyleUuid(html);
 
@@ -338,6 +375,7 @@ export class DefenseDialog extends Dialog {
 
     const applyBlinded = Boolean(html.find('input[name="applyBlinded"]').prop("checked"));
     const applyDeafened = Boolean(html.find('input[name="applyDeafened"]').prop("checked"));
+    const gladiatorFree = Boolean(html.find('input[name="gladiatorFree"]').prop("checked"));
 
     const rawDefenseType = String(html.find('input[name="defenseType"]:checked').val() ?? "evade");
     const shieldOk = hasEquippedShield(this._defender);
@@ -345,17 +383,18 @@ export class DefenseDialog extends Dialog {
       attackMode: this._attackMode,
       attackerWeaponTraits: this._attackerWeaponTraits,
       defenderHasSmallWeapon: this._defenderHasSmallWeapon,
-      defenderHasShield: shieldOk
+      defenderHasShield: shieldOk,
+      allowParryRanged: this._allowParryRanged
     });
     const defenseType = normalizeDefenseType(rawDefenseType, availability, "evade");
     const styleUuid = this._getSelectedStyleUuid(html);
 
-    if (defenseType === "evade") return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened };
-    if (defenseType === "block") return { defenseType: "block", label: "Block", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened };
-    if (defenseType === "parry") return { defenseType: "parry", label: "Parry", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened };
-    if (defenseType === "counter") return { defenseType: "counter", label: "Counter-Attack", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened };
+    if (defenseType === "evade") return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "block") return { defenseType: "block", label: "Block", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "parry") return { defenseType: "parry", label: "Parry", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "counter") return { defenseType: "counter", label: "Counter-Attack", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
 
-    return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened };
+    return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
   }
 
   static async show(defender, options = {}) {

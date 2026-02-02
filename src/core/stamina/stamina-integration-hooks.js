@@ -3,18 +3,16 @@
  * Integrates with existing roll handlers to apply stamina bonuses and consume effects.
  * 
  * Integration Status:
- * - ✓ Physical Exertion: Integrated with characteristic tests and skill tests
- * - ✓ Power Attack: Integrated with damage rolls
- * - ✓ Sprint: Integrated with Dash action
- * - ⚠ Power Draw: Helper function ready, needs integration with ranged attack workflow in opposed-workflow.js
- * - ⚠ Power Block: Helper function ready, needs integration with block resolution in combat workflow
- * - ✓ Heroic Action: Immediate effect, fully implemented
- * 
- * Note: Power Draw and Power Block require deeper integration with the combat workflow system.
- * The helper functions are ready and can be called from the appropriate combat resolution points.
+ * - Physical Exertion: Integrated with characteristic tests and skill tests
+ * - Power Attack: Integrated with damage rolls
+ * - Sprint: Integrated with Dash action
+ * - Power Draw: Integrated with ranged attack reload tracking in opposed-workflow.js
+ * - Power Block: Integrated with block resolution in combat workflow
+ * - Heroic Action: Immediate effect, fully implemented
  */
 
 import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "./stamina-dialog.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 /**
  * Check and apply Physical Exertion bonus to characteristic test
@@ -51,34 +49,56 @@ export async function applyPhysicalExertionBonus(actor, characteristicId) {
  */
 export async function applyPhysicalExertionToSkill(actor, skillItem) {
   if (!actor || !skillItem) return 0;
-  
+
   // Don't apply to Combat Style
-  if (skillItem.type === 'combatStyle') return 0;
-  
-  // Check governing characteristic (baseCha or governingCha)
-  // These can be single values ("str") or comma/space separated lists ("str, agi")
-  const governingRaw = String(skillItem.system?.governingCha || skillItem.system?.baseCha || "");
-  const governing = governingRaw.trim().toLowerCase();
-  
-  if (!governing) return 0;
-  
-  // Physical Exertion only applies to STR/END based skills
-  // Word boundary regex handles both single values and comma-separated lists correctly
-  // Examples: "str" ✓, "end" ✓, "str, agi" ✓, "strategy" ✗
-  const isStrBased = /\bstr\b|\bstrength\b/.test(governing);
-  const isEndBased = /\bend\b|\bendurance\b/.test(governing);
-  
-  if (!isStrBased && !isEndBased) return 0;
-  
+  if (skillItem.type === "combatStyle") return 0;
+
+  if (!_isStrOrEndSkill(skillItem)) return 0;
+
   const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
   if (!effect) return 0;
-  
-  // Consume the effect and apply bonus
+
+  // If the effect uses the AE lane, do not apply or consume here.
+  const hasAeLane = Array.isArray(effect.changes) &&
+    effect.changes.some(c => String(c?.key ?? "") === "system.modifiers.skills.physicalExertion");
+  if (hasAeLane) return 0;
+
+  // Legacy behavior: consume and return the manual bonus.
   await consumeStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION, {
     bonus: "+20 to test",
     message: `Applied to ${skillItem.name} skill test`
   });
-  
+
+  return 20;
+}
+
+function _isStrOrEndSkill(skillItem) {
+  const governingRaw = String(skillItem?.system?.governingCha || skillItem?.system?.baseCha || "");
+  const governing = governingRaw.trim().toLowerCase();
+  if (!governing) return false;
+  const isStrBased = /\bstr\b|\bstrength\b/.test(governing);
+  const isEndBased = /\bend\b|\bendurance\b/.test(governing);
+  return isStrBased || isEndBased;
+}
+
+export function getPhysicalExertionSkillBonus(actor, skillItem) {
+  if (!actor || !skillItem) return 0;
+  if (skillItem.type === "combatStyle") return 0;
+  if (!_isStrOrEndSkill(skillItem)) return 0;
+  const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
+  return effect ? 20 : 0;
+}
+
+export async function consumePhysicalExertionForSkill(actor, skillItem) {
+  if (!actor || !skillItem) return 0;
+  if (skillItem.type === "combatStyle") return 0;
+  if (!_isStrOrEndSkill(skillItem)) return 0;
+  const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
+  if (!effect) return 0;
+  await consumeStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION, {
+    bonus: "+20 to test",
+    message: `Applied to ${skillItem.name} skill test`
+  });
   return 20;
 }
 
@@ -124,6 +144,34 @@ export async function applySprintBonus(actor) {
   return result;
 }
 
+function _getPowerDrawStoredReduction(weapon) {
+  if (!weapon) return 0;
+  const systemId = game.system?.id ?? "uesrpg-3ev4";
+  try {
+    const v = (typeof weapon.getFlag === "function")
+      ? weapon.getFlag(systemId, "powerDrawReloadReduction")
+      : weapon?.flags?.[systemId]?.powerDrawReloadReduction;
+    const n = Number(v ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  } catch (_e) {
+    return 0;
+  }
+}
+
+async function _setPowerDrawStoredReduction(weapon, value) {
+  if (!weapon) return false;
+  const systemId = game.system?.id ?? "uesrpg-3ev4";
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return false;
+  return requestUpdateDocument(weapon, { [`flags.${systemId}.powerDrawReloadReduction`]: n });
+}
+
+async function _clearPowerDrawStoredReduction(weapon) {
+  if (!weapon) return false;
+  const systemId = game.system?.id ?? "uesrpg-3ev4";
+  return requestUpdateDocument(weapon, { [`flags.${systemId}.powerDrawReloadReduction`]: 0 });
+}
+
 /**
  * Check and apply Power Draw bonus to ranged attack
  * Should be called when making a ranged attack
@@ -131,8 +179,14 @@ export async function applySprintBonus(actor) {
  * @param {Item} weapon - The ranged weapon being used
  * @returns {Promise<number>} The reload reduction to apply
  */
-export async function applyPowerDrawBonus(actor, weapon) {
+export async function applyPowerDrawBonus(actor, weapon, { storeOnWeapon = false } = {}) {
   if (!actor) return 0;
+
+  const stored = _getPowerDrawStoredReduction(weapon);
+  if (stored > 0) {
+    await _clearPowerDrawStoredReduction(weapon);
+    return stored;
+  }
   
   const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.POWER_DRAW);
   if (!effect) return 0;
@@ -141,6 +195,10 @@ export async function applyPowerDrawBonus(actor, weapon) {
   await consumeStaminaEffect(actor, STAMINA_EFFECT_KEYS.POWER_DRAW, {
     message: `Reload time reduced by 1 for ${weapon?.name || "ranged weapon"}`
   });
+
+  if (storeOnWeapon && weapon) {
+    await _setPowerDrawStoredReduction(weapon, 1);
+  }
   
   return 1;
 }

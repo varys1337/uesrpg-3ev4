@@ -1,4 +1,19 @@
 import { isItemEffectActive } from "./transfer.js";
+import { anyOtherTokensInMeleeOfEither, getMeleeReachMeters } from "../traits/combat-proximity.js";
+
+function _resolveTokenFromUuid(tokenUuid) {
+  try {
+    if (!tokenUuid || typeof tokenUuid !== "string") return null;
+    const doc = fromUuidSync(tokenUuid);
+    if (!doc) return null;
+    // TokenDocument -> Token
+    if (doc.documentName === "Token" && doc.object) return doc.object;
+    if (doc.object) return doc.object;
+    return null;
+  } catch (_e) {
+    return null;
+  }
+}
 
 /**
  * UESRPG Active Effect Modifier Evaluator
@@ -330,6 +345,34 @@ function _effectMatchesContext(effect, context) {
 
   for (const [k, expected] of Object.entries(conditions)) {
     if (expected === undefined) continue;
+
+    // Talent: Exploit Advantage (isolated duel)
+    // Some temporary combat effects (Press Advantage / Overextend) encode an additional
+    // constraint in `requireIsolatedDuel`. This must be evaluated dynamically against
+    // the current scene tokens, not via strict context equality.
+    if (k === "requireIsolatedDuel") {
+      if (!expected) continue;
+
+      const sourceUuid = String(effect?.flags?.uesrpg?.source?.tokenUuid ?? "") || null;
+      const targetUuid = String(effect?.flags?.uesrpg?.target?.tokenUuid ?? "") || null;
+
+      const tokenA = _resolveTokenFromUuid(sourceUuid) ?? _resolveTokenFromUuid(context?.actorTokenUuid);
+      const tokenB = _resolveTokenFromUuid(targetUuid) ?? _resolveTokenFromUuid(context?.opponentTokenUuid);
+
+      if (!tokenA || !tokenB) return false;
+
+      const reachA = getMeleeReachMeters(tokenA.actor);
+      const reachB = getMeleeReachMeters(tokenB.actor);
+
+      // The constraint is: "no other characters within melee range of either combatant".
+      const anyOther = anyOtherTokensInMeleeOfEither(tokenA, tokenB, {
+        reachMetersA: reachA,
+        reachMetersB: reachB
+      });
+
+      if (anyOther) return false;
+      continue;
+    }
 
     // RAW (Chapter 5): Overextend applies to the opponent's next attack within 1 round
     // regardless of who that attack targets. Some legacy effects store opponent scoping

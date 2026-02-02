@@ -4,15 +4,25 @@ function _bool(val) {
   return val === true || val === "true" || val === "1";
 }
 
+function _escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export function buildResistanceBonusSection(actor, { selected = [] } = {}) {
   const options = getResistanceBonusOptions(actor);
   if (!options.length) return { html: "", options: [] };
 
   const selectedSet = new Set((selected ?? []).map(s => String(s || "").toLowerCase()));
   const rows = options.map((opt) => {
-    const key = String(opt.key ?? "").toLowerCase();
-    const checked = selectedSet.has(key) ? "checked" : "";
-    const label = String(opt.label ?? opt.key ?? "Resistance");
+    const rawKey = String(opt.key ?? "").toLowerCase();
+    const key = _escapeHtml(rawKey);
+    const checked = selectedSet.has(rawKey) ? "checked" : "";
+    const label = _escapeHtml(String(opt.label ?? opt.key ?? "Resistance"));
     const bonus = Number(opt.bonus ?? (Number(opt.value || 0) * 10)) || 0;
     return `
       <label style="display:flex; gap:8px; align-items:center;">

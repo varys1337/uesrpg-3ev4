@@ -7,6 +7,7 @@
   ],
   "styles": [
     "styles/main.css",
+    "styles/stamina-dialog.css",
     "styles/spell-sheet-compact.css",
     "styles/group-sheet.css"
   ],
