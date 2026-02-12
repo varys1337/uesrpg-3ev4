@@ -5,8 +5,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node tools/build.mjs",
-    "watch": "node tools/build.mjs --watch"
+    "packs-compile": "node ./automation/ldb-packager.mjs compile",
+    "packs-extract": "node ./automation/ldb-packager.mjs extract",
+    "packs-extract-clean": "node ./automation/ldb-packager.mjs extract --clean",
+    "packs-clean": "node ./automation/ldb-packager.mjs clean"
+  },
+  "dependencies": {
+    "@foundryvtt/foundryvtt-cli": "^1.0.3"
   },
   "devDependencies": {
     "esbuild": "^0.24.0"
