@@ -1,4 +1,6 @@
 /**
+ * @module magic/damage-application
+ *
  * src/core/magic/damage-application.js
  *
  * Magic damage/healing application wrappers which delegate to the unified combat
@@ -10,21 +12,46 @@
 import { applyDamage, applyHealing, DAMAGE_TYPES, getDamageReduction } from "../combat/damage-automation.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { getActorTraitValue } from "../traits/trait-registry.js";
+import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
+import { _str, createDebugLogger } from "./_primitives.js";
+import { _bool } from "../../utils/coerce.js";
+import { RULE_PHASES } from "../rules/phases.js";
+import { evaluateRuleElementsRuntime } from "../traits/features/rule-element-runtime.js";
 
-function _str(v) {
-  return v === undefined || v === null ? "" : String(v);
-}
-
-function _bool(v) {
-  if (v === true || v === false) return v;
-  const s = _str(v).trim().toLowerCase();
-  if (!s) return false;
-  if (s === "true" || s === "1" || s === "yes" || s === "y" || s === "on") return true;
-  return false;
-}
+const _spellDebug = createDebugLogger("spellCastingDebug");
 
 function _maxTraitValue(actor, key) {
   return Math.max(0, Number(getActorTraitValue(actor, key, { mode: "max" })) || 0);
+}
+
+function _maxEffectFlagNumber(actor, { flagPath } = {}) {
+  if (!actor) return 0;
+  const path = String(flagPath ?? "").trim();
+  if (!path) return 0;
+  let max = 0;
+
+  for (const ef of (actor.effects ?? [])) {
+    if (!ef || ef.disabled) continue;
+    const v = foundry?.utils?.getProperty ? foundry.utils.getProperty(ef, path) : null;
+    const n = Number(v);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+
+  return max;
+}
+
+function _sumRuntimeDamageBonus(runtime, damageType) {
+  const list = Array.isArray(runtime?.damageBonus) ? runtime.damageBonus : [];
+  if (!list.length) return 0;
+  const dtype = _str(damageType).toLowerCase() || DAMAGE_TYPES.MAGIC;
+  let total = 0;
+  for (const row of list) {
+    const value = Number(row?.value ?? 0) || 0;
+    if (!value) continue;
+    const bonusType = _str(row?.damageType).toLowerCase();
+    if (!bonusType || bonusType === "untyped" || bonusType === dtype) total += value;
+  }
+  return total;
 }
 
 function _getWhisperRecipients(actor) {
@@ -46,7 +73,18 @@ function _getWhisperRecipients(actor) {
 
 async function _applySpellAbsorption(targetActor, { casterActor = null, magicCost = 0, allowSelfAbsorption = false, sourceLabel = "Spell" } = {}) {
   if (!targetActor) return { absorbed: false, restored: 0, rollTotal: null, threshold: null };
-  const threshold = _maxTraitValue(targetActor, "spellAbsorption");
+
+  // Three independent threshold sources (take the highest):
+  //   1. Trait-based spellAbsorption (racial / innate)
+  //   2. AE flag path (legacy: activated talents like Dragonskin)
+  //   3. AE modifier lane (system.modifiers.magic.spellAbsorption) — set by
+  //      Spell Absorption spell's tracker AE via changes[]
+  const traitVal  = _maxTraitValue(targetActor, "spellAbsorption");
+  const flagVal   = _maxEffectFlagNumber(targetActor, { flagPath: "flags.uesrpg.spellAbsorption" });
+  const aeResult  = evaluateAEModifierKeys(targetActor, ["system.modifiers.magic.spellAbsorption"]);
+  const modLane   = Number(aeResult["system.modifiers.magic.spellAbsorption"] ?? 0) || 0;
+  const threshold = Math.max(traitVal, flagVal, modLane);
+
   if (threshold <= 0) return { absorbed: false, restored: 0, rollTotal: null, threshold: null };
 
   if (casterActor && targetActor && casterActor.uuid === targetActor.uuid && !allowSelfAbsorption) {
@@ -139,7 +177,27 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     return { spellAbsorbed: true, absorption };
   }
 
+  let adjustedDamage = Number(damage || 0) || 0;
   const extraBreakdownLines = [];
+  const runtimePreDamage = evaluateRuleElementsRuntime({
+    actor: casterActor,
+    targetActor,
+    item: spell ?? null,
+    rollContext: options?.rollContext ?? null,
+    workflow: "magic",
+    phase: RULE_PHASES.PRE_DAMAGE,
+    side: "attacker",
+    attackMode: "magic"
+  });
+  const runtimeDamageBonus = _sumRuntimeDamageBonus(runtimePreDamage, dt);
+  const runtimeWtDelta = Number(runtimePreDamage?.wtDelta ?? 0) || 0;
+  if (runtimeDamageBonus !== 0) {
+    adjustedDamage = Math.max(0, adjustedDamage + runtimeDamageBonus);
+    extraBreakdownLines.push(`Rule Elements: +${runtimeDamageBonus}`);
+  }
+  if (runtimeWtDelta !== 0) {
+    extraBreakdownLines.push(`Rule Elements: WT ${runtimeWtDelta >= 0 ? "+" : ""}${runtimeWtDelta}`);
+  }
   if (_bool(options.isOverloaded) && Number(options.overloadBonus || 0) > 0) {
     extraBreakdownLines.push(`Overload Bonus: +${Number(options.overloadBonus || 0)}`);
   }
@@ -153,10 +211,10 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   }
 
   // RAW: Spell damage is layered (Magic base + elemental type).
-  // Calculate damage with layered resistance: elemental first, then magic.
+  // Calculate damage with layered mitigation: elemental first, then magic.
   // This implementation ensures that ALL spell damage is treated as magical damage
   // in addition to any specific elemental type (fire, frost, shock, etc.).
-  // For example, a Fire spell applies both Fire resistance AND Magic resistance.
+  // For example, a Fire spell applies both Fire AR/resistance AND Magic AR/resistance.
   const isElementalSpell = (dt !== DAMAGE_TYPES.MAGIC && dt !== DAMAGE_TYPES.PHYSICAL && dt !== DAMAGE_TYPES.HEALING && dt !== "none");
   
   // For magic wound effects, track damage by type
@@ -167,30 +225,49 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   }
   
   if (isElementalSpell) {
-    // Step 1: Get elemental resistance/weakness
+    // Step 1: Get elemental mitigation (typed AR + resistance)
     const elementalReduction = getDamageReduction(targetActor, dt, hitLocation);
-    const elementalResistance = elementalReduction.resistance || 0;
+    const elementalAR = Number(elementalReduction.armor || 0);
+    const elementalRes = Number(elementalReduction.resistance || 0);
+    const elementalMitigation = elementalAR + elementalRes;
     
-    // Step 2: Get magic resistance
+    // Step 2: Get magic mitigation (Magic AR + magic resistance)
     const magicReduction = getDamageReduction(targetActor, DAMAGE_TYPES.MAGIC, hitLocation);
-    const magicResistance = magicReduction.resistance || 0;
+    const magicAR = Number(magicReduction.armor || 0);
+    const magicRes = Number(magicReduction.resistance || 0);
+    const magicMitigation = magicAR + magicRes;
     
-    // Step 3: Apply layered resistance
-    // Apply elemental resistance/weakness first (RAW: "Weakness is applied first")
-    const afterElemental = Number(damage || 0) - elementalResistance;
-    // Then apply magic resistance
-    const finalDamage = afterElemental - magicResistance;
+    // Step 3: Natural Toughness (counted once; applies to all damage)
+    const toughness = Number(elementalReduction.toughness || 0);
     
-    // Add resistance breakdown to chat
-    if (elementalResistance !== 0) {
-      const sign = elementalResistance >= 0 ? "-" : "+";
-      const absValue = Math.abs(elementalResistance);
-      extraBreakdownLines.push(`${dt.charAt(0).toUpperCase() + dt.slice(1)} Resistance: ${sign}${absValue}`);
+    // Step 4: Apply layered mitigation
+    // Apply elemental mitigation first (RAW: "Weakness is applied first")
+    const afterElemental = adjustedDamage - elementalMitigation;
+    // Then apply magic mitigation
+    const afterMagic = afterElemental - magicMitigation;
+    // Finally apply Natural Toughness (once)
+    const finalDamage = afterMagic - toughness;
+    
+    // Add mitigation breakdown to chat
+    const dtLabel = dt.charAt(0).toUpperCase() + dt.slice(1);
+    if (elementalAR !== 0) {
+      extraBreakdownLines.push(`${dtLabel} AR: -${elementalAR}`);
     }
-    if (magicResistance !== 0) {
-      const sign = magicResistance >= 0 ? "-" : "+";
-      const absValue = Math.abs(magicResistance);
+    if (elementalRes !== 0) {
+      const sign = elementalRes >= 0 ? "-" : "+";
+      const absValue = Math.abs(elementalRes);
+      extraBreakdownLines.push(`${dtLabel} Resistance: ${sign}${absValue}`);
+    }
+    if (magicAR !== 0) {
+      extraBreakdownLines.push(`Magic AR: -${magicAR}`);
+    }
+    if (magicRes !== 0) {
+      const sign = magicRes >= 0 ? "-" : "+";
+      const absValue = Math.abs(magicRes);
       extraBreakdownLines.push(`Magic Resistance: ${sign}${absValue}`);
+    }
+    if (toughness !== 0) {
+      extraBreakdownLines.push(`Natural Toughness: -${toughness}`);
     }
     
     // Apply the layered damage with ignoreReduction=true since we calculated it manually
@@ -201,17 +278,19 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
       ignoreReduction: true,
       magicSource: true,
       extraBreakdownLines,
+      woundThresholdDelta: runtimeWtDelta,
       damageAppliedByType,
     });
   }
   
   // Non-elemental spells (pure magic, physical, etc.) use normal damage pipeline
-  return applyDamage(targetActor, Number(damage || 0), dt, {
+  return applyDamage(targetActor, adjustedDamage, dt, {
     source,
     hitLocation,
     rollHTML,
     magicSource: true,
     extraBreakdownLines,
+    woundThresholdDelta: runtimeWtDelta,
     damageAppliedByType: dt && dt !== "none" && dt !== DAMAGE_TYPES.PHYSICAL ? damageAppliedByType : null,
   });
 }
@@ -226,7 +305,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
  * @param {boolean} options.isTemporary - If true, grants temp HP instead of restoring HP
  */
 export async function applyMagicHealing(targetActor, healing, spell, options = {}) {
-  console.log("UESRPG | applyMagicHealing CALLED", {
+  _spellDebug("UESRPG | applyMagicHealing CALLED", {
     targetActor: targetActor?.name,
     healing,
     spellName: spell?.name,
@@ -254,7 +333,7 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
     return { spellAbsorbed: true, absorption };
   }
   
-  console.log("UESRPG | applyMagicHealing: Calling applyHealing", {
+  _spellDebug("UESRPG | applyMagicHealing: Calling applyHealing", {
     targetActor: targetActor.name,
     healing: Number(healing || 0),
     source,
@@ -270,14 +349,4 @@ export async function applyMagicHealing(targetActor, healing, spell, options = {
     // Skip chat message since healing is already shown in the magic opposed card
     skipChatMessage: true,
   });
-}
-
-
-// Legacy exports retained for compatibility (manual application lane not used by modern workflow).
-export function renderMagicDamageButtons() {
-  return "";
-}
-
-export function initializeDamageApplication() {
-  // No-op: the modern workflow uses unified damage buttons in the combat card and direct application.
 }

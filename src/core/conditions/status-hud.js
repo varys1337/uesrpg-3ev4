@@ -25,6 +25,7 @@ import {
   SYSTEM_TOKEN_HUD_STATUS_ID_SET
 } from "./condition-engine.js";
 
+import { safeGetEffect } from "../../utils/ae-helpers.js";
 import { applyFrenzied, removeFrenzied } from "./frenzied.js";
 
 let _systemStatusEffectsRegistered = false;
@@ -290,9 +291,9 @@ function _getStatusIdFromEvent(ev, actor) {
   if (statusId) return _normalizeHudStatusId(statusId);
 
   const effectId = el.dataset?.effectId ?? null;
-  if (!effectId || !actor?.effects) return null;
+  if (!effectId || !actor) return null;
 
-  const effect = actor.effects.get(String(effectId)) ?? null;
+  const effect = safeGetEffect(actor, String(effectId));
   if (!effect) return null;
 
   // Prefer the system's condition key lane.

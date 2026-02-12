@@ -1,0 +1,874 @@
+/**
+ * Roll handlers shared across sheets.
+ * 
+ * Extracted from actor-sheet.js for better maintainability.
+ * Handles skill rolls, combat rolls, resistance rolls, damage rolls, and spell rolls.
+ * 
+ * Foundry VTT v13 / AppV1-compatible.
+ */
+
+import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
+import { isLucky, isUnlucky } from "../../../../utils/skillCalcHelper.js";
+import { getDamageTypeFromWeapon, getHitLocationFromRoll } from "../../../../core/combat/combat-utils.js";
+import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow.js";
+import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
+import { doTestRoll, formatDegree, computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
+import { requireUserCanRollActor } from "../../../../utils/permissions.js";
+import { getPhysicalExertionSkillBonus, consumePhysicalExertionForSkill } from "../../../../core/stamina/stamina-integration-hooks.js";
+import { isItemEffectActive } from "../../../../core/active-effects/transfer.js";
+import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog } from "../../../../core/magic/spell-runtime.js";
+import { UESRPG } from "../../../../core/constants.js";
+import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../../../../core/traits/trait-resistance-ui.js";
+import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug } from "../../../../core/skills/roll-request.js";
+import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../../core/traits/awareness-talents.js";
+import { hasTalent } from "../../../../core/traits/talents-api.js";
+import { applyIntellectualTalentDoSOverrides } from "../../../../core/traits/intellectual-talents.js";
+
+/**
+ * Handle skill roll from sheet.
+ * @param {SimpleActorSheet} sheet - The actor sheet instance
+ * @param {Event} event - The click event
+ */
+export async function onSkillRoll(sheet, event) {
+  event.preventDefault();
+
+  if (!requireUserCanRollActor(game.user, sheet.actor)) {
+    return;
+  }
+
+  const button = event.currentTarget;
+  
+  // Safely get the .item parent if button has .closest method (DOM element)
+  // Token Action HUD may call with synthetic events that don't have proper DOM elements
+  let skillItem = null;
+  if (button && typeof button.closest === "function") {
+    const li = button.closest(".item");
+    skillItem = sheet.actor.items.get(li?.dataset.itemId);
+  }
+  
+  // Fallback: Try to get skill from event data-item-id or dataset
+  if (!skillItem && button?.dataset?.itemId) {
+    skillItem = sheet.actor.items.get(button.dataset.itemId);
+  }
+  
+  // Fallback: For synthetic events from modules, check for itemId in various places
+  if (!skillItem) {
+    const itemId = event?.data?.itemId ?? event?.itemId ?? null;
+    if (itemId) {
+      skillItem = sheet.actor.items.get(itemId);
+    }
+  }
+
+  if (!skillItem) {
+    ui.notifications.warn("Skill item not found.");
+    return;
+  }
+
+  const quickShift = Boolean(event.shiftKey) && game.settings.get("uesrpg-3ev4", "skillRollQuickShift");
+
+  const getLast = () => {
+    try { return game.settings.get("uesrpg-3ev4", "skillRollLastOptions") ?? {}; } catch (_e) { return {}; }
+  };
+  const setLast = async (patch={}) => {
+    const prev = getLast();
+    const next = { ...prev, ...patch };
+    next.lastSkillUuidByActor = { ...(prev.lastSkillUuidByActor||{}), ...(patch.lastSkillUuidByActor||{}) };
+    try { await game.settings.set("uesrpg-3ev4", "skillRollLastOptions", next); } catch (_e) {}
+  };
+
+  // --- Targeted -> opposed workflow ---
+  const targets = [...(game.user.targets ?? [])];
+  if (targets.length > 0) {
+    const attackerToken =
+      canvas?.tokens?.controlled?.find(t => t.actor?.id === sheet.actor.id) ??
+      sheet.actor.getActiveTokens?.()?.[0] ??
+      null;
+
+    if (!attackerToken) {
+      ui.notifications.warn("No attacker token found on the canvas. Select your token and try again.");
+      return;
+    }
+
+    const created = [];
+    for (const defenderToken of targets) {
+      const msg = await SkillOpposedWorkflow.createPending({
+        attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
+        defenderTokenUuid: defenderToken.document?.uuid ?? defenderToken.uuid,
+        attackerActorUuid: sheet.actor.uuid,
+        defenderActorUuid: defenderToken.actor?.uuid ?? null,
+        attackerSkillUuid: skillItem.uuid,
+        attackerSkillLabel: skillItem.name
+      });
+      if (msg) created.push(msg);
+
+      if (msg && quickShift) {
+        await SkillOpposedWorkflow.handleAction(msg, "attacker-roll", { event });
+      }
+    }
+
+    return;
+  }
+
+  // --- Untargeted -> single skill test ---
+  const hasSpec = String(skillItem?.system?.trainedItems ?? "").trim().length > 0;
+  const resistanceSection = buildResistanceBonusSection(sheet.actor);
+  const last = getLast();
+
+  const defaults = normalizeSkillRollOptions(last, { difficultyKey: "average", manualMod: 0, useSpec: false });
+
+  let decl = null;
+
+  if (quickShift) {
+    decl = { difficultyKey: defaults.difficultyKey, manualMod: defaults.manualMod, useSpec: defaults.useSpec, resistanceSelected: [], isInterrogationTest: false, isQuestioningTest: false };
+  } else {
+    const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
+      const sign = d.mod >= 0 ? "+" : "";
+      const sel = d.key === defaults.difficultyKey ? "selected" : "";
+      return `<option value="${d.key}" ${sel}>${d.label} (${sign}${d.mod})</option>`;
+    }).join("\n");
+
+    const isPersuade = String(skillItem?.name ?? "").trim().toLowerCase() === "persuade";
+    const showInterrogation = isPersuade && hasTalent(sheet.actor, "interrogator");
+    const interrogationRow = showInterrogation ? `
+        <div class="form-group" style="margin-top:8px;">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" name="isInterrogationTest" />
+            <span><b>Interrogation</b> (Interrogator talent)</span>
+          </label>
+        </div>` : "";
+
+    const showQuestioning = isPersuade && hasTalent(sheet.actor, "questioning");
+    const questioningRow = showQuestioning ? `
+        <div class="form-group" style="margin-top:8px;">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" name="isQuestioningTest" />
+            <span><b>Questioning</b> (Questioning talent)</span>
+          </label>
+        </div>` : "";
+
+    const skillKey = String(skillItem?.name ?? "").trim().toLowerCase();
+    const showHistskinUnderwater = hasTalent(sheet.actor, "histskin") && (skillKey === "athletics" || skillKey === "stealth");
+    const histskinRow = showHistskinUnderwater ? `
+        <div class="form-group" style="margin-top:8px;">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" name="histskinUnderwater" />
+            <span><b>Histskin</b> (Underwater) +30</span>
+          </label>
+        </div>` : "";
+
+    const content = `
+      <form class="uesrpg-skill-roll">
+        <div class="form-group">
+          <label><b>Difficulty</b></label>
+          <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
+        </div>
+        <div class="form-group" style="margin-top:8px;">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" name="useSpec" ${hasSpec ? "" : "disabled"} ${defaults.useSpec ? "checked" : ""} />
+            <span><b>Use Specialization</b> (+10)${hasSpec ? "" : ' <span style="opacity:0.75;">(none on this skill)</span>'}</span>
+          </label>
+        </div>
+        ${interrogationRow}
+        ${questioningRow}
+        ${histskinRow}
+        <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+          <label style="margin:0;"><b>Manual Modifier</b></label>
+          <input name="manualMod" type="number" value="${Number(defaults.manualMod) || 0}" style="width:120px;" />
+        </div>
+        ${resistanceSection.html}
+      </form>`;
+
+    try {
+      decl = await Dialog.wait({
+        title: `${skillItem.name} — Roll Options`,
+        content,
+        buttons: {
+          ok: {
+            label: "Roll",
+            callback: (html) => {
+              const root = html instanceof HTMLElement ? html : html?.[0];
+              const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
+              const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
+              const isInterrogationTest = Boolean(root?.querySelector('input[name="isInterrogationTest"]')?.checked);
+              const isQuestioningTest = Boolean(root?.querySelector('input[name="isQuestioningTest"]')?.checked);
+              const histskinUnderwater = Boolean(root?.querySelector('input[name="histskinUnderwater"]')?.checked);
+              const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
+              const manualMod = Number.parseInt(String(rawManual), 10) || 0;
+              const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
+              const normalized = normalizeSkillRollOptions({ difficultyKey, useSpec, manualMod }, defaults);
+              return { ...normalized, resistanceSelected: selectedRes, isInterrogationTest, isQuestioningTest, histskinUnderwater };
+            }
+          },
+          cancel: { label: "Cancel", callback: () => null }
+        },
+        default: "ok"
+      }, { width: 420 });
+    } catch (_e) {
+      decl = null;
+    }
+  }
+
+  if (!decl) return;
+
+  const selectedRes = Array.isArray(decl?.resistanceSelected) ? decl.resistanceSelected : [];
+  const isInterrogationTest = Boolean(decl?.isInterrogationTest);
+  const isQuestioningTest = Boolean(decl?.isQuestioningTest);
+  const histskinUnderwater = Boolean(decl?.histskinUnderwater);
+  decl = normalizeSkillRollOptions(decl, defaults);
+  decl.resistanceSelected = selectedRes;
+  decl.isInterrogationTest = isInterrogationTest;
+  decl.isQuestioningTest = isQuestioningTest;
+  decl.histskinUnderwater = histskinUnderwater;
+
+  await setLast({
+    difficultyKey: decl.difficultyKey,
+    manualMod: decl.manualMod,
+    useSpec: Boolean(decl.useSpec),
+    lastSkillUuidByActor: { [sheet.actor.uuid]: skillItem.uuid }
+  });
+
+  const staminaBonus = getPhysicalExertionSkillBonus(sheet.actor, skillItem);
+  const resMods = buildResistanceBonusMods(decl.resistanceSelected ?? []);
+  const resBonus = resMods.reduce((sum, m) => sum + Number(m.value ?? 0), 0);
+  const situationalMods = [...resMods];
+  if (decl.histskinUnderwater) {
+    situationalMods.push({ key: "talent:histskin", label: "Histskin (Underwater)", value: +30, source: "talent" });
+  }
+
+  const request = buildSkillRollRequest({
+    actor: sheet.actor,
+    skillItem,
+    targetToken: null,
+    options: { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec) },
+    context: { source: "sheet", quick: quickShift }
+  });
+  skillRollDebug("untargeted request", request);
+
+  const tn = computeSkillTN({
+    actor: sheet.actor,
+    skillItem,
+    difficultyKey: decl.difficultyKey,
+    manualMod: decl.manualMod,
+    useSpecialization: hasSpec && decl.useSpec,
+    situationalMods
+  });
+
+  skillRollDebug("untargeted TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
+
+  const tags = [];
+  if (Number(sheet.actor.system?.woundPenalty ?? 0) !== 0) tags.push(`<span class="tag wound-tag">Wounded ${sheet.actor.system.woundPenalty}</span>`);
+  if (sheet.actor.system.fatigue.penalty != 0) tags.push(`<span class="tag fatigue-tag">Fatigued ${sheet.actor.system.fatigue.penalty}</span>`);
+  if (sheet.actor.system.carry_rating.penalty != 0) tags.push(`<span class="tag enc-tag">Encumbered ${sheet.actor.system.carry_rating.penalty}</span>`);
+
+  const armorMods = (tn.breakdown ?? []).filter(b => String(b.label || "").startsWith("Armor:") && Number(b.value) !== 0);
+  for (const m of armorMods) {
+    const v = Number(m.value) || 0;
+    tags.push(`<span class="tag armor-tag">${m.label} ${v}</span>`);
+  }
+
+  if (tn?.difficulty?.mod) tags.push(`<span class="tag">${tn.difficulty.label} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
+  if (hasSpec && decl.useSpec) tags.push(`<span class="tag">Specialization +10</span>`);
+  if (decl.isInterrogationTest) tags.push(`<span class="tag">Interrogation</span>`);
+  if (decl.histskinUnderwater) tags.push(`<span class="tag">Histskin +30</span>`);
+  if (decl.manualMod) tags.push(`<span class="tag">Mod ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}</span>`);
+  if (resBonus) {
+    const labels = resMods.map(m => m.label).join(", ");
+    tags.push(`<span class="tag">Resistance Bonus ${resBonus >= 0 ? "+" : ""}${resBonus}${labels ? ` (${labels})` : ""}</span>`);
+  }
+  if (staminaBonus > 0) tags.push(`<span class="tag">Physical Exertion +${staminaBonus}</span>`);
+
+  const res = await doTestRoll(sheet.actor, { rollFormula: SYSTEM_ROLL_FORMULA, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
+
+  await applyKeenIntuitionToResult(sheet.actor, skillItem?.name ?? "", res, { allowPrompt: true });
+  await applyHyperAwarenessToResult(sheet.actor, skillItem?.name ?? "", res, { allowPrompt: true });
+  if (staminaBonus > 0) {
+    await consumePhysicalExertionForSkill(sheet.actor, skillItem);
+  }
+
+  // Intellectual talents (Chapter 4): Businessman / Interrogator / Questioning (DoS replacement prompts).
+  await applyIntellectualTalentDoSOverrides({
+    actor: sheet.actor,
+    skillName: skillItem?.name ?? "",
+    result: res,
+    isInterrogationTest: Boolean(decl?.isInterrogationTest),
+    isQuestioningTest: Boolean(decl?.isQuestioningTest),
+    allowPrompt: true
+  });
+
+  skillRollDebug("untargeted result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
+
+  const degreeLine = res.isSuccess
+    ? `<b style="color:green;">SUCCESS — ${formatDegree(res)}</b>`
+    : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(res)}</b>`;
+
+  const breakdownRows = (tn.breakdown ?? []).map(b => {
+    const v = Number(b.value ?? 0);
+    const sign = v >= 0 ? "+" : "";
+    return `<div style="display:flex; justify-content:space-between; gap:10px;"><span>${b.label}</span><span>${sign}${v}</span></div>`;
+  }).join("");
+
+  const declaredParts = [];
+  if (tn?.difficulty?.label) declaredParts.push(`${tn.difficulty.label} (${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod})`);
+  if (hasSpec && decl.useSpec) declaredParts.push("Spec +10");
+  if (decl.isInterrogationTest) declaredParts.push("Interrogation");
+  if (decl.isQuestioningTest) declaredParts.push("Questioning");
+  if (decl.histskinUnderwater) declaredParts.push("Histskin +30");
+  if (decl.manualMod) declaredParts.push(`Mod ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}`);
+
+  const flavor = `
+    <div>
+      <h2 style="margin:0 0 6px 0;"><img src="${skillItem.img}" style="height:24px; vertical-align:middle; margin-right:6px;"/>${skillItem.name}</h2>
+      <div><b>Target Number:</b> ${tn.finalTN}</div>
+      ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
+      <div style="margin-top:4px;">${degreeLine}${res.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ''}${res.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ''}</div>
+      <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
+      <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
+    </div>`;
+
+  const rollMode = game.settings.get("core", "rollMode");
+  const dosOverride = res?.uesrpgDosOverride ?? null;
+  const skillTest = {
+    actorUuid: sheet.actor.uuid,
+    skillUuid: skillItem.uuid,
+    skillName: skillItem.name,
+    target: tn.finalTN,
+    rollFormula: SYSTEM_ROLL_FORMULA,
+    rollMode,
+    useSpecialization: Boolean(hasSpec && decl.useSpec),
+    isInterrogationTest: Boolean(decl?.isInterrogationTest),
+    isQuestioningTest: Boolean(decl?.isQuestioningTest),
+    rollOptions: {
+      ...(decl.histskinUnderwater ? { histskin: true } : {})
+    },
+    isSuccess: Boolean(res.isSuccess),
+    degree: Number(res.degree ?? 0) || 0,
+    textual: String(res.textual ?? "")
+  };
+
+  await res.roll.toMessage({
+    user: game.user.id,
+    speaker: ChatMessage.getSpeaker({ actor: sheet.actor }),
+    flavor,
+    flags: {
+      uesrpg: {
+        rollRequest: request,
+        skillTest,
+        ...(decl.histskinUnderwater ? { rollOptions: { histskin: true } } : {}),
+        ...(dosOverride ? { dosOverride } : {}),
+        reroll: { used: false, source: null }
+      },
+      "uesrpg-3ev4": {
+        rollRequest: request,
+        skillTest,
+        ...(decl.histskinUnderwater ? { rollOptions: { histskin: true } } : {}),
+        ...(dosOverride ? { dosOverride } : {})
+      }
+    },
+    rollMode
+  });
+}
+
+/**
+ * Handle spell roll (legacy routing for favorites/hotkeys).
+ * Routes to magic casting engine.
+ * @param {SimpleActorSheet} sheet
+ * @param {Event} event
+ */
+export async function onSpellRoll(sheet, event) {
+  let spellToCast;
+
+  if (
+    event.currentTarget.closest(".item") != null ||
+    event.currentTarget.closest(".item") != undefined
+  ) {
+    spellToCast = sheet.actor.items.get(
+      event.currentTarget.closest(".item").dataset.itemId
+    );
+  } else {
+    spellToCast = sheet.actor.getEmbeddedDocument(
+      "Item",
+      sheet.actor.system.favorites[event.currentTarget.dataset.hotkey].id
+    );
+  }
+
+  const targets = getUserSpellTargets();
+  debugMagicRoutingLog({ source: "onSpellRoll", actor: sheet.actor, spell: spellToCast, targets });
+  if (shouldUseTargetedSpellWorkflow(spellToCast, targets)) {
+    const spellOptions = await sheet._showSpellOptionsDialog(spellToCast);
+    if (spellOptions === null) return;
+    await sheet._castAttackSpell(spellToCast, targets, spellOptions, "primary");
+    return;
+  }
+  if (shouldUseModernSpellWorkflow(spellToCast)) {
+    const spellOptions = await sheet._showSpellOptionsDialog(spellToCast);
+    if (spellOptions === null) return;
+    const { MagicOpposedWorkflow } = await import("../../../../core/magic/opposed-workflow.js");
+    await MagicOpposedWorkflow.castUnopposed({
+      attackerActorUuid: sheet.actor.uuid,
+      attackerTokenUuid: sheet.token?.document?.uuid ?? sheet.token?.uuid ?? null,
+      spellUuid: spellToCast.uuid,
+      spellOptions,
+      castActionType: "primary"
+    });
+    return;
+  }
+}
+
+/**
+ * Handle combat style roll.
+ * @param {SimpleActorSheet} sheet
+ * @param {Event} event
+ */
+export async function onCombatRoll(sheet, event) {
+  event.preventDefault();
+
+  const button = event.currentTarget;
+  const li = button.closest(".item");
+  const item = sheet.actor.items.get(li?.dataset.itemId);
+
+  if (!item) {
+    ui.notifications.warn("Combat item not found.");
+    return;
+  }
+
+  let tags = [];
+  const hasWoundPenalty = Number(sheet.actor.system?.woundPenalty ?? 0) !== 0;
+  if (hasWoundPenalty) {
+    tags.push(
+      `<span class="tag wound-tag">Wounded ${sheet.actor.system.woundPenalty}</span>`
+    );
+  }
+  if (sheet.actor.system.fatigue.penalty != 0) {
+    tags.push(
+      `<span class="tag fatigue-tag">Fatigued ${sheet.actor.system.fatigue.penalty}</span>`
+    );
+  }
+  if (sheet.actor.system.carry_rating.penalty != 0) {
+    tags.push(
+      `<span class="tag enc-tag">Encumbered ${sheet.actor.system.carry_rating.penalty}</span>`
+    );
+  }
+
+  const targets = [...(game.user.targets ?? [])];
+  if (targets.length > 1) {
+    ui.notifications.warn("Multiple targets selected. Using the first targeted token for this opposed roll.");
+  }
+  const defenderToken = targets[0] ?? null;
+  if (defenderToken) {
+    const attackerToken =
+      canvas?.tokens?.controlled?.find(t => t.actor?.id === sheet.actor.id) ??
+      sheet.actor.getActiveTokens?.()?.[0] ??
+      null;
+
+    if (!attackerToken) {
+      ui.notifications.warn("No attacker token found on the canvas. Select your token and try again.");
+      return;
+    }
+
+    const message = await SkillOpposedWorkflow.createPending({
+      attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
+      defenderTokenUuid: defenderToken.document?.uuid ?? defenderToken.uuid,
+      attackerSkillUuid: item.uuid,
+      attackerSkillLabel: item.name
+    });
+
+    const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
+    if (state) {
+      state.allowCombatStyle = true;
+      await message.update({
+        flags: {
+          "uesrpg-3ev4": {
+            skillOpposed: {
+              version: state.version ?? 1,
+              state
+            }
+          }
+        }
+      });
+    }
+
+    return;
+  }
+
+  // No target -> manual roll dialog
+  const d = new Dialog({
+    title: `${item.name} — Roll Options`,
+    content: `<form>
+                <div class="form-group" style="margin-bottom:8px;">
+                  <label style="display:block;"><b>Difficulty</b></label>
+                  <select id="difficultyKey" style="width:100%;">
+                    ${SKILL_DIFFICULTIES.map(df => {
+                      const sign = df.mod >= 0 ? "+" : "";
+                      const sel = df.key === "average" ? "selected" : "";
+                      return `<option value="${df.key}" ${sel}>${df.label} (${sign}${df.mod})</option>`;
+                    }).join("\n")}
+                  </select>
+                </div>
+                <div class="form-group" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                  <label style="margin:0;"><b>Manual Modifier</b></label>
+                  <input id="playerInput" type="number" value="0" style="width:120px; text-align:center;" />
+                </div>
+              </form>`,
+    buttons: {
+      one: {
+        label: "Roll",
+        callback: async (html) => {
+          const playerInputRaw = html.find('[id="playerInput"]').val();
+          const playerInput = Number.parseInt(String(playerInputRaw ?? "0"), 10) || 0;
+
+          const difficultyKey = String(html.find('[id="difficultyKey"]').val() ?? "average");
+          const diff = (SKILL_DIFFICULTIES ?? []).find(dv => dv.key === difficultyKey) ?? { key: "average", label: "Average", mod: 0 };
+          const difficultyMod = Number(diff.mod ?? 0) || 0;
+
+          const base = Number(item.system?.value ?? 0);
+          const fatigue = Number(sheet.actor.system?.fatigue?.penalty ?? 0);
+          const enc = Number(sheet.actor.system?.carry_rating?.penalty ?? 0);
+          const wound = sheet.actor.system?.wounded ? Number(sheet.actor.system?.woundPenalty ?? 0) : 0;
+
+          const breakdown = [];
+          breakdown.push({ label: "Base TN", value: base });
+          breakdown.push({ label: `Difficulty: ${diff.label}`, value: difficultyMod });
+          if (fatigue) breakdown.push({ label: "Fatigue", value: fatigue });
+          if (enc) breakdown.push({ label: "Encumbrance", value: enc });
+          if (wound) breakdown.push({ label: "Wounded", value: wound });
+          if (playerInput) breakdown.push({ label: "Manual Modifier", value: playerInput });
+
+          const aeBreakdown = [];
+          let aeTotal = 0;
+
+          for (const ef of (sheet.actor?.effects ?? [])) {
+            if (ef?.disabled) continue;
+            const changes = Array.isArray(ef?.changes) ? ef.changes : [];
+            let v = 0;
+            for (const ch of changes) {
+              if (!ch) continue;
+              if (ch.key !== "system.modifiers.combat.attackTN") continue;
+              if (ch.mode !== (CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2)) continue;
+              v += Number(ch.value) || 0;
+            }
+            if (v) {
+              aeBreakdown.push({ label: ef?.name ?? "Effect", value: v });
+              aeTotal += v;
+            }
+          }
+
+          for (const it of (sheet.actor?.items ?? [])) {
+            for (const ef of (it?.effects ?? [])) {
+              if (!ef?.transfer) continue;
+              if (!isItemEffectActive(sheet.actor, it, ef)) continue;
+              if (ef?.disabled) continue;
+
+              const changes = Array.isArray(ef?.changes) ? ef.changes : [];
+              let v = 0;
+              for (const ch of changes) {
+                if (!ch) continue;
+                if (ch.key !== "system.modifiers.combat.attackTN") continue;
+                if (ch.mode !== (CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2)) continue;
+                v += Number(ch.value) || 0;
+              }
+              if (v) {
+                const label = ef?.name ? `${it.name}: ${ef.name}` : (it.name ?? "Item");
+                aeBreakdown.push({ label, value: v });
+                aeTotal += v;
+              }
+            }
+          }
+
+          for (const e of aeBreakdown) breakdown.push(e);
+
+          const tn = base + difficultyMod + fatigue + enc + wound + playerInput + aeTotal;
+
+          const res = await doTestRoll(sheet.actor, {
+            rollFormula: SYSTEM_ROLL_FORMULA,
+            target: tn,
+            allowLucky: true,
+            allowUnlucky: true
+          });
+
+          const degreeLine = res.isSuccess
+            ? `<b style="color:green;">SUCCESS — ${formatDegree(res)}</b>`
+            : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(res)}</b>`;
+
+          const breakdownRows = breakdown.map(b => {
+            const v = Number(b.value ?? 0);
+            const sign = v >= 0 ? "+" : "";
+            return `<div style="display:flex; justify-content:space-between; gap:10px;"><span>${b.label}</span><span>${sign}${v}</span></div>`;
+          }).join("");
+
+          const declaredParts = [];
+          {
+            const sign = difficultyMod >= 0 ? "+" : "";
+            declaredParts.push(`${diff.label} (${sign}${difficultyMod})`);
+          }
+          if (playerInput) declaredParts.push(`Mod ${playerInput >= 0 ? "+" : ""}${playerInput}`);
+
+          const flavor = `
+            <div>
+              <h2 style="margin:0 0 6px 0;">
+                ${item.img ? `<img src="${item.img}" style="height:24px; vertical-align:middle; margin-right:6px;"/>` : ""}
+                ${item.name}
+              </h2>
+              <div><b>Target Number:</b> ${tn}</div>
+              <div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>
+              <div style="margin-top:4px;">${degreeLine}${res.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ''}${res.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ''}</div>
+              <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
+              <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
+            </div>`;
+
+          await res.roll.toMessage({
+            user: game.user.id,
+            speaker: ChatMessage.getSpeaker({ actor: sheet.actor }),
+            flavor,
+            rollMode: game.settings.get("core", "rollMode")
+          });
+        }
+      },
+      two: {
+        label: "Cancel",
+        callback: () => null
+      }
+    },
+    default: "one"
+  }, { width: 420 });
+
+  d.render(true);
+}
+
+/**
+ * Handle resistance roll.
+ * @param {SimpleActorSheet} sheet
+ * @param {Event} event
+ */
+export async function onResistanceRoll(sheet, event) {
+  event.preventDefault();
+  const element = event.currentTarget;
+  let tags = [];
+  let d = new Dialog({
+    title: "Apply Roll Modifier",
+    content: `<form>
+                <div class="dialogForm">
+                <label><b>${element.name} Resistance Modifier: </b></label><input placeholder="ex. -20, +10" id="playerInput" value="0" style=" text-align: center; width: 50%; border-style: groove; float: right;" type="text"></input></div>
+              </form>`,
+    buttons: {
+      one: {
+        label: "Roll!",
+        callback: async (html) => {
+          const playerInput = parseInt(html.find('[id="playerInput"]').val());
+
+          let roll = new Roll("1d100");
+          await roll.evaluate();
+          const tn = sheet.actor.system.resistance[element.id] + playerInput;
+          const res = computeResultFromRollTotal(sheet.actor, { rollTotal: Number(roll.total), target: tn, allowLucky: true, allowUnlucky: true });
+          const degreesLine = `<br><b>${res.isSuccess ? "Degrees of Success" : "Degrees of Failure"}: ${res.degree}</b>`;
+          let contentString = "";
+          if (isLucky(sheet.actor, roll.result)) {
+            contentString = `<h2>${element.getAttribute("name")}</h2>
+          <p></p><b>Target Number: [[${sheet.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
+          <b>Result: [[${roll.total}]]</b><p></p>
+          <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>
+          ${degreesLine}`;
+          } else if (isUnlucky(sheet.actor, roll.result)) {
+            contentString = `<h2>${element.getAttribute("name")}</h2>
+          <p></p><b>Target Number: [[${sheet.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
+          <b>Result: [[${roll.total}]]</b><p></p>
+          <span style='color:rgb(168, 5, 5); font-size:120%;'> <b>UNLUCKY NUMBER!</b></span>
+          ${degreesLine}`;
+          } else {
+            contentString = `<h2>${element.getAttribute("name")}</h2>
+          <p></p><b>Target Number: [[${sheet.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
+          <b>Result: [[${roll.total}]]</b><p></p>
+          <b>${
+            res.isSuccess
+              ? " <span style='color:green; font-size: 120%;'> <b>SUCCESS!</b></span>"
+              : " <span style='color: rgb(168, 5, 5); font-size: 120%;'> <b>FAILURE!</b></span>"
+          }</b>
+          ${degreesLine}`;
+          }
+          
+          await roll.toMessage({
+            user: game.user.id,
+            speaker: ChatMessage.getSpeaker(),
+            content: contentString,
+            flavor: `<div class="tag-container">${tags.join("")}</div>`,
+            rollMode: game.settings.get("core", "rollMode"),
+          });
+        },
+      },
+      two: {
+        label: "Cancel",
+        callback: () => {},
+      },
+    },
+    default: "one",
+    close: () => {},
+  });
+  d.render(true);
+}
+
+/**
+ * Handle damage roll for weapons.
+ * @param {SimpleActorSheet} sheet
+ * @param {Event} event
+ */
+export async function onDamageRoll(sheet, event) {
+  event.preventDefault();
+
+  const button = event.currentTarget;
+  const li = button.closest(".item");
+  const weapon = sheet.actor.items.get(li?.dataset?.itemId);
+
+  if (!weapon) {
+    ui.notifications.warn("Weapon not found for damage roll.");
+    return;
+  }
+
+  const shortcutWeapon = weapon;
+
+  const hit = new Roll("1d10");
+  await hit.evaluate();
+  const hitResult = Number(hit.total);
+  const hit_loc = getHitLocationFromRoll(hitResult);
+
+  const damageString =
+    (shortcutWeapon.system.damage3Effective ?? shortcutWeapon.system.damage3 ?? shortcutWeapon.system.damage2Effective ?? shortcutWeapon.system.damage2 ?? shortcutWeapon.system.damageEffective ?? shortcutWeapon.system.damage) || "0";
+
+  const structured = Array.isArray(shortcutWeapon.system.qualitiesStructuredInjected)
+    ? shortcutWeapon.system.qualitiesStructuredInjected
+    : Array.isArray(shortcutWeapon.system.qualitiesStructured)
+      ? shortcutWeapon.system.qualitiesStructured
+      : [];
+  const hasQ = (key) => structured.some(q => String(q?.key ?? q ?? "").toLowerCase() === key);
+
+  const weaponRoll = new Roll(damageString);
+  await weaponRoll.evaluate();
+  let altRoll = null;
+  let baseDamage = Number(weaponRoll.total);
+
+  const wantsProven = hasQ("proven");
+  const wantsPrimitive = hasQ("primitive");
+  const wantsSuperior = !!shortcutWeapon.system.superior;
+
+  if (wantsSuperior || wantsProven || wantsPrimitive) {
+    altRoll = new Roll(damageString);
+    await altRoll.evaluate();
+    const altTotal = Number(altRoll.total);
+
+    if (wantsPrimitive && !wantsProven) baseDamage = Math.min(baseDamage, altTotal);
+    else baseDamage = Math.max(baseDamage, altTotal);
+  }
+
+  const finalDamage = baseDamage;
+
+  const supRollTag = altRoll
+    ? `<div style="margin-top:0.25rem;font-size:x-small;line-height:1.2;">Roll A: ${weaponRoll.total}<br>Roll B: ${altRoll.total}</div>`
+    : "";
+
+  const labelIndex = (() => {
+    const core = UESRPG?.QUALITIES_CORE_BY_TYPE?.weapon ?? UESRPG?.QUALITIES_CATALOG ?? [];
+    const traits = UESRPG?.TRAITS_BY_TYPE?.weapon ?? [];
+    const idx = new Map();
+    for (const q of [...core, ...traits, ...(UESRPG?.QUALITIES_CATALOG ?? [])]) {
+      if (!q?.key) continue;
+      idx.set(String(q.key).toLowerCase(), String(q.label ?? q.key));
+    }
+    return idx;
+  })();
+
+  const qualitiesHtml = (() => {
+    const pills = [];
+    const injected = Array.isArray(shortcutWeapon.system.qualitiesStructuredInjected)
+      ? shortcutWeapon.system.qualitiesStructuredInjected
+      : Array.isArray(shortcutWeapon.system.qualitiesStructured)
+        ? shortcutWeapon.system.qualitiesStructured
+        : [];
+
+    for (const q of injected) {
+      const key = String(q?.key ?? q ?? "").toLowerCase().trim();
+      if (!key) continue;
+      const label = labelIndex.get(key) ?? key;
+      const v = (q?.value !== undefined && q?.value !== null && q?.value !== "") ? Number(q.value) : null;
+      pills.push(`<span class="tag">${v != null && !Number.isNaN(v) ? `${label} (${v})` : label}</span>`);
+    }
+
+    const traits = Array.isArray(shortcutWeapon.system.qualitiesTraits) ? shortcutWeapon.system.qualitiesTraits : [];
+    for (const t of traits) {
+      const key = String(t ?? "").toLowerCase().trim();
+      if (!key) continue;
+      const label = labelIndex.get(key) ?? key;
+      pills.push(`<span class="tag">${label}</span>`);
+    }
+
+    if (!pills.length) return "<span style=\"opacity:0.75;\">—</span>";
+    return `<span class="uesrpg-inline-tags">${pills.join("")}</span>`;
+  })();
+
+  const damageType = getDamageTypeFromWeapon(shortcutWeapon);
+
+  const targets = Array.from(game.user.targets ?? []);
+  const applyButtons = targets.length
+    ? `<div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
+        ${targets.map(t => {
+          const uuid = t?.actor?.uuid;
+          if (!uuid) return "";
+          return `<button type="button" class="apply-damage-btn" 
+                    data-target-uuid="${uuid}"
+                    data-attacker-actor-uuid="${sheet.actor.uuid}"
+                    data-weapon-uuid="${shortcutWeapon.uuid}"
+                    data-damage="${finalDamage}"
+                    data-damage-type="${damageType}"
+                    data-hit-location="${hit_loc}"
+                    data-dos-bonus="0"
+                    data-penetration="0"
+                    data-source="${shortcutWeapon.name}">
+                    Apply Damage → ${t.name}
+                  </button>`;
+        }).join("")}
+      </div>`
+    : "";
+
+  const contentString = `
+    <div class="uesrpg-weapon-damage-card">
+      <h2 style="display:flex;gap:0.5rem;align-items:center;">
+        <img src="${shortcutWeapon.img}" style="height:32px;width:32px;">
+        <div>${shortcutWeapon.name}</div>
+      </h2>
+
+      <table class="uesrpg-weapon-damage-table">
+        <thead>
+          <tr>
+            <th>Damage</th>
+            <th class="tableCenterText">Result</th>
+            <th class="tableCenterText">Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="tableAttribute">Damage</td>
+            <td class="tableCenterText">${finalDamage}${supRollTag}</td>
+            <td class="tableCenterText">
+              <div>${damageString}</div>
+              <div style="margin-top:0.35rem;">${qualitiesHtml}</div>
+            </td>
+          </tr>
+          <tr>
+            <td class="tableAttribute">Hit Location</td>
+            <td class="tableCenterText">${hit_loc}</td>
+            <td class="tableCenterText">[[${hit.total}]]</td>
+          </tr>
+        </tbody>
+      </table>
+      ${applyButtons}
+    </div>
+  `;
+
+  const rollsToSend = [weaponRoll, hit];
+  if (altRoll) rollsToSend.push(altRoll);
+
+  await ChatMessage.create({
+    user: game.user.id,
+    speaker: ChatMessage.getSpeaker(),
+    content: contentString,
+    rolls: rollsToSend,
+    rollMode: game.settings.get("core", "rollMode"),
+  });
+}

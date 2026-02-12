@@ -1,4 +1,6 @@
 /**
+ * @module magic/timekeeping-helper
+ *
  * src/core/magic/timekeeping-helper.js
  *
  * Compatibility shim for legacy magic timekeeping.
@@ -11,11 +13,7 @@
  */
 
 import { TimeService } from "../time/time-service.js";
-
-function _num(v, d = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-}
+import { _num } from "./_primitives.js";
 
 const _LEGACY_LISTENER_MAP = new WeakMap();
 
@@ -160,20 +158,15 @@ export const MagicTimekeeping = {
    * Ensure any existing magic spell effects with combat durations are anchored to the current combat.
    *
    * This is magic-domain behavior and remains in the magic subsystem.
+   *
+   * Note: ensureSpellEffectCombatDurations was removed as dead code. The spell
+   * effect expiration system (spell-effect-expiration.js) handles combat-based
+   * duration anchoring via its own hooks.  This method is retained as a no-op
+   * for backward compatibility.
    */
   async ensureAllCombatDurations() {
     if (!game?.combat || !game.user?.isGM) return;
-
-    // eslint-disable-next-line global-require
-    const { ensureSpellEffectCombatDurations } = await import("./spell-effects.js");
-    const actors = this.relevantActorsArray?.() ?? Array.from(this.collectRelevantActors?.() ?? []);
-    for (const actor of actors) {
-      try {
-        await ensureSpellEffectCombatDurations(actor);
-      } catch (err) {
-        console.error("UESRPG | MagicTimekeeping.ensureAllCombatDurations failed", err);
-      }
-    }
+    // No-op: combat duration anchoring handled by spell-effect-expiration system.
   },
 
   /**

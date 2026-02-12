@@ -100,7 +100,9 @@ export async function openStaminaDialog(actor) {
   }
 
   const currentSP = actor.system?.stamina?.value ?? 0;
+  const tempSP = actor.system?.stamina?.temp ?? 0;
   const maxSP = actor.system?.stamina?.max ?? 0;
+  const effectiveSP = currentSP + tempSP;
 
   const allowHeroic = canUseHeroicActions(actor);
   const hasKillingBlow = hasTalent(actor, "killingblow");
@@ -116,8 +118,10 @@ export async function openStaminaDialog(actor) {
 
   const content = await renderTemplate("systems/uesrpg-3ev4/templates/stamina-dialog.html", {
     currentSP,
+    tempSP,
     maxSP,
-    showWarning: currentSP <= 0,
+    effectiveSP,
+    showWarning: effectiveSP <= 0,
     options: options.map(opt => ({
       id: opt.id,
       name: opt.name,
@@ -180,7 +184,10 @@ export async function openStaminaDialog(actor) {
 async function spendStamina(actor, option, spAmount = 1) {
   const cost = option.allowAmount ? spAmount : option.cost;
   const currentSP = actor.system?.stamina?.value ?? 0;
-  if (isActorUndead(actor) && (currentSP - cost) < 0) {
+  const currentTemp = actor.system?.stamina?.temp ?? 0;
+  const effectiveSP = currentSP + currentTemp;
+  
+  if (isActorUndead(actor) && (effectiveSP - cost) < 0) {
     ui.notifications?.warn?.("Undead cannot spend Stamina below 0.");
     return;
   }
@@ -215,10 +222,32 @@ async function spendStamina(actor, option, spAmount = 1) {
     }
     
     const newAP = Math.min(currentAP + 1, maxAP);
-    updates["system.stamina.value"] = currentSP - cost;
+    
+    // Consume temp SP first, then regular SP
+    let remainingCost = cost;
+    let newTemp = currentTemp;
+    let newSP = currentSP;
+    
+    if (remainingCost > 0 && newTemp > 0) {
+      const tempConsumed = Math.min(newTemp, remainingCost);
+      newTemp -= tempConsumed;
+      remainingCost -= tempConsumed;
+    }
+    
+    if (remainingCost > 0) {
+      newSP -= remainingCost;
+    }
+    
+    updates["system.stamina.temp"] = newTemp;
+    updates["system.stamina.value"] = newSP;
     updates["system.action_points.value"] = newAP;
     
     await requestUpdateDocument(actor, updates);
+    
+    const tempConsumedTotal = currentTemp - newTemp;
+    const regularConsumedTotal = currentSP - newSP;
+    const remainingSPDisplay = newSP + (newTemp > 0 ? ` (+${newTemp} temp)` : '');
+    const maxSP = actor.system?.stamina?.max ?? 0;
     
     // Post chat message
     await ChatMessage.create({
@@ -226,9 +255,9 @@ async function spendStamina(actor, option, spAmount = 1) {
       speaker: ChatMessage.getSpeaker({ actor }),
       content: `<div class="uesrpg-stamina-card">
         <h3>Stamina: ${_esc(option.name)}</h3>
-        <p><b>Cost:</b> ${cost} SP</p>
+        <p><b>Cost:</b> ${cost} SP ${tempConsumedTotal > 0 ? `(${tempConsumedTotal} temp, ${regularConsumedTotal} regular)` : ''}</p>
         <p><b>Effect:</b> Regained 1 Action Point (${currentAP} -> ${newAP})</p>
-        <p><b>Remaining SP:</b> ${currentSP - cost}</p>
+        <p><b>Remaining SP:</b> ${remainingSPDisplay} / ${maxSP}</p>
         ${isInCombat ? '<p class="uesrpg-stamina-note">Can only be used once per round in combat.</p>' : ''}
       </div>`,
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
@@ -238,9 +267,25 @@ async function spendStamina(actor, option, spAmount = 1) {
     return;
   }
 
+  // Consume temp SP first, then regular SP
+  let remainingCost = cost;
+  let newTemp = currentTemp;
+  let newSP = currentSP;
+  
+  if (remainingCost > 0 && newTemp > 0) {
+    const tempConsumed = Math.min(newTemp, remainingCost);
+    newTemp -= tempConsumed;
+    remainingCost -= tempConsumed;
+  }
+  
+  if (remainingCost > 0) {
+    newSP -= remainingCost;
+  }
+  
   // Update stamina
   await requestUpdateDocument(actor, {
-    "system.stamina.value": currentSP - cost
+    "system.stamina.temp": newTemp,
+    "system.stamina.value": newSP
   });
 
   // Remove any existing effect of the same type (replacing)
@@ -296,16 +341,21 @@ async function spendStamina(actor, option, spAmount = 1) {
 
   await createOrUpdateStatusEffect(actor, effectData);
 
+  const tempConsumedTotal = currentTemp - newTemp;
+  const regularConsumedTotal = currentSP - newSP;
+  const remainingSPDisplay = newSP + (newTemp > 0 ? ` (+${newTemp} temp)` : '');
+  const maxSP = actor.system?.stamina?.max ?? 0;
+  
   // Post chat message
   await ChatMessage.create({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
     content: `<div class="uesrpg-stamina-card">
       <h3>Stamina: ${_esc(option.name)}</h3>
-      <p><b>Cost:</b> ${cost} SP</p>
+      <p><b>Cost:</b> ${cost} SP ${tempConsumedTotal > 0 ? `(${tempConsumedTotal} temp, ${regularConsumedTotal} regular)` : ''}</p>
       <p><b>Effect:</b> ${_esc(effectData.flags.uesrpg.description)}</p>
       ${option.allowAmount ? `<p><b>Damage Bonus:</b> +${effectData.flags.uesrpg.damageBonus}</p>` : ''}
-      <p><b>Remaining SP:</b> ${currentSP - cost}</p>
+      <p><b>Remaining SP:</b> ${remainingSPDisplay} / ${maxSP}</p>
       <p class="uesrpg-stamina-note">Effect will persist until consumed by the appropriate action.</p>
     </div>`,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER

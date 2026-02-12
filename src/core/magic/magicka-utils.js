@@ -1,4 +1,6 @@
 /**
+ * @module magic/magicka-utils
+ *
  * src/core/magic/magicka-utils.js
  *
  * Magicka consumption and spell damage helpers for UESRPG 3ev4.
@@ -14,40 +16,60 @@ import { MagicTimekeeping } from "./timekeeping-helper.js";
 
 import { getDifficultyByKey } from "../skills/skill-tn.js";
 import { evaluateAEModifierKeysDetailed } from "../active-effects/modifier-evaluator.js";
+import { hasGrandmasterForSkill } from "../traits/general-talents.js";
+import { computeSpellRestraintReduction, getActorWillpowerBonus } from "./magic-modifiers.js";
+import { _num, _strTrim as _str, isDebugEnabled } from "./_primitives.js";
+import { _bool } from "../../utils/coerce.js";
+
+// Re-export for backward compatibility — canonical definition lives in magic-modifiers.js
+export { getActorWillpowerBonus };
 
 /**
- * Safely coerce a value into a finite number.
- * @param {*} v
- * @param {number} fallback
- * @returns {number}
+ * Options bag for spell casting operations (cost, TN, consumption).
+ *
+ * Constructed by the spell options dialog or the opposed-workflow card setup.
+ * Passed through to `computeSpellMagickaCost`, `computeMagicCastingTN`,
+ * `consumeSpellMagicka`, `resolveSpellProfile`, and related helpers.
+ *
+ * @typedef {object} SpellCastOptions
+ * @property {boolean}      [isRestrained]       - Spell Restraint toggled (refund WPB on success)
+ * @property {boolean}      [isOverloaded]       - Overload mode (2× cost, enhanced effect)
+ * @property {boolean}      [isOvercharged]      - Overcharge mode
+ * @property {string}       [difficultyKey]      - Difficulty modifier key ("average", "hard", etc.)
+ * @property {number}       [manualModifier]     - Manual TN modifier (alias: manualMod)
+ * @property {number|null}  [level]              - Cast level (for scaling; alias: castLevel)
+ * @property {number|null}  [castLevel]          - Alias for level
+ * @property {boolean}      [useOvercharge]      - From dialog: overcharge toggle
+ * @property {boolean}      [useMagickaCycling]  - From dialog: magicka cycling toggle
+ * @property {string}       [difficulty]         - Alias for difficultyKey
+ * @property {number}       [manualMod]          - Alias for manualModifier
  */
-function _num(v, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 /**
- * Normalize a string value.
- * @param {*} v
- * @returns {string}
+ * Result of `computeMagicCastingTN()`.
+ *
+ * @typedef {object} CastingTNResult
+ * @property {number} baseTN             - Base TN from spellcasting skill level
+ * @property {number} spellcastingLevel  - Actor's spellcasting skill level
+ * @property {number} spellLevel         - Spell's level
+ * @property {Array<{label: string, value: number, keepZero?: boolean}>} modifiers - TN modifier breakdown
+ * @property {Array<{label: string, value: number, keepZero?: boolean}>} breakdown - Alias of modifiers
+ * @property {number} finalTN            - Final computed TN after all modifiers
  */
-function _str(v) {
-  return String(v ?? "").trim();
-}
 
 /**
- * Safely coerce a value into a boolean.
- * Form-derived values are often strings ("true"/"false"), which must not be treated as truthy.
- * @param {*} v
- * @returns {boolean}
+ * Result of `consumeSpellMagicka()`.
+ *
+ * @typedef {object} MagickaSpendResult
+ * @property {boolean} ok        - Whether the spend succeeded (had enough MP)
+ * @property {number}  consumed  - MP actually spent
+ * @property {number}  remaining - MP remaining after spend
+ * @property {number}  previous  - MP before spend
+ * @property {number}  [required]           - MP required (returned on failure)
+ * @property {number}  [baseCost]           - Base cost before modifiers
+ * @property {number}  [refund]             - Restraint refund (added post-hoc by workflow)
+ * @property {string}  [restraintBreakdown] - Human-readable breakdown (added post-hoc)
  */
-function _bool(v) {
-  if (v === true || v === false) return v;
-  const s = String(v ?? "").trim().toLowerCase();
-  if (s === "true" || s === "1" || s === "yes" || s === "on") return true;
-  if (s === "false" || s === "0" || s === "no" || s === "off" || s === "") return false;
-  return Boolean(v);
-}
 
 /**
  * Normalize a modifier lane key component to a safe, stable token.
@@ -110,6 +132,78 @@ export function getSpellLevel(spell) {
 }
 
 /**
+ * Canonical scaling-level reader.
+ * Normalizes multiple storage shapes into a stable sorted array.
+ *
+ * @param {Item} spell
+ * @returns {Array<object>}
+ */
+export function getSpellScalingLevels(spell) {
+  const candidates = [
+    spell?.system?.scaling?.levels,
+    spell?.system?.scalingLevels,
+    spell?.system?.scaling
+  ];
+
+  const rows = [];
+
+  const collect = (node) => {
+    if (!node) return;
+
+    if (Array.isArray(node)) {
+      node.forEach((entry, idx) => {
+        if (!entry || typeof entry !== "object") return;
+        const explicit = Number(entry?.level);
+        const level = Number.isFinite(explicit) && explicit > 0 ? explicit : (idx + 2);
+        rows.push({ ...entry, level, __inferredLevel: !(Number.isFinite(explicit) && explicit > 0) });
+      });
+      return;
+    }
+
+    if (typeof node?.values === "function") {
+      Array.from(node.values()).forEach((entry, idx) => {
+        if (!entry || typeof entry !== "object") return;
+        const explicit = Number(entry?.level);
+        const level = Number.isFinite(explicit) && explicit > 0 ? explicit : (idx + 2);
+        rows.push({ ...entry, level, __inferredLevel: !(Number.isFinite(explicit) && explicit > 0) });
+      });
+      return;
+    }
+
+    if (node && typeof node === "object") {
+      if (node.levels && typeof node.levels === "object") {
+        collect(node.levels);
+        return;
+      }
+
+      Object.entries(node).forEach(([key, entry], idx) => {
+        if (!entry || typeof entry !== "object") return;
+        const explicit = Number(entry?.level);
+        const keyNum = Number(key);
+        const inferred = Number.isFinite(keyNum) ? (keyNum + 1) : (idx + 2);
+        const level = Number.isFinite(explicit) && explicit > 0 ? explicit : inferred;
+        rows.push({ ...entry, level, __inferredLevel: !(Number.isFinite(explicit) && explicit > 0) });
+      });
+    }
+  };
+
+  for (const c of candidates) collect(c);
+  if (!rows.length) return [];
+
+  const byLevel = new Map();
+  for (const row of rows) {
+    const lvl = _num(row?.level, 0);
+    if (lvl <= 0) continue;
+    const prev = byLevel.get(lvl);
+    if (!prev || (prev.__inferredLevel && !row.__inferredLevel)) {
+      byLevel.set(lvl, row);
+    }
+  }
+
+  return Array.from(byLevel.values()).sort((a, b) => _num(a?.level, 0) - _num(b?.level, 0));
+}
+
+/**
  * Get a scaling entry for the spell at a specific level.
  * If no explicit entry exists, falls back to array index (level-1) if present.
  * @param {Item} spell
@@ -117,15 +211,48 @@ export function getSpellLevel(spell) {
  * @returns {object|null}
  */
 export function getSpellScalingEntry(spell, level = null) {
-  const levels = spell?.system?.scaling?.levels;
-  if (!Array.isArray(levels) || levels.length === 0) return null;
+  const DEBUG = isDebugEnabled("spellCastingDebug");
+  const levels = getSpellScalingLevels(spell);
+  
+  if (DEBUG) {
+    console.log(`\n🔍 getSpellScalingEntry called for "${spell?.name}":`, {
+      requestedLevel: level,
+      rawLevels: levels,
+      isArray: Array.isArray(levels),
+      isObject: typeof levels === "object" && levels !== null && !Array.isArray(levels)
+    });
+  }
+  
+  if (!Array.isArray(levels) || levels.length === 0) {
+    if (DEBUG) console.log("  ⚠️ No scaling levels array or empty array - returning null");
+    return null;
+  }
 
   const targetLevel = level == null ? getSpellLevel(spell) : _num(level, getSpellLevel(spell));
+  
+  if (DEBUG) {
+    console.log(`  Target level resolved to: ${targetLevel}`);
+    console.log(`  Searching for entry with level === ${targetLevel}...`);
+  }
+  
   const byLevel = levels.find(l => _num(l?.level, 0) === targetLevel);
-  if (byLevel) return byLevel;
+  if (byLevel) {
+    if (DEBUG) console.log(`  ✅ Found entry by level match:`, byLevel);
+    return byLevel;
+  }
 
-  const byIndex = levels[targetLevel - 1];
-  return byIndex ?? null;
+  const allInferred = levels.every((l) => l?.__inferredLevel === true);
+  if (allInferred) {
+    const byIndex = levels[targetLevel - 1];
+    if (DEBUG) {
+      console.log(`  No exact match, trying inferred index [${targetLevel - 1}]:`, byIndex || "not found");
+    }
+    return byIndex ?? null;
+  }
+  if (DEBUG) {
+    console.log("  No exact match and explicit scaling rows exist - returning null");
+  }
+  return null;
 }
 
 /**
@@ -136,29 +263,66 @@ export function getSpellScalingEntry(spell, level = null) {
  * @returns {number}
  */
 export function getSpellCost(spell, level = null) {
+  const DEBUG = isDebugEnabled("spellCastingDebug");
   const scaling = getSpellScalingEntry(spell, level);
   const scaledCost = scaling ? _num(scaling.cost, NaN) : NaN;
-  if (Number.isFinite(scaledCost)) return Math.max(0, scaledCost);
+  
+  if (DEBUG) {
+    console.log(`\n💰 getSpellCost for "${spell?.name}":`, {
+      requestedLevel: level,
+      scalingEntry: scaling,
+      scaledCost,
+      isFinite: Number.isFinite(scaledCost)
+    });
+  }
+  
+  if (Number.isFinite(scaledCost)) {
+    if (DEBUG) console.log(`  ✅ Using scaled cost: ${scaledCost}`);
+    return Math.max(0, scaledCost);
+  }
 
   const baseCost = _num(spell?.system?.cost, 0);
+  if (DEBUG) console.log(`  ⚠️ No scaled cost, using base cost: ${baseCost}`);
   return Math.max(0, baseCost);
 }
 
 /**
  * Canonical spell damage formula getter.
- * Returns damageFormula, falling back to legacy damage field.
- * Scaling system is deprecated and ignored.
+ * Checks scaling entry for the specified level, then falls back to base damageFormula.
  * @param {Item} spell
- * @param {number|null} level - Ignored; kept for API compatibility
+ * @param {number|null} level - Spell level (uses scaling entry if available)
  * @returns {string} Damage formula or "0" for non-damaging spells
  */
 export function getSpellDamageFormula(spell, level = null) {
+  const DEBUG = isDebugEnabled("spellCastingDebug");
+  
+  // Check scaling entry first if level is specified
+  const scaling = getSpellScalingEntry(spell, level);
+  const scaledDamage = scaling ? _str(scaling.damageFormula) : "";
+  
+  if (DEBUG) {
+    console.log(`\n⚔️ getSpellDamageFormula for "${spell?.name}":`, {
+      requestedLevel: level,
+      scalingEntry: scaling,
+      scaledDamage
+    });
+  }
+  
+  if (scaledDamage) {
+    if (DEBUG) console.log(`  ✅ Using scaled damage: ${scaledDamage}`);
+    return scaledDamage;
+  }
+
   // Prefer primary damageFormula field
   const primary = _str(spell?.system?.damageFormula);
-  if (primary) return primary;
+  if (primary) {
+    if (DEBUG) console.log(`  ⚠️ No scaled damage, using base formula: ${primary}`);
+    return primary;
+  }
 
   // Legacy fallback for older spells
   const legacy = _str(spell?.system?.damage);
+  if (DEBUG) console.log(`  ⚠️ No scaled or primary damage, using legacy: ${legacy || "0"}`);
   // Return "0" for spells without damage (used in isDamaging checks)
   return legacy || "0";
 }
@@ -171,6 +335,45 @@ export function getSpellDamageFormula(spell, level = null) {
 export function getSpellDamageType(spell) {
   const dt = _str(spell?.system?.damageType).toLowerCase();
   return dt || "none";
+}
+
+/**
+ * Get all damage instances for a spell, including the primary damage from legacy fields.
+ * Returns an array suitable for per-instance rolling, each with {formula, type, label}.
+ * When no damageInstances are configured, wraps the primary damage as a single entry.
+ * @param {Item} spell
+ * @param {number|null} level - Spell level for scaling
+ * @returns {Array<{formula: string, type: string, label: string}>}
+ */
+export function getSpellDamageInstances(spell, level = null) {
+  const instances = [];
+
+  // Primary instance from legacy fields
+  const primaryFormula = getSpellDamageFormula(spell, level);
+  const primaryType = getSpellDamageType(spell);
+  if (primaryFormula && primaryFormula !== "0") {
+    instances.push({
+      formula: primaryFormula,
+      type: primaryType,
+      label: "Primary"
+    });
+  }
+
+  // Additional configured instances
+  const extra = spell?.system?.damageInstances;
+  if (Array.isArray(extra)) {
+    for (const inst of extra) {
+      const formula = _str(inst?.formula).trim();
+      if (!formula) continue;
+      instances.push({
+        formula,
+        type: _str(inst?.type).toLowerCase() || "none",
+        label: _str(inst?.label).trim()
+      });
+    }
+  }
+
+  return instances;
 }
 
 /**
@@ -195,14 +398,7 @@ export function getActorMagicka(actor) {
   return _num(actor?.system?.magicka?.value, 0);
 }
 
-/**
- * Compute WP bonus (floor(WP.total / 10)).
- * @param {Actor} actor
- * @returns {number}
- */
-export function getActorWillpowerBonus(actor) {
-  return Math.floor(_num(actor?.system?.characteristics?.wp?.total, 0) / 10);
-}
+// getActorWillpowerBonus — imported from magic-modifiers.js and re-exported above
 
 /**
  * Consume magicka from actor for casting a spell.
@@ -313,19 +509,19 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
   const { baseCost } = _computeSpellBaseCost(actor, spell, options);
   if (baseCost <= 0) return { refund: 0, finalCost: 0, breakdown: "" };
 
-  const wpBonus = getActorWillpowerBonus(actor);
-
   // Determine whether this spell is "damaging" for the critical success clause.
   // Healing and effect-only spells are treated as non-damaging.
   const formula = getSpellDamageFormula(spell, options.level ?? null);
   const isDamaging = Boolean(formula && formula !== "0" && getSpellDamageType(spell) !== "healing");
 
   const isCriticalSuccess = Boolean(result?.isCriticalSuccess ?? result?.criticalSuccess ?? result?.isCritSuccess);
-  const doubled = isCriticalSuccess && !isDamaging;
 
-  const reductionCap = Math.max(0, baseCost - 1);
-  const reductionCandidate = doubled ? (wpBonus * 2) : wpBonus;
-  const reduction = Math.min(reductionCap, Math.max(0, reductionCandidate));
+  // Use talent-aware restraint reduction (Creative, Methodical, Magicka Cycling, Stunted Magicka)
+  const restraintInfo = computeSpellRestraintReduction(actor, spell, {
+    isCritical: isCriticalSuccess,
+    isDamaging
+  });
+  const reduction = Math.min(Math.max(0, baseCost - 1), Math.max(0, restraintInfo.reduction));
 
   if (reduction <= 0) return { refund: 0, finalCost: baseCost, breakdown: "" };
 
@@ -335,8 +531,9 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
   await actor.update({ "system.magicka.value": next });
 
   const finalCost = baseCost - reduction;
-  const breakdown = doubled
-    ? `Spell Restraint (Critical): -${reduction} (2×WPB), min 1`
+  const breakdownParts = restraintInfo.breakdown;
+  const breakdown = breakdownParts.length > 0
+    ? `Spell Restraint: -${reduction} (${breakdownParts.join(", ")}), min 1`
     : `Spell Restraint: -${reduction} (WPB), min 1`;
 
   // If the spendInfo differs from baseCost for any reason, treat the refund as best-effort.
@@ -555,21 +752,52 @@ export function getMaxSpellDamage(spell, options = {}) {
 }
 
 /**
+ * Single authoritative mapping from rank label to numeric rank number.
+ * Untrained => -1 so that spellcasting level (rank + 1) becomes 0.
+ * @type {Object<string, number>}
+ */
+const RANK_TO_NUMERIC = Object.freeze({
+  untrained: -1,
+  novice: 0,
+  apprentice: 1,
+  journeyman: 2,
+  adept: 3,
+  expert: 4,
+  master: 5,
+  grandmaster: 6,
+  legendary: 7
+});
+
+/**
  * Get the magic skill level for a given school.
  *
  * Spellcasting Level = (Skill Rank Numeric) + 1
  * Repository rank labels (template.json) imply:
  *   novice=0, apprentice=1, journeyman=2, adept=3, expert=4, master=5
- * We additionally accept grandmaster=6 for future-proofing.
+ * We additionally accept grandmaster=6 and legendary=7.
+ *
+ * For NPCs, reads per-school effective rank from
+ * `flags.uesrpg-3ev4.npcMagicSchoolRanks.<schoolKey>`.
+ * Default when absent: "untrained" (spellcasting level 0).
  *
  * @param {Actor} actor - The caster
  * @param {string} school - The spell school (e.g., "destruction")
- * @returns {number} - Spellcasting level
+ * @returns {number} - Spellcasting level (≥ 0)
  */
 export function getMagicSkillLevel(actor, school) {
   const schoolNormalized = _str(school).toLowerCase();
 
-  // Find the magic skill for this school
+  // --- NPC branch: read per-school rank from flags ---
+  if (actor?.type === "NPC") {
+    const schoolKey = schoolNormalized || "unknown";
+    const label = _str(
+      actor?.flags?.["uesrpg-3ev4"]?.npcMagicSchoolRanks?.[schoolKey]
+    ).toLowerCase() || "untrained";
+    const rankNumeric = RANK_TO_NUMERIC[label] ?? -1;
+    return Math.max(0, rankNumeric + 1);
+  }
+
+  // --- PC branch: find embedded magicSkill item ---
   const magicSkill = actor?.items?.find(i =>
     i.type === "magicSkill" &&
     _str(i.name).toLowerCase().includes(schoolNormalized)
@@ -577,23 +805,13 @@ export function getMagicSkillLevel(actor, school) {
 
   if (!magicSkill) return 0;
 
-  // Convert rank label to numeric "rank number"
-  // untrained => -1 so that spellcasting level becomes 0 (rank + 1)
-  const rankToNumeric = {
-    untrained: -1,
-    novice: 0,
-    apprentice: 1,
-    journeyman: 2,
-    adept: 3,
-    expert: 4,
-    master: 5,
-    grandmaster: 6
-  };
-
   const rank = _str(magicSkill.system?.rank ?? "untrained").toLowerCase();
-  const rankValue = rankToNumeric[rank] ?? -1;
+  const rankValue = RANK_TO_NUMERIC[rank] ?? -1;
 
-  return rankValue + 1;
+  // Chapter 4 (Grandmaster): If taken with a magical skill, increase the bonus to effective skill rank by +1.
+  // Implemented here as a +1 effective rank for this school when the actor has the corresponding Grandmaster talent.
+  const gmBonus = hasGrandmasterForSkill(actor, magicSkill?.name ?? "") ? 1 : 0;
+  return (rankValue + gmBonus) + 1;
 }
 
 /**
@@ -668,13 +886,20 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   if (actor?.type === "NPC") {
     const sys = actor?.system ?? {};
     const baseTN = _num(sys?.professions?.magic ?? sys?.professionsWound?.magic, 0);
-    const spellLevel = getSpellLevel(spell);
+    
+    // Use chosen casting level if provided (for scaling), else base spell level
+    const chosenLevel = options?.level ?? options?.castLevel ?? null;
+    const spellLevel = chosenLevel !== null ? Math.max(1, Math.min(7, Number(chosenLevel))) : getSpellLevel(spell);
     const spellcastingLevel = Math.max(0, spellLevel);
 
     const fatiguePenalty = _num(sys?.fatigue?.penalty, 0);
     const carryPenalty = _num(sys?.carry_rating?.penalty, 0);
     const woundPenalty = _num(sys?.woundPenalty, 0);
     const manualMod = _num(options?.manualModifier ?? options?.manualMod, 0);
+
+    // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
+    const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced);
+    const silencePenalty = isSilenced ? -20 : 0;
 
     const modifiers = [
       { label: "Base TN", value: baseTN, keepZero: true },
@@ -685,10 +910,11 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
       { label: "Wound Penalty", value: woundPenalty }
     ];
 
+    if (silencePenalty !== 0) modifiers.push({ label: "Silenced (no verbal)", value: silencePenalty });
     if (aeModifier !== 0) modifiers.push({ label: "Active Effects", value: aeModifier });
     if (manualMod !== 0) modifiers.push({ label: "Manual Modifier", value: manualMod });
 
-    const finalTN = Math.max(0, baseTN + difficultyMod + fatiguePenalty + carryPenalty + woundPenalty + aeModifier + manualMod);
+    const finalTN = Math.max(0, baseTN + difficultyMod + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + aeModifier + manualMod);
     return {
       baseTN,
       spellcastingLevel,
@@ -707,7 +933,9 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   const spellcastingLevel = getMagicSkillLevel(actor, school);
 
   // Spell level penalty: -10 per spell level above spellcasting level
-  const spellLevel = getSpellLevel(spell);
+  // Use chosen casting level if provided (for scaling), else base spell level
+  const chosenLevel = options?.level ?? options?.castLevel ?? null;
+  const spellLevel = chosenLevel !== null ? Math.max(1, Math.min(7, Number(chosenLevel))) : getSpellLevel(spell);
   const levelPenalty = Math.max(0, spellLevel - spellcastingLevel) * -10;
 
   // Apply standard actor penalties
@@ -718,6 +946,10 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   // Manual modifier from options
   const manualMod = _num(options?.manualModifier ?? options?.manualMod, 0);
 
+  // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
+  const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced);
+  const silencePenalty = isSilenced ? -20 : 0;
+
   const modifiers = [
     { label: "Base TN", value: baseTN, keepZero: true },
     { label: `Difficulty: ${diff?.label ?? "Average"}`, value: difficultyMod, keepZero: true },
@@ -727,6 +959,10 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     { label: "Wound Penalty", value: woundPenalty }
   ];
 
+  if (silencePenalty !== 0) {
+    modifiers.push({ label: "Silenced (no verbal)", value: silencePenalty });
+  }
+
   if (aeModifier !== 0) {
     modifiers.push({ label: "Active Effects", value: aeModifier });
   }
@@ -735,7 +971,7 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     modifiers.push({ label: "Manual Modifier", value: manualMod });
   }
 
-  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + aeModifier + manualMod;
+  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + aeModifier + manualMod;
 
   return {
     baseTN,

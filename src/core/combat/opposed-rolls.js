@@ -10,6 +10,7 @@ import { doTestRoll, resolveOpposed } from "../../utils/degree-roll-helper.js";
 import { calculateDamage, DAMAGE_TYPES } from "./damage-automation.js";
 import { applyDamageResolved } from "./damage-resolver.js";
 import { getAttackModeFromWeapon, getHitLocationFromRoll } from "./combat-utils.js";
+import { preConsumeAttackAmmo as _preConsumeAttackAmmo, markWeaponNeedsReload as _markWeaponNeedsReload } from "./opposed/helpers/workflow.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 
 export const OpposedRoll = {
@@ -40,6 +41,17 @@ export const OpposedRoll = {
 
     const attacker = attackerToken.actor;
     const defender = defenderToken.actor;
+    const attackMode = getAttackModeFromWeapon(weapon);
+
+    // Pre-consume ammo and mark reload state (legacy opposed-rolls path).
+    if (attackMode === "ranged" && weapon?.type === "weapon") {
+      const ammoOk = await _preConsumeAttackAmmo(attacker, {
+        context: { attackMode, weaponUuid: weapon.uuid },
+        attacker: {}
+      });
+      if (!ammoOk) return;
+      await _markWeaponNeedsReload(weapon);
+    }
 
     // Derive TNs — prefer explicit, fall back to sensible fields (common placements)
     const aTN = attackerTarget ?? Number(attacker.system?.combat?.value ?? attacker.system?.skills?.["Combat Style"]?.value ?? attacker.system?.attributes?.initiative?.value ?? 50);
@@ -80,10 +92,9 @@ damageCalc,
         damageType
       };
 
-      const attackMode = getAttackModeFromWeapon(weapon);
       const attackHidden = hasCondition(attacker, "hidden");
       const ammoUuid = (() => {
-        if (attackMode !== "ranged") return "";
+        if (String(attackMode ?? "").toLowerCase() !== "ranged") return "";
         const ammoId = String(weapon?.system?.ammoId ?? "").trim();
         if (!ammoId) return "";
         const ammo = attacker.items?.get?.(ammoId) ?? null;

@@ -25,6 +25,26 @@
     </div>
   </fieldset>
 
+  <fieldset>
+    <legend>Character Generation</legend>
+
+    <div class="form-group">
+      <label>Enforce Character Generation Milestones</label>
+      <input type="checkbox" name="enforceCharGenMilestones" {{checked enforceCharGenMilestones}}>
+      <p class="notes">When enabled, Imperial racial talent automation (Red Diamond / Imperial Luck) applies only if the actor has completed character generation.</p>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Active Effects</legend>
+
+    <div class="form-group">
+      <label>Passive Transfer Item Types</label>
+      <input type="text" name="passiveTransferItemTypes" value="{{passiveTransferItemTypes}}" placeholder="talent,trait,power,skill" style="width:100%;">
+      <p class="notes">Comma-separated item types whose transfer Active Effects apply passively while the item is in an actor's inventory. Changing this requires a reload.</p>
+    </div>
+  </fieldset>
+
   <footer class="sheet-footer flexrow">
     <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
   </footer>

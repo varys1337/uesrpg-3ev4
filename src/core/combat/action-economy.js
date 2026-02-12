@@ -113,6 +113,7 @@ export const ActionEconomy = {
   async breakAim(actor, { reason = "" } = {}) {
     const ef = _findEnabledEffectByKey(actor, "aim");
     if (!ef) return;
+    if (!actor.effects?.get?.(ef.id)) return; // Already deleted
 
     try {
       await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);

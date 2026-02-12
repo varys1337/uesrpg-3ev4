@@ -1,253 +1,998 @@
-/* styles/spell-sheet-compact.css */
-/* Compact spell sheet styling for improved UX */
+/* ═══════════════════════════════════════════════════════════════════════
+   styles/spell-sheet-compact.css
+   Spell Item Sheet — 3-tab layout (Description, Casting, Information)
+   Design tokens + normalised component library
+   ═══════════════════════════════════════════════════════════════════════ */
 
-/* Compact header with flexbox */
-.spell-sheet .compact-header {
-  display: flex;
-  gap: 15px;
-  padding: 10px;
-  background: rgba(0, 0, 0, 0.03);
-  border-bottom: 2px solid rgba(0, 0, 0, 0.15);
+/* ── Design Tokens ──────────────────────────────────────────────────── */
+.spell-sheet {
+  --spell-font-xs: 11px;
+  --spell-font-sm: 12px;
+  --spell-font-md: 13px;
+  --spell-font-lg: 14px;
+  --spell-font-xl: 20px;
+
+  --spell-gap-xs: 4px;
+  --spell-gap-sm: 6px;
+  --spell-gap-md: 8px;
+  --spell-gap-lg: 8px;
+
+  --spell-input-h: 24px;
+  --spell-input-xs: 52px;
+  --spell-input-sm: 85px;
+  --spell-input-med: 130px;
+
+  --spell-label-w: 75px;
+
+  --spell-border: 1px solid rgba(0, 0, 0, 0.15);
+  --spell-border-light: 1px solid rgba(0, 0, 0, 0.08);
+  --spell-radius: 4px;
+
+  --spell-bg-inset: rgba(0, 0, 0, 0.03);
+  --spell-bg-section: rgba(0, 0, 0, 0.025);
+  --spell-bg-hover: rgba(0, 0, 0, 0.04);
+  --spell-bg-header: rgba(0, 0, 0, 0.07);
+
+  --spell-color-danger: #dc3545;
+  --spell-color-danger-hover: #c82333;
+  --spell-color-primary: #333;
+  --spell-color-primary-hover: #111;
+  --spell-color-accent: #0064c8;
+  --spell-color-accent-hover: #004fa0;
+  --spell-color-success: #28a745;
+  --spell-color-warning: #a85;
+  --spell-color-error: #c33;
+  --spell-color-muted: #666;
 }
 
-.spell-sheet .compact-header .profile-img {
+/* ── Sheet Chrome ───────────────────────────────────────────────────── */
+.spell-sheet .sheet-body {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.spell-sheet .sheet-tabs {
+  flex-wrap: nowrap;
+}
+
+.spell-sheet .sheet-tabs .item {
+  font-size: var(--spell-font-sm);
+  padding: 5px 12px;
+}
+
+.spell-sheet .tab {
+  padding: 0;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+.spell-sheet .spell-header {
+  display: flex;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--spell-bg-inset);
+  border-bottom: 2px solid rgba(0, 0, 0, 0.15);
+  align-items: flex-start;
+}
+
+.spell-sheet .spell-header .profile-img {
   flex-shrink: 0;
   border: 2px solid rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
+  border-radius: var(--spell-radius);
+  cursor: pointer;
 }
 
-.spell-sheet .header-fields-compact {
+.spell-sheet .spell-header-fields {
   flex: 1;
   min-width: 0;
 }
 
+.spell-sheet .spell-name {
+  margin: 0;
+}
+
 .spell-sheet .spell-name input {
-  font-size: 20px;
+  font-size: var(--spell-font-xl);
   font-weight: bold;
   border: none;
   background: transparent;
   width: 100%;
-  padding: 2px 0;
+  padding: 0;
+  height: auto;
+  line-height: 1.2;
 }
 
 .spell-sheet .spell-stats-row {
   display: flex;
   gap: 10px;
-  margin-top: 8px;
+  margin-top: 6px;
   flex-wrap: wrap;
   align-items: flex-end;
 }
 
-.spell-sheet .stat-compact {
+/* ── Header Stats ───────────────────────────────────────────────────── */
+.spell-sheet .spell-stat {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 60px;
+  min-width: 50px;
 }
 
-.spell-sheet .stat-compact label {
-  font-size: 11px;
-  font-weight: bold;
+.spell-sheet .spell-stat > label {
+  font-size: var(--spell-font-xs);
+  font-weight: 700;
   text-transform: uppercase;
-  opacity: 0.7;
+  opacity: 0.65;
   line-height: 1;
+  white-space: nowrap;
 }
 
-.spell-sheet .stat-compact input,
-.spell-sheet .stat-compact select {
-  height: 24px;
+.spell-sheet .spell-stat input,
+.spell-sheet .spell-stat select {
+  height: var(--spell-input-h);
   padding: 2px 4px;
-  font-size: 13px;
+  font-size: var(--spell-font-md);
+  border: var(--spell-border);
+  border-radius: 3px;
 }
 
-.spell-sheet .checkbox-compact {
-  display: flex;
-  align-items: center;
+.spell-sheet .spell-stat input[type="number"] {
+  width: var(--spell-input-xs);
 }
 
-.spell-sheet .checkbox-compact label {
+.spell-sheet .spell-stat-wide {
+  min-width: 100px;
+}
+
+.spell-sheet .spell-stat-wide select {
+  width: var(--spell-input-med);
+}
+
+.spell-sheet .spell-stat-check {
+  justify-content: flex-end;
+}
+
+.spell-sheet .spell-stat-check label {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  gap: var(--spell-gap-xs);
+  font-size: var(--spell-font-sm);
+  font-weight: 600;
   text-transform: none;
   opacity: 1;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.spell-sheet .checkbox-compact input[type="checkbox"] {
+.spell-sheet .spell-stat-check input[type="checkbox"] {
   margin: 0;
   width: auto;
   height: auto;
 }
 
-/* Compact attributes section */
-.spell-sheet .attributes-compact {
-  padding: 10px;
+/* ── Casting Body (scrollable content area) ─────────────────────────── */
+.spell-sheet .spell-casting-body {
+  padding: 6px 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spell-gap-md);
 }
 
-.spell-sheet .attribute-section {
-  margin-bottom: 15px;
-  padding: 10px;
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+/* Prevent children from growing vertically and creating gaps */
+.spell-sheet .spell-casting-body > * {
+  flex: 0 0 auto;
 }
 
-.spell-sheet .attribute-section h4 {
-  margin: 0 0 8px 0;
-  font-size: 14px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
-  padding-bottom: 4px;
-  color: #333;
+/* ── Section ────────────────────────────────────────────────────────── */
+.spell-sheet .spell-section {
+  padding: 6px 8px;
+  background: var(--spell-bg-section);
+  border: var(--spell-border);
+  border-radius: var(--spell-radius);
+}
+
+.spell-sheet .spell-section-title {
+  margin: 0 0 var(--spell-gap-sm) 0;
+  padding-bottom: 3px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+  font-size: var(--spell-font-md);
   font-weight: 600;
-}
-
-.spell-sheet .attribute-row {
+  color: #333;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: var(--spell-gap-sm);
 }
 
-.spell-sheet .attribute-row label {
-  min-width: 80px;
-  font-size: 12px;
+/* ── Row (flex row of label + inputs) ───────────────────────────────── */
+.spell-sheet .spell-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-sm);
+  margin-bottom: var(--spell-gap-xs);
+  flex-wrap: wrap;
+}
+
+.spell-sheet .spell-row:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Row — checks variant (checkboxes side by side) ─────────────────── */
+.spell-sheet .spell-row-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: var(--spell-gap-xs);
+}
+
+/* ── Labels ─────────────────────────────────────────────────────────── */
+.spell-sheet .spell-label {
+  min-width: var(--spell-label-w);
+  font-size: var(--spell-font-sm);
+  font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.spell-sheet .spell-label-sm {
+  min-width: auto;
+  font-size: var(--spell-font-sm);
+  font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Checkbox label ─────────────────────────────────────────────────── */
+.spell-sheet .spell-check {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-xs);
+  font-size: var(--spell-font-sm);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.spell-sheet .spell-check input[type="checkbox"] {
+  margin: 0;
+  width: auto;
+  height: auto;
+}
+
+/* ── Inputs (normalised sizing) ─────────────────────────────────────── */
+.spell-sheet .spell-input {
+  height: var(--spell-input-h);
+  font-size: var(--spell-font-sm);
+  padding: 2px 5px;
+  border: var(--spell-border);
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
+.spell-sheet .spell-input-xs { width: var(--spell-input-xs); }
+.spell-sheet .spell-input-sm { width: var(--spell-input-sm); }
+.spell-sheet .spell-input-med { width: var(--spell-input-med); }
+.spell-sheet .spell-input-fill { flex: 1; min-width: 80px; }
+
+.spell-sheet textarea.spell-input {
+  height: auto;
+  min-height: 44px;
+  resize: vertical;
+}
+
+/* ── Fieldset (conditional sub-sections) ────────────────────────────── */
+.spell-sheet .spell-fieldset {
+  border: var(--spell-border);
+  border-radius: var(--spell-radius);
+  padding: var(--spell-gap-xs) var(--spell-gap-md);
+  margin: var(--spell-gap-xs) 0 0 0;
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.spell-sheet .spell-fieldset legend {
+  font-size: var(--spell-font-sm);
+  font-weight: 600;
+  padding: 0 6px;
+  color: #555;
+}
+
+/* ── Hint text ──────────────────────────────────────────────────────── */
+.spell-sheet .spell-hint {
+  font-size: var(--spell-font-xs);
+  font-style: italic;
+  opacity: 0.65;
+  margin: var(--spell-gap-xs) 0 0 0;
+  line-height: 1.35;
+}
+
+/* ── Status indicators ──────────────────────────────────────────────── */
+.spell-sheet .spell-status-ok {
+  color: var(--spell-color-success);
+  font-size: var(--spell-font-sm);
   font-weight: 500;
 }
 
-.spell-sheet .attribute-row input[type="text"],
-.spell-sheet .attribute-row input[type="number"],
-.spell-sheet .attribute-row select {
-  font-size: 12px;
-  padding: 4px 6px;
-  height: 26px;
-}
-
-.spell-sheet .checkboxes-inline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
-}
-
-.spell-sheet .checkboxes-inline label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.spell-sheet .checkboxes-inline input[type="checkbox"] {
+.spell-sheet .spell-empty {
+  font-size: var(--spell-font-sm);
+  font-style: italic;
+  color: var(--spell-color-muted);
+  padding: var(--spell-gap-md) 0;
   margin: 0;
-  width: auto;
-  height: auto;
 }
 
-/* Hide legacy fields section */
-.spell-sheet .legacy-fields,
-.spell-sheet .attribute-tab-container > h3[data-legacy="true"] {
-  display: none;
+/* ── Scaling Levels Table ───────────────────────────────────────────── */
+.spell-sheet .spell-table-scroll {
+  overflow-x: auto;
+  margin-bottom: var(--spell-gap-xs);
 }
 
-/* Improve scaling table */
-.spell-sheet .scaling-table {
+.spell-sheet .spell-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 10px;
-  font-size: 12px;
+  font-size: var(--spell-font-sm);
 }
 
-.spell-sheet .scaling-table th {
-  background: rgba(0, 0, 0, 0.08);
-  padding: 6px 8px;
+.spell-sheet .spell-table th {
+  background: var(--spell-bg-header);
+  padding: 5px 6px;
   text-align: left;
-  font-weight: 600;
-  border-bottom: 2px solid rgba(0, 0, 0, 0.2);
+  font-size: var(--spell-font-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  border-bottom: 2px solid rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
 }
 
-.spell-sheet .scaling-table td {
-  padding: 4px 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
+.spell-sheet .spell-th-narrow { width: 55px; }
+.spell-sheet .spell-th-wide   { min-width: 120px; }
+.spell-sheet .spell-th-action { width: 36px; }
 
-.spell-sheet .scaling-table input {
-  width: 100%;
-  font-size: 12px;
-  padding: 2px 4px;
-}
-
-.spell-sheet .scaling-table button.remove-scaling-level {
-  padding: 4px 8px;
-  background: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 11px;
-}
-
-.spell-sheet .scaling-table button.remove-scaling-level:hover {
-  background: #c82333;
-}
-
-.spell-sheet button.add-scaling-level {
-  padding: 6px 12px;
-  background: #333;
-  color: white;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.spell-sheet button.add-scaling-level:hover {
-  background: #000;
-}
-
-/* Hint text styling */
-.spell-sheet .hint {
-  font-size: 11px;
-  font-style: italic;
-  opacity: 0.7;
-  margin-top: 2px;
-  line-height: 1.3;
-}
-
-/* Tab content spacing */
-.spell-sheet .tab {
-  padding: 10px;
-}
-
-/* Form group improvements */
-.spell-sheet .form-group {
-  margin-bottom: 12px;
-}
-
-.spell-sheet .form-group label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.spell-sheet .form-group input[type="checkbox"] {
-  margin-right: 6px;
+.spell-sheet .spell-table td {
+  padding: 3px 4px;
+  border-bottom: var(--spell-border-light);
   vertical-align: middle;
 }
 
-.spell-sheet .form-group input[type="text"],
-.spell-sheet .form-group input[type="number"],
-.spell-sheet .form-group select {
-  width: 100%;
-  max-width: 400px;
-  font-size: 12px;
-  padding: 4px 6px;
+.spell-sheet .spell-table tr:last-child td {
+  border-bottom: none;
 }
 
-/* Spell school section styling for actor sheets */
+.spell-sheet .spell-table-input {
+  width: 100%;
+  height: 24px;
+  font-size: var(--spell-font-sm);
+  padding: 1px 4px;
+  border: var(--spell-border);
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
+.spell-sheet .spell-table-input-narrow {
+  width: 48px;
+}
+
+.spell-sheet .spell-table-select {
+  height: 24px;
+  font-size: var(--spell-font-xs);
+  padding: 1px 3px;
+  border: var(--spell-border);
+  border-radius: 3px;
+}
+
+.spell-sheet .spell-td-duration {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-xs);
+  padding: 3px 4px;
+}
+
+.spell-sheet .spell-td-action {
+  text-align: center;
+  width: 36px;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+
+/* Inline add/action button (appears in section titles) */
+.spell-sheet .spell-btn-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spell-gap-xs);
+  padding: 3px 8px;
+  font-size: var(--spell-font-xs);
+  font-weight: 600;
+  background: var(--spell-color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+.spell-sheet .spell-btn-inline:hover {
+  background: var(--spell-color-primary-hover);
+}
+
+.spell-sheet .spell-btn-inline i {
+  font-size: 10px;
+}
+
+/* Delete button (red, compact) */
+.spell-sheet .spell-btn-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  font-size: var(--spell-font-xs);
+  background: var(--spell-color-danger);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+  line-height: 1;
+}
+
+.spell-sheet .spell-btn-delete:hover {
+  background: var(--spell-color-danger-hover);
+}
+
+/* Preset button (dark pill) */
+.spell-sheet .spell-btn-preset {
+  padding: 3px 8px;
+  font-size: var(--spell-font-xs);
+  font-weight: 500;
+  background: #555;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.spell-sheet .spell-btn-preset:hover {
+  background: var(--spell-color-primary);
+}
+
+/* Preset bar */
+.spell-sheet .spell-preset-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-sm);
+  margin-top: var(--spell-gap-md);
+  flex-wrap: wrap;
+}
+
+/* Validate / Preview buttons (accent) */
+.spell-sheet .spell-validate-btn,
+.spell-sheet .spell-preview-btn {
+  background: var(--spell-color-accent);
+}
+
+.spell-sheet .spell-validate-btn:hover,
+.spell-sheet .spell-preview-btn:hover {
+  background: var(--spell-color-accent-hover);
+}
+
+/* ── Effect Recipes ─────────────────────────────────────────────────── */
+.spell-sheet .spell-recipes-list {
+  display: flex;
+  flex-direction: column;
+  border: var(--spell-border);
+  border-radius: var(--spell-radius);
+  background: #fff;
+  overflow: hidden;
+}
+
+.spell-sheet .spell-recipe-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-xs);
+  padding: 4px 6px;
+  border-bottom: var(--spell-border-light);
+  transition: background 0.12s;
+}
+
+.spell-sheet .spell-recipe-row:last-child {
+  border-bottom: none;
+}
+
+.spell-sheet .spell-recipe-row:hover {
+  background: var(--spell-bg-hover);
+}
+
+/* Recipe field sizing */
+.spell-sheet .spell-recipe-key {
+  width: 130px;
+  height: 24px;
+  font-size: var(--spell-font-xs);
+  padding: 1px 3px;
+  border: var(--spell-border);
+  border-radius: 3px;
+}
+
+.spell-sheet .spell-recipe-mode {
+  width: 75px;
+  height: 24px;
+  font-size: var(--spell-font-xs);
+  padding: 1px 3px;
+  border: var(--spell-border);
+  border-radius: 3px;
+}
+
+.spell-sheet .spell-recipe-value {
+  width: 55px;
+  height: 24px;
+  font-size: var(--spell-font-xs);
+  padding: 1px 4px;
+  border: var(--spell-border);
+  border-radius: 3px;
+}
+
+.spell-sheet .spell-recipe-target {
+  width: 70px;
+  height: 24px;
+  font-size: var(--spell-font-xs);
+  padding: 1px 3px;
+  border: var(--spell-border);
+  border-radius: 3px;
+}
+
+.spell-sheet .spell-recipe-label {
+  flex: 1;
+  min-width: 60px;
+  height: 24px;
+  font-size: var(--spell-font-xs);
+  padding: 1px 4px;
+  border: var(--spell-border);
+  border-radius: 3px;
+}
+
+/* ── Effect Policies ────────────────────────────────────────────────── */
+/* Uses standard .spell-row + .spell-input-fill — no extra styles needed */
+
+/* ── Active Effects Grid (compact multi-column layout) ────────────────── */
+.spell-sheet .effects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+}
+
+.spell-sheet .effects-grid .effect-row {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.02);
+  transition: background 0.12s;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.spell-sheet .effects-grid .effect-row:hover {
+  background: rgba(0, 100, 200, 0.08);
+  border-color: var(--spell-color-accent);
+}
+
+.spell-sheet .effects-grid .effect-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.spell-sheet .effects-grid .effect-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.spell-sheet .effects-grid .effect-controls {
+  display: flex;
+  gap: 1px;
+  align-items: center;
+}
+
+.spell-sheet .effects-grid .effect-control {
+  padding: 1px 3px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.1s;
+  font-size: 9px;
+  text-decoration: none;
+  color: inherit;
+  line-height: 1;
+}
+
+.spell-sheet .effects-grid .effect-control:hover {
+  background: rgba(0, 100, 200, 0.15);
+  border-color: var(--spell-color-accent);
+}\n\n/* ── Active Effects List (legacy fallback for non-spell sheets) ─────── */
+.spell-sheet .effects-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.spell-sheet .effects-list .effect {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-md);
+  padding: 5px 6px;
+  border-bottom: var(--spell-border-light);
+  background: rgba(0, 0, 0, 0.015);
+  transition: background 0.15s;
+}
+
+.spell-sheet .effects-list .effect:last-child {
+  border-bottom: none;
+}
+
+.spell-sheet .effects-list .effect:hover {
+  background: var(--spell-bg-hover);
+}
+
+.spell-sheet .effects-list .effect-icon {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.spell-sheet .effects-list .effect-name {
+  flex: 1;
+  font-size: var(--spell-font-md);
+  font-weight: 500;
+  margin: 0;
+  color: #333;
+}
+
+.spell-sheet .effects-list .effect-controls {
+  display: flex;
+  gap: var(--spell-gap-xs);
+  align-items: center;
+}
+
+.spell-sheet .effects-list .effect-control {
+  padding: 3px 5px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: var(--spell-font-xs);
+  text-decoration: none;
+  color: inherit;
+}
+
+.spell-sheet .effects-list .effect-control:hover {
+  background: rgba(0, 100, 200, 0.15);
+  border-color: var(--spell-color-accent);
+}
+
+/* ── Validation Output ──────────────────────────────────────────────── */
+.spell-sheet .spell-validation-output {
+  padding: var(--spell-gap-md);
+  background: #f8f8f8;
+  border: var(--spell-border);
+  border-radius: var(--spell-radius);
+  font-size: var(--spell-font-sm);
+  min-height: 30px;
+}
+
+.spell-sheet .spell-validation-output .error {
+  color: var(--spell-color-error);
+  font-weight: 500;
+}
+
+.spell-sheet .spell-validation-output .warning {
+  color: var(--spell-color-warning);
+  font-weight: 500;
+}
+
+.spell-sheet .spell-validation-output .success {
+  color: var(--spell-color-success);
+  font-weight: 500;
+}
+
+/* ── Coverage Checklist ─────────────────────────────────────────────── */
+.spell-sheet .spell-coverage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spell-sheet .spell-coverage-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-sm);
+  padding: 3px 4px;
+  font-size: var(--spell-font-sm);
+  border-radius: 2px;
+}
+
+.spell-sheet .spell-coverage-item:hover {
+  background: var(--spell-bg-hover);
+}
+
+.spell-sheet .spell-coverage-yes {
+  color: var(--spell-color-success);
+  font-size: var(--spell-font-md);
+}
+
+.spell-sheet .spell-coverage-no {
+  color: #bbb;
+  font-size: var(--spell-font-md);
+}
+
+.spell-sheet .spell-coverage-name {
+  font-weight: 600;
+  min-width: 120px;
+}
+
+.spell-sheet .spell-coverage-detail {
+  color: var(--spell-color-muted);
+  font-size: var(--spell-font-xs);
+}
+
+/* ── Resolved Profile Preview ───────────────────────────────────────── */
+.spell-sheet .spell-profile-preview {
+  padding: var(--spell-gap-md);
+  background: #f4f4f4;
+  border: var(--spell-border);
+  border-radius: var(--spell-radius);
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: var(--spell-font-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 40px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* ── Description tab — ProseMirror editor fills available space ─────── */
+.spell-sheet .tab[data-tab="description"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.spell-sheet .tab[data-tab="description"] .editor {
+  flex: 1;
+  min-height: 200px;
+}
+
+/* ── At-a-Glance Status Row ─────────────────────────────────────────── */
+.spell-sheet .spell-glance-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spell-gap-xs);
+  padding: 4px 6px;
+  background: var(--spell-bg-header);
+  border: var(--spell-border);
+  border-radius: var(--spell-radius);
+  align-items: center;
+}
+
+.spell-sheet .spell-glance-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.6);
+  border: var(--spell-border-light);
+  border-radius: 8px;
+  white-space: nowrap;
+  color: #444;
+}
+
+.spell-sheet .spell-glance-tag i {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.spell-sheet .spell-glance-tag--active {
+  background: rgba(40, 167, 69, 0.15);
+  border-color: rgba(40, 167, 69, 0.3);
+  color: #1a6b2d;
+}
+
+/* ── Dense Row (grid layout for compact field groups) ───────────────── */
+.spell-sheet .spell-row-dense {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-xs);
+  margin-bottom: var(--spell-gap-xs);
+  flex-wrap: wrap;
+}
+
+/* ── 2-Column Grid (Targeting + Duration side by side) ──────────────── */
+.spell-sheet .spell-2col-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spell-gap-md);
+  align-items: start;
+}
+
+/* ── Advanced Options Collapsible ───────────────────────────────────── */
+.spell-sheet .spell-advanced {
+  border: var(--spell-border);
+  border-radius: var(--spell-radius);
+  background: var(--spell-bg-section);
+}
+
+.spell-sheet .spell-advanced-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-sm);
+  padding: 5px 8px;
+  font-size: var(--spell-font-md);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  color: #333;
+  transition: background 0.15s;
+}
+
+.spell-sheet .spell-advanced-summary::-webkit-details-marker {
+  display: none;
+}
+
+.spell-sheet .spell-advanced-summary::before {
+  content: "\f054";
+  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free";
+  font-weight: 900;
+  font-size: 10px;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.spell-sheet .spell-advanced[open] > .spell-advanced-summary::before {
+  transform: rotate(90deg);
+}
+
+.spell-sheet .spell-advanced-summary:hover {
+  background: var(--spell-bg-hover);
+}
+
+.spell-sheet .spell-advanced-summary i.fa-cogs {
+  font-size: var(--spell-font-md);
+  opacity: 0.6;
+}
+
+.spell-sheet .spell-advanced-badge {
+  font-size: var(--spell-font-xs);
+  font-weight: 500;
+  font-style: italic;
+  opacity: 0.55;
+  margin-left: auto;
+}
+
+.spell-sheet .spell-advanced-body {
+  padding: 4px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spell-gap-sm);
+}
+
+/* ── Automation Modules Grid (2-col when collapsed) ─────────────────── */
+.spell-sheet .spell-modules-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spell-gap-sm);
+}
+
+.spell-sheet .spell-modules-grid > .spell-module-panel--expanded {
+  grid-column: 1 / -1;
+}
+
+/* ── Automation Module Panels ───────────────────────────────────────── */
+.spell-sheet .spell-module-panel {
+  padding: var(--spell-gap-xs) var(--spell-gap-md);
+  background: rgba(0, 0, 0, 0.015);
+  border: var(--spell-border-light);
+  border-radius: var(--spell-radius);
+}
+
+.spell-sheet .spell-module-title {
+  margin: 0 0 var(--spell-gap-xs) 0;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  font-size: var(--spell-font-xs);
+  font-weight: 600;
+  color: #444;
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-xs);
+}
+
+.spell-sheet .spell-module-title i {
+  font-size: var(--spell-font-xs);
+  opacity: 0.5;
+  width: 14px;
+  text-align: center;
+}
+
+/* ── Scaling Levels as <details> ────────────────────────────────────── */
+.spell-sheet .spell-details-section {
+  border: var(--spell-border);
+  border-radius: var(--spell-radius);
+  background: var(--spell-bg-section);
+}
+
+.spell-sheet .spell-details-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--spell-gap-sm);
+  padding: 5px 8px;
+  font-size: var(--spell-font-md);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  color: #333;
+  transition: background 0.15s;
+}
+
+.spell-sheet .spell-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.spell-sheet .spell-details-summary::before {
+  content: "\f054";
+  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free";
+  font-weight: 900;
+  font-size: 10px;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.spell-sheet .spell-details-section[open] > .spell-details-summary::before {
+  transform: rotate(90deg);
+}
+
+.spell-sheet .spell-details-summary:hover {
+  background: var(--spell-bg-hover);
+}
+
+.spell-sheet .spell-details-badge {
+  font-size: var(--spell-font-xs);
+  font-weight: 700;
+  background: var(--spell-color-primary);
+  color: #fff;
+  padding: 1px 7px;
+  border-radius: 8px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.spell-sheet .spell-details-body {
+  padding: 4px 8px 8px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Actor-Sheet Spell School Sections
+   (spell list on character/NPC sheets — NOT the spell item sheet)
+   ═══════════════════════════════════════════════════════════════════════ */
+
 .spell-school-section {
   margin-bottom: 8px;
   border: 1px solid rgba(0, 0, 0, 0.2);
@@ -410,96 +1155,5 @@
 
 .spell-create i {
   font-size: 10px;
-}
-
-/* Spell sheet Effects tab - match actor sheet styling (Issue #4 fix) */
-.spell-sheet .effects-list {
-  list-style: none;
-  padding: 0;
-  margin: 10px 0;
-}
-
-.spell-sheet .effects-list .effect {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  background: rgba(0, 0, 0, 0.02);
-  transition: background 0.2s ease;
-}
-
-.spell-sheet .effects-list .effect:hover {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-/* Effect icon - compact size matching actor sheets (32x32px) */
-.spell-sheet .effects-list .effect-icon {
-  width: 32px;
-  height: 32px;
-  object-fit: contain;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-
-/* Effect name */
-.spell-sheet .effects-list .effect-name {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-  margin: 0;
-  color: #333;
-}
-
-/* Effect controls */
-.spell-sheet .effects-list .effect-controls {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.spell-sheet .effects-list .effect-control {
-  padding: 4px 6px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.3);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 12px;
-}
-
-.spell-sheet .effects-list .effect-control:hover {
-  background: rgba(0, 100, 200, 0.2);
-  border-color: #0064c8;
-}
-
-/* Active Effects header */
-.spell-sheet .effects-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 2px solid rgba(0, 0, 0, 0.2);
-  margin-bottom: 10px;
-}
-
-.spell-sheet .effects-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.spell-sheet .effects-header .effect-control {
-  padding: 6px 10px;
-  background: rgba(0, 100, 0, 0.1);
-  border: 1px solid rgba(0, 100, 0, 0.3);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.spell-sheet .effects-header .effect-control:hover {
-  background: rgba(0, 100, 0, 0.2);
 }
 

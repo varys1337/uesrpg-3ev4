@@ -1,3 +1,11 @@
+/**
+ * @module traits/trait-registry
+ * @description Trait data registry — damage-type maps, resistance/weakness parsing,
+ * and derived-data helpers for trait items.
+ *
+ * Target: Foundry VTT v13.351
+ */
+
 import { CONDITION_KEYS as CANONICAL_CONDITION_KEYS } from "../conditions/index.js";
 
 const DAMAGE_TYPE_MAP = {
@@ -327,7 +335,11 @@ export function collectTraitDamageModifiers(items = []) {
     }
 
     if (!Number.isFinite(value) || value === 0) continue;
-    profile[category][type] = (Number(profile[category][type] ?? 0) || 0) + value;
+
+    // Chapter 4 stacking: "Traits with X use the highest X."
+    // Resistance and Weakness values use highest-wins, not summation.
+    const current = Number(profile[category][type] ?? 0) || 0;
+    profile[category][type] = Math.max(current, value);
   }
 
   return profile;

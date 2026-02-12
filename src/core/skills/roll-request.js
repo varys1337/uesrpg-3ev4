@@ -10,15 +10,12 @@
  */
 
 import { getDifficultyByKey } from "./skill-tn.js";
+import { isDebugEnabled } from "../../utils/debug.js";
 
 export const SKILL_ROLL_REQUEST_VERSION = 1;
 
 export function isSkillRollDebugEnabled() {
-  try {
-    return Boolean(game.settings.get("uesrpg-3ev4", "skillRollDebug"));
-  } catch (_e) {
-    return false;
-  }
+  return isDebugEnabled("skillRollDebug");
 }
 
 export function skillRollDebug(...args) {

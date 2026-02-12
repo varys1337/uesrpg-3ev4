@@ -1,7 +1,6 @@
 /**
- * src/core/traits/awareness-talents.js
- *
- * Awareness-talent automation layer.
+ * @module traits/awareness-talents
+ * @description Awareness-talent automation layer.
  *
  * Implemented talents:
  *  - Honed Senses: halves penalties from sense-loss (round toward 0).
@@ -16,13 +15,9 @@
 
 import { hasTalent, getSkillRank, normalizeTalentKey } from "./talents-api.js";
 import { promptDoSReplacement } from "./combat-talents.js";
+import { _num as _asNumber } from "./_primitives.js";
 
 const SENSE_LOSS_MOD_KEYS = new Set(["blinded", "deafened"]);
-
-function _asNumber(v, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 function _isSenseLossMod(mod) {
   if (!mod || typeof mod !== "object") return false;
@@ -43,6 +38,7 @@ function _isSenseLossMod(mod) {
  * Rules:
  *  - One with All: penalty becomes 0.
  *  - Honed Senses: penalty is halved, rounding toward 0.
+ *  - Rule Element senseLossReduction: "negate" → 0, "halve" → half.
  *  - Otherwise unchanged.
  *
  * @param {number} penalty
@@ -55,6 +51,12 @@ export function adjustSensePenalty(penalty, actor) {
 
   if (hasTalent(actor, "onewithall")) return 0;
   if (hasTalent(actor, "honedsenses")) return Math.trunc(p / 2);
+
+  // Rule Element: senseLossReduction via passive RE override.
+  const reMode = actor?.system?._reOverrides?.["system.senses.lossReduction"] ?? null;
+  if (reMode === "negate") return 0;
+  if (reMode === "halve") return Math.trunc(p / 2);
+
   return p;
 }
 
@@ -74,15 +76,25 @@ export function applySenseLossPenaltyAdjustments(situationalMods, actor) {
 
   const hasAll = hasTalent(actor, "onewithall");
   const hasHoned = !hasAll && hasTalent(actor, "honedsenses");
-  if (!hasAll && !hasHoned) return;
+  // Rule Element: senseLossReduction via passive RE override.
+  const reMode = actor?.system?._reOverrides?.["system.senses.lossReduction"] ?? null;
+  const hasRE = (reMode === "negate" || reMode === "halve");
+  if (!hasAll && !hasHoned && !hasRE) return;
 
   for (const mod of situationalMods) {
     if (!_isSenseLossMod(mod)) continue;
+    if (mod?._awarenessAdjusted) continue;
     const before = _asNumber(mod.value, 0);
-    if (!before) continue;
+    if (!before) {
+      mod._awarenessAdjusted = true;
+      continue;
+    }
 
     const after = adjustSensePenalty(before, actor);
-    if (after === before) continue;
+    if (after === before) {
+      mod._awarenessAdjusted = true;
+      continue;
+    }
 
     const mode = String(mod.applyMode ?? "").toLowerCase();
     mod.value = (mode === "offset") ? (after - before) : after;
@@ -92,11 +104,13 @@ export function applySenseLossPenaltyAdjustments(situationalMods, actor) {
     if (label) {
       if (hasAll && !/one with all/i.test(label)) mod.label = `${label} (One with All)`;
       else if (hasHoned && !/honed senses/i.test(label)) mod.label = `${label} (Honed Senses)`;
+      else if (hasRE && !/rule element/i.test(label)) mod.label = `${label} (Rule Element)`;
     }
 
     // Normalize source for consistent downstream categorization.
     mod.source = "sense-loss";
     if (!mod.conditionKey && mod.key) mod.conditionKey = String(mod.key);
+    mod._awarenessAdjusted = true;
   }
 }
 

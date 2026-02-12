@@ -1,0 +1,323 @@
+/**
+ * Equipment and item creation dialogs/handlers.
+ *
+ * Target: Foundry VTT v13 (AppV1 ActorSheet).
+ */
+
+import { requestCreateEmbeddedDocuments, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+
+/**
+ * Handle item creation from sheet "+" buttons.
+ *
+ * Options are used to preserve legacy behavior across PC/NPC sheets.
+ *
+ * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {Event} event
+ * @param {object} [options]
+ * @param {string|null} [options.baseCha="str"] If null, does not set system.baseCha on created items.
+ * @param {boolean} [options.includeCombatStyleSeed=true] Whether to apply combatStyle seed fields.
+ * @param {boolean} [options.includeMagicSkillSeed=true] Whether to apply magicSkill seed fields.
+ */
+export async function onItemCreate(sheet, event, {
+  baseCha = "str",
+  includeCombatStyleSeed = true,
+  includeMagicSkillSeed = true,
+} = {}) {
+  event?.preventDefault?.();
+
+  if (!sheet?.actor) return;
+
+  const element = event?.currentTarget;
+  const type = String(element?.id ?? "").trim();
+  if (!type) return;
+
+  let itemData = baseCha === null
+    ? [{ name: type, type }]
+    : [{ name: type, type, "system.baseCha": baseCha }];
+
+  // Special case: createSelect opens a type picker dialog
+  if (type === "createSelect") {
+    const d = new Dialog({
+      title: "Create Item",
+      content: `<div style="padding: 10px 0;">
+                  <h2>Select an Item Type</h2>
+                  <label>Create an item on this sheet</label>
+                </div>`,
+      buttons: {
+        one: {
+          label: "Item",
+          callback: async () => {
+            const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "item", type: "item" }]);
+            await created?.[0]?.sheet?.render?.(true);
+          },
+        },
+        two: {
+          label: "Ammunition",
+          callback: async () => {
+            const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "ammunition", type: "ammunition" }]);
+            await created?.[0]?.sheet?.render?.(true);
+          },
+        },
+        three: {
+          label: "Armor",
+          callback: async () => {
+            const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "armor", type: "armor" }]);
+            await created?.[0]?.sheet?.render?.(true);
+          },
+        },
+        four: {
+          label: "Weapon",
+          callback: async () => {
+            const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "weapon", type: "weapon" }]);
+            await created?.[0]?.sheet?.render?.(true);
+          },
+        },
+        five: { label: "Cancel", callback: () => {} },
+      },
+      default: "one",
+      close: () => {},
+    });
+
+    d.render(true);
+    return;
+  }
+
+  if (includeCombatStyleSeed && type === "combatStyle") {
+    itemData = [
+      {
+        name: "Combat Style Name",
+        type,
+        img: "systems/uesrpg-3ev4/images/Icons/backToBack.webp",
+        "system.governingCha": "Str, Agi",
+        "system.baseCha":
+          (sheet.actor.system?.characteristics?.str?.total ?? 0) >= (sheet.actor.system?.characteristics?.agi?.total ?? 0)
+            ? "str"
+            : "agi",
+      },
+    ];
+  }
+
+  if (includeMagicSkillSeed && type === "magicSkill") {
+    itemData = [
+      {
+        name: "Magic School Name",
+        type,
+        img: "systems/uesrpg-3ev4/images/spell-compendium/mysticism_spellbook.webp",
+        "system.governingCha": "Wp",
+        "system.baseCha":
+          (sheet.actor.system?.characteristics?.int?.total ?? 0) >= (sheet.actor.system?.characteristics?.wp?.total ?? 0)
+            ? "wp"
+            : "int",
+      },
+    ];
+  }
+
+  const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", itemData);
+  await created?.[0]?.sheet?.render?.(true);
+}
+
+/**
+ * Open an equip/unequip dialog for a filtered list of items.
+ *
+ * This is currently used by the NPC sheet's ".equip-items" controls.
+ *
+ * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {Event} event
+ */
+export async function onEquipItems(sheet, event) {
+  event?.preventDefault?.();
+  if (!sheet?.actor) return;
+
+  const element = event.currentTarget;
+  const type = String(element?.id ?? "").trim();
+  const altType = String(element?.dataset?.altType ?? "").trim();
+
+  const itemList = sheet.actor.items.filter((item) => {
+    if (!item) return false;
+    if (item.type === type) return true;
+    if (altType && item.type === altType && item.system?.wearable) return true;
+    return false;
+  });
+
+  if (itemList.length === 0) {
+    return ui.notifications.info(`${sheet.actor.name} does not have any items of this type to equip.`);
+  }
+
+  const itemEntries = [];
+  let tableHeader = "";
+  let tableEntry = "";
+
+  for (const item of itemList) {
+    switch (item.type) {
+      case "armor":
+      case "item":
+        tableEntry = `<tr>
+                            <td data-item-id="${item._id}">
+                                <div style="display: flex; flex-direction: row; align-items: center; gap: 5px;">
+                                  <img class="item-img" src="${item.img}" height="24" width="24">
+                                  ${item.name}
+                                </div>
+                            </td>
+                            <td style="text-align: center;">${item.system.armor}</td>
+                            <td style="text-align: center;">${item.system.magic_ar}</td>
+                            <td style="text-align: center;">${item.system.blockRating}</td>
+                            <td style="text-align: center;">
+                                <input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}>
+                            </td>
+                        </tr>`;
+        break;
+
+      case "weapon":
+        tableEntry = `<tr>
+                            <td data-item-id="${item._id}">
+                                <div style="display: flex; flex-direction: row; align-items: center; gap: 5px;">
+                                  <img class="item-img" src="${item.img}" height="24" width="24">
+                                  ${item.name}
+                                </div>
+                            </td>
+                            <td style="text-align: center;">${item.system.damage}</td>
+                            <td style="text-align: center;">${item.system.damage2}</td>
+                            <td style="text-align: center;">${item.system.reach}</td>
+                            <td style="text-align: center;">
+                                <input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}>
+                            </td>
+                        </tr>`;
+        break;
+
+      case "ammunition":
+        tableEntry = `<tr>
+                            <td data-item-id="${item._id}">
+                                <div style="display: flex; flex-direction: row; align-items: center; gap: 5px;">
+                                  <img class="item-img" src="${item.img}" height="24" width="24">
+                                  ${item.name}
+                                </div>
+                            </td>
+                            <td style="text-align: center;">${item.system.quantity}</td>
+                            <td style="text-align: center;">${item.system.damage}</td>
+                            <td style="text-align: center;">${item.system.enchant_level}</td>
+                            <td style="text-align: center;">
+                                <input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}>
+                            </td>
+                        </tr>`;
+        break;
+
+      default:
+        continue;
+    }
+
+    itemEntries.push(tableEntry);
+  }
+
+  switch (itemList[0].type) {
+    case "armor":
+    case "item":
+      tableHeader = `<div>
+                          <div style="padding: 5px 0;">
+                              <label>Selecting nothing will unequip all items</label>
+                          </div>
+
+                          <div>
+                              <table>
+                                  <thead>
+                                      <tr>
+                                          <th>Name</th>
+                                          <th>AR</th>
+                                          <th>MR</th>
+                                          <th>BR</th>
+                                          <th>Equipped</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      ${itemEntries.join("")}
+                                  </tbody>
+                              </table>
+                          </div>
+                      </div>`;
+      break;
+
+    case "weapon":
+      tableHeader = `<div>
+                          <div style="padding: 5px 0;">
+                              <label>Selecting nothing will unequip all items</label>
+                          </div>
+
+                          <div>
+                              <table>
+                                  <thead>
+                                      <tr>
+                                          <th>Name</th>
+                                          <th>1H</th>
+                                          <th>2H</th>
+                                          <th>Reach</th>
+                                          <th>Equipped</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      ${itemEntries.join("")}
+                                  </tbody>
+                              </table>
+                          </div>
+                      </div>`;
+      break;
+
+    case "ammunition":
+      tableHeader = `<div>
+                        <div style="padding: 5px 0;">
+                            <label>Selecting nothing will unequip all items</label>
+                        </div>
+
+                        <div>
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Qty</th>
+                                        <th>Damage</th>
+                                        <th>Enchant</th>
+                                        <th>Equipped</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${itemEntries.join("")}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>`;
+      break;
+    default:
+      break;
+  }
+
+  const d = new Dialog({
+    title: "Item List",
+    content: tableHeader,
+    buttons: {
+      one: {
+        label: "Cancel",
+        callback: () => {},
+      },
+      two: {
+        label: "Submit",
+        callback: async (dialogHtml) => {
+          const selected = dialogHtml?.find?.(".itemSelect")?.toArray?.() ?? [];
+
+          const updates = [];
+          for (const checkbox of selected) {
+            const itemId = String(checkbox?.dataset?.itemId ?? "").trim();
+            if (!itemId) continue;
+
+            updates.push({ _id: itemId, "system.equipped": Boolean(checkbox.checked) });
+          }
+
+          if (!updates.length) return;
+          await requestUpdateEmbeddedDocuments(sheet.actor, "Item", updates);
+        },
+      },
+    },
+    default: "two",
+    close: () => {},
+  });
+
+  d.position.width = 500;
+  d.render(true);
+}

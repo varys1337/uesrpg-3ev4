@@ -131,7 +131,14 @@ export function bindCommonSheetListeners(sheet, html) {
   }
 
   if (typeof sheet._onItemSearch === "function") {
-    html.find("#uesrpg-item-search").off("input.uesrpgCommon").on("input.uesrpgCommon", sheet._onItemSearch.bind(sheet));
+    // Debounce search filtering to reduce DOM thrashing during fast typing.
+    // Uses per-sheet memoization so the debounced function is stable across re-binds.
+    if (!sheet._uesrpgDebouncedSearch) {
+      sheet._uesrpgDebouncedSearch = foundry.utils.debounce(
+        sheet._onItemSearch.bind(sheet), 200
+      );
+    }
+    html.find("#uesrpg-item-search").off("input.uesrpgCommon").on("input.uesrpgCommon", sheet._uesrpgDebouncedSearch);
   }
 
   if (typeof sheet._onLoadoutSave === "function") {
@@ -197,12 +204,9 @@ export function bindCommonEditableInventoryListeners(sheet, html) {
 
       item.sheet.render(true);
 
-      // Preserve existing behavior: trigger a benign update to ensure reactive data paths refresh.
-      try {
-        await item.update({ "system.value": item.system.value });
-      } catch (_e) {
-        // Some items may not have system.value; ignore.
-      }
+      // Perf: removed benign `item.update({ "system.value": item.system.value })` that
+      // triggered full update pipelines (network sync, re-render) with no actual data change.
+      // The sheet.render(true) above is sufficient to open and display the item sheet.
     });
 
   // Open container sheet from backpack icon
@@ -217,11 +221,8 @@ export function bindCommonEditableInventoryListeners(sheet, html) {
 
       containerItem.sheet.render(true);
 
-      try {
-        await containerItem.update({ "system.value": containerItem.system.value });
-      } catch (_e) {
-        // ignore
-      }
+      // Perf: removed benign `containerItem.update(...)` — no-op update.
+      // render(true) above is sufficient to open and refresh the container sheet.
     });
 
   // Delete inventory item (container-safe)

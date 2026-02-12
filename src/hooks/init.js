@@ -22,8 +22,19 @@ import { registerFrenzied, FrenziedAPI } from "../core/conditions/frenzied.js";
 import { applyDamage, applyHealing, DAMAGE_TYPES } from "../core/combat/damage-automation.js";
 import { applyDamageResolved } from "../core/combat/damage-resolver.js";
 import { registerChatMessageSocket } from "../utils/chat-message-socket.js";
-import { registerActiveEffectProxy } from "../utils/active-effect-proxy.js";
+import { registerAuthorityProxy } from "../utils/authority-proxy.js";
 import { registerReachVisualizer } from "../ui/canvas/reach-visualizer.js";
+import { registerRacialTalentsAutomation } from "../core/traits/racial-talents.js";
+import { registerSpellcastingTalentHooks } from "../core/traits/spellcasting-talents.js";
+import { registerActivationStateHooks } from "../core/combat/activation-state-flags.js";
+import { CharOpposedWorkflow } from "../core/characteristics/opposed-workflow.js";
+import { isDebugEnabled } from "../utils/debug.js";
+import { evaluatePredicate, isPredicate, selfTestPredicate } from "../core/rules/predicate.js";
+import { normalizeRollOption, buildBaseRollOptions } from "../core/rules/roll-options.js";
+import { buildRollContext } from "../core/rules/roll-context.js";
+import { compileConditionsToPredicate } from "../core/traits/features/conditions-to-predicate.js";
+import { getRuleElementRuntimeSupport } from "../core/traits/features/rule-elements.js";
+import { selfTestRuleElementRuntime } from "../core/traits/features/rule-element-runtime.js";
 
 /**
  * Preload Handlebars partials used by system sheets.
@@ -33,6 +44,10 @@ import { registerReachVisualizer } from "../ui/canvas/reach-visualizer.js";
 async function preloadHandlebarsTemplates() {
   const templatePaths = [
     "systems/uesrpg-3ev4/templates/partials/sheets/fixed-header.hbs",
+    "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs",
+    "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs",
+    "systems/uesrpg-3ev4/templates/partials/sheets/feature-config-tab.hbs",
+    "systems/uesrpg-3ev4/templates/partials/sheets/automation-tab.hbs",
   ];
 
   try {
@@ -63,7 +78,12 @@ async function registerSettings() {
     type: String,
     choices: {
       "Cyrodiil": "Сyrodiil - Default",
-      "Magic-Cyr": "Magic-Cyr"
+      "Magic-Cyr": "Magic-Cyr",
+      "Dorovar Carolus": "Dorovar Carolus",
+      "Futura Condensed Medium": "Futura Condensed Medium",
+      "Kingthings Petrock": "Kingthings Petrock",
+      "Morris Roman Black": "Morris Roman Black",
+      "Morris Roman Black Alternate": "Morris Roman Black Alternate"
     },
     default: "Cyrodiil"
   });
@@ -81,7 +101,7 @@ async function registerSettings() {
     name: "Action Point Automation",
     hint: "Round-Based: AP is set to max at the start of each round. Turn-Based: Ap is set to max at the start of each turn, except the first round in which all combatants start with max AP. None: No automation.",
     scope: "world",
-    config: true,
+    config: false,
     type: String,
     default: "round",
     choices: {
@@ -89,6 +109,62 @@ async function registerSettings() {
       turn: "Turn-Based",
       none: "None",
     },
+  });
+
+  game.settings.register("uesrpg-3ev4", "aeLifecycleDebug", {
+    name: "Active Effect Lifecycle Debug",
+    hint: "Log all AE fetch/delete operations (for troubleshooting only). Helps diagnose 'does not exist' errors.",
+    scope: "client",
+    // Keep this out of the main System Settings list; expose it via the Debugging submenu.
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
+  game.settings.register("uesrpg-3ev4", "perfDebug", {
+    name: "Performance Profiling",
+    hint: "Log console.time/timeEnd markers for getData(), rule element evaluation, and opposed resolution.",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
+  game.settings.register("uesrpg-3ev4", "spellTickDebug", {
+    name: "Spell Tick Engine: Debug Logging",
+    hint: "When enabled, the spell tick engine logs turn/round/worldTime tick events and handler invocations.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "overTimeDebug", {
+    name: "OverTime Effects: Debug Logging",
+    hint: "When enabled, the OverTime effects engine logs effect collection, cadence gating, payload execution, and state updates.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "enforceCharGenMilestones", {
+    name: "Enforce Character Generation Milestones",
+    hint: "When enabled, Imperial racial talent automation (Red Diamond / Imperial Luck) applies only if the actor has flags.uesrpg.charGen.completed = true.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
+  game.settings.register("uesrpg-3ev4", "passiveTransferItemTypes", {
+    name: "Passive Transfer Item Types",
+    hint: "Comma-separated item types whose transfer Active Effects apply passively while the item is in an actor's inventory.",
+    scope: "world",
+    config: false,
+    type: String,
+    default: "talent,trait,power,skill",
+    requiresReload: true
   });
 
   game.settings.register("uesrpg-3ev4", "sortAlpha", {
@@ -101,15 +177,25 @@ async function registerSettings() {
     onChange: delayedReload,
   });
 
-  // Migration bookkeeping. This is intentionally hidden (config:false) and stores JSON.
-  // Migrations remain idempotent even if this setting is cleared.
-  game.settings.register("uesrpg-3ev4", "migrationState", {
-    name: "Migration State",
-    hint: "Internal migration bookkeeping for the UESRPG system.",
+  // World data version stamp for the new-world-only compatibility gate.
+  game.settings.register("uesrpg-3ev4", "worldDataVersion", {
+    name: "World Data Version",
+    hint: "Records the system version that last initialized this world. Used by the compatibility gate.",
     scope: "world",
     config: false,
-    default: "{}",
+    default: "",
     type: String,
+  });
+
+  // Global master gate for all diagnostics/debug lanes.
+  // If disabled, all debug logs are suppressed even if individual lanes are enabled.
+  game.settings.register("uesrpg-3ev4", "debugEnabled", {
+    name: "Debug Logging: Master Enable",
+    hint: "Global master switch for all UESRPG debug logging. Disable to suppress all debug console output.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
   });
 
   // Opposed workflow diagnostics
@@ -150,9 +236,94 @@ async function registerSettings() {
     type: Boolean,
   });
 
+  game.settings.register("uesrpg-3ev4", "spellCastingDebug", {
+    name: "Spell Casting: Workflow Debug Logging",
+    hint: "When enabled, spell casting workflow logs comprehensive diagnostic information including spell data, dialog construction, and scaling level processing. Recommended only for debugging scaling dropdown issues.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "activationDebug", {
+    name: "Activation/Talent: Debug Logging",
+    hint: "When enabled, activation and talent automation workflows log detailed diagnostics to the browser console.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  // Rule-element runtime master switch (phase-gated substrate rollout).
+  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntime", {
+    name: "Rule Elements Runtime (Experimental)",
+    hint: "Enable runtime evaluation of Rule Elements (experimental).",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntimeSkill", {
+    name: "Rule Elements Runtime: Skill Opposed",
+    hint: "Enable Rule Elements runtime on skill opposed workflows.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntimeCharacteristic", {
+    name: "Rule Elements Runtime: Characteristic Opposed",
+    hint: "Enable Rule Elements runtime on characteristic opposed workflows.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntimeCombat", {
+    name: "Rule Elements Runtime: Combat Opposed",
+    hint: "Enable Rule Elements runtime on combat opposed workflows.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntimeMagic", {
+    name: "Rule Elements Runtime: Magic Opposed",
+    hint: "Enable Rule Elements runtime on magic opposed workflows.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  // Dedicated debug lane for predicate/runtime traces.
+  game.settings.register("uesrpg-3ev4", "ruleElementDebug", {
+    name: "Rule Elements: Debug Logging",
+    hint: "When enabled, predicate and rule-element runtime diagnostics are logged to the browser console.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
   game.settings.register("uesrpg-3ev4", "opposedShowResolutionDetails", {
     name: "Opposed: Show Resolution Details",
     hint: "When enabled, opposed-roll chat cards include an additional expandable section with detailed resolution data. Recommended for testing; disable for normal play.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+
+
+  game.settings.register("uesrpg-3ev4", "opposedShowStatusLine", {
+    name: "Opposed: Show Status Line",
+    hint: "When enabled, opposed-roll chat cards include Status lines (Committed/Rolled/Resolved). Intended for debugging/testing.",
     scope: "world",
     config: false,
     default: false,
@@ -264,6 +435,45 @@ async function registerSettings() {
     type: Boolean,
   });
 
+  game.settings.register("uesrpg-3ev4", "tokenRangeMeasurement", {
+    name: "Combat: Token Range Measurement Mode",
+    hint: "How to measure distance between tokens. 'Center Point': Always measure center-to-center (legacy, treats all tokens as 1×1). 'Edge to Edge': Measure from nearest edges for tokens larger than 1×1 (D&D/PF2e standard).",
+    scope: "world",
+    config: false,
+    default: "center",
+    type: String,
+    choices: {
+      "center": "Center Point (Legacy)",
+      "edge": "Edge to Edge (D&D/PF2e)"
+    }
+  });
+
+  game.settings.register("uesrpg-3ev4", "aoeContainmentMode", {
+    name: "Combat: AoE Containment Mode",
+    hint: "How to determine if a token is inside an Area of Effect template. 'True Radius': geometric multi-point sampling — any corner or edge midpoint inside the template counts. 'Grid-Aware': checks if the template overlaps any grid cell occupied by the token.",
+    scope: "world",
+    config: false,
+    default: "true-radius",
+    type: String,
+    choices: {
+      "true-radius": "True Radius (Geometric)",
+      "grid-aware": "Grid-Aware (Cell Overlap)"
+    }
+  });
+
+  game.settings.register("uesrpg-3ev4", "aoeOriginMeasurement", {
+    name: "Combat: AoE Range Origin",
+    hint: "How to measure range from the caster to an AoE placement or spell target. 'Center': from token center (legacy). 'Nearest Edge': from the closest edge of the caster token. 'Match Token': use the Token Range Measurement setting.",
+    scope: "world",
+    config: false,
+    default: "center",
+    type: String,
+    choices: {
+      "center": "Center Point",
+      "edge": "Nearest Edge",
+      "match-token": "Match Token Range Setting"
+    }
+  });
 
   // Talents automation: optional enforcement toggles (Chapter 4)
   game.settings.register("uesrpg-3ev4", "enableMightyCleave", {
@@ -303,6 +513,16 @@ async function registerSettings() {
     type: Boolean,
   });
 
+  // Spell Recipes (Experimental) — hidden by default
+  game.settings.register("uesrpg-3ev4", "enableSpellRecipes", {
+    name: "Spell Recipes (Experimental)",
+    hint: "When enabled, shows the Effect Recipes UI on spell sheets. This feature is experimental and may not fully integrate with ActiveEffect creation.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
   // Register a dedicated Debugging menu to avoid clutter in System Settings.
   registerDebugSettingsMenu();
 
@@ -329,6 +549,20 @@ function registerHandlebarsHelpers() {
   // Equality helper for template comparisons
   Handlebars.registerHelper('eq', function(a, b) {
     return a === b;
+  });
+
+  Handlebars.registerHelper('includes', function(arr, value) {
+    return Array.isArray(arr) ? arr.includes(value) : false;
+  });
+
+  Handlebars.registerHelper('json', function(value) {
+    if (value == null) return "";
+    if (typeof value === "string") return value;
+    try {
+      return JSON.stringify(value);
+    } catch (_e) {
+      return "";
+    }
   });
 }
 
@@ -365,6 +599,26 @@ export default async function initHandler() {
   // Default newly created Item Active Effects to transfer=true ("Apply Effect to Actor"), unless explicitly set.
   // We register these hooks once per session.
   if (!game.uesrpg) game.uesrpg = {};
+  if (!game.uesrpg.rules) game.uesrpg.rules = {};
+  game.uesrpg.rules.predicate = {
+    isPredicate,
+    evaluatePredicate,
+    selfTest: selfTestPredicate
+  };
+  game.uesrpg.rules.rollOptions = {
+    normalize: normalizeRollOption,
+    buildBase: buildBaseRollOptions
+  };
+  game.uesrpg.rules.rollContext = {
+    build: buildRollContext
+  };
+  game.uesrpg.rules.conditions = {
+    compileToPredicate: compileConditionsToPredicate
+  };
+  game.uesrpg.rules.ruleElements = {
+    getSupportMatrix: getRuleElementRuntimeSupport,
+    selfTestRuntime: selfTestRuleElementRuntime
+  };
 
   // Opposed workflow diagnostics helpers (per-client trace ring buffer + console dump utilities)
   // Safe: no schema changes; GM-only dump functions.
@@ -372,6 +626,20 @@ export default async function initHandler() {
     registerOpposedDiagnostics();
   } catch (err) {
     console.warn("UESRPG | Failed to register opposed diagnostics", err);
+  }
+
+  // Racial talent/power automation hooks (Chapter 4): registered once.
+  try {
+    registerRacialTalentsAutomation();
+  } catch (err) {
+    console.warn("UESRPG | Failed to register racial talent automation", err);
+  }
+
+  // Spellcasting talent hooks (Chapter 4 Spellcasting): registered once.
+  try {
+    registerSpellcastingTalentHooks();
+  } catch (err) {
+    console.warn("UESRPG | Failed to register spellcasting talent hooks", err);
   }
 
 // COMBAT_API_EXPORTS_V1
@@ -388,6 +656,10 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
   const src = options?.source ?? "Healing";
   return applyHealing(actor, amount, { ...options, source: src });
 };
+
+// Characteristic Opposed Workflow — exposed for macros/downstream consumers.
+if (!game.uesrpg.characteristics) game.uesrpg.characteristics = {};
+game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
 
   if (!game.uesrpg._defaultItemAETransferHook) {
     game.uesrpg._defaultItemAETransferHook = true;
@@ -446,6 +718,8 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
     });
 
     // Fallback: if some creation path bypasses preCreate mutation, enforce immediately after create.
+    // For feature types (talent/trait/power), respect the explicit transfer value so users
+    // can control the passive (transfer:true) vs activation (transfer:false) distinction.
     Hooks.on("createActiveEffect", async (effect, options, userId) => {
       try {
         if (game.userId !== userId) return;
@@ -453,6 +727,12 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
         if (!parent || parent.documentName !== "Item") return;
 
         if (effect.transfer) return;
+
+        // Feature types use transfer:false semantically to mean "activation-only effect".
+        // Do NOT override it — the user intentionally left it as transfer:false.
+        const itemType = String(parent.type ?? "").toLowerCase();
+        if (itemType === "talent" || itemType === "trait" || itemType === "power") return;
+
         // Only force if it looks like a default-created effect (no explicit choice).
         await effect.update({ transfer: true });
       } catch (err) {
@@ -469,9 +749,67 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
         if (!flags?.spellEffect || !flags?.hasUpkeep) return;
         if (!flags?.upkeepAwaiting) return;
         if (options?.uesrpgAllowUpkeepDelete) return;
+
+        // Only block deletions explicitly marked as automated expiration
+        // sweeps that could race with the upkeep prompt.  All other
+        // deletions (manual UI, upkeep-cancel, etc.) are allowed through.
+        if (!options?.uesrpgExpirationSweep) return;
+
         return false;
       } catch (err) {
         console.error("UESRPG | Upkeep delete guard failed", err);
+      }
+    });
+  }
+
+  // Buffer cleanup on effect deletion
+  if (!game.uesrpg._bufferCleanupHook) {
+    game.uesrpg._bufferCleanupHook = true;
+    Hooks.on("deleteActiveEffect", async (effect, _options, userId) => {
+      try {
+        // Only run on the initiating client to avoid duplicate processing
+        if (game.userId !== userId) return;
+
+        const flags = effect?.flags?.["uesrpg-3ev4"];
+        if (!flags?.bufferApplied || !flags?.bufferType) return;
+
+        const targetActor = effect.parent;
+        if (!targetActor || targetActor.documentName !== "Actor") return;
+
+        const bufferType = flags.bufferType; // "physical", "magical", or "elemental"
+        const bufferPath = `system.buffers.${bufferType}`;
+
+        // Check if there are other active effects still providing this buffer type
+        const otherBufferEffects = targetActor.effects?.filter(ef => 
+          ef.id !== effect.id && 
+          ef.flags?.["uesrpg-3ev4"]?.bufferApplied && 
+          ef.flags?.["uesrpg-3ev4"]?.bufferType === bufferType
+        ) ?? [];
+
+        // If no other effects provide this buffer type, clear it
+        if (otherBufferEffects.length === 0) {
+          const { requestUpdateDocument } = await import("../utils/authority-proxy.js");
+          await requestUpdateDocument(targetActor, { [bufferPath]: 0 });
+
+          const debugEnabled = game.settings.get("uesrpg-3ev4", "spellCastingDebug");
+          if (debugEnabled) {
+            console.log(`UESRPG | Buffer cleanup: Cleared ${bufferType} buffer on ${targetActor.name} (effect ${effect.name} deleted)`);
+          }
+        } else {
+          // Recalculate buffer to the max of remaining effects
+          const maxBuffer = Math.max(...otherBufferEffects.map(ef => 
+            Number(ef.flags?.["uesrpg-3ev4"]?.bufferOriginalValue ?? 0)
+          ));
+          const { requestUpdateDocument } = await import("../utils/authority-proxy.js");
+          await requestUpdateDocument(targetActor, { [bufferPath]: maxBuffer });
+
+          const debugEnabled = game.settings.get("uesrpg-3ev4", "spellCastingDebug");
+          if (debugEnabled) {
+            console.log(`UESRPG | Buffer cleanup: Recalculated ${bufferType} buffer to ${maxBuffer} on ${targetActor.name}`);
+          }
+        }
+      } catch (err) {
+        console.error("UESRPG | Buffer cleanup failed", err);
       }
     });
   }
@@ -515,8 +853,9 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
   // Initialize combat automation chat handlers
   initializeChatHandlers();
   registerCombatChatHooks();
+  registerActivationStateHooks();
   registerChatMessageSocket();
-  registerActiveEffectProxy();
+  registerAuthorityProxy();
   // Canvas tool: visualize melee reach for controlled tokens.
   registerReachVisualizer();
 
@@ -569,88 +908,14 @@ function applyFont(fontFamily) {
 
 //Hook for changing font on startup
 
-/**
- * Normalize invalid core SVG icon paths on Active Effects created by older builds.
- * This prevents 404 spam from missing icons (e.g., icons/svg/arrow-up.svg).
- *
- * Safe:
- * - GM-only
- * - idempotent
- * - updates only when the icon path is known-invalid
- */
-async function normalizeInvalidEffectIcons() {
-  if (!game.user?.isGM) return;
-
-  // Foundry core SVGs live under icons/svg/*.svg
-  // Some older builds referenced non-existent arrows (arrow-up.svg / arrow-down.svg).
-  const iconMap = new Map([
-    ["icons/svg/arrow-up.svg", "icons/svg/up.svg"],
-    ["icons/svg/arrow-down.svg", "icons/svg/down.svg"]
-  ]);
-
-  /**
-   * Normalize icons on a collection of ActiveEffect-like documents.
-   * @param {any} parentDoc Actor | Item | TokenDocument.actor etc
-   * @param {Iterable<any>} effects
-   */
-  const normalizeEffects = async (parentDoc, effects) => {
-    if (!parentDoc || !effects) return;
-    const updates = [];
-    for (const ef of effects) {
-      const img = ef?.img;
-      if (!img || typeof img !== "string") continue;
-      const next = iconMap.get(img);
-      if (!next || next === img) continue;
-      updates.push({ _id: ef.id, img: next });
-    }
-    if (updates.length === 0) return;
-
-    try {
-      await parentDoc.updateEmbeddedDocuments("ActiveEffect", updates);
-    } catch (err) {
-      // Do not hard-fail boot if a synthetic actor or protected document cannot be updated.
-      console.warn("UESRPG | Failed to normalize effect icons on document.", { parent: parentDoc?.uuid ?? parentDoc?.id, err });
-    }
-  };
-
-  // 1) World Actors (and their embedded item effects)
-  for (const actor of (game.actors?.contents ?? [])) {
-    await normalizeEffects(actor, actor.effects ?? []);
-    for (const it of (actor.items ?? [])) {
-      await normalizeEffects(it, it.effects ?? []);
-    }
-  }
-
-  // 2) World Items
-  for (const it of (game.items?.contents ?? [])) {
-    await normalizeEffects(it, it.effects ?? []);
-  }
-
-  // 3) Unlinked token actors on active scenes (best effort)
-  for (const scene of (game.scenes?.contents ?? [])) {
-    for (const td of (scene.tokens ?? [])) {
-      try {
-        const actor = td?.actor;
-        if (!actor) continue;
-        // Normalize effects on the token actor (may be synthetic).
-        await normalizeEffects(actor, actor.effects ?? []);
-      } catch (_err) {
-        // swallow
-      }
-    }
-  }
-}
-
 
 Hooks.once("ready", async () => {
   const fontFamily = game.settings.get("uesrpg-3ev4", "changeUiFont");
   applyFont(fontFamily);
 
-  await normalizeInvalidEffectIcons();
-
 
   // Developer-only: expose a skill TN debug helper for the GM.
-  if (game.user?.isGM && game.settings.get("uesrpg-3ev4", "debugSkillTN")) {
+  if (game.user?.isGM && isDebugEnabled("debugSkillTN")) {
     registerSkillTNDebug();
   }
 

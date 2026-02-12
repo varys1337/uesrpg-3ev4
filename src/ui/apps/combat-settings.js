@@ -18,6 +18,10 @@ export class CombatSettingsApp extends FormApplication {
     return {
       ...super.getData(options),
       enableActionEconomyUI: game.settings.get(NAMESPACE, "enableActionEconomyUI"),
+      actionPointAutomation: game.settings.get(NAMESPACE, "actionPointAutomation"),
+      tokenRangeMeasurement: game.settings.get(NAMESPACE, "tokenRangeMeasurement"),
+      aoeContainmentMode: game.settings.get(NAMESPACE, "aoeContainmentMode"),
+      aoeOriginMeasurement: game.settings.get(NAMESPACE, "aoeOriginMeasurement"),
     };
   }
 
@@ -25,6 +29,10 @@ export class CombatSettingsApp extends FormApplication {
   async _updateObject(_event, formData) {
     const toBool = (v) => Boolean(v);
     if ("enableActionEconomyUI" in formData) await game.settings.set(NAMESPACE, "enableActionEconomyUI", toBool(formData.enableActionEconomyUI));
+    if ("actionPointAutomation" in formData) await game.settings.set(NAMESPACE, "actionPointAutomation", formData.actionPointAutomation);
+    if ("tokenRangeMeasurement" in formData) await game.settings.set(NAMESPACE, "tokenRangeMeasurement", formData.tokenRangeMeasurement);
+    if ("aoeContainmentMode" in formData) await game.settings.set(NAMESPACE, "aoeContainmentMode", formData.aoeContainmentMode);
+    if ("aoeOriginMeasurement" in formData) await game.settings.set(NAMESPACE, "aoeOriginMeasurement", formData.aoeOriginMeasurement);
   }
 }
 

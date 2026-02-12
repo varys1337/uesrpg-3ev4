@@ -1,6 +1,7 @@
 import { prepareCharacterItems } from "./sheet-prepare-items.js";
 import { bindCommonSheetListeners, bindCommonEditableInventoryListeners } from "./sheet-listeners.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "./rest-workflow.js";
+import { cachedEnrichHTML } from "../../utils/enrich-cache.js";
 
 /**
  * Group Actor Sheet
@@ -74,12 +75,13 @@ export class GroupSheet extends ActorSheet {
     data.averageSpeed = data.displayAverageSpeed;
     data.averageSpeedKmh = data.displayAverageSpeedKmh;
 
-    // Enrich HTML fields using exact jamesjtb pattern
-    data.actor.system.enrichedDescription = await TextEditor.enrichHTML(
-      data.actor.system.description, { async: true }
+    // Enrich HTML fields (cached per sheet instance to avoid re-enriching on every render)
+    const _enrich = (raw) => TextEditor.enrichHTML(raw || "", { async: true });
+    data.actor.system.enrichedDescription = await cachedEnrichHTML(
+      this, "group:desc", data.actor.system.description ?? "", _enrich
     );
-    data.actor.system.enrichedNotes = await TextEditor.enrichHTML(
-      data.actor.system.notes, { async: true }
+    data.actor.system.enrichedNotes = await cachedEnrichHTML(
+      this, "group:notes", data.actor.system.notes ?? "", _enrich
     );
 
     // Travel pace data (UESRPG RAW Chapter 1)
@@ -184,7 +186,11 @@ export class GroupSheet extends ActorSheet {
       html.find(".deploy-group").click(this._onDeployGroup.bind(this));
     }
 
-    // Register hook to refresh when member actors update
+    // Register hook to refresh when member actors update.
+    // Unhook the previous listener first to prevent leaks across re-renders.
+    if (this._memberUpdateHook != null) {
+      Hooks.off("updateActor", this._memberUpdateHook);
+    }
     this._memberUpdateHook = Hooks.on("updateActor", (actor, updateData, options, userId) => {
       // Check if updated actor is a member of this group
       const isMember = this.actor.system.members?.some(m => m.id === actor.uuid);
@@ -618,6 +624,41 @@ export class GroupSheet extends ActorSheet {
       if (!item) {
         ui.notifications.warn("Could not find item.");
         return;
+      }
+
+      // Check if item is being moved within the same group and is in a container
+      if (item.actor?.id === this.actor.id) {
+        const cs = item.system?.containerStats;
+        if (cs?.contained && cs?.container_id) {
+          // Item is currently in a container - unlink it
+          const containerId = cs.container_id;
+          const container = this.actor.items.get(containerId);
+
+          // Update the item to clear containerStats
+          await item.update({
+            "system.containerStats.contained": false,
+            "system.containerStats.container_id": "",
+            "system.containerStats.container_name": ""
+          });
+
+          // Update the container's contained_items list
+          if (container && Array.isArray(container.system?.contained_items)) {
+            const nextContained = container.system.contained_items.filter(
+              (ci) => ci?._id !== item.id
+            );
+            await container.update({ "system.contained_items": nextContained });
+          }
+
+          ui.notifications?.info(`${item.name} removed from ${cs.container_name || "container"}.`);
+          
+          // Force a fresh sheet render to show the unlinked item in main inventory
+          // The group sheet uses the same prepareCharacterItems filtering logic
+          this.render(false);
+          return;
+        }
+        
+        // Item is from this actor but not in a container - allow default sorting
+        return super._onDrop(event);
       }
       
       // Accept weapon, armor, ammunition, and generic items

@@ -1,6 +1,9 @@
-import { UESRPG } from "../../core/constants.js";
 import { SPECIAL_ACTIONS } from "../../core/config/special-actions.js";
-import { activateTalentFromItemSheet, activatePowerFromItemSheet } from "./shared-handlers.js";
+import { prepareItemSheetData } from "./item/prepare.js";
+import { registerItemSheetListeners } from "./item/listeners/index.js";
+import { renderFieldsForElement, renderConditionFieldsForElement } from "./item/listeners/rule-elements.js";
+import { validateScalingLevels, formatValidationMessage } from "../../core/magic/spell-config.js";
+import { isDebugEnabled } from "../../utils/debug.js";
 
 /**
  * Extend the basic foundry.appv1.sheets.ItemSheet with some very simple modifications
@@ -17,7 +20,13 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
       tabs: [{ navSelector: ".sheet-tabs", contentSelector: ".sheet-body", initial: "description" }],
       // Explicitly keep core ItemSheet behavior deterministic.
       // Some worlds/users run with non-default sheet settings; Combat Style editing relies on submit-on-close.
-      submitOnClose: true
+      submitOnClose: true,
+      dragDrop: [
+        {
+          dragSelector: ".item",
+          dropSelector: null
+        }
+      ]
     });
   }
 
@@ -34,269 +43,7 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
   /** @override */
   async getData() {
     const data = await super.getData();
-    data.dtypes = ["String", "Number", "Boolean"];
-    data.isGM = game.user.isGM;
-    data.editable = data.options.editable;
-    const itemData = data.item;
-
-    // Convenience flags for templates (AppV1 Handlebars has limited boolean expressions).
-    data.canEditReloadAPCost = Boolean(
-      data.editable &&
-      data.item?.type === "weapon" &&
-      String(data.item?.system?.attackMode ?? "") === "ranged" &&
-      data.item?.system?.gmOverride?.useBaseStats === true
-    );
-
-    // Enrich Description (AppV1-safe)
-    data.item.system.enrichedDescription = await foundry.applications.ux.TextEditor.implementation.enrichHTML(
-      itemData.system.description,
-      { async: true }
-    );
-
-    // --------------------------------------------
-    // Armor: Effective Weight Class (derived)
-    // --------------------------------------------
-    if (data.item && data.item.type === "armor") {
-      const base = (data.item.system && data.item.system.weightClass != null) ? data.item.system.weightClass : "none";
-      const quality = (data.item.system && data.item.system.qualityLevel != null) ? data.item.system.qualityLevel : "common";
-      const order = ["none", "light", "medium", "heavy", "superheavy", "crippling"];
-      let i = order.indexOf(base);
-      if (i === -1) i = 0;
-      if (quality === "inferior") i += 1;
-      else if (quality === "superior") i -= 1;
-      i = Math.max(0, Math.min(order.length - 1, i));
-      data.item.system.effectiveWeightClass = order[i];
-    }
-
-    // --------------------------------------------
-    // Item option lists for selects (v13-safe)
-    // --------------------------------------------
-    data.weaponQualityOptions = UESRPG.WEAPON_QUALITY_LEVELS;
-    data.weaponMaterialOptions = UESRPG.WEAPON_MATERIALS;
-    // Weapon handedness (RAW support). Stored in system.hands.
-    // NOTE: selectOptions serializes option keys as strings; downstream usage should cast via Number().
-    data.weaponHandednessOptions = {
-      0: "—",
-      1: "1H",
-      1.5: "1.5H",
-      2: "2H"
-    };
-    data.attackModeOptions = { melee: "Melee", ranged: "Ranged" };
-    data.armorWeightClassOptions = UESRPG.ARMOR_WEIGHT_CLASSES;
-    data.ammoArrowTypeOptions = UESRPG.AMMO_ARROW_TYPES;
-    data.ammoMaterialOptions = UESRPG.AMMO_MATERIALS;
-    data.armorMaterialOptions = UESRPG.ARMOR_MATERIALS;
-    data.armorClassOptions = UESRPG.ARMOR_CLASSES;
-    data.shieldTypeOptions = UESRPG.SHIELD_TYPES;
-    data.activationUsagePeriodOptions = {
-      none: "None",
-      encounter: "Encounter",
-      shortRest: "Short Rest",
-      longRest: "Long Rest",
-      day: "Day"
-    };
-    data.activationHitLocationModeOptions = {
-      roll: "Roll Location",
-      manual: "Manual Location"
-    };
-    data.activationDamageModeOptions = {
-      weapon: "Weapon Damage",
-      manual: "Manual Damage",
-      healing: "Healing",
-      temporary: "Temporary HP"
-    };
-    data.activationDamageTypeOptions = {
-      physical: "Physical",
-      fire: "Fire",
-      frost: "Frost",
-      shock: "Shock",
-      poison: "Poison",
-      magic: "Magic",
-      silver: "Silver",
-      sunlight: "Sunlight",
-      disease: "Disease"
-    };
-
-    // --------------------------------------------
-    // Talent: Activation helpers (non-breaking)
-    // IMPORTANT: Do not mutate document data in getData; it can create render loops.
-    // Provide only view-model data for the template.
-    if (data.item && data.item.type === "talent") {
-      data.talentActionTypeOptions = {
-        passive: "Passive",
-        free: "Free",
-        secondary: "Secondary",
-        action: "Action",
-        reaction: "Reaction",
-        special: "Special"
-      };
-    }
-    if (data.item && data.item.type === "trait") {
-      data.traitActionTypeOptions = {
-        passive: "Passive",
-        free: "Free",
-        secondary: "Secondary",
-        action: "Action",
-        reaction: "Reaction",
-        special: "Special"
-      };
-    }
-    if (data.item && data.item.type === "power") {
-      data.powerActionTypeOptions = {
-        passive: "Passive",
-        free: "Free",
-        secondary: "Secondary",
-        action: "Action",
-        reaction: "Reaction",
-        special: "Special"
-      };
-      data.powerResetOptions = {
-        none: "None",
-        longRest: "Long Rest",
-        shortRest: "Short Rest",
-        daily: "Daily"
-      };
-    }
-
-    // --------------------------------------------
-    // Weapon (ranged): ammunition selection options (actor inventory)
-    // --------------------------------------------
-    if (data.item && data.item.type === "weapon" && data.item.actor) {
-      const ammoItems = data.item.actor.items.filter(i => i.type === "ammunition");
-      data.ammoOptions = ammoItems.map(i => ({
-        value: i.id,
-        label: `${i.name} (x${Number((i.system && i.system.quantity != null) ? i.system.quantity : 0)})`
-      }));
-    } else {
-      data.ammoOptions = [];
-    }
-
-
-    // --------------------------------------------
-    // Combat Style: Special Actions registry + safe defaults
-    // --------------------------------------------
-    if (data.item && data.item.type === "combatStyle") {
-      // Ensure schema lanes exist even for older items.
-      if (!Array.isArray(data.item.system.trainedEquipment)) data.item.system.trainedEquipment = ["","","","",""];
-      if (data.item.system.trainedEquipment.length < 5) {
-        data.item.system.trainedEquipment = (data.item.system.trainedEquipment.concat(["","","","",""]).slice(0, 5));
-      }
-      if (!data.item.system.specialAdvantages || typeof data.item.system.specialAdvantages !== "object") data.item.system.specialAdvantages = {};
-      data.specialActionsRegistry = SPECIAL_ACTIONS;
-      // Embedded Combat Style only: show whether this style is the Actor's active selection.
-      try {
-        if (data.item.actor) {
-          const activeId = data.item.actor.getFlag?.("uesrpg-3ev4", "activeCombatStyleId");
-          data.isActiveCombatStyle = Boolean(activeId && String(activeId) === String(data.item.id));
-        } else {
-          data.isActiveCombatStyle = false;
-        }
-      } catch (_e) {
-        data.isActiveCombatStyle = false;
-      }
-    }
-    // --------------------------------------------
-    // Ammunition: derived Price / Shot (from Price / 10)
-    // --------------------------------------------
-    if (data.item && data.item.type === "ammunition") {
-      const p10 = Number((data.item.system && data.item.system.pricePer10 != null) ? data.item.system.pricePer10 : 0);
-      data.item.system.pricePerShot = Math.round((p10 / 10) * 100) / 100;
-    }
-
-    // --------------------------------------------
-    // Structured Qualities v1 (shared)
-    // --------------------------------------------
-    // Structured qualities: show a type-specific "core" grid + a set of togglable "other traits".
-    const itemType = data.item ? data.item.type : null;
-
-    // NOTE: support multiple export locations/names from earlier patches so sheets never silently render empty.
-    // Canonical in this repo is QUALITIES_CORE_BY_TYPE and TRAITS_BY_TYPE.
-    const coreByType =
-      (UESRPG.CONSTANTS && UESRPG.CONSTANTS.QUALITIES_CORE_BY_TYPE) ||
-      UESRPG.QUALITIES_CORE_BY_TYPE ||
-      (UESRPG.CONSTANTS && UESRPG.CONSTANTS.QUALITIES_CATALOG_BY_TYPE) ||
-      UESRPG.QUALITIES_CATALOG_BY_TYPE;
-
-    const traitsByType =
-      (UESRPG.CONSTANTS && UESRPG.CONSTANTS.TRAITS_BY_TYPE) ||
-      UESRPG.TRAITS_BY_TYPE ||
-      (UESRPG.CONSTANTS && UESRPG.CONSTANTS.QUALITIES_TRAITS_BY_TYPE) ||
-      UESRPG.QUALITIES_TRAITS_BY_TYPE;
-
-    data.qualitiesCatalog = (coreByType && itemType) ? (coreByType[itemType] || UESRPG.QUALITIES_CATALOG) : UESRPG.QUALITIES_CATALOG;
-    // Template compatibility: newer sheets reference `coreQualitiesCatalog`.
-    data.coreQualitiesCatalog = data.qualitiesCatalog;
-
-    // Armor cleanup: ensure weapon-only "Silver" never appears in armor qualities UI, regardless of
-    // which catalog export a world is using.
-    if (itemType === "armor" && Array.isArray(data.coreQualitiesCatalog)) {
-      data.coreQualitiesCatalog = data.coreQualitiesCatalog.filter(q => q && q.key !== "silver");
-      data.qualitiesCatalog = data.coreQualitiesCatalog;
-    }
-
-    // Trait catalog (type-specific) with selected flags.
-    const traitsSrc = (data.item && data.item.system) ? data.item.system.qualitiesTraits : null;
-    const traits = Array.isArray(traitsSrc) ? traitsSrc : [];
-    const traitCatalog = (traitsByType && itemType) ? (traitsByType[itemType] || []) : [];
-    data.traitsCatalog = traitCatalog.map(t => ({ ...t, selected: traits.includes(t.key) }));
-    data.traitsSelected = traits.reduce((acc, k) => {
-      acc[k] = true;
-      return acc;
-    }, {});
-
-    const structuredSrc = (data.item && data.item.system) ? data.item.system.qualitiesStructured : null;
-    const structured = Array.isArray(structuredSrc) ? structuredSrc : [];
-    const selectedToggle = {};
-    const selectedValue = {};
-    for (const q of structured) {
-      if (!q || !q.key) continue;
-      // If a structured quality exists it is "on". Some qualities may optionally carry a numeric X value.
-      selectedToggle[q.key] = true;
-      if (typeof q.value === "number") selectedValue[q.key] = q.value;
-    }
-    data.qualitiesSelectedToggle = selectedToggle;
-    data.qualitiesSelectedValue = selectedValue;
-
-    // --------------------------------------------
-    // Activation Damage Qualities (Talents/Traits/Powers)
-    // --------------------------------------------
-    if (itemType && ["trait", "talent", "power"].includes(itemType)) {
-      const weaponCoreCatalog = (coreByType && coreByType.weapon)
-        ? coreByType.weapon
-        : (UESRPG.QUALITIES_CORE_BY_TYPE?.weapon ?? UESRPG.QUALITIES_CATALOG ?? []);
-      const weaponTraitCatalog = (traitsByType && traitsByType.weapon) ? traitsByType.weapon : [];
-
-      const activationDamage = data.item?.system?.activation?.damage ?? {};
-      const activationStructured = Array.isArray(activationDamage.qualitiesStructured) ? activationDamage.qualitiesStructured : [];
-      const activationTraits = Array.isArray(activationDamage.qualitiesTraits) ? activationDamage.qualitiesTraits : [];
-
-      const activationSelectedToggle = {};
-      const activationSelectedValue = {};
-      for (const q of activationStructured) {
-        if (!q || !q.key) continue;
-        activationSelectedToggle[q.key] = true;
-        if (typeof q.value === "number") activationSelectedValue[q.key] = q.value;
-      }
-
-      data.activationDamageQualitiesCatalog = Array.isArray(weaponCoreCatalog) ? weaponCoreCatalog : [];
-      data.activationDamageSelectedToggle = activationSelectedToggle;
-      data.activationDamageSelectedValue = activationSelectedValue;
-
-      const activationTraitKeys = activationTraits.map(t => String(t ?? "")).filter(Boolean);
-      data.activationDamageTraitsCatalog = (Array.isArray(weaponTraitCatalog) ? weaponTraitCatalog : []).map(t => ({
-        ...t,
-        selected: activationTraitKeys.includes(t.key)
-      }));
-      data.activationDamageTraitsSelected = activationTraitKeys.reduce((acc, k) => {
-        acc[k] = true;
-        return acc;
-      }, {});
-    }
-
-    // Active Effects list for templates (plain objects)
-    data.effects = (this.item && this.item.effects) ? this.item.effects.contents.map(e => e.toObject()) : [];
-
-    return data;
+    return await prepareItemSheetData(this, data);
   }
 
   /* -------------------------------------------- */
@@ -416,9 +163,10 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
       formData["system.reloadState.reloadAPCost"] = reloadAPCost;
       formData["system.reloadState.requiresReload"] = reloadAPCost > 0;
 
-      // Remove any existing structured Reload entries, then re-add if present.
+      // Remove any existing structured Reload entries (case-insensitive), then re-add if present.
       for (let i = structured.length - 1; i >= 0; i--) {
-        if (structured[i] && structured[i].key === "reload") structured.splice(i, 1);
+        const k = String(structured?.[i]?.key ?? "").toLowerCase();
+        if (k === "reload") structured.splice(i, 1);
       }
       if (reloadAPCost > 0) structured.push({ key: "reload", value: reloadAPCost });
     }
@@ -480,6 +228,46 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
     }
 
     // ------------------------------------------------------------
+    // Damage Instances normalization (spells + weapons)
+    // ------------------------------------------------------------
+    if (this.item?.type === "spell" || this.item?.type === "weapon") {
+      const diPrefix = "system.damageInstances.";
+      const diIndices = new Set();
+      const diEntries = new Map();
+      let foundDIKeys = false;
+
+      for (const key of Object.keys(formData)) {
+        if (!key.startsWith(diPrefix)) continue;
+        foundDIKeys = true;
+
+        const remainder = key.slice(diPrefix.length);
+        const dotIdx = remainder.indexOf(".");
+        if (dotIdx < 0) continue;
+
+        const idx = remainder.slice(0, dotIdx);
+        const field = remainder.slice(dotIdx + 1);
+        diIndices.add(idx);
+
+        if (!diEntries.has(idx)) diEntries.set(idx, {});
+        diEntries.get(idx)[field] = formData[key];
+        delete formData[key];
+      }
+
+      if (foundDIKeys) {
+        formData["system.damageInstances"] = Array.from(diIndices)
+          .sort((a, b) => Number(a) - Number(b))
+          .map(idx => {
+            const entry = diEntries.get(idx) ?? {};
+            return {
+              formula: String(entry.formula ?? ""),
+              type: String(entry.type ?? "none"),
+              label: String(entry.label ?? "")
+            };
+          });
+      }
+    }
+
+    // ------------------------------------------------------------
     // Combat Style: normalize Special Action known toggles
     // ------------------------------------------------------------
     if (this.item?.type === "combatStyle") {
@@ -507,7 +295,233 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
       formData["system.trainedEquipment"] = te;
     }
 
+    // ------------------------------------------------------------
+    // Spell Scaling Validation
+    // ------------------------------------------------------------
+    if (this.item?.type === "spell") {
+      const DEBUG = isDebugEnabled("spellCastingDebug");
+
+      // Extract scaling levels from dot-notation formData
+      // AppV1 submits: system.scaling.levels.0.level, system.scaling.levels.0.cost, etc.
+      const scalingPrefix = "system.scaling.levels.";
+      const levelIndices = new Set();
+      const levelEntries = new Map();
+      let foundScalingKeys = false;
+
+      for (const key of Object.keys(formData)) {
+        if (!key.startsWith(scalingPrefix)) continue;
+        foundScalingKeys = true;
+        
+        const remainder = key.slice(scalingPrefix.length);
+        const dotIdx = remainder.indexOf(".");
+        if (dotIdx < 0) continue;
+        
+        const idx = remainder.slice(0, dotIdx);
+        const field = remainder.slice(dotIdx + 1);
+        levelIndices.add(idx);
+        
+        if (!levelEntries.has(idx)) {
+          levelEntries.set(idx, {});
+        }
+        const entry = levelEntries.get(idx);
+        foundry.utils.setProperty(entry, field, formData[key]);
+        delete formData[key];
+      }
+
+      const fallbackDurationUnit = formData["system.duration.unit"] || this.item.system?.duration?.unit || "instant";
+
+      // Reconstruct levels array in index order (keep form order stable)
+      const levels = Array.from(levelIndices)
+        .sort((a, b) => Number(a) - Number(b))
+        .map(idx => {
+          const entry = levelEntries.get(idx) ?? {};
+
+          // Ensure duration structure exists for validation and persistence.
+          if (!entry.duration || typeof entry.duration !== "object") {
+            entry.duration = { value: 0, unit: fallbackDurationUnit };
+          } else {
+            if (!Object.prototype.hasOwnProperty.call(entry.duration, "value")) entry.duration.value = 0;
+            if (!Object.prototype.hasOwnProperty.call(entry.duration, "unit")) entry.duration.unit = fallbackDurationUnit;
+          }
+
+          // Coerce numerics for stable storage.
+          if (Object.prototype.hasOwnProperty.call(entry, "level")) entry.level = Number(entry.level) || 0;
+          if (Object.prototype.hasOwnProperty.call(entry, "cost")) entry.cost = Number(entry.cost) || 0;
+          if (Object.prototype.hasOwnProperty.call(entry.duration, "value")) {
+            entry.duration.value = Number(entry.duration.value) || 0;
+          }
+
+          return entry;
+        });
+
+      if (foundScalingKeys) {
+        formData["system.scaling.levels"] = levels;
+        if (DEBUG) {
+          console.log("UESRPG | Spell scaling form normalization", {
+            submitOnChange: this.options.submitOnChange,
+            levelCount: levels.length,
+            levels
+          });
+        }
+      }
+
+      // ── Engine Recipe array normalization (dot-notation → array) ──
+      const recipePrefix = "system.engine.effects.recipes.";
+      const recipeIndices = new Set();
+      const recipeEntries = new Map();
+      let foundRecipeKeys = false;
+
+      for (const key of Object.keys(formData)) {
+        if (!key.startsWith(recipePrefix)) continue;
+        foundRecipeKeys = true;
+
+        const remainder = key.slice(recipePrefix.length);
+        const dotIdx = remainder.indexOf(".");
+        if (dotIdx < 0) continue;
+
+        const idx = remainder.slice(0, dotIdx);
+        const field = remainder.slice(dotIdx + 1);
+        recipeIndices.add(idx);
+
+        if (!recipeEntries.has(idx)) {
+          recipeEntries.set(idx, {});
+        }
+        recipeEntries.get(idx)[field] = formData[key];
+        delete formData[key];
+      }
+
+      if (foundRecipeKeys) {
+        const recipes = Array.from(recipeIndices)
+          .sort((a, b) => Number(a) - Number(b))
+          .map(idx => {
+            const entry = recipeEntries.get(idx) ?? {};
+            return {
+              key: String(entry.key ?? ""),
+              mode: String(entry.mode ?? "add"),
+              value: String(entry.value ?? ""),
+              target: String(entry.target ?? "target"),
+              label: String(entry.label ?? "")
+            };
+          });
+        formData["system.engine.effects.recipes"] = recipes;
+      }
+
+      // ── OverTime Entries array normalization (dot-notation → array) ──
+      const otPrefix = "system.overTimeEntries.";
+      const otIndices = new Set();
+      const otEntries = new Map();
+      let foundOTKeys = false;
+
+      for (const key of Object.keys(formData)) {
+        if (!key.startsWith(otPrefix)) continue;
+        foundOTKeys = true;
+
+        const remainder = key.slice(otPrefix.length);
+        const dotIdx = remainder.indexOf(".");
+        if (dotIdx < 0) continue;
+
+        const idx = remainder.slice(0, dotIdx);
+        const field = remainder.slice(dotIdx + 1);
+        otIndices.add(idx);
+
+        if (!otEntries.has(idx)) otEntries.set(idx, {});
+        otEntries.get(idx)[field] = formData[key];
+        delete formData[key];
+      }
+
+      if (foundOTKeys) {
+        formData["system.overTimeEntries"] = Array.from(otIndices)
+          .sort((a, b) => Number(a) - Number(b))
+          .map(idx => {
+            const e = otEntries.get(idx) ?? {};
+            return {
+              trigger: String(e.trigger ?? "turnStart"),
+              cadenceEvery: Number(e.cadenceEvery) || 1,
+              cadenceUnit: String(e.cadenceUnit ?? "rounds"),
+              payloadType: String(e.payloadType ?? "damage"),
+              formula: String(e.formula ?? "1d6"),
+              damageType: String(e.damageType ?? "fire"),
+              saveKey: String(e.saveKey ?? ""),
+              saveTN: Number(e.saveTN) || 0,
+              saveSuccess: String(e.saveSuccess ?? "endEffect"),
+              saveFailure: String(e.saveFailure ?? "damage"),
+              maxTicks: e.maxTicks != null && e.maxTicks !== "" ? Number(e.maxTicks) || null : null,
+              label: String(e.label ?? ""),
+              chatLog: e.chatLog !== false && e.chatLog !== "false"
+            };
+          });
+      }
+
+      if (levels.length > 0 && !event?.uesrpgSkipScalingValidation) {
+        // Get context for validation
+        const spellHasDamage = Boolean(
+          formData["system.damageFormula"] || 
+          this.item.system?.damageFormula
+        );
+        const baseDurationUnit = 
+          formData["system.duration.unit"] || 
+          this.item.system?.duration?.unit || 
+          "instant";
+
+        // Validate
+        const result = validateScalingLevels(levels, {
+          spellHasDamage,
+          baseDurationUnit
+        });
+
+        // Block save on errors
+        if (!result.valid) {
+          const message = formatValidationMessage(result);
+          await Dialog.prompt({
+            title: "Spell Scaling Validation Failed",
+            content: `<p>Cannot save spell with invalid scaling levels:</p>${message}`,
+            label: "OK",
+            callback: () => {}
+          });
+          return; // Block save
+        }
+
+        // Confirm warnings
+        if (result.warnings.length > 0) {
+          const message = formatValidationMessage(result);
+          const proceed = await Dialog.confirm({
+            title: "Spell Scaling Warnings",
+            content: `<p>Scaling levels have warnings:</p>${message}<p>Proceed with save?</p>`,
+            yes: () => true,
+            no: () => false,
+            defaultYes: false
+          });
+          
+          if (!proceed) {
+            return; // User canceled
+          }
+        }
+      }
+    }
+
     return super._updateObject(event, formData);
+  }
+
+  /* -------------------------------------------- */
+
+  /** @override */
+  async _onChangeInput(event) {
+    if (this.item?.type === "spell") {
+      const target = event?.target;
+      if (target?.dataset?.scalingInput === "true") {
+        const DEBUG = isDebugEnabled("spellCastingDebug");
+        if (DEBUG) {
+          console.log("UESRPG | Spell scaling input change (submitOnChange)", {
+            name: target?.name,
+            value: target?.value
+          });
+        }
+        event.uesrpgSkipScalingValidation = true;
+        return this._onSubmit(event, { preventRender: true, preventClose: true });
+      }
+    }
+
+    return super._onChangeInput(event);
   }
 
   /* -------------------------------------------- */
@@ -522,809 +536,194 @@ export class SimpleItemSheet extends foundry.appv1.sheets.ItemSheet {
 
   /* -------------------------------------------- */
 
+  /**
+   * @override
+   * Preserve client-side UI state across re-renders:
+   *  - Which rule-element items are expanded (Automation tab)
+   *  - Which <details> elements are open (Spell sheet)
+   *
+   * Every data mutation (setFlag / update) triggers a full re-render that
+   * replaces the DOM.  Expanded state and <details>.open are purely DOM-based
+   * and would otherwise be lost, causing the sheet to "snap shut" on every
+   * option change.
+   */
+  async _render(force, options) {
+    // ── Snapshot UI state before DOM is replaced ──────────────────
+    const expandedREIds = new Set();
+    const openDetails = new Set();
+    const el = this.element?.[0];
+
+    // Scroll position preservation: snapshot scrollTop of the scrollable
+    // container (.sheet-body) before the DOM is replaced, so toggles and
+    // submitOnChange re-renders don't reset the user's viewport.
+    let savedScrollTop = null;
+    let savedActiveTab = null;
+
+    if (el) {
+      // Capture the active tab key so we only restore scroll for the same tab.
+      const activeTabEl = el.querySelector(".tab.active");
+      savedActiveTab = activeTabEl?.dataset?.tab ?? null;
+
+      const scrollContainer = el.querySelector(".sheet-body");
+      if (scrollContainer) {
+        savedScrollTop = scrollContainer.scrollTop;
+      }
+
+      // Rule Element expand state
+      el.querySelectorAll(".re-item").forEach(li => {
+        const body = li.querySelector(".re-item-body");
+        if (body && body.style.display !== "none") {
+          const reId = li.dataset.reId;
+          if (reId) expandedREIds.add(reId);
+        }
+      });
+
+      // <details> open state (spell scaling / advanced options)
+      el.querySelectorAll("details").forEach(d => {
+        if (d.open) {
+          // Use data-uesrpg attribute if present; fall back to first class name
+          const key = d.dataset.uesrpg || d.className.split(/\s+/)[0] || "";
+          if (key) openDetails.add(key);
+        }
+      });
+    }
+
+    // ── Render (replaces DOM, calls activateListeners) ────────────
+    await super._render(force, options);
+
+    // ── Restore UI state on the fresh DOM ─────────────────────────
+    const newEl = this.element?.[0];
+    if (!newEl) return;
+
+    // Restore expanded Rule Elements
+    if (expandedREIds.size > 0) {
+      expandedREIds.forEach(reId => {
+        const li = newEl.querySelector(`.re-item[data-re-id="${reId}"]`);
+        if (!li) return;
+
+        const body = li.querySelector(".re-item-body");
+        const icon = li.querySelector(".re-item-expand i");
+        if (body) body.style.display = "";
+        if (icon) {
+          icon.classList.remove("fa-chevron-down");
+          icon.classList.add("fa-chevron-up");
+        }
+
+        // Re-inflate dynamically rendered type-specific fields
+        const $li = $(li);
+        renderFieldsForElement($li, this.item);
+        renderConditionFieldsForElement($li, this.item);
+      });
+    }
+
+    // Restore open <details>
+    if (openDetails.size > 0) {
+      openDetails.forEach(key => {
+        const d = newEl.querySelector(`details[data-uesrpg="${key}"]`)
+               || newEl.querySelector(`details.${CSS.escape(key)}`);
+        if (d) d.open = true;
+      });
+    }
+
+    // Restore scroll position if the same tab is still active.
+    if (savedScrollTop != null) {
+      const newActiveTab = newEl.querySelector(".tab.active");
+      const newTabKey = newActiveTab?.dataset?.tab ?? null;
+      if (!savedActiveTab || savedActiveTab === newTabKey) {
+        const scrollContainer = newEl.querySelector(".sheet-body");
+        if (scrollContainer) {
+          scrollContainer.scrollTop = savedScrollTop;
+        }
+      }
+    }
+  }
+
+  /* -------------------------------------------- */
+
   /** @override */
   async activateListeners(html) {
     super.activateListeners(html);
-
-    // Talent: Use button (Activation tab)
-    if (this.item && this.item.type === "talent") {
-      html.find(".uesrpg-talent-use").off("click.uesrpg").on("click.uesrpg", async (ev) => {
-        ev.preventDefault();
-        await activateTalentFromItemSheet({ item: this.item, event: ev });
-      });
-    }
-    if (this.item && this.item.type === "power") {
-      html.find(".uesrpg-power-use").off("click.uesrpg").on("click.uesrpg", async (ev) => {
-        ev.preventDefault();
-        await activatePowerFromItemSheet({ item: this.item, event: ev });
-      });
-    }
-
-    // Ammunition: live update derived Price / Shot display when Price / 10 changes.
-    if (this.item && this.item.type === "ammunition") {
-      const p10Input = html.find('input[name="system.pricePer10"]');
-      const pShotDisplay = html.find('[data-uesrpg="pricePerShot"]');
-
-      const refresh = () => {
-        const v = Number(p10Input.val() || 0);
-        const ps = Math.round((v / 10) * 100) / 100;
-        pShotDisplay.val(String(ps));
-      };
-
-      if (p10Input.length && pShotDisplay.length) {
-        p10Input.on("input", refresh);
-        p10Input.on("change", refresh);
-      }
-    }
-
-    // Item Value Change Buttons
-    html.find(".chargePlus").click(this._onChargePlus.bind(this));
-    html.find(".chargeMinus").click(this._onChargeMinus.bind(this));
-    html.find(".addToContainer").click(this._addToContainer.bind(this));
-
-    // Register listeners for items that have modifier arrays
-    if (this.item && this.item.system && Object.prototype.hasOwnProperty.call(this.item.system, "skillArray")) {
-      html.find(".modifier-create").click(this._onModifierCreate.bind(this));
-      this._createModifierEntries();
-      html.find(".item-delete").click(this._onDeleteModifier.bind(this));
-    }
-
-    // Registers functions for item sheet renders
-    html.find(".item-name").click(async (ev) => {
-      if (!this.actor) return ui.notifications.info("Containers must be on Actor Sheets in order to open the contents.");
-      const li = ev.currentTarget.closest(".item");
-      if (!li) return;
-      const item = this.actor.items.get(li.dataset.itemId);
-      if (!item) return;
-      item.sheet.render(true);
-      await item.update({ "system.value": item.system.value });
-    });
-
-    // Remove Contained Item from Container
-    html.find(".remove-contained-item").click(this._onRemoveContainedItem.bind(this));
-    html.find(".delete-contained-item").click(this._onDeleteContainedItem.bind(this));
-
-    // Update contained Items elements list (keeps the contents list updated if items are updated themselves)
-    if (this.item && this.item.type === "container" && this.item.isOwned) {
-      void this._updateContainedItemsList();
-    }
-
-    if (this.item && this.item.system && Object.prototype.hasOwnProperty.call(this.item.system, "containerStats") && this.item.type !== "container") {
-      // Keep parent container's embedded snapshot aligned with this item.
-      await this._pushContainedItemData();
-    }
-
-    // Active Effects (Effects tab)
-    html.find(".effect-control").click(this._onEffectControl.bind(this));
-
-    // Spell Scaling: Add/Remove Level buttons
-    if (this.item?.type === "spell") {
-      html.find(".add-scaling-level").click(this._onAddScalingLevel.bind(this));
-      html.find(".remove-scaling-level").click(this._onRemoveScalingLevel.bind(this));
-    }
-
-    // Combat Style: set active style on owner actor (Option 2)
-    if (this.item?.type === "combatStyle" && this.item.isOwned && this.actor) {
-      // Combat Style: auto-save UX
-      // NOTE: Using full-form submits on every keystroke causes disruptive rerenders and can appear
-      // like inputs are being "cleared". Instead, update only the changed lane(s) on change/blur.
-      // This keeps the UX stable and still provides deterministic persistence.
-
-      const equipInputs = html.find('input[name^="system.trainedEquipment."]');
-      const saInputs = html.find('input[type="checkbox"][name^="system.specialAdvantages."]');
-
-      const debouncedEquipUpdate = foundry.utils.debounce(async () => {
-        try {
-          // Persist as a canonical 5-slot array (see _updateObject for rationale).
-          const te = [];
-          for (let i = 0; i < 5; i++) {
-            const el = equipInputs.get(i);
-            te.push(String(el?.value ?? "").trim());
-          }
-          await this.item.update({ "system.trainedEquipment": te });
-        } catch (err) {
-          console.warn("UESRPG | Combat Style trainedEquipment auto-update failed", err);
-        }
-      }, 150);
-
-      // Persist on change (not per keystroke) to prevent input jitter or perceived "clearing".
-      // Users can type freely; the value is persisted when the field loses focus.
-      equipInputs.on("change", debouncedEquipUpdate);
-
-      // Prevent accidental form submit on Enter inside these fields.
-      equipInputs.on("keydown", (ev) => {
-        if (ev.key === "Enter") {
-          ev.preventDefault();
-          ev.currentTarget?.blur?.();
-        }
-      });
-
-      saInputs.on("change", async (ev) => {
-        try {
-          const el = ev.currentTarget;
-          const name = el?.name;
-          if (!name) return;
-          await this.item.update({ [name]: Boolean(el.checked) });
-        } catch (err) {
-          console.warn("UESRPG | Combat Style specialAdvantages auto-update failed", err);
-        }
-      });
-
-      html.find(".uesrpg-set-active-style").off("click.uesrpg").on("click.uesrpg", async (ev) => {
-        ev.preventDefault();
-        try {
-          await this.actor.setFlag("uesrpg-3ev4", "activeCombatStyleId", this.item.id);
-          ui.notifications?.info?.(`Active combat style set to: ${this.item.name}`);
-          // Re-render owning sheet to update Special Actions list + advantage injection lane.
-          this.actor.sheet?.render?.(false);
-          this.render(false);
-        } catch (err) {
-          console.error("UESRPG | Failed to set active combat style", { actor: this.actor?.uuid, item: this.item?.uuid, err });
-          ui.notifications?.error?.("Failed to set active combat style.");
-        }
-      });
-
-    }
+    registerItemSheetListeners(this, html);
   }
 
-  /* -------------------------------------------- */
-  /* Modifier UI helpers                           */
-  /* -------------------------------------------- */
-
-  _onModifierCreate(event) {
-    event.preventDefault();
-    // Return if not embedded onto Actor
-    if (!this.document.isEmbedded) return;
-
-    // Create Options for Dropdown
-    const modifierOptions = [];
-    if (this.actor && this.actor.type === "Player Character") {
-      const skills = this.actor.items.filter(i => i.type === "skill" || i.type === "magicSkill" || i.type === "combatStyle");
-      for (const skill of skills) modifierOptions.push(`<option value="${skill.name}">${skill.name}</option>`);
-    }
-
-    if (this.actor && this.actor.type === "NPC") {
-      for (const profession in this.actor.system.professions) {
-        modifierOptions.push(`<option value="${profession}">${profession}</option>`);
-      }
-    }
-
-    // Create Dialog for selecting skill/item to modify
-    const d = new Dialog({
-      title: "Create Modifier",
-      content: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-        <div style="background: rgba(180, 180, 180, 0.562); border: solid 1px; padding: 10px; font-style: italic;">
-          ${this.item.name} can apply a bonus or penalty to various skills of the character that has possession of it.
-          Select a skill, then apply the modifier.
-        </div>
-        <div style="padding: 5px; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 5px; text-align: center;">
-          <select id="modifierSelect" name="modifierSelect">
-            ${modifierOptions.join("")}
-          </select>
-          <input id="modifier-value" type="number" value="0">
-        </div>
-      </div>`,
-      buttons: {
-        one: { label: "Cancel" },
-        two: {
-          label: "Create",
-          callback: async html => {
-            const sel = html[0].querySelector("#modifierSelect");
-            const val = html[0].querySelector("#modifier-value");
-            if (!sel || !val) return;
-
-            const current = Array.isArray(this.item?.system?.skillArray) ? foundry.utils.deepClone(this.item.system.skillArray) : [];
-            const next = current.concat([{ name: sel.value, value: Number(val.value || 0) }]);
-            await this.item.update({ "system.skillArray": next });
-          }
-        }
-      },
-      default: "two"
-    });
-
-    d.render(true);
-  }
-
-  _createModifierEntries() {
-    if (!this.item || !this.item.system || !Array.isArray(this.item.system.skillArray)) return;
-
-    for (const entry of this.item.system.skillArray) {
-      let modItem = this.actor ? this.actor.items.find(i => i.name === entry.name) : null;
-      modItem = modItem || entry.name;
-
-      const entryElement = document.createElement("div");
-      entryElement.classList.add("grid-container");
-      entryElement.id = entry.name;
-      entryElement.innerHTML = `<div>${(modItem && modItem.name !== undefined) ? modItem.name : entry.name}</div>
-        <div class="right-align-content">
-          <div class="item-controls">
-            <div>${entry.value}%</div>
-            <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
-          </div>
-        </div>`;
-      if (this.form) {
-        const container = this.form.querySelector("#item-modifiers");
-        if (container) container.append(entryElement);
-      }
-    }
-  }
-
-  async _onDeleteModifier(event) {
-    event.preventDefault();
-    const element = event.currentTarget;
-    const modEntry = element.closest(".grid-container");
-    if (!modEntry || !this.item || !this.item.system || !Array.isArray(this.item.system.skillArray)) return;
-
-    const id = modEntry.getAttribute("id");
-    if (!id) return;
-
-    const current = foundry.utils.deepClone(this.item.system.skillArray);
-    const next = current.filter(e => e?.name !== id);
-    if (next.length === current.length) return;
-    await this.item.update({ "system.skillArray": next });
-  }
-
-  /* -------------------------------------------- */
-  /* Charge buttons                                */
-  /* -------------------------------------------- */
-
-  async _onChargePlus(event) {
-    event.preventDefault();
-    const chargeMax = this.document.system.charge.max;
-    const currentCharge = this.document.system.charge.value;
-
-    if (currentCharge >= chargeMax || currentCharge + this.item.system.charge.reduction >= chargeMax) {
-      ui.notifications.info(`${this.item.name} is fully charged.`);
-      return this.document.update({ "system.charge.value": chargeMax });
-    }
-    return this.document.update({ "system.charge.value": currentCharge + this.item.system.charge.reduction });
-  }
-
-  async _onChargeMinus(event) {
-    event.preventDefault();
-    const currentCharge = this.document.system.charge.value;
-
-    if (currentCharge <= 0 || currentCharge - this.item.system.charge.reduction < 0) {
-      return ui.notifications.info(`${this.item.name} does not have enough charge.`);
-    }
-    return this.document.update({ "system.charge.value": currentCharge - this.item.system.charge.reduction });
-  }
-
-
-  /* -------------------------------------------- */
-  /* Containers                                    */
   /* -------------------------------------------- */
 
   /**
-   * Return the set of item types that are allowed to be placed into containers.
-   * We intentionally exclude non-physical "character build" items (skills, talents, traits, powers, etc).
-   *
-   * @returns {Set<string>}
+   * @override
+   * Handle drag-start for contained items in container sheets.
+   * The default ItemSheet._onDragStart creates drag data for the container itself,
+   * but we need drag data for the actor-owned contained item so it can be dropped
+   * onto actor sheets to remove it from the container.
    */
-  static _containerAllowedTypes() {
-    return new Set(["item", "weapon", "armor", "ammunition"]);
+  _onDragStart(event) {
+    // Only intercept for container-type item sheets
+    if (this.item?.type !== "container" || !this.actor) {
+      return super._onDragStart(event);
+    }
+
+    const row = event.currentTarget?.closest?.("[data-item-id]");
+    const itemId = row?.dataset?.itemId;
+    if (!itemId) {
+      return super._onDragStart(event);
+    }
+
+    // Look up the actor-owned item (contained items are owned by the actor, not the container)
+    const actorItem = this.actor.items.get(itemId);
+    if (!actorItem) {
+      return super._onDragStart(event);
+    }
+
+    // Set drag data in the format Foundry and our actor sheets expect
+    const dragData = {
+      type: "Item",
+      uuid: actorItem.uuid
+    };
+    event.dataTransfer.setData("text/plain", JSON.stringify(dragData));
   }
 
-  /**
-   * Basic permission gate for modifying containment from an ItemSheet context.
-   * Containers are only meaningful when embedded on an Actor.
-   */
-  _canModifyContainment() {
-    return !!(this.options?.editable && this.item?.isOwned && this.actor && this.actor.isOwner);
-  }
+  /* -------------------------------------------- */
 
-
-  /**
-   * Build a normalized, de-duplicated, actor-authoritative contained_items list for this container.
-   * - Removes missing/deleted item ids
-   * - De-duplicates ids
-   * - Adds any actor items which claim they are contained in this container but are missing from the list
-   * - Stores a plain-object snapshot (toObject) for stable rendering and diffs
-   *
-   * @returns {Promise<boolean>} whether an update was applied
-   */
-  async _repairContainerContainedItems() {
-    if (!this.item || this.item.type !== "container") return false;
-    if (!this.actor) return false;
-
-
-    const containerId = this.item.id;
-    const current = Array.isArray(this.item.system?.contained_items) ? this.item.system.contained_items : [];
-
-    const byId = new Map();
-
-    // Seed from current list (but validate against actor items + containerStats)
-    for (const entry of current) {
-      const id = entry?._id;
-      if (!id) continue;
-      if (byId.has(id)) continue;
-
-      const source = this.actor.items.get(id);
-      if (!source) continue;
-
-      const cs = source.system?.containerStats;
-      const isInThis = !!cs?.contained && (cs?.container_id === containerId);
-      if (!isInThis) continue;
-
-      byId.set(id, { _id: id, item: source.toObject() });
-    }
-
-    // Add any actor items that claim they are in this container but are missing from list
-    for (const source of this.actor.items) {
-      if (!source) continue;
-      if (source.type === "container") continue;
-      const cs = source.system?.containerStats;
-      const isInThis = !!cs?.contained && (cs?.container_id === containerId);
-      if (!isInThis) continue;
-      if (byId.has(source.id)) continue;
-      byId.set(source.id, { _id: source.id, item: source.toObject() });
-    }
-
-    const next = Array.from(byId.values());
-
-    // Detect meaningful change
-    const curIds = current.map(e => e?._id).filter(Boolean);
-    const nextIds = next.map(e => e?._id).filter(Boolean);
-    const changedIds = (curIds.length !== nextIds.length) || curIds.some((id, idx) => id !== nextIds[idx]);
-
-    // Also update if any snapshot modifiedTime differs (or missing snapshots)
-    let changedSnapshot = false;
-    if (!changedIds) {
-      for (const entry of next) {
-        const cur = current.find(e => e?._id === entry._id);
-        const curMT = cur?.item?._stats?.modifiedTime;
-        const nextMT = entry?.item?._stats?.modifiedTime;
-        if (curMT !== nextMT) { changedSnapshot = true; break; }
-      }
-    }
-
-    if (!changedIds && !changedSnapshot) return false;
-
-    await this.item.update({ "system.contained_items": next });
-    return true;
-  }
-
-  _createContainerListDialog(bagListItems, tooLarge) {
-    const tableEntries = [];
-    for (const bagItem of bagListItems) {
-      const cs = bagItem?.system?.containerStats ?? { contained: false, container_id: "" };
-      const isContained = !!cs.contained;
-      const isInThisContainer = isContained && (cs.container_id === this.item._id);
-
-      const img = bagItem?.img || CONST.DEFAULT_TOKEN;
-      const qty = bagItem?.system?.quantity ?? 0;
-      const enc = bagItem?.system?.enc ?? 0;
-
-      const entry = `<tr data-item-id="${bagItem._id}">
-        <td data-item-id="${bagItem._id}">
-          <div style="display: flex; flex-direction: row; align-items: center; gap: 5px;">
-            <img class="item-img" src="${img}" height="24" width="24">
-            ${isContained ? '<i class="fa-solid fa-backpack"></i>' : ""}
-            ${bagItem.name}
-          </div>
-        </td>
-        <td style="text-align: center;">${bagItem.type}</td>
-        <td style="text-align: center;">${qty}</td>
-        <td style="text-align: center;">${enc}</td>
-        <td style="text-align: center;">
-          <input type="checkbox" class="itemSelect container-select" data-item-id="${bagItem._id}" ${isInThisContainer ? "checked" : ""}>
-        </td>
-      </tr>`;
-      tableEntries.push(entry);
-    }
-
-    const d = new Dialog({
-      title: `Add Items to ${this.item.name}`,
-      content: `<div>
-        <div style="padding: 5px 0;">
-          <label>Select Items to add to your ${this.item.name}.</label>
-          ${tooLarge ? "<div>Some items do not appear on this list because their ENC is greater than the capacity in the container.</div>" : ""}
-        </div>
-        <div>
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>TYPE</th>
-                <th>QTY</th>
-                <th>ENC</th>
-                <th>Add</th>
-              </tr>
-            </thead>
-            <tbody>${tableEntries.join("")}</tbody>
-          </table>
-        </div>
-      </div>`,
-      buttons: {
-        one: {
-          label: "Apply",
-          callback: async (html) => {
-            if (!this._canModifyContainment()) {
-              ui.notifications.warn("You do not have permission to modify container contents.");
-              return;
-            }
-
-            const root = html?.[0] ?? document;
-            const selectedInputs = [...root.querySelectorAll(".itemSelect")];
-
-            const allowedTypes = this.constructor._containerAllowedTypes();
-            const containerId = this.item.id;
-
-            // Apply changes per checkbox:
-            // - checked: set this container as owner; unlink from any previous container list
-            // - unchecked: only un-contain if currently in this container
-            for (const input of selectedInputs) {
-              const itemId = input?.dataset?.itemId;
-              if (!itemId) continue;
-
-              const thisItem = this.actor.items.get(itemId);
-              if (!thisItem) continue;
-
-              // Defensive: never allow containers to be contained (prevents cycles)
-              if (thisItem.type === "container") continue;
-
-              // Defensive: only allow physical inventory items
-              if (!allowedTypes.has(thisItem.type)) continue;
-              const thisCS = thisItem.system?.containerStats ?? {};
-              const currentContainerId = thisCS.container_id || "";
-              const isInThis = !!thisCS.contained && (currentContainerId === containerId);
-
-              if (input.checked) {
-                // Already in this container; nothing to do beyond ensuring fields are consistent
-                if (!isInThis) {
-                  // If the item belongs to another container, remove it from that container's list first
-                  if (currentContainerId) {
-                    const oldContainer = this.actor.items.get(currentContainerId);
-                    if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
-                      const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== thisItem.id);
-                      await oldContainer.update({ "system.contained_items": nextOld });
-                    }
-                  }
-                }
-
-                const updateData = {};
-
-
-                const csObj = thisItem.system?.containerStats;
-                const csValid = !!(csObj && typeof csObj === "object");
-
-                if (csValid) {
-                  updateData["system.containerStats.contained"] = true;
-                  updateData["system.containerStats.container_id"] = containerId;
-                  updateData["system.containerStats.container_name"] = this.item.name;
-                } else {
-                  // Backfill full object if legacy items lack containerStats
-                  updateData["system.containerStats"] = {
-                    contained: true,
-                    container_id: containerId,
-                    container_name: this.item.name
-                  };
-                }
-
-                // Storing an equipped item is not meaningful; force unequipped if boolean field exists
-                if (typeof thisItem.system?.equipped === "boolean") updateData["system.equipped"] = false;
-
-                await thisItem.update(updateData);
-              } else {
-                // Unchecked: only remove if currently in this container
-                if (isInThis) {
-                  await thisItem.update({
-                    "system.containerStats.contained": false,
-                    "system.containerStats.container_id": "",
-                    "system.containerStats.container_name": ""
-                  });
-                }
-              }
-            }
-
-            // Rebuild container list authoritatively from actor item.containerStats
-            await this._repairContainerContainedItems();
-          }
-        },
-        two: { label: "Cancel" }
-      },
-      default: "one"
-    });
-
-    d.render(true);
-  }
-
-  _addToContainer() {
-    if (!this._canModifyContainment()) {
-      return ui.notifications.warn("Containers must be owned by an Actor and you must have permission to modify them.");
-    }
-
-    const bagListItems = [];
-    let tooLarge = false;
-
-    const allowedTypes = this.constructor._containerAllowedTypes();
-    const itemList = this.actor.items;
-
-    const containerMaxEnc =
-      (this.item.system?.container_enc?.max != null)
-        ? Number(this.item.system.container_enc.max)
-        : 0;
-
-    for (const i of itemList) {
-      if (!i) continue;
-      if (i.id === this.item.id) continue;
-
-      // Never allow containers inside containers (prevents cycles)
-      if (i.type === "container") continue;
-
-      // Only physical inventory items
-      if (!allowedTypes.has(i.type)) continue;
-      const itemEnc = Number(i.system?.enc ?? 0);
-      const cs = i.system?.containerStats ?? {};
-      const isInThis = !!cs?.contained && (cs?.container_id === this.item.id);
-
-      // Always show items already in this container (even if over capacity) so the user can remove them.
-      if (isInThis) {
-        bagListItems.push(i);
-        continue;
-      }
-
-      if (itemEnc > containerMaxEnc) {
-        tooLarge = true;
-        continue;
-      }
-
-      bagListItems.push(i);
-    }
-
-    this._createContainerListDialog(bagListItems, tooLarge);
-  }
-
-  /**
-   * Remove an item from this container (does not delete it).
-   */
-  async _onRemoveContainedItem(event) {
+  /** @override */
+  async _onDrop(event) {
     event.preventDefault();
-    if (!this._canModifyContainment()) {
-      ui.notifications.warn("You do not have permission to modify container contents.");
+
+    // Only handle drops for container sheets
+    if (this.item.type !== "container") {
+      return super._onDrop?.(event);
+    }
+
+    // Must be owned by an actor
+    if (!this.item.isOwned || !this.actor) {
+      ui.notifications?.warn("Containers must be owned by an Actor to accept dropped items.");
       return;
     }
 
-    const row = event.currentTarget?.closest?.(".item");
-    const removedItemId = row?.dataset?.itemId;
-    if (!removedItemId) return;
-    if (!this.actor) return;
-
-    const itemToUpdate = this.actor.items.get(removedItemId);
-    if (itemToUpdate) {
-      await itemToUpdate.update({
-        "system.containerStats.contained": false,
-        "system.containerStats.container_id": "",
-        "system.containerStats.container_name": ""
-      });
-    }
-
-    await this._repairContainerContainedItems();
-  }
-
-  /**
-   * Delete a contained item from the Actor (destructive).
-   */
-  async _onDeleteContainedItem(event) {
-    event.preventDefault();
-    if (!this._canModifyContainment()) {
-      ui.notifications.warn("You do not have permission to modify container contents.");
+    // Permission check
+    if (!this.options?.editable || !this.actor.isOwner) {
+      ui.notifications?.warn("You do not have permission to modify this container.");
       return;
     }
 
-    const row = event.currentTarget?.closest?.(".item");
-    const deletedItemId = row?.dataset?.itemId;
-    if (!deletedItemId) return;
-    if (!this.actor) return;
+    // Parse drop data using Foundry v13 standard API
+    const data = TextEditor.getDragEventData(event);
 
-    const itemDoc = this.actor.items.get(deletedItemId);
-    const itemName = itemDoc?.name || "this item";
-
-    const d = new Dialog({
-      title: "Delete Item",
-      content: `<p>Delete <strong>${itemName}</strong>? This cannot be undone.</p>`,
-      buttons: {
-        cancel: { label: "Cancel" },
-        delete: {
-          label: "Delete",
-          callback: async () => {
-            await this.actor.deleteEmbeddedDocuments("Item", [deletedItemId]);
-            await this._repairContainerContainedItems();
-          }
-        }
-      },
-      default: "cancel"
-    });
-
-    d.render(true);
-  }
-
-  /**
-   * Keep this container's contained_items snapshot in sync with owned items.
-   * This is intentionally conservative to avoid render-loop churn.
-   */
-  async _updateContainedItemsList() {
-    if (!this.item || this.item.type !== "container") return;
-    if (!this.actor) return;
-
-    // Repair first (removes ghost ids / dedupes / adds missing)
-    const repaired = await this._repairContainerContainedItems();
-    if (repaired) return;
-
-    const current = Array.isArray(this.item.system?.contained_items) ? this.item.system.contained_items : [];
-    let changed = false;
-    const next = [];
-
-    for (const entry of current) {
-      const id = entry?._id;
-      if (!id) { changed = true; continue; }
-      const source = this.actor.items.get(id);
-      if (!source) { changed = true; continue; }
-
-      const sourceObj = source.toObject();
-      const curMT = entry?.item?._stats?.modifiedTime;
-      const nextMT = sourceObj?._stats?.modifiedTime;
-      if (curMT !== nextMT) changed = true;
-
-      next.push({ _id: id, item: sourceObj });
+    // Only handle Item drops
+    if (data?.type !== "Item") {
+      return super._onDrop?.(event);
     }
 
-    if (!changed) return;
-    await this.item.update({ "system.contained_items": next });
-  }
-
-  async _pushContainedItemData() {
-    if (!this.actor) return;
-    if (!this.item?.system?.containerStats) return;
-    if (this.item.type === "container") return;
-
-    const containerId = this.item.system.containerStats.container_id;
-    if (!containerId) return;
-
-    const containerItem = this.actor.items.get(containerId);
-    if (!containerItem) return;
-
-    const current = Array.isArray(containerItem.system?.contained_items) ? containerItem.system.contained_items : [];
-    const itemId = this.item.id;
-
-    const nextEntry = { _id: itemId, item: this.item.toObject() };
-
-    const next = current.filter(ci => ci?._id !== itemId).concat([nextEntry]);
-    await containerItem.update({ "system.contained_items": next });
+    // Import the handler
+    const { onDropItemIntoContainer } = await import("./item/listeners/containment.js");
+    return onDropItemIntoContainer(this, data);
   }
 
   /* -------------------------------------------- */
-  /* Active Effects                                */
+  /* Handlers (delegated to modules - kept for backwards compatibility) */
   /* -------------------------------------------- */
 
-  /**
-   * Handle Active Effect controls from the Effects tab.
-   */
-  async _onEffectControl(event) {
-    event.preventDefault();
-    const el = event.currentTarget;
-    if (!el) return;
-
-    // In some templates the click target can be a nested element, or the control
-    // may not carry the effect id directly. Resolve deterministically.
-    const action = el.dataset?.action;
-    const effectId = el.dataset?.effectId ?? el.closest?.("[data-effect-id]")?.dataset?.effectId;
-
-    if (!action) return;
-    if (!this.item || !this.item.effects) return;
-
-    if (action === "create") {
-      const effectData = {
-        name: "New Effect",
-        img: "icons/svg/aura.svg",
-        changes: [],
-        disabled: false,
-        transfer: false,
-        duration: {}
-      };
-      const created = await this.item.createEmbeddedDocuments("ActiveEffect", [effectData]);
-      const eff = created && created.length ? created[0] : null;
-      if (eff && eff.sheet) eff.sheet.render(true);
-      return;
-    }
-
-    if (!effectId) return;
-    const effect = this.item.effects.get(effectId);
-    if (!effect) return;
-
-    switch (action) {
-      case "edit":
-        if (effect.sheet) effect.sheet.render(true);
-        break;
-      case "delete":
-        // Use embedded document API explicitly; this is more reliable for Item-embedded effects.
-        await this.item.deleteEmbeddedDocuments("ActiveEffect", [effectId]);
-        break;
-      case "toggle":
-        await this.item.updateEmbeddedDocuments("ActiveEffect", [{ _id: effectId, disabled: !effect.disabled }]);
-        break;
-      default:
-        break;
-    }
-  }
-
-  /* -------------------------------------------- */
-  /* Spell Scaling Level Management               */
-  /* -------------------------------------------- */
-
-  /**
-   * Add a new scaling level to a spell
-   */
-  async _onAddScalingLevel(event) {
-    event.preventDefault();
-    
-    if (this.item?.type !== "spell") return;
-    
-    const rawLevels = foundry.utils.getProperty(this.item, "system.scaling.levels");
-    let currentLevels = [];
-    if (Array.isArray(rawLevels)) currentLevels = rawLevels;
-    else if (rawLevels && typeof rawLevels === "object") currentLevels = Object.values(rawLevels);
-
-    // Normalize to a stable, numeric-level-sorted array.
-    currentLevels = currentLevels
-      .filter(l => l && typeof l === "object")
-      .map((l, idx) => ({
-        level: Number(l.level) || (idx + 1),
-        cost: Number(l.cost) || 0,
-        damageFormula: String(l.damageFormula ?? ""),
-        effectStrength: Number(l.effectStrength) || 0,
-        duration: Number(l.duration) || 0
-      }))
-      .sort((a, b) => (a.level - b.level));
-
-    const maxLevel = currentLevels.reduce((m, l) => Math.max(m, Number(l.level) || 0), 0);
-    const nextLevelNum = maxLevel + 1;
-    
-    if (nextLevelNum > 7) {
-      ui.notifications.warn("Maximum 7 spell levels (Novice to Grandmaster).");
-      return;
-    }
-    
-    const newLevels = [...currentLevels, {
-      level: nextLevelNum,
-      cost: 0,
-      damageFormula: "",
-      effectStrength: 0,
-      duration: 0
-    }];
-    
-    await this.item.update({ "system.scaling.levels": newLevels });
-  }
-
-  /**
-   * Remove a scaling level from a spell
-   */
-  async _onRemoveScalingLevel(event) {
-    event.preventDefault();
-    
-    if (this.item?.type !== "spell") return;
-    
-    const index = Number(event.currentTarget.closest("tr")?.dataset?.index ?? -1);
-    if (index < 0) return;
-    
-    const rawLevels = foundry.utils.getProperty(this.item, "system.scaling.levels");
-    let currentLevels = [];
-    if (Array.isArray(rawLevels)) currentLevels = rawLevels;
-    else if (rawLevels && typeof rawLevels === "object") currentLevels = Object.values(rawLevels);
-
-    currentLevels = currentLevels
-      .filter(l => l && typeof l === "object")
-      .map((l, idx) => ({
-        level: Number(l.level) || (idx + 1),
-        cost: Number(l.cost) || 0,
-        damageFormula: String(l.damageFormula ?? ""),
-        effectStrength: Number(l.effectStrength) || 0,
-        duration: Number(l.duration) || 0
-      }))
-      .sort((a, b) => (a.level - b.level));
-
-    const newLevels = currentLevels.filter((_, i) => i !== index);
-    
-    await this.item.update({ "system.scaling.levels": newLevels });
-  }
+  // All handler methods have been moved to:
+  // - src/ui/sheets/item/listeners/modifiers.js
+  // - src/ui/sheets/item/listeners/usage.js
+  // - src/ui/sheets/item/listeners/containment.js
+  // - src/ui/sheets/item/listeners/effects.js
 }

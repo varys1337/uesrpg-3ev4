@@ -1,0 +1,455 @@
+/**
+ * src/core/combat/opposed/cards/renderers.js
+ * Top-level card rendering functions for opposed combat workflows.
+ * Extracted from opposed-workflow.js for maintainability.
+ * 
+ * This module orchestrates card template helpers to build complete HTML cards.
+ */
+
+import {
+  _renderRollLine,
+  _renderTNLine,
+  _buildAttackerStatusLine,
+  _buildDefenderStatusLine,
+  _buildAttackerActions,
+  _buildDefenderActions,
+  _buildOutcomeLine,
+  _buildResolutionDetails,
+  _buildResolvedActions,
+  _buildDamagePanel
+} from "./template-helpers.js";
+import { AttackTracker } from "../../attack-tracker.js";
+import { canAttackerRoll } from "../actions/eligibility.js";
+import { _resolveActor } from "../helpers/docs.js";
+
+function _attackerTestLabel(value) {
+  const raw = String(value ?? "Attack").trim();
+  const stripped = raw.replace(/^attack\s*-\s*/i, "").trim();
+  return _shortenTestLabel(stripped || "Attack");
+}
+
+/**
+ * Shorten verbose test labels for compact chat card display.
+ * @param {string} value - Test label value
+ * @returns {string} - Shortened label
+ */
+function _shortenTestLabel(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return raw;
+  // Remove "(Profession)" suffix for combat skills (NPCs)
+  const shortened = raw.replace(/\s*\(\s*profession\s*\)\s*/ig, "");
+  return shortened || raw;
+}
+
+function _getAttackerCommitGate(data) {
+  const attacker = _resolveActor(data?.attacker?.actorUuid);
+  if (!attacker) return { allowed: false, reason: "Attacker unavailable" };
+
+  const eligibility = canAttackerRoll(attacker, data?.context ?? {});
+  if (!eligibility?.allowed) {
+    return { allowed: false, reason: String(eligibility?.reason ?? "Unavailable") };
+  }
+
+  if (!game?.combat) return { allowed: true };
+
+  const baseApCost = (String(data?.mode ?? "attack") === "attack" && !data?.context?.isFreeActionAttack) ? 1 : 0;
+  const currentAP = Number(foundry.utils.getProperty(attacker, "system.action_points.value") ?? 0);
+  if (currentAP < baseApCost) {
+    return { allowed: false, reason: `${currentAP}/${baseApCost} AP` };
+  }
+
+  if (AttackTracker.hasExceededLimit(attacker, { attackMode: String(data?.context?.attackMode ?? "").toLowerCase() })) {
+    return { allowed: false, reason: AttackTracker.getLimitWarning(attacker) || "Attack limit reached" };
+  }
+
+  return { allowed: true };
+}
+
+function _getDefenderCommitGate(defenderData) {
+  const defender = _resolveActor(defenderData?.actorUuid);
+  if (!defender) return { allowed: false, reason: "Defender unavailable" };
+  if (!game?.combat) return { allowed: true };
+
+  const apCost = Number(defenderData?.apCost ?? 1) || 1;
+  const currentAP = Number(foundry.utils.getProperty(defender, "system.action_points.value") ?? 0);
+  if (currentAP < apCost) {
+    return { allowed: false, reason: `${currentAP}/${apCost} AP` };
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Render multi-defender opposed combat card.
+ * 
+ * @param {Object} data - Opposed workflow data.
+ * @param {string} messageId - Chat message ID.
+ * @param {Object} helpers - Helper functions object.
+ * @param {Function} helpers._getDefenderEntries - Get defenders array.
+ * @param {Function} helpers._isBankChoicesEnabledForData - Check if banking enabled.
+ * @param {Function} helpers._anyActiveGMOnline - Check if GM online.
+ * @param {Function} helpers._getBankCommitState - Get commit state.
+ * @param {Function} helpers._getDefenderOutcome - Get defender outcome.
+ * @param {Function} helpers._getDefenderAdvantage - Get defender advantage.
+ * @param {Function} helpers._getDefenderResolutionState - Get resolution state.
+ * @param {Function} helpers._allDefendersCommitted - Check if all committed.
+ * @param {Function} helpers._isMultiDefender - Check if multi-defender.
+ * @returns {string} - HTML string for multi-defender card.
+ */
+export function renderMultiDefenderCard(data, messageId, helpers) {
+  const {
+    _getDefenderEntries,
+    _isBankChoicesEnabledForData,
+    _anyActiveGMOnline,
+    _getBankCommitState,
+    _getDefenderOutcome,
+    _getDefenderAdvantage,
+    _getDefenderResolutionState,
+    _allDefendersCommitted,
+    _isMultiDefender
+  } = helpers;
+
+  const defenders = _getDefenderEntries(data);
+  const a = data.attacker ?? {};
+  const showResolutionDetails = !!(game?.settings?.get?.("uesrpg-3ev4", "opposedShowResolutionDetails"));
+  const bankMode = _isBankChoicesEnabledForData(data);
+  const anyGMOnline = _anyActiveGMOnline();
+  const anyOutcome = defenders.some(d => d?.outcome);
+  const { aCommitted } = _getBankCommitState(data, defenders[0] ?? null);
+  // Keep banked choices mystified until the roll phase starts (or resolved).
+  const revealAttacker = !bankMode || Boolean(a.result) || anyOutcome;
+  const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
+
+  const baseA = Number(a.baseTarget ?? 0);
+  const modA = Number(a.totalMod ?? 0);
+  const finalA = baseA + modA;
+  const aTargetLabel = (revealAttacker && a.hasDeclared === true)
+    ? `${finalA}${modA ? ` (${modA >= 0 ? "+" : ""}${modA})` : ""}`
+    : (revealAttacker ? `${baseA}` : "??");
+
+  const aVariantText = (revealAttacker && a.hasDeclared)
+    ? (a.variantLabel ?? "Attack")
+    : "??";
+
+  const aRollLine = _renderRollLine({ result: a.result, noDefense: false });
+  const attackerCommitLine = _buildAttackerStatusLine({
+    bankMode,
+    anyOutcome,
+    rolled: !!a.result,
+    aCommitted
+  });
+  const attackerCommitGate = _getAttackerCommitGate(data);
+
+  const attackerActions = _buildAttackerActions({
+    attacker: a,
+    bankMode,
+    aCommitted,
+    data,
+    _safeGetSetting: helpers._safeGetSetting,
+    commitGate: attackerCommitGate
+  });
+
+  const defenderBlocks = defenders.map((d, idx) => {
+    const { dCommitted, bothCommitted } = _getBankCommitState(data, d);
+    const revealDefender = !bankMode || Boolean(d.result) || Boolean(d.outcome);
+    const outcome = _getDefenderOutcome(data, d);
+    const advantage = _getDefenderAdvantage(data, d) ?? { attacker: 0, defender: 0 };
+    const resolutionState = _getDefenderResolutionState(data, d);
+
+    const dTargetLabel = (!revealDefender)
+      ? "??"
+      : (d.noDefense ? "0" : (d.targetLabel ?? (d.target ?? "??")));
+    const dTestLabel = (!revealDefender)
+      ? "??"
+      : _shortenTestLabel(d.testLabel ?? "(choose)");
+    const dDefenseLabel = (!revealDefender)
+      ? "??"
+      : (d.defenseLabel ?? d.label ?? "(choose)");
+
+    const dRollLine = _renderRollLine({ result: d.result, noDefense: (d.noDefense === true) });
+    const defenderCommitLine = _buildDefenderStatusLine({
+      bankMode,
+      outcome,
+      rolled: !!d.result,
+      dCommitted,
+      noDefense: d.noDefense
+    });
+
+    const defenderActions = _buildDefenderActions({
+      defender: d,
+      bankMode,
+      dCommitted,
+      idx,
+      data,
+      _allDefendersCommitted,
+      commitDefenseGate: _getDefenderCommitGate(d)
+    });
+
+    const allDefendersCommitted = _isMultiDefender(data) 
+      ? _getDefenderEntries(data).every(def => {
+          if (!def) return true;
+          return Boolean(
+            def?.banked?.committed === true ||
+            def?.noDefense === true ||
+            def?.defenseType != null ||
+            def?.testLabel != null
+          );
+        })
+      : dCommitted;
+
+    const outcomeLine = _buildOutcomeLine({
+      outcome,
+      bankMode,
+      bothCommitted,
+      allDefendersCommitted,
+      aCommitted: Boolean(data.attacker?.banked?.committed === true || data.attacker?.hasDeclared === true),
+      anyGMOnline,
+      data,
+      isMulti: true
+    });
+
+    const resolutionDetails = _buildResolutionDetails({
+      showResolutionDetails,
+      outcome,
+      attacker: a,
+      defender: d,
+      advantage
+    });
+
+    const damageData = d.damage ?? null;
+
+    const resolvedActions = _buildResolvedActions({
+      outcome,
+      defender: d,
+      advantage,
+      resolutionState,
+      idx,
+      isAoE,
+      status: null, // Multi-defender doesn't use top-level status
+      damageData
+    });
+
+    const damagePanel = _buildDamagePanel(damageData);
+
+    return `
+      <div style="padding:6px; border:1px solid rgba(0,0,0,0.12); border-radius:6px; max-width:100%; overflow:hidden; box-sizing:border-box;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
+          <div style="font-size:14px; font-weight:700; flex-shrink:0;">Defender</div>
+          <div style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${d.tokenName ?? d.name}</b></div>
+        </div>
+        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
+          <div><b>Test:</b> ${dTestLabel}</div>
+          <div><b>Defense:</b> ${dDefenseLabel}</div>
+          ${_renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null })}
+          ${dRollLine}
+          ${defenderCommitLine}
+        </div>
+        ${defenderActions}
+        ${outcomeLine}
+        ${resolutionDetails}
+        ${resolvedActions}
+        ${damagePanel}
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px;">
+      <div style="display:grid; grid-template-columns: 1fr; gap:12px; max-width:100%; overflow:hidden;">
+        <div style="padding-bottom:8px; border-bottom:1px solid rgba(0,0,0,0.12); min-width:0; overflow:hidden;">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
+            <div style="font-size:14px; font-weight:700; flex-shrink:0;">⚔️</div>
+            <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${a.tokenName ?? a.name}</b></div>
+          </div>
+          <div style="margin-top:4px; font-size:13px; line-height:1.25;">
+            <div><b>Test:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
+            <div><b>Attack:</b> ${aVariantText}</div>
+            ${_renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null })}
+            ${aRollLine}
+            ${attackerCommitLine}
+          </div>
+          ${attackerActions}
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr; gap:10px; max-width:100%; overflow:hidden;">
+          ${defenderBlocks}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Render single-defender opposed combat card.
+ * 
+ * @param {Object} data - Opposed workflow data.
+ * @param {string} messageId - Chat message ID.
+ * @param {Object} helpers - Helper functions object.
+ * @param {Function} helpers._isBankChoicesEnabledForData - Check if banking enabled.
+ * @param {Function} helpers._getBankCommitState - Get commit state.
+ * @param {Function} helpers._anyActiveGMOnline - Check if GM online.
+ * @param {Function} helpers._allDefendersCommitted - Check if all committed.
+ * @returns {string} - HTML string for single-defender card.
+ */
+export function renderSingleDefenderCard(data, messageId, helpers) {
+  const {
+    _isBankChoicesEnabledForData,
+    _getBankCommitState,
+    _anyActiveGMOnline,
+    _allDefendersCommitted
+  } = helpers;
+
+  const a = data.attacker ?? {};
+  const d = data.defender ?? {};
+  // Single-defender cards use the same button payload format as multi-defender cards.
+  // The handlers expect a numeric defender-index; in single-defender mode this is always 0.
+  const idx = 0;
+
+  const showResolutionDetails = !!(game?.settings?.get?.("uesrpg-3ev4", "opposedShowResolutionDetails"));
+
+  const bankMode = _isBankChoicesEnabledForData(data);
+  const { aCommitted, dCommitted, bothCommitted } = _getBankCommitState(data);
+
+  const anyGMOnline = _anyActiveGMOnline();
+  const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
+
+  // Keep banked choices mystified until the roll phase starts (or resolved).
+  const anyOutcome = data.status === "resolved" || !!data.outcome;
+  const revealAttacker = !bankMode || Boolean(a.result) || anyOutcome;
+  const revealDefender = !bankMode || Boolean(d.result) || anyOutcome;
+
+  const baseA = Number(a.baseTarget ?? 0);
+  const modA = Number(a.totalMod ?? 0);
+  const finalA = baseA + modA;
+  const aTargetLabel = (revealAttacker && a.hasDeclared === true)
+    ? `${finalA}${modA ? ` (${modA >= 0 ? "+" : ""}${modA})` : ""}`
+    : (revealAttacker ? `${baseA}` : "??");
+
+  const aVariantText = (revealAttacker && a.hasDeclared)
+    ? (a.variantLabel ?? "Attack")
+    : "??";
+
+  const dTargetLabel = (!revealDefender)
+    ? "??"
+    : (d.noDefense ? "0" : (d.targetLabel ?? (d.target ?? "??")));
+
+  const dTestLabel = (!revealDefender)
+    ? "??"
+    : _shortenTestLabel(d.testLabel ?? "(choose)");
+
+  const dDefenseLabel = (!revealDefender)
+    ? "??"
+    : (d.defenseLabel ?? d.label ?? "(choose)");
+
+  // Roll summaries: use a single formatter for parity across banked and non-banked modes.
+  const aRollLine = _renderRollLine({ result: a.result, noDefense: false });
+  const dRollLine = _renderRollLine({ result: d.result, noDefense: (d.noDefense === true) });
+
+  const attackerCommitLine = _buildAttackerStatusLine({
+    bankMode,
+    anyOutcome: (data.status === "resolved") || !!data.outcome,
+    rolled: !!a.result,
+    aCommitted
+  });
+  const attackerCommitGate = _getAttackerCommitGate(data);
+
+  const defenderCommitLine = _buildDefenderStatusLine({
+    bankMode,
+    outcome: (data.status === "resolved") || !!data.outcome,
+    rolled: !!d.result,
+    dCommitted,
+    noDefense: d.noDefense
+  });
+
+  const attackerActions = _buildAttackerActions({
+    attacker: a,
+    bankMode,
+    aCommitted,
+    data,
+    _safeGetSetting: helpers._safeGetSetting,
+    commitGate: attackerCommitGate
+  });
+
+  const defenderActions = _buildDefenderActions({
+    defender: d,
+    bankMode,
+    dCommitted,
+    idx,
+    data,
+    _allDefendersCommitted,
+    commitDefenseGate: _getDefenderCommitGate(d)
+  });
+
+  const outcomeLine = _buildOutcomeLine({
+    outcome: data.outcome,
+    bankMode,
+    bothCommitted,
+    allDefendersCommitted: false, // Not used in single-defender mode
+    aCommitted,
+    anyGMOnline,
+    data,
+    isMulti: false
+  });
+
+  const resolutionDetails = _buildResolutionDetails({
+    showResolutionDetails,
+    outcome: data.outcome,
+    attacker: a,
+    defender: d,
+    advantage: data.advantage ?? { attacker: 0, defender: 0 }
+  });
+
+  const damageData = data.damage ?? null;
+
+  const resolvedActions = _buildResolvedActions({
+    outcome: data.outcome,
+    defender: d,
+    advantage: data.advantage ?? { attacker: 0, defender: 0 },
+    resolutionState: {
+      defenderAdvantage: data.defenderAdvantage ?? {}
+    },
+    idx,
+    isAoE,
+    status: data.status,
+    damageData
+  });
+
+  const damagePanel = _buildDamagePanel(damageData);
+
+  return `
+  <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px;">
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; max-width:100%; overflow:hidden;">
+      <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12); min-width:0; overflow:hidden;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
+          <div style="font-size:14px; font-weight:700; flex-shrink:0;">⚔️</div>
+          <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${a.tokenName ?? a.name}</b></div>
+        </div>
+        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
+          <div><b>Test:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
+          <div><b>Attack:</b> ${aVariantText}</div>
+          ${_renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null })}
+          ${aRollLine}
+          ${attackerCommitLine}
+        </div>
+        ${attackerActions}
+      </div>
+      <div style="padding-left:2px; min-width:0; overflow:hidden;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
+          <div style="font-size:14px; font-weight:700; flex-shrink:0;">🛡️</div>
+          <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${d.tokenName ?? d.name}</b></div>
+        </div>
+        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
+          <div><b>Test:</b> ${dTestLabel}</div>
+          <div><b>Defense:</b> ${dDefenseLabel}</div>
+          ${_renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null })}
+          ${dRollLine}
+          ${defenderCommitLine}
+        </div>
+        ${defenderActions}
+      </div>
+    </div>
+    ${outcomeLine}
+    ${resolutionDetails}
+    ${resolvedActions}
+    ${damagePanel}
+  </div>`;
+}

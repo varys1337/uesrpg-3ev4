@@ -8,10 +8,7 @@
  *  - Combat-time: { combat, startRound, startTurn, rounds?, turns? }
  */
 
-function _num(v, d = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-}
+import { _num } from "../../utils/coerce.js";
 
 function _getActorCombatant(combat, actor) {
   if (!combat || !actor) return null;

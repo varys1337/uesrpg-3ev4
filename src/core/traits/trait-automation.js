@@ -1,3 +1,11 @@
+/**
+ * @module traits/trait-automation
+ * @description Trait application automation — disease resistance prompts and
+ * trait-key parsing helpers.
+ *
+ * Target: Foundry VTT v13.351
+ */
+
 import { getDiseaseResistancePercent } from "./trait-registry.js";
 
 function _norm(str) {

@@ -11,14 +11,10 @@
 
 import { FoundryCoreProvider } from "./providers/foundry-core-provider.js";
 import { CalendariaProvider } from "./providers/calendaria-provider.js";
+import { _num } from "../../utils/coerce.js";
 
 // Reserved for future use (settings, flags, etc).
 const NAMESPACE = "uesrpg-3ev4";
-
-function _num(v, d = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-}
 
 function _nowMs() {
   return Date.now();

@@ -6,6 +6,48 @@
       <label>Combat Sheet: Action Economy UI</label>
       <input type="checkbox" name="enableActionEconomyUI" {{checked enableActionEconomyUI}}>
     </div>
+
+    <div class="form-group">
+      <label>Action Point Automation</label>
+      <select name="actionPointAutomation">
+        <option value="round" {{#if (eq actionPointAutomation "round")}}selected{{/if}}>Round-Based</option>
+        <option value="turn" {{#if (eq actionPointAutomation "turn")}}selected{{/if}}>Turn-Based</option>
+        <option value="none" {{#if (eq actionPointAutomation "none")}}selected{{/if}}>None</option>
+      </select>
+      <p class="notes">Round-Based: AP is set to max at the start of each round. Turn-Based: AP is set to max at the start of each turn, except the first round in which all combatants start with max AP. None: No automation.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Token Range Measurement Mode</label>
+      <select name="tokenRangeMeasurement">
+        <option value="center" {{#if (eq tokenRangeMeasurement "center")}}selected{{/if}}>Center Point (Legacy)</option>
+        <option value="edge" {{#if (eq tokenRangeMeasurement "edge")}}selected{{/if}}>Edge to Edge (D&D/PF2e)</option>
+      </select>
+      <p class="notes">How to measure distance between tokens. 'Center Point': Always measure center-to-center (legacy, treats all tokens as 1×1). 'Edge to Edge': Measure from nearest edges for tokens larger than 1×1 (D&D/PF2e standard).</p>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Area of Effect</legend>
+
+    <div class="form-group">
+      <label>AoE Containment Mode</label>
+      <select name="aoeContainmentMode">
+        <option value="true-radius" {{#if (eq aoeContainmentMode "true-radius")}}selected{{/if}}>True Radius (Geometric)</option>
+        <option value="grid-aware" {{#if (eq aoeContainmentMode "grid-aware")}}selected{{/if}}>Grid-Aware (Cell Overlap)</option>
+      </select>
+      <p class="notes">True Radius: token is affected if any part of its space falls inside the template shape (geometric sampling). Grid-Aware: token is affected if the template overlaps any grid cell the token occupies (D&D/PF2e style).</p>
+    </div>
+
+    <div class="form-group">
+      <label>AoE Range Origin</label>
+      <select name="aoeOriginMeasurement">
+        <option value="center" {{#if (eq aoeOriginMeasurement "center")}}selected{{/if}}>Center Point</option>
+        <option value="edge" {{#if (eq aoeOriginMeasurement "edge")}}selected{{/if}}>Nearest Edge</option>
+        <option value="match-token" {{#if (eq aoeOriginMeasurement "match-token")}}selected{{/if}}>Match Token Range Setting</option>
+      </select>
+      <p class="notes">How to measure range from the caster to an AoE placement or spell target. 'Center': from token center (legacy). 'Nearest Edge': from the caster token's closest edge. 'Match Token': use whichever mode is set for Token Range Measurement above.</p>
+    </div>
   </fieldset>
 
   <footer class="sheet-footer flexrow">

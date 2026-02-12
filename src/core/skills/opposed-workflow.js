@@ -1,7 +1,7 @@
 /**
  * src/core/skills/opposed-workflow.js
  *
- * Skill opposed workflow, modeled after module/combat/opposed-workflow.js.
+ * Skill opposed workflow façade (refactored to delegate to internal modules).
  *
  * Requirements:
  *  - If a target is selected: create a pending opposed skill card.
@@ -13,668 +13,118 @@
 import { doTestRoll, resolveOpposed, formatDegree, computeResultFromRollTotal } from "../../utils/degree-roll-helper.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "./skill-tn.js";
 import { requireUserCanRollActor } from "../../utils/permissions.js";
-import { hasCondition } from "../conditions/condition-engine.js";
 import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug, validateSkillRollRequest } from "./roll-request.js";
-import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../traits/trait-resistance-ui.js";
 import { consumePhysicalExertionForSkill } from "../stamina/stamina-integration-hooks.js";
-import { applySenseLossPenaltyAdjustments, applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../traits/awareness-talents.js";
-import { hasTalent, normalizeTalentKey } from "../traits/talents-api.js";
+import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../traits/awareness-talents.js";
+import { applyIntellectualTalentDoSOverrides } from "../traits/intellectual-talents.js";
+import { hasCondition } from "../conditions/condition-engine.js";
 
-const _SKILL_ROLL_SETTINGS_NS = "uesrpg-3ev4";
-const _FLAG_NS = "uesrpg-3ev4";
-const _FLAG_KEY = "skillOpposed";
-const _CARD_VERSION = 1;
-const _SKILL_ROLL_LAST_OPTIONS_KEY = "skillRollLastOptions";
-const _DEFAULT_COMBAT_STYLE_DEFENSE_TYPE = "parry";
+// Internal modules
+import { FLAG_NS, FLAG_KEY, CARD_VERSION, DEFAULT_COMBAT_STYLE_DEFENSE_TYPE, bankedAutoRollLocalLocks } from "./opposed/constants.js";
+import { _bothSidesCommitted, _getMessageState, _skillOpposedMetaFlag, _normalizeCardFlag } from "./opposed/schema.js";
+import { _getLastSkillRollOptions, _setLastSkillRollOptions, _mergeLastSkillRollOptions } from "./opposed/settings.js";
+import { _resolveDoc, _resolveActor, _resolveToken } from "./opposed/docs.js";
+import { _canControlActor, _userHasActorOwnership, _esc, _fmtDegree } from "./opposed/util.js";
+import { _renderCard, _renderDeclared, _btn, _renderBreakdown } from "./opposed/render.js";
+import { _updateCard } from "./opposed/card-updater.js";
+import { _hasSpecializations, _listSkills, _findSkillByUuid, _resolveCombatStyleOrSkill, _listProfessions } from "./opposed/skills.js";
+import { _skillRollDialog } from "./opposed/dialogs.js";
+import { _buildSensorySituationalMods, _maybeAddInvisibleTrackingPenalty, _resolveOutcome, _executeSpecialActionIfWinner } from "./opposed/helpers.js";
+import { buildRollContext } from "../rules/roll-context.js";
+import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../traits/features/rule-element-runtime.js";
 
-// Banked-choice (meta-limiting) automation locks.
-// Prevents duplicate auto-roll starts from multiple hook triggers.
-const _bankedAutoRollLocalLocks = new Set();
+async function _maybeResolveBothCritSuccessRollOff({ message, data, attacker, defender } = {}) {
+  if (!message || !data || !attacker || !defender) return;
+  if (data?.outcome?.winner && data.outcome.winner !== "tie") return;
+  if (data?.context?.rollOff?.resolved) return;
 
-function _esc(value) {
-  const raw = String(value ?? "");
-  if (foundry?.utils?.escapeHTML) return foundry.utils.escapeHTML(raw);
-  return raw
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+  const aRes = data?.attacker?.result ?? null;
+  const dRes = data?.defender?.result ?? null;
+  if (!aRes || !dRes) return;
 
-function _buildSensorySituationalMods(decl, actor = null, { skillName = null } = {}) {
-  const mods = [];
-  if (decl?.applyBlinded) mods.push({ key: "blinded", conditionKey: "blinded", label: "Blinded (sight)", value: -30, source: "sense-loss" });
-  if (decl?.applyDeafened) mods.push({ key: "deafened", conditionKey: "deafened", label: "Deafened (hearing)", value: -30, source: "sense-loss" });
+  const bothCritSuccess = Boolean(aRes.isCriticalSuccess) && Boolean(dRes.isCriticalSuccess);
+  if (!bothCritSuccess) return;
 
-  // Observe already receives a -30 penalty from the Blinded/Deafened condition AEs.
-  // When that penalty is already applied, convert Honed Senses / One with All into an offset.
-  const skillKey = normalizeTalentKey(skillName);
-  if (skillKey === "observe" && actor) {
-    const hasBlind = hasCondition(actor, "blinded");
-    const hasDeaf = hasCondition(actor, "deafened");
-    for (const mod of mods) {
-      if (mod?.key === "blinded" && hasBlind) mod.applyMode = "offset";
-      if (mod?.key === "deafened" && hasDeaf) mod.applyMode = "offset";
-    }
-  }
+  const activeGM = game.users.activeGM ?? null;
+  const shouldRun = activeGM ? (game.user.id === activeGM.id) : message.isAuthor;
+  if (!shouldRun) return;
 
-  // Awareness talent automation: Honed Senses / One with All.
-  applySenseLossPenaltyAdjustments(mods, actor);
-  return mods;
-}
+  // Roll-off per Chapter 1: reroll to break the tie.
+  const maxAttempts = 5;
+  const attempts = [];
+  let final = null;
 
-function _maybeAddInvisibleTrackingPenalty({ skillLabel, targetActor, situationalMods } = {}) {
-  if (!targetActor || !Array.isArray(situationalMods)) return;
-  if (normalizeTalentKey(skillLabel) !== "survival") return;
-  if (!hasTalent(targetActor, "invisible")) return;
+  const aTarget = Number(aRes.target ?? data?.attacker?.tn?.finalTN ?? 0) || 0;
+  const dTarget = Number(dRes.target ?? data?.defender?.tn?.finalTN ?? 0) || 0;
 
-  if (!situationalMods.some(m => String(m?.key ?? "") === "talent:invisible")) {
-    situationalMods.push({
-      key: "talent:invisible",
-      label: "Invisible (Tracking)",
-      value: -20,
-      source: "talent"
+  for (let i = 1; i <= maxAttempts; i++) {
+    const a = await doTestRoll(attacker, { rollFormula: "1d100", target: aTarget, allowLucky: true, allowUnlucky: true });
+    const d = await doTestRoll(defender, { rollFormula: "1d100", target: dTarget, allowLucky: true, allowUnlucky: true });
+    const out = resolveOpposed(a, d);
+
+    attempts.push({
+      n: i,
+      attacker: { rollTotal: a.rollTotal, target: a.target, textual: a.textual, isCriticalSuccess: a.isCriticalSuccess, isCriticalFailure: a.isCriticalFailure },
+      defender: { rollTotal: d.rollTotal, target: d.target, textual: d.textual, isCriticalSuccess: d.isCriticalSuccess, isCriticalFailure: d.isCriticalFailure },
+      winner: out.winner,
+      reason: out.reason
     });
-  }
-}
 
-function _bothSidesCommitted(data) {
-  return Boolean(data?.attacker?.committedAt) && Boolean(data?.defender?.committedAt);
-}
-
-function _normalizeCardFlag(raw) {
-  // v1+ contract: { version, state }
-  if (raw && typeof raw === "object" && Number(raw.version) >= 1 && raw.state) {
-    return { version: Number(raw.version), state: raw.state };
-  }
-  // legacy shape: the state was stored directly in flags
-  if (raw && typeof raw === "object" && raw.attacker && raw.defender) {
-    return { version: 0, state: raw };
-  }
-  return { version: 0, state: null };
-}
-
-function _getMessageState(message) {
-  const raw = message?.flags?.[_FLAG_NS]?.[_FLAG_KEY];
-  return _normalizeCardFlag(raw).state;
-}
-
-function _getLastSkillRollOptions() {
-  try {
-    const saved = game.settings.get(_SKILL_ROLL_SETTINGS_NS, _SKILL_ROLL_LAST_OPTIONS_KEY) ?? {};
-    // Always exclude difficulty from saved options - force default to "average"
-    delete saved.difficulty;
-    delete saved.difficultyKey;
-    return saved;
-  } catch (_e) {
-    return {};
-  }
-}
-
-async function _setLastSkillRollOptions(next) {
-  try {
-    // Do not persist difficulty choice - always default to "average"
-    const sanitized = { ...next };
-    delete sanitized.difficulty;
-    delete sanitized.difficultyKey;
-    await game.settings.set(_SKILL_ROLL_SETTINGS_NS, _SKILL_ROLL_LAST_OPTIONS_KEY, sanitized);
-  } catch (_e) {
-    // client setting may not exist if init hasn't run yet; fail silently
-  }
-}
-
-function _mergeLastSkillRollOptions(patch={}) {
-  const prev=_getLastSkillRollOptions();
-  const next={...prev, ...patch};
-  next.lastSkillUuidByActor = {...(prev.lastSkillUuidByActor||{}), ...(patch.lastSkillUuidByActor||{})};
-  // Always force difficulty to "average" (do not persist)
-  delete next.difficulty;
-  delete next.difficultyKey;
-  return next;
-}
-
-function _skillOpposedMetaFlag(parentMessageId, stage, extra = null) {
-  const base = { parentMessageId, stage };
-  const skillOpposedMeta = (extra && typeof extra === "object")
-    ? foundry.utils.mergeObject(base, extra, { inplace: false })
-    : base;
-  return { skillOpposedMeta };
-}
-
-
-function _resolveDoc(uuid) {
-  if (!uuid) return null;
-  try { return fromUuidSync(uuid); } catch (_e) { return null; }
-}
-
-function _resolveActor(docOrUuid) {
-  const doc = typeof docOrUuid === "string" ? _resolveDoc(docOrUuid) : docOrUuid;
-  if (!doc) return null;
-  if (doc.documentName === "Actor") return doc;
-  if (doc.documentName === "Token") return doc.actor ?? null;
-  if (doc.actor) return doc.actor;
-  return null;
-}
-
-function _resolveToken(docOrUuid) {
-  const doc = typeof docOrUuid === "string" ? _resolveDoc(docOrUuid) : docOrUuid;
-  if (!doc) return null;
-  // TokenDocument
-  if (doc.documentName === "Token") return doc.object ?? null;
-  // Token
-  if (doc.actor && doc.document) return doc;
-  return null;
-}
-
-function _canControlActor(actor) {
-  return game.user.isGM || actor?.isOwner;
-}
-
-
-function _userHasActorOwnership(user, actor) {
-  try {
-    if (!user || !actor) return false;
-    if (user.isGM) return true;
-    if (typeof actor.testUserPermission === 'function') {
-      return actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER);
+    if (out.winner === "attacker" || out.winner === "defender") {
+      final = out;
+      break;
     }
-    const level = Number(actor?.ownership?.[user.id] ?? 0);
-    return level >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
-  } catch (_e) {
-    return false;
   }
-}
 
-function _fmtDegree(res) {
-  return formatDegree(res);
-}
+  const winner = final?.winner ?? "tie";
 
-function _renderDeclared(declared, tnObj) {
-  if (!declared) return "";
-  const parts = [];
-  const diff = tnObj?.difficulty;
-  if (diff?.label) {
-    const sign = Number(diff.mod || 0) >= 0 ? "+" : "";
-    parts.push(`${diff.label} (${sign}${Number(diff.mod || 0)})`);
-  }
-  const manual = Number(declared.manualMod || 0);
-  if (manual) parts.push(`Manual ${manual >= 0 ? "+" : ""}${manual}`);
-  if (declared.useSpec) parts.push("Spec +10");
-  if (!parts.length) return "";
-  return `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${parts.join("; ")}</div>`;
-}
-
-function _btn(label, action, extraDataset = {}) {
-  const ds = Object.entries(extraDataset)
-    .map(([k, v]) => `data-${k}="${String(v).replace(/"/g, "&quot;")}"`)
-    .join(" ");
-  return `<button type="button" data-ues-skill-opposed-action="${action}" ${ds}>${label}</button>`;
-}
-
-function _renderBreakdown(tnObj) {
-  const rows = (tnObj?.breakdown ?? []).map(b => {
-    const v = Number(b.value ?? 0);
-    const sign = v >= 0 ? "+" : "";
-    const label = _esc(b.label);
-    // Keep numeric modifiers from wrapping (e.g. "-10" should not split into "-1" and "0").
-    return `<div style="display:flex; justify-content:space-between; gap:10px;">
-      <span>${label}</span>
-      <span style="white-space:nowrap; flex:0 0 auto;">${sign}${v}</span>
-    </div>`;
-  }).join("");
-  if (!rows) return "";
-  return `
-    <details style="margin-top:4px;">
-      <summary style="cursor:pointer; user-select:none;">TN breakdown</summary>
-      <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
-    </details>`;
-}
-
-function _renderCard(data, messageId) {
-  const a = data.attacker;
-  const d = data.defender;
-  const aName = _esc(a.tokenName ?? a.name ?? "");
-  const dName = _esc(d.tokenName ?? d.name ?? "");
-  const aSkillLabel = _esc(a.skillLabel ?? "");
-  const dSkillLabel = _esc(d.skillLabel ?? "(choose)");
-
-  // Banked-choice mode: do not reveal TN/choice details until both sides have committed.
-  const bankMode = true;
-  const bothCommitted = Boolean(a?.committedAt) && Boolean(d?.committedAt);
-  const revealDetails = !bankMode || bothCommitted || data.status === "resolved" || !!data.outcome;
-
-  const aTNLabel = (revealDetails && a.tn) ? `${a.tn.finalTN}` : "—";
-  const dTNLabel = (revealDetails && d.tn) ? `${d.tn.finalTN}` : "—";
-
-  const attackerActions = (() => {
-    if (a.result) return "";
-    if (!a.committedAt) return `<div style="margin-top:6px;">${_btn("Commit Choices", "attacker-roll")}</div>`;
-    // Committed; awaiting GM auto-roll or resolution.
-    return `<div style="margin-top:6px; opacity:0.85;"><i>Choices committed</i></div>`;
-  })();
-
-  const defenderActions = (() => {
-    if (d.result) return "";
-    if (!d.committedAt) return `<div style="margin-top:6px;">${_btn("Commit Choices", "defender-roll")}</div>`;
-    return `<div style="margin-top:6px; opacity:0.85;"><i>Choices committed</i></div>`;
-  })();
-
-  const beginRollActions = (bankMode && bothCommitted && !data.outcome && !data.status && !a.result && !d.result && game.user.isGM)
-    ? `<div style="margin-top:8px;">${_btn("Begin Opposed Roll", "begin-banked-roll")}</div>`
-    : "";
-
-  const outcomeLine = data.outcome
-    ? `<div style="margin-top:10px;"><b>Outcome:</b> ${_esc(data.outcome.text ?? "")}</div>`
-    : (() => {
-        const phase = String(data?.context?.phase ?? "pending");
-        const waitingSince = Number(data?.context?.waitingSince ?? 0);
-        const ageMs = waitingSince ? (Date.now() - waitingSince) : 0;
-        const isWaiting = (phase === "waitingdefender" || phase === "waitingDefender");
-        const isStale = isWaiting && ageMs > 60_000;
-        const note = isStale
-          ? `<div style="margin-top:6px; font-size:12px; opacity:0.85;">
-               Still waiting on the defender result. If this persists, ensure the defender roll message was posted, and have the attacker refresh the page to re-render the card.
-             </div>`
-          : "";
-        return `<div style="margin-top:10px;"><i>Pending</i></div>${note}`;
-      })();
-
-  return `
-  <div class="ues-skill-opposed-card" data-message-id="${messageId}" style="padding:6px 6px;">
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start;">
-      <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12);">
-        <div style="display:flex; justify-content:space-between; align-items:baseline;">
-          <div style="font-size:16px; font-weight:700;">Actor</div>
-          <div style="font-size:13px;"><b>${aName}</b></div>
-        </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Skill:</b> ${aSkillLabel}</div>${_renderDeclared(a.declared, a.tn)}
-          <div><b>TN:</b> ${aTNLabel}</div>
-          ${a.result ? `<div><b>Roll:</b> ${a.result.rollTotal} — ${_fmtDegree(a.result)}${a.result.isCriticalSuccess ? ' <span style="color:green">CRITICAL</span>' : ''}${a.result.isCriticalFailure ? ' <span style="color:red">CRITICAL FAIL</span>' : ''}</div>` : ""}
-          ${_renderBreakdown(a.tn)}
-        </div>
-        ${attackerActions}
-      </div>
-      <div style="padding-left:2px;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline;">
-          <div style="font-size:16px; font-weight:700;">Target</div>
-          <div style="font-size:13px;"><b>${dName}</b></div>
-        </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Skill:</b> ${dSkillLabel}</div>${_renderDeclared(d.declared, d.tn)}
-          <div><b>TN:</b> ${dTNLabel}</div>
-          ${d.result ? `<div><b>Roll:</b> ${d.result.rollTotal} — ${_fmtDegree(d.result)}${d.result.isCriticalSuccess ? ' <span style="color:green">CRITICAL</span>' : ''}${d.result.isCriticalFailure ? ' <span style="color:red">CRITICAL FAIL</span>' : ''}</div>` : ""}
-          ${_renderBreakdown(d.tn)}
-        </div>
-        ${defenderActions}
-      </div>
-    </div>    ${beginRollActions}
-    ${outcomeLine}
-  </div>`;
-}
-
-async function _updateCard(message, data) {
   data.context = data.context ?? {};
-  data.context.schemaVersion = data.context.schemaVersion ?? _CARD_VERSION;
-  data.context.updatedAt = Date.now();
-  data.context.updatedBy = game.user.id;
-  // Ensure strict ordering for rapid successive updates where Date.now() can collide.
-  data.context.updatedSeq = (Number(data.context.updatedSeq) || 0) + 1;
-
-  const payload = {
-    content: _renderCard(data, message.id),
-    flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version: _CARD_VERSION, state: data } } }
+  data.context.rollOff = {
+    kind: "bothCritSuccess",
+    resolved: winner !== "tie",
+    resolvedAt: Date.now(),
+    resolvedBy: game.user.id,
+    attempts
   };
 
-  await safeUpdateChatMessage(message, payload);
-}
-
-function _hasSpecializations(skillItem) {
-  const raw = String(skillItem?.system?.trainedItems ?? "").trim();
-  return raw.length > 0;
-}
-
-async function _skillRollDialog({
-  title,
-  actor = null,
-  showSkillSelect = false,
-  skills = [],
-  selectedSkillUuid = null,
-  allowSpecialization = false,
-  defaultUseSpec = false,
-  defaultDifficultyKey = "average",
-  defaultManualMod = 0,
-  defaultApplyBlinded = true,
-  defaultApplyDeafened = true
-} = {}) {
-  const skillSelect = showSkillSelect
-    ? `
-      <div class="form-group">
-        <label><b>Skill</b></label>
-        <select name="skillUuid" style="width:100%;">
-          ${skills.map(s => {
-            const sel = (s.uuid === selectedSkillUuid) ? "selected" : "";
-            const hasSpec = s.hasSpec ? "1" : "0";
-            const optValue = _esc(s.uuid);
-            const optLabel = _esc(s.name);
-            return `<option value="${optValue}" data-has-spec="${hasSpec}" ${sel}>${optLabel}</option>`;
-          }).join("\n")}
-        </select>
-      </div>`
-    : `<input type="hidden" name="skillUuid" value="${_esc(selectedSkillUuid ?? "")}" />`;
-
-  const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
-    const sel = d.key === defaultDifficultyKey ? "selected" : "";
-    const sign = d.mod >= 0 ? "+" : "";
-    return `<option value="${d.key}" ${sel}>${d.label} (${sign}${d.mod})</option>`;
-  }).join("\n");
-
-  const specDisabled = !allowSpecialization;
-  const specChecked = (!specDisabled && defaultUseSpec) ? "checked" : "";
-  const specRow = `
-      <div class="form-group" style="margin-top:8px;">
-        <label style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" name="useSpec" ${specChecked} ${specDisabled ? "disabled" : ""} />
-          <span><b>Use Specialization</b> (+10)${specDisabled ? ' <span style="opacity:0.75;">(none on this skill)</span>' : ""}</span>
-        </label>
-      </div>`;
-  const resistanceSection = buildResistanceBonusSection(actor);
-  const hasBlinded = actor ? hasCondition(actor, "blinded") : false;
-  const hasDeafened = actor ? hasCondition(actor, "deafened") : false;
-
-  const sensoryRow = (hasBlinded || hasDeafened) ? `
-      <div class="form-group" style="margin-top:8px;">
-        <label><b>Sensory Impairment</b></label>
-        <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
-          ${hasBlinded ? '<label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="applyBlinded" ' + (defaultApplyBlinded ? 'checked' : '') + '/> <span>Apply Blinded (-30, sight-based)</span></label>' : ''}
-          ${hasDeafened ? '<label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="applyDeafened" ' + (defaultApplyDeafened ? 'checked' : '') + '/> <span>Apply Deafened (-30, hearing-based)</span></label>' : ''}
-        </div>
-        <p style="opacity:0.8; font-size:12px; margin-top:6px;">RAW: apply only if the test benefits from the relevant sense.</p>
-      </div>` : "";
-
-
-  const content = `
-    <form class="uesrpg-skill-declare">
-      ${skillSelect}
-
-      <div class="form-group">
-        <label><b>Difficulty</b></label>
-        <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
-      </div>
-
-      ${specRow}
-
-      ${sensoryRow}
-
-      ${resistanceSection.html}
-
-      <div class="form-group" style="margin-top:8px;">
-        <label><b>Manual Modifier</b></label>
-        <input name="manualMod" type="number" value="${Number(defaultManualMod) || 0}" style="width:100%;" />
-      </div>
-    </form>`;
-
-  // Inline helper: toggle specialization checkbox availability when choosing a different skill.
-  const withScript = showSkillSelect ? `${content}
-    <script>
-      (function(){
-        const dialog = document.currentScript?.closest('.dialog') || document;
-        const form = dialog.querySelector('form.uesrpg-skill-declare');
-        const sel = form?.querySelector('select[name="skillUuid"]');
-        const cb = form?.querySelector('input[name="useSpec"]');
-        const label = cb?.closest('label');
-        function sync(){
-          if (!sel || !cb) return;
-          const opt = sel.options[sel.selectedIndex];
-          const has = (opt?.dataset?.hasSpec === '1');
-          cb.disabled = !has;
-          if (!has) cb.checked = false;
-          if (label) {
-            label.querySelectorAll('span[data-spec-none]').forEach(n => n.remove());
-            if (!has) {
-              const s = document.createElement('span');
-              s.dataset.specNone = '1';
-              s.style.opacity = '0.75';
-              s.textContent = ' (none on this skill)';
-              label.appendChild(s);
-            }
-          }
-        }
-        sel?.addEventListener('change', sync);
-        sync();
-      })();
-    </script>` : content;
-
+  // Post a compact chat note for auditability.
   try {
-    const result = await Dialog.wait({
-      title,
-      content: withScript,
-      buttons: {
-        ok: {
-          label: "Roll",
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const skillUuid = root?.querySelector('select[name="skillUuid"]')?.value
-              ?? root?.querySelector('input[name="skillUuid"]')?.value
-              ?? "";
-            const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
-            const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
-            const applyBlinded = Boolean(root?.querySelector('input[name="applyBlinded"]')?.checked);
-            const applyDeafened = Boolean(root?.querySelector('input[name="applyDeafened"]')?.checked);
-            const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
-
-            const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
-            const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-            return { skillUuid, difficultyKey, useSpec, manualMod, applyBlinded, applyDeafened, resistanceSelected: selectedRes };
-          }
-        },
-        cancel: { label: "Cancel", callback: () => null }
-      },
-      default: "ok"
-    }, { width: 420 });
-    return result ?? null;
-  } catch (_e) {
-    return null;
-  }
-}
-
-function _listSkills(actor, { allowCombatStyle = false } = {}) {
-  const out = [];
-  
-  // Add ALL Combat Styles if allowed (not just active one)
-  if (allowCombatStyle && actor?.type !== "NPC") {
-    const combatStyles = actor?.itemTypes?.combatStyle ?? actor?.items?.filter(i => i.type === "combatStyle") ?? [];
-    for (const cs of combatStyles) {
-      out.push({ 
-        uuid: cs.uuid, 
-        name: `${cs.name} (Combat Style)`, 
-        hasSpec: false, 
-        isCombatStyle: true
-      });
-    }
-  }
-  
-  const items = actor?.itemTypes?.skill ?? actor?.items?.filter(i => i.type === "skill") ?? [];
-  for (const i of items) out.push({ uuid: i.uuid, name: i.name, item: i, hasSpec: _hasSpecializations(i) });
-
-  if (actor?.type === "NPC") {
-    const professions = _listProfessions(actor);
-    
-    // For NPCs with Combat Style allowed, add Combat profession at the top
-    if (allowCombatStyle) {
-      const combatProf = professions.find(p => p._professionKey === "combat");
-      if (combatProf) {
-        out.unshift({ 
-          uuid: combatProf.uuid, 
-          name: combatProf.name, 
-          hasSpec: false, 
-          isProfession: true,
-          isCombatProfession: true
-        });
-      }
-    }
-    
-    // Add remaining professions
-    for (const p of professions) {
-      if (p._professionKey !== "combat" || !allowCombatStyle) {
-        out.push({ uuid: p.uuid, name: p.name, item: p, hasSpec: false, isProfession: true });
-      }
-    }
-  }
-  return out;
-}
-
-function _listProfessions(actor) {
-  const out = [];
-  const sys = actor?.system ?? {};
-  const prof = sys?.professions ?? {};
-
-  const labelFor = (key) => {
-    if (key === "profession1" || key === "profession2" || key === "profession3") {
-      const spec = String(sys?.skills?.[key]?.specialization ?? "").trim();
-      return spec || key.replace("profession", "Profession ");
-    }
-    return key.charAt(0).toUpperCase() + key.slice(1);
-  };
-
-  for (const key of Object.keys(prof)) {
-    out.push({
-      uuid: `prof:${key}`,
-      id: `prof:${key}`,
-      type: "profession",
-      name: labelFor(key),
-      system: { value: Number(prof[key] ?? 0) },
-      _professionKey: key
+    const last = attempts[attempts.length - 1] ?? null;
+    const winnerName = winner === "attacker" ? data.attacker?.name : (winner === "defender" ? data.defender?.name : "Tie");
+    await ChatMessage.create({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor: attacker }),
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+      content: `<div class="ues-skill-rolloff">
+        <b>Opposed Skill Roll-Off</b> (both rolled a critical success)
+        <div style="margin-top:6px;"><b>${data.attacker?.name ?? "Attacker"}:</b> ${last ? `${last.attacker.rollTotal} vs TN ${last.attacker.target} (${_esc(last.attacker.textual)})` : "—"}</div>
+        <div><b>${data.defender?.name ?? "Defender"}:</b> ${last ? `${last.defender.rollTotal} vs TN ${last.defender.target} (${_esc(last.defender.textual)})` : "—"}</div>
+        <div style="margin-top:6px;"><b>Winner:</b> ${_esc(winnerName)}</div>
+      </div>`
     });
+  } catch (_e) {
+    // Non-blocking.
   }
-  return out;
-}
 
-
-function _findSkillByUuid(actor, uuid) {
-  if (!uuid) return null;
-
-  if (typeof uuid === "string" && uuid.startsWith("prof:")) {
-    const key = uuid.slice(5);
-    const sys = actor?.system ?? {};
-    const val = Number(sys?.professions?.[key] ?? 0);
-
-    const labelFor = (k) => {
-      if (k === "profession1" || k === "profession2" || k === "profession3") {
-        const spec = String(sys?.skills?.[k]?.specialization ?? "").trim();
-        return spec || k.replace("profession", "Profession ");
-      }
-      return k.charAt(0).toUpperCase() + k.slice(1);
+  if (winner === "attacker" || winner === "defender") {
+    data.outcome = {
+      ...(data.outcome ?? {}),
+      winner,
+      reason: "both critical success (roll-off)",
+      text: `${winner === "attacker" ? data.attacker?.name : data.defender?.name} wins — roll-off breaks the tie after both critical successes.`
     };
-
-    return { uuid, id: uuid, type: "profession", name: labelFor(key), system: { value: val }, _professionKey: key };
-  }
-
-  // Try to resolve as an item UUID
-  const item = actor?.items?.find(i => i.uuid === uuid) ?? null;
-  if (item) return item;
-
-  return null;
-}
-
-/**
- * Helper to resolve Combat Style or Skill item from UUID.
- * Returns: { type: "combatStyle"|"skill"|"profession", item, name, value }
- */
-function _resolveCombatStyleOrSkill(actor, skillUuid) {
-  if (!skillUuid) return null;
-  
-  // Try to resolve the item
-  const item = _findSkillByUuid(actor, skillUuid);
-  
-  if (!item) return null;
-  
-  // Combat Style item
-  if (item.type === "combatStyle") {
-    return {
-      type: "combatStyle",
-      item,
-      name: item.name,
-      value: item.system?.value ?? 0
+  } else {
+    data.outcome = {
+      ...(data.outcome ?? {}),
+      winner: "tie",
+      reason: "both critical success (roll-off unresolved)",
+      text: `Tie — roll-off still unresolved after ${maxAttempts} attempts.`
     };
   }
-  
-  // Profession (NPC combat profession or other professions)
-  if (item.type === "profession" || item._professionKey) {
-    return {
-      type: "profession",
-      item,
-      name: item.name,
-      value: item.system?.value ?? 0,
-      professionKey: item._professionKey
-    };
-  }
-  
-  // Regular skill item
-  if (item.type === "skill") {
-    return {
-      type: "skill",
-      item,
-      name: item.name,
-      value: item.system?.value ?? 0
-    };
-  }
-  
-  return null;
 }
 
-
-function _resolveOutcome(data) {
-  if (!data?.attacker?.result || !data?.defender?.result) return null;
-  const out = resolveOpposed(data.attacker.result, data.defender.result);
-  const aName = data.attacker.name;
-  const dName = data.defender.name;
-  const text = out.winner === "attacker"
-    ? `${aName} wins — ${data.attacker.skillLabel} beats ${data.defender.skillLabel}.`
-    : (out.winner === "defender"
-      ? `${dName} wins — ${data.defender.skillLabel} beats ${data.attacker.skillLabel}.`
-      : `Tie — no one gains advantage.`);
-  return { ...out, text };
-}
-
-async function _executeSpecialActionIfWinner(data) {
-  // Issue 2: Special Action automation on opposed test win
-  if (data.outcome?.winner === "attacker" && data.specialActionId) {
-    try {
-      const { executeSpecialAction } = await import("../combat/special-actions-helper.js");
-      const attackerActor = _resolveActor(data.attacker.actorUuid);
-      const defenderActor = _resolveActor(data.defender.actorUuid);
-      
-      if (attackerActor && defenderActor) {
-        const result = await executeSpecialAction({
-          specialActionId: data.specialActionId,
-          actor: attackerActor,
-          target: defenderActor,
-          isAutoWin: false, // Was opposed test, not auto-win
-          opposedResult: { 
-            winner: "attacker", 
-            degrees: data.outcome?.degrees ?? 0 
-          }
-        });
-        
-        if (result.success) {
-          // Post automation result to chat
-          await ChatMessage.create({
-            user: game.user.id,
-            speaker: ChatMessage.getSpeaker({ actor: attackerActor }),
-            content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${_esc(result.message)}</p></div>`,
-            style: CONST.CHAT_MESSAGE_STYLES.OTHER
-          });
-        }
-      }
-    } catch (err) {
-      console.error("UESRPG | Failed to execute Special Action automation", err);
-    }
-  }
-}
-
+// External roll application hook (hydrates roll result from separate roll message)
 export const SkillOpposedWorkflow = {
   /**
    * Banked-choice auto roll hook helper (GM-present).
@@ -688,6 +138,9 @@ export const SkillOpposedWorkflow = {
 
       const data = _getMessageState(message);
       if (!data) return;
+
+      // Guard: another runner already claimed this auto-roll.
+      if (data.context?.autoRollStarted) return;
 
       // Only proceed once both sides have committed and no roll results exist yet.
       if (!_bothSidesCommitted(data)) return;
@@ -714,6 +167,9 @@ export const SkillOpposedWorkflow = {
       const data = _getMessageState(message);
       if (!data) return;
 
+      // Guard: another runner already claimed this auto-roll.
+      if (data.context?.autoRollStarted) return;
+
       if (!_bothSidesCommitted(data)) return;
       if (data.attacker?.result || data.defender?.result || data.outcome || data.status === "resolved") return;
 
@@ -729,14 +185,14 @@ export const SkillOpposedWorkflow = {
    */
   async _autoRollBanked(parentMessageId, { trigger = "unknown" } = {}) {
     if (!parentMessageId) return;
-    if (_bankedAutoRollLocalLocks.has(parentMessageId)) return;
-    _bankedAutoRollLocalLocks.add(parentMessageId);
+    if (bankedAutoRollLocalLocks.has(parentMessageId)) return;
+    bankedAutoRollLocalLocks.add(parentMessageId);
 
     try {
       const message = game.messages.get(parentMessageId) ?? null;
       if (!message) return;
 
-      const data = _getMessageState(message);
+      let data = foundry.utils.deepClone(_getMessageState(message));
       if (!data) return;
 
       if (!_bothSidesCommitted(data)) return;
@@ -744,15 +200,32 @@ export const SkillOpposedWorkflow = {
       // If already resolved, do nothing.
       if (data.outcome || data.status === "resolved" || (data.attacker?.result && data.defender?.result)) return;
 
+      // ── Claim-ID protocol ──────────────────────────────────────────────
+      data.context = data.context ?? {};
+      if (data.context.autoRollStarted) return;
+
+      const claimId = foundry.utils.randomID();
+      data.context.autoRollStarted = true;
+      data.context.autoRollClaimId = claimId;
+      data.context.autoRollStartedAt = Date.now();
+      data.context.autoRollStartedBy = game.user.id;
+      data.context.autoRollStartedTrigger = String(trigger ?? "unknown");
+
+      await _updateCard(message, data);
+
+      // Verify we still own the claim after the persisted update.
+      const freshAfterClaim = foundry.utils.deepClone(_getMessageState(message));
+      if (freshAfterClaim?.context?.autoRollClaimId && freshAfterClaim.context.autoRollClaimId !== claimId) return;
+
       // Roll attacker lane first if needed.
-      if (!data.attacker?.result) {
+      if (!freshAfterClaim?.attacker?.result) {
         await this.handleAction(message, "attacker-roll-committed");
       }
 
-      // Refresh after potential updates.
+      // Refresh after attacker roll for fresh state.
       const fresh = game.messages.get(parentMessageId) ?? null;
       if (!fresh) return;
-      const freshData = _getMessageState(fresh);
+      const freshData = foundry.utils.deepClone(_getMessageState(fresh));
       if (!freshData) return;
 
       // Roll defender lane if needed.
@@ -760,7 +233,7 @@ export const SkillOpposedWorkflow = {
         await this.handleAction(fresh, "defender-roll-committed");
       }
     } finally {
-      _bankedAutoRollLocalLocks.delete(parentMessageId);
+      bankedAutoRollLocalLocks.delete(parentMessageId);
     }
   },
   /**
@@ -783,7 +256,7 @@ export const SkillOpposedWorkflow = {
     const parent = game.messages.get(parentId) ?? null;
     if (!parent) return;
 
-    const raw = parent?.flags?.[_FLAG_NS]?.[_FLAG_KEY];
+    const raw = parent?.flags?.[FLAG_NS]?.[FLAG_KEY];
     const normalized = _normalizeCardFlag(raw);
     const current = normalized.state;
     if (!current || typeof current !== "object") return;
@@ -817,10 +290,14 @@ if (!authorUser) return;
 
     const data = foundry.utils.deepClone(current);
 
-    let dirty = false;
+	    let dirty = false;
 
-    const applyResult = async (side, { talentChoices = null } = {}) => {
-      if (!side?.actorUuid) return null;
+	    const rerollMeta = rollMessage?.flags?.uesrpg?.reroll ?? null;
+	    const isTalentReroll = Boolean(rerollMeta?.isReroll === true);
+	    const rerollParentMessageId = String(rerollMeta?.parentMessageId ?? "").trim();
+
+	    const applyResult = async (side, { talentChoices = null, sideRole = "" } = {}) => {
+	      if (!side?.actorUuid) return null;
 
       let actor = null;
       try {
@@ -850,13 +327,71 @@ if (!authorUser) return;
 
       // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
       // Do not prompt in banked/external rolls; use stored choices when available.
-      await applyKeenIntuitionToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false });
-      await applyHyperAwarenessToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false });
+	      await applyKeenIntuitionToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false });
+	      await applyHyperAwarenessToResult(actor, side?.skillLabel ?? "", res, { allowPrompt: false });
 
-      return {
-        rollTotal: res.rollTotal,
-        target: res.target,
-        isSuccess: res.isSuccess,
+	      // Intellectual talent DoS overrides: apply a stored override from the roll message (no prompt).
+	      try {
+	        const storedOverride =
+	          rollMessage?.flags?.uesrpg?.dosOverride ??
+	          rollMessage?.flags?.["uesrpg-3ev4"]?.dosOverride ??
+	          null;
+	        const st =
+	          rollMessage?.flags?.uesrpg?.skillTest ??
+	          rollMessage?.flags?.["uesrpg-3ev4"]?.skillTest ??
+	          null;
+	        const isInterrogationTest = Boolean(st?.isInterrogationTest ?? side?.declared?.isInterrogationTest ?? false);
+
+	        await applyIntellectualTalentDoSOverrides({
+	          actor,
+	          skillName: side?.skillLabel ?? "",
+	          result: res,
+	          isInterrogationTest,
+	          storedOverride,
+	          allowPrompt: false
+	        });
+	      } catch (_e) {
+	        // ignore
+	      }
+
+      let targetActor = null;
+      let targetToken = null;
+      if (sideRole === "attacker") {
+        targetActor = _resolveActor(data?.defender?.actorUuid);
+        targetToken = _resolveToken(data?.defender?.tokenUuid);
+      } else if (sideRole === "defender") {
+        targetActor = _resolveActor(data?.attacker?.actorUuid);
+        targetToken = _resolveToken(data?.attacker?.tokenUuid);
+      }
+
+      let skillItem = null;
+      const skillUuid = String(side?.skillUuid ?? "").trim();
+      if (skillUuid) {
+        try {
+          const doc = fromUuidSync(skillUuid);
+          if (doc?.documentName === "Item") skillItem = doc;
+        } catch (_e) {
+          skillItem = null;
+        }
+      }
+
+      await applyRuntimePostRollToResult({
+        actor,
+        targetActor,
+        targetToken,
+        item: skillItem,
+        rollContext: data?.context?.rollContext,
+        workflow: "skill",
+        side: sideRole,
+        skillName: side?.skillLabel ?? "",
+        result: res,
+        allowPrompt: true
+      });
+
+	      return {
+	        rollTotal: res.rollTotal,
+	        target: res.target,
+	        isSuccess: res.isSuccess,
         degree: res.degree,
         textual: res.textual,
         isCriticalSuccess: res.isCriticalSuccess,
@@ -877,19 +412,48 @@ if (!authorUser) return;
       }
     }
 
-    if (stage === "attacker-roll") {
-      if (data.attacker?.result) {
-        if (!data.attacker.rollMessageId && rollId) {
-          data.attacker.rollMessageId = rollId;
-          data.attacker.rolledAt = Date.now();
-          dirty = true;
-        } else {
-          return;
-        }
-      } else {
-        const r = await applyResult(data.attacker, {
-          talentChoices: meta?.commit?.attacker?.talentChoices ?? null
-        });
+	    if (stage === "attacker-roll") {
+	      if (data.attacker?.result) {
+	        const currentRollMessageId = String(data.attacker.rollMessageId ?? "").trim();
+	        const allowReplace = Boolean(isTalentReroll && rerollParentMessageId && currentRollMessageId && rerollParentMessageId === currentRollMessageId);
+	        if (allowReplace) {
+	          const prevId = data.attacker.rollMessageId ?? null;
+	          const r = await applyResult(data.attacker, {
+            talentChoices: meta?.commit?.attacker?.talentChoices ?? null,
+            sideRole: "attacker"
+          });
+	          if (!r) return;
+	          data.attacker.result = r;
+	          if (rollId) {
+	            data.attacker.rollMessageId = rollId;
+	            data.attacker.rolledAt = Date.now();
+	            data.attacker.reroll = {
+	              kind: "talent",
+	              source: String(rerollMeta?.source ?? "talent"),
+	              parentRollMessageId: prevId,
+	              rollMessageId: rollId,
+	              at: Date.now()
+	            };
+	          }
+	          // Force outcome recompute if already resolved.
+	          data.outcome = null;
+	          if (data.context?.rollOff) delete data.context.rollOff;
+	          if (data.context?.resolvedAt) delete data.context.resolvedAt;
+	          if (data.context?.phase === "resolved") data.context.phase = "resolving";
+	          data.status = "pending";
+	          dirty = true;
+	        } else if (!data.attacker.rollMessageId && rollId) {
+	          data.attacker.rollMessageId = rollId;
+	          data.attacker.rolledAt = Date.now();
+	          dirty = true;
+	        } else {
+	          return;
+	        }
+	      } else {
+	        const r = await applyResult(data.attacker, {
+	          talentChoices: meta?.commit?.attacker?.talentChoices ?? null,
+            sideRole: "attacker"
+	        });
         if (!r) return;
         data.attacker.result = r;
         if (rollId) {
@@ -898,19 +462,47 @@ if (!authorUser) return;
         }
         dirty = true;
       }
-    } else if (stage === "defender-roll") {
-      if (data.defender?.result) {
-        if (!data.defender.rollMessageId && rollId) {
-          data.defender.rollMessageId = rollId;
-          data.defender.rolledAt = Date.now();
-          dirty = true;
-        } else {
-          return;
-        }
-      } else {
-        const r = await applyResult(data.defender, {
-          talentChoices: meta?.commit?.defender?.talentChoices ?? null
-        });
+	    } else if (stage === "defender-roll") {
+	      if (data.defender?.result) {
+	        const currentRollMessageId = String(data.defender.rollMessageId ?? "").trim();
+	        const allowReplace = Boolean(isTalentReroll && rerollParentMessageId && currentRollMessageId && rerollParentMessageId === currentRollMessageId);
+	        if (allowReplace) {
+	          const prevId = data.defender.rollMessageId ?? null;
+	          const r = await applyResult(data.defender, {
+            talentChoices: meta?.commit?.defender?.talentChoices ?? null,
+            sideRole: "defender"
+          });
+	          if (!r) return;
+	          data.defender.result = r;
+	          if (rollId) {
+	            data.defender.rollMessageId = rollId;
+	            data.defender.rolledAt = Date.now();
+	            data.defender.reroll = {
+	              kind: "talent",
+	              source: String(rerollMeta?.source ?? "talent"),
+	              parentRollMessageId: prevId,
+	              rollMessageId: rollId,
+	              at: Date.now()
+	            };
+	          }
+	          data.outcome = null;
+	          if (data.context?.rollOff) delete data.context.rollOff;
+	          if (data.context?.resolvedAt) delete data.context.resolvedAt;
+	          if (data.context?.phase === "resolved") data.context.phase = "resolving";
+	          data.status = "pending";
+	          dirty = true;
+	        } else if (!data.defender.rollMessageId && rollId) {
+	          data.defender.rollMessageId = rollId;
+	          data.defender.rolledAt = Date.now();
+	          dirty = true;
+	        } else {
+	          return;
+	        }
+	      } else {
+	        const r = await applyResult(data.defender, {
+	          talentChoices: meta?.commit?.defender?.talentChoices ?? null,
+            sideRole: "defender"
+	        });
         if (!r) return;
         data.defender.result = r;
         if (rollId) {
@@ -935,6 +527,12 @@ if (!authorUser) return;
 
     if (data.attacker?.result && data.defender?.result && !data.outcome) {
       data.outcome = _resolveOutcome(data);
+      await _maybeResolveBothCritSuccessRollOff({
+        message: parent,
+        data,
+        attacker: _resolveActor(data.attacker.actorUuid),
+        defender: _resolveActor(data.defender.actorUuid)
+      });
       data.status = "resolved";
       data.context = data.context ?? {};
       data.context.phase = "resolved";
@@ -958,6 +556,13 @@ if (!authorUser) return;
       return null;
     }
 
+    const rollContext = buildRollContext({
+      actor: attacker,
+      targetActor: defender,
+      testType: "skill",
+      skillItem: cfg?.attackerSkillUuid ? _findSkillByUuid(attacker, cfg.attackerSkillUuid) : null
+    });
+
     const data = {
       context: {
         schemaVersion: 1,
@@ -966,7 +571,9 @@ if (!authorUser) return;
         updatedAt: Date.now(),
         updatedBy: game.user.id,
         phase: "pending",
-        waitingSince: null
+        waitingSince: null,
+        rollContext,
+        rollOptions: Array.isArray(rollContext?.rollOptions) ? rollContext.rollOptions.slice() : []
       },
       status: "pending",
       mode: "skill",
@@ -999,7 +606,7 @@ if (!authorUser) return;
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
       content: _renderCard(data, ""),
-      flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version: _CARD_VERSION, state: data } }, uesrpg: { [_FLAG_KEY]: { version: _CARD_VERSION, state: data } } },
+      flags: { [FLAG_NS]: { [FLAG_KEY]: { version: CARD_VERSION, state: data } }, uesrpg: { [FLAG_KEY]: { version: CARD_VERSION, state: data } } },
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
 
@@ -1095,15 +702,16 @@ if (!authorUser) return;
           decl = { skillUuid: selectedSkillUuid,
             applyBlinded: (defaults.applyBlinded ?? true),
             applyDeafened: (defaults.applyDeafened ?? true),
+            isInterrogationTest: false,
             ...defaults };
         } else {
           decl = await _skillRollDialog({
             title: "Opposed Skill Test — Attacker",
             actor: attacker,
-            target: defender,
             skills,
             selectedSkillUuid,
-            canUseSpec: true,
+            allowSpecialization: Boolean(skills.find(s => String(s?.uuid ?? "") === String(selectedSkillUuid ?? ""))?.hasSpec),
+            defaultUseSpec: defaults.useSpec,
             defaultDifficultyKey: defaults.difficultyKey,
             defaultManualMod: defaults.manualMod,
             defaultApplyBlinded: (defaults.applyBlinded ?? true),
@@ -1116,15 +724,25 @@ if (!authorUser) return;
         decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
 
         // Bank choices into the parent card; do not roll until both sides have committed.
-        data.attacker.declaration = decl;
-        data.attacker.skillUuid = decl.skillUuid;
-        data.attacker.committedAt = data.attacker.committedAt ?? Date.now();
+        // Re-read fresh state to prevent stale-snapshot overwrites when both sides commit
+        // near-simultaneously from different clients.
+        const freshMsgA = game.messages.get(message.id) ?? message;
+        const freshDataA = _getMessageState(freshMsgA) ?? data;
+        freshDataA.attacker = freshDataA.attacker ?? {};
+        freshDataA.attacker.declaration = decl;
+        freshDataA.attacker.skillUuid = decl.skillUuid;
+        freshDataA.attacker.committedAt = freshDataA.attacker.committedAt ?? Date.now();
 
-        data.context = data.context ?? {};
-        if (!data.context.phase || data.context.phase === "pending") data.context.phase = "waitingDefender";
-        if (!data.context.waitingSince) data.context.waitingSince = Date.now();
+        freshDataA.context = freshDataA.context ?? {};
+        // Determine phase based on whether the defender has already committed
+        if (_bothSidesCommitted(freshDataA)) {
+          freshDataA.context.phase = "ready";
+        } else if (!freshDataA.context.phase || freshDataA.context.phase === "pending") {
+          freshDataA.context.phase = "waitingDefender";
+        }
+        if (!freshDataA.context.waitingSince) freshDataA.context.waitingSince = Date.now();
 
-        await _updateCard(message, data);
+        await _updateCard(freshMsgA, freshDataA);
         return;
       }
 
@@ -1175,48 +793,44 @@ if (!authorUser) return;
         skillLabel = resolved.name;
         skillItem = null; // Combat profession doesn't use skillItem
       } else if (resolved.type === "profession") {
-        // Regular profession (Athletics, etc.)
-        const baseValue = resolved.value;
-        const diffMod = SKILL_DIFFICULTIES.find(d => d.key === decl.difficultyKey)?.mod ?? 0;
-        const manualMod = Number(decl.manualMod ?? 0);
-        let totalMod = diffMod + manualMod;
-        
-        const breakdown = [
-          { key: "base", label: "Base", value: baseValue, source: "base" },
-          { key: "difficulty", label: SKILL_DIFFICULTIES.find(d => d.key === decl.difficultyKey)?.label ?? "Average", value: diffMod, source: "difficulty" }
-        ];
-        
-        if (manualMod) {
-          breakdown.push({ key: "manual", label: "Manual Modifier", value: manualMod, source: "manual" });
-        }
+        // Regular NPC profession — route through computeSkillTN for the full modifier
+        // pipeline (fatigue, encumbrance, wounds, armor penalties, AE modifiers, item bonuses).
+        skillItem = resolved.item;
+        const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
+        if (resMods.length) situationalMods.push(...resMods);
 
-        const sensoryMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
-        for (const mod of sensoryMods) {
-          const value = Number(mod?.value ?? 0) || 0;
-          if (!value) continue;
-          totalMod += value;
-          breakdown.push({ key: mod.key ?? "condition", label: mod.label ?? "Condition", value, source: mod.source ?? "condition" });
-        }
-
-        if (resMods.length) {
-          for (const mod of resMods) {
-            const value = Number(mod?.value ?? 0) || 0;
-            if (!value) continue;
-            totalMod += value;
-            breakdown.push({ key: mod.key ?? "resistance", label: mod.label ?? "Resistance Bonus", value, source: mod.source ?? "resistanceTrait" });
-          }
-        }
-        
-        const finalTN = baseValue + totalMod;
-        tn = { finalTN, baseTN: baseValue, totalMod, breakdown };
+        tn = computeSkillTN({
+          actor: attacker,
+          skillItem,
+          difficultyKey: decl.difficultyKey,
+          manualMod: decl.manualMod,
+          situationalMods
+        });
         skillLabel = resolved.name;
-        skillItem = null; // Profession doesn't use skillItem
+      } else if (resolved.type === "characteristic") {
+        // Characteristic test — route through computeSkillTN with pseudo-item whose
+        // system.value is the characteristic total.
+        skillItem = resolved.item;
+        const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
+        if (resMods.length) situationalMods.push(...resMods);
+
+        tn = computeSkillTN({
+          actor: attacker,
+          skillItem,
+          difficultyKey: decl.difficultyKey,
+          manualMod: decl.manualMod,
+          situationalMods
+        });
+        skillLabel = resolved.name;
       } else {
         // Regular skill roll
         skillItem = resolved.item;
         const allowSpec = _hasSpecializations(skillItem);
         const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: skillItem?.name ?? skillLabel });
         if (resMods.length) situationalMods.push(...resMods);
+        if (decl?.histskinUnderwater === true) {
+          situationalMods.push({ key: "talent:histskin", label: "Histskin (Underwater)", value: +30, source: "talent" });
+        }
         _maybeAddInvisibleTrackingPenalty({
           skillLabel: skillItem?.name ?? skillLabel,
           targetActor: defender,
@@ -1253,7 +867,7 @@ if (!authorUser) return;
 
       data.attacker.skillUuid = decl.skillUuid;
       data.attacker.skillLabel = skillLabel;
-      data.attacker.declared = { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec) };
+      data.attacker.declared = { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec), isInterrogationTest: Boolean(decl?.isInterrogationTest), histskinUnderwater: Boolean(decl?.histskinUnderwater) };
       
       await _setLastSkillRollOptions(_mergeLastSkillRollOptions({
         difficultyKey: decl.difficultyKey,
@@ -1263,15 +877,65 @@ if (!authorUser) return;
       }));
 
       data.attacker.tn = tn;
+      applyRuntimePreRollToTN({
+        actor: attacker,
+        targetActor: defender,
+        targetToken: dToken ?? null,
+        item: skillItem ?? null,
+        rollContext: data?.context?.rollContext,
+        workflow: "skill",
+        side: "attacker",
+        skillName: skillLabel,
+        tn
+      });
       skillRollDebug("opposed attacker TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
 
-      const res = await doTestRoll(attacker, { rollFormula: "1d100", target: tn.finalTN, allowLucky: true, allowUnlucky: true });
+      const rollFormula = "1d100";
+      const rollMode = game.settings.get("core", "rollMode");
+      const res = await doTestRoll(attacker, { rollFormula, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
       // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
       await applyKeenIntuitionToResult(attacker, skillLabel, res, { allowPrompt: true });
       await applyHyperAwarenessToResult(attacker, skillLabel, res, { allowPrompt: true });
 
+      // Intellectual talent automation: Businessman / Interrogator DoS substitutions (Commerce / Persuade).
+      await applyIntellectualTalentDoSOverrides({
+        actor: attacker,
+        skillName: skillLabel,
+        result: res,
+        isInterrogationTest: Boolean(decl?.isInterrogationTest),
+        allowPrompt: true
+      });
+
+      await applyRuntimePostRollToResult({
+        actor: attacker,
+        targetActor: defender,
+        targetToken: dToken ?? null,
+        item: skillItem ?? null,
+        rollContext: data?.context?.rollContext,
+        workflow: "skill",
+        side: "attacker",
+        skillName: skillLabel,
+        result: res,
+        allowPrompt: true
+      });
+
       skillRollDebug("opposed attacker result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
+
+      const dosOverride = res?.uesrpgDosOverride ?? null;
+      const skillTest = {
+        actorUuid: attacker.uuid,
+        skillUuid: decl.skillUuid ?? data.attacker.skillUuid ?? null,
+        skillName: skillLabel,
+        target: tn.finalTN,
+        rollFormula,
+        rollMode,
+        useSpecialization: Boolean(decl.useSpec),
+        isInterrogationTest: Boolean(decl?.isInterrogationTest),
+        isSuccess: Boolean(res.isSuccess),
+        degree: Number(res.degree ?? 0) || 0,
+        textual: String(res.textual ?? "")
+      };
 
       const rollFlags = request ? {
         uesrpg: { rollRequest: request },
@@ -1303,18 +967,47 @@ if (!authorUser) return;
         }
       };
 
+      rollFlags.uesrpg = {
+        ...(rollFlags.uesrpg ?? {}),
+        skillTest,
+        ...(dosOverride ? { dosOverride } : {}),
+        reroll: { used: false, source: null }
+      };
+      rollFlags["uesrpg-3ev4"] = {
+        ...(rollFlags["uesrpg-3ev4"] ?? {}),
+        skillTest,
+        ...(dosOverride ? { dosOverride } : {})
+      };
+
+      // Racial talent (Chapter 4): Histskin underwater roll toggle (+30 Athletics/Stealth).
+      if (decl?.histskinUnderwater === true) {
+        rollFlags.uesrpg.rollOptions = { ...(rollFlags.uesrpg.rollOptions ?? {}), histskin: true };
+        rollFlags["uesrpg-3ev4"].rollOptions = { ...(rollFlags["uesrpg-3ev4"].rollOptions ?? {}), histskin: true };
+      }
+
       await res.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
         flavor: `${_esc(data.attacker.skillLabel)} — Opposed Skill (Actor)`,
         flags: rollFlags,
-        rollMode: game.settings.get("core", "rollMode")
+        rollMode
       });
       
       if (skillItem) {
         await consumePhysicalExertionForSkill(attacker, skillItem);
       }
 
-      data.attacker.result = {
+      // Re-read fresh state before committing roll results to avoid overwriting
+      // defender-side data that may have been committed in parallel.
+      const freshMsgAR = game.messages.get(message.id) ?? message;
+      const freshDataAR = _getMessageState(freshMsgAR) ?? data;
+      freshDataAR.attacker = freshDataAR.attacker ?? {};
+      // Preserve computed fields from the stale `data` that were set during this action.
+      freshDataAR.attacker.skillUuid = data.attacker.skillUuid;
+      freshDataAR.attacker.skillLabel = data.attacker.skillLabel;
+      freshDataAR.attacker.declared = data.attacker.declared;
+      freshDataAR.attacker.tn = data.attacker.tn;
+      if (data.attacker.request) freshDataAR.attacker.request = data.attacker.request;
+      freshDataAR.attacker.result = {
         rollTotal: res.rollTotal,
         target: res.target,
         isSuccess: res.isSuccess,
@@ -1324,12 +1017,13 @@ if (!authorUser) return;
         isCriticalFailure: res.isCriticalFailure
       };
 
-      if (data.defender.result) {
-        data.outcome = _resolveOutcome(data);
-        await _executeSpecialActionIfWinner(data);
+      if (freshDataAR.defender?.result) {
+        freshDataAR.outcome = _resolveOutcome(freshDataAR);
+        await _maybeResolveBothCritSuccessRollOff({ message: freshMsgAR, data: freshDataAR, attacker, defender });
+        await _executeSpecialActionIfWinner(freshDataAR);
       }
 
-      await _updateCard(message, data);
+      await _updateCard(freshMsgAR, freshDataAR);
       return;
     }
 
@@ -1372,7 +1066,7 @@ if (!authorUser) return;
         }
       } else {
         if (quick) {
-          decl = { skillUuid: selectedSkillUuid, difficultyKey: defaults.difficultyKey, manualMod: defaults.manualMod, useSpec: defaults.useSpec, applyBlinded: (defaults.applyBlinded ?? true), applyDeafened: (defaults.applyDeafened ?? true) };
+          decl = { skillUuid: selectedSkillUuid, difficultyKey: defaults.difficultyKey, manualMod: defaults.manualMod, useSpec: defaults.useSpec, applyBlinded: (defaults.applyBlinded ?? true), applyDeafened: (defaults.applyDeafened ?? true), isInterrogationTest: false };
         } else {
           // Always show skill selection dropdown (removed pre-choice dialog dependency)
           decl = await _skillRollDialog({
@@ -1395,15 +1089,25 @@ if (!authorUser) return;
         decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
 
         // Bank choices into the parent card; do not roll until both sides have committed.
-        data.defender.declaration = decl;
-        data.defender.skillUuid = decl.skillUuid;
-        data.defender.committedAt = data.defender.committedAt ?? Date.now();
+        // Re-read fresh state to prevent stale-snapshot overwrites when both sides commit
+        // near-simultaneously from different clients.
+        const freshMsgD = game.messages.get(message.id) ?? message;
+        const freshDataD = _getMessageState(freshMsgD) ?? data;
+        freshDataD.defender = freshDataD.defender ?? {};
+        freshDataD.defender.declaration = decl;
+        freshDataD.defender.skillUuid = decl.skillUuid;
+        freshDataD.defender.committedAt = freshDataD.defender.committedAt ?? Date.now();
 
-        data.context = data.context ?? {};
-        if (!data.context.phase || data.context.phase === "pending") data.context.phase = "waitingAttacker";
-        if (!data.context.waitingSince) data.context.waitingSince = Date.now();
+        freshDataD.context = freshDataD.context ?? {};
+        // Determine phase based on whether the attacker has already committed
+        if (_bothSidesCommitted(freshDataD)) {
+          freshDataD.context.phase = "ready";
+        } else if (!freshDataD.context.phase || freshDataD.context.phase === "pending") {
+          freshDataD.context.phase = "waitingAttacker";
+        }
+        if (!freshDataD.context.waitingSince) freshDataD.context.waitingSince = Date.now();
 
-        await _updateCard(message, data);
+        await _updateCard(freshMsgD, freshDataD);
         return;
       }
 
@@ -1431,7 +1135,7 @@ if (!authorUser) return;
         tn = computeTN({
           actor: defender,
           role: "defender",
-          defenseType: _DEFAULT_COMBAT_STYLE_DEFENSE_TYPE,
+          defenseType: DEFAULT_COMBAT_STYLE_DEFENSE_TYPE,
           styleUuid: decl.skillUuid,
           manualMod: decl.manualMod,
           situationalMods
@@ -1446,7 +1150,7 @@ if (!authorUser) return;
         tn = computeTN({
           actor: defender,
           role: "defender",
-          defenseType: _DEFAULT_COMBAT_STYLE_DEFENSE_TYPE,
+          defenseType: DEFAULT_COMBAT_STYLE_DEFENSE_TYPE,
           styleUuid: decl.skillUuid,
           manualMod: decl.manualMod,
           situationalMods
@@ -1454,39 +1158,43 @@ if (!authorUser) return;
         skillLabel = resolved.name;
         defSkill = null; // Combat profession doesn't use skillItem
       } else if (resolved.type === "profession") {
-        // Regular profession (Athletics, etc.)
-        const baseValue = resolved.value;
-        const diffMod = SKILL_DIFFICULTIES.find(d => d.key === decl.difficultyKey)?.mod ?? 0;
-        const manualMod = Number(decl.manualMod ?? 0);
-        let totalMod = diffMod + manualMod;
-        
-        const breakdown = [
-          { key: "base", label: "Base", value: baseValue, source: "base" },
-          { key: "difficulty", label: SKILL_DIFFICULTIES.find(d => d.key === decl.difficultyKey)?.label ?? "Average", value: diffMod, source: "difficulty" }
-        ];
-        
-        if (manualMod) {
-          breakdown.push({ key: "manual", label: "Manual Modifier", value: manualMod, source: "manual" });
-        }
+        // Regular NPC profession — route through computeSkillTN for the full modifier
+        // pipeline (fatigue, encumbrance, wounds, armor penalties, AE modifiers, item bonuses).
+        defSkill = resolved.item;
+        const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
+        if (resMods.length) situationalMods.push(...resMods);
 
-        const sensoryMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
-        for (const mod of sensoryMods) {
-          const value = Number(mod?.value ?? 0) || 0;
-          if (!value) continue;
-          totalMod += value;
-          breakdown.push({ key: mod.key ?? "condition", label: mod.label ?? "Condition", value, source: mod.source ?? "condition" });
-        }
-        
-        const finalTN = baseValue + totalMod;
-        tn = { finalTN, baseTN: baseValue, totalMod, breakdown };
+        tn = computeSkillTN({
+          actor: defender,
+          skillItem: defSkill,
+          difficultyKey: decl.difficultyKey,
+          manualMod: decl.manualMod,
+          situationalMods
+        });
         skillLabel = resolved.name;
-        defSkill = null; // Profession doesn't use skillItem
+      } else if (resolved.type === "characteristic") {
+        // Characteristic test — route through computeSkillTN with pseudo-item.
+        defSkill = resolved.item;
+        const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
+        if (resMods.length) situationalMods.push(...resMods);
+
+        tn = computeSkillTN({
+          actor: defender,
+          skillItem: defSkill,
+          difficultyKey: decl.difficultyKey,
+          manualMod: decl.manualMod,
+          situationalMods
+        });
+        skillLabel = resolved.name;
       } else {
         // Regular skill roll
         defSkill = resolved.item;
         const allowSpec = _hasSpecializations(defSkill);
         const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: defSkill?.name ?? skillLabel });
         if (resMods.length) situationalMods.push(...resMods);
+        if (decl?.histskinUnderwater === true) {
+          situationalMods.push({ key: "talent:histskin", label: "Histskin (Underwater)", value: +30, source: "talent" });
+        }
         tn = computeSkillTN({
           actor: defender,
           skillItem: defSkill,
@@ -1518,7 +1226,7 @@ if (!authorUser) return;
 
       data.defender.skillUuid = decl.skillUuid;
       data.defender.skillLabel = skillLabel;
-      data.defender.declared = { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec) };
+      data.defender.declared = { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec), isInterrogationTest: Boolean(decl?.isInterrogationTest), histskinUnderwater: Boolean(decl?.histskinUnderwater) };
       
       await _setLastSkillRollOptions(_mergeLastSkillRollOptions({
         difficultyKey: decl.difficultyKey,
@@ -1528,15 +1236,65 @@ if (!authorUser) return;
       }));
 
       data.defender.tn = tn;
+      applyRuntimePreRollToTN({
+        actor: defender,
+        targetActor: attacker,
+        targetToken: aToken ?? null,
+        item: defSkill ?? null,
+        rollContext: data?.context?.rollContext,
+        workflow: "skill",
+        side: "defender",
+        skillName: skillLabel,
+        tn
+      });
       skillRollDebug("opposed defender TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
 
-      const res = await doTestRoll(defender, { rollFormula: "1d100", target: tn.finalTN, allowLucky: true, allowUnlucky: true });
+      const rollFormula = "1d100";
+      const rollMode = game.settings.get("core", "rollMode");
+      const res = await doTestRoll(defender, { rollFormula, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
       // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).
       await applyKeenIntuitionToResult(defender, skillLabel, res, { allowPrompt: true });
       await applyHyperAwarenessToResult(defender, skillLabel, res, { allowPrompt: true });
 
+      // Intellectual talent automation: Businessman / Interrogator DoS substitutions (Commerce / Persuade).
+      await applyIntellectualTalentDoSOverrides({
+        actor: defender,
+        skillName: skillLabel,
+        result: res,
+        isInterrogationTest: Boolean(decl?.isInterrogationTest),
+        allowPrompt: true
+      });
+
+      await applyRuntimePostRollToResult({
+        actor: defender,
+        targetActor: attacker,
+        targetToken: aToken ?? null,
+        item: defSkill ?? null,
+        rollContext: data?.context?.rollContext,
+        workflow: "skill",
+        side: "defender",
+        skillName: skillLabel,
+        result: res,
+        allowPrompt: true
+      });
+
       skillRollDebug("opposed defender result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
+
+      const dosOverride = res?.uesrpgDosOverride ?? null;
+      const skillTest = {
+        actorUuid: defender.uuid,
+        skillUuid: decl.skillUuid ?? data.defender.skillUuid ?? null,
+        skillName: skillLabel,
+        target: tn.finalTN,
+        rollFormula,
+        rollMode,
+        useSpecialization: Boolean(decl.useSpec),
+        isInterrogationTest: Boolean(decl?.isInterrogationTest),
+        isSuccess: Boolean(res.isSuccess),
+        degree: Number(res.degree ?? 0) || 0,
+        textual: String(res.textual ?? "")
+      };
 
       const rollFlags = request ? {
         uesrpg: { rollRequest: request },
@@ -1576,18 +1334,47 @@ if (!authorUser) return;
         }
       };
 
+      rollFlags.uesrpg = {
+        ...(rollFlags.uesrpg ?? {}),
+        skillTest,
+        ...(dosOverride ? { dosOverride } : {}),
+        reroll: { used: false, source: null }
+      };
+      rollFlags["uesrpg-3ev4"] = {
+        ...(rollFlags["uesrpg-3ev4"] ?? {}),
+        skillTest,
+        ...(dosOverride ? { dosOverride } : {})
+      };
+
+      // Racial talent (Chapter 4): Histskin underwater roll toggle (+30 Athletics/Stealth).
+      if (decl?.histskinUnderwater === true) {
+        rollFlags.uesrpg.rollOptions = { ...(rollFlags.uesrpg.rollOptions ?? {}), histskin: true };
+        rollFlags["uesrpg-3ev4"].rollOptions = { ...(rollFlags["uesrpg-3ev4"].rollOptions ?? {}), histskin: true };
+      }
+
       await res.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
         flavor: `${_esc(data.defender.skillLabel)} — Opposed Skill (Target)`,
         flags: rollFlags,
-        rollMode: game.settings.get("core", "rollMode")
+        rollMode
       });
       
       if (defSkill) {
         await consumePhysicalExertionForSkill(defender, defSkill);
       }
 
-      data.defender.result = {
+      // Re-read fresh state before committing roll results to avoid overwriting
+      // attacker-side data that may have been committed in parallel.
+      const freshMsgDR = game.messages.get(message.id) ?? message;
+      const freshDataDR = _getMessageState(freshMsgDR) ?? data;
+      freshDataDR.defender = freshDataDR.defender ?? {};
+      // Preserve computed fields from the stale `data` that were set during this action.
+      freshDataDR.defender.skillUuid = data.defender.skillUuid;
+      freshDataDR.defender.skillLabel = data.defender.skillLabel;
+      freshDataDR.defender.declared = data.defender.declared;
+      freshDataDR.defender.tn = data.defender.tn;
+      if (data.defender.request) freshDataDR.defender.request = data.defender.request;
+      freshDataDR.defender.result = {
         rollTotal: res.rollTotal,
         target: res.target,
         isSuccess: res.isSuccess,
@@ -1597,12 +1384,13 @@ if (!authorUser) return;
         isCriticalFailure: res.isCriticalFailure
       };
 
-      if (data.attacker.result) {
-        data.outcome = _resolveOutcome(data);
-        await _executeSpecialActionIfWinner(data);
+      if (freshDataDR.attacker?.result) {
+        freshDataDR.outcome = _resolveOutcome(freshDataDR);
+        await _maybeResolveBothCritSuccessRollOff({ message: freshMsgDR, data: freshDataDR, attacker, defender });
+        await _executeSpecialActionIfWinner(freshDataDR);
       }
 
-      await _updateCard(message, data);
+      await _updateCard(freshMsgDR, freshDataDR);
       return;
     }
   }

@@ -3,6 +3,7 @@
  *
  * Canonical wound constants and helpers.
  */
+import { isAnyDebugEnabled, isDebugEnabled } from "../../utils/debug.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 
@@ -135,14 +136,6 @@ export function isActiveGMUser(user) {
 }
 
 export function isWoundsDebugEnabled() {
-  try {
-    if (game.settings?.get?.(FLAG_SCOPE, "woundsDebug")) return true;
-    return Boolean(
-      game.settings?.get?.(FLAG_SCOPE, "opposedDebug") ||
-      game.settings?.get?.(FLAG_SCOPE, "debugSkillTN") ||
-      game.settings?.get?.(FLAG_SCOPE, "skillRollDebug")
-    );
-  } catch (_e) {
-    return false;
-  }
+  if (isDebugEnabled("woundsDebug")) return true;
+  return isAnyDebugEnabled(["opposedDebug", "debugSkillTN", "skillRollDebug"]);
 }

@@ -2,10 +2,10 @@
 <div class="uesrpg-magic-opposed-card" style="padding: 8px; border: 1px solid rgba(138, 43, 226, 0.3); background: rgba(138, 43, 226, 0.05);">
   <div class="opposed-header" style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid rgba(138, 43, 226, 0.4);">
     <h3 style="margin: 0 0 4px 0; color: #8a2be2; font-size: 16px;">🔮 {{spell.name}} {{#if spell.school}}({{spell.school}} {{spell.level}}){{/if}}</h3>
-    <div class="opposed-participants" style="display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px;">
-      <span class="attacker" style="font-weight: bold;">{{attacker.name}}</span>
-      <span class="vs" style="opacity: 0.7;">vs</span>
-      <span class="defender" style="font-weight: bold;">{{defender.name}}</span>
+    <div class="opposed-participants" style="display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 13px; min-width: 0;">
+      <span class="attacker" style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%;">{{attacker.name}}</span>
+      <span class="vs" style="opacity: 0.7; flex-shrink: 0;">vs</span>
+      <span class="defender" style="font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%;">{{defender.name}}</span>
     </div>
   </div>
 

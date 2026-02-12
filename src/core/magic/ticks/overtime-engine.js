@@ -1,0 +1,1004 @@
+/**
+ * @module overtime-engine
+ * @file src/core/magic/overtime-engine.js
+ *
+ * OverTime Effects Engine for UESRPG 3ev4.
+ *
+ * Provides periodic payload delivery (damage, healing, saves, self-termination) for
+ * Active Effects that carry an OverTime configuration.  Integrates with the spell
+ * tick engine ({@link module:spell-tick-engine}) for GM-authoritative, exactly-once
+ * tick processing across combat and world-time contexts.
+ *
+ * ## Storage Model (midi-qol / DAE inspired)
+ *
+ * **Immutable config** — lives as an AE `changes[]` entry:
+ * ```
+ * {
+ *   key:   "flags.uesrpg-3ev4.OverTime",           // or ".OverTime.<id>"
+ *   mode:  CONST.ACTIVE_EFFECT_MODES.CUSTOM (0),
+ *   value: JSON.stringify({ trigger, cadenceEvery, cadenceUnit, payloadType, … })
+ * }
+ * ```
+ * Using `changes[]` ensures the config survives document cloning, transfer, and all
+ * Foundry CRUD operations reliably.
+ *
+ * **Mutable tick state** — stored separately at `flags.uesrpg-3ev4.overTimeState`:
+ * ```
+ * { lastTickRound, lastTickTurn, lastTickWorldTime, tickCount }
+ * ```
+ *
+ * ## Performance
+ *
+ * An internal **effect index** caches which actors carry OverTime effects.  The index
+ * is invalidated (dirty-flagged) on any ActiveEffect create / update / delete and
+ * lazily rebuilt on the next tick.  This avoids the O(actors × effects) full-scan on
+ * every tick and instead yields O(indexed_effects) per tick.
+ *
+ * ## Upkeep Integration
+ *
+ * Effects with `flags.uesrpg-3ev4.upkeepAwaiting === true` (set by spell-effect-expiration
+ * when a duration boundary is reached) are **skipped** during collection.  This ensures
+ * OverTime payloads do not fire while the upkeep decision is pending.  Once upkeep is
+ * confirmed the flag is cleared and the effect resumes ticking.
+ *
+ * Target: Foundry VTT v13.351
+ */
+
+import { registerSpellTickHandler } from "./spell-tick-engine.js";
+import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { _num, _numOrNull, _str, isDebugEnabled } from "../_primitives.js";
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const _FLAG_NS = "uesrpg-3ev4";
+
+/** The AE changes key prefix used for OverTime configuration. */
+export const OVERTIME_CHANGE_KEY = `flags.${_FLAG_NS}.OverTime`;
+
+/** @type {ReadonlySet<string>} Valid trigger values. */
+const VALID_TRIGGERS = Object.freeze(new Set([
+  "turnStart", "turnEnd", "roundStart", "roundEnd", "worldTime"
+]));
+
+/** @type {ReadonlySet<string>} Payload types that map to the heal executor. */
+const HEAL_TYPES = Object.freeze(new Set(["heal", "healing"]));
+
+// ─── Utility Helpers ─────────────────────────────────────────────────────────
+
+/** @returns {boolean} */
+function _isDebug() { return isDebugEnabled("overTimeDebug"); }
+
+function _debug(/** @type {...any} */ ...args) {
+  if (!_isDebug()) return;
+  try { console.log("[UESRPG][OverTime]", ...args); } catch (_e) { /* no-op */ }
+}
+
+function _warn(/** @type {...any} */ ...args) {
+  try { console.warn("[UESRPG][OverTime][WARN]", ...args); } catch (_e) { /* no-op */ }
+}
+
+function _error(/** @type {...any} */ ...args) {
+  try { console.error("[UESRPG][OverTime][ERROR]", ...args); } catch (_e) { /* no-op */ }
+}
+
+/**
+ * Check whether an effect is still present in its parent's embedded collection.
+ * Used to guard against writing to effects deleted during payload execution.
+ *
+ * @param {Actor}        parent — The actor that owns the effect.
+ * @param {ActiveEffect} effect — The effect to check.
+ * @returns {boolean} `true` if the effect still exists.
+ */
+function _isEffectAlive(parent, effect) {
+  if (!parent?.effects || !effect?.id) return false;
+  return parent.effects.has(effect.id);
+}
+
+// ─── Effect Index (Cached Actor → Effect Lookup) ─────────────────────────────
+//
+// The index tracks { actorUuid → Map<effectId, configs[]> } for all actors that
+// carry at least one OverTime-configured effect.  It is lazily rebuilt when
+// `_indexDirty` is true (set by AE lifecycle hooks).  This turns the per-tick
+// collection phase from O(all_actors × all_effects) into O(indexed_entries).
+
+/**
+ * @typedef {object} IndexEntry
+ * @property {string} actorUuid
+ * @property {string} effectId
+ * @property {object[]} configs  — parsed OverTime configuration objects (immutable)
+ */
+
+/** @type {Map<string, Map<string, object[]>>} actorUuid → Map<effectId, configs[]> */
+const _effectIndex = new Map();
+
+/** @type {boolean} Set true on AE create/update/delete to trigger lazy rebuild. */
+let _indexDirty = true;
+
+/** @type {boolean} Whether AE lifecycle hooks have been installed. */
+let _indexHooksInstalled = false;
+
+/**
+ * Install AE lifecycle hooks that mark the index dirty on any mutation.
+ * Called once during engine initialization.
+ */
+function _installIndexHooks() {
+  if (_indexHooksInstalled) return;
+  _indexHooksInstalled = true;
+
+  const markDirty = () => { _indexDirty = true; };
+  Hooks.on("createActiveEffect", markDirty);
+  Hooks.on("updateActiveEffect", markDirty);
+  Hooks.on("deleteActiveEffect", markDirty);
+
+  // Also dirty on scene/token changes that affect synthetic actors
+  Hooks.on("canvasReady", markDirty);
+}
+
+/**
+ * Rebuild the effect index by scanning all world actors and synthetic token actors.
+ * Only called when `_indexDirty` is true.
+ */
+function _rebuildIndex() {
+  _effectIndex.clear();
+
+  /**
+   * Index one actor's effects.
+   * @param {Actor} actor
+   */
+  const indexActor = (actor) => {
+    if (!actor?.effects?.size) return;
+    const uuid = actor.uuid;
+
+    for (const ef of actor.effects) {
+      const configs = _getAllOverTimeConfigs(ef);
+      if (!configs.length) continue;
+
+      let actorMap = _effectIndex.get(uuid);
+      if (!actorMap) {
+        actorMap = new Map();
+        _effectIndex.set(uuid, actorMap);
+      }
+      actorMap.set(ef.id, configs);
+    }
+  };
+
+  // World actors
+  for (const actor of (game.actors?.contents ?? [])) {
+    indexActor(actor);
+  }
+
+  // Synthetic (unlinked) token actors — their effects are NOT on the world actor
+  if (canvas?.tokens?.placeables) {
+    for (const token of canvas.tokens.placeables) {
+      if (token.document?.actorLink) continue; // Linked — already covered
+      if (token.actor) indexActor(token.actor);
+    }
+  }
+
+  _indexDirty = false;
+}
+
+/**
+ * Ensure the index is current.  No-op if already clean.
+ */
+function _ensureIndex() {
+  if (_indexDirty) _rebuildIndex();
+}
+
+// ─── Schema Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Build an OverTime `changes[]` entry for inclusion in an AE's changes array.
+ *
+ * @param {object} config — Flat OverTime configuration keys.
+ * @param {string}  [config.trigger="turnStart"]
+ * @param {number}  [config.cadenceEvery=1]
+ * @param {string}  [config.cadenceUnit="rounds"]
+ * @param {string}  [config.payloadType="damage"]
+ * @param {string}  [config.formula="1d6"]
+ * @param {string}  [config.damageType="fire"]
+ * @param {string}  [config.saveKey=""]
+ * @param {number}  [config.saveTN=0]
+ * @param {string}  [config.saveSuccess="endEffect"]
+ * @param {string}  [config.saveFailure="damage"]
+ * @param {number|null} [config.maxTicks=null]
+ * @param {string}  [config.label=""]
+ * @param {boolean} [config.chatLog=true]
+ * @returns {{ key: string, mode: number, value: string, priority: number }}
+ */
+export function buildOverTimeChange(config = {}) {
+  const normalized = {
+    trigger:      _str(config.trigger || "turnStart"),
+    cadenceEvery: _num(config.cadenceEvery, 1),
+    cadenceUnit:  _str(config.cadenceUnit || "rounds"),
+    payloadType:  _str(config.payloadType || "damage"),
+    formula:      _str(config.formula || "1d6"),
+    damageType:   _str(config.damageType || "fire"),
+    saveKey:      _str(config.saveKey || ""),
+    saveTN:       _num(config.saveTN, 0),
+    saveSuccess:  _str(config.saveSuccess || "endEffect"),
+    saveFailure:  _str(config.saveFailure || "damage"),
+    maxTicks:     _numOrNull(config.maxTicks, null),
+    label:        _str(config.label || ""),
+    chatLog:      config.chatLog !== false
+  };
+
+  return {
+    key: OVERTIME_CHANGE_KEY,
+    mode: CONST.ACTIVE_EFFECT_MODES.CUSTOM,
+    value: JSON.stringify(normalized),
+    priority: 20
+  };
+}
+
+/**
+ * Create a default OverTime configuration object with optional overrides.
+ *
+ * @param {object} [overrides]
+ * @returns {object} Complete overTime config object.
+ */
+export function createOverTimeConfig(overrides = {}) {
+  return foundry.utils.mergeObject({
+    trigger: "turnStart",
+    cadenceEvery: 1,
+    cadenceUnit: "rounds",
+    payloadType: "damage",
+    formula: "1d6",
+    damageType: "fire",
+    saveKey: "",
+    saveTN: 0,
+    saveSuccess: "endEffect",
+    saveFailure: "damage",
+    maxTicks: null,
+    label: "OverTime Effect",
+    chatLog: true
+  }, overrides, { inplace: false });
+}
+
+// ─── Parsing ─────────────────────────────────────────────────────────────────
+
+/**
+ * Extract OverTime configurations from an AE's `changes[]` array.
+ * Looks for entries whose key starts with {@link OVERTIME_CHANGE_KEY}.
+ *
+ * @param {ActiveEffect} effect
+ * @returns {object[]} Parsed OverTime config objects (may be multiple if stacked).
+ */
+function _parseOverTimeChanges(effect) {
+  const changes = effect?.changes;
+  if (!changes?.length) return [];
+
+  /** @type {object[]} */
+  const results = [];
+
+  for (let i = 0, len = changes.length; i < len; i++) {
+    const c = changes[i];
+    if (!c.key || !c.key.startsWith(OVERTIME_CHANGE_KEY)) continue;
+
+    try {
+      const parsed = JSON.parse(c.value);
+      if (parsed && typeof parsed === "object") results.push(parsed);
+    } catch (_e) {
+      _warn(`Failed to parse OverTime JSON on "${effect?.name}":`, c.value);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Legacy fallback: extract OverTime config from deep-nested flags.
+ * Supports old effects created before the changes-key migration.
+ *
+ * @param {ActiveEffect} effect
+ * @returns {object|null}
+ */
+function _parseLegacyFlags(effect) {
+  const ot = effect?.flags?.[_FLAG_NS]?.overTime;
+  if (!ot || typeof ot !== "object") return null;
+
+  return {
+    trigger:      _str(ot.trigger || "turnStart"),
+    cadenceEvery: _num(ot.cadence?.every ?? ot.cadenceEvery, 1),
+    cadenceUnit:  _str(ot.cadence?.unit ?? ot.cadenceUnit ?? "rounds"),
+    payloadType:  _str(ot.payload?.type ?? ot.payloadType ?? "damage"),
+    formula:      _str(ot.payload?.formula ?? ot.formula ?? "1d6"),
+    damageType:   _str(ot.payload?.damageType ?? ot.damageType ?? "fire"),
+    saveKey:      _str(ot.payload?.saveKey ?? ot.saveKey ?? ""),
+    saveTN:       _num(ot.payload?.saveTN ?? ot.saveTN, 0),
+    saveSuccess:  _str(ot.payload?.saveSuccess ?? ot.saveSuccess ?? "endEffect"),
+    saveFailure:  _str(ot.payload?.saveFailure ?? ot.saveFailure ?? "damage"),
+    maxTicks:     _numOrNull(ot.state?.maxTicks ?? ot.maxTicks, null),
+    label:        _str(ot.label || ""),
+    chatLog:      ot.chatLog !== false
+  };
+}
+
+/**
+ * Get all OverTime configs from an effect (changes-key first, then legacy flags fallback).
+ *
+ * @param {ActiveEffect} effect
+ * @returns {object[]}
+ */
+function _getAllOverTimeConfigs(effect) {
+  const fromChanges = _parseOverTimeChanges(effect);
+  if (fromChanges.length) return fromChanges;
+
+  const fromFlags = _parseLegacyFlags(effect);
+  return fromFlags ? [fromFlags] : [];
+}
+
+// ─── Tick State ──────────────────────────────────────────────────────────────
+
+/**
+ * Read mutable tick state from the effect's flags.
+ *
+ * @param {ActiveEffect} effect
+ * @returns {{ lastTickRound?: number, lastTickTurn?: number, lastTickWorldTime?: number, tickCount?: number }}
+ */
+function _getTickState(effect) {
+  const st = effect?.flags?.[_FLAG_NS]?.overTimeState;
+  if (st && typeof st === "object") return st;
+  // Legacy location
+  const legacyState = effect?.flags?.[_FLAG_NS]?.overTime?.state;
+  if (legacyState && typeof legacyState === "object") return legacyState;
+  return {};
+}
+
+// ─── Engine Registration ─────────────────────────────────────────────────────
+
+/** @type {boolean} */
+let _engineRegistered = false;
+
+/**
+ * Initialize the OverTime engine.
+ *
+ * Registers with the spell tick engine and installs AE lifecycle hooks for
+ * the effect index cache.  Must be called **once** during system init
+ * (after `initializeSpellTickEngine()`).
+ */
+export function initializeOverTimeEngine() {
+  if (_engineRegistered) return;
+  _engineRegistered = true;
+
+  _installIndexHooks();
+
+  registerSpellTickHandler({
+    id: "overtime-engine",
+    label: "OverTime Effects Engine",
+    fn: _onTick
+  });
+
+  _debug("OverTime engine initialized (changes-key approach, indexed collection)");
+}
+
+// ─── Tick Handler ────────────────────────────────────────────────────────────
+
+/**
+ * Main tick entry point, called by the spell tick engine for each trigger.
+ *
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ */
+async function _onTick(ctx) {
+  if (!game.user?.isGM) return;
+
+  const trigger = ctx.trigger;
+  if (!VALID_TRIGGERS.has(trigger)) return;
+
+  const debug = _isDebug();
+
+  if (debug) _debug("═══ OverTime Tick START ═══", { trigger, actor: ctx.actor?.name, round: ctx.round, turn: ctx.turn });
+
+  // Ensure index is current (lazy rebuild if dirty)
+  _ensureIndex();
+
+  // Fast path: if index is empty, nothing to do
+  if (!_effectIndex.size) {
+    if (debug) _debug("Collection Phase: No indexed OverTime effects, skipping");
+    return;
+  }
+
+  const candidates = _collectOverTimeEffects(trigger, ctx, debug);
+
+  if (!candidates.length) {
+    if (debug) _debug("Collection Phase: No matching effects found");
+    return;
+  }
+
+  if (debug) _debug(`Processing ${candidates.length} OverTime effect(s) for trigger "${trigger}"`);
+
+  for (const { actor, effect, config, tickState } of candidates) {
+    try {
+      // Guard: if a prior candidate's payload deleted this effect, skip it
+      if (!_isEffectAlive(actor, effect)) {
+        if (debug) _debug(`├─ Skipping: "${effect.name}" on ${actor.name} — deleted by prior payload`);
+        continue;
+      }
+      if (debug) _debug(`├─ Processing: "${effect.name}" on ${actor.name}`);
+      await _processEffect(actor, effect, config, tickState, ctx, debug);
+    } catch (err) {
+      _error(`Failed to process effect "${effect.name}" on ${actor.name}`, err);
+    }
+  }
+
+  if (debug) _debug("═══ OverTime Tick END ═══");
+}
+
+// ─── Effect Collection (Index-Accelerated) ───────────────────────────────────
+
+/**
+ * @typedef {object} OverTimeCandidate
+ * @property {Actor}        actor     — The owning actor.
+ * @property {ActiveEffect} effect    — The AE carrying the OverTime config.
+ * @property {object}       config    — Parsed OverTime configuration.
+ * @property {object}       tickState — Current mutable tick state.
+ */
+
+/**
+ * Collect all eligible OverTime effects matching the given trigger.
+ *
+ * Uses the pre-built effect index for fast actor lookup and applies the
+ * following gates (in order):
+ *   1. Effect must not be disabled
+ *   2. Effect must not be awaiting upkeep (`upkeepAwaiting` flag)
+ *   3. Config trigger must match the current trigger
+ *   4. Turn-based triggers require actor UUID match
+ *   5. Cadence gating (every N rounds/seconds)
+ *   6. Max ticks gating
+ *
+ * @param {string} trigger
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @param {boolean} debug — Whether debug logging is active.
+ * @returns {OverTimeCandidate[]}
+ */
+function _collectOverTimeEffects(trigger, ctx, debug) {
+  /** @type {OverTimeCandidate[]} */
+  const results = [];
+
+  // Diagnostic counters (only tracked when debug is on)
+  let totalActors = 0, totalEffects = 0;
+  let skippedDisabled = 0, skippedUpkeep = 0, skippedNoEffect = 0;
+  let skippedWrongTrigger = 0, skippedWrongActor = 0;
+  let skippedCadence = 0, skippedMaxTicks = 0;
+
+  // Resolve each indexed actor → look up its live effects
+  for (const [actorUuid, effectMap] of _effectIndex) {
+    totalActors++;
+
+    // Resolve the live actor from UUID — fromUuidSync is safe here because
+    // world actors and canvas token actors are always loaded
+    let actor;
+    try {
+      const doc = fromUuidSync(actorUuid);
+      // fromUuidSync may return a Token, TokenDocument, or Actor
+      actor = (doc?.documentName === "Token" || doc?.documentName === "TokenDocument")
+        ? doc.actor
+        : doc;
+    } catch (_e) { continue; }
+    if (!actor?.effects) continue;
+
+    for (const [effectId, cachedConfigs] of effectMap) {
+      totalEffects++;
+
+      // Look up live effect on the actor
+      const ef = actor.effects.get(effectId);
+      if (!ef) {
+        skippedNoEffect++;
+        continue;
+      }
+
+      // Gate 1: disabled
+      if (ef.disabled) {
+        skippedDisabled++;
+        continue;
+      }
+
+      // Gate 2: upkeep awaiting — do not tick while upkeep decision is pending
+      if (ef.flags?.[_FLAG_NS]?.upkeepAwaiting) {
+        skippedUpkeep++;
+        continue;
+      }
+
+      // Read live tick state (mutable — must be fresh, not cached)
+      const tickState = _getTickState(ef);
+
+      // Iterate configs (usually 1, but stacked effects may have multiple)
+      for (const config of cachedConfigs) {
+        // Gate 3: trigger match
+        if (_str(config.trigger) !== trigger) {
+          skippedWrongTrigger++;
+          continue;
+        }
+
+        // Gate 4: turn-based actor match (uuid comparison for synthetic safety)
+        if ((trigger === "turnStart" || trigger === "turnEnd") && ctx.actor) {
+          if (actor.uuid !== ctx.actor.uuid) {
+            skippedWrongActor++;
+            continue;
+          }
+        }
+
+        // Gate 5: cadence
+        if (!_isCadenceMet(config, tickState, ctx)) {
+          skippedCadence++;
+          continue;
+        }
+
+        // Gate 6: max ticks
+        const maxTicks = _numOrNull(config.maxTicks, null);
+        const currentTicks = _num(tickState.tickCount, 0);
+        if (maxTicks !== null && currentTicks >= maxTicks) {
+          skippedMaxTicks++;
+          continue;
+        }
+
+        if (debug) {
+          _debug(`     ✓ [${actor.name}] "${ef.name}" - ELIGIBLE`, {
+            trigger: config.trigger,
+            cadence: `${config.cadenceEvery ?? 1} ${config.cadenceUnit ?? "rounds"}`,
+            payload: config.payloadType,
+            tickCount: currentTicks,
+            maxTicks
+          });
+        }
+
+        results.push({ actor, effect: ef, config, tickState });
+      }
+    }
+  }
+
+  if (debug) {
+    _debug(`  Collection Summary: ${results.length} eligible | scanned ${totalEffects} effects on ${totalActors} actors`);
+    _debug(`    Skipped: disabled=${skippedDisabled}, upkeepAwaiting=${skippedUpkeep}, stale=${skippedNoEffect}, wrongTrigger=${skippedWrongTrigger}, wrongActor=${skippedWrongActor}, cadence=${skippedCadence}, maxTicks=${skippedMaxTicks}`);
+  }
+
+  return results;
+}
+
+/**
+ * Check whether the cadence requirement is met for this tick.
+ *
+ * @param {object} config  — OverTime config.
+ * @param {object} tickState — Mutable tick state.
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @returns {boolean}
+ */
+function _isCadenceMet(config, tickState, ctx) {
+  const every = _num(config.cadenceEvery, 1);
+  if (every <= 0) return true; // cadenceEvery ≤ 0 means "every tick"
+
+  const unit = _str(config.cadenceUnit || "rounds").toLowerCase();
+
+  if (unit === "rounds") {
+    const lastRound = _numOrNull(tickState.lastTickRound, null);
+    if (lastRound === null) return true; // First tick
+    return (_num(ctx.round, 0) - lastRound) >= every;
+  }
+
+  if (unit === "seconds") {
+    const lastTime = _numOrNull(tickState.lastTickWorldTime, null);
+    if (lastTime === null) return true; // First tick
+    return (_num(ctx.worldTime, 0) - lastTime) >= every;
+  }
+
+  return true; // Unknown unit — allow
+}
+
+// ─── Effect Processing ───────────────────────────────────────────────────────
+
+/**
+ * Process a single OverTime effect tick: resolve targets, execute payload,
+ * update state, post chat, emit hook.
+ *
+ * @param {Actor}        actor
+ * @param {ActiveEffect} effect
+ * @param {object}       config    — Parsed OverTime config.
+ * @param {object}       tickState — Current mutable tick state.
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @param {boolean}      debug     — Whether debug logging is active.
+ */
+async function _processEffect(actor, effect, config, tickState, ctx, debug) {
+  const payloadType = _str(config.payloadType || "damage");
+
+  // Determine targets
+  const isOrigin = effect.flags?.[_FLAG_NS]?.isOriginAE === true;
+  const targets = isOrigin
+    ? await _resolveOriginTargets(effect, actor)
+    : [actor];
+
+  if (debug) {
+    _debug(`    ┌── Process Effect: "${effect.name}" on ${actor.name}`, {
+      origin: isOrigin, payload: payloadType,
+      targets: targets.map(t => t.name),
+      formula: config.formula || "none",
+      tickCount: tickState.tickCount ?? 0,
+      maxTicks: config.maxTicks ?? "unlimited"
+    });
+  }
+
+  // Execute payload for each target
+  /** @type {string[]} */
+  const chatParts = [];
+
+  for (const target of targets) {
+    if (debug) _debug(`    │   ├─ Executing payload for ${target.name}...`);
+    try {
+      const content = await _executePayload(payloadType, target, effect, config, ctx);
+      if (content) chatParts.push(content);
+    } catch (err) {
+      _error(`Failed to execute ${payloadType} payload for ${target.name}`, err);
+    }
+  }
+
+  // ── Post-payload liveness check ──
+  // Payload execution (endEffect, saveThenApply→endEffect, maxTicks) can delete
+  // the effect from the parent's collection.  If the effect is gone, skip state
+  // update and hook emission to avoid "does not exist in EmbeddedCollection".
+  const effectAlive = _isEffectAlive(actor, effect);
+
+  if (effectAlive) {
+    // Update tick state (single batched write)
+    if (debug) _debug(`    │   Updating tick state...`);
+    await _updateTickState(effect, config, tickState, ctx);
+  } else if (debug) {
+    _debug(`    │   ⚠ Effect "${effect.name}" no longer exists — skipping state update`);
+  }
+
+  // Post chat message (chat is always safe even if effect was deleted)
+  if (config.chatLog !== false && chatParts.length) {
+    await _postChatMessage(actor, effect, config, chatParts);
+  }
+
+  if (debug) _debug(`    └── Effect processing complete`);
+
+  // Emit system hook
+  try {
+    Hooks.callAll("uesrpg.overTime.tick", {
+      actor, targets, effect, config, payloadType,
+      trigger: ctx.trigger,
+      round: ctx.round,
+      tickCount: _num(tickState.tickCount, 0) + 1,
+      effectDeleted: !effectAlive
+    });
+  } catch (_e) { /* no-op */ }
+}
+
+// ─── Payload Dispatch ────────────────────────────────────────────────────────
+
+/**
+ * Route to the correct payload executor based on type.
+ *
+ * @param {string}       type
+ * @param {Actor}        target
+ * @param {ActiveEffect} effect
+ * @param {object}       config
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @returns {Promise<string>} Chat HTML fragment.
+ */
+async function _executePayload(type, target, effect, config, ctx) {
+  if (HEAL_TYPES.has(type))           return _executeHealPayload(target, effect, config, ctx);
+  if (type === "damage")              return _executeDamagePayload(target, effect, config, ctx);
+  if (type === "endEffect")           return _executeEndEffectPayload(target, effect, config, ctx);
+  if (type === "saveThenApply")       return _executeSaveThenApplyPayload(target, effect, config, ctx);
+  _warn(`Unknown payload type: ${type}`);
+  return "";
+}
+
+// ─── Origin-Linked Target Resolution ─────────────────────────────────────────
+
+/**
+ * Resolve target actors from an Origin AE's `linkedEntities` or `upkeep.targetLock`.
+ *
+ * @param {ActiveEffect} originEffect
+ * @param {Actor}        casterActor — Fallback if no targets found.
+ * @returns {Promise<Actor[]>}
+ */
+async function _resolveOriginTargets(originEffect, casterActor) {
+  const flags = originEffect.flags?.[_FLAG_NS];
+  /** @type {Set<string>} */
+  const targetUuids = new Set();
+
+  // Primary: linkedEntities
+  const linked = flags?.linkedEntities;
+  if (Array.isArray(linked)) {
+    for (const link of linked) {
+      if (link.type === "targetAE" && link.actorUuid) targetUuids.add(link.actorUuid);
+    }
+  }
+
+  // Fallback: upkeep.targetLock
+  if (!targetUuids.size) {
+    const lock = flags?.upkeep?.targetLock;
+    if (Array.isArray(lock)) {
+      for (const uuid of lock) { if (uuid) targetUuids.add(uuid); }
+    }
+  }
+
+  if (!targetUuids.size) {
+    _debug("Origin AE has no linked targets, falling back to caster");
+    return [casterActor];
+  }
+
+  /** @type {Actor[]} */
+  const actors = [];
+  for (const uuid of targetUuids) {
+    try {
+      // Use synchronous lookup — actors/tokens are always loaded client-side
+      const doc = fromUuidSync(uuid);
+      const resolved = doc instanceof Actor ? doc : doc?.actor;
+      if (resolved) actors.push(resolved);
+    } catch (_e) {
+      _debug(`Failed to resolve target UUID: ${uuid}`);
+    }
+  }
+
+  return actors.length ? actors : [casterActor];
+}
+
+// ─── Payload Executors ───────────────────────────────────────────────────────
+
+/**
+ * Execute a **damage** payload.
+ *
+ * @param {Actor}        actor
+ * @param {ActiveEffect} effect
+ * @param {object}       config
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @returns {Promise<string>} Chat HTML.
+ */
+async function _executeDamagePayload(actor, effect, config, ctx) {
+  const formula = _str(config.formula || "0");
+  const damageType = _str(config.damageType || "magic");
+
+  const roll = new Roll(formula);
+  await roll.evaluate();
+  const damage = _num(roll.total, 0);
+
+  if (damage <= 0) return `<p>No damage dealt.</p>`;
+
+  const currentHP = _num(actor.system?.hp?.value, 0);
+  const newHP = Math.max(0, currentHP - damage);
+
+  try {
+    await requestUpdateDocument(actor, { "system.hp.value": newHP });
+  } catch (err) {
+    _error(`Failed to apply damage to ${actor.name}`, err);
+  }
+
+  _debug(`Damage: ${actor.name} takes ${damage} ${damageType} (${currentHP} → ${newHP})`);
+  return `<p><strong>${actor.name}</strong> takes <strong>${damage}</strong> ${damageType} damage. (HP: ${currentHP} → ${newHP})</p>`;
+}
+
+/**
+ * Execute a **heal** payload.
+ *
+ * @param {Actor}        actor
+ * @param {ActiveEffect} effect
+ * @param {object}       config
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @returns {Promise<string>} Chat HTML.
+ */
+async function _executeHealPayload(actor, effect, config, ctx) {
+  const formula = _str(config.formula || "0");
+
+  const roll = new Roll(formula);
+  await roll.evaluate();
+  const healing = _num(roll.total, 0);
+
+  if (healing <= 0) return `<p>No healing applied.</p>`;
+
+  const currentHP = _num(actor.system?.hp?.value, 0);
+  const maxHP = _num(actor.system?.hp?.max, currentHP);
+  const newHP = Math.min(maxHP, currentHP + healing);
+
+  try {
+    await requestUpdateDocument(actor, { "system.hp.value": newHP });
+  } catch (err) {
+    _error(`Failed to apply healing to ${actor.name}`, err);
+  }
+
+  _debug(`Heal: ${actor.name} heals ${healing} (${currentHP} → ${newHP})`);
+  return `<p><strong>${actor.name}</strong> heals <strong>${healing}</strong> HP. (HP: ${currentHP} → ${newHP})</p>`;
+}
+
+/**
+ * Execute an **endEffect** payload (self-terminating).
+ *
+ * @param {Actor}        actor
+ * @param {ActiveEffect} effect
+ * @param {object}       config
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @returns {Promise<string>} Chat HTML.
+ */
+async function _executeEndEffectPayload(actor, effect, config, ctx) {
+  _debug(`EndEffect: removing "${effect.name}" from ${actor.name}`);
+
+  if (!_isEffectAlive(actor, effect)) {
+    _debug(`EndEffect: "${effect.name}" already removed from ${actor.name}`);
+    return `<p><strong>${effect.name}</strong> ends on <strong>${actor.name}</strong>.</p>`;
+  }
+
+  try {
+    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    // Mark index dirty immediately for consistency
+    _indexDirty = true;
+  } catch (err) {
+    _error(`Failed to end effect on ${actor.name}`, err);
+  }
+
+  return `<p><strong>${effect.name}</strong> ends on <strong>${actor.name}</strong>.</p>`;
+}
+
+/**
+ * Execute a **saveThenApply** payload.
+ *
+ * Rolls a d100 save against a characteristic TN.  On success, executes the
+ * configured success action; on failure, executes the failure action.
+ *
+ * @param {Actor}        actor
+ * @param {ActiveEffect} effect
+ * @param {object}       config
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @returns {Promise<string>} Chat HTML.
+ */
+async function _executeSaveThenApplyPayload(actor, effect, config, ctx) {
+  const saveTN = _num(config.saveTN, 50);
+  const saveKey = _str(config.saveKey || "wp");
+  const successAction = _str(config.saveSuccess || "endEffect");
+  const failureAction = _str(config.saveFailure || "damage");
+
+  const roll = new Roll("1d100");
+  await roll.evaluate();
+  const rollResult = _num(roll.total, 100);
+
+  // Resolve characteristic bonus
+  let bonus = 0;
+  let charLabel = saveKey.toUpperCase();
+  try {
+    const charObj = actor.system?.characteristics?.[saveKey];
+    if (charObj && typeof charObj === "object") {
+      bonus = _num(charObj.total, _num(charObj.base, 0));
+      if (charObj.name) charLabel = charObj.name;
+    } else if (typeof charObj === "number") {
+      bonus = _num(charObj, 0);
+    }
+  } catch (_e) { /* no-op */ }
+
+  const effectiveTN = saveTN + bonus;
+  const success = rollResult <= effectiveTN;
+
+  _debug(`Save: ${actor.name} rolls ${rollResult} vs TN ${effectiveTN} → ${success ? "SUCCESS" : "FAILURE"}`);
+
+  let actionChat = "";
+
+  if (success) {
+    switch (successAction) {
+      case "endEffect":
+        actionChat = await _executeEndEffectPayload(actor, effect, config, ctx);
+        break;
+      case "halve": {
+        const halfConfig = { ...config, formula: `Math.floor((${config.formula}) / 2)` };
+        actionChat = await _executeDamagePayload(actor, effect, halfConfig, ctx);
+        break;
+      }
+      case "negate":
+        actionChat = `<p>Save succeeded — effect negated this tick.</p>`;
+        break;
+    }
+  } else {
+    switch (failureAction) {
+      case "damage":
+        actionChat = await _executeDamagePayload(actor, effect, config, ctx);
+        break;
+      case "condition":
+        actionChat = `<p>Save failed — condition persists.</p>`;
+        break;
+    }
+  }
+
+  return `<p><strong>${actor.name}</strong> saves vs ${_str(config.label || effect.name)} (${charLabel}): rolled <strong>${rollResult}</strong> vs TN <strong>${effectiveTN}</strong> — <strong>${success ? "Success" : "Failure"}</strong></p>${actionChat}`;
+}
+
+// ─── Chat Output ─────────────────────────────────────────────────────────────
+
+/**
+ * Post an OverTime tick result to the chat log.
+ *
+ * @param {Actor}        actor
+ * @param {ActiveEffect} effect
+ * @param {object}       config
+ * @param {string[]}     chatParts — HTML fragments from payload executors.
+ */
+async function _postChatMessage(actor, effect, config, chatParts) {
+  const label = _str(config.label || effect.name);
+  const content = `<div class="uesrpg"><h4>${label}</h4>${chatParts.join("")}</div>`;
+
+  try {
+    await ChatMessage.create({
+      content,
+      speaker: ChatMessage.getSpeaker({ actor }),
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER
+    });
+  } catch (err) {
+    _error("Failed to post chat message", err);
+  }
+}
+
+// ─── State Management ────────────────────────────────────────────────────────
+
+/**
+ * Persist updated tick state to the effect's flags.
+ *
+ * Writes a single batched update to `flags.uesrpg-3ev4.overTimeState.*`.
+ * If maxTicks is reached, auto-deletes the effect.
+ *
+ * @param {ActiveEffect} effect
+ * @param {object}       config
+ * @param {object}       tickState
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ */
+async function _updateTickState(effect, config, tickState, ctx) {
+  // Guard: verify effect still exists in parent collection
+  const parent = effect?.parent;
+  if (!parent || !_isEffectAlive(parent, effect)) {
+    _debug(`Skipping tick state update — effect "${effect?.name}" no longer exists`);
+    return;
+  }
+
+  const newTickCount = _num(tickState.tickCount, 0) + 1;
+
+  // Check max ticks BEFORE writing state — avoids a pointless write followed
+  // by immediate deletion when max is reached on this tick.
+  const maxTicks = _numOrNull(config.maxTicks, null);
+  const shouldAutoEnd = maxTicks !== null && newTickCount >= maxTicks;
+
+  if (shouldAutoEnd) {
+    // Max ticks reached — delete effect directly, no need to update state first
+    _debug(`Max ticks reached for "${effect.name}" (${newTickCount}/${maxTicks}), auto-ending`);
+    try {
+      await requestDeleteEmbeddedDocuments(parent, "ActiveEffect", [effect.id]);
+    } catch (_e) { /* no-op — effect may already be gone */ }
+    return;
+  }
+
+  // Write updated tick state
+  const updates = {
+    [`flags.${_FLAG_NS}.overTimeState.lastTickRound`]: ctx.round,
+    [`flags.${_FLAG_NS}.overTimeState.lastTickTurn`]: ctx.turn,
+    [`flags.${_FLAG_NS}.overTimeState.lastTickWorldTime`]: ctx.worldTime,
+    [`flags.${_FLAG_NS}.overTimeState.tickCount`]: newTickCount
+  };
+
+  try {
+    await requestUpdateDocument(effect, updates);
+  } catch (err) {
+    // Fallback: direct update (if authority proxy fails for owned effects)
+    if (_isEffectAlive(parent, effect)) {
+      try { await effect.update(updates); }
+      catch (_e) { _warn(`Failed to update tick state for "${effect.name}"`, _e); }
+    }
+  }
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+/**
+ * Check if an ActiveEffect has an OverTime configuration (changes-key or legacy flags).
+ *
+ * @param {ActiveEffect} effect
+ * @returns {boolean}
+ */
+export function hasOverTimeConfig(effect) {
+  return _getAllOverTimeConfigs(effect).length > 0;
+}
+
+/**
+ * Get the first OverTime configuration from an effect.
+ *
+ * @param {ActiveEffect} effect
+ * @returns {object|null} The first OverTime config, or null if none.
+ */
+export function getOverTimeConfig(effect) {
+  const configs = _getAllOverTimeConfigs(effect);
+  return configs.length ? configs[0] : null;
+}

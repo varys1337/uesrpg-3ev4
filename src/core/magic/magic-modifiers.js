@@ -1,4 +1,6 @@
 /**
+ * @module magic/magic-modifiers
+ *
  * src/core/magic/magic-modifiers.js
  *
  * Package 4 — Magic Rules Parity and Talent Hooks
@@ -11,14 +13,7 @@
  * - This module must not mutate actor or item data.
  */
 
-function _str(v) {
-  return v === undefined || v === null ? "" : String(v);
-}
-
-function _num(v, d = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
-}
+import { _num, _str } from "./_primitives.js";
 
 function _hasItemNamed(actor, type, name) {
   const target = _str(name).trim().toLowerCase();
@@ -26,26 +21,65 @@ function _hasItemNamed(actor, type, name) {
   return actor.items.some(i => _str(i?.type).toLowerCase() === _str(type).toLowerCase() && _str(i?.name).trim().toLowerCase() === target);
 }
 
+/**
+ * Check whether an actor owns an embedded Talent by name (case-insensitive).
+ *
+ * @param {Actor} actor - The actor to inspect
+ * @param {string} name - Talent name to look for
+ * @returns {boolean} `true` if a matching talent item exists
+ */
 export function actorHasTalent(actor, name) {
   return _hasItemNamed(actor, "talent", name);
 }
 
+/**
+ * Check whether an actor owns an embedded Trait by name (case-insensitive).
+ *
+ * @param {Actor} actor - The actor to inspect
+ * @param {string} name - Trait name to look for
+ * @returns {boolean} `true` if a matching trait item exists
+ */
 export function actorHasTrait(actor, name) {
   return _hasItemNamed(actor, "trait", name);
 }
 
+/**
+ * Compute an actor's Willpower Bonus (WB = WP total ÷ 10, rounded down).
+ *
+ * @param {Actor} actor - The actor whose WP to read
+ * @returns {number} The integer willpower bonus
+ */
 export function getActorWillpowerBonus(actor) {
   return Math.floor(_num(actor?.system?.characteristics?.wp?.total, 0) / 10);
 }
 
+/**
+ * Whether the spell is of the "conventional" casting type.
+ *
+ * @param {Item} spell - The spell item to check
+ * @returns {boolean}
+ */
 export function isSpellConventional(spell) {
   return _str(spell?.system?.spellType).toLowerCase() === "conventional";
 }
 
+/**
+ * Whether the spell is of the "unconventional" casting type.
+ *
+ * @param {Item} spell - The spell item to check
+ * @returns {boolean}
+ */
 export function isSpellUnconventional(spell) {
   return _str(spell?.system?.spellType).toLowerCase() === "unconventional";
 }
 
+/**
+ * Whether the given damage type is one of the three elemental types
+ * (fire, frost, shock).
+ *
+ * @param {string} damageType - Damage type string to check
+ * @returns {boolean}
+ */
 export function isElementalDamageType(damageType) {
   const dt = _str(damageType).toLowerCase();
   return dt === "fire" || dt === "frost" || dt === "shock";

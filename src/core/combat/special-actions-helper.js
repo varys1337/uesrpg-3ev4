@@ -685,7 +685,27 @@ export async function handleSpecialActionCardAction(message, action) {
     if (choice.testType === "Combat Style") {
       // Roll using Combat Style TN
       const { computeTN } = await import("./tn.js");
-      const tn = computeTN(actor, { difficultyKey: "average" });
+
+      // RAW: NPCs do not use Combat Style items; they use Combat (Profession).
+      const styleUuid = (String(actor?.type ?? "") === "NPC")
+        ? "prof:combat"
+        : ((actor?.items ?? []).find(i => i?.type === "combatStyle")?.uuid ?? null);
+
+      if (!styleUuid) {
+        ui.notifications.warn(`${actor.name} has no Combat Style to roll.`);
+        return;
+      }
+
+      const tn = computeTN({
+        actor,
+        role: "attacker",
+        styleUuid,
+        variant: "normal",
+        manualMod: 0,
+        circumstanceMod: 0,
+        situationalMods: [],
+        context: { attackMode: "melee" }
+      });
       rollResult = await doTestRoll(actor, {
         rollFormula: "1d100",
         target: tn.finalTN,
@@ -700,18 +720,29 @@ export async function handleSpecialActionCardAction(message, action) {
       // Find skill item with precise matching
       const skillItem = _findSkillByName(actor, skillName);
 
-      if (!skillItem) {
+      if (!skillItem && String(actor?.type ?? "") !== "NPC") {
         ui.notifications.warn(`${actor.name} does not have the ${choice.testType} skill.`);
         return;
       }
 
-      const { computeSkillTN } = await import("../skills/skill-tn.js");
-      const tn = computeSkillTN({
-        actor,
-        skillItem,
-        difficultyKey: "average",
-        manualMod: 0
-      });
+      let tn = null;
+      if (!skillItem && String(actor?.type ?? "") === "NPC") {
+        const sys = actor?.system ?? {};
+        const base = Number(sys?.professions?.[skillName] ?? sys?.professionsWound?.[skillName] ?? 0) || 0;
+        const fatiguePenalty = Number(sys?.fatigue?.penalty ?? 0) || 0;
+        const carryPenalty = Number(sys?.carry_rating?.penalty ?? 0) || 0;
+        const woundPenalty = Number(sys?.woundPenalty ?? 0) || 0;
+        const finalTN = Math.max(0, base + fatiguePenalty + carryPenalty + woundPenalty);
+        tn = { finalTN, baseTN: base, totalMod: fatiguePenalty + carryPenalty + woundPenalty, breakdown: [] };
+      } else {
+        const { computeSkillTN } = await import("../skills/skill-tn.js");
+        tn = computeSkillTN({
+          actor,
+          skillItem,
+          difficultyKey: "average",
+          manualMod: 0
+        });
+      }
 
       rollResult = await doTestRoll(actor, {
         rollFormula: "1d100",
@@ -729,7 +760,15 @@ export async function handleSpecialActionCardAction(message, action) {
     // Check if both have rolled
     if (attacker.result && defender.result) {
       // Resolve outcome
-      const opposedResult = resolveOpposed(attacker.result, defender.result);
+      let opposedResult = resolveOpposed(attacker.result, defender.result);
+
+      // Chapter 5 (Combat Criticals): if both sides roll any critical (success or failure),
+      // neither attack nor defense resolves.
+      const aCrit = Boolean(attacker.result?.isCriticalSuccess || attacker.result?.isCriticalFailure);
+      const dCrit = Boolean(defender.result?.isCriticalSuccess || defender.result?.isCriticalFailure);
+      if (aCrit && dCrit) {
+        opposedResult = { winner: "tie", reason: "both sides roll a critical" };
+      }
 
       const outcomeText = opposedResult.winner === "attacker"
         ? `${attacker.name} wins!`
@@ -746,7 +785,7 @@ export async function handleSpecialActionCardAction(message, action) {
           text: outcomeText,
           effectMessage: "Error: Could not resolve actors"
         };
-      } else {
+      } else if (opposedResult.winner === "attacker") {
         const executionResult = await executeSpecialAction({
           specialActionId,
           actor: attackerActor,
@@ -759,6 +798,12 @@ export async function handleSpecialActionCardAction(message, action) {
           ...opposedResult,
           text: outcomeText,
           effectMessage: executionResult.success ? executionResult.message : null
+        };
+      } else {
+        data.outcome = {
+          ...opposedResult,
+          text: outcomeText,
+          effectMessage: null
         };
       }
     }

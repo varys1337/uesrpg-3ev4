@@ -210,12 +210,6 @@ if (typeof styleUuidOrId === "string" && styleUuidOrId.startsWith("prof:")) {
   const base = Number(sys?.professions?.[key] ?? 0);
   const woundPenalty = Number(sys?.woundPenalty ?? 0);
   const fatiguePenalty = Number(sys?.fatigue?.penalty ?? 0);
-
-  console.log("UESRPG | getCombatStyleItem: Resolved profession combat style", { 
-    actor: actor.name, 
-    key, 
-    value: base + fatiguePenalty + woundPenalty 
-  });
   
   return {
     uuid: styleUuidOrId,
@@ -230,24 +224,10 @@ if (typeof styleUuidOrId === "string" && styleUuidOrId.startsWith("prof:")) {
   // Prefer UUID match when present
   const byUuid = (actor.items ?? []).find(i => i.uuid === styleUuidOrId);
   if (byUuid) {
-    console.log("UESRPG | getCombatStyleItem: Resolved by UUID", { 
-      actor: actor.name, 
-      uuid: styleUuidOrId,
-      name: byUuid.name,
-      type: byUuid.type,
-      value: byUuid.system?.value ?? 0
-    });
     return byUuid;
   }
   const byId = (actor.items ?? []).find(i => i.id === styleUuidOrId);
   if (byId) {
-    console.log("UESRPG | getCombatStyleItem: Resolved by ID", { 
-      actor: actor.name, 
-      id: styleUuidOrId,
-      name: byId.name,
-      type: byId.type,
-      value: byId.system?.value ?? 0
-    });
     return byId;
   }
   
@@ -303,11 +283,6 @@ function computeCombatStyleTN(styleItem) {
       system: styleItem.system 
     });
   }
-  
-  console.log("UESRPG | computeCombatStyleTN: Computed TN", { 
-    name: styleItem?.name,
-    value 
-  });
   
   return value;
 }
@@ -404,12 +379,25 @@ function computeEvadeTN(defender, { tnOverride = null } = {}) {
     const base = Number(sys?.professions?.evade ?? 0);
     const woundPenalty = Number(sys?.woundPenalty ?? 0);
     const fatiguePenalty = Number(sys?.fatigue?.penalty ?? 0);
-    return base + fatiguePenalty + woundPenalty;
+    const baseTN = base + fatiguePenalty + woundPenalty;
+    return {
+      baseTN,
+      baseLabel: "Base TN",
+      observantDelta: 0,
+      observantLabel: "Observant (Evade as Perception)"
+    };
   }
 
   if (tnOverride) {
     const override = computeDefenderTNOverride(defender, tnOverride);
-    if (override && Number.isFinite(Number(override.tn))) return Number(override.tn);
+    if (override && Number.isFinite(Number(override.tn))) {
+      return {
+        baseTN: Number(override.tn),
+        baseLabel: override.label ?? "Base TN",
+        observantDelta: 0,
+        observantLabel: "Observant (Evade as Perception)"
+      };
+    }
   }
 
   const evadeItem = (defender?.items ?? []).find(i => i.type === "skill" && String(i.name ?? "").toLowerCase() === "evade");
@@ -421,11 +409,28 @@ function computeEvadeTN(defender, { tnOverride = null } = {}) {
         fallbackCharacteristic: "prc"
       });
       const alt = Number(override?.tn ?? NaN);
-      if (Number.isFinite(alt)) return Math.max(evadeTN, alt);
+      if (Number.isFinite(alt) && alt > evadeTN) {
+        return {
+          baseTN: evadeTN,
+          baseLabel: "Base TN",
+          observantDelta: alt - evadeTN,
+          observantLabel: "Observant (Evade as Perception)"
+        };
+      }
     }
-    return evadeTN;
+    return {
+      baseTN: evadeTN,
+      baseLabel: "Base TN",
+      observantDelta: 0,
+      observantLabel: "Observant (Evade as Perception)"
+    };
   }
-  return getCharTotal(defender, "agi");
+  return {
+    baseTN: getCharTotal(defender, "agi"),
+    baseLabel: "Agility",
+    observantDelta: 0,
+    observantLabel: "Observant (Evade as Perception)"
+  };
 }
 
 export function variantMod(variant) {
@@ -450,15 +455,7 @@ export function computeTN({
   context = {}
 } = {}) {
   const breakdown = [];
-
-  console.log("UESRPG | computeTN called", { 
-    actor: actor?.name, 
-    role, 
-    variant, 
-    defenseType, 
-    styleUuid,
-    context 
-  });
+  let observantEntry = null;
 
   // --- Base TN
   let baseTN = 0;
@@ -484,8 +481,17 @@ export function computeTN({
         baseTN = overrideResult.tn;
         baseLabel = overrideResult.label;
       } else {
-        baseTN = computeEvadeTN(actor);
-        baseLabel = "Base TN";
+        const evadeData = computeEvadeTN(actor);
+        baseTN = evadeData.baseTN;
+        baseLabel = evadeData.baseLabel ?? "Base TN";
+        if (evadeData.observantDelta) {
+          observantEntry = {
+            key: "talent:observant",
+            label: evadeData.observantLabel ?? "Observant (Evade as Perception)",
+            value: evadeData.observantDelta,
+            source: "talent"
+          };
+        }
       }
     } else if (defenseType === "block") {
       const shieldOk = hasEquippedShield(actor);
@@ -521,6 +527,7 @@ export function computeTN({
           : "—";
 
   breakdown.push({ key: "base", label: baseLabel, value: asNumber(baseTN), source: "base", detail: baseDetail });
+  if (observantEntry) breakdown.push(observantEntry);
 
   // --- Variant mod (attacker only)
   const vMod = (role === "attacker") ? variantMod(variant) : 0;

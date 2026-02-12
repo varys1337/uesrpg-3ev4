@@ -193,28 +193,41 @@ export class SimpleItem extends Item {
    */
   _injectAutoQualities(itemData) {
     const manual = Array.isArray(itemData.qualitiesStructured) ? itemData.qualitiesStructured : [];
-    const autoQ = Array.isArray(itemData.autoQualitiesStructured) ? itemData.autoQualitiesStructured : [];
+    const useBaseStats = shouldUseBaseStats(itemData);
+    const autoQ = (!useBaseStats && Array.isArray(itemData.autoQualitiesStructured))
+      ? itemData.autoQualitiesStructured
+      : [];
 
     const byKey = new Map();
 
     // Manual first (authoritative for values)
     for (const q of manual) {
       if (!q) continue;
-      const key = String(q.key ?? "").trim();
+      const rawKey = String(q.key ?? "").trim();
+      const key = rawKey.toLowerCase();
       if (!key) continue;
       const entry = { key };
-      if (q.value !== undefined && q.value !== null && q.value !== "") entry.value = Number(q.value);
+      if (q.value !== undefined && q.value !== null && q.value !== "") {
+        const n = Number(q.value);
+        if (Number.isFinite(n)) entry.value = n;
+      }
       byKey.set(key, entry);
     }
 
-    // Auto second (only if not already present)
+    // Auto second (only if not already present).
+    // If GM Override / Use Base Stats is enabled, auto qualities are intentionally skipped
+    // so manual qualities remain authoritative for automation.
     for (const q of autoQ) {
       if (!q) continue;
-      const key = String(q.key ?? q ?? "").trim();
+      const rawKey = String(q.key ?? q ?? "").trim();
+      const key = rawKey.toLowerCase();
       if (!key) continue;
       if (byKey.has(key)) continue;
       const entry = { key };
-      if (q.value !== undefined && q.value !== null && q.value !== "") entry.value = Number(q.value);
+      if (q.value !== undefined && q.value !== null && q.value !== "") {
+        const n = Number(q.value);
+        if (Number.isFinite(n)) entry.value = n;
+      }
       byKey.set(key, entry);
     }
 
@@ -500,23 +513,15 @@ export class SimpleItem extends Item {
     let requiresReload = false;
 
     if (attackMode === "ranged") {
-      // Stored (world/pack) base value; used as a fallback for legacy items that don't have structured Reload yet.
+      // Stored (world/pack) base value; used when present, otherwise fall back to structured Reload quality.
       const storedRaw = Number(itemData?.reloadState?.reloadAPCost ?? 0);
       const stored = Number.isFinite(storedRaw) ? Math.max(0, Math.trunc(storedRaw)) : 0;
 
       const reloadQuality = injected.find(q => String(q?.key ?? "").toLowerCase() === "reload");
       const qRaw = (reloadQuality && reloadQuality.value !== undefined) ? Number(reloadQuality.value) : NaN;
-      const fromQuality = Number.isFinite(qRaw) ? Math.max(0, Math.trunc(qRaw)) : null;
+      const fromQuality = Number.isFinite(qRaw) ? Math.max(0, Math.trunc(qRaw)) : 0;
 
-      // Manual Base Stats: allow Reload to be authored directly on the item (Reload field on the sheet).
-      if (useBaseStats) {
-        reloadAPCost = stored;
-      } else if (fromQuality != null) {
-        reloadAPCost = fromQuality;
-      } else {
-        reloadAPCost = stored;
-      }
-
+      reloadAPCost = (stored > 0) ? stored : (fromQuality > 0 ? fromQuality : 0);
       requiresReload = reloadAPCost > 0;
     }
 

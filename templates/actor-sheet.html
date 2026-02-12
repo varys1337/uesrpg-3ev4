@@ -85,6 +85,75 @@
                         </div>
                     </div>
 
+                    <div class="three-column-flex-container">
+                        <div class="trait-container">
+                            <h2 class="headerWithButton">
+                                <a class="uesrpg-group-toggle" data-group="traits" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+                                <button type="button" class="item-create" id="trait">+</button>
+                                <label>Traits</label>
+                            </h2>
+                            <ol class="single-column-list">
+                                {{#each actor.itemTypes.trait as |item id|}}
+                                    <li class="item" data-item-id="{{item._id}}">
+                                        <div class="itemInfo">
+                                            <img class="item-img" src="{{item.img}}" title="Activate"/>
+                                            {{#with (lookup @root.actor.ui.traitStackingById item._id) as |stack|}}
+                                                <i class="fas fa-layer-group" title="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}"></i>
+                                            {{/with}}
+                                            <div class="item-name">{{item.name}}</div>
+                                        </div>
+                                        <div class="item-controls">
+                                            <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                        </div>
+                                    </li>
+                                {{/each}}
+                            </ol>
+                        </div>
+                        <div class="talent-container">
+                            <h2 class="headerWithButton">
+                                <a class="uesrpg-group-toggle" data-group="talents" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+                                <button type="button" class="item-create" id="talent">+</button>
+                                <label>Talents</label>
+                            </h2>
+                            <ol class="single-column-list">
+                                {{#each actor.itemTypes.talent as |item id|}}
+                                    <li class="item" data-item-id="{{item._id}}">
+                                        <div class="itemInfo">
+                                            <img class="item-img" src="{{item.img}}" title="Activate"/>
+                                            <div class="item-name">{{item.name}}</div>
+                                        </div>
+                                        <div class="item-controls">
+                                            <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                        </div>
+                                    </li>
+                                {{/each}}
+                            </ol>
+                        </div>
+                        <div class="power-container">
+                            <h2 class="headerWithButton">
+                                <a class="uesrpg-group-toggle" data-group="powers" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+                                <button type="button" class="item-create" id="power">+</button>
+                                <label>Powers</label>
+                            </h2>
+                            <ol class="single-column-list">
+                                {{#each actor.itemTypes.power as |item id|}}
+                                    <li class="item" data-item-id="{{item._id}}">
+                                        <div class="itemInfo">
+                                            <img class="item-img" src="{{item.img}}" title="Activate"/>
+                                            <div class="item-name">{{item.name}}</div>
+                                        </div>
+                                        <div class="item-controls">
+                                            <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                        </div>
+                                    </li>
+                                {{/each}}
+                            </ol>
+                        </div>
+                    </div>
+
+                    {{!-- Feature Inspector (Chapter 4 trait/talent/power provenance) --}}
+                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs"}}
+
                     <div class="bioPage">
                         <h2>Biography</h2>
                         <div class="contentContainer">
@@ -118,8 +187,16 @@
                                 </div>
                             </div>
                             <div class="combat-stat">
-                                <div class="stat-value-label {{#if (gte actor.system.combat_tracking.attacks_this_round 2)}}attack-limit-warning{{/if}}">
-                                    {{actor.system.combat_tracking.attacks_this_round}}/2
+                                <div class="stat-value-label {{#if (gte actor.attackTrackerUi.current actor.attackTrackerUi.max)}}attack-limit-warning{{/if}}">
+                                    {{#if isGM}}
+                                    <div class="flex-container-input">
+                                        <input type="number" class="uesrpg-attack-input" data-kind="current" value="{{actor.attackTrackerUi.current}}" min="0" step="1">
+                                        /
+                                        <input type="number" class="uesrpg-attack-input" data-kind="max" value="{{actor.attackTrackerUi.max}}" min="1" step="1">
+                                    </div>
+                                    {{else}}
+                                    {{actor.attackTrackerUi.current}}/{{actor.attackTrackerUi.max}}
+                                    {{/if}}
                                 </div>
                                 <div class="flex-container">
                                     <div class="small-text-label">Attacks</div>
@@ -511,6 +588,47 @@
                             {{/each}}
                         </ol>
                     </div>
+
+                    {{!-- Spell Effects Breakdown (Origin AE summaries) --}}
+                    {{#if spellEffectsBreakdown.length}}
+                    <div class="spell-effects-breakdown">
+                        <h3 class="uesrpg-group-toggle" data-group="spell-effects-breakdown" style="cursor: pointer;">
+                            <i class="fas fa-chevron-down collapse-arrow"></i>
+                            Spell Effects Breakdown
+                            <span style="font-weight: normal; font-size: 0.85em; color: #666;">({{spellEffectsBreakdown.length}})</span>
+                        </h3>
+                        <div class="collapse-content">
+                            {{#each spellEffectsBreakdown as |se|}}
+                            <div class="spell-effect-entry" style="border: 1px solid #ccc; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; background: #fafafa;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <img src="{{se.img}}" style="width: 24px; height: 24px; border: none;" />
+                                    <strong>{{se.name}}</strong>
+                                    {{#if se.school}}<span style="color: #888; font-size: 0.85em;">({{se.school}})</span>{{/if}}
+                                    {{#unless se.isSelf}}<span style="color: #666; font-size: 0.85em;">by {{se.casterName}}</span>{{/unless}}
+                                    <span style="margin-left: auto; font-size: 0.85em; color: #555;">{{se.durationLabel}}</span>
+                                    {{#if se.hasUpkeep}}<span style="font-size: 0.8em; background: #e8d44d; padding: 1px 6px; border-radius: 3px;">Upkeep ×{{se.refreshCount}}</span>{{/if}}
+                                    {{#if se.canCancel}}
+                                    <a class="uesrpg-cancel-spell" data-effect-id="{{se.id}}" title="Cancel Spell" style="color: #c00; cursor: pointer;">
+                                        <i class="fas fa-times-circle"></i>
+                                    </a>
+                                    {{/if}}
+                                </div>
+                                {{#if se.modifiedKeys.length}}
+                                <div style="margin-top: 4px; padding-left: 32px; font-size: 0.85em; color: #444;">
+                                    {{#each se.modifiedKeys as |mk|}}
+                                    <span style="display: inline-block; background: #eef; padding: 1px 6px; border-radius: 3px; margin: 1px 2px;">
+                                        {{mk.label}}: {{mk.value}}
+                                    </span>
+                                    {{/each}}
+                                </div>
+                                {{/if}}
+                                {{#if se.costPaid}}<div style="margin-top: 2px; padding-left: 32px; font-size: 0.8em; color: #888;">Cost: {{se.costPaid}} MP{{#if se.linkedCount}} · {{se.linkedCount}} linked{{/if}}</div>{{/if}}
+                            </div>
+                            {{/each}}
+                        </div>
+                    </div>
+                    {{/if}}
+
                 </div>
             </div>
 
@@ -818,72 +936,6 @@
                                     {{/each}}
                                 </tbody>
                             </table>
-
-                            <div class="three-column-flex-container">
-                                <div class="trait-container">
-                                    <h2 class="headerWithButton">
-                                        <a class="uesrpg-group-toggle" data-group="traits" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-                                        <button type="button" class="item-create" id="trait">+</button>
-                                        <label>Traits</label>
-                                    </h2>
-                                    <ol class="single-column-list">
-                                        {{#each actor.itemTypes.trait as |item id|}}
-                                            <li class="item" data-item-id="{{item._id}}">
-                                                <div class="itemInfo">
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-                                                    {{#with (lookup @root.actor.ui.traitStackingById item._id) as |stack|}}
-                                                        <i class="fas fa-layer-group" title="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}"></i>
-                                                    {{/with}}
-                                                    <div class="item-name">{{item.name}}</div>
-                                                </div>
-                                                <div class="item-controls">
-                                                    <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
-                                                </div>
-                                            </li>
-                                        {{/each}}
-                                    </ol>
-                                </div>
-                                <div class="talent-container">
-                                    <h2 class="headerWithButton">
-                                        <a class="uesrpg-group-toggle" data-group="talents" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-                                        <button type="button" class="item-create" id="talent">+</button>
-                                        <label>Talents</label>
-                                    </h2>
-                                    <ol class="single-column-list">
-                                        {{#each actor.itemTypes.talent as |item id|}}
-                                            <li class="item" data-item-id="{{item._id}}">
-                                                <div class="itemInfo">
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-                                                    <div class="item-name">{{item.name}}</div>
-                                                </div>
-                                                <div class="item-controls">
-                                                    <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
-                                                </div>
-                                            </li>
-                                        {{/each}}
-                                    </ol>
-                                </div>
-                                <div class="power-container">
-                                    <h2 class="headerWithButton">
-                                        <a class="uesrpg-group-toggle" data-group="powers" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-                                        <button type="button" class="item-create" id="power">+</button>
-                                        <label>Powers</label>
-                                    </h2>
-                                    <ol class="single-column-list">
-                                        {{#each actor.itemTypes.power as |item id|}}
-                                            <li class="item" data-item-id="{{item._id}}">
-                                                <div class="itemInfo">
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-                                                    <div class="item-name">{{item.name}}</div>
-                                                </div>
-                                                <div class="item-controls">
-                                                    <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
-                                                </div>
-                                            </li>
-                                        {{/each}}
-                                    </ol>
-                                </div>
-                            </div>
 
                         </div>
                     </div>

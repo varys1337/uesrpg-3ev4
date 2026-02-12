@@ -109,11 +109,13 @@ async function _expireStartOfTurnEffects(combat, changed) {
   } catch (err) {
     // If the bulk delete fails due to a stale id race, retry individually for those that still exist.
     const msg = String(err?.message ?? "");
-    const stillExisting = existingIds.filter((id) => actor.effects?.get?.(id));
+    const stillExisting = existingIds.filter((id) => actor.effects?.has?.(id));
 
     if (stillExisting.length > 0) {
       try {
-        await Promise.allSettled(stillExisting.map((id) => actor.effects.get(id).delete()));
+        // Use authority proxy for safe deletion
+        const { requestDeleteEmbeddedDocuments } = await import("../../utils/authority-proxy.js");
+        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", stillExisting);
         return;
       } catch (_retryErr) {
         // Fall through to warn below.

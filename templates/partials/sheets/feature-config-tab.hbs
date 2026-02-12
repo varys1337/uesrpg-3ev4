@@ -1,0 +1,179 @@
+{{!--
+  templates/partials/sheets/feature-config-tab.hbs
+
+  Automation / Config tab content for talent, trait, and power item sheets.
+  Renders per-item feature configuration stored in flags.uesrpg-3ev4.featureConfig.
+
+  Expected context:
+    featureConfig      — merged defaults + persisted flags (from getFeatureConfig)
+    featureOptions     — option lists (from getFeatureConfigOptions)
+    featureCapabilities — capability booleans (from getFeatureConfigCapabilities)
+    isGM               — boolean
+--}}
+
+{{#if featureCapabilities.showCore}}
+<div class="attribute-tab-container">
+
+    {{!-- ── Core Controls ─────────────────────────────────────────── --}}
+    <div class="item-selection-container">
+        <h2>Core Settings</h2>
+        <div class="selection-container">
+            <div class="grid-container">
+                <div title="Master toggle — when disabled, this feature is completely inert">Enabled</div>
+                <div class="right-align-content">
+                    <input class="checkbox" type="checkbox"
+                           name="flags.uesrpg-3ev4.featureConfig.enabled"
+                           {{checked featureConfig.enabled}} />
+                </div>
+            </div>
+            <div class="grid-container">
+                <div title="How automation fires: Auto (immediately), Confirm (dialog first), Manual (explicit Use only)">Apply Mode</div>
+                <div class="right-align-content">
+                    <select name="flags.uesrpg-3ev4.featureConfig.applyMode" data-type="String">
+                        {{selectOptions featureOptions.applyModeOptions selected=featureConfig.applyMode localize=false}}
+                    </select>
+                </div>
+            </div>
+            <div class="grid-container">
+                <div title="Who receives confirmation/manual prompts">Prompt Routing</div>
+                <div class="right-align-content">
+                    <select name="flags.uesrpg-3ev4.featureConfig.promptMode" data-type="String">
+                        {{selectOptions featureOptions.promptModeOptions selected=featureConfig.promptMode localize=false}}
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {{!-- ── Context Controls ──────────────────────────────────────── --}}
+    {{#if featureCapabilities.showCombatContext}}
+    <div class="item-selection-container">
+        <h2>Context</h2>
+        <div class="selection-container">
+            <div class="grid-container">
+                <div title="Restrict activation to active combat encounters only">Combat Only</div>
+                <div class="right-align-content">
+                    <input class="checkbox" type="checkbox"
+                           name="flags.uesrpg-3ev4.featureConfig.combatOnly"
+                           {{checked featureConfig.combatOnly}} />
+                </div>
+            </div>
+            <div class="grid-container">
+                <div title="Allow use outside of combat encounters">Allow Out-of-Combat</div>
+                <div class="right-align-content">
+                    <input class="checkbox" type="checkbox"
+                           name="flags.uesrpg-3ev4.featureConfig.outOfCombatAllowed"
+                           {{checked featureConfig.outOfCombatAllowed}} />
+                </div>
+            </div>
+        </div>
+    </div>
+    {{/if}}
+
+    {{!-- ── Stacking Override (traits primarily) ──────────────────── --}}
+    {{#if featureCapabilities.showStacking}}
+    <div class="item-selection-container">
+        <h2>Stacking</h2>
+        <div class="selection-container">
+            <div class="grid-container">
+                <div title="Override the canonical stacking rule for this item instance">Stacking Rule</div>
+                <div class="right-align-content">
+                    <select name="flags.uesrpg-3ev4.featureConfig.stackingOverride" data-type="String">
+                        {{selectOptions featureOptions.stackingOverrideOptions selected=featureConfig.stackingOverride localize=false}}
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="uesrpg-field-hint">Override the default stacking rule for homebrew items without changing the canonical registry.</div>
+    </div>
+    {{/if}}
+
+    {{!-- ── Target Policy ─────────────────────────────────────────── --}}
+    {{#if featureCapabilities.showTargeting}}
+    <div class="item-selection-container">
+        <h2>Targeting</h2>
+        <div class="selection-container">
+            <div class="grid-container">
+                <div title="Constrain how this feature selects targets during activation">Target Policy</div>
+                <div class="right-align-content">
+                    <select name="flags.uesrpg-3ev4.featureConfig.targetPolicy" data-type="String">
+                        {{selectOptions featureOptions.targetPolicyOptions selected=featureConfig.targetPolicy localize=false}}
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{/if}}
+
+    {{!-- ── Effect Transfer ───────────────────────────────────────── --}}
+    {{#if featureCapabilities.showEffectTransfer}}
+    <div class="item-selection-container">
+        <h2>Effect Transfer</h2>
+        <div class="selection-container">
+            <div class="grid-container">
+                <div title="When enabled, this item's Active Effects are cloned onto targeted actors on activation">Transfer Effects to Target</div>
+                <div class="right-align-content">
+                    <input class="checkbox" type="checkbox"
+                           name="flags.uesrpg-3ev4.featureConfig.transferEffects"
+                           {{checked featureConfig.transferEffects}} />
+                </div>
+            </div>
+            <div class="grid-container">
+                <div title="When enabled, prevents this item's AEs from passively applying to the owning actor (self). Use when effects should only affect targets.">Suppress Self-Application</div>
+                <div class="right-align-content">
+                    <input class="checkbox" type="checkbox"
+                           name="flags.uesrpg-3ev4.featureConfig.suppressSelfTransfer"
+                           {{checked featureConfig.suppressSelfTransfer}} />
+                </div>
+            </div>
+            <div class="grid-container">
+                <div title="How long transferred effects last on the target: Permanent (until manually removed) or Timed (uses duration from Activation config)">Effect Duration</div>
+                <div class="right-align-content">
+                    <select name="flags.uesrpg-3ev4.featureConfig.effectDuration" data-type="String">
+                        {{selectOptions featureOptions.effectDurationOptions selected=featureConfig.effectDuration localize=false}}
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="uesrpg-field-hint">Clone this item's Active Effects onto targeted actors when activated. Requires a non-self Target Policy and at least one enabled AE on this item.</div>
+    </div>
+    {{/if}}
+
+    {{!-- ── Visibility ────────────────────────────────────────────── --}}
+    {{#if featureCapabilities.showVisibility}}
+    <div class="item-selection-container">
+        <h2>Visibility</h2>
+        <div class="selection-container">
+            <div class="grid-container">
+                <div title="Control who can see this feature's effects in the inspector and chat">Scope</div>
+                <div class="right-align-content">
+                    <select name="flags.uesrpg-3ev4.featureConfig.visibility" data-type="String">
+                        {{selectOptions featureOptions.visibilityOptions selected=featureConfig.visibility localize=false}}
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+    {{/if}}
+
+    {{!-- ── Debug (GM only) ───────────────────────────────────────── --}}
+    {{#if isGM}}
+    {{#if featureCapabilities.showDebug}}
+    <div class="item-selection-container">
+        <h2>Debug</h2>
+        <div class="selection-container">
+            <div class="grid-container">
+                <div title="Show or hide this feature in the Feature Inspector panel">Show in Inspector</div>
+                <div class="right-align-content">
+                    <input class="checkbox" type="checkbox"
+                           name="flags.uesrpg-3ev4.featureConfig.debug.showInInspector"
+                           {{checked featureConfig.debug.showInInspector}} />
+                </div>
+            </div>
+        </div>
+    </div>
+    {{/if}}
+    {{/if}}
+
+</div>
+{{/if}}

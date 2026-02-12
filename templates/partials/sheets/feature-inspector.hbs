@@ -1,0 +1,59 @@
+{{!-- Feature Inspector Panel --}}
+{{!-- Collapsible panel showing all trait/talent/power contributions to derived totals. --}}
+{{!-- Expects: featureInspector (from buildFeatureInspectorContext) --}}
+
+{{#if featureInspector.hasData}}
+<div class="feature-inspector-panel">
+  <details class="feature-inspector-details">
+    <summary class="feature-inspector-summary">
+      <i class="fas fa-search"></i>
+      Feature Inspector
+      <span class="feature-inspector-badge">{{featureInspector.totalContributions}} mods / {{featureInspector.uniquePaths}} paths</span>
+    </summary>
+
+    <div class="feature-inspector-body">
+      {{#if isGM}}
+      <div class="feature-inspector-actions">
+        <button type="button" class="uesrpg-feature-inspector-copy" data-json="{{featureInspector.modsJson}}" title="Copy raw FeatureMod JSON to clipboard">
+          <i class="fas fa-clipboard"></i> Copy Debug JSON
+        </button>
+      </div>
+      {{/if}}
+
+      <div class="feature-inspector-table-wrapper">
+        <table class="feature-inspector-table">
+          <thead>
+            <tr>
+              <th>Target</th>
+              <th>Source</th>
+              <th>Value</th>
+              <th>Stacking</th>
+              <th>Final</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#each featureInspector.groups}}
+              {{#each this.contributions}}
+              <tr class="feature-inspector-row {{#if @first}}feature-inspector-group-start{{/if}}">
+                {{#if @first}}
+                <td class="fi-path" rowspan="{{../contributions.length}}">{{../pathLabel}}</td>
+                {{/if}}
+                <td class="fi-source">
+                  <span class="fi-source-type fi-type-{{this.sourceType}}">{{this.sourceType}}</span>
+                  {{this.itemName}}
+                </td>
+                <td class="fi-value">{{this.valueLabel}}</td>
+                {{#if @first}}
+                <td class="fi-stacking" rowspan="{{../contributions.length}}">{{../stackingLabel}}</td>
+                <td class="fi-final" rowspan="{{../contributions.length}}">{{../finalValue}}</td>
+                {{/if}}
+              </tr>
+              {{/each}}
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+</div>
+{{/if}}

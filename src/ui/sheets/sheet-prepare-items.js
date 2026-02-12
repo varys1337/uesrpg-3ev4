@@ -184,15 +184,39 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   }
 
   // Convert spellsBySchool object to array for proper Handlebars iteration
+  const isNpc = actorData?.type === "NPC";
   const spellSchools = Object.keys(spellsBySchool).map(school => {
     const spells = spellsBySchool[school];
-    return {
+    const entry = {
       key: school,
       label: school.charAt(0).toUpperCase() + school.slice(1),
       spells: spells,
       count: spells.length
     };
+    // NPC-only: attach the per-school effective rank for the dropdown
+    if (isNpc) {
+      entry.effectiveRank = actorData?.flags?.["uesrpg-3ev4"]?.npcMagicSchoolRanks?.[school] ?? "untrained";
+    }
+    return entry;
   });
+
+  // NPC-only: provide rank dropdown options for the template (idempotent)
+  if (isNpc) {
+    actorData.ui = actorData.ui || {};
+    if (!actorData.ui.npcMagicRankOptions) {
+      actorData.ui.npcMagicRankOptions = {
+        untrained: "Untrained",
+        novice: "Novice",
+        apprentice: "Apprentice",
+        journeyman: "Journeyman",
+        adept: "Adept",
+        expert: "Expert",
+        master: "Master",
+        grandmaster: "Grandmaster",
+        legendary: "Legendary"
+      };
+    }
+  }
 
   // Assign
   actorData.gear = gear;

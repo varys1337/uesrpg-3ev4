@@ -15,13 +15,14 @@
  *  - Entangling attacks cannot be Parried or Blocked.
  *  - A Small weapon cannot Parry/Counter against a Two-Handed weapon.
  *  - Block requires an equipped shield.
+ *  - Ward requires an active Ward spell on the defender.
  */
 
 /**
  * @typedef {object} DefenseAvailability
- * @property {{evade: boolean, parry: boolean, block: boolean, counter: boolean}} allowed
- * @property {{evade: string[], parry: string[], block: string[], counter: string[]}} reasons
- * @property {{isRangedAttack: boolean, attackerHasFlail: boolean, attackerHasEntangling: boolean, smallVsTwoHandedGate: boolean, shieldOk: boolean}} gates
+ * @property {{evade: boolean, parry: boolean, block: boolean, counter: boolean, ward: boolean}} allowed
+ * @property {{evade: string[], parry: string[], block: string[], counter: string[], ward: string[]}} reasons
+ * @property {{isRangedAttack: boolean, attackerHasFlail: boolean, attackerHasEntangling: boolean, smallVsTwoHandedGate: boolean, shieldOk: boolean, wardOk: boolean}} gates
  */
 
 function _asBool(v) {
@@ -48,6 +49,7 @@ export function computeDefenseAvailability({
   attackerWeaponTraits,
   defenderHasSmallWeapon,
   defenderHasShield,
+  defenderHasWard = false,
   allowedDefenseTypes,
   // Talent / feature overrides (schema-safe; optional)
   allowParryRanged = false
@@ -61,12 +63,14 @@ export function computeDefenseAvailability({
   const smallVsTwoHandedGate = _asBool(defenderHasSmallWeapon) && attackerIsTwoHanded;
 
   const shieldOk = _asBool(defenderHasShield);
+  const wardOk = _asBool(defenderHasWard);
 
   const reasons = {
     evade: [],
     parry: [],
     block: [],
-    counter: []
+    counter: [],
+    ward: []
   };
 
   // Evade is always available within the current opposed workflow semantics.
@@ -74,12 +78,18 @@ export function computeDefenseAvailability({
     evade: true,
     parry: true,
     block: shieldOk,
-    counter: true
+    counter: true,
+    ward: wardOk
   };
 
   // Block requires an equipped shield (unless otherwise gated).
   if (!shieldOk) {
     reasons.block.push("Requires an equipped shield.");
+  }
+
+  // Ward requires an active Ward spell.
+  if (!wardOk) {
+    reasons.ward.push("Requires an active Ward spell.");
   }
 
   // Entangling (RAW): cannot be parried or blocked.
@@ -141,7 +151,8 @@ export function computeDefenseAvailability({
       attackerHasFlail,
       attackerHasEntangling,
       smallVsTwoHandedGate,
-      shieldOk
+      shieldOk,
+      wardOk
     }
   };
 }
@@ -168,7 +179,7 @@ export function normalizeDefenseType(requested, availability, fallback = "evade"
   if (isAllowed("evade")) return "evade";
 
   // If we ever reach here, choose the first allowed option in a stable order.
-  for (const k of ["block", "parry", "counter"]) {
+  for (const k of ["block", "ward", "parry", "counter"]) {
     if (isAllowed(k)) return k;
   }
   return "evade";

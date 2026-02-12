@@ -1,152 +1,913 @@
 <form class="{{cssClass}} spell-sheet" autocomplete="off">
-  <header class="sheet-header compact-header">
-    <img class="profile-img" src="{{item.img}}" data-edit="img" title="{{item.name}}" height="60" width="60"/>
-    <div class="header-fields-compact">
+
+  {{!-- ═══ HEADER ═══════════════════════════════════════════════════════ --}}
+  <header class="sheet-header spell-header">
+    <img class="profile-img" src="{{item.img}}" data-edit="img" title="{{item.name}}" height="50" width="50"/>
+    <div class="spell-header-fields">
       <h1 class="spell-name">
         <input name="name" type="text" value="{{item.name}}" placeholder="Spell Name"/>
       </h1>
       <div class="spell-stats-row">
-        <div class="stat-compact">
+        <div class="spell-stat">
           <label>Level</label>
           <input type="number" name="system.level" value="{{item.system.level}}" min="1" max="7"/>
         </div>
-        <div class="stat-compact">
-          <label>MP</label>
+        <div class="spell-stat">
+          <label>MP Cost</label>
           <input type="number" name="system.cost" value="{{item.system.cost}}" min="0"/>
         </div>
-        <div class="stat-compact">
+        <div class="spell-stat spell-stat-wide">
           <label>School</label>
           <select name="system.school" data-dtype="String">
             {{selectOptions item.system.school_cat selected=item.system.school localize=true}}
           </select>
         </div>
-        <div class="stat-compact">
+        <div class="spell-stat spell-stat-wide">
           <label>Type</label>
           <select name="system.spellType" data-dtype="String">
             {{selectOptions item.system.spellTypes selected=item.system.spellType localize=true}}
           </select>
         </div>
-        <div class="stat-compact checkbox-compact">
-          <label><input type="checkbox" name="flags.uesrpg-3ev4.activeSpell" {{checked (lookup (lookup item.flags "uesrpg-3ev4") "activeSpell")}} /> Active</label>
+        <div class="spell-stat spell-stat-check">
+          <label>
+            <input type="checkbox" name="flags.uesrpg-3ev4.activeSpell" {{checked (lookup (lookup item.flags "uesrpg-3ev4") "activeSpell")}} />
+            Active
+          </label>
         </div>
       </div>
     </div>
   </header>
 
+  {{!-- ═══ TABS ═════════════════════════════════════════════════════════ --}}
   <nav class="sheet-tabs tabs" data-group="primary">
     <a class="item" data-tab="description">Description</a>
-    <a class="item" data-tab="attributes">Attributes</a>
-    <a class="item" data-tab="effects">Effects</a>
+    <a class="item" data-tab="casting">Casting</a>
+    <a class="item" data-tab="information">Information</a>
   </nav>
 
   <section class="sheet-body">
-    {{!-- Description Tab --}}
+
+    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
+    {{!--  TAB 1 — DESCRIPTION                                             --}}
+    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
     <div class="tab" data-group="primary" data-tab="description">
       {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
     </div>
 
-    {{!-- Attributes Tab --}}
-    <div class="tab" data-group="primary" data-tab="attributes">
-      <div class="attributes-compact">
-        <section class="attribute-section">
-          <h4>Combat</h4>
-          <div class="attribute-row" style="display: flex; align-items: center; gap: 15px;">
-            <label class="checkbox-label">
-              <input type="checkbox" name="system.isAttackSpell" {{checked item.system.isAttackSpell}} />
-              Attack Spell
-            </label>
-            <label style="margin-left: 10px;">Damage Type</label>
-            <select name="system.damageType" style="width: 150px;">
-              {{selectOptions item.system.damageTypes selected=item.system.damageType}}
-            </select>
-            <input type="text" name="system.damageFormula" value="{{item.system.damageFormula}}" placeholder="1d6" style="width: 100px;" />
+    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
+    {{!--  TAB 2 — CASTING (compact configurator layout)                    --}}
+    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
+    <div class="tab" data-group="primary" data-tab="casting">
+      <div class="spell-casting-body">
+
+        {{!-- ── AT A GLANCE ────────────────────────────────────────────── --}}
+        <div class="spell-glance-row">
+          <span class="spell-glance-tag" title="Defense Model">
+            <i class="fas fa-shield-alt"></i>
+            {{#if (eq spellEngine.defenseModel "characteristic")}}CHA Save{{else}}Opposed{{/if}}
+          </span>
+          <span class="spell-glance-tag" title="Target Mode">
+            <i class="fas fa-bullseye"></i>
+            {{spellEngine.targeting.mode}}
+          </span>
+          <span class="spell-glance-tag" title="Range">
+            <i class="fas fa-arrows-alt-h"></i>
+            {{item.system.rangeType}}{{#if item.system.range}} {{item.system.range}}{{/if}}
+          </span>
+          <span class="spell-glance-tag" title="Duration">
+            <i class="fas fa-clock"></i>
+            {{#if (eq item.system.duration.unit "instant")}}Instant{{else if (eq item.system.duration.unit "permanent")}}Permanent{{else}}{{item.system.duration.value}} {{item.system.duration.unit}}{{/if}}
+          </span>
+          {{#if item.system.hasUpkeep}}
+          <span class="spell-glance-tag spell-glance-tag--active" title="Upkeep enabled">
+            <i class="fas fa-sync-alt"></i> Upkeep
+          </span>
+          {{/if}}
+        </div>
+
+        {{!-- ══════════════════════════════════════════════════════════════ --}}
+        {{!--  SECTION: Casting Attributes (merged Classification + old     --}}
+        {{!--  Casting Attributes + Defense Model)                          --}}
+        {{!-- ══════════════════════════════════════════════════════════════ --}}
+        <section class="spell-section">
+          <h4 class="spell-section-title">Casting Attributes</h4>
+
+          {{!-- Identity toggles --}}
+          <div class="spell-row spell-row-checks">
+            <label class="spell-check"><input type="checkbox" name="system.isAttackSpell" {{checked item.system.isAttackSpell}} /> Attack Spell</label>
+            <label class="spell-check"><input type="checkbox" name="system.isDirect" {{checked item.system.isDirect}} /> Direct (no defense)</label>
+            <label class="spell-check"><input type="checkbox" name="system.isInstant" {{checked item.system.isInstant}} /> Instant</label>
           </div>
-          <p class="hint">Healing spells restore HP. Attack spells use opposed rolls. Direct spells cannot be defended.</p>
-        </section>
-        
-        <section class="attribute-section">
-          <h4>Casting</h4>
-          <div class="checkboxes-inline">
-            <label><input type="checkbox" name="system.isInstant" {{checked item.system.isInstant}} /> Instant</label>
-            <label><input type="checkbox" name="system.hasUpkeep" {{checked item.system.hasUpkeep}} /> Upkeep</label>
-            <label><input type="checkbox" name="system.hasOverload" {{checked item.system.hasOverload}} /> Overload</label>
-            <label><input type="checkbox" name="system.hasReinforce" {{checked item.system.hasReinforce}} /> Reinforce</label>
-            <label><input type="checkbox" name="system.isDirect" {{checked item.system.isDirect}} /> Direct</label>
+
+          {{!-- Effect Type / Strength / Defense (single-row 3-column layout) --}}
+          <div class="spell-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--spell-gap-sm);">
+            <div>
+              <label class="spell-label">Effect Type</label>
+              <select name="system.damageType" class="spell-input spell-input-fill">
+                {{selectOptions item.system.damageTypes selected=item.system.damageType}}
+              </select>
+            </div>
+            <div>
+              <label class="spell-label">Strength</label>
+              <input type="text" name="system.damageFormula" value="{{item.system.damageFormula}}" placeholder="e.g. 1d6 or 5" class="spell-input spell-input-fill" />
+            </div>
+            <div>
+              <label class="spell-label">Defense</label>
+              <select name="system.engine.defenseModel" class="spell-input spell-input-fill">
+                {{selectOptions defenseModelOptions selected=spellEngine.defenseModel}}
+              </select>
+            </div>
           </div>
+
+          {{!-- Additional Damage Instances --}}
+          {{#if item.system.damageInstances.length}}
+          <details class="spell-details" data-uesrpg="damageInstances">
+            <summary class="spell-summary">Additional Damage Instances ({{item.system.damageInstances.length}})</summary>
+            <div class="spell-damage-instances" style="display: flex; flex-direction: column; gap: 4px; padding: 4px 0;">
+              {{#each item.system.damageInstances as |inst idx|}}
+              <div class="spell-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: var(--spell-gap-sm); align-items: center;" data-instance-index="{{idx}}">
+                <input type="text" name="system.damageInstances.{{idx}}.label" value="{{inst.label}}" placeholder="Label" class="spell-input spell-input-fill" data-damage-instance-input="true" />
+                <input type="text" name="system.damageInstances.{{idx}}.formula" value="{{inst.formula}}" placeholder="e.g. 1d6" class="spell-input spell-input-fill" data-damage-instance-input="true" />
+                <select name="system.damageInstances.{{idx}}.type" class="spell-input spell-input-fill" data-damage-instance-input="true">
+                  {{selectOptions @root.damageTypeOptions selected=inst.type}}
+                </select>
+                <button class="spell-btn-delete" type="button" data-action="remove-damage-instance" data-index="{{idx}}" title="Remove" {{#unless @root.editable}}disabled{{/unless}}>
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+              {{/each}}
+            </div>
+          </details>
+          {{/if}}
+          {{#if @root.editable}}
+          <button type="button" data-action="add-damage-instance" class="spell-btn-add" style="margin-top: 2px; align-self: flex-start;">
+            <i class="fas fa-plus"></i> Add Damage Instance
+          </button>
+          {{/if}}
+
+          {{!-- Characteristic Defense sub-config (full-width below the 2-col grid) --}}
+          {{#if (eq spellEngine.defenseModel "characteristic")}}
+          <fieldset class="spell-fieldset" style="margin-top: 2px;">
+            <legend>Characteristic Defense</legend>
+            <div class="spell-row">
+              <label class="spell-label">Defender CHA</label>
+              <select name="system.engine.characteristicDefense.defenderCharacteristic" class="spell-input spell-input-med">
+                {{selectOptions bindingCharacteristicOptions selected=spellEngine.characteristicDefense.defenderCharacteristic}}
+              </select>
+            </div>
+            <div class="spell-row">
+              <label class="spell-label">TN Modifier</label>
+              <select name="system.engine.characteristicDefense.modifierMode" class="spell-input spell-input-sm">
+                {{selectOptions charDefModifierModeOptions selected=spellEngine.characteristicDefense.modifierMode}}
+              </select>
+              {{#if (eq spellEngine.characteristicDefense.modifierMode "formula")}}
+              <input type="number" name="system.engine.characteristicDefense.modifierFormula"
+                     value="{{spellEngine.characteristicDefense.modifierFormula}}"
+                     class="spell-input spell-input-sm" placeholder="e.g. 20" />
+              {{/if}}
+            </div>
+            <div class="spell-row">
+              <label class="spell-label">On Success</label>
+              <select name="system.engine.characteristicDefense.onSuccess" class="spell-input spell-input-med">
+                {{selectOptions charDefSuccessOptions selected=spellEngine.characteristicDefense.onSuccess}}
+              </select>
+            </div>
+            <div class="spell-row">
+              <label class="spell-label">On Failure</label>
+              <select name="system.engine.characteristicDefense.onFailure" class="spell-input spell-input-med">
+                {{selectOptions charDefFailureOptions selected=spellEngine.characteristicDefense.onFailure}}
+              </select>
+            </div>
+            <p class="spell-hint" style="margin-top: var(--spell-gap-xs);">TN = Defender's characteristic − modifier. "Spell Strength" uses the spell's SS value as the modifier.</p>
+          </fieldset>
+
+          {{!-- Consequences (inline when defense=characteristic & failure=consequences) --}}
+          {{#if (eq spellEngine.characteristicDefense.onFailure "consequences")}}
+          <fieldset class="spell-fieldset" style="margin-top: 2px;">
+            <legend>Consequences (on failed save)</legend>
+            <div class="spell-row">
+              <label class="spell-label">Stamina Δ</label>
+              <input type="number" name="system.engine.consequences.staminaDelta"
+                     value="{{spellEngine.consequences.staminaDelta}}"
+                     class="spell-input spell-input-xs" />
+              <label class="spell-label" style="margin-left:12px;">Health Δ</label>
+              <input type="number" name="system.engine.consequences.healthDelta"
+                     value="{{spellEngine.consequences.healthDelta}}"
+                     class="spell-input spell-input-xs" />
+              <label class="spell-label" style="margin-left:12px;">Magicka Δ</label>
+              <input type="number" name="system.engine.consequences.magickaDelta"
+                     value="{{spellEngine.consequences.magickaDelta}}"
+                     class="spell-input spell-input-xs" />
+            </div>
+            <div class="spell-row">
+              <label class="spell-label">Condition</label>
+              <select name="system.engine.consequences.applyCondition" class="spell-input spell-input-med">
+                {{selectOptions consequenceConditionOptions selected=spellEngine.consequences.applyCondition}}
+              </select>
+            </div>
+            <div class="spell-row">
+              <label class="spell-label">Description</label>
+              <input type="text" name="system.engine.consequences.description"
+                     value="{{spellEngine.consequences.description}}"
+                     class="spell-input" placeholder="Flavour text for chat" />
+            </div>
+            <p class="spell-hint">Use negative values for drains (e.g., −10 SP). Applied when the defender fails the characteristic save.</p>
+          </fieldset>
+          {{/if}}
+          {{/if}}
+
+          {{!-- Upkeep / Overload / Reinforce --}}
+          <div class="spell-row spell-row-checks" style="margin-top:8px;">
+            <label class="spell-check"><input type="checkbox" name="system.hasUpkeep" {{checked item.system.hasUpkeep}} /> Upkeep</label>
+            <label class="spell-check"><input type="checkbox" name="system.hasOverload" {{checked item.system.hasOverload}} /> Overload</label>
+            <label class="spell-check"><input type="checkbox" name="system.hasReinforce" {{checked item.system.hasReinforce}} /> Reinforce</label>
+          </div>
+
           {{#if item.system.hasOverload}}
-          <div class="attribute-row" style="margin-top: 8px;">
-            <input type="text" name="system.overloadEffect" value="{{item.system.overloadEffect}}" placeholder="Overload effect description" style="width: 100%;" />
-          </div>
+          <fieldset class="spell-fieldset">
+            <legend>Overload</legend>
+            <div class="spell-row">
+              <label class="spell-label">Effect</label>
+              <input type="text" name="system.overloadEffect" value="{{item.system.overloadEffect}}" placeholder="Overload effect description" class="spell-input spell-input-fill" />
+            </div>
+            <div class="spell-row">
+              <label class="spell-label">Bonus Dmg</label>
+              <input type="text" name="system.overloadBonusDamage" value="{{item.system.overloadBonusDamage}}" placeholder="e.g. 2d6" class="spell-input spell-input-sm" />
+            </div>
+          </fieldset>
+          {{/if}}
+
+          {{#if item.system.hasReinforce}}
+          <fieldset class="spell-fieldset">
+            <legend>Reinforce</legend>
+            <div class="spell-row">
+              <textarea name="system.reinforceDescription" rows="2" class="spell-input spell-input-fill" placeholder="Describe reinforce mechanics...">{{item.system.reinforceDescription}}</textarea>
+            </div>
+          </fieldset>
           {{/if}}
         </section>
-        
-        <section class="attribute-section">
-          <h4>Range & Duration</h4>
-          <div class="attribute-row">
-            <label>Range</label>
-            <select name="system.rangeType" style="width: 120px;">
+
+        {{!-- ── SECTIONS: Targeting & Range + Duration (side by side) ───── --}}
+        <div class="spell-2col-grid">
+
+        {{!-- ── Targeting & Range (left column) ────────────────────────── --}}
+        <section class="spell-section">
+          <h4 class="spell-section-title">Targeting & Range</h4>
+          <div class="spell-row">
+            <label class="spell-label">Target Mode</label>
+            <select name="system.engine.targeting.mode" class="spell-input spell-input-med">
+              {{selectOptions targetingModeOptions selected=spellEngine.targeting.mode}}
+            </select>
+            {{#if (eq spellEngine.targeting.mode "multi")}}
+            <label class="spell-label spell-label-sm">Max</label>
+            <input type="number" name="system.engine.targeting.maxTargets" value="{{spellEngine.targeting.maxTargets}}" min="1" class="spell-input spell-input-xs" />
+            {{/if}}
+          </div>
+          <div class="spell-row">
+            <label class="spell-label">Range Type</label>
+            <select name="system.rangeType" class="spell-input spell-input-med">
               <option value="none" {{#if (eq item.system.rangeType "none")}}selected{{/if}}>None</option>
               <option value="ranged" {{#if (eq item.system.rangeType "ranged")}}selected{{/if}}>Ranged</option>
               <option value="melee" {{#if (eq item.system.rangeType "melee")}}selected{{/if}}>Melee</option>
               <option value="aoe" {{#if (eq item.system.rangeType "aoe")}}selected{{/if}}>AoE</option>
             </select>
-            <input type="text" name="system.range" value="{{item.system.range}}" placeholder="e.g. 100m" style="width: 150px; margin-left: 10px;" />
+            <label class="spell-label spell-label-sm">Range</label>
+            <input type="text" name="system.range" value="{{item.system.range}}" placeholder="e.g. 100m" class="spell-input spell-input-sm" />
           </div>
+
           {{#if (eq item.system.rangeType "aoe")}}
-          <div class="attribute-row">
-            <label>AoE</label>
-            <select name="system.aoeShape" style="width: 140px;">
-              <option value="circle" {{#if (eq item.system.aoeShape "circle")}}selected{{/if}}>Circle (Radius)</option>
-              <option value="cone" {{#if (eq item.system.aoeShape "cone")}}selected{{/if}}>Cone</option>
-              <option value="ray" {{#if (eq item.system.aoeShape "ray")}}selected{{/if}}>Ray (Line)</option>
-              <option value="rect" {{#if (eq item.system.aoeShape "rect")}}selected{{/if}}>Rectangle</option>
-              <option value="pulse" {{#if (eq item.system.aoeShape "pulse")}}selected{{/if}}>Pulse (Centered on Caster)</option>
-            </select>
-            <input type="number" name="system.aoeSize" value="{{item.system.aoeSize}}" min="0" step="0.5" placeholder="Size (m)" style="width: 110px; margin-left: 10px;" />
-            <input type="number" name="system.aoeWidth" value="{{item.system.aoeWidth}}" min="0" step="0.5" placeholder="Width (m)" style="width: 110px; margin-left: 10px;" />
-            <label style="margin-left:10px; display:flex; align-items:center; gap:6px;">
-              <input type="checkbox" name="system.aoeIncludeCaster" {{#if item.system.aoeIncludeCaster}}checked{{/if}} />
-              Affect Caster
-            </label>
-          </div>
+          <fieldset class="spell-fieldset">
+            <legend>Area of Effect</legend>
+            <div class="spell-row">
+              <label class="spell-label">Shape</label>
+              <select name="system.aoeShape" class="spell-input spell-input-med">
+                <option value="circle" {{#if (eq item.system.aoeShape "circle")}}selected{{/if}}>Circle (Radius)</option>
+                <option value="cone" {{#if (eq item.system.aoeShape "cone")}}selected{{/if}}>Cone</option>
+                <option value="ray" {{#if (eq item.system.aoeShape "ray")}}selected{{/if}}>Ray (Line)</option>
+                <option value="rect" {{#if (eq item.system.aoeShape "rect")}}selected{{/if}}>Rectangle</option>
+                <option value="pulse" {{#if (eq item.system.aoeShape "pulse")}}selected{{/if}}>Pulse (Caster-centered)</option>
+              </select>
+            </div>
+            <div class="spell-row">
+              <label class="spell-label">Size (m)</label>
+              <input type="number" name="system.aoeSize" value="{{item.system.aoeSize}}" min="0" step="0.5" class="spell-input spell-input-sm" />
+              <label class="spell-label spell-label-sm">Width (m)</label>
+              <input type="number" name="system.aoeWidth" value="{{item.system.aoeWidth}}" min="0" step="0.5" class="spell-input spell-input-sm" />
+            </div>
+            <div class="spell-row spell-row-checks">
+              <label class="spell-check"><input type="checkbox" name="system.aoePulse" {{checked item.system.aoePulse}} /> Pulse</label>
+              <label class="spell-check"><input type="checkbox" name="system.aoeIncludeCaster" {{checked item.system.aoeIncludeCaster}} /> Affect Caster</label>
+            </div>
+          </fieldset>
           {{/if}}
-          <div class="attribute-row" style="display: flex; align-items: center; gap: 10px;">
-            <label>Duration</label>
+        </section>
+
+        {{!-- ── Duration & Persistence (right column) ──────────────────── --}}
+        <section class="spell-section">
+          <h4 class="spell-section-title">Duration & Persistence</h4>
+          <div class="spell-row">
+            <label class="spell-label">Duration</label>
             {{#unless (or (eq item.system.duration.unit "instant") (eq item.system.duration.unit "permanent"))}}
-              <input type="number" name="system.duration.value" value="{{item.system.duration.value}}" min="0" style="width: 80px;" />
+              <input type="number" name="system.duration.value" value="{{item.system.duration.value}}" min="0" class="spell-input spell-input-xs" />
             {{/unless}}
-            <select name="system.duration.unit" style="width: 120px;">
+            <select name="system.duration.unit" class="spell-input spell-input-med">
               {{selectOptions item.system.duration.units selected=item.system.duration.unit}}
             </select>
-            <label style="margin-left: 20px;">Mindlock</label>
-            <input type="number" name="system.mindlockValue" value="{{item.system.mindlockValue}}" min="0" style="width: 60px;" />
-            <span class="hint" style="margin-left: 8px;">Reduces max AP while active</span>
+          </div>
+          <div class="spell-row">
+            <label class="spell-label">Mindlock</label>
+            <input type="number" name="system.mindlockValue" value="{{item.system.mindlockValue}}" min="0" class="spell-input spell-input-xs" />
+          </div>
+          <div class="spell-row">
+            <label class="spell-label">Dispel Str.</label>
+            <select name="system.engine.persistence.dispelStrength" class="spell-input spell-input-med">
+              {{selectOptions dispelStrengthOptions selected=spellEngine.persistence.dispelStrength}}
+            </select>
+            {{#if (eq spellEngine.persistence.dispelStrength "fixed")}}
+            <label class="spell-label spell-label-sm">Value</label>
+            <input type="number" name="system.engine.persistence.dispelFixedValue" value="{{spellEngine.persistence.dispelFixedValue}}" min="0" class="spell-input spell-input-xs" />
+            {{/if}}
+          </div>
+
+          {{#if item.system.hasUpkeep}}
+          <div class="spell-row">
+            <label class="spell-label">Upkeep</label>
+            <span class="spell-status-ok"><i class="fas fa-check-circle"></i> Auto-prompt renewal</span>
+          </div>
+          {{/if}}
+        </section>
+
+        </div>{{!-- /.spell-2col-grid --}}
+
+        {{!-- ── SECTION: Scaling Levels ────────────────────────────────── --}}
+        <details class="spell-details-section" data-uesrpg="scaling-levels">
+          <summary class="spell-details-summary">
+            Scaling Levels
+            <span class="spell-details-badge">{{item.system.scaling.levels.length}}</span>
+            <button class="spell-btn-inline add-scaling-level" type="button" data-action="add-scaling-level" title="Add Scaling Level" {{#unless @root.editable}}disabled{{/unless}}>
+              <i class="fas fa-plus"></i> Add
+            </button>
+          </summary>
+          <div class="spell-details-body">
+          {{#if item.system.scaling.levels.length}}
+          <div class="spell-table-scroll">
+            <table class="spell-table">
+              <thead>
+                <tr>
+                  <th class="spell-th-narrow">Lvl</th>
+                  <th class="spell-th-narrow">MP</th>
+                  <th>Strength / Value</th>
+                  <th>Duration</th>
+                  <th class="spell-th-wide">Description</th>
+                  <th class="spell-th-action"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {{#each item.system.scaling.levels as |scalingEntry idx|}}
+                <tr data-index="{{idx}}">
+                  <td><input type="number" name="system.scaling.levels.{{idx}}.level" value="{{scalingEntry.level}}" min="1" max="7" class="spell-table-input spell-table-input-narrow" data-dtype="Number" data-scaling-input="true" {{#unless @root.editable}}disabled{{/unless}} /></td>
+                  <td><input type="number" name="system.scaling.levels.{{idx}}.cost" value="{{scalingEntry.cost}}" min="0" class="spell-table-input spell-table-input-narrow" data-dtype="Number" data-scaling-input="true" {{#unless @root.editable}}disabled{{/unless}} /></td>
+                  <td><input type="text" name="system.scaling.levels.{{idx}}.damageFormula" value="{{scalingEntry.damageFormula}}" placeholder="e.g. 3d6 or SS" class="spell-table-input" data-dtype="String" data-scaling-input="true" {{#unless @root.editable}}disabled{{/unless}} /></td>
+                  <td class="spell-td-duration">
+                    <input type="number" name="system.scaling.levels.{{idx}}.duration.value" value="{{scalingEntry.duration.value}}" min="0" class="spell-table-input spell-table-input-narrow" data-dtype="Number" data-scaling-input="true" {{#unless @root.editable}}disabled{{/unless}} />
+                    <select name="system.scaling.levels.{{idx}}.duration.unit" class="spell-table-select" data-dtype="String" data-scaling-input="true" {{#unless @root.editable}}disabled{{/unless}}>
+                      <option value="instant" {{#if (eq scalingEntry.duration.unit "instant")}}selected{{/if}}>Instant</option>
+                      <option value="rounds" {{#if (eq scalingEntry.duration.unit "rounds")}}selected{{/if}}>Rounds</option>
+                      <option value="minutes" {{#if (eq scalingEntry.duration.unit "minutes")}}selected{{/if}}>Minutes</option>
+                      <option value="hours" {{#if (eq scalingEntry.duration.unit "hours")}}selected{{/if}}>Hours</option>
+                      <option value="days" {{#if (eq scalingEntry.duration.unit "days")}}selected{{/if}}>Days</option>
+                    </select>
+                  </td>
+                  <td><input type="text" name="system.scaling.levels.{{idx}}.description" value="{{scalingEntry.description}}" placeholder="Effect at this level" class="spell-table-input" data-dtype="String" data-scaling-input="true" {{#unless @root.editable}}disabled{{/unless}} /></td>
+                  <td class="spell-td-action">
+                    <button class="spell-btn-delete remove-scaling-level" type="button" data-action="remove-scaling-level" data-index="{{idx}}" title="Delete" {{#unless @root.editable}}disabled{{/unless}}>
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+                {{/each}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="spell-empty">No scaling levels defined. Click "Add" to create variant casting levels.</p>
+          {{/if}}
+          </div>
+        </details>
+
+        {{!-- ── SECTION: Active Effects (compact grid rows) ────────────────────────────────── --}}
+        <section class="spell-section">
+          <h4 class="spell-section-title">
+            Active Effects
+            <a class="effect-control spell-btn-inline" data-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
+          </h4>
+          <div class="effects-grid">
+            {{#each effects as |effect id|}}
+            <div class="effect-row" data-effect-id="{{effect._id}}">
+              <img class="effect-icon" src="{{effect.img}}" title="{{effect.name}}" alt="{{effect.name}}"/>
+              <span class="effect-name">{{effect.name}}</span>
+              <div class="effect-controls">
+                <a class="effect-control" data-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
+                <a class="effect-control" data-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
+                <a class="effect-control" data-action="toggle" data-effect-id="{{effect._id}}" title="{{#if effect.disabled}}Enable{{else}}Disable{{/if}}">
+                  <i class="fas {{#if effect.disabled}}fa-check{{else}}fa-times{{/if}}"></i>
+                </a>
+              </div>
+            </div>
+            {{/each}}
+          </div>
+        </section>
+
+        {{!-- ══════════════════════════════════════════════════════════════ --}}
+        {{!--  ADVANCED OPTIONS (collapsible)                               --}}
+        {{!-- ══════════════════════════════════════════════════════════════ --}}
+        <details class="spell-advanced">
+          <summary class="spell-advanced-summary">
+            <i class="fas fa-cogs"></i>
+            Advanced Options
+            <span class="spell-advanced-badge">{{advancedModulesCount}} modules enabled</span>
+          </summary>
+
+          <div class="spell-advanced-body">
+
+            {{!-- ── Effect Policies (always expanded, like a category header) ────────────────────────────────────── --}}
+            <section class="spell-module-panel spell-module-panel--expanded">
+              <h4 class="spell-module-title"><i class="fas fa-layer-group"></i> Effect Policies</h4>
+              <div class="spell-row">
+                <label class="spell-label">Stacking</label>
+                <select name="system.engine.effects.stackingPolicy" class="spell-input spell-input-fill">
+                  {{selectOptions stackingPolicyOptions selected=spellEngine.effects.stackingPolicy}}
+                </select>
+              </div>
+              <div class="spell-row">
+                <label class="spell-label">Ownership</label>
+                <select name="system.engine.effects.ownershipPolicy" class="spell-input spell-input-fill">
+                  {{selectOptions ownershipPolicyOptions selected=spellEngine.effects.ownershipPolicy}}
+                </select>
+              </div>
+              <p class="spell-hint">Stacking: how repeated casts interact. Ownership: who receives the AE.</p>
+            </section>
+
+            {{!-- ══════════════════════════════════════════════════════════ --}}
+            {{!--  AUTOMATION MODULES (4×2 grid with Buffer/Barrier moved here) --}}
+            {{!-- ══════════════════════════════════════════════════════════ --}}
+            <h4 class="spell-section-title" style="margin-top:4px;">Automation Modules</h4>
+            <div class="spell-modules-grid">
+
+            {{!-- Buffer / Barrier (moved from above) ────────────────────────────────── --}}
+            <section class="spell-module-panel {{#if item.system.hasBuffer}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-shield-alt"></i> Buffer / Barrier</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.hasBuffer" {{checked item.system.hasBuffer}} /> Grants Buffer</label>
+              </div>
+              {{#if item.system.hasBuffer}}
+              <div class="spell-row">
+                <label class="spell-label">Buffer Type</label>
+                <select name="system.buffer.type" class="spell-input spell-input-med">
+                  <option value="none" {{#if (eq item.system.buffer.type "none")}}selected{{/if}}>None</option>
+                  <option value="physical" {{#if (eq item.system.buffer.type "physical")}}selected{{/if}}>Physical</option>
+                  <option value="magical" {{#if (eq item.system.buffer.type "magical")}}selected{{/if}}>Magical</option>
+                  <option value="elemental" {{#if (eq item.system.buffer.type "elemental")}}selected{{/if}}>Elemental</option>
+                </select>
+                <label class="spell-label spell-label-sm">Strength</label>
+                <input type="text" name="system.buffer.formula" value="{{item.system.buffer.formula}}" placeholder="e.g. SS or 2d6" class="spell-input spell-input-sm" />
+              </div>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.buffer.freeUpkeepIfRemains" {{checked item.system.buffer.freeUpkeepIfRemains}} /> Free Upkeep if Buffer Remains</label>
+              </div>
+              <p class="spell-hint">Buffer absorbs incoming damage of the matching type before Temp HP and HP.</p>
+              {{/if}}
+            </section>
+
+
+            {{!-- ── Module: Conjuration (school-gated) ─────────────────── --}}
+            {{#if (eq item.system.school "conjuration")}}
+            <section class="spell-module-panel spell-module-panel--expanded">
+              <h4 class="spell-module-title"><i class="fas fa-hat-wizard"></i> Conjuration</h4>
+              <div class="spell-row">
+                <label class="spell-label">Mode</label>
+                <select name="system.engine.conjure.mode" class="spell-input spell-input-med">
+                  {{selectOptions conjureModeOptions selected=spellEngine.conjure.mode}}
+                </select>
+              </div>
+
+              {{!-- Conjure Item sub-section --}}
+              {{#if (eq spellEngine.conjure.mode "item")}}
+              <fieldset class="spell-fieldset" style="margin-top:6px;">
+                <legend>Conjure Item</legend>
+                <div class="spell-row">
+                  <label class="spell-label">Item</label>
+                  <div class="spell-input spell-input-fill" style="display:flex; gap:4px; align-items:center;">
+                    <input type="text" name="system.engine.conjure.itemUuid"
+                           value="{{spellEngine.conjure.itemUuid}}"
+                           placeholder="Drop an Item here or paste UUID"
+                           class="spell-input spell-input-fill conjure-drop-target"
+                           data-conjure-drop="item" />
+                    {{#if spellEngine.conjure.itemLabel}}
+                    <span class="spell-hint" style="white-space:nowrap;">{{spellEngine.conjure.itemLabel}}</span>
+                    {{/if}}
+                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-conjure-clear="item" title="Clear">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </div>
+                </div>
+                <p class="spell-hint">Drag an item or paste UUID. Created on target's inventory when cast.</p>
+              </fieldset>
+              {{/if}}
+
+              {{!-- Summon Creature sub-section --}}
+              {{#if (eq spellEngine.conjure.mode "creature")}}
+              <fieldset class="spell-fieldset" style="margin-top:6px;">
+                <legend>Summon Creature</legend>
+                <div class="spell-row">
+                  <label class="spell-label">Actor</label>
+                  <div class="spell-input spell-input-fill" style="display:flex; gap:4px; align-items:center;">
+                    <input type="text" name="system.engine.conjure.actorUuid"
+                           value="{{spellEngine.conjure.actorUuid}}"
+                           placeholder="Drop an Actor here or paste UUID"
+                           class="spell-input spell-input-fill conjure-drop-target"
+                           data-conjure-drop="actor" />
+                    {{#if spellEngine.conjure.actorLabel}}
+                    <span class="spell-hint" style="white-space:nowrap;">{{spellEngine.conjure.actorLabel}}</span>
+                    {{/if}}
+                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-conjure-clear="actor" title="Clear">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="spell-row">
+                  <label class="spell-label">Binding</label>
+                  <select name="system.engine.conjure.bindingCharacteristic" class="spell-input spell-input-sm">
+                    {{selectOptions bindingCharacteristicOptions selected=spellEngine.conjure.bindingCharacteristic}}
+                  </select>
+                  <label class="spell-label spell-label-sm">Modifier</label>
+                  <input type="number" name="system.engine.conjure.bindingModifier"
+                         value="{{spellEngine.conjure.bindingModifier}}"
+                         class="spell-input spell-input-xs" />
+                </div>
+                <p class="spell-hint">Opposed Characteristic test determines binding. SS modifies creature's TN.</p>
+              </fieldset>
+              {{/if}}
+
+              {{!-- Sunder Binding sub-section --}}
+              {{#if (eq spellEngine.conjure.mode "sunder")}}
+              <fieldset class="spell-fieldset" style="margin-top:6px;">
+                <legend>Sunder Binding</legend>
+                <div class="spell-row">
+                  <label class="spell-label">Target Actor</label>
+                  <div class="spell-input spell-input-fill" style="display:flex; gap:4px; align-items:center;">
+                    <input type="text" name="system.engine.conjure.actorUuid"
+                           value="{{spellEngine.conjure.actorUuid}}"
+                           placeholder="Drop a summoned Actor or paste UUID"
+                           class="spell-input spell-input-fill conjure-drop-target"
+                           data-conjure-drop="actor" />
+                    {{#if spellEngine.conjure.actorLabel}}
+                    <span class="spell-hint" style="white-space:nowrap;">{{spellEngine.conjure.actorLabel}}</span>
+                    {{/if}}
+                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-conjure-clear="actor" title="Clear">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="spell-row">
+                  <label class="spell-label">Characteristic</label>
+                  <select name="system.engine.conjure.bindingCharacteristic" class="spell-input spell-input-sm">
+                    {{selectOptions bindingCharacteristicOptions selected=spellEngine.conjure.bindingCharacteristic}}
+                  </select>
+                  <label class="spell-label spell-label-sm">SS Modifier</label>
+                  <input type="number" name="system.engine.conjure.bindingModifier"
+                         value="{{spellEngine.conjure.bindingModifier}}"
+                         class="spell-input spell-input-xs" />
+                </div>
+                <p class="spell-hint">Opposed Characteristic test to sunder a conjured creature's binding.</p>
+              </fieldset>
+              {{/if}}
+            </section>
+            {{/if}}
+
+            {{!-- ── Module: Disintegrate ───────────────────────────────── --}}
+            <section class="spell-module-panel {{#if spellEngine.disintegrate.enabled}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-atom"></i> Disintegrate</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.engine.disintegrate.enabled" {{checked spellEngine.disintegrate.enabled}} /> Apply Damaged quality instead of dealing damage</label>
+              </div>
+              {{#if spellEngine.disintegrate.enabled}}
+              <div class="spell-row">
+                <label class="spell-label">Target</label>
+                <select name="system.engine.disintegrate.target" class="spell-input spell-input-med">
+                  {{selectOptions disintegrateTargetOptions selected=spellEngine.disintegrate.target}}
+                </select>
+              </div>
+              <p class="spell-hint">Applies Damaged (Spell Strength) to target's equipped armor/shield or weapon.</p>
+              {{/if}}
+            </section>
+
+            {{!-- ── Module: Drain ──────────────────────────────────────── --}}
+            <section class="spell-module-panel {{#if spellEngine.drain.enabled}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-tint"></i> Drain</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.engine.drain.enabled" {{checked spellEngine.drain.enabled}} /> Drain current resource pool</label>
+              </div>
+              {{#if spellEngine.drain.enabled}}
+              <div class="spell-row">
+                <label class="spell-label">Pool</label>
+                <select name="system.engine.drain.type" class="spell-input spell-input-med">
+                  {{selectOptions drainTypeOptions selected=spellEngine.drain.type}}
+                </select>
+                <label class="spell-check" style="margin-left:12px;"><input type="checkbox" name="system.engine.drain.transferToCaster" {{checked spellEngine.drain.transferToCaster}} /> Transfer to caster (Absorb)</label>
+              </div>
+              <p class="spell-hint">Reduces the target's current pool by the spell's damage formula / SS value.</p>
+              {{/if}}
+            </section>
+
+            {{!-- ── Module: Cloak (Aura) ───────────────────────────────── --}}
+            <section class="spell-module-panel {{#if spellEngine.cloak.enabled}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-spinner"></i> Cloak (Aura)</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.engine.cloak.enabled" {{checked spellEngine.cloak.enabled}} /> Apply effects to nearby targets each turn</label>
+              </div>
+              {{#if spellEngine.cloak.enabled}}
+              <div class="spell-row">
+                <label class="spell-label">Range (m)</label>
+                <input type="number" name="system.engine.cloak.range"
+                       value="{{spellEngine.cloak.range}}"
+                       class="spell-input spell-input-xs" min="0" step="1" />
+                <label class="spell-check" style="margin-left:12px;"><input type="checkbox" name="system.engine.cloak.excludeSelf" {{checked spellEngine.cloak.excludeSelf}} /> Exclude caster</label>
+              </div>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.engine.cloak.useSpellDamage" {{checked spellEngine.cloak.useSpellDamage}} /> Apply spell damage to targets in range</label>
+              </div>
+              <p class="spell-hint">At the end of the caster's turn, all tokens within range take the spell's damage and/or receive its Active Effects.</p>
+              {{/if}}
+            </section>
+
+            {{!-- ── Module: Rune / Trap ────────────────────────────────── --}}
+            <section class="spell-module-panel {{#if item.system.isRuneSpell}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-crosshairs"></i> Rune / Trap</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.isRuneSpell" {{checked item.system.isRuneSpell}} /> Rune / Trap</label>
+              </div>
+              {{#if item.system.isRuneSpell}}
+              <div class="spell-row">
+                <label class="spell-label">Trigger</label>
+                <select name="system.runeTriggerType" class="spell-input spell-input-med">
+                  <option value="" {{#if (eq item.system.runeTriggerType "")}}selected{{/if}}>None</option>
+                  <option value="proximity" {{#if (eq item.system.runeTriggerType "proximity")}}selected{{/if}}>Proximity</option>
+                  <option value="time" {{#if (eq item.system.runeTriggerType "time")}}selected{{/if}}>Timed</option>
+                  <option value="manual" {{#if (eq item.system.runeTriggerType "manual")}}selected{{/if}}>Manual</option>
+                </select>
+                <label class="spell-label spell-label-sm">Radius</label>
+                <input type="number" name="system.runeTriggerRadius" value="{{item.system.runeTriggerRadius}}" min="0" step="0.5" class="spell-input spell-input-xs" />
+                <label class="spell-label spell-label-sm">Delay</label>
+                <input type="number" name="system.runeTriggerDelay" value="{{item.system.runeTriggerDelay}}" min="0" class="spell-input spell-input-xs" />
+              </div>
+              {{/if}}
+            </section>
+
+            {{!-- ── Module: Persistent Zone ────────────────────────────── --}}
+            <section class="spell-module-panel {{#if item.system.isZonePersistent}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-globe"></i> Persistent Zone</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.isZonePersistent" {{checked item.system.isZonePersistent}} /> Persistent Zone</label>
+              </div>
+              {{#if item.system.isZonePersistent}}
+              <p class="spell-hint">Creates a persistent AoE zone linked to a MeasuredTemplate. Requires AoE range type.</p>
+              {{/if}}
+            </section>
+
+            {{!-- ── Module: Spell Defense (Absorption/Reflect) ──────────── --}}
+            <section class="spell-module-panel {{#if item.system.isSpellDefense}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-user-shield"></i> Spell Defense</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.isSpellDefense" {{checked item.system.isSpellDefense}} /> Spell Defense (Absorption/Reflect)</label>
+              </div>
+              {{#if item.system.isSpellDefense}}
+              <div class="spell-row">
+                <label class="spell-label">Type</label>
+                <select name="system.spellDefenseType" class="spell-input spell-input-med">
+                  {{selectOptions item.system.spellDefenseTypes selected=item.system.spellDefenseType}}
+                </select>
+              </div>
+              <p class="spell-hint">Grants 1-round defensive buff. Threshold determined by the <strong>Strength</strong> field (Casting Attributes section). When a spell targets this actor, roll 1d10 — if roll ≤ threshold, the spell is absorbed (no effect) or reflected (redirected to caster).</p>
+              {{/if}}
+            </section>
+
+            {{!-- ── Module: OverTime ───────────────────────────────────── --}}
+            <section class="spell-module-panel {{#if item.system.hasOverTime}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-redo"></i> OverTime</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.hasOverTime" {{checked item.system.hasOverTime}} /> OverTime</label>
+              </div>
+              {{#if item.system.hasOverTime}}
+
+              {{#each overTimeEntries as |ot idx|}}
+              <fieldset class="spell-fieldset" style="margin-top: 4px; position: relative;">
+                <legend>Entry {{inc idx}}
+                  {{#if @root.editable}}
+                  <button class="spell-btn-delete" type="button" data-action="remove-overtime-entry" data-index="{{idx}}" title="Remove Entry" style="margin-left: 6px; font-size: 0.75em;">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                  {{/if}}
+                </legend>
+                <div class="spell-row">
+                  <label class="spell-label">Trigger</label>
+                  <select name="system.overTimeEntries.{{idx}}.trigger" class="spell-input spell-input-med">
+                    <option value="turnStart" {{#if (eq ot.trigger "turnStart")}}selected{{/if}}>Turn Start</option>
+                    <option value="turnEnd" {{#if (eq ot.trigger "turnEnd")}}selected{{/if}}>Turn End</option>
+                    <option value="roundStart" {{#if (eq ot.trigger "roundStart")}}selected{{/if}}>Round Start</option>
+                    <option value="roundEnd" {{#if (eq ot.trigger "roundEnd")}}selected{{/if}}>Round End</option>
+                    <option value="worldTime" {{#if (eq ot.trigger "worldTime")}}selected{{/if}}>World Time</option>
+                  </select>
+                  <label class="spell-label spell-label-sm">Every</label>
+                  <input type="number" name="system.overTimeEntries.{{idx}}.cadenceEvery" value="{{ot.cadenceEvery}}" min="1" class="spell-input spell-input-xs" />
+                  <select name="system.overTimeEntries.{{idx}}.cadenceUnit" class="spell-input spell-input-sm">
+                    <option value="rounds" {{#if (eq ot.cadenceUnit "rounds")}}selected{{/if}}>Rounds</option>
+                    <option value="seconds" {{#if (eq ot.cadenceUnit "seconds")}}selected{{/if}}>Seconds</option>
+                  </select>
+                  <label class="spell-label spell-label-sm">Max</label>
+                  <input type="number" name="system.overTimeEntries.{{idx}}.maxTicks" value="{{ot.maxTicks}}" min="0" placeholder="∞" class="spell-input spell-input-xs" />
+                </div>
+                <div class="spell-row">
+                  <label class="spell-label">Payload</label>
+                  <select name="system.overTimeEntries.{{idx}}.payloadType" class="spell-input spell-input-med">
+                    <option value="damage" {{#if (eq ot.payloadType "damage")}}selected{{/if}}>Damage</option>
+                    <option value="heal" {{#if (or (eq ot.payloadType "heal") (eq ot.payloadType "healing"))}}selected{{/if}}>Heal</option>
+                    <option value="endEffect" {{#if (eq ot.payloadType "endEffect")}}selected{{/if}}>End Effect</option>
+                    <option value="saveThenApply" {{#if (eq ot.payloadType "saveThenApply")}}selected{{/if}}>Save Then Apply</option>
+                  </select>
+                  <label class="spell-label spell-label-sm">Formula</label>
+                  <input type="text" name="system.overTimeEntries.{{idx}}.formula" value="{{ot.formula}}" placeholder="1d6" class="spell-input spell-input-sm" />
+                  <label class="spell-label spell-label-sm">Dmg Type</label>
+                  <select name="system.overTimeEntries.{{idx}}.damageType" class="spell-input spell-input-sm">
+                    {{selectOptions @root.item.system.damageTypes selected=ot.damageType}}
+                  </select>
+                </div>
+
+                {{#if (eq ot.payloadType "saveThenApply")}}
+                <div class="spell-row">
+                  <label class="spell-label">Save</label>
+                  <select name="system.overTimeEntries.{{idx}}.saveKey" class="spell-input spell-input-sm">
+                    <option value="str" {{#if (eq ot.saveKey "str")}}selected{{/if}}>STR</option>
+                    <option value="end" {{#if (eq ot.saveKey "end")}}selected{{/if}}>END</option>
+                    <option value="agi" {{#if (eq ot.saveKey "agi")}}selected{{/if}}>AGI</option>
+                    <option value="int" {{#if (eq ot.saveKey "int")}}selected{{/if}}>INT</option>
+                    <option value="wp" {{#if (eq ot.saveKey "wp")}}selected{{/if}}>WP</option>
+                    <option value="prc" {{#if (eq ot.saveKey "prc")}}selected{{/if}}>PRC</option>
+                    <option value="prs" {{#if (eq ot.saveKey "prs")}}selected{{/if}}>PRS</option>
+                    <option value="lck" {{#if (eq ot.saveKey "lck")}}selected{{/if}}>LCK</option>
+                  </select>
+                  <label class="spell-label spell-label-sm">TN</label>
+                  <input type="number" name="system.overTimeEntries.{{idx}}.saveTN" value="{{ot.saveTN}}" min="0" class="spell-input spell-input-xs" />
+                  <label class="spell-label spell-label-sm">Pass</label>
+                  <select name="system.overTimeEntries.{{idx}}.saveSuccess" class="spell-input spell-input-sm">
+                    <option value="endEffect" {{#if (eq ot.saveSuccess "endEffect")}}selected{{/if}}>End Effect</option>
+                    <option value="halve" {{#if (eq ot.saveSuccess "halve")}}selected{{/if}}>Halve Dmg</option>
+                    <option value="negate" {{#if (eq ot.saveSuccess "negate")}}selected{{/if}}>Negate</option>
+                  </select>
+                  <label class="spell-label spell-label-sm">Fail</label>
+                  <select name="system.overTimeEntries.{{idx}}.saveFailure" class="spell-input spell-input-sm">
+                    <option value="damage" {{#if (eq ot.saveFailure "damage")}}selected{{/if}}>Damage</option>
+                    <option value="condition" {{#if (eq ot.saveFailure "condition")}}selected{{/if}}>Condition</option>
+                  </select>
+                </div>
+                {{/if}}
+
+                <div class="spell-row">
+                  <label class="spell-label">Label</label>
+                  <input type="text" name="system.overTimeEntries.{{idx}}.label" value="{{ot.label}}" placeholder="e.g. Burning, Poison" class="spell-input spell-input-fill" />
+                  <label class="spell-check"><input type="checkbox" name="system.overTimeEntries.{{idx}}.chatLog" {{checked ot.chatLog}} /> Chat Log</label>
+                </div>
+              </fieldset>
+              {{/each}}
+
+              {{#if @root.editable}}
+              <button type="button" data-action="add-overtime-entry" class="spell-btn-add" style="margin-top: 4px;">
+                <i class="fas fa-plus"></i> Add OverTime Entry
+              </button>
+              {{/if}}
+              {{/if}}
+            </section>
+
+            {{!-- ── Module: Summon ─────────────────────────────────────── --}}
+            <section class="spell-module-panel {{#if item.system.isSummonSpell}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-dragon"></i> Summon</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.isSummonSpell" {{checked item.system.isSummonSpell}} /> Summon</label>
+              </div>
+              {{#if item.system.isSummonSpell}}
+              <div class="spell-row">
+                <label class="spell-label">Actor UUID</label>
+                <input type="text" name="system.engine.summon.actorUuid" value="{{spellEngine.summon.actorUuid}}" placeholder="Compendium.uesrpg-3ev4.inhabitants-of-tamriel...." class="spell-input spell-input-fill" />
+              </div>
+              <div class="spell-row">
+                <label class="spell-label">Quantity</label>
+                <input type="number" name="system.engine.summon.quantity" value="{{spellEngine.summon.quantity}}" min="1" class="spell-input spell-input-xs" />
+              </div>
+              <p class="spell-hint">Leave blank to prompt at cast time.</p>
+              {{/if}}
+            </section>
+
+            </div>{{!-- /.spell-modules-grid --}}
+
+            {{!-- ── Effect Recipes (Experimental — hidden by default) ──── --}}
+            {{#if enableSpellRecipes}}
+            <section class="spell-module-panel">
+              <h4 class="spell-module-title">
+                <i class="fas fa-flask"></i> Effect Recipes
+                <span class="spell-hint" style="margin:0; font-weight:normal;">(Experimental)</span>
+                <button type="button" class="spell-btn-inline add-effect-recipe" data-action="add-effect-recipe" title="Add Effect Recipe" {{#unless @root.editable}}disabled{{/unless}}>
+                  <i class="fas fa-plus"></i> Add
+                </button>
+              </h4>
+
+              {{#if spellEngine.effects.recipes.length}}
+              <div class="spell-recipes-list">
+                {{#each spellEngine.effects.recipes as |recipe idx|}}
+                <div class="spell-recipe-row" data-recipe-index="{{idx}}">
+                  <select name="system.engine.effects.recipes.{{idx}}.key" class="spell-recipe-key" data-recipe-input="true">
+                    <option value="">— Key —</option>
+                    {{#each @root.modifierKeyOptions as |label key|}}
+                    <option value="{{key}}" {{#if (eq key ../recipe.key)}}selected{{/if}}>{{label}}</option>
+                    {{/each}}
+                  </select>
+                  <select name="system.engine.effects.recipes.{{idx}}.mode" class="spell-recipe-mode" data-recipe-input="true">
+                    {{selectOptions @root.effectRecipeModeOptions selected=recipe.mode}}
+                  </select>
+                  <input type="text" name="system.engine.effects.recipes.{{idx}}.value" value="{{recipe.value}}" placeholder="Val" class="spell-recipe-value" data-recipe-input="true" />
+                  <select name="system.engine.effects.recipes.{{idx}}.target" class="spell-recipe-target" data-recipe-input="true">
+                    <option value="target" {{#if (eq recipe.target "target")}}selected{{/if}}>Target</option>
+                    <option value="self" {{#if (eq recipe.target "self")}}selected{{/if}}>Self</option>
+                  </select>
+                  <input type="text" name="system.engine.effects.recipes.{{idx}}.label" value="{{recipe.label}}" placeholder="Label" class="spell-recipe-label" data-recipe-input="true" />
+                  <button type="button" class="spell-btn-delete remove-effect-recipe" data-action="remove-effect-recipe" data-recipe-index="{{idx}}" title="Remove" {{#unless @root.editable}}disabled{{/unless}}>
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+                {{/each}}
+              </div>
+              {{else}}
+              <p class="spell-empty">No recipes. Use "Add" button above.</p>
+              {{/if}}
+            </section>
+            {{/if}}
+
+          </div>
+        </details>
+
+      </div>
+    </div>
+
+    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
+    {{!--  TAB 3 — INFORMATION (validation, coverage, profile preview)      --}}
+    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
+    <div class="tab" data-group="primary" data-tab="information">
+      <div class="spell-casting-body">
+
+        {{!-- Validation --}}
+        <section class="spell-section">
+          <h4 class="spell-section-title">
+            Validation
+            <button type="button" class="spell-btn-inline spell-validate-btn" data-action="validate-spell">
+              <i class="fas fa-check-circle"></i> Validate
+            </button>
+          </h4>
+          <div class="spell-validation-output">
+            <p class="spell-hint">Click "Validate" to check configuration for errors and warnings.</p>
+          </div>
+        </section>
+
+        {{!-- Coverage Checklist --}}
+        <section class="spell-section">
+          <h4 class="spell-section-title">Automation Coverage</h4>
+          <div class="spell-coverage-list">
+            {{#each coverageReport as |entry|}}
+            <div class="spell-coverage-item">
+              {{#if entry.configured}}
+              <i class="fas fa-check-circle spell-coverage-yes"></i>
+              {{else}}
+              <i class="fas fa-minus-circle spell-coverage-no"></i>
+              {{/if}}
+              <span class="spell-coverage-name">{{entry.capability}}</span>
+              <span class="spell-coverage-detail">{{entry.details}}</span>
+            </div>
+            {{/each}}
+          </div>
+        </section>
+
+        {{!-- Resolved Profile Preview --}}
+        <section class="spell-section">
+          <h4 class="spell-section-title">
+            Resolved Profile
+            <button type="button" class="spell-btn-inline spell-preview-btn" data-action="preview-profile">
+              <i class="fas fa-eye"></i> Preview
+            </button>
+          </h4>
+          <div class="spell-profile-preview">
+            <span class="spell-hint">Click "Preview" to see the resolved spell profile (requires an owning actor).</span>
           </div>
         </section>
       </div>
     </div>
 
-    {{!-- Effects Tab --}}
-    <div class="tab effects" data-group="primary" data-tab="effects">
-      <header class="effects-header flexrow">
-        <h3>Active Effects</h3>
-        <a class="effect-control" data-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
-      </header>
-      <ol class="effects-list">
-        {{#each effects as |effect id|}}
-        <li class="effect flexrow" data-effect-id="{{effect._id}}">
-          <img class="effect-icon" src="{{effect.img}}" title="{{effect.name}}" alt="{{effect.name}}"/>
-          <h4 class="effect-name">{{effect.name}}</h4>
-          <div class="effect-controls">
-            <a class="effect-control" data-action="edit" data-effect-id="{{effect._id}}" title="Edit Effect"><i class="fas fa-edit"></i></a>
-            <a class="effect-control" data-action="delete" data-effect-id="{{effect._id}}" title="Delete Effect"><i class="fas fa-trash"></i></a>
-            <a class="effect-control" data-action="toggle" data-effect-id="{{effect._id}}" title="{{#if effect.disabled}}Enable{{else}}Disable{{/if}} Effect">
-              <i class="fas {{#if effect.disabled}}fa-check{{else}}fa-times{{/if}}"></i>
-            </a>
-          </div>
-        </li>
-        {{/each}}
-      </ol>
-    </div>
   </section>
 </form>

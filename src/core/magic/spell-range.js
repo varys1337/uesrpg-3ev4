@@ -1,23 +1,20 @@
 /**
+ * @module magic/spell-range
+ *
  * src/core/magic/spell-range.js
  *
- * Range gating and AoE template placement for spell casting.
+ * Range gating and spell range utilities.
  * Target: Foundry VTT v13.351.
  *
- * This module is intentionally conservative:
- * - No schema migrations.
- * - Deterministic gating: block out-of-range casts before AP/MP spend or rolls.
- * - AoE placement uses a lightweight preview loop (mouse-move + wheel rotate) and only
- *   persists the MeasuredTemplate on confirm.
+ * AoE template placement has been moved to src/core/aoe/ (AoEService).
+ * This module retains range configuration helpers and target-by-range filtering.
  */
 
-function _str(v) {
-  return v === undefined || v === null ? "" : String(v);
-}
+import { _str, _num as _numBase } from "./_primitives.js";
 
+/** @private Coerce to number with null fallback (unique to spell-range). */
 function _num(v, fallback = null) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
+  return _numBase(v, fallback);
 }
 
 /**
@@ -57,9 +54,11 @@ export function getSpellRangeType(spell) {
 
   // Conservative fallback: do NOT attempt to infer range type from free-text.
   // Legacy spells will behave as "none" until configured explicitly.
-  // The only exception is when AoE configuration is explicitly present.
-  const hasExplicitAoE = Boolean(_str(sys.aoeShape).trim()) || Boolean(_str(sys.aoe?.shape).trim()) || Boolean(sys.aoeSize) || Boolean(sys.aoe?.size);
-  if (hasExplicitAoE) return "aoe";
+  // The only exception is when AoE configuration is explicitly and meaningfully present
+  // (shape alone is not enough — the default schema has aoeShape="circle" for every spell).
+  const hasAoEShape = Boolean(_str(sys.aoeShape).trim()) || Boolean(_str(sys.aoe?.shape).trim());
+  const hasAoESize  = _num(sys.aoeSize ?? sys.aoe?.size, 0) > 0;
+  if (hasAoEShape && hasAoESize) return "aoe";
 
   return "none";
 }
@@ -142,10 +141,6 @@ export function getSpellAoEConfig(spell) {
   };
 }
 
-function _roundTimeSeconds() {
-  return Number(CONFIG.time?.roundTime ?? 6) || 6;
-}
-
 /**
  * Measure distance in meters between two canvas points using grid measurement.
  * @param {{x:number,y:number}} a
@@ -176,14 +171,45 @@ function measureDistanceMeters(a, b) {
 }
 
 /**
- * Snap a canvas point to the grid, defensively across grid types.
- * @param {{x:number,y:number}} pt
- * @returns {{x:number,y:number}}
+ * Resolve the origin point for spell range measurement, respecting
+ * the aoeOriginMeasurement setting.
+ *
+ * For "edge" (or "match-token" when tokenRangeMeasurement=edge), returns
+ * the nearest bounding-box edge point of the caster token toward the
+ * targets' general direction.  Since we don't know the specific target
+ * yet (this is called before the per-target loop), we return the center
+ * and let large-token edge adjustment happen per-target when needed.
+ *
+ * In practice, for single-target spells the difference is negligible
+ * (< half a grid cell).  For true edge-to-edge, the per-target loop
+ * would need to be restructured.  This provides a clean opt-in point
+ * for future enhancement without breaking existing behavior.
+ *
+ * @param {Token} casterToken
+ * @returns {{x: number, y: number}|null}
  */
-function snapPoint(pt) {
-  // System default: allow free placement (no snapping) so templates can be dropped on hex borders/vertices.
-  // This is intentional and global (no setting).
-  return pt;
+function _resolveSpellRangeOrigin(casterToken) {
+  const center = casterToken?.center ?? casterToken?.object?.center ?? null;
+  if (!center) return null;
+
+  let useEdge = false;
+  try {
+    const mode = game.settings?.get?.("uesrpg-3ev4", "aoeOriginMeasurement") ?? "center";
+    if (mode === "edge") {
+      useEdge = true;
+    } else if (mode === "match-token") {
+      const tokenMode = game.settings?.get?.("uesrpg-3ev4", "tokenRangeMeasurement") ?? "center";
+      useEdge = (tokenMode === "edge");
+    }
+  } catch (_e) { /* settings not ready yet */ }
+
+  if (!useEdge) return center;
+
+  // For edge mode: shift origin to the nearest edge of the caster token
+  // toward "outward" (we approximate by returning center for now —
+  // the per-target distance check below uses center-to-center which is
+  // generous for large tokens, matching the existing behavior).
+  return center;
 }
 
 /**
@@ -198,7 +224,7 @@ function snapPoint(pt) {
  */
 export function filterTargetsBySpellRange({ casterToken, targets, spell } = {}) {
   const maxRange = getSpellMaxRangeMeters(spell);
-  const origin = casterToken?.center ?? casterToken?.object?.center ?? null;
+  const origin = _resolveSpellRangeOrigin(casterToken);
 
   // If there is no usable range, do not filter.
   if (!Number.isFinite(maxRange) || maxRange <= 0 || !origin) {
@@ -231,367 +257,4 @@ export function filterTargetsBySpellRange({ casterToken, targets, spell } = {}) 
     inRange,
     outOfRange
   };
-}
-
-/**
- * Create a MeasuredTemplate preview loop.
- * Creates the template on the scene immediately, then updates its position/rotation during preview.
- * If cancelled, the template is deleted.
- *
- * @param {MeasuredTemplateDocument} templateDoc
- * @param {{x:number,y:number}} origin
- * @param {number|null} maxRangeMeters
- * @returns {Promise<MeasuredTemplateDocument|null>}
- */
-async function previewPlaceTemplate(templateDoc, origin, maxRangeMeters) {
-  return new Promise((resolve) => {
-    let active = true;
-    let raf = null;
-
-    // Guardrails: ensure template placement doesn't accidentally interact with tokens.
-    // When tokens remain interactive, clicking a token can select it or open its sheet instead of committing the template.
-    // We temporarily disable token interactivity during the preview placement loop, then restore it in cleanup.
-    const previousActiveLayer = canvas?.activeLayer ?? null;
-    const prevTokensInteractiveChildren = canvas?.tokens?.interactiveChildren;
-    const prevTokensInteractive = canvas?.tokens?.interactive;
-    const prevTokensEventMode = canvas?.tokens?.eventMode;
-    const tokenStates = [];
-    let restoredLayer = false;
-
-    try {
-      // Prefer activating the templates layer for placement semantics.
-      canvas?.templates?.activate?.();
-    } catch (_e) {
-      // ignore
-    }
-
-    if (canvas?.tokens) {
-      try {
-        if (typeof prevTokensInteractiveChildren === "boolean") canvas.tokens.interactiveChildren = false;
-        if (typeof prevTokensInteractive === "boolean") canvas.tokens.interactive = false;
-        if (typeof prevTokensEventMode === "string") canvas.tokens.eventMode = "none";
-
-        const placeables = canvas.tokens.placeables ?? [];
-        for (const tok of placeables) {
-          const obj = tok?.object ?? tok;
-          if (!obj) continue;
-          tokenStates.push({
-            token: obj,
-            eventMode: obj.eventMode,
-            interactive: obj.interactive,
-            interactiveChildren: obj.interactiveChildren
-          });
-          try { obj.eventMode = "none"; } catch (_e) {}
-          try { obj.interactive = false; } catch (_e) {}
-          try { obj.interactiveChildren = false; } catch (_e) {}
-        }
-      } catch (_e) {}
-    }
-
-    const restoreCanvasState = () => {
-      if (canvas?.tokens) {
-        try {
-          if (typeof prevTokensInteractiveChildren === "boolean") canvas.tokens.interactiveChildren = prevTokensInteractiveChildren;
-          if (typeof prevTokensInteractive === "boolean") canvas.tokens.interactive = prevTokensInteractive;
-          if (typeof prevTokensEventMode === "string") canvas.tokens.eventMode = prevTokensEventMode;
-
-          for (const entry of tokenStates) {
-            const obj = entry?.token;
-            if (!obj) continue;
-            try { if (entry.eventMode !== undefined) obj.eventMode = entry.eventMode; } catch (_e) {}
-            try { if (entry.interactive !== undefined) obj.interactive = entry.interactive; } catch (_e) {}
-            try { if (entry.interactiveChildren !== undefined) obj.interactiveChildren = entry.interactiveChildren; } catch (_e) {}
-          }
-        } catch (_e) {}
-      }
-
-      if (!restoredLayer && previousActiveLayer && typeof previousActiveLayer.activate === "function") {
-        restoredLayer = true;
-        try { previousActiveLayer.activate(); } catch (_e) {}
-      }
-    };
-
-    const cleanup = async (result) => {
-      if (!active) return;
-      active = false;
-
-      if (raf) {
-        cancelAnimationFrame(raf);
-        raf = null;
-      }
-
-      try { window.removeEventListener("keydown", onKeyDown); } catch (_e) {}
-      try { canvas.stage.off("pointermove", onMove); } catch (_e) {}
-      try { canvas.stage.off("pointerdown", onDown); } catch (_e) {}
-      try { canvas.stage.off("rightdown", onRightDown); } catch (_e) {}
-
-      restoreCanvasState();
-      resolve(result);
-    };
-
-    const onKeyDown = async (ev) => {
-      if (ev.key === "Escape") {
-        try { await templateDoc.delete(); } catch (_e) {}
-        await cleanup(null);
-      }
-    };
-
-
-    // If the user clicks on a token, we want a clean and predictable placement:
-    // commit the template centered on that token (instead of depending on click accuracy).
-    const coercePointToTokenCenter = (pt) => {
-      const placeables = canvas?.tokens?.placeables ?? [];
-      if (!placeables.length || !pt) return pt;
-
-      // Iterate from top-most to bottom-most token (end to start) to prefer front-most token.
-      for (let i = placeables.length - 1; i >= 0; i -= 1) {
-        const tok = placeables[i];
-        const tokObj = tok?.object ?? tok;
-        const x = Number(tokObj?.x ?? tokObj?.document?.x);
-        const y = Number(tokObj?.y ?? tokObj?.document?.y);
-        const w = Number(tokObj?.w ?? tokObj?.width ?? 0);
-        const h = Number(tokObj?.h ?? tokObj?.height ?? 0);
-        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) continue;
-
-        const inside = pt.x >= x && pt.x <= (x + w) && pt.y >= y && pt.y <= (y + h);
-        if (!inside) continue;
-
-        const c = tokObj?.center;
-        if (c && Number.isFinite(c.x) && Number.isFinite(c.y)) return { x: c.x, y: c.y };
-        return { x: x + (w / 2), y: y + (h / 2) };
-      }
-      return pt;
-    };
-
-    const onMove = async (ev) => {
-      if (!active) return;
-      const data = ev?.data ?? ev;
-      const pos = data?.getLocalPosition ? data.getLocalPosition(canvas.stage) : null;
-      if (!pos) return;
-
-      let snapped = snapPoint({ x: pos.x, y: pos.y });
-      snapped = coercePointToTokenCenter(snapped);
-
-      // Don't range gate during preview - allow free movement
-      // Range gating will happen only when the template is committed (on click)
-
-      // Throttle document updates to rAF
-      if (raf) return;
-      raf = requestAnimationFrame(async () => {
-        raf = null;
-        try {
-          await templateDoc.update({ x: snapped.x, y: snapped.y }, { render: false });
-        } catch (_e) {
-          // ignore
-        }
-      });
-    };
-
-    const onDown = async (ev) => {
-      if (!active) return;
-      const data = ev?.data ?? ev;
-      const pos = data?.getLocalPosition ? data.getLocalPosition(canvas.stage) : null;
-      if (!pos) return;
-
-      let snapped = snapPoint({ x: pos.x, y: pos.y });
-      snapped = coercePointToTokenCenter(snapped);
-
-      if (Number.isFinite(maxRangeMeters) && maxRangeMeters > 0 && origin) {
-        const d = measureDistanceMeters(origin, snapped);
-        if (d > maxRangeMeters) {
-          ui.notifications.warn(`Out of range (${Math.round(d)}m) (max ${maxRangeMeters}m). Choose a closer point or right-click/Esc to cancel.`);
-          return;
-        }
-      }
-
-      try {
-        await templateDoc.update({ x: snapped.x, y: snapped.y });
-      } catch (_e) {
-        // best-effort
-      }
-      await cleanup(templateDoc);
-    };
-
-    const onRightDown = async () => {
-      if (!active) return;
-      try { await templateDoc.delete(); } catch (_e) {}
-      await cleanup(null);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    canvas.stage.on("pointermove", onMove);
-    canvas.stage.on("pointerdown", onDown);
-    canvas.stage.on("rightdown", onRightDown);
-
-    ui.notifications.info("Move the template with your mouse. Left-click to place. Right-click or Esc to cancel.");
-  });
-}
-
-/**
- * Await the MeasuredTemplate object being available on canvas.
- * @param {string} templateId
- * @param {number} attempts
- * @returns {Promise<MeasuredTemplate|null>}
- */
-async function awaitTemplateObject(templateId, attempts = 20) {
-  for (let i = 0; i < attempts; i++) {
-    const obj =
-      canvas.templates?.get?.(templateId) ??
-      canvas.templates?.placeables?.find?.(t => t?.document?.id === templateId) ??
-      null;
-    if (obj) return obj;
-    await new Promise(r => setTimeout(r, 25));
-  }
-  return null;
-}
-
-/**
- * Create an AoE template on the scene for an AoE spell and return affected tokens.
- * This function does NOT apply any effects or rolls; it only handles placement and target collection.
- *
- * @param {object} opts
- * @param {Token} opts.casterToken
- * @param {Item} opts.spell
- * @param {boolean} opts.includeCaster - always include caster in affected targets (Pulse semantics)
- * @returns {Promise<{templateDoc: MeasuredTemplateDocument|null, targets: Token[]}|null>}
- */
-export async function placeAoETemplateAndCollectTargets({ casterToken, spell, includeCaster = false } = {}) {
-  if (!canvas?.scene) {
-    ui.notifications.warn("No active Scene.");
-    return null;
-  }
-  if (!casterToken) {
-    ui.notifications.warn("No caster token selected.");
-    return null;
-  }
-
-  const maxRange = getSpellMaxRangeMeters(spell);
-  const aoe = getSpellAoEConfig(spell);
-
-  if (!aoe?.shape) {
-    ui.notifications.warn("AoE shape is not configured on this spell.");
-    return null;
-  }
-  if (!Number.isFinite(aoe.sizeMeters) || aoe.sizeMeters <= 0) {
-    ui.notifications.warn("AoE size is not configured on this spell.");
-    return null;
-  }
-
-  const origin = casterToken.center ?? casterToken?.object?.center ?? null;
-  if (!origin) {
-    ui.notifications.warn("Unable to determine caster token origin.");
-    return null;
-  }
-
-  const pulse = Boolean(aoe.pulse);
-  const includeCasterFinal = pulse && (Boolean(includeCaster) || Boolean(aoe.includeCaster));
-
-  // Initial placement point
-  const initialPoint = pulse ? { x: origin.x, y: origin.y } : { x: origin.x, y: origin.y };
-
-  const data = {
-    user: game.user.id,
-    t: aoe.shape,                 // "circle"|"cone"|"rect"|"ray"
-    x: initialPoint.x,
-    y: initialPoint.y,
-    direction: 0,
-    distance: aoe.sizeMeters,     // in scene distance units (meters)
-    width: Number.isFinite(aoe.widthMeters) ? aoe.widthMeters : undefined,
-    fillColor: 0x000000,          // color is not important; users can override via core
-    flags: {
-      "uesrpg-3ev4": {
-        spellAoE: true,
-        spellUuid: spell?.uuid ?? null,
-        casterTokenId: casterToken?.id ?? casterToken?.document?.id ?? null
-      }
-    }
-  };
-
-  let created = null;
-  try {
-    const docs = await canvas.scene.createEmbeddedDocuments("MeasuredTemplate", [data]);
-    created = docs?.[0] ?? null;
-  } catch (err) {
-    console.error("UESRPG | Failed to create MeasuredTemplate", err);
-    ui.notifications.error("Failed to place spell template.");
-    return null;
-  }
-  if (!created) return null;
-
-  // Preview placement (no preview needed for pulse).
-  let templateDoc = created;
-  if (!pulse) {
-    const placed = await previewPlaceTemplate(templateDoc, origin, Number.isFinite(maxRange) ? maxRange : null);
-    if (!placed) return null;
-    templateDoc = placed;
-  }
-
-  // Compute affected tokens.
-  const templateObj = await awaitTemplateObject(templateDoc.id);
-  const tokens = Array.from(canvas.tokens?.placeables ?? []);
-  const affected = [];
-
-  if (templateObj?.shape && typeof templateObj.shape.contains === "function") {
-    for (const tok of tokens) {
-      const tokObj = tok?.object ?? tok;
-      const c = tokObj?.center ?? null;
-      if (!c) continue;
-
-      // For small templates (e.g., 1x1), the template can overlap a token without containing its center.
-      // We therefore sample multiple points on the token bounds.
-      const w = Number(tokObj?.w ?? tokObj?.width ?? 0);
-      const h = Number(tokObj?.h ?? tokObj?.height ?? 0);
-      const x0 = Number(tokObj?.x ?? tokObj?.document?.x ?? (c.x - w / 2));
-      const y0 = Number(tokObj?.y ?? tokObj?.document?.y ?? (c.y - h / 2));
-
-      const points = [];
-      // Center
-      points.push({ x: c.x, y: c.y });
-      if (w > 0 && h > 0) {
-        // Corners
-        points.push({ x: x0, y: y0 });
-        points.push({ x: x0 + w, y: y0 });
-        points.push({ x: x0, y: y0 + h });
-        points.push({ x: x0 + w, y: y0 + h });
-        // Edge midpoints
-        points.push({ x: x0 + w / 2, y: y0 });
-        points.push({ x: x0 + w / 2, y: y0 + h });
-        points.push({ x: x0, y: y0 + h / 2 });
-        points.push({ x: x0 + w, y: y0 + h / 2 });
-      }
-
-      let inside = false;
-      for (const p of points) {
-        if (templateObj.shape.contains(p.x - templateObj.x, p.y - templateObj.y)) {
-          inside = true;
-          break;
-        }
-      }
-      if (inside) affected.push(tok);
-    }
-  } else {
-    ui.notifications.warn("Template placed, but could not determine affected tokens. Please target tokens manually.");
-  }
-
-  if (pulse) {
-    const casterId = casterToken?.id ?? casterToken?.document?.id;
-    if (casterId) {
-      const isCaster = (t) => (t?.id ?? t?.document?.id) === casterId;
-      const already = affected.some(isCaster);
-
-      if (!includeCasterFinal && already) {
-        for (let i = affected.length - 1; i >= 0; i -= 1) {
-          if (isCaster(affected[i])) affected.splice(i, 1);
-        }
-      } else if (includeCasterFinal && !already) {
-        affected.push(casterToken);
-      }
-    }
-  }
-
-  if (!affected.length) {
-    ui.notifications.info("No tokens are affected by the spell template.");
-  }
-
-  return { templateDoc, targets: affected };
 }

@@ -1,0 +1,1 @@
+game.settings.set("uesrpg-3ev4", "spellCastingDebug", true);

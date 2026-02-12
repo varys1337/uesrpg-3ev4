@@ -33,8 +33,9 @@ export function getAttackContext(item, actor = null) {
   );
 
   /** @type {"melee"|"ranged"} */
-  const attackMode = (isWeapon && (sys.attackMode === "ranged" || sys.attackMode === "melee"))
-    ? sys.attackMode
+  const rawMode = String(sys.attackMode ?? "").toLowerCase();
+  const attackMode = (isWeapon && (rawMode === "ranged" || rawMode === "melee"))
+    ? rawMode
     : "melee";
 
   // Minimal RAW gating (can be expanded later once Chapter 7 qualities/materials are modeled).

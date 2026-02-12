@@ -11,14 +11,14 @@ function renderRaceCard(race) {
     const traits = renderTraits(race.traits);
     const baselineCells = renderBaselineCells(race.baseline);
     return `
-        <div style="display: flex; flex-direction: row; align-items: center; border: solid 1px; padding: 0 5px; width: 49%;">
+        <div class="uesrpg-race-card" style="display: flex; flex-direction: row; align-items: center; border: solid 2px transparent; padding: 0 5px; width: 49%;">
+            <input type="radio" class="raceSelect" id="${race.name}" name="raceRadio" value="${race.name}" style="display: none;">
             <div style="width: 100%; height: 100%;">
                 <div style="text-align: center; position: relative; top: 0;">
-                    <input type="checkbox" class="raceSelect" id="${race.name}" style="position: relative; left: 0; top: 0;">
                     ${race.img ? `<img src="${race.img}" alt="${race.name}" height="150" width="100" style="border: none;">` : ''}
                 </div>
                 <div style="position: relative; top: 0;">
-                    <h2 style="text-align: center;">${race.name}</h2>
+                    <label for="${race.name}" style="display: block; text-align: center; cursor: pointer; padding: 4px 8px; margin: 4px 0; border: 1px solid rgba(120,120,120,0.5); border-radius: 4px; background: rgba(80,80,80,0.3); font-size: 16px; font-weight: bold;">${race.name}</label>
                     <table style="text-align: center;">
                         <thead>
                             <tr>

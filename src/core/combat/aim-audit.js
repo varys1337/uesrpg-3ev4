@@ -9,13 +9,11 @@
  *
  * Foundry VTT v13 compatible.
  */
+import { isDebugEnabled } from "../../utils/debug.js";
+
 export const AimAudit = {
   _enabled() {
-    try {
-      return Boolean(game?.settings?.get?.("uesrpg-3ev4", "debugAim"));
-    } catch (_e) {
-      return false;
-    }
+    return isDebugEnabled("debugAim");
   },
 
   applyStack(actor, { stacks = 0, itemUuid = null } = {}) {

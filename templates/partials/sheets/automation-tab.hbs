@@ -1,0 +1,191 @@
+{{!-- Automation tab for trait/talent/power rule elements and feature config --}}
+
+<div class="automation-tab-container">
+
+  <fieldset class="re-section re-section--global">
+    <legend><i class="fas fa-gear"></i> Global Settings</legend>
+    <div class="re-global-grid">
+      <label class="re-inline-field" title="When unchecked, advanced automation (rule elements, confirm dialogs, etc.) is disabled. Basic activation (chat card, effect transfer) always works.">
+        <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.featureConfig.enabled" {{checked featureConfig.enabled}} />
+        <span>Enable Automation</span>
+      </label>
+      <div class="re-inline-field">
+        <span>Apply</span>
+        <select name="flags.uesrpg-3ev4.featureConfig.applyMode" data-type="String">
+          {{selectOptions featureOptions.applyModeOptions selected=featureConfig.applyMode localize=false}}
+        </select>
+      </div>
+      <div class="re-inline-field">
+        <span>Prompt</span>
+        <select name="flags.uesrpg-3ev4.featureConfig.promptMode" data-type="String">
+          {{selectOptions featureOptions.promptModeOptions selected=featureConfig.promptMode localize=false}}
+        </select>
+      </div>
+      <label class="re-inline-field">
+        <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.featureConfig.combatOnly" {{checked featureConfig.combatOnly}} />
+        <span>Combat Only</span>
+      </label>
+      <label class="re-inline-field">
+        <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.featureConfig.outOfCombatAllowed" {{checked featureConfig.outOfCombatAllowed}} />
+        <span>Out of Combat</span>
+      </label>
+      {{#if featureCapabilities.showTargeting}}
+      <div class="re-inline-field">
+        <span>Targeting</span>
+        <select name="flags.uesrpg-3ev4.featureConfig.targetPolicy" data-type="String">
+          {{selectOptions featureOptions.targetPolicyOptions selected=featureConfig.targetPolicy localize=false}}
+        </select>
+      </div>
+      {{/if}}
+      {{#if featureCapabilities.showVisibility}}
+      <div class="re-inline-field">
+        <span>Visibility</span>
+        <select name="flags.uesrpg-3ev4.featureConfig.visibility" data-type="String">
+          {{selectOptions featureOptions.visibilityOptions selected=featureConfig.visibility localize=false}}
+        </select>
+      </div>
+      {{/if}}
+    </div>
+  </fieldset>
+
+  {{#if featureCapabilities.showStacking}}
+  <fieldset class="re-section re-section--extra">
+    <legend><i class="fas fa-layer-group"></i> Stacking Override</legend>
+    <div class="re-global-grid">
+      <div class="re-inline-field">
+        <span>Rule</span>
+        <select name="flags.uesrpg-3ev4.featureConfig.stackingOverride" data-type="String">
+          {{selectOptions featureOptions.stackingOverrideOptions selected=featureConfig.stackingOverride localize=false}}
+        </select>
+      </div>
+    </div>
+  </fieldset>
+  {{/if}}
+
+  <fieldset class="re-section re-section--runtime">
+    <legend><i class="fas fa-wave-square"></i> Runtime Status</legend>
+    <div class="re-status-legend">
+      <span class="re-status-badge re-status-active">{{lookup ruleElementStatusLabels "active"}}</span>
+      <span class="re-status-badge re-status-planned">{{lookup ruleElementStatusLabels "planned"}}</span>
+      <span class="re-status-badge re-status-informational">{{lookup ruleElementStatusLabels "informational"}}</span>
+      <span class="re-status-badge re-status-disabled">{{lookup ruleElementStatusLabels "disabledBySetting"}}</span>
+      <span class="re-status-badge re-status-unsupported">{{lookup ruleElementStatusLabels "unsupportedInWorkflow"}}</span>
+    </div>
+  </fieldset>
+
+  <fieldset class="re-section re-section--rules">
+    <legend><i class="fas fa-list-check"></i> Rule Elements</legend>
+
+    {{#if ruleElements.length}}
+    <ol class="re-list">
+      {{#each ruleElements}}
+      <li class="re-item {{#unless this.enabled}}re-item--disabled{{/unless}}" data-re-id="{{this.id}}">
+        <div class="re-item-header">
+          <div class="re-item-grip" title="Drag to reorder">
+            <i class="fas fa-grip-vertical"></i>
+          </div>
+          <div class="re-item-icon">
+            <i class="fas {{lookup ../ruleElementIcons this.type}}"></i>
+          </div>
+          <div class="re-item-type-badge">{{lookup ../ruleElementLabels this.type}}</div>
+          <span class="re-status-badge re-status-{{this.runtimeStatus}}">{{lookup ../ruleElementStatusLabels this.runtimeStatus}}</span>
+          <input class="re-item-label" type="text" value="{{this.label}}" data-re-field="label" placeholder="Label" />
+          <label class="re-item-toggle" title="Enable / Disable">
+            <input type="checkbox" data-re-field="enabled" {{checked this.enabled}} />
+            <i class="fas {{#if this.enabled}}fa-eye{{else}}fa-eye-slash{{/if}}"></i>
+          </label>
+          <button type="button" class="re-item-expand" title="Expand / Collapse"><i class="fas fa-chevron-down"></i></button>
+          <button type="button" class="re-item-delete" title="Delete Rule Element"><i class="fas fa-trash"></i></button>
+        </div>
+
+        <div class="re-item-body" style="display:none;">
+          <div class="re-item-description">{{lookup ../ruleElementDescriptions this.type}}</div>
+          {{#if this.runtimeReason}}
+          <div class="re-runtime-reason">{{this.runtimeReason}}</div>
+          {{/if}}
+
+          <div class="re-workflow-scope">
+            <span class="re-workflow-label">Workflows</span>
+            <label><input class="re-workflow-toggle" data-workflow="skill" type="checkbox" {{checked (includes this.workflows "skill")}} /> Skill</label>
+            <label><input class="re-workflow-toggle" data-workflow="characteristic" type="checkbox" {{checked (includes this.workflows "characteristic")}} /> Characteristic</label>
+            <label><input class="re-workflow-toggle" data-workflow="combat" type="checkbox" {{checked (includes this.workflows "combat")}} /> Combat</label>
+            <label><input class="re-workflow-toggle" data-workflow="magic" type="checkbox" {{checked (includes this.workflows "magic")}} /> Magic</label>
+            {{#if (includes this.workflows "all")}}<span class="re-workflow-all">All</span>{{/if}}
+          </div>
+
+          <div class="re-fields" data-re-type="{{this.type}}"></div>
+
+          <div class="re-predicate-wrap">
+            <label class="re-predicate-label">Predicate</label>
+            <textarea class="re-predicate-input" rows="2" placeholder="Roll option or JSON predicate">{{json this.predicate}}</textarea>
+          </div>
+
+          {{#if this.validation.errors.length}}
+          <ul class="re-validation re-validation--error">
+            {{#each this.validation.errors}}<li>{{this}}</li>{{/each}}
+          </ul>
+          {{/if}}
+          {{#if this.validation.warnings.length}}
+          <ul class="re-validation re-validation--warning">
+            {{#each this.validation.warnings}}<li>{{this}}</li>{{/each}}
+          </ul>
+          {{/if}}
+
+          {{#if this.conditions.length}}
+          <div class="re-conditions">
+            <div class="re-conditions-header"><i class="fas fa-filter"></i> Conditions (all must be true)</div>
+            <div class="re-conditions-list">
+              {{#each this.conditions}}
+              <div class="re-condition" data-cond-idx="{{@index}}">
+                <span class="re-condition-label">{{lookup ../../conditionLabels this.type}}</span>
+                <button type="button" class="re-condition-delete" title="Remove Condition"><i class="fas fa-xmark"></i></button>
+              </div>
+              <div class="re-condition-fields" data-cond-idx="{{@index}}"></div>
+              {{/each}}
+            </div>
+          </div>
+          {{/if}}
+
+          <div class="re-item-actions">
+            <button type="button" class="re-add-condition" data-re-id="{{this.id}}"><i class="fas fa-filter"></i> Add Condition</button>
+          </div>
+        </div>
+      </li>
+      {{/each}}
+    </ol>
+    {{else}}
+    <div class="re-empty">
+      <i class="fas fa-puzzle-piece"></i>
+      <p>No rule elements configured.</p>
+      <p class="re-empty-hint">Add rule elements to define automation and runtime behavior.</p>
+    </div>
+    {{/if}}
+
+    <div class="re-add-bar">
+      <select class="re-add-type">
+        <option value="">— Add Rule Element —</option>
+        {{#each ruleElementTypesByFamily}}
+        <optgroup label="{{@key}}">
+          {{#each this}}
+          <option value="{{this.key}}">{{this.label}}</option>
+          {{/each}}
+        </optgroup>
+        {{/each}}
+      </select>
+      <button type="button" class="re-add-btn"><i class="fas fa-plus"></i> Add</button>
+    </div>
+  </fieldset>
+
+  {{#if isGM}}
+  <fieldset class="re-section re-section--debug">
+    <legend><i class="fas fa-bug"></i> Debug</legend>
+    <div class="re-global-grid">
+      <label class="re-inline-field">
+        <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.featureConfig.debug.showInInspector" {{checked featureConfig.debug.showInInspector}} />
+        <span>Show in Inspector</span>
+      </label>
+    </div>
+  </fieldset>
+  {{/if}}
+
+</div>

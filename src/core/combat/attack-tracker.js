@@ -2,11 +2,14 @@
  * src/core/combat/attack-tracker.js
  *
  * Track attacks made per round/turn for the UESRPG 3ev4 system.
- * According to RAW: "A character may make no more than two total attacks in a single round"
+ * According to RAW baseline: "A character may make no more than two total attacks in a single round"
  */
 
 import { hasTalent } from "../traits/talents-api.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "./combat-utils.js";
+
+const ATTACK_OVERRIDE_MAX_PATH = "flags.uesrpg.combat.attackTrackerOverrides.max";
+const ATTACK_OVERRIDE_CURRENT_PATH = "flags.uesrpg.combat.attackTrackerOverrides.current";
 
 export class AttackTracker {
   static _getCombatRound() {
@@ -50,6 +53,24 @@ export class AttackTracker {
     return [String(weapons[0].id), String(weapons[1].id)];
   }
 
+  static _readOverride(actor, path) {
+    if (!actor) return null;
+    try {
+      const v = foundry.utils.getProperty(actor, path);
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  static getOverrides(actor) {
+    return {
+      current: this._readOverride(actor, ATTACK_OVERRIDE_CURRENT_PATH),
+      max: this._readOverride(actor, ATTACK_OVERRIDE_MAX_PATH)
+    };
+  }
+
   /**
    * Increment attack count for the current round/turn
    * @param {Actor} actor - The actor making the attack
@@ -60,6 +81,13 @@ export class AttackTracker {
 
     const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
     
+    // RAW (Invisibility): Attacking breaks invisibility. Fire and forget (non-blocking).
+    if (game.user?.isGM && Boolean(actor.system?.traits?.condition?.invisible)) {
+      import("../magic/services/condition-triggers.js").then(({ breakInvisibility }) => {
+        breakInvisibility(actor, "attack").catch(_e => {});
+      }).catch(_e => {});
+    }
+
     // Ensure combat_tracking exists with safe defaults
     const tracking = this._getTracking(actor);
     
@@ -72,13 +100,19 @@ export class AttackTracker {
       attacks = 0;
     }
     
-    attacks += 1;
-    
-    await requestUpdateDocument(actor, {
+    const nextCount = attacks + 1;
+    const overrides = this.getOverrides(actor);
+    const updates = {
       "system.combat_tracking.attacks_this_round": attacks,
       "system.combat_tracking.last_reset_round": currentRound,
       "system.combat_tracking.last_reset_turn": currentTurn
-    });
+    };
+    updates["system.combat_tracking.attacks_this_round"] = nextCount;
+    if (overrides.current != null) {
+      updates[ATTACK_OVERRIDE_CURRENT_PATH] = nextCount;
+    }
+
+    await requestUpdateDocument(actor, updates);
   }
 
   /**
@@ -141,7 +175,11 @@ export class AttackTracker {
    */
   static getAttackCount(actor) {
     if (!actor) return 0;
-    
+    const overrides = this.getOverrides(actor);
+    if (overrides.current != null) {
+      return Math.max(0, Math.floor(overrides.current));
+    }
+
     const tracking = actor.system?.combat_tracking;
     if (!tracking) return 0;
     
@@ -185,26 +223,26 @@ export class AttackTracker {
     const currentRound = this._getCombatRound();
     const currentTurn = this._getCombatTurn();
     
-    await requestUpdateDocument(actor, {
+    const updates = {
       "system.combat_tracking.attacks_this_round": 0,
       "system.combat_tracking.attacks_this_turn": 0,
       "system.combat_tracking.last_reset_round": currentRound,
       "system.combat_tracking.last_reset_turn": currentTurn,
       "system.combat_tracking.weapon_uses_this_round": {}
-    });
+    };
+    if (this.getOverrides(actor).current != null) {
+      updates[ATTACK_OVERRIDE_CURRENT_PATH] = 0;
+    }
+    await requestUpdateDocument(actor, updates);
   }
 
   /**
    * Compute per-actor maximum attacks for the current round.
    *
-   * Dual Fighter (Chapter 4): while dual wielding two one-handed melee weapons,
-   * raise the maximum melee attacks per round from 2 to 3 as long as, across
-   * those attacks, each weapon is used to attack at least once.
-   *
-   * We treat this as a conditional 3rd attack allowance:
-   *  - The first two attacks follow the normal limit.
-   *  - The third is only allowed if, after taking the third with the selected
-   *    weapon, both weapons will have been used at least once this round.
+   * Priority:
+   * 1) GM max override flag
+   * 2) Talent baseline (Dual Wielder / Dual Fighter => 3)
+   * 3) Default baseline (2)
    *
    * @param {Actor} actor
    * @param {{attackMode?: string, weaponId?: string|null, weaponUuid?: string|null}} [context]
@@ -214,39 +252,41 @@ export class AttackTracker {
     const baseLimit = 2;
     if (!actor) return baseLimit;
 
-    const attackMode = String(context?.attackMode ?? "").toLowerCase();
-    if (attackMode && attackMode !== "melee") return baseLimit;
-
-    if (!hasTalent(actor, "dualfighter")) return baseLimit;
-
-    const weaponIds = this._dualFighterWeaponIds(actor);
-    if (weaponIds.length < 2) return baseLimit;
-
-    // Potentially 3, but conditional on weapon-use distribution.
-    const count = this.getAttackCount(actor);
-    if (count < 2) return 3;
-
-    // For the 3rd (and beyond), we require the current weapon selection to satisfy
-    // the "each weapon at least once" constraint.
-    if (count >= 2) {
-      const uses = this.getWeaponUsesThisRound(actor);
-      const [w1, w2] = weaponIds;
-
-      // Resolve current weapon to an embedded item ID, best-effort.
-      const curId = String(context?.weaponId ?? "").trim();
-      // If we don't have an embedded Item id, be conservative.
-      if (!curId) return baseLimit;
-
-      if (!curId || (curId !== w1 && curId !== w2)) return baseLimit;
-
-      const would1 = (Number(uses[w1] ?? 0) || 0) + (curId === w1 ? 1 : 0);
-      const would2 = (Number(uses[w2] ?? 0) || 0) + (curId === w2 ? 1 : 0);
-
-      if (would1 >= 1 && would2 >= 1) return 3;
-      return baseLimit;
+    const overrides = this.getOverrides(actor);
+    if (overrides.max != null) {
+      return Math.max(1, Math.floor(overrides.max));
     }
 
-    return baseLimit;
+    const hasDualWielderTalent = hasTalent(actor, "dualwielder") || hasTalent(actor, "dualfighter");
+    return hasDualWielderTalent ? 3 : baseLimit;
+  }
+
+  static async setCurrentAttacks(actor, currentValue) {
+    if (!actor) return false;
+    const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
+    const current = Math.max(0, Math.floor(Number(currentValue) || 0));
+    return requestUpdateDocument(actor, {
+      "system.combat_tracking.attacks_this_round": current,
+      [ATTACK_OVERRIDE_CURRENT_PATH]: current
+    });
+  }
+
+  static async adjustCurrentAttacks(actor, delta = 0) {
+    const d = Number(delta) || 0;
+    return this.setCurrentAttacks(actor, this.getAttackCount(actor) + d);
+  }
+
+  static async setAttackLimitOverride(actor, limitValue) {
+    if (!actor) return false;
+    const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
+    const limit = Math.max(1, Math.floor(Number(limitValue) || 1));
+    return requestUpdateDocument(actor, { [ATTACK_OVERRIDE_MAX_PATH]: limit });
+  }
+
+  static async adjustAttackLimitOverride(actor, delta = 0) {
+    const d = Number(delta) || 0;
+    const currentLimit = this.getAttackLimit(actor);
+    return this.setAttackLimitOverride(actor, currentLimit + d);
   }
   
   /**

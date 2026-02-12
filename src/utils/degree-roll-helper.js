@@ -37,13 +37,11 @@ export async function doTestRoll(actor, { rollFormula = SYSTEM_ROLL_FORMULA, tar
 
   // Success / failure vs target
   const tn = Number(target || 0);
-  // RAW hard rule for PC critical numbers: a critical success always succeeds regardless of TN.
-  // (Critical failure always fails regardless of TN.)
   let isSuccess = (total <= tn);
-  if (!actorIsNPC) {
-    if (isCriticalSuccess) isSuccess = true;
-    if (isCriticalFailure) isSuccess = false;
-  }
+  // RAW hard rule (Chapter 1): a critical success always succeeds regardless of TN,
+  // and a critical failure always fails regardless of TN (PCs and NPCs).
+  if (isCriticalSuccess) isSuccess = true;
+  if (isCriticalFailure) isSuccess = false;
 
   // Compute DoS / DoF (RAW) — TN>100: add tens digit of TN to DoS
   let degree = 0;
@@ -103,10 +101,8 @@ export function computeResultFromRollTotal(actor, { rollTotal = 0, target = 0, a
   const isCriticalFailure = crit.isCriticalFailure;
 
   let isSuccess = (total <= tn);
-  if (!actorIsNPC) {
-    if (isCriticalSuccess) isSuccess = true;
-    if (isCriticalFailure) isSuccess = false;
-  }
+  if (isCriticalSuccess) isSuccess = true;
+  if (isCriticalFailure) isSuccess = false;
 
   let degree = 0;
   if (isSuccess) {
@@ -175,10 +171,12 @@ export function resolveOpposed(aResult, dResult) {
 
   if (aIsCritSuccess && !dIsCritSuccess) return { winner: "attacker", reason: "attacker critical success" };
   if (dIsCritSuccess && !aIsCritSuccess) return { winner: "defender", reason: "defender critical success" };
+  if (aIsCritSuccess && dIsCritSuccess) return { winner: "tie", reason: "both critical success (roll-off required)" };
 
   // Critical failure precedence (other side wins)
   if (aIsCritFailure && !dIsCritFailure) return { winner: "defender", reason: "attacker critical failure" };
   if (dIsCritFailure && !aIsCritFailure) return { winner: "attacker", reason: "defender critical failure" };
+  if (aIsCritFailure && dIsCritFailure) return { winner: "tie", reason: "both critical failure" };
 
   // One succeeds, other fails
   // Use safe property access with default false

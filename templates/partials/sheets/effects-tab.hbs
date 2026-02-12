@@ -1,0 +1,31 @@
+{{!--
+  Shared Effects Tab content partial.
+  Expects `effects` array in context (provided by all item sheet getData methods).
+  Usage: {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+
+  Effect mode distinction (talents, traits, powers):
+    - transfer: true  → Passive: applies to the owning actor automatically.
+    - transfer: false → Activation: transferred to targeted actors on use.
+--}}
+<header class="effects-header flexrow">
+    <h3>Effects</h3>
+    <a class="effect-control" data-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
+</header>
+<ol class="effects-list">
+    {{#each effects as |effect|}}
+    <li class="effect flexrow" data-effect-id="{{effect._id}}">
+        <img class="effect-icon" src="{{effect.img}}" />
+        <h4 class="effect-name">{{effect.name}}</h4>
+        {{#if effect.transfer}}
+        <span class="effect-mode-badge passive" title="Passive: applies to the owning actor automatically">Passive</span>
+        {{else}}
+        <span class="effect-mode-badge activation" title="Activation: transferred to targeted actors when this feature is used">Activation</span>
+        {{/if}}
+        <div class="effect-controls flexrow">
+            <a class="effect-control" data-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
+            <a class="effect-control" data-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
+            <a class="effect-control" data-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
+        </div>
+    </li>
+    {{/each}}
+</ol>

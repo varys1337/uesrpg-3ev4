@@ -1,7 +1,6 @@
 /**
- * src/core/traits/combat-proximity.js
- *
- * Deterministic proximity helpers for combat-talent automation.
+ * @module traits/combat-proximity
+ * @description Deterministic proximity helpers for combat-talent automation.
  *
  * Scope:
  * - Provide small, reusable token-distance utilities.
@@ -13,11 +12,7 @@
  */
 
 import { hasTalent } from "./talents-api.js";
-
-function _asNumber(v, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
+import { _num as _asNumber } from "./_primitives.js";
 
 function _distanceMeters(tokenA, tokenB) {
   try {

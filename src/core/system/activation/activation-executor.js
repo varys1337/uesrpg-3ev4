@@ -3,7 +3,19 @@ import { OpposedWorkflow } from "../../combat/opposed-workflow.js";
 import { getHitLocationFromRoll } from "../../combat/combat-utils.js";
 import { getExplicitActiveCombatStyleItem } from "../../combat/combat-style-utils.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
-import { filterTargetsBySpellRange, getSpellAoEConfig, getSpellRangeType, placeAoETemplateAndCollectTargets } from "../../magic/spell-range.js";
+import { normalizeTalentKey, resolveTalentSlug } from "../../traits/talents-api.js";
+import { activateHardTargetEffect } from "../../traits/mobility-talents.js";
+import { handleRacialPowerActivation, handleRacialTalentActivation, validateRacialActivationAvailability } from "../../traits/racial-talents.js";
+import { handleInspireHeroismActivation, validateInspireHeroismAvailability } from "../../traits/social-talents.js";
+import { filterTargetsBySpellRange, getSpellAoEConfig, getSpellRangeType, getSpellMaxRangeMeters } from "../../magic/spell-range.js";
+import { AoEService, AOE_SOURCE_TYPES } from "../../aoe/index.js";
+import { findLatestOpposedMessageByDefender, retargetOpposedMessage } from "../../combat/opposed/retarget.js";
+import { grantFreeNextDefenseCommit, registerActivationStateHooks } from "../../combat/activation-state-flags.js";
+import { isDebugEnabled } from "../../../utils/debug.js";
+import { _num } from "../../../utils/coerce.js";
+import { getFeatureConfig } from "../../traits/features/feature-config.js";
+import { runFeatureAutomation } from "../../traits/features/feature-dispatcher.js";
+import { featureNeedsEffectTransfer, applyFeatureEffectsToTargets } from "./feature-effects.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const ACTION_TYPE_LABELS = {
@@ -15,9 +27,36 @@ const ACTION_TYPE_LABELS = {
   special: "Special"
 };
 
-function _num(n) {
-  const v = Number(n);
-  return Number.isFinite(v) ? v : 0;
+const AUTOMATION_TALENT_KEYS = new Set(["defender", "hardtarget", "thundercharge", "inspireheroism"]);
+
+function _activationDebug(...args) {
+  if (!isDebugEnabled("activationDebug")) return;
+  try {
+    console.debug(...args);
+  } catch (_e) {
+    // no-op
+  }
+}
+
+
+
+function _getRoundTimeSecondsSafe() {
+  try {
+    const roundTime = Number(game?.settings?.get?.("core", "roundTime"));
+    return Number.isFinite(roundTime) && roundTime > 0 ? roundTime : 6;
+  } catch (_err) {
+    return 6;
+  }
+}
+
+function _resolveTalentAutomationKey(item) {
+  const raw = normalizeTalentKey(item?.name ?? "");
+  const slug = resolveTalentSlug(item?.name ?? "");
+  if (AUTOMATION_TALENT_KEYS.has(slug)) return slug;
+  if (raw.startsWith("defender")) return "defender";
+  if (raw.startsWith("hard-target") || raw.startsWith("hardtarget")) return "hardtarget";
+  if (raw.startsWith("thunder-charge") || raw.startsWith("thundercharge")) return "thundercharge";
+  return slug || raw;
 }
 
 function _firstNonEmptyString(...values) {
@@ -56,6 +95,223 @@ function _resolveTokenForActor(actor) {
   return canvas?.tokens?.placeables?.find(t => t?.actor?.id === id) ?? null;
 }
 
+function _resolveTokenTarget(target) {
+  if (!target) return null;
+  // Token object (PlaceableObject)
+  if (target?.document?.documentName === "Token") return target;
+  // TokenDocument
+  if (target?.documentName === "TokenDocument") return target.object ?? canvas?.tokens?.get?.(target.id) ?? null;
+  // Legacy Token document-like
+  if (target?.documentName === "Token") return target.object ?? canvas?.tokens?.get?.(target.id) ?? null;
+  // Wrapped object
+  if (target?.object?.document?.documentName === "Token") return target.object;
+  // UUID string fallback
+  if (typeof target === "string") {
+    try {
+      const doc = fromUuidSync(target);
+      if (doc?.documentName === "TokenDocument") return doc.object ?? canvas?.tokens?.get?.(doc.id) ?? null;
+      if (doc?.documentName === "Token") return doc.object ?? canvas?.tokens?.get?.(doc.id) ?? null;
+    } catch (_e) {
+      // no-op
+    }
+  }
+  return null;
+}
+
+function _isAllyTokenPair(aToken, bToken) {
+  const aDisp = Number(aToken?.document?.disposition ?? NaN);
+  const bDisp = Number(bToken?.document?.disposition ?? NaN);
+  if (!Number.isFinite(aDisp) || !Number.isFinite(bDisp)) return false;
+  if (aDisp === 0 || bDisp === 0) return false;
+  return aDisp === bDisp;
+}
+
+async function _swapTokenPositions(tokenA, tokenB) {
+  const aDoc = tokenA?.document ?? null;
+  const bDoc = tokenB?.document ?? null;
+  if (!aDoc || !bDoc) return false;
+
+  const aPos = { x: Number(aDoc.x ?? 0) || 0, y: Number(aDoc.y ?? 0) || 0 };
+  const bPos = { x: Number(bDoc.x ?? 0) || 0, y: Number(bDoc.y ?? 0) || 0 };
+
+  const okA = await requestUpdateDocument(aDoc, { x: bPos.x, y: bPos.y });
+  if (!okA) return false;
+  const okB = await requestUpdateDocument(bDoc, { x: aPos.x, y: aPos.y });
+  if (!okB) {
+    await requestUpdateDocument(aDoc, { x: aPos.x, y: aPos.y });
+    return false;
+  }
+  return true;
+}
+
+async function _activateDefenderTalent({ item, actor, context }) {
+  _activationDebug("UESRPG | DefenderActivation | start", {
+    actor: actor?.name ?? null,
+    actorUuid: actor?.uuid ?? null,
+    item: item?.name ?? null,
+    contextTargets: Array.isArray(context?.targets) ? context.targets.length : null,
+    userTargets: Number(game?.user?.targets?.size ?? 0)
+  });
+  let targets = (_getTargetsFromContext(context) ?? []).map(_resolveTokenTarget).filter(Boolean);
+  // Legacy fallback path: use raw user targets exactly as the previously working behavior relied on.
+  if (targets.length !== 1) {
+    targets = Array.from(game?.user?.targets ?? [])
+      .map((t) => _resolveTokenTarget(t) ?? t?.object ?? null)
+      .filter((t) => Boolean(t?.actor));
+  }
+  if (targets.length !== 1) {
+    _activationDebug("UESRPG | DefenderActivation | invalidTargets", { targetCount: targets.length });
+    ui.notifications?.warn?.("Defender requires exactly one targeted ally token.");
+    return;
+  }
+
+  const activatorToken = _resolveTokenForActor(actor);
+  if (!activatorToken) {
+    _activationDebug("UESRPG | DefenderActivation | missingActivatorToken", { actorUuid: actor?.uuid ?? null });
+    ui.notifications?.warn?.("Defender requires the activating actor to have a placed token.");
+    return;
+  }
+
+  const originalDefenderToken = targets[0];
+  if (!_isAllyTokenPair(activatorToken, originalDefenderToken)) {
+    _activationDebug("UESRPG | DefenderActivation | notAlly", {
+      activator: activatorToken?.name ?? null,
+      target: originalDefenderToken?.name ?? null,
+      activatorDisposition: activatorToken?.document?.disposition ?? null,
+      targetDisposition: originalDefenderToken?.document?.disposition ?? null
+    });
+    ui.notifications?.warn?.("Defender target must be an ally.");
+    return;
+  }
+
+  let latest = findLatestOpposedMessageByDefender({
+    actorUuid: originalDefenderToken.actor?.uuid ?? null,
+    tokenUuid: originalDefenderToken.document?.uuid ?? null,
+    mode: "any"
+  });
+  // Legacy fallback lookup order to preserve previously working behavior.
+  if (!latest) {
+    latest = findLatestOpposedMessageByDefender({
+      actorUuid: originalDefenderToken.actor?.uuid ?? null,
+      tokenUuid: originalDefenderToken.document?.uuid ?? null,
+      mode: "combat"
+    });
+  }
+  if (!latest) {
+    latest = findLatestOpposedMessageByDefender({
+      actorUuid: originalDefenderToken.actor?.uuid ?? null,
+      tokenUuid: originalDefenderToken.document?.uuid ?? null,
+      mode: "any",
+      activeOnly: false
+    });
+  }
+  if (!latest) {
+    _activationDebug("UESRPG | DefenderActivation | noOpposed", {
+      targetActorUuid: originalDefenderToken.actor?.uuid ?? null,
+      targetTokenUuid: originalDefenderToken.document?.uuid ?? null
+    });
+    ui.notifications?.warn?.("No active opposed card found for the targeted defender.");
+    return;
+  }
+
+  let swapped = await retargetOpposedMessage(
+    latest,
+    {
+      defenderTokenUuid: activatorToken.document?.uuid ?? null,
+      defenderTokenId: activatorToken.id ?? activatorToken.document?.id ?? null
+    },
+    { userId: game.user?.id ?? null, reason: "defender-talent-activation" }
+  );
+  if (!swapped) {
+    swapped = await retargetOpposedMessage(
+      latest,
+      {
+        defenderTokenUuid: activatorToken.document?.uuid ?? null,
+        defenderTokenId: activatorToken.id ?? activatorToken.document?.id ?? null
+      },
+      {
+        userId: game.user?.id ?? null,
+        reason: "defender-talent-activation",
+        automationActorUuid: actor?.uuid ?? null,
+        forceAutomation: true
+      }
+    );
+  }
+  if (!swapped) return;
+  _activationDebug("UESRPG | DefenderActivation | retargeted", { messageId: latest?.id ?? null });
+
+  const positionsSwapped = await _swapTokenPositions(activatorToken, originalDefenderToken);
+  if (!positionsSwapped) {
+    _activationDebug("UESRPG | DefenderActivation | swapFailed", {
+      activatorTokenId: activatorToken?.id ?? null,
+      targetTokenId: originalDefenderToken?.id ?? null
+    });
+    ui.notifications?.warn?.("Defender activated, but token position swap failed.");
+  }
+
+  const now = Date.now();
+  const worldTime = Number(game?.time?.worldTime ?? 0) || 0;
+  const combat = (game?.combat && game.combat.started) ? game.combat : null;
+  const freeFlag = {
+    source: "Defender",
+    messageId: latest.id,
+    createdAt: now,
+    expiresAt: now + 60000,
+    createdWorldTime: worldTime,
+    expiresWorldTime: worldTime + Math.max(1, _getRoundTimeSecondsSafe()),
+    combatId: combat?.id ?? null,
+    round: combat ? Number(combat.round ?? 0) : null,
+    turn: combat ? Number(combat.turn ?? 0) : null,
+    expireOnStepAdvance: true
+  };
+
+  const granted = await grantFreeNextDefenseCommit(actor, freeFlag);
+  _activationDebug("UESRPG | DefenderActivation | freeDefenseState", {
+    granted,
+    actorUuid: actor?.uuid ?? null,
+    messageId: latest?.id ?? null
+  });
+  if (!granted) {
+    ui.notifications?.warn?.("Defender activated, but free defense state could not be applied.");
+  }
+
+  await ChatMessage.create({
+    user: game.user.id,
+    speaker: ChatMessage.getSpeaker({ actor, token: activatorToken?.document ?? null }),
+    content: `<div class="uesrpg"><b>Defender</b>: ${actor.name} intercepts for ${originalDefenderToken.actor?.name ?? "ally"}, swaps position, and gains a free next defense commit.</div>`,
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER
+  });
+}
+
+async function _activateThunderChargeTalent({ item, actor }) {
+  await ChatMessage.create({
+    user: game.user.id,
+    speaker: ChatMessage.getSpeaker({ actor }),
+    content: `<div class="uesrpg"><b>Thunder Charge</b>: passive talent active. Use the attack dialog toggle on All Out Attack to waive the surcharge.</div>`,
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER
+  });
+}
+
+export async function runTalentActivationAutomation({ item, actor, context = {} } = {}) {
+  if (!item || item.type !== "talent") return;
+  const k = _resolveTalentAutomationKey(item);
+  _activationDebug("UESRPG | TalentAutomation | dispatch", {
+    item: item?.name ?? null,
+    key: k,
+    actor: actor?.name ?? null,
+    activationEnabled: Boolean(item?.system?.activation?.enabled)
+  });
+  try {
+    if (k === "hardtarget") await activateHardTargetEffect(actor);
+    if (k === "defender") await _activateDefenderTalent({ item, actor, context });
+    if (k === "thundercharge") await _activateThunderChargeTalent({ item, actor });
+    if (k === "inspireheroism") await handleInspireHeroismActivation({ actor, item });
+    await handleRacialTalentActivation({ actor, item, itemKey: k });
+  } catch (err) {
+    console.warn("uesrpg-3ev4 | Talent activation automation failed", { item: item?.name, key: k, err });
+  }
+}
+
 function _hasEquippedWeapon(actor) {
   if (!actor) return false;
   return actor.items?.some?.(i => i.type === "weapon" && i.system?.equipped === true) ?? false;
@@ -63,12 +319,12 @@ function _hasEquippedWeapon(actor) {
 
 function _hasEquippedMeleeWeapon(actor) {
   if (!actor) return false;
-  return actor.items?.some?.(i => i.type === "weapon" && i.system?.equipped === true && String(i.system?.attackMode ?? "melee") !== "ranged") ?? false;
+  return actor.items?.some?.(i => i.type === "weapon" && i.system?.equipped === true && String(i.system?.attackMode ?? "melee").toLowerCase() !== "ranged") ?? false;
 }
 
 function _hasEquippedRangedWeapon(actor) {
   if (!actor) return false;
-  return actor.items?.some?.(i => i.type === "weapon" && i.system?.equipped === true && String(i.system?.attackMode ?? "") === "ranged") ?? false;
+  return actor.items?.some?.(i => i.type === "weapon" && i.system?.equipped === true && String(i.system?.attackMode ?? "").toLowerCase() === "ranged") ?? false;
 }
 
 function _getActivationCostValues(costs = {}) {
@@ -531,29 +787,74 @@ async function _prepareAttackActivationContext({ actor, item, activation, contex
     return { ok: false };
   }
 
-  const rangeType = item ? getSpellRangeType(item) : "none";
+  let rangeType = item ? getSpellRangeType(item) : "none";
   const attackerToken = _resolveTokenForActor(actor);
   let workingTargets = _getTargetsFromContext(context);
   let aoeTemplateUuid = null;
   let aoeTemplateId = null;
 
-  if ((rangeType === "ranged" || rangeType === "melee" || rangeType === "aoe") && !attackerToken) {
+  // ── Target policy override (powers only) ───────────────────────
+  if (item?.type === "power") {
+    const _fcfg = getFeatureConfig(item);
+    const tp = _fcfg.targetPolicy;
+    if (tp && tp !== "self") {
+      if (tp === "single") {
+        // Enforce single-target: keep only the first target
+        if (workingTargets.length > 1) {
+          ui.notifications?.info?.(`${item.name}: target policy limits to a single target.`);
+          workingTargets = [workingTargets[0]];
+        }
+      } else if (tp === "template") {
+        // Force AoE template path regardless of item rangeType
+        rangeType = "aoe";
+      }
+      // "multi" → passthrough (no change needed)
+      // "ask"   → future: prompt-based target selection; passthrough for now
+    } else if (tp === "self") {
+      // Self-target: override targets to caster's own token
+      if (attackerToken) {
+        workingTargets = [attackerToken];
+        // Skip normal range filtering by treating as "none"
+        rangeType = "none";
+      }
+    }
+  }
+
+  // Detect AoE from the item's AoE config fields, regardless of rangeType.
+  // Many AoE spells/powers use rangeType="ranged" for max-range gating
+  // but still need AoE template placement via aoeShape + aoeSize.
+  const aoeSpec = getSpellAoEConfig(item);
+  const hasValidAoe = aoeSpec && (aoeSpec.sizeMeters > 0 || aoeSpec.pulse);
+
+  if ((rangeType === "ranged" || rangeType === "melee" || rangeType === "aoe" || hasValidAoe) && !attackerToken) {
     ui.notifications?.warn?.("Please place and select a token for this actor.");
     return { ok: false };
   }
 
-  if (rangeType === "aoe") {
+  if (hasValidAoe) {
     const includeCaster = Boolean(item?.system?.aoeIncludeCaster);
-    const placed = await placeAoETemplateAndCollectTargets({
-      casterToken: attackerToken,
-      spell: item,
-      includeCaster
+    const maxRange = getSpellMaxRangeMeters(item);
+    const sourceType = (item?.type === "power") ? AOE_SOURCE_TYPES.POWER
+      : (item?.type === "weapon") ? AOE_SOURCE_TYPES.WEAPON
+      : (item?.type === "spell") ? AOE_SOURCE_TYPES.SPELL
+      : AOE_SOURCE_TYPES.ITEM;
+    const placed = await AoEService.place({
+      sourceType,
+      actor,
+      token: attackerToken,
+      item,
+      aoe: {
+        shape: aoeSpec?.shape ?? "circle",
+        distance: aoeSpec.sizeMeters || 1,
+        width: aoeSpec?.widthMeters,
+        pulse: Boolean(aoeSpec?.pulse),
+        includeCaster,
+      },
+      options: { maxRange: maxRange ?? undefined, collectTargets: true },
     });
     if (!placed) return { ok: false };
-    const templateDoc = placed?.templateDoc ?? null;
-    aoeTemplateId = templateDoc?.id ?? templateDoc?._id ?? null;
-    aoeTemplateUuid = templateDoc?.uuid
-      ?? (aoeTemplateId && canvas?.scene?.id ? `Scene.${canvas.scene.id}.MeasuredTemplate.${aoeTemplateId}` : null);
+    aoeTemplateId = placed.templateId ?? null;
+    aoeTemplateUuid = placed.templateUuid ?? null;
     if (placed.targets?.length) {
       workingTargets = placed.targets;
     } else {
@@ -592,7 +893,7 @@ async function _prepareAttackActivationContext({ actor, item, activation, contex
 
   const hitLocationMode = _getHitLocationMode(activation);
   let hitLocationRaw = null;
-  if (rangeType === "aoe") {
+  if (hasValidAoe) {
     hitLocationRaw = "Body";
   } else if (hitLocationMode === "manual") {
     hitLocationRaw = await _promptHitLocationChoice({ title: "Select Hit Location" });
@@ -604,9 +905,9 @@ async function _prepareAttackActivationContext({ actor, item, activation, contex
   }
 
   const attackMode = _getAttackModeFromActivation(activation);
-  const aoeConfig = (rangeType === "aoe")
+  const aoeConfig = hasValidAoe
     ? {
-        ...(getSpellAoEConfig(item) ?? {}),
+        ...(aoeSpec ?? {}),
         isAoE: true,
         templateUuid: aoeTemplateUuid ?? null,
         templateId: aoeTemplateId ?? null
@@ -621,12 +922,12 @@ async function _prepareAttackActivationContext({ actor, item, activation, contex
     targets: workingTargets,
     attackMode,
     hitLocation: hitLocationRaw,
-    isAoE: rangeType === "aoe",
+    isAoE: hasValidAoe,
     aoe: aoeConfig,
     context: {
       targets: workingTargets,
       hitLocation: hitLocationRaw,
-      isAoE: rangeType === "aoe",
+      isAoE: hasValidAoe,
       aoe: aoeConfig
     }
   };
@@ -710,37 +1011,114 @@ export async function executeItemActivation({
   renderChat = true,
   context = {}
 } = {}) {
+  registerActivationStateHooks();
+
   if (!item) return { ok: false };
 
+  // ── Feature Config pre-checks (traits/talents/powers) ──────────
+  // featureConfig.enabled only gates advanced automation (rule elements,
+  // feature-automation dispatch).  Basic activation — chat card, effect
+  // transfer, macros — always proceeds so that clicking an item icon on
+  // the actor sheet always produces visible results.
+  const _featureTypes = new Set(["trait", "talent", "power"]);
+  let featureConfig = null;
+  let featureAutomationEnabled = true;
+  if (_featureTypes.has(item.type)) {
+    const fcfg = getFeatureConfig(item);
+    featureConfig = fcfg;
+
+    // Master toggle — demoted from hard block to automation-only gate.
+    if (fcfg.enabled === false) {
+      featureAutomationEnabled = false;
+      _activationDebug("uesrpg-3ev4 | activation: featureConfig.enabled=false, automation disabled but chat+effects will proceed", item.name);
+    }
+
+    // Combat-only gating
+    if (fcfg.combatOnly && !game.combat?.started) {
+      ui.notifications?.warn?.(`${item.name} can only be used during combat.`);
+      return { ok: false };
+    }
+
+    // Out-of-combat gating
+    if (!fcfg.outOfCombatAllowed && !game.combat?.started) {
+      ui.notifications?.warn?.(`${item.name} cannot be used outside of combat.`);
+      return { ok: false };
+    }
+
+    // Confirm mode: show dialog before proceeding (only when automation is enabled)
+    if (featureAutomationEnabled && fcfg.applyMode === "confirm") {
+      const confirmed = await _showFeatureConfirmDialog(item, fcfg);
+      if (!confirmed) {
+        _activationDebug("uesrpg-3ev4 | activation: CANCELLED by user confirmation", item.name);
+        return { ok: false };
+      }
+    }
+  }
+
   const activation = item?.system?.activation ?? {};
-  if (activation.enabled === false) return { ok: false };
-  const isAttack = _isAttackActivation(activation);
+  // For feature types (trait/talent/power), activation.enabled only controls
+  // whether costs are spent and attack workflows run — NOT whether the item
+  // can produce a chat card, transfer effects, or trigger automation.
+  const isFeatureType = _featureTypes.has(item.type);
+  if (activation.enabled === false && !isFeatureType) return { ok: false };
+
+  const activationEnabled = Boolean(activation.enabled);
+  const isAttack = activationEnabled && _isAttackActivation(activation);
   const label = item?.name ?? "Ability";
 
   let attackContext = null;
   let mergedContext = context;
-  if (isAttack) {
-    attackContext = await _prepareAttackActivationContext({ actor, item, activation, context });
-    if (!attackContext?.ok) return { ok: false };
-    mergedContext = { ...(context ?? {}), ...(attackContext.context ?? {}) };
-  }
+  let usageResult = { ok: true };
 
-  const validation = validateActivationContext({ actor, activation, context: mergedContext });
-  if (!validation.ok) return { ok: false };
-
-  const usageResult = await consumeActivationUsage({ item, activation });
-  if (!usageResult.ok) return { ok: false };
-
-  const spendResult = await applyActivationCosts({ actor, activation, label });
-  if (!spendResult.ok) {
-    if (usageResult.consumed && usageResult.rollback && Object.keys(usageResult.rollback).length) {
-      const rolledBack = await requestUpdateDocument(item, usageResult.rollback);
-      if (!rolledBack) ui.notifications?.warn?.(`Failed to restore uses for ${item.name}.`);
+  // ── Activation mechanics (costs, validation, attack workflow) ──
+  // Only run when activation.enabled is true; non-activated features skip
+  // straight to the chat card + effect transfer + automation sections.
+  if (activationEnabled) {
+    if (isAttack) {
+      attackContext = await _prepareAttackActivationContext({ actor, item, activation, context });
+      if (!attackContext?.ok) return { ok: false };
+      mergedContext = { ...(context ?? {}), ...(attackContext.context ?? {}) };
     }
-    return { ok: false };
-  }
 
-  await _applyActivationActorFlags({ item, actor, activation });
+    const validation = validateActivationContext({ actor, activation, context: mergedContext });
+    if (!validation.ok) return { ok: false };
+
+    // Racial talent/power gating (Chapter 4): per-rest limits and legacy-safe constraints.
+    try {
+      if (item?.type === "talent" || item?.type === "power") {
+        const itemKey = _resolveTalentAutomationKey(item);
+        const v = validateRacialActivationAvailability({ actor, item, itemKey });
+        if (!v.ok) {
+          ui.notifications?.warn?.(String(v.reason ?? "Activation blocked."));
+          return { ok: false };
+        }
+        // Inspire Heroism (Chapter 4): once-per-round gating.
+        if (itemKey === "inspireheroism") {
+          const ih = validateInspireHeroismAvailability({ actor });
+          if (!ih.ok) {
+            ui.notifications?.warn?.(String(ih.reason ?? "Activation blocked."));
+            return { ok: false };
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("uesrpg-3ev4 | Racial activation preflight failed", err);
+    }
+
+    usageResult = await consumeActivationUsage({ item, activation });
+    if (!usageResult.ok) return { ok: false };
+
+    const spendResult = await applyActivationCosts({ actor, activation, label });
+    if (!spendResult.ok) {
+      if (usageResult.consumed && usageResult.rollback && Object.keys(usageResult.rollback).length) {
+        const rolledBack = await requestUpdateDocument(item, usageResult.rollback);
+        if (!rolledBack) ui.notifications?.warn?.(`Failed to restore uses for ${item.name}.`);
+      }
+      return { ok: false };
+    }
+
+    await _applyActivationActorFlags({ item, actor, activation });
+  }
 
   if (renderChat) {
     const content = renderActivationCard({
@@ -751,11 +1129,88 @@ export async function executeItemActivation({
       includeImage,
       usageOverride: usageResult
     });
+    const whisper = (featureConfig?.visibility === "gmOnly")
+      ? (game.users?.filter((u) => u?.isGM).map((u) => u.id) ?? [])
+      : [];
     await ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
-      content
+      content,
+      whisper
     });
+  }
+
+  // Unified feature automation entrypoint (traits/talents/powers).
+  // Feature-config checks are already enforced above in executeItemActivation.
+  let dispatchedByFeatureAutomation = false;
+
+  // ── Feature Effect Transfer to Targets ───────────────────────────
+  // If the item has non-disabled AEs and the user has targets selected,
+  // clone those effects onto the targeted actors automatically.
+  // No opt-in flag required — having AEs + targets = transfer.
+  if (item?.type === "trait" || item?.type === "talent" || item?.type === "power") {
+    if (featureNeedsEffectTransfer(item)) {
+      const fcfg = featureConfig ?? getFeatureConfig(item);
+      const rawTargets = _getTargetsFromContext(mergedContext);
+      const targetActors = rawTargets
+        .map(t => t?.actor ?? t?.document?.actor ?? null)
+        .filter(Boolean)
+        // Exclude self (the activating actor) unless no other targets exist
+        .filter(ta => ta.id !== actor?.id);
+
+      if (targetActors.length) {
+        try {
+          const result = await applyFeatureEffectsToTargets(actor, item, targetActors, { featureConfig: fcfg });
+          if (result.targets.length) {
+            const names = result.targets.join(", ");
+            await ChatMessage.create({
+              user: game.user.id,
+              speaker: ChatMessage.getSpeaker({ actor }),
+              content: `<div class="uesrpg"><b>${item.name}</b>: Applied ${result.applied} effect(s) to ${names}.</div>`,
+              style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+            });
+          }
+        } catch (err) {
+          console.warn("uesrpg-3ev4 | Feature effect transfer failed", { item: item?.name, err });
+        }
+      } else if (rawTargets.length > 0) {
+        // Targets existed but all were self-excluded
+        ui.notifications?.info?.(`${item.name}: Cannot transfer effects to self \u2014 select a different target.`);
+        _activationDebug("uesrpg-3ev4 | feature-effects: item has AEs but no valid targets (self excluded)", item.name);
+      } else {
+        // No targets selected at all — prompt user
+        ui.notifications?.info?.(`${item.name} has activation effects \u2014 select target token(s) to transfer them.`);
+        _activationDebug("uesrpg-3ev4 | feature-effects: item has activation AEs but no targets selected", item.name);
+      }
+    }
+  }
+
+  // Feature automation dispatch — only runs when featureConfig.enabled is true.
+  // When disabled via the Automation tab, basic activation (chat + effects + macro)
+  // still proceeds above, but rule-element automation is skipped.
+  if (featureAutomationEnabled && (item?.type === "trait" || item?.type === "talent" || item?.type === "power")) {
+    try {
+      dispatchedByFeatureAutomation = await runFeatureAutomation({
+        actor,
+        item,
+        context: mergedContext,
+        enforceFeatureConfig: false
+      });
+    } catch (err) {
+      console.warn("uesrpg-3ev4 | Feature automation dispatch failed", err);
+    }
+  }
+
+  // Legacy activation handlers remain authoritative until dispatcher migration is complete.
+  if (featureAutomationEnabled && !dispatchedByFeatureAutomation && item?.type === "talent") {
+    await runTalentActivationAutomation({ item, actor, context: mergedContext });
+  } else if (featureAutomationEnabled && !dispatchedByFeatureAutomation && item?.type === "power") {
+    try {
+      const k = normalizeTalentKey(item.name);
+      await handleRacialPowerActivation({ actor, item, itemKey: k });
+    } catch (err) {
+      console.warn("uesrpg-3ev4 | Talent activation automation failed", err);
+    }
   }
 
   if (item) await executeItemMacroBestEffort(item, { event });
@@ -801,4 +1256,46 @@ export function buildSpecialActionActivation({ actionType = "action", apCost = 1
       requiresHitLocation: false
     }
   };
+}
+
+
+// ─── Feature Config Confirmation Dialog ──────────────────────────────
+
+/**
+ * Show a confirmation dialog when a feature's applyMode is "confirm".
+ * Routes visibility based on promptMode.
+ *
+ * @param {Item} item
+ * @param {object} fcfg - Feature config from getFeatureConfig
+ * @returns {Promise<boolean>} true if confirmed
+ */
+async function _showFeatureConfirmDialog(item, fcfg) {
+  const promptMode = fcfg.promptMode ?? "owner";
+  const isGM = game.user.isGM;
+  const isOwner = item.isOwner;
+
+  let shouldPrompt = false;
+  switch (promptMode) {
+    case "gm":    shouldPrompt = isGM; break;
+    case "owner": shouldPrompt = isOwner; break;
+    case "both":  shouldPrompt = isGM || isOwner; break;
+    case "never": return true;
+    default:      shouldPrompt = isOwner; break;
+  }
+
+  if (!shouldPrompt) return true;
+
+  try {
+    const confirmed = await foundry.applications.api.DialogV2.confirm({
+      window: { title: `Confirm: ${item.name}` },
+      content: `<p>Activate <strong>${item.name}</strong>?</p>`,
+      yes: { label: "Activate", icon: "fas fa-bolt" },
+      no: { label: "Cancel", icon: "fas fa-times" },
+      rejectClose: false,
+    });
+    return confirmed === true;
+  } catch (err) {
+    console.warn("uesrpg-3ev4 | Feature confirm dialog error", err);
+    return false;
+  }
 }

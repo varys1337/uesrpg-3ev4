@@ -22,13 +22,13 @@ Spells: WIP , not yet properly introduced
 
 1. Characteristics 
 system.modifiers.characteristics.str
-system.modifiers.characteristics.agi
 system.modifiers.characteristics.end
-system.modifiers.characteristics.per
-system.modifiers.characteristics.wil
+system.modifiers.characteristics.agi
 system.modifiers.characteristics.int
-system.modifiers.characteristics.cha
-system.modifiers.characteristics.luc
+system.modifiers.characteristics.wp
+system.modifiers.characteristics.prc
+system.modifiers.characteristics.prs
+system.modifiers.characteristics.lck
 
 2. Combat & Rolls Attribute Keys
 2.1 Combat Target Numbers (TN)
@@ -172,6 +172,36 @@ system.modifiers.speed.bonus
 system.modifiers.speed.value
 
 // Applied after all recalculations and movement restriction semantics so OVERRIDE truly sets the final speed. Swim speed is re-derived from the final ground speed while preserving the existing swim-bonus pipeline.
+
+4.3 Fly Speed / Swim Speed
+
+system.modifiers.speed.flySpeed (ADD/OVERRIDE) — Levitate and similar; applied after trait-based fly calculation.
+system.modifiers.speed.swimSpeed (ADD/OVERRIDE) — applied after base swim (ground/2 + trait bonus).
+
+4.4 Movement Modifier Keys
+
+system.modifiers.movement.fallDamage (ADD/OVERRIDE) — fall damage reduction in meters (Slowfall); consumed at fall-damage evaluation time.
+system.traits.movement.waterBreathing (boolean) — can breathe underwater (Water Breathing spell); ADD 1 = true.
+system.traits.movement.waterWalking (boolean) — can walk on water surface (Water Walking spell); ADD 1 = true.
+
+4.5 Stealth Modifier Keys (Illusion)
+
+system.modifiers.stealth.visual (ADD/OVERRIDE) — penalty applied to visual Observe tests against the target (Chameleon).
+system.modifiers.stealth.auditory (ADD/OVERRIDE) — penalty applied to auditory Observe tests against the target (Muffle).
+
+4.6 Magic Defense Keys (Mysticism / Alteration)
+
+system.modifiers.magic.spellReflect (ADD/OVERRIDE) — reflects incoming spells of level ≤ value (Reflect spell).
+system.modifiers.magic.spellAbsorption (ADD/OVERRIDE) — absorbs incoming spells of level ≤ value as MP recovery (Spell Absorption).
+
+4.7 Situational Test Modifiers
+
+system.modifiers.tests.fear (ADD/OVERRIDE) — bonus to Fear/Panic resistance tests (Courage spell).
+
+4.8 Condition State Flags
+
+system.traits.condition.silenced (boolean) — blocks verbal spellcasting component (Silence spell); ADD 1 = true.
+system.traits.condition.invisible (boolean) — invisible state flag (Invisibility spell); ADD 1 = true.
 
 5. Resources (Max values only)
 Supported

@@ -4,6 +4,12 @@
     <legend>World (GM)</legend>
 
     <div class="form-group">
+      <label>Enable Debug Logging (Master)</label>
+      <input type="checkbox" name="world.debugEnabled" {{checked world.debugEnabled}}>
+      <p class="notes">Global master gate. If disabled, all UESRPG debug logs are suppressed.</p>
+    </div>
+
+    <div class="form-group">
       <label>Opposed Workflow Debug</label>
       <input type="checkbox" name="world.opposedDebug" {{checked world.opposedDebug}}>
       <p class="notes">Enable verbose opposed-workflow diagnostics in the console and chat context.</p>
@@ -17,8 +23,8 @@
 
     <div class="form-group">
       <label>Opposed Debug Formula</label>
-      <input type="text" name="world.opposedDebugFormula" value="{{world.opposedDebugFormula}}">
-      <p class="notes">Optional formula override used by debugging helpers.</p>
+      <input type="checkbox" name="world.opposedDebugFormula" {{checked world.opposedDebugFormula}}>
+      <p class="notes">Log formula normalization details for opposed rolls.</p>
     </div>
 
     <div class="form-group">
@@ -28,15 +34,91 @@
     </div>
 
     <div class="form-group">
+      <label>Show Opposed Status Line</label>
+      <input type="checkbox" name="world.opposedShowStatusLine" {{checked world.opposedShowStatusLine}}>
+      <p class="notes">Show Status rows on opposed chat cards (Committed/Rolled/Resolved). Keep disabled for normal play.</p>
+    </div>
+
+    <div class="form-group">
       <label>Skill Roll Debug</label>
       <input type="checkbox" name="world.skillRollDebug" {{checked world.skillRollDebug}}>
       <p class="notes">Enable additional skill-roll diagnostics.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Spell Casting Debug</label>
+      <input type="checkbox" name="world.spellCastingDebug" {{checked world.spellCastingDebug}}>
+      <p class="notes">Enable verbose spell casting workflow diagnostics.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Magic Routing Debug</label>
+      <input type="checkbox" name="world.debugMagicRouting" {{checked world.debugMagicRouting}}>
+      <p class="notes">Log spell routing decisions (targeted, unopposed, legacy paths).</p>
+    </div>
+
+    <div class="form-group">
+      <label>Activation/Talent Debug</label>
+      <input type="checkbox" name="world.activationDebug" {{checked world.activationDebug}}>
+      <p class="notes">Enable activation and talent automation diagnostics.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Wounds Debug</label>
+      <input type="checkbox" name="world.woundsDebug" {{checked world.woundsDebug}}>
+      <p class="notes">Enable wound automation diagnostics.</p>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Rule Elements Runtime (GM)</legend>
+
+    <div class="form-group">
+      <label>Master Switch</label>
+      <input type="checkbox" name="ruleElements.enableRuleElementsRuntime" {{checked ruleElements.enableRuleElementsRuntime}}>
+      <p class="notes">Global master gate for Rule Element runtime evaluation. When disabled, all RE automation is suppressed.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Skill Workflow</label>
+      <input type="checkbox" name="ruleElements.enableRuleElementsRuntimeSkill" {{checked ruleElements.enableRuleElementsRuntimeSkill}}>
+      <p class="notes">Enable Rule Elements runtime for skill opposed workflows.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Characteristic Workflow</label>
+      <input type="checkbox" name="ruleElements.enableRuleElementsRuntimeCharacteristic" {{checked ruleElements.enableRuleElementsRuntimeCharacteristic}}>
+      <p class="notes">Enable Rule Elements runtime for characteristic opposed workflows.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Combat Workflow</label>
+      <input type="checkbox" name="ruleElements.enableRuleElementsRuntimeCombat" {{checked ruleElements.enableRuleElementsRuntimeCombat}}>
+      <p class="notes">Enable Rule Elements runtime for combat opposed workflows. Talents with configured Rule Elements will use them instead of hardcoded interceptors.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Magic Workflow</label>
+      <input type="checkbox" name="ruleElements.enableRuleElementsRuntimeMagic" {{checked ruleElements.enableRuleElementsRuntimeMagic}}>
+      <p class="notes">Enable Rule Elements runtime for magic workflows. Spellcasting talents with configured Rule Elements will use them instead of hardcoded interceptors.</p>
+    </div>
+
+    <div class="form-group">
+      <label>Rule Elements Debug Logging</label>
+      <input type="checkbox" name="ruleElements.ruleElementDebug" {{checked ruleElements.ruleElementDebug}}>
+      <p class="notes">Log Rule Element predicate and runtime evaluation diagnostics to the browser console.</p>
     </div>
   </fieldset>
   {{/if}}
 
   <fieldset>
     <legend>Client</legend>
+
+    <div class="form-group">
+      <label>Active Effect Lifecycle Debug (Client)</label>
+      <input type="checkbox" name="client.aeLifecycleDebug" {{checked client.aeLifecycleDebug}}>
+      <p class="notes">Log safe AE fetch/delete diagnostics for your client.</p>
+    </div>
 
     <div class="form-group">
       <label>Debug Skill TN (Client)</label>

@@ -40,50 +40,35 @@ export async function postActivatedPowerToChat({ item, actor, includeImage = fal
 
 /**
  * Item-sheet entry point: activate the currently opened Talent item.
- * Safe for owned items and gracefully degrades for unowned items (no cost spending).
+ * Always routes through executeItemActivation so that feature effects,
+ * automation, and macros run regardless of activation.enabled state.
  */
 export async function activateTalentFromItemSheet({ item, event = null } = {}) {
   if (!item || item.type !== "talent") return;
   const actor = item.actor ?? null;
-  const isActivated = Boolean(item?.system?.activation?.enabled);
-
-  if (isActivated) {
-    await executeItemActivation({ item, actor, includeImage: true, event });
-    return;
-  }
-
-  // Non-activated: behave like a normal post-to-chat for parity.
-  const content = _buildDefaultPostContent({ item, actor, includeImage: true });
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    content
-  });
-  await executeItemMacroBestEffort(item, { event });
+  await executeItemActivation({ item, actor, includeImage: true, event });
 }
 
 /**
  * Item-sheet entry point: activate the currently opened Power item.
- * Safe for owned items and gracefully degrades for unowned items (no cost spending).
+ * Always routes through executeItemActivation so that feature effects,
+ * automation, and macros run regardless of activation.enabled state.
  */
 export async function activatePowerFromItemSheet({ item, event = null } = {}) {
   if (!item || item.type !== "power") return;
   const actor = item.actor ?? null;
-  const isActivated = Boolean(item?.system?.activation?.enabled);
+  await executeItemActivation({ item, actor, includeImage: true, event });
+}
 
-  if (isActivated) {
-    await executeItemActivation({ item, actor, includeImage: true, event });
-    return;
-  }
-
-  // Non-activated: behave like a normal post-to-chat for parity.
-  const content = _buildDefaultPostContent({ item, actor, includeImage: true });
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    content
-  });
-  await executeItemMacroBestEffort(item, { event });
+/**
+ * Item-sheet entry point: activate the currently opened Trait item.
+ * Always routes through executeItemActivation so that feature effects,
+ * automation, and macros run regardless of activation.enabled state.
+ */
+export async function activateTraitFromItemSheet({ item, event = null } = {}) {
+  if (!item || item.type !== "trait") return;
+  const actor = item.actor ?? null;
+  await executeItemActivation({ item, actor, includeImage: true, event });
 }
 
 /**
@@ -126,7 +111,18 @@ export async function postItemToChat(event, actor, options = {}) {
     return;
   }
 
-  // Activated items: use unified activation engine.
+  // Feature types (trait/talent/power): always route through the activation
+  // engine so that feature effects, automation, and macros run regardless
+  // of activation.enabled state.  The executor handles the activation.enabled
+  // gate internally — skipping costs/usage when not enabled while still
+  // running effect transfer and automation.
+  const _featureTypes = new Set(["trait", "talent", "power"]);
+  if (_featureTypes.has(item.type)) {
+    await executeItemActivation({ item, actor, includeImage, event });
+    return;
+  }
+
+  // Non-feature items: use activation.enabled gate as before.
   if (item?.system?.activation?.enabled) {
     const ok = await executeItemActivation({ item, actor, includeImage, event });
     if (!ok?.ok) return;

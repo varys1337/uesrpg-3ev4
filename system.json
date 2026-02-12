@@ -9,7 +9,8 @@
     "styles/main.css",
     "styles/stamina-dialog.css",
     "styles/spell-sheet-compact.css",
-    "styles/group-sheet.css"
+    "styles/group-sheet.css",
+    "styles/feature-inspector.css"
   ],
   "packs": [
     {
@@ -18,42 +19,6 @@
       "system": "uesrpg-3ev4",
       "path": "packs/roll-tables",
       "type": "RollTable",
-      "private": false,
-      "flags": {}
-    },
-    {
-      "name": "macros",
-      "label": "Macros",
-      "system": "uesrpg-3ev4",
-      "path": "packs/macros",
-      "type": "Macro",
-      "private": false,
-      "flags": {}
-    },
-    {
-      "name": "powers",
-      "label": "Powers",
-      "system": "uesrpg-3ev4",
-      "path": "packs/powers",
-      "type": "Item",
-      "private": false,
-      "flags": {}
-    },
-    {
-      "name": "traits",
-      "label": "Traits",
-      "system": "uesrpg-3ev4",
-      "path": "packs/traits",
-      "type": "Item",
-      "private": false,
-      "flags": {}
-    },
-    {
-      "name": "talents",
-      "label": "Talents",
-      "system": "uesrpg-3ev4",
-      "path": "packs/talents",
-      "type": "Item",
       "private": false,
       "flags": {}
     },
@@ -140,14 +105,6 @@
       "system": "uesrpg-3ev4"
     },
     {
-      "name": "npc-build-reference-items-revised",
-      "label": "NPC Items Revised",
-      "path": "./packs/npc-build-reference-items-revised",
-      "private": false,
-      "type": "Item",
-      "system": "uesrpg-3ev4"
-    },
-    {
       "name": "inhabitants-of-tamriel",
       "label": "Inhabitants of Tamriel",
       "path": "./packs/inhabitants-of-tamriel",
@@ -158,29 +115,6 @@
   ],
   "packFolders": [
     {
-      "name": "UESRPG - In Progress",
-      "sorting": "a",
-      "color": "#000000",
-      "ownership": {
-        "PLAYER": "observer"
-      },
-      "packs": [
-        "advanced-skills",
-        "inhabitants-of-tamriel",
-        "items-revised",
-        "roll-tables",
-        "macros",
-        "npc-build-reference-items-revised",
-        "powers",
-        "powers-revised",
-        "journal",
-        "spells-revised",
-        "talents-revised",
-        "traits",
-        "traits-revised"
-      ]
-    },
-    {
       "name": "UESRPG 3ev4",
       "sorting": "a",
       "color": "#000000",
@@ -188,10 +122,18 @@
         "PLAYER": "observer"
       },
       "packs": [
-        "signs",
         "core-skills",
-        "talents",
-        "rules-reference"
+        "advanced-skills",
+        "signs",
+        "items-revised",
+        "spells-revised",
+        "talents-revised",
+        "traits-revised",
+        "powers-revised",
+        "inhabitants-of-tamriel",
+        "rules-reference",
+        "journal",
+        "roll-tables"
       ]
     }
   ],
@@ -200,7 +142,7 @@
     "units": "m"
   },
   "primaryTokenAttribute": "hp",
-  "secondaryTokenAttribute": "action_points",
+  "secondaryTokenAttribute": "magicka",
   "url": "https://github.com/varys1337/uesrpg-3ev4",
   "manifest": "https://github.com/varys1337/uesrpg-3ev4/releases/latest/download/system.json",
   "download": "https://github.com/varys1337/uesrpg-3ev4/releases/download/v1.0.0-RC.84/uesrpg-3ev4.zip",

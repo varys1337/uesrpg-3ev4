@@ -73,16 +73,19 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th class="item-name-cell item-create addToContainer">+ Item</th>
+                                    <th class="item-name-cell item-create addToContainer" title="Left-click: Select items to add. Right-click: Add all eligible items.">+ Item</th>
                                     <th>Qty</th>
                                     <th>ENC</th>
-                                    <th style="white-space: nowrap;"><i class="fas fa-box-open" title="Remove from Container"></i>&nbsp;<i class="fas fa-trash" title="Delete Item"></i></th>
+                                    <th style="white-space: nowrap;">
+                                        <a class="item-control bulk-remove-all" title="Remove all items from container (does not delete)"><i class="fas fa-box-open"></i></a>&nbsp;
+                                        <a class="item-control bulk-delete-all" title="Delete all items in container (destructive)"><i class="fas fa-trash"></i></a>
+                                    </th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody class="container-drop-zone" style="min-height: 50px;">
                                 {{#if item.system.contained_items}}
                                     {{#each item.system.contained_items as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{#if item.item}}{{item.item.type}}{{/if}}">
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{#if item.item}}{{item.item.type}}{{/if}}" draggable="true">
                                             <td>
                                                 <div class="tableItemNameCell">
                                                     {{#if item.item}}
@@ -99,6 +102,12 @@
                                             </td>
                                         </tr>
                                     {{/each}}
+                                {{else}}
+                                    <tr>
+                                        <td colspan="4" style="text-align: center; padding: 20px; color: #666;">
+                                            <i>Drag items here or click + to add</i>
+                                        </td>
+                                    </tr>
                                 {{/if}}
                             </tbody>
                         </table>

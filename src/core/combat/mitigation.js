@@ -9,6 +9,8 @@
  *  - Deterministic and defensive around partial data
  */
 
+import { getWallOfSteelShieldBlockBonus } from "../traits/resilience-talents.js";
+
 const LOCATION_MAP = {
   Head: { key: "Head", label: "Head" },
   Body: { key: "Body", label: "Body" },
@@ -37,8 +39,13 @@ export function getBlockValue(shield, damageType = "physical") {
   const sys = shield.system ?? {};
   const dt = String(damageType || "physical").toLowerCase();
 
-  const baseBR = Number(sys.blockRatingEffective ?? sys.blockRating ?? 0);
-  if (!Number.isFinite(baseBR)) return 0;
+  const rawBR = Number(sys.blockRatingEffective ?? sys.blockRating ?? 0);
+  if (!Number.isFinite(rawBR)) return 0;
+
+  // Wall of Steel (Chapter 4): +1 BR for worn shields.
+  const parentActor = shield?.actor ?? shield?.parent ?? null;
+  const wallBonus = parentActor ? Number(getWallOfSteelShieldBlockBonus(parentActor) || 0) : 0;
+  const baseBR = rawBR + wallBonus;
 
   // Physical: base BR.
   if (dt === "physical") return Math.max(0, baseBR);

@@ -21,6 +21,8 @@
  *    with a deterministic in-flight guard.
  */
 
+import { isDebugEnabled } from "./debug.js";
+
 const NAMESPACE = "uesrpg-3ev4";
 
 const QUERY_UPDATE_CHAT_MESSAGE_V1 = `${NAMESPACE}.authority.updateChatMessage.v1`;
@@ -34,11 +36,7 @@ const _IN_FLIGHT_LOCKS = new Set();
 const _RECENT_SIGNATURES = new Map();
 
 function _debugEnabled() {
-  try {
-    return game.settings?.get?.(NAMESPACE, "effectsProxyDebug") === true;
-  } catch (_e) {
-    return false;
-  }
+  return isDebugEnabled("effectsProxyDebug");
 }
 
 function _dlog(msg, data) {
@@ -177,12 +175,14 @@ function _isAuthor(message, user) {
 }
 
 function _deepClonePlain(obj) {
+  // JSON round-trip strips read-only property descriptors from Foundry v13 flag
+  // proxy objects.  foundry.utils.deepClone preserves those descriptors, causing
+  // "Cannot assign to read only property" errors during mergeObject.
   try {
-    if (foundry?.utils?.deepClone) return foundry.utils.deepClone(obj);
-    return structuredClone(obj);
+    return JSON.parse(JSON.stringify(obj));
   } catch (_e) {
     try {
-      return JSON.parse(JSON.stringify(obj));
+      return structuredClone(obj);
     } catch (_e2) {
       return obj;
     }
@@ -195,6 +195,8 @@ function _deepClonePlain(obj) {
  *  - content: string
  *  - flags[systemId].opposed
  *  - flags[systemId].skillOpposed
+ *  - flags[systemId].magicOpposed
+ *  - flags[systemId].charOpposed
  */
 export function sanitizeChatMessageUpdatePayload(payload) {
   if (!payload || typeof payload !== "object") return {};
@@ -210,6 +212,8 @@ export function sanitizeChatMessageUpdatePayload(payload) {
     const cleanedSysFlags = {};
     if (Object.prototype.hasOwnProperty.call(sysFlags, "opposed")) cleanedSysFlags.opposed = _deepClonePlain(sysFlags.opposed);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "skillOpposed")) cleanedSysFlags.skillOpposed = _deepClonePlain(sysFlags.skillOpposed);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "magicOpposed")) cleanedSysFlags.magicOpposed = _deepClonePlain(sysFlags.magicOpposed);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "charOpposed")) cleanedSysFlags.charOpposed = _deepClonePlain(sysFlags.charOpposed);
     if (Object.keys(cleanedSysFlags).length > 0) out.flags = { [sysId]: cleanedSysFlags };
   }
 
@@ -231,6 +235,8 @@ export function isChatMessageUpdateFresh(message, payload) {
     const lanes = [];
     if (Object.prototype.hasOwnProperty.call(incoming, "opposed")) lanes.push("opposed");
     if (Object.prototype.hasOwnProperty.call(incoming, "skillOpposed")) lanes.push("skillOpposed");
+    if (Object.prototype.hasOwnProperty.call(incoming, "magicOpposed")) lanes.push("magicOpposed");
+    if (Object.prototype.hasOwnProperty.call(incoming, "charOpposed")) lanes.push("charOpposed");
     if (lanes.length === 0) return true;
 
     const extract = (obj, lane) => {
@@ -244,6 +250,18 @@ export function isChatMessageUpdateFresh(message, payload) {
         return {
           ts: Number(obj?.skillOpposed?.state?.context?.updatedAt ?? 0),
           seq: Number(obj?.skillOpposed?.state?.context?.updatedSeq ?? 0)
+        };
+      }
+      if (lane === "magicOpposed") {
+        return {
+          ts: Number(obj?.magicOpposed?.state?.context?.updatedAt ?? 0),
+          seq: Number(obj?.magicOpposed?.state?.context?.updatedSeq ?? 0)
+        };
+      }
+      if (lane === "charOpposed") {
+        return {
+          ts: Number(obj?.charOpposed?.state?.context?.updatedAt ?? 0),
+          seq: Number(obj?.charOpposed?.state?.context?.updatedSeq ?? 0)
         };
       }
       return { ts: 0, seq: 0 };
@@ -696,13 +714,21 @@ export async function requestUpdateChatMessage(message, payload, { timeout = 500
 
   // Direct path.
   if (canUserUpdateChatMessage(message, game.user)) {
+    // Apply the same sanitization and freshness check as the proxy path
+    // to prevent stale payloads from overwriting newer state.
+    const sanitized = sanitizeChatMessageUpdatePayload(payload);
+    if (!sanitized || Object.keys(sanitized).length === 0) return false;
+    if (!isChatMessageUpdateFresh(message, sanitized)) {
+      _dwarn("direct update skipped (stale payload)", { messageId: message.id });
+      return false;
+    }
     try {
-      await message.update(payload);
+      await message.update(sanitized);
       return true;
     } catch (err) {
       _dwarn("direct update failed; applying non-rendering fallback", { messageId: message.id, err });
       try {
-        await message.update(payload, { render: false });
+        await message.update(sanitized, { render: false });
         if (ui?.chat) ui.chat.render?.(true);
         return true;
       } catch (err2) {

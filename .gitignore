@@ -1,9 +1,14 @@
-node_modules
-packs/*
-!packs/src/
+# Build/artifact files
+*.log
+*.zip
+dist/
+node_modules/
 
-CLAUDE.md
-AGENTS.md
-.claude
-dev-context
-plans/
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Foundry compendium/leveldb locks
+packs/**/LOCK
+packs/**/LOG
+packs/**/LOG.*

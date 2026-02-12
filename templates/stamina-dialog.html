@@ -1,8 +1,12 @@
 <div class="uesrpg-stamina-dialog">
   <div class="uesrpg-stamina-status{{#if showWarning}} is-warning{{/if}}">
-    <p class="uesrpg-stamina-status__line"><b>Current Stamina:</b> {{currentSP}} / {{maxSP}}</p>
+    <p class="uesrpg-stamina-status__line"><b>Current SP:</b> {{currentSP}}</p>
+    {{#if (gt tempSP 0)}}
+    <p class="uesrpg-stamina-status__line"><b>Temporary SP:</b> +{{tempSP}} <span style="opacity:0.7;font-size:0.9em;">(consumed first)</span></p>
+    {{/if}}
+    <p class="uesrpg-stamina-status__line"><b>Effective SP:</b> {{effectiveSP}} / {{maxSP}}</p>
     {{#if showWarning}}
-      <p class="uesrpg-stamina-warning">Warning: Spending at or below 0 SP will increase fatigue.</p>
+      <p class="uesrpg-stamina-warning">⚠️ Warning: Spending at or below 0 SP will increase fatigue.</p>
     {{/if}}
   </div>
   <form class="uesrpg-stamina-form">

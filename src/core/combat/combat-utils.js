@@ -92,6 +92,48 @@ export function getDamageTypeFromWeapon(weapon) {
 }
 
 /**
+ * Get all damage instances for a weapon, including the base damage from existing fields.
+ * Returns an array suitable for per-instance rolling, each with {formula, type, label}.
+ * When no damageInstances are configured, wraps the base damage as a single entry.
+ * @param {Item} weapon
+ * @returns {Array<{formula: string, type: string, label: string}>}
+ */
+export function getWeaponDamageInstances(weapon) {
+  const instances = [];
+
+  // Primary instance from existing damage fields
+  const baseDamage = String(
+    weapon?.system?.damage3Effective ?? weapon?.system?.damage3
+    ?? weapon?.system?.damage2Effective ?? weapon?.system?.damage2
+    ?? weapon?.system?.damageEffective ?? weapon?.system?.damage ?? "0"
+  );
+  const primaryType = getDamageTypeFromWeapon(weapon);
+  if (baseDamage && baseDamage !== "0") {
+    instances.push({
+      formula: baseDamage,
+      type: primaryType,
+      label: "Base"
+    });
+  }
+
+  // Additional configured instances
+  const extra = weapon?.system?.damageInstances;
+  if (Array.isArray(extra)) {
+    for (const inst of extra) {
+      const formula = String(inst?.formula ?? "").trim();
+      if (!formula) continue;
+      instances.push({
+        formula,
+        type: String(inst?.type ?? "physical").toLowerCase(),
+        label: String(inst?.label ?? "").trim()
+      });
+    }
+  }
+
+  return instances;
+}
+
+/**
  * Infer attack mode from a weapon item.
  *
  * @param {Item|null} weapon

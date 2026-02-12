@@ -27,7 +27,9 @@
 
 import { hasCondition } from "./condition-engine.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { safeGetEffect } from "../../utils/ae-helpers.js";
 import { TimeService } from "../time/index.js";
+import { isDebugEnabled } from "../../utils/debug.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
@@ -107,11 +109,7 @@ function _normKey(k) {
 
 
 function _debugEnabled() {
-  try {
-    return game?.settings?.get("uesrpg-3ev4", "effectsProxyDebug") === true;
-  } catch (_e) {
-    return false;
-  }
+  return isDebugEnabled("effectsProxyDebug");
 }
 
 function _dbg(...args) {
@@ -320,17 +318,18 @@ export function _mkFrenziedChanges(actor) {
 }
 
 //------------------------------------------------------------------------------
-// Effect Repair Hook
+// Effect Toggle Hook (SP grant/loss on enable/disable)
 //------------------------------------------------------------------------------
 
 /**
- * Register a hook to repair Frenzied effects that have empty changes arrays.
- * This ensures effects created before fixes are applied get their changes populated.
+ * Register a hook to handle SP effects when Frenzied is toggled on/off.
+ * - Disable → SP loss via `_applyFrenziedEndEffects`
+ * - Re-enable → grant temporary SP bonus
  */
-function _registerFrenziedRepairHook() {
-  if (game.uesrpg?._frenziedRepairHookRegistered) return;
+function _registerFrenziedToggleHook() {
+  if (game.uesrpg?._frenziedToggleHookRegistered) return;
   if (!game.uesrpg) game.uesrpg = {};
-  game.uesrpg._frenziedRepairHookRegistered = true;
+  game.uesrpg._frenziedToggleHookRegistered = true;
 
   Hooks.on("updateActiveEffect", async (effect, data, options, userId) => {
     try {
@@ -339,111 +338,52 @@ function _registerFrenziedRepairHook() {
                          effect?.flags?.core?.statusId === CONDITION_KEY;
       if (!isFrenzied) return;
 
-      // Check if changes are missing or empty
-      const currentChanges = Array.isArray(effect.changes) ? effect.changes : [];
-      if (_needsFrenziedChangesRepair(currentChanges)) {
-        const actor = effect.parent;
-        if (!actor || !actor.system) return;
+      const actor = effect?.parent ?? null;
 
-        // Defer to avoid timing issues during prepareData
-        // Use a longer delay to ensure actor data is fully prepared
-        setTimeout(async () => {
+      // Check if effect is being disabled (toggled off)
+      if (Object.prototype.hasOwnProperty.call(data, "disabled") && data.disabled === true) {
+        // Effect was just disabled - apply SP loss
+        const activeGM = game.users?.activeGM ?? null;
+        if (activeGM) {
+          if (game.user.id !== activeGM.id) return;
+        } else if (game.user.id !== userId) {
+          return;
+        }
+
+        if (actor && actor.documentName === "Actor") {
+          await _applyFrenziedEndEffects(actor, { effectId: effect.id, reason: "disabled" });
+        }
+        return;
+      }
+
+      // Check if effect is being re-enabled (toggled on)
+      if (Object.prototype.hasOwnProperty.call(data, "disabled") && data.disabled === false) {
+        // Effect was just re-enabled - grant SP bonus as temp SP
+        const activeGM = game.users?.activeGM ?? null;
+        if (activeGM) {
+          if (game.user.id !== activeGM.id) return;
+        } else if (game.user.id !== userId) {
+          return;
+        }
+
+        if (actor && actor.documentName === "Actor") {
+          const mods = _getTalentModifiers(actor);
+          const currentTemp = Number(actor.system?.stamina?.temp ?? 0);
+          const newTemp = currentTemp + mods.spBonus; // Stack temp SP
+          
           try {
-            // Double-check actor is still valid
-            const refreshedActor = game.actors.get(actor.id);
-            if (!refreshedActor || !refreshedActor.system) {
-              _dbg("UESRPG | Frenzied | Actor no longer valid for repair", { actorId: actor.id });
-              return;
-            }
-
-            const refreshedEffect = refreshedActor.effects.get(effect.id);
-            if (!refreshedEffect) {
-              _dbg("UESRPG | Frenzied | Effect no longer exists", { effectId: effect.id });
-              return;
-            }
-
-            // Check again if changes still need repair (missing or legacy key)
-            const refreshedChanges = Array.isArray(refreshedEffect.changes) ? refreshedEffect.changes : [];
-            const stillNeedsRepair = _needsFrenziedChangesRepair(refreshedChanges);
-            if (!stillNeedsRepair) {
-              _dbg("UESRPG | Frenzied | Effect already has valid changes, skipping repair", { effectId: effect.id });
-              return;
-            }
-
-            _dbg("UESRPG | Frenzied | Repairing effect with missing/legacy changes", { 
-              effectId: effect.id,
-              actor: refreshedActor.name 
-            });
-
-            const changes = _mkFrenziedChanges(refreshedActor);
-            const changesToApply = changes.map(c => ({
-              key: String(c.key ?? ""),
-              mode: Number(c.mode ?? CONST.ACTIVE_EFFECT_MODES.ADD),
-              value: String(c.value ?? ""),
-              priority: Number(c.priority ?? 20)
-            }));
-
-            if (changesToApply.length > 0) {
-              await requestUpdateDocument(refreshedEffect, { changes: changesToApply });
-              _dbg("UESRPG | Frenzied | Effect repaired with changes", { 
-                effectId: effect.id,
-                changesCount: changesToApply.length 
-              });
-            }
+            await requestUpdateDocument(actor, { "system.stamina.temp": newTemp });
+            ui.notifications.info(`${actor.name} gains ${mods.spBonus} temporary Stamina Point${mods.spBonus > 1 ? 's' : ''} from Frenzy!`);
           } catch (err) {
-            console.warn("UESRPG | Frenzied | Repair failed", { effectId: effect.id, err });
+            console.warn("UESRPG | Frenzied | Failed to grant SP on re-enable", err);
           }
-        }, 200);
+        }
+        return;
       }
     } catch (err) {
-      // Silently fail - repair is non-critical
-      _dbg("UESRPG | Frenzied | Repair hook error", err);
+      _dbg("UESRPG | Frenzied | Toggle hook error", err);
     }
   });
-}
-
-async function _repairLegacyFrenziedEffectsOnReady() {
-  if (game?.user?.isGM !== true) return;
-
-  const actors = Array.isArray(game?.actors?.contents)
-    ? game.actors.contents
-    : Array.from(game?.actors ?? []);
-
-  let repaired = 0;
-
-  for (const actor of actors) {
-    if (!actor) continue;
-    const effects = _effectsOf(actor).filter(_isFrenziedEffect);
-    if (!effects.length) continue;
-
-    for (const effect of effects) {
-      const currentChanges = Array.isArray(effect?.changes) ? effect.changes : [];
-      if (!_needsFrenziedChangesRepair(currentChanges)) continue;
-
-      const changes = _mkFrenziedChanges(actor);
-      const changesToApply = Array.isArray(changes)
-        ? changes.map(c => ({
-            key: String(c.key ?? ""),
-            mode: Number(c.mode ?? CONST.ACTIVE_EFFECT_MODES.ADD),
-            value: String(c.value ?? ""),
-            priority: Number(c.priority ?? 20)
-          }))
-        : [];
-
-      if (!changesToApply.length) continue;
-
-      try {
-        await requestUpdateDocument(effect, { changes: changesToApply });
-        repaired += 1;
-      } catch (err) {
-        console.warn("UESRPG | Frenzied | Legacy repair failed", { actor: actor?.name, effectId: effect?.id, err });
-      }
-    }
-  }
-
-  if (repaired > 0) {
-    _dbg(`UESRPG | Frenzied | Repaired ${repaired} effect(s) with missing/legacy changes on ready`);
-  }
 }
 
 
@@ -624,7 +564,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
         [`${FLAG_PATH}.condition.voluntary`]: voluntary,
         [`${FLAG_PATH}.condition.source`]: source
       });
-      console.log("UESRPG | Frenzied | Updated existing effect with missing changes", { 
+      _dbg("UESRPG | Frenzied | Updated existing effect with missing changes", {
         effectId: existing.id,
         changesCount: changesToApply.length 
       });
@@ -692,7 +632,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
     }
     
     // Log changes for debugging
-    console.log("UESRPG | Frenzied | Creating effect with changes", { 
+    _dbg("UESRPG | Frenzied | Creating effect with changes", {
       actor: actor.name, 
       changesCount: changesToApply.length,
       changes: changesToApply.map(c => ({ key: c.key, mode: c.mode, value: c.value }))
@@ -711,7 +651,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
       return null;
     }
 
-    console.log("UESRPG | Frenzied | About to create effect", {
+    _dbg("UESRPG | Frenzied | About to create effect", {
       actor: actor.name,
       changesInEffectData: effectData.changes.length,
       changesPreview: effectData.changes.map(c => ({ key: c.key, value: c.value }))
@@ -731,7 +671,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
         });
         // The repair hook will handle this on the next update cycle
       } else {
-        console.log("UESRPG | Frenzied | Effect created successfully with changes", { 
+        _dbg("UESRPG | Frenzied | Effect created successfully with changes", {
           effectId: createdEffect.id,
           changesCount: appliedChanges.length
         });
@@ -740,17 +680,17 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
       console.error("UESRPG | Frenzied | No effect was created", { created, effectData });
     }
     
-    // RAW: Gain +1 SP immediately (can exceed max)
+    // RAW: Gain +1 SP immediately (can exceed max) - stored as temp SP
     const mods = _getTalentModifiers(actor);
-    const currentSP = Number(actor.system?.stamina?.value ?? 0);
-    const newSP = currentSP + mods.spBonus; // Can exceed max per RAW
+    const currentTemp = Number(actor.system?.stamina?.temp ?? 0);
+    const newTemp = currentTemp + mods.spBonus; // Stack temp SP (e.g., multiple Frenzy applications)
     
-    await requestUpdateDocument(actor, { "system.stamina.value": newSP });
+    await requestUpdateDocument(actor, { "system.stamina.temp": newTemp });
     
     // FIX: Force immediate effect application
     actor.prepareData();
     
-    ui.notifications.info(`${actor.name} gains ${mods.spBonus} Stamina Point${mods.spBonus > 1 ? 's' : ''} from Frenzy!`);
+    ui.notifications.info(`${actor.name} gains ${mods.spBonus} temporary Stamina Point${mods.spBonus > 1 ? 's' : ''} from Frenzy!`);
     
     return created?.[0] ?? null;
   } catch (err) {
@@ -776,7 +716,22 @@ async function _applyFrenziedEndEffects(actor, { effectId = null, applySPLoss = 
   const mods = _getTalentModifiers(actor);
   const spLoss = applySPLoss ? Math.max(0, Number(mods.spLossOnEnd ?? 0) || 0) : 0;
   const currentSP = Number(actor.system?.stamina?.value ?? 0);
-  const newSP = spLoss > 0 ? Math.max(1, currentSP - spLoss) : currentSP;
+  const currentTemp = Number(actor.system?.stamina?.temp ?? 0);
+
+  // Consume temp SP first, then regular SP (cannot kill - minimum 1 SP)
+  let remainingCost = spLoss;
+  let newTemp = currentTemp;
+  let newSP = currentSP;
+
+  if (remainingCost > 0 && newTemp > 0) {
+    const tempConsumed = Math.min(newTemp, remainingCost);
+    newTemp -= tempConsumed;
+    remainingCost -= tempConsumed;
+  }
+
+  if (remainingCost > 0) {
+    newSP = Math.max(1, currentSP - remainingCost); // Cannot kill per RAW
+  }
 
   const guardPayload = {
     effectId: effectId ?? null,
@@ -790,8 +745,14 @@ async function _applyFrenziedEndEffects(actor, { effectId = null, applySPLoss = 
   };
 
   const updates = { [FRENZIED_END_GUARD_PATH]: guardPayload };
-  if (spLoss > 0 && Number.isFinite(newSP)) {
-    updates["system.stamina.value"] = newSP;
+  if (spLoss > 0) {
+    updates["system.stamina.temp"] = newTemp;
+    if (Number.isFinite(newSP)) {
+      updates["system.stamina.value"] = newSP;
+    }
+  } else {
+    // No SP loss, but still clear temp SP
+    updates["system.stamina.temp"] = 0;
   }
 
   try {
@@ -801,9 +762,11 @@ async function _applyFrenziedEndEffects(actor, { effectId = null, applySPLoss = 
   }
 
   const modLabel = _formatFrenziedEndModifiers(mods);
+  const tempConsumedTotal = currentTemp - newTemp;
+  const regularConsumedTotal = currentSP - newSP;
   const spLine = spLoss > 0
-    ? `Spent ${spLoss} Stamina Point${spLoss > 1 ? "s" : ""} (now ${newSP} SP).`
-    : `No Stamina spent (now ${newSP} SP).`;
+    ? `Spent ${spLoss} SP (${tempConsumedTotal} temp, ${regularConsumedTotal} regular) - now ${newSP}${newTemp > 0 ? ` (+${newTemp})` : ''} / ${actor.system?.stamina?.max ?? 0} SP.`
+    : `No Stamina spent - now ${newSP}${newTemp > 0 ? ` (+${newTemp})` : ''} / ${actor.system?.stamina?.max ?? 0} SP.`;
 
   try {
     await ChatMessage.create({
@@ -911,10 +874,7 @@ export function registerFrenzied() {
     _registerFrenziedPreCreateHook();
     _registerFrenziedCreateHook();
     _registerFrenziedDeleteHook();
-    Hooks.once("ready", async () => {
-      _registerFrenziedRepairHook();
-      await _repairLegacyFrenziedEffectsOnReady();
-    });
+    _registerFrenziedToggleHook();
   } catch (err) {
     console.warn("UESRPG | Frenzied | Failed to register Frenzied hooks", err);
   }

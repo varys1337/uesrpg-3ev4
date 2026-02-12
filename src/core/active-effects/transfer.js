@@ -23,18 +23,44 @@
  *    (these fields can be introduced later without rewriting this function)
  *  - other item types: inactive by default (conservative; we whitelist types deliberately)
  */
+function getPassiveTransferItemTypes() {
+  try {
+    const raw = game?.settings?.get?.("uesrpg-3ev4", "passiveTransferItemTypes") ?? "";
+    return new Set(
+      String(raw)
+        .split(",")
+        .map(s => s.trim().toLowerCase())
+        .filter(Boolean)
+    );
+  } catch (_e) {
+    return new Set();
+  }
+}
+
 export function isTransferEffectActive(actor, item, effect) {
   if (!effect?.transfer) return false;
   if (effect?.disabled) return false;
   if (!item) return false;
 
-  const type = item.type;
+  const type = String(item.type ?? "").toLowerCase();
+  const passiveTypes = getPassiveTransferItemTypes();
+
+  // If configured as passive-transfer, it's always active while owned (in inventory).
+  if (passiveTypes.has(type)) return true;
 
   // PASSIVE FEATURE TYPES: ALWAYS ACTIVE
   // Talents, Traits, and Powers are inherent character abilities.
   // They do NOT require equipment status - they are always "on".
   // These represent passive character features like racial abilities, learned talents, etc.
-  if (type === "talent" || type === "trait" || type === "power") return true;
+  // Exception: if suppressSelfTransfer is enabled, the item's AEs should NOT
+  // apply to the owning actor (they are meant to be transferred to targets instead).
+  if (type === "talent" || type === "trait" || type === "power") {
+    try {
+      const suppress = item.getFlag?.("uesrpg-3ev4", "featureConfig")?.suppressSelfTransfer;
+      if (suppress === true) return false;
+    } catch (_e) { /* safe fallback — allow transfer */ }
+    return true;
+  }
   
   // EQUIPMENT TYPES: REQUIRE EQUIPPED STATUS
   // Weapons and armor must be equipped to provide their active effects.

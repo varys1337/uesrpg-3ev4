@@ -1,8 +1,12 @@
-import { getResistanceBonusOptions } from "./trait-registry.js";
+/**
+ * @module traits/trait-resistance-ui
+ * @description UI helpers for rendering trait resistance option selectors.
+ *
+ * Target: Foundry VTT v13.351
+ */
 
-function _bool(val) {
-  return val === true || val === "true" || val === "1";
-}
+import { getResistanceBonusOptions } from "./trait-registry.js";
+import { _bool } from "../../utils/coerce.js";
 
 function _escapeHtml(value) {
   return String(value ?? "")

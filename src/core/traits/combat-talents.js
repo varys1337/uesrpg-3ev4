@@ -1,7 +1,6 @@
 /**
- * src/core/traits/combat-talents.js
- *
- * Combat-talent automation layer.
+ * @module traits/combat-talents
+ * @description Combat-talent automation layer.
  *
  * This module provides small, explicit interceptors that existing combat
  * workflows can call at well-defined points.
@@ -15,10 +14,12 @@
 
 import {
   hasTalent,
+  getTalentItem,
   getSkillRank,
   getCombatStyleRank
 } from "./talents-api.js";
 
+import { shouldYieldToRE } from "./features/rule-elements.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { itemHasToken } from "../combat/damage-automation.js";
 import { getEffectiveWeaponHands } from "../combat/combat-utils.js";
@@ -27,19 +28,10 @@ import {
   getActorCanvasToken,
   getMeleeReachMeters,
   countOpponentsInMeleeRange,
-  anyOtherTokensInMeleeOfEither,
   isWithinMeleeRange,
   hasAllyWithTalentInMeleeOfOpponent
 } from "./combat-proximity.js";
-
-function _asNumber(v, fallback = 0) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function _lower(v) {
-  return String(v ?? "").toLowerCase().trim();
-}
+import { _num as _asNumber, _lower, _buildSituationalMod } from "./_primitives.js";
 
 function _isSuccess(result) {
   return Boolean(result?.isSuccess);
@@ -67,15 +59,6 @@ function _getReachMetersForTest({ actor, weaponUuid } = {}) {
   return getMeleeReachMeters(actor);
 }
 
-function _buildSituationalMod(key, label, value) {
-  return {
-    key: String(key ?? ""),
-    label: String(label ?? key ?? ""),
-    value: _asNumber(value, 0),
-    source: "talent"
-  };
-}
-
 /**
  * Apply pre-TN talent modifiers for attacker-side declarations.
  *
@@ -94,6 +77,8 @@ export function applyAttackerTalentPreTN({ attacker, declaration, situationalMod
 
   const variant = _lower(declaration?.variant ?? "");
   if (variant === "precision" && hasTalent(attacker, "precise")) {
+    // Yield to Rule Element runtime when it has an authoritative tnModifier for this talent.
+    if (shouldYieldToRE(attacker, "precise", "tnModifier", "combat", getTalentItem)) return;
     // Avoid duplicate injection.
     if (!situationalMods.some(m => String(m?.key ?? "") === "talent:precise")) {
       situationalMods.push(_buildSituationalMod("talent:precise", "Precise", +20));
@@ -123,6 +108,10 @@ export function getDefenseTalentOverrides({ defender, attackMode, attackerWeapon
   const isRanged = (mode === "ranged");
 
   if (defender && isRanged && weaponCtx && hasTalent(defender, "lightningreflexes")) {
+    // Yield to Rule Element runtime when it has authoritative defenseOverride + tnModifier.
+    if (shouldYieldToRE(defender, "lightningreflexes", "defenseOverride", "combat", getTalentItem)) {
+      return { allowParryRanged: false, parryRangedTNMod: 0 };
+    }
     return { allowParryRanged: true, parryRangedTNMod: -20 };
   }
   return { allowParryRanged: false, parryRangedTNMod: 0 };
@@ -180,35 +169,33 @@ function _getCorrespondingRank({ actor, defenseType, styleUuid, testLabel } = {}
 }
 
 export async function promptDoSReplacement({ title, rolledDoS, rankDoS, rankLabel } = {}) {
-  return new Promise(resolve => {
-    const dlg = new Dialog({
-      title: title || "Talent: Degrees of Success",
-      content: `
-        <div class="uesrpg">
-          <p>Choose which Degrees of Success to use for this test:</p>
-          <ul>
-            <li><b>Rolled</b>: ${rolledDoS} DoS</li>
-            <li><b>${rankLabel}</b>: ${rankDoS} DoS</li>
-          </ul>
-        </div>
-      `,
-      buttons: {
-        rolled: {
-          icon: '<i class="fas fa-dice"></i>',
-          label: `Use Rolled (${rolledDoS})`,
-          callback: () => resolve({ choice: "rolled" })
-        },
-        rank: {
-          icon: '<i class="fas fa-star"></i>',
-          label: `Use ${rankLabel} (${rankDoS})`,
-          callback: () => resolve({ choice: "rank" })
-        }
+  const result = await Dialog.wait({
+    title: title || "Talent: Degrees of Success",
+    content: `
+      <div class="uesrpg">
+        <p>Choose which Degrees of Success to use for this test:</p>
+        <ul>
+          <li><b>Rolled</b>: ${rolledDoS} DoS</li>
+          <li><b>${rankLabel}</b>: ${rankDoS} DoS</li>
+        </ul>
+      </div>
+    `,
+    buttons: {
+      rolled: {
+        icon: '<i class="fas fa-dice"></i>',
+        label: `Use Rolled (${rolledDoS})`,
+        callback: () => ({ choice: "rolled" })
       },
-      default: "rolled",
-      close: () => resolve({ choice: "rolled" })
-    });
-    dlg.render(true);
+      rank: {
+        icon: '<i class="fas fa-star"></i>',
+        label: `Use ${rankLabel} (${rankDoS})`,
+        callback: () => ({ choice: "rank" })
+      }
+    },
+    default: "rolled",
+    close: () => ({ choice: "rolled" })
   });
+  return result;
 }
 
 function _maybeAddBreakdownTN(tn, mod) {
@@ -319,20 +306,27 @@ export async function applyCombatTalentDoSAdjustments({
   let bonusDoS = 0;
   if (withinMeleeOfOpponent) {
     if (hasTalent(actor, "brawler") && opponentsInMelee >= 2) {
-      bonusDoS += 1;
-      notes.push("Brawler: +1 DoS (rolled only)");
+      // Yield to Rule Element runtime if the talent carries an authoritative dosBonus RE.
+      if (!shouldYieldToRE(actor, "brawler", "dosBonus", "combat", getTalentItem)) {
+        bonusDoS += 1;
+        notes.push("Brawler: +1 DoS (rolled only)");
+      }
     }
     if ((isCombatStyleTest || isEvadeTest) && hasTalent(actor, "duelist") && opponentsInMelee === 1) {
-      bonusDoS += 1;
-      notes.push("Duelist: +1 DoS (rolled only)");
+      if (!shouldYieldToRE(actor, "duelist", "dosBonus", "combat", getTalentItem)) {
+        bonusDoS += 1;
+        notes.push("Duelist: +1 DoS (rolled only)");
+      }
     }
     if (isCombatStyleTest && hasTalent(actor, "teamwork")) {
-      const hasAlly = hasAllyWithTalentInMeleeOfOpponent(token, opponentToken, "teamwork", {
-        reachMetersForAlly: 2
-      });
-      if (hasAlly) {
-        bonusDoS += 1;
-        notes.push("Teamwork: +1 DoS");
+      if (!shouldYieldToRE(actor, "teamwork", "dosBonus", "combat", getTalentItem)) {
+        const hasAlly = hasAllyWithTalentInMeleeOfOpponent(token, opponentToken, "teamwork", {
+          reachMetersForAlly: 2
+        });
+        if (hasAlly) {
+          bonusDoS += 1;
+          notes.push("Teamwork: +1 DoS");
+        }
       }
     }
   }
@@ -347,27 +341,31 @@ export async function applyCombatTalentDoSAdjustments({
 
   // Hyper Awareness: Combat Style tests only (Evade is handled by awareness-talents).
   if (isCombatStyleTest && hasTalent(actor, "hyperawareness")) {
-    const obsRank = getSkillRank(actor, "Observe");
-    if (obsRank > 0) {
-      replaceOptions.push({
-        slug: "hyperawareness",
-        title: "Hyper Awareness",
-        rankDoS: obsRank,
-        rankLabel: "Observe Rank"
-      });
+    if (!shouldYieldToRE(actor, "hyperawareness", "dosReplacement", "combat", getTalentItem)) {
+      const obsRank = getSkillRank(actor, "Observe");
+      if (obsRank > 0) {
+        replaceOptions.push({
+          slug: "hyperawareness",
+          title: "Hyper Awareness",
+          rankDoS: obsRank,
+          rankLabel: "Observe Rank"
+        });
+      }
     }
   }
 
   // Tricky Fighter: on melee Combat Style test vs melee opponent: choose rolled DoS or Deceive rank.
   if (withinMeleeOfOpponent && isCombatStyleTest && hasTalent(actor, "trickyfighter")) {
-    const deceiveRank = getSkillRank(actor, "Deceive");
-    if (deceiveRank > 0) {
-      replaceOptions.push({
-        slug: "trickyfighter",
-        title: "Tricky Fighter",
-        rankDoS: deceiveRank,
-        rankLabel: "Deceive Rank"
-      });
+    if (!shouldYieldToRE(actor, "trickyfighter", "dosReplacement", "combat", getTalentItem)) {
+      const deceiveRank = getSkillRank(actor, "Deceive");
+      if (deceiveRank > 0) {
+        replaceOptions.push({
+          slug: "trickyfighter",
+          title: "Tricky Fighter",
+          rankDoS: deceiveRank,
+          rankLabel: "Deceive Rank"
+        });
+      }
     }
   }
 
@@ -377,43 +375,51 @@ export async function applyCombatTalentDoSAdjustments({
   const label = _lower(testLabel);
 
   if (hasTalent(actor, "wrestler")) {
-    const looksLikeGrapple = label.includes("grapple") || label.includes("restrain") || label.includes("entangle");
-    if (looksLikeGrapple) {
-      const csRank = getCombatStyleRank(actor, { styleUuid, styleName: testLabel });
-      if (csRank > 0) {
-        replaceOptions.push({
-          slug: "wrestler",
-          title: "Wrestler",
-          rankDoS: csRank,
-          rankLabel: "Combat Style Rank"
-        });
+    if (shouldYieldToRE(actor, "wrestler", "dosReplacement", "combat", getTalentItem)) {
+      // RE handles Wrestler — skip interceptor.
+    } else {
+      const looksLikeGrapple = label.includes("grapple") || label.includes("restrain") || label.includes("entangle");
+      if (looksLikeGrapple) {
+        const csRank = getCombatStyleRank(actor, { styleUuid, styleName: testLabel });
+        if (csRank > 0) {
+          replaceOptions.push({
+            slug: "wrestler",
+            title: "Wrestler",
+            rankDoS: csRank,
+            rankLabel: "Combat Style Rank"
+          });
+        }
       }
     }
   }
 
   // Champion: melee vs only one opponent: choose rolled DoS or corresponding skill rank.
   if (withinMeleeOfOpponent && opponentsInMelee === 1 && hasTalent(actor, "champion")) {
-    const rank = _getCorrespondingRank({ actor, defenseType: dt, styleUuid, testLabel });
-    if (rank > 0) {
-      replaceOptions.push({
-        slug: "champion",
-        title: "Champion",
-        rankDoS: rank,
-        rankLabel: `${skillLabel} Rank`
-      });
+    if (!shouldYieldToRE(actor, "champion", "dosReplacement", "combat", getTalentItem)) {
+      const rank = _getCorrespondingRank({ actor, defenseType: dt, styleUuid, testLabel });
+      if (rank > 0) {
+        replaceOptions.push({
+          slug: "champion",
+          title: "Champion",
+          rankDoS: rank,
+          rankLabel: `${skillLabel} Rank`
+        });
+      }
     }
   }
 
   // God of War: melee vs 2+ opponents: choose rolled DoS or corresponding skill rank.
   if (withinMeleeOfOpponent && opponentsInMelee >= 2 && hasTalent(actor, "godofwar")) {
-    const rank = _getCorrespondingRank({ actor, defenseType: dt, styleUuid, testLabel });
-    if (rank > 0) {
-      replaceOptions.push({
-        slug: "godofwar",
-        title: "God of War",
-        rankDoS: rank,
-        rankLabel: `${skillLabel} Rank`
-      });
+    if (!shouldYieldToRE(actor, "godofwar", "dosReplacement", "combat", getTalentItem)) {
+      const rank = _getCorrespondingRank({ actor, defenseType: dt, styleUuid, testLabel });
+      if (rank > 0) {
+        replaceOptions.push({
+          slug: "godofwar",
+          title: "God of War",
+          rankDoS: rank,
+          rankLabel: `${skillLabel} Rank`
+        });
+      }
     }
   }
 
@@ -603,8 +609,14 @@ export async function applyCombatTalentDoSAdjustmentsUnopposed({
 export function getEnemyWoundThresholdDelta({ attacker, attackMode } = {}) {
   const mode = _lower(attackMode);
   if (!attacker) return 0;
-  if (mode === "melee" && hasTalent(attacker, "cripplingstrikes")) return -1;
-  if (mode === "ranged" && hasTalent(attacker, "eyeofvengeance")) return -1;
+  if (mode === "melee" && hasTalent(attacker, "cripplingstrikes")) {
+    if (shouldYieldToRE(attacker, "cripplingstrikes", "wtDelta", "combat", getTalentItem)) return 0;
+    return -1;
+  }
+  if (mode === "ranged" && hasTalent(attacker, "eyeofvengeance")) {
+    if (shouldYieldToRE(attacker, "eyeofvengeance", "wtDelta", "combat", getTalentItem)) return 0;
+    return -1;
+  }
   return 0;
 }
 
@@ -645,6 +657,10 @@ export function applyTalentDamageModifiers({ attacker, target, attackerToken, we
   if (!hasTalent(attacker, "sneakattack") && !hasTalent(attacker, "assassinate")) return;
   if (!weapon || weapon.type !== "weapon") return;
 
+  // Sneak Attack damage bonus can be handled by Rule Elements;
+  // Assassinate logic is interceptor-only (too complex for RE conditions).
+  const sneakYieldToRE = shouldYieldToRE(attacker, "sneakattack", "damageBonus", "combat", getTalentItem);
+
   const tok = attackerToken ?? getActorCanvasToken(attacker);
   const forcedHidden = (typeof damageContext.attackFromHidden === "boolean") ? damageContext.attackFromHidden : null;
   const hiddenNow = forcedHidden === null
@@ -654,12 +670,18 @@ export function applyTalentDamageModifiers({ attacker, target, attackerToken, we
 
   // Sneak Attack bonus damage.
   if (hasTalent(attacker, "sneakattack")) {
-    const stealthRank = getSkillRank(attacker, "Stealth");
-    if (stealthRank > 0) {
-      damageContext.talentDamageBonus = _asNumber(damageContext.talentDamageBonus, 0) + stealthRank;
-      damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
-      damageContext.talentNotes.push(`Sneak Attack: +${stealthRank} damage (Stealth rank)`);
+    if (sneakYieldToRE) {
+      // RE runtime handles the damage bonus; we still mark the sneak attack flag
+      // so that Assassinate (interceptor-only) can check it.
       damageContext._isSneakAttack = true;
+    } else {
+      const stealthRank = getSkillRank(attacker, "Stealth");
+      if (stealthRank > 0) {
+        damageContext.talentDamageBonus = _asNumber(damageContext.talentDamageBonus, 0) + stealthRank;
+        damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
+        damageContext.talentNotes.push(`Sneak Attack: +${stealthRank} damage (Stealth rank)`);
+        damageContext._isSneakAttack = true;
+      }
     }
   }
 

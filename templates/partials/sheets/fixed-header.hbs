@@ -53,6 +53,9 @@
                         <div class="maxBar" data-resource="hp">
                             <div class="bar-values">
                                 <input type="number" name="system.stamina.value" value="{{actor.system.stamina.value}}"> / <label>{{actor.system.stamina.max}}</label>
+                                {{#if (gt actor.system.stamina.temp 0)}}
+                                    <span class="temp-hp-overlay">+{{actor.system.stamina.temp}}</span>
+                                {{/if}}
                             </div>
                             <div id="staminaBar" class="currentBar" data-resource="stamina"></div>
                         </div>
@@ -69,6 +72,15 @@
                         <div class="maxBar" data-resource="hp">
                             <div class="bar-values">
                                 <input type="number" name="system.magicka.value" value="{{actor.system.magicka.value}}"> / <label>{{actor.system.magicka.max}}</label>
+                                {{#if (gt actor.system.buffers.physical 0)}}
+                                    <span class="buffer-overlay" title="Physical Buffer: {{actor.system.buffers.physical}}">🛡{{actor.system.buffers.physical}}</span>
+                                {{/if}}
+                                {{#if (gt actor.system.buffers.magical 0)}}
+                                    <span class="buffer-overlay" title="Magical Buffer: {{actor.system.buffers.magical}}">✨{{actor.system.buffers.magical}}</span>
+                                {{/if}}
+                                {{#if (gt actor.system.buffers.elemental 0)}}
+                                    <span class="buffer-overlay" title="Elemental Buffer: {{actor.system.buffers.elemental}}">🔥{{actor.system.buffers.elemental}}</span>
+                                {{/if}}
                             </div>
                             <div id="magickaBar" class="currentBar" data-resource="magicka"></div>
                         </div>

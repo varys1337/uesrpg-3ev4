@@ -73,7 +73,11 @@ export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allo
   const total = Number(rollTotal);
   if (!Number.isFinite(total)) return { isCriticalSuccess: false, isCriticalFailure: false };
 
-  if (isNPC(actor)) {
+  const npc = isNPC(actor);
+
+  // RAW (Chapter 1): NPCs default to fixed critical bands unless their statblock specifies otherwise.
+  // System convention: a trait/flag can allow an NPC to use Lucky/Unlucky numbers like a PC.
+  if (npc && !canUseLuck(actor)) {
     const { successMax, failureMin } = getNpcCriticalBands();
     return {
       isCriticalSuccess: total <= successMax,
@@ -81,6 +85,7 @@ export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allo
     };
   }
 
+  // If Luck is not usable (or not present), no criticals.
   if (!canUseLuck(actor)) return { isCriticalSuccess: false, isCriticalFailure: false };
 
   let isCriticalSuccess = false;
@@ -117,6 +122,15 @@ export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allo
     .map(k => Number(ulData[k]))
     .filter(n => Number.isFinite(n) && n > 0);
 
+  // Defensive fallback: if an NPC is configured to use Luck but has no lucky/unlucky numbers,
+  // fall back to fixed NPC critical bands so they don't become "crit-immune" due to bad data.
+  if (npc && luckyNums.length === 0 && unluckyNums.length === 0) {
+    const { successMax, failureMin } = getNpcCriticalBands();
+    return {
+      isCriticalSuccess: total <= successMax,
+      isCriticalFailure: total >= failureMin
+    };
+  }
 
   if (allowLucky && luckyNums.includes(total)) isCriticalSuccess = true;
   if (allowUnlucky && unluckyNums.includes(total)) isCriticalFailure = true;

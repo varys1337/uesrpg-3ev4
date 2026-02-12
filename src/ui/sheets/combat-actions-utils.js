@@ -34,8 +34,9 @@ export function buildCombatQuickContext(actorData) {
     ? actorData.weapon.equipped
     : [];
 
-  const meleeWeapon = equippedWeapons.find(w => (w?.system?.attackMode ?? "melee") !== "ranged") ?? null;
-  const rangedWeapon = equippedWeapons.find(w => (w?.system?.attackMode ?? "") === "ranged") ?? null;
+  const mode = (w) => String(w?.system?.attackMode ?? "").toLowerCase();
+  const meleeWeapon = equippedWeapons.find(w => mode(w) !== "ranged") ?? null;
+  const rangedWeapon = equippedWeapons.find(w => mode(w) === "ranged") ?? null;
 
   const equippedAmmoDocs = Array.isArray(actorData?.ammunition?.equipped)
     ? actorData.ammunition.equipped

@@ -13,6 +13,35 @@ const NAMESPACE = "uesrpg-3ev4";
 const COLLAPSE_FLAG = "sheetCollapsedGroups";
 const LOADOUT_FLAG = "sheetLoadouts";
 
+// ─── In-memory loadout cache ─────────────────────────────────────────
+// Avoids repeated game.user.getFlag() reads on every sheet render.
+// Invalidated on save/delete/rename and on updateUser hooks.
+/** @type {Map<string, Array>} keyed by `${userId}:${actorId}` */
+const _loadoutCache = new Map();
+
+function _loadoutCacheKey(actorId) {
+  return `${game?.user?.id ?? "?"}:${String(actorId ?? "")}`;
+}
+
+/** Invalidate one actor's cached loadouts for the current user. */
+function _invalidateLoadoutCache(actorId) {
+  _loadoutCache.delete(_loadoutCacheKey(actorId));
+}
+
+/** Invalidate all cached loadouts (e.g. on user flag change). */
+function _invalidateAllLoadoutCaches() {
+  _loadoutCache.clear();
+}
+
+// Hook: invalidate on external user flag changes (e.g. from another tab/client).
+// Registered at module scope so it only runs once per module load (ESM singleton guarantee).
+Hooks.on("updateUser", (user, data, _options, _userId) => {
+  if (user?.id !== game?.user?.id) return;
+  // If the flag namespace changed, clear everything.
+  if (data?.flags?.[NAMESPACE]) _invalidateAllLoadoutCaches();
+});
+// ─────────────────────────────────────────────────────────────────────
+
 function _safeObject(v) {
   return v && typeof v === "object" && !Array.isArray(v) ? v : {};
 }
@@ -86,15 +115,21 @@ function _normalizeLoadoutArray(v) {
 }
 
 /**
- * Get loadouts for a specific actor.
+ * Get loadouts for a specific actor (cached in-memory).
  * @param {string} actorId
  * @returns {Promise<Array<{id: string, name: string, equippedIds: string[], createdAt: string}>>}
  */
 export async function getLoadouts(actorId) {
+  const cacheKey = _loadoutCacheKey(actorId);
+  if (_loadoutCache.has(cacheKey)) return _loadoutCache.get(cacheKey);
+
   const raw = await game.user?.getFlag?.(NAMESPACE, LOADOUT_FLAG);
   const obj = _safeObject(raw);
   const list = obj[String(actorId)] ?? [];
-  return _normalizeLoadoutArray(list);
+  const normalized = _normalizeLoadoutArray(list);
+
+  _loadoutCache.set(cacheKey, normalized);
+  return normalized;
 }
 
 /**
@@ -130,6 +165,7 @@ export async function saveLoadout(actorId, name, equippedIds) {
   else nextArr.push(record);
 
   await game.user?.setFlag?.(NAMESPACE, LOADOUT_FLAG, { ...obj, [aid]: nextArr });
+  _invalidateLoadoutCache(aid);
 }
 
 /**
@@ -148,6 +184,7 @@ export async function deleteLoadout(actorId, loadoutId) {
   const nextArr = current.filter((l) => l.id !== lid);
 
   await game.user?.setFlag?.(NAMESPACE, LOADOUT_FLAG, { ...obj, [aid]: nextArr });
+  _invalidateLoadoutCache(aid);
 }
 
 /**

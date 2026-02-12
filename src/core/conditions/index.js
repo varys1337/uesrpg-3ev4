@@ -6,6 +6,7 @@ import { registerConditionHooks, ConditionsAPI, auditConditionRegistry } from ".
 export { CONDITION_KEYS } from "./condition-engine.js";
 import { registerConditionTurnTicker } from "./turn-ticker.js";
 import { registerSystemStatusEffects, registerStatusHudInterop } from "./status-hud.js";
+import { isAnyDebugEnabled } from "../../utils/debug.js";
 
 let _conditionsRegistered = false;
 
@@ -26,11 +27,7 @@ export function registerConditions() {
     // Stability-only audit (no data mutation). Useful to catch duplicates, missing icons, or leaked core statuses.
     let log = false;
     try {
-      log = !!(
-        game.settings.get("uesrpg-3ev4", "opposedDebug") ||
-        game.settings.get("uesrpg-3ev4", "skillRollDebug") ||
-        game.settings.get("uesrpg-3ev4", "debugSkillTN")
-      );
+      log = isAnyDebugEnabled(["opposedDebug", "skillRollDebug", "debugSkillTN"]);
     } catch (_e) {
       log = false;
     }
@@ -41,11 +38,12 @@ if (log && Array.isArray(audit?.warnings) && audit.warnings.length) {
     console.warn("UESRPG | Condition registry audit warnings", audit.warnings);
   } catch (_e) {}
 }
+
   });
 
   registerConditionHooks();
   registerConditionTurnTicker();
 
   game.uesrpg = game.uesrpg || {};
-  game.uesrpg.conditions = ConditionsAPI;
+  game.uesrpg.conditions = { ...ConditionsAPI };
 }

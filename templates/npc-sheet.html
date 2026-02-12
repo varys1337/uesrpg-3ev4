@@ -208,6 +208,74 @@
                         </div>
                     </div>
 
+                    <div class="three-column-flex-container">
+                        <div class="trait-container">
+                            <h2 class="headerWithButton">
+                                <a class="uesrpg-group-toggle" data-group="traits" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+                                <button type="button" class="item-create" id="trait">+</button>
+                                <label>Traits</label>
+                            </h2>
+                            <ol class="single-column-list">
+                                {{#each actor.itemTypes.trait as |item id|}}
+                                    <li class="item" data-item-id="{{item._id}}">
+                                        <div class="itemInfo">
+                                            <img class="item-img" src="{{item.img}}" title="Activate"/>
+                                            {{#with (lookup @root.actor.ui.traitStackingById item._id) as |stack|}}
+                                                <i class="fas fa-layer-group" title="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}"></i>
+                                            {{/with}}
+                                            <div class="item-name">{{item.name}}</div>
+                                        </div>
+                                        <div class="item-controls">
+                                            <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                        </div>
+                                    </li>
+                                {{/each}}
+                            </ol>
+                        </div>
+                        <div class="talent-container">
+                            <h2 class="headerWithButton">
+                                <a class="uesrpg-group-toggle" data-group="talents" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+                                <button type="button" class="item-create" id="talent">+</button>
+                                <label>Talents</label>
+                            </h2>
+                            <ol class="single-column-list">
+                                {{#each actor.itemTypes.talent as |item id|}}
+                                    <li class="item" data-item-id="{{item._id}}">
+                                        <div class="itemInfo">
+                                            <img class="item-img" src="{{item.img}}" title="Activate"/>
+                                            <div class="item-name">{{item.name}}</div>
+                                        </div>
+                                        <div class="item-controls">
+                                            <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                        </div>
+                                    </li>
+                                {{/each}}
+                            </ol>
+                        </div>
+                        <div class="power-container">
+                            <h2 class="headerWithButton">
+                                <button type="button" class="item-create" id="power">+</button>
+                                <label>Powers</label>
+                            </h2>
+                            <ol class="single-column-list">
+                                {{#each actor.itemTypes.power as |item id|}}
+                                    <li class="item" data-item-id="{{item._id}}">
+                                        <div class="itemInfo">
+                                            <img class="item-img" src="{{item.img}}" title="Activate"/>
+                                            <div class="item-name">{{item.name}}</div>
+                                        </div>
+                                        <div class="item-controls">
+                                            <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                        </div>
+                                    </li>
+                                {{/each}}
+                            </ol>
+                        </div>
+                    </div>
+
+                    {{!-- Feature Inspector (Chapter 4 trait/talent/power provenance) --}}
+                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs"}}
+
                     <div class="bioPage">
                         <h2>Biography</h2>
                         <div class="contentContainer">
@@ -241,8 +309,16 @@
                                 </div>
                             </div>
                             <div class="combat-stat">
-                                <div class="stat-value-label {{#if (gte actor.system.combat_tracking.attacks_this_round 2)}}attack-limit-warning{{/if}}">
-                                    {{actor.system.combat_tracking.attacks_this_round}}/2
+                                <div class="stat-value-label {{#if (gte actor.attackTrackerUi.current actor.attackTrackerUi.max)}}attack-limit-warning{{/if}}">
+                                    {{#if isGM}}
+                                    <div class="flex-container-input">
+                                        <input type="number" class="uesrpg-attack-input" data-kind="current" value="{{actor.attackTrackerUi.current}}" min="0" step="1">
+                                        /
+                                        <input type="number" class="uesrpg-attack-input" data-kind="max" value="{{actor.attackTrackerUi.max}}" min="1" step="1">
+                                    </div>
+                                    {{else}}
+                                    {{actor.attackTrackerUi.current}}/{{actor.attackTrackerUi.max}}
+                                    {{/if}}
                                 </div>
                                 <div class="flex-container">
                                     <div class="small-text-label">Attacks</div>
@@ -581,6 +657,12 @@
                                         <i class="fas fa-chevron-down collapse-arrow"></i>
                                         <span class="school-name">{{schoolData.label}}</span>
                                         <span class="school-count">({{schoolData.count}})</span>
+                                        <span class="npc-school-rank" style="margin-left:auto;" onclick="event.stopPropagation();">
+                                            <label class="sr-only">Effective Rank</label>
+                                            <select name="flags.uesrpg-3ev4.npcMagicSchoolRanks.{{schoolData.key}}" style="height:22px; font-size:11px; padding:0 2px;">
+                                                {{selectOptions @root.actor.ui.npcMagicRankOptions selected=schoolData.effectiveRank}}
+                                            </select>
+                                        </span>
                                     </h3>
                                     <table class="spell-school-table">
                                         <thead>
@@ -948,71 +1030,6 @@
                                     {{/each}}
                                 </tbody>
                             </table>
-
-                            <div class="three-column-flex-container">
-                                <div class="trait-container">
-                                    <h2 class="headerWithButton">
-                                        <a class="uesrpg-group-toggle" data-group="traits" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-                                        <button type="button" class="item-create" id="trait">+</button>
-                                        <label>Traits</label>
-                                    </h2>
-                                    <ol class="single-column-list">
-                                        {{#each actor.itemTypes.trait as |item id|}}
-                                            <li class="item" data-item-id="{{item._id}}">
-                                                <div class="itemInfo">
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-                                                    {{#with (lookup @root.actor.ui.traitStackingById item._id) as |stack|}}
-                                                        <i class="fas fa-layer-group" title="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}"></i>
-                                                    {{/with}}
-                                                    <div class="item-name">{{item.name}}</div>
-                                                </div>
-                                                <div class="item-controls">
-                                                    <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
-                                                </div>
-                                            </li>
-                                        {{/each}}
-                                    </ol>
-                                </div>
-                                <div class="talent-container">
-                                    <h2 class="headerWithButton">
-                                        <a class="uesrpg-group-toggle" data-group="talents" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-                                        <button type="button" class="item-create" id="talent">+</button>
-                                        <label>Talents</label>
-                                    </h2>
-                                    <ol class="single-column-list">
-                                        {{#each actor.itemTypes.talent as |item id|}}
-                                            <li class="item" data-item-id="{{item._id}}">
-                                                <div class="itemInfo">
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-                                                    <div class="item-name">{{item.name}}</div>
-                                                </div>
-                                                <div class="item-controls">
-                                                    <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
-                                                </div>
-                                            </li>
-                                        {{/each}}
-                                    </ol>
-                                </div>
-                                <div class="power-container">
-                                    <h2 class="headerWithButton">
-                                        <button type="button" class="item-create" id="power">+</button>
-                                        <label>Powers</label>
-                                    </h2>
-                                    <ol class="single-column-list">
-                                        {{#each actor.itemTypes.power as |item id|}}
-                                            <li class="item" data-item-id="{{item._id}}">
-                                                <div class="itemInfo">
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-                                                    <div class="item-name">{{item.name}}</div>
-                                                </div>
-                                                <div class="item-controls">
-                                                    <a class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
-                                                </div>
-                                            </li>
-                                        {{/each}}
-                                    </ol>
-                                </div>
-                            </div>
 
                         </div>
                     </div>

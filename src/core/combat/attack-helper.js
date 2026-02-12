@@ -90,6 +90,11 @@ export async function performWeaponAttack(attackerToken, defenderToken, weapon, 
 function getAttackSkill(actor, weapon) {
   if (!actor?.system || !weapon) return 50;
 
+  // RAW: NPCs do not use Combat Style items; use Combat profession for combat actions.
+  if (String(actor.type ?? "") === "NPC") {
+    return Number(actor.system?.professions?.combat ?? actor.system?.combat?.value ?? 50);
+  }
+
   // Try to find combat style that matches weapon
   const weaponStyle = weapon?.system?.combatStyle ?? weapon?.system?.skill ?? null;
   
@@ -116,6 +121,13 @@ function getAttackSkill(actor, weapon) {
  */
 function getDefenseSkill(actor, defenseType = 'evade') {
   if (!actor?.system) return 50;
+
+  // RAW: NPCs defend using profession lanes rather than skill Items.
+  if (String(actor.type ?? "") === "NPC") {
+    const dt = String(defenseType ?? "evade").toLowerCase();
+    if (dt === "evade") return Number(actor.system?.professions?.evade ?? 50);
+    return Number(actor.system?.professions?.combat ?? 50);
+  }
 
   // Look for specific defense skill
   const defenseSkillName = defenseType.charAt(0).toUpperCase() + defenseType.slice(1);

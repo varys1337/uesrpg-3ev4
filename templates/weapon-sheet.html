@@ -270,6 +270,28 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <div class="weapon-attributes-section">
+                                <h3>Damage Instances</h3>
+                                <p style="font-size: 0.75em; color: #666; margin: 0 0 6px 0;">Additional damage types (e.g. elemental enchantments)</p>
+                                {{#each item.system.damageInstances as |inst idx|}}
+                                <div class="weapon-field-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 4px; align-items: center;" data-instance-index="{{idx}}">
+                                    <input type="text" name="system.damageInstances.{{idx}}.label" value="{{inst.label}}" placeholder="Label" />
+                                    <input type="text" name="system.damageInstances.{{idx}}.formula" value="{{inst.formula}}" placeholder="e.g. 1d4" />
+                                    <select name="system.damageInstances.{{idx}}.type">
+                                        {{selectOptions @root.damageTypeOptions selected=inst.type}}
+                                    </select>
+                                    <button type="button" data-action="remove-damage-instance" data-index="{{idx}}" title="Remove" style="border: none; background: none; cursor: pointer; color: #c00;" {{#unless @root.editable}}disabled{{/unless}}>
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                                {{/each}}
+                                {{#if @root.editable}}
+                                <button type="button" data-action="add-damage-instance" style="margin-top: 4px; font-size: 0.85em;">
+                                    <i class="fas fa-plus"></i> Add Instance
+                                </button>
+                                {{/if}}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -319,23 +341,7 @@
         </div>
 
         <div class="tab effects" data-group="primary" data-tab="effects">
-            <header class="effects-header flexrow">
-                <h3>Effects</h3>
-                <a class="effect-control" data-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
-            </header>
-            <ol class="effects-list">
-                {{#each effects as |effect|}}
-                <li class="effect flexrow" data-effect-id="{{effect._id}}">
-                    <img class="effect-icon" src="{{effect.img}}" />
-                    <h4 class="effect-name">{{effect.name}}</h4>
-                    <div class="effect-controls flexrow">
-                        <a class="effect-control" data-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
-                        <a class="effect-control" data-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
-                        <a class="effect-control" data-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
-                    </div>
-                </li>
-                {{/each}}
-            </ol>
+            {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
         </div>
 
     </section>

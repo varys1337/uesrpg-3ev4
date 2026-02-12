@@ -1,7 +1,6 @@
 /**
- * src/core/traits/talents-api.js
- *
- * Minimal, schema-safe helpers for working with Talent items.
+ * @module traits/talents-api
+ * @description Minimal, schema-safe helpers for working with Talent items.
  *
  * Design goals:
  *  - No schema churn: infer talent presence from embedded Item type "talent".
@@ -37,6 +36,7 @@ const TALENT_NAME_ALIASES = {
   gladiator: ["Gladiator"],
   defender: ["Defender"],
   dualfighter: ["Dual Fighter", "Dual-Fighter"],
+  dualwielder: ["Dual Wielder", "Dual-Wielder"],
   rapidreload: ["Rapid Reload", "RapidReload"],
   dualrapidreloadfighter: ["Dual Rapid Reload Fighter", "Dual Rapid-Reload Fighter", "Dual RapidReload Fighter"],
   followupstrike: ["Follow-up Strike", "Follow Up Strike", "Followup Strike"],
@@ -66,7 +66,107 @@ const TALENT_NAME_ALIASES = {
   killingblow: ["Killing Blow"],
   precise: ["Precise"],
   sneakattack: ["Sneak Attack"],
-  assassinate: ["Assassinate"]
+  assassinate: ["Assassinate"],
+  crackshot: ["Crack Shot", "Crackshot"],
+  perfecthit: ["Perfect Hit", "PerfectHit"],
+  thundercharge: ["Thunder Charge", "Thundercharge"],
+  unarmedprowess: ["Unarmed Prowess", "UnarmedProwess"],
+  // General / Intellectual / Mobility (automation)
+  // Note: Expert/Grandmaster variants are often authored with chosen skill/spec in the item name;
+  // those are handled by specialized parsers in src/core/traits/general-talents.js rather than aliases.
+  untouchable: ["Untouchable"],
+  businessman: ["Businessman"],
+  interrogator: ["Interrogator"],
+  prediction: ["Prediction"],
+  tactician: ["Tactician"],
+  armoredagility: ["Armored Agility", "ArmoredAgility"],
+  assassinstrike: ["Assassin Strike", "AssassinStrike"],
+  hardtarget: ["Hard Target", "HardTarget"],
+  stepaside: ["Step Aside", "StepAside"],
+  swashbuckler: ["Swashbuckler"],
+
+  // Resilience / Social (automation)
+  diehard: ["Die-Hard", "Die Hard", "Diehard"],
+  unstoppable: ["Unstoppable"],
+  enduring: ["Enduring"],
+  ironwill: ["Iron Will", "Ironwill"],
+  meditation: ["Meditation"],
+  rapidrecovery: ["Rapid Recovery", "RapidRecovery"],
+  wallofsteel: ["Wall of Steel", "WallofSteel"],
+  intothefire: ["Into the Fire", "IntoTheFire"],
+  inspireheroism: ["Inspire Heroism", "InspireHeroism"],
+  questioning: ["Questioning"],
+
+  // Racial talents (automation)
+  childofthesap: ["Child of the Sap"],
+  histskin: ["Histskin"],
+  naturesblessing: ["Nature's Blessing", "Nature’s Blessing"],
+  dragonskin: ["Dragonskin"],
+  reddiamond: ["Red Diamond"],
+  imperialluck: ["Imperial Luck"],
+  eyeofnight: ["Eye of Night"],
+  sonsofskyrim: ["Sons of Skyrim"],
+  malacathsfury: ["Malacath's Fury", "Malacath’s Fury"],
+  adrenalineburst: ["Adrenaline Burst"],
+
+  // Spellcasting talents (automation)
+  bendreality: ["Bend Reality"],
+  bladecaller: ["Bladecaller"],
+  weaponecho: ["Weapon Echo"],
+  creative: ["Creative"],
+  cryomancer: ["Cryomancer"],
+  control: ["Control"],
+  depthofunderstanding: ["Depth of Understanding"],
+  electromancer: ["Electromancer"],
+  livingarmory: ["Living Armory"],
+  magickacycling: ["Magicka Cycling"],
+  masterofmagicka: ["Master of Magicka"],
+  flowofmagicka: ["Flow of Magicka"],
+  healer: ["Healer"],
+  mageguard: ["Mage Guard"],
+  arcanedefender: ["Arcane Defender"],
+  methodical: ["Methodical"],
+  overcharge: ["Overcharge"],
+  pyromancer: ["Pyromancer"],
+  spellsword: ["Spell Sword", "SpellSword"],
+  thoughtcaster: ["Thought Caster"],
+  strongwilled: ["Strong Willed", "StrongWilled"],
+  seasonedconjurer: ["Seasoned Conjurer"],
+  unfetteredconjuration: ["Unfettered Conjuration"],
+  taskmaster: ["Taskmaster"],
+  masterofthehordes: ["Master of the Hordes"],
+  trickster: ["Trickster"],
+  voidchanneler: ["Void Channeler"],
+  themendingtidesoblivion: ["The Mending Tides of Oblivion", "Mending Tides of Oblivion"],
+
+  // Weapon Expertise talents (automation)
+  beardedwarrior: ["Bearded Warrior"],
+  beastofsteel: ["Beast of Steel"],
+  blademaster: ["Blademaster"],
+  bruiser: ["Bruiser"],
+  cleaverofmen: ["Cleaver of Men"],
+  daisho: ["Daisho"],
+  darthrower: ["Dart Thrower", "DartThrower"],
+  deathbyathousandcuts: ["Death by a Thousand Cuts"],
+  executioner: ["Executioner"],
+  firingline: ["Firing Line"],
+  fromoblivionsheart: ["From Oblivion's Heart", "From Oblivion\u2019s Heart"],
+  halberdier: ["Halberdier"],
+  hammerblow: ["Hammerblow"],
+  kensai: ["Kensai"],
+  knifefighter: ["Knife Fighter"],
+  monsterhunter: ["Monster Hunter"],
+  pointblank: ["Point Blank"],
+  powerdraw: ["Power Draw"],
+  pugilist: ["Pugilist"],
+  redlegionthrow: ["Red Legion Throw"],
+  riposte: ["Riposte"],
+  ripandtear: ["Rip and Tear"],
+  simpleyeteffective: ["Simple, Yet Effective", "Simple Yet Effective"],
+  slingerswail: ["Slinger's Wail", "Slinger\u2019s Wail", "Slingers Wail"],
+  staffmastery: ["Staff Mastery"],
+  viperseye: ["Viper's Eye", "Viper\u2019s Eye", "Vipers Eye"],
+  whirlingschool: ["The Whirling School", "Whirling School"]
 };
 
 /**

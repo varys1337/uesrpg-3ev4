@@ -35,7 +35,7 @@
                 <input type="text" name="system.governingCha" value="{{item.system.governingCha}}"/>
               </div>
               <div class="flex-container">
-                <div class="small-text-label">Governing Ch.</div>
+                <div class="small-text-label">Governing Char.</div>
               </div>
             </div>
 
@@ -74,32 +74,36 @@
     <div class="tab" data-group="primary" data-tab="combatStyle">
       <div class="uesrpg-combatstyle-panel">
         {{#if item.isOwned}}
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px;">
+          <div class="uesrpg-row uesrpg-row--between uesrpg-combatstyle-active">
             <div style="opacity:0.9;">
               <b>Active Style</b>: {{#if isActiveCombatStyle}}Yes{{else}}No{{/if}}
             </div>
-            <button type="button" class="uesrpg-set-active-style" {{#if isActiveCombatStyle}}disabled="disabled" title="This is already the active combat style."{{/if}}>Set as Active</button>
+            {{#if isActiveCombatStyle}}
+              <button type="button" class="uesrpg-deactivate-style">Deactivate</button>
+            {{else}}
+              <button type="button" class="uesrpg-set-active-style">Set as Active</button>
+            {{/if}}
           </div>
         {{/if}}
 
-        <h3 style="margin:0 0 6px; border:none;">Trained Equipment</h3>
-        <div class="notes" style="margin-bottom:8px;">
+        <h3 class="uesrpg-section-title">Trained Equipment</h3>
+        <div class="notes uesrpg-notes">
           Manual equipment entries used for training checks when weapon categories are not present. Fill up to five.
         </div>
 
         <div class="uesrpg-combatstyle-equipment-grid" aria-label="Trained Equipment">
           {{#each item.system.trainedEquipment as |val idx|}}
             <div class="uesrpg-combatstyle-equip">
-              <label>Entry {{idx}}</label>
+              <label>Entry {{inc idx}}</label>
               <input type="text" name="system.trainedEquipment.{{idx}}" value="{{val}}" placeholder="e.g., Long Blade, Bow, Shield"/>
             </div>
           {{/each}}
         </div>
 
-        <hr style="margin:12px 0;" />
+        <hr class="uesrpg-divider" />
 
-        <h3 style="margin:0 0 6px; border:none;">Special Advantages</h3>
-        <div class="notes" style="margin-bottom:8px;">
+        <h3 class="uesrpg-section-title">Special Advantages</h3>
+        <div class="notes uesrpg-notes">
           Mark Special Actions that are known as part of this Combat Style. Only known actions on the Actor's active style are offered as Advantage options.
         </div>
 
@@ -117,23 +121,7 @@
 
     {{!-- Effects Tab --}}
     <div class="tab effects" data-group="primary" data-tab="effects">
-      <header class="effects-header flexrow">
-        <h3>Effects</h3>
-        <a class="effect-control" data-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
-      </header>
-      <ol class="effects-list">
-        {{#each effects as |effect|}}
-        <li class="effect flexrow" data-effect-id="{{effect._id}}">
-          <img class="effect-icon" src="{{effect.img}}" />
-          <h4 class="effect-name">{{effect.name}}</h4>
-          <div class="effect-controls flexrow">
-            <a class="effect-control" data-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
-            <a class="effect-control" data-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
-            <a class="effect-control" data-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
-          </div>
-        </li>
-        {{/each}}
-      </ol>
+      {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
     </div>
 
   </section>

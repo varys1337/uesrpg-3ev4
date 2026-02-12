@@ -1,0 +1,565 @@
+/**
+ * src/core/combat/opposed/cards/template-helpers.js
+ * Pure template helper functions for opposed combat card rendering.
+ * Extracted from opposed-workflow.js for maintainability.
+ */
+
+/**
+ * Format degree of success/failure for display.
+ * 
+ * @param {Object} res - Test result object with `isSuccess` and `degree` properties.
+ * @returns {string} - Formatted string like "3 DoS" or "2 DoF".
+ */
+export function _fmtDegree(res) {
+  if (!res) return "-";
+  const cls = res.isSuccess ? "green" : "red";
+  const text = res.isSuccess ? `${res.degree} DoS` : `${res.degree} DoF`;
+  return `<span style="color: ${cls};">${text}</span>`;
+}
+
+/**
+ * Generate an HTML button for opposed card actions.
+ * 
+ * @param {string} label - Button label text.
+ * @param {string} action - Action identifier (e.g., "attacker-commit", "defender-roll").
+ * @param {Object} extraDataset - Additional data attributes to add to the button.
+ * @returns {string} - HTML button element string.
+ */
+export function _btn(label, action, extraDataset = {}, style = "") {
+  const ds = Object.entries(extraDataset)
+    .map(([k, v]) => `data-${k}="${String(v).replace(/"/g, "&quot;")}"`)
+    .join(" ");
+  const styleAttr = style ? ` style="${style}"` : "";
+  return `<button type="button" data-ues-opposed-action="${action}" ${ds}${styleAttr}>${label}</button>`;
+}
+
+/**
+ * Extract roll total from various result object structures.
+ * 
+ * @param {Object} res - Roll result object.
+ * @returns {number|null} - Roll total or null if not found.
+ */
+export function _extractRollTotal(res) {
+  const n = Number(res?.rollTotal ?? res?.total ?? res?.roll?.total ?? res?.roll?._total ?? res?.roll?.result ?? NaN);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _buildBreakdownRows(tnObj) {
+  return (tnObj?.breakdown ?? []).map((b) => {
+    const v = Number(b.value ?? 0);
+    const sign = v >= 0 ? "+" : "";
+    const label = String(b.label ?? "Modifier");
+    return `<div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:start;"><span style="overflow-wrap:anywhere; word-break:normal; text-align:left;">${label}</span><span style="white-space:nowrap; text-align:right;">${sign}${v}</span></div>`;
+  }).join("");
+}
+
+/**
+ * Render TN breakdown details as collapsible HTML.
+ * 
+ * @param {Object} tnObj - TN object with `breakdown` array property.
+ * @param {Object} options - Render options.
+ * @param {boolean} options.inline - When true, render as inline triangle toggle.
+ * @returns {string} - HTML details element with breakdown rows.
+ */
+export function _renderBreakdown(tnObj, { inline = false } = {}) {
+  const rows = _buildBreakdownRows(tnObj);
+  if (!rows) return "";
+  if (inline) {
+    return `
+      <details style="display:inline-block; margin-left:6px; vertical-align:baseline;">
+        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="TN breakdown">&#9654;</summary>
+        <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
+      </details>
+    `;
+  }
+  return `
+    <details style="margin-top:4px;">
+      <summary style="cursor:pointer; user-select:none; white-space:nowrap; overflow-wrap:normal; word-break:keep-all;">TN breakdown</summary>
+      <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
+    </details>`;
+}
+
+/**
+ * Render TN line with inline breakdown toggle.
+ *
+ * @param {Object} options
+ * @param {string} options.value - TN display value.
+ * @param {Object|null} options.tnObj - TN object with breakdown.
+ * @returns {string}
+ */
+export function _renderTNLine({ value = "??", tnObj = null } = {}) {
+  const rows = _buildBreakdownRows(tnObj);
+  if (!rows) return `<div><b>TN:</b> ${value}</div>`;
+  return `
+    <details style="margin:0;">
+      <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;">
+        <b>TN:</b> ${value} &#9654;
+      </summary>
+      <div style="margin:4px 0 0 0; padding-left:8px; width:100%; box-sizing:border-box; font-size:12px; opacity:0.9;">${rows}</div>
+    </details>
+  `;
+}
+
+/**
+ * Render roll result line (total + degree).
+ * 
+ * @param {Object} options - Options object.
+ * @param {Object|null} options.result - Roll result object.
+ * @param {boolean} options.noDefense - True if defender chose "No Defense".
+ * @returns {string} - HTML string with roll total and degree.
+ */
+export function _renderRollLine({ result = null, noDefense = false } = {}) {
+  if (noDefense) {
+    // Keep output consistent with normal failures: represent No Defense as a deterministic 1 DoF failure.
+    const stub = { rollTotal: 100, isSuccess: false, degree: 1 };
+    return `<div><b>Roll:</b> 100 - ${_fmtDegree(stub)}</div>`;
+  }
+  if (!result) return "";
+  const total = _extractRollTotal(result);
+  const totalText = (total == null) ? "??" : String(total);
+  const notes = Array.isArray(result?.talentNotes) ? result.talentNotes.filter(Boolean) : [];
+  const notesHtml = notes.length
+    ? `<div class="uesrpg-opposed-notes" style="font-size:0.85em; opacity:0.85;">${notes.map(n => `<div>${n}</div>`).join("")}</div>`
+    : "";
+  return `<div><b>Roll:</b> ${totalText} - ${_fmtDegree(result)}</div>${notesHtml}`;
+}
+
+/**
+ * Build attacker status line for banking mode.
+ * 
+ * @param {Object} options - Options object.
+ * @param {boolean} options.bankMode - True if banking mode enabled.
+ * @param {boolean} options.anyOutcome - True if any outcome exists.
+ * @param {boolean} options.rolled - True if attacker has rolled.
+ * @param {boolean} options.aCommitted - True if attacker committed.
+ * @returns {string} - HTML status line or empty string.
+ */
+export function _buildAttackerStatusLine({ bankMode, anyOutcome, rolled, aCommitted }) {
+  const showStatus = Boolean(game?.settings?.get?.("uesrpg-3ev4", "opposedShowStatusLine"));
+  if (!bankMode || !showStatus) return "";
+  const resolved = anyOutcome;
+  const statusText = resolved ? "Resolved" : rolled ? "Rolled" : (aCommitted ? "Committed" : "Awaiting choice");
+  return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
+}
+
+/**
+ * Build defender status line for banking mode.
+ * 
+ * @param {Object} options - Options object.
+ * @param {boolean} options.bankMode - True if banking mode enabled.
+ * @param {boolean} options.outcome - Outcome object (truthy if resolved).
+ * @param {boolean} options.rolled - True if defender has rolled.
+ * @param {boolean} options.dCommitted - True if defender committed.
+ * @param {boolean} options.noDefense - True if defender chose "No Defense".
+ * @returns {string} - HTML status line or empty string.
+ */
+export function _buildDefenderStatusLine({ bankMode, outcome, rolled, dCommitted, noDefense = false }) {
+  const showStatus = Boolean(game?.settings?.get?.("uesrpg-3ev4", "opposedShowStatusLine"));
+  if (!bankMode || !showStatus) return "";
+  const resolved = Boolean(outcome);
+  const actuallyRolled = rolled || noDefense;
+  const statusText = resolved ? "Resolved" : actuallyRolled ? "Rolled" : (dCommitted ? "Committed" : "Awaiting choice");
+  return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
+}
+
+/**
+ * Build attacker action buttons (Commit / Roll / Follow-up Strike).
+ * 
+ * @param {Object} options - Options object.
+ * @param {Object} options.attacker - Attacker data object.
+ * @param {boolean} options.bankMode - True if banking mode enabled.
+ * @param {boolean} options.aCommitted - True if attacker committed.
+ * @param {Object} options.data - Full opposed workflow data.
+ * @param {Function} options._safeGetSetting - Safe settings getter function.
+ * @returns {string} - HTML action buttons or empty string.
+ */
+export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _safeGetSetting, commitGate = null }) {
+  if (attacker.result) {
+    const fus = data?.context?.followUpStrike;
+    const followUpEnabled = _safeGetSetting?.("uesrpg-3ev4", "enableFollowupStrike", false) ?? false;
+    if (
+      followUpEnabled &&
+      fus?.eligible === true && fus?.used !== true &&
+      attacker.result?.isSuccess === false
+    ) {
+      return `<div style="margin-top:6px;">${_btn("Follow-up Strike (1 SP)", "followup-strike", { "defender-index": 0 })}</div>`;
+    }
+    return "";
+  }
+  if (bankMode) {
+    if (!aCommitted) {
+      if (commitGate?.allowed === false) {
+        const reason = String(commitGate?.reason ?? "Unavailable");
+        return `<div style="margin-top:6px; font-size:12px; opacity:0.85;"><i>Attack unavailable: ${reason}</i></div>`;
+      }
+      return `<div style="margin-top:6px;">${_btn("Attack", "attacker-commit", {}, "padding:1px 4px; font-size:11px; line-height:1.05; min-width:112px;")}</div>`;
+    }
+    return "";
+  }
+  return `<div style="margin-top:6px;">${_btn("Roll Attack", "attacker-roll")}</div>`;
+}
+
+/**
+ * Build defender action buttons (Commit / Roll / No Defense).
+ * 
+ * @param {Object} options - Options object.
+ * @param {Object} options.defender - Defender data object.
+ * @param {boolean} options.bankMode - True if banking mode enabled.
+ * @param {boolean} options.dCommitted - True if defender committed.
+ * @param {number} options.idx - Defender index (for multi-defender).
+ * @param {Object} options.data - Full opposed workflow data.
+ * @param {Function} options._allDefendersCommitted - Helper to check if all committed.
+ * @returns {string} - HTML action buttons or empty string.
+ */
+export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, data, _allDefendersCommitted, commitDefenseGate = null }) {
+  if (defender.result || defender.noDefense) return "";
+
+  if (bankMode) {
+    if (!dCommitted) {
+      if (commitDefenseGate?.allowed === false) {
+        const reason = String(commitDefenseGate?.reason ?? "Unavailable");
+        return `
+        <div style="margin-top:6px; display:grid; grid-template-columns:minmax(0, 1fr); gap:4px; align-items:stretch; width:100%; min-width:0;">
+          ${_btn("No Defense", "defender-commit-nodefense", { "defender-index": idx }, "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;")}
+          <div style="font-size:12px; opacity:0.85;"><i>Defense unavailable: ${reason}</i></div>
+        </div>`;
+      }
+      return `
+        <div style="margin-top:6px; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px; align-items:stretch; width:100%; min-width:0;">
+          ${_btn("Defense", "defender-commit", { "defender-index": idx }, "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;")}
+          ${_btn("No Defense", "defender-commit-nodefense", { "defender-index": idx }, "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;")}
+        </div>`;
+    }
+
+    // For banking: only show roll button when ALL defenders have committed
+    // This ensures proper banking workflow where all choices are locked before rolls
+    if (dCommitted && _allDefendersCommitted(data) && !defender.result) {
+      const dt = String(defender?.defenseType ?? "").toLowerCase();
+      if (dt && dt !== "none") {
+        return `<div style="margin-top:6px;">${_btn("Roll Defense", "defender-roll-committed", { "defender-index": idx })}</div>`;
+      }
+    }
+
+    return "";
+  }
+
+  return `
+    <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;">
+      ${_btn("Defend", "defender-roll", { "defender-index": idx })}
+      ${_btn("No Defense", "defender-nodefense", { "defender-index": idx })}
+    </div>`;
+}
+
+/**
+ * Build outcome status line (Resolved / Waiting / Pending).
+ * 
+ * @param {Object} options - Options object.
+ * @param {Object|null} options.outcome - Outcome object.
+ * @param {boolean} options.bankMode - True if banking mode enabled.
+ * @param {boolean} options.bothCommitted - True if both sides committed (single-defender).
+ * @param {boolean} options.allDefendersCommitted - True if all defenders committed (multi-defender).
+ * @param {boolean} options.aCommitted - True if attacker committed.
+ * @param {boolean} options.anyGMOnline - True if any GM online.
+ * @param {Object} options.data - Full opposed workflow data (for legacy phase tracking).
+ * @param {boolean} options.isMulti - True if multi-defender.
+ * @returns {string} - HTML outcome line.
+ */
+export function _buildOutcomeLine({ outcome, bankMode, bothCommitted, allDefendersCommitted, aCommitted, anyGMOnline, data, isMulti }) {
+  if (outcome) {
+    return `<div style="margin-top:10px; max-width:100%; overflow-wrap:break-word;"><b>Outcome:</b> ${outcome.text ?? ""}</div>`;
+  }
+
+  if (bankMode) {
+    if (isMulti) {
+      if (!allDefendersCommitted) {
+        if (!aCommitted) {
+          return `<div style="margin-top:10px; font-size:13px;"><i>Waiting for attacker to commit choice.</i></div>`;
+        }
+        return `<div style="margin-top:10px; font-size:13px;"><i>Waiting for all defenders to commit choices.</i></div>`;
+      }
+      return `<div style="margin-top:10px; font-size:13px;"><i>Rolling.</i></div>`;
+    }
+
+    if (!bothCommitted) {
+      return `<div style="margin-top:10px; font-size:13px;"><i>Waiting for both sides to commit choices...</i></div>`;
+    }
+
+    return `<div style="margin-top:10px; font-size:13px;"><i>Rolling...</i></div>`;
+  }
+
+  // Legacy/non-banked pending hint
+  const phase = String(data?.context?.phase ?? "pending");
+  const waitingSince = Number(data?.context?.waitingSince ?? 0);
+  const ageMs = waitingSince ? (Date.now() - waitingSince) : 0;
+  const isWaiting = (phase === "waitingdefender" || phase === "waitingDefender");
+  const isStale = isWaiting && ageMs > 60000;
+  const note = isStale
+    ? `<div style="margin-top:6px; font-size:12px; opacity:0.85;">
+         Still waiting on the defender result. If this persists, ensure the defender roll message was posted, and have the attacker refresh the page to re-render the card.
+       </div>`
+    : "";
+  return `<div style="margin-top:10px;"><i>Pending</i></div>${note}`;
+}
+
+/**
+ * Build resolution details collapsible section.
+ * 
+ * @param {Object} options - Options object.
+ * @param {boolean} options.showResolutionDetails - Setting to show details.
+ * @param {Object|null} options.outcome - Outcome object.
+ * @param {Object} options.attacker - Attacker data object.
+ * @param {Object} options.defender - Defender data object.
+ * @param {Object} options.advantage - Advantage object { attacker, defender }.
+ * @returns {string} - HTML details element or empty string.
+ */
+export function _buildResolutionDetails({ showResolutionDetails, outcome, attacker, defender, advantage }) {
+  if (!showResolutionDetails) return "";
+  if (!outcome) return "";
+
+  const aVariant = attacker.variantLabel ?? attacker.variant ?? "??";
+  const dDefense = defender.defenseLabel ?? defender.defenseType ?? "??";
+  const advA = Number(advantage?.attacker ?? 0);
+  const advD = Number(advantage?.defender ?? 0);
+  const aManual = Number(attacker.manualMod ?? 0);
+  const aHL = (attacker.precisionLocation ?? attacker.hitLocation ?? "").toString();
+  const dHL = (defender.precisionLocation ?? defender.hitLocation ?? "").toString();
+
+  const lines = [];
+  lines.push(`<div><b>Attack variation:</b> ${aVariant}</div>`);
+  lines.push(`<div><b>Manual modifier:</b> ${aManual >= 0 ? "+" : ""}${aManual}</div>`);
+  if (aHL) lines.push(`<div><b>Attacker hit location:</b> ${aHL}</div>`);
+  if (dHL) lines.push(`<div><b>Defender hit location:</b> ${dHL}</div>`);
+  lines.push(`<div><b>Advantage:</b> Attacker ${advA} / Defender ${advD}</div>`);
+  lines.push(`<div><b>Defense:</b> ${dDefense}</div>`);
+  if (Number(defender?.result?.duelingBonus ?? 0) > 0) {
+    lines.push(`<div><b>Dueling Weapon:</b> +${Number(defender.result.duelingBonus)} DoS</div>`);
+  }
+
+  return `
+    <details style="margin-top:8px;">
+      <summary style="cursor:pointer;">Resolution details</summary>
+      <div style="margin-top:6px; font-size:12px; opacity:0.9;">
+        ${lines.join("")}
+      </div>
+    </details>`;
+}
+
+/**
+ * Build resolved action buttons (Damage / Counter / Block / Advantage).
+ * 
+ * @param {Object} options - Options object.
+ * @param {Object|null} options.outcome - Outcome object.
+ * @param {Object} options.defender - Defender data object.
+ * @param {Object} options.advantage - Advantage object { attacker, defender }.
+ * @param {Object} options.resolutionState - Resolution state object.
+ * @param {number} options.idx - Defender index (for multi-defender).
+ * @param {boolean} options.isAoE - True if AoE attack.
+ * @param {string} options.status - Workflow status (e.g., "resolved").
+ * @param {Object|null} options.damageData - Inline damage data (if rolled).
+ * @returns {string} - HTML action buttons or empty string.
+ */
+export function _buildResolvedActions({ outcome, defender, advantage, resolutionState, idx, isAoE, status, damageData }) {
+  if (!outcome) return "";
+  if (status && status !== "resolved") return ""; // Single-defender specific check
+
+  // If inline damage has already been rolled, suppress the action buttons.
+  // The damage panel will be rendered separately.
+  if (damageData?.rolled === true) return "";
+
+  const advA = Number(advantage?.attacker ?? 0);
+  const advD = Number(advantage?.defender ?? 0);
+
+  if (outcome.winner === "attacker") {
+    return `
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        ${_btn("Roll Damage", "damage-roll", { "defender-index": idx })}
+        ${advA > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advA}</span>` : ``}
+      </div>
+    `;
+  }
+
+  if (outcome.winner === "defender" && (defender.defenseType ?? "none") === "counter") {
+    return `
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        ${_btn("Roll Damage", "counter-damage-roll", { "defender-index": idx })}
+        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>` : ``}
+      </div>
+    `;
+  }
+
+  if (outcome.winner === "defender" && (defender.defenseType ?? "none") === "block") {
+    const blockLabel = isAoE ? "Resolve Block (Half Damage)" : "Resolve Block";
+    return `
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        ${_btn(blockLabel, "block-resolve", { "defender-index": idx })}
+        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>` : ``}
+      </div>
+    `;
+  }
+
+  if (outcome.winner === "defender" && (defender.defenseType ?? "none") === "ward") {
+    const wardLabel = isAoE ? "Resolve Ward (Half Damage)" : "Resolve Ward";
+    return `
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        ${_btn(wardLabel, "ward-resolve", { "defender-index": idx })}
+        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>` : ``}
+      </div>
+    `;
+  }
+
+  const defenderCanUseAdvantage = (outcome.winner === "defender")
+    && (defender.noDefense !== true)
+    && !["block", "counter", "none", "ward"].includes(String(defender.defenseType ?? "none"))
+    && (advD > 0)
+    && (resolutionState.defenderAdvantage?.resolved !== true);
+
+  if (defenderCanUseAdvantage) {
+    return `
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        ${_btn("Resolve Advantage", "defender-advantage", { "defender-index": idx })}
+        <span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>
+      </div>
+    `;
+  }
+
+  return "";
+}
+
+/**
+ * Build inline damage panel for the opposed card.
+ * Renders damage results, hit location, quality pills, and Apply button
+ * inline within the opposed card instead of a separate chat message.
+ *
+ * @param {Object|null} damageData - Damage state from flags.
+ * @returns {string} - HTML string for the damage panel, or empty string.
+ */
+export function _buildDamagePanel(damageData) {
+  if (!damageData || damageData.rolled !== true) return "";
+
+  const mode = String(damageData.mode ?? "weapon");
+  const isHealing = mode === "healing";
+  const p = damageData.applyPayload ?? {};
+
+  // ── Compact header: small icon + name ──
+  const headerImg = damageData.weaponImg
+    ? `<img class="dmg-icon" src="${damageData.weaponImg}">`
+    : "";
+  const headerLabel = damageData.weaponName || damageData.effectLabel || (isHealing ? "Healing" : "Damage");
+
+  // ── Block/Ward status badge (single compact line) ──
+  let statusBadge = "";
+  if (mode === "block" && damageData.blockResult) {
+    const br = damageData.blockResult;
+    if (br.blocked) {
+      statusBadge = `<span class="dmg-status dmg-status--blocked">\u{1F6E1} Blocked (BR ${br.blockRating}${br.shieldSplitter ? ", SS" : ""})</span>`;
+    } else if (br.isAoE) {
+      statusBadge = `<span class="dmg-status dmg-status--aoe">\u{1F6E1} AoE Blocked \u2192 ${br.reducedDamage ?? damageData.finalDamage} dmg</span>`;
+    } else {
+      statusBadge = `<span class="dmg-status dmg-status--penetrated">\u26A0 Block Penetrated (${damageData.finalDamage} &gt; BR ${br.blockRating})</span>`;
+    }
+  }
+  if (mode === "ward" && damageData.wardResult) {
+    const wr = damageData.wardResult;
+    if (wr.blocked) {
+      statusBadge = `<span class="dmg-status dmg-status--blocked">\u{1F6E1} Warded (BR ${wr.wardBR})</span>`;
+    } else if (wr.isAoE) {
+      statusBadge = `<span class="dmg-status dmg-status--aoe">\u{1F6E1} AoE Warded \u2192 ${wr.reducedDamage ?? damageData.finalDamage} dmg</span>`;
+    } else {
+      statusBadge = `<span class="dmg-status dmg-status--penetrated">\u26A0 Ward Penetrated (${damageData.finalDamage} &gt; BR ${wr.wardBR})</span>`;
+    }
+  }
+
+  const fullyBlocked = (mode === "block" && damageData.blockResult?.blocked && !damageData.blockResult?.isAoE)
+    || (mode === "ward" && damageData.wardResult?.blocked && !damageData.wardResult?.isAoE);
+
+  // ── Roll detail (collapsible for A/B rolls) ──
+  const rollATotal = damageData.rollATotal;
+  const rollBTotal = damageData.rollBTotal;
+  const extraNotes = damageData.extraNotes ?? "";
+  let rollDetail = "";
+  if (rollBTotal != null) {
+    rollDetail = `<div class="dmg-roll-breakdown">Roll A: ${rollATotal ?? "?"} \u2502 Roll B: ${rollBTotal}${extraNotes ? ` \u2502 ${extraNotes}` : ""}</div>`;
+  } else if (extraNotes) {
+    rollDetail = `<div class="dmg-roll-breakdown">${extraNotes}</div>`;
+  }
+
+  // ── Compact key-value grid (replaces 3-column table) ──
+  const damageLabel = isHealing ? "Healing" : "Damage";
+  const rawDamageString = String(damageData.damageString ?? "");
+  const looksLikeRollHtml = /class=["']dice-roll["']/i.test(rawDamageString);
+  const formula = looksLikeRollHtml ? "" : rawDamageString;
+  const pills = damageData.qualityPillsHtml ?? "";
+  const rollHtml = damageData.rollHtml ?? (looksLikeRollHtml ? rawDamageString : "");
+  const rollBHtml = damageData.rollBHtml ?? "";
+
+  const rollHtmlBlock = rollHtml
+    ? `<div class="dmg-roll-html">${rollBHtml ? `<div class="dmg-roll-label">Roll A</div>` : ""}${rollHtml}</div>`
+    : "";
+  const rollBHtmlBlock = rollBHtml
+    ? `<div class="dmg-roll-html"><div class="dmg-roll-label">Roll B</div>${rollBHtml}</div>`
+    : "";
+  
+  // Main damage display (always visible) - 4 column grid
+  const damageDisplayHtml = fullyBlocked ? "" : `
+    <div class="dmg-kv">
+      <span class="lbl">${damageLabel}</span>
+      <span class="val"><b>${damageData.finalDamage}</b>${formula ? ` <span class="dmg-formula">${formula}</span>` : ""}</span>
+      <span class="lbl">Hit Loc.</span>
+      <span class="val">${damageData.hitLocation ?? "Body"}</span>
+      ${pills ? `<span class="val-pills">${pills}</span>` : ""}
+    </div>`;
+  
+  // Collapsible detailed roll breakdown (dice HTML + text notes)
+  const damageDetailsHtml = (!fullyBlocked && (rollHtmlBlock || rollBHtmlBlock || rollDetail)) ? `
+    <details class="dmg-details">
+      <summary class="dmg-details-summary">Roll</summary>
+      <div class="dmg-details-content">
+        ${rollHtmlBlock}
+        ${rollBHtmlBlock}
+        ${rollDetail}
+      </div>
+    </details>` : "";
+  
+  const kvGrid = damageDisplayHtml + damageDetailsHtml;
+
+
+  // ── Extra note ──
+  const extraNoteHtml = damageData.extraNoteHtml
+    ? `<div class="dmg-note">${damageData.extraNoteHtml}</div>`
+    : "";
+
+  // ── Action: apply button or applied state ──
+  let actionSection = "";
+  if (fullyBlocked) {
+    actionSection = "";
+  } else if (damageData.applied) {
+    actionSection = `<div class="dmg-action"><span class="damage-applied-label">\u2713 ${damageLabel} Applied</span></div>`;
+  } else {
+    const btnClass = isHealing ? "apply-healing-btn" : "apply-damage-btn";
+    const btnLabel = `Apply \u2192 ${p.targetName ?? "Target"}`;
+    const dataAttrs = Object.entries(p)
+      .filter(([k]) => k !== "buttonLabel" && k !== "targetName")
+      .map(([k, v]) => `data-${_camelToKebab(k)}="${String(v ?? "").replace(/"/g, "&quot;")}"`) 
+      .join(" ");
+    actionSection = `<div class="dmg-action"><button type="button" class="${btnClass}" ${dataAttrs}>${btnLabel}</button></div>`;
+  }
+
+  return `
+    <div class="uesrpg-damage-panel">
+      <div class="dmg-hdr">${headerImg}<span class="dmg-title">${headerLabel}</span></div>
+      ${statusBadge}
+      ${kvGrid}
+      ${extraNoteHtml}
+      ${actionSection}
+    </div>
+  `;
+}
+
+/**
+ * Convert camelCase to kebab-case for data attribute names.
+ * @param {string} str 
+ * @returns {string}
+ */
+function _camelToKebab(str) {
+  return str.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+}

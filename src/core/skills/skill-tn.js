@@ -11,6 +11,9 @@
 import { collectCombatTNModifierEntries, computeDefenderTNOverride } from "../combat/tn.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 import { hasTalent } from "../traits/talents-api.js";
+import { applySenseLossPenaltyAdjustments } from "../traits/awareness-talents.js";
+import { getArmoredAgilityAcrobaticsBonus } from "../traits/mobility-talents.js";
+import { hasCondition } from "../conditions/condition-engine.js";
 
 export const SKILL_DIFFICULTIES = Object.freeze([
   { key: "effortless", label: "Effortless", mod: 40 },
@@ -66,6 +69,60 @@ function _maybeAddObservantEvadeMod(actor, skillItem, situationalMods) {
       source: "talent"
     });
   }
+}
+
+function _hasSenseLossMods(situationalMods) {
+  if (!Array.isArray(situationalMods)) return false;
+  return situationalMods.some((m) => {
+    const key = String(m?.key ?? m?.conditionKey ?? "").trim().toLowerCase();
+    return key === "blinded" || key === "deafened";
+  });
+}
+
+function _maybeAddSenseLossAwarenessMods(actor, skillItem, situationalMods) {
+  if (!actor || !skillItem || !Array.isArray(situationalMods)) return;
+
+  const hasAll = hasTalent(actor, "onewithall");
+  const hasHoned = !hasAll && hasTalent(actor, "honedsenses");
+  if (!hasAll && !hasHoned) return;
+
+  // If sense-loss mods already exist, ensure awareness adjustments are applied once.
+  if (_hasSenseLossMods(situationalMods)) {
+    applySenseLossPenaltyAdjustments(situationalMods, actor);
+    return;
+  }
+
+  // Unopposed baseline: only auto-hydrate observe penalties that already exist via condition AEs.
+  const skillKey = _normalizeKey(skillItem?.name);
+  if (skillKey !== "observe") return;
+
+  const hasBlind = hasCondition(actor, "blinded");
+  const hasDeaf = hasCondition(actor, "deafened");
+  if (!hasBlind && !hasDeaf) return;
+
+  if (hasBlind) {
+    situationalMods.push({
+      key: "blinded",
+      conditionKey: "blinded",
+      label: "Blinded (sight)",
+      value: -30,
+      source: "sense-loss",
+      applyMode: "offset"
+    });
+  }
+
+  if (hasDeaf) {
+    situationalMods.push({
+      key: "deafened",
+      conditionKey: "deafened",
+      label: "Deafened (hearing)",
+      value: -30,
+      source: "sense-loss",
+      applyMode: "offset"
+    });
+  }
+
+  applySenseLossPenaltyAdjustments(situationalMods, actor);
 }
 function _isAgilityBasedSkill(skillItem) {
   // Skills can encode governing characteristics as a single token ("Agi"),
@@ -161,6 +218,7 @@ export function computeSkillTN({
   // We evaluate these deterministically at roll-time to support both ADD and OVERRIDE modes.
   const _aeSkillNorm = _normalizeKey(skillItem?.name);
   const _aeProfessionNorm = _normalizeKey(skillItem?._professionKey);
+  const _aeCharacteristicNorm = _normalizeKey(skillItem?._characteristicKey);
   const _aeSkillKeys = new Set([
     "system.modifiers.tests.all",
     "system.modifiers.skills._all",
@@ -169,6 +227,7 @@ export function computeSkillTN({
   ]);
   if (_aeSkillNorm) _aeSkillKeys.add(`system.modifiers.skills.${_aeSkillNorm}`);
   if (_aeProfessionNorm) _aeSkillKeys.add(`system.modifiers.skills.${_aeProfessionNorm}`);
+  if (_aeCharacteristicNorm) _aeSkillKeys.add(`system.modifiers.characteristics.${_aeCharacteristicNorm}`);
   const _aeSkillResolved = actor ? evaluateAEModifierKeys(actor, Array.from(_aeSkillKeys)) : {};
 
   const fallbackSituational = [];
@@ -188,8 +247,10 @@ export function computeSkillTN({
 
   const situational = Array.isArray(situationalMods) ? [...situationalMods] : [];
   _maybeAddObservantEvadeMod(actor, skillItem, situational);
+  _maybeAddSenseLossAwarenessMods(actor, skillItem, situational);
 
   return computeSkillTNFromData({
+    actor,
     actorSystem: actor?.system ?? {},
     actorType: actor?.type,
     actorHasPlayerOwner: actor?.hasPlayerOwner,
@@ -222,6 +283,7 @@ export function computeSkillTN({
  * Pure TN computation operating on plain data objects (no document access).
  */
 export function computeSkillTNFromData({
+  actor = null,
   actorSystem = {},
   actorType = null,
   actorHasPlayerOwner = true,
@@ -236,10 +298,13 @@ export function computeSkillTNFromData({
 } = {}) {
   const breakdown = [];
 
+  const isCharacteristic = skill?.type === "characteristic";
+
   // In UESRPG, the stored skill value represents the rank-derived bonus (and any legacy item-derived parts).
-  // In chat cards, present this as "Rank" for clarity.
+  // For characteristics, this is the characteristic total.
+  // In chat cards, present this as "Rank" for skills or the characteristic name for char tests.
   const baseSkill = _asNumber(skill?.system?.value);
-  breakdown.push({ label: "Rank", value: baseSkill, source: "rank" });
+  breakdown.push({ label: isCharacteristic ? (skill?.name ?? "Characteristic") : "Rank", value: baseSkill, source: isCharacteristic ? "characteristic" : "rank" });
 
   // Active Effects: skill-specific and global modifiers.
   // Supported keys (dynamic):
@@ -285,6 +350,20 @@ export function computeSkillTNFromData({
       value: professionBonus,
       source: "aeSkillProfession"
     });
+  }
+
+  // Characteristic-specific AE modifier lane
+  const normCharacteristic = _normalizeKey(skill?._characteristicKey);
+  if (normCharacteristic) {
+    const chaBonus = _asNumber(resolved[`system.modifiers.characteristics.${normCharacteristic}`] ?? 0);
+    if (chaBonus) {
+      const chaLabel = String(skill?.name ?? normCharacteristic).trim();
+      breakdown.push({
+        label: `Effects: ${chaLabel}`,
+        value: chaBonus,
+        source: "aeCharacteristic"
+      });
+    }
   }
 
   // Frenzied condition penalty lane
@@ -357,6 +436,13 @@ export function computeSkillTNFromData({
     ? _asNumber(mobility?.agilityTestPenalty)
     : 0;
   if (mobilityAgiPenalty) breakdown.push({ label: "Armor: Penalty", value: mobilityAgiPenalty, source: "armorAgility" });
+
+  // Armored Agility (Chapter 4): reduce Acrobatics penalties gained from armor class by
+  // (Acrobatics rank - 1) * 10 (cannot turn a penalty into a bonus).
+  if (nameKey === "acrobatics") {
+    const aa = getArmoredAgilityAcrobaticsBonus(actor, mobility);
+    if (aa > 0) breakdown.push({ label: "Talent: Armored Agility", value: aa, source: "talentArmoredAgility" });
+  }
 
   const woundedPenalty = (actorSystem?.wounded)
     ? _asNumber(actorSystem?.woundPenalty)

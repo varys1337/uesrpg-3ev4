@@ -33,14 +33,30 @@ export class DebugSettingsApp extends FormApplication {
   /** @override */
   getData(options) {
     const world = {
+      debugEnabled: game.settings.get(NAMESPACE, "debugEnabled"),
       opposedDebug: game.settings.get(NAMESPACE, "opposedDebug"),
       effectsProxyDebug: game.settings.get(NAMESPACE, "effectsProxyDebug"),
       opposedDebugFormula: game.settings.get(NAMESPACE, "opposedDebugFormula"),
       opposedShowResolutionDetails: game.settings.get(NAMESPACE, "opposedShowResolutionDetails"),
+      opposedShowStatusLine: game.settings.get(NAMESPACE, "opposedShowStatusLine"),
       skillRollDebug: game.settings.get(NAMESPACE, "skillRollDebug"),
+      spellCastingDebug: game.settings.get(NAMESPACE, "spellCastingDebug"),
+      debugMagicRouting: game.settings.get(NAMESPACE, "debugMagicRouting"),
+      activationDebug: game.settings.get(NAMESPACE, "activationDebug"),
+      woundsDebug: game.settings.get(NAMESPACE, "woundsDebug"),
+    };
+
+    const ruleElements = {
+      enableRuleElementsRuntime: game.settings.get(NAMESPACE, "enableRuleElementsRuntime"),
+      enableRuleElementsRuntimeSkill: game.settings.get(NAMESPACE, "enableRuleElementsRuntimeSkill"),
+      enableRuleElementsRuntimeCharacteristic: game.settings.get(NAMESPACE, "enableRuleElementsRuntimeCharacteristic"),
+      enableRuleElementsRuntimeCombat: game.settings.get(NAMESPACE, "enableRuleElementsRuntimeCombat"),
+      enableRuleElementsRuntimeMagic: game.settings.get(NAMESPACE, "enableRuleElementsRuntimeMagic"),
+      ruleElementDebug: game.settings.get(NAMESPACE, "ruleElementDebug"),
     };
 
     const client = {
+      aeLifecycleDebug: game.settings.get(NAMESPACE, "aeLifecycleDebug"),
       debugSkillTN: game.settings.get(NAMESPACE, "debugSkillTN"),
       sheetDiagnostics: game.settings.get(NAMESPACE, "sheetDiagnostics"),
       debugAim: game.settings.get(NAMESPACE, "debugAim"),
@@ -50,6 +66,7 @@ export class DebugSettingsApp extends FormApplication {
     return {
       isGM: _isGM(),
       world,
+      ruleElements,
       client,
     };
   }
@@ -58,24 +75,38 @@ export class DebugSettingsApp extends FormApplication {
   async _updateObject(_event, formData) {
     // FormApplication gives us flattened keys.
     // We keep the mapping explicit for safety.
-        const setIfPresent = async (scope, key) => {
+    const setIfPresent = async (scope, key) => {
       const full = `${scope}.${key}`;
       if (!(full in formData)) return;
-      // Preserve types explicitly.
-      const value = (key === "opposedDebugFormula") ? String(formData[full] ?? "") : Boolean(formData[full]);
+      const value = Boolean(formData[full]);
       await game.settings.set(NAMESPACE, key, value);
     };
 
     // World settings: GM only.
     if (_isGM()) {
+      await setIfPresent("world", "debugEnabled");
       await setIfPresent("world", "opposedDebug");
       await setIfPresent("world", "effectsProxyDebug");
       await setIfPresent("world", "opposedDebugFormula");
       await setIfPresent("world", "opposedShowResolutionDetails");
+      await setIfPresent("world", "opposedShowStatusLine");
       await setIfPresent("world", "skillRollDebug");
+      await setIfPresent("world", "spellCastingDebug");
+      await setIfPresent("world", "debugMagicRouting");
+      await setIfPresent("world", "activationDebug");
+      await setIfPresent("world", "woundsDebug");
+
+      // Rule Elements Runtime toggles.
+      await setIfPresent("ruleElements", "enableRuleElementsRuntime");
+      await setIfPresent("ruleElements", "enableRuleElementsRuntimeSkill");
+      await setIfPresent("ruleElements", "enableRuleElementsRuntimeCharacteristic");
+      await setIfPresent("ruleElements", "enableRuleElementsRuntimeCombat");
+      await setIfPresent("ruleElements", "enableRuleElementsRuntimeMagic");
+      await setIfPresent("ruleElements", "ruleElementDebug");
     }
 
     // Client settings: anyone can set their own client toggles.
+    await setIfPresent("client", "aeLifecycleDebug");
     await setIfPresent("client", "debugSkillTN");
     await setIfPresent("client", "sheetDiagnostics");
     await setIfPresent("client", "debugAim");

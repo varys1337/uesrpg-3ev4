@@ -17,6 +17,7 @@ import { computeTN, listCombatStyles, hasEquippedShield } from "./tn.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "./defense-options.js";
 import { applySenseLossPenaltyAdjustments } from "../traits/awareness-talents.js";
+import { hasActiveWard, getWardBlockRating } from "./ward-defense.js";
 
 function asNumber(v) {
   if (v == null) return 0;
@@ -39,6 +40,7 @@ export class DefenseDialog extends Dialog {
     const defaultCircMod = Number(options.defaultCircumstanceMod ?? 0) || 0;
 
     const shieldOk = hasEquippedShield(defender);
+    const wardOk = hasActiveWard(defender);
 
     const hasBlinded = hasCondition(defender, "blinded");
     const hasDeafened = hasCondition(defender, "deafened");
@@ -56,6 +58,7 @@ export class DefenseDialog extends Dialog {
       attackerWeaponTraits,
       defenderHasSmallWeapon,
       defenderHasShield: shieldOk,
+      defenderHasWard: wardOk,
       allowedDefenseTypes,
       allowParryRanged
     });
@@ -128,19 +131,21 @@ export class DefenseDialog extends Dialog {
 
     const showStyle = styles.length > 0;
 
-    const allowed = availability?.allowed ?? { evade: true, parry: true, block: Boolean(shieldOk), counter: true };
-    const reasons = availability?.reasons ?? { evade: [], parry: [], block: [], counter: [] };
+    const allowed = availability?.allowed ?? { evade: true, parry: true, block: Boolean(shieldOk), counter: true, ward: false };
+    const reasons = availability?.reasons ?? { evade: [], parry: [], block: [], counter: [], ward: [] };
     const gates = availability?.gates ?? {
       isRangedAttack: false,
       attackerHasFlail: false,
       attackerHasEntangling: false,
       smallVsTwoHandedGate: false,
-      shieldOk: Boolean(shieldOk)
+      shieldOk: Boolean(shieldOk),
+      wardOk: false
     };
 
     const blockDisabled = allowed.block ? "" : "disabled";
     const parryDisabled = allowed.parry ? "" : "disabled";
     const counterDisabled = allowed.counter ? "" : "disabled";
+    const wardDisabled = allowed.ward ? "" : "disabled";
 
     const notes = [];
     if (gates.isRangedAttack) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Ranged:</b> Ranged attacks cannot be parried or counter-attacked.</p>`);
@@ -252,6 +257,14 @@ export class DefenseDialog extends Dialog {
       </div>
       ${counterDisabled ? `<p class="notes">Not available for this attack.</p>` : ``}
     </label>
+
+    <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${wardDisabled ? "0.45" : "1"}; grid-column: span 2;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span><input type="radio" name="defenseType" value="ward" ${defaultDefenseType === "ward" ? "checked" : ""} ${wardDisabled}/> <b>Ward</b></span>
+        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="ward">—</span></span>
+      </div>
+      ${wardDisabled ? `<p class="notes">${Handlebars.escapeExpression(String(reasons?.ward?.[0] ?? "Requires an active Ward spell."))}</p>` : `<p class="notes">Spell acts as shield. BR = Spell Strength. Power Block incompatible.</p>`}
+    </label>
   </div>
 
   ${extraNotes}
@@ -264,11 +277,13 @@ export class DefenseDialog extends Dialog {
 
     // If the default defense type is not allowed, force a safe fallback.
     const shieldOk = hasEquippedShield(this._defender);
+    const wardOk = hasActiveWard(this._defender);
     const availability = computeDefenseAvailability({
       attackMode: this._attackMode,
       attackerWeaponTraits: this._attackerWeaponTraits,
       defenderHasSmallWeapon: this._defenderHasSmallWeapon,
       defenderHasShield: shieldOk,
+      defenderHasWard: wardOk,
       allowParryRanged: this._allowParryRanged
     });
     const checked = html.find('input[name="defenseType"]:checked');
@@ -307,11 +322,13 @@ export class DefenseDialog extends Dialog {
 
   _refreshTN(html) {
     const shieldOk = hasEquippedShield(this._defender);
+    const wardOk = hasActiveWard(this._defender);
     const availability = computeDefenseAvailability({
       attackMode: this._attackMode,
       attackerWeaponTraits: this._attackerWeaponTraits,
       defenderHasSmallWeapon: this._defenderHasSmallWeapon,
       defenderHasShield: shieldOk,
+      defenderHasWard: wardOk,
       allowParryRanged: this._allowParryRanged
     });
 
@@ -323,6 +340,9 @@ export class DefenseDialog extends Dialog {
 
     const counterRadio = html.find('input[name="defenseType"][value="counter"]');
     if (counterRadio.length) counterRadio.prop("disabled", !availability.allowed.counter);
+
+    const wardRadio = html.find('input[name="defenseType"][value="ward"]');
+    if (wardRadio.length) wardRadio.prop("disabled", !availability.allowed.ward);
 
     // If the currently selected option becomes illegal (equipment/context change), force fallback.
     const checked = html.find('input[name="defenseType"]:checked');
@@ -358,12 +378,17 @@ export class DefenseDialog extends Dialog {
     const blockTN = availability.allowed.block
       ? computeTN({ actor: this._defender, role: "defender", defenseType: "block", styleUuid, manualMod, circumstanceMod, situationalMods, context: ctx }).finalTN
       : 0;
+    // Ward uses the same TN as Block (Combat Style/Profession based).
+    const wardTN = availability.allowed.ward
+      ? computeTN({ actor: this._defender, role: "defender", defenseType: "block", styleUuid, manualMod, circumstanceMod, situationalMods, context: ctx }).finalTN
+      : 0;
 
     const setTN = (k, v) => html.find(`[data-tn-for="${k}"]`).text(String(asNumber(v)));
     setTN("evade", evadeTN);
     setTN("parry", parryTN);
     setTN("counter", counterTN);
     setTN("block", blockTN);
+    setTN("ward", wardTN);
   }
 
   _readSelection(html) {
@@ -379,11 +404,13 @@ export class DefenseDialog extends Dialog {
 
     const rawDefenseType = String(html.find('input[name="defenseType"]:checked').val() ?? "evade");
     const shieldOk = hasEquippedShield(this._defender);
+    const wardOk = hasActiveWard(this._defender);
     const availability = computeDefenseAvailability({
       attackMode: this._attackMode,
       attackerWeaponTraits: this._attackerWeaponTraits,
       defenderHasSmallWeapon: this._defenderHasSmallWeapon,
       defenderHasShield: shieldOk,
+      defenderHasWard: wardOk,
       allowParryRanged: this._allowParryRanged
     });
     const defenseType = normalizeDefenseType(rawDefenseType, availability, "evade");
@@ -391,8 +418,9 @@ export class DefenseDialog extends Dialog {
 
     if (defenseType === "evade") return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
     if (defenseType === "block") return { defenseType: "block", label: "Block", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "ward") return { defenseType: "ward", label: "Ward", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
     if (defenseType === "parry") return { defenseType: "parry", label: "Parry", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
-    if (defenseType === "counter") return { defenseType: "counter", label: "Counter-Attack", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "counter") return { defenseType: "counter", label: "Counter", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
 
     return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
   }

@@ -1,4 +1,4 @@
-const imgPath = "systems/uesrpg-3ev4/images";
+const imgPath = "systems/uesrpg-3ev4/images/dialogue/races";
 
 export default {
   Altmer: {

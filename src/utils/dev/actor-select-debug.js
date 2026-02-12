@@ -8,13 +8,14 @@
  */
 
 import { computeSkillTN } from "../../core/skills/skill-tn.js";
+import { isDebugEnabled } from "../debug.js";
 
 let _actorSelectDebugRegistered = false;
 
 const SETTING_KEY = "debugActorSelect";
 
 function _isEnabled() {
-  return Boolean(game.settings.get("uesrpg-3ev4", SETTING_KEY));
+  return isDebugEnabled(SETTING_KEY);
 }
 
 function _normKey(s) {
@@ -82,7 +83,7 @@ export function registerActorSelectDebug() {
 
 // Dev-only invariant snapshot on ready (helps catch silent sheet regressions).
 Hooks.once("ready", () => {
-  if (!game.settings.get("uesrpg-3ev4", SETTING_KEY)) return;
+  if (!isDebugEnabled(SETTING_KEY)) return;
   try {
     const sheetClasses = CONFIG?.Actor?.sheetClasses ?? null;
     const npcSheets = [];
