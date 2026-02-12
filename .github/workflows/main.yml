@@ -18,84 +18,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install dependencies (CI)
-        run: npm ci
-
-      # Ensure deterministic output (no stale compiled packs)
-      - name: Clean compiled packs (packs/* excluding packs/src)
-        run: npm run packs-clean
-
-      # Compiles YAML source in packs/src/** into Foundry-ready LevelDB packs in packs/** (excluding packs/src).
-      - name: Compile compendium packs (packs/src -> packs/*)
-        run: npm run packs-compile
-
-      # Fail-fast verification: ensures compilation actually produced LevelDB packs (v13+).
-      - name: Verify compiled packs exist and look like LevelDB
-        shell: bash
-        run: |
-          echo "Listing packs directory:"
-          ls -la packs || true
-
-          # Ensure there is at least one compiled pack folder besides "src"
-          compiled_count=$(find packs -mindepth 1 -maxdepth 1 -type d -not -name src | wc -l)
-          if [ "$compiled_count" -lt 1 ]; then
-            echo "ERROR: No compiled packs were produced in packs/ (only packs/src exists)."
-            exit 1
-          fi
-
-          # Each compiled LevelDB pack folder should contain CURRENT and MANIFEST-*
-          # Additionally verify there is at least one data file (*.ldb or *.sst)
-          while IFS= read -r d; do
-            echo "Checking compiled pack folder: $d"
-
-            if [ ! -f "$d/CURRENT" ]; then
-              echo "ERROR: Missing CURRENT in $d"
-              ls -la "$d" || true
-              exit 1
-            fi
-
-            if ! ls "$d"/MANIFEST-* >/dev/null 2>&1; then
-              echo "ERROR: Missing MANIFEST-* in $d"
-              ls -la "$d" || true
-              exit 1
-            fi
-
-            if ! find "$d" -maxdepth 1 -type f \( -name "*.ldb" -o -name "*.sst" \) | head -n 1 | grep -q .; then
-              echo "ERROR: No LevelDB data files (*.ldb or *.sst) found in $d"
-              ls -la "$d" || true
-              exit 1
-            fi
-
-            # Sanity: compiled pack folder should not contain YAML
-            if find "$d" -maxdepth 1 -type f \( -name "*.yml" -o -name "*.yaml" \) | head -n 1 | grep -q .; then
-              echo "ERROR: YAML files found in compiled pack folder $d (unexpected)"
-              ls -la "$d" || true
-              exit 1
-            fi
-          done < <(find packs -mindepth 1 -maxdepth 1 -type d -not -name src)
-
-          echo "Compiled packs verification passed."
-
-      # Build a distributable ZIP that includes compiled packs but excludes YAML sources (packs/src)
+      # Build a distributable ZIP that includes pre-compiled packs
       - name: Build system zip (uesrpg-3ev4.zip)
         shell: bash
         run: |
           rm -rf dist
           mkdir -p dist
 
-          # Copy everything into dist EXCEPT: git metadata, CI, dev tooling, and packs/src (YAML sources)
+          # Copy everything into dist EXCEPT: git metadata, CI, dev tooling
           rsync -a . dist/ \
             --exclude ".git/" \
             --exclude ".github/" \
             --exclude "node_modules/" \
             --exclude "automation/" \
-            --exclude "packs/src/" \
             --exclude ".editorconfig" \
             --exclude ".gitattributes" \
             --exclude "package.json" \
@@ -104,8 +39,7 @@ jobs:
           rm -f uesrpg-3ev4.zip
           (cd dist && zip -r ../uesrpg-3ev4.zip .)
 
-      # Verify the ZIP contains compiled packs and does not contain packs/src (YAML)
-      - name: Verify ZIP contents (compiled packs included, YAML sources excluded)
+      - name: Verify ZIP contains compiled packs
         shell: bash
         run: |
           python3 - <<'PY'
@@ -117,32 +51,16 @@ jobs:
           with zipfile.ZipFile(zpath) as zf:
             names = zf.namelist()
 
-          # Allow optional prefix (in case the archive has a top-level folder)
-          # e.g. "uesrpg-3ev4/packs/foo/CURRENT" or "packs/foo/CURRENT"
-          src_rx = re.compile(r'(^|.*/)?packs/src/', re.IGNORECASE)
           current_rx = re.compile(r'(^|.*/)?packs/[^/]+/CURRENT$')
-
-          src_hits = [n for n in names if src_rx.search(n)]
-          if src_hits:
-            print("ERROR: ZIP contains packs/src (YAML sources). Examples:")
-            for n in src_hits[:50]:
-              print(" ", n)
-            sys.exit(1)
-
           current_hits = [n for n in names if current_rx.search(n)]
           if not current_hits:
             print("ERROR: ZIP does not appear to contain compiled LevelDB packs (missing packs/<packName>/CURRENT).")
             print("First 200 entries:")
             for n in names[:200]:
               print(" ", n)
-
-            packs_related = [n for n in names if "packs/" in n]
-            print(f"Entries containing 'packs/': {len(packs_related)}")
-            for n in packs_related[:200]:
-              print(" ", n)
             sys.exit(1)
 
-          print(f"Found {len(current_hits)} compiled pack CURRENT entries. Examples:")
+          print(f"Found {len(current_hits)} compiled pack(s). Examples:")
           for n in current_hits[:20]:
             print(" ", n)
 
