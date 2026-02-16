@@ -44,6 +44,8 @@ import { isActorIncorporeal, getActorTraitValue, hasActorTrait, isActorUndead } 
 import { postDiseasedCheckCard } from "../../../traits/trait-automation.js";
 import { applyBleeding, hasCondition } from "../../../conditions/condition-engine.js";
 import { getAttackModeFromWeapon } from "../../combat-utils.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
 
@@ -56,38 +58,36 @@ async function _promptUntouchableLpSpend({ actor, availableLp, woundThreshold, d
   const max = Math.max(0, Number(availableLp ?? 0) || 0);
   if (!a || max <= 0) return 0;
 
-  return await new Promise((resolve) => {
-    const title = "Untouchable \u2014 Spend Luck Points";
-    const content = `
-      <form class="uesrpg-untouchable-spend">
-        <p><b>${foundry.utils.escapeHTML(a.name ?? "Actor")}</b> may spend Luck Points to increase Wound Threshold for this attack only.</p>
-        <p style="opacity:0.85;"><b>Damage Applied:</b> ${Number(damageApplied || 0)} &nbsp;&nbsp; <b>Current WT:</b> ${Number(woundThreshold || 0)}</p>
-        <div class="form-group" style="margin-top:8px;">
-          <label><b>Luck Points to Spend</b> (0\u2013${max})</label>
-          <input name="lp" type="number" min="0" max="${max}" value="0" style="width:100%;" />
-        </div>
-      </form>
-    `;
+  const title = "Untouchable \u2014 Spend Luck Points";
+  const content = `
+    <div class="uesrpg-untouchable-spend">
+      <p><b>${foundry.utils.escapeHTML(a.name ?? "Actor")}</b> may spend Luck Points to increase Wound Threshold for this attack only.</p>
+      <p style="opacity:0.85;"><b>Damage Applied:</b> ${Number(damageApplied || 0)} &nbsp;&nbsp; <b>Current WT:</b> ${Number(woundThreshold || 0)}</p>
+      <div class="form-group" style="margin-top:8px;">
+        <label><b>Luck Points to Spend</b> (0\u2013${max})</label>
+        <input name="lp" type="number" min="0" max="${max}" value="0" style="width:100%;" />
+      </div>
+    </div>
+  `;
 
-    new Dialog({
-      title,
-      content,
-      buttons: {
-        ok: {
-          label: "Spend",
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const raw = root?.querySelector('input[name="lp"]')?.value ?? "0";
-            const n = Number.parseInt(String(raw), 10) || 0;
-            resolve(Math.clamp(n, 0, max));
-          }
-        },
-        cancel: { label: "Spend 0", callback: () => resolve(0) }
+  const result = await customDialog({
+    title,
+    content,
+    buttons: {
+      ok: {
+        label: "Spend",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const raw = root?.querySelector('input[name="lp"]')?.value ?? "0";
+          const n = Number.parseInt(String(raw), 10) || 0;
+          return Math.clamp(n, 0, max);
+        }
       },
-      default: "ok",
-      close: () => resolve(0)
-    }).render(true);
+      cancel: { label: "Spend 0", callback: () => 0 }
+    },
+    defaultButton: "ok",
   });
+  return result ?? 0;
 }
 
 function _consumePendingSneakAttack(attackerActor, { weapon = null, attackMode = null } = {}) {
@@ -99,9 +99,7 @@ function _consumePendingSneakAttack(attackerActor, { weapon = null, attackMode =
 
     const ageMs = Date.now() - Number(pending.at ?? 0);
     if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > PENDING_SNEAK_TTL_MS) {
-      if (typeof attackerActor.unsetFlag === "function") {
-        attackerActor.unsetFlag(systemId, "combat.pendingSneakAttack").catch(() => {});
-      }
+      requestUpdateDocument(attackerActor, { [`flags.${systemId}.combat.-=pendingSneakAttack`]: null }).catch(() => {});
       return false;
     }
 
@@ -117,9 +115,7 @@ function _consumePendingSneakAttack(attackerActor, { weapon = null, attackMode =
       if (!mode || pendingMode !== mode) return false;
     }
 
-    if (typeof attackerActor.unsetFlag === "function") {
-      attackerActor.unsetFlag(systemId, "combat.pendingSneakAttack").catch(() => {});
-    }
+    requestUpdateDocument(attackerActor, { [`flags.${systemId}.combat.-=pendingSneakAttack`]: null }).catch(() => {});
     return true;
   } catch (_e) {
     return false;
@@ -273,7 +269,12 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       if (Number.isFinite(fromFlag) && fromFlag !== 0) powerAttackAppliedBonus = fromFlag;
       else if (Number.isFinite(fromChange) && fromChange !== 0) powerAttackAppliedBonus = fromChange;
       else powerAttackAppliedBonus = powerAttackFromAe;
-      await powerAttackEffect.delete();
+      const paParent = powerAttackEffect.parent;
+      if (paParent?.isOwner) {
+        await powerAttackEffect.delete();
+      } else if (paParent) {
+        await requestDeleteEmbeddedDocuments(paParent, "ActiveEffect", [powerAttackEffect.id]);
+      }
     } catch (err) {
       console.warn("UESRPG | Failed to consume Power Attack effect:", err);
     }
@@ -779,7 +780,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     const nextMP = Math.min(maxMP, currentMP + spellAbsorptionRestored);
     updateData["system.magicka.value"] = nextMP;
   }
-  await updateTarget.update(updateData);
+  await requestUpdateDocument(updateTarget, updateData);
 
   // Emit canonical damage-applied hook for downstream automation (e.g. Chapter 5 wounds/shock).
   try {

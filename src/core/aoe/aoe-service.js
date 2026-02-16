@@ -93,7 +93,7 @@ export class AoEService {
 
     // --- Build template data ---
     const result = buildTemplateData({
-      origin: isPulse ? placementOrigin : placementOrigin,
+      origin: placementOrigin,
       aoe: {
         shape: aoe.shape,
         distance: aoe.distance ?? aoe.size ?? aoe.sizeMeters,
@@ -186,10 +186,9 @@ async function _collectTargetsInTemplate(templateDoc, { isPulse, includeCaster, 
   const affected = [];
 
   for (const tok of tokens) {
-    const tokObj = tok?.object ?? tok;
-    if (!tokObj) continue;
+    if (!tok) continue;
 
-    const inside = _isTokenInTemplate(tokObj, templateObj);
+    const inside = _isTokenInTemplate(tok, templateObj);
     if (inside) affected.push(tok);
   }
 

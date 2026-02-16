@@ -13,6 +13,7 @@ import { getActorCanvasToken } from "../combat-proximity.js";
 import { hasTalent } from "../talents-api.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { compileConditionsToPredicate } from "./conditions-to-predicate.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { getFeatureConfig } from "./feature-config.js";
 import {
   getRuleElements,
@@ -941,15 +942,14 @@ export async function applyRuntimePostRollToResult({
       const actorName = foundry.utils.escapeHTML(params?.actor?.name ?? "Actor");
       let wantsReroll = false;
       try {
-        wantsReroll = await Dialog.wait({
+        wantsReroll = await customDialog({
           title: `${grantLabel} — Reroll`,
           content: `<div class="uesrpg"><p><b>${actorName}</b> failed the test (rolled ${result.rollTotal} vs TN ${result.target}).</p><p>Use <b>${grantLabel}</b> to reroll (once per test)?</p></div>`,
           buttons: {
             reroll: { icon: '<i class="fas fa-dice"></i>', label: "Reroll", callback: () => true },
             keep: { icon: '<i class="fas fa-times"></i>', label: "Keep Failure", callback: () => false }
           },
-          default: "reroll",
-          close: () => false
+          default: "reroll"
         });
       } catch (_e) {
         wantsReroll = false;
@@ -992,7 +992,7 @@ export async function applyRuntimePostRollToResult({
  * @private
  */
 function _promptDoSReplacementRE({ title, rolledDoS, rankDoS, rankLabel } = {}) {
-  return Dialog.wait({
+  return customDialog({
     title: title || "Rule Element: Degrees of Success",
     content: `
       <div class="uesrpg">
@@ -1015,9 +1015,8 @@ function _promptDoSReplacementRE({ title, rolledDoS, rankDoS, rankLabel } = {}) 
         callback: () => ({ choice: "rank" })
       }
     },
-    default: "rolled",
-    close: () => ({ choice: "rolled" })
-  });
+    default: "rolled"
+  }).then(r => r ?? { choice: "rolled" });
 }
 
 export function selfTestRuleElementRuntime() {

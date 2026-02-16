@@ -20,12 +20,7 @@ export function _canControlActor(actor) {
 
 export function _userHasActorOwnership(user, actor) {
   if (!actor || !user) return false;
-  if (user.isGM) return true;
-  const userId = user?.id ?? user?._id ?? null;
-  if (!userId) return false;
-  const ownership = actor?.ownership ?? actor?.permission ?? {};
-  const userLevel = Number(ownership[userId] ?? ownership.default ?? 0);
-  return userLevel >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
+  return actor.testUserPermission?.(user, "OWNER") ?? false;
 }
 
 export function _fmtDegree(res) {

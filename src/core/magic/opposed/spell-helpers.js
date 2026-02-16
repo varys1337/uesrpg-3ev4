@@ -8,6 +8,7 @@
 
 import { isMultiDefender } from "./schema.js";
 import { computeSpellMagickaCost, rollSpellDamage } from "../magicka-utils.js";
+import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { computeElementalDamageBonus } from "../magic-modifiers.js";
 import { canTokenEscapeTemplate } from "../../../utils/aoe-utils.js";
 import { canUserRollActor } from "../../../utils/permissions.js";
@@ -220,14 +221,12 @@ export async function getOrCreateSharedSpellDamage({ data, attacker, spell, spel
  * @returns {Promise<boolean|null>}
  */
 export async function promptAoEEvadeEscape({ defenderName = "Defender", spellName = "the spell" } = {}) {
-  if (typeof Dialog?.confirm !== "function") return null;
   try {
-    return await Dialog.confirm({
+    return await confirmDialog({
       title: "AoE Evade",
       content: `<p>${defenderName} successfully evaded ${spellName}. Can they move 1m to exit the area?</p>`,
-      yes: "Escapes AoE",
-      no: "Still in AoE",
-      defaultYes: true
+      yesLabel: "Escapes AoE",
+      noLabel: "Still in AoE",
     });
   } catch (_e) {
     return null;

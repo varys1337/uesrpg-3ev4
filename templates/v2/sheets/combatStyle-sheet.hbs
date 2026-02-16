@@ -1,0 +1,100 @@
+{{!-- Combat Style Sheet — Compact Layout --}}
+<header class="item-compact-header">
+  <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
+  <div class="item-header-fields">
+    <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+    <div class="item-stats-row">
+      <div class="item-stat">
+        <label>{{item.system.value}}</label>
+        <span class="item-stat-label">Target Number</span>
+      </div>
+      <div class="item-stat">
+        <select name="system.rank" data-type="String">
+          {{selectOptions item.system.skillRanks selected=item.system.rank localize=true}}
+        </select>
+        <span class="item-stat-label">Rank</span>
+      </div>
+      <div class="item-stat">
+        <input type="text" name="system.governingCha" value="{{item.system.governingCha}}"/>
+        <span class="item-stat-label">Governing Char.</span>
+      </div>
+      <div class="item-stat">
+        <select name="system.baseCha" data-type="String">
+          {{selectOptions item.system.characteristics selected=item.system.baseCha localize=true}}
+        </select>
+        <span class="item-stat-label">Selected Char.</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+{{!-- Sheet Tab Navigation --}}
+<nav class="sheet-tabs tabs" data-group="primary">
+  <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="combatStyle">Combat Style</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+</nav>
+
+{{!-- Sheet Body --}}
+<section class="sheet-body">
+
+    {{!-- Description Tab --}}
+    <div class="tab" data-group="primary" data-tab="description">
+      {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+    </div>
+
+    {{!-- Combat Style Tab --}}
+    <div class="tab" data-group="primary" data-tab="combatStyle">
+      <div class="uesrpg-combatstyle-panel">
+        {{#if item.isOwned}}
+          <div class="uesrpg-row uesrpg-row--between uesrpg-combatstyle-active">
+            <div class="u-text-muted">
+              <b>Active Style</b>: {{#if isActiveCombatStyle}}Yes{{else}}No{{/if}}
+            </div>
+            {{#if isActiveCombatStyle}}
+              <button type="button" class="uesrpg-deactivate-style" data-action="deactivateStyle">Deactivate</button>
+            {{else}}
+              <button type="button" class="uesrpg-set-active-style" data-action="setActiveStyle">Set as Active</button>
+            {{/if}}
+          </div>
+        {{/if}}
+
+        <h3 class="uesrpg-section-title">Trained Equipment</h3>
+        <div class="notes uesrpg-notes">
+          Manual equipment entries used for training checks when weapon categories are not present. Fill up to ten.
+        </div>
+
+        <div class="uesrpg-combatstyle-equipment-grid" aria-label="Trained Equipment">
+          {{#each item.system.trainedEquipment as |val idx|}}
+            <div class="uesrpg-combatstyle-equip">
+              <label>Entry {{inc idx}}</label>
+              <input type="text" name="system.trainedEquipment.{{idx}}" value="{{val}}" placeholder="e.g., Long Blade, Bow, Shield"/>
+            </div>
+          {{/each}}
+        </div>
+
+        <hr class="uesrpg-divider" />
+
+        <h3 class="uesrpg-section-title">Special Advantages</h3>
+        <div class="notes uesrpg-notes">
+          Mark Special Actions that are known as part of this Combat Style. Only known actions on the Actor's active style are offered as Advantage options.
+        </div>
+
+        <div class="uesrpg-combatstyle-special-grid" aria-label="Special Advantages">
+          {{#each specialActionsRegistry as |sa|}}
+            <label class="uesrpg-combatstyle-special" title="{{sa.name}}">
+              <input type="checkbox" name="system.specialAdvantages.{{sa.id}}" {{checked (lookup ../item.system.specialAdvantages sa.id)}} />
+              <span class="uesrpg-combatstyle-special__name">{{sa.name}}</span>
+              <span class="uesrpg-combatstyle-special__type">{{sa.actionType}}</span>
+            </label>
+          {{/each}}
+        </div>
+      </div>
+    </div>
+
+    {{!-- Effects Tab --}}
+    <div class="tab effects" data-group="primary" data-tab="effects">
+      {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+    </div>
+
+  </section>

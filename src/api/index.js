@@ -40,7 +40,6 @@ export {
   openStaminaDialog,
   getActiveStaminaEffect,
   consumeStaminaEffect,
-  hasStaminaEffect,
   STAMINA_EFFECT_KEYS
 } from "../core/stamina/stamina-dialog.js";
 
@@ -50,7 +49,8 @@ export {
   applySprintBonus,
   applyPowerDrawBonus,
   applyPowerBlockBonus,
-  applyPhysicalExertionToSkill
+  applyPhysicalExertionToSkill,
+  hasStaminaEffect
 } from "../core/stamina/stamina-integration-hooks.js";
 
 // ─── Magic ─────────────────────────────────────────────────────────────────

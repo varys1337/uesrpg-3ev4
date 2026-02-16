@@ -81,8 +81,8 @@ export function _renderCard(data, messageId) {
     return `<div style="margin-top:6px; opacity:0.85;"><i>Choices committed</i></div>`;
   })();
 
-  const beginRollActions = (bothCommitted && !data.outcome && !data.status && !a.result && !d.result && game.user.isGM)
-    ? `<div style="margin-top:8px;">${_btn("Begin Opposed Roll", "begin-banked-roll")}</div>`
+  const beginRollActions = (bothCommitted && !data.outcome && !data.status && !a.result && !d.result)
+    ? `<div style="margin-top:8px;" data-ues-gm-only="true">${_btn("Begin Opposed Roll", "begin-banked-roll")}</div>`
     : "";
 
   const outcomeLine = data.outcome

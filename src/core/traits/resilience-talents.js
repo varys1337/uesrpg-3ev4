@@ -17,6 +17,7 @@ import { hasTalent } from "./talents-api.js";
 import { _canPromptForActor } from "./_primitives.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ROLL_FORMULA } from "../constants.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 /** @private Check if actor has Wall of Steel talent. */
 function hasWallOfSteel(actor) {
@@ -67,15 +68,14 @@ export async function applyIronWillReroll({ actor, chaKey, result, tn, isResista
   const actorName = foundry.utils.escapeHTML(actor?.name ?? "Actor");
   let wants;
   try {
-    wants = await Dialog.wait({
+    wants = await customDialog({
       title: "Iron Will",
       content: `<p><b>${actorName}</b> failed a Willpower resistance test. Use <b>Iron Will</b> to reroll (once per test)?</p>`,
       buttons: {
         reroll: { label: "Reroll", callback: () => true },
         keep: { label: "Keep Failure", callback: () => false }
       },
-      default: "reroll",
-      close: () => false
+      default: "reroll"
     });
   } catch (_e) {
     return { rerolled: false };

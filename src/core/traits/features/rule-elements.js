@@ -9,7 +9,7 @@
  *
  * Design:
  *  - Pure data helpers — no mutations, no side-effects.
- *  - Compatible with AppV1 — mutations go through item.setFlag / unsetFlag.
+ *  - Mutations go through item.setFlag / unsetFlag.
  *  - Type registry drives both the UI (field definitions) and the engine
  *    (what each rule element does at evaluation time).
  *  - Conditions are composable: every rule element has an optional conditions
@@ -136,6 +136,15 @@ export const MODIFIER_TARGET_OPTIONS = Object.freeze({
   "system.natToughnessR": "Natural Toughness",
   "system.silverR":       "Silver Resistance",
   "system.sunlightR":     "Sunlight Resistance",
+  // (#4) Weakness targets — allows Rule Elements to impose weakness.
+  "system.weakness.diseaseR":  "Weakness: Disease",
+  "system.weakness.fireR":     "Weakness: Fire",
+  "system.weakness.frostR":    "Weakness: Frost",
+  "system.weakness.shockR":    "Weakness: Shock",
+  "system.weakness.poisonR":   "Weakness: Poison",
+  "system.weakness.magicR":    "Weakness: Magic",
+  "system.weakness.silverR":   "Weakness: Silver",
+  "system.weakness.sunlightR": "Weakness: Sunlight",
   "system.characteristicBonus.strChaBonus": "Characteristic: STR",
   "system.characteristicBonus.endChaBonus": "Characteristic: END",
   "system.characteristicBonus.agiChaBonus": "Characteristic: AGI",

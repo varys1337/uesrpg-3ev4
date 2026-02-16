@@ -24,6 +24,7 @@ import { getGeneralTalentRerollEligibility, rerollSkillTestFromChatMessage } fro
 import { hasTalent } from "../traits/talents-api.js";
 import { canApplyCharGenGatedImperialTalents } from "../traits/racial-talents.js";
 import { canRetargetOpposedMessage, retargetOpposedMessage } from "./opposed/retarget.js";
+import { registerLuckContextMenuOptions } from "../luck/luck-workflow.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import {
   getMessageState as getMagicMessageState,
@@ -1337,6 +1338,13 @@ export function initializeChatHandlers() {
       el.addEventListener("click", (ev) => _onSkillOpposedAction(ev, message));
     });
 
+    // Hide GM-only elements for non-GM users (client-local visibility)
+    if (!game.user.isGM) {
+      root.querySelectorAll("[data-ues-gm-only]").forEach((el) => {
+        el.style.display = "none";
+      });
+    }
+
     // Characteristic opposed-roll chat card buttons
     root.querySelectorAll("[data-ues-char-opposed-action]").forEach((el) => {
       const action = el.dataset.uesCharOpposedAction;
@@ -1642,9 +1650,11 @@ export function initializeChatHandlers() {
 
     Hooks.on("getChatMessageContextOptions", (_html, options) => {
       addOpposedContextOptions("getChatMessageContextOptions", options);
+      registerLuckContextMenuOptions("getChatMessageContextOptions", options);
     });
     Hooks.on("getChatLogEntryContext", (_html, options) => {
       addOpposedContextOptions("getChatLogEntryContext", options);
+      registerLuckContextMenuOptions("getChatLogEntryContext", options);
     });
   }
 	}

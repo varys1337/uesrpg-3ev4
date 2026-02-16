@@ -11,6 +11,7 @@
 import { getMagicSkillLevel } from "./magicka-utils.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { actorHasTalent } from "./magic-modifiers.js";
+import { confirmDialog } from "../../utils/dialog-v2-helper.js";
 
 /**
  * Backfire tables from Chapter 6 p.156-159 (RAW verbatim).
@@ -171,12 +172,9 @@ export async function triggerBackfire(actor, spell) {
   
   // Talent (Chapter 4): Control — may test Willpower to negate a backfire.
   if (actorHasTalent(actor, "Control")) {
-    const doAttempt = await Dialog.confirm({
+    const doAttempt = await confirmDialog({
       title: "Magical Backfire — Control",
       content: `<p>${actor.name} has <b>Control</b>. Attempt a Willpower test to negate the backfire?</p>`,
-      yes: () => true,
-      no: () => false,
-      defaultYes: true
     });
 
     if (doAttempt) {

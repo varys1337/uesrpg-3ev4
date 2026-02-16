@@ -166,6 +166,10 @@ export function applyDefenderCommitToData(data, commit) {
     data.defender.defenseType = String(commit.defenseType);
     dirty = true;
   }
+  if (Object.prototype.hasOwnProperty.call(commit, "styleUuid")) {
+    data.defender.styleUuid = commit.styleUuid ? String(commit.styleUuid) : null;
+    dirty = true;
+  }
   if (commit.label != null) {
     data.defender.label = String(commit.label);
     dirty = true;

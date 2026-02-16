@@ -12,6 +12,7 @@
 
 import { normalizeHitLocation, normalizeDamageType, asNumber } from "./normalize.js";
 import { DAMAGE_TYPES } from "../../damage-automation.js";
+import { _resolveItemViaActor } from "../../opposed/helpers/docs.js";
 
 /**
  * Build the canonical damage context from a resolver payload.
@@ -30,16 +31,17 @@ export function buildDamageContext(payload = {}) {
     : (String(payload.attackFromHidden ?? "").trim() === "1" ? true : (String(payload.attackFromHidden ?? "").trim() === "0" ? false : null));
 
   let weapon = payload.weapon ?? null;
+  const fallbackActor = payload.attackerActor ?? null;
   if (!weapon && payload.weaponUuid) {
     try {
-      weapon = fromUuidSync(payload.weaponUuid) ?? null;
+      weapon = _resolveItemViaActor(payload.weaponUuid, fallbackActor) ?? null;
     } catch (_err) {
       weapon = null;
     }
   }
   if (!weapon && payload.sourceItemUuid) {
     try {
-      weapon = fromUuidSync(payload.sourceItemUuid) ?? null;
+      weapon = _resolveItemViaActor(payload.sourceItemUuid, fallbackActor) ?? null;
     } catch (_err) {
       weapon = null;
     }
@@ -51,7 +53,7 @@ export function buildDamageContext(payload = {}) {
   let ammo = payload.ammo ?? null;
   if (!ammo && payload.ammoUuid) {
     try {
-      ammo = fromUuidSync(payload.ammoUuid) ?? null;
+      ammo = _resolveItemViaActor(payload.ammoUuid, fallbackActor) ?? null;
     } catch (_err) {
       ammo = null;
     }

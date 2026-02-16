@@ -5,7 +5,7 @@
 
 import { canAttackerRoll, markAttackFromHidden, applyPostAttackState, markDefenderIneligibleForHidden } from "./eligibility.js";
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
-import { hasCondition } from "../../../conditions/condition-engine.js";
+import { ensureBurningTurnActionAllowed } from "../../../conditions/condition-engine.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { listCombatStyles, computeTN, variantMod as computeVariantMod } from "../../tn.js";
 import { applyCombatTalentDoSAdjustments, applyAttackerTalentPreTN } from "../../../traits/combat-talents.js";
@@ -17,6 +17,7 @@ import { isActorSkeletal } from "../../../traits/trait-registry.js";
 
 // Internal helpers from various opposed modules
 import { _canControlActor, _findEnabledEffectByUesrpgKey, _logDebug, _opposedFlags } from "../helpers/util.js";
+import { _resolveItemViaActor } from "../helpers/docs.js";
 import { _getBankCommitState, _allDefendersCommitted, _getDefenderEntries } from "../banking/state.js";
 import { 
   collectSensorySituationalMods as _collectSensorySituationalMods,
@@ -106,6 +107,14 @@ export async function handleAttackerAction(action, ctx) {
     return;
   }
 
+  if (!data?.context?.isReactionAttack) {
+    const burningGate = await ensureBurningTurnActionAllowed(attacker, { actionId: "attack" });
+    if (!burningGate.allowed) {
+      ui.notifications.warn(`${attacker.name} fails to act while burning.`);
+      return;
+    }
+  }
+
   // Banked commit preflight gate:
   // - Do not offer/accept dead commits when base AP is unavailable.
   // - Do not allow commit when attack limit is already reached this round.
@@ -159,12 +168,18 @@ export async function handleAttackerAction(action, ctx) {
     // Persist the declared weapon selection into the opposed context for downstream automation
     // (range, traits, damage previews, etc.). This is a non-schema-breaking addition.
     data.context.weaponUuid = decl.weaponUuid || data.context.weaponUuid || null;
+    const isAoEAttack = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
+    if (String(decl.variant ?? "") === "precision") {
+      data.context.forcedHitLocation = String(decl.precisionLocation ?? "Body");
+    } else if (!isAoEAttack) {
+      data.context.forcedHitLocation = null;
+    }
 
     // Normalize attackMode from the explicitly selected weapon (covers thrown weapons where weaponType may be melee).
     let declaredWeapon = null;
     if (data.context.weaponUuid) {
       try {
-        const w = await fromUuid(String(data.context.weaponUuid));
+        const w = _resolveItemViaActor(data.context.weaponUuid, attacker);
         if (w?.type === "weapon") {
           declaredWeapon = w;
           const wt = String(w.system?.attackMode ?? w.system?.weaponType ?? w.system?.type ?? "").toLowerCase();
@@ -261,7 +276,7 @@ export async function handleAttackerAction(action, ctx) {
     {
       let weapon = null;
       try {
-        if (data.context.weaponUuid) weapon = await fromUuid(String(data.context.weaponUuid));
+        if (data.context.weaponUuid) weapon = _resolveItemViaActor(data.context.weaponUuid, attacker);
       } catch (_e) {
         weapon = null;
       }
@@ -422,7 +437,7 @@ export async function handleAttackerAction(action, ctx) {
     const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
     if (!weaponUuid) return null;
     try {
-      const doc = fromUuidSync(weaponUuid);
+      const doc = _resolveItemViaActor(weaponUuid, attacker);
       return doc?.documentName === "Item" ? doc : null;
     } catch (_e) {
       return null;
@@ -463,7 +478,7 @@ export async function handleAttackerAction(action, ctx) {
     const weaponUuidNow = String(data?.context?.weaponUuid ?? "").trim();
     if (weaponUuidNow) {
       try {
-        const w = await fromUuid(weaponUuidNow);
+        const w = _resolveItemViaActor(weaponUuidNow, attacker);
         if (w?.documentName === "Item") weaponIdNow = String(w.id);
       } catch (_e) {
         weaponIdNow = "";
@@ -503,7 +518,7 @@ export async function handleAttackerAction(action, ctx) {
         || _getPreferredWeaponUuid(attacker, { meleeOnly: false }) 
         || "";
       if (weaponUuid) {
-        const weapon = await fromUuid(weaponUuid);
+        const weapon = _resolveItemViaActor(weaponUuid, attacker);
         if (weapon && weapon.type === "weapon") {
           await _markWeaponNeedsReload(weapon);
         }

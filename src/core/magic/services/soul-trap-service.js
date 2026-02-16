@@ -25,6 +25,7 @@
  */
 
 import { createDebugLogger } from "../_primitives.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 
@@ -125,15 +126,8 @@ async function _createSoulGemItem(casterActor, trappedActor, soulInfo) {
   };
 
   try {
-    const { requestCreateEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
-    let created;
-    if (casterActor.isOwner) {
-      const results = await casterActor.createEmbeddedDocuments("Item", [itemData]);
-      created = results?.[0] ?? null;
-    } else {
-      const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [itemData]);
-      created = Array.isArray(results) ? results[0] : results;
-    }
+    const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [itemData]);
+    const created = Array.isArray(results) ? results[0] : (results ?? null);
 
     if (created) {
       _debug(`Created soul gem: ${created.name}`, { id: created.id, energy: soulInfo.energy });
@@ -242,12 +236,7 @@ function _onPreUpdateActor(actor, changes, _options, _userId) {
 
       // Remove the Soul Trap marker AE from the dead actor
       try {
-        const { requestDeleteEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
-        if (resolvedActor.isOwner) {
-          await resolvedActor.deleteEmbeddedDocuments("ActiveEffect", [soulTrapAEId]);
-        } else {
-          await requestDeleteEmbeddedDocuments(resolvedActor, "ActiveEffect", [soulTrapAEId]);
-        }
+        await requestDeleteEmbeddedDocuments(resolvedActor, "ActiveEffect", [soulTrapAEId]);
       } catch (_e) { /* best-effort cleanup */ }
     } catch (err) {
       console.error("[UESRPG][SoulTrap] Deferred soul trap processing error:", err);

@@ -2,6 +2,7 @@
  * src/ui/sheets/item/listeners/usage.js
  * Charge handlers for item sheets
  */
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 
 /**
  * Handler: Increase item charges
@@ -16,9 +17,9 @@ export async function onChargePlus(sheet, event) {
 
   if (currentCharge >= chargeMax || currentCharge + sheet.item.system.charge.reduction >= chargeMax) {
     ui.notifications.info(`${sheet.item.name} is fully charged.`);
-    return sheet.document.update({ "system.charge.value": chargeMax });
+    return requestUpdateDocument(sheet.document, { "system.charge.value": chargeMax });
   }
-  return sheet.document.update({ "system.charge.value": currentCharge + sheet.item.system.charge.reduction });
+  return requestUpdateDocument(sheet.document, { "system.charge.value": currentCharge + sheet.item.system.charge.reduction });
 }
 
 /**
@@ -34,18 +35,5 @@ export async function onChargeMinus(sheet, event) {
   if (currentCharge <= 0 || currentCharge - sheet.item.system.charge.reduction < 0) {
     return ui.notifications.info(`${sheet.item.name} does not have enough charge.`);
   }
-  return sheet.document.update({ "system.charge.value": currentCharge - sheet.item.system.charge.reduction });
-}
-
-/**
-/**
- * Register usage-related listeners (charges)
- *
- * @param {ItemSheet} sheet
- * @param {jQuery} html
- */
-export function registerUsageListeners(sheet, html) {
-  // Charge buttons
-  html.find(".chargePlus").click((ev) => onChargePlus(sheet, ev));
-  html.find(".chargeMinus").click((ev) => onChargeMinus(sheet, ev));
+  return requestUpdateDocument(sheet.document, { "system.charge.value": currentCharge - sheet.item.system.charge.reduction });
 }

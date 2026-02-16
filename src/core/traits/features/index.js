@@ -5,7 +5,7 @@
 
 export { FEATURE_DOMAINS, STACKING_MODES, makeFeatureMod, normalizeFeatureKey } from "./feature-mod.js";
 export { reduceByStacking, reduceAllByStacking } from "./stacking.js";
-export { collectFeatureMods, applyFeatureModTotals } from "./collect-feature-mods.js";
+export { collectFeatureMods, applyFeatureModTotals, filterModsForApplication, applyWeaknessToResistance } from "./collect-feature-mods.js";
 export { runFeatureAutomation } from "./feature-dispatcher.js";
 export { TRAIT_STACKING_META } from "./contributors.js";
 export {

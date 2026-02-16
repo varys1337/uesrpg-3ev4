@@ -76,6 +76,7 @@ const TALENT_NAME_ALIASES = {
   // those are handled by specialized parsers in src/core/traits/general-talents.js rather than aliases.
   untouchable: ["Untouchable"],
   businessman: ["Businessman"],
+  scholar: ["Scholar"],
   interrogator: ["Interrogator"],
   prediction: ["Prediction"],
   tactician: ["Tactician"],
@@ -184,6 +185,28 @@ export function resolveTalentSlug(key) {
     if (names.some(n => normalizeTalentKey(n) === k)) return slug;
   }
   return k;
+}
+
+/**
+ * Canonical talent key resolver alias.
+ *
+ * Use this when codepaths expect the canonical automation slug rather than the
+ * display-name normalization form.
+ *
+ * @param {string} key
+ * @returns {string}
+ */
+export function canonicalizeTalentKey(key) {
+  return resolveTalentSlug(key);
+}
+
+/**
+ * Return all known canonical talent slugs.
+ *
+ * @returns {string[]}
+ */
+export function listKnownTalentSlugs() {
+  return Object.keys(TALENT_NAME_ALIASES);
 }
 
 /**

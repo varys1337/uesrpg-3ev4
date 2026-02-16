@@ -1,0 +1,282 @@
+<div class="tab core" data-group="primary" data-tab="core">
+  <div class="tabContainer">
+    <div class="about-buttons">
+      <div class="npc-button-stats">
+        <div>
+          <div class="styled-font">Soul Energy</div>
+          <input type="text" name="system.soul_energy" placeholder="Soul Energy" value="{{actor.system.soul_energy}}">
+        </div>
+        <div>
+          <div class="styled-font">Race</div>
+          <input type="text" name="system.race" placeholder="Race" value="{{actor.system.race}}">
+        </div>
+        <div>
+          <div class="styled-font">Threat</div>
+          <select name="system.threat" data-type="String">
+            {{selectOptions actor.system.threatCategory selected=actor.system.threat localize=true}}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="skillContainer">
+      <div class="section-header">
+        <span class="section-header__label">Professions</span>
+      </div>
+      <ul class="skillList">
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Combat" id="combat"></i>
+            <img class="item-img" src="icons/skills/melee/weapons-crossed-swords-yellow.webp" title="Send to Chat"/>
+            <div class="skill-name">Combat</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.professions.combat" value="{{actor.system.professions.combat}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Evade" id="evade"></i>
+            <img class="item-img" src="icons/skills/movement/arrow-upward-yellow.webp" title="Send to Chat"/>
+            <div class="skill-name">Evade</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.professions.evade" value="{{actor.system.professions.evade}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Knowledge" id="knowledge"></i>
+            <img class="item-img" src="icons/skills/trades/academics-study-reading-book.webp" title="Send to Chat"/>
+            <div class="skill-name">Knowledge</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.professions.knowledge" value="{{actor.system.professions.knowledge}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Magic" id="magic"></i>
+            <img class="item-img" src="icons/sundries/books/book-open-purple.webp" title="Send to Chat"/>
+            <div class="skill-name">Magic</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.professions.magic" value="{{actor.system.professions.magic}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Observe" id="observe"></i>
+            <img class="item-img" src="icons/magic/perception/eye-ringed-green.webp" title="Send to Chat"/>
+            <div class="skill-name">Observe</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.professions.observe" value="{{actor.system.professions.observe}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Physical" id="physical"></i>
+            <img class="item-img" src="icons/skills/melee/unarmed-punch-fist.webp" title="Send to Chat"/>
+            <div class="skill-name">Physical</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.professions.physical" value="{{actor.system.professions.physical}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Social" id="social"></i>
+            <img class="item-img" src="icons/skills/social/diplomacy-peace-alliance.webp" title="Send to Chat"/>
+            <div class="skill-name">Social</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.professions.social" value="{{actor.system.professions.social}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Stealth" id="stealth"></i>
+            <img class="item-img" src="systems/uesrpg-3ev4/images/Icons/invisible.webp" title="Send to Chat"/>
+            <div class="skill-name">Stealth</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.professions.stealth" value="{{actor.system.professions.stealth}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="{{actor.system.skills.commerce.specialization}}" id="commerce"></i>
+            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
+            <div class="skill-name">Commerce</div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.skills.commerce.tn" value="{{actor.system.skills.commerce.tn}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="{{actor.system.skills.profession1.specialization}}" id="profession1"></i>
+            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
+            <div class="skill-name">
+              <input type="text" placeholder="Profession 1" name="system.skills.profession1.specialization" value="{{actor.system.skills.profession1.specialization}}">
+            </div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.skills.profession1.tn" value="{{actor.system.skills.profession1.tn}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="{{actor.system.skills.profession2.specialization}}" id="profession2"></i>
+            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
+            <div class="skill-name">
+              <input type="text" placeholder="Profession 2" name="system.skills.profession2.specialization" value="{{actor.system.skills.profession2.specialization}}">
+            </div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.skills.profession2.tn" value="{{actor.system.skills.profession2.tn}}"/>%</div>
+          </div>
+        </li>
+        <li class="npc-item">
+          <div class="itemInfo">
+            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="{{actor.system.skills.profession3.specialization}}" id="profession3"></i>
+            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
+            <div class="skill-name">
+              <input type="text" placeholder="Profession 3" name="system.skills.profession3.specialization" value="{{actor.system.skills.profession3.specialization}}">
+            </div>
+          </div>
+          <div class="item-controls">
+            <div class="item-value profession"><input type="number" name="system.skills.profession3.tn" value="{{actor.system.skills.profession3.tn}}"/>%</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="three-column-flex-container">
+      <div class="trait-container">
+        <div class="section-header">
+          <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="traits" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">Traits</span>
+          <button type="button" class="section-header__action" data-action="itemCreate" id="trait">+</button>
+        </div>
+        <ol class="single-column-list">
+          {{#each actor.trait as |item id|}}
+            <li class="item" data-item-id="{{item._id}}">
+              <div class="itemInfo">
+                <img class="item-img" src="{{item.img}}" title="Activate" data-action="postItemToChat"/>
+                {{#with (lookup @root.actor.ui.traitStackingById item._id) as |stack|}}
+                  <i class="fas fa-layer-group" title="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}"></i>
+                {{/with}}
+                <div class="item-name" data-action="itemOpen">{{item.name}}</div>
+              </div>
+              <div class="item-controls">
+                <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
+              </div>
+            </li>
+          {{/each}}
+        </ol>
+      </div>
+      <div class="talent-container">
+        <div class="section-header">
+          <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="talents" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">Talents</span>
+          <button type="button" class="section-header__action" data-action="itemCreate" id="talent">+</button>
+        </div>
+        <ol class="single-column-list">
+          {{#each actor.talent as |item id|}}
+            <li class="item" data-item-id="{{item._id}}">
+              <div class="itemInfo">
+                <img class="item-img" src="{{item.img}}" title="Activate" data-action="postItemToChat"/>
+                <div class="item-name" data-action="itemOpen">{{item.name}}</div>
+              </div>
+              <div class="item-controls">
+                <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
+              </div>
+            </li>
+          {{/each}}
+        </ol>
+      </div>
+      <div class="power-container">
+        <div class="section-header">
+          <span class="section-header__label">Powers</span>
+          <button type="button" class="section-header__action" data-action="itemCreate" id="power">+</button>
+        </div>
+        <ol class="single-column-list">
+          {{#each actor.power as |item id|}}
+            <li class="item" data-item-id="{{item._id}}">
+              <div class="itemInfo">
+                <img class="item-img" src="{{item.img}}" title="Activate" data-action="postItemToChat"/>
+                <div class="item-name" data-action="itemOpen">{{item.name}}</div>
+              </div>
+              <div class="item-controls">
+                <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
+              </div>
+            </li>
+          {{/each}}
+        </ol>
+      </div>
+    </div>
+
+    <div class="social-section">
+      <div class="social-field">
+        <div class="section-header">
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="languages" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">Languages</span>
+          <button type="button" data-action="openLanguageSelector" class="section-header__action" title="Configure Languages"><i class="fas fa-pen"></i></button>
+        </div>
+        <div class="social-field__body">
+          <div class="social-chip-wrap">
+            <span class="social-chip social-chip--fixed">Cyrodilic</span>
+            {{#each actor.system.socialDisplay.languages.preview as |lang|}}
+              <span class="social-chip">{{lang}}</span>
+            {{/each}}
+            {{#if actor.system.socialDisplay.languages.hiddenCount}}
+              <span class="social-chip social-chip--muted">+{{actor.system.socialDisplay.languages.hiddenCount}} more</span>
+            {{/if}}
+            {{#unless actor.system.socialDisplay.languages.preview.length}}
+              <span class="social-chip social-chip--muted">No additional languages selected</span>
+            {{/unless}}
+          </div>
+        </div>
+      </div>
+
+      <div class="social-field">
+        <div class="section-header">
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="factions" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">Factions</span>
+          <button type="button" data-action="openFactionSelector" class="section-header__action" title="Configure Factions"><i class="fas fa-pen"></i></button>
+        </div>
+        <div class="social-field__body">
+          {{#if actor.system.socialDisplay.factions.preview.length}}
+            <ul class="social-faction-summary">
+              {{#each actor.system.socialDisplay.factions.preview as |entry|}}
+                <li>
+                  <span class="name">{{entry.name}}</span>
+                  {{#if entry.rankTitle}}<span class="meta"> - {{entry.rankTitle}}</span>{{/if}}
+                  {{#if entry.location}}<span class="meta"> ({{entry.location}})</span>{{/if}}
+                </li>
+              {{/each}}
+            </ul>
+            {{#if actor.system.socialDisplay.factions.hiddenCount}}
+              <p class="social-empty">+{{actor.system.socialDisplay.factions.hiddenCount}} more factions</p>
+            {{/if}}
+          {{else}}
+            <p class="social-empty">No factions selected.</p>
+          {{/if}}
+        </div>
+      </div>
+    </div>
+
+    {{!-- Feature Inspector (Chapter 4 trait/talent/power provenance) --}}
+    {{> "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs"}}
+
+    <div class="bioPage">
+      <div class="section-header"><span class="section-header__label">Biography</span></div>
+      <div class="contentContainer">
+        {{editor actor.system.enrichedBio target="system.bio" engine="prosemirror" button=true owner=owner editable=editable}}
+      </div>
+    </div>
+
+  </div>
+</div>

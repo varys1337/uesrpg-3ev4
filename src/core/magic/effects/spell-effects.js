@@ -14,6 +14,7 @@ import { spellRequiresOriginAE, createOriginAE, registerTargetAEs, findOriginAE 
 import { emitEffectApplied } from "../spell-runtime.js";
 import { validateAEChanges } from "../../active-effects/modifier-registry.js";
 import { buildOverTimeChange } from "../ticks/overtime-engine.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 
 /* ── OverTime entry resolution (private) ────────────────────────────────── */
 
@@ -85,10 +86,6 @@ function _getSpellStrength(spell, _options) {
  * @returns {Promise<void>}
  */
 export async function applySpellEffectsToTarget(casterActor, targetActor, spell, options = {}) {
-  // Permission-safe embedded document operations.
-  // We prefer direct operations when permitted; otherwise we proxy through an active GM/owner.
-  const { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
-
   const spellUuid = spell.uuid;
   const durData = spell.system?.duration ?? {};
   const durValue = Number(durData.value ?? 0);
@@ -169,8 +166,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
   });
   if (existing.length) {
     const ids = existing.map(e => e.id);
-    if (targetActor.isOwner) await targetActor.deleteEmbeddedDocuments("ActiveEffect", ids);
-    else await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids);
+    await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids);
   }
   
   // Remove opposing effects (Frenzy vs Calm, etc.)
@@ -189,7 +185,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
     const effectGroup = `spell.effect.${spell.id || spellUuid}.${effectKey}`;
     
     // Validate changes against the modifier registry (dev-mode warnings)
-    const clonedChanges = foundry.utils.duplicate(ef.changes ?? []);
+    const clonedChanges = foundry.utils.deepClone(ef.changes ?? []);
     if (isDebugEnabled("spellCastingDebug")) {
       validateAEChanges(clonedChanges, { context: `spell "${spell.name}" effect "${ef.name}"` });
     }
@@ -364,8 +360,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
       }
     }
 
-    if (targetActor.isOwner) createdEffects = await targetActor.createEmbeddedDocuments("ActiveEffect", toCreate);
-    else createdEffects = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", toCreate);
+    createdEffects = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", toCreate);
 
     // Register target AEs with the Origin AE for deterministic teardown
     if (originAE && Array.isArray(createdEffects) && createdEffects.length) {

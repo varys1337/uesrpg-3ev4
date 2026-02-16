@@ -1,17 +1,23 @@
 /**
  * Equipment and item creation dialogs/handlers.
  *
- * Target: Foundry VTT v13 (AppV1 ActorSheet).
+ * Shared across actor sheet modules.
  */
 
 import { requestCreateEmbeddedDocuments, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import {
+  TALENT_LEARNING_MODE,
+  validateTalentLearning,
+  notifyTalentLearningResult,
+} from "../../../../core/traits/talent-learning.js";
 
 /**
  * Handle item creation from sheet "+" buttons.
  *
  * Options are used to preserve legacy behavior across PC/NPC sheets.
  *
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  * @param {object} [options]
  * @param {string|null} [options.baseCha="str"] If null, does not set system.baseCha on created items.
@@ -22,12 +28,13 @@ export async function onItemCreate(sheet, event, {
   baseCha = "str",
   includeCombatStyleSeed = true,
   includeMagicSkillSeed = true,
+  target = null,
 } = {}) {
   event?.preventDefault?.();
 
   if (!sheet?.actor) return;
 
-  const element = event?.currentTarget;
+  const element = target ?? event?.currentTarget;
   const type = String(element?.id ?? "").trim();
   if (!type) return;
 
@@ -37,48 +44,45 @@ export async function onItemCreate(sheet, event, {
 
   // Special case: createSelect opens a type picker dialog
   if (type === "createSelect") {
-    const d = new Dialog({
+    await customDialog({
       title: "Create Item",
       content: `<div style="padding: 10px 0;">
                   <h2>Select an Item Type</h2>
                   <label>Create an item on this sheet</label>
                 </div>`,
       buttons: {
-        one: {
+        item: {
           label: "Item",
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "item", type: "item" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
-        two: {
+        ammunition: {
           label: "Ammunition",
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "ammunition", type: "ammunition" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
-        three: {
+        armor: {
           label: "Armor",
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "armor", type: "armor" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
-        four: {
+        weapon: {
           label: "Weapon",
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "weapon", type: "weapon" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
-        five: { label: "Cancel", callback: () => {} },
+        cancel: { label: "Cancel" },
       },
-      default: "one",
-      close: () => {},
+      defaultButton: "item",
     });
-
-    d.render(true);
     return;
   }
 
@@ -112,6 +116,17 @@ export async function onItemCreate(sheet, event, {
     ];
   }
 
+  if (type === "talent" && sheet.actor?.type === "Player Character" && itemData?.[0]) {
+    const validation = validateTalentLearning(sheet.actor, itemData[0], { source: "sheetCreate" });
+    if (validation.mode === TALENT_LEARNING_MODE.WARN) {
+      notifyTalentLearningResult(validation);
+    }
+    if (validation.mode === TALENT_LEARNING_MODE.ENFORCE && !validation.ok) {
+      notifyTalentLearningResult(validation, { force: true });
+      return;
+    }
+  }
+
   const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", itemData);
   await created?.[0]?.sheet?.render?.(true);
 }
@@ -121,7 +136,7 @@ export async function onItemCreate(sheet, event, {
  *
  * This is currently used by the NPC sheet's ".equip-items" controls.
  *
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
 export async function onEquipItems(sheet, event) {
@@ -288,36 +303,29 @@ export async function onEquipItems(sheet, event) {
       break;
   }
 
-  const d = new Dialog({
+  await customDialog({
     title: "Item List",
     content: tableHeader,
-    buttons: {
-      one: {
-        label: "Cancel",
-        callback: () => {},
-      },
-      two: {
-        label: "Submit",
-        callback: async (dialogHtml) => {
-          const selected = dialogHtml?.find?.(".itemSelect")?.toArray?.() ?? [];
+    yes: {
+      label: "Submit",
+      callback: async (dialogHtml) => {
+        const root = dialogHtml instanceof HTMLElement ? dialogHtml : dialogHtml?.[0];
+        const selected = [...(root?.querySelectorAll(".itemSelect") ?? [])];
 
-          const updates = [];
-          for (const checkbox of selected) {
-            const itemId = String(checkbox?.dataset?.itemId ?? "").trim();
-            if (!itemId) continue;
+        const updates = [];
+        for (const checkbox of selected) {
+          const itemId = String(checkbox?.dataset?.itemId ?? "").trim();
+          if (!itemId) continue;
 
-            updates.push({ _id: itemId, "system.equipped": Boolean(checkbox.checked) });
-          }
+          updates.push({ _id: itemId, "system.equipped": Boolean(checkbox.checked) });
+        }
 
-          if (!updates.length) return;
-          await requestUpdateEmbeddedDocuments(sheet.actor, "Item", updates);
-        },
+        if (!updates.length) return;
+        await requestUpdateEmbeddedDocuments(sheet.actor, "Item", updates);
       },
     },
-    default: "two",
-    close: () => {},
+    no: { label: "Cancel" },
+    defaultButton: "yes",
+    width: 500,
   });
-
-  d.position.width = 500;
-  d.render(true);
 }

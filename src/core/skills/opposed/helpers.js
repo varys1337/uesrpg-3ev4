@@ -8,6 +8,7 @@ import { normalizeTalentKey, hasTalent } from "../../traits/talents-api.js";
 import { applySenseLossPenaltyAdjustments } from "../../traits/awareness-talents.js";
 import { hasCondition } from "../../conditions/condition-engine.js";
 import { _esc } from "./util.js";
+import { _resolveActor } from "./docs.js";
 
 export function _buildSensorySituationalMods(decl, actor = null, { skillName = null } = {}) {
   const mods = [];
@@ -61,16 +62,16 @@ export function _resolveOutcome(data) {
 
 export async function _executeSpecialActionIfWinner(data) {
   // Issue 2: Special Action automation on opposed test win
-  if (data.outcome?.winner === "attacker" && data.specialActionId) {
+  const specialActionId = String(data?.specialActionContext?.id ?? data?.specialActionId ?? "").trim();
+  if (data.outcome?.winner === "attacker" && specialActionId) {
     try {
       const { executeSpecialAction } = await import("../../combat/special-actions-helper.js");
-      const { _resolveActor } = await import("./docs.js");
       const attackerActor = _resolveActor(data.attacker.actorUuid);
       const defenderActor = _resolveActor(data.defender.actorUuid);
       
       if (attackerActor && defenderActor) {
         const result = await executeSpecialAction({
-          specialActionId: data.specialActionId,
+          specialActionId,
           actor: attackerActor,
           target: defenderActor,
           isAutoWin: false, // Was opposed test, not auto-win

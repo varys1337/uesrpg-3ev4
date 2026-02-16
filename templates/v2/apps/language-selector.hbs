@@ -1,0 +1,54 @@
+<div class="social-selector-app">
+  <div class="social-selector-layout">
+    <section class="social-panel">
+      <h2 class="social-panel-title">Available Languages</h2>
+      <p class="social-panel-subtitle">{{slotSummary}}</p>
+      <div class="social-choice-list social-choice-list--languages">
+        {{#each choices as |choice|}}
+          <div class="social-choice-row">
+            <span>{{choice.name}}</span>
+            <button
+              type="button"
+              data-action="addLanguage"
+              data-language-name="{{choice.name}}"
+              {{#if choice.disabled}}disabled{{/if}}>
+              {{#if choice.disabled}}Added{{else}}Add{{/if}}
+            </button>
+          </div>
+        {{/each}}
+      </div>
+      <div class="social-custom-add">
+        <input id="social-language-custom" type="text" placeholder="Custom language name">
+        <button type="button" data-action="addCustomLanguage">Add Custom</button>
+      </div>
+    </section>
+
+    <section class="social-panel">
+      <h2 class="social-panel-title">Selected Languages</h2>
+      <div class="social-selected-list social-selected-list--languages">
+        {{#each entries as |entry|}}
+          <div class="social-language-row" data-entry-id="{{entry.id}}">
+            <input data-field="name" type="text" value="{{entry.name}}" placeholder="Language">
+            <label class="social-toggle-pill" title="Can speak this language">
+              <input data-field="speak" type="checkbox" {{#if entry.speak}}checked{{/if}}>
+              <span>Speak</span>
+            </label>
+            <label class="social-toggle-pill" title="Can read/write this language">
+              <input data-field="readWrite" type="checkbox" {{#if entry.readWrite}}checked{{/if}}>
+              <span>R/W</span>
+            </label>
+            <button type="button" data-action="removeLanguage" data-entry-id="{{entry.id}}">Remove</button>
+          </div>
+        {{/each}}
+        {{#unless entries.length}}
+          <p class="social-empty">No additional languages selected.</p>
+        {{/unless}}
+      </div>
+    </section>
+  </div>
+
+  <footer class="social-selector-footer">
+    <button type="button" data-action="cancel">Cancel</button>
+    <button type="button" data-action="save" class="default">Save</button>
+  </footer>
+</div>

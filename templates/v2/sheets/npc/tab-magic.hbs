@@ -1,0 +1,79 @@
+            <div class="tab magic" data-group="primary" data-tab="magic">
+                <div class="magicTabContainer">
+                    <div class="spellListContainer">
+                        <div class="spellList">
+                            {{!-- Spell schools organized by category (matching PC sheet) --}}
+                            {{#each actor.spellSchools as |schoolData|}}
+                                <div class="spell-school-section" data-school="{{schoolData.key}}">
+                                    <h3 class="spell-school-header uesrpg-group-toggle" data-action="groupToggle" data-group="spell-school-{{schoolData.key}}">
+                                        <i class="fas fa-chevron-down collapse-arrow"></i>
+                                        <span class="school-name">{{schoolData.label}}</span>
+                                        <span class="school-count">({{schoolData.count}})</span>
+                                        <span class="npc-school-rank" onclick="event.stopPropagation();">
+                                            <label class="sr-only">Effective Rank</label>
+                                            <select name="flags.uesrpg-3ev4.npcMagicSchoolRanks.{{schoolData.key}}" class="npc-school-rank-select">
+                                                {{selectOptions @root.actor.ui.npcMagicRankOptions selected=schoolData.effectiveRank}}
+                                            </select>
+                                        </span>
+                                    </h3>
+                                    <table class="spell-school-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Rank</th>
+                                                <th>MP Cost</th>
+                                                <th><i class="fas fa-trash"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each schoolData.spells as |spell|}}
+                                                <tr class="spell-row item active" data-item-id="{{spell._id}}">
+                                                    <td class="spell-name-cell">
+                                                        <i class="fas fa-dice-d20 magic-roll" data-action="magicRoll" title="Cast Spell (Left-click) / Post Description (Right-click)"></i>
+                                                        <img class="item-img" src="{{spell.img}}" data-action="itemOpen" />
+                                                        <span class="item-name" data-action="itemOpen">{{spell.name}}</span>
+                                                    </td>
+                                                    <td class="spell-rank-cell">
+                                                        {{#if (eq spell.system.level 1)}}Novice{{/if}}
+                                                        {{#if (eq spell.system.level 2)}}Apprentice{{/if}}
+                                                        {{#if (eq spell.system.level 3)}}Adept{{/if}}
+                                                        {{#if (eq spell.system.level 4)}}Expert{{/if}}
+                                                        {{#if (eq spell.system.level 5)}}Master{{/if}}
+                                                        {{#if (eq spell.system.level 6)}}Grandmaster{{/if}}
+                                                        {{#if (eq spell.system.level 7)}}Legendary{{/if}}
+                                                    </td>
+                                                    <td class="spell-mp-cell">{{spell.system.cost}}</td>
+                                                    <td class="spell-actions-cell">
+                                                        <a class="item-delete" data-action="itemDelete" title="Delete"><i class="fas fa-trash"></i></a>
+                                                    </td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {{/each}}
+                        </div>
+                    </div>
+
+                    {{!-- Effects section lives inside Magic tab (same organization as PC). --}}
+                    <div class="magic-effects-section">
+                        <header class="effects-header flexrow">
+                            <h3>Effects</h3>
+                            <a class="effect-control" data-action="effectControl" data-effect-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
+                        </header>
+                        <ol class="effects-list">
+                            {{#each effects as |effect|}}
+                                <li class="effect flexrow" data-effect-id="{{effect._id}}">
+                                    <img class="effect-icon" src="{{effect.img}}" />
+                                    <h4 class="effect-name">{{effect.name}}</h4>
+                                    <div class="effect-controls flexrow">
+                                        <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
+                                        <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
+                                        <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
+                                    </div>
+                                </li>
+                            {{/each}}
+                        </ol>
+                    </div>
+                </div>
+            </div>

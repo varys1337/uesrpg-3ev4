@@ -30,7 +30,8 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
   if (key) existing = actor.effects.find((e) => isEnabled(e) && e?.flags?.uesrpg?.key === key) ?? null;
   if (!existing && sid) existing = actor.effects.find((e) => isEnabled(e) && hasStatus(e)) ?? null;
 
-  const nextIcon = img || existing?.icon || existing?.img || "icons/svg/aura.svg";
+  // Foundry v13: ActiveEffect uses `img`, not `icon`. Prefer `img` first.
+  const nextIcon = img || existing?.img || existing?.icon || "icons/svg/aura.svg";
   const nextDuration = duration ?? existing?.duration ?? {};
   const nextOrigin = existing?.origin ?? actor.uuid;
 
@@ -66,7 +67,6 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
 
   const effectData = {
     name: name ?? existing?.name ?? "",
-    icon: nextIcon,
     img: nextIcon,
     origin: nextOrigin,
     disabled: false,

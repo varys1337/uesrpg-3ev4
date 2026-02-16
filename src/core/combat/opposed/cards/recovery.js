@@ -17,6 +17,7 @@
  * This is primarily used for post-GM-login recovery when roll messages exist
  * but the opposed card state was not fully updated.
  */
+import { _resolveActorViaToken } from "../helpers/docs.js";
 
 /**
  * Self-heal an opposed card by hydrating missing results from stored roll messages.
@@ -87,8 +88,8 @@ export async function selfHealOpposedCardFromStoredRolls(
   data.context = data.context ?? {};
 
   _selectDefenderEntry(data, { defenderIndex, defenderTokenUuid, defenderActorUuid });
-  const attacker = _resolveActor(data.attacker?.actorUuid);
-  const defender = _resolveActor(data.defender?.actorUuid);
+  const attacker = _resolveActorViaToken(data.attacker?.actorUuid, data.attacker?.tokenUuid);
+  const defender = _resolveActorViaToken(data.defender?.actorUuid, data.defender?.tokenUuid);
 
   // Heal attacker lane if the rollMessageId exists but result is missing.
   if (attacker && data.attacker?.rollMessageId && !data.attacker?.result) {

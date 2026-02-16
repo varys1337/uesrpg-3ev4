@@ -16,6 +16,7 @@ import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { doTestRoll, formatDegree } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ROLL_FORMULA } from "../constants.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const EFFECT_KEY_INSPIRE_HEROISM = "talent:inspireHeroism";
@@ -119,10 +120,10 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
 
   let decl = null;
   try {
-    decl = await Dialog.wait({
+    decl = await customDialog({
       title: "Inspire Heroism — Command Test",
       content: `
-        <form class="uesrpg-skill-roll">
+        <div class="uesrpg-skill-roll">
           <p>Make a <b>Command</b> test to inspire <b>${foundry.utils.escapeHTML(targetActor.name)}</b>.</p>
           <div class="form-group">
             <label><b>Difficulty</b></label>
@@ -132,7 +133,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
             <label style="margin:0;"><b>Manual Modifier</b></label>
             <input name="manualMod" type="number" value="0" style="width:120px;" />
           </div>
-        </form>`,
+        </div>`,
       buttons: {
         ok: {
           label: "Roll",
@@ -146,8 +147,9 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
         },
         cancel: { label: "Cancel", callback: () => null }
       },
-      default: "ok"
-    }, { width: 400 });
+      default: "ok",
+      width: 400
+    });
   } catch (_e) {
     return false;
   }

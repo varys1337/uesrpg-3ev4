@@ -1,5 +1,6 @@
-import startupHandler from './hooks/startup.js';
+﻿import startupHandler from './hooks/startup.js';
 import initHandler from './hooks/init.js';
+import { alertDialog } from "./utils/dialog-v2-helper.js";
 import { openStaminaDialog, getActiveStaminaEffect, consumeStaminaEffect } from "./core/stamina/stamina-dialog.js";
 import { 
   applyPhysicalExertionBonus, 
@@ -16,15 +17,14 @@ import { initializeTimeService } from "./core/time/index.js";
 Hooks.once('ready', async function () {
   console.log(`UESRPG | Ready`);
 
-  // ── World compatibility gate ──────────────────────────────────────────
-  // This build is new-world-only: no document migrations ship.
-  // If the world was created under an older system version, warn the GM
-  // and bail out of further initialization.
+  // World compatibility and migration runner.
+  // If the world was last used on a different system version,
+  // warn and continue so available migrations can run.
   const currentVersion = game.system?.version ?? "";
   const stampedVersion = game.settings.get("uesrpg-3ev4", "worldDataVersion");
 
   if (!stampedVersion) {
-    // First launch in this world — stamp it.
+    // First launch in this world - stamp it.
     try {
       await game.settings.set("uesrpg-3ev4", "worldDataVersion", currentVersion);
       console.log(`UESRPG | World data version stamped: ${currentVersion}`);
@@ -32,33 +32,63 @@ Hooks.once('ready', async function () {
       console.warn("UESRPG | Failed to stamp world data version", err);
     }
   } else if (stampedVersion !== currentVersion) {
-    // Mismatch — world was last used with a different system build.
+    // Mismatch: world was last used with a different system build.
     if (game.user?.isGM) {
-      ui.notifications.error(
+      ui.notifications.warn(
         `UESRPG | This world was created with system version ${stampedVersion} ` +
         `but the current system version is ${currentVersion}. ` +
-        `This build does not include data migrations. ` +
-        `Please create a new world and import compendia to upgrade.`,
+        `Continuing with startup and available migrations.`,
         { permanent: true }
       );
-      new Dialog({
-        title: "UESRPG — Unsupported World",
+      alertDialog({
+        title: "UESRPG - Version Mismatch",
         content: `<p>This world was last used with system version <strong>${stampedVersion}</strong>, ` +
           `but the current system is <strong>${currentVersion}</strong>.</p>` +
-          `<p>This build is <em>new-world-only</em> and does not include automatic data migrations. ` +
-          `Continuing may cause errors or data inconsistencies.</p>` +
-          `<p><strong>Recommended:</strong> Create a new world and import your compendia.</p>`,
-        buttons: {
-          understood: { icon: '<i class="fas fa-check"></i>', label: "Understood", callback: () => {} }
-        },
-        default: "understood"
-      }).render(true);
+          `<p>Automatic compatibility migrations will run where available.</p>`,
+        buttonLabel: "Understood",
+        buttonIcon: "fas fa-check",
+      });
     }
-    console.warn(`UESRPG | World version mismatch: stamped=${stampedVersion}, current=${currentVersion}. Skipping further init.`);
-    return;
+    console.warn(`UESRPG | World version mismatch: stamped=${stampedVersion}, current=${currentVersion}. Continuing with migrations.`);
+    if (game.user?.isGM) {
+      try {
+        await game.settings.set("uesrpg-3ev4", "worldDataVersion", currentVersion);
+        console.log(`UESRPG | World data version updated: ${stampedVersion} -> ${currentVersion}`);
+      } catch (err) {
+        console.warn("UESRPG | Failed to update world data version stamp", err);
+      }
+    }
   }
 
   await startupHandler();
+
+  // Optional Chapter 4 compliance audit on startup (GM only).
+  try {
+    if (game.user?.isGM) {
+      const auditMode = String(game.settings.get("uesrpg-3ev4", "chapter4AuditStartupMode") ?? "off");
+      if (auditMode !== "off" && typeof game.uesrpg?.auditChapter4 === "function") {
+        const includeEntries = auditMode === "full";
+        const report = game.uesrpg.auditChapter4({ includeEntries, log: includeEntries });
+        const gaps = report?.gaps ?? {};
+        const gapCount =
+          (Array.isArray(gaps.missingFromCatalog) ? gaps.missingFromCatalog.length : 0) +
+          (Array.isArray(gaps.unknownAutomation) ? gaps.unknownAutomation.length : 0) +
+          (Array.isArray(gaps.notAutomated) ? gaps.notAutomated.length : 0) +
+          (Array.isArray(gaps.blocked) ? gaps.blocked.length : 0) +
+          (Array.isArray(gaps.stubs) ? gaps.stubs.length : 0) +
+          (gaps.traitsCatalogMissing ? 1 : 0) +
+          (gaps.powersCatalogMissing ? 1 : 0);
+
+        if (gapCount > 0) {
+          ui.notifications?.warn?.(`Chapter 4 audit found ${gapCount} compliance gap(s). Use game.uesrpg.auditChapter4({ includeEntries: true, log: true }) for details.`);
+        } else {
+          ui.notifications?.info?.("Chapter 4 audit: no compliance gaps detected.");
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("UESRPG | Chapter 4 startup audit failed", err);
+  }
   
   // Lazy-load magic/combat subsystem initializers (deferred from top-level imports
   // to reduce parse time during initial module load; each is needed exactly once here).
@@ -77,7 +107,10 @@ Hooks.once('ready', async function () {
     { initializeDisintegrateService },
     { initializeDrainService },
     { initializeCharacteristicDefenseService },
-    { initializeCloakTickHandler }
+    { initializeCloakTickHandler },
+    // Magic opposed workflow has no initialize() export вЂ” importing it eagerly
+    // registers its renderChatMessageHTML hook so existing chat cards survive reload.
+    _magicOpposed
   ] = await Promise.all([
     import("./core/magic/upkeep-workflow.js"),
     import("./core/magic/effects/spell-effect-expiration.js"),
@@ -93,7 +126,8 @@ Hooks.once('ready', async function () {
     import("./core/magic/services/disintegrate-service.js"),
     import("./core/magic/services/drain-service.js"),
     import("./core/magic/characteristic-defense-service.js"),
-    import("./core/magic/ticks/cloak-tick-handler.js")
+    import("./core/magic/ticks/cloak-tick-handler.js"),
+    import("./core/magic/opposed-workflow.js")
   ]);
 
   // Initialize spell upkeep system
@@ -119,7 +153,7 @@ Hooks.once('ready', async function () {
   // Initialize summon binding (Mindlock, Restrained, binding prompt)
   initializeSummonBinding();
 
-  // Initialize bound item service (Conjure [Weapon/Armor] lifecycle — legacy flag-based)
+  // Initialize bound item service (Conjure [Weapon/Armor] lifecycle вЂ” legacy flag-based)
   initializeBoundItemService();
 
   // Initialize conjuration runtime (engine.conjure-based item conjuring & creature summoning)
@@ -169,6 +203,10 @@ Hooks.once("init", async function() {
   const { AoEService } = await import("./core/aoe/index.js");
   game.uesrpg.aoe = AoEService;
   
+  // Expose luck workflow helpers
+  const { LuckAPI } = await import("./core/luck/luck-workflow.js");
+  game.uesrpg.luck = LuckAPI;
+
   // Expose stamina helpers
   game.uesrpg.stamina = {
     openDialog: openStaminaDialog,
@@ -232,6 +270,16 @@ Hooks.once("init", async function() {
   game.uesrpg.auditSpellPack = auditSpellPack;
   game.uesrpg.showSpellAuditReport = showSpellAuditReport;
 
+  // Expose Chapter 4 audit utility (catalog-based compliance gaps)
+  const { auditChapter4 } = await import("./utils/dev/chapter4-audit.js");
+  game.uesrpg.auditChapter4 = auditChapter4;
+
+  // Expose talent learning validator API (Chapter 4 acquisition checks)
+  const { validateTalentLearning } = await import("./core/traits/talent-learning.js");
+  game.uesrpg.talents = game.uesrpg.talents || {};
+  game.uesrpg.talents.validateLearning = validateTalentLearning;
+
   // Note: The prior GM-only "AE Keys" sheet header button was a debugging aid.
   // It has been removed; the helper remains available as game.uesrpg.dumpAEKeys(...).
 });
+

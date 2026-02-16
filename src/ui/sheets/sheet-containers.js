@@ -1,12 +1,14 @@
 /**
  * Shared container helpers for ActorSheet inventory workflows.
- * Foundry VTT v13 (AppV1) safe utilities.
+ * Shared across actor sheet modules.
  *
  * These helpers are intentionally narrow: they only manipulate the existing
  * containerStats + contained_items structures without introducing new schema.
  */
 
-export const CONTAINER_ALLOWED_TYPES = new Set(["item", "weapon", "armor", "ammunition"]);
+import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
+
+const CONTAINER_ALLOWED_TYPES = new Set(["item", "weapon", "armor", "ammunition"]);
 
 /**
  * Determine whether an Item is eligible to be treated as a physical inventory object for containment.
@@ -15,7 +17,7 @@ export const CONTAINER_ALLOWED_TYPES = new Set(["item", "weapon", "armor", "ammu
  * @param {Item} item
  * @returns {boolean}
  */
-export function isContainableInventoryItem(item) {
+function isContainableInventoryItem(item) {
   if (!item) return false;
   if (item.type === "container") return false;
   return CONTAINER_ALLOWED_TYPES.has(item.type);
@@ -25,7 +27,7 @@ export function isContainableInventoryItem(item) {
  * Build a consistent "clear containerStats" update payload.
  * @returns {object}
  */
-export function buildClearContainerStatsUpdate() {
+function buildClearContainerStatsUpdate() {
   return {
     "system.containerStats.contained": false,
     "system.containerStats.container_id": "",
@@ -51,10 +53,10 @@ export async function unlinkItemFromContainer(actor, item) {
   const container = actor.items.get(containerId);
   if (container && Array.isArray(container.system?.contained_items)) {
     const nextContained = container.system.contained_items.filter((ci) => ci?._id !== item.id);
-    await container.update({ "system.contained_items": nextContained });
+    await requestUpdateDocument(container, { "system.contained_items": nextContained });
   }
 
-  await item.update(buildClearContainerStatsUpdate());
+  await requestUpdateDocument(item, buildClearContainerStatsUpdate());
 }
 
 /**
@@ -74,7 +76,7 @@ export async function unlinkAllItemsFromContainer(actor, container) {
   if (!contained.length) {
     // Defensive cleanup for malformed data
     if (Array.isArray(container.system?.contained_items)) {
-      await container.update({ "system.contained_items": [] });
+      await requestUpdateDocument(container, { "system.contained_items": [] });
     }
     return;
   }
@@ -90,8 +92,8 @@ export async function unlinkAllItemsFromContainer(actor, container) {
   }
 
   if (updates.length) {
-    await actor.updateEmbeddedDocuments("Item", updates);
+    await requestUpdateEmbeddedDocuments(actor, "Item", updates);
   }
 
-  await container.update({ "system.contained_items": [] });
+  await requestUpdateDocument(container, { "system.contained_items": [] });
 }

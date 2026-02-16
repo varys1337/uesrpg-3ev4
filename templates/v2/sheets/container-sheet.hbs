@@ -1,0 +1,119 @@
+{{!-- Container Sheet — Compact Layout --}}
+<header class="item-compact-header">
+    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
+    <div class="item-header-fields">
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+        <div class="item-stats-row">
+            <div class="item-stat">
+                <input type="number" name="system.enc" value="{{item.system.enc}}"/>
+                <span class="item-stat-label">ENC</span>
+            </div>
+            <div class="item-stat">
+                <div class="item-charge-row">
+                    {{#if item.system.container_enc}}
+                        {{item.system.container_enc.current}}
+                    {{else}}
+                        0
+                    {{/if}}
+                    /
+                    {{#if item.system.container_enc}}
+                        <input type="number" name="system.container_enc.max" value="{{item.system.container_enc.max}}"/>
+                    {{else}}
+                        <input type="number" name="system.container_enc.max" value="0"/>
+                    {{/if}}
+                </div>
+                <span class="item-stat-label">Capacity</span>
+            </div>
+            <div class="item-stat">
+                <input type="number" name="system.price" value="{{item.system.price}}"/>
+                <span class="item-stat-label">Price</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+{{!-- Sheet Tab Navigation --}}
+<nav class="sheet-tabs tabs" data-group="primary">
+    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Contents</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+</nav>
+
+    {{!-- Sheet Body --}}
+    <section class="sheet-body">
+    
+            {{!-- Description Tab --}}
+            <!-- <div class="tab" data-group="primary" data-tab="description">
+                {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+            </div> -->
+    
+            {{!-- Attributes Tab --}}
+            <div class="tab" data-group="primary" data-tab="attributes">
+                <div class="attribute-tab-container">
+                    <div class="item-selection-container">
+                        <h2>Contents</h2>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="item-name-cell item-create addToContainer" data-action="addToContainer" title="Left-click: Select items to add. Right-click: Add all eligible items.">+ Item</th>
+                                    <th>Qty</th>
+                                    <th>ENC</th>
+                                    <th class="u-ellipsis">
+                                        <a class="item-control bulk-remove-all" data-action="bulkRemoveAll" title="Remove all items from container (does not delete)"><i class="fas fa-box-open"></i></a>&nbsp;
+                                        <a class="item-control bulk-delete-all" data-action="bulkDeleteAll" title="Delete all items in container (destructive)"><i class="fas fa-trash"></i></a>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody class="container-drop-zone container-drop-body">
+                                {{#if item.system.contained_items}}
+                                    {{#each item.system.contained_items as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{#if item.item}}{{item.item.type}}{{/if}}" draggable="true">
+                                            <td>
+                                                <div class="tableItemNameCell">
+                                                    {{#if item.item}}
+                                                        <img class="item-img" src="{{item.item.img}}" title="Send to Chat"/>
+                                                        <div class="item-name" data-action="openContainedItem">{{item.item.name}}</div>
+                                                    {{/if}}
+                                                </div>
+                                            </td>
+                                            <td>{{#if item.item.system}}{{item.item.system.quantity}}{{else}}0{{/if}}</td>
+                                            <td>{{#if item.item.system}}{{item.item.system.enc}}{{else}}0{{/if}}</td>
+                                            <td>
+                                                <a class="item-control remove-contained-item" data-action="removeContainedItem" title="Remove from Container"><i class="fas fa-box-open"></i></a>
+                                                <a class="item-control delete-contained-item" data-action="deleteContainedItem" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                            </td>
+                                        </tr>
+                                    {{/each}}
+                                {{else}}
+                                    <tr>
+                                        <td colspan="4" class="u-text-center u-text-muted container-empty-hint">
+                                            <i>Drag items here or click + to add</i>
+                                        </td>
+                                    </tr>
+                                {{/if}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        {{!-- Effects Tab --}}
+        <div class="tab effects" data-group="primary" data-tab="effects">
+            <header class="effects-header flexrow">
+                <h3>Effects</h3>
+                <a class="effect-control" data-action="effectControl" data-effect-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
+            </header>
+            <ol class="effects-list">
+                {{#each effects as |effect|}}
+                <li class="effect flexrow" data-effect-id="{{effect._id}}">
+                    <img class="effect-icon" src="{{effect.img}}" />
+                    <h4 class="effect-name">{{effect.name}}</h4>
+                    <div class="effect-controls flexrow">
+                        <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
+                        <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
+                        <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
+                    </div>
+                </li>
+                {{/each}}
+            </ol>
+        </div>
+    </section>

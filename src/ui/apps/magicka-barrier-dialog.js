@@ -6,6 +6,9 @@
  * Opened by clicking the Magicka label button on the actor sheet.
  */
 
+import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+
 export class MagickaBarrierDialog {
   /**
    * Show the Magicka / Barrier management dialog for an actor.
@@ -25,7 +28,7 @@ export class MagickaBarrierDialog {
     const magBuf = Number(actor.system?.buffers?.magical ?? 0);
     const elemBuf = Number(actor.system?.buffers?.elemental ?? 0);
 
-    // Collect active barrier spell effects for informational display
+    // Collect active barrier spell effects for informational display.
     const barrierEffects = [];
     const barriersByType = { physical: [], magical: [], elemental: [] };
     for (const ef of (actor.effects ?? [])) {
@@ -44,73 +47,73 @@ export class MagickaBarrierDialog {
       }
     }
 
-    // Build barrier effects info HTML
     let barriersInfo = "";
     if (barrierEffects.length) {
-      const rows = barrierEffects.map(b => {
+      const rows = barrierEffects.map((b) => {
         const typeLabel = { physical: "Physical", magical: "Magical", elemental: "Elemental" }[b.type] ?? b.type;
         const upkeepTag = b.hasUpkeep ? ' <span class="hint">(upkeep)</span>' : "";
-        const typeIcon = { physical: "🛡", magical: "✨", elemental: "🔥" }[b.type] ?? "•";
-        return `<li>${typeIcon} <strong>${b.name}</strong> — ${typeLabel} ${b.originalValue}${upkeepTag}</li>`;
+        return `<li><strong>${b.name}</strong> - ${typeLabel} ${b.originalValue}${upkeepTag}</li>`;
       }).join("");
       barriersInfo = `
-        <div class="form-group" style="margin-bottom:8px;">
-          <label style="font-weight:bold; margin-bottom:4px;">Active Barrier Sources</label>
-          <ul style="margin:0; padding-left:18px; font-size:0.9em; opacity:0.85;">${rows}</ul>
+        <div class="uesrpg-resource-dialog__group form-group">
+          <label class="uesrpg-resource-dialog__label">Active Barrier Sources</label>
+          <ul class="uesrpg-magicka-barrier-dialog__sources">${rows}</ul>
         </div>
       `;
     }
 
-    // Build source indicators for each buffer type input
     const buildSourceIndicator = (type) => {
       const sources = barriersByType[type];
-      if (!sources || sources.length === 0) return "";
+      if (!sources?.length) return "";
       const count = sources.length;
-      const names = sources.map(s => s.name).join(", ");
-      return `<span class="buffer-source-indicator" title="${count} source(s): ${names}" style="margin-left:4px; font-size:0.8em; opacity:0.7; cursor:help;">(${count})</span>`;
+      const names = sources.map((s) => s.name).join(", ");
+      return `<span class="buffer-source-indicator" title="${count} source(s): ${names}">(${count})</span>`;
     };
 
     const content = `
-      <form class="uesrpg-magicka-barrier-dialog">
-        <div class="form-group">
-          <label>Magicka</label>
+      <div class="uesrpg-resource-dialog__body uesrpg-magicka-barrier-dialog">
+        <div class="uesrpg-resource-dialog__group form-group">
+          <label class="uesrpg-resource-dialog__label">Magicka</label>
           <input type="number" name="magicka" value="${currentMP}" min="0" max="${maxMP}" />
-          <span class="hint">Max: ${maxMP}</span>
+          <span class="uesrpg-resource-dialog__hint hint">Max: ${maxMP}</span>
         </div>
-        <hr style="margin:6px 0;" />
-        <p style="font-size:0.85em; opacity:0.8; margin:2px 0 6px;">
+        <p class="uesrpg-resource-dialog__hint uesrpg-resource-dialog__hint--copy">
           Barrier buffers absorb damage before Temp HP and HP. Physical blocks physical/silver/sunlight,
           Magical blocks magic damage, Elemental blocks fire/frost/shock/poison.
         </p>
         ${barriersInfo}
-        <div class="form-group">
-          <label>Physical Buffer ${buildSourceIndicator("physical")}</label>
+        <div class="uesrpg-resource-dialog__group form-group">
+          <label class="uesrpg-resource-dialog__label">Physical Buffer ${buildSourceIndicator("physical")}</label>
           <input type="number" name="bufferPhysical" value="${physBuf}" min="0" />
-          <span class="hint">🛡 Physical / Silver / Sunlight</span>
+          <span class="uesrpg-resource-dialog__hint hint">Physical / Silver / Sunlight</span>
         </div>
-        <div class="form-group">
-          <label>Magical Buffer ${buildSourceIndicator("magical")}</label>
+        <div class="uesrpg-resource-dialog__group form-group">
+          <label class="uesrpg-resource-dialog__label">Magical Buffer ${buildSourceIndicator("magical")}</label>
           <input type="number" name="bufferMagical" value="${magBuf}" min="0" />
-          <span class="hint">✨ Magic damage</span>
+          <span class="uesrpg-resource-dialog__hint hint">Magic damage</span>
         </div>
-        <div class="form-group">
-          <label>Elemental Buffer ${buildSourceIndicator("elemental")}</label>
+        <div class="uesrpg-resource-dialog__group form-group">
+          <label class="uesrpg-resource-dialog__label">Elemental Buffer ${buildSourceIndicator("elemental")}</label>
           <input type="number" name="bufferElemental" value="${elemBuf}" min="0" />
-          <span class="hint">🔥 Fire / Frost / Shock / Poison</span>
+          <span class="uesrpg-resource-dialog__hint hint">Fire / Frost / Shock / Poison</span>
         </div>
-      </form>
+      </div>
     `;
 
-    return new Promise((resolve) => {
-      const buttons = {
+    return customDialog({
+      title: `Magicka & Barriers - ${actor.name}`,
+      content,
+      classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--magicka"],
+      buttons: {
         apply: {
           icon: '<i class="fas fa-check"></i>',
           label: "Apply",
           callback: async (html) => {
-            const newMP = Number(html.find('[name="magicka"]').val());
-            const newPhys = Math.max(0, Number(html.find('[name="bufferPhysical"]').val()));
-            const newMag = Math.max(0, Number(html.find('[name="bufferMagical"]').val()));
-            const newElem = Math.max(0, Number(html.find('[name="bufferElemental"]').val()));
+            const root = html instanceof HTMLElement ? html : html?.[0];
+            const newMP = Number(root?.querySelector('[name="magicka"]')?.value);
+            const newPhys = Math.max(0, Number(root?.querySelector('[name="bufferPhysical"]')?.value));
+            const newMag = Math.max(0, Number(root?.querySelector('[name="bufferMagical"]')?.value));
+            const newElem = Math.max(0, Number(root?.querySelector('[name="bufferElemental"]')?.value));
 
             const updateData = {};
             if (newMP !== currentMP) updateData["system.magicka.value"] = Math.max(0, Math.min(maxMP, newMP));
@@ -119,19 +122,19 @@ export class MagickaBarrierDialog {
             if (newElem !== elemBuf) updateData["system.buffers.elemental"] = newElem;
 
             if (Object.keys(updateData).length) {
-              await actor.update(updateData);
+              await requestUpdateDocument(actor, updateData);
               ui.notifications.info(`Magicka & barriers updated for ${actor.name}`);
             }
 
-            resolve(true);
+            return true;
           }
         },
         clearAll: {
           icon: '<i class="fas fa-eraser"></i>',
           label: "Clear Buffers",
           callback: async (html) => {
-            // Apply magicka change if any, and zero all buffers
-            const newMP = Number(html.find('[name="magicka"]').val());
+            const root = html instanceof HTMLElement ? html : html?.[0];
+            const newMP = Number(root?.querySelector('[name="magicka"]')?.value);
             const updateData = {
               "system.buffers.physical": 0,
               "system.buffers.magical": 0,
@@ -139,24 +142,19 @@ export class MagickaBarrierDialog {
             };
             if (newMP !== currentMP) updateData["system.magicka.value"] = Math.max(0, Math.min(maxMP, newMP));
 
-            await actor.update(updateData);
+            await requestUpdateDocument(actor, updateData);
             ui.notifications.info(`All barriers cleared for ${actor.name}`);
-            resolve(true);
+            return true;
           }
         },
         cancel: {
           icon: '<i class="fas fa-times"></i>',
           label: "Cancel",
-          callback: () => resolve(false)
+          callback: () => false
         }
-      };
-
-      new Dialog({
-        title: `Magicka & Barriers — ${actor.name}`,
-        content,
-        buttons,
-        default: "apply"
-      }).render(true);
+      },
+      defaultButton: "apply",
+      width: 540,
     });
   }
 }

@@ -1,21 +1,21 @@
 /**
  * Shared inventory helpers for Actor sheets.
  *
- * Foundry VTT v13 / AppV1-compatible. No schema changes.
+ * Shared across actor sheet modules. No schema changes.
  */
 
 /**
  * Item types which represent physical inventory and are eligible for containment.
  * @type {Set<string>}
  */
-export const CONTAINABLE_ITEM_TYPES = new Set(["item", "weapon", "armor", "ammunition"]);
+const CONTAINABLE_ITEM_TYPES = new Set(["item", "weapon", "armor", "ammunition"]);
 
 /**
  * Determine whether an item is marked as contained in a container.
  * @param {Item|object} item
  * @returns {boolean}
  */
-export function isContainedItem(item) {
+function isContainedItem(item) {
   const cs = item?.system?.containerStats;
   return (cs?.contained === true) && !!cs?.container_id;
 }
@@ -25,7 +25,7 @@ export function isContainedItem(item) {
  * @param {Item|object} item
  * @returns {boolean}
  */
-export function isContainableType(item) {
+function isContainableType(item) {
   return CONTAINABLE_ITEM_TYPES.has(item?.type);
 }
 

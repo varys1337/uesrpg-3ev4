@@ -4,6 +4,7 @@ import { hasTalent } from "../core/traits/talents-api.js";
 import { isWithinMeleeRange } from "../core/traits/combat-proximity.js";
 import { ActionEconomy } from "../core/combat/action-economy.js";
 import { requestUpdateDocument } from "./authority-proxy.js";
+import { confirmDialog, customDialog } from "./dialog-v2-helper.js";
 
 /**
  * src/utils/degree-roll-helper.js
@@ -278,22 +279,19 @@ async function _promptDefenderInterceptChoice(defenderToken, candidates) {
   // Single candidate: simple yes/no.
   if (candidates.length === 1) {
     const c = candidates[0];
-    const ok = await new Promise((resolve) => {
-      new Dialog({
-        title: "Defender",
-        content: `
-          <div class="uesrpg">
-            <p><b>${_escapeHtml(c.actor.name)}</b> can intercept this attack on <b>${_escapeHtml(defenderToken.actor?.name ?? defenderToken.name)}</b>.</p>
-            <p>Cost: <b>1 AP</b>. After intercepting: <b>Block/Parry/Counter</b> for <b>0 AP</b>.</p>
-          </div>
-        `,
-        buttons: {
-          yes: { label: "Intercept (1 AP)", callback: () => resolve(true) },
-          no: { label: "Do Not Intercept", callback: () => resolve(false) }
-        },
-        default: "no",
-        close: () => resolve(false)
-      }).render(true);
+    const ok = await confirmDialog({
+      title: "Defender",
+      content: `
+        <div class="uesrpg">
+          <p><b>${_escapeHtml(c.actor.name)}</b> can intercept this attack on <b>${_escapeHtml(defenderToken.actor?.name ?? defenderToken.name)}</b>.</p>
+          <p>Cost: <b>1 AP</b>. After intercepting: <b>Block/Parry/Counter</b> for <b>0 AP</b>.</p>
+        </div>
+      `,
+      yesLabel: "Intercept (1 AP)",
+      noLabel: "Do Not Intercept",
+      yesIcon: "fas fa-shield-alt",
+      noIcon: "fas fa-times",
+      rejectClose: false,
     });
     return ok ? c : null;
   }
@@ -302,33 +300,33 @@ async function _promptDefenderInterceptChoice(defenderToken, candidates) {
     .map((c, idx) => `<option value="${idx}">${_escapeHtml(`${c.actor.name} (${c.ap} AP)`)}</option>`)
     .join("");
 
-  const pickedIdx = await new Promise((resolve) => {
-    new Dialog({
-      title: "Defender",
-      content: `
-        <div class="uesrpg">
-          <p>Select which ally intercepts the attack on <b>${_escapeHtml(defenderToken.actor?.name ?? defenderToken.name)}</b>.</p>
-          <p>Cost: <b>1 AP</b>. After intercepting: <b>Block/Parry/Counter</b> for <b>0 AP</b>.</p>
-          <div style="margin-top:8px;">
-            <label style="display:block; font-weight:600; margin-bottom:4px;">Interceptor</label>
-            <select name="ues-defender-interceptor" style="width:100%;">${options}</select>
-          </div>
+  const pickedIdx = await customDialog({
+    title: "Defender",
+    content: `
+      <div class="uesrpg">
+        <p>Select which ally intercepts the attack on <b>${_escapeHtml(defenderToken.actor?.name ?? defenderToken.name)}</b>.</p>
+        <p>Cost: <b>1 AP</b>. After intercepting: <b>Block/Parry/Counter</b> for <b>0 AP</b>.</p>
+        <div style="margin-top:8px;">
+          <label style="display:block; font-weight:600; margin-bottom:4px;">Interceptor</label>
+          <select name="ues-defender-interceptor" style="width:100%;">${options}</select>
         </div>
-      `,
-      buttons: {
-        yes: {
-          label: "Intercept (1 AP)",
-          callback: (html) => {
-            const v = html?.find?.('select[name="ues-defender-interceptor"]').val();
-            const idx = Number(v);
-            resolve(Number.isFinite(idx) ? idx : 0);
-          }
-        },
-        no: { label: "Do Not Intercept", callback: () => resolve(null) }
+      </div>
+    `,
+    buttons: {
+      yes: {
+        label: "Intercept (1 AP)",
+        icon: "fas fa-shield-alt",
+        callback: (html) => {
+          const el = html instanceof HTMLElement ? html : html?.[0];
+          const v = el?.querySelector?.('select[name="ues-defender-interceptor"]')?.value;
+          const idx = Number(v);
+          return Number.isFinite(idx) ? idx : 0;
+        }
       },
-      default: "no",
-      close: () => resolve(null)
-    }).render(true);
+      no: { label: "Do Not Intercept", icon: "fas fa-times", callback: () => null }
+    },
+    default: "no",
+    rejectClose: false,
   });
 
   if (pickedIdx == null) return null;
@@ -368,7 +366,7 @@ async function _swapTokenPositions(tokenA, tokenB) {
  * @param {{rangeMeters?: number}} [opts.options]
  * @returns {Promise<boolean>} true if an intercept was applied
  */
-export async function maybeApplyDefenderIntercept({ data, defenderData, defenderToken, options = {} } = {}) {
+async function maybeApplyDefenderIntercept({ data, defenderData, defenderToken, options = {} } = {}) {
   try {
     if (!data || !defenderData || !defenderToken) return false;
 

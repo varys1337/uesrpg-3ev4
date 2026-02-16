@@ -18,7 +18,6 @@
  */
 
 import { doTestRoll, resolveOpposed, computeResultFromRollTotal } from "../../utils/degree-roll-helper.js";
-import { requireUserCanRollActor } from "../../utils/permissions.js";
 
 import { FLAG_NS, FLAG_KEY, CARD_VERSION, CHARACTERISTICS, bankedAutoRollLocalLocks } from "./opposed/constants.js";
 import { _bothSidesCommitted, _getMessageState, _normalizeCardFlag } from "./opposed/schema.js";
@@ -158,6 +157,7 @@ export const CharOpposedWorkflow = {
     const data = {
       attacker: {
         actorUuid: attackerActor.uuid,
+        tokenUuid: attackerToken?.document?.uuid ?? attackerToken?.uuid ?? null,
         tokenName: attackerToken?.name ?? attackerActor.name,
         name: attackerActor.name,
         charKey,
@@ -169,6 +169,7 @@ export const CharOpposedWorkflow = {
       },
       defender: {
         actorUuid: defenderActor.uuid,
+        tokenUuid: defenderToken?.document?.uuid ?? defenderToken?.uuid ?? null,
         tokenName: defenderToken?.name ?? defenderActor.name,
         name: defenderActor.name,
         charKey,

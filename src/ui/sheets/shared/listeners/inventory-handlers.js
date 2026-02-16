@@ -2,49 +2,50 @@
  * Inventory and equipment management handlers.
  * Handles quantity adjustments, equipment toggling, and item creation.
  *
- * Target: Foundry VTT v13 (AppV1 ActorSheet).
+ * Shared across actor sheet modules.
  */
 
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 
 /**
  * Handle 2H weapon toggle.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onToggle2H(sheet, event) {
+export const onToggle2H = asyncGuardSheet(async function onToggle2H(event, target) {
   event.preventDefault();
-  const li = $(event.currentTarget).parents(".item");
-  const item = sheet.actor.getEmbeddedDocument("Item", li.data("itemId"));
+  const li = (target ?? event.currentTarget).closest(".item");
+  const item = this.actor.getEmbeddedDocument("Item", li?.dataset?.itemId);
   if (!item) return;
 
   await requestUpdateDocument(item, { "system.weapon2H": !item.system.weapon2H });
-}
+});
 
 /**
  * Increment item quantity.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onPlusQty(sheet, event) {
+export const onPlusQty = asyncGuardSheet(async function onPlusQty(event, target) {
   event.preventDefault();
-  const li = $(event.currentTarget).parents(".item");
-  const item = sheet.actor.getEmbeddedDocument("Item", li.data("itemId"));
+  const li = (target ?? event.currentTarget).closest(".item");
+  const item = this.actor.getEmbeddedDocument("Item", li?.dataset?.itemId);
   if (!item) return;
 
   const currentQty = Number(item.system.quantity ?? 0);
   await requestUpdateDocument(item, { "system.quantity": currentQty + 1 });
-}
+});
 
 /**
  * Decrement item quantity.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onMinusQty(sheet, event) {
+export const onMinusQty = asyncGuardSheet(async function onMinusQty(event, target) {
   event.preventDefault();
-  const li = $(event.currentTarget).parents(".item");
-  const item = sheet.actor.getEmbeddedDocument("Item", li.data("itemId"));
+  const li = (target ?? event.currentTarget).closest(".item");
+  const item = this.actor.getEmbeddedDocument("Item", li?.dataset?.itemId);
   if (!item) return;
 
   const currentQty = Number(item.system.quantity ?? 0);
@@ -55,23 +56,22 @@ export async function onMinusQty(sheet, event) {
   }
 
   await requestUpdateDocument(item, { "system.quantity": newQty });
-}
+});
 
 /**
  * Toggle item equipped status.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onItemEquip(sheet, event) {
+export const onItemEquip = asyncGuardSheet(async function onItemEquip(event, target) {
   event.preventDefault();
-  const toggle = $(event.currentTarget);
-  const li = toggle.closest(".item");
-  const itemId = li?.data("itemId");
+  const li = (target ?? event.currentTarget).closest(".item");
+  const itemId = li?.dataset?.itemId;
   if (!itemId) return;
 
-  const item = sheet.actor.getEmbeddedDocument("Item", itemId);
+  const item = this.actor.getEmbeddedDocument("Item", itemId);
   if (!item) return;
 
   const current = Boolean(item?.system?.equipped);
   await requestUpdateDocument(item, { "system.equipped": !current });
-}
+});

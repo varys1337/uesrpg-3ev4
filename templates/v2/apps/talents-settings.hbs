@@ -1,0 +1,95 @@
+{{!-- templates/v2/apps/talents-settings.hbs — AppV2 (no <form> wrapper) --}}
+<section class="uesrpg-settings">
+<fieldset>
+  <legend>Talents</legend>
+
+  <div class="form-group">
+    <label>Gladiator — Automation Mode</label>
+    <select name="gladiatorAutomationMode" class="u-w-full">
+      <option value="disabled" {{#if (eq gladiatorAutomationMode "disabled")}}selected{{/if}}>Disabled</option>
+      <option value="original" {{#if (eq gladiatorAutomationMode "original")}}selected{{/if}}>Original (Make)</option>
+      <option value="updated" {{#if (eq gladiatorAutomationMode "updated")}}selected{{/if}}>Updated (Can)</option>
+    </select>
+    <p class="notes"><b>Original (Make):</b> "If the character is the target of a melee attack while within the melee range of at least two opponents, then they make a free defensive reaction against that attack, but only once per round."</p>
+    <p class="notes"><b>Updated (Can):</b> "If the character is the target of a melee attack while within the melee range of at least two opponents, then they can make a free defensive reaction against that attack, but only once per round."</p>
+    <p class="notes"><b>Disabled:</b> Gladiator automation is not applied.</p>
+  </div>
+
+  <div class="form-group">
+    <label>Enable Mighty Cleave automation</label>
+    <input type="checkbox" name="enableMightyCleave" {{checked enableMightyCleave}}>
+  </div>
+
+  <div class="form-group">
+    <label>Enable Follow-up Strike automation</label>
+    <input type="checkbox" name="enableFollowUpStrike" {{checked enableFollowUpStrike}}>
+  </div>
+
+  <div class="form-group">
+    <label>Talent Learning Mode</label>
+    <select name="talentLearningMode" class="u-w-full">
+      <option value="off" {{#if (eq talentLearningMode "off")}}selected{{/if}}>Off</option>
+      <option value="warn" {{#if (eq talentLearningMode "warn")}}selected{{/if}}>Warn</option>
+      <option value="enforce" {{#if (eq talentLearningMode "enforce")}}selected{{/if}}>Enforce</option>
+    </select>
+    <p class="notes"><b>Off:</b> no checks. <b>Warn:</b> report RAW violations but allow acquisition. <b>Enforce:</b> block invalid acquisitions and auto-deduct XP.</p>
+  </div>
+
+  <div class="form-group">
+    <label>No-Governing XP Rule</label>
+    <select name="talentNoGoverningCostRule" class="u-w-full">
+      <option value="discounted" {{#if (eq talentNoGoverningCostRule "discounted")}}selected{{/if}}>Discounted (75%)</option>
+      <option value="base" {{#if (eq talentNoGoverningCostRule "base")}}selected{{/if}}>Base Cost</option>
+    </select>
+    <p class="notes">Controls how talents with no governing characteristic are priced for learning checks.</p>
+  </div>
+
+  <div class="form-group">
+    <label>Talent Learning Notifications</label>
+    <select name="talentLearningNoticeMode" class="u-w-full">
+      <option value="off" {{#if (eq talentLearningNoticeMode "off")}}selected{{/if}}>Off</option>
+      <option value="problems" {{#if (eq talentLearningNoticeMode "problems")}}selected{{/if}}>Problems Only</option>
+      <option value="verbose" {{#if (eq talentLearningNoticeMode "verbose")}}selected{{/if}}>Verbose (includes successful checks)</option>
+    </select>
+    <p class="notes">Controls notification verbosity when talent-learning validation runs.</p>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Chapter 4 Compliance</legend>
+
+  <div class="form-group">
+    <label>Chapter 4 Audit at Startup</label>
+    <select name="chapter4AuditStartupMode" class="u-w-full">
+      <option value="off" {{#if (eq chapter4AuditStartupMode "off")}}selected{{/if}}>Off</option>
+      <option value="summary" {{#if (eq chapter4AuditStartupMode "summary")}}selected{{/if}}>Summary</option>
+      <option value="full" {{#if (eq chapter4AuditStartupMode "full")}}selected{{/if}}>Full (include entries + console log)</option>
+    </select>
+    <p class="notes">Runs <code>game.uesrpg.auditChapter4()</code> on world startup for GMs and posts a summary notification.</p>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Character Generation</legend>
+
+  <div class="form-group">
+    <label>Enforce Character Generation Milestones</label>
+    <input type="checkbox" name="enforceCharGenMilestones" {{checked enforceCharGenMilestones}}>
+    <p class="notes">When enabled, Imperial racial talent automation (Red Diamond / Imperial Luck) applies only if the actor has completed character generation.</p>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Active Effects</legend>
+
+  <div class="form-group">
+    <label>Passive Transfer Item Types</label>
+    <input type="text" name="passiveTransferItemTypes" value="{{passiveTransferItemTypes}}" placeholder="talent,trait,power,skill" class="u-w-full">
+    <p class="notes">Comma-separated item types whose transfer Active Effects apply passively while the item is in an actor's inventory. Changing this requires a reload.</p>
+  </div>
+</fieldset>
+
+<footer class="sheet-footer flexrow">
+  <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+</footer>
+</section>

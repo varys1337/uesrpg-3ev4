@@ -47,7 +47,7 @@ export function safeGetEffect(actor, effectId) {
  * @param {string} uuid
  * @returns {Promise<ActiveEffect|null>}
  */
-export async function safeGetEffectByUuid(uuid) {
+async function safeGetEffectByUuid(uuid) {
   if (!uuid || typeof uuid !== "string") return null;
   
   const debug = isDebugEnabled("aeLifecycleDebug");
@@ -107,7 +107,7 @@ export function safeGetEffectByUuidSync(uuid) {
  * @param {ActiveEffect} effect
  * @returns {boolean}
  */
-export function effectExists(effect) {
+function effectExists(effect) {
   if (!effect?.parent?.effects) return false;
   return effect.parent.effects.has(effect.id);
 }
@@ -215,8 +215,7 @@ export async function applyGroupedEffect(actor, effectData, { timeout = 5000 } =
         const updateData = {
           _id: existing.id,
           name: effectData.name ?? existing.name,
-          img: effectData.img ?? effectData.icon ?? existing.img ?? existing.icon,
-          icon: effectData.icon ?? effectData.img ?? existing.icon ?? existing.img,
+          img: effectData.img ?? effectData.icon ?? existing.img,
           changes: Array.isArray(effectData.changes) ? effectData.changes : (existing.changes ?? []),
           flags: effectData.flags ?? existing.flags,
           duration: effectData.duration ?? existing.duration,
@@ -226,14 +225,6 @@ export async function applyGroupedEffect(actor, effectData, { timeout = 5000 } =
           tint: effectData.tint ?? existing.tint,
           transfer: effectData.transfer ?? existing.transfer
         };
-        
-        // Normalize icon/img
-        if (updateData.icon && !updateData.img) {
-          updateData.img = updateData.icon;
-        }
-        if (updateData.img && !updateData.icon) {
-          updateData.icon = updateData.img;
-        }
         
         const updated = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", [updateData], { timeout });
         if (updated) {

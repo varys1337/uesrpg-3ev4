@@ -27,8 +27,7 @@ import { ActionEconomy } from "./action-economy.js";
 import { AttackTracker } from "./attack-tracker.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { requestCreateActiveEffect } from "../../utils/authority-proxy.js";
-import { buildSpecialActionsForActor, isSpecialActionUsableNow } from "./combat-style-utils.js";
-import { SPECIAL_ACTIONS, getSpecialActionById } from "../config/special-actions.js";
+import { buildSpecialActionsForActor, isSpecialActionUsableNow, SPECIAL_ACTIONS, getSpecialActionById } from "./combat-style-utils.js";
 import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "../stamina/stamina-dialog.js";
 import { isActorSkeletal, isActorUndead } from "../traits/trait-registry.js";
 import { canTokenEscapeTemplate } from "../../utils/aoe-utils.js";
@@ -160,6 +159,7 @@ import {
   attackerDeclareDialog,
   promptWeaponAndAdvantages
 } from "./opposed/dialogs/attacker.js";
+import { _resolveItemViaActor } from "./opposed/helpers/docs.js";
 
 // Re-export modular components for backward compatibility and performance
 export {
@@ -180,6 +180,8 @@ export {
 export {
   _resolveDoc,
   _resolveActor,
+  _resolveActorViaToken,
+  _resolveItemViaActor,
   _resolveToken,
   _measureTokenDistance,
   _isIsolatedDuelByTokens
@@ -266,15 +268,18 @@ export {
 export {
   rollWeaponDamage as _rollWeaponDamage,
   rollManualDamage as _rollManualDamage
-} from "./opposed/damage/damage.js";
+} from "./opposed/damage/roller.js";
 
 export {
   promptYesNo as _promptYesNo,
   promptSelectToken as _promptSelectToken,
   promptAoEEvadeEscape as _promptAoEEvadeEscape,
-  promptDefenderAdvantage as _promptDefenderAdvantage,
   promptWeaponAndAdvantages as _promptWeaponAndAdvantages
 } from "./opposed/dialogs/common.js";
+
+export {
+  promptDefenderAdvantage as _promptDefenderAdvantage
+} from "./opposed/dialogs/defender.js";
 
 export {
   getEquippedWeaponItems as _getEquippedWeaponItems,
@@ -313,7 +318,6 @@ import {
   normalizeKey as _normalizeKey,
   getSystemId as _getSystemId,
   weaponHasQuality as _weaponHasQuality,
-  weaponHasTraitText as _weaponHasTraitText,
   parseRangeTriplet as _parseRangeTriplet,
   measurePointDistance as _measurePointDistance,
   promptYesNo as _promptYesNo,
@@ -599,8 +603,8 @@ async function _maybeResolveDefenderAdvantage(message, data) {
     const attackMode = getContextAttackMode(data?.context);
     if (attackMode !== "melee") return;
 
-    const defender = _resolveDoc(data?.defender?.actorUuid);
-    const attacker = _resolveDoc(data?.attacker?.actorUuid);
+    const defender = _resolveActorViaToken(data?.defender?.actorUuid, data?.defender?.tokenUuid);
+    const attacker = _resolveActorViaToken(data?.attacker?.actorUuid, data?.attacker?.tokenUuid);
     if (!defender || !attacker) return;
 
     if (!_canControlActor(defender) && !game.user.isGM) return;
@@ -610,7 +614,8 @@ async function _maybeResolveDefenderAdvantage(message, data) {
       attackerActor: attacker,
       advantageCount: adv,
       defenderTokenUuid: data.defender?.tokenUuid ?? null,
-      opponentTokenUuid: data.attacker?.tokenUuid ?? null
+      opponentTokenUuid: data.attacker?.tokenUuid ?? null,
+      styleUuidForKnown: data.defender?.styleUuid ?? null
     });
 
     data.advantageSpent.defender = true;
@@ -925,8 +930,8 @@ export const OpposedWorkflow = {
     let seededWeaponUuid = "";
     if (cfg.weaponUuid) {
       try {
-        const w = fromUuidSync(String(cfg.weaponUuid));
-        if (w && w.documentName === "Item" && w.type === "weapon" && w.parent?.uuid === attacker.uuid) {
+        const w = _resolveItemViaActor(cfg.weaponUuid, attacker);
+        if (w && w.documentName === "Item" && w.type === "weapon") {
           seededWeaponUuid = w.uuid;
         }
       } catch (_e) {
@@ -938,6 +943,7 @@ export const OpposedWorkflow = {
 
     const isAoE = Boolean(cfg?.aoe?.isAoE || cfg?.context?.aoe?.isAoE || cfg?.isAoE);
     const isFollowUpStrike = Boolean(cfg?.followUpStrike);
+    const isReactionAttack = Boolean(cfg?.isReactionAttack);
     const skipApDeduction = Boolean(cfg?.skipAttackerAPDeduction || isFollowUpStrike);
     const skipAttackCountIncrement = Boolean(cfg?.skipAttackCountIncrement || isFollowUpStrike);
     const isFreeActionAttack = Boolean(cfg?.isFreeActionAttack || isFollowUpStrike);
@@ -959,6 +965,7 @@ export const OpposedWorkflow = {
           skipAttackerAPDeduction: skipApDeduction,
           skipAttackCountIncrement,
           isFreeActionAttack,
+          isReactionAttack,
           followUpStrike: isFollowUpStrike
             ? {
                 active: true,
@@ -1006,7 +1013,7 @@ export const OpposedWorkflow = {
       flags: { "uesrpg-3ev4": { opposed: data } }
     });
 
-    await message.update({ content: _renderCard(data, message.id) });
+    await safeUpdateChatMessage(message, { content: _renderCard(data, message.id) });
 
     _logDebug("createPending", {
       messageId: message.id,

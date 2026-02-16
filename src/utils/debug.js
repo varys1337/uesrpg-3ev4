@@ -3,8 +3,8 @@
  * Centralized debug-gating helpers for UESRPG.
  */
 
-export const DEBUG_NAMESPACE = "uesrpg-3ev4";
-export const DEBUG_MASTER_SETTING = "debugEnabled";
+const DEBUG_NAMESPACE = "uesrpg-3ev4";
+const DEBUG_MASTER_SETTING = "debugEnabled";
 
 function _settingExists(key) {
   try {
@@ -27,7 +27,7 @@ function _getSettingBool(key, fallback = false) {
  * Master debug gate.
  * When disabled, all debug lanes are suppressed.
  */
-export function isDebugMasterEnabled() {
+function isDebugMasterEnabled() {
   return _getSettingBool(DEBUG_MASTER_SETTING, false);
 }
 
@@ -99,7 +99,7 @@ const _PERF_SETTING = "perfDebug";
  *
  * @param {string} label - Timer label for `console.time`
  */
-export function perfStart(label) {
+function perfStart(label) {
   if (!isDebugEnabled(_PERF_SETTING)) return;
   try { console.time(`[UESRPG][perf] ${label}`); } catch (_e) { /* no-op */ }
 }
@@ -110,7 +110,7 @@ export function perfStart(label) {
  *
  * @param {string} label - Timer label for `console.timeEnd`
  */
-export function perfEnd(label) {
+function perfEnd(label) {
   if (!isDebugEnabled(_PERF_SETTING)) return;
   try { console.timeEnd(`[UESRPG][perf] ${label}`); } catch (_e) { /* no-op */ }
 }

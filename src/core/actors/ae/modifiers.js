@@ -3,10 +3,13 @@
  *
  * Active Effect modifier collection and evaluation helpers.
  * Provides deterministic resolution for ADD/OVERRIDE modes.
+ *
+ * Delegates effect collection to the shared collectApplicableEffects helper
+ * in modifier-evaluator.js so disabled-filtering, transfer-gating, and
+ * origin-deduplication logic is maintained in a single location.
  */
 
-import { isTransferEffectActive } from "../../active-effects/transfer.js";
-import { evaluateAEModifierKeys } from "../../active-effects/modifier-evaluator.js";
+import { collectApplicableEffects } from "../../active-effects/modifier-evaluator.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
 
 /**
@@ -36,35 +39,11 @@ export function collectAEModifiersForKeys(actor, targetKeys = []) {
   const ADD = CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
   const OVERRIDE = CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
 
-  /** @type {{effect: any, priority: number, sortId: string}[]} */
-  const sources = [];
+  // Use the shared effect collection helper (disabled-filtering, transfer-gating,
+  // origin-deduplication all handled centrally in modifier-evaluator.js).
+  const effects = collectApplicableEffects(actor, { dedupeByOrigin: true, debug: false });
 
-  // Actor embedded effects
-  for (const ef of (actor?.effects ?? [])) {
-    sources.push({
-      effect: ef,
-      priority: Number(ef?.priority ?? 0),
-      sortId: String(ef?.id ?? ef?._id ?? '')
-    });
-  }
-
-  // Transfer item effects (type/equipped gating handled by isTransferEffectActive)
-  for (const item of (actor?.items ?? [])) {
-    for (const ef of (item?.effects ?? [])) {
-      if (!isTransferEffectActive(actor, item, ef)) continue;
-      sources.push({
-        effect: ef,
-        priority: Number(ef?.priority ?? 0),
-        sortId: String(ef?.id ?? ef?._id ?? '')
-      });
-    }
-  }
-
-  // Deterministic ordering: ascending priority, then ascending id.
-  sources.sort((a, b) => (a.priority - b.priority) || a.sortId.localeCompare(b.sortId));
-
-  for (const { effect } of sources) {
-    if (!effect || effect.disabled) continue;
+  for (const effect of effects) {
     const changes = Array.isArray(effect.changes) ? effect.changes : [];
     for (const ch of changes) {
       if (!ch) continue;
@@ -109,34 +88,12 @@ export function collectAEModifiersForKeySetMerged(actor, keySet = []) {
   const ADD = CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
   const OVERRIDE = CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
 
-  /** @type {{effect: any, priority: number, sortId: string}[]} */
-  const sources = [];
-
-  for (const ef of (actor?.effects ?? [])) {
-    sources.push({
-      effect: ef,
-      priority: Number(ef?.priority ?? 0),
-      sortId: String(ef?.id ?? ef?._id ?? '')
-    });
-  }
-
-  for (const item of (actor?.items ?? [])) {
-    for (const ef of (item?.effects ?? [])) {
-      if (!isTransferEffectActive(actor, item, ef)) continue;
-      sources.push({
-        effect: ef,
-        priority: Number(ef?.priority ?? 0),
-        sortId: String(ef?.id ?? ef?._id ?? '')
-      });
-    }
-  }
-
-  sources.sort((a, b) => (a.priority - b.priority) || a.sortId.localeCompare(b.sortId));
+  // Use the shared effect collection helper.
+  const effects = collectApplicableEffects(actor, { dedupeByOrigin: true, debug: false });
 
   const out = { add: 0, override: null };
 
-  for (const { effect } of sources) {
-    if (!effect || effect.disabled) continue;
+  for (const effect of effects) {
     const changes = Array.isArray(effect.changes) ? effect.changes : [];
     for (const ch of changes) {
       if (!ch) continue;
@@ -369,29 +326,40 @@ export function applyResistanceAEModifiers(actor, resistanceData) {
     if (paths.traits) allKeys.push(paths.traits);
   }
   
-  // Evaluate all resistance AE modifiers
-  const aeMods = evaluateAEModifierKeys(actor, allKeys);
+  // Evaluate all resistance AE modifiers using OVERRIDE-wins semantics
+  // (consistent with all other stat pipelines in this file).
+  const aeMods = collectAEModifiersForKeys(actor, allKeys);
   
   // Apply modifiers to each resistance value
   const result = { ...resistanceData };
   for (const resKey in resistanceKeyMap) {
     const paths = resistanceKeyMap[resKey];
-    let totalModifier = 0;
+    let totalAdd = 0;
+    let hasOverride = false;
+    let overrideVal = 0;
     
-    // Sum all applicable AE modifiers for this resistance
-    if (paths.legacy) {
-      totalModifier += Number(aeMods[paths.legacy] ?? 0) || 0;
-    }
-    if (paths.resistances) {
-      totalModifier += Number(aeMods[paths.resistances] ?? 0) || 0;
-    }
-    if (paths.traits) {
-      totalModifier += Number(aeMods[paths.traits] ?? 0) || 0;
+    // Collect ADD/OVERRIDE from all applicable AE key paths for this resistance.
+    // If ANY path has an OVERRIDE, it wins over ADDs (per system convention).
+    for (const pathKey of ["legacy", "resistances", "traits"]) {
+      const aeKey = paths[pathKey];
+      if (!aeKey) continue;
+      const m = aeMods[aeKey];
+      if (!m) continue;
+      if (m.override != null) {
+        hasOverride = true;
+        overrideVal += Number(m.override);
+      } else {
+        totalAdd += Number(m.add ?? 0);
+      }
     }
     
-    // Apply the modifier to the base resistance value
-    if (totalModifier !== 0 && typeof result[resKey] === 'number') {
-      result[resKey] = Number(result[resKey] ?? 0) + totalModifier;
+    // Apply: OVERRIDE replaces base; ADD is additive to base.
+    if (typeof result[resKey] === 'number') {
+      if (hasOverride) {
+        result[resKey] = overrideVal;
+      } else if (totalAdd !== 0) {
+        result[resKey] = Number(result[resKey] ?? 0) + totalAdd;
+      }
     }
   }
   

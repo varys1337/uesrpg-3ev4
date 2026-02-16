@@ -4,45 +4,45 @@
    Design tokens + normalised component library
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* ── Design Tokens ──────────────────────────────────────────────────── */
+/* ── Design Tokens (fallback to global --uesrpg-* tokens) ───────────── */
 .spell-sheet {
-  --spell-font-xs: 11px;
-  --spell-font-sm: 12px;
-  --spell-font-md: 13px;
-  --spell-font-lg: 14px;
-  --spell-font-xl: 20px;
+  --spell-font-xs: var(--uesrpg-font-xs, 11px);
+  --spell-font-sm: var(--uesrpg-font-sm, 12px);
+  --spell-font-md: var(--uesrpg-font-md, 13px);
+  --spell-font-lg: var(--uesrpg-font-base, 14px);
+  --spell-font-xl: var(--uesrpg-font-2xl, 20px);
 
-  --spell-gap-xs: 4px;
-  --spell-gap-sm: 6px;
-  --spell-gap-md: 8px;
-  --spell-gap-lg: 8px;
+  --spell-gap-xs: var(--uesrpg-space-xs, 4px);
+  --spell-gap-sm: var(--uesrpg-space-sm, 6px);
+  --spell-gap-md: var(--uesrpg-space-md, 8px);
+  --spell-gap-lg: var(--uesrpg-space-md, 8px);
 
-  --spell-input-h: 24px;
+  --spell-input-h: var(--uesrpg-input-h, 24px);
   --spell-input-xs: 52px;
   --spell-input-sm: 85px;
   --spell-input-med: 130px;
 
   --spell-label-w: 75px;
 
-  --spell-border: 1px solid rgba(0, 0, 0, 0.15);
-  --spell-border-light: 1px solid rgba(0, 0, 0, 0.08);
-  --spell-radius: 4px;
+  --spell-border: var(--uesrpg-border-light, 1px solid rgba(0, 0, 0, 0.15));
+  --spell-border-light: var(--uesrpg-border-faint, 1px solid rgba(0, 0, 0, 0.08));
+  --spell-radius: var(--uesrpg-border-radius, 4px);
 
-  --spell-bg-inset: rgba(0, 0, 0, 0.03);
+  --spell-bg-inset: var(--uesrpg-bg-inset, rgba(0, 0, 0, 0.03));
   --spell-bg-section: rgba(0, 0, 0, 0.025);
-  --spell-bg-hover: rgba(0, 0, 0, 0.04);
-  --spell-bg-header: rgba(0, 0, 0, 0.07);
+  --spell-bg-hover: var(--uesrpg-bg-hover, rgba(0, 0, 0, 0.04));
+  --spell-bg-header: var(--uesrpg-bg-header, rgba(0, 0, 0, 0.07));
 
-  --spell-color-danger: #dc3545;
-  --spell-color-danger-hover: #c82333;
+  --spell-color-danger: var(--uesrpg-color-danger-bright, #dc3545);
+  --spell-color-danger-hover: var(--uesrpg-color-danger-hover, #c82333);
   --spell-color-primary: #333;
   --spell-color-primary-hover: #111;
-  --spell-color-accent: #0064c8;
-  --spell-color-accent-hover: #004fa0;
-  --spell-color-success: #28a745;
+  --spell-color-accent: var(--uesrpg-color-accent, #0064c8);
+  --spell-color-accent-hover: var(--uesrpg-color-accent-hover, #004fa0);
+  --spell-color-success: var(--uesrpg-color-success, #28a745);
   --spell-color-warning: #a85;
   --spell-color-error: #c33;
-  --spell-color-muted: #666;
+  --spell-color-muted: var(--uesrpg-color-muted, #666);
 }
 
 /* ── Sheet Chrome ───────────────────────────────────────────────────── */
@@ -1155,5 +1155,79 @@
 
 .spell-create i {
   font-size: 10px;
+}
+
+/* ── Externalized inline-style modifiers ────────────────────────────── */
+
+/* Grid row variants (override the default flex .spell-row) */
+.spell-sheet .spell-row--grid-3col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--spell-gap-sm);
+}
+
+.spell-sheet .spell-row--grid-3col-auto {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: var(--spell-gap-sm);
+  align-items: center;
+}
+
+/* Damage instances container */
+.spell-sheet .spell-damage-instances {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spell-gap-xs);
+  padding: var(--spell-gap-xs) 0;
+}
+
+/* Add button (green, inline pill) */
+.spell-sheet .spell-btn-add {
+  margin-top: var(--spell-gap-xs);
+  align-self: flex-start;
+}
+
+/* Fieldset modifiers */
+.spell-sheet .spell-fieldset--spaced {
+  margin-top: var(--spell-gap-sm);
+}
+
+.spell-sheet .spell-fieldset--relative {
+  margin-top: var(--spell-gap-xs);
+  position: relative;
+}
+
+/* Label / check offset (used when label follows another input in a row) */
+.spell-sheet .spell-label--offset,
+.spell-sheet .spell-check--offset {
+  margin-left: 12px;
+}
+
+/* Row-checks with extra top margin (e.g. Upkeep / Overload row) */
+.spell-sheet .spell-row-checks--spaced {
+  margin-top: var(--spell-gap-md);
+}
+
+/* Flex wrapper for input + hint combos */
+.spell-sheet .spell-input-row {
+  display: flex;
+  gap: var(--spell-gap-xs);
+  align-items: center;
+}
+
+/* Hint modifiers */
+.spell-sheet .spell-hint--nowrap {
+  white-space: nowrap;
+}
+
+.spell-sheet .spell-hint--inline {
+  margin: 0;
+  font-weight: normal;
+}
+
+/* Button inside fieldset legend */
+.spell-sheet .spell-btn-delete--legend {
+  margin-left: var(--spell-gap-sm);
+  font-size: 0.75em;
 }
 

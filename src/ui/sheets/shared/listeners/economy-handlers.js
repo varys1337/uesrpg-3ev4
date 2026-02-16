@@ -2,63 +2,64 @@
  * Economy and wealth management handlers.
  * Handles wealth addition/subtraction and carry rating bonuses.
  *
- * Target: Foundry VTT v13 (AppV1 ActorSheet).
+ * Shared across actor sheet modules.
  */
 
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 
 /**
  * Open wealth calculator dialog.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onWealthCalc(sheet, event) {
+export const onWealthCalc = asyncGuardSheet(async function onWealthCalc(event, target) {
   event.preventDefault();
 
-  const d = new Dialog({
+  await customDialog({
     title: "Add/Subtract Wealth",
-    content: `<form>
+    content: `<div>
               <div class="dialogForm">
                 <div style="display: flex; flex-direction: row; justify-content: space-between; align-items: center;">
                   <label><i class="fas fa-coins"></i><b> Add/Subtract: </b></label>
                   <input placeholder="ex. -20, +10" id="playerInput" value="0" style=" text-align: center; width: 50%; border-style: groove; float: right;" type="text"></input></div>
                 </div>
-              </form>`,
+              </div>`,
     buttons: {
-      one: {
+      cancel: {
         label: "Cancel",
-        callback: () => {},
       },
-      two: {
+      submit: {
         label: "Submit",
+        icon: "fas fa-check",
         callback: async (html) => {
-          const playerInput = parseInt(html.find('[id="playerInput"]').val()) || 0;
-          const wealth = Number(sheet.actor?.system?.wealth ?? 0);
-          await requestUpdateDocument(sheet.actor, { "system.wealth": wealth + playerInput });
+          const el = html instanceof HTMLElement ? html : html?.[0];
+          const playerInput = parseInt(el?.querySelector('[id="playerInput"]')?.value) || 0;
+          const wealth = Number(this.actor?.system?.wealth ?? 0);
+          await requestUpdateDocument(this.actor, { "system.wealth": wealth + playerInput });
         },
       },
     },
-    default: "two",
-    close: () => {},
+    default: "submit",
   });
-  d.render(true);
-}
+});
 
 /**
  * Open carry rating bonus dialog.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onCarryBonus(sheet, event) {
+export const onCarryBonus = asyncGuardSheet(async function onCarryBonus(event, target) {
   event.preventDefault();
 
-  const d = new Dialog({
+  await customDialog({
     title: "Carry Rating Bonus",
-    content: `<form>
+    content: `<div>
                 <div class="dialogForm">
                   <div style="margin: 5px; display: flex; flex-direction: row; justify-content: space-between; align-items: center;">
                     <label><b>Current Carry Rating Bonus: </b></label>
-                    <label style=" text-align: center; float: right; width: 50%;">${sheet.actor.system.carry_rating.bonus}</label>
+                    <label style=" text-align: center; float: right; width: 50%;">${this.actor.system.carry_rating.bonus}</label>
                   </div>
 
                   <div style="margin: 5px; display: flex; flex-direction: row; justify-content: space-between; align-items: center;">
@@ -66,22 +67,21 @@ export async function onCarryBonus(sheet, event) {
                     <input placeholder="10, -10, etc." id="playerInput" value="0" style=" text-align: center; width: 50%; border-style: groove; float: right;" type="text"></input></div>
                   </div>
 
-              </form>`,
+              </div>`,
     buttons: {
-      one: {
+      cancel: {
         label: "Cancel",
-        callback: () => {},
       },
-      two: {
+      submit: {
         label: "Submit",
+        icon: "fas fa-check",
         callback: async (html) => {
-          const playerInput = parseInt(html.find('[id="playerInput"]').val()) || 0;
-          await requestUpdateDocument(sheet.actor, { "system.carry_rating.bonus": playerInput });
+          const el = html instanceof HTMLElement ? html : html?.[0];
+          const playerInput = parseInt(el?.querySelector('[id="playerInput"]')?.value) || 0;
+          await requestUpdateDocument(this.actor, { "system.carry_rating.bonus": playerInput });
         },
       },
     },
-    default: "two",
-    close: () => {},
+    default: "submit",
   });
-  d.render(true);
-}
+});

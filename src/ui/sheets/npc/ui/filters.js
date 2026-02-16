@@ -2,12 +2,12 @@
  * NPC sheet UI filter helpers.
  * Handles item filtering and status tag updates.
  * 
- * Foundry VTT v13 / AppV1-compatible.
+ * Shared between NPC sheet modules.
  */
 
 /**
  * Create item filter dropdown options dynamically based on actor's unequipped items.
- * @param {npcSheet} sheet - The NPC sheet instance
+ * @param {object} sheet - The NPC sheet instance
  */
 export function createItemFilterOptions(sheet) {
   const filterEl = sheet.form?.querySelector?.("#itemFilter");
@@ -28,7 +28,7 @@ export function createItemFilterOptions(sheet) {
 /**
  * Handle item filter dropdown change event.
  * Shows/hides items in the equipment list based on selected filter.
- * @param {npcSheet} sheet - The NPC sheet instance
+ * @param {object} sheet - The NPC sheet instance
  * @param {Event} event - The filter change event
  */
 export function filterItems(sheet, event) {
@@ -57,7 +57,7 @@ export function filterItems(sheet, event) {
 /**
  * Restore previously selected item filter from session storage.
  * Called during sheet render to maintain filter state across refreshes.
- * @param {npcSheet} sheet - The NPC sheet instance
+ * @param {object} sheet - The NPC sheet instance
  */
 export function setDefaultItemFilter(sheet) {
   const filterEl = sheet.form?.querySelector?.("#itemFilter");
@@ -89,7 +89,7 @@ export function setDefaultItemFilter(sheet) {
 /**
  * Update status indicator tags (wound, fatigue) based on actor state.
  * Adds/removes 'active' class to show visual indicators in NPC sheet header.
- * @param {npcSheet} sheet - The NPC sheet instance
+ * @param {object} sheet - The NPC sheet instance
  */
 export function createStatusTags(sheet) {
   const actorSys = sheet.actor?.system || {};

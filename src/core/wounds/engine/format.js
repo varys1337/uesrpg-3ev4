@@ -22,7 +22,7 @@ export function formatDamageByType(damageAppliedByType = {}) {
 /**
  * Add standardized metadata flags to wound effect flags
  */
-export function addWoundMetadata(flags) {
+function addWoundMetadata(flags) {
   const woundsData = flags?.wounds ?? {};
   const kind = woundsData?.kind;
   if (!kind) return flags;

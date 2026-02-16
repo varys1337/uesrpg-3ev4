@@ -23,6 +23,7 @@
  */
 
 import { registerLinkedEntity } from "../effects/origin-effect.js";
+import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { createDebugLogger } from "../_primitives.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
@@ -109,15 +110,8 @@ async function _createBoundItem(casterActor, originAE, spell, profileName, conju
     };
 
     try {
-      const { requestCreateEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
-      let created;
-      if (casterActor.isOwner) {
-        const results = await casterActor.createEmbeddedDocuments("Item", [placeholderData]);
-        created = results?.[0] ?? null;
-      } else {
-        const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [placeholderData]);
-        created = Array.isArray(results) ? results[0] : results;
-      }
+      const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [placeholderData]);
+      const created = Array.isArray(results) ? results[0] : (results ?? null);
 
       if (created) {
         // Post GM notification about manual configuration needed
@@ -158,15 +152,8 @@ async function _createBoundItem(casterActor, originAE, spell, profileName, conju
   }
 
   try {
-    const { requestCreateEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
-    let created;
-    if (casterActor.isOwner) {
-      const results = await casterActor.createEmbeddedDocuments("Item", [itemData]);
-      created = results?.[0] ?? null;
-    } else {
-      const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [itemData]);
-      created = Array.isArray(results) ? results[0] : results;
-    }
+    const results = await requestCreateEmbeddedDocuments(casterActor, "Item", [itemData]);
+    const created = Array.isArray(results) ? results[0] : (results ?? null);
 
     if (created) {
       _debug(`Created bound item: ${created.name}`, { id: created.id });

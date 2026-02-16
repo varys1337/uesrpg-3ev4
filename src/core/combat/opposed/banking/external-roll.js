@@ -12,6 +12,7 @@
 
 import { computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
 import { applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
+import { _resolveItemViaActor } from "../helpers/docs.js";
 
 /**
  * Bank an externally-created roll message (attacker-roll / defender-roll / defender-nodefense)
@@ -140,14 +141,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
   if (stage === "defender-roll") {
     const c = meta?.commit?.defender ?? null;
     if (c && typeof c === "object") {
-      data.defender = data.defender ?? {};
-      if (c.defenseType != null) data.defender.defenseType = String(c.defenseType);
-      if (c.label != null) data.defender.label = String(c.label);
-      if (c.defenseLabel != null) data.defender.defenseLabel = String(c.defenseLabel);
-      if (c.testLabel != null) data.defender.testLabel = String(c.testLabel);
-      if (c.target != null && Number.isFinite(Number(c.target))) data.defender.target = Number(c.target);
-      if (c.targetLabel != null) data.defender.targetLabel = String(c.targetLabel);
-      if (c.tn && typeof c.tn === "object") data.defender.tn = foundry.utils.deepClone(c.tn);
+      applyDefenderCommitToData(data, c);
     }
   }
 
@@ -224,7 +218,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
       try {
         const defWUuid = getPreferredWeaponUuid(expectedActor, { meleeOnly: true }) || "";
         if (defWUuid) {
-          const defW = fromUuidSync(defWUuid);
+          const defW = _resolveItemViaActor(defWUuid, expectedActor);
           if (defW?.type === "weapon" && weaponHasQuality(defW, "dueling")) {
             data.defender.result.degree = Math.max(1, (Number(data.defender.result.degree) || 1) + 1);
             data.defender.result.duelingBonus = 1;
@@ -270,7 +264,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
       const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
       if (!weaponUuid) return null;
       try {
-        const doc = fromUuidSync(weaponUuid);
+        const doc = _resolveItemViaActor(weaponUuid, aActor);
         return doc?.documentName === "Item" ? doc : null;
       } catch (_e) {
         return null;
@@ -330,7 +324,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
         side: "defender",
         result: data.defender.result,
         defenseType: data.defender.defenseType,
-        styleUuid: null,
+        styleUuid: data.defender?.styleUuid ?? null,
         testLabel: data.defender.testLabel ?? data.defender.label ?? null,
         allowPrompt: false,
         weaponUuid: data?.context?.weaponUuid ?? null

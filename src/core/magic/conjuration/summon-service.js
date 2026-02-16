@@ -26,7 +26,9 @@
  */
 
 import { registerLinkedEntity, findOriginAE } from "../effects/origin-effect.js";
+import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 const SUMMON_RANGE_M = 5; // RAW: within 5m of caster
@@ -181,7 +183,7 @@ export async function spawnSummon(cfg = {}) {
   _debug("Spawning summon:", summonActor.name, "at", pos);
 
   try {
-    const created = await scene.createEmbeddedDocuments("Token", [tokenData]);
+    const created = await requestCreateEmbeddedDocuments(scene, "Token", [tokenData]);
     const tokenDoc = created?.[0] ?? null;
 
     if (!tokenDoc) {
@@ -285,14 +287,14 @@ export async function showSummonActorPicker(opts = {}) {
   ).join("");
 
   const content = `
-    <form class="uesrpg">
+    <div class="uesrpg">
       <div class="form-group">
         <label><b>Select Creature</b></label>
         <select name="actorId" style="width:100%;">${options}</select>
       </div>
-    </form>`;
+    </div>`;
 
-  return Dialog.wait({
+  return customDialog({
     title,
     content,
     buttons: {
@@ -306,8 +308,9 @@ export async function showSummonActorPicker(opts = {}) {
       },
       cancel: { label: "Cancel", callback: () => null }
     },
-    default: "select"
-  }, { width: 360 });
+    default: "select",
+    width: 360
+  });
 }
 
 // ─── Internal ────────────────────────────────────────────────────────────────

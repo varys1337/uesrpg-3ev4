@@ -29,7 +29,7 @@ function _getTemplateObject(templateDoc, templateId) {
  * @param {string|null} templateUuid
  * @returns {MeasuredTemplateDocument|null}
  */
-export function resolveTemplateByUuid(templateUuid) {
+function resolveTemplateByUuid(templateUuid) {
   if (!templateUuid) return null;
   try {
     const doc = fromUuidSync(String(templateUuid));

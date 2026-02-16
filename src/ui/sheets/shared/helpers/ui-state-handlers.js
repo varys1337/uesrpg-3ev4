@@ -2,7 +2,7 @@
  * UI state management handlers.
  * Handles group collapse, item search, and loadout save/apply/delete.
  *
- * Target: Foundry VTT v13 (AppV1 ActorSheet).
+ * Shared across actor sheet modules.
  */
 
 import {
@@ -13,35 +13,37 @@ import {
   deleteLoadout,
   applyLoadoutToActor
 } from "../../sheet-ui-state.js";
+import { setGroupCollapsedInDom } from "./collapsed-group-dom.js";
+import { promptDialog, confirmDialog } from "../../../../utils/dialog-v2-helper.js";
 
 /**
  * Toggle collapse state of a collapsible group.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onToggleGroupCollapse(sheet, event) {
+export async function onToggleGroupCollapse(sheet, event, target) {
   event.preventDefault();
   event.stopPropagation();
 
-  const el = event.currentTarget;
+  const el = target ?? event.currentTarget;
   const groupKey = el?.dataset?.group;
   if (!groupKey) return;
 
   const groups = await getCollapsedGroups();
   const next = !Boolean(groups?.[groupKey]);
   await setGroupCollapsed(groupKey, next);
-  sheet._setGroupCollapsedInDom(el, next);
+  setGroupCollapsedInDom(el, next);
 }
 
 /**
  * Filter items by search query.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
 export function onItemSearch(sheet, event) {
   const input = event.currentTarget;
   const query = String(input?.value ?? "").trim().toLowerCase();
-  const root = sheet.element?.[0];
+  const root = sheet.element;
   if (!root) return;
 
   const tab = root.querySelector(".tab.equipment");
@@ -58,7 +60,7 @@ export function onItemSearch(sheet, event) {
 
 /**
  * Save current equipment configuration as a loadout.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
 export async function onLoadoutSave(sheet, event) {
@@ -70,11 +72,14 @@ export async function onLoadoutSave(sheet, event) {
     .filter(i => typeof i?.system?.equipped === "boolean" && i.system.equipped)
     .map(i => i.id);
 
-  const name = await Dialog.prompt({
+  const name = await promptDialog({
     title: "Save Loadout",
     content: `<p>Enter a name for this loadout:</p><input type="text" name="uesrpgLoadoutName" style="width:100%" />`,
-    label: "Save",
-    callback: (html) => String(html.find("input[name='uesrpgLoadoutName']").val() ?? "").trim()
+    okLabel: "Save",
+    callback: (html) => {
+      const el = html instanceof HTMLElement ? html : html?.[0];
+      return String(el?.querySelector("input[name='uesrpgLoadoutName']")?.value ?? "").trim();
+    }
   });
 
   if (!name) return;
@@ -84,7 +89,7 @@ export async function onLoadoutSave(sheet, event) {
 
 /**
  * Apply a saved loadout to the actor.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
 export async function onLoadoutApply(sheet, event) {
@@ -92,7 +97,7 @@ export async function onLoadoutApply(sheet, event) {
   if (!sheet.actor?.isOwner) return;
   if (!game.settings.get("uesrpg-3ev4", "enableLoadouts")) return;
 
-  const select = sheet.element?.find?.("#uesrpg-loadout-select")?.[0];
+  const select = sheet.element?.querySelector?.("#uesrpg-loadout-select");
   const loadoutId = select?.value;
   if (!loadoutId) return;
 
@@ -105,7 +110,7 @@ export async function onLoadoutApply(sheet, event) {
 
 /**
  * Delete a saved loadout.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
 export async function onLoadoutDelete(sheet, event) {
@@ -113,11 +118,11 @@ export async function onLoadoutDelete(sheet, event) {
   if (!sheet.actor?.isOwner) return;
   if (!game.settings.get("uesrpg-3ev4", "enableLoadouts")) return;
 
-  const select = sheet.element?.find?.("#uesrpg-loadout-select")?.[0];
+  const select = sheet.element?.querySelector?.("#uesrpg-loadout-select");
   const loadoutId = select?.value;
   if (!loadoutId) return;
 
-  const confirmed = await Dialog.confirm({
+  const confirmed = await confirmDialog({
     title: "Delete Loadout",
     content: "<p>Delete the selected loadout?</p>"
   });

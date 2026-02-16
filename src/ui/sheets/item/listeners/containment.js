@@ -1,7 +1,17 @@
 /**
  * src/ui/sheets/item/listeners/containment.js
- * Container and containment handlers for item sheets
+ *
+ * Container and containment business-logic handlers for item sheets.
+ *
+ * Click-action handlers are wired via SimpleItemSheetV2's `actions` map.
+ * Non-click listeners (contextmenu, drag visual feedback) are registered
+ * natively in `_registerContainmentListeners` on the sheet class.
+ * Side-effect calls (updateContainedItemsList, pushContainedItemData)
+ * are invoked from `_onRender`.
  */
+import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestUpdateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { resolveDroppedItem } from "../../../../utils/drop-data.js";
 
 /**
  * Return the set of item types that are allowed to be placed into containers.
@@ -18,7 +28,7 @@ export function getContainerAllowedTypes() {
  * Containers are only meaningful when embedded on an Actor.
  */
 export function canModifyContainment(sheet) {
-  return !!(sheet.options?.editable && sheet.item?.isOwned && sheet.actor && sheet.actor.isOwner);
+  return !!(sheet.isEditable && sheet.item?.isOwned && sheet.actor && sheet.actor.isOwner);
 }
 
 /**
@@ -87,7 +97,7 @@ export async function repairContainerContainedItems(sheet) {
 
   if (!changedIds && !changedSnapshot) return false;
 
-  await sheet.item.update({ "system.contained_items": next });
+  await requestUpdateDocument(sheet.item, { "system.contained_items": next });
   return true;
 }
 
@@ -124,7 +134,7 @@ export async function updateContainedItemsList(sheet) {
   }
 
   if (!changed) return;
-  await sheet.item.update({ "system.contained_items": next });
+  await requestUpdateDocument(sheet.item, { "system.contained_items": next });
 }
 
 /**
@@ -149,7 +159,7 @@ export async function pushContainedItemData(sheet) {
   const nextEntry = { _id: itemId, item: sheet.item.toObject() };
 
   const next = current.filter(ci => ci?._id !== itemId).concat([nextEntry]);
-  await containerItem.update({ "system.contained_items": next });
+  await requestUpdateDocument(containerItem, { "system.contained_items": next });
 }
 
 /**
@@ -164,15 +174,8 @@ export async function onDropItemIntoContainer(sheet, dropData) {
     return;
   }
 
-  // Resolve the dropped item
-  let droppedItem;
-  try {
-    droppedItem = await fromUuid(dropData.uuid);
-  } catch (err) {
-    console.error("UESRPG | Failed to resolve dropped item:", err);
-    ui.notifications?.error("Failed to resolve dropped item.");
-    return;
-  }
+  // Resolve the dropped item (supports actor/world/compendium payload variants)
+  let droppedItem = await resolveDroppedItem(dropData);
 
   if (!droppedItem) {
     ui.notifications?.warn("Could not find the dropped item.");
@@ -182,7 +185,8 @@ export async function onDropItemIntoContainer(sheet, dropData) {
   // If item is from a different actor, create a copy on this actor first
   if (droppedItem.actor?.id !== sheet.actor.id) {
     const itemData = droppedItem.toObject();
-    const created = await sheet.actor.createEmbeddedDocuments("Item", [itemData]);
+    delete itemData._id;
+    const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [itemData]);
     droppedItem = created?.[0];
     if (!droppedItem) {
       ui.notifications?.error("Failed to create item copy.");
@@ -231,7 +235,7 @@ export async function onDropItemIntoContainer(sheet, dropData) {
     const oldContainer = sheet.actor.items.get(currentContainerId);
     if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
       const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== droppedItem.id);
-      await oldContainer.update({ "system.contained_items": nextOld });
+      await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
     }
   }
 
@@ -247,7 +251,7 @@ export async function onDropItemIntoContainer(sheet, dropData) {
     updateData["system.equipped"] = false;
   }
 
-  await droppedItem.update(updateData);
+  await requestUpdateDocument(droppedItem, updateData);
 
   // Rebuild container list
   await repairContainerContainedItems(sheet);
@@ -290,12 +294,9 @@ export async function onBulkAddToContainer(sheet) {
     return ui.notifications?.info("No eligible items to add.");
   }
 
-  const confirmed = await Dialog.confirm({
+  const confirmed = await confirmDialog({
     title: `Add All Items to ${sheet.item.name}`,
     content: `<p>Add <strong>${eligible.length}</strong> eligible items to this container?</p>`,
-    yes: () => true,
-    no: () => false,
-    defaultYes: false
   });
 
   if (!confirmed) return;
@@ -310,7 +311,7 @@ export async function onBulkAddToContainer(sheet) {
       const oldContainer = sheet.actor.items.get(currentContainerId);
       if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
         const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== item.id);
-        await oldContainer.update({ "system.contained_items": nextOld });
+        await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
       }
     }
 
@@ -324,7 +325,7 @@ export async function onBulkAddToContainer(sheet) {
       updateData["system.equipped"] = false;
     }
 
-    await item.update(updateData);
+    await requestUpdateDocument(item, updateData);
   }
 
   await repairContainerContainedItems(sheet);
@@ -349,12 +350,9 @@ export async function onBulkRemoveFromContainer(sheet) {
     return ui.notifications?.info("Container is already empty.");
   }
 
-  const confirmed = await Dialog.confirm({
+  const confirmed = await confirmDialog({
     title: `Remove All Items from ${sheet.item.name}`,
     content: `<p>Remove <strong>${contained.length}</strong> items from this container? Items will not be deleted.</p>`,
-    yes: () => true,
-    no: () => false,
-    defaultYes: false
   });
 
   if (!confirmed) return;
@@ -375,7 +373,7 @@ export async function onBulkRemoveFromContainer(sheet) {
   }
 
   if (updates.length) {
-    await sheet.actor.updateEmbeddedDocuments("Item", updates);
+    await requestUpdateEmbeddedDocuments(sheet.actor, "Item", updates);
   }
 
   await repairContainerContainedItems(sheet);
@@ -400,19 +398,16 @@ export async function onBulkDeleteContained(sheet) {
     return ui.notifications?.info("Container is already empty.");
   }
 
-  const confirmed = await Dialog.confirm({
+  const confirmed = await confirmDialog({
     title: `Delete All Items in ${sheet.item.name}`,
     content: `<p><strong>WARNING:</strong> Permanently delete <strong>${contained.length}</strong> items? This cannot be undone.</p>`,
-    yes: () => true,
-    no: () => false,
-    defaultYes: false
   });
 
   if (!confirmed) return;
 
   const ids = contained.map(e => e?._id).filter(Boolean);
   if (ids.length) {
-    await sheet.actor.deleteEmbeddedDocuments("Item", ids);
+    await requestDeleteEmbeddedDocuments(sheet.actor, "Item", ids);
   }
 
   await repairContainerContainedItems(sheet);
@@ -426,7 +421,7 @@ export async function onBulkDeleteContained(sheet) {
  * @param {Array} bagListItems
  * @param {boolean} tooLarge
  */
-export function createContainerListDialog(sheet, bagListItems, tooLarge) {
+export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
   const tableEntries = [];
   for (const bagItem of bagListItems) {
     const cs = bagItem?.system?.containerStats ?? { contained: false, container_id: "" };
@@ -455,9 +450,7 @@ export function createContainerListDialog(sheet, bagListItems, tooLarge) {
     tableEntries.push(entry);
   }
 
-  const d = new Dialog({
-    title: `Add Items to ${sheet.item.name}`,
-    content: `<div>
+  const content = `<div>
       <div style="padding: 5px 0;">
         <label>Select Items to add to your ${sheet.item.name}.</label>
         ${tooLarge ? "<div>Some items do not appear on this list because their ENC is greater than the capacity in the container.</div>" : ""}
@@ -476,17 +469,20 @@ export function createContainerListDialog(sheet, bagListItems, tooLarge) {
           <tbody>${tableEntries.join("")}</tbody>
         </table>
       </div>
-    </div>`,
-    buttons: {
-      one: {
-        label: "Apply",
-        callback: async (html) => {
+    </div>`;
+
+  await customDialog({
+    title: `Add Items to ${sheet.item.name}`,
+    content,
+    yes: {
+      label: "Apply",
+      callback: async (html) => {
           if (!canModifyContainment(sheet)) {
             ui.notifications.warn("You do not have permission to modify container contents.");
             return;
           }
 
-          const root = html?.[0] ?? document;
+          const root = html instanceof HTMLElement ? html : html?.[0] ?? document;
           const selectedInputs = [...root.querySelectorAll(".itemSelect")];
 
           const allowedTypes = getContainerAllowedTypes();
@@ -519,7 +515,7 @@ export function createContainerListDialog(sheet, bagListItems, tooLarge) {
                   const oldContainer = sheet.actor.items.get(currentContainerId);
                   if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
                     const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== thisItem.id);
-                    await oldContainer.update({ "system.contained_items": nextOld });
+                    await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
                   }
                 }
               }
@@ -545,11 +541,11 @@ export function createContainerListDialog(sheet, bagListItems, tooLarge) {
               // Storing an equipped item is not meaningful; force unequipped if boolean field exists
               if (typeof thisItem.system?.equipped === "boolean") updateData["system.equipped"] = false;
 
-              await thisItem.update(updateData);
+              await requestUpdateDocument(thisItem, updateData);
             } else {
               // Unchecked: only remove if currently in this container
               if (isInThis) {
-                await thisItem.update({
+                await requestUpdateDocument(thisItem, {
                   "system.containerStats.contained": false,
                   "system.containerStats.container_id": "",
                   "system.containerStats.container_name": ""
@@ -560,14 +556,11 @@ export function createContainerListDialog(sheet, bagListItems, tooLarge) {
 
           // Rebuild container list authoritatively from actor item.containerStats
           await repairContainerContainedItems(sheet);
-        }
-      },
-      two: { label: "Cancel" }
+      }
     },
-    default: "one"
+    no: { label: "Cancel" },
+    defaultButton: "yes"
   });
-
-  d.render(true);
 }
 
 /**
@@ -622,26 +615,44 @@ export function onAddToContainer(sheet) {
 }
 
 /**
+ * Handler: Open a contained item's sheet.
+ *
+ * @param {ItemSheet} sheet
+ * @param {HTMLElement} target  The clicked element (from AppV2 action dispatch)
+ */
+export async function onOpenContainedItem(sheet, target) {
+  if (!sheet.actor) {
+    ui.notifications.info("Containers must be on Actor Sheets in order to open the contents.");
+    return;
+  }
+  const row = target.closest(".item");
+  if (!row) return;
+  const item = sheet.actor.items.get(row.dataset.itemId);
+  if (!item) return;
+  item.sheet.render(true);
+  await requestUpdateDocument(item, { "system.value": item.system.value });
+}
+
+/**
  * Handler: Remove an item from this container (does not delete it)
  *
  * @param {ItemSheet} sheet
- * @param {Event} event
+ * @param {HTMLElement} target  The clicked element (from AppV2 action dispatch)
  */
-export async function onRemoveContainedItem(sheet, event) {
-  event.preventDefault();
+export async function onRemoveContainedItem(sheet, target) {
   if (!canModifyContainment(sheet)) {
     ui.notifications.warn("You do not have permission to modify container contents.");
     return;
   }
 
-  const row = event.currentTarget?.closest?.(".item");
+  const row = target.closest(".item");
   const removedItemId = row?.dataset?.itemId;
   if (!removedItemId) return;
   if (!sheet.actor) return;
 
   const itemToUpdate = sheet.actor.items.get(removedItemId);
   if (itemToUpdate) {
-    await itemToUpdate.update({
+    await requestUpdateDocument(itemToUpdate, {
       "system.containerStats.contained": false,
       "system.containerStats.container_id": "",
       "system.containerStats.container_name": ""
@@ -655,16 +666,15 @@ export async function onRemoveContainedItem(sheet, event) {
  * Handler: Delete a contained item from the Actor (destructive)
  *
  * @param {ItemSheet} sheet
- * @param {Event} event
+ * @param {HTMLElement} target  The clicked element (from AppV2 action dispatch)
  */
-export async function onDeleteContainedItem(sheet, event) {
-  event.preventDefault();
+export async function onDeleteContainedItem(sheet, target) {
   if (!canModifyContainment(sheet)) {
     ui.notifications.warn("You do not have permission to modify container contents.");
     return;
   }
 
-  const row = event.currentTarget?.closest?.(".item");
+  const row = target.closest(".item");
   const deletedItemId = row?.dataset?.itemId;
   if (!deletedItemId) return;
   if (!sheet.actor) return;
@@ -672,112 +682,13 @@ export async function onDeleteContainedItem(sheet, event) {
   const itemDoc = sheet.actor.items.get(deletedItemId);
   const itemName = itemDoc?.name || "this item";
 
-  const d = new Dialog({
+  const confirmed = await confirmDialog({
     title: "Delete Item",
     content: `<p>Delete <strong>${itemName}</strong>? This cannot be undone.</p>`,
-    buttons: {
-      cancel: { label: "Cancel" },
-      delete: {
-        label: "Delete",
-        callback: async () => {
-          await sheet.actor.deleteEmbeddedDocuments("Item", [deletedItemId]);
-          await repairContainerContainedItems(sheet);
-        }
-      }
-    },
-    default: "cancel"
   });
 
-  d.render(true);
-}
-
-/**
- * Register containment-related listeners
- *
- * @param {ItemSheet} sheet
- * @param {jQuery} html
- */
-export function registerContainmentListeners(sheet, html) {
-  // Standard add-to-container dialog (shows individual item selection)
-  html.find(".addToContainer").click(() => onAddToContainer(sheet));
-  
-  // Bulk operations (activated via right-click on + Item header)
-  html.find(".addToContainer").contextmenu((ev) => {
-    ev.preventDefault();
-    onBulkAddToContainer(sheet);
-  });
-  
-  // Header bulk action buttons (each is a distinct <a> element)
-  html.find(".bulk-remove-all").click((ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    onBulkRemoveFromContainer(sheet);
-  });
-  
-  html.find(".bulk-delete-all").click((ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    onBulkDeleteContained(sheet);
-  });
-  
-  // Individual item operations
-  html.find(".remove-contained-item").click((ev) => onRemoveContainedItem(sheet, ev));
-  html.find(".delete-contained-item").click((ev) => onDeleteContainedItem(sheet, ev));
-
-  // Update contained Items elements list (keeps the contents list updated if items are updated themselves)
-  if (sheet.item && sheet.item.type === "container" && sheet.item.isOwned) {
-    void updateContainedItemsList(sheet);
-  }
-
-  if (sheet.item && sheet.item.system && Object.prototype.hasOwnProperty.call(sheet.item.system, "containerStats") && sheet.item.type !== "container") {
-    // Keep parent container's embedded snapshot aligned with this item.
-    void pushContainedItemData(sheet);
-  }
-
-  // Contained item sheet opening
-  html.find(".item-name").click(async (ev) => {
-    if (!sheet.actor) return ui.notifications.info("Containers must be on Actor Sheets in order to open the contents.");
-    const li = ev.currentTarget.closest(".item");
-    if (!li) return;
-    const item = sheet.actor.items.get(li.dataset.itemId);
-    if (!item) return;
-    item.sheet.render(true);
-    await item.update({ "system.value": item.system.value });
-  });
-
-  // Drag-and-drop visual feedback for container drop zone
-  if (sheet.item && sheet.item.type === "container") {
-    const dropZone = html.find(".container-drop-zone");
-    
-    // Prevent default drag behavior
-    dropZone.on("dragover", (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      dropZone.addClass("drag-over");
-    });
-
-    dropZone.on("dragleave", (ev) => {
-      // Only remove highlight if leaving the drop zone entirely
-      const rect = ev.currentTarget.getBoundingClientRect();
-      const x = ev.originalEvent.clientX;
-      const y = ev.originalEvent.clientY;
-      if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
-        dropZone.removeClass("drag-over");
-      }
-    });
-
-    dropZone.on("drop", (ev) => {
-      dropZone.removeClass("drag-over");
-    });
-
-    // Add dragging class visual feedback
-    html.find("[draggable='true']").on("dragstart", (ev) => {
-      $(ev.currentTarget).addClass("dragging");
-    });
-
-    html.find("[draggable='true']").on("dragend", (ev) => {
-      $(ev.currentTarget).removeClass("dragging");
-      dropZone.removeClass("drag-over");
-    });
+  if (confirmed) {
+    await requestDeleteEmbeddedDocuments(sheet.actor, "Item", [deletedItemId]);
+    await repairContainerContainedItems(sheet);
   }
 }

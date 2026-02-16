@@ -4,7 +4,7 @@
  * Extracted from actor-sheet.js for better maintainability.
  * Handles skill rolls, combat rolls, resistance rolls, damage rolls, and spell rolls.
  * 
- * Foundry VTT v13 / AppV1-compatible.
+ * Shared across actor sheet modules.
  */
 
 import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
@@ -23,39 +23,87 @@ import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug } from
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../../core/traits/awareness-talents.js";
 import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { applyIntellectualTalentDoSOverrides } from "../../../../core/traits/intellectual-talents.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { asyncGuardSheet } from "../../../../utils/async-guard.js";
+import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+import { MagicOpposedWorkflow } from "../../../../core/magic/opposed-workflow.js";
+
+function _normalizeChaKey(v = "") {
+  const s = String(v ?? "").trim().toLowerCase();
+  switch (s) {
+    case "strength": return "str";
+    case "endurance": return "end";
+    case "agility": return "agi";
+    case "intelligence": return "int";
+    case "willpower": return "wp";
+    case "perception": return "prc";
+    case "personality": return "prs";
+    case "luck": return "lck";
+    default: return s;
+  }
+}
+
+function _labelForChaKey(k = "") {
+  switch (String(k ?? "").toLowerCase()) {
+    case "str": return "Strength";
+    case "end": return "Endurance";
+    case "agi": return "Agility";
+    case "int": return "Intelligence";
+    case "wp": return "Willpower";
+    case "prc": return "Perception";
+    case "prs": return "Personality";
+    case "lck": return "Luck";
+    default: return "";
+  }
+}
+
+function _governingCharacteristicOptions(skillItem) {
+  const raw = String(skillItem?.system?.governingCha ?? "");
+  const base = _normalizeChaKey(skillItem?.system?.baseCha ?? "");
+  const keys = raw
+    .split(/[,\n/]+/)
+    .map(s => _normalizeChaKey(s))
+    .filter(Boolean);
+  const unique = [];
+  for (const k of keys) if (!unique.includes(k)) unique.push(k);
+  if (base && !unique.includes(base)) unique.push(base);
+  return unique
+    .map(k => ({ key: k, label: _labelForChaKey(k) || k.toUpperCase() }))
+    .filter(o => o.label);
+}
 
 /**
  * Handle skill roll from sheet.
- * @param {SimpleActorSheet} sheet - The actor sheet instance
+ * @param {object} sheet - The actor sheet instance
  * @param {Event} event - The click event
  */
-export async function onSkillRoll(sheet, event) {
+export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, target) {
   event.preventDefault();
 
-  if (!requireUserCanRollActor(game.user, sheet.actor)) {
+  if (!requireUserCanRollActor(game.user, this.actor)) {
     return;
   }
 
-  const button = event.currentTarget;
+  const button = target ?? event.currentTarget;
   
   // Safely get the .item parent if button has .closest method (DOM element)
   // Token Action HUD may call with synthetic events that don't have proper DOM elements
   let skillItem = null;
   if (button && typeof button.closest === "function") {
     const li = button.closest(".item");
-    skillItem = sheet.actor.items.get(li?.dataset.itemId);
+    skillItem = this.actor.items.get(li?.dataset.itemId);
   }
   
   // Fallback: Try to get skill from event data-item-id or dataset
   if (!skillItem && button?.dataset?.itemId) {
-    skillItem = sheet.actor.items.get(button.dataset.itemId);
+    skillItem = this.actor.items.get(button.dataset.itemId);
   }
   
   // Fallback: For synthetic events from modules, check for itemId in various places
   if (!skillItem) {
     const itemId = event?.data?.itemId ?? event?.itemId ?? null;
     if (itemId) {
-      skillItem = sheet.actor.items.get(itemId);
+      skillItem = this.actor.items.get(itemId);
     }
   }
 
@@ -80,8 +128,8 @@ export async function onSkillRoll(sheet, event) {
   const targets = [...(game.user.targets ?? [])];
   if (targets.length > 0) {
     const attackerToken =
-      canvas?.tokens?.controlled?.find(t => t.actor?.id === sheet.actor.id) ??
-      sheet.actor.getActiveTokens?.()?.[0] ??
+      canvas?.tokens?.controlled?.find(t => t.actor?.id === this.actor.id) ??
+      this.actor.getActiveTokens?.()?.[0] ??
       null;
 
     if (!attackerToken) {
@@ -94,7 +142,7 @@ export async function onSkillRoll(sheet, event) {
       const msg = await SkillOpposedWorkflow.createPending({
         attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
         defenderTokenUuid: defenderToken.document?.uuid ?? defenderToken.uuid,
-        attackerActorUuid: sheet.actor.uuid,
+        attackerActorUuid: this.actor.uuid,
         defenderActorUuid: defenderToken.actor?.uuid ?? null,
         attackerSkillUuid: skillItem.uuid,
         attackerSkillLabel: skillItem.name
@@ -110,16 +158,33 @@ export async function onSkillRoll(sheet, event) {
   }
 
   // --- Untargeted -> single skill test ---
-  const hasSpec = String(skillItem?.system?.trainedItems ?? "").trim().length > 0;
-  const resistanceSection = buildResistanceBonusSection(sheet.actor);
+  const isEvade = String(skillItem?.name ?? "").trim().toLowerCase() === "evade";
+  const hasSpec = !isEvade && String(skillItem?.system?.trainedItems ?? "").trim().length > 0;
+  const governingOptions = _governingCharacteristicOptions(skillItem);
+  const showCharacteristicSelect = governingOptions.length > 1;
+  const defaultCharacteristic = _normalizeChaKey(skillItem?.system?.baseCha ?? "") || (governingOptions[0]?.key ?? "");
+  const resistanceSection = buildResistanceBonusSection(this.actor);
   const last = getLast();
 
-  const defaults = normalizeSkillRollOptions(last, { difficultyKey: "average", manualMod: 0, useSpec: false });
+  const defaults = normalizeSkillRollOptions(last, {
+    difficultyKey: "average",
+    manualMod: 0,
+    useSpec: false,
+    selectedCharacteristicKey: defaultCharacteristic
+  });
 
   let decl = null;
 
   if (quickShift) {
-    decl = { difficultyKey: defaults.difficultyKey, manualMod: defaults.manualMod, useSpec: defaults.useSpec, resistanceSelected: [], isInterrogationTest: false, isQuestioningTest: false };
+    decl = {
+      difficultyKey: defaults.difficultyKey,
+      manualMod: defaults.manualMod,
+      useSpec: defaults.useSpec,
+      selectedCharacteristicKey: defaults.selectedCharacteristicKey ?? defaultCharacteristic,
+      resistanceSelected: [],
+      isInterrogationTest: false,
+      isQuestioningTest: false
+    };
   } else {
     const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
       const sign = d.mod >= 0 ? "+" : "";
@@ -128,7 +193,7 @@ export async function onSkillRoll(sheet, event) {
     }).join("\n");
 
     const isPersuade = String(skillItem?.name ?? "").trim().toLowerCase() === "persuade";
-    const showInterrogation = isPersuade && hasTalent(sheet.actor, "interrogator");
+    const showInterrogation = isPersuade && hasTalent(this.actor, "interrogator");
     const interrogationRow = showInterrogation ? `
         <div class="form-group" style="margin-top:8px;">
           <label style="display:flex; align-items:center; gap:8px;">
@@ -137,7 +202,7 @@ export async function onSkillRoll(sheet, event) {
           </label>
         </div>` : "";
 
-    const showQuestioning = isPersuade && hasTalent(sheet.actor, "questioning");
+    const showQuestioning = isPersuade && hasTalent(this.actor, "questioning");
     const questioningRow = showQuestioning ? `
         <div class="form-group" style="margin-top:8px;">
           <label style="display:flex; align-items:center; gap:8px;">
@@ -147,7 +212,7 @@ export async function onSkillRoll(sheet, event) {
         </div>` : "";
 
     const skillKey = String(skillItem?.name ?? "").trim().toLowerCase();
-    const showHistskinUnderwater = hasTalent(sheet.actor, "histskin") && (skillKey === "athletics" || skillKey === "stealth");
+    const showHistskinUnderwater = hasTalent(this.actor, "histskin") && (skillKey === "athletics" || skillKey === "stealth");
     const histskinRow = showHistskinUnderwater ? `
         <div class="form-group" style="margin-top:8px;">
           <label style="display:flex; align-items:center; gap:8px;">
@@ -157,11 +222,18 @@ export async function onSkillRoll(sheet, event) {
         </div>` : "";
 
     const content = `
-      <form class="uesrpg-skill-roll">
+      <div class="uesrpg-skill-roll">
         <div class="form-group">
           <label><b>Difficulty</b></label>
           <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
         </div>
+        ${showCharacteristicSelect ? `
+        <div class="form-group" style="margin-top:8px;">
+          <label><b>Characteristic</b></label>
+          <select name="selectedCharacteristicKey" style="width:100%;">
+            ${governingOptions.map(o => `<option value="${o.key}" ${(o.key === (defaults.selectedCharacteristicKey ?? defaultCharacteristic)) ? "selected" : ""}>${o.label}</option>`).join("")}
+          </select>
+        </div>` : ""}
         <div class="form-group" style="margin-top:8px;">
           <label style="display:flex; align-items:center; gap:8px;">
             <input type="checkbox" name="useSpec" ${hasSpec ? "" : "disabled"} ${defaults.useSpec ? "checked" : ""} />
@@ -176,10 +248,10 @@ export async function onSkillRoll(sheet, event) {
           <input name="manualMod" type="number" value="${Number(defaults.manualMod) || 0}" style="width:120px;" />
         </div>
         ${resistanceSection.html}
-      </form>`;
+      </div>`;
 
     try {
-      decl = await Dialog.wait({
+      decl = await customDialog({
         title: `${skillItem.name} — Roll Options`,
         content,
         buttons: {
@@ -192,17 +264,23 @@ export async function onSkillRoll(sheet, event) {
               const isInterrogationTest = Boolean(root?.querySelector('input[name="isInterrogationTest"]')?.checked);
               const isQuestioningTest = Boolean(root?.querySelector('input[name="isQuestioningTest"]')?.checked);
               const histskinUnderwater = Boolean(root?.querySelector('input[name="histskinUnderwater"]')?.checked);
+              const selectedCharacteristicKey = String(
+                root?.querySelector('select[name="selectedCharacteristicKey"]')?.value
+                  ?? defaults.selectedCharacteristicKey
+                  ?? defaultCharacteristic
+              );
               const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
               const manualMod = Number.parseInt(String(rawManual), 10) || 0;
               const selectedRes = readResistanceBonusSelections(root, resistanceSection.options);
-              const normalized = normalizeSkillRollOptions({ difficultyKey, useSpec, manualMod }, defaults);
+              const normalized = normalizeSkillRollOptions({ difficultyKey, useSpec, manualMod, selectedCharacteristicKey }, defaults);
               return { ...normalized, resistanceSelected: selectedRes, isInterrogationTest, isQuestioningTest, histskinUnderwater };
             }
           },
           cancel: { label: "Cancel", callback: () => null }
         },
-        default: "ok"
-      }, { width: 420 });
+        default: "ok",
+        width: 420
+      });
     } catch (_e) {
       decl = null;
     }
@@ -224,10 +302,11 @@ export async function onSkillRoll(sheet, event) {
     difficultyKey: decl.difficultyKey,
     manualMod: decl.manualMod,
     useSpec: Boolean(decl.useSpec),
-    lastSkillUuidByActor: { [sheet.actor.uuid]: skillItem.uuid }
+    selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
+    lastSkillUuidByActor: { [this.actor.uuid]: skillItem.uuid }
   });
 
-  const staminaBonus = getPhysicalExertionSkillBonus(sheet.actor, skillItem);
+  const staminaBonus = getPhysicalExertionSkillBonus(this.actor, skillItem);
   const resMods = buildResistanceBonusMods(decl.resistanceSelected ?? []);
   const resBonus = resMods.reduce((sum, m) => sum + Number(m.value ?? 0), 0);
   const situationalMods = [...resMods];
@@ -236,7 +315,7 @@ export async function onSkillRoll(sheet, event) {
   }
 
   const request = buildSkillRollRequest({
-    actor: sheet.actor,
+    actor: this.actor,
     skillItem,
     targetToken: null,
     options: { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec) },
@@ -245,10 +324,11 @@ export async function onSkillRoll(sheet, event) {
   skillRollDebug("untargeted request", request);
 
   const tn = computeSkillTN({
-    actor: sheet.actor,
+    actor: this.actor,
     skillItem,
     difficultyKey: decl.difficultyKey,
     manualMod: decl.manualMod,
+    selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
     useSpecialization: hasSpec && decl.useSpec,
     situationalMods
   });
@@ -256,9 +336,9 @@ export async function onSkillRoll(sheet, event) {
   skillRollDebug("untargeted TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
 
   const tags = [];
-  if (Number(sheet.actor.system?.woundPenalty ?? 0) !== 0) tags.push(`<span class="tag wound-tag">Wounded ${sheet.actor.system.woundPenalty}</span>`);
-  if (sheet.actor.system.fatigue.penalty != 0) tags.push(`<span class="tag fatigue-tag">Fatigued ${sheet.actor.system.fatigue.penalty}</span>`);
-  if (sheet.actor.system.carry_rating.penalty != 0) tags.push(`<span class="tag enc-tag">Encumbered ${sheet.actor.system.carry_rating.penalty}</span>`);
+  if (Number(this.actor.system?.woundPenalty ?? 0) !== 0) tags.push(`<span class="tag wound-tag">Wounded ${this.actor.system.woundPenalty}</span>`);
+  if (this.actor.system.fatigue.penalty != 0) tags.push(`<span class="tag fatigue-tag">Fatigued ${this.actor.system.fatigue.penalty}</span>`);
+  if (this.actor.system.carry_rating.penalty != 0) tags.push(`<span class="tag enc-tag">Encumbered ${this.actor.system.carry_rating.penalty}</span>`);
 
   const armorMods = (tn.breakdown ?? []).filter(b => String(b.label || "").startsWith("Armor:") && Number(b.value) !== 0);
   for (const m of armorMods) {
@@ -277,17 +357,17 @@ export async function onSkillRoll(sheet, event) {
   }
   if (staminaBonus > 0) tags.push(`<span class="tag">Physical Exertion +${staminaBonus}</span>`);
 
-  const res = await doTestRoll(sheet.actor, { rollFormula: SYSTEM_ROLL_FORMULA, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
+  const res = await doTestRoll(this.actor, { rollFormula: SYSTEM_ROLL_FORMULA, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
-  await applyKeenIntuitionToResult(sheet.actor, skillItem?.name ?? "", res, { allowPrompt: true });
-  await applyHyperAwarenessToResult(sheet.actor, skillItem?.name ?? "", res, { allowPrompt: true });
+  await applyKeenIntuitionToResult(this.actor, skillItem?.name ?? "", res, { allowPrompt: true });
+  await applyHyperAwarenessToResult(this.actor, skillItem?.name ?? "", res, { allowPrompt: true });
   if (staminaBonus > 0) {
-    await consumePhysicalExertionForSkill(sheet.actor, skillItem);
+    await consumePhysicalExertionForSkill(this.actor, skillItem);
   }
 
   // Intellectual talents (Chapter 4): Businessman / Interrogator / Questioning (DoS replacement prompts).
   await applyIntellectualTalentDoSOverrides({
-    actor: sheet.actor,
+    actor: this.actor,
     skillName: skillItem?.name ?? "",
     result: res,
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
@@ -309,6 +389,9 @@ export async function onSkillRoll(sheet, event) {
 
   const declaredParts = [];
   if (tn?.difficulty?.label) declaredParts.push(`${tn.difficulty.label} (${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod})`);
+  if (showCharacteristicSelect && decl.selectedCharacteristicKey) {
+    declaredParts.push(`Cha ${String(decl.selectedCharacteristicKey).toUpperCase()}`);
+  }
   if (hasSpec && decl.useSpec) declaredParts.push("Spec +10");
   if (decl.isInterrogationTest) declaredParts.push("Interrogation");
   if (decl.isQuestioningTest) declaredParts.push("Questioning");
@@ -328,7 +411,7 @@ export async function onSkillRoll(sheet, event) {
   const rollMode = game.settings.get("core", "rollMode");
   const dosOverride = res?.uesrpgDosOverride ?? null;
   const skillTest = {
-    actorUuid: sheet.actor.uuid,
+    actorUuid: this.actor.uuid,
     skillUuid: skillItem.uuid,
     skillName: skillItem.name,
     target: tn.finalTN,
@@ -338,6 +421,7 @@ export async function onSkillRoll(sheet, event) {
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
     isQuestioningTest: Boolean(decl?.isQuestioningTest),
     rollOptions: {
+      ...(showCharacteristicSelect && decl.selectedCharacteristicKey ? { selectedCharacteristicKey: String(decl.selectedCharacteristicKey).toLowerCase() } : {}),
       ...(decl.histskinUnderwater ? { histskin: true } : {})
     },
     isSuccess: Boolean(res.isSuccess),
@@ -345,9 +429,11 @@ export async function onSkillRoll(sheet, event) {
     textual: String(res.textual ?? "")
   };
 
+  const staminaUsedOnTest = staminaBonus > 0;
+
   await res.roll.toMessage({
     user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor: sheet.actor }),
+    speaker: ChatMessage.getSpeaker({ actor: this.actor }),
     flavor,
     flags: {
       uesrpg: {
@@ -355,76 +441,78 @@ export async function onSkillRoll(sheet, event) {
         skillTest,
         ...(decl.histskinUnderwater ? { rollOptions: { histskin: true } } : {}),
         ...(dosOverride ? { dosOverride } : {}),
-        reroll: { used: false, source: null }
+        reroll: { used: false, source: null },
+        ...(staminaUsedOnTest ? { staminaUsedOnTest: true } : {})
       },
       "uesrpg-3ev4": {
         rollRequest: request,
         skillTest,
         ...(decl.histskinUnderwater ? { rollOptions: { histskin: true } } : {}),
-        ...(dosOverride ? { dosOverride } : {})
+        ...(dosOverride ? { dosOverride } : {}),
+        ...(staminaUsedOnTest ? { staminaUsedOnTest: true } : {})
       }
     },
     rollMode
   });
-}
+});
 
 /**
  * Handle spell roll (legacy routing for favorites/hotkeys).
  * Routes to magic casting engine.
- * @param {SimpleActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onSpellRoll(sheet, event) {
+export const onSpellRoll = asyncGuardSheet(async function onSpellRoll(event, target) {
+  const button = target ?? event.currentTarget;
   let spellToCast;
 
   if (
-    event.currentTarget.closest(".item") != null ||
-    event.currentTarget.closest(".item") != undefined
+    button.closest(".item") != null ||
+    button.closest(".item") != undefined
   ) {
-    spellToCast = sheet.actor.items.get(
-      event.currentTarget.closest(".item").dataset.itemId
+    spellToCast = this.actor.items.get(
+      button.closest(".item").dataset.itemId
     );
   } else {
-    spellToCast = sheet.actor.getEmbeddedDocument(
+    spellToCast = this.actor.getEmbeddedDocument(
       "Item",
-      sheet.actor.system.favorites[event.currentTarget.dataset.hotkey].id
+      this.actor.system.favorites[button.dataset.hotkey].id
     );
   }
 
   const targets = getUserSpellTargets();
-  debugMagicRoutingLog({ source: "onSpellRoll", actor: sheet.actor, spell: spellToCast, targets });
+  debugMagicRoutingLog({ source: "onSpellRoll", actor: this.actor, spell: spellToCast, targets });
   if (shouldUseTargetedSpellWorkflow(spellToCast, targets)) {
-    const spellOptions = await sheet._showSpellOptionsDialog(spellToCast);
+    const spellOptions = await this._showSpellOptionsDialog(spellToCast);
     if (spellOptions === null) return;
-    await sheet._castAttackSpell(spellToCast, targets, spellOptions, "primary");
+    await this._castAttackSpell(spellToCast, targets, spellOptions, "primary");
     return;
   }
   if (shouldUseModernSpellWorkflow(spellToCast)) {
-    const spellOptions = await sheet._showSpellOptionsDialog(spellToCast);
+    const spellOptions = await this._showSpellOptionsDialog(spellToCast);
     if (spellOptions === null) return;
-    const { MagicOpposedWorkflow } = await import("../../../../core/magic/opposed-workflow.js");
     await MagicOpposedWorkflow.castUnopposed({
-      attackerActorUuid: sheet.actor.uuid,
-      attackerTokenUuid: sheet.token?.document?.uuid ?? sheet.token?.uuid ?? null,
+      attackerActorUuid: this.actor.uuid,
+      attackerTokenUuid: this.token?.document?.uuid ?? this.token?.uuid ?? null,
       spellUuid: spellToCast.uuid,
       spellOptions,
       castActionType: "primary"
     });
     return;
   }
-}
+});
 
 /**
  * Handle combat style roll.
- * @param {SimpleActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onCombatRoll(sheet, event) {
+export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, target) {
   event.preventDefault();
 
-  const button = event.currentTarget;
+  const button = target ?? event.currentTarget;
   const li = button.closest(".item");
-  const item = sheet.actor.items.get(li?.dataset.itemId);
+  const item = this.actor.items.get(li?.dataset.itemId);
 
   if (!item) {
     ui.notifications.warn("Combat item not found.");
@@ -432,20 +520,20 @@ export async function onCombatRoll(sheet, event) {
   }
 
   let tags = [];
-  const hasWoundPenalty = Number(sheet.actor.system?.woundPenalty ?? 0) !== 0;
+  const hasWoundPenalty = Number(this.actor.system?.woundPenalty ?? 0) !== 0;
   if (hasWoundPenalty) {
     tags.push(
-      `<span class="tag wound-tag">Wounded ${sheet.actor.system.woundPenalty}</span>`
+      `<span class="tag wound-tag">Wounded ${this.actor.system.woundPenalty}</span>`
     );
   }
-  if (sheet.actor.system.fatigue.penalty != 0) {
+  if (this.actor.system.fatigue.penalty != 0) {
     tags.push(
-      `<span class="tag fatigue-tag">Fatigued ${sheet.actor.system.fatigue.penalty}</span>`
+      `<span class="tag fatigue-tag">Fatigued ${this.actor.system.fatigue.penalty}</span>`
     );
   }
-  if (sheet.actor.system.carry_rating.penalty != 0) {
+  if (this.actor.system.carry_rating.penalty != 0) {
     tags.push(
-      `<span class="tag enc-tag">Encumbered ${sheet.actor.system.carry_rating.penalty}</span>`
+      `<span class="tag enc-tag">Encumbered ${this.actor.system.carry_rating.penalty}</span>`
     );
   }
 
@@ -456,8 +544,8 @@ export async function onCombatRoll(sheet, event) {
   const defenderToken = targets[0] ?? null;
   if (defenderToken) {
     const attackerToken =
-      canvas?.tokens?.controlled?.find(t => t.actor?.id === sheet.actor.id) ??
-      sheet.actor.getActiveTokens?.()?.[0] ??
+      canvas?.tokens?.controlled?.find(t => t.actor?.id === this.actor.id) ??
+      this.actor.getActiveTokens?.()?.[0] ??
       null;
 
     if (!attackerToken) {
@@ -475,7 +563,7 @@ export async function onCombatRoll(sheet, event) {
     const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
     if (state) {
       state.allowCombatStyle = true;
-      await message.update({
+      await safeUpdateChatMessage(message, {
         flags: {
           "uesrpg-3ev4": {
             skillOpposed: {
@@ -491,9 +579,9 @@ export async function onCombatRoll(sheet, event) {
   }
 
   // No target -> manual roll dialog
-  const d = new Dialog({
+  await customDialog({
     title: `${item.name} — Roll Options`,
-    content: `<form>
+    content: `<div>
                 <div class="form-group" style="margin-bottom:8px;">
                   <label style="display:block;"><b>Difficulty</b></label>
                   <select id="difficultyKey" style="width:100%;">
@@ -508,22 +596,22 @@ export async function onCombatRoll(sheet, event) {
                   <label style="margin:0;"><b>Manual Modifier</b></label>
                   <input id="playerInput" type="number" value="0" style="width:120px; text-align:center;" />
                 </div>
-              </form>`,
-    buttons: {
-      one: {
-        label: "Roll",
-        callback: async (html) => {
-          const playerInputRaw = html.find('[id="playerInput"]').val();
+              </div>`,
+    yes: {
+      label: "Roll",
+      callback: async (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const playerInputRaw = root?.querySelector('#playerInput')?.value;
           const playerInput = Number.parseInt(String(playerInputRaw ?? "0"), 10) || 0;
 
-          const difficultyKey = String(html.find('[id="difficultyKey"]').val() ?? "average");
+          const difficultyKey = String(root?.querySelector('#difficultyKey')?.value ?? "average");
           const diff = (SKILL_DIFFICULTIES ?? []).find(dv => dv.key === difficultyKey) ?? { key: "average", label: "Average", mod: 0 };
           const difficultyMod = Number(diff.mod ?? 0) || 0;
 
           const base = Number(item.system?.value ?? 0);
-          const fatigue = Number(sheet.actor.system?.fatigue?.penalty ?? 0);
-          const enc = Number(sheet.actor.system?.carry_rating?.penalty ?? 0);
-          const wound = sheet.actor.system?.wounded ? Number(sheet.actor.system?.woundPenalty ?? 0) : 0;
+          const fatigue = Number(this.actor.system?.fatigue?.penalty ?? 0);
+          const enc = Number(this.actor.system?.carry_rating?.penalty ?? 0);
+          const wound = this.actor.system?.wounded ? Number(this.actor.system?.woundPenalty ?? 0) : 0;
 
           const breakdown = [];
           breakdown.push({ label: "Base TN", value: base });
@@ -536,7 +624,7 @@ export async function onCombatRoll(sheet, event) {
           const aeBreakdown = [];
           let aeTotal = 0;
 
-          for (const ef of (sheet.actor?.effects ?? [])) {
+          for (const ef of (this.actor?.effects ?? [])) {
             if (ef?.disabled) continue;
             const changes = Array.isArray(ef?.changes) ? ef.changes : [];
             let v = 0;
@@ -552,10 +640,10 @@ export async function onCombatRoll(sheet, event) {
             }
           }
 
-          for (const it of (sheet.actor?.items ?? [])) {
+          for (const it of (this.actor?.items ?? [])) {
             for (const ef of (it?.effects ?? [])) {
               if (!ef?.transfer) continue;
-              if (!isItemEffectActive(sheet.actor, it, ef)) continue;
+              if (!isItemEffectActive(this.actor, it, ef)) continue;
               if (ef?.disabled) continue;
 
               const changes = Array.isArray(ef?.changes) ? ef.changes : [];
@@ -578,7 +666,7 @@ export async function onCombatRoll(sheet, event) {
 
           const tn = base + difficultyMod + fatigue + enc + wound + playerInput + aeTotal;
 
-          const res = await doTestRoll(sheet.actor, {
+          const res = await doTestRoll(this.actor, {
             rollFormula: SYSTEM_ROLL_FORMULA,
             target: tn,
             allowLucky: true,
@@ -617,65 +705,60 @@ export async function onCombatRoll(sheet, event) {
 
           await res.roll.toMessage({
             user: game.user.id,
-            speaker: ChatMessage.getSpeaker({ actor: sheet.actor }),
+            speaker: ChatMessage.getSpeaker({ actor: this.actor }),
             flavor,
             rollMode: game.settings.get("core", "rollMode")
           });
         }
-      },
-      two: {
-        label: "Cancel",
-        callback: () => null
-      }
     },
-    default: "one"
-  }, { width: 420 });
-
-  d.render(true);
-}
+    no: { label: "Cancel" },
+    defaultButton: "yes",
+    width: 420,
+  });
+});
 
 /**
  * Handle resistance roll.
- * @param {SimpleActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onResistanceRoll(sheet, event) {
+export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(event, target) {
   event.preventDefault();
-  const element = event.currentTarget;
+  const element = target ?? event.currentTarget;
   let tags = [];
-  let d = new Dialog({
+  await customDialog({
     title: "Apply Roll Modifier",
-    content: `<form>
+    content: `<div>
                 <div class="dialogForm">
                 <label><b>${element.name} Resistance Modifier: </b></label><input placeholder="ex. -20, +10" id="playerInput" value="0" style=" text-align: center; width: 50%; border-style: groove; float: right;" type="text"></input></div>
-              </form>`,
-    buttons: {
-      one: {
-        label: "Roll!",
-        callback: async (html) => {
-          const playerInput = parseInt(html.find('[id="playerInput"]').val());
+              </div>`,
+    yes: {
+      label: "Roll!",
+      callback: async (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const playerInput = parseInt(root?.querySelector('#playerInput')?.value);
 
           let roll = new Roll("1d100");
           await roll.evaluate();
-          const tn = sheet.actor.system.resistance[element.id] + playerInput;
-          const res = computeResultFromRollTotal(sheet.actor, { rollTotal: Number(roll.total), target: tn, allowLucky: true, allowUnlucky: true });
+          const tn = this.actor.system.resistance[element.id] + playerInput;
+          const res = computeResultFromRollTotal(this.actor, { rollTotal: Number(roll.total), target: tn, allowLucky: true, allowUnlucky: true });
           const degreesLine = `<br><b>${res.isSuccess ? "Degrees of Success" : "Degrees of Failure"}: ${res.degree}</b>`;
           let contentString = "";
-          if (isLucky(sheet.actor, roll.result)) {
+          if (isLucky(this.actor, roll.result)) {
             contentString = `<h2>${element.getAttribute("name")}</h2>
-          <p></p><b>Target Number: [[${sheet.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
+          <p></p><b>Target Number: [[${this.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
           <b>Result: [[${roll.total}]]</b><p></p>
           <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>
           ${degreesLine}`;
-          } else if (isUnlucky(sheet.actor, roll.result)) {
+          } else if (isUnlucky(this.actor, roll.result)) {
             contentString = `<h2>${element.getAttribute("name")}</h2>
-          <p></p><b>Target Number: [[${sheet.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
+          <p></p><b>Target Number: [[${this.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
           <b>Result: [[${roll.total}]]</b><p></p>
           <span style='color:rgb(168, 5, 5); font-size:120%;'> <b>UNLUCKY NUMBER!</b></span>
           ${degreesLine}`;
           } else {
             contentString = `<h2>${element.getAttribute("name")}</h2>
-          <p></p><b>Target Number: [[${sheet.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
+          <p></p><b>Target Number: [[${this.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
           <b>Result: [[${roll.total}]]</b><p></p>
           <b>${
             res.isSuccess
@@ -692,30 +775,24 @@ export async function onResistanceRoll(sheet, event) {
             flavor: `<div class="tag-container">${tags.join("")}</div>`,
             rollMode: game.settings.get("core", "rollMode"),
           });
-        },
-      },
-      two: {
-        label: "Cancel",
-        callback: () => {},
       },
     },
-    default: "one",
-    close: () => {},
+    no: { label: "Cancel" },
+    defaultButton: "yes",
   });
-  d.render(true);
-}
+});
 
 /**
  * Handle damage roll for weapons.
- * @param {SimpleActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onDamageRoll(sheet, event) {
+export const onDamageRoll = asyncGuardSheet(async function onDamageRoll(event, target) {
   event.preventDefault();
 
-  const button = event.currentTarget;
+  const button = target ?? event.currentTarget;
   const li = button.closest(".item");
-  const weapon = sheet.actor.items.get(li?.dataset?.itemId);
+  const weapon = this.actor.items.get(li?.dataset?.itemId);
 
   if (!weapon) {
     ui.notifications.warn("Weapon not found for damage roll.");
@@ -812,7 +889,7 @@ export async function onDamageRoll(sheet, event) {
           if (!uuid) return "";
           return `<button type="button" class="apply-damage-btn" 
                     data-target-uuid="${uuid}"
-                    data-attacker-actor-uuid="${sheet.actor.uuid}"
+                    data-attacker-actor-uuid="${this.actor.uuid}"
                     data-weapon-uuid="${shortcutWeapon.uuid}"
                     data-damage="${finalDamage}"
                     data-damage-type="${damageType}"
@@ -870,5 +947,6 @@ export async function onDamageRoll(sheet, event) {
     content: contentString,
     rolls: rollsToSend,
     rollMode: game.settings.get("core", "rollMode"),
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
   });
-}
+})

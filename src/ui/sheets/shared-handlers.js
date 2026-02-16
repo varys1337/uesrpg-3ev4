@@ -8,7 +8,7 @@ import { executeItemActivation, executeItemMacroBestEffort } from "../../core/sy
 function _buildDefaultPostContent({ item, actor, includeImage }) {
   if (includeImage) {
     // Actor sheet format: image inside <h2>, no <p> after </h2>
-    return `<h2><img src="${item.img}"</img>${item.name}</h2>
+    return `<h2><img src="${item.img}" />${item.name}</h2>
     <i><b>${item.type}</b></i><p>
       <i>${item.system.description}</i>`;
   }
@@ -22,7 +22,7 @@ function _buildDefaultPostContent({ item, actor, includeImage }) {
  * Post a standardized Activated Talent chat card and optionally spend costs.
  * Returns true if the activation succeeded (chat posted), false if it was blocked.
  */
-export async function postActivatedTalentToChat({ item, actor, includeImage = false, event = null } = {}) {
+async function postActivatedTalentToChat({ item, actor, includeImage = false, event = null } = {}) {
   if (!item) return false;
   const result = await executeItemActivation({ item, actor, includeImage, event });
   return Boolean(result?.ok);
@@ -32,7 +32,7 @@ export async function postActivatedTalentToChat({ item, actor, includeImage = fa
  * Post a standardized Activated Power chat card and optionally spend costs/uses.
  * Returns true if the activation succeeded (chat posted), false if it was blocked.
  */
-export async function postActivatedPowerToChat({ item, actor, includeImage = false, event = null } = {}) {
+async function postActivatedPowerToChat({ item, actor, includeImage = false, event = null } = {}) {
   if (!item) return false;
   const result = await executeItemActivation({ item, actor, includeImage, event });
   return Boolean(result?.ok);
@@ -86,18 +86,14 @@ export async function activateTraitFromItemSheet({ item, event = null } = {}) {
 export async function postItemToChat(event, actor, options = {}) {
   event.preventDefault();
 
-  const { includeImage = false } = options;
+  const { includeImage = false, element } = options;
 
   // The initiating element may be inside <li class="item"> or a <tr data-item-id="..."> depending on the sheet template.
   // Resolve the embedded Item id defensively from the nearest ancestor that declares it.
-  const $target = $(event.currentTarget);
-
-  // Prefer standard Foundry-style attribute: data-item-id
-  const $itemEl = $target.closest("[data-item-id]").length
-    ? $target.closest("[data-item-id]")
-    : ($target.parents("[data-item-id]").first().length ? $target.parents("[data-item-id]").first() : $target.parents(".item").first());
-
-  const itemId = $itemEl?.data("itemId");
+  // In AppV2 delegated actions, event.currentTarget is the app root — use the explicit element when provided.
+  const el = element ?? event.currentTarget;
+  const itemEl = el.closest("[data-item-id]") ?? el.closest(".item");
+  const itemId = itemEl?.dataset?.itemId;
 
   if (!itemId) {
     console.warn("uesrpg-3ev4 | postItemToChat: No itemId found on element");
@@ -133,7 +129,8 @@ export async function postItemToChat(event, actor, options = {}) {
   await ChatMessage.create({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
-    content: contentString
+    content: contentString,
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
 
   await executeItemMacroBestEffort(item, { event });

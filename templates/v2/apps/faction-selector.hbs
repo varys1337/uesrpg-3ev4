@@ -1,0 +1,61 @@
+<div class="social-selector-app">
+  <div class="social-selector-layout">
+    <section class="social-panel">
+      <h2 class="social-panel-title">Available Factions</h2>
+      <input id="social-faction-search" type="text" value="{{search}}" placeholder="Search factions...">
+      <div class="social-choice-list social-choice-list--factions">
+        {{#each choices as |choice|}}
+          <div class="social-choice-row">
+            <span>{{choice.name}}</span>
+            <button
+              type="button"
+              data-action="addFaction"
+              data-faction-id="{{choice.id}}"
+              data-faction-name="{{choice.name}}"
+              {{#if choice.disabled}}disabled{{/if}}>
+              {{#if choice.disabled}}Added{{else}}Add{{/if}}
+            </button>
+          </div>
+        {{/each}}
+        {{#unless choices.length}}
+          <p class="social-empty">No factions match your search.</p>
+        {{/unless}}
+      </div>
+      <div class="social-custom-add">
+        <input id="social-faction-custom" type="text" placeholder="Custom faction name">
+        <button type="button" data-action="addCustomFaction">Add Custom</button>
+      </div>
+    </section>
+
+    <section class="social-panel">
+      <h2 class="social-panel-title">Selected Factions</h2>
+      <div class="social-selected-list social-selected-list--factions">
+        {{#each entries as |entry|}}
+          <div class="social-faction-row" data-entry-id="{{entry.id}}">
+            <label class="social-faction-cell social-faction-cell--name" data-field-label="Nm">
+              <input class="social-faction-input" data-field="name" type="text" value="{{entry.name}}" placeholder="Name">
+            </label>
+            <label class="social-faction-cell social-faction-cell--rank" data-field-label="Rk">
+              <input class="social-faction-input" data-field="rankTitle" type="text" value="{{entry.rankTitle}}" placeholder="Rank">
+            </label>
+            <label class="social-faction-cell social-faction-cell--location" data-field-label="Loc">
+              <input class="social-faction-input" data-field="location" type="text" value="{{entry.location}}" placeholder="Location">
+            </label>
+            <label class="social-faction-cell social-faction-cell--notes" data-field-label="Nt">
+              <input class="social-faction-input" data-field="notes" type="text" value="{{entry.notes}}" placeholder="Notes">
+            </label>
+            <button type="button" data-action="removeFaction" data-entry-id="{{entry.id}}">Remove</button>
+          </div>
+        {{/each}}
+        {{#unless entries.length}}
+          <p class="social-empty">No factions selected.</p>
+        {{/unless}}
+      </div>
+    </section>
+  </div>
+
+  <footer class="social-selector-footer">
+    <button type="button" data-action="cancel">Cancel</button>
+    <button type="button" data-action="save" class="default">Save</button>
+  </footer>
+</div>

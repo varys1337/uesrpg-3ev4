@@ -20,7 +20,7 @@ import {
 } from "./template-helpers.js";
 import { AttackTracker } from "../../attack-tracker.js";
 import { canAttackerRoll } from "../actions/eligibility.js";
-import { _resolveActor } from "../helpers/docs.js";
+import { _resolveActor, _resolveActorViaToken } from "../helpers/docs.js";
 
 function _attackerTestLabel(value) {
   const raw = String(value ?? "Attack").trim();
@@ -42,7 +42,7 @@ function _shortenTestLabel(value) {
 }
 
 function _getAttackerCommitGate(data) {
-  const attacker = _resolveActor(data?.attacker?.actorUuid);
+  const attacker = _resolveActorViaToken(data?.attacker?.actorUuid, data?.attacker?.tokenUuid);
   if (!attacker) return { allowed: false, reason: "Attacker unavailable" };
 
   const eligibility = canAttackerRoll(attacker, data?.context ?? {});
@@ -66,7 +66,7 @@ function _getAttackerCommitGate(data) {
 }
 
 function _getDefenderCommitGate(defenderData) {
-  const defender = _resolveActor(defenderData?.actorUuid);
+  const defender = _resolveActorViaToken(defenderData?.actorUuid, defenderData?.tokenUuid);
   if (!defender) return { allowed: false, reason: "Defender unavailable" };
   if (!game?.combat) return { allowed: true };
 

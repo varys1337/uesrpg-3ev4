@@ -18,6 +18,7 @@
 
 import { hasTalent } from "../talents-api.js";
 import { itemHasToken } from "../../combat/damage-automation.js";
+import { applyBleeding, applyCondition } from "../../conditions/condition-engine.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "../../combat/combat-utils.js";
 import {
   isWeaponExpertiseActive,
@@ -28,6 +29,7 @@ import {
   isWeaponHandToHand,
   getCharBonus
 } from "./weapon-expertise-helpers.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { WEAPON_EXPERTISE } from "./weapon-expertise-map.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { _num as _asNumber, _lower, _buildSituationalMod } from "../_primitives.js";
@@ -350,7 +352,6 @@ export async function applyWeaponExpertisePostDamageEffects({
   // Death by a Thousand Cuts: apply Bleeding(1) on ≥1 damage
   if (damageContext._deathByThousandCutsActive && dmg >= 1) {
     try {
-      const { applyBleeding } = await import("../../conditions/condition-engine.js");
       if (typeof applyBleeding === "function") {
         await applyBleeding(target, 1);
         notes.push("Death by a Thousand Cuts: Bleeding(1) applied.");
@@ -365,7 +366,6 @@ export async function applyWeaponExpertisePostDamageEffects({
   // From Oblivion's Heart: apply Bleeding(1) on wound
   if (damageContext._fromOblivionsHeartActive && woundTriggered) {
     try {
-      const { applyBleeding } = await import("../../conditions/condition-engine.js");
       if (typeof applyBleeding === "function") {
         await applyBleeding(target, 1);
         notes.push("From Oblivion's Heart: Bleeding(1) applied (wound inflicted).");
@@ -381,7 +381,6 @@ export async function applyWeaponExpertisePostDamageEffects({
   if (damageContext._hammerblowActive) {
     if (damageContext._hammerblowAllOut) {
       try {
-        const { applyCondition } = await import("../../conditions/condition-engine.js");
         if (typeof applyCondition === "function") {
           await applyCondition(target, "dazed", {
             source: `${attacker.name} — Hammerblow (All Out Attack)`
@@ -429,7 +428,6 @@ export async function applyWeaponExpertisePostDamageEffects({
   // Red Legion Throw: apply Crippled (Speared)
   if (damageContext._redLegionThrowActive && dmg >= 1) {
     try {
-      const { applyCondition } = await import("../../conditions/condition-engine.js");
       if (typeof applyCondition === "function") {
         await applyCondition(target, "crippled", {
           source: `${attacker.name} — Red Legion Throw (Speared)`
@@ -450,7 +448,7 @@ export async function applyWeaponExpertisePostDamageEffects({
   // Whirling School: prompt for bola wrap location, apply condition
   if (damageContext._whirlingSchoolActive && dmg >= 1) {
     try {
-      const wrapTarget = await Dialog.wait({
+      const wrapTarget = await customDialog({
         title: "The Whirling School \u2014 Bola Wrap",
         content:
           `<p>Where does <strong>${attacker.name}</strong> wrap the bola ` +
@@ -459,12 +457,10 @@ export async function applyWeaponExpertisePostDamageEffects({
           legs: { label: "Legs (Immobilized)", callback: () => "legs" },
           neck: { label: "Neck (1 SP/round)", callback: () => "neck" }
         },
-        default: "legs",
-        close: () => "legs"
-      });
+        default: "legs"
+      }) ?? "legs";
 
       if (wrapTarget === "legs") {
-        const { applyCondition } = await import("../../conditions/condition-engine.js");
         if (typeof applyCondition === "function") {
           await applyCondition(target, "immobilized", {
             source: `${attacker.name} — Whirling School (Bola)`

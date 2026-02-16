@@ -1,0 +1,200 @@
+{{!-- Item Sheet (Generic) — Compact Layout --}}
+<header class="item-compact-header">
+    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
+    <div class="item-header-fields">
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+        <div class="item-stats-row">
+            <div class="item-stat">
+                <input type="number" name="system.quantity" value="{{#if item.system.quantity}}{{item.system.quantity}}{{else}}0{{/if}}"/>
+                <span class="item-stat-label">Quantity</span>
+            </div>
+            <div class="item-stat">
+                <input type="number" name="system.enc" value="{{#if item.system.enc}}{{item.system.enc}}{{else}}0{{/if}}"/>
+                <span class="item-stat-label">ENC</span>
+            </div>
+            <div class="item-stat">
+                <input type="number" name="system.price" value="{{#if item.system.price}}{{item.system.price}}{{else}}0{{/if}}"/>
+                <span class="item-stat-label">Price</span>
+            </div>
+            <div class="item-stat">
+                <input type="number" name="system.enchant_level" value="{{#if item.system.enchant_level}}{{item.system.enchant_level}}{{else}}0{{/if}}"/>
+                <span class="item-stat-label">Enchant Lv.</span>
+            </div>
+            <div class="item-stat">
+                <div class="item-charge-row">
+                    <i class="fas fa-angle-down fa-xs chargeMinus" data-action="chargeMinus"></i>
+                    <input type="number" name="system.charge.value" value="{{#if item.system.charge.value}}{{item.system.charge.value}}{{else}}0{{/if}}"/>
+                    <span>/</span>
+                    <input type="number" name="system.charge.max" value="{{#if item.system.charge.max}}{{item.system.charge.max}}{{else}}0{{/if}}"/>
+                    <i class="fas fa-angle-up fa-xs chargePlus" data-action="chargePlus"></i>
+                </div>
+                <span class="item-stat-label">Charge</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+{{!-- Sheet Tab Navigation --}}
+<nav class="sheet-tabs tabs" data-group="primary">
+    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+</nav>
+
+        {{!-- Sheet Body --}}
+        <section class="sheet-body">
+
+            {{!-- Description Tab --}}
+            <div class="tab" data-group="primary" data-tab="description">
+                <div class="item-description-container">
+                    <div class="basic-padding">
+                        {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+                    </div>
+                </div>
+            </div>
+
+            {{!-- Attributes Tab --}}
+            <div class="tab" data-group="primary" data-tab="attributes">
+                <div class="attribute-tab-container">
+                    <div class="item-selection-container">
+                        <h2>Attributes</h2>
+                        <div class="selection-container">
+                            <div class="grid-container">
+                                <div>Ignore ENC</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.excludeENC" {{checked item.system.excludeENC}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Wearable Item</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.wearable" {{checked item.system.wearable}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Equipped</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.equipped" {{checked item.system.equipped}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Charge Reduction</div>
+                                <div class="right-align-content">
+                                    {{!-- Guard: defensive access for charge.reduction with default 0 --}}
+                                    <input type="number" name="system.charge.reduction" value="{{#if item.system.charge.reduction}}{{item.system.charge.reduction}}{{else}}0{{/if}}">
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Container</div>
+                                <div class="right-align-content">
+                                    {{!-- Defensive guard: only show container_name if containerStats exists --}}
+                                    <div>{{#if item.system.containerStats}}{{item.system.containerStats.container_name}}{{else}}(none){{/if}}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="attribute-container">
+                        <div class="item-characteristic-container">
+                            <h2>Characteristics</h2>
+                            <div class="modifier-container">
+                                {{#if item.system.characteristicBonus}}
+                                <div class="grid-container">
+                                    <div>Strength</div>
+                                    <div><input type="number" name="system.characteristicBonus.strChaBonus" value="{{#if item.system.characteristicBonus.strChaBonus}}{{item.system.characteristicBonus.strChaBonus}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Endurance</div>
+                                    <div><input type="number" name="system.characteristicBonus.endChaBonus" value="{{#if item.system.characteristicBonus.endChaBonus}}{{item.system.characteristicBonus.endChaBonus}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Agility</div>
+                                    <div><input type="number" name="system.characteristicBonus.agiChaBonus" value="{{#if item.system.characteristicBonus.agiChaBonus}}{{item.system.characteristicBonus.agiChaBonus}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Intelligence</div>
+                                    <div><input type="number" name="system.characteristicBonus.intChaBonus" value="{{#if item.system.characteristicBonus.intChaBonus}}{{item.system.characteristicBonus.intChaBonus}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Willpower</div>
+                                    <div><input type="number" name="system.characteristicBonus.wpChaBonus" value="{{#if item.system.characteristicBonus.wpChaBonus}}{{item.system.characteristicBonus.wpChaBonus}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Perception</div>
+                                    <div><input type="number" name="system.characteristicBonus.prcChaBonus" value="{{#if item.system.characteristicBonus.prcChaBonus}}{{item.system.characteristicBonus.prcChaBonus}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Personality</div>
+                                    <div><input type="number" name="system.characteristicBonus.prsChaBonus" value="{{#if item.system.characteristicBonus.prsChaBonus}}{{item.system.characteristicBonus.prsChaBonus}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Luck</div>
+                                    <div><input type="number" name="system.characteristicBonus.lckChaBonus" value="{{#if item.system.characteristicBonus.lckChaBonus}}{{item.system.characteristicBonus.lckChaBonus}}{{else}}0{{/if}}"></div>
+                                </div>
+                                {{else}}
+                                <div class="u-text-center u-text-italic attr-empty-hint">
+                                    No characteristic bonuses (defaults to 0)
+                                </div>
+                                {{/if}}
+                            </div>
+                        </div>
+                        <div class="item-resistance-container">
+                            <h2>Resistances</h2>
+                            <div class="modifier-container">
+                                <div class="grid-container">
+                                    <div>Disease</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.diseaseR" value="{{#if item.system.diseaseR}}{{item.system.diseaseR}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Fire</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.fireR" value="{{#if item.system.fireR}}{{item.system.fireR}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Frost</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.frostR" value="{{#if item.system.frostR}}{{item.system.frostR}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Shock</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.shockR" value="{{#if item.system.shockR}}{{item.system.shockR}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Poison</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.poisonR" value="{{#if item.system.poisonR}}{{item.system.poisonR}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Magic</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.magicR" value="{{#if item.system.magicR}}{{item.system.magicR}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Toughness</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.natToughnessR" value="{{#if item.system.natToughnessR}}{{item.system.natToughnessR}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Silver</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.silverR" value="{{#if item.system.silverR}}{{item.system.silverR}}{{else}}0{{/if}}"></div>
+                                </div>
+                                <div class="grid-container">
+                                    <div>Sunlight</div>
+                                    {{!-- Guard: defensive access with default 0 --}}
+                                    <div><input type="number" name="system.sunlightR" value="{{#if item.system.sunlightR}}{{item.system.sunlightR}}{{else}}0{{/if}}"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        
+
+
+        {{!-- Effects Tab --}}
+        <div class="tab effects" data-group="primary" data-tab="effects">
+            {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+        </div>
+</section>

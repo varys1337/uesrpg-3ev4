@@ -79,7 +79,7 @@
     {{#if ruleElements.length}}
     <ol class="re-list">
       {{#each ruleElements}}
-      <li class="re-item {{#unless this.enabled}}re-item--disabled{{/unless}}" data-re-id="{{this.id}}">
+      <li class="re-item {{#unless this.enabled}}re-item--disabled{{/unless}}" data-re-id="{{this.id}}" draggable="true">
         <div class="re-item-header">
           <div class="re-item-grip" title="Drag to reorder">
             <i class="fas fa-grip-vertical"></i>
@@ -94,8 +94,8 @@
             <input type="checkbox" data-re-field="enabled" {{checked this.enabled}} />
             <i class="fas {{#if this.enabled}}fa-eye{{else}}fa-eye-slash{{/if}}"></i>
           </label>
-          <button type="button" class="re-item-expand" title="Expand / Collapse"><i class="fas fa-chevron-down"></i></button>
-          <button type="button" class="re-item-delete" title="Delete Rule Element"><i class="fas fa-trash"></i></button>
+          <button type="button" class="re-item-expand" data-action="reExpand" title="Expand / Collapse"><i class="fas fa-chevron-down"></i></button>
+          <button type="button" class="re-item-delete" data-action="reDelete" title="Delete Rule Element"><i class="fas fa-trash"></i></button>
         </div>
 
         <div class="re-item-body" style="display:none;">
@@ -138,7 +138,7 @@
               {{#each this.conditions}}
               <div class="re-condition" data-cond-idx="{{@index}}">
                 <span class="re-condition-label">{{lookup ../../conditionLabels this.type}}</span>
-                <button type="button" class="re-condition-delete" title="Remove Condition"><i class="fas fa-xmark"></i></button>
+                <button type="button" class="re-condition-delete" data-action="reConditionDelete" title="Remove Condition"><i class="fas fa-xmark"></i></button>
               </div>
               <div class="re-condition-fields" data-cond-idx="{{@index}}"></div>
               {{/each}}
@@ -147,7 +147,7 @@
           {{/if}}
 
           <div class="re-item-actions">
-            <button type="button" class="re-add-condition" data-re-id="{{this.id}}"><i class="fas fa-filter"></i> Add Condition</button>
+            <button type="button" class="re-add-condition" data-action="reAddCondition" data-re-id="{{this.id}}"><i class="fas fa-filter"></i> Add Condition</button>
           </div>
         </div>
       </li>
@@ -172,7 +172,7 @@
         </optgroup>
         {{/each}}
       </select>
-      <button type="button" class="re-add-btn"><i class="fas fa-plus"></i> Add</button>
+      <button type="button" class="re-add-btn" data-action="reAdd"><i class="fas fa-plus"></i> Add</button>
     </div>
   </fieldset>
 

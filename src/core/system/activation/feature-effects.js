@@ -11,32 +11,16 @@
  */
 
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { isDebugEnabled } from "../../../utils/debug.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
-
-/* ── Debug helper ────────────────────────────────────────────────────── */
-
-let _debugChecked = false;
-let _debugEnabled = false;
-
-function _isDebug() {
-  if (!_debugChecked) {
-    try {
-      _debugEnabled = game?.settings?.get?.(SYSTEM_ID, "activationDebug") === true;
-    } catch (_e) {
-      _debugEnabled = false;
-    }
-    _debugChecked = true;
-    setTimeout(() => { _debugChecked = false; }, 30_000);
-  }
-  return _debugEnabled;
-}
 
 /* ── Duration helpers ────────────────────────────────────────────────── */
 
 function _getRoundTimeSeconds() {
   try {
-    const rt = Number(game?.settings?.get?.("core", "roundTime"));
+    const rt = Number(CONFIG?.time?.roundTime ?? 6);
     return Number.isFinite(rt) && rt > 0 ? rt : 6;
   } catch (_e) {
     return 6;
@@ -163,10 +147,6 @@ export function featureNeedsEffectTransfer(item) {
  * @returns {Promise<{ applied: number, targets: string[] }>}
  */
 export async function applyFeatureEffectsToTargets(activatorActor, item, targetActors, options = {}) {
-  const {
-    requestCreateEmbeddedDocuments,
-    requestDeleteEmbeddedDocuments,
-  } = await import("../../../utils/authority-proxy.js");
 
   const cfg = options.featureConfig ?? getFeatureConfig(item);
   const durationMode = cfg.effectDuration ?? "permanent";
@@ -179,7 +159,7 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
   // to the owning actor and should NOT be cloned to targets.
   const sourceEffects = Array.from(item.effects ?? []).filter(e => !e.disabled && !e.transfer);
   if (!sourceEffects.length) {
-    if (_isDebug()) console.debug(`${SYSTEM_ID} | feature-effects: no enabled AEs on "${item.name}", skipping transfer`);
+    if (isDebugEnabled("activationDebug")) console.debug(`${SYSTEM_ID} | feature-effects: no enabled AEs on "${item.name}", skipping transfer`);
     return { applied: 0, targets: [] };
   }
 
@@ -198,8 +178,7 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
     if (existing.length) {
       const ids = existing.map(e => e.id);
       try {
-        if (targetActor.isOwner) await targetActor.deleteEmbeddedDocuments("ActiveEffect", ids);
-        else await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids);
+        await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", ids);
       } catch (err) {
         console.warn(`${SYSTEM_ID} | feature-effects: failed to remove existing effects on ${targetActor.name}`, err);
       }
@@ -217,7 +196,7 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
         origin: itemUuid,
         disabled: false,
         duration: _buildDuration(durationMode, computed),
-        changes: foundry.utils.duplicate(ef.changes ?? []),
+        changes: foundry.utils.deepClone(ef.changes ?? []),
         flags: {
           [SYSTEM_ID]: {
             featureEffect: true,
@@ -239,17 +218,12 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
 
     // ── Create on target (permission-safe) ───────────────────────────────
     try {
-      let created;
-      if (targetActor.isOwner) {
-        created = await targetActor.createEmbeddedDocuments("ActiveEffect", toCreate);
-      } else {
-        created = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", toCreate);
-      }
+      const created = await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", toCreate);
       const count = Array.isArray(created) ? created.length : 0;
       totalCreated += count;
       if (count) appliedTargets.push(targetActor.name);
 
-      if (_isDebug()) {
+      if (isDebugEnabled("activationDebug")) {
         console.debug(`${SYSTEM_ID} | feature-effects: applied ${count} AE(s) from "${item.name}" to ${targetActor.name}`);
       }
     } catch (err) {

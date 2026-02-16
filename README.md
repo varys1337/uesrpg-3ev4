@@ -8,4 +8,12 @@ A system and a few compendiums used to play the UESRPG game. Special thanks to 2
 Express permission to use the artwork and tokens included in the compendiums of this system was given by 2MinuteTabletop and the copyright holder.
 
 You can find the lively UESRPG Discord Community here: https://discord.gg/KAkXdf9
+
+## Social Data
+Language and faction tracking is actor-native and no longer item-based.
+
+- Canonical actor fields:
+  - `system.social.languages.entries`
+  - `system.social.factions`
+- `system.linguistics.known` remains a compatibility mirror derived from language entries.
  

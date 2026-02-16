@@ -2,21 +2,24 @@
  * src/ui/sheets/item/listeners/effects.js
  * Active Effect handlers for item sheets
  */
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 
 /**
  * Handle Active Effect controls from the Effects tab.
  *
  * @param {ItemSheet} sheet
  * @param {Event} event
+ * @param {HTMLElement} [actionEl] - Explicit action target (AppV2 actions dispatch).
+ *   Falls back to event.currentTarget for legacy jQuery callers.
  */
-export async function onEffectControl(sheet, event) {
+export async function onEffectControl(sheet, event, actionEl = null) {
   event.preventDefault();
-  const el = event.currentTarget;
+  const el = actionEl ?? event.currentTarget;
   if (!el) return;
 
   // In some templates the click target can be a nested element, or the control
   // may not carry the effect id directly. Resolve deterministically.
-  const action = el.dataset?.action;
+  const action = el.dataset?.effectAction;
   const effectId = el.dataset?.effectId ?? el.closest?.("[data-effect-id]")?.dataset?.effectId;
 
   if (!action) return;
@@ -31,7 +34,7 @@ export async function onEffectControl(sheet, event) {
       transfer: false,
       duration: {}
     };
-    const created = await sheet.item.createEmbeddedDocuments("ActiveEffect", [effectData]);
+    const created = await requestCreateEmbeddedDocuments(sheet.item, "ActiveEffect", [effectData]);
     const eff = created && created.length ? created[0] : null;
     if (eff && eff.sheet) eff.sheet.render(true);
     return;
@@ -47,22 +50,12 @@ export async function onEffectControl(sheet, event) {
       break;
     case "delete":
       // Use embedded document API explicitly; this is more reliable for Item-embedded effects.
-      await sheet.item.deleteEmbeddedDocuments("ActiveEffect", [effectId]);
+      await requestDeleteEmbeddedDocuments(sheet.item, "ActiveEffect", [effectId]);
       break;
     case "toggle":
-      await sheet.item.updateEmbeddedDocuments("ActiveEffect", [{ _id: effectId, disabled: !effect.disabled }]);
+      await requestUpdateEmbeddedDocuments(sheet.item, "ActiveEffect", [{ _id: effectId, disabled: !effect.disabled }]);
       break;
     default:
       break;
   }
-}
-
-/**
- * Register effect-related listeners
- *
- * @param {ItemSheet} sheet
- * @param {jQuery} html
- */
-export function registerEffectListeners(sheet, html) {
-  html.find(".effect-control").click((ev) => onEffectControl(sheet, ev));
 }

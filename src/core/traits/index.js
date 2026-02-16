@@ -15,6 +15,8 @@
 export {
   normalizeTalentKey,
   resolveTalentSlug,
+  canonicalizeTalentKey,
+  listKnownTalentSlugs,
   getTalentItem,
   hasTalent,
   getNamedItemRank,
@@ -139,6 +141,8 @@ export {
 // ── spellcasting-talents.js ──────────────────────────────────────────
 export {
   registerSpellcastingTalentHooks,
+  isActivatableSpellcastingTalent,
+  activateSpellcastingTalent,
   getSpellcastingTalentState,
   setSpellcastingPrimedState,
   clearSpellcastingPrimedState,
@@ -146,6 +150,28 @@ export {
   applyTalentSummaryToProfile,
   handlePostCastTalentConsumption,
 } from "./spellcasting-talents.js";
+
+// ── chapter4-catalog.js ───────────────────────────────────────────────────────
+export {
+  CHAPTER4_AUTOMATION_CLASS,
+  CHAPTER4_CATALOG,
+  getChapter4Catalog,
+  getChapter4TalentEntry,
+} from "./chapter4-catalog.js";
+
+// ── talent-learning.js ────────────────────────────────────────────────────────
+export {
+  TALENT_LEARNING_MODE,
+  TALENT_NO_GOVERNING_COST_RULE,
+  getTalentLearningMode,
+  getTalentNoGoverningCostRule,
+  normalizeTalentLevel,
+  parseGoverningCharacteristics,
+  parseTalentRequirements,
+  validateTalentLearning,
+  notifyTalentLearningResult,
+  applyTalentLearningXpCost,
+} from "./talent-learning.js";
 
 // ── _primitives.js (public-facing helpers) ──────────────────────────
 export { _canPromptForActor } from "./_primitives.js";

@@ -5,7 +5,7 @@
  * - Builds template-friendly equipped summaries
  * - Provides safe quick-action execution (Attack) without duplicating workflow logic
  *
- * Foundry VTT v13 (AppV1) compatible.
+ * Shared across actor sheet modules.
  */
 
 /**
@@ -120,7 +120,7 @@ export function resolveTokenForActor(actor) {
  * @param {Actor} actor
  * @returns {Token|null}
  */
-export function resolveRangeGatedTokenForActor(actor) {
+function resolveRangeGatedTokenForActor(actor) {
   if (!actor || !canvas?.tokens) return null;
 
   const controlled = Array.isArray(canvas.tokens.controlled) ? canvas.tokens.controlled : [];
@@ -140,7 +140,7 @@ export function resolveRangeGatedTokenForActor(actor) {
  *
  * @returns {Token|null}
  */
-export function resolveFirstTargetedToken() {
+function resolveFirstTargetedToken() {
   const targets = game?.user?.targets;
   if (!targets || targets.size === 0) return null;
   return Array.from(targets)[0] ?? null;
@@ -157,7 +157,7 @@ export function resolveFirstTargetedToken() {
  * @param {object} [options]
  * @returns {Promise<object|null>}
  */
-export async function performQuickWeaponAttack(actor, weaponId, options = {}) {
+async function performQuickWeaponAttack(actor, weaponId, options = {}) {
   if (!actor) return null;
 
   const weapon = actor.items?.get?.(weaponId) ?? null;

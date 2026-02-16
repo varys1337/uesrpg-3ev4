@@ -59,6 +59,16 @@ const PASSIVE_FLAT_TARGET_MAP = Object.freeze({
   "system.natToughnessR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.natToughness" },
   "system.silverR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.silverR" },
   "system.sunlightR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.sunlightR" },
+  // (#4) Weakness targets — allows Rule Elements to target weakness paths.
+  "system.weakness.diseaseR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.diseaseR" },
+  "system.weakness.fireR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.fireR" },
+  "system.weakness.frostR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.frostR" },
+  "system.weakness.shockR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.shockR" },
+  "system.weakness.poisonR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.poisonR" },
+  "system.weakness.magicR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.magicR" },
+  "system.weakness.silverR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.silverR" },
+  "system.weakness.sunlightR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.sunlightR" },
+  // Characteristic bonuses
   "system.characteristicBonus.strChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.str.bonus" },
   "system.characteristicBonus.endChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.end.bonus" },
   "system.characteristicBonus.agiChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.agi.bonus" },
@@ -248,10 +258,45 @@ const _OVERRIDE_PATHS = new Set([
 ]);
 
 /**
+ * Filter a FeatureMod array to only include mods that should be *applied*
+ * by {@link applyFeatureModTotals}. Excludes legacy-mirror mods that duplicate
+ * values already handled by the item-aggregation pipeline.
+ *
+ * The item-aggregation pipeline (aggregateItemStats) already sums all item
+ * schema bonus/resistance fields and writes them to actor system data. The
+ * Feature Mod contributors (`_emitItemBonusMods`, `contributeTraitMods`
+ * category mods) re-emit those same values for Feature Inspector display.
+ * Applying them again via `applyFeatureModTotals` would double-count.
+ *
+ * What passes through:
+ *  - Rule Element-sourced mods (intentional additional contributions)
+ *  - (#6) Racial talent-sourced mods (computed bonuses not in item schema)
+ *  - Boolean flags (undead, incorporeal, etc.)
+ *  - Set/override values (characteristic replacement, sense loss reduction)
+ *
+ * @param {FeatureMod[]} mods  Full array of collected feature mods.
+ * @returns {FeatureMod[]}     Mods safe for additive application.
+ */
+export function filterModsForApplication(mods) {
+  if (!Array.isArray(mods) || mods.length === 0) return [];
+  return mods.filter(m =>
+    m.source?.key?.startsWith("rule-element:") ||
+    m.source?.key?.startsWith("racial-talent:") ||
+    m.mode === "boolean" ||
+    m.mode === "set"
+  );
+}
+
+/**
  * Apply stacked feature-mod totals to an actor's system data.
  *
  * This bridges the gap between `collectFeatureMods → reduceAllByStacking` (read-only
  * collection) and the derived-data pipeline that downstream functions consume.
+ *
+ * **IMPORTANT**: The `totals` map passed here should be derived from mods filtered
+ * by {@link filterModsForApplication} to exclude legacy-mirror values that are already
+ * handled by item-aggregation. Only Rule Element contributions, boolean flags, and
+ * set/override values should be present.
  *
  * Three classes of modification:
  *  1. **Numeric flat modifiers** (flatModifier) — additive to the existing value at the
@@ -305,5 +350,53 @@ export function applyFeatureModTotals(actorSystemData, totals) {
         target[lastKey] = (Number(target[lastKey]) || 0) + value;
       }
     }
+  }
+}
+
+// ── Weakness → Resistance subtraction ────────────────────────────────────
+
+/**
+ * Mapping from weakness key to the corresponding resistance key.
+ * Keys that exist in `system.weakness` but have no resistance analogue
+ * (e.g. physicalR, natToughness) are excluded — weakness values for those
+ * types have no resistance counterpart to subtract from.
+ */
+const _WEAKNESS_TO_RESISTANCE = Object.freeze({
+  diseaseR:   "diseaseR",
+  fireR:      "fireR",
+  frostR:     "frostR",
+  shockR:     "shockR",
+  poisonR:    "poisonR",
+  magicR:     "magicR",
+  silverR:    "silverR",
+  sunlightR:  "sunlightR",
+});
+
+/**
+ * Subtract accumulated weakness values from corresponding resistance values.
+ *
+ * This is the final step in the Feature Mod pipeline: after all resistance
+ * bonuses have been applied (via aggregation, AE modifiers, and Rule Elements),
+ * any accumulated weakness values reduce the final resistance.
+ *
+ * Design:
+ *  - Weakness values are always positive numbers representing vulnerability.
+ *  - The subtraction MAY reduce resistance below zero (net vulnerability).
+ *  - Pure mutation of `actorSystemData` — no document updates, no async.
+ *  - Must be called AFTER `applyFeatureModTotals` and all AE modifier passes.
+ *
+ * @param {object} actorSystemData  The mutable `actorData.system` object.
+ */
+export function applyWeaknessToResistance(actorSystemData) {
+  if (!actorSystemData) return;
+
+  const weakness   = actorSystemData.weakness;
+  const resistance = actorSystemData.resistance;
+  if (!weakness || !resistance) return;
+
+  for (const [wKey, rKey] of Object.entries(_WEAKNESS_TO_RESISTANCE)) {
+    const wVal = Number(weakness[wKey]) || 0;
+    if (wVal === 0) continue;
+    resistance[rKey] = (Number(resistance[rKey]) || 0) - wVal;
   }
 }

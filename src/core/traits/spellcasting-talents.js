@@ -22,7 +22,7 @@
  * Target: Foundry VTT v13.351
  */
 
-import { hasTalent, getTalentItem, getNamedItemRank } from "./talents-api.js";
+import { hasTalent, getTalentItem, getNamedItemRank, resolveTalentSlug } from "./talents-api.js";
 import { shouldYieldToRE } from "./features/rule-elements.js";
 import {
   computeSpellRestraintReduction,
@@ -34,6 +34,7 @@ import {
 } from "../magic/magic-modifiers.js";
 import { _num, _lower } from "./_primitives.js";
 import { _bool, _strTrim } from "../../utils/coerce.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -164,12 +165,14 @@ export function getSpellcastingTalentState(actor) {
  */
 export async function setSpellcastingPrimedState(actor, state) {
   if (!actor || !state?.slug) return;
-  await actor.setFlag(FLAG_SCOPE, PRIMED_FLAG, {
-    slug: String(state.slug),
-    expiresAtWorldTime: state.expiresAtWorldTime ?? null,
-    usesRemaining: state.usesRemaining ?? 1,
-    options: state.options ?? {},
-    primedAt: Date.now()
+  await requestUpdateDocument(actor, {
+    [`flags.${FLAG_SCOPE}.${PRIMED_FLAG}`]: {
+      slug: String(state.slug),
+      expiresAtWorldTime: state.expiresAtWorldTime ?? null,
+      usesRemaining: state.usesRemaining ?? 1,
+      options: state.options ?? {},
+      primedAt: Date.now()
+    }
   });
 }
 
@@ -182,7 +185,7 @@ export async function setSpellcastingPrimedState(actor, state) {
 export async function clearSpellcastingPrimedState(actor) {
   if (!actor) return;
   try {
-    await actor.unsetFlag(FLAG_SCOPE, PRIMED_FLAG);
+    await requestUpdateDocument(actor, { [`flags.${FLAG_SCOPE}.-=${PRIMED_FLAG}`]: null });
   } catch (_e) {
     // Flag may not exist; safe to ignore
   }
@@ -233,7 +236,8 @@ function _checkMilestoneDependency(slug, actor) {
       content: `<p><strong>⚠ Talent Stub:</strong> <em>${slug}</em> on <strong>${actor?.name ?? "Unknown"}</strong> ` +
         `requires the <em>${MILESTONE_SUBSYSTEMS[info.milestone] ?? info.milestone}</em> which is not yet implemented. ` +
         `This talent currently has no automated effect.</p>`,
-      whisper: ChatMessage.getWhisperRecipients("GM")
+      whisper: ChatMessage.getWhisperRecipients("GM"),
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER
     }).catch(() => {});
   }
 
@@ -809,13 +813,19 @@ export function applyTalentSummaryToProfile(profile, summary) {
  * Names of talents that support manual activation (priming).
  */
 const ACTIVATABLE_SPELLCASTING_TALENTS = new Set([
-  "bend-reality", "bendreality",
+  "bendreality",
   "control",
-  "flow-of-magicka", "flowofmagicka",
+  "flowofmagicka",
   "healer",
   "overcharge",
-  "void-channeler", "voidchanneler"
+  "voidchanneler"
 ]);
+
+function _getTalentActivationSlug(talentItem) {
+  const byAlias = resolveTalentSlug(talentItem?.name ?? "");
+  if (byAlias) return byAlias;
+  return _lower(talentItem?.name ?? "").replace(/[^a-z0-9]/g, "");
+}
 
 /**
  * Check whether a talent item is an activatable spellcasting talent.
@@ -823,10 +833,9 @@ const ACTIVATABLE_SPELLCASTING_TALENTS = new Set([
  * @param {Item} talentItem
  * @returns {boolean}
  */
-/** @private */
-function isActivatableSpellcastingTalent(talentItem) {
+export function isActivatableSpellcastingTalent(talentItem) {
   if (!talentItem || talentItem.type !== "talent") return false;
-  const slug = _lower(talentItem.name).replace(/[^a-z0-9]/g, "");
+  const slug = _getTalentActivationSlug(talentItem);
   return ACTIVATABLE_SPELLCASTING_TALENTS.has(slug);
 }
 
@@ -837,11 +846,10 @@ function isActivatableSpellcastingTalent(talentItem) {
  * @param {Item} talentItem - The talent item being activated
  * @returns {Promise<boolean>} true if activation was successful
  */
-/** @private */
-async function activateSpellcastingTalent(actor, talentItem) {
+export async function activateSpellcastingTalent(actor, talentItem) {
   if (!actor || !talentItem) return false;
 
-  const slug = _lower(talentItem.name).replace(/[^a-z0-9]/g, "");
+  const slug = _getTalentActivationSlug(talentItem);
 
   // Build primed state based on talent
   let primedState = null;
@@ -900,7 +908,8 @@ async function activateSpellcastingTalent(actor, talentItem) {
   // Post chat message
   await ChatMessage.create({
     content: `<div class="uesrpg talent-activation">${chatMessage}</div>`,
-    speaker: ChatMessage.getSpeaker({ actor })
+    speaker: ChatMessage.getSpeaker({ actor }),
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
 
   return true;

@@ -6,6 +6,26 @@
  */
 
 import { collectTraitDamageModifiers, getResistanceKeyForTraitType } from "../../traits/trait-registry.js";
+import { getFeatureConfig } from "../../traits/features/feature-config.js";
+
+/**
+ * Check whether a passive feature item (trait/talent/power) is currently
+ * active given its per-item feature configuration and the current combat state.
+ *
+ * @param {object} item - The item to check.
+ * @returns {boolean} True if the item's bonuses should be aggregated.
+ */
+function _isFeatureActive(item) {
+  const fcfg = getFeatureConfig(item);
+  if (fcfg?.enabled === false) return false;
+
+  // (#7) Combat gating: respect combatOnly and outOfCombatAllowed flags.
+  const inCombat = Boolean(game?.combat?.started);
+  if (fcfg?.combatOnly && !inCombat) return false;
+  if (fcfg?.outOfCombatAllowed === false && !inCombat) return false;
+
+  return true;
+}
 
 /**
  * Aggregate item stats in a single pass to avoid repeated item.filter() work.
@@ -13,15 +33,31 @@ import { collectTraitDamageModifiers, getResistanceKeyForTraitType } from "../..
  * @param {object} actorData - Actor data (for legacy compatibility)
  * @returns {object} Aggregated stats
  */
+// Fast numeric hash for cache invalidation.
+function _sysHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+
 export function aggregateItemStats(actor, actorData) {
-  // Build a signature of items to detect changes
+  // Build a signature of items to detect changes.
+  // Hash each item's full system data so ANY field change invalidates the cache.
+  // (#8) Include combat state so cache invalidates when combat starts/ends.
   const itemsRaw = actorData?.items;
   const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
-  let sigParts = [];
+  const combatState = game?.combat?.started ? "combat" : "peace";
+  let sigParts = [`__combat:${combatState}`];
   for (let it of items) {
     const sys = it?.system ?? {};
-    const isShield = (it?.type === 'armor') && Boolean(sys?.isShieldEffective ?? sys?.isShield);
-    sigParts.push(`${it?._id||''}:${Number(sys?.quantity||0)}:${Number(sys?.enc||0)}:${sys?.equipped?1:0}:${sys?.excludeENC?1:0}:${sys?.containerStats?.contained?1:0}:${isShield?1:0}`);
+    try {
+      sigParts.push(`${it?._id || ''}:${_sysHash(JSON.stringify(sys))}`);
+    } catch (_e) {
+      // Fallback if JSON.stringify fails (circular refs, etc.)
+      sigParts.push(`${it?._id || ''}:?`);
+    }
   }
   const signature = sigParts.join('|');
 
@@ -35,11 +71,19 @@ export function aggregateItemStats(actor, actorData) {
     resist: { diseaseR:0, fireR:0, frostR:0, shockR:0, poisonR:0, magicR:0, natToughnessR:0, silverR:0, sunlightR:0 },
     swimBonus:0, flyBonus:0, doubleSwimSpeed:false, addHalfSpeed:false, halfSpeed:false,
     totalEnc:0, armorEnc:0, excludedEnc:0,
+    zeroEncItemCount: 0,
     skillModifiers: {},
     traitsAndTalents: [],
     shiftForms: [],
     itemCount: items.length
   };
+
+  // Track schema resistance values contributed by trait items specifically.
+  // collectTraitDamageModifiers() also parses trait items via traitKey/traitParam/traitValue
+  // and applies highest-wins stacking. If a trait has BOTH schema XR fields AND traitKey
+  // data populated, the per-item sum and the traitDamage post-loop would double-count.
+  // We track the trait-item schema contribution so we can subtract the overlap below.
+  const traitSchemaResist = { diseaseR:0, fireR:0, frostR:0, shockR:0, poisonR:0, magicR:0, natToughnessR:0, silverR:0, sunlightR:0 };
 
   for (let item of items) {
     const sys = item && item.system ? item.system : {};
@@ -50,11 +94,13 @@ export function aggregateItemStats(actor, actorData) {
     const itemType = item?.type;
     
     // EQUIPMENT STATUS DETERMINATION
-    // Talents, Traits, and Powers are ALWAYS active (passive character features).
-    // They represent inherent abilities and do NOT require equipment status.
+    // (#7) Talents, Traits, and Powers are passive features whose activation respects
+    // per-item feature configuration (combatOnly, outOfCombatAllowed).
     // Equipment items (weapons/armor/gear) respect the 'equipped' flag when present.
     const isPassiveFeature = (itemType === 'talent' || itemType === 'trait' || itemType === 'power');
-    const isEquipped = isPassiveFeature ? true : (Object.prototype.hasOwnProperty.call(sys, 'equipped') ? sys.equipped : true);
+    const isEquipped = isPassiveFeature
+      ? _isFeatureActive(item)
+      : (Object.prototype.hasOwnProperty.call(sys, 'equipped') ? sys.equipped : true);
 
     // RAW Chapter 1 & 7: "Total ENC = sum of ENC of ALL equipment they are carrying"
     // Special cases:
@@ -80,6 +126,13 @@ export function aggregateItemStats(actor, actorData) {
       contributedWeight = contributedWeight / 2;
     }
     
+    // RAW Chapter 1: "Items with an ENC of zero are, on their own, inconsequential.
+    // But if a character is carrying a large number of these items, treat every
+    // 10 zero ENC items as having a total ENC of one."
+    if (enc === 0 && qty > 0) {
+      stats.zeroEncItemCount += qty;
+    }
+
     stats.totalEnc += contributedWeight;
 
     // Track excluded ENC for items with excludeENC flag
@@ -124,6 +177,20 @@ export function aggregateItemStats(actor, actorData) {
       stats.resist.silverR += Number(sys.silverR || 0);
       stats.resist.sunlightR += Number(sys.sunlightR || 0);
 
+      // Track trait-item schema resistance values for de-duplication with
+      // collectTraitDamageModifiers (highest-wins) in the post-loop below.
+      if (itemType === 'trait') {
+        traitSchemaResist.diseaseR += Number(sys.diseaseR || 0);
+        traitSchemaResist.fireR += Number(sys.fireR || 0);
+        traitSchemaResist.frostR += Number(sys.frostR || 0);
+        traitSchemaResist.shockR += Number(sys.shockR || 0);
+        traitSchemaResist.poisonR += Number(sys.poisonR || 0);
+        traitSchemaResist.magicR += Number(sys.magicR || 0);
+        traitSchemaResist.natToughnessR += Number(sys.natToughnessR || 0);
+        traitSchemaResist.silverR += Number(sys.silverR || 0);
+        traitSchemaResist.sunlightR += Number(sys.sunlightR || 0);
+      }
+
       // swim / fly / flags
       stats.swimBonus += Number(sys.swimBonus || 0);
       stats.flyBonus += Number(sys.flyBonus || 0);
@@ -149,20 +216,31 @@ export function aggregateItemStats(actor, actorData) {
   const traitDamage = collectTraitDamageModifiers(items);
   stats.traitDamage = traitDamage;
 
+  // Merge trait-key-derived resistance values (highest-wins) into the resistance totals.
+  // Subtract the overlap from trait-item schema fields first to prevent double-counting
+  // when a trait has both schema XR fields and traitKey/traitValue populated.
   for (const [typeKey, value] of Object.entries(traitDamage.resistance ?? {})) {
     const resKey = getResistanceKeyForTraitType(typeKey);
     if (!resKey || !Number.isFinite(value) || !value) continue;
     if (Object.prototype.hasOwnProperty.call(stats.resist, resKey)) {
-      stats.resist[resKey] = Number(stats.resist[resKey] ?? 0) + Number(value);
+      const overlap = Number(traitSchemaResist[resKey] ?? 0);
+      stats.resist[resKey] = Number(stats.resist[resKey] ?? 0) - overlap + Number(value);
     }
   }
 
+  // Same de-duplication for weakness values (applied as negative resistance).
   for (const [typeKey, value] of Object.entries(traitDamage.weakness ?? {})) {
     const resKey = getResistanceKeyForTraitType(typeKey);
     if (!resKey || !Number.isFinite(value) || !value) continue;
     if (Object.prototype.hasOwnProperty.call(stats.resist, resKey)) {
-      stats.resist[resKey] = Number(stats.resist[resKey] ?? 0) - Number(value);
+      const overlap = Number(traitSchemaResist[resKey] ?? 0);
+      stats.resist[resKey] = Number(stats.resist[resKey] ?? 0) - overlap - Number(value);
     }
+  }
+
+  // RAW Chapter 1: every 10 zero-ENC items contribute 1 ENC to totalEnc
+  if (stats.zeroEncItemCount >= 10) {
+    stats.totalEnc += Math.floor(stats.zeroEncItemCount / 10);
   }
 
   actor._aggCache = { signature, agg: stats };

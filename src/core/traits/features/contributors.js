@@ -16,7 +16,9 @@
  */
 
 import { makeFeatureMod, FEATURE_DOMAINS, STACKING_MODES, normalizeFeatureKey } from "./feature-mod.js";
-import { normalizeTalentKey } from "../talents-api.js";
+import { normalizeTalentKey, resolveTalentSlug } from "../talents-api.js";
+import { isREAuthoritative, getRuleElements } from "./rule-elements.js";
+import { canApplyCharGenGatedImperialTalents } from "../racial-talents.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Shared constants
@@ -101,6 +103,35 @@ function _emitItemBonusMods(item, source) {
 }
 
 /**
+ * (#3) Emit FeatureMods for ONLY non-resistance item bonus fields (hpBonus, speedBonus, etc.).
+ * Used by trait contributors when the category resolves via traitKey, so that non-resistance
+ * bonus fields (hpBonus, etc.) are not silently dropped alongside the category-specific emission.
+ *
+ * @param {Item}   item   - The item to read bonus fields from.
+ * @param {object} source - FeatureMod source descriptor.
+ * @returns {FeatureMod[]}
+ */
+function _emitNonResistBonusMods(item, source) {
+  const sys = item?.system ?? {};
+  const mods = [];
+
+  for (const { field, domain, path, stacking } of ITEM_BONUS_FIELDS) {
+    const val = Number(sys[field] ?? 0);
+    if (!Number.isFinite(val) || val === 0) continue;
+    mods.push(makeFeatureMod({
+      domain,
+      path,
+      mode: "add",
+      value: val,
+      source,
+      rule: { chapter: 4, name: `${item.name}: ${field}`, stacking },
+    }));
+  }
+
+  return mods;
+}
+
+/**
  * Emit characteristic-replacement override mods (IR / WT characteristic swap).
  * Shared by talents and powers.
  *
@@ -131,6 +162,57 @@ function _emitCharacteristicOverrides(sys, item, source, mods) {
       rule: { chapter: 4, name: `${item.name}: WT uses ${sys.replace.wt.characteristic}`, stacking: STACKING_MODES.OVERRIDE },
     }));
   }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// (#5) Rule Element authority helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Check whether an item has an enabled Rule Element whose target matches a given
+ * actor system path. When true, the hardcoded passive effect for that path should
+ * yield (skip emission) so the RE-driven value takes precedence without stacking
+ * conflicts.
+ *
+ * @param {Item}   item       - The feature item.
+ * @param {string} targetPath - The actor system path (e.g. "system.wtBonus").
+ * @returns {boolean}
+ */
+function _hasRECoveringPath(item, targetPath) {
+  if (!item || !targetPath) return false;
+  const elements = getRuleElements(item);
+  if (!elements.length) return false;
+  for (const el of elements) {
+    if (el?.enabled === false) continue;
+    const type = String(el?.type ?? "");
+    if (type === "flatModifier" || type === "overrideValue" || type === "booleanFlag") {
+      if (String(el?.target ?? "") === targetPath) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Determine if a passive talent effect should be skipped because the item has
+ * an RE that covers its path. Falls back to the broader `isREAuthoritative`
+ * check as a safety net.
+ *
+ * @param {Item}   item          - The talent item.
+ * @param {object} passiveEntry  - Entry from PASSIVE_TALENT_EFFECTS.
+ * @returns {boolean} True if the hardcoded effect should yield to an RE.
+ */
+function _shouldYieldPassiveToRE(item, passiveEntry) {
+  if (!item || !passiveEntry) return false;
+
+  // Direct path match: if any RE targets the same path, yield.
+  if (passiveEntry.path && _hasRECoveringPath(item, passiveEntry.path)) return true;
+
+  // Broader check: if any RE of the matching family type exists, yield.
+  if (passiveEntry.mode === "boolean" && isREAuthoritative(item, "booleanFlag")) return true;
+  if (passiveEntry.mode === "set" && isREAuthoritative(item, "overrideValue")) return true;
+
+  return false;
 }
 
 
@@ -260,6 +342,9 @@ export function contributeTraitMods(actor, item) {
       source,
       rule: { chapter: 4, name: "Incorporeal", stacking: STACKING_MODES.ANY },
     }));
+    // (#3) Also emit non-resistance bonus fields (hpBonus, speedBonus, etc.)
+    // so they are not silently dropped when the flag takes the early return.
+    mods.push(..._emitNonResistBonusMods(item, source));
     return mods;
   }
 
@@ -313,6 +398,8 @@ export function contributeTraitMods(actor, item) {
         rule: { chapter: 4, name: "Disease Resistance (%)", stacking: STACKING_MODES.HIGHEST },
       }));
     }
+    // (#3) Also emit non-resistance bonus fields alongside the disease resistance.
+    mods.push(..._emitNonResistBonusMods(item, source));
     return mods;
   }
 
@@ -358,6 +445,8 @@ export function contributeTraitMods(actor, item) {
         rule: { chapter: 4, name: `Immunity (${condType})`, stacking: STACKING_MODES.ANY },
       }));
     }
+    // (#3) Also emit non-resistance bonus fields alongside immunity.
+    mods.push(..._emitNonResistBonusMods(item, source));
     return mods;
   }
 
@@ -368,6 +457,8 @@ export function contributeTraitMods(actor, item) {
   }
 
   if (!Number.isFinite(traitValue) || traitValue === 0) {
+    // (#3) Still emit non-resistance bonus fields even if trait value is zero.
+    mods.push(..._emitNonResistBonusMods(item, source));
     return mods;
   }
 
@@ -398,6 +489,11 @@ export function contributeTraitMods(actor, item) {
     }));
   }
 
+  // (#3) Emit non-resistance bonus fields alongside category-specific mods.
+  // This ensures hpBonus, speedBonus, etc. are not lost when the trait resolves
+  // to a resistance/weakness/immunity category via traitKey.
+  mods.push(..._emitNonResistBonusMods(item, source));
+
   return mods;
 }
 
@@ -405,6 +501,46 @@ export function contributeTraitMods(actor, item) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Talent contributor
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * (#6) Racial talent passive effects (Chapter 4).
+ * Numeric bonuses that were previously hardcoded in `applyRacialTalentDerivedBonuses()`
+ * are now emitted as FeatureMods for Feature Inspector visibility and proper stacking.
+ *
+ * Non-numeric effects (disease immunity flag, Histskin swim×2) remain in racial-talents.js.
+ * Imperial talents (Red Diamond / Imperial Luck) compute dynamically in contributeTalentMods.
+ */
+const RACIAL_TALENT_EFFECTS = Object.freeze({
+  "childofthesap": [
+    { domain: FEATURE_DOMAINS.SPEED, path: "system.speed.bonus", mode: "add", value: 1, stacking: STACKING_MODES.ADD, label: "Child of the Sap (+1 Speed)" },
+  ],
+  "naturesblessing": [
+    { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.diseaseR", mode: "add", value: 25, stacking: STACKING_MODES.ADD, label: "Nature's Blessing (+25 Disease R)" },
+    { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.poisonR", mode: "add", value: 1, stacking: STACKING_MODES.ADD, label: "Nature's Blessing (+1 Poison R)" },
+  ],
+  "sonsofskyrim": [
+    { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.frostR", mode: "add", value: 1, stacking: STACKING_MODES.ADD, label: "Sons of Skyrim (+1 Frost R)" },
+    { domain: FEATURE_DOMAINS.WOUND_THRESHOLD, path: "system.wound_threshold.bonus", mode: "add", value: 1, stacking: STACKING_MODES.ADD, label: "Sons of Skyrim (+1 WT)" },
+  ],
+  "malacathsfury": [
+    { domain: FEATURE_DOMAINS.HP, path: "system.hp.bonus", mode: "add", value: 2, stacking: STACKING_MODES.ADD, label: "Malacath's Fury (+2 HP)" },
+  ],
+});
+
+/**
+ * (#6) Helper: look up the Star of the West SP bonus from the actor's trait items.
+ * Mirrors the logic previously in racial-talents.js `_getStarOfTheWestBonus`.
+ */
+function _getStarOfTheWestBonus(actor) {
+  if (!actor) return 0;
+  for (const it of (actor.items ?? [])) {
+    if (!it || String(it.type ?? "") !== "trait") continue;
+    if (normalizeTalentKey(it.name) === "star-of-the-west") {
+      return Math.max(0, Number(it.system?.spBonus ?? 0));
+    }
+  }
+  return 0;
+}
 
 /**
  * Talents with deterministic passive effects (Chapter 4).
@@ -459,7 +595,7 @@ export function contributeTalentMods(actor, item) {
   if (!item || String(item.type ?? "") !== "talent") return [];
 
   const sys = item.system ?? {};
-  const talentSlug = normalizeTalentKey(item.name);
+  const talentSlug = resolveTalentSlug(item.name);
 
   const source = {
     type: "talent",
@@ -475,8 +611,10 @@ export function contributeTalentMods(actor, item) {
   mods.push(..._emitItemBonusMods(item, source));
 
   // ── Known passive effects ──
+  // (#5) Check RE authority: if the talent has an RE covering the same path,
+  // skip the hardcoded emission (let the RE-driven value take precedence).
   const passiveEntry = PASSIVE_TALENT_EFFECTS[talentSlug];
-  if (passiveEntry) {
+  if (passiveEntry && !_shouldYieldPassiveToRE(item, passiveEntry)) {
     let value = passiveEntry.value;
 
     // Dynamic value for Untouchable: 3 × LB
@@ -494,6 +632,58 @@ export function contributeTalentMods(actor, item) {
         source,
         rule: { chapter: 4, name: passiveEntry.label, stacking: passiveEntry.stacking },
       }));
+    }
+  }
+
+  // ── (#6) Racial talent passive effects ──
+  const racialSource = {
+    type: "talent",
+    key: `racial-talent:${talentSlug}`,
+    itemName: item.name ?? "",
+    itemUuid: item.uuid ?? "",
+    itemId: item.id ?? "",
+  };
+
+  const racialEffects = RACIAL_TALENT_EFFECTS[talentSlug];
+  if (racialEffects) {
+    for (const effect of racialEffects) {
+      mods.push(makeFeatureMod({
+        domain: effect.domain,
+        path: effect.path,
+        mode: effect.mode,
+        value: effect.value,
+        source: racialSource,
+        rule: { chapter: 4, name: effect.label, stacking: effect.stacking },
+      }));
+    }
+  }
+
+  // (#6) Imperial: Red Diamond / Imperial Luck — dynamic SP computation
+  if (talentSlug === "reddiamond" || talentSlug === "imperialluck") {
+    const imperialSource = {
+      type: "talent",
+      key: `racial-talent:${talentSlug}`,
+      itemName: item.name ?? "",
+      itemUuid: item.uuid ?? "",
+      itemId: item.id ?? "",
+    };
+    const gated = canApplyCharGenGatedImperialTalents(actor, {
+      warnTalentName: talentSlug === "imperialluck" ? "Imperial Luck" : "Red Diamond"
+    });
+    if (gated) {
+      const desiredFromStar = talentSlug === "imperialluck" ? 3 : 2;
+      const currentFromStar = _getStarOfTheWestBonus(actor);
+      const delta = Math.max(0, desiredFromStar - currentFromStar);
+      if (delta > 0) {
+        mods.push(makeFeatureMod({
+          domain: FEATURE_DOMAINS.SP,
+          path: "system.stamina.bonus",
+          mode: "add",
+          value: delta,
+          source: imperialSource,
+          rule: { chapter: 4, name: `${item.name} (+${delta} SP)`, stacking: STACKING_MODES.ADD },
+        }));
+      }
     }
   }
 

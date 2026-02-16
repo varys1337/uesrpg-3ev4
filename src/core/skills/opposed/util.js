@@ -14,7 +14,7 @@ export function _esc(value) {
     .replace(/'/g, "&#39;");
 }
 
-export function _canControlActor(actor) {
+function _canControlActor(actor) {
   return Boolean(actor?.testUserPermission?.(game.user, "OWNER"));
 }
 
@@ -37,12 +37,12 @@ export function _fmtDegree(res) {
   return `<span style="color: ${cls};">${textual}</span>`;
 }
 
-export function _anyActiveGMOnline() {
+function _anyActiveGMOnline() {
   const activeGM = game.users.activeGM ?? null;
   return Boolean(activeGM);
 }
 
-export function _safeGetSetting(key, defaultValue = null) {
+function _safeGetSetting(key, defaultValue = null) {
   try {
     return game.settings.get("uesrpg-3ev4", key) ?? defaultValue;
   } catch (_e) {

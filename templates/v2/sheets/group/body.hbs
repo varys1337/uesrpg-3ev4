@@ -1,0 +1,394 @@
+    <section class="sheet-body">
+
+      {{!-- ─── Members Tab ─── --}}
+      <div class="tab members" data-group="primary" data-tab="members">
+        <!-- Drop zone -->
+        <div class="member-drop-zone">
+          <i class="fas fa-users drop-icon"></i>
+          <p class="drop-hint">
+            {{#if editable}}Drag actors here to add them to this group{{else}}Group Members{{/if}}
+          </p>
+        </div>
+
+        {{#if resolvedMembers.length}}
+        <!-- Controls row -->
+        <div class="controls">
+          {{#if isGM}}
+          <button type="button" data-action="deployGroup">
+            <i class="fas fa-chess-board"></i> Deploy Group
+          </button>
+          {{/if}}
+          <button type="button" data-action="shortRest">
+            <i class="fas fa-coffee"></i> Short Rest
+          </button>
+          <button type="button" data-action="longRest">
+            <i class="fas fa-bed"></i> Long Rest
+          </button>
+        </div>
+
+        <!-- Member list -->
+        <div class="member-list-scrollable">
+          {{#each resolvedMembers as |member|}}
+          <div class="member-item" data-uuid="{{member.uuid}}">
+
+            <!-- Portrait spans 2 rows -->
+            <div class="member-portrait" data-action="viewMember">
+              <img src="{{member.img}}" width="40" height="40" title="{{member.name}}"
+                   class="{{#if member.missing}}member-missing{{/if}}">
+            </div>
+
+            <!-- Name in row 1, column 2 -->
+            <div class="member-name" data-action="viewMember">
+              {{member.name}}
+              {{#if member.missing}}<span class="member-missing-label">(Missing)</span>{{/if}}
+            </div>
+
+            <!-- Stats in row 2, column 2 -->
+            {{#if member.canView}}
+            <div class="member-stats">
+              <span title="Health Points"><i class="fas fa-heart stat-hp"></i> {{member.hp.value}}/{{member.hp.max}}</span>
+              <span title="Stamina Points"><i class="fas fa-bolt stat-sp"></i> {{member.stamina.value}}/{{member.stamina.max}}</span>
+              {{#if member.magicka}}<span title="Magicka Points"><i class="fas fa-hat-wizard stat-mp"></i> {{member.magicka.value}}/{{member.magicka.max}}</span>{{/if}}
+              <span title="Speed"><i class="fas fa-running stat-speed"></i> {{member.speed}}</span>
+              {{#if member.fatigue}}<span class="stat-fatigue" title="Fatigue Level"><i class="fas fa-exclamation-triangle"></i> Fatigue {{member.fatigue}}</span>{{/if}}
+            </div>
+            {{/if}}
+
+            <!-- Delete button spans 2 rows, column 3 -->
+            {{#if ../editable}}
+            <button type="button" data-action="removeMember" title="Remove from group"
+                    class="member-remove-btn">
+              <i class="fas fa-times"></i>
+            </button>
+            {{/if}}
+          </div>
+          {{/each}}
+        </div>
+        {{else}}
+        <p class="group-empty">No members in this group.</p>
+        {{/if}}
+      </div>
+
+      {{!-- ─── Inventory Tab ─── --}}
+      <div class="tab inventory" data-group="primary" data-tab="inventory">
+        <div class="inventory-header">
+          <h3>Group Inventory</h3>
+          <p>Drag items here to add to group inventory</p>
+        </div>
+
+        <div class="itemListContainer">
+
+          {{!-- Containers --}}
+          <table>
+            <thead>
+              <tr>
+                <th class="item-name-cell">Containers</th>
+                <th></th>
+                <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#each container as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>{{item.system.capacity}}</td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+
+          {{!-- Weapons --}}
+          <table>
+            <thead>
+              <tr>
+                <th class="item-name-cell">Weapons</th>
+                <th>Dmg</th>
+                <th>Range</th>
+                <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#each weapon.equipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>{{item.system.damage}}</td>
+                  <td>{{#if item.system.ranged}}{{item.system.range}}{{else}}{{item.system.reach}}{{/if}}</td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+              {{#each weapon.unequipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>{{item.system.damage}}</td>
+                  <td>{{#if item.system.ranged}}{{item.system.range}}{{else}}{{item.system.reach}}{{/if}}</td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+
+          {{!-- Ammunition --}}
+          <table>
+            <thead>
+              <tr>
+                <th class="item-name-cell">Ammunition</th>
+                <th>Qty</th>
+                <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#each ammunition.equipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>
+                    <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
+                      <div>{{item.system.quantity}}</div>
+                    </button>
+                  </td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+              {{#each ammunition.unequipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>
+                    <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
+                      <div>{{item.system.quantity}}</div>
+                    </button>
+                  </td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+
+          {{!-- Armor --}}
+          <table>
+            <thead>
+              <tr>
+                <th class="item-name-cell">Armor</th>
+                <th>AR</th>
+                <th>MAR</th>
+                <th>BR</th>
+                <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#each armor.equipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
+                  <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
+                  <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+              {{#each armor.unequipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
+                  <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
+                  <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+
+          {{!-- Gear/Items --}}
+          <table>
+            <thead>
+              <tr>
+                <th class="item-name-cell item-create" data-action="itemCreate" id="createSelect">Items +</th>
+                <th>Qty</th>
+                <th><i class="fas fa-trash"></i></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#each gear.equipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td>
+                    <div class="tableItemNameCell">
+                      <div class="qty-controls">
+                        <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      </div>
+                      <img class="item-img" src="{{item.img}}" title="{{item.name}}" data-action="itemShow"/>
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>
+                    <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
+                      <div>{{item.system.quantity}}</div>
+                    </button>
+                  </td>
+                  <td>
+                    <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                  </td>
+                </tr>
+              {{/each}}
+              {{#each gear.unequipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td>
+                    <div class="tableItemNameCell">
+                      <div class="qty-controls">
+                        <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      </div>
+                      <img class="item-img" src="{{item.img}}" title="{{item.name}}" data-action="itemShow"/>
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>
+                    <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
+                      <div>{{item.system.quantity}}</div>
+                    </button>
+                  </td>
+                  <td>
+                    <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                  </td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {{!-- ─── Travel Tab ─── --}}
+      <div class="tab travel" data-group="primary" data-tab="travel">
+        <h3>Travel &amp; Movement</h3>
+
+        <div class="travel-stats">
+          <div class="stat-card">
+            <h4>Group Speed</h4>
+            <div class="stat-speed-value">{{displayAverageSpeed}} m/round</div>
+            <div class="stat-speed-kmh">{{displayAverageSpeedKmh}} km/h</div>
+            <p class="stat-hint">Speed of slowest member with pace multiplier</p>
+          </div>
+
+          <div class="stat-card">
+            <h4>Travel Pace</h4>
+            <div class="pace-controls">
+              <button type="button" data-action="changePace" class="change-pace">
+                {{#if (eq currentPace "fast")}}Fast{{/if}}
+                {{#if (eq currentPace "normal")}}Normal{{/if}}
+                {{#if (eq currentPace "slow")}}Slow{{/if}}
+              </button>
+            </div>
+            <p class="stat-hint">Click to cycle pace (affects speed display)</p>
+          </div>
+        </div>
+
+        <div class="pace-reference">
+          <h4>Travel Pace Reference (RAW Chapter 1)</h4>
+          <table class="pace-table">
+            <thead>
+              <tr>
+                <th>Pace</th>
+                <th class="text-center">Speed (km/h)</th>
+                <th class="text-center">Daily (8 hours)</th>
+                <th>Effect</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr {{#if (eq currentPace 'fast')}}class="pace-active"{{/if}}>
+                <td><b>Fast</b></td>
+                <td class="text-center">7 km/h</td>
+                <td class="text-center">56 km</td>
+                <td>−20 to Observe</td>
+              </tr>
+              <tr {{#if (eq currentPace 'normal')}}class="pace-active"{{/if}}>
+                <td><b>Normal</b></td>
+                <td class="text-center">5 km/h</td>
+                <td class="text-center">40 km</td>
+                <td>—</td>
+              </tr>
+              <tr {{#if (eq currentPace 'slow')}}class="pace-active"{{/if}}>
+                <td><b>Slow</b></td>
+                <td class="text-center">3 km/h</td>
+                <td class="text-center">24 km</td>
+                <td>Can move stealthily</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {{!-- ─── Details Tab ─── --}}
+      <div class="tab details" data-group="primary" data-tab="details">
+        <div class="editor-section">
+          <h3>Description</h3>
+          {{editor enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+        </div>
+
+        <div class="editor-section">
+          <h3>Notes</h3>
+          {{editor enrichedNotes target="system.notes" engine="prosemirror" button=true owner=owner editable=editable}}
+        </div>
+      </div>
+
+    </section>

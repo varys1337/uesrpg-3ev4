@@ -9,7 +9,7 @@
 --}}
 <header class="effects-header flexrow">
     <h3>Effects</h3>
-    <a class="effect-control" data-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
+    <a class="effect-control" data-action="effectControl" data-effect-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
 </header>
 <ol class="effects-list">
     {{#each effects as |effect|}}
@@ -22,9 +22,9 @@
         <span class="effect-mode-badge activation" title="Activation: transferred to targeted actors when this feature is used">Activation</span>
         {{/if}}
         <div class="effect-controls flexrow">
-            <a class="effect-control" data-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
-            <a class="effect-control" data-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
-            <a class="effect-control" data-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
+            <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
+            <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
+            <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
         </div>
     </li>
     {{/each}}

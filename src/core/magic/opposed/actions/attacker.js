@@ -7,6 +7,7 @@
  */
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, applySpellRestraintRefund, isHealingSpell, getSpellScalingLevels } from "../../magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "../../backfire.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
@@ -17,6 +18,7 @@ import { SKILL_DIFFICULTIES } from "../../../skills/skill-tn.js";
 import { spellRequiresOriginAE, createOriginAE, registerLinkedEntity, findOriginAE } from "../../effects/origin-effect.js";
 import { isCharacteristicDefense, computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 
@@ -74,11 +76,10 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
     return `<option value="${String(s.id)}">${s.name} (${school} L${level}, ${cost} MP)</option>`;
   }).join("");
 
-  return await new Promise((resolve) => {
-    const dialog = new Dialog({
-      title: "Cast Magic",
-      content: `
-        <form class="uesrpg">
+  return await customDialog({
+    title: "Cast Magic",
+    content: `
+        <div class="uesrpg">
           <div class="form-group">
             <label><b>Select Spell to Commit</b></label>
             <select name="spellId" style="width:100%;">${spellOptions}</select>
@@ -121,7 +122,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
               <span><b>Magicka Cycling</b> (talent option)</span>
             </label>
           </div>` : ""}
-        </form>
+        </div>
       `,
       buttons: {
         commit: {
@@ -132,8 +133,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
             const spellId = String(root?.querySelector('select[name="spellId"]')?.value ?? "");
             const selectedSpell = byId.get(spellId) ?? null;
             if (!selectedSpell) {
-              resolve(null);
-              return;
+              return null;
             }
 
             const baseLevel = Number(selectedSpell?.system?.level ?? 1) || 1;
@@ -142,7 +142,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
             const hasOverload = Boolean(selectedSpell?.system?.hasOverload);
             const isOverloaded = hasOverload && Boolean(root?.querySelector('input[name="overload"]')?.checked);
 
-            resolve({
+            return {
               spell: selectedSpell,
               spellOptions: {
                 difficultyKey: String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average"),
@@ -154,18 +154,18 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
                 castLevel,
                 level: castLevel // Alias for compatibility with existing resolvers
               }
-            });
+            };
           }
         },
         cancel: {
           icon: '<i class="fas fa-times"></i>',
           label: "Cancel",
-          callback: () => resolve(null)
+          callback: () => null
         }
       },
       default: "commit",
-      render: (html) => {
-        const root = html instanceof HTMLElement ? html : html?.[0];
+      render: (event, html) => {
+        const root = html instanceof HTMLElement ? html : html?.element ?? html;
         const spellSelect = root?.querySelector('select[name="spellId"]');
         const castLevelGroup = root?.querySelector("#ues-cast-level-group");
         const castLevelSelect = root?.querySelector("#ues-cast-level");
@@ -252,11 +252,8 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
 
         rebuildForSpell();
       },
-      close: () => resolve(null)
-    }, { width: 560 });
-
-    dialog.render(true);
-  });
+      width: 560
+    });
 }
 
 /**
@@ -455,7 +452,7 @@ export async function handleAttackerRoll(ctx) {
   const magickaSpend = await consumeSpellMagicka(attacker, spell, data.attacker.spellOptions ?? {});
   if (!magickaSpend?.ok) {
     try {
-      await attacker.update({ "system.action_points.value": currentAP });
+      await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
     } catch (_e) {
       // best-effort
     }

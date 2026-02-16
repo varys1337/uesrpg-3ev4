@@ -16,6 +16,7 @@ import { setDefenderOutcome, markResolutionPhase, setMagicDefenderDamage } from 
 import { trySpellReflect } from "../spell-runtime.js";
 import { isCharacteristicDefense, executeCharacteristicDefense, processCharacteristicDefenseOutcome } from "../characteristic-defense-service.js";
 import { createDebugLogger } from "../_primitives.js";
+import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 
 const _spellDebug = createDebugLogger("spellCastingDebug");
 
@@ -863,8 +864,10 @@ export async function resolveOutcome(ctx) {
   const aResult = data.attacker.result;
   if (aResult?.success) {
     try {
-      await attacker.setFlag("uesrpg-3ev4", "lastSpellCastWorldTime", game.time.worldTime);
-      await attacker.setFlag("uesrpg-3ev4", "lastSpellCastSpellUuid", spell.uuid);
+      await requestUpdateDocument(attacker, {
+        "flags.uesrpg-3ev4.lastSpellCastWorldTime": game.time.worldTime,
+        "flags.uesrpg-3ev4.lastSpellCastSpellUuid": spell.uuid
+      });
     } catch (err) {
       console.warn("UESRPG | Failed to set last spell cast flags", err);
     }

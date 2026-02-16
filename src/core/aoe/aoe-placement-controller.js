@@ -18,8 +18,6 @@
  * Target: Foundry VTT v13.351
  */
 
-import { FLAG_NAMESPACE } from "./aoe-constants.js";
-
 /**
  * Re-entry guard: only one placement session at a time per client.
  * @type {boolean}
@@ -210,7 +208,8 @@ function _interactivePlacementLoop(previewTemplate, previewDoc, opts) {
       if (!active) return;
 
       // Only respond to primary button (left click)
-      if (ev.data?.button !== 0 && ev.button !== 0) return;
+      // v13 (PIXI v8): FederatedPointerEvent has .button directly
+      if ((ev.button ?? ev.data?.button) !== 0) return;
 
       const pos = _getCanvasPosition(ev);
       if (!pos) return;
@@ -294,6 +293,12 @@ function _interactivePlacementLoop(previewTemplate, previewDoc, opts) {
  * @returns {{x: number, y: number}|null}
  */
 function _getCanvasPosition(ev) {
+  // v13 (PIXI v8): FederatedPointerEvent has getLocalPosition directly on ev
+  if (typeof ev?.getLocalPosition === "function") {
+    const pos = ev.getLocalPosition(canvas.stage);
+    if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) return pos;
+  }
+  // Legacy fallback: PIXI v5/v6 ev.data.getLocalPosition
   const data = ev?.data ?? ev;
   if (typeof data?.getLocalPosition === "function") {
     const pos = data.getLocalPosition(canvas.stage);
@@ -358,12 +363,6 @@ function _measureDistanceMeters(a, b) {
     if (typeof canvas.grid.measurePath === "function") {
       const path = canvas.grid.measurePath([{ ray }], { gridSpaces: true });
       const d = path?.distance ?? (Array.isArray(path) ? path[0] : null);
-      if (Number.isFinite(d)) return d;
-    }
-    // Fallback
-    if (typeof canvas.grid.measureDistances === "function") {
-      const distances = canvas.grid.measureDistances([{ ray }], { gridSpaces: true });
-      const d = Array.isArray(distances) ? distances[0] : 0;
       if (Number.isFinite(d)) return d;
     }
   } catch (_e) { /* ignore */ }

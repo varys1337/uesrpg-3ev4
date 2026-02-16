@@ -28,9 +28,11 @@
  */
 
 import { registerLinkedEntity } from "../effects/origin-effect.js";
+import { requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { spawnSummon } from "./summon-service.js";
 import { getUserSpellTargets } from "../spell-runtime.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 
@@ -120,24 +122,26 @@ async function _resolveConjureItemWithScaling(spell, conjureConfig) {
     return `<option value="${i}">${displayLabel} (SS ${e.minStrength}+)</option>`;
   }).join("");
 
-  const selection = await Dialog.wait({
+  const selection = await customDialog({
     title: "Select Summoned Item",
-    content: `<form><div class="form-group">
+    content: `<div><div class="form-group">
       <label>Choose item to conjure (Spell Strength ${ss}):</label>
       <select name="choice">${optionsHTML}</select>
-    </div></form>`,
+    </div></div>`,
     buttons: {
       ok: {
         label: "Conjure",
         callback: (html) => {
-          const idx = Number(html.find('[name="choice"]').val());
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const idx = Number(root?.querySelector('[name="choice"]')?.value);
           return eligible[idx]?.uuid ?? null;
         }
       },
       cancel: { label: "Cancel", callback: () => null }
     },
-    default: "ok"
-  }, { width: 360 });
+    default: "ok",
+    width: 360
+  });
 
   return selection;
 }
@@ -171,16 +175,8 @@ async function _createConjuredItemOnActor(targetActor, casterActor, originAE, sp
     itemData.system.equipped = true;
   }
 
-  const { requestCreateEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
-
-  let created;
-  if (targetActor.isOwner) {
-    const results = await targetActor.createEmbeddedDocuments("Item", [itemData]);
-    created = results?.[0] ?? null;
-  } else {
-    const results = await requestCreateEmbeddedDocuments(targetActor, "Item", [itemData]);
-    created = Array.isArray(results) ? results[0] : results;
-  }
+  const results = await requestCreateEmbeddedDocuments(targetActor, "Item", [itemData]);
+  const created = Array.isArray(results) ? results[0] : (results ?? null);
 
   if (created) {
     _debug("Conjured item created:", created.name, { id: created.id, actor: targetActor.name });
@@ -357,7 +353,7 @@ async function _applySummonerOwnership(tokenDoc, casterActor) {
 
   try {
     // Update the unlinked token's actor delta ownership
-    await tokenDoc.update({ "delta.ownership": ownershipUpdates });
+    await requestUpdateDocument(tokenDoc, { "delta.ownership": ownershipUpdates });
     _debug("Applied summoner ownership to token:", {
       token: tokenDoc.name,
       ownership: ownershipUpdates
@@ -368,9 +364,9 @@ async function _applySummonerOwnership(tokenDoc, casterActor) {
     try {
       const tokenActor = tokenDoc.actor;
       if (tokenActor) {
-        const currentOwnership = foundry.utils.duplicate(tokenActor.ownership ?? {});
+        const currentOwnership = foundry.utils.deepClone(tokenActor.ownership ?? {});
         Object.assign(currentOwnership, ownershipUpdates);
-        await tokenActor.update({ ownership: currentOwnership });
+        await requestUpdateDocument(tokenActor, { ownership: currentOwnership });
         _debug("Applied ownership via token actor fallback");
       }
     } catch (fallbackErr) {
@@ -453,15 +449,16 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
 
     if (!position) {
       // Cancelled — notify but still create at fallback position
-      const useFallback = await Dialog.wait({
+      const useFallback = await customDialog({
         title: "Placement Cancelled",
         content: `<p>No location was selected. Place <strong>${summonActor.name}</strong> adjacent to the caster instead?</p>`,
         buttons: {
           yes: { label: "Place Adjacent", callback: () => true },
           no: { label: "Cancel Summon", callback: () => false }
         },
-        default: "yes"
-      }, { width: 360 });
+        default: "yes",
+        width: 360
+      });
 
       if (!useFallback) {
         _debug("Summon cancelled by user");

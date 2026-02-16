@@ -5,6 +5,7 @@
 
 import { _esc } from "./util.js";
 import { CHARACTERISTICS } from "./constants.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 
 /**
  * Show a dialog for choosing characteristic and manual modifier.
@@ -36,16 +37,16 @@ export async function _charTestDialog({
     : `<input type="hidden" name="charKey" value="${_esc(defaultCharKey)}" />`;
 
   const content = `
-    <form class="uesrpg-char-declare">
+    <div class="uesrpg-char-declare">
       ${charSelect}
       <div class="form-group" style="margin-top:8px;">
         <label><b>Manual Modifier</b></label>
         <input name="manualMod" type="number" value="${Number(defaultManualMod) || 0}" style="width:100%;" />
       </div>
-    </form>`;
+    </div>`;
 
   try {
-    const result = await Dialog.wait({
+    const result = await customDialog({
       title,
       content,
       buttons: {
@@ -63,8 +64,9 @@ export async function _charTestDialog({
         },
         cancel: { label: "Cancel", callback: () => null }
       },
-      default: "ok"
-    }, { width: 350 });
+      default: "ok",
+      width: 350
+    });
     return result ?? null;
   } catch (_e) {
     return null;

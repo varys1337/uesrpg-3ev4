@@ -13,6 +13,34 @@ const _CHA_LABELS = {
   wp: "Willpower", prc: "Perception", prs: "Personality", lck: "Luck"
 };
 
+function _normalizeChaKey(v = "") {
+  const s = String(v ?? "").trim().toLowerCase();
+  switch (s) {
+    case "strength": return "str";
+    case "endurance": return "end";
+    case "agility": return "agi";
+    case "intelligence": return "int";
+    case "willpower": return "wp";
+    case "perception": return "prc";
+    case "personality": return "prs";
+    case "luck": return "lck";
+    default: return s;
+  }
+}
+
+function _governingChaOptions(item) {
+  const raw = String(item?.system?.governingCha ?? "");
+  const base = _normalizeChaKey(item?.system?.baseCha ?? "");
+  const keys = raw
+    .split(/[,\n/]+/)
+    .map(_normalizeChaKey)
+    .filter(Boolean);
+  const unique = [];
+  for (const k of keys) if (!unique.includes(k)) unique.push(k);
+  if (base && !unique.includes(base)) unique.push(base);
+  return unique.filter(k => _CHA_LABELS[k]).map(k => ({ key: k, label: _CHA_LABELS[k] }));
+}
+
 /**
  * Build a pseudo-skill item for a characteristic, suitable for computeSkillTN.
  * @param {Actor} actor
@@ -33,16 +61,18 @@ export function _buildCharacteristicPseudoItem(actor, chaKey) {
 }
 
 export function _hasSpecializations(skillItem) {
+  if (String(skillItem?.name ?? "").trim().toLowerCase() === "evade") return false;
   const raw = String(skillItem?.system?.trainedItems ?? "").trim();
   return raw.length > 0;
 }
 
 export function _listSkills(actor, { allowCombatStyle = false } = {}) {
   const out = [];
+  const isNpc = String(actor?.type ?? "").toLowerCase() === "npc";
+  const combatStyles = actor?.itemTypes?.combatStyle ?? actor?.items?.filter(i => i.type === "combatStyle") ?? [];
   
-  // Add ALL Combat Styles if allowed (not just active one)
-  if (allowCombatStyle && actor?.type !== "NPC") {
-    const combatStyles = actor?.itemTypes?.combatStyle ?? actor?.items?.filter(i => i.type === "combatStyle") ?? [];
+  // Add ALL Combat Styles if allowed (including NPC-owned styles).
+  if (allowCombatStyle) {
     for (const cs of combatStyles) {
       out.push({ 
         uuid: cs.uuid, 
@@ -54,13 +84,21 @@ export function _listSkills(actor, { allowCombatStyle = false } = {}) {
   }
   
   const items = actor?.itemTypes?.skill ?? actor?.items?.filter(i => i.type === "skill") ?? [];
-  for (const i of items) out.push({ uuid: i.uuid, name: i.name, item: i, hasSpec: _hasSpecializations(i) });
+  for (const i of items) out.push({
+    uuid: i.uuid,
+    name: i.name,
+    item: i,
+    hasSpec: _hasSpecializations(i),
+    governingChaOptions: _governingChaOptions(i),
+    selectedCha: _normalizeChaKey(i?.system?.baseCha ?? "")
+  });
 
-  if (actor?.type === "NPC") {
+  if (isNpc) {
     const professions = _listProfessions(actor);
     
-    // For NPCs with Combat Style allowed, add Combat profession at the top
-    if (allowCombatStyle) {
+    // Combat profession fallback: only add it when combat styles are not available.
+    const includeCombatProfessionFallback = Boolean(allowCombatStyle && combatStyles.length === 0);
+    if (includeCombatProfessionFallback) {
       const combatProf = professions.find(p => p._professionKey === "combat");
       if (combatProf) {
         out.unshift({ 
@@ -75,9 +113,13 @@ export function _listSkills(actor, { allowCombatStyle = false } = {}) {
     
     // Add remaining professions
     for (const p of professions) {
-      if (p._professionKey !== "combat" || !allowCombatStyle) {
-        out.push({ uuid: p.uuid, name: p.name, item: p, hasSpec: false, isProfession: true });
+      if (p._professionKey === "combat") {
+        if (!allowCombatStyle) {
+          out.push({ uuid: p.uuid, name: p.name, item: p, hasSpec: false, isProfession: true });
+        }
+        continue;
       }
+      out.push({ uuid: p.uuid, name: p.name, item: p, hasSpec: false, isProfession: true });
     }
   }
 
@@ -184,18 +226,16 @@ export function _resolveCombatStyleOrSkill(actor, skillUuid) {
     };
   }
   
-  // Combat Style
-  if (actor?.type !== "NPC") {
-    const combatStyles = actor?.itemTypes?.combatStyle ?? actor?.items?.filter(i => i.type === "combatStyle") ?? [];
-    const style = combatStyles.find(cs => cs.uuid === skillUuid);
-    if (style) {
-      return {
-        type: "combatStyle",
-        item: style,
-        name: style.name,
-        value: 0
-      };
-    }
+  // Combat Style (supported for both PC and NPC actors).
+  const combatStyles = actor?.itemTypes?.combatStyle ?? actor?.items?.filter(i => i.type === "combatStyle") ?? [];
+  const style = combatStyles.find(cs => cs.uuid === skillUuid || cs.id === skillUuid);
+  if (style) {
+    return {
+      type: "combatStyle",
+      item: style,
+      name: style.name,
+      value: 0
+    };
   }
   
   // NPC profession (including combat)

@@ -47,6 +47,8 @@
 import { registerSpellTickHandler } from "./spell-tick-engine.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { _num, _numOrNull, _str, isDebugEnabled } from "../_primitives.js";
+import { applyDamage, applyHealing } from "../../combat/damage/apply.js";
+import { DAMAGE_TYPES } from "../../combat/damage/types.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -749,6 +751,8 @@ async function _resolveOriginTargets(originEffect, casterActor) {
 async function _executeDamagePayload(actor, effect, config, ctx) {
   const formula = _str(config.formula || "0");
   const damageType = _str(config.damageType || "magic");
+  const ignoreReduction = config.ignoreReduction !== undefined ? !!config.ignoreReduction : false;
+  const source = _str(config.label || effect?.name || "OverTime");
 
   const roll = new Roll(formula);
   await roll.evaluate();
@@ -756,17 +760,52 @@ async function _executeDamagePayload(actor, effect, config, ctx) {
 
   if (damage <= 0) return `<p>No damage dealt.</p>`;
 
-  const currentHP = _num(actor.system?.hp?.value, 0);
-  const newHP = Math.max(0, currentHP - damage);
-
+  // Delegate to the centralized damage/healing pipeline.
+  // applyDamage handles the healing redirect when damageType === "healing",
+  // plus temp HP absorption, wound threshold, immunity, incorporeal,
+  // and dispatches uesrpgDamageApplied / uesrpgHealingApplied hooks.
   try {
-    await requestUpdateDocument(actor, { "system.hp.value": newHP });
+    const result = await applyDamage(actor, damage, damageType, {
+      ignoreReduction,
+      source,
+      skipChatMessage: true, // OT engine posts its own chat card
+    });
+
+    if (result) {
+      const oldHP = _num(result.oldHP, 0);
+      const newHP = _num(result.newHP, 0);
+      const applied = _num(result.damage ?? result.healing ?? damage, 0);
+
+      // Build chat fragment based on what the pipeline actually did
+      const isHealRedirect = damageType === DAMAGE_TYPES.HEALING;
+      if (isHealRedirect) {
+        const healed = _num(result.healing ?? result.effectiveHealed ?? applied, 0);
+        _debug(`Damage→Heal redirect: ${actor.name} heals ${healed} (${oldHP} → ${newHP})`);
+        return `<p><strong>${actor.name}</strong> heals <strong>${healed}</strong> HP. (HP: ${oldHP} → ${newHP})</p>`;
+      }
+
+      // Standard damage result
+      const parts = [`<p><strong>${actor.name}</strong> takes <strong>${applied}</strong> ${damageType} damage. (HP: ${oldHP} → ${newHP})</p>`];
+      if (result.immunity?.isImmune) {
+        parts.push(`<p><em>Immune to ${damageType} — no damage dealt.</em></p>`);
+      }
+      if (result.incorporealBlock?.isBlocked) {
+        parts.push(`<p><em>Incorporeal — non-magic source blocked.</em></p>`);
+      }
+      if (result.woundStatus === "wounded") {
+        parts.push(`<p><em>⚠ WOUNDED</em></p>`);
+      }
+      if (result.woundStatus === "unconscious") {
+        parts.push(`<p><em>💀 UNCONSCIOUS</em></p>`);
+      }
+      _debug(`Damage: ${actor.name} takes ${applied} ${damageType} (${oldHP} → ${newHP})`);
+      return parts.join("");
+    }
   } catch (err) {
     _error(`Failed to apply damage to ${actor.name}`, err);
   }
 
-  _debug(`Damage: ${actor.name} takes ${damage} ${damageType} (${currentHP} → ${newHP})`);
-  return `<p><strong>${actor.name}</strong> takes <strong>${damage}</strong> ${damageType} damage. (HP: ${currentHP} → ${newHP})</p>`;
+  return `<p>Damage application failed for <strong>${actor.name}</strong>.</p>`;
 }
 
 /**
@@ -780,6 +819,9 @@ async function _executeDamagePayload(actor, effect, config, ctx) {
  */
 async function _executeHealPayload(actor, effect, config, ctx) {
   const formula = _str(config.formula || "0");
+  const damageType = _str(config.damageType || "");
+  const source = _str(config.label || effect?.name || "OverTime");
+  const isTemporary = damageType === "temporaryHealing";
 
   const roll = new Roll(formula);
   await roll.evaluate();
@@ -787,18 +829,35 @@ async function _executeHealPayload(actor, effect, config, ctx) {
 
   if (healing <= 0) return `<p>No healing applied.</p>`;
 
-  const currentHP = _num(actor.system?.hp?.value, 0);
-  const maxHP = _num(actor.system?.hp?.max, currentHP);
-  const newHP = Math.min(maxHP, currentHP + healing);
-
+  // Delegate to the centralized healing pipeline.
+  // Gains: uesrpgHealingApplied hook dispatch (Bleeding interaction),
+  // overheal tracking, temp HP routing, and proper unlinked-token handling.
   try {
-    await requestUpdateDocument(actor, { "system.hp.value": newHP });
+    const result = await applyHealing(actor, healing, {
+      source,
+      isTemporary,
+      skipChatMessage: true, // OT engine posts its own chat card
+    });
+
+    if (result) {
+      if (isTemporary) {
+        const granted = _num(result.granted, 0);
+        const totalTemp = _num(result.tempHP, 0);
+        _debug(`TempHeal: ${actor.name} gains ${granted} temp HP (total: ${totalTemp})`);
+        return `<p><strong>${actor.name}</strong> gains <strong>${granted}</strong> temporary HP. (Temp HP: ${totalTemp})</p>`;
+      }
+
+      const oldHP = _num(result.oldHP, 0);
+      const newHP = _num(result.newHP, 0);
+      const healed = _num(result.healing ?? result.effectiveHealed, 0);
+      _debug(`Heal: ${actor.name} heals ${healed} (${oldHP} → ${newHP})`);
+      return `<p><strong>${actor.name}</strong> heals <strong>${healed}</strong> HP. (HP: ${oldHP} → ${newHP})</p>`;
+    }
   } catch (err) {
     _error(`Failed to apply healing to ${actor.name}`, err);
   }
 
-  _debug(`Heal: ${actor.name} heals ${healing} (${currentHP} → ${newHP})`);
-  return `<p><strong>${actor.name}</strong> heals <strong>${healing}</strong> HP. (HP: ${currentHP} → ${newHP})</p>`;
+  return `<p>Healing application failed for <strong>${actor.name}</strong>.</p>`;
 }
 
 /**
@@ -877,8 +936,16 @@ async function _executeSaveThenApplyPayload(actor, effect, config, ctx) {
         actionChat = await _executeEndEffectPayload(actor, effect, config, ctx);
         break;
       case "halve": {
-        const halfConfig = { ...config, formula: `Math.floor((${config.formula}) / 2)` };
+        // Evaluate the original formula first, then halve the numeric result.
+        // (The previous Math.floor() wrapper produced invalid Roll expressions.)
+        const halveRoll = new Roll(_str(config.formula || "0"));
+        await halveRoll.evaluate();
+        const halvedValue = Math.max(0, Math.floor(_num(halveRoll.total, 0) / 2));
+        const halfConfig = { ...config, formula: String(halvedValue) };
         actionChat = await _executeDamagePayload(actor, effect, halfConfig, ctx);
+        if (halvedValue > 0) {
+          actionChat = `<p><em>(Halved: ${halveRoll.total} → ${halvedValue})</em></p>${actionChat}`;
+        }
         break;
       }
       case "negate":

@@ -11,13 +11,14 @@
 
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { clearTokenDashContext } from "../../combat-utils.js";
-import { buildSpecialActionsForActor, isSpecialActionUsableNow } from "../../combat-style-utils.js";
+import { buildSpecialActionsForActor } from "../../combat-style-utils.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { 
   getContextAttackMode, 
   canUseExploitAdvantage as _canUseExploitAdvantage,
   getPreferredWeaponUuid as _getPreferredWeaponUuid
 } from "../helpers/workflow.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 
 /**
  * Display attacker's attack declaration dialog.
@@ -87,58 +88,67 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
 
   const content = `
   <style>
-    /* Match defender dialog feel + enforce 2-col button row */
+    /* Keep layout compact but prefer the shared adv-dialog styles for consistent alignment */
     .uesrpg-attack-declare .form-row { display:flex; align-items:center; gap:12px; }
     .uesrpg-attack-declare .form-row label { flex:0 0 140px; }
     .uesrpg-attack-declare .form-row select,
     .uesrpg-attack-declare .form-row input { flex:1 1 auto; width:100%; }
-    .uesrpg-attack-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
-	    .uesrpg-attack-grid label { border:1px solid #888; padding:10px; border-radius:6px; display:block; }
-    .uesrpg-attack-grid .hint { font-size: 12px; opacity: 0.8; display:block; margin-top:4px; }
-	    .uesrpg-attack-grid .ps-location { margin-top:6px; }
-	    .uesrpg-attack-grid .ps-location select { width:100%; }
-	    .uesrpg-attack-grid .ps-location.disabled { opacity:0.65; }
-    /* Force dialog footer buttons to be a single row, 2 columns */
-    .dialog .dialog-buttons { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .dialog .dialog-buttons button { width: 100%; }
+    /* Use adv-grid defaults but keep a lightweight attacker-specific hook */
+    .uesrpg-attack-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 12px; }
+    .uesrpg-attack-grid .ps-location { margin-top:6px; width:100%; }
+    .uesrpg-attack-grid .ps-location select { width:100%; }
+    .uesrpg-attack-grid .ps-location.disabled { opacity:0.65; }
+    /* Force dialog footer buttons to be a single row, 2 columns (scoped to this dialog) */
+    .uesrpg-attack-declare .dialog-buttons { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .uesrpg-attack-declare .dialog-buttons button { width: 100%; }
+    @media (max-width: 520px) {
+      .uesrpg-attack-grid { grid-template-columns: 1fr; }
+    }
   </style>
-  <form class="uesrpg-attack-declare">
+  <div class="uesrpg-attack-declare uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
     ${styleSelect}
     ${weaponSelect}
     <div style="margin-top:12px;"><b>Attack Variation</b></div>
-    <div class="uesrpg-attack-grid">
-      <label>
+    <div class="uesrpg-adv-grid uesrpg-attack-grid">
+      <label class="uesrpg-adv-choice">
         <input type="radio" name="attackVariant" value="normal" ${defaultVariant === "normal" ? "checked" : ""} />
-        <b>Normal Attack</b>
-        <span class="hint">Standard attack action.</span>
+        <span class="uesrpg-adv-choice__label">
+          <span class="uesrpg-adv-choice__title">Attack</span>
+        </span>
       </label>
-      <label>
+      <label class="uesrpg-adv-choice">
         <input type="radio" name="attackVariant" value="allOut" ${defaultVariant === "allOut" ? "checked" : ""} />
-        <b>All Out Attack</b> — +20
-        <span class="hint">Melee only. Spend +1 AP to gain +20.</span>
-        ${hasThunderCharge ? `
-          <div class="ps-location ${defaultVariant === "allOut" ? "" : "disabled"}">
-            <label style="display:flex; align-items:center; gap:6px; margin:0;">
-              <input type="checkbox" name="thunderChargeToggle" ${defaultVariant === "allOut" ? "" : "disabled"} />
-              <span>Thunderous Charge: waive All Out surcharge</span>
-            </label>
-          </div>
-        ` : ""}
+        <span class="uesrpg-adv-choice__label">
+          <span class="uesrpg-adv-choice__title">All Out Attack</span>
+          <span class="uesrpg-adv-choice__desc">Melee only; +1 AP to +20 TN</span>
+          ${hasThunderCharge ? `
+            <div class="uesrpg-adv-inline ps-location ${defaultVariant === "allOut" ? "" : "disabled"}">
+              <label style="display:flex; align-items:center; gap:6px; margin:0;">
+                <input type="checkbox" name="thunderChargeToggle" ${defaultVariant === "allOut" ? "" : "disabled"} />
+                <span>Thunderous Charge: waive All Out surcharge</span>
+              </label>
+            </div>
+          ` : ""}
+        </span>
       </label>
-	      <label class="uesrpg-precision-option">
+      <label class="uesrpg-adv-choice uesrpg-precision-option">
         <input type="radio" name="attackVariant" value="precision" ${defaultVariant === "precision" ? "checked" : ""} />
-        <b>Precision Strike</b> — -20
-        <span class="hint">If successful, choose hit location.</span>
-	        <div class="ps-location ${defaultVariant === "precision" ? "" : "disabled"}">
-	          <select name="precisionLocation" ${defaultVariant === "precision" ? "" : "disabled"}>
-	            ${locOptions}
-	          </select>
-	        </div>
+        <span class="uesrpg-adv-choice__label">
+          <span class="uesrpg-adv-choice__title">Precision Strike</span>
+          <span class="uesrpg-adv-choice__desc">Choose hit location</span>
+          <div class="uesrpg-adv-inline ps-location ${defaultVariant === "precision" ? "" : "disabled"}">
+            <select name="precisionLocation" ${defaultVariant === "precision" ? "" : "disabled"}>
+              ${locOptions}
+            </select>
+          </div>
+        </span>
       </label>
-      <label>
+      <label class="uesrpg-adv-choice">
         <input type="radio" name="attackVariant" value="coup" ${defaultVariant === "coup" ? "checked" : ""} />
-        <b>Coup de Grâce</b>
-        <span class="hint">Helpless target only. Flags special resolution.</span>
+        <span class="uesrpg-adv-choice__label">
+          <span class="uesrpg-adv-choice__title">Coup de Grace</span>
+          <span class="uesrpg-adv-choice__desc">Helpless target only</span>
+        </span>
       </label>
     </div>
 
@@ -166,29 +176,19 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
     </div>
   
     ${sensoryControls}
-</form>
+</div>
 `;
 
-  // Use an explicit Dialog instance so we can wire listeners without inline JS.
-  return await new Promise((resolve) => {
-    let settled = false;
-    const settle = (v) => {
-      if (settled) return;
-      settled = true;
-      resolve(v);
-    };
-
-    const dialog = new Dialog({
+    return await customDialog({
       title: `${attackerLabel} — Attack Options`,
       content,
       buttons: {
         ok: {
           label: "Continue",
           callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
+            const root = html instanceof HTMLElement ? html : html?.element ?? html;
             if (!root) {
-              settle(null);
-              return;
+              return null;
             }
             
             const styleUuid = root.querySelector('select[name="styleUuid"]')?.value
@@ -216,11 +216,10 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
             const ap = Number(foundry.utils.getProperty(attackerActor, "system.action_points.value") ?? 0);
             if (!Number.isFinite(ap) || ap < totalApCost) {
               ui.notifications?.warn?.(`Not enough Action Points to perform this attack (requires ${totalApCost} AP).`);
-              settle(null);
-              return;
+              return null;
             }
 
-            settle({ 
+            return { 
               styleUuid, 
               weaponUuid, 
               variant, 
@@ -233,22 +232,20 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
               eyeOfNight,
               thunderChargeToggle,
               thunderChargeApplied: false  // Will be computed in workflow
-            });
+            };
           }
         },
         cancel: {
           label: "Cancel",
-          callback: () => settle(null)
+          callback: () => null
         }
       },
-      default: "ok",
-      close: () => settle(null)
-    }, { width: 460 });
-
-    Hooks.once("renderDialog", (app, html) => {
-      if (app !== dialog) return;
-      const root = html?.[0] instanceof Element ? html[0] : null;
-      const form = root?.querySelector("form.uesrpg-attack-declare");
+      defaultButton: "ok",
+      classes: ["uesrpg-attack-declare"],
+      width: 460,
+      render: (event, html) => {
+      const root = html instanceof HTMLElement ? html : html?.element ?? html;
+      const form = root?.querySelector(".uesrpg-attack-declare") ?? root;
       if (!form) return;
 
       const psSelect = form.querySelector('select[name="precisionLocation"]');
@@ -282,9 +279,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
         r.addEventListener("change", sync);
       }
       sync();
-    });
-
-    dialog.render(true);
+    },
   });
 }
 
@@ -300,7 +295,8 @@ export async function promptWeaponAndAdvantages({
   defaultHitLocation = "Body",
   allowNoWeapon = false,
   attackerTokenUuid = null,
-  opponentTokenUuid = null
+  opponentTokenUuid = null,
+  styleUuidForKnown = null
 }) {
   const weapons = _listEquippedWeapons(attackerActor);
   if (!weapons.length && !allowNoWeapon) {
@@ -326,12 +322,14 @@ export async function promptWeaponAndAdvantages({
     opponentTokenUuid: opponentTokenUuid
   }));
 
-  // Known Special Actions are derived ONLY from the actor's active combat style.
-  // For attacker spend: Primary must be usable now; Secondary is always usable.
+  // Known Special Actions are derived from the provided style UUID (roll-selected style),
+  // with backward-compatible fallback to default actor resolution when not provided.
   const knownSpecial = (() => {
     try {
-      const all = buildSpecialActionsForActor(attackerActor);
-      return all.filter(a => a.known && isSpecialActionUsableNow(attackerActor, a.actionType));
+      const all = (styleUuidForKnown != null)
+        ? buildSpecialActionsForActor(attackerActor, { styleUuidOrId: styleUuidForKnown, legacyNpcFallback: true })
+        : buildSpecialActionsForActor(attackerActor);
+      return all.filter(a => a.known);
     } catch (_e) {
       return [];
     }
@@ -362,7 +360,7 @@ export async function promptWeaponAndAdvantages({
     .join("\n")}`;
 
   const content = `
-    <form class="uesrpg-opp-dmg uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
+    <div class="uesrpg-opp-dmg uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
       <div class="form-group uesrpg-adv-weapon">
         <label><b>Weapon</b></label>
         <select name="weaponUuid">${weaponOptions}</select>
@@ -427,27 +425,19 @@ export async function promptWeaponAndAdvantages({
 
         <p class="hint">Select up to ${max} option(s).</p>
       ` : ``}
-    </form>
+    </div>
   `;
 
-  return await new Promise((resolve) => {
-    let settled = false;
-    const settle = (value) => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-
-    const dialog = new Dialog({
+  return await customDialog({
       title: "Resolve Damage",
       content,
       buttons: {
         continue: {
           label: "Continue",
           callback: (html) => {
-            const root = (html && "0" in html && html[0] instanceof Element) ? html[0] : (html instanceof Element ? html : null);
-            const form = root?.querySelector("form.uesrpg-opp-dmg");
-            if (!form) return settle(null);
+            const root = html instanceof HTMLElement ? html : html?.element ?? html;
+            const form = root?.querySelector(".uesrpg-opp-dmg") ?? root;
+            if (!form) return null;
 
             const q = (name) => form.querySelector(`[name="${name}"]`);
             const weaponUuid = String(q("weaponUuid")?.value ?? "");
@@ -473,10 +463,10 @@ export async function promptWeaponAndAdvantages({
             const selectedCount = [precisionStrike, penetrateArmor, forcefulImpact, pressAdvantage].filter(Boolean).length + selectedSpecial.length;
             if (max > 0 && selectedCount > max) {
               ui.notifications.warn(`You only have ${max} Advantage to spend.`);
-              return false;
+              return null;
             }
 
-            return settle({
+            return {
               weaponUuid,
               precisionStrike,
               precisionLocation,
@@ -485,19 +475,16 @@ export async function promptWeaponAndAdvantages({
               pressAdvantage,
               pressAdvantageDouble,
               specialActionsSelected: selectedSpecial
-            });
+            };
           }
         },
-        cancel: { label: "Cancel", callback: () => settle(null) }
+        cancel: { label: "Cancel", callback: () => null }
       },
-      default: "continue",
-      close: () => settle(null)
-    });
+      defaultButton: "continue",
 
-    Hooks.once("renderDialog", (app, html) => {
-      if (app !== dialog) return;
-      const root = html?.[0] instanceof Element ? html[0] : null;
-      const form = root?.querySelector("form.uesrpg-opp-dmg");
+    render: (event, html) => {
+      const root = html instanceof HTMLElement ? html : html?.element ?? html;
+      const form = root?.querySelector(".uesrpg-opp-dmg") ?? root;
       if (!form) return;
 
       const precisionSelect = form.querySelector('select[name="precisionLocation"]');
@@ -539,15 +526,23 @@ export async function promptWeaponAndAdvantages({
       }
 
       updateUi();
-    });
-
-    dialog.render(true);
+    },
   });
 }
 
 // ──────────── Helper Functions ────────────
 
+/**
+ * List equipped weapons for an actor.
+ * Falls back to ALL weapons if none are explicitly equipped (common for NPCs).
+ */
 function _listEquippedWeapons(actor) {
-  const all = actor?.itemTypes?.weapon?.filter(w => w.system?.equipped === true) ?? [];
+  const equipped = actor?.itemTypes?.weapon?.filter(w => w.system?.equipped === true) ?? [];
+  if (equipped.length) return equipped.map(w => ({ uuid: w.uuid, name: w.name ?? "Weapon", img: w.img ?? "" }));
+  // Fallback: NPCs often lack explicit equipped flags — return all weapons
+  const all = actor?.itemTypes?.weapon ?? [];
+  if (all.length) {
+    console.debug("UESRPG | _listEquippedWeapons: no weapons with equipped=true for", actor?.name, "— falling back to all weapons");
+  }
   return all.map(w => ({ uuid: w.uuid, name: w.name ?? "Weapon", img: w.img ?? "" }));
 }

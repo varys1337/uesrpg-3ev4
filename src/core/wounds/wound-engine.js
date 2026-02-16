@@ -44,6 +44,7 @@ import {
   removeShockMarkersForApplication,
   ensureWoundedPassiveEffect
 } from "./engine/apply.js";
+import { tickDeathTestsEndTurn } from "./death-tests.js";
 
 // ===== INTERNAL STATE =====
 
@@ -297,11 +298,13 @@ export async function tickWoundsEndTurn(actor) {
   // Defensive invariant: Blood Loss / Forestall should not persist when no wounds exist.
   if (!hasAnyWoundEffects(actor)) {
     await cleanupWoundStateIfNoWounds(actor);
+    await tickDeathTestsEndTurn(actor);
     return;
   }
 
   await tickForestall(actor);
   await tickBloodLoss(actor);
+  await tickDeathTestsEndTurn(actor);
 }
 
 /**

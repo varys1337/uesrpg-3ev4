@@ -1,10 +1,11 @@
 /**
- * Extend the base Actor entity by defining a custom roll data structure which is ideal for the Simple system.
+ * Extend the base Item entity with system-specific functionality.
  * @extends {Item}
  */
 import { skillHelper } from "../../utils/skillCalcHelper.js";
 import { skillModHelper } from "../../utils/skillCalcHelper.js";
 import { UESRPG } from "../constants.js";
+import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 /**
  * Add a flat bonus to a dice string.
@@ -124,21 +125,21 @@ export class SimpleItem extends Item {
       case 'combatStyle':
       case 'skill':
       case 'magicSkill':
-        data.rank = 'untrained'
+        this.updateSource({ 'system.rank': 'untrained' });
         break;
     }
   }
 
   async _onCreate(data, options, user) {
-    await super._onCreate(data, options, user)
+    await super._onCreate(data, options, user);
     switch (data.type) {
       case 'container':
-        this._duplicateContainedItemsOnActor(this.actor, data)
+        await this._duplicateContainedItemsOnActor(this.actor, data);
         break;
     }
   }
 
-  async prepareData() {
+  prepareData() {
     super.prepareData();
 
     // Get the Item's data & Actor's Data
@@ -171,7 +172,7 @@ export class SimpleItem extends Item {
     if (this.type === 'ammunition') { this._prepareAmmunitionItem(actorData, itemData) }
     if (hasActor && this.system && Object.prototype.hasOwnProperty.call(this.system, 'skillArray') && actorData.type === 'Player Character') { this._prepareModSkillItems(actorData, itemData) }
     if (hasActor && this.system && Object.prototype.hasOwnProperty.call(this.system, 'baseCha')) { this._prepareCombatStyleData(actorData, itemData) }
-    if (hasActor && this.type == 'container') { this._prepareContainerItem(actorData, itemData) }
+    if (hasActor && this.type === 'container') { this._prepareContainerItem(actorData, itemData) }
 
     // STEP 3: Final injection of auto-granted qualities into the computed structured list.
     // This re-runs after prepare methods to include autoQualitiesStructured (material/quality-derived).
@@ -264,24 +265,16 @@ export class SimpleItem extends Item {
    * @param {*} actorData
    */
 
-  async _prepareCombatStyleData(actorData, itemData) {
+  _prepareCombatStyleData(actorData, itemData) {
 
-    //Skill Bonus Calculation
     // Combat Style Skill Bonus Calculation (standard -20 untrained penalty)
-    if (itemData.rank === "untrained") {
+    // Unknown/empty/missing rank is treated as untrained (RAW: -20 penalty).
+    const RANK_BONUS = { novice: 0, apprentice: 10, journeyman: 20, adept: 30, expert: 40, master: 50 };
+    const rankBonus = RANK_BONUS[itemData.rank];
+    if (rankBonus !== undefined) {
+      itemData.bonus = rankBonus;
+    } else {
       itemData.bonus = -20 + this._untrainedException(actorData);
-    } else if (itemData.rank === "novice") {
-      itemData.bonus = 0;
-    } else if (itemData.rank === "apprentice") {
-      itemData.bonus = 10;
-    } else if (itemData.rank === "journeyman") {
-      itemData.bonus = 20;
-    } else if (itemData.rank === "adept") {
-      itemData.bonus = 30;
-    } else if (itemData.rank === "expert") {
-      itemData.bonus = 40;
-    } else if (itemData.rank === "master") {
-      itemData.bonus = 50;
     }
 
 
@@ -660,22 +653,17 @@ async _duplicateContainedItemsOnActor(actorData, itemData) {
   }
 
   if (itemsToDuplicate.length === 0) return;
-  const createdContainedItems = await actorData.createEmbeddedDocuments("Item", itemsToDuplicate);
-  this.system.contained_items = await this._assignNewlyCreatedItemDataToContainer(createdContainedItems, actorData, itemData);
-}
 
-  async _assignNewlyCreatedItemDataToContainer(createdContainedItems, actorData, itemData) {
-    // Loop through newly created items and grab their new ID's to store in the container contained_items array
-    let newContainedItems = []
-    for (let newItem of await createdContainedItems) {
-      newContainedItems.push({ _id: newItem._id, item: newItem })
-    }
-    return newContainedItems
-  }
+  const createdContainedItems = await requestCreateEmbeddedDocuments(actorData, "Item", itemsToDuplicate);
+
+  // Persist the newly created item references back to the container document.
+  const newContainedItems = (createdContainedItems ?? []).map(item => ({ _id: item._id, item }));
+  await requestUpdateDocument(this, { 'system.contained_items': newContainedItems });
+}
   _untrainedException(actorData) {
     // Defensive guard: safe property access and array filtering
     const items = actorData.items ?? [];
-    const attribute = items?.filter(item => item?.system?.untrainedException == true) || [];
+    const attribute = items?.filter(item => item?.system?.untrainedException === true) || [];
 
     // Chapter 4 (Arms Master): ignore the usual -20 untrained penalty for Combat Styles.
     // We treat possession of the Arms Master talent as an implicit untrained-exception.

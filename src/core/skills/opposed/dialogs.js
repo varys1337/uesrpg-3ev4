@@ -8,6 +8,7 @@ import { SKILL_DIFFICULTIES } from "../skill-tn.js";
 import { hasCondition } from "../../conditions/condition-engine.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections } from "../../traits/trait-resistance-ui.js";
 import { hasTalent } from "../../traits/talents-api.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 
 export async function _skillRollDialog({
   title,
@@ -19,6 +20,7 @@ export async function _skillRollDialog({
   defaultUseSpec = false,
   defaultDifficultyKey = "average",
   defaultManualMod = 0,
+  defaultSelectedCharacteristicKey = "",
   defaultApplyBlinded = true,
   defaultApplyDeafened = true
 } = {}) {
@@ -30,9 +32,12 @@ export async function _skillRollDialog({
           ${skills.map(s => {
             const sel = (s.uuid === selectedSkillUuid) ? "selected" : "";
             const hasSpec = s.hasSpec ? "1" : "0";
+            const governing = Array.isArray(s.governingChaOptions) ? s.governingChaOptions : [];
+            const governingData = _esc(JSON.stringify(governing));
+            const selectedCha = _esc(String(s.selectedCha ?? ""));
             const optValue = _esc(s.uuid);
             const optLabel = _esc(s.name);
-            return `<option value="${optValue}" data-has-spec="${hasSpec}" data-skill-name="${optLabel}" ${sel}>${optLabel}</option>`;
+            return `<option value="${optValue}" data-has-spec="${hasSpec}" data-skill-name="${optLabel}" data-governing="${governingData}" data-selected-cha="${selectedCha}" ${sel}>${optLabel}</option>`;
           }).join("\n")}
         </select>
       </div>`
@@ -52,6 +57,27 @@ export async function _skillRollDialog({
           <input type="checkbox" name="useSpec" ${specChecked} ${specDisabled ? "disabled" : ""} />
           <span><b>Use Specialization</b> (+10)${specDisabled ? ' <span style="opacity:0.75;">(none on this skill)</span>' : ""}</span>
         </label>
+      </div>`;
+
+  const selectedSkillMeta = (() => {
+    const found = Array.isArray(skills) ? skills.find(s => String(s?.uuid ?? "") === String(selectedSkillUuid ?? "")) : null;
+    return found ?? null;
+  })();
+  const selectedGoverning = Array.isArray(selectedSkillMeta?.governingChaOptions) ? selectedSkillMeta.governingChaOptions : [];
+  const selectedBaseCha = String(selectedSkillMeta?.selectedCha ?? "").trim().toLowerCase();
+  const showCharacteristic = selectedGoverning.length > 1;
+  const defaultCharacteristic = String(defaultSelectedCharacteristicKey || selectedBaseCha || selectedGoverning[0]?.key || "").toLowerCase();
+  const characteristicRow = `
+      <div class="form-group" style="margin-top:8px;" data-ues-char-row="1" ${showCharacteristic ? "" : "hidden"}>
+        <label><b>Characteristic</b></label>
+        <select name="selectedCharacteristicKey" style="width:100%;">
+          ${selectedGoverning.map(o => {
+            const k = String(o?.key ?? "");
+            const l = _esc(String(o?.label ?? k.toUpperCase()));
+            const selected = (k === defaultCharacteristic) ? "selected" : "";
+            return `<option value="${_esc(k)}" ${selected}>${l}</option>`;
+          }).join("\n")}
+        </select>
       </div>`;
 
   const canInterrogate = Boolean(actor && hasTalent(actor, "interrogator"));
@@ -103,7 +129,7 @@ export async function _skillRollDialog({
 
 
   const content = `
-    <form class="uesrpg-skill-declare">
+    <div class="uesrpg-skill-declare">
       ${skillSelect}
 
       <div class="form-group">
@@ -112,6 +138,7 @@ export async function _skillRollDialog({
       </div>
 
       ${specRow}
+      ${characteristicRow}
 
       ${interrogationRow}
 
@@ -125,61 +152,94 @@ export async function _skillRollDialog({
         <label><b>Manual Modifier</b></label>
         <input name="manualMod" type="number" value="${Number(defaultManualMod) || 0}" style="width:100%;" />
       </div>
-    </form>`;
+    </div>`;
 
-  // Inline helper: toggle specialization checkbox availability when choosing a different skill.
-  const withScript = showSkillSelect ? `${content}
-    <script>
-      (function(){
-        const dialog = document.currentScript?.closest('.dialog') || document;
-        const form = dialog.querySelector('form.uesrpg-skill-declare');
-        const sel = form?.querySelector('select[name="skillUuid"]');
-        const cb = form?.querySelector('input[name="useSpec"]');
-        const label = cb?.closest('label');
-        const interrogationRow = form?.querySelector('[data-ues-interrogation-row="1"]');
-        const interrogationCb = form?.querySelector('input[name="isInterrogationTest"]');
-        const histskinRow = form?.querySelector('[data-ues-histskin-row="1"]');
-        const histskinCb = form?.querySelector('input[name="histskinUnderwater"]');
-        function sync(){
-          if (!sel || !cb) return;
-          const opt = sel.options[sel.selectedIndex];
-          const has = (opt?.dataset?.hasSpec === '1');
-          cb.disabled = !has;
-          if (!has) cb.checked = false;
-          if (label) {
-            label.querySelectorAll('span[data-spec-none]').forEach(n => n.remove());
-            if (!has) {
-              const s = document.createElement('span');
-              s.dataset.specNone = '1';
-              s.style.opacity = '0.75';
-              s.textContent = ' (none on this skill)';
-              label.appendChild(s);
-            }
-          }
-
-          if (interrogationRow && interrogationCb) {
-            const name = String(opt?.dataset?.skillName ?? '').trim().toLowerCase();
-            const isPersuade = (name === 'persuade');
-            interrogationCb.disabled = !isPersuade;
-            if (!isPersuade) interrogationCb.checked = false;
-          }
-
-          if (histskinRow && histskinCb) {
-            const name = String(opt?.dataset?.skillName ?? '').trim().toLowerCase();
-            const ok = (name === 'athletics' || name === 'stealth');
-            histskinCb.disabled = !ok;
-            if (!ok) histskinCb.checked = false;
-          }
+  // Render callback: toggle specialization / interrogation / histskin
+  // checkbox availability when choosing a different skill.
+  // (Inline <script> tags do not execute when inserted via innerHTML in
+  // DialogV2, so we use customDialog's `render` callback instead.)
+  const renderCallback = showSkillSelect ? (_event, dialogEl) => {
+    const root = dialogEl instanceof HTMLElement ? dialogEl : dialogEl?.element ?? dialogEl;
+    const form = root?.querySelector('.uesrpg-skill-declare') ?? root;
+    const sel = form?.querySelector('select[name="skillUuid"]');
+    const cb = form?.querySelector('input[name="useSpec"]');
+    const label = cb?.closest('label');
+    const interrogationCb = form?.querySelector('input[name="isInterrogationTest"]');
+    const histskinCb = form?.querySelector('input[name="histskinUnderwater"]');
+    const chaRow = form?.querySelector('[data-ues-char-row="1"]');
+    const chaSelect = form?.querySelector('select[name="selectedCharacteristicKey"]');
+    const mkOption = (value, text, selected = false) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      if (selected) opt.selected = true;
+      return opt;
+    };
+    function sync() {
+      if (!sel || !cb) return;
+      const opt = sel.options[sel.selectedIndex];
+      const has = (opt?.dataset?.hasSpec === '1');
+      cb.disabled = !has;
+      if (!has) cb.checked = false;
+      if (label) {
+        label.querySelectorAll('span[data-spec-none]').forEach(n => n.remove());
+        if (!has) {
+          const s = document.createElement('span');
+          s.dataset.specNone = '1';
+          s.style.opacity = '0.75';
+          s.textContent = ' (none on this skill)';
+          label.appendChild(s);
         }
-        sel?.addEventListener('change', sync);
-        sync();
-      })();
-    </script>` : content;
+      }
+
+      if (interrogationCb) {
+        const name = String(opt?.dataset?.skillName ?? '').trim().toLowerCase();
+        const isPersuade = (name === 'persuade');
+        interrogationCb.disabled = !isPersuade;
+        if (!isPersuade) interrogationCb.checked = false;
+      }
+
+      if (histskinCb) {
+        const name = String(opt?.dataset?.skillName ?? '').trim().toLowerCase();
+        const ok = (name === 'athletics' || name === 'stealth');
+        histskinCb.disabled = !ok;
+        if (!ok) histskinCb.checked = false;
+      }
+
+      if (chaRow && chaSelect) {
+        const governingRaw = String(opt?.dataset?.governing ?? "[]");
+        let governing = [];
+        try { governing = JSON.parse(governingRaw); } catch (_e) { governing = []; }
+        const options = Array.isArray(governing) ? governing.filter(g => g?.key && g?.label) : [];
+        if (options.length > 1) {
+          chaRow.hidden = false;
+          const current = String(chaSelect.value ?? "").trim().toLowerCase();
+          const preferred = String(opt?.dataset?.selectedCha ?? "").trim().toLowerCase();
+          chaSelect.innerHTML = "";
+          let hasCurrent = false;
+          for (const g of options) {
+            const k = String(g.key).toLowerCase();
+            const labelText = String(g.label);
+            const selected = (!hasCurrent && current && current === k) || (!current && preferred === k);
+            if (selected) hasCurrent = true;
+            chaSelect.appendChild(mkOption(k, labelText, selected));
+          }
+          if (!hasCurrent && options[0]?.key) chaSelect.value = String(options[0].key).toLowerCase();
+        } else {
+          chaRow.hidden = true;
+          chaSelect.innerHTML = "";
+        }
+      }
+    }
+    sel?.addEventListener('change', sync);
+    sync();
+  } : undefined;
 
   try {
-    const result = await Dialog.wait({
+    const result = await customDialog({
       title,
-      content: withScript,
+      content,
+      render: renderCallback,
       buttons: {
         ok: {
           label: "Roll",
@@ -188,6 +248,7 @@ export async function _skillRollDialog({
             const skillUuid = root?.querySelector('select[name="skillUuid"]')?.value
               ?? root?.querySelector('input[name="skillUuid"]')?.value
               ?? "";
+            const selectedCharacteristicKey = String(root?.querySelector('select[name="selectedCharacteristicKey"]')?.value ?? "").trim().toLowerCase();
             const difficultyKey = root?.querySelector('select[name="difficultyKey"]')?.value ?? "average";
             const useSpec = Boolean(root?.querySelector('input[name="useSpec"]')?.checked);
             const isInterrogationTest = Boolean(root?.querySelector('input[name="isInterrogationTest"]')?.checked);
@@ -198,13 +259,14 @@ export async function _skillRollDialog({
 
             const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
             const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-            return { skillUuid, difficultyKey, useSpec, manualMod, applyBlinded, applyDeafened, resistanceSelected: selectedRes, isInterrogationTest, histskinUnderwater };
+            return { skillUuid, selectedCharacteristicKey, difficultyKey, useSpec, manualMod, applyBlinded, applyDeafened, resistanceSelected: selectedRes, isInterrogationTest, histskinUnderwater };
           }
         },
         cancel: { label: "Cancel", callback: () => null }
       },
-      default: "ok"
-    }, { width: 420 });
+      default: "ok",
+      width: 420
+    });
     return result ?? null;
   } catch (_e) {
     return null;

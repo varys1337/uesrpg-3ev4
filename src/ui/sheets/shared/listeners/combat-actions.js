@@ -1,7 +1,7 @@
 /**
  * Combat quick action handlers for actor sheets.
  * 
- * Foundry VTT v13 / AppV1-compatible.
+ * Shared across actor sheet modules.
  * 
  * This module contains the large combat quick action handler that was extracted
  * from actor-sheet.js for better maintainability and performance.
@@ -10,10 +10,14 @@
 import { buildCollapsedActionCardHtml, getAimStateFromEffect, getEnabledEffectByKey, resolveTokenForActor, spendActionPoints } from "../../combat-actions-utils.js";
 import { createOrUpdateStatusEffect } from "../../../../core/active-effects/status-effect.js";
 import { buildEffectDuration } from "../../../../core/time/effect-duration.js";
-import { getSpecialActionById } from "../../../../core/config/special-actions.js";
 import { executeActivation, buildSpecialActionActivation } from "../../../../core/system/activation/activation-executor.js";
 import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow.js";
-import { getActiveCombatStyleId, getExplicitActiveCombatStyleItem, isSpecialActionUsableNow } from "../../../../core/combat/combat-style-utils.js";
+import {
+  getSpecialActionById,
+  getExplicitActiveCombatStyleItem,
+  isSpecialActionUsableNow,
+  resolveStyleForCombatTest
+} from "../../../../core/combat/combat-style-utils.js";
 import { OpposedWorkflow } from "../../../../core/combat/opposed-workflow.js";
 import { setLastMeleeWeaponForActor } from "../../../canvas/reach-visualizer-state.js";
 import { hasOpponentWithTalentInMeleeRange } from "../../../../core/traits/combat-proximity.js";
@@ -21,6 +25,20 @@ import { recordDashStart } from "../../../../core/combat/combat-utils.js";
 import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { AimAudit } from "../../../../core/combat/aim-audit.js";
 import { isActorBlockedFromAoOAgainstTarget } from "../../../../core/traits/mobility-talents.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+import { asyncGuardSheet } from "../../../../utils/async-guard.js";
+import { executeSpecialAction } from "../../../../core/combat/special-actions-helper.js";
+import { applySprintBonus, applyPowerDrawBonus } from "../../../../core/stamina/stamina-integration-hooks.js";
+import {
+  ensureBurningTurnActionAllowed,
+  attemptExtinguishBurning,
+  getConditionValue
+} from "../../../../core/conditions/condition-engine.js";
+import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js";
+import { getFearActionRestrictions } from "../../../../core/fear/index.js";
+import { getMovementActionLegality } from "../../../../core/combat/movement-rules.js";
 
 /**
  * Handle Combat tab quick-action buttons.
@@ -30,33 +48,24 @@ import { isActorBlockedFromAoOAgainstTarget } from "../../../../core/traits/mobi
  * - attack (requires weaponId + targeted token)
  * - disengage, delay, defensive-stance, aim, dash, hide, use-item, reload-weapon, attack-of-opportunity
  * 
- * @param {SimpleActorSheet} sheet - The actor sheet instance
+ * @param {object} sheet - The actor sheet instance
  * @param {Event} event - The click event
  * @returns {Promise<void>}
  */
-export async function onCombatQuickAction(sheet, event) {
+export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickAction(event, target) {
   event.preventDefault();
 
-  const btn = event.currentTarget;
-  const action = btn?.dataset?.action;
+  const btn = target ?? event.currentTarget;
+  const action = btn?.dataset?.combatAction;
   if (!action) return;
 
-  const actor = sheet.actor;
-
-  // Preserve the currently selected Actions subtab across any actor updates
-  try {
-    const active = sheet.element?.find?.(".uesrpg-actions-subtab.active")?.[0];
-    const tab = active?.dataset?.actionstab;
-    if (tab) sheet._uesrpgActionsSubtab = tab;
-  } catch (_e) {
-    // no-op
-  }
+  const actor = this.actor;
 
   // Local helpers
   const postActionCard = async (title, bodyHtml) => {
     const speaker = ChatMessage.getSpeaker({ actor });
     const content = buildCollapsedActionCardHtml(title, bodyHtml);
-    return ChatMessage.create({ user: game.user.id, speaker, content });
+    return ChatMessage.create({ user: game.user.id, speaker, content, style: CONST.CHAT_MESSAGE_STYLES.OTHER });
   };
 
   const requireAP = async (title, apCost = 1) => {
@@ -83,10 +92,44 @@ export async function onCombatQuickAction(sheet, event) {
     return buildEffectDuration({ actor, rounds, turns, seconds });
   };
 
+  const ensureTurnActionAllowed = async (actionId, { allowExtinguish = false } = {}) => {
+    const surprise = resolveSurpriseState(actor, { combatContext: game.combat });
+    if (surprise.onlyReactions) {
+      ui.notifications?.warn?.(`${actor.name} is surprised and may only take reactions until their first turn passes.`);
+      return false;
+    }
+
+    const fear = getFearActionRestrictions(actor);
+    if (fear?.blockActions === true) {
+      ui.notifications?.warn?.(`${actor.name} cannot take actions due to fear effects.`);
+      return false;
+    }
+
+    const burning = await ensureBurningTurnActionAllowed(actor, {
+      actionId,
+      allowExtinguish
+    });
+    if (!burning.allowed) {
+      ui.notifications?.warn?.(`${actor.name} fails to act while burning.`);
+      return false;
+    }
+
+    return true;
+  };
+
+  const ensureReactionAllowed = () => {
+    const fear = getFearActionRestrictions(actor);
+    if (fear?.blockReactions === true) {
+      ui.notifications?.warn?.(`${actor.name} cannot take reactions due to fear effects.`);
+      return false;
+    }
+    return true;
+  };
+
   const _deleteEffect = async (effect) => {
     if (!effect) return;
     try {
-      await actor.deleteEmbeddedDocuments("ActiveEffect", [effect.id]);
+      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
     } catch (err) {
       console.warn("UESRPG | Sheet quick action failed to delete effect", { actor: actor?.uuid, effectId: effect?.id, err });
     }
@@ -99,22 +142,19 @@ export async function onCombatQuickAction(sheet, event) {
   };
 
   const ADD = globalThis?.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
-  const actorType = String(actor?.type ?? "");
 
   const resolveCombatStyleForAttack = () => {
-    // RAW: NPCs do not use Combat Style items; they use their Combat profession for combat workflows.
-    if (actorType === "NPC") {
-      const base = Number(actor.system?.professions?.combat ?? 0) || 0;
-      return { styleUuid: "prof:combat", styleName: "Combat (Profession)", base };
-    }
-
-    // PCs: prefer explicit active style, fallback to first owned combat style item.
-    const explicit = getExplicitActiveCombatStyleItem(actor);
-    const style = explicit ?? (actor.itemTypes?.combatStyle?.[0]) ?? null;
-    if (!style) return null;
-
-    const base = Number(style.system?.value ?? 0) || 0;
-    return { styleUuid: style.uuid, styleName: style.name, base };
+    const preferred = getExplicitActiveCombatStyleItem(actor)?.uuid ?? null;
+    const styleCtx = resolveStyleForCombatTest(actor, {
+      preferredStyleUuid: preferred,
+      actorTypeFallback: true
+    });
+    if (!styleCtx) return null;
+    return {
+      styleUuid: styleCtx.styleUuid,
+      styleName: styleCtx.styleName,
+      base: Number(styleCtx.base ?? 0) || 0
+    };
   };
 
   switch (action) {
@@ -133,6 +173,8 @@ export async function onCombatQuickAction(sheet, event) {
         ui.notifications?.warn?.("This Primary Special Action is only available on your Turn.");
         return;
       }
+
+      if (!(await ensureTurnActionAllowed(`special:${specialId ?? "unknown"}`))) return;
 
       const requiresTarget = specialId !== "arise";
       const activation = buildSpecialActionActivation({
@@ -161,7 +203,6 @@ export async function onCombatQuickAction(sheet, event) {
       if (!targetToken && requiresTarget) return;
 
       if (specialId === "arise") {
-        const { executeSpecialAction } = await import("../../../../core/combat/special-actions-helper.js");
         const result = await executeSpecialAction({
           specialActionId: specialId,
           actor,
@@ -181,8 +222,9 @@ export async function onCombatQuickAction(sheet, event) {
         return;
       }
 
-      const activeCombatStyle = getExplicitActiveCombatStyleItem(actor);
-      const attackerSkillUuid = activeCombatStyle?.uuid ?? null;
+      const attackerStyleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
+      const defenderStyleCtx = resolveStyleForCombatTest(targetToken?.actor ?? null, { actorTypeFallback: true });
+      const attackerSkillUuid = attackerStyleCtx?.styleUuid ?? null;
 
       const message = await SkillOpposedWorkflow.createPending({
         attackerTokenUuid: actorToken?.document?.uuid ?? actorToken?.uuid,
@@ -195,8 +237,14 @@ export async function onCombatQuickAction(sheet, event) {
       if (state) {
         state.specialActionId = specialId;
         state.allowCombatStyle = true;
+        state.specialActionContext = {
+          id: specialId,
+          source: "combat-quick-action",
+          attackerStyleUuid: attackerStyleCtx?.styleUuid ?? null,
+          defenderStyleUuid: defenderStyleCtx?.styleUuid ?? null
+        };
 
-        await message.update({
+        await safeUpdateChatMessage(message, {
           flags: {
             "uesrpg-3ev4": {
               skillOpposed: {
@@ -212,6 +260,8 @@ export async function onCombatQuickAction(sheet, event) {
     }
 
     case "attack": {
+      if (!(await ensureTurnActionAllowed("attack"))) return;
+
       if (actor?.effects?.some((e) => !e.disabled && e?.flags?.uesrpg?.key === "defensiveStance")) {
         ui.notifications?.warn?.("Defensive Stance is active: you cannot attack until your next Turn.");
         return;
@@ -276,6 +326,12 @@ export async function onCombatQuickAction(sheet, event) {
     }
 
     case "disengage": {
+      if (!(await ensureTurnActionAllowed("disengage"))) return;
+      const movementGate = getMovementActionLegality(actor, { actionId: "disengage" });
+      if (!movementGate.allowed) {
+        ui.notifications.warn(`${actor.name} cannot move (${movementGate.reasons[0]}).`);
+        return;
+      }
       const selfToken = resolveTokenForActor(actor);
       if (selfToken && hasOpponentWithTalentInMeleeRange(selfToken, "unrelenting")) {
         ui.notifications.warn("Disengage is prevented by Unrelenting (opponent in melee range).");
@@ -291,16 +347,17 @@ export async function onCombatQuickAction(sheet, event) {
     }
 
     case "delay": {
-      if (!(await requireAP("Delay Turn", 1))) return;
+      if (!(await ensureTurnActionAllowed("delay"))) return;
       await breakAimChainIfPresent();
       await postActionCard(
         "Delay Turn",
-        "<p>The character declares a set of circumstances in which they will act. The character then skips their Turn and may insert their delayed Turn into the order as a reaction if the conditions are met.</p>"
+        "<p>The character declares a set of circumstances in which they will act. The character then skips their Turn and may insert their delayed Turn into the order as a reaction if the conditions are met.</p><p><b>RAW:</b> Declaring Delay does not spend AP.</p>"
       );
       return;
     }
 
     case "defensive-stance": {
+      if (!(await ensureTurnActionAllowed("defensive-stance"))) return;
       if (!(await requireAP("Defensive Stance", 1))) return;
       await breakAimChainIfPresent();
       await postActionCard(
@@ -354,6 +411,7 @@ export async function onCombatQuickAction(sheet, event) {
     }
 
     case "aim": {
+      if (!(await ensureTurnActionAllowed("aim"))) return;
       const candidates = [];
       try {
         const weapons = (actor.itemTypes?.weapon ?? []).filter((w) => Boolean(w?.system?.equipped));
@@ -449,31 +507,27 @@ export async function onCombatQuickAction(sheet, event) {
       }).join("");
 
       const content = `
-        <form class="uesrpg-aim-form">
+        <div class="uesrpg-aim-form">
           <div class="form-group">
             <label>Aim At</label>
             <select name="aimItemUuid">${options}</select>
           </div>
-        </form>
+        </div>
       `;
 
-      const selectedUuid = await new Promise((resolve) => {
-        new Dialog({
-          title: "Aim",
-          content,
-          buttons: {
-            ok: {
-              label: "Aim",
-              callback: (html) => {
-                const uuid = html.find("select[name='aimItemUuid']").val();
-                resolve(String(uuid ?? "").trim() || null);
-              }
-            },
-            cancel: { label: "Cancel", callback: () => resolve(null) }
-          },
-          default: "ok",
-          close: () => resolve(null)
-        }).render(true);
+      const selectedUuid = await customDialog({
+        title: "Aim",
+        content,
+        yes: {
+          label: "Aim",
+          callback: (html) => {
+            const el = html instanceof HTMLElement ? html : html?.[0];
+            const uuid = el?.querySelector("select[name='aimItemUuid']")?.value;
+            return String(uuid ?? "").trim() || null;
+          }
+        },
+        no: { label: "Cancel" },
+        defaultButton: "yes"
       });
 
       if (!selectedUuid) return;
@@ -513,10 +567,15 @@ export async function onCombatQuickAction(sheet, event) {
     }
 
     case "dash": {
+      if (!(await ensureTurnActionAllowed("dash"))) return;
+      const movementGate = getMovementActionLegality(actor, { actionId: "dash" });
+      if (!movementGate.allowed) {
+        ui.notifications.warn(`${actor.name} cannot Dash (${movementGate.reasons[0]}).`);
+        return;
+      }
       if (!(await requireAP("Dash", 1))) return;
       await breakAimChainIfPresent();
       
-      const { applySprintBonus } = await import("../../../../core/stamina/stamina-integration-hooks.js");
       const sprintEffect = await applySprintBonus(actor);
       const speed = actor.system?.speed?.value ?? 0;
       const movement = sprintEffect ? speed * 2 : speed;
@@ -535,6 +594,7 @@ export async function onCombatQuickAction(sheet, event) {
     }
 
     case "hide": {
+      if (!(await ensureTurnActionAllowed("hide"))) return;
       if (!(await requireAP("Hide", 1))) return;
       await breakAimChainIfPresent();
       await postActionCard(
@@ -545,6 +605,7 @@ export async function onCombatQuickAction(sheet, event) {
     }
 
     case "use-item": {
+      if (!(await ensureTurnActionAllowed("use-item"))) return;
       const candidates = actor.items.filter(i => {
         const consumable = Boolean(i?.system?.consumable);
         const type = String(i?.type ?? "");
@@ -562,40 +623,40 @@ export async function onCombatQuickAction(sheet, event) {
 
       const options = candidates.map(i => `<option value="${i.id}">${i.name}</option>`).join("");
       const content = `
-        <form class="uesrpg-use-item-form">
+        <div class="uesrpg-use-item-form">
           <div class="form-group">
             <label>Item</label>
             <select name="itemId">${options}</select>
           </div>
-        </form>
+        </div>
       `;
 
-      return new Dialog({
+      return customDialog({
         title: "Use Item",
         content,
-        buttons: {
-          use: {
-            label: "Use",
-            callback: async (html) => {
-              const itemId = html.find("select[name='itemId']").val();
-              const item = actor.items.get(itemId);
-              if (!item) {
-                ui.notifications.warn("Selected item could not be found.");
-                return;
-              }
-              if (!(await spendActionPoints(actor, 1, { reason: "Use Item" }))) return;
-              await breakAimChainIfPresent();
-              await postActionCard("Use Item", `<p>${item.name}</p>`);
+        yes: {
+          label: "Use",
+          callback: async (html) => {
+            const el = html instanceof HTMLElement ? html : html?.[0];
+            const itemId = el?.querySelector("select[name='itemId']")?.value;
+            const item = actor.items.get(itemId);
+            if (!item) {
+              ui.notifications.warn("Selected item could not be found.");
+              return;
             }
-          },
-          cancel: { label: "Cancel" }
+            if (!(await spendActionPoints(actor, 1, { reason: "Use Item" }))) return;
+            await breakAimChainIfPresent();
+            await postActionCard("Use Item", `<p>${item.name}</p>`);
+          }
         },
-        default: "use"
-      }).render(true);
+        no: { label: "Cancel" },
+        defaultButton: "yes"
+      });
     }
 
     case "reload-weapon": {
       event.preventDefault();
+      if (!(await ensureTurnActionAllowed("reload-weapon"))) return;
       
       const rangedWeapon = actor.items.find(i => 
         i.type === "weapon" && 
@@ -621,7 +682,6 @@ export async function onCombatQuickAction(sheet, event) {
         return;
       }
       
-      const { applyPowerDrawBonus } = await import("../../../../core/stamina/stamina-integration-hooks.js");
       const powerDrawReduction = await applyPowerDrawBonus(actor, rangedWeapon);
       const hasRapidReload = hasTalent(actor, "rapidreload") || hasTalent(actor, "dualrapidreloadfighter");
       const talentReloadReduction = hasRapidReload ? 1 : 0;
@@ -634,11 +694,11 @@ export async function onCombatQuickAction(sheet, event) {
       }
       
       const newAP = currentAP - effectiveReloadCost;
-      await actor.update({
+      await requestUpdateDocument(actor, {
         "system.action_points.value": newAP
       });
       
-      await rangedWeapon.update({
+      await requestUpdateDocument(rangedWeapon, {
         "system.reloadState.isLoaded": true
       });
       
@@ -667,14 +727,40 @@ export async function onCombatQuickAction(sheet, event) {
             </div>
           </div>
         `,
-        type: CONST.CHAT_MESSAGE_TYPES.OTHER
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
       
       ui.notifications.info(`${rangedWeapon.name} reloaded for ${effectiveReloadCost} AP.`);
       return;
     }
 
+    case "extinguish-burning": {
+      if (!(await ensureTurnActionAllowed("extinguish-burning", { allowExtinguish: true }))) return;
+      const burningValue = Number(getConditionValue(actor, "burning") ?? 0) || 0;
+      if (burningValue <= 0) {
+        ui.notifications?.warn?.("You are not currently burning.");
+        return;
+      }
+      if (!(await requireAP("Put Out Fire", 1))) return;
+      await breakAimChainIfPresent();
+
+      const result = await attemptExtinguishBurning(actor);
+      if (!result?.ok) {
+        ui.notifications?.warn?.("You are not currently burning.");
+        return;
+      }
+
+      await postActionCard(
+        "Put Out Fire",
+        result.success
+          ? "<p>The flames are extinguished. You fall prone.</p>"
+          : "<p>You fail to extinguish the flames and fall prone.</p>"
+      );
+      return;
+    }
+
     case "attack-of-opportunity": {
+      if (!ensureReactionAllowed()) return;
       const weaponId = actor.sheetCombatQuick?.meleeWeaponId ?? null;
       if (!weaponId) {
         ui.notifications.warn("No melee weapon equipped for Attack of Opportunity.");
@@ -741,6 +827,7 @@ export async function onCombatQuickAction(sheet, event) {
         mode: "attack",
         attackMode,
         weaponUuid: weapon.uuid,
+        isReactionAttack: true,
         skipAttackerAPDeduction: false
       });
       return;
@@ -749,4 +836,4 @@ export async function onCombatQuickAction(sheet, event) {
     default:
       return;
   }
-}
+});

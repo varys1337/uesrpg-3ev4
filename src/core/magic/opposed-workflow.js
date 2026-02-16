@@ -20,6 +20,8 @@ import {
 } from "./magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "./backfire.js";
 import { canUserRollActor } from "../../utils/permissions.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { ActionEconomy } from "../combat/action-economy.js";
 import { AttackTracker } from "../combat/attack-tracker.js";
 import { classifySpellForRouting, getUserSpellTargets, emitCastResolved } from "./spell-runtime.js";
@@ -249,7 +251,7 @@ export const MagicOpposedWorkflow = {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
 
-    await message.update({ content: renderCard(data, message.id) });
+    await safeUpdateChatMessage(message, { content: renderCard(data, message.id) });
     return message;
   },
 
@@ -331,7 +333,7 @@ export const MagicOpposedWorkflow = {
     if (!magickaSpend?.ok) {
       // Rollback AP on magicka failure
       try {
-        await attacker.update({ "system.action_points.value": currentAP });
+        await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
       } catch (_e) { /* best-effort */ }
       return null;
     }
@@ -444,7 +446,7 @@ export const MagicOpposedWorkflow = {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
 
-    await message.update({ content: renderCard(data, message.id) });
+    await safeUpdateChatMessage(message, { content: renderCard(data, message.id) });
     
     if (result.isSuccess) {
       const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
@@ -548,7 +550,7 @@ export const MagicOpposedWorkflow = {
     const magickaSpend = await consumeSpellMagicka(attacker, spell, spellOptions);
     if (!magickaSpend?.ok) {
       try {
-        await attacker.update({ "system.action_points.value": currentAP });
+        await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
       } catch (_e) {
         // best-effort
       }
@@ -704,7 +706,7 @@ export const MagicOpposedWorkflow = {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
 
-    await message.update({ content: renderUnopposedCard(data, message.id) });
+    await safeUpdateChatMessage(message, { content: renderUnopposedCard(data, message.id) });
     return message;
   },
 

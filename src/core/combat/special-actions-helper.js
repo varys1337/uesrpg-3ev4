@@ -9,9 +9,18 @@
  */
 
 import { hasCondition, applyCondition, removeCondition } from "../conditions/condition-engine.js";
-import { getSpecialActionById } from "../config/special-actions.js";
+import {
+  getSpecialActionById,
+  buildSpecialActionTestChoicesForActor,
+  getSpecialActionTestOption,
+  getSpecialActionTestOptionKeys
+} from "./combat-style-utils.js";
 import { ActionEconomy } from "./action-economy.js";
 import { TimeService, buildEffectDuration } from "../time/index.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { _resolveActorViaToken } from "./opposed/helpers/docs.js";
+import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
+import { requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 
@@ -39,81 +48,41 @@ export async function showSpecialAdvantageDialog(specialActionId) {
   const def = getSpecialActionById(specialActionId);
   if (!def) return null;
 
-  return new Promise((resolve) => {
-    const dialog = new Dialog({
-      title: `Special Advantage: ${def.name}`,
-      content: `
-        <div style="padding: 10px;">
-          <p>You are using <strong>${def.name}</strong> as a Special Advantage.</p>
-          <p>Choose how to use it:</p>
-          <form>
-            <div style="margin: 10px 0;">
-              <label>
-                <input type="radio" name="advMode" value="free" checked>
-                <strong>Free Action</strong> - No AP cost, but roll opposed test normally
-              </label>
-            </div>
-            <div style="margin: 10px 0;">
-              <label>
-                <input type="radio" name="advMode" value="autowin">
-                <strong>Auto-Win</strong> - Automatically win the opposed test (still costs AP if not using as advantage)
-              </label>
-            </div>
-          </form>
+  return customDialog({
+    title: `Special Advantage: ${def.name}`,
+    content: `
+      <div style="padding: 10px;">
+        <p>You are using <strong>${def.name}</strong> as a Special Advantage.</p>
+        <p>Choose how to use it:</p>
+        <div>
+          <div style="margin: 10px 0;">
+            <label>
+              <input type="radio" name="advMode" value="free" checked>
+              <strong>Free Action</strong> - No AP cost, but roll opposed test normally
+            </label>
+          </div>
+          <div style="margin: 10px 0;">
+            <label>
+              <input type="radio" name="advMode" value="autowin">
+              <strong>Auto-Win</strong> - Automatically win the opposed test (still costs AP if not using as advantage)
+            </label>
+          </div>
         </div>
-      `,
-      buttons: {
-        confirm: {
-          label: "Confirm",
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const selected = root?.querySelector('input[name="advMode"]:checked')?.value ?? "free";
-            resolve({ mode: selected });
-          }
-        },
-        cancel: {
-          label: "Cancel",
-          callback: () => resolve(null)
+      </div>
+    `,
+    buttons: {
+      confirm: {
+        label: "Confirm",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const selected = root?.querySelector('input[name="advMode"]:checked')?.value ?? "free";
+          return { mode: selected };
         }
       },
-      default: "confirm",
-      close: () => resolve(null)
-    });
-    dialog.render(true);
+      cancel: { label: "Cancel", callback: () => null }
+    },
+    defaultButton: "confirm",
   });
-}
-
-/**
- * Check if a Combat Style is unarmed.
- * @param {Item} combatStyleItem - Combat Style item
- * @returns {boolean}
- */
-function _isUnarmedCombatStyle(combatStyleItem) {
-  if (!combatStyleItem) return false;
-  const name = String(combatStyleItem.name || "").trim().toLowerCase();
-  // Common unarmed combat style names
-  return name.includes("unarmed") || 
-         name.includes("hand to hand") ||
-         name.includes("hand-to-hand") ||
-         name.includes("brawling") ||
-         name.includes("martial arts");
-}
-
-/**
- * Check if a Combat Style can use shields.
- * @param {Item} combatStyleItem - Combat Style item  
- * @returns {boolean}
- */
-function _canUseShield(combatStyleItem) {
-  if (!combatStyleItem) return false;
-  const name = String(combatStyleItem.name || "").trim().toLowerCase();
-  // Shield-capable styles (one-handed weapons)
-  // Unarmed styles cannot use shields
-  if (_isUnarmedCombatStyle(combatStyleItem)) return false;
-  // Two-handed weapon styles cannot use shields
-  if (name.includes("two-handed") || name.includes("two handed")) return false;
-  // Most other combat styles can use shields (sword and board, etc.)
-  return true;
 }
 
 /**
@@ -129,149 +98,15 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, isDefend
   const def = getSpecialActionById(specialActionId);
   if (!def) return null;
 
-  const options = _getSpecialActionOptions(specialActionId);
-  const available = isDefender ? options.defender : options.attacker;
-
-  if (!available || available.length === 0) {
-    console.warn(`UESRPG | No options defined for Special Action: ${specialActionId}`);
-    return null;
-  }
-
-  const isNPC = actor?.type === "NPC";
-  const choices = [];
-
-  // Cache combat styles to avoid repeated filtering
-  const allCombatStyles = !isNPC ? (actor.items?.filter(i => i.type === "combatStyle") ?? []) : [];
-
-  // Process each available option type
-  for (const optType of available) {
-    if (optType === "Combat Style") {
-      // Generic Combat Style - offer ALL Combat Style items
-      if (!isNPC) {
-        for (const style of allCombatStyles) {
-          choices.push({
-            value: "combatStyle",
-            label: `${style.name} (Combat Style)`,
-            skillUuid: style.uuid,
-            checked: choices.length === 0
-          });
-        }
-      } else {
-        // NPC: use combat profession
-        if (actor.system?.professions?.combat != null) {
-          choices.push({
-            value: "combatProfession",
-            label: "Combat (Profession)",
-            skillUuid: "prof:combat",
-            checked: choices.length === 0
-          });
-        }
-      }
-    }
-    else if (optType === "Combat Style (unarmed)") {
-      // Unarmed Combat Style only
-      if (!isNPC) {
-        const unarmedStyles = allCombatStyles.filter(style => _isUnarmedCombatStyle(style));
-        for (const style of unarmedStyles) {
-          choices.push({
-            value: "combatStyle",
-            label: `${style.name} (Combat Style - Unarmed)`,
-            skillUuid: style.uuid,
-            checked: choices.length === 0
-          });
-        }
-      } else {
-        // NPC: use combat profession (treat as unarmed-capable)
-        if (actor.system?.professions?.combat != null) {
-          choices.push({
-            value: "combatProfession",
-            label: "Combat (Profession)",
-            skillUuid: "prof:combat",
-            checked: choices.length === 0
-          });
-        }
-      }
-    }
-    else if (optType === "Combat Style (with shield)") {
-      // Shield-capable Combat Style
-      if (!isNPC) {
-        const shieldStyles = allCombatStyles.filter(style => _canUseShield(style));
-        for (const style of shieldStyles) {
-          choices.push({
-            value: "combatStyle",
-            label: `${style.name} (Combat Style - Shield)`,
-            skillUuid: style.uuid,
-            checked: choices.length === 0
-          });
-        }
-      } else {
-        // NPC: use combat profession (treat as shield-capable)
-        if (actor.system?.professions?.combat != null) {
-          choices.push({
-            value: "combatProfession",
-            label: "Combat (Profession)",
-            skillUuid: "prof:combat",
-            checked: choices.length === 0
-          });
-        }
-      }
-    }
-    else if (optType === "Athletics") {
-      if (isNPC) {
-        if (actor.system?.professions?.athletics != null) {
-          choices.push({
-            value: "athletics",
-            label: "Athletics (Profession)",
-            skillUuid: "prof:athletics",
-            checked: choices.length === 0
-          });
-        }
-      } else {
-        const skill = actor.items?.find(i => i.type === "skill" && i.name?.toLowerCase() === "athletics");
-        if (skill) {
-          choices.push({
-            value: "athletics",
-            label: "Athletics",
-            skillUuid: skill.uuid,
-            checked: choices.length === 0
-          });
-        }
-      }
-    }
-    else if (optType === "Evade") {
-      const skill = actor.items?.find(i => i.type === "skill" && i.name?.toLowerCase() === "evade");
-      if (skill) {
-        choices.push({
-          value: "evade",
-          label: "Evade",
-          skillUuid: skill.uuid,
-          checked: choices.length === 0
-        });
-      }
-    }
-    else if (optType === "Deceive") {
-      const skill = actor.items?.find(i => i.type === "skill" && i.name?.toLowerCase() === "deceive");
-      if (skill) {
-        choices.push({
-          value: "deceive",
-          label: "Deceive",
-          skillUuid: skill.uuid,
-          checked: choices.length === 0
-        });
-      }
-    }
-    else if (optType === "Observe") {
-      const skill = actor.items?.find(i => i.type === "skill" && i.name?.toLowerCase() === "observe");
-      if (skill) {
-        choices.push({
-          value: "observe",
-          label: "Observe",
-          skillUuid: skill.uuid,
-          checked: choices.length === 0
-        });
-      }
-    }
-  }
+  const side = isDefender ? "defender" : "attacker";
+  const choices = buildSpecialActionTestChoicesForActor(actor, { specialActionId, side })
+    .map((choice, idx) => ({
+      value: String(choice?.testType ?? ""),
+      label: String(choice?.label ?? choice?.skillUuid ?? "Test"),
+      skillUuid: String(choice?.skillUuid ?? ""),
+      checked: idx === 0
+    }))
+    .filter(choice => Boolean(choice.skillUuid));
 
   if (choices.length === 0) {
     ui.notifications.warn(`${actor.name} has no valid options for ${def.name}. Check that they have the required Combat Styles or Skills.`);
@@ -287,7 +122,7 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, isDefend
   }
 
   const content = `
-    <form class="uesrpg-special-action-test-choice">
+    <div class="uesrpg-special-action-test-choice">
       <p><b>Special Action: ${_escapeHtml(def.name)}</b></p>
       <p>Choose your ${isDefender ? 'defense' : 'test'}:</p>
       <div style="margin: 12px 0;">
@@ -298,11 +133,11 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, isDefend
           </label>
         `).join('')}
       </div>
-    </form>
+    </div>
   `;
 
   try {
-    const result = await Dialog.wait({
+    const result = await customDialog({
       title: `Special Action: ${def.name}`,
       content,
       buttons: {
@@ -319,8 +154,9 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, isDefend
         },
         cancel: { label: "Cancel", callback: () => null }
       },
-      default: "ok"
-    }, { width: 400 });
+      default: "ok",
+      width: 400
+    });
 
     return result ?? null;
   } catch (_e) {
@@ -329,151 +165,19 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, isDefend
 }
 
 /**
- * Get available test options for a Special Action.
+ * Get available test option labels for a Special Action side.
  * @param {string} specialActionId
- * @returns {{attacker: string[], defender: string[]}}
+ * @param {"attacker"|"defender"} side
+ * @returns {string[]}
  */
-function _getSpecialActionOptions(specialActionId) {
-  const options = {
-    bash: {
-      attacker: ["Combat Style (unarmed)", "Athletics"],
-      defender: ["Combat Style (unarmed)", "Athletics", "Evade"]
-    },
-    blindOpponent: {
-      attacker: ["Combat Style"],
-      defender: ["Combat Style (with shield)", "Evade"]
-    },
-    disarm: {
-      attacker: ["Combat Style (unarmed)", "Athletics"],
-      defender: ["Combat Style (unarmed)", "Athletics"]
-    },
-    feint: {
-      attacker: ["Combat Style", "Deceive"],
-      defender: ["Combat Style", "Observe"]
-    },
-    forceMovement: {
-      attacker: ["Combat Style"],
-      defender: ["Combat Style", "Athletics"]
-    },
-    resist: {
-      attacker: ["Combat Style (unarmed)", "Athletics"],
-      defender: ["Combat Style (unarmed)", "Athletics"]
-    },
-    trip: {
-      attacker: ["Combat Style (unarmed)", "Athletics"],
-      defender: ["Combat Style (unarmed)", "Athletics", "Evade"]
-    }
-  };
-
-  return options[specialActionId] ?? { attacker: [], defender: [] };
-}
-
-/**
- * Show test choice dialog (Combat Style vs Skills).
- * @param {Object} options
- * @param {string} options.title
- * @param {string[]} options.options - Available test types (e.g., ["Combat Style", "Athletics", "Evade"])
- * @param {Actor} options.actor
- * @returns {Promise<{testType: string}|null>}
- */
-async function _showTestChoiceDialog({ title, options, actor }) {
-  if (!options || options.length === 0) return null;
-  if (options.length === 1) return { testType: options[0] };
-
-  // Check if actor has active combat style
-  const { getActiveCombatStyleId } = await import("./combat-style-utils.js");
-  const activeCombatStyleId = getActiveCombatStyleId(actor);
-  const hasCombatStyle = Boolean(activeCombatStyleId);
-
-  // Filter options based on availability
-  const availableOptions = options.filter(opt => {
-    if (opt === "Combat Style") return hasCombatStyle;
-    return true; // Skills are always available if listed
-  });
-
-  if (availableOptions.length === 0) {
-    ui.notifications.warn("No available test options for this Special Action.");
-    return null;
+function _getSpecialActionOptionLabels(specialActionId, side) {
+  const keys = getSpecialActionTestOptionKeys(specialActionId, side);
+  const labels = [];
+  for (const key of keys) {
+    const opt = getSpecialActionTestOption(key);
+    if (opt?.label) labels.push(String(opt.label));
   }
-
-  if (availableOptions.length === 1) {
-    return { testType: availableOptions[0] };
-  }
-
-  return new Promise((resolve) => {
-    const optionsHtml = availableOptions.map((opt, idx) => `
-      <div style="margin: 8px 0;">
-        <label>
-          <input type="radio" name="testChoice" value="${opt}" ${idx === 0 ? 'checked' : ''}>
-          <strong>${opt}</strong>
-        </label>
-      </div>
-    `).join('');
-
-    const dialog = new Dialog({
-      title,
-      content: `
-        <div style="padding: 10px;">
-          <p>Choose which test to use:</p>
-          <form>
-            ${optionsHtml}
-          </form>
-        </div>
-      `,
-      buttons: {
-        confirm: {
-          label: "Confirm",
-          callback: (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const selected = root?.querySelector('input[name="testChoice"]:checked')?.value;
-            resolve(selected ? { testType: selected } : null);
-          }
-        },
-        cancel: {
-          label: "Cancel",
-          callback: () => resolve(null)
-        }
-      },
-      default: "confirm",
-      close: () => resolve(null)
-    });
-    dialog.render(true);
-  });
-}
-
-/**
- * Find a skill by name with precise matching.
- * @param {Actor} actor
- * @param {string} skillName - Lowercase skill name
- * @returns {Item|null}
- */
-function _findSkillByName(actor, skillName) {
-  if (!actor || !skillName) return null;
-  
-  // First try exact match
-  const exactMatch = actor.items.find(i =>
-    i.type === "skill" &&
-    i.name.toLowerCase() === skillName
-  );
-  if (exactMatch) return exactMatch;
-  
-  // For known Special Action skills, allow word-boundary matching
-  const knownSkills = {
-    "athletics": /\bathletics\b/i,
-    "evade": /\bevade\b/i,
-    "deceive": /\bdeceive\b/i,
-    "observe": /\bobserve\b/i
-  };
-  
-  const pattern = knownSkills[skillName];
-  if (pattern) {
-    return actor.items.find(i =>
-      i.type === "skill" &&
-      pattern.test(i.name)
-    );
-  }
-  
-  return null;
+  return labels;
 }
 
 /**
@@ -483,40 +187,8 @@ function _findSkillByName(actor, skillName) {
  * @returns {string[]}
  */
 function _getTestOptions(specialActionId, side) {
-  const mapping = {
-    bash: {
-      attacker: ["Combat Style", "Athletics"],
-      defender: ["Combat Style", "Athletics", "Evade"]
-    },
-    blindOpponent: {
-      attacker: ["Combat Style"],
-      defender: ["Combat Style", "Evade"]
-    },
-    disarm: {
-      attacker: ["Combat Style", "Athletics"],
-      defender: ["Combat Style", "Athletics"]
-    },
-    feint: {
-      attacker: ["Combat Style", "Deceive"],
-      defender: ["Combat Style", "Observe"]
-    },
-    forceMovement: {
-      attacker: ["Combat Style"],
-      defender: ["Combat Style", "Athletics"]
-    },
-    resist: {
-      attacker: ["Combat Style", "Athletics"],
-      defender: ["Combat Style", "Athletics"]
-    },
-    trip: {
-      attacker: ["Combat Style", "Athletics"],
-      defender: ["Combat Style", "Athletics", "Evade"]
-    }
-  };
-
-  const opts = mapping[specialActionId];
-  if (!opts) return [];
-  return side === "attacker" ? opts.attacker : opts.defender;
+  const lane = (side === "defender") ? "defender" : "attacker";
+  return _getSpecialActionOptionLabels(specialActionId, lane);
 }
 
 /**
@@ -655,7 +327,7 @@ export async function handleSpecialActionCardAction(message, action) {
 
     const isAttacker = action === "attacker-roll";
     const side = isAttacker ? attacker : defender;
-    const actor = fromUuidSync(side.actorUuid);
+    const actor = _resolveActorViaToken(side.actorUuid, side.tokenUuid);
 
     if (!actor) {
       ui.notifications.warn("Could not resolve actor for this action.");
@@ -668,12 +340,11 @@ export async function handleSpecialActionCardAction(message, action) {
       return;
     }
 
-    // Show test choice dialog
-    const options = _getTestOptions(specialActionId, isAttacker ? "attacker" : "defender");
-    const choice = await _showTestChoiceDialog({
-      title: `${def.name} - ${side.name}`,
-      options,
-      actor
+    // Show legal test choice dialog for this side.
+    const choice = await showPreTestChoiceDialog({
+      specialActionId,
+      actor,
+      isDefender: !isAttacker
     });
 
     if (!choice) return;
@@ -681,60 +352,49 @@ export async function handleSpecialActionCardAction(message, action) {
     // Perform roll
     let rollResult;
     let testLabel;
+    const selectedSkillUuid = String(choice.skillUuid ?? "").trim();
+    const selectedItem = (actor?.items ?? []).find(i => String(i?.uuid ?? "") === selectedSkillUuid || String(i?.id ?? "") === selectedSkillUuid) ?? null;
+    const isCombatStyleTest = selectedSkillUuid.startsWith("prof:combat") || selectedItem?.type === "combatStyle";
 
-    if (choice.testType === "Combat Style") {
-      // Roll using Combat Style TN
+    if (isCombatStyleTest) {
       const { computeTN } = await import("./tn.js");
-
-      // RAW: NPCs do not use Combat Style items; they use Combat (Profession).
-      const styleUuid = (String(actor?.type ?? "") === "NPC")
-        ? "prof:combat"
-        : ((actor?.items ?? []).find(i => i?.type === "combatStyle")?.uuid ?? null);
-
-      if (!styleUuid) {
-        ui.notifications.warn(`${actor.name} has no Combat Style to roll.`);
-        return;
-      }
-
       const tn = computeTN({
         actor,
         role: "attacker",
-        styleUuid,
+        styleUuid: selectedSkillUuid,
         variant: "normal",
         manualMod: 0,
         circumstanceMod: 0,
         situationalMods: [],
         context: { attackMode: "melee" }
       });
+
       rollResult = await doTestRoll(actor, {
         rollFormula: "1d100",
         target: tn.finalTN,
         allowLucky: true,
         allowUnlucky: true
       });
-      testLabel = "Combat Style";
+      testLabel = String(choice.testType || "Combat Style");
     } else {
-      // Roll using Skill TN
-      const skillName = choice.testType.toLowerCase();
-      
-      // Find skill item with precise matching
-      const skillItem = _findSkillByName(actor, skillName);
-
-      if (!skillItem && String(actor?.type ?? "") !== "NPC") {
-        ui.notifications.warn(`${actor.name} does not have the ${choice.testType} skill.`);
-        return;
-      }
-
       let tn = null;
-      if (!skillItem && String(actor?.type ?? "") === "NPC") {
+
+      if (selectedSkillUuid.startsWith("prof:")) {
+        const key = selectedSkillUuid.slice(5);
         const sys = actor?.system ?? {};
-        const base = Number(sys?.professions?.[skillName] ?? sys?.professionsWound?.[skillName] ?? 0) || 0;
+        const base = Number(sys?.professions?.[key] ?? sys?.professionsWound?.[key] ?? 0) || 0;
         const fatiguePenalty = Number(sys?.fatigue?.penalty ?? 0) || 0;
         const carryPenalty = Number(sys?.carry_rating?.penalty ?? 0) || 0;
         const woundPenalty = Number(sys?.woundPenalty ?? 0) || 0;
         const finalTN = Math.max(0, base + fatiguePenalty + carryPenalty + woundPenalty);
         tn = { finalTN, baseTN: base, totalMod: fatiguePenalty + carryPenalty + woundPenalty, breakdown: [] };
       } else {
+        const skillItem = selectedItem?.type === "skill" ? selectedItem : null;
+        if (!skillItem) {
+          ui.notifications.warn(`${actor.name} has no legal skill selection for ${def.name}.`);
+          return;
+        }
+
         const { computeSkillTN } = await import("../skills/skill-tn.js");
         tn = computeSkillTN({
           actor,
@@ -750,7 +410,7 @@ export async function handleSpecialActionCardAction(message, action) {
         allowLucky: true,
         allowUnlucky: true
       });
-      testLabel = choice.testType;
+      testLabel = String(choice.testType || selectedItem?.name || "Skill");
     }
 
     // Update side with result
@@ -775,8 +435,8 @@ export async function handleSpecialActionCardAction(message, action) {
         : (opposedResult.winner === "defender" ? `${defender.name} wins!` : "Tie!");
 
       // Execute Special Action effects
-      const attackerActor = fromUuidSync(attacker.actorUuid);
-      const defenderActor = fromUuidSync(defender.actorUuid);
+      const attackerActor = _resolveActorViaToken(attacker.actorUuid, attacker.tokenUuid);
+      const defenderActor = _resolveActorViaToken(defender.actorUuid, defender.tokenUuid);
       
       if (!attackerActor || !defenderActor) {
         console.error("UESRPG | Special Action: Could not resolve actors for effect execution");
@@ -809,7 +469,7 @@ export async function handleSpecialActionCardAction(message, action) {
     }
 
     // Update message
-    await message.update({
+    await safeUpdateChatMessage(message, {
       content: _renderSpecialActionCard(data, message.id),
       [`flags.${SYSTEM_ID}.specialActionOpposed.state`]: data
     });
@@ -1043,7 +703,10 @@ async function _executeBlindOpponent({ actor, target, winner, actorName, targetN
       (e?.flags?.["uesrpg-3ev4"]?.condition?.key === "blinded")
     );
     if (effect) {
-      await effect.update({ duration });
+      const parent = effect.parent;
+      if (parent) {
+        await requestUpdateEmbeddedDocuments(parent, "ActiveEffect", [{ _id: effect.id, duration }]);
+      }
     }
 
     return {
@@ -1082,10 +745,14 @@ async function _executeFeint({ actor, target, winner, actorName, targetName, isA
     );
 
     if (effect) {
-      await effect.update({
+      const effectUpdates = {
         duration,
         [`flags.uesrpg-3ev4.condition.attackerUuid`]: actor.uuid
-      });
+      };
+      const parent = effect.parent;
+      if (parent) {
+        await requestUpdateEmbeddedDocuments(parent, "ActiveEffect", [{ _id: effect.id, ...effectUpdates }]);
+      }
     }
 
     return {

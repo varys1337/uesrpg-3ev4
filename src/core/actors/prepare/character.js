@@ -22,8 +22,9 @@ import { applyTraitDerived, getActorTraitValue, isActorUndead } from "../../trai
 import { hasTalent } from "../../traits/talents-api.js";
 import { getPredictionInitiativeAgiBonus } from "../../traits/intellectual-talents.js";
 import { applyRacialTalentDerivedBonuses, applyRacialTalentPostSpeedDerived } from "../../traits/racial-talents.js";
-import { collectFeatureMods, applyFeatureModTotals } from "../../traits/features/collect-feature-mods.js";
+import { collectFeatureMods, applyFeatureModTotals, filterModsForApplication, applyWeaknessToResistance } from "../../traits/features/collect-feature-mods.js";
 import { reduceAllByStacking } from "../../traits/features/stacking.js";
+import { getSocialStateFromSystem } from "../../social/social-data.js";
 
 /**
  * Prepare Character type specific data.
@@ -83,14 +84,14 @@ export function prepareCharacterData(actorContext, actorData) {
 
 
   //Characteristic Bonuses
-  var strBonus = Math.floor(actorSystemData.characteristics.str.total / 10);
-  var endBonus = Math.floor(actorSystemData.characteristics.end.total / 10);
-  var agiBonus = Math.floor(actorSystemData.characteristics.agi.total / 10);
-  var intBonus = Math.floor(actorSystemData.characteristics.int.total / 10);
-  var wpBonus = Math.floor(actorSystemData.characteristics.wp.total / 10);
-  var prcBonus = Math.floor(actorSystemData.characteristics.prc.total / 10);
-  var prsBonus = Math.floor(actorSystemData.characteristics.prs.total / 10);
-  var lckBonus = Math.floor(actorSystemData.characteristics.lck.total / 10);
+  const strBonus = Math.floor(actorSystemData.characteristics.str.total / 10);
+  const endBonus = Math.floor(actorSystemData.characteristics.end.total / 10);
+  const agiBonus = Math.floor(actorSystemData.characteristics.agi.total / 10);
+  const intBonus = Math.floor(actorSystemData.characteristics.int.total / 10);
+  const wpBonus = Math.floor(actorSystemData.characteristics.wp.total / 10);
+  const prcBonus = Math.floor(actorSystemData.characteristics.prc.total / 10);
+  const prsBonus = Math.floor(actorSystemData.characteristics.prs.total / 10);
+  const lckBonus = Math.floor(actorSystemData.characteristics.lck.total / 10);
 
   // Set characteristic bonus values
   actorSystemData.characteristics.str.bonus = strBonus;
@@ -131,18 +132,40 @@ export function prepareCharacterData(actorContext, actorData) {
     }
   }
 
-//Set Campaign Rank
-if (actorSystemData.xpTotal >= 5000) {
+//Set Campaign Rank (RAW thresholds, synced with XP dialog in character-menus.js)
+if (actorSystemData.xpTotal >= 7000) {
   actorSystemData.campaignRank = "Master"
-} else if (actorSystemData.xpTotal >= 4000) {
+} else if (actorSystemData.xpTotal >= 5500) {
   actorSystemData.campaignRank = "Expert"
-} else if (actorSystemData.xpTotal >= 3000) {
+} else if (actorSystemData.xpTotal >= 4000) {
   actorSystemData.campaignRank = "Adept"
-} else if (actorSystemData.xpTotal >= 2000) {
+} else if (actorSystemData.xpTotal >= 2500) {
   actorSystemData.campaignRank = "Journeyman"
-} else {
+} else if (actorSystemData.xpTotal >= 1000) {
   actorSystemData.campaignRank = "Apprentice"
+} else {
+  actorSystemData.campaignRank = "Novice"
 }
+
+  // RAW Chapter 1: Linguistics = IB - 2, max 4.
+  // "Cyrodilic is free and doesn't count."
+  {
+    const ib = Number(actorSystemData.characteristics?.int?.bonus ?? 0);
+    actorSystemData.linguistics = actorSystemData.linguistics ?? {};
+    actorSystemData.linguistics.max = Math.min(4, Math.max(0, ib - 2));
+    // Preserve existing known languages string
+    actorSystemData.linguistics.known = actorSystemData.linguistics.known ?? "";
+  }
+
+  // Social data is canonical, linguistics.known remains a compatibility mirror.
+  {
+    const socialState = getSocialStateFromSystem(actorSystemData);
+    actorSystemData.social = actorSystemData.social ?? {};
+    actorSystemData.social.languages = actorSystemData.social.languages ?? {};
+    actorSystemData.social.languages.entries = socialState.languages.entries;
+    actorSystemData.social.factions = socialState.factions;
+    actorSystemData.linguistics.known = socialState.languages.knownString;
+  }
 
   //Talent/Power/Trait Resource Bonuses (use aggregated values)
   actorSystemData.hp.bonus = agg.hpBonus;
@@ -177,8 +200,12 @@ if (actorSystemData.xpTotal >= 5000) {
   applyTraitDerived(actorSystemData, actorSystemData.ui.traitAutomation);
 
   // Feature Automation (Chapter 4): collect provenance-tracked contributions
-  // for the Feature Inspector. This runs AFTER legacy derived-data so it captures
-  // the same values without changing behavior.
+  // for the Feature Inspector and Rule Element application.
+  //
+  // The full mods array feeds the Feature Inspector display (read-only).
+  // For actual application to actor data, we filter to ONLY Rule Element
+  // contributions, boolean flags, and set/override values — item schema
+  // bonus/resistance fields are already handled by aggregation above.
   try {
     const featureMods = collectFeatureMods({ actor: actorContext });
     const { byPath, totals } = reduceAllByStacking(featureMods);
@@ -186,9 +213,12 @@ if (actorSystemData.xpTotal >= 5000) {
     actorSystemData.ui.featureModsByPath = byPath;
     actorSystemData.ui.featureModTotals = totals;
 
-    // Apply RE passive totals (flatModifier, booleanFlag, overrideValue, senseLossReduction)
-    // so they feed into the derived calculations below (WT, HP, speed, initiative, etc.).
-    applyFeatureModTotals(actorSystemData, totals);
+    // Apply ONLY Rule Element and override/flag totals — legacy-mirror
+    // "add" mods from item schema fields are excluded to prevent double-counting.
+    const applyMods = filterModsForApplication(featureMods);
+    const { totals: applyTotals } = reduceAllByStacking(applyMods);
+    applyFeatureModTotals(actorSystemData, applyTotals);
+    applyWeaknessToResistance(actorSystemData);
   } catch (_featureErr) {
     // Non-critical: Feature Inspector will just show empty.
     if (isDebugEnabled("aeLifecycleDebug")) console.debug("uesrpg | Feature mod collection failed (non-critical)", _featureErr);
@@ -508,7 +538,7 @@ actorSystemData.luck_points.value = Math.clamp(Number(actorSystemData.luck_point
   } else if (actorSystemData.carry_rating.current > actorSystemData.carry_rating.max * 2) {
     actorSystemData.carry_rating.label = 'Severe'
     actorSystemData.carry_rating.penalty = -20
-    actorSystemData.speed.value = Math.floor(actorSystemData.speed.base / 2);
+    actorSystemData.speed.value = Math.floor(actorSystemData.speed.value / 2);
     actorSystemData.stamina.max = actorSystemData.stamina.max - 3;
   } else if (actorSystemData.carry_rating.current > actorSystemData.carry_rating.max) {
     actorSystemData.carry_rating.label = 'Moderate'
@@ -711,7 +741,7 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
 
     // professionsWound mirrors professions; wound penalty is applied by TN calculation code
     if (actorSystemData.professionsWound && actorSystemData.professions) {
-      for (var skill in actorSystemData.professionsWound) {
+      for (const skill in actorSystemData.professionsWound) {
         actorSystemData.professionsWound[skill] = actorSystemData.professions[skill];
       }
     }
@@ -722,14 +752,14 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
     actorSystemData.woundPenalty = 0;
 
     if (actorSystemData.professionsWound && actorSystemData.professions) {
-      for (var skill in actorSystemData.professionsWound) {
+      for (const skill in actorSystemData.professionsWound) {
         actorSystemData.professionsWound[skill] = actorSystemData.professions[skill];
       }
     }
   }
 
   else {
-    for (var skill in actorSystemData.professionsWound) {
+    for (const skill in actorSystemData.professionsWound) {
       actorSystemData.professionsWound[skill] = actorSystemData.professions[skill];
     }
   }
@@ -741,7 +771,7 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
     if (m.override != null) actorSystemData.fatigue.bonus = Number(m.override);
     else if (m.add) actorSystemData.fatigue.bonus = Number(actorSystemData.fatigue.bonus ?? 0) + Number(m.add);
   }
-  actorSystemData.fatigue.level = actorSystemData.stamina.value < 0 ? ((actorSystemData.stamina.value -1) * -1) + actorSystemData.fatigue.bonus : 0 + actorSystemData.fatigue.bonus
+  actorSystemData.fatigue.level = actorSystemData.stamina.value < 0 ? Math.abs(actorSystemData.stamina.value) + actorSystemData.fatigue.bonus : 0 + actorSystemData.fatigue.bonus
 
   switch (actorSystemData.fatigue.level > 0) {
     case true:

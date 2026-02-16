@@ -10,7 +10,7 @@ const FLAG_SCOPE = "uesrpg-3ev4";
 export const WOUND_SOCKET_VERSION = 1;
 export const WOUND_SOCKET_TYPES = Object.freeze(["damageApplied", "healingApplied", "resolveShock"]);
 
-export const WOUND_KINDS = Object.freeze([
+const WOUND_KINDS = Object.freeze([
   "wound",
   "bloodLoss",
   "forestall",
@@ -116,7 +116,7 @@ export function normalizeHitLocation(hitLocation) {
   return { label, key, region };
 }
 
-export function getActiveGMUser() {
+function getActiveGMUser() {
   try {
     if (game.users?.activeGM) return game.users.activeGM;
     const activeGMs = (game.users?.contents ?? []).filter(u => u?.active && u.isGM);
@@ -135,7 +135,7 @@ export function isActiveGMUser(user) {
   return active.id === user.id;
 }
 
-export function isWoundsDebugEnabled() {
+function isWoundsDebugEnabled() {
   if (isDebugEnabled("woundsDebug")) return true;
   return isAnyDebugEnabled(["opposedDebug", "debugSkillTN", "skillRollDebug"]);
 }

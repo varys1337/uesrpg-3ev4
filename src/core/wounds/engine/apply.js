@@ -12,6 +12,7 @@ import { hasTalent } from "../../traits/talents-api.js";
 import { applyGroupedEffect, getEffectGroup } from "../../../utils/ae-helpers.js";
 import { normalizeHitLocation, isActiveGMUser, SHOCK_KINDS, normalizeDamageTypeKey, SHOCK_MAGIC_TYPES } from "../wound-schema.js";
 import { requestWoundsGM } from "../wound-socket.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { 
   findEffectsByKind, 
   findFirstEffectByKind, 
@@ -99,7 +100,7 @@ export async function applyShockFailConsequence(actor, { hitLocation, applicatio
   }
 
   if (region === "head") {
-    const choice = await Dialog.wait({
+    const choice = await customDialog({
       title: "Head Wound: Lost Sense",
       content: `<p>Failed Shock test on a head wound. Choose which sense is lost (permanently).</p>`,
       buttons: {
@@ -149,7 +150,7 @@ export async function applyShockMagicSideEffect(actor, { chosenType, damageAppli
 
   if (type === "fire") {
     // Chapter 5: choose STR or AGI to avoid Burning(1).
-    const choose = await Dialog.wait({
+    const choose = await customDialog({
       title: "Fire Wound: Avoid Burning",
       content: `<p>This wound includes fire damage. Choose a Strength or Agility test to avoid gaining Burning (1).</p>`,
       buttons: {
@@ -234,7 +235,8 @@ export async function postShockTestChatCard({ actor, woundEffect, hitLocation, d
     content: cardHtml,
     flags: msgFlags,
     whisper: whisper,
-    blind: false
+    blind: false,
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
 }
 
@@ -611,7 +613,8 @@ export async function tickBloodLoss(actor) {
       await ChatMessage.create({
         user: game.user.id,
         speaker: ChatMessage.getSpeaker({ actor }),
-        content: `<div class="uesrpg-chat-card"><div class="header"><b>${actor.name}</b></div><div>Blood loss: HP dropped to 0.</div></div>`
+        content: `<div class="uesrpg-chat-card"><div class="header"><b>${actor.name}</b></div><div>Blood loss: HP dropped to 0.</div></div>`,
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
     } catch (_e) {
       // Non-blocking.
@@ -814,15 +817,14 @@ export async function resolveShockTestFromChat(...args) {
       const hasDieHard = hasTalent(actor, "diehard");
       const dieHardUsed = (w?.dieHardUsed === true);
       if (hasDieHard && !dieHardUsed && !passed) {
-        const wants = await Dialog.wait({
+        const wants = await customDialog({
           title: "Die-Hard",
           content: `<p><b>${foundry.utils.escapeHTML(actor.name ?? "Actor")}</b> failed the Shock Test. Use <b>Die-Hard</b> to reroll (once per test)?</p>`,
           buttons: {
             reroll: { label: "Reroll", callback: () => true },
             keep: { label: "Keep Failure", callback: () => false }
           },
-          default: "reroll",
-          close: () => false
+          default: "reroll"
         });
 
         if (wants === true) {
@@ -873,7 +875,7 @@ export async function resolveShockTestFromChat(...args) {
         for (const c of dom.candidates) {
           buttons[c] = { label: c.toUpperCase(), callback: () => c };
         }
-        chosen = await Dialog.wait({
+        chosen = await customDialog({
           title: "Magic Shock Side Effect (Tie)",
           content: `<p>Multiple magic types contributed equally to this wound. Choose which side effect applies.</p>`,
           buttons,
@@ -916,7 +918,8 @@ export async function resolveShockTestFromChat(...args) {
         speaker: ChatMessage.getSpeaker({ actor }),
         content: `<div class="uesrpg-chat-card" data-card="shock-result"><header class="card-header"><h3>Shock Result</h3></header><div class="card-content">${parts.join("\n")}</div></div>`,
         whisper: whisper,
-        blind: false
+        blind: false,
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
     } catch (_e) {
       // Non-blocking.

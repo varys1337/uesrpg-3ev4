@@ -22,6 +22,7 @@
  */
 
 import { registerLinkedEntity, findOriginAE } from "../effects/origin-effect.js";
+import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { createDebugLogger } from "../_primitives.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
@@ -50,7 +51,7 @@ async function _applyMindlockAE(casterActor, originAE, spell, options = {}) {
 
   // Build duration from Origin AE (mirror its duration so they expire together)
   const originDuration = originAE?.duration
-    ? foundry.utils.duplicate(originAE.duration)
+    ? foundry.utils.deepClone(originAE.duration)
     : {};
 
   const effectData = {
@@ -84,15 +85,8 @@ async function _applyMindlockAE(casterActor, originAE, spell, options = {}) {
   };
 
   try {
-    const { requestCreateEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
-    let created;
-    if (casterActor.isOwner) {
-      const results = await casterActor.createEmbeddedDocuments("ActiveEffect", [effectData]);
-      created = results?.[0] ?? null;
-    } else {
-      const results = await requestCreateEmbeddedDocuments(casterActor, "ActiveEffect", [effectData]);
-      created = Array.isArray(results) ? results[0] : results;
-    }
+    const results = await requestCreateEmbeddedDocuments(casterActor, "ActiveEffect", [effectData]);
+    const created = Array.isArray(results) ? results[0] : (results ?? null);
 
     if (!created) {
       _debug("Failed to create Mindlock AE (null result)");
@@ -170,9 +164,8 @@ async function _applyRestrainedPenalty(tokenDoc, originAE, spell) {
   };
 
   try {
-    // Unlinked token actors are owned by GM
-    const results = await creatureActor.createEmbeddedDocuments("ActiveEffect", [effectData]);
-    const created = results?.[0] ?? null;
+    const results = await requestCreateEmbeddedDocuments(creatureActor, "ActiveEffect", [effectData]);
+    const created = Array.isArray(results) ? results[0] : (results ?? null);
     if (created) {
       _debug(`Applied Restrained -1 AP to ${creatureActor.name}`);
     }

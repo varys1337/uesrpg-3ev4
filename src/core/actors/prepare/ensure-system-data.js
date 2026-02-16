@@ -38,6 +38,10 @@ export function ensureSystemData(actor) {
   const chars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
   for (const c of chars) {
     system.characteristics[c] ??= { base: 0, total: 0, bonus: 0 };
+    // Backfill missing sub-fields (NPC template lacks 'bonus')
+    system.characteristics[c].base ??= 0;
+    system.characteristics[c].total ??= 0;
+    system.characteristics[c].bonus ??= 0;
   }
 
   // Core resources
@@ -45,7 +49,22 @@ export function ensureSystemData(actor) {
   system.stamina ??= { value: 0, max: 0, bonus: 0 };
   system.magicka ??= { value: 0, max: 0, bonus: 0 };
   system.luck_points ??= { value: 0, max: 0, bonus: 0 };
+  system.luck_points.bonus ??= 0;
   system.action_points ??= { value: 0, max: 0 };
+
+  // Social data canonical store for actor-native languages/factions
+  if (!system.social || typeof system.social !== "object" || Array.isArray(system.social)) {
+    system.social = {};
+  }
+  if (!system.social.languages || typeof system.social.languages !== "object" || Array.isArray(system.social.languages)) {
+    system.social.languages = {};
+  }
+  if (!Array.isArray(system.social.languages.entries)) {
+    system.social.languages.entries = [];
+  }
+  if (!Array.isArray(system.social.factions)) {
+    system.social.factions = [];
+  }
 
   // Modifier lanes (Active Effects)
   if (!system.modifiers || typeof system.modifiers !== "object" || Array.isArray(system.modifiers)) {
@@ -107,6 +126,8 @@ export function ensureSystemData(actor) {
   system.initiative ??= { base: 0, value: 0, bonus: 0 };
   system.wound_threshold ??= { base: 0, value: 0, bonus: 0 };
   system.speed ??= { base: 0, value: 0, bonus: 0, swimSpeed: 0, flySpeed: 0 };
+  system.speed.swimSpeed ??= 0;
+  system.speed.flySpeed ??= 0;
   system.carry_rating ??= { current: 0, max: 0, penalty: 0, bonus: 0, label: "Minimal" };
 
   // Armor mobility penalties (derived) - neutral defaults
@@ -147,6 +168,22 @@ export function ensureSystemData(actor) {
   // New: Physical Resistance (separate from Natural Toughness)
   system.resistance.physicalR ??= 0;
 
+  // (#4) Weaknesses (inverse resistances — damage amplification)
+  // Populated by trait/talent/power weakness definitions and Rule Elements.
+  if (!system.weakness || typeof system.weakness !== "object" || Array.isArray(system.weakness)) {
+    system.weakness = {};
+  }
+  system.weakness.diseaseR ??= 0;
+  system.weakness.fireR ??= 0;
+  system.weakness.frostR ??= 0;
+  system.weakness.shockR ??= 0;
+  system.weakness.poisonR ??= 0;
+  system.weakness.magicR ??= 0;
+  system.weakness.natToughness ??= 0;
+  system.weakness.silverR ??= 0;
+  system.weakness.sunlightR ??= 0;
+  system.weakness.physicalR ??= 0;
+
   // Professions / Skills containers
   system.professions ??= {};
   system.professionsWound ??= {};
@@ -159,45 +196,4 @@ export function ensureSystemData(actor) {
     last_reset_round: 0,
     last_reset_turn: 0
   };
-}
-
-/**
- * Apply legacy characteristic bonuses from talents/traits/powers.
- * This ensures items with characteristicBonus fields apply their effects.
- * @param {SimpleActor} actor
- */
-export function applyLegacyCharacteristicBonuses(actor) {
-  const relevantItems = [
-    ...(actor.itemTypes?.talent ?? []),
-    ...(actor.itemTypes?.trait ?? []),
-    ...(actor.itemTypes?.power ?? [])
-  ];
-  
-  const bonuses = {
-    str: 0, end: 0, agi: 0, int: 0,
-    wp: 0, prc: 0, prs: 0, lck: 0
-  };
-  
-  for (const item of relevantItems) {
-    const charBonuses = item.system?.characteristicBonus ?? {};
-    
-    bonuses.str += Number(charBonuses.strChaBonus ?? 0) || 0;
-    bonuses.end += Number(charBonuses.endChaBonus ?? 0) || 0;
-    bonuses.agi += Number(charBonuses.agiChaBonus ?? 0) || 0;
-    bonuses.int += Number(charBonuses.intChaBonus ?? 0) || 0;
-    bonuses.wp += Number(charBonuses.wpChaBonus ?? 0) || 0;
-    bonuses.prc += Number(charBonuses.prcChaBonus ?? 0) || 0;
-    bonuses.prs += Number(charBonuses.prsChaBonus ?? 0) || 0;
-    bonuses.lck += Number(charBonuses.lckChaBonus ?? 0) || 0;
-  }
-  
-  // Apply to characteristic totals (additive to base)
-  const chars = actor.system.characteristics;
-  if (chars) {
-    for (const [key, bonus] of Object.entries(bonuses)) {
-      if (chars[key]) {
-        chars[key].bonus = (chars[key].bonus ?? 0) + bonus;
-      }
-    }
-  }
 }

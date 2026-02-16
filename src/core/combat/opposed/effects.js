@@ -4,7 +4,7 @@
  * Extracted from opposed-workflow.js monolith (Phase 3)
  */
 
-import { requestCreateActiveEffect, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestCreateActiveEffect, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { TimeService } from "../../time/time-service.js";
 import { MagicTimekeeping } from "../../magic/timekeeping-helper.js";
 import { buildEffectDuration } from "../../time/effect-duration.js";
@@ -438,10 +438,12 @@ export async function markPendingSneakAttack(actor, { weaponUuid = null, attackM
     if (!actor) return;
     if (!hasTalent(actor, "sneakattack") && !hasTalent(actor, "assassinate")) return;
     const systemId = _getSystemId();
-    await actor.setFlag(systemId, "combat.pendingSneakAttack", {
-      at: Date.now(),
-      weaponUuid: weaponUuid ?? null,
-      attackMode: attackMode ?? null
+    await requestUpdateDocument(actor, {
+      [`flags.${systemId}.combat.pendingSneakAttack`]: {
+        at: Date.now(),
+        weaponUuid: weaponUuid ?? null,
+        attackMode: attackMode ?? null
+      }
     });
   } catch (err) {
     console.warn("UESRPG | opposed-workflow | failed to mark pending Sneak Attack", err);

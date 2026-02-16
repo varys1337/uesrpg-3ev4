@@ -4,7 +4,7 @@
  */
 
 import { UESRPG } from "../../../core/constants.js";
-import { SPECIAL_ACTIONS } from "../../../core/config/special-actions.js";
+import { SPECIAL_ACTIONS } from "../../../core/combat/combat-style-utils.js";
 import {
   normalizeSpellConfig,
   getStackingPolicyOptions,
@@ -50,13 +50,12 @@ import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 export async function prepareItemSheetData(sheet, data) {
   data.dtypes = ["String", "Number", "Boolean"];
   data.isGM = game.user.isGM;
-  // AppV1: super.getData() typically provides `editable`; do not clobber it with sheet options.
   // Fall back to sheet.isEditable if a caller didn't provide it.
   if (typeof data.editable !== "boolean") data.editable = Boolean(sheet.isEditable);
   const itemData = data.item;
   const itemType = data.item ? data.item.type : null;
 
-  // Convenience flags for templates (AppV1 Handlebars has limited boolean expressions).
+  // Convenience flags for templates.
   data.canEditReloadAPCost = Boolean(
     data.editable &&
     data.item?.type === "weapon" &&
@@ -64,9 +63,9 @@ export async function prepareItemSheetData(sheet, data) {
     data.item?.system?.gmOverride?.useBaseStats === true
   );
 
-  // Enrich Description (AppV1-safe, cached per sheet instance)
+  // Enrich Description (cached per sheet instance)
   const _enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
-  const _enrich = (raw) => _enrichFn(raw || "", { async: true });
+  const _enrich = (raw) => _enrichFn(raw || "");
   data.item.system.enrichedDescription = await cachedEnrichHTML(
     sheet, "desc", itemData.system.description ?? "", _enrich
   );
@@ -269,7 +268,7 @@ export async function prepareItemSheetData(sheet, data) {
   };
   
   data.activationUsagePeriodOptions = {
-    none: "None",
+    "": "\u2014 Not Set \u2014",
     encounter: "Encounter",
     shortRest: "Short Rest",
     longRest: "Long Rest",
@@ -482,6 +481,11 @@ export async function prepareItemSheetData(sheet, data) {
   // --------------------------------------------
   // Combat Style: Active status + Special Actions registry
   // --------------------------------------------
+  if (itemType === "combatStyle") {
+    const te = Array.isArray(data.item?.system?.trainedEquipment) ? data.item.system.trainedEquipment : [];
+    data.item.system.trainedEquipment = Array.from({ length: 10 }, (_, i) => String(te[i] ?? "").trim());
+  }
+
   if (itemType === "combatStyle" && sheet.item?.isOwned && sheet.actor) {
     const activeStyleId = sheet.actor.getFlag("uesrpg-3ev4", "activeCombatStyleId");
     data.isActiveCombatStyle = (activeStyleId === sheet.item.id);

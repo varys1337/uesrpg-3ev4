@@ -163,13 +163,43 @@ function _sizeToHitModForTargetSize(size) {
   }
 }
 
-function computeSizeToHitModifier({ attackerSize, targetSize, attackMode } = {}) {
-  const mode = String(attackMode ?? "melee").toLowerCase();
+/**
+ * Chapter 5 Size-to-Hit modifier resolver.
+ *
+ * Rules summary:
+ * - Ranged: always based on defender size category.
+ * - Melee:
+ *   - Puny/Tiny/Small penalty applies only when attacker is larger.
+ *   - Huge/Enormous bonus applies only when attacker is smaller.
+ *   - Large has no melee modifier.
+ *
+ * @param {object} opts
+ * @param {"melee"|"ranged"} [opts.mode]
+ * @param {string} [opts.attackerSize]
+ * @param {string} [opts.defenderSize]
+ * @returns {number}
+ */
+export function getSizeToHitModifier({ mode = "melee", attackerSize = "standard", defenderSize = "standard" } = {}) {
+  const attackMode = String(mode ?? "melee").toLowerCase();
+  const attackerIdx = _sizeIndex(attackerSize);
+  const defenderNorm = _normalizeSize(defenderSize);
+  const defenderIdx = _sizeIndex(defenderNorm);
+  const sizeMod = _sizeToHitModForTargetSize(defenderNorm);
 
-  // Size-to-Hit Effects (Chapter 5) apply to attacks "at range".
-  // Never apply these modifiers to melee attacks/counter-attacks/defenses.
-  if (mode !== "ranged") return 0;
-  return _sizeToHitModForTargetSize(targetSize);
+  if (attackMode === "ranged") return sizeMod;
+  if (attackMode !== "melee") return 0;
+
+  if (defenderNorm === "large" || defenderNorm === "standard") return 0;
+
+  if (defenderNorm === "puny" || defenderNorm === "tiny" || defenderNorm === "small") {
+    return attackerIdx > defenderIdx ? sizeMod : 0;
+  }
+
+  if (defenderNorm === "huge" || defenderNorm === "enormous") {
+    return attackerIdx < defenderIdx ? sizeMod : 0;
+  }
+
+  return 0;
 }
 
 export function listCombatStyles(actor) {
@@ -566,10 +596,10 @@ export function computeTN({
   // --- Size-to-Hit (Chapter 5): attacker TN only
   // Caller must provide sizes in context to keep computeTN synchronous.
   if (role === "attacker") {
-    const sizeMod = computeSizeToHitModifier({
+    const sizeMod = getSizeToHitModifier({
+      mode: context?.attackMode,
       attackerSize: context?.selfSize ?? actor?.system?.size,
-      targetSize: context?.opponentSize,
-      attackMode: context?.attackMode
+      defenderSize: context?.opponentSize
     });
     if (sizeMod) breakdown.push({ key: "size", label: "Size", value: sizeMod, source: "size" });
   }

@@ -4,7 +4,7 @@
  */
 
 import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
-import { _resolveDoc, _resolveActor, _resolveToken } from "./helpers/docs.js";
+import { _resolveDoc, _resolveActor, _resolveToken, _resolveItemViaActor } from "./helpers/docs.js";
 import { getPreferredWeaponUuid as _getPreferredWeaponUuid, inferAttackModeFromPreferredWeapon as _inferAttackModeFromPreferredWeapon } from "./helpers/workflow.js";
 import { _renderCard } from "./render.js";
 import { _findEnabledEffectByUesrpgKey, _logDebug } from "./helpers/util.js";
@@ -91,8 +91,8 @@ export async function createPending(cfg = {}) {
     let seededWeaponUuid = "";
     if (cfg.weaponUuid) {
       try {
-        const w = fromUuidSync(String(cfg.weaponUuid));
-        if (w && w.documentName === "Item" && w.type === "weapon" && w.parent?.uuid === attacker.uuid) {
+        const w = _resolveItemViaActor(cfg.weaponUuid, attacker);
+        if (w && w.documentName === "Item" && w.type === "weapon") {
           seededWeaponUuid = w.uuid;
         }
       } catch (_e) {
@@ -104,6 +104,7 @@ export async function createPending(cfg = {}) {
 
     const isAoE = Boolean(cfg?.aoe?.isAoE || cfg?.context?.aoe?.isAoE || cfg?.isAoE);
     const isFollowUpStrike = Boolean(cfg?.followUpStrike);
+    const isReactionAttack = Boolean(cfg?.isReactionAttack);
     const skipApDeduction = Boolean(cfg?.skipAttackerAPDeduction || isFollowUpStrike);
     const skipAttackCountIncrement = Boolean(cfg?.skipAttackCountIncrement || isFollowUpStrike);
     const isFreeActionAttack = Boolean(cfg?.isFreeActionAttack || isFollowUpStrike);
@@ -132,6 +133,7 @@ export async function createPending(cfg = {}) {
           skipAttackerAPDeduction: skipApDeduction,
           skipAttackCountIncrement,
           isFreeActionAttack,
+          isReactionAttack,
           followUpStrike: isFollowUpStrike
             ? {
                 active: true,
@@ -181,7 +183,7 @@ export async function createPending(cfg = {}) {
       flags: { "uesrpg-3ev4": { opposed: data } }
     });
 
-    await message.update({ content: _renderCard(data, message.id) });
+    await safeUpdateChatMessage(message, { content: _renderCard(data, message.id) });
 
     _logDebug("createPending", {
       messageId: message.id,
@@ -192,4 +194,3 @@ export async function createPending(cfg = {}) {
 
     return message;
   }
-

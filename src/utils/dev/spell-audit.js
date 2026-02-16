@@ -8,6 +8,7 @@
  */
 
 import { validateScalingLevels } from "../../core/magic/spell-config.js";
+import { customDialog } from "../dialog-v2-helper.js";
 
 /**
  * Audit spell pack for missing/invalid metadata.
@@ -172,12 +173,12 @@ export async function showSpellAuditReport(packName) {
     ` : '<p style="color: #4caf50; font-weight: bold;">✓ No issues found!</p>'}
   `;
   
-  new Dialog({
+  customDialog({
     title: "Spell Audit Report",
     content,
     buttons: {
       export: {
-        icon: '<i class="fas fa-download"></i>',
+        icon: "fas fa-download",
         label: "Export JSON",
         callback: () => {
           const json = JSON.stringify(report, null, 2);
@@ -186,14 +187,11 @@ export async function showSpellAuditReport(packName) {
         }
       },
       close: {
-        icon: '<i class="fas fa-times"></i>',
+        icon: "fas fa-times",
         label: "Close"
       }
     },
     default: "close",
-    render: (html) => {
-      // Make dialog wider to accommodate table
-      html.closest(".app").css({ width: "800px", height: "auto" });
-    }
-  }).render(true);
+    width: 800,
+  });
 }

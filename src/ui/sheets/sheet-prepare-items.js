@@ -64,8 +64,6 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   const spell = [];
   const spellsBySchool = Object.create(null); // Use null prototype to avoid conflicts
   const ammunition = { equipped: [], unequipped: [] };
-  const language = [];
-  const faction = [];
   const container = [];
 
   // Optional categories (PC sheet only)
@@ -103,10 +101,6 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
       magicSkill.push(i);
     } else if (i.type === "ammunition") {
       i.system?.equipped ? ammunition.equipped.push(i) : ammunition.unequipped.push(i);
-    } else if (i.type === "language") {
-      language.push(i);
-    } else if (i.type === "faction") {
-      faction.push(i);
     } else if (i.type === "container") {
       container.push(i);
     }
@@ -129,8 +123,6 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
       spell,
       ammunition.equipped,
       ammunition.unequipped,
-      language,
-      faction,
       container,
     ];
 
@@ -233,8 +225,6 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   actorData.ui.traitStackingById = _buildTraitStackingInfo(trait);
   actorData.spellSchools = spellSchools; // Array format for template iteration
   actorData.ammunition = ammunition;
-  actorData.language = language;
-  actorData.faction = faction;
   actorData.container = container;
 
   if (includeSkills) actorData.skill = skill;

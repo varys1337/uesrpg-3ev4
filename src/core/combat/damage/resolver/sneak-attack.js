@@ -5,6 +5,7 @@
  */
 
 import { getSystemId } from "./sources.js";
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 
 /**
  * Time-to-live for pending sneak attack flags (30 seconds).
@@ -28,9 +29,7 @@ export function consumePendingSneakAttack(attackerActor, { weapon = null, attack
 
     const ageMs = Date.now() - Number(pending.at ?? 0);
     if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > PENDING_SNEAK_TTL_MS) {
-      if (typeof attackerActor.unsetFlag === "function") {
-        attackerActor.unsetFlag(systemId, "combat.pendingSneakAttack").catch(() => {});
-      }
+      requestUpdateDocument(attackerActor, { [`flags.${systemId}.combat.-=pendingSneakAttack`]: null }).catch(() => {});
       return false;
     }
 
@@ -46,9 +45,7 @@ export function consumePendingSneakAttack(attackerActor, { weapon = null, attack
       if (!mode || pendingMode !== mode) return false;
     }
 
-    if (typeof attackerActor.unsetFlag === "function") {
-      attackerActor.unsetFlag(systemId, "combat.pendingSneakAttack").catch(() => {});
-    }
+    requestUpdateDocument(attackerActor, { [`flags.${systemId}.combat.-=pendingSneakAttack`]: null }).catch(() => {});
     return true;
   } catch (_e) {
     return false;

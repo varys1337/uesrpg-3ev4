@@ -8,7 +8,7 @@
  *
  * Design:
  *  - Pure data helpers — no mutations, no side-effects.
- *  - Compatible with AppV1 dot-notation formData (flag paths saved automatically).
+ *  - Compatible with dot-notation formData (flag paths saved automatically).
  *  - Capability-driven: item type determines which options are relevant.
  */
 

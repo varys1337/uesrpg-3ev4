@@ -5,6 +5,9 @@
  * Temporary HP acts as a damage buffer and does not stack.
  */
 
+import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+
 export class HPTempHPDialog {
   /**
    * Show the HP/Temp HP management dialog for an actor.
@@ -24,83 +27,82 @@ export class HPTempHPDialog {
     const isWounded = Boolean(actor.system?.wounded);
     
     const content = `
-      <form class="uesrpg-hp-dialog">
-        <div class="form-group">
-          <label>Current HP</label>
+      <div class="uesrpg-resource-dialog__body uesrpg-hp-dialog">
+        <div class="uesrpg-resource-dialog__group form-group">
+          <label class="uesrpg-resource-dialog__label">Current HP</label>
           <input type="number" name="hp" value="${currentHP}" min="0" max="${maxHP}" />
-          <span class="hint">Max: ${maxHP}</span>
+          <span class="uesrpg-resource-dialog__hint hint">Max: ${maxHP}</span>
         </div>
-        <div class="form-group">
-          <label>Temporary HP</label>
+        <div class="uesrpg-resource-dialog__group form-group">
+          <label class="uesrpg-resource-dialog__label">Temporary HP</label>
           <input type="number" name="tempHP" value="${currentTempHP}" min="0" />
-          <span class="hint">Extra HP buffer, does not stack</span>
+          <span class="uesrpg-resource-dialog__hint hint">Extra HP buffer, does not stack</span>
         </div>
-      </form>
+      </div>
     `;
     
-    return new Promise((resolve) => {
-      const buttons = {
-        firstAid: {
-          icon: '<i class="fas fa-medkit"></i>',
-          label: "First Aid",
-          condition: isWounded,
-          callback: async (html) => {
-            // Apply HP/Temp HP changes first if any were made
-            const newHP = Number(html.find('[name="hp"]').val());
-            const newTempHP = Number(html.find('[name="tempHP"]').val());
-            
-            if (newHP !== currentHP || newTempHP !== currentTempHP) {
-              await actor.update({
-                "system.hp.value": Math.max(0, Math.min(maxHP, newHP)),
-                "system.tempHP": Math.max(0, newTempHP)
-              });
-            }
-            
-            // Call First Aid
-            if (game.uesrpg?.wounds?.firstAid) {
-              await game.uesrpg.wounds.firstAid(actor);
-              ui.notifications.info(`First Aid applied to ${actor.name}`);
-            } else {
-              ui.notifications.error("First Aid system not available");
-            }
-            
-            resolve(true);
-          }
-        },
-        apply: {
-          icon: '<i class="fas fa-check"></i>',
-          label: "Apply",
-          callback: async (html) => {
-            const newHP = Number(html.find('[name="hp"]').val());
-            const newTempHP = Number(html.find('[name="tempHP"]').val());
-            
-            await actor.update({
+    const buttons = {
+      firstAid: {
+        icon: '<i class="fas fa-medkit"></i>',
+        label: "First Aid",
+        callback: async (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const newHP = Number(root?.querySelector('[name="hp"]')?.value);
+          const newTempHP = Number(root?.querySelector('[name="tempHP"]')?.value);
+          
+          if (newHP !== currentHP || newTempHP !== currentTempHP) {
+            await requestUpdateDocument(actor, {
               "system.hp.value": Math.max(0, Math.min(maxHP, newHP)),
               "system.tempHP": Math.max(0, newTempHP)
             });
-            
-            ui.notifications.info(`HP updated for ${actor.name}`);
-            resolve(true);
           }
-        },
-        cancel: {
-          icon: '<i class="fas fa-times"></i>',
-          label: "Cancel",
-          callback: () => resolve(false)
+          
+          if (game.uesrpg?.wounds?.firstAid) {
+            await game.uesrpg.wounds.firstAid(actor);
+            ui.notifications.info(`First Aid applied to ${actor.name}`);
+          } else {
+            ui.notifications.error("First Aid system not available");
+          }
+          
+          return true;
         }
-      };
-      
-      // Remove firstAid button if actor is not wounded
-      if (!isWounded) {
-        delete buttons.firstAid;
+      },
+      apply: {
+        icon: '<i class="fas fa-check"></i>',
+        label: "Apply",
+        callback: async (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const newHP = Number(root?.querySelector('[name="hp"]')?.value);
+          const newTempHP = Number(root?.querySelector('[name="tempHP"]')?.value);
+          
+          await requestUpdateDocument(actor, {
+            "system.hp.value": Math.max(0, Math.min(maxHP, newHP)),
+            "system.tempHP": Math.max(0, newTempHP)
+          });
+          
+          ui.notifications.info(`HP updated for ${actor.name}`);
+          return true;
+        }
+      },
+      cancel: {
+        icon: '<i class="fas fa-times"></i>',
+        label: "Cancel",
+        callback: () => false
       }
-      
-      new Dialog({
-        title: `Manage HP - ${actor.name}`,
-        content,
-        buttons,
-        default: "apply"
-      }).render(true);
+    };
+    
+    // Remove firstAid button if actor is not wounded
+    if (!isWounded) {
+      delete buttons.firstAid;
+    }
+    
+    return customDialog({
+      title: `Manage HP - ${actor.name}`,
+      content,
+      buttons,
+      defaultButton: "apply",
+      classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--hp"],
+      width: 540,
     });
   }
 }

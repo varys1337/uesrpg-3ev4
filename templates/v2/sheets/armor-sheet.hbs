@@ -1,0 +1,305 @@
+{{!-- Armor Sheet — Compact Layout --}}
+<header class="item-compact-header">
+    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
+    <div class="item-header-fields">
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+        <div class="item-stats-row">
+            <div class="item-stat">
+                <input type="number" name="system.quantity" value="{{item.system.quantity}}"/>
+                <span class="item-stat-label">Quantity</span>
+            </div>
+            <div class="item-stat">
+                {{#if item.system.encEffective}}
+                    {{#unless item.system.gmOverride.useBaseStats}}
+                        <input type="text" value="{{item.system.encEffective}}" readonly/>
+                        <input type="number" name="system.enc" value="{{item.system.enc}}" class="u-hidden"/>
+                    {{else}}
+                        <input type="number" name="system.enc" value="{{item.system.enc}}"/>
+                    {{/unless}}
+                {{else}}
+                    <input type="number" name="system.enc" value="{{item.system.enc}}"/>
+                {{/if}}
+                <span class="item-stat-label">ENC</span>
+            </div>
+            <div class="item-stat">
+                {{#if item.system.priceEffective}}
+                    {{#unless item.system.gmOverride.useBaseStats}}
+                        <input type="text" value="{{item.system.priceEffective}}" readonly/>
+                        <input type="number" name="system.price" value="{{item.system.price}}" class="u-hidden"/>
+                    {{else}}
+                        <input type="number" name="system.price" value="{{item.system.price}}"/>
+                    {{/unless}}
+                {{else}}
+                    <input type="number" name="system.price" value="{{item.system.price}}"/>
+                {{/if}}
+                <span class="item-stat-label">Price</span>
+            </div>
+            <div class="item-stat">
+                <input class="checkbox" type="checkbox" name="system.equipped" {{checked item.system.equipped}}>
+                <span class="item-stat-label">Equipped</span>
+            </div>
+            <div class="item-stat">
+                {{#if item.system.armorEffective}}
+                    {{#unless item.system.gmOverride.useBaseStats}}
+                        <input type="text" value="{{item.system.armorEffective}}" readonly/>
+                        <input type="number" name="system.armor" value="{{item.system.armor}}" class="u-hidden"/>
+                    {{else}}
+                        <input type="number" name="system.armor" value="{{item.system.armor}}"/>
+                    {{/unless}}
+                {{else}}
+                    <input type="number" name="system.armor" value="{{item.system.armor}}"/>
+                {{/if}}
+                <span class="item-stat-label">Armor</span>
+            </div>
+            <div class="item-stat">
+                {{#if item.system.magic_arEffective}}
+                    {{#unless item.system.gmOverride.useBaseStats}}
+                        <input type="text" value="{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}" readonly/>
+                        <input type="number" name="system.magic_ar" value="{{item.system.magic_ar}}" class="u-hidden"/>
+                    {{else}}
+                        <input type="number" name="system.magic_ar" value="{{item.system.magic_ar}}"/>
+                    {{/unless}}
+                {{else}}
+                    <input type="number" name="system.magic_ar" value="{{item.system.magic_ar}}"/>
+                {{/if}}
+                <span class="item-stat-label">Magic AR</span>
+            </div>
+            <div class="item-stat">
+                {{#if item.system.blockRatingEffective}}
+                    {{#unless item.system.gmOverride.useBaseStats}}
+                        <input type="text" value="{{item.system.blockRatingEffective}}" readonly/>
+                        <input type="number" name="system.blockRating" value="{{item.system.blockRating}}" class="u-hidden"/>
+                    {{else}}
+                        <input type="number" name="system.blockRating" value="{{item.system.blockRating}}"/>
+                    {{/unless}}
+                {{else}}
+                    <input type="number" name="system.blockRating" value="{{item.system.blockRating}}"/>
+                {{/if}}
+                <span class="item-stat-label">Block</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+{{!-- Sheet Tab Navigation --}}
+<nav class="sheet-tabs tabs" data-group="primary">
+    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+</nav>
+
+    {{!-- Sheet Body --}}
+    <section class="sheet-body">
+    
+            {{!-- Description Tab --}}
+            <div class="tab" data-group="primary" data-tab="description">
+                <div class="item-description-container">
+                    <div class="basic-padding">
+                        {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+                    </div>
+                </div>
+            </div>
+    
+            {{!-- Attributes Tab --}}
+            <div class="tab" data-group="primary" data-tab="attributes">
+                <div class="attribute-tab-container">
+                    <div class="item-selection-container">
+                        <h2>Attributes</h2>
+
+                            <h3>Quality</h3>
+                            <div class="grid-container">
+                                <div>Quality</div>
+                                <div class="right-align-content">
+                                    <select name="system.qualityLevel">
+  {{selectOptions weaponQualityOptions selected=item.system.qualityLevel}}
+</select>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Runed</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.runed" {{checked item.system.runed}}>
+                                </div>
+                            </div>
+
+                            <h3>Type</h3>
+                            <div class="grid-container">
+                                <div>Armor Class</div>
+                                <div class="right-align-content">
+                                    <select name="system.armorClass">
+                                      {{selectOptions armorClassOptions selected=item.system.armorClass}}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Material</div>
+                                <div class="right-align-content">
+                                    <select name="system.material">
+                                      {{selectOptions armorMaterialOptions selected=item.system.material}}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Manual Base Stats</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.gmOverride.useBaseStats" {{checked item.system.gmOverride.useBaseStats}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Is Shield</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.isShield" {{checked item.system.isShield}}>
+                                </div>
+                            </div>
+                            {{#if item.system.isShieldEffective}}
+                            <div class="grid-container">
+                                <div>Shield Type</div>
+                                <div class="right-align-content">
+                                    <select name="system.shieldType">
+                                      {{selectOptions shieldTypeOptions selected=item.system.shieldType}}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Magic BR</div>
+                                <div class="right-align-content">
+                                    <input type="text" value="{{item.system.magic_brEffective}}" disabled>
+                                </div>
+                            </div>
+                            {{#if item.system.magic_brSpecial}}
+                            <div class="grid-container">
+                                <div>Magic BR (Special)</div>
+                                <div class="right-align-content">
+                                    <input type="text" value="{{item.system.magic_brSpecial.value}} vs {{item.system.magic_brSpecial.type}}" disabled>
+                                </div>
+                            </div>
+                            {{/if}}
+                            {{/if}}
+
+                            <h3>Weight</h3>
+                            <div class="grid-container">
+                                <div>Weight Class</div>
+                                <div class="right-align-content">
+                                    <select name="system.weightClass">
+  {{selectOptions armorWeightClassOptions selected=item.system.weightClass}}
+</select>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Effective Weight Class</div>
+                                <div class="right-align-content">
+                                    <input type="text" value="{{#if item.system.weightClassEffective}}{{item.system.weightClassEffective}}{{else}}{{item.system.effectiveWeightClass}}{{/if}}" disabled>
+                                </div>
+                            </div>
+
+                        <div class="selection-container">
+                            <div class="grid-container">
+                                <div>Ignore ENC</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.excludeENC" {{checked item.system.excludeENC}}>
+                                </div>
+                            </div>
+</div>
+                    </div>
+
+                    {{! -- ENCHANTING SECTION --}}
+                    <div class="item-selection-container">
+                        <h2>Enchanting</h2>
+                        <div class="selection-container">
+                            <div class="grid-container">
+                                <div>Enchant Level</div>
+                                <div class="right-align-content">
+                                    <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}"/>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Charge (Current / Max)</div>
+                                <div class="right-align-content">
+                                    <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="u-w-50">
+                                    /
+                                    <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="u-w-50">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                                        {{! -- HIT LOCATIONS SECTION --}}
+                    {{#unless item.system.isShieldEffective}}
+                    <div class="item-selection-container">
+                        <h2>Hit Locations Covered</h2>
+                        <div class="selection-container">
+                            <div class="grid-container">
+                                <div>Head</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.hitLocations.Head" {{checked item.system.hitLocations.Head}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Body</div>
+                                <div class="right-align-content">
+                                    <input class="checkbox" type="checkbox" name="system.hitLocations.Body" {{checked item.system.hitLocations.Body}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Right Arm</div>
+                                <div class="right-align-content">
+                                   <input class="checkbox" type="checkbox" name="system.hitLocations.RightArm" {{checked item.system.hitLocations.RightArm}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Left Arm</div>
+                                <div class="right-align-content">
+                                   <input class="checkbox" type="checkbox" name="system.hitLocations.LeftArm" {{checked item.system.hitLocations.LeftArm}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Right Leg</div>
+                                <div class="right-align-content">
+                                  <input class="checkbox" type="checkbox" name="system.hitLocations.RightLeg" {{checked item.system.hitLocations.RightLeg}}>
+                                </div>
+                            </div>
+                            <div class="grid-container">
+                                <div>Left Leg</div>
+                                <div class="right-align-content">
+                                   <input class="checkbox" type="checkbox" name="system.hitLocations.LeftLeg" {{checked item.system.hitLocations.LeftLeg}}>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {{/unless}}
+
+                    <div class="quality-container">
+                        <div class="flex-container">
+                            <h2>Qualities</h2>
+                        </div>
+                        <div class="structured-qualities-grid is-armor">
+                            {{#each coreQualitiesCatalog}}
+                                <div class="structured-qualities-cell">
+                                    <div>{{this.label}}</div>
+                                    <div class="right-align-content">
+                                        {{#if this.isTrait}}
+                                            <input class="checkbox" type="checkbox" name="qualitiesTraits.toggle.{{this.key}}" {{checked this.selected}} />
+                                        {{else}}
+                                            {{#if this.hasValue}}
+                                                <input class="structured-value" type="number" name="qualitiesStructured.value.{{this.key}}" value="{{lookup ../qualitiesSelectedValue this.key}}" min="{{this.min}}" step="1" />
+                                            {{else}}
+                                                <input class="checkbox" type="checkbox" name="qualitiesStructured.toggle.{{this.key}}" {{checked (lookup ../qualitiesSelectedToggle this.key)}} />
+                                            {{/if}}
+                                        {{/if}}
+                                    </div>
+                                </div>
+                            {{/each}}
+                        </div>
+
+                        <!-- Armor does not use an extended trait list; Shield is surfaced above. -->
+                    </div>
+                </div>
+            </div>
+        
+
+
+        {{!-- Effects Tab --}}
+        <div class="tab effects" data-group="primary" data-tab="effects">
+            {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+        </div>
+</section>

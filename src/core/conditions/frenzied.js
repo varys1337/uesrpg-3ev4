@@ -1,3 +1,5 @@
+import { customDialog } from "../../utils/dialog-v2-helper.js";
+
 /**
  * src/core/conditions/frenzied.js
  *
@@ -71,7 +73,6 @@ function _getFrenziedEndRoundContext() {
 
 function _getFrenziedEndGuard(actor) {
   try {
-    if (typeof actor?.getFlag === "function") return actor.getFlag(FLAG_SCOPE, "frenzied.endSpend");
     return actor?.flags?.[FLAG_SCOPE]?.frenzied?.endSpend ?? null;
   } catch (_e) {
     return null;
@@ -503,8 +504,9 @@ function _registerFrenziedCreateHook() {
 }
 
 function _registerFrenziedDeleteHook() {
-  if (globalThis.__UESRPG_FRENZIED_DELETE_HOOK__) return;
-  globalThis.__UESRPG_FRENZIED_DELETE_HOOK__ = true;
+  if (game.uesrpg?._frenziedDeleteHookRegistered) return;
+  game.uesrpg = game.uesrpg || {};
+  game.uesrpg._frenziedDeleteHookRegistered = true;
 
   Hooks.on("deleteActiveEffect", async (effect, _options, userId) => {
     try {
@@ -603,7 +605,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
 
   const effectData = {
     name: "Frenzied",
-    icon: "icons/svg/terror.svg",
+    img: "icons/svg/terror.svg",
     disabled: false,
     flags: {
       core: { statusId: CONDITION_KEY },
@@ -625,73 +627,43 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
   };
 
   try {
-    // Ensure changes are properly formatted before creation
+    // Verify changes before creation
     if (!Array.isArray(changesToApply) || changesToApply.length === 0) {
       console.error("UESRPG | Frenzied | No changes generated", { actor: actor.name, mods, changes, changesToApply });
       return null;
     }
-    
-    // Log changes for debugging
-    _dbg("UESRPG | Frenzied | Creating effect with changes", {
-      actor: actor.name, 
+
+    _dbg("UESRPG | Frenzied | Creating effect", {
+      actor: actor.name,
       changesCount: changesToApply.length,
       changes: changesToApply.map(c => ({ key: c.key, mode: c.mode, value: c.value }))
     });
-    
-    // Ensure changes are in the effectData before creation
-    effectData.changes = changesToApply;
-    
-    // Final verification before creation
-    if (!Array.isArray(effectData.changes) || effectData.changes.length === 0) {
-      console.error("UESRPG | Frenzied | CRITICAL: effectData.changes is empty before creation!", {
-        actor: actor.name,
-        effectData: JSON.stringify(effectData, null, 2),
-        changesToApply
-      });
-      return null;
-    }
-
-    _dbg("UESRPG | Frenzied | About to create effect", {
-      actor: actor.name,
-      changesInEffectData: effectData.changes.length,
-      changesPreview: effectData.changes.map(c => ({ key: c.key, value: c.value }))
-    });
 
     const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData]);
-    
-    // Verify changes were applied
+
     const createdEffect = created?.[0];
     if (createdEffect) {
       const appliedChanges = Array.isArray(createdEffect.changes) ? createdEffect.changes : [];
-      
       if (appliedChanges.length === 0) {
-        console.warn("UESRPG | Frenzied | Effect created but changes are empty - repair hook will fix", { 
+        console.warn("UESRPG | Frenzied | Effect created but changes are empty - repair hook will fix", {
           effectId: createdEffect.id,
           expectedChanges: changesToApply.length
         });
-        // The repair hook will handle this on the next update cycle
       } else {
-        _dbg("UESRPG | Frenzied | Effect created successfully with changes", {
-          effectId: createdEffect.id,
-          changesCount: appliedChanges.length
-        });
+        _dbg("UESRPG | Frenzied | Effect created successfully", { effectId: createdEffect.id, changesCount: appliedChanges.length });
       }
     } else {
       console.error("UESRPG | Frenzied | No effect was created", { created, effectData });
     }
-    
+
     // RAW: Gain +1 SP immediately (can exceed max) - stored as temp SP
-    const mods = _getTalentModifiers(actor);
     const currentTemp = Number(actor.system?.stamina?.temp ?? 0);
     const newTemp = currentTemp + mods.spBonus; // Stack temp SP (e.g., multiple Frenzy applications)
-    
+
     await requestUpdateDocument(actor, { "system.stamina.temp": newTemp });
-    
-    // FIX: Force immediate effect application
-    actor.prepareData();
-    
+
     ui.notifications.info(`${actor.name} gains ${mods.spBonus} temporary Stamina Point${mods.spBonus > 1 ? 's' : ''} from Frenzy!`);
-    
+
     return created?.[0] ?? null;
   } catch (err) {
     console.warn("UESRPG | Frenzied | failed to create effect", err);
@@ -805,10 +777,6 @@ export async function removeFrenzied(actor, { applySPLoss = true, reason = "ende
   // Remove effect
   try {
     await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
-    
-    // FIX: Force immediate recalculation
-    actor.prepareData();
-    
   } catch (err) {
     console.warn("UESRPG | Frenzied | failed to delete effect", err);
   }
@@ -827,37 +795,37 @@ export async function promptWillpowerTest(actor) {
   const wpTotal = Number(actor.system?.characteristics?.wp?.total ?? 0);
   const tn = wpTotal - 20; // -20 penalty per RAW
 
-  const d = new Dialog({
+  const result = await customDialog({
     title: `${actor.name} - End Frenzied`,
     content: `<p><strong>Willpower Test (-20):</strong> Roll d100 ≤ ${tn} to end Frenzied.</p>`,
     buttons: {
       roll: {
         label: "Roll",
-        callback: async () => {
-          const roll = await new Roll("1d100").evaluate({ async: true });
-          const success = roll.total <= tn;
-
-          await ChatMessage.create({
-            user: game.user.id,
-            speaker: ChatMessage.getSpeaker({ actor }),
-            content: `<div style="padding:6px;">
-              <strong>Willpower Test to End Frenzied:</strong><br>
-              TN: ${tn} | Roll: ${roll.total} | ${success ? "<strong>Success!</strong>" : "Failure"}
-            </div>`,
-            rolls: [roll]
-          });
-
-          if (success) {
-            await removeFrenzied(actor, { reason: "snapped" });
-          }
-        }
+        callback: () => true
       },
       cancel: { label: "Cancel" }
     },
-    default: "roll"
+    defaultButton: "roll"
   });
 
-  d.render(true);
+  if (result !== true) return;
+
+  const roll = await new Roll("1d100").evaluate();
+  const success = roll.total <= tn;
+
+  await ChatMessage.create({
+    user: game.user.id,
+    speaker: ChatMessage.getSpeaker({ actor }),
+    content: `<div style="padding:6px;">
+      <strong>Willpower Test to End Frenzied:</strong><br>
+      TN: ${tn} | Roll: ${roll.total} | ${success ? "<strong>Success!</strong>" : "Failure"}
+    </div>`,
+    rolls: [roll]
+  });
+
+  if (success) {
+    await removeFrenzied(actor, { reason: "snapped" });
+  }
 }
 
 //------------------------------------------------------------------------------

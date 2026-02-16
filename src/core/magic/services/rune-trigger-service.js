@@ -24,6 +24,7 @@
  */
 
 import { getOriginAEs, teardownOriginAE } from "../effects/origin-effect.js";
+import { requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { getTokensInTemplate } from "../spell-runtime.js";
 import { registerSpellTickHandler } from "../ticks/spell-tick-engine.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
@@ -142,7 +143,7 @@ export async function detonateRune(originAE, opts = {}) {
     if (parent) {
       const existing = parent.effects?.get?.(originAE.id);
       if (existing) {
-        await existing.delete();
+        await requestDeleteEmbeddedDocuments(parent, "ActiveEffect", [existing.id]);
       }
     }
   } catch (_e) { /* no-op — may already be deleted by teardown hook */ }

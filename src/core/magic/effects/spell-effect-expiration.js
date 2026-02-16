@@ -144,11 +144,8 @@ async function _deleteEffectOnActor(actor, effect, nowTime) {
     // Final existence check right before deletion (minimize race window)
     if (!actor.effects?.get?.(effect.id)) return false;
     
-    if (actor.isOwner || game.user?.isGM) {
-      await actor.deleteEmbeddedDocuments("ActiveEffect", [effect.id]);
-      return true;
-    }
-    return await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    return true;
   } catch (err) {
     if (_isMissingDocError(err)) return false;
     console.error("UESRPG | spell-effect-expiration | Failed to delete effect", { actor: actor?.uuid, effectId: effect?.id, err });
@@ -165,11 +162,8 @@ async function _updateEffect(effect, updates) {
   const currentEffect = safeGetEffect(parent, effect.id);
   if (!currentEffect) return false;
   try {
-    if (game.user?.isGM || currentEffect.isOwner) {
-      await currentEffect.update(updates);
-      return true;
-    }
-    return await requestUpdateDocument(effect, updates);
+    await requestUpdateDocument(currentEffect, updates);
+    return true;
   } catch (err) {
     if (_isMissingDocError(err)) return false;
     console.error("UESRPG | spell-effect-expiration | Failed to update effect", { effectId: effect?.id, updates, err });

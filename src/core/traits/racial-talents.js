@@ -8,7 +8,7 @@
  * - Cooldown enforcement for per-rest talents is legacy-safe and stored as actor flags.
  */
 
-import { hasTalent, normalizeTalentKey } from "./talents-api.js";
+import { hasTalent, normalizeTalentKey, resolveTalentSlug } from "./talents-api.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
@@ -34,6 +34,16 @@ function _getEnduranceBonus(actor) {
   if (Number.isFinite(explicit)) return Math.max(0, explicit);
   const total = _num(actor?.system?.characteristics?.end?.total ?? 0, 0);
   return Math.max(0, Math.floor(total / 10));
+}
+
+function _canonicalFeatureKey(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const slug = resolveTalentSlug(raw);
+  // Preserve legacy power keys that are not talent aliases.
+  if (slug === "adrenaline-rush" || slug === "adrenalinerush") return "adrenaline-rush";
+  if (slug === "malacathsfury" || slug === "malacaths-fury") return "malacathsfury";
+  return slug || normalizeTalentKey(raw);
 }
 
 function _getStarOfTheWestBonus(actor) {
@@ -93,7 +103,9 @@ function _getUsageState(actor) {
 
 async function _setUsageState(actor, next) {
   if (!actor) return;
-  await actor.setFlag(SYSTEM_SCOPE, FLAG_RACIAL_USAGE, next && typeof next === "object" ? next : {});
+  await requestUpdateDocument(actor, {
+    [`flags.${SYSTEM_SCOPE}.${FLAG_RACIAL_USAGE}`]: next && typeof next === "object" ? next : {}
+  });
 }
 
 function _isUsed(actor, key) {
@@ -145,57 +157,19 @@ export async function clearRacialTalentUsageOnRest(actor, { restType } = {}) {
 export function applyRacialTalentDerivedBonuses({ actor, actorSystemData, agg } = {}) {
   if (!actor || !actorSystemData) return;
 
-  // Argonian: Child of the Sap (Chapter 4)
-  if (hasTalent(actor, "childofthesap")) {
-    actorSystemData.speed = actorSystemData.speed ?? {};
-    actorSystemData.speed.bonus = _num(actorSystemData.speed.bonus, 0) + 1;
+  // ── Numeric bonuses (Speed, HP, SP, WT, resistances) are now emitted as
+  // FeatureMods by contributors.js → contributeTalentMods and applied via the
+  // Feature Mod pipeline.  Only non-numeric semantic flags remain here. ──
 
-    // "Exchange Resist Disease for Immunity to Disease" — legacy-safe: we do not delete any items;
-    // we add the immunity semantic to the derived trait profile.
+  // Argonian: Child of the Sap (Chapter 4)
+  // "Exchange Resist Disease for Immunity to Disease" — legacy-safe: we do not
+  // delete any items; we add the immunity semantic to the derived trait profile.
+  if (hasTalent(actor, "childofthesap")) {
     if (agg?.traitDamage?.immunity && typeof agg.traitDamage.immunity === "object") {
       agg.traitDamage.immunity.disease = true;
     } else if (agg?.traitDamage && typeof agg.traitDamage === "object") {
       agg.traitDamage.immunity = { ...(agg.traitDamage.immunity ?? {}), disease: true };
     }
-  }
-
-  // Bosmer: Nature's Blessing (Chapter 4)
-  if (hasTalent(actor, "naturesblessing")) {
-    actorSystemData.resistance = actorSystemData.resistance ?? {};
-    actorSystemData.resistance.diseaseR = _num(actorSystemData.resistance.diseaseR, 0) + 25;
-    actorSystemData.resistance.poisonR = _num(actorSystemData.resistance.poisonR, 0) + 1;
-  }
-
-  // Nord: Sons of Skyrim (Chapter 4)
-  if (hasTalent(actor, "sonsofskyrim")) {
-    actorSystemData.resistance = actorSystemData.resistance ?? {};
-    actorSystemData.resistance.frostR = _num(actorSystemData.resistance.frostR, 0) + 1;
-    actorSystemData.wound_threshold = actorSystemData.wound_threshold ?? {};
-    actorSystemData.wound_threshold.bonus = _num(actorSystemData.wound_threshold.bonus, 0) + 1;
-  }
-
-  // Imperial: Red Diamond / Imperial Luck (Chapter 4)
-  {
-    const hasRedDiamond = hasTalent(actor, "reddiamond");
-    const hasImperialLuck = hasTalent(actor, "imperialluck");
-    if (hasRedDiamond || hasImperialLuck) {
-      const gated = canApplyCharGenGatedImperialTalents(actor, { warnTalentName: hasImperialLuck ? "Imperial Luck" : "Red Diamond" });
-      if (gated) {
-        const desiredFromStar = hasImperialLuck ? 3 : 2;
-        const currentFromStar = _getStarOfTheWestBonus(actor);
-        const delta = Math.max(0, desiredFromStar - currentFromStar);
-        if (delta) {
-          actorSystemData.stamina = actorSystemData.stamina ?? {};
-          actorSystemData.stamina.bonus = _num(actorSystemData.stamina.bonus, 0) + delta;
-        }
-      }
-    }
-  }
-
-  // Orsimer: Malacath's Fury (passive HP component) (Chapter 4)
-  if (hasTalent(actor, "malacathsfury")) {
-    actorSystemData.hp = actorSystemData.hp ?? {};
-    actorSystemData.hp.bonus = _num(actorSystemData.hp.bonus, 0) + 2;
   }
 }
 
@@ -209,7 +183,7 @@ export function applyRacialTalentPostSpeedDerived({ actor, actorSystemData } = {
 
 export function validateRacialActivationAvailability({ actor, item, itemKey } = {}) {
   if (!actor || !item) return { ok: true };
-  const k = String(itemKey ?? "").trim() || normalizeTalentKey(item.name);
+  const k = _canonicalFeatureKey(itemKey ?? item.name);
   if (!k) return { ok: true };
 
   // Histskin: once per Short Rest
@@ -218,7 +192,7 @@ export function validateRacialActivationAvailability({ actor, item, itemKey } = 
   }
 
   // Malacath's Fury: once per Long Rest
-  if (k === "malacaths-fury") {
+  if (k === "malacathsfury") {
     if (_isUsed(actor, "malacathsFury")) return { ok: false, reason: "Malacath's Fury has already been used this Long Rest." };
   }
 
@@ -227,7 +201,7 @@ export function validateRacialActivationAvailability({ actor, item, itemKey } = 
 
 export async function handleRacialTalentActivation({ actor, item, itemKey } = {}) {
   if (!actor || !item) return false;
-  const k = String(itemKey ?? "").trim() || normalizeTalentKey(item.name);
+  const k = _canonicalFeatureKey(itemKey ?? item.name);
   if (!k) return false;
 
   if (k === "dragonskin") {
@@ -251,7 +225,7 @@ export async function handleRacialTalentActivation({ actor, item, itemKey } = {}
     return true;
   }
 
-  if (k === "malacaths-fury") {
+  if (k === "malacathsfury") {
     const eb = _getEnduranceBonus(actor);
     if (eb > 0) await applyHealing(actor, eb, { source: "Malacath's Fury" });
 
@@ -283,7 +257,7 @@ export async function handleRacialTalentActivation({ actor, item, itemKey } = {}
 
 export async function handleRacialPowerActivation({ actor, item, itemKey } = {}) {
   if (!actor || !item) return false;
-  const k = String(itemKey ?? "").trim() || normalizeTalentKey(item.name);
+  const k = _canonicalFeatureKey(itemKey ?? item.name);
   if (!k) return false;
 
   // Adrenaline Rush modified by Adrenaline Burst (Chapter 4 + Chapter 2 power text)
@@ -363,4 +337,3 @@ export function registerRacialTalentsAutomation() {
     }
   });
 }
-

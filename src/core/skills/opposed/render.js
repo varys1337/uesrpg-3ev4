@@ -110,8 +110,8 @@ export function _renderCard(data, messageId) {
     return `<div style="margin-top:6px; opacity:0.85;"><i>Choices committed</i></div>`;
   })();
 
-  const beginRollActions = (bankMode && bothCommitted && !data.outcome && !data.status && !a.result && !d.result && game.user.isGM)
-    ? `<div style="margin-top:8px;">${_btn("Begin Opposed Roll", "begin-banked-roll")}</div>`
+  const beginRollActions = (bankMode && bothCommitted && !data.outcome && !data.status && !a.result && !d.result)
+    ? `<div style="margin-top:8px;" data-ues-gm-only="true">${_btn("Begin Opposed Roll", "begin-banked-roll")}</div>`
     : "";
 
   const outcomeLine = data.outcome
@@ -123,7 +123,7 @@ export function _renderCard(data, messageId) {
         const phase = String(data?.context?.phase ?? "pending");
         const waitingSince = Number(data?.context?.waitingSince ?? 0);
         const ageMs = waitingSince ? (Date.now() - waitingSince) : 0;
-        const isWaiting = (phase === "waitingdefender" || phase === "waitingDefender");
+        const isWaiting = (phase === "waitingDefender");
         const isStale = isWaiting && ageMs > 60_000;
         const note = isStale
           ? `<div style="margin-top:6px; font-size:12px; opacity:0.85;">

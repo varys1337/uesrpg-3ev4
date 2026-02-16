@@ -7,6 +7,7 @@
 import { OpposedRoll } from "./opposed-rolls.js";
 import { getDamageTypeFromWeapon } from "./combat-utils.js";
 import { DefenseDialog } from "./defense-dialog.js";
+import { resolveStyleForCombatTest } from "./combat-style-utils.js";
 
 /**
  * Perform a weapon attack
@@ -90,8 +91,10 @@ export async function performWeaponAttack(attackerToken, defenderToken, weapon, 
 function getAttackSkill(actor, weapon) {
   if (!actor?.system || !weapon) return 50;
 
-  // RAW: NPCs do not use Combat Style items; use Combat profession for combat actions.
+  // NPC combat tests: active Combat Style first, Combat profession fallback.
   if (String(actor.type ?? "") === "NPC") {
+    const styleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
+    if (styleCtx) return Number(styleCtx.base ?? 0);
     return Number(actor.system?.professions?.combat ?? actor.system?.combat?.value ?? 50);
   }
 
@@ -122,10 +125,12 @@ function getAttackSkill(actor, weapon) {
 function getDefenseSkill(actor, defenseType = 'evade') {
   if (!actor?.system) return 50;
 
-  // RAW: NPCs defend using profession lanes rather than skill Items.
+  // NPC defense: Evade profession for Evade, otherwise active Combat Style with profession fallback.
   if (String(actor.type ?? "") === "NPC") {
     const dt = String(defenseType ?? "evade").toLowerCase();
     if (dt === "evade") return Number(actor.system?.professions?.evade ?? 50);
+    const styleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
+    if (styleCtx) return Number(styleCtx.base ?? 0);
     return Number(actor.system?.professions?.combat ?? 50);
   }
 

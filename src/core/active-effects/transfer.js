@@ -23,15 +23,25 @@
  *    (these fields can be introduced later without rewriting this function)
  *  - other item types: inactive by default (conservative; we whitelist types deliberately)
  */
+// Module-level cache for the passive-transfer setting. Invalidated on settings
+// change so we avoid re-parsing the setting string on every isTransferEffectActive
+// call (~60+ per actor per prepare cycle).
+let _passiveTypesCache = null;
+let _passiveTypesCacheRaw = undefined;
+
 function getPassiveTransferItemTypes() {
   try {
     const raw = game?.settings?.get?.("uesrpg-3ev4", "passiveTransferItemTypes") ?? "";
-    return new Set(
+    // Return cached result if the underlying setting value hasn't changed.
+    if (_passiveTypesCache !== null && raw === _passiveTypesCacheRaw) return _passiveTypesCache;
+    _passiveTypesCacheRaw = raw;
+    _passiveTypesCache = new Set(
       String(raw)
         .split(",")
         .map(s => s.trim().toLowerCase())
         .filter(Boolean)
     );
+    return _passiveTypesCache;
   } catch (_e) {
     return new Set();
   }

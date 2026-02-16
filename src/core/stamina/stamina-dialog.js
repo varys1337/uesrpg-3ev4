@@ -8,6 +8,7 @@ import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../uti
 import { canUseHeroicActions } from "../rules/npc-rules.js";
 import { isActorUndead } from "../traits/trait-registry.js";
 import { hasTalent } from "../traits/talents-api.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 /**
  * Stamina effect key constants to avoid typos
@@ -116,7 +117,7 @@ export async function openStaminaDialog(actor) {
       };
     });
 
-  const content = await renderTemplate("systems/uesrpg-3ev4/templates/stamina-dialog.html", {
+  const content = await foundry.applications.handlebars.renderTemplate("systems/uesrpg-3ev4/templates/stamina-dialog.html", {
     currentSP,
     tempSP,
     maxSP,
@@ -130,9 +131,10 @@ export async function openStaminaDialog(actor) {
     }))
   });
 
-  const dialog = new Dialog({
+  await customDialog({
     title: "Spend Stamina",
     content,
+    classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--stamina"],
     buttons: {
       spend: {
         label: "Spend",
@@ -158,20 +160,27 @@ export async function openStaminaDialog(actor) {
       }
     },
     default: "spend",
-    render: (html) => {
-      // Show/hide Power Attack amount field
-      const select = html.find('select[name="stamina-action"]');
-      const amountDiv = html.find('.uesrpg-stamina-power-attack');
+    render: (event, html) => {
+      // Keep helper text and amount visibility synced to selected action.
+      const root = html instanceof HTMLElement ? html : html?.element ?? html;
+      const select = root?.querySelector('select[name="stamina-action"]');
+      const amountDiv = root?.querySelector('.uesrpg-stamina-power-attack');
+      const help = root?.querySelector(".uesrpg-stamina-action-help");
       const syncAmount = () => {
-        const isPowerAttack = select.val() === "power-attack";
-        amountDiv.toggleClass("is-hidden", !isPowerAttack);
-      };
-      select.on('change', syncAmount);
-      syncAmount();
-    }
-  }, { width: 500 });
+        const isPowerAttack = select?.value === "power-attack";
+        amountDiv?.classList.toggle("is-hidden", !isPowerAttack);
 
-  dialog.render(true);
+        const option = select?.selectedOptions?.[0];
+        const description = String(option?.dataset?.description ?? "").trim();
+        if (help) {
+          help.textContent = description || "Choose an action to see details.";
+        }
+      };
+      select?.addEventListener('change', syncAmount);
+      syncAmount();
+    },
+    width: 540
+  });
 }
 
 /**

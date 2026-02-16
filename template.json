@@ -278,6 +278,16 @@
       "xp": 0,
       "xpTotal": 0,
       "campaignRank": "",
+      "linguistics": {
+        "max": 0,
+        "known": ""
+      },
+      "social": {
+        "languages": {
+          "entries": []
+        },
+        "factions": []
+      },
       "wound_threshold": {
         "value": 0,
         "base": 0,
@@ -403,6 +413,16 @@
       "bio": "",
       "paperDoll": "",
       "soul_energy": "",
+      "linguistics": {
+        "max": 0,
+        "known": ""
+      },
+      "social": {
+        "languages": {
+          "entries": []
+        },
+        "factions": []
+      },
       "journal": "",
       "notes": "",
       "threat": "",
@@ -798,9 +818,7 @@
       "combatStyle",
       "skill",
       "magicSkill",
-      "ammunition",
-      "language",
-      "faction"
+      "ammunition"
     ],
     "templates": {
       "characteristicArray": {
@@ -1131,6 +1149,7 @@
         "payloadType": "damage",
         "formula": "1d6",
         "damageType": "fire",
+        "ignoreReduction": false,
         "saveKey": "",
         "saveTN": 0,
         "saveSuccess": "endEffect",
@@ -1478,6 +1497,11 @@
         "",
         "",
         "",
+        "",
+        "",
+        "",
+        "",
+        "",
         ""
       ],
       "specialAdvantages": {}
@@ -1543,25 +1567,6 @@
       "ammoMaterial": "standard",
       "qualitiesStructured": [],
       "qualitiesTraits": []
-    },
-    "language": {
-      "description": "",
-      "readWrite": true,
-      "speak": true
-    },
-    "faction": {
-      "description": "",
-      "rankTitle": "",
-      "location": "",
-      "size": "",
-      "ranks": {
-        "rank1": "",
-        "rank2": "",
-        "rank3": "",
-        "rank4": "",
-        "rank5": "",
-        "rank6": ""
-      }
     }
   }
 }

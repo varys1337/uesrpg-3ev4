@@ -98,7 +98,7 @@ function _evaluateCore(actor, keys, options = {}) {
     return { totalsByKey, entries: [], resolvedByKey: totalsByKey, detailsByKey };
   }
 
-  const effects = _collectApplicableEffects(actor, { dedupeByOrigin, debug });
+  const effects = collectApplicableEffects(actor, { dedupeByOrigin, debug });
 
   // We aggregate ADD contributions across all effects and independently select the OVERRIDE
   // candidate by priority.
@@ -279,12 +279,17 @@ export function buildAEBreakdownEntries(detailsByKey) {
  * Collect currently-applicable effects from actor + transferable embedded item effects.
  * Uses the system's transfer gating helper when available.
  *
+ * Exported so that other AE aggregation helpers (e.g. actors/ae/modifiers.js) share
+ * the same collection, disabled-filtering, and origin-deduplication logic.
+ *
  * @param {import("foundry").documents.BaseActor} actor
- * @param {{dedupeByOrigin:boolean, debug:boolean}} options
+ * @param {{dedupeByOrigin?:boolean, debug?:boolean}} [options]
  * @returns {any[]} Array of ActiveEffect-like objects
  */
-function _collectApplicableEffects(actor, { dedupeByOrigin, debug }) {
-  const actorEffects = Array.from(actor.effects ?? []);
+export function collectApplicableEffects(actor, { dedupeByOrigin = true, debug = false } = {}) {
+  // Filter out disabled actor effects — a disabled effect must not contribute
+  // changes to modifier totals (matches actors/ae/modifiers.js behavior).
+  const actorEffects = Array.from(actor.effects ?? []).filter(e => e && !e.disabled);
 
   // Index origins already present directly on the actor.
   const actorOrigins = new Set(

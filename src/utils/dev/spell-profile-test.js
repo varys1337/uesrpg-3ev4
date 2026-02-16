@@ -16,7 +16,7 @@
  * @param {string} actorName - Name of actor to test with (defaults to first PC)
  * @returns {Promise<void>}
  */
-export async function testSpellProfile(spellName = null, actorName = null) {
+async function testSpellProfile(spellName = null, actorName = null) {
   console.log("=== SpellProfile API Test ===\n");
   
   // Find actor

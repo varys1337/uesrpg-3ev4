@@ -8,11 +8,10 @@
  * flagged with `flags.uesrpg.expiresOnTurnStart === true`.
  */
 
-import { tickConditionsEndTurn } from "./condition-engine.js";
-import { tickWoundsEndTurn } from "../wounds/wound-engine.js";
+import { tickConditionsEndTurn, runSilencedRealizationCheck } from "./condition-engine.js";
 import { getActorTraitValue } from "../traits/trait-registry.js";
 import { postRegenerationPrompt } from "../traits/trait-automation.js";
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 
 let _registered = false;
 
@@ -105,7 +104,7 @@ async function _expireStartOfTurnEffects(combat, changed) {
   if (existingIds.length === 0) return;
 
   try {
-    await actor.deleteEmbeddedDocuments("ActiveEffect", existingIds);
+    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", existingIds);
   } catch (err) {
     // If the bulk delete fails due to a stale id race, retry individually for those that still exist.
     const msg = String(err?.message ?? "");
@@ -113,8 +112,6 @@ async function _expireStartOfTurnEffects(combat, changed) {
 
     if (stillExisting.length > 0) {
       try {
-        // Use authority proxy for safe deletion
-        const { requestDeleteEmbeddedDocuments } = await import("../../utils/authority-proxy.js");
         await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", stillExisting);
         return;
       } catch (_retryErr) {
@@ -148,6 +145,18 @@ async function _postRegenerationPrompts(combat, changed) {
 
     await postRegenerationPrompt({ actor, traitValue: value, round });
     await requestUpdateDocument(actor, { "flags.uesrpg-3ev4.regenerationPromptRound": round });
+  }
+}
+
+async function _runSilencedRoundChecks(combat, changed) {
+  if (!combat) return;
+  if (!changed || !Object.prototype.hasOwnProperty.call(changed, "round")) return;
+
+  const combatants = Array.isArray(combat.combatants) ? combat.combatants : Array.from(combat.combatants ?? []);
+  for (const c of combatants) {
+    const actor = c?.actor ?? null;
+    if (!actor) continue;
+    await runSilencedRealizationCheck(actor, { combat });
   }
 }
 
@@ -197,7 +206,6 @@ export function registerConditionTurnTicker() {
       const actor = prevCombatant?.actor ?? null;
       if (actor) {
         await tickConditionsEndTurn(actor);
-        await tickWoundsEndTurn(actor);
       }
 
       // Start-of-turn expiry for temporary action effects (e.g., Defensive Stance).
@@ -205,6 +213,7 @@ export function registerConditionTurnTicker() {
 
       // Start-of-round regeneration prompts.
       await _postRegenerationPrompts(combat, changed);
+      await _runSilencedRoundChecks(combat, changed);
     } catch (err) {
       console.warn("UESRPG | Condition/Wound turn ticker failed", err);
     }

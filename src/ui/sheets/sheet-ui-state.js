@@ -6,12 +6,13 @@
  * - Collapsed groups for sheet sections (stored on the User as flags)
  * - Per-user equipment loadouts (stored on the User as flags)
  *
- * Foundry VTT v13 (AppV1) compatible.
+ * Shared across actor sheet modules.
  */
 
 const NAMESPACE = "uesrpg-3ev4";
 const COLLAPSE_FLAG = "sheetCollapsedGroups";
 const LOADOUT_FLAG = "sheetLoadouts";
+import { requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 
 // ─── In-memory loadout cache ─────────────────────────────────────────
 // Avoids repeated game.user.getFlag() reads on every sheet render.
@@ -78,7 +79,7 @@ export async function setGroupCollapsed(groupKey, collapsed) {
  * @param {string} groupKey
  * @returns {Promise<boolean>} New collapsed state
  */
-export async function toggleGroupCollapsed(groupKey) {
+async function toggleGroupCollapsed(groupKey) {
   const current = await getCollapsedGroups();
   const key = String(groupKey ?? "").trim();
   if (!key) return false;
@@ -119,7 +120,7 @@ function _normalizeLoadoutArray(v) {
  * @param {string} actorId
  * @returns {Promise<Array<{id: string, name: string, equippedIds: string[], createdAt: string}>>}
  */
-export async function getLoadouts(actorId) {
+async function getLoadouts(actorId) {
   const cacheKey = _loadoutCacheKey(actorId);
   if (_loadoutCache.has(cacheKey)) return _loadoutCache.get(cacheKey);
 
@@ -139,7 +140,7 @@ export async function getLoadouts(actorId) {
  * @param {string[]} equippedIds
  * @returns {Promise<void>}
  */
-export async function saveLoadout(actorId, name, equippedIds) {
+async function saveLoadout(actorId, name, equippedIds) {
   const aid = String(actorId ?? "").trim();
   const nm = String(name ?? "").trim();
   if (!aid || !nm) return;
@@ -211,7 +212,7 @@ export async function applyLoadoutToActor(actor, equippedIds) {
   }
 
   if (updates.length === 0) return;
-  await actor.updateEmbeddedDocuments("Item", updates);
+  await requestUpdateEmbeddedDocuments(actor, "Item", updates);
 }
 
 /**

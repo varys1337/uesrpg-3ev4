@@ -1,0 +1,140 @@
+            <div class="tab magic" data-group="primary" data-tab="magic">
+                <div class="magicTabContainer">
+                    <div class="magicSkillContainer">
+                        <div class="section-header">
+                            <span class="section-header__label">Magic Skills</span>
+                            <button type="button" data-action="itemCreate" class="section-header__action" id="magicSkill">+</button>
+                        </div>
+                        <ol class="skillList">
+                            {{#each actor.magicSkill as |item id|}}
+                                <li class="item" data-item-id="{{item._id}}">
+                                    <div class="itemInfo">
+                                        <i data-action="skillRoll" class="fas fa-dice-d20 skill-roll"></i>
+                                        <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
+                                        <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                    </div>
+                                    <div class="item-controls">
+                                        <div class="item-value">{{item.system.value}}%</div>
+                                        <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                    </div>
+                                </li>
+                            {{/each}}
+                        </ol>
+                    </div>
+
+                    <div class="spellListContainer">
+                        <div class="spellList">
+                            {{!-- Spell schools organized by category --}}
+                            {{#each actor.spellSchools as |schoolData|}}
+                                <div class="spell-school-section" data-school="{{schoolData.key}}">
+                                    <h3 class="spell-school-header uesrpg-group-toggle" data-action="groupToggle" data-group="spell-school-{{schoolData.key}}">
+                                        <i class="fas fa-chevron-down collapse-arrow"></i>
+                                        <span class="school-name">{{schoolData.label}}</span>
+                                        <span class="school-count">({{schoolData.count}})</span>
+                                    </h3>
+                                    <table class="spell-school-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Rank</th>
+                                                <th>MP Cost</th>
+                                                <th><i class="fas fa-trash"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each schoolData.spells as |spell|}}
+                                                <tr class="spell-row item active" data-item-id="{{spell._id}}">
+                                                    <td class="spell-name-cell">
+                                                        <i data-action="castMagic" class="fas fa-dice-d20 magic-roll" title="Cast Spell (Left-click) / Post Description (Right-click)"></i>
+                                                        <img class="item-img" src="{{spell.img}}" />
+                                                        <span data-action="itemOpen" class="item-name">{{spell.name}}</span>
+                                                    </td>
+                                                    <td class="spell-rank-cell">
+                                                        {{#if (eq spell.system.level 1)}}Novice{{/if}}
+                                                        {{#if (eq spell.system.level 2)}}Apprentice{{/if}}
+                                                        {{#if (eq spell.system.level 3)}}Adept{{/if}}
+                                                        {{#if (eq spell.system.level 4)}}Expert{{/if}}
+                                                        {{#if (eq spell.system.level 5)}}Master{{/if}}
+                                                        {{#if (eq spell.system.level 6)}}Grandmaster{{/if}}
+                                                        {{#if (eq spell.system.level 7)}}Legendary{{/if}}
+                                                    </td>
+                                                    <td class="spell-mp-cell">{{spell.system.cost}}</td>
+                                                    <td class="spell-actions-cell">
+                                                        <a data-action="itemDelete" class="item-delete" title="Delete"><i class="fas fa-trash"></i></a>
+                                                    </td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {{/each}}
+                        </div>
+                    </div>
+
+                    {{!-- Effects section lives inside Magic tab, below the spell list (AE-first UI). --}}
+                    <div class="magic-effects-section">
+                        <header class="effects-header flexrow">
+                            <h3>Effects</h3>
+                            <a data-action="effectControl" class="effect-control" data-effect-action="create" title="Create Effect">
+                                <i class="fas fa-plus"></i>
+                            </a>
+                        </header>
+                        <ol class="effects-list">
+                            {{#each effects as |effect|}}
+                                <li class="effect flexrow" data-effect-id="{{effect._id}}">
+                                    <img class="effect-icon" src="{{effect.img}}" />
+                                    <h4 class="effect-name">{{effect.name}}</h4>
+                                    <div class="effect-controls flexrow">
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle Effect">
+                                            <i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i>
+                                        </a>
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit Effect"><i class="fas fa-edit"></i></a>
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete Effect"><i class="fas fa-trash"></i></a>
+                                    </div>
+                                </li>
+                            {{/each}}
+                        </ol>
+                    </div>
+
+                    {{!-- Spell Effects Breakdown (Origin AE summaries) --}}
+                    {{#if spellEffectsBreakdown.length}}
+                    <div class="spell-effects-breakdown">
+                        <h3 data-action="groupToggle" class="uesrpg-group-toggle u-cursor-pointer" data-group="spell-effects-breakdown">
+                            <i class="fas fa-chevron-down collapse-arrow"></i>
+                            Spell Effects Breakdown
+                            <span class="spell-effect-count">({{spellEffectsBreakdown.length}})</span>
+                        </h3>
+                        <div class="collapse-content">
+                            {{#each spellEffectsBreakdown as |se|}}
+                            <div class="spell-effect-entry">
+                                <div class="spell-effect-header">
+                                    <img src="{{se.img}}" class="spell-effect-img" />
+                                    <strong>{{se.name}}</strong>
+                                    {{#if se.school}}<span class="spell-effect-school">({{se.school}})</span>{{/if}}
+                                    {{#unless se.isSelf}}<span class="spell-effect-caster">by {{se.casterName}}</span>{{/unless}}
+                                    <span class="spell-effect-duration">{{se.durationLabel}}</span>
+                                    {{#if se.hasUpkeep}}<span class="spell-effect-upkeep">Upkeep ×{{se.refreshCount}}</span>{{/if}}
+                                    {{#if se.canCancel}}
+                                    <a data-action="cancelSpell" class="uesrpg-cancel-spell" data-effect-id="{{se.id}}" title="Cancel Spell">
+                                        <i class="fas fa-times-circle"></i>
+                                    </a>
+                                    {{/if}}
+                                </div>
+                                {{#if se.modifiedKeys.length}}
+                                <div class="spell-effect-details">
+                                    {{#each se.modifiedKeys as |mk|}}
+                                    <span class="spell-effect-tag">
+                                        {{mk.label}}: {{mk.value}}
+                                    </span>
+                                    {{/each}}
+                                </div>
+                                {{/if}}
+                                {{#if se.costPaid}}<div class="spell-effect-cost">Cost: {{se.costPaid}} MP{{#if se.linkedCount}} · {{se.linkedCount}} linked{{/if}}</div>{{/if}}
+                            </div>
+                            {{/each}}
+                        </div>
+                    </div>
+                    {{/if}}
+
+                </div>
+            </div>

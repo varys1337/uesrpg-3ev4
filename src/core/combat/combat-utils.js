@@ -13,8 +13,12 @@
  */
 
 import { DAMAGE_TYPES, itemHasToken } from "./damage-automation.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 const _KNOWN_DAMAGE_TYPES = new Set(Object.values(DAMAGE_TYPES).map((v) => String(v).toLowerCase()));
+// Source-capability tags that should not override physical weapon damage type.
+// These tags are used for incorporeal/resistance interactions, not typed damage lanes.
+const _SOURCE_ONLY_DAMAGE_TAGS = new Set(["magic", "silver", "silvered", "runed"]);
 
 /**
  * Infer damage type from a weapon item.
@@ -77,13 +81,18 @@ export function getDamageTypeFromWeapon(weapon) {
     .filter(Boolean);
 
   // Recognize direct matches first.
+  // Skip source-only tags so "Magic"/"Runed"/"Silvered" weapons remain physical unless
+  // an explicit damage-type field says otherwise.
   for (const t of normalized) {
+    if (_SOURCE_ONLY_DAMAGE_TAGS.has(t)) continue;
     if (_KNOWN_DAMAGE_TYPES.has(t)) return t;
   }
 
   // Recognize common composite labels (e.g. "fire damage", "magic (x)").
   for (const t of normalized) {
+    if (_SOURCE_ONLY_DAMAGE_TAGS.has(t)) continue;
     for (const dt of _KNOWN_DAMAGE_TYPES) {
+      if (_SOURCE_ONLY_DAMAGE_TAGS.has(dt)) continue;
       if (t.includes(dt)) return dt;
     }
   }
@@ -254,11 +263,7 @@ export async function recordDashStart(actor, { tokens = null } = {}) {
     const payload = { ...base, tokenId: token.id, x: center.x, y: center.y };
     const doc = token?.document ?? token;
     if (!doc) continue;
-    if (typeof doc.setFlag === "function") {
-      await doc.setFlag(DASH_FLAG_SCOPE, DASH_FLAG_KEY, payload);
-    } else if (typeof doc.update === "function") {
-      await doc.update({ [`flags.${DASH_FLAG_SCOPE}.${DASH_FLAG_KEY}`]: payload });
-    }
+    await requestUpdateDocument(doc, { [`flags.${DASH_FLAG_SCOPE}.${DASH_FLAG_KEY}`]: payload });
   }
 
   return true;
@@ -293,18 +298,11 @@ export async function clearTokenDashContext(token) {
   const doc = token?.document ?? token;
   if (!doc) return false;
   try {
-    if (typeof doc.unsetFlag === "function") {
-      await doc.unsetFlag(DASH_FLAG_SCOPE, DASH_FLAG_KEY);
-      return true;
-    }
-    if (typeof doc.update === "function") {
-      await doc.update({ [`flags.${DASH_FLAG_SCOPE}.${DASH_FLAG_KEY}`]: null });
-      return true;
-    }
+    await requestUpdateDocument(doc, { [`flags.${DASH_FLAG_SCOPE}.-=${DASH_FLAG_KEY}`]: null });
+    return true;
   } catch (_e) {
     return false;
   }
-  return false;
 }
 
 /**

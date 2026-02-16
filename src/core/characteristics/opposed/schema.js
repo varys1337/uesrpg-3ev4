@@ -24,9 +24,3 @@ export function _getMessageState(message) {
 export function _bothSidesCommitted(data) {
   return Boolean(data?.attacker?.committedAt) && Boolean(data?.defender?.committedAt);
 }
-
-export function _charOpposedMetaFlag(parentMessageId, stage, extra = null) {
-  const base = { parentMessageId, stage };
-  if (extra && typeof extra === "object") Object.assign(base, extra);
-  return { charOpposedMeta: base };
-}

@@ -12,6 +12,8 @@ import {
   _setDefenderAdvantage 
 } from "../schema.js";
 import { _canControlActor, _logDebug, _opposedFlags } from "../helpers/util.js";
+import { _resolveItemViaActor } from "../helpers/docs.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { 
   getTokenMovementAction as _getTokenMovementAction,
   asNumber as _asNumber,
@@ -24,7 +26,7 @@ import {
 } from "../helpers/workflow.js";
 import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _computeAdvantageRAW } from "../outcome-resolution.js";
 import { _cleanupAutoRollContext } from "../banking/state.js";
-import { hasCondition } from "../../../conditions/condition-engine.js";
+import { canDefenderRoll, markDefenderIneligibleForHidden } from "./eligibility.js";
 import { DefenseDialog } from "../../defense-dialog.js";
 import { computeTN } from "../../tn.js";
 import { getDefenseTalentOverrides, applyDefenderTalentTNMods, applyCombatTalentDoSAdjustments, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
@@ -158,40 +160,26 @@ export async function handleDefenderRoll(ctx) {
     return;
   }
 
-  // Chapter 5 (Restrained): cannot defend.
-  if (hasCondition(defender, "restrained")) {
-    data.defender.noDefense = true;
-    data.defender.defenseType = "none";
-    data.defender.label = "No Defense (Restrained)";
-    data.defender.testLabel = "No Defense";
-    data.defender.defenseLabel = "No Defense";
-    data.defender.target = 0;
-    data.defender.tn = {
-      finalTN: 0,
-      baseTN: 0,
-      totalMod: 0,
-      breakdown: [{ key: "base", label: "No Defense (Restrained)", value: 0, source: "base" }]
-    };
-    data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
-    await _updateCard(message, data);
-    return;
-  }
-
-  // Chapter 5 (Hidden): if the attacker struck from Hidden, the defender cannot attempt defense.
-  if (data.context?.attackFromHidden === true) {
-    data.defender.noDefense = true;
-    data.defender.defenseType = "none";
-    data.defender.label = "No Defense (Hidden)";
-    data.defender.testLabel = "No Defense";
-    data.defender.defenseLabel = "No Defense";
-    data.defender.target = 0;
-    data.defender.tn = {
-      finalTN: 0,
-      baseTN: 0,
-      totalMod: 0,
-      breakdown: [{ key: "base", label: "No Defense (Hidden)", value: 0, source: "base" }]
-    };
-    data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
+  const eligibility = canDefenderRoll(defender, data.context);
+  if (!eligibility.allowed) {
+    const reason = String(eligibility.reason ?? "Unavailable");
+    if (eligibility.isHidden) {
+      markDefenderIneligibleForHidden(data.defender);
+    } else {
+      data.defender.noDefense = true;
+      data.defender.defenseType = "none";
+      data.defender.label = `No Defense (${reason})`;
+      data.defender.testLabel = "No Defense";
+      data.defender.defenseLabel = "No Defense";
+      data.defender.target = 0;
+      data.defender.tn = {
+        finalTN: 0,
+        baseTN: 0,
+        totalMod: 0,
+        breakdown: [{ key: "base", label: `No Defense (${reason})`, value: 0, source: "base" }]
+      };
+      data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
+    }
     await _updateCard(message, data);
     return;
   }
@@ -275,25 +263,22 @@ export async function handleDefenderRoll(ctx) {
   // Fearsome (OPTIONAL): if Evade was selected and Fearsome is available, prompt for which test to roll.
   let fearsomeTNOverride = null;
   if (choice.defenseType === "evade" && fearsomeContext?.fearsome?.available) {
-    const usePersuade = await new Promise((resolve) => {
-      new Dialog({
-        title: "Fearsome",
-        content: `
-          <div class="uesrpg">
-            <p><b>${defender.name}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.</p>
-            <p>Choose which test to roll for this reaction.</p>
-          </div>
-        `,
-        buttons: {
-          evade: { label: "Use Evade", callback: () => resolve(false) },
-          persuade: { label: "Use Persuade (Strength)", callback: () => resolve(true) }
-        },
-        default: "evade",
-        close: () => resolve(false)
-      }).render(true);
+    const usePersuade = await customDialog({
+      title: "Fearsome",
+      content: `
+        <div class="uesrpg">
+          <p><b>${defender.name}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.</p>
+          <p>Choose which test to roll for this reaction.</p>
+        </div>
+      `,
+      buttons: {
+        evade: { label: "Use Evade", callback: () => false },
+        persuade: { label: "Use Persuade (Strength)", callback: () => true }
+      },
+      defaultButton: "evade",
     });
 
-    if (usePersuade) {
+    if (usePersuade === true) {
       fearsomeTNOverride = fearsomeContext.fearsome.payload;
       data.defender.fearsomeChoice = "persuade";
     } else {
@@ -396,6 +381,9 @@ export async function handleDefenderRoll(ctx) {
 
   }
   data.defender.defenseType = choice.defenseType;
+  data.defender.styleUuid = (choice.defenseType === "evade" || choice.defenseType === "none" || choice.defenseType === "ward")
+    ? null
+    : (choice.styleUuid ?? choice.styleId ?? null);
   // label is used for roll flavor (e.g. "Parry — Defender Roll")
   data.defender.label = choice.label;
   data.defender.defenseLabel = choice.label;
@@ -456,7 +444,7 @@ export async function handleDefenderRoll(ctx) {
 
       const weaponUuid = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
       if (!weaponUuid) return null;
-      const doc = fromUuidSync(weaponUuid);
+      const doc = _resolveItemViaActor(weaponUuid, defender);
       return doc?.documentName === "Item" ? doc : null;
     } catch (_e) {
       return null;
@@ -527,7 +515,7 @@ export async function handleDefenderRoll(ctx) {
         side: "defender",
         result: res,
         defenseType: choice.defenseType,
-        styleUuid: null,
+        styleUuid: data.defender?.styleUuid ?? null,
         testLabel: data.defender.testLabel ?? data.defender.label ?? null,
         allowPrompt: true
       });
@@ -566,6 +554,7 @@ export async function handleDefenderRoll(ctx) {
         commit: {
           defender: {
             defenseType: data.defender.defenseType,
+            styleUuid: data.defender.styleUuid ?? null,
             label: data.defender.label,
             defenseLabel: data.defender.defenseLabel,
             testLabel: data.defender.testLabel,
@@ -598,7 +587,7 @@ export async function handleDefenderRoll(ctx) {
       try {
         const defWUuid = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
         if (defWUuid) {
-          const defW = await fromUuid(defWUuid);
+          const defW = _resolveItemViaActor(defWUuid, defender);
           if (defW?.type === "weapon" && _weaponHasQuality(defW, "dueling")) {
             data.defender.result.degree = Math.max(1, (Number(data.defender.result.degree) || 1) + 1);
             data.defender.result.duelingBonus = 1;
@@ -653,4 +642,3 @@ export async function handleDefenderRoll(ctx) {
     await _updateCard(message, data);
   }
 }
-

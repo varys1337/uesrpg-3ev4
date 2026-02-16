@@ -9,10 +9,11 @@ import { _getBankCommitState, _allDefendersCommitted, _cleanupAutoRollContext } 
 import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _computeAdvantageRAW } from "../outcome-resolution.js";
 import { applyAoEEvadeOutcome as _applyAoEEvadeOutcome, getTokenMovementAction as _getTokenMovementAction } from "../helpers/workflow.js";
 import { _canControlActor, _logDebug, _opposedFlags } from "../helpers/util.js";
-import { hasCondition, removeCondition } from "../../../conditions/condition-engine.js";
+import { removeCondition } from "../../../conditions/condition-engine.js";
 import { canDefenderRoll, markDefenderIneligibleForHidden } from "./eligibility.js";
 import { getDefenseTalentOverrides, applyDefenderTalentTNMods, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { _hasUnstoppableMightEligibleWeapons, _promptUnstoppableMightUsage, _getGladiatorContext, _getFreeDefenseReactionContext, _markGladiatorFreeReactionUsed } from "../helpers/talents.js";
 import { DefenseDialog } from "../../defense-dialog.js";
 import { getDefenseGatingContext as _getDefenseGatingContext } from "../helpers/workflow.js";
@@ -22,6 +23,7 @@ import { ActionEconomy } from "../../action-economy.js";
 import { breakAimChainIfPresent as _breakAimChainIfPresent } from "../effects.js";
 import { listCombatStyles, computeTN } from "../../tn.js";
 import { collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid } from "../helpers/workflow.js";
+import { _resolveItemViaActor } from "../helpers/docs.js";
 import { applyHyperAwarenessToResult } from "../../../traits/awareness-talents.js";
 import { applyCombatTalentDoSAdjustments } from "../../../traits/combat-talents.js";
 import { shouldDeferEvadeApForStepAside } from "../../../traits/mobility-talents.js";
@@ -193,63 +195,25 @@ export async function handleDefenderCommit(ctx) {
     data.defender.banked.forced = true;
     data.defender.banked.reason = String(reason).toLowerCase();
 
-    data.defender.noDefense = true;
-    data.defender.defenseType = "none";
-    data.defender.label = `No Defense (${reason})`;
-    data.defender.testLabel = "No Defense";
-    data.defender.defenseLabel = "No Defense";
-    data.defender.target = 0;
-    data.defender.tn = {
-      finalTN: 0,
-      baseTN: 0,
-      totalMod: 0,
-      breakdown: [{ key: "base", label: `No Defense (${reason})`, value: 0, source: "base" }]
-    };
-    data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
-
-    // Auto-request GM roll when ALL participants have committed (banking workflow)
-    const b = _getBankCommitState(data, data.defender);
-    if (b.bothCommitted && _allDefendersCommitted(data)) {
-      data.context = data.context ?? {};
-      if (!data.context.autoRollRequested) {
-        data.context.autoRollRequested = true;
-        data.context.autoRollRequestedAt = Date.now();
-        data.context.autoRollRequestedBy = game.user.id;
-      }
+    if (eligibility.isHidden) {
+      markDefenderIneligibleForHidden(data.defender);
+    } else {
+      data.defender.noDefense = true;
+      data.defender.defenseType = "none";
+      data.defender.label = `No Defense (${reason})`;
+      data.defender.testLabel = "No Defense";
+      data.defender.defenseLabel = "No Defense";
+      data.defender.target = 0;
+      data.defender.tn = {
+        finalTN: 0,
+        baseTN: 0,
+        totalMod: 0,
+        breakdown: [{ key: "base", label: `No Defense (${reason})`, value: 0, source: "base" }]
+      };
+      data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
     }
 
-    await _updateCard(message, data);
-
-    // Auto-roll is triggered by the updateChatMessage hook → maybeAutoRollBanked.
-
-    return;
-  }
-
-  // Additional legacy gating (keep restrained check for explicit constraint)
-  if (hasCondition(defender, "restrained")) {
-    const reason = "Restrained";
-
-    data.defender.banked = data.defender.banked ?? {};
-    data.defender.banked.committed = true;
-    data.defender.banked.committedAt = Date.now();
-    data.defender.banked.committedBy = "system";
-    data.defender.banked.forced = true;
-    data.defender.banked.reason = String(reason).toLowerCase();
-
-    data.defender.noDefense = true;
-    data.defender.defenseType = "none";
-    data.defender.label = `No Defense (${reason})`;
-    data.defender.testLabel = "No Defense";
-    data.defender.defenseLabel = "No Defense";
-    data.defender.target = 0;
-    data.defender.tn = {
-      finalTN: 0,
-      baseTN: 0,
-      totalMod: 0,
-      breakdown: [{ key: "base", label: `No Defense (${reason})`, value: 0, source: "base" }]
-    };
-    data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
-
+    // Auto-request GM roll when ALL participants have committed (banking workflow)
     const b = _getBankCommitState(data, data.defender);
     if (b.bothCommitted && _allDefendersCommitted(data)) {
       data.context = data.context ?? {};
@@ -344,25 +308,22 @@ export async function handleDefenderCommit(ctx) {
   // Fearsome (OPTIONAL): if Evade was selected and Fearsome is available, prompt for which test to roll.
   let fearsomeTNOverride = null;
   if (choice.defenseType === "evade" && fearsomeContext?.fearsome?.available) {
-    const usePersuade = await new Promise((resolve) => {
-      new Dialog({
-        title: "Fearsome",
-        content: `
-          <div class="uesrpg">
-            <p><b>${defender.name}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.</p>
-            <p>Choose which test to roll for this reaction.</p>
-          </div>
-        `,
-        buttons: {
-          evade: { label: "Use Evade", callback: () => resolve(false) },
-          persuade: { label: "Use Persuade (Strength)", callback: () => resolve(true) }
-        },
-        default: "evade",
-        close: () => resolve(false)
-      }).render(true);
+    const usePersuade = await customDialog({
+      title: "Fearsome",
+      content: `
+        <div class="uesrpg">
+          <p><b>${defender.name}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.</p>
+          <p>Choose which test to roll for this reaction.</p>
+        </div>
+      `,
+      buttons: {
+        evade: { label: "Use Evade", callback: () => false },
+        persuade: { label: "Use Persuade (Strength)", callback: () => true }
+      },
+      defaultButton: "evade",
     });
 
-    if (usePersuade) {
+    if (usePersuade === true) {
       fearsomeTNOverride = fearsomeContext.fearsome.payload;
       data.defender.fearsomeChoice = "persuade";
     } else {
@@ -465,6 +426,9 @@ export async function handleDefenderCommit(ctx) {
 
   }
   data.defender.defenseType = choice.defenseType;
+  data.defender.styleUuid = (choice.defenseType === "evade" || choice.defenseType === "none" || choice.defenseType === "ward")
+    ? null
+    : (choice.styleUuid ?? choice.styleId ?? null);
   data.defender.label = choice.label;
   data.defender.defenseLabel = choice.label;
 
@@ -519,12 +483,12 @@ export async function handleDefenderCommit(ctx) {
 
       const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
       if (weaponUuid) {
-        const doc = fromUuidSync(weaponUuid);
+        const doc = _resolveItemViaActor(weaponUuid, defender);
         if (doc?.documentName === "Item" && doc?.parent?.id === defender?.id) return doc;
       }
       const preferred = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
       if (preferred) {
-        const doc = fromUuidSync(preferred);
+        const doc = _resolveItemViaActor(preferred, defender);
         if (doc?.documentName === "Item" && doc?.parent?.id === defender?.id) return doc;
       }
       return null;
@@ -648,12 +612,12 @@ export async function handleDefenderRollCommitted(ctx) {
 
       const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
       if (weaponUuid) {
-        const doc = fromUuidSync(weaponUuid);
+        const doc = _resolveItemViaActor(weaponUuid, defender);
         if (doc?.documentName === "Item" && doc?.parent?.id === defender?.id) return doc;
       }
       const preferred = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
       if (preferred) {
-        const doc = fromUuidSync(preferred);
+        const doc = _resolveItemViaActor(preferred, defender);
         if (doc?.documentName === "Item" && doc?.parent?.id === defender?.id) return doc;
       }
       return null;
@@ -711,7 +675,7 @@ export async function handleDefenderRollCommitted(ctx) {
       side: "defender",
       result: res,
       defenseType: data.defender.defenseType,
-      styleUuid: null,
+      styleUuid: data.defender?.styleUuid ?? null,
       testLabel: data.defender.testLabel ?? data.defender.label ?? null,
       allowPrompt: true
     });
@@ -747,6 +711,7 @@ export async function handleDefenderRollCommitted(ctx) {
       commit: {
         defender: {
           defenseType: data.defender.defenseType,
+          styleUuid: data.defender.styleUuid ?? null,
           label: data.defender.label,
           defenseLabel: data.defender.defenseLabel,
           testLabel: data.defender.testLabel,

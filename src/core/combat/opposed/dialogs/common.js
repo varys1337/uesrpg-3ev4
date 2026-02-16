@@ -5,11 +5,12 @@
  */
 
 import { hasTalent } from "../../../traits/talents-api.js";
-import { buildSpecialActionsForActor, isSpecialActionUsableNow } from "../../combat-style-utils.js";
+import { buildSpecialActionsForActor } from "../../combat-style-utils.js";
 import { canTokenEscapeTemplate } from "../../../../utils/aoe-utils.js";
 import { getContextAttackMode, isIsolatedDuelByTokens } from "../helpers/workflow.js";
 import { _resolveToken } from "../helpers/docs.js";
 import { _canControlActor } from "../helpers/util.js";
+import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
 
 // ====== HELPER: EXPLOIT ADVANTAGE CHECK ======
 
@@ -32,16 +33,23 @@ function _canUseExploitAdvantage(actor, { actorTokenUuid = null, opponentTokenUu
 }
 
 /**
- * List equipped weapons for an actor (filtered by attack mode if needed)
+ * List equipped weapons for an actor.
+ * Falls back to ALL weapons if none are explicitly equipped (common for NPCs).
  */
 function _listEquippedWeapons(actor) {
-  const weapons = [];
+  const equipped = [];
+  const all = [];
   for (const it of (actor?.items ?? [])) {
     if (!it || it.type !== "weapon") continue;
-    if (it.system?.equipped !== true) continue;
-    weapons.push(it);
+    all.push(it);
+    if (it.system?.equipped === true) equipped.push(it);
   }
-  return weapons;
+  if (equipped.length) return equipped;
+  // Fallback: NPCs often lack explicit equipped flags — return all weapons
+  if (all.length) {
+    console.debug("UESRPG | _listEquippedWeapons: no weapons with equipped=true for", actor?.name, "— falling back to all weapons");
+  }
+  return all;
 }
 
 // ====== BASIC PROMPTS ======
@@ -50,25 +58,14 @@ function _listEquippedWeapons(actor) {
  * Generic Yes/No confirmation dialog
  */
 export async function promptYesNo({ title, content, yesLabel = "Yes", noLabel = "No" } = {}) {
-  return new Promise(resolve => {
-    const dlg = new Dialog({
-      title: title ?? "Confirm",
-      content: `<div style="min-width:340px;">${content ?? ""}</div>`,
-      buttons: {
-        yes: {
-          label: yesLabel,
-          callback: () => resolve(true)
-        },
-        no: {
-          label: noLabel,
-          callback: () => resolve(false)
-        }
-      },
-      default: "no",
-      close: () => resolve(false)
-    });
-    dlg.render(true);
+  const result = await confirmDialog({
+    title: title ?? "Confirm",
+    content: `<div style="min-width:340px;">${content ?? ""}</div>`,
+    yesLabel,
+    noLabel,
   });
+  // confirmDialog returns true/false/null; coerce null (close) to false for callers
+  return result === true;
 }
 
 /**
@@ -88,28 +85,21 @@ export async function promptSelectToken({ title, prompt, tokens = [] } = {}) {
       <select name="tokenId" style="width:100%;">${options}</select>
     </div>`;
 
-  return new Promise(resolve => {
-    const dlg = new Dialog({
-      title: title ?? "Select Target",
-      content,
-      buttons: {
-        ok: {
-          label: "OK",
-          callback: html => {
-            const tokenId = html?.find?.("select[name='tokenId']")?.val?.() ?? null;
-            const token = choices.find(t => t.id === tokenId) ?? null;
-            resolve(token);
-          }
-        },
-        cancel: {
-          label: "Cancel",
-          callback: () => resolve(null)
+  return customDialog({
+    title: title ?? "Select Target",
+    content,
+    buttons: {
+      ok: {
+        label: "OK",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const tokenId = root?.querySelector("select[name='tokenId']")?.value ?? null;
+          return choices.find(t => t.id === tokenId) ?? null;
         }
       },
-      default: "ok",
-      close: () => resolve(null)
-    });
-    dlg.render(true);
+      cancel: { label: "Cancel", callback: () => null }
+    },
+    defaultButton: "ok",
   });
 }
 
@@ -143,14 +133,12 @@ export async function promptUnstoppableMightUsage({ actorName = "Actor", purpose
  * Prompt for AoE Evade escape (can defender move 1m to exit template?)
  */
 export async function promptAoEEvadeEscape({ defenderName = "Defender", attackLabel = "the attack" } = {}) {
-  if (typeof Dialog?.confirm !== "function") return null;
   try {
-    return await Dialog.confirm({
+    return await confirmDialog({
       title: "AoE Evade",
       content: `<p>${defenderName} successfully evaded ${attackLabel}. Can they move 1m to exit the area?</p>`,
-      yes: "Escapes AoE",
-      no: "Still in AoE",
-      defaultYes: true
+      yesLabel: "Escapes AoE",
+      noLabel: "Still in AoE",
     });
   } catch (_e) {
     return null;
@@ -158,169 +146,6 @@ export async function promptAoEEvadeEscape({ defenderName = "Defender", attackLa
 }
 
 // ====== ADVANTAGE SPENDING DIALOGS ======
-
-/**
- * Defender Advantage spending dialog (Overextend, Overwhelm, Special Actions)
- */
-export async function promptDefenderAdvantage({ defenderActor, attackerActor, advantageCount = 0, defenderTokenUuid = null, opponentTokenUuid = null } = {}) {
-  if (!defenderActor || advantageCount <= 0) return null;
-
-  const max = Number(advantageCount || 0);
-
-  const hasExploitTalent = Boolean(defenderActor && hasTalent(defenderActor, "exploitadvantage"));
-  const exploitEligible = Boolean(hasExploitTalent && _canUseExploitAdvantage(defenderActor, { actorTokenUuid: defenderTokenUuid, opponentTokenUuid }));
-
-  // Known Special Actions are derived ONLY from the actor's active combat style.
-  // Defender advantage usage is reaction context: only Secondary actions are offered.
-  const knownSecondary = (() => {
-    try {
-      const all = buildSpecialActionsForActor(defenderActor);
-      return all.filter(a => a.known && String(a.actionType).toLowerCase() === "secondary");
-    } catch (_e) {
-      return [];
-    }
-  })();
-
-  const renderSpecialOpt = (sa) => {
-    const id = String(sa?.id ?? "").trim();
-    if (!id) return "";
-    const label = String(sa?.name ?? id);
-    return `
-      <label class="uesrpg-adv-choice">
-        <input type="checkbox" name="sa_${id}" />
-        <span class="uesrpg-adv-choice__label">
-          <span class="uesrpg-adv-choice__title">${label}</span>
-        </span>
-        <span class="uesrpg-adv-chip uesrpg-adv-chip--secondary">Secondary</span>
-      </label>
-    `;
-  };
-
-  const content = `
-    <form class="uesrpg-adv-dialog uesrpg-adv-dialog--defender">
-      <div class="uesrpg-adv-summary">
-        <div><b>Advantage</b>: ${max} available</div>
-        <div class="uesrpg-adv-count" aria-live="polite"></div>
-      </div>
-      <div class="uesrpg-adv-grid">
-        <label class="uesrpg-adv-choice">
-          <input type="checkbox" name="overextend" />
-          <span class="uesrpg-adv-choice__label">
-            <span class="uesrpg-adv-choice__title">Overextend</span>
-            <span class="uesrpg-adv-choice__desc">Opponent's next attack within 1 round suffers -10.</span>
-          </span>
-        </label>
-        ${hasExploitTalent ? `
-        <p class="hint" style="margin:0.25rem 0 0 0;">${exploitEligible ? "Exploit Advantage: Overextend is doubled (-20) (isolated duel)." : "Exploit Advantage: requires an isolated duel to double Overextend."}</p>
-        ` : ``}
-        <label class="uesrpg-adv-choice">
-          <input type="checkbox" name="overwhelm" />
-          <span class="uesrpg-adv-choice__label">
-            <span class="uesrpg-adv-choice__title">Overwhelm</span>
-            <span class="uesrpg-adv-choice__desc">Opponent cannot make Attacks of Opportunity until your next turn.</span>
-          </span>
-        </label>
-        ${knownSecondary.length ? `
-          <div class="uesrpg-adv-section">
-            <div class="uesrpg-adv-section__title"><b>Known Special Actions</b></div>
-          </div>
-          ${knownSecondary.map(renderSpecialOpt).join("\n")}
-        ` : ``}
-      </div>
-      <p class="hint">Select up to ${max} option(s).</p>
-    </form>
-  `;
-
-  return await new Promise((resolve) => {
-    let settled = false;
-    const settle = (v) => {
-      if (settled) return;
-      settled = true;
-      resolve(v);
-    };
-
-    const dialog = new Dialog({
-      title: "Use Defender Advantage",
-      content,
-      buttons: {
-        apply: {
-          label: "Apply",
-          callback: (html) => {
-            const root = (html && "0" in html && html[0] instanceof Element) ? html[0] : (html instanceof Element ? html : null);
-            const form = root?.querySelector("form.uesrpg-adv-dialog--defender");
-            if (!form) return settle(null);
-
-            const q = (name) => form.querySelector(`[name="${name}"]`);
-            const overextend = Boolean(q("overextend")?.checked);
-            const overextendDouble = Boolean(overextend && exploitEligible);
-            const overwhelm = Boolean(q("overwhelm")?.checked);
-
-            const selectedSpecial = [];
-            for (const sa of knownSecondary) {
-              const id = String(sa?.id ?? "").trim();
-              if (!id) continue;
-              if (Boolean(q(`sa_${id}`)?.checked)) selectedSpecial.push(id);
-            }
-
-            const selectedCount = [overextend, overwhelm].filter(Boolean).length + selectedSpecial.length;
-            if (selectedCount > max) {
-              ui.notifications.warn(`You only have ${max} Advantage to spend.`);
-              return false;
-            }
-
-            return settle({ overextend, overextendDouble, overwhelm, specialActionsSelected: selectedSpecial });
-          }
-        },
-        skip: { label: "Skip", callback: () => settle({ overextend: false, overextendDouble: false, overwhelm: false, specialActionsSelected: [] }) }
-      },
-      default: "apply",
-      close: () => settle(null)
-    });
-
-    Hooks.once("renderDialog", (app, html) => {
-      if (app !== dialog) return;
-      const root = html?.[0] instanceof Element ? html[0] : null;
-      const form = root?.querySelector("form.uesrpg-adv-dialog--defender");
-      if (!form) return;
-
-      const listAllCheckboxes = () => [...form.querySelectorAll('input[type="checkbox"]')];
-      const computeSelectedCount = () => listAllCheckboxes().filter(el => Boolean(el.checked)).length;
-
-      const updateUi = () => {
-        const count = computeSelectedCount();
-        const c = form.querySelector(".uesrpg-adv-count");
-        if (c) c.textContent = `${count} / ${max} selected`;
-
-        for (const el of listAllCheckboxes()) {
-          if (Boolean(el.checked)) {
-            el.disabled = false;
-            continue;
-          }
-          el.disabled = (count >= max);
-        }
-      };
-
-      for (const el of listAllCheckboxes()) {
-        el.addEventListener("change", (ev) => {
-          if (ev.currentTarget?.dataset?.free === "true") {
-            updateUi();
-            return;
-          }
-          const count = computeSelectedCount();
-          if (count > max) {
-            ev.currentTarget.checked = false;
-            ui.notifications.warn(`You only have ${max} Advantage to spend.`);
-          }
-          updateUi();
-        });
-      }
-
-      updateUi();
-    });
-
-    dialog.render(true);
-  });
-}
 
 /**
  * Attacker Advantage spending dialog (Weapon selection + Precision Strike, Penetrate Armor, Forceful Impact, Press Advantage, Special Actions)
@@ -333,7 +158,8 @@ export async function promptWeaponAndAdvantages({
   defaultHitLocation = "Body",
   allowNoWeapon = false,
   attackerTokenUuid = null,
-  opponentTokenUuid = null
+  opponentTokenUuid = null,
+  styleUuidForKnown = null
 }) {
   const weapons = _listEquippedWeapons(attackerActor);
   if (!weapons.length && !allowNoWeapon) {
@@ -359,12 +185,14 @@ export async function promptWeaponAndAdvantages({
     opponentTokenUuid: opponentTokenUuid
   }));
 
-  // Known Special Actions are derived ONLY from the actor's active combat style.
-  // For attacker spend: Primary must be usable now; Secondary is always usable.
+  // Known Special Actions are derived from the provided style UUID (roll-selected style),
+  // with backward-compatible fallback to default actor resolution when not provided.
   const knownSpecial = (() => {
     try {
-      const all = buildSpecialActionsForActor(attackerActor);
-      return all.filter(a => a.known && isSpecialActionUsableNow(attackerActor, a.actionType));
+      const all = (styleUuidForKnown != null)
+        ? buildSpecialActionsForActor(attackerActor, { styleUuidOrId: styleUuidForKnown, legacyNpcFallback: true })
+        : buildSpecialActionsForActor(attackerActor);
+      return all.filter(a => a.known);
     } catch (_e) {
       return [];
     }
@@ -395,7 +223,7 @@ export async function promptWeaponAndAdvantages({
     .join("\n")}`;
 
   const content = `
-    <form class="uesrpg-opp-dmg uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
+    <div class="uesrpg-opp-dmg uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
       <div class="form-group uesrpg-adv-weapon">
         <label><b>Weapon</b></label>
         <select name="weaponUuid">${weaponOptions}</select>
@@ -460,27 +288,19 @@ export async function promptWeaponAndAdvantages({
 
         <p class="hint">Select up to ${max} option(s).</p>
       ` : ``}
-    </form>
+    </div>
   `;
 
-  return await new Promise((resolve) => {
-    let settled = false;
-    const settle = (value) => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-
-    const dialog = new Dialog({
+  return await customDialog({
       title: "Resolve Damage",
       content,
       buttons: {
         continue: {
           label: "Continue",
           callback: (html) => {
-            const root = (html && "0" in html && html[0] instanceof Element) ? html[0] : (html instanceof Element ? html : null);
-            const form = root?.querySelector("form.uesrpg-opp-dmg");
-            if (!form) return settle(null);
+            const root = html instanceof HTMLElement ? html : html?.element ?? html;
+            const form = root?.querySelector(".uesrpg-opp-dmg") ?? root;
+            if (!form) return null;
 
             const q = (name) => form.querySelector(`[name="${name}"]`);
             const weaponUuid = String(q("weaponUuid")?.value ?? "");
@@ -506,10 +326,10 @@ export async function promptWeaponAndAdvantages({
             const selectedCount = [precisionStrike, penetrateArmor, forcefulImpact, pressAdvantage].filter(Boolean).length + selectedSpecial.length;
             if (max > 0 && selectedCount > max) {
               ui.notifications.warn(`You only have ${max} Advantage to spend.`);
-              return false;
+              return null;
             }
 
-            return settle({
+            return {
               weaponUuid,
               precisionStrike,
               precisionLocation,
@@ -518,19 +338,16 @@ export async function promptWeaponAndAdvantages({
               pressAdvantage,
               pressAdvantageDouble,
               specialActionsSelected: selectedSpecial
-            });
+            };
           }
         },
-        cancel: { label: "Cancel", callback: () => settle(null) }
+        cancel: { label: "Cancel", callback: () => null }
       },
-      default: "continue",
-      close: () => settle(null)
-    });
+      defaultButton: "continue",
 
-    Hooks.once("renderDialog", (app, html) => {
-      if (app !== dialog) return;
-      const root = html?.[0] instanceof Element ? html[0] : null;
-      const form = root?.querySelector("form.uesrpg-opp-dmg");
+    render: (event, html) => {
+      const root = html instanceof HTMLElement ? html : html?.element ?? html;
+      const form = root?.querySelector(".uesrpg-opp-dmg") ?? root;
       if (!form) return;
 
       const precisionSelect = form.querySelector('select[name="precisionLocation"]');
@@ -577,8 +394,6 @@ export async function promptWeaponAndAdvantages({
       }
 
       updateUi();
-    });
-
-    dialog.render(true);
+    },
   });
 }

@@ -291,7 +291,11 @@ function _resolveAoEProfile(spell) {
   const rangeType = getSpellRangeType(spell);
   const isAoE = rangeType === "aoe";
   
-  if (!isAoE) {
+  // Also detect AoE from explicit aoeShape/aoeSize fields, not just rangeType.
+  const config = getSpellAoEConfig(spell);
+  const hasAoEConfig = config && (config.sizeMeters > 0 || config.pulse);
+
+  if (!isAoE && !hasAoEConfig) {
     return {
       isAoE: false,
       shape: null,
@@ -303,14 +307,13 @@ function _resolveAoEProfile(spell) {
     };
   }
   
-  const config = getSpellAoEConfig(spell);
   return {
     isAoE: true,
-    shape: config?.t ?? null,
-    size: config?.distance ?? 0,
-    width: config?.width ?? 0,
-    pulse: _bool(spell?.system?.aoePulse),
-    includeCaster: _bool(spell?.system?.aoeIncludeCaster),
+    shape: config?.shape ?? null,
+    size: config?.sizeMeters ?? 0,
+    width: config?.widthMeters ?? 0,
+    pulse: _bool(spell?.system?.aoePulse) || Boolean(config?.pulse),
+    includeCaster: _bool(spell?.system?.aoeIncludeCaster) || Boolean(config?.includeCaster),
     config
   };
 }

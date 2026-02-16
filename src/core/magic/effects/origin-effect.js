@@ -134,15 +134,8 @@ export async function createOriginAE(casterActor, spell, options = {}) {
   });
 
   try {
-    let created;
-    if (casterActor.isOwner) {
-      const results = await casterActor.createEmbeddedDocuments("ActiveEffect", [effectData]);
-      created = results?.[0] ?? null;
-    } else {
-      const { requestCreateEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
-      const results = await requestCreateEmbeddedDocuments(casterActor, "ActiveEffect", [effectData]);
-      created = Array.isArray(results) ? results[0] : results;
-    }
+    const results = await requestCreateEmbeddedDocuments(casterActor, "ActiveEffect", [effectData]);
+    const created = Array.isArray(results) ? results[0] : (results ?? null);
 
     if (created) {
       _originDebug("Origin AE created successfully", { id: created.id, uuid: created.uuid });
@@ -498,7 +491,7 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
   });
 
   const duration = targetEffect.duration
-    ? foundry.utils.duplicate(targetEffect.duration)
+    ? foundry.utils.deepClone(targetEffect.duration)
     : {};
 
   const spellName = String(spell.name ?? "");
@@ -551,14 +544,8 @@ async function _onPairedEffectApplied(payload) {
     if (!buffData) continue;
 
     try {
-      let created;
-      if (caster.isOwner) {
-        const results = await caster.createEmbeddedDocuments("ActiveEffect", [buffData]);
-        created = results?.[0] ?? null;
-      } else {
-        const results = await requestCreateEmbeddedDocuments(caster, "ActiveEffect", [buffData]);
-        created = Array.isArray(results) ? results[0] : results;
-      }
+      const results = await requestCreateEmbeddedDocuments(caster, "ActiveEffect", [buffData]);
+      const created = Array.isArray(results) ? results[0] : (results ?? null);
 
       if (!created) {
         _originDebug("Failed to create caster buff AE (null result)");
@@ -717,7 +704,7 @@ async function _deleteLinkedEntity(link) {
         if (doc.documentName === "MeasuredTemplate") {
           const scene = doc.parent;
           if (scene) {
-            await scene.deleteEmbeddedDocuments("MeasuredTemplate", [doc.id]);
+            await requestDeleteEmbeddedDocuments(scene, "MeasuredTemplate", [doc.id]);
             return true;
           }
         }
@@ -728,7 +715,7 @@ async function _deleteLinkedEntity(link) {
         if (doc.documentName === "Token" || doc.documentName === "TokenDocument") {
           const scene = doc.parent;
           if (scene) {
-            await scene.deleteEmbeddedDocuments("Token", [doc.id]);
+            await requestDeleteEmbeddedDocuments(scene, "Token", [doc.id]);
             return true;
           }
         }
@@ -842,11 +829,8 @@ async function _updateOriginEffect(effect, updates) {
     const existing = parent.effects?.get?.(effect.id);
     if (!existing) return false;
 
-    if (game.user?.isGM || existing.isOwner) {
-      await existing.update(updates);
-      return true;
-    }
-    return await requestUpdateDocument(effect, updates);
+    await requestUpdateDocument(existing, updates);
+    return true;
   } catch (err) {
     console.error("UESRPG | origin-effect | Failed to update Origin AE", err);
     return false;

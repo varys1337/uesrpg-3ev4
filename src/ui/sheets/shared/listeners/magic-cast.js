@@ -2,7 +2,7 @@
  * Magic casting handlers shared across sheets.
  * 
  * Extracted from actor-sheet.js for better maintainability.
- * Foundry VTT v13 / AppV1-compatible.
+ * Shared across actor sheet modules.
  */
 
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, classifySpellForRouting, debugMagicRoutingLog } from "../../../../core/magic/spell-runtime.js";
@@ -11,6 +11,12 @@ import { AoEService, AOE_SOURCE_TYPES } from "../../../../core/aoe/index.js";
 import { getSpellScalingLevels } from "../../../../core/magic/magicka-utils.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
 import { resolveSpellProfile } from "../../../../core/magic/spell-profile.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { asyncGuardSheet } from "../../../../utils/async-guard.js";
+import { MagicOpposedWorkflow } from "../../../../core/magic/opposed-workflow.js";
+import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js";
+import { getFearActionRestrictions } from "../../../../core/fear/index.js";
+import { ensureBurningTurnActionAllowed } from "../../../../core/conditions/condition-engine.js";
 
 /**
  * Resolve a token for range-gated spells.
@@ -26,13 +32,40 @@ function resolveRangeGatedTokenForActor(actor) {
 /**
  * Handle Cast Magic button click.
  * Shows spell picker, then routes to attack spell workflow or existing spell dialog.
- * @param {SimpleActorSheet} sheet - The actor sheet instance
+ * @param {object} sheet - The actor sheet instance
  * @param {Event} event - The triggering event (optional if preselectedSpell provided)
  * @param {Item} preselectedSpell - Pre-selected spell to cast (optional)
  */
-export async function onCastMagicAction(sheet, event, preselectedSpell = null) {
-  const actor = sheet.actor;
-  const castActionType = String(event?.currentTarget?.dataset?.actionType ?? "primary");
+export const onCastMagicAction = asyncGuardSheet(async function onCastMagicAction(event, target, preselectedSpell = null) {
+  try {
+  const actor = this.actor;
+  const castActionType = String((target ?? event?.currentTarget)?.dataset?.actionType ?? "primary");
+
+  const _preCheckActionGate = async () => {
+    const surprise = resolveSurpriseState(actor, { combatContext: game.combat });
+    if (surprise.onlyReactions) {
+      ui.notifications.warn(`${actor.name} is surprised and may only take reactions until their first turn passes.`);
+      return false;
+    }
+
+    const fear = getFearActionRestrictions(actor);
+    if (fear?.blockActions === true) {
+      ui.notifications.warn(`${actor.name} cannot cast due to fear effects.`);
+      return false;
+    }
+
+    const burning = await ensureBurningTurnActionAllowed(actor, {
+      actionId: castActionType === "secondary" ? "cast-magic-instant" : "cast-magic"
+    });
+    if (!burning.allowed) {
+      ui.notifications.warn(`${actor.name} fails to cast while burning.`);
+      return false;
+    }
+
+    return true;
+  };
+
+  if (!(await _preCheckActionGate())) return;
 
   // AP pre-check helper: only gate paths that consume resources immediately (direct,
   // unopposed).  For the opposed/targeted workflow AP is validated at commit/roll
@@ -72,14 +105,14 @@ export async function onCastMagicAction(sheet, event, preselectedSpell = null) {
     ).join("");
     
     const content = `
-      <form class="uesrpg-cast-magic-form">
+      <div class="uesrpg-cast-magic-form">
         <div class="form-group">
           <label><b>Select Spell to Cast</b></label>
           <select name="spellId" style="width:100%;">${spellOptions}</select>
         </div>
-      </form>`;
+      </div>`;
     
-    const selectedSpellId = await Dialog.wait({
+    const selectedSpellId = await customDialog({
       title: castActionType === "secondary" ? "Cast Magic (Instant)" : "Cast Magic",
       content,
       buttons: {
@@ -92,8 +125,9 @@ export async function onCastMagicAction(sheet, event, preselectedSpell = null) {
         },
         cancel: { label: "Cancel", callback: () => null }
       },
-      default: "cast"
-    }, { width: 360 });
+      default: "cast",
+      width: 360
+    });
     
     if (!selectedSpellId) return;
     
@@ -107,7 +141,7 @@ export async function onCastMagicAction(sheet, event, preselectedSpell = null) {
   
   // Range gating and AoE template placement
   const rangeType = getSpellRangeType(spell);
-  const attackerToken = sheet.token?.object ?? sheet.token ?? resolveRangeGatedTokenForActor(actor);
+  const attackerToken = this.token?.object ?? this.token ?? resolveRangeGatedTokenForActor(actor);
 
   // Detect AoE from the spell's AoE config fields, regardless of rangeType.
   // Many AoE spells (Fire Ball, Cone, Storm…) use rangeType="ranged" for max-range gating
@@ -182,7 +216,6 @@ export async function onCastMagicAction(sheet, event, preselectedSpell = null) {
     if (!_preCheckAP()) return;
     const spellOpts = await showSpellOptionsDialog(actor, spell);
     if (spellOpts === null) return;
-    const { MagicOpposedWorkflow } = await import("../../../../core/magic/opposed-workflow.js");
     for (const target of workingTargets) {
       const defUuid = target?.document?.uuid ?? target?.uuid;
       await MagicOpposedWorkflow.castDirectTargeted({
@@ -203,7 +236,7 @@ export async function onCastMagicAction(sheet, event, preselectedSpell = null) {
       spellOpts = await showSpellOptionsDialog(actor, spell);
       if (spellOpts === null) return;
     }
-    await castAttackSpell(sheet, spell, workingTargets, spellOpts, castActionType, {
+    await castAttackSpell(this, spell, workingTargets, spellOpts, castActionType, {
       aoeTemplateUuid,
       aoeTemplateId,
       deferSpellChoice: !isCharDef
@@ -213,10 +246,9 @@ export async function onCastMagicAction(sheet, event, preselectedSpell = null) {
     if (!_preCheckAP()) return;
     const spellOptions = await showSpellOptionsDialog(actor, spell);
     if (spellOptions === null) return;
-    const { MagicOpposedWorkflow } = await import("../../../../core/magic/opposed-workflow.js");
     await MagicOpposedWorkflow.castUnopposed({
       attackerActorUuid: actor.uuid,
-      attackerTokenUuid: sheet.token?.document?.uuid ?? sheet.token?.uuid ?? null,
+      attackerTokenUuid: this.token?.document?.uuid ?? this.token?.uuid ?? null,
       spellUuid: spell.uuid,
       spellOptions,
       castActionType
@@ -224,9 +256,13 @@ export async function onCastMagicAction(sheet, event, preselectedSpell = null) {
   } else {
     // Non-attack or no target -> use existing spell dialog
     const fakeEvent = { currentTarget: { closest: () => ({ dataset: { itemId: spell.id } }) } };
-    await sheet._onSpellRoll.call(sheet, fakeEvent);
+    await this._onSpellRoll.call(this, fakeEvent);
   }
-}
+  } catch (err) {
+    console.error("UESRPG | onCastMagicAction failed:", err);
+    ui.notifications.error("Magic casting failed — see console (F12) for details.");
+  }
+});
 
 /**
  * Show spell options dialog for Restraint/Overload
@@ -254,7 +290,7 @@ export async function showSpellOptionsDialog(actor, spell) {
   const hasScaling = scalingLevels.length > 0;
   
   const content = `
-    <form class="uesrpg-spell-options">
+    <div class="uesrpg-spell-options">
       <h3>${spell.name}</h3>
       <div class="form-group">
         <label>Base MP Cost: <b>${baseCost}</b></label>
@@ -311,62 +347,61 @@ export async function showSpellOptionsDialog(actor, spell) {
       <div class="form-group" style="margin-top: 8px;">
         <label style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" name="overcharge" />
-          <span><b>Overcharge</b> (talent option; not yet implemented)</span>
+          <span><b>Overcharge</b> (talent option)</span>
         </label>
       </div>` : ''}
       ${hasMagickaCyclingTalent ? `
       <div class="form-group" style="margin-top: 8px;">
         <label style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" name="magickaCycling" />
-          <span><b>Magicka Cycling</b> (talent option; not yet implemented)</span>
+          <span><b>Magicka Cycling</b> (talent option)</span>
         </label>
       </div>` : ''}
-    </form>
+    </div>
   `;
   
-  return new Promise((resolve) => {
-    const dialog = new Dialog({
-      title: "Spell Options",
-      content,
+  return await customDialog({
+    title: "Spell Options",
+    content,
       buttons: {
         cast: {
           label: "Cast",
           callback: (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
-            const form = root?.querySelector("form");
 
-            const difficultyKey = String(form?.difficultyKey?.value ?? "average");
-            const manualModifierRaw = form?.manualModifier?.value ?? "0";
+            const difficultyKey = String(root?.querySelector('[name="difficultyKey"]')?.value ?? "average");
+            const manualModifierRaw = root?.querySelector('[name="manualModifier"]')?.value ?? "0";
             const manualModifier = Number.parseInt(String(manualModifierRaw ?? "0"), 10) || 0;
-            const castLevelRaw = form?.castLevel?.value ?? "base";
+            const castLevelRaw = root?.querySelector('[name="castLevel"]')?.value ?? "base";
             const castLevel = hasScaling && castLevelRaw !== "base" ? (Number.parseInt(String(castLevelRaw), 10) || null) : null;
             
-            resolve({
-              isRestrained: form?.restrain?.checked ?? false,
-              isOverloaded: form?.overload?.checked ?? false,
-              useOvercharge: form?.overcharge?.checked ?? false,
-              useMagickaCycling: form?.magickaCycling?.checked ?? false,
+            return {
+              isRestrained: root?.querySelector('[name="restrain"]')?.checked ?? false,
+              isOverloaded: root?.querySelector('[name="overload"]')?.checked ?? false,
+              useOvercharge: root?.querySelector('[name="overcharge"]')?.checked ?? false,
+              useMagickaCycling: root?.querySelector('[name="magickaCycling"]')?.checked ?? false,
               difficultyKey,
               manualModifier,
               restraintValue: wpBonus,
               baseCost,
               castLevel
-            });
+            };
           }
         },
         cancel: { 
           label: "Cancel", 
-          callback: () => resolve(null)
+          callback: () => null
         }
       },
       default: "cast",
-      render: (html) => {
+      render: (event, html) => {
+        const root = html instanceof HTMLElement ? html : html?.element ?? html;
         // Overload/Restrain mutual exclusion
         if (hasOverload) {
-          const restrainCheckbox = html.find('#restrainCheckbox')[0];
-          const overloadCheckbox = html.find('#overloadCheckbox')[0];
-          const restrainGroup = html.find('#restrainGroup')[0];
-          const overloadGroup = html.find('#overloadGroup')[0];
+          const restrainCheckbox = root?.querySelector('#restrainCheckbox');
+          const overloadCheckbox = root?.querySelector('#overloadCheckbox');
+          const restrainGroup = root?.querySelector('#restrainGroup');
+          const overloadGroup = root?.querySelector('#overloadGroup');
           
           if (restrainCheckbox && overloadCheckbox) {
             restrainCheckbox.addEventListener('change', (e) => {
@@ -391,12 +426,12 @@ export async function showSpellOptionsDialog(actor, spell) {
         
         // Live profile preview (Phase 3 Task 2)
         if (hasScaling) {
-          const castLevelSelect = html.find('#castLevelSelect')[0];
-          const restrainCheckbox = html.find('#restrainCheckbox')[0];
-          const overloadCheckbox = html.find('#overloadCheckbox')[0];
-          const previewCost = html.find('#previewCost')[0];
-          const previewDamage = html.find('#previewDamage')[0];
-          const previewDuration = html.find('#previewDuration')[0];
+          const castLevelSelect = root?.querySelector('#castLevelSelect');
+          const restrainCheckbox = root?.querySelector('#restrainCheckbox');
+          const overloadCheckbox = root?.querySelector('#overloadCheckbox');
+          const previewCost = root?.querySelector('#previewCost');
+          const previewDamage = root?.querySelector('#previewDamage');
+          const previewDuration = root?.querySelector('#previewDuration');
           
           const updatePreview = () => {
             const selectedLevel = parseInt(castLevelSelect?.value ?? baseLevel);
@@ -425,16 +460,14 @@ export async function showSpellOptionsDialog(actor, spell) {
           // Initial preview update on dialog open
           updatePreview();
         }
-      }
-    }, { width: 380 });
-    
-    dialog.render(true);
-  });
+      },
+      width: 380
+    });
 }
 
 /**
  * Cast an attack spell using the magic opposed workflow.
- * @param {SimpleActorSheet} sheet
+ * @param {object} sheet
  * @param {Item|null} spell
  * @param {Token[]} targets
  * @param {object|null} spellOptions
@@ -442,7 +475,6 @@ export async function showSpellOptionsDialog(actor, spell) {
  * @param {object} opts
  */
 export async function castAttackSpell(sheet, spell, targets, spellOptions = null, castActionType = "primary", { aoeTemplateUuid = null, aoeTemplateId = null, deferSpellChoice = false } = {}) {
-  const { MagicOpposedWorkflow } = await import("../../../../core/magic/opposed-workflow.js");
   
   const attackerToken = canvas?.tokens?.controlled?.find(t => t.actor?.id === sheet.actor.id) 
     ?? sheet.actor.getActiveTokens?.()?.[0];
@@ -452,8 +484,11 @@ export async function castAttackSpell(sheet, spell, targets, spellOptions = null
     return;
   }
   
-  const rangeType = spell ? getSpellRangeType(spell) : null;
-  const aoeConfig = (spell && rangeType === "aoe")
+  // Detect AoE from the presence of a placed template, not from rangeType.
+  // Many AoE spells (Fire Ball, Cone…) use rangeType="ranged" for max-range
+  // gating but still need AoE context forwarded to the opposed workflow.
+  const hasAoeTemplate = Boolean(aoeTemplateUuid || aoeTemplateId);
+  const aoeConfig = (spell && hasAoeTemplate)
     ? {
         ...(getSpellAoEConfig(spell) ?? {}),
         isAoE: true,
@@ -474,6 +509,6 @@ export async function castAttackSpell(sheet, spell, targets, spellOptions = null
     deferSpellChoice: Boolean(deferSpellChoice),
     castActionType,
     aoe: aoeConfig,
-    isAoE: Boolean(spell && rangeType === "aoe")
+    isAoE: hasAoeTemplate
   });
 }

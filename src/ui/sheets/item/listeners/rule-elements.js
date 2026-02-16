@@ -1,8 +1,13 @@
 /**
  * src/ui/sheets/item/listeners/rule-elements.js
  *
- * Event listeners for the Rule Elements UI on the Automation tab.
- * Handles add/remove/toggle/expand/collapse and per-element field rendering.
+ * Rule Elements business-logic handlers and dynamic field rendering
+ * for the Automation tab on trait/talent/power item sheets.
+ *
+ * Click-action handlers are wired via SimpleItemSheetV2's `actions` map.
+ * Change/drag listeners are registered natively in `_registerRuleElementListeners`.
+ * Dynamic field rendering (`renderFieldsForElement`, `renderConditionFieldsForElement`)
+ * is called on expand and on re-render state restoration.
  */
 
 import {
@@ -14,214 +19,194 @@ import {
   createCondition,
   getRuleElementOptions,
 } from "../../../../core/traits/features/rule-elements.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+
+// ─── Click-action handlers (called from SimpleItemSheetV2 actions map) ───
 
 /**
- * Register all rule-element listeners on an item sheet.
- *
- * @param {ItemSheet} sheet
- * @param {jQuery} html
+ * Create a new rule element from the type-select dropdown.
+ * @param {Item} item       The owning Item document
+ * @param {HTMLElement} rootEl  The sheet element (used to find the select)
  */
-export function registerRuleElementListeners(sheet, html) {
-  const item = sheet.item;
-  if (!item) return;
+export async function onReAdd(item, rootEl) {
+  const select = rootEl.querySelector(".re-add-type");
+  const type = select?.value;
+  if (!type) return;
 
-  const featureTypes = new Set(["trait", "talent", "power"]);
-  if (!featureTypes.has(item.type)) return;
+  const el = createRuleElement(type);
+  if (!el) return;
 
-  // ── Add rule element ─────────────────────────────────────────────
-  html.find(".re-add-btn").on("click.re", async (ev) => {
-    ev.preventDefault();
-    const select = html.find(".re-add-type");
-    const type = select.val();
-    if (!type) return;
+  const elements = getRuleElements(item);
+  elements.push(el);
+  await setRuleElements(item, elements);
+  if (select) select.value = "";
+}
 
-    const el = createRuleElement(type);
-    if (!el) return;
+/**
+ * Delete a rule element by id.
+ * @param {Item} item
+ * @param {string} reId
+ */
+export async function onReDelete(item, reId) {
+  if (!reId) return;
+  const elements = getRuleElements(item).filter(el => el.id !== reId);
+  await setRuleElements(item, elements);
+}
 
-    const elements = getRuleElements(item);
-    elements.push(el);
-    await setRuleElements(item, elements);
-    select.val("");
-  });
+/**
+ * Add a condition to a rule element via dialog prompt.
+ * @param {Item} item
+ * @param {string} reId
+ */
+export async function onReAddCondition(item, reId) {
+  if (!reId) return;
 
-  // ── Delete rule element ──────────────────────────────────────────
-  html.find(".re-item-delete").on("click.re", async (ev) => {
-    ev.preventDefault();
-    const li = $(ev.currentTarget).closest(".re-item");
-    const reId = li.data("re-id");
-    if (!reId) return;
+  const condType = await _promptConditionType();
+  if (!condType) return;
 
-    const elements = getRuleElements(item).filter(el => el.id !== reId);
-    await setRuleElements(item, elements);
-  });
+  const cond = createCondition(condType);
+  if (!cond) return;
 
-  // ── Toggle enable/disable ────────────────────────────────────────
-  html.find('.re-item-toggle input[type="checkbox"]').on("change.re", async (ev) => {
-    const li = $(ev.currentTarget).closest(".re-item");
-    const reId = li.data("re-id");
-    if (!reId) return;
+  const elements = getRuleElements(item);
+  const el = elements.find(e => e.id === reId);
+  if (!el) return;
 
-    const elements = getRuleElements(item);
-    const el = elements.find(e => e.id === reId);
-    if (!el) return;
+  el.conditions.push(cond);
+  await setRuleElements(item, elements);
+}
 
-    el.enabled = ev.currentTarget.checked;
-    await setRuleElements(item, elements);
-  });
+/**
+ * Delete a condition from a rule element.
+ * @param {Item} item
+ * @param {string} reId
+ * @param {number} condIdx
+ */
+export async function onReConditionDelete(item, reId, condIdx) {
+  if (!reId || condIdx === undefined) return;
 
-  // ── Edit label ───────────────────────────────────────────────────
-  html.find(".re-item-label").on("change.re", async (ev) => {
-    const li = $(ev.currentTarget).closest(".re-item");
-    const reId = li.data("re-id");
-    if (!reId) return;
+  const elements = getRuleElements(item);
+  const el = elements.find(e => e.id === reId);
+  if (!el || !el.conditions) return;
 
-    const elements = getRuleElements(item);
-    const el = elements.find(e => e.id === reId);
-    if (!el) return;
+  el.conditions.splice(condIdx, 1);
+  await setRuleElements(item, elements);
+}
 
-    el.label = ev.currentTarget.value || RULE_ELEMENT_TYPES[el.type]?.label || "Rule Element";
-    await setRuleElements(item, elements);
-  });
+// ─── Change-handler helpers (called from native addEventListener) ────
 
-  // ── Predicate editor ─────────────────────────────────────────────
-  html.find(".re-predicate-input").on("change.re", async (ev) => {
-    const li = $(ev.currentTarget).closest(".re-item");
-    const reId = li.data("re-id");
-    if (!reId) return;
+/**
+ * Toggle a rule element's enabled state.
+ * @param {Item} item
+ * @param {string} reId
+ * @param {boolean} enabled
+ */
+export async function onReToggle(item, reId, enabled) {
+  if (!reId) return;
+  const elements = getRuleElements(item);
+  const el = elements.find(e => e.id === reId);
+  if (!el) return;
+  el.enabled = enabled;
+  await setRuleElements(item, elements);
+}
 
-    const elements = getRuleElements(item);
-    const el = elements.find((e) => e.id === reId);
-    if (!el) return;
+/**
+ * Update a rule element's label.
+ * @param {Item} item
+ * @param {string} reId
+ * @param {string} value
+ */
+export async function onReLabelChange(item, reId, value) {
+  if (!reId) return;
+  const elements = getRuleElements(item);
+  const el = elements.find(e => e.id === reId);
+  if (!el) return;
+  el.label = value || RULE_ELEMENT_TYPES[el.type]?.label || "Rule Element";
+  await setRuleElements(item, elements);
+}
 
-    el.predicate = _parsePredicateInput(ev.currentTarget.value);
-    await setRuleElements(item, elements);
-  });
+/**
+ * Update a rule element's predicate.
+ * @param {Item} item
+ * @param {string} reId
+ * @param {string} value  Raw input string (JSON or plain text)
+ */
+export async function onRePredicateChange(item, reId, value) {
+  if (!reId) return;
+  const elements = getRuleElements(item);
+  const el = elements.find(e => e.id === reId);
+  if (!el) return;
+  el.predicate = _parsePredicateInput(value);
+  await setRuleElements(item, elements);
+}
 
-  // ── Workflow scope toggles ───────────────────────────────────────
-  html.find(".re-workflow-toggle").on("change.re", async (ev) => {
-    const li = $(ev.currentTarget).closest(".re-item");
-    const reId = li.data("re-id");
-    const workflow = String(ev.currentTarget.dataset.workflow ?? "").trim();
-    if (!reId || !workflow) return;
+/**
+ * Toggle a workflow scope on/off for a rule element.
+ * @param {Item} item
+ * @param {string} reId
+ * @param {string} workflow  The workflow key (e.g. "skill", "combat")
+ * @param {boolean} checked
+ */
+export async function onReWorkflowToggle(item, reId, workflow, checked) {
+  if (!reId || !workflow) return;
+  const elements = getRuleElements(item);
+  const el = elements.find(e => e.id === reId);
+  if (!el) return;
 
-    const elements = getRuleElements(item);
-    const el = elements.find((e) => e.id === reId);
-    if (!el) return;
+  let workflows = Array.isArray(el.workflows) ? el.workflows.slice() : ["all"];
+  workflows = workflows.filter(w => w !== "all");
+  if (checked) {
+    if (!workflows.includes(workflow)) workflows.push(workflow);
+  } else {
+    workflows = workflows.filter(w => w !== workflow);
+  }
+  el.workflows = workflows.length ? workflows : ["all"];
+  await setRuleElements(item, elements);
+}
 
-    let workflows = Array.isArray(el.workflows) ? el.workflows.slice() : ["all"];
-    workflows = workflows.filter((w) => w !== "all");
-    if (ev.currentTarget.checked) {
-      if (!workflows.includes(workflow)) workflows.push(workflow);
-    } else {
-      workflows = workflows.filter((w) => w !== workflow);
-    }
-    el.workflows = workflows.length ? workflows : ["all"];
-    await setRuleElements(item, elements);
-  });
+/**
+ * Update a single field on a condition within a rule element.
+ * @param {Item} item
+ * @param {string} reId
+ * @param {number} condIdx
+ * @param {string} condField
+ * @param {*} value
+ * @param {string} inputType  The input element's type ("checkbox", "number", etc.)
+ */
+export async function onReConditionFieldChange(item, reId, condIdx, condField, value, inputType) {
+  if (!reId || !Number.isInteger(condIdx) || !condField) return;
 
-  // ── Expand / collapse (client-only, no persistence) ──────────────
-  html.find(".re-item-expand").on("click.re", (ev) => {
-    ev.preventDefault();
-    const li = $(ev.currentTarget).closest(".re-item");
-    const body = li.find(".re-item-body");
-    const icon = $(ev.currentTarget).find("i");
+  const elements = getRuleElements(item);
+  const el = elements.find(e => e.id === reId);
+  if (!el || !Array.isArray(el.conditions) || !el.conditions[condIdx]) return;
 
-    if (body.is(":visible")) {
-      body.slideUp(150);
-      icon.removeClass("fa-chevron-up").addClass("fa-chevron-down");
-    } else {
-      body.slideDown(150);
-      icon.removeClass("fa-chevron-down").addClass("fa-chevron-up");
-      // Render fields on first expand
-      renderFieldsForElement(li, item);
-      renderConditionFieldsForElement(li, item);
-    }
-  });
+  if (inputType === "checkbox") {
+    el.conditions[condIdx][condField] = Boolean(value);
+  } else if (inputType === "number") {
+    el.conditions[condIdx][condField] = Number(value) || 0;
+  } else {
+    el.conditions[condIdx][condField] = value;
+  }
 
-  // ── Add condition ────────────────────────────────────────────────
-  html.find(".re-add-condition").on("click.re", async (ev) => {
-    ev.preventDefault();
-    const reId = $(ev.currentTarget).data("re-id");
-    if (!reId) return;
+  await setRuleElements(item, elements);
+}
 
-    const condType = await _promptConditionType();
-    if (!condType) return;
+/**
+ * Reorder rule elements after a drag-drop.
+ * @param {Item} item
+ * @param {string} sourceId
+ * @param {string} targetId
+ */
+export async function onReReorder(item, sourceId, targetId) {
+  if (!sourceId || !targetId || sourceId === String(targetId)) return;
 
-    const cond = createCondition(condType);
-    if (!cond) return;
+  const elements = getRuleElements(item);
+  const sourceIdx = elements.findIndex(e => String(e.id) === String(sourceId));
+  const targetIdx = elements.findIndex(e => String(e.id) === String(targetId));
+  if (sourceIdx < 0 || targetIdx < 0) return;
 
-    const elements = getRuleElements(item);
-    const el = elements.find(e => e.id === reId);
-    if (!el) return;
-
-    el.conditions.push(cond);
-    await setRuleElements(item, elements);
-  });
-
-  // ── Delete condition ─────────────────────────────────────────────
-  html.find(".re-condition-delete").on("click.re", async (ev) => {
-    ev.preventDefault();
-    const condDiv = $(ev.currentTarget).closest(".re-condition");
-    const condIdx = condDiv.data("cond-idx");
-    const li = $(ev.currentTarget).closest(".re-item");
-    const reId = li.data("re-id");
-    if (!reId || condIdx === undefined) return;
-
-    const elements = getRuleElements(item);
-    const el = elements.find(e => e.id === reId);
-    if (!el || !el.conditions) return;
-
-    el.conditions.splice(condIdx, 1);
-    await setRuleElements(item, elements);
-  });
-
-  // ── Condition field edits ────────────────────────────────────────
-  html.off("change.re", ".re-condition-input").on("change.re", ".re-condition-input", async (ev) => {
-    const li = $(ev.currentTarget).closest(".re-item");
-    const reId = li.data("re-id");
-    const condIdx = Number(ev.currentTarget.dataset.condIdx);
-    const condField = String(ev.currentTarget.dataset.condField ?? "").trim();
-    if (!reId || !Number.isInteger(condIdx) || !condField) return;
-
-    const elements = getRuleElements(item);
-    const el = elements.find((e) => e.id === reId);
-    if (!el || !Array.isArray(el.conditions) || !el.conditions[condIdx]) return;
-
-    if (ev.currentTarget.type === "checkbox") {
-      el.conditions[condIdx][condField] = Boolean(ev.currentTarget.checked);
-    } else if (ev.currentTarget.type === "number") {
-      el.conditions[condIdx][condField] = Number(ev.currentTarget.value) || 0;
-    } else {
-      el.conditions[condIdx][condField] = ev.currentTarget.value;
-    }
-
-    await setRuleElements(item, elements);
-  });
-
-  // ── Reorder rule elements ────────────────────────────────────────
-  html.find(".re-item").attr("draggable", "true");
-  html.find(".re-item").on("dragstart.re", (ev) => {
-    const reId = $(ev.currentTarget).data("re-id");
-    ev.originalEvent?.dataTransfer?.setData("text/plain", String(reId ?? ""));
-  });
-  html.find(".re-item").on("dragover.re", (ev) => {
-    ev.preventDefault();
-  });
-  html.find(".re-item").on("drop.re", async (ev) => {
-    ev.preventDefault();
-    const sourceId = ev.originalEvent?.dataTransfer?.getData("text/plain");
-    const targetId = $(ev.currentTarget).data("re-id");
-    if (!sourceId || !targetId || sourceId === String(targetId)) return;
-
-    const elements = getRuleElements(item);
-    const sourceIdx = elements.findIndex((e) => String(e.id) === String(sourceId));
-    const targetIdx = elements.findIndex((e) => String(e.id) === String(targetId));
-    if (sourceIdx < 0 || targetIdx < 0) return;
-
-    const [moved] = elements.splice(sourceIdx, 1);
-    elements.splice(targetIdx, 0, moved);
-    await setRuleElements(item, elements);
-  });
+  const [moved] = elements.splice(sourceIdx, 1);
+  elements.splice(targetIdx, 0, moved);
+  await setRuleElements(item, elements);
 }
 
 
@@ -231,14 +216,17 @@ export function registerRuleElementListeners(sheet, html) {
  * Dynamically render the type-specific fields for a rule element inside
  * its `.re-fields` container. Called on first expand or after re-render
  * state restoration.
+ *
+ * @param {HTMLElement} li  Native <li> element for the rule element row
+ * @param {Item} item       The owning Item document
  */
 export function renderFieldsForElement(li, item) {
-  const fieldsContainer = li.find(".re-fields");
-  if (!fieldsContainer.length) return;
-  if (fieldsContainer.data("rendered")) return; // already rendered
-  fieldsContainer.data("rendered", true);
+  const fieldsContainer = li.querySelector(".re-fields");
+  if (!fieldsContainer) return;
+  if (fieldsContainer.dataset.rendered) return; // already rendered
+  fieldsContainer.dataset.rendered = "true";
 
-  const reId = li.data("re-id");
+  const reId = li.dataset.reId;
   const elements = getRuleElements(item);
   const el = elements.find(e => e.id === reId);
   if (!el) return;
@@ -275,31 +263,40 @@ export function renderFieldsForElement(li, item) {
   }
 
   html += "</div>";
-  fieldsContainer.html(html);
+  fieldsContainer.innerHTML = html;
 
   // Bind change events on rendered fields
-  fieldsContainer.find(".re-field-input").on("change.re", async (ev) => {
-    const field = ev.currentTarget.dataset.reField;
-    if (!field) return;
+  for (const input of fieldsContainer.querySelectorAll(".re-field-input")) {
+    input.addEventListener("change", async (ev) => {
+      const field = ev.currentTarget.dataset.reField;
+      if (!field) return;
 
-    const elems = getRuleElements(item);
-    const target = elems.find(e => e.id === reId);
-    if (!target) return;
+      const elems = getRuleElements(item);
+      const target = elems.find(e => e.id === reId);
+      if (!target) return;
 
-    if (ev.currentTarget.type === "checkbox") {
-      target[field] = ev.currentTarget.checked;
-    } else if (ev.currentTarget.type === "number") {
-      target[field] = Number(ev.currentTarget.value) || 0;
-    } else {
-      target[field] = ev.currentTarget.value;
-    }
+      if (ev.currentTarget.type === "checkbox") {
+        target[field] = ev.currentTarget.checked;
+      } else if (ev.currentTarget.type === "number") {
+        target[field] = Number(ev.currentTarget.value) || 0;
+      } else {
+        target[field] = ev.currentTarget.value;
+      }
 
-    await setRuleElements(item, elems);
-  });
+      await setRuleElements(item, elems);
+    });
+  }
 }
 
+/**
+ * Dynamically render condition-specific fields for each condition slot
+ * inside a rule element's body.
+ *
+ * @param {HTMLElement} li  Native <li> element for the rule element row
+ * @param {Item} item       The owning Item document
+ */
 export function renderConditionFieldsForElement(li, item) {
-  const reId = li.data("re-id");
+  const reId = li.dataset.reId;
   if (!reId) return;
 
   const elements = getRuleElements(item);
@@ -313,9 +310,9 @@ export function renderConditionFieldsForElement(li, item) {
     const def = CONDITION_TYPES[condType];
     if (!def) continue;
 
-    const container = li.find(`.re-condition-fields[data-cond-idx="${condIdx}"]`);
-    if (!container.length || container.data("rendered")) continue;
-    container.data("rendered", true);
+    const container = li.querySelector(`.re-condition-fields[data-cond-idx="${condIdx}"]`);
+    if (!container || container.dataset.rendered) continue;
+    container.dataset.rendered = "true";
 
     let html = '<div class="re-cond-grid">';
     for (const [fieldKey, fieldDef] of Object.entries(def.fields ?? {})) {
@@ -338,7 +335,7 @@ export function renderConditionFieldsForElement(li, item) {
       html += `</div>`;
     }
     html += "</div>";
-    container.html(html);
+    container.innerHTML = html;
   }
 }
 
@@ -352,31 +349,27 @@ async function _promptConditionType() {
     .map(([key, def]) => `<option value="${key}">${def.label}</option>`)
     .join("");
 
-  return new Promise(resolve => {
-    const d = new Dialog({
-      title: "Add Condition",
-      content: `
-        <form>
-          <div class="form-group">
-            <label>Condition Type</label>
-            <select id="re-cond-type-select">${condOptions}</select>
-          </div>
-        </form>`,
-      buttons: {
-        add: {
-          icon: '<i class="fas fa-plus"></i>',
-          label: "Add",
-          callback: (html) => resolve(html.find("#re-cond-type-select").val()),
-        },
-        cancel: {
-          icon: '<i class="fas fa-times"></i>',
-          label: "Cancel",
-          callback: () => resolve(null),
-        },
-      },
-      default: "add",
-    });
-    d.render(true);
+  const content = `
+    <div>
+      <div class="form-group">
+        <label>Condition Type</label>
+        <select id="re-cond-type-select">${condOptions}</select>
+      </div>
+    </div>`;
+
+  return customDialog({
+    title: "Add Condition",
+    content,
+    yes: {
+      label: "Add",
+      icon: "fas fa-plus",
+      callback: (html) => {
+        const el = html instanceof HTMLElement ? html : html?.[0];
+        return el?.querySelector("#re-cond-type-select")?.value ?? null;
+      }
+    },
+    no: { label: "Cancel", icon: "fas fa-times" },
+    defaultButton: "yes"
   });
 }
 

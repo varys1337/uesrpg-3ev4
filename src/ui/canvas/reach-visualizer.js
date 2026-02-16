@@ -10,7 +10,7 @@
  * - Cache and redraw only when needed
  * - Modular architecture: geometry, rendering, and weapon logic extracted
  *
- * Foundry VTT v13.351 (AppV1 system) compatible.
+ * Foundry VTT v13.351 compatible.
  */
 
 import {

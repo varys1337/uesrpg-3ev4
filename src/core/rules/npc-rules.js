@@ -1,14 +1,14 @@
 const SYSTEM_ID = "uesrpg-3ev4";
 
-export const NPC_LUCK_FLAG = "npcLuckAllowed";
-export const NPC_ELITE_FLAG = "npcEliteAllowed";
+const NPC_LUCK_FLAG = "npcLuckAllowed";
+const NPC_ELITE_FLAG = "npcEliteAllowed";
 
 export function isNPC(actor) {
   const type = String(actor?.type ?? "").toLowerCase().trim();
   return type === "npc";
 }
 
-export function getNpcCriticalBands() {
+function getNpcCriticalBands() {
   return { successMax: 3, failureMin: 98 };
 }
 

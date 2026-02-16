@@ -66,7 +66,7 @@ export async function applyDamagedQuality(item, magnitude, opts = {}) {
   }
 
   const actor = item.parent;
-  const qualitiesStructured = foundry.utils.duplicate(item.system?.qualitiesStructured ?? []);
+  const qualitiesStructured = foundry.utils.deepClone(item.system?.qualitiesStructured ?? []);
 
   // Find existing Damaged entry
   const existingIdx = qualitiesStructured.findIndex(q => (q?.key ?? q) === "damaged");

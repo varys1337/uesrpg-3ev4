@@ -1,6 +1,6 @@
 /**
  * Active Effect Attribute Key Inspector
- * Foundry VTT v13 (AppV1) compatible.
+ * Foundry VTT v13 compatible.
  *
  * This tool enumerates system data paths on an Actor and classifies them as:
  * - source: present on actor._source.system (persisted)

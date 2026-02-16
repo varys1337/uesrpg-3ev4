@@ -12,8 +12,7 @@
  * @returns {boolean} True if vampire lord form is available
  */
 export function hasVampireLordForm(actorData) {
-  const form = (actorData.items || []).filter(item => item?.system?.shiftFormStyle === "shiftFormVampireLord");
-  return form.length > 0;
+  return (actorData.items || []).some(item => item?.system?.shiftFormStyle === "shiftFormVampireLord");
 }
 
 /**
@@ -22,11 +21,10 @@ export function hasVampireLordForm(actorData) {
  * @returns {boolean} True if werewolf/werelion form is available
  */
 export function hasWereWolfForm(actorData) {
-  const form = (actorData.items || []).filter(item => 
+  return (actorData.items || []).some(item => 
     item?.system?.shiftFormStyle === "shiftFormWereWolf" || 
     item?.system?.shiftFormStyle === "shiftFormWereLion"
   );
-  return form.length > 0;
 }
 
 /**
@@ -35,8 +33,7 @@ export function hasWereWolfForm(actorData) {
  * @returns {boolean} True if werebat form is available
  */
 export function hasWereBatForm(actorData) {
-  const form = (actorData.items || []).filter(item => item?.system?.shiftFormStyle === "shiftFormWereBat");
-  return form.length > 0;
+  return (actorData.items || []).some(item => item?.system?.shiftFormStyle === "shiftFormWereBat");
 }
 
 /**
@@ -45,8 +42,7 @@ export function hasWereBatForm(actorData) {
  * @returns {boolean} True if wereboar form is available
  */
 export function hasWereBoarForm(actorData) {
-  const form = (actorData.items || []).filter(item => item?.system?.shiftFormStyle === "shiftFormWereBoar");
-  return form.length > 0;
+  return (actorData.items || []).some(item => item?.system?.shiftFormStyle === "shiftFormWereBoar");
 }
 
 /**
@@ -55,8 +51,7 @@ export function hasWereBoarForm(actorData) {
  * @returns {boolean} True if werebear form is available
  */
 export function hasWereBearForm(actorData) {
-  const form = (actorData.items || []).filter(item => item?.system?.shiftFormStyle === "shiftFormWereBear");
-  return form.length > 0;
+  return (actorData.items || []).some(item => item?.system?.shiftFormStyle === "shiftFormWereBear");
 }
 
 /**
@@ -65,8 +60,7 @@ export function hasWereBearForm(actorData) {
  * @returns {boolean} True if werecrocodile form is available
  */
 export function hasWereCrocodileForm(actorData) {
-  const form = (actorData.items || []).filter(item => item?.system?.shiftFormStyle === "shiftFormWereCrocodile");
-  return form.length > 0;
+  return (actorData.items || []).some(item => item?.system?.shiftFormStyle === "shiftFormWereCrocodile");
 }
 
 /**
@@ -75,6 +69,5 @@ export function hasWereCrocodileForm(actorData) {
  * @returns {boolean} True if werevulture form is available
  */
 export function hasWereVultureForm(actorData) {
-  const form = (actorData.items || []).filter(item => item?.system?.shiftFormStyle === "shiftFormWereVulture");
-  return form.length > 0;
+  return (actorData.items || []).some(item => item?.system?.shiftFormStyle === "shiftFormWereVulture");
 }

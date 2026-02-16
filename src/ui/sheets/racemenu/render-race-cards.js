@@ -2,51 +2,37 @@ export function renderRaceCards(races) {
     const raceCards = [];
     for (const raceKey in races) {
         const race = races[raceKey];
-        raceCards.push(renderRaceCard(race));
+        raceCards.push(renderRaceCard(raceKey, race));
     }
     return raceCards;
 }
 
-function renderRaceCard(race) {
+function renderRaceCard(raceKey, race) {
     const traits = renderTraits(race.traits);
     const baselineCells = renderBaselineCells(race.baseline);
+    const inputId = `race-${toSlug(raceKey)}`;
     return `
-        <div class="uesrpg-race-card" style="display: flex; flex-direction: row; align-items: center; border: solid 2px transparent; padding: 0 5px; width: 49%;">
-            <input type="radio" class="raceSelect" id="${race.name}" name="raceRadio" value="${race.name}" style="display: none;">
-            <div style="width: 100%; height: 100%;">
-                <div style="text-align: center; position: relative; top: 0;">
-                    ${race.img ? `<img src="${race.img}" alt="${race.name}" height="150" width="100" style="border: none;">` : ''}
+        <div class="menu-card">
+            <input type="radio" class="raceSelect" id="${inputId}" name="raceRadio" value="${raceKey}">
+            ${race.img ? `<img class="card-portrait" src="${race.img}" alt="${race.name}" height="100" width="70">` : ''}
+            <div class="card-body">
+                <div class="card-actions">
+                    <label for="${inputId}" class="card-btn">${race.name}</label>
                 </div>
-                <div style="position: relative; top: 0;">
-                    <label for="${race.name}" style="display: block; text-align: center; cursor: pointer; padding: 4px 8px; margin: 4px 0; border: 1px solid rgba(120,120,120,0.5); border-radius: 4px; background: rgba(80,80,80,0.3); font-size: 16px; font-weight: bold;">${race.name}</label>
-                    <table style="text-align: center;">
-                        <thead>
-                            <tr>
-                                <th colspan="7">Characteristic Baseline</th>
-                            </tr>
-                        </thead>
-                        <tbody>
+                <table class="baseline-table">
+                    <thead>
+                        <tr><td class="baseline-header" colspan="7">Characteristic Baseline</td></tr>
                         <tr>
-                            <th>STR</th>
-                            <th>END</th>
-                            <th>AGI</th>
-                            <th>INT</th>
-                            <th>WP</th>
-                            <th>PRC</th>
-                            <th>PRS</th>
+                            <th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th>
                         </tr>
-                        <tr>
-                            ${baselineCells}
-                        </tr>
-                        </tbody>
-                    </table>
-                    <ul>
-                        ${traits}
-                    </ul>
-                </div>
+                    </thead>
+                    <tbody>
+                        <tr>${baselineCells}</tr>
+                    </tbody>
+                </table>
+                <ul class="card-traits">${traits}</ul>
             </div>
-        </div>
-    `;
+        </div>`;
 }
 
 function renderBaselineCells(baseline) {
@@ -64,4 +50,12 @@ function renderTraits(traits) {
         traitList.push(`<li>${trait}</li>`)
     }
     return traitList.join('');
+}
+
+function toSlug(value) {
+    return String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
 }

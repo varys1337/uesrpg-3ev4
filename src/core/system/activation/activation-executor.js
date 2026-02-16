@@ -7,6 +7,7 @@ import { normalizeTalentKey, resolveTalentSlug } from "../../traits/talents-api.
 import { activateHardTargetEffect } from "../../traits/mobility-talents.js";
 import { handleRacialPowerActivation, handleRacialTalentActivation, validateRacialActivationAvailability } from "../../traits/racial-talents.js";
 import { handleInspireHeroismActivation, validateInspireHeroismAvailability } from "../../traits/social-talents.js";
+import { activateSpellcastingTalent, isActivatableSpellcastingTalent } from "../../traits/spellcasting-talents.js";
 import { filterTargetsBySpellRange, getSpellAoEConfig, getSpellRangeType, getSpellMaxRangeMeters } from "../../magic/spell-range.js";
 import { AoEService, AOE_SOURCE_TYPES } from "../../aoe/index.js";
 import { findLatestOpposedMessageByDefender, retargetOpposedMessage } from "../../combat/opposed/retarget.js";
@@ -16,6 +17,7 @@ import { _num } from "../../../utils/coerce.js";
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
 import { runFeatureAutomation } from "../../traits/features/feature-dispatcher.js";
 import { featureNeedsEffectTransfer, applyFeatureEffectsToTargets } from "./feature-effects.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const ACTION_TYPE_LABELS = {
@@ -42,7 +44,7 @@ function _activationDebug(...args) {
 
 function _getRoundTimeSecondsSafe() {
   try {
-    const roundTime = Number(game?.settings?.get?.("core", "roundTime"));
+    const roundTime = Number(CONFIG?.time?.roundTime ?? 6);
     return Number.isFinite(roundTime) && roundTime > 0 ? roundTime : 6;
   } catch (_err) {
     return 6;
@@ -292,7 +294,7 @@ async function _activateThunderChargeTalent({ item, actor }) {
   });
 }
 
-export async function runTalentActivationAutomation({ item, actor, context = {} } = {}) {
+async function runTalentActivationAutomation({ item, actor, context = {} } = {}) {
   if (!item || item.type !== "talent") return;
   const k = _resolveTalentAutomationKey(item);
   _activationDebug("UESRPG | TalentAutomation | dispatch", {
@@ -306,6 +308,7 @@ export async function runTalentActivationAutomation({ item, actor, context = {} 
     if (k === "defender") await _activateDefenderTalent({ item, actor, context });
     if (k === "thundercharge") await _activateThunderChargeTalent({ item, actor });
     if (k === "inspireheroism") await handleInspireHeroismActivation({ actor, item });
+    if (isActivatableSpellcastingTalent(item)) await activateSpellcastingTalent(actor, item);
     await handleRacialTalentActivation({ actor, item, itemKey: k });
   } catch (err) {
     console.warn("uesrpg-3ev4 | Talent activation automation failed", { item: item?.name, key: k, err });
@@ -339,11 +342,11 @@ function _getActivationCostValues(costs = {}) {
 
 function _normalizeUsage(activation = {}) {
   const usage = activation.usage ?? null;
-  const usagePeriod = String(usage?.period ?? "").trim();
+  const usagePeriod = String(usage?.period ?? "").trim().toLowerCase();
   const usageHasData =
     (usage?.max != null && _num(usage.max) > 0) ||
     (usage?.current != null && _num(usage.current) > 0) ||
-    usagePeriod.length > 0;
+    (usagePeriod.length > 0 && usagePeriod !== "none");
   if (usage && usageHasData) {
     return {
       source: "usage",
@@ -354,7 +357,12 @@ function _normalizeUsage(activation = {}) {
   }
 
   const uses = activation.uses ?? null;
-  if (uses && (uses.max != null || uses.reset != null || uses.value != null)) {
+  const usesReset = String(uses?.reset ?? "").trim().toLowerCase();
+  const usesHasData =
+    (uses?.max != null && _num(uses.max) > 0) ||
+    (uses?.value != null && _num(uses.value) > 0) ||
+    (usesReset.length > 0 && usesReset !== "none");
+  if (uses && usesHasData) {
     return {
       source: "uses",
       max: uses.max == null ? null : _num(uses.max),
@@ -453,38 +461,36 @@ async function _promptHitLocationChoice({ title = "Select Hit Location", default
   }).join("\n");
 
   const content = `
-    <form class="uesrpg-hit-location-choice">
+    <div class="uesrpg-hit-location-choice">
       <div class="form-group">
         <label><b>Hit Location</b></label>
         <select name="hitLocation">${options}</select>
       </div>
-    </form>
+    </div>
   `;
 
-  return await new Promise((resolve) => {
-    new Dialog({
-      title,
-      content,
-      buttons: {
-        ok: {
-          label: "Confirm",
-          callback: (html) => {
-            const val = html.find('select[name="hitLocation"]').val();
-            resolve(String(val ?? "").trim() || null);
-          }
-        },
-        cancel: { label: "Cancel", callback: () => resolve(null) }
+  return customDialog({
+    title,
+    content,
+    buttons: {
+      ok: {
+        label: "Confirm",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const val = root?.querySelector('select[name="hitLocation"]')?.value;
+          return String(val ?? "").trim() || null;
+        }
       },
-      default: "ok",
-      close: () => resolve(null)
-    }).render(true);
+      cancel: { label: "Cancel", callback: () => null }
+    },
+    defaultButton: "ok",
   });
 }
 
 function _buildActivationHeader({ label, img, actor, includeImage }) {
   const title = String(label ?? "Activation");
   const header = includeImage && img
-    ? `<h2><img src="${img}"</img>${title}</h2>`
+    ? `<h2><img src="${img}" />${title}</h2>`
     : `<h2>${title}</h2>`;
 
   const actorLine = actor ? `<div class="uesrpg-activation-actor"><i>${actor.name}</i></div>` : "";
@@ -509,7 +515,7 @@ function _buildActivationCostsHtml(costs) {
 function _buildItemDescriptionHtml({ item, includeImage }) {
   if (!item) return "";
   if (includeImage) {
-    return `<h2><img src="${item.img}"</img>${item.name}</h2>
+    return `<h2><img src="${item.img}" />${item.name}</h2>
     <i><b>${item.type}</b></i><p>
       <i>${item.system.description}</i>`;
   }
@@ -544,12 +550,12 @@ async function _applyActivationActorFlags({ item, actor, activation } = {}) {
   return { ok: true, applied: true };
 }
 
-export function getActivationActionTypeLabel(actionType) {
+function getActivationActionTypeLabel(actionType) {
   const key = String(actionType ?? "action");
   return ACTION_TYPE_LABELS[key] ?? key;
 }
 
-export function validateActivationContext({ actor, activation, context = {} } = {}) {
+function validateActivationContext({ actor, activation, context = {} } = {}) {
   const req = activation?.requirements ?? {};
   const targets = _getTargetsFromContext(context);
 
@@ -581,7 +587,7 @@ export function validateActivationContext({ actor, activation, context = {} } = 
   return { ok: true };
 }
 
-export async function applyActivationCosts({ actor, activation, label = "Ability" } = {}) {
+async function applyActivationCosts({ actor, activation, label = "Ability" } = {}) {
   if (!activation?.spendCosts) return { ok: true, spent: false };
   if (!actor) return { ok: false, spent: false };
 
@@ -625,12 +631,17 @@ export async function applyActivationCosts({ actor, activation, label = "Ability
   return { ok: true, spent: true };
 }
 
-export async function consumeActivationUsage({ item, activation } = {}) {
+async function consumeActivationUsage({ item, activation } = {}) {
   if (!item) return { ok: true, consumed: false, previous: null, current: null, source: null };
   if (!_shouldConsumeUsage(activation)) return { ok: true, consumed: false, previous: null, current: null, source: null };
 
   const usage = _normalizeUsage(activation);
   if (!usage.source) return { ok: true, consumed: false, previous: null, current: null, source: null };
+
+  // If no max is configured and current is 0, treat as unconfigured (no usage tracking).
+  if (_num(usage.max) <= 0 && _num(usage.current) <= 0) {
+    return { ok: true, consumed: false, previous: null, current: null, source: null };
+  }
 
   const current = Math.max(0, _num(usage.current));
   if (current <= 0) {
@@ -690,7 +701,7 @@ export async function consumeActivationUsage({ item, activation } = {}) {
   return { ok: true, consumed: true, previous: current, current: nextValue, source: usage.source, rollback: rollbackData };
 }
 
-export function renderActivationCard({ item = null, actor = null, activation = {}, label = "", includeImage = false, usageOverride = null, textOverride = null } = {}) {
+function renderActivationCard({ item = null, actor = null, activation = {}, label = "", includeImage = false, usageOverride = null, textOverride = null } = {}) {
   const renderSimple = Boolean(item && activation?.renderFullCard !== true);
   if (renderSimple) return _buildItemDescriptionHtml({ item, includeImage });
 
@@ -774,7 +785,8 @@ export async function executeActivation({
     await ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
-      content
+      content,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
   }
 
@@ -1136,7 +1148,8 @@ export async function executeItemActivation({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
       content,
-      whisper
+      whisper,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
   }
 
@@ -1206,7 +1219,7 @@ export async function executeItemActivation({
     await runTalentActivationAutomation({ item, actor, context: mergedContext });
   } else if (featureAutomationEnabled && !dispatchedByFeatureAutomation && item?.type === "power") {
     try {
-      const k = normalizeTalentKey(item.name);
+      const k = _resolveTalentAutomationKey(item);
       await handleRacialPowerActivation({ actor, item, itemKey: k });
     } catch (err) {
       console.warn("uesrpg-3ev4 | Talent activation automation failed", err);

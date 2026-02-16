@@ -3,7 +3,7 @@
  * Central dispatcher for opposed workflow actions
  */
 
-import { _resolveActor, _resolveToken } from "../helpers/docs.js";
+import { _resolveActor, _resolveActorViaToken, _resolveToken } from "../helpers/docs.js";
 import { _selectDefenderEntry, _getDefenderEntries, _isBankChoicesEnabledForData as _isBankChoicesEnabled, _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _allDefendersCommitted, _isMultiDefender } from "../schema.js";
 import { getContextAttackMode } from "../helpers/workflow.js";
 import { _isBankChoicesEnabledForData, _ensureBankedScaffold, _getBankCommitState } from "../banking/state.js";
@@ -82,10 +82,10 @@ export async function dispatchOpposedAction(message, action, opts = {}, workflow
   if (!data.context.attackMode) data.context.attackMode = getContextAttackMode(data.context);
 
   const { defender: defenderData, defenderIndex, defenders, isMulti } = _selectDefenderEntry(data, opts);
-  const attacker = _resolveActor(data.attacker.actorUuid);
-  let defender = defenderData ? _resolveActor(defenderData.actorUuid) : null;
   const aToken = _resolveToken(data.attacker.tokenUuid);
   let dToken = defenderData ? _resolveToken(defenderData.tokenUuid) : null;
+  const attacker = aToken?.actor ?? _resolveActorViaToken(data.attacker.actorUuid, data.attacker.tokenUuid);
+  let defender = defenderData ? (dToken?.actor ?? _resolveActorViaToken(defenderData.actorUuid, defenderData.tokenUuid)) : null;
 
   if (!attacker || !defender) {
     ui.notifications.warn("Opposed Test: could not resolve attacker/defender.");

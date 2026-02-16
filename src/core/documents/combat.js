@@ -5,6 +5,9 @@
 import { hasTalent } from "../traits/talents-api.js";
 import { listTacticianInitiativeProvidersForActor } from "../traits/intellectual-talents.js";
 import { isDebugEnabled } from "../../utils/debug.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
+import { resolveSurpriseState } from "../combat/surprise-state.js";
 
 function _initiativeDebug(...args) {
   try {
@@ -15,6 +18,38 @@ function _initiativeDebug(...args) {
   } catch (_e) {
     // Ignore debug errors.
   }
+}
+
+function _numericOr(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function _luckBonus(actor) {
+  if (!actor) return 0;
+  const rawBonus = actor?.system?.characteristics?.lck?.bonus;
+  const fromBonus = Number(rawBonus);
+  if (rawBonus !== undefined && rawBonus !== null && Number.isFinite(fromBonus)) return fromBonus;
+
+  // Chapter 5 default: NPC luck bonus is 0 when not explicitly present.
+  if (String(actor?.type ?? "").toLowerCase() === "npc") return 0;
+
+  return Math.floor(_numericOr(actor?.system?.characteristics?.lck?.total, 0) / 10);
+}
+
+function _pcPrecedence(actor) {
+  return String(actor?.type ?? "") === "Player Character" ? 1 : 0;
+}
+
+export function getInitiativeTieBreakTuple(combatant) {
+  const actor = combatant?.actor ?? null;
+  const initiativeTotal = _numericOr(combatant?.initiative, Number.NEGATIVE_INFINITY);
+  const initiativeRating = _numericOr(actor?.system?.initiative?.value, 0);
+  const luckBonus = _luckBonus(actor);
+  const pcPrecedence = _pcPrecedence(actor);
+  const stableId = String(combatant?.id ?? combatant?._id ?? "");
+
+  return [initiativeTotal, initiativeRating, luckBonus, pcPrecedence, stableId];
 }
 
 export class SystemCombat extends Combat {
@@ -49,9 +84,16 @@ export class SystemCombat extends Combat {
     SystemCombat._initiativeChoiceCache.set(key, choice);
   }
 
-  constructor(...args) {
-    super(...args);
-    this.apAutomationType = game.settings.get("uesrpg-3ev4", "actionPointAutomation");
+  /**
+   * Lazy-read action-point automation setting to avoid accessing game.settings
+   * before the setting is registered during early initialization.
+   */
+  get apAutomationType() {
+    try {
+      return game.settings.get("uesrpg-3ev4", "actionPointAutomation");
+    } catch (_e) {
+      return "off";
+    }
   }
 
   _actorHasCondition(actor, key) {
@@ -75,11 +117,21 @@ export class SystemCombat extends Combat {
     });
   }
 
-  _refreshActionPoints(actor) {
+  async _refreshActionPoints(actor) {
     if (!actor) return;
 
     const maxRaw = Number(actor?.system?.action_points?.max ?? 0);
     const max = Number.isFinite(maxRaw) ? maxRaw : 0;
+
+    // Chapter 5: Stunned -> do not regain AP at the start of rounds/turns.
+    if (this._actorHasCondition(actor, "stunned")) {
+      await requestUpdateDocument(actor, {
+        "system.action_points.value": 0
+      }).catch(err => {
+        console.warn("UESRPG | Failed to suppress AP refresh for stunned actor", actor?.name, err);
+      });
+      return;
+    }
 
     // Chapter 5: Dazed -> gain 1 fewer AP at the beginning of each round (minimum 1).
     // We implement this by reducing action_points.max via ActiveEffects, then clamping
@@ -92,53 +144,91 @@ export class SystemCombat extends Combat {
     // that is consumed on the next AP refresh.
     const debtRaw = Number(actor.getFlag("uesrpg-3ev4", "wounds.apDebtNextRefresh") ?? 0);
     const debt = Number.isFinite(debtRaw) ? debtRaw : 0;
+    const updateData = { "system.action_points.value": next };
     if (debt > 0) {
       next = Math.max(min, next - debt);
+      updateData["system.action_points.value"] = next;
       // Clear debt once consumed.
-      actor.unsetFlag("uesrpg-3ev4", "wounds.apDebtNextRefresh").catch(() => {});
+      updateData["flags.uesrpg-3ev4.wounds.-=apDebtNextRefresh"] = null;
     }
 
-    actor.update({ "system.action_points.value": next });
-  }
-
-  resetAllActionPoints() {
-    this.turns.forEach((combatant) => {
-      this._refreshActionPoints(combatant?.actor);
+    await requestUpdateDocument(actor, updateData).catch(err => {
+      console.warn("UESRPG | Failed to refresh action points for", actor?.name, err);
     });
   }
 
-  /** @override */
-  startCombat() {
-    if (["round", "turn"].includes(this.apAutomationType)) {
-      this.resetAllActionPoints();
+  async resetAllActionPoints() {
+    const promises = [];
+    for (const combatant of this.turns) {
+      promises.push(this._refreshActionPoints(combatant?.actor));
     }
-
-    super.startCombat();
+    await Promise.all(promises);
   }
 
   /** @override */
-  nextTurn() {
+  async startCombat() {
+    if (["round", "turn"].includes(this.apAutomationType)) {
+      await this.resetAllActionPoints();
+    }
+
+    return await super.startCombat();
+  }
+
+  /** @override */
+  async nextTurn() {
     if (this.apAutomationType === "turn") {
       if (this.round !== 1 || (this.turn + 1) === this.turns.length) {
-        this._refreshActionPoints(this.nextCombatant()?.actor);
+        await this._refreshActionPoints(this.nextCombatant()?.actor);
       }
     }
 
-    super.nextTurn();
+    return await super.nextTurn();
   }
 
   /** @override */
-  nextRound() {
+  async nextRound() {
     if (this.apAutomationType === "round") {
-      this.resetAllActionPoints();
+      await this.resetAllActionPoints();
     }
 
-    super.nextRound();
+    return await super.nextRound();
+  }
+
+  /** @override */
+  _onDelete(options, userId) {
+    // Clean up session-scoped initiative choice cache for this combat.
+    for (const key of SystemCombat._initiativeChoiceCache.keys()) {
+      if (key.endsWith(`|${this.id}`)) {
+        SystemCombat._initiativeChoiceCache.delete(key);
+      }
+    }
+    super._onDelete(options, userId);
   }
 
   nextCombatant() {
     const nextTurnIndex = (this.turn + 1) % this.turns.length;
     return this.turns[nextTurnIndex];
+  }
+
+  /**
+   * Chapter 5 initiative tie-break order:
+   *  1) Initiative total
+   *  2) Initiative Rating
+   *  3) Luck bonus
+   *  4) PC precedence over NPC
+   *  5) Stable combatant id
+   *
+   * @override
+   */
+  _sortCombatants(a, b) {
+    const ta = getInitiativeTieBreakTuple(a);
+    const tb = getInitiativeTieBreakTuple(b);
+
+    if (ta[0] !== tb[0]) return tb[0] - ta[0];
+    if (ta[1] !== tb[1]) return tb[1] - ta[1];
+    if (ta[2] !== tb[2]) return tb[2] - ta[2];
+    if (ta[3] !== tb[3]) return tb[3] - ta[3];
+    return String(ta[4]).localeCompare(String(tb[4]), undefined, { numeric: true, sensitivity: "base" });
   }
 
   /**
@@ -238,23 +328,25 @@ export class SystemCombat extends Combat {
 	      }
 	
 	      let useCombatSenses = false;
+	      const surpriseState = resolveSurpriseState(actor, { combatContext: this });
+	      const isSurprised = surpriseState?.onlyReactions === true;
 	      const canPromptSingle = idList.length === 1 && (game.user?.isGM === true || actor.isOwner);
-	      if (!tacticianChoice && canPromptSingle && hasTalent(actor, "combatsenses")) {
+	      if (!isSurprised && !tacticianChoice && canPromptSingle && hasTalent(actor, "combatsenses")) {
 	        useCombatSenses = await this._promptCombatSensesChoice(actor);
-	      } else if (!tacticianChoice && batchCombatSensesChoice?.useCombatSenses === true && hasTalent(actor, "combatsenses")) {
+	      } else if (!isSurprised && !tacticianChoice && batchCombatSensesChoice?.useCombatSenses === true && hasTalent(actor, "combatsenses")) {
 	        useCombatSenses = true;
 	      }
-	
+
 	      const normalIR = Number(actor?.system?.initiative?.value ?? 0) || 0;
 	      const combatSensesIR = this._combatSensesInitiativeRating(actor);
 	      const ir = useCombatSenses ? combatSensesIR : normalIR;
-	
+
 	      // Lightning Reflexes: roll initiative twice and take the higher.
 	      // Combat Senses: use the custom Initiative Rating only (no die).
 	      const dice = hasTalent(actor, "lightningreflexes") ? "2d6kh" : "1d6";
 	      const initiativeFormula = tacticianChoice?.mode === "provider"
 	        ? `${Number(tacticianChoice.initiative)}`
-	        : (useCombatSenses ? `${ir}` : `${dice} + ${ir}`);
+	        : (isSurprised ? `${normalIR}` : (useCombatSenses ? `${ir}` : `${dice} + ${ir}`));
 	
 	      const finalRoll = combatant.getInitiativeRoll(initiativeFormula);
 	      await finalRoll.evaluate();
@@ -265,10 +357,13 @@ export class SystemCombat extends Combat {
 	        choice: tacticianChoice?.mode === "provider" ? "tactician" : (useCombatSenses ? "combatSenses" : "normal"),
 	        source: tacticianChoice?.mode === "provider"
 	          ? `Tactician (${tacticianChoice.tacticianName ?? "Ally"})`
-	          : (useCombatSenses ? "Combat Senses (2\u00D7PrcBonus + 2)" : "Normal (initiative.value)"),
+	          : (isSurprised
+	            ? "Surprised (initiative rating only)"
+	            : (useCombatSenses ? "Combat Senses (2\u00D7PrcBonus + 2)" : "Normal (initiative.value)")),
 	        prcBonus: Number(actor?.system?.characteristics?.prc?.bonus ?? 0) || 0,
 	        normalIR,
 	        combatSensesIR,
+	        isSurprised,
 	        formula: initiativeFormula,
 	        rollTotal: finalRoll?.total
 	      });
@@ -304,7 +399,7 @@ export class SystemCombat extends Combat {
 	    }
 	
 	    if (earlyUpdates.length) {
-	      await this.updateEmbeddedDocuments("Combatant", earlyUpdates);
+	      await requestUpdateEmbeddedDocuments(this, "Combatant", earlyUpdates);
 	    }
 	
 	    for (const id of otherIds) {
@@ -312,7 +407,7 @@ export class SystemCombat extends Combat {
 	    }
 	
 	    if (updates.length) {
-	      await this.updateEmbeddedDocuments("Combatant", updates);
+	      await requestUpdateEmbeddedDocuments(this, "Combatant", updates);
 	    }
 
     // Preserve the currently active combatant turn index where possible.
@@ -320,7 +415,7 @@ export class SystemCombat extends Combat {
       const idx = this.turns?.findIndex(c => c?.id === currentId) ?? -1;
       if (idx >= 0 && idx !== this.turn) {
         try {
-          await this.update({ turn: idx });
+          await requestUpdateDocument(this, { turn: idx });
         } catch (_e) {
           // Non-critical.
         }
@@ -338,35 +433,33 @@ export class SystemCombat extends Combat {
   }
 
   async _promptCombatSensesChoice(actor) {
-    return new Promise((resolve) => {
-      const title = "Combat Senses";
-      const content = `
+    const title = "Combat Senses";
+    const content = `
         <p><b>${actor?.name ?? "Actor"}</b> can calculate Initiative Rating using an alternate formula.</p>
         <p>Choose which Initiative Rating to use for this roll.</p>
       `;
-      new Dialog({
-        title,
-        content,
-        buttons: {
-          normal: {
-            label: "Use Normal Initiative",
-            callback: () => {
-              _initiativeDebug("combat senses choice", { actor: actor?.name, choice: "normal" });
-              resolve(false);
-            }
-          },
-          senses: {
-            label: "Use Combat Senses",
-            callback: () => {
-              _initiativeDebug("combat senses choice", { actor: actor?.name, choice: "combatSenses" });
-              resolve(true);
-            }
+    const result = await customDialog({
+      title,
+      content,
+      buttons: {
+        normal: {
+          label: "Use Normal Initiative",
+          callback: () => {
+            _initiativeDebug("combat senses choice", { actor: actor?.name, choice: "normal" });
+            return false;
           }
         },
-        default: "normal",
-        close: () => resolve(false)
-      }).render(true);
+        senses: {
+          label: "Use Combat Senses",
+          callback: () => {
+            _initiativeDebug("combat senses choice", { actor: actor?.name, choice: "combatSenses" });
+            return true;
+          }
+        }
+      },
+      defaultButton: "normal",
     });
+    return result === true;
   }
 
   /**
@@ -377,14 +470,13 @@ export class SystemCombat extends Combat {
    * Combat Senses talent.
    */
 	  async _promptCombatSensesBatchChoice() {
-	    return new Promise((resolve) => {
-	      const title = "Combat Senses";
-	      const content = `
+	    const title = "Combat Senses";
+	    const content = `
         <p>One or more combatants have <b>Combat Senses</b>.</p>
         <p>Choose which Initiative Rating to use for this <b>Roll All</b> operation.</p>
         <p><i>This choice is remembered for this combat for the current browser session.</i></p>
       `;
-      new Dialog({
+      const result = await customDialog({
         title,
         content,
         buttons: {
@@ -392,21 +484,20 @@ export class SystemCombat extends Combat {
             label: "Use Normal Initiative",
             callback: () => {
               _initiativeDebug("combat senses batch choice", { choice: "normal" });
-              resolve(false);
+              return false;
             }
           },
           senses: {
             label: "Use Combat Senses",
             callback: () => {
               _initiativeDebug("combat senses batch choice", { choice: "combatSenses" });
-              resolve(true);
+              return true;
             }
           }
         },
-        default: "normal",
-        close: () => resolve(false)
-	      }).render(true);
-	    });
+        defaultButton: "normal",
+      });
+      return result === true;
 	  }
 
 	  /**
@@ -429,40 +520,37 @@ export class SystemCombat extends Combat {
 	    }).join("\n");
 
 	    const content = `
-	      <form class="uesrpg-tactician-initiative-choice">
+	      <div class="uesrpg-tactician-initiative-choice">
 	        <p><b>${esc(a.name ?? "Actor")}</b> may use an ally tactician's initiative result in place of their own.</p>
 	        <div class="form-group" style="margin-top:8px;">
 	          <label><b>Tactician</b></label>
 	          <select name="provider" style="width:100%;">${options}</select>
 	        </div>
-	      </form>
+	      </div>
 	    `;
 
-	    return await new Promise((resolve) => {
-	      new Dialog({
-	        title: "Tactician",
-	        content,
-	        buttons: {
-	          normal: { label: "Roll Normally", callback: () => resolve(null) },
-	          use: {
-	            label: "Use Tactician",
-	            callback: (html) => {
-	              const root = html instanceof HTMLElement ? html : html?.[0];
-	              const raw = root?.querySelector('select[name="provider"]')?.value ?? "0";
-	              const idx = Number.parseInt(String(raw), 10) || 0;
-	              const chosen = list[Math.clamp(idx, 0, list.length - 1)] ?? null;
-	              if (!chosen) return resolve(null);
-	              resolve({
-	                mode: "provider",
-	                initiative: Number(chosen.initiative ?? 0) || 0,
-	                tacticianName: String(chosen?.tactician?.name ?? "Tactician")
-	              });
-	            }
+	    return await customDialog({
+	      title: "Tactician",
+	      content,
+	      buttons: {
+	        normal: { label: "Roll Normally", callback: () => null },
+	        use: {
+	          label: "Use Tactician",
+	          callback: (html) => {
+	            const root = html instanceof HTMLElement ? html : html?.[0];
+	            const raw = root?.querySelector('select[name="provider"]')?.value ?? "0";
+	            const idx = Number.parseInt(String(raw), 10) || 0;
+	            const chosen = list[Math.clamp(idx, 0, list.length - 1)] ?? null;
+	            if (!chosen) return null;
+	            return {
+	              mode: "provider",
+	              initiative: Number(chosen.initiative ?? 0) || 0,
+	              tacticianName: String(chosen?.tactician?.name ?? "Tactician")
+	            };
 	          }
-	        },
-	        default: "normal",
-	        close: () => resolve(null)
-	      }).render(true);
+	        }
+	      },
+	      defaultButton: "normal",
 	    });
 	  }
 	}

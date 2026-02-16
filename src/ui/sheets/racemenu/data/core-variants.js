@@ -27,7 +27,7 @@ export default {
             {
                 name: "Wild Shape (Racial)",
                 img: "icons/creatures/abilities/fangs-teeth-bite.webp",
-                trait: "trait",
+                type: "trait",
                 desc: "During character creation, the Unglamoured must pick one trait associated with their wild shape: Amphibious, Climber (AB x 2), Crawler, Dark Sight, Natural Toughness (1), Natural Weapons (Horns or Claws, 1d6 Slashing or Crushing, 1m), Natural Weapons (Fangs, 1d4 Slashing, 1m) and Strong Jaws., Quadruped, Regeneration (1), Swimmer However, their altered form is also a curse. They must also select one weakness:, Silver-Scarred (2), Sun-Scarred (2), Weakness (Fire, 2), Weak Bones(1)",
             }
         ]

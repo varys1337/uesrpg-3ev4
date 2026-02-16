@@ -6,7 +6,7 @@
  * Each entry contains:
  *  - id:          Stable canonical key (lowercase, kebab-case).
  *  - name:        Localized display name.
- *  - icon:        Foundry core SVG icon path.
+ *  - img:        Foundry core SVG icon path.
  *  - description: **Verbatim RAW rules text** from the UESRPG 3ev4 rulebook chapters,
  *                 minimally wrapped in HTML for Foundry rendering.
  *  - rulesRef:    Chapter + section for traceability.
@@ -34,13 +34,13 @@
 // Dataset
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const CONDITIONS_DATASET = Object.freeze([
+const CONDITIONS_DATASET = Object.freeze([
 
   // ── Bleeding (X) ──────────────────────────────────────────────────────────
   {
     id: "bleeding",
     name: "Bleeding (X)",
-    icon: "icons/svg/blood.svg",
+    img: "icons/svg/blood.svg",
     hudVisible: true,
     description:
       `<p>Reduce Wound Threshold by 1. At the end of the character's next Turn, they take X damage (bypass AR/resistance); then X is reduced by 1. If the character regains HP from any source, subtract the total HP regained (including HP that would go beyond the character's maximum HP) from X.</p>` +
@@ -55,7 +55,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "blinded",
     name: "Blinded",
-    icon: "icons/svg/blind.svg",
+    img: "icons/svg/blind.svg",
     hudVisible: true,
     description:
       `<p>The character loses all vision and suffers the following penalties:</p>` +
@@ -71,7 +71,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "burning",
     name: "Burning (X)",
-    icon: "icons/svg/fire.svg",
+    img: "icons/svg/fire.svg",
     hudVisible: true,
     description:
       `<p>The target is engulfed in flames, with the intensity of the fire determined by a number X.</p>` +
@@ -88,7 +88,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "chameleon",
     name: "Chameleon (X)",
-    icon: "icons/svg/eye.svg",
+    img: "icons/svg/eye.svg",
     hudVisible: false,
     description:
       `<p>A character with this condition blends into their environment. Sight based tests to detect this character are made with a -X penalty. Only apply the highest value version of this condition if a character would receive it more than once.</p>`,
@@ -99,7 +99,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "crippled",
     name: "Crippled Body Part",
-    icon: "icons/svg/bones.svg",
+    img: "icons/svg/bones.svg",
     hudVisible: true,
     description:
       `<p>A piece of the character's body has been rendered temporarily useless. Multiple instances of this condition can affect a character at once as long as each affects a different hit location and/or the body parts associated with that hit location. Any body part that has been crippled suffers all the same penalties as if it had been lost. Use Lost Eye or Lost Ear if the head location has been crippled and the Organ Damage condition if the body location has been crippled.</p>`,
@@ -110,7 +110,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "dazed",
     name: "Dazed",
-    icon: "icons/svg/daze.svg",
+    img: "icons/svg/daze.svg",
     hudVisible: true,
     description:
       `<p>The character gains one less Action Point at the beginning of each round, to a minimum of one.</p>`,
@@ -121,7 +121,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "deafened",
     name: "Deafened",
-    icon: "icons/svg/deaf.svg",
+    img: "icons/svg/deaf.svg",
     hudVisible: true,
     description:
       `<p>The character loses all hearing and suffers the following penalties:</p>` +
@@ -137,7 +137,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "entangled",
     name: "Entangled",
-    icon: "icons/svg/net.svg",
+    img: "icons/svg/net.svg",
     hudVisible: true,
     description:
       `<p>The character makes all Combat Style tests with a -20 penalty and their movement speed is halved (round up).</p>`,
@@ -148,7 +148,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "fatigued",
     name: "Fatigued",
-    icon: "icons/svg/sleep.svg",
+    img: "icons/svg/sleep.svg",
     hudVisible: false,
     description:
       `<p>When a character gains a level of fatigue, they acquire the Fatigued condition. If they gain additional levels of fatigue, the effects worsen. Fatigue is most typically gained when a character falls below 0 SP or spends/loses SP when they are at 0.</p>` +
@@ -169,7 +169,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "feinted",
     name: "Feinted",
-    icon: "icons/svg/combat.svg",
+    img: "icons/svg/combat.svg",
     hudVisible: false,
     description:
       `<p>Character attempts a Combat Style or Deceive test against an opponent's Observe or Combat Style within a 2m range. If successful, they treat their next melee attack against the target as if they were Hidden. This effect only applies if the attack occurs before the end of the character's current Turn.</p>`,
@@ -180,7 +180,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "frenzied",
     name: "Frenzied",
-    icon: "icons/svg/terror.svg",
+    img: "icons/svg/terror.svg",
     hudVisible: true,
     description:
       `<p>The character is flung into an uncontrollable rage. Frenzied characters gain the following rules:</p>` +
@@ -201,7 +201,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "grappled",
     name: "Grappled",
-    icon: "icons/svg/grab.svg",
+    img: "icons/svg/grab.svg",
     hudVisible: false,
     description:
       `<p>In place of making a normal attack a character can choose to attempt to grapple their opponent. This requires a Combat Style test (the style must include unarmed combat) opposed against either a Combat Style (with unarmed), Athletics, or Evade test. On success, the target gains the restrained condition. The target may attempt to escape by using the resist action. On success they break free.</p>` +
@@ -218,7 +218,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "hidden",
     name: "Hidden",
-    icon: "icons/svg/cowled.svg",
+    img: "icons/svg/cowled.svg",
     hudVisible: true,
     description:
       `<p>The character is hidden from enemies and moving stealthily. Characters must spend 2 meters of their movement for the round for each 1 meter that they actually move while hidden, and they cannot Dash. Enemies cannot attempt to defend themselves against the attacks of hidden characters, but attacking causes a character to lose this condition immediately afterwards.</p>` +
@@ -230,7 +230,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "immobilized",
     name: "Immobilized",
-    icon: "icons/svg/statue.svg",
+    img: "icons/svg/statue.svg",
     hudVisible: true,
     description:
       `<p>Immobilized characters cannot move. They may still attack and take other actions and can defend themselves.</p>`,
@@ -241,7 +241,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "invisible",
     name: "Invisible",
-    icon: "icons/svg/invisible.svg",
+    img: "icons/svg/invisible.svg",
     hudVisible: true,
     description:
       `<p>Invisible characters cannot be seen. Characters fail all sight related tests related to spotting the Invisible character and attack them at a -30 penalty, assuming they can guess where the character might be in the first place.</p>`,
@@ -252,7 +252,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "lost-body-part",
     name: "Lost Body Part",
-    icon: "icons/svg/skull.svg",
+    img: "icons/svg/skull.svg",
     hudVisible: false,
     description:
       `<p>The character loses a part of their body. A character can have multiple instances of this condition at once, each affecting a different body part. If an attack would hit a body part that has been entirely lost, the attack hits the body location instead. This condition applies additional penalties that vary based on the body part. In the case of the head, there is a choice between an ear or an eye (GM's decision).</p>`,
@@ -263,7 +263,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "lost-ear",
     name: "Lost Ear",
-    icon: "icons/svg/deaf.svg",
+    img: "icons/svg/deaf.svg",
     hudVisible: false,
     description:
       `<p>The character has had their ear removed or destroyed and their hearing damaged. They suffer the following penalties:</p>` +
@@ -278,7 +278,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "lost-eye",
     name: "Lost Eye",
-    icon: "icons/svg/blind.svg",
+    img: "icons/svg/blind.svg",
     hudVisible: false,
     description:
       `<p>The character has had their eye removed or destroyed and suffers the following penalties:</p>` +
@@ -293,7 +293,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "lost-foot-leg",
     name: "Lost Foot/Leg",
-    icon: "icons/svg/downgrade.svg",
+    img: "icons/svg/downgrade.svg",
     hudVisible: false,
     description:
       `<p>The character has had their leg severed somewhere between the ankle and the hip and suffers the following penalties.</p>` +
@@ -309,7 +309,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "lost-hand-arm",
     name: "Lost Hand/Arm",
-    icon: "icons/svg/sword.svg",
+    img: "icons/svg/sword.svg",
     hudVisible: false,
     description:
       `<p>The character has had their arm severed somewhere between the wrist and the shoulder, and suffers the following penalties:</p>` +
@@ -325,7 +325,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "muffled",
     name: "Muffled (X)",
-    icon: "icons/svg/sound-off.svg",
+    img: "icons/svg/sound-off.svg",
     hudVisible: false,
     description:
       `<p>A character with this condition is harder to hear. Hearing based tests to detect this character are made with a -X penalty. Only apply the highest value version of this condition if a character would receive it more than once.</p>`,
@@ -336,7 +336,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "organ-damage",
     name: "Organ Damage",
-    icon: "icons/svg/hazard.svg",
+    img: "icons/svg/hazard.svg",
     hudVisible: false,
     description:
       `<p>The character has had their internal organs damaged. Characters with this condition heal damage at half speed and reduce their SP maximum and WT by 1.</p>` +
@@ -348,7 +348,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "paralyzed",
     name: "Paralyzed",
-    icon: "icons/svg/paralysis.svg",
+    img: "icons/svg/paralysis.svg",
     hudVisible: true,
     description:
       `<p>The character is frozen, unable to move any part of their body. They may only cast spells that do not require speech or motion.</p>`,
@@ -359,7 +359,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "prone",
     name: "Prone",
-    icon: "icons/svg/falling.svg",
+    img: "icons/svg/falling.svg",
     hudVisible: true,
     description:
       `<p>The character is prone, and every 1 meter that they move while prone costs 2 meters of their movement for the round. They also suffer a -20 penalty to all combat related tests and count any full armor they are wearing as partial (to represent that it is easier for characters to take advantage of gaps in their defenses while they are down).</p>` +
@@ -371,7 +371,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "restrained",
     name: "Restrained",
-    icon: "icons/svg/anchor.svg",
+    img: "icons/svg/anchor.svg",
     hudVisible: true,
     description:
       `<p>The character is restrained and thus unable to move. They also cannot attack or defend themselves. They may only cast spells that do not require motion.</p>`,
@@ -382,7 +382,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "silenced",
     name: "Silenced",
-    icon: "icons/svg/sound-off.svg",
+    img: "icons/svg/sound-off.svg",
     hudVisible: true,
     description:
       `<p>Magically silenced characters believe they are making sound, but in reality their words never pass their lips. They suffer the usual -20 penalty for being unable to speak when casting spells. At the start of each round they can roll a Perception test to see if they realize what is happening.</p>`,
@@ -393,7 +393,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "slowed",
     name: "Slowed",
-    icon: "icons/svg/wingfoot.svg",
+    img: "icons/svg/wingfoot.svg",
     hudVisible: true,
     description:
       `<p>The character's Speed is reduced by half (round up).</p>`,
@@ -404,7 +404,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "stunned",
     name: "Stunned",
-    icon: "icons/svg/stoned.svg",
+    img: "icons/svg/stoned.svg",
     hudVisible: true,
     description:
       `<p>The character immediately loses all remaining Action Points upon becoming stunned. Stunned characters do not regain Action Points at the start of each round.</p>`,
@@ -415,7 +415,7 @@ export const CONDITIONS_DATASET = Object.freeze([
   {
     id: "unconscious",
     name: "Unconscious",
-    icon: "icons/svg/unconscious.svg",
+    img: "icons/svg/unconscious.svg",
     hudVisible: true,
     description:
       `<p>The character is knocked out and loses consciousness. They fall prone if the circumstances allow and may not take actions. If a character gains a level of fatigue while unconscious, they die.</p>`,
@@ -435,6 +435,6 @@ export const CONDITION_DESCRIPTIONS = Object.freeze(
 );
 
 /** Map of condition id → full condition entry. */
-export const CONDITIONS_BY_ID = Object.freeze(
+const CONDITIONS_BY_ID = Object.freeze(
   new Map(CONDITIONS_DATASET.map(c => [c.id, c]))
 );

@@ -5,6 +5,7 @@
 
 import { isDebugEnabled } from "../../../utils/debug.js";
 import { aggregateItemStats } from "../rules/item-aggregation.js";
+import { getArmorMobilityPenalties } from "../rules/armor-mobility.js";
 import {
   collectAEModifiersForKeys,
   getResourceAEModifiers,
@@ -22,8 +23,9 @@ import { isNPC } from "../../rules/npc-rules.js";
 import { hasTalent } from "../../traits/talents-api.js";
 import { getPredictionInitiativeAgiBonus } from "../../traits/intellectual-talents.js";
 import { applyRacialTalentDerivedBonuses, applyRacialTalentPostSpeedDerived } from "../../traits/racial-talents.js";
-import { collectFeatureMods, applyFeatureModTotals } from "../../traits/features/collect-feature-mods.js";
+import { collectFeatureMods, applyFeatureModTotals, filterModsForApplication, applyWeaknessToResistance } from "../../traits/features/collect-feature-mods.js";
 import { reduceAllByStacking } from "../../traits/features/stacking.js";
+import { getSocialStateFromSystem } from "../../social/social-data.js";
 
 /**
  * Prepare NPC type specific data.
@@ -41,6 +43,14 @@ export function prepareNPCData(actorContext, actorData) {
   // Aggregate items once
   const agg = aggregateItemStats(actorContext, actorData);
 
+  // --- Mobility penalties from effective armor weight class (parity with character.js) ---
+  const mobility = getArmorMobilityPenalties(actorData);
+  actorSystemData.mobility = mobility;
+
+  // Normalize legacy armor_class field to reflect *effective* class.
+  const wc = String(mobility?.armorWeightClass ?? "none").toLowerCase();
+  actorSystemData.armor_class = (wc === "superheavy") ? "super_heavy" : wc;
+
   //Add bonuses from items to Characteristics (use aggregated sums)
   actorSystemData.characteristics.str.total = actorSystemData.characteristics.str.base + agg.charBonus.str;
   actorSystemData.characteristics.end.total = actorSystemData.characteristics.end.base + agg.charBonus.end;
@@ -51,16 +61,29 @@ export function prepareNPCData(actorContext, actorData) {
   actorSystemData.characteristics.prs.total = actorSystemData.characteristics.prs.base + agg.charBonus.prs;
   actorSystemData.characteristics.lck.total = actorSystemData.characteristics.lck.base + agg.charBonus.lck;
 
+  // Active Effects: apply characteristic additive modifiers (parity with character.js)
+  {
+    const cMods = actorSystemData.modifiers?.characteristics ?? {};
+    actorSystemData.characteristics.str.total += Number(cMods.str ?? 0);
+    actorSystemData.characteristics.end.total += Number(cMods.end ?? 0);
+    actorSystemData.characteristics.agi.total += Number(cMods.agi ?? 0);
+    actorSystemData.characteristics.int.total += Number(cMods.int ?? 0);
+    actorSystemData.characteristics.wp.total += Number(cMods.wp ?? 0);
+    actorSystemData.characteristics.prc.total += Number(cMods.prc ?? 0);
+    actorSystemData.characteristics.prs.total += Number(cMods.prs ?? 0);
+    actorSystemData.characteristics.lck.total += Number(cMods.lck ?? 0);
+  }
+
 
   //Characteristic Bonuses
-  var strBonus = Math.floor(actorSystemData.characteristics.str.total / 10);
-  var endBonus = Math.floor(actorSystemData.characteristics.end.total / 10);
-  var agiBonus = Math.floor(actorSystemData.characteristics.agi.total / 10);
-  var intBonus = Math.floor(actorSystemData.characteristics.int.total / 10);
-  var wpBonus = Math.floor(actorSystemData.characteristics.wp.total / 10);
-  var prcBonus = Math.floor(actorSystemData.characteristics.prc.total / 10);
-  var prsBonus = Math.floor(actorSystemData.characteristics.prs.total / 10);
-  var lckBonus = Math.floor(actorSystemData.characteristics.lck.total / 10);
+  const strBonus = Math.floor(actorSystemData.characteristics.str.total / 10);
+  const endBonus = Math.floor(actorSystemData.characteristics.end.total / 10);
+  const agiBonus = Math.floor(actorSystemData.characteristics.agi.total / 10);
+  const intBonus = Math.floor(actorSystemData.characteristics.int.total / 10);
+  const wpBonus = Math.floor(actorSystemData.characteristics.wp.total / 10);
+  const prcBonus = Math.floor(actorSystemData.characteristics.prc.total / 10);
+  const prsBonus = Math.floor(actorSystemData.characteristics.prs.total / 10);
+  const lckBonus = Math.floor(actorSystemData.characteristics.lck.total / 10);
 
   // Set characteristic bonus values
   actorSystemData.characteristics.str.bonus = strBonus;
@@ -110,6 +133,24 @@ export function prepareNPCData(actorContext, actorData) {
   actorSystemData.speed.bonus = agg.speedBonus;
   actorSystemData.initiative.bonus = agg.iniBonus;
 
+  // RAW Chapter 1: Linguistics = IB - 2, max 4 (NPCs get the same derivation).
+  {
+    const ib = Number(actorSystemData.characteristics?.int?.bonus ?? 0);
+    actorSystemData.linguistics = actorSystemData.linguistics ?? {};
+    actorSystemData.linguistics.max = Math.min(4, Math.max(0, ib - 2));
+    actorSystemData.linguistics.known = actorSystemData.linguistics.known ?? "";
+  }
+
+  // Social data is canonical, linguistics.known remains a compatibility mirror.
+  {
+    const socialState = getSocialStateFromSystem(actorSystemData);
+    actorSystemData.social = actorSystemData.social ?? {};
+    actorSystemData.social.languages = actorSystemData.social.languages ?? {};
+    actorSystemData.social.languages.entries = socialState.languages.entries;
+    actorSystemData.social.factions = socialState.factions;
+    actorSystemData.linguistics.known = socialState.languages.knownString;
+  }
+
   //Talent/Power/Trait Resistance Bonuses (use aggregated values)
   actorSystemData.resistance.diseaseR = agg.resist.diseaseR;
   actorSystemData.resistance.fireR = agg.resist.fireR;
@@ -135,6 +176,8 @@ export function prepareNPCData(actorContext, actorData) {
   applyTraitDerived(actorSystemData, actorSystemData.ui.traitAutomation);
 
   // Feature Automation (Chapter 4): collect provenance-tracked contributions.
+  // Full mods feed the Feature Inspector; only RE/flag/override mods are applied
+  // to actor data to prevent double-counting with aggregation.
   try {
     const featureMods = collectFeatureMods({ actor: actorContext });
     const { byPath, totals } = reduceAllByStacking(featureMods);
@@ -142,9 +185,12 @@ export function prepareNPCData(actorContext, actorData) {
     actorSystemData.ui.featureModsByPath = byPath;
     actorSystemData.ui.featureModTotals = totals;
 
-    // Apply RE passive totals (flatModifier, booleanFlag, overrideValue, senseLossReduction)
-    // so they feed into the derived calculations below (WT, HP, speed, initiative, etc.).
-    applyFeatureModTotals(actorSystemData, totals);
+    // Apply ONLY Rule Element and override/flag totals — legacy-mirror
+    // "add" mods from item schema fields are excluded to prevent double-counting.
+    const applyMods = filterModsForApplication(featureMods);
+    const { totals: applyTotals } = reduceAllByStacking(applyMods);
+    applyFeatureModTotals(actorSystemData, applyTotals);
+    applyWeaknessToResistance(actorSystemData);
   } catch (_featureErr) {
     if (isDebugEnabled("aeLifecycleDebug")) console.debug("uesrpg | Feature mod collection failed (non-critical)", _featureErr);
   }
@@ -446,7 +492,7 @@ actorSystemData.luck_points.max = lckBonus + actorSystemData.luck_points.bonus;
   } else if (actorSystemData.carry_rating.current > actorSystemData.carry_rating.max * 2) {
     actorSystemData.carry_rating.label = 'Severe'
     actorSystemData.carry_rating.penalty = -20
-    actorSystemData.speed.value = Math.floor(actorSystemData.speed.base / 2);
+    actorSystemData.speed.value = Math.floor(actorSystemData.speed.value / 2);
     actorSystemData.stamina.max = actorSystemData.stamina.max - 3;
   } else if (actorSystemData.carry_rating.current > actorSystemData.carry_rating.max) {
     actorSystemData.carry_rating.label = 'Moderate'
@@ -481,16 +527,29 @@ actorSystemData.luck_points.max = lckBonus + actorSystemData.luck_points.bonus;
     if (delta) actorSystemData.stamina.max = Number(actorSystemData.stamina.max ?? 0) + delta;
   }
 
-  // Armor Weight Class mobility penalties (effective, Step 9)
-  // - Apply speed penalty now.
-  // - Agility test penalty is stored on actorSystemData.mobility for roll logic to consume later.
-  //
-  // Existing code historically used actorSystemData.armor_class (derived elsewhere); we now normalize
-  // that field from the computed effective weight class earlier in _prepareCharacterData.
+  // RAW: If encumbrance Stamina Penalty would reduce SP max below 0, excess converts into fatigue levels.
+  // (Parity with character.js — prevents negative stamina.max display and lost fatigue.)
+  {
+    const spMax = Number(actorSystemData.stamina.max ?? 0);
+    if (spMax < 0) {
+      const excess = Math.abs(Math.trunc(spMax));
+      actorSystemData.stamina.max = 0;
+      const sAE = getResourceAEModifiers(actorContext, 'stamina');
+      const stamina_allowOvercap = (sAE.value.override != null) || (Number(sAE.value.add ?? 0) !== 0);
+      actorSystemData.stamina.value = stamina_allowOvercap
+        ? Math.max(0, Number(actorSystemData.stamina.value ?? 0))
+        : 0;
+      actorSystemData.fatigue.bonus = Number(actorSystemData.fatigue.bonus ?? 0) + excess;
+    }
+  }
+
+  // Armor Weight Class mobility penalties (effective)
+  const effWC = String(actorSystemData.mobility?.armorWeightClass ?? "none").toLowerCase();
   let spdPenalty = 0;
-  if (actorSystemData.armor_class === "super_heavy") spdPenalty = -3;
-  else if (actorSystemData.armor_class === "heavy") spdPenalty = -2;
-  else if (actorSystemData.armor_class === "medium") spdPenalty = -1;
+  if (effWC === "medium") spdPenalty = -1;
+  else if (effWC === "heavy") spdPenalty = -2;
+  else if (effWC === "superheavy") spdPenalty = -3;
+  else if (effWC === "crippling") spdPenalty = -4;
 
   if (spdPenalty !== 0) {
     actorSystemData.speed.value = Math.max(0, Number(actorSystemData.speed.value || 0) + spdPenalty);
@@ -613,7 +672,7 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
 
     // professionsWound mirrors professions; wound penalty is applied by TN calculation code
     if (actorSystemData.professionsWound && actorSystemData.professions) {
-      for (var skill in actorSystemData.professionsWound) {
+      for (const skill in actorSystemData.professionsWound) {
         actorSystemData.professionsWound[skill] = actorSystemData.professions[skill];
       }
     }
@@ -624,13 +683,13 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
     actorSystemData.woundPenalty = 0;
 
     if (actorSystemData.professionsWound && actorSystemData.professions) {
-      for (var skill in actorSystemData.professionsWound) {
+      for (const skill in actorSystemData.professionsWound) {
         actorSystemData.professionsWound[skill] = actorSystemData.professions[skill];
       }
     }
   }
   else {
-    for (var skill in actorSystemData.professionsWound) {
+    for (const skill in actorSystemData.professionsWound) {
       actorSystemData.professionsWound[skill] = actorSystemData.professions[skill];
     }
   }
@@ -642,7 +701,7 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
     if (m.override != null) actorSystemData.fatigue.bonus = Number(m.override);
     else if (m.add) actorSystemData.fatigue.bonus = Number(actorSystemData.fatigue.bonus ?? 0) + Number(m.add);
   }
-  actorSystemData.fatigue.level = actorSystemData.stamina.value < 0 ? ((actorSystemData.stamina.value -1) * -1) + actorSystemData.fatigue.bonus : 0 + actorSystemData.fatigue.bonus
+  actorSystemData.fatigue.level = actorSystemData.stamina.value < 0 ? Math.abs(actorSystemData.stamina.value) + actorSystemData.fatigue.bonus : 0 + actorSystemData.fatigue.bonus
 
   switch (actorSystemData.fatigue.level > 0) {
     case true:

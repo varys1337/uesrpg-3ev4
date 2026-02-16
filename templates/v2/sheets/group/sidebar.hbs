@@ -1,0 +1,16 @@
+    <div class="sheet-fixed-container">
+      <div class="character-profile-container">
+        <div class="profile-img-container">
+          <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" title="{{actor.name}}">
+        </div>
+        <div>
+          <h1 class="charname"><input type="text" name="name" value="{{actor.name}}" placeholder="Group Name"></h1>
+        </div>
+        <nav class="sheet-tabs tabs" data-group="primary">
+          <a class="item" data-action="tab" data-group="primary" data-tab="members">Members</a>
+          <a class="item" data-action="tab" data-group="primary" data-tab="inventory">Inventory</a>
+          <a class="item" data-action="tab" data-group="primary" data-tab="travel">Travel</a>
+          <a class="item" data-action="tab" data-group="primary" data-tab="details">Details</a>
+        </nav>
+      </div>
+    </div>

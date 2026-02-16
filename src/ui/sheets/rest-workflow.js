@@ -2,6 +2,8 @@ import { hasTalent } from "../../core/traits/talents-api.js";
 import { clearRacialTalentUsageOnRest } from "../../core/traits/racial-talents.js";
 import { _num } from "../../utils/coerce.js";
 import { _canPromptForActor } from "../../core/traits/index.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 // Chapter 5: Untreated wounds block natural HP regeneration.
 // Reuse the authoritative helper from the wounds subsystem when available.
@@ -35,21 +37,21 @@ export function buildRestChatContent(title, lines) {
 }
 
 async function _promptMeditationChoice(actor) {
-  return await Dialog.wait({
+  return await customDialog({
     title: "Meditation",
     content: `
-      <form class="uesrpg-meditation-short-rest">
+      <div class="uesrpg-meditation-short-rest">
         <p><b>${foundry.utils.escapeHTML(actor?.name ?? "Actor")}</b> has <b>Meditation</b>.</p>
         <p>Spend this short rest in uninterrupted meditation to <b>double</b> normal Magicka and Stamina regeneration?</p>
-      </form>
+      </div>
     `,
     buttons: {
       yes: { label: "Meditate", callback: () => true },
       no: { label: "Normal Rest", callback: () => false }
     },
     default: "yes",
-    close: () => false
-  }, { width: 420 });
+    width: 420
+  });
 }
 
 export async function applyShortRest(actor, opts = {}) {
@@ -124,7 +126,7 @@ export async function applyShortRest(actor, opts = {}) {
   line += "</li>";
 
   const hasUpdates = Object.keys(updateData).length > 0;
-  if (hasUpdates) await actor.update(updateData);
+  if (hasUpdates) await requestUpdateDocument(actor, updateData);
   try { await clearRacialTalentUsageOnRest(actor, { restType: "short" }); } catch (_e) { /* ignore */ }
 
   return { line, updatesApplied: hasUpdates };
@@ -188,7 +190,7 @@ export async function applyLongRest(actor) {
   const line = `<li><b>${actor.name}</b>: ${recoveryParts.join("; ")}</li>`;
 
   const hasUpdates = Object.keys(updateData).length > 0;
-  if (hasUpdates) await actor.update(updateData);
+  if (hasUpdates) await requestUpdateDocument(actor, updateData);
   try { await clearRacialTalentUsageOnRest(actor, { restType: "long" }); } catch (_e) { /* ignore */ }
 
   if (untreatedWounds && currentHP < maxHP) _notifyHpHealingSkipped(actor);

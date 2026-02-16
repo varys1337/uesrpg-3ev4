@@ -11,6 +11,7 @@
  */
 
 import { doTestRoll, resolveOpposed, formatDegree, computeResultFromRollTotal } from "../../utils/degree-roll-helper.js";
+import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "./skill-tn.js";
 import { requireUserCanRollActor } from "../../utils/permissions.js";
 import { buildSkillRollRequest, normalizeSkillRollOptions, skillRollDebug, validateSkillRollRequest } from "./roll-request.js";
@@ -25,14 +26,78 @@ import { FLAG_NS, FLAG_KEY, CARD_VERSION, DEFAULT_COMBAT_STYLE_DEFENSE_TYPE, ban
 import { _bothSidesCommitted, _getMessageState, _skillOpposedMetaFlag, _normalizeCardFlag } from "./opposed/schema.js";
 import { _getLastSkillRollOptions, _setLastSkillRollOptions, _mergeLastSkillRollOptions } from "./opposed/settings.js";
 import { _resolveDoc, _resolveActor, _resolveToken } from "./opposed/docs.js";
-import { _canControlActor, _userHasActorOwnership, _esc, _fmtDegree } from "./opposed/util.js";
-import { _renderCard, _renderDeclared, _btn, _renderBreakdown } from "./opposed/render.js";
+import { _userHasActorOwnership, _esc, _fmtDegree } from "./opposed/util.js";
+import { _renderCard, _btn, _renderBreakdown } from "./opposed/render.js";
 import { _updateCard } from "./opposed/card-updater.js";
 import { _hasSpecializations, _listSkills, _findSkillByUuid, _resolveCombatStyleOrSkill, _listProfessions } from "./opposed/skills.js";
 import { _skillRollDialog } from "./opposed/dialogs.js";
 import { _buildSensorySituationalMods, _maybeAddInvisibleTrackingPenalty, _resolveOutcome, _executeSpecialActionIfWinner } from "./opposed/helpers.js";
 import { buildRollContext } from "../rules/roll-context.js";
+import { computeTN } from "../combat/tn.js";
+import { buildSpecialActionTestChoicesForActor } from "../combat/combat-style-utils.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../traits/features/rule-element-runtime.js";
+
+function _defaultSelectedCharacteristicForSkill(skills, skillUuid) {
+  const selected = Array.isArray(skills) ? skills.find(s => String(s?.uuid ?? "") === String(skillUuid ?? "")) : null;
+  const opts = Array.isArray(selected?.governingChaOptions) ? selected.governingChaOptions : [];
+  const selectedCha = String(selected?.selectedCha ?? "").trim().toLowerCase();
+  return selectedCha || (opts[0]?.key ? String(opts[0].key).toLowerCase() : "");
+}
+
+function _getSpecialActionContext(data) {
+  const ctx = data?.specialActionContext;
+  if (ctx && typeof ctx === "object" && String(ctx.id ?? "").trim()) {
+    return {
+      id: String(ctx.id).trim(),
+      source: String(ctx.source ?? "unknown"),
+      attackerStyleUuid: String(ctx.attackerStyleUuid ?? "").trim() || null,
+      defenderStyleUuid: String(ctx.defenderStyleUuid ?? "").trim() || null
+    };
+  }
+
+  const legacyId = String(data?.specialActionId ?? "").trim();
+  if (!legacyId) return null;
+  return {
+    id: legacyId,
+    source: "legacy",
+    attackerStyleUuid: null,
+    defenderStyleUuid: null
+  };
+}
+
+function _getSpecialActionLegalityForSide(data, actor, side) {
+  const context = _getSpecialActionContext(data);
+  if (!context || !actor) return null;
+
+  const lane = String(side ?? "").toLowerCase() === "defender" ? "defender" : "attacker";
+  const preferredStyleUuid = lane === "attacker" ? context.attackerStyleUuid : context.defenderStyleUuid;
+  const choices = buildSpecialActionTestChoicesForActor(actor, {
+    specialActionId: context.id,
+    side: lane,
+    preferredStyleUuid
+  });
+
+  const allowedSet = new Set(
+    choices
+      .map(c => String(c?.skillUuid ?? "").trim())
+      .filter(Boolean)
+  );
+
+  return { context, choices, allowedSet };
+}
+
+function _filterSkillsForSpecialAction(skills, legality) {
+  if (!legality) return Array.isArray(skills) ? skills : [];
+  const allowed = legality.allowedSet;
+  if (!(allowed instanceof Set) || allowed.size === 0) return [];
+  return (Array.isArray(skills) ? skills : []).filter(s => allowed.has(String(s?.uuid ?? "").trim()));
+}
+
+function _isSpecialActionSelectionLegal(decl, legality) {
+  if (!legality) return true;
+  const selectedUuid = String(decl?.skillUuid ?? "").trim();
+  return Boolean(selectedUuid && legality.allowedSet.has(selectedUuid));
+}
 
 async function _maybeResolveBothCritSuccessRollOff({ message, data, attacker, defender } = {}) {
   if (!message || !data || !attacker || !defender) return;
@@ -599,6 +664,8 @@ if (!authorUser) return;
         tn: null,
         declared: null
       },
+      specialActionId: cfg.specialActionId ?? null,
+      specialActionContext: cfg.specialActionContext ?? null,
       outcome: null
     };
 
@@ -610,7 +677,7 @@ if (!authorUser) return;
       style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
 
-    await message.update({ content: _renderCard(data, message.id) });
+    await safeUpdateChatMessage(message, { content: _renderCard(data, message.id) });
     return message;
   },
 
@@ -675,18 +742,36 @@ if (!authorUser) return;
       
       // Always respect allowCombatStyle from state (default to true for universal access)
       const allowCombatStyle = Boolean(data?.allowCombatStyle ?? true);
-      
-      const skills = _listSkills(attacker, { allowCombatStyle });
+
+      const baseSkills = _listSkills(attacker, { allowCombatStyle });
+      const specialLegality = _getSpecialActionLegalityForSide(data, attacker, "attacker");
+      const skills = _filterSkillsForSpecialAction(baseSkills, specialLegality);
       if (!skills.length) {
+        if (specialLegality) {
+          ui.notifications.warn("No legal test options are available for this Special Action.");
+          return;
+        }
         ui.notifications.warn("Actor has no skills to roll.");
         return;
       }
 
       const last = _getLastSkillRollOptions();
       const perActorLastSkill = last?.lastSkillUuidByActor?.[attacker.uuid] ?? null;
-      const selectedSkillUuid = data.attacker.skillUuid ?? perActorLastSkill ?? skills[0].uuid;
+      const preferredAttackerSkill = String(data.attacker.skillUuid ?? "").trim();
+      const preferredLastSkill = String(perActorLastSkill ?? "").trim();
+      const selectedSkillUuid = (
+        skills.find(s => String(s?.uuid ?? "") === preferredAttackerSkill)?.uuid
+        ?? skills.find(s => String(s?.uuid ?? "") === preferredLastSkill)?.uuid
+        ?? skills[0].uuid
+      );
 
-      const defaults = normalizeSkillRollOptions(last, { difficultyKey: "average", manualMod: 0, useSpec: false });
+      const defaultCharacteristic = _defaultSelectedCharacteristicForSkill(skills, selectedSkillUuid);
+      const defaults = normalizeSkillRollOptions(last, {
+        difficultyKey: "average",
+        manualMod: 0,
+        useSpec: false,
+        selectedCharacteristicKey: defaultCharacteristic
+      });
 
       let decl = null;
       const quick = Boolean(event?.shiftKey) && game.settings.get("uesrpg-3ev4", "skillRollQuickShift");
@@ -708,6 +793,7 @@ if (!authorUser) return;
           decl = await _skillRollDialog({
             title: "Opposed Skill Test — Attacker",
             actor: attacker,
+            showSkillSelect: (!data.attacker.skillUuid || Boolean(specialLegality)),
             skills,
             selectedSkillUuid,
             allowSpecialization: Boolean(skills.find(s => String(s?.uuid ?? "") === String(selectedSkillUuid ?? ""))?.hasSpec),
@@ -715,13 +801,18 @@ if (!authorUser) return;
             defaultDifficultyKey: defaults.difficultyKey,
             defaultManualMod: defaults.manualMod,
             defaultApplyBlinded: (defaults.applyBlinded ?? true),
-            defaultApplyDeafened: (defaults.applyDeafened ?? true)
+            defaultApplyDeafened: (defaults.applyDeafened ?? true),
+            defaultSelectedCharacteristicKey: defaults.selectedCharacteristicKey
           });
         }
         if (!decl) return;
 
         // Normalize + clamp UI inputs.
         decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
+        if (!_isSpecialActionSelectionLegal(decl, specialLegality)) {
+          ui.notifications.warn("Selected test is not legal for this Special Action.");
+          return;
+        }
 
         // Bank choices into the parent card; do not roll until both sides have committed.
         // Re-read fresh state to prevent stale-snapshot overwrites when both sides commit
@@ -748,6 +839,10 @@ if (!authorUser) return;
 
       // Normalize + clamp UI inputs.
       decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
+      if (!_isSpecialActionSelectionLegal(decl, specialLegality)) {
+        ui.notifications.warn("Selected test is not legal for this Special Action.");
+        return;
+      }
 
       const resMods = buildResistanceBonusMods(decl?.resistanceSelected ?? []);
 
@@ -764,7 +859,6 @@ if (!authorUser) return;
       
       if (resolved.type === "combatStyle") {
         // Combat Style roll
-        const { computeTN } = await import("../combat/tn.js");
         const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
         
@@ -779,7 +873,6 @@ if (!authorUser) return;
         skillItem = null; // Combat Style doesn't use skillItem
       } else if (resolved.type === "profession" && resolved.professionKey === "combat") {
         // NPC Combat profession
-        const { computeTN } = await import("../combat/tn.js");
         const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
         
@@ -804,6 +897,7 @@ if (!authorUser) return;
           skillItem,
           difficultyKey: decl.difficultyKey,
           manualMod: decl.manualMod,
+          selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
           situationalMods
         });
         skillLabel = resolved.name;
@@ -819,6 +913,7 @@ if (!authorUser) return;
           skillItem,
           difficultyKey: decl.difficultyKey,
           manualMod: decl.manualMod,
+          selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
           situationalMods
         });
         skillLabel = resolved.name;
@@ -841,6 +936,7 @@ if (!authorUser) return;
           skillItem,
           difficultyKey: decl.difficultyKey,
           manualMod: decl.manualMod,
+          selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
           useSpecialization: allowSpec && decl.useSpec,
           situationalMods
         });
@@ -851,7 +947,14 @@ if (!authorUser) return;
         actor: attacker,
         skillItem,
         targetToken: dToken,
-        options: { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec), applyBlinded: Boolean(decl.applyBlinded), applyDeafened: Boolean(decl.applyDeafened) },
+        options: {
+          difficultyKey: decl.difficultyKey,
+          manualMod: decl.manualMod,
+          useSpec: Boolean(decl.useSpec),
+          selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
+          applyBlinded: Boolean(decl.applyBlinded),
+          applyDeafened: Boolean(decl.applyDeafened)
+        },
         context: { source: "chat", quick, messageId: message.id, groupId: data.context?.groupId ?? null }
       }) : null;
       
@@ -867,12 +970,20 @@ if (!authorUser) return;
 
       data.attacker.skillUuid = decl.skillUuid;
       data.attacker.skillLabel = skillLabel;
-      data.attacker.declared = { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec), isInterrogationTest: Boolean(decl?.isInterrogationTest), histskinUnderwater: Boolean(decl?.histskinUnderwater) };
+      data.attacker.declared = {
+        difficultyKey: decl.difficultyKey,
+        manualMod: decl.manualMod,
+        useSpec: Boolean(decl.useSpec),
+        selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
+        isInterrogationTest: Boolean(decl?.isInterrogationTest),
+        histskinUnderwater: Boolean(decl?.histskinUnderwater)
+      };
       
       await _setLastSkillRollOptions(_mergeLastSkillRollOptions({
         difficultyKey: decl.difficultyKey,
         manualMod: decl.manualMod,
         useSpec: Boolean(decl.useSpec),
+        selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
         lastSkillUuidByActor: { [attacker.uuid]: decl.skillUuid }
       }));
 
@@ -1037,9 +1148,15 @@ if (!authorUser) return;
       
       // Always respect allowCombatStyle from state (default to true for universal access)
       const allowCombatStyle = Boolean(data?.allowCombatStyle ?? true);
-      
-      const skills = _listSkills(defender, { allowCombatStyle });
+
+      const baseSkills = _listSkills(defender, { allowCombatStyle });
+      const specialLegality = _getSpecialActionLegalityForSide(data, defender, "defender");
+      const skills = _filterSkillsForSpecialAction(baseSkills, specialLegality);
       if (!skills.length) {
+        if (specialLegality) {
+          ui.notifications.warn("No legal test options are available for this Special Action.");
+          return;
+        }
         ui.notifications.warn("Target actor has no skills to roll.");
         return;
       }
@@ -1051,9 +1168,22 @@ if (!authorUser) return;
       const lockedSkillUuid = data.defender.skillUuid;
       const wantedName = String(data.attacker.skillLabel ?? "").trim().toLowerCase();
       const sameName = skills.find(s => String(s.name).trim().toLowerCase() === wantedName) ?? null;
-      const selectedSkillUuid = lockedSkillUuid ?? sameName?.uuid ?? perActorLastSkill ?? skills[0].uuid;
+      const preferredLockedSkill = String(lockedSkillUuid ?? "").trim();
+      const preferredLastSkill = String(perActorLastSkill ?? "").trim();
+      const selectedSkillUuid = (
+        skills.find(s => String(s?.uuid ?? "") === preferredLockedSkill)?.uuid
+        ?? sameName?.uuid
+        ?? skills.find(s => String(s?.uuid ?? "") === preferredLastSkill)?.uuid
+        ?? skills[0].uuid
+      );
 
-      const defaults = normalizeSkillRollOptions(last, { difficultyKey: "average", manualMod: 0, useSpec: false });
+      const defaultCharacteristic = _defaultSelectedCharacteristicForSkill(skills, selectedSkillUuid);
+      const defaults = normalizeSkillRollOptions(last, {
+        difficultyKey: "average",
+        manualMod: 0,
+        useSpec: false,
+        selectedCharacteristicKey: defaultCharacteristic
+      });
 
       let decl = null;
       const quick = Boolean(event?.shiftKey) && game.settings.get("uesrpg-3ev4", "skillRollQuickShift");
@@ -1066,7 +1196,16 @@ if (!authorUser) return;
         }
       } else {
         if (quick) {
-          decl = { skillUuid: selectedSkillUuid, difficultyKey: defaults.difficultyKey, manualMod: defaults.manualMod, useSpec: defaults.useSpec, applyBlinded: (defaults.applyBlinded ?? true), applyDeafened: (defaults.applyDeafened ?? true), isInterrogationTest: false };
+          decl = {
+            skillUuid: selectedSkillUuid,
+            difficultyKey: defaults.difficultyKey,
+            manualMod: defaults.manualMod,
+            useSpec: defaults.useSpec,
+            selectedCharacteristicKey: defaults.selectedCharacteristicKey ?? defaultCharacteristic,
+            applyBlinded: (defaults.applyBlinded ?? true),
+            applyDeafened: (defaults.applyDeafened ?? true),
+            isInterrogationTest: false
+          };
         } else {
           // Always show skill selection dropdown (removed pre-choice dialog dependency)
           decl = await _skillRollDialog({
@@ -1080,13 +1219,18 @@ if (!authorUser) return;
             defaultDifficultyKey: defaults.difficultyKey,
             defaultManualMod: defaults.manualMod,
             defaultApplyBlinded: (defaults.applyBlinded ?? true),
-            defaultApplyDeafened: (defaults.applyDeafened ?? true)
+            defaultApplyDeafened: (defaults.applyDeafened ?? true),
+            defaultSelectedCharacteristicKey: defaults.selectedCharacteristicKey
           });
         }
         if (!decl) return;
 
         // Normalize + clamp UI inputs.
         decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
+        if (!_isSpecialActionSelectionLegal(decl, specialLegality)) {
+          ui.notifications.warn("Selected test is not legal for this Special Action.");
+          return;
+        }
 
         // Bank choices into the parent card; do not roll until both sides have committed.
         // Re-read fresh state to prevent stale-snapshot overwrites when both sides commit
@@ -1113,6 +1257,10 @@ if (!authorUser) return;
 
       // Normalize + clamp UI inputs.
       decl = { ...decl, ...normalizeSkillRollOptions(decl, defaults) };
+      if (!_isSpecialActionSelectionLegal(decl, specialLegality)) {
+        ui.notifications.warn("Selected test is not legal for this Special Action.");
+        return;
+      }
 
       const resMods = buildResistanceBonusMods(decl?.resistanceSelected ?? []);
 
@@ -1129,7 +1277,6 @@ if (!authorUser) return;
       
       if (resolved.type === "combatStyle") {
         // Combat Style roll
-        const { computeTN } = await import("../combat/tn.js");
         const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
         
         tn = computeTN({
@@ -1144,7 +1291,6 @@ if (!authorUser) return;
         defSkill = null; // Combat Style doesn't use skillItem
       } else if (resolved.type === "profession" && resolved.professionKey === "combat") {
         // NPC Combat profession
-        const { computeTN } = await import("../combat/tn.js");
         const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
         
         tn = computeTN({
@@ -1169,6 +1315,7 @@ if (!authorUser) return;
           skillItem: defSkill,
           difficultyKey: decl.difficultyKey,
           manualMod: decl.manualMod,
+          selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
           situationalMods
         });
         skillLabel = resolved.name;
@@ -1183,6 +1330,7 @@ if (!authorUser) return;
           skillItem: defSkill,
           difficultyKey: decl.difficultyKey,
           manualMod: decl.manualMod,
+          selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
           situationalMods
         });
         skillLabel = resolved.name;
@@ -1200,6 +1348,7 @@ if (!authorUser) return;
           skillItem: defSkill,
           difficultyKey: decl.difficultyKey,
           manualMod: decl.manualMod,
+          selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
           useSpecialization: allowSpec && decl.useSpec,
           situationalMods
         });
@@ -1210,7 +1359,14 @@ if (!authorUser) return;
         actor: defender,
         skillItem: defSkill,
         targetToken: aToken,
-        options: { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec), applyBlinded: Boolean(decl.applyBlinded), applyDeafened: Boolean(decl.applyDeafened) },
+        options: {
+          difficultyKey: decl.difficultyKey,
+          manualMod: decl.manualMod,
+          useSpec: Boolean(decl.useSpec),
+          selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
+          applyBlinded: Boolean(decl.applyBlinded),
+          applyDeafened: Boolean(decl.applyDeafened)
+        },
         context: { source: "chat", quick, messageId: message.id, groupId: data.context?.groupId ?? null }
       }) : null;
       
@@ -1226,12 +1382,20 @@ if (!authorUser) return;
 
       data.defender.skillUuid = decl.skillUuid;
       data.defender.skillLabel = skillLabel;
-      data.defender.declared = { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec), isInterrogationTest: Boolean(decl?.isInterrogationTest), histskinUnderwater: Boolean(decl?.histskinUnderwater) };
+      data.defender.declared = {
+        difficultyKey: decl.difficultyKey,
+        manualMod: decl.manualMod,
+        useSpec: Boolean(decl.useSpec),
+        selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
+        isInterrogationTest: Boolean(decl?.isInterrogationTest),
+        histskinUnderwater: Boolean(decl?.histskinUnderwater)
+      };
       
       await _setLastSkillRollOptions(_mergeLastSkillRollOptions({
         difficultyKey: decl.difficultyKey,
         manualMod: decl.manualMod,
         useSpec: Boolean(decl.useSpec),
+        selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
         lastSkillUuidByActor: { [defender.uuid]: decl.skillUuid }
       }));
 
@@ -1398,5 +1562,5 @@ if (!authorUser) return;
 
 // Helpful global for macros
 window.UesrpgSkillOpposed = window.UesrpgSkillOpposed || {};
-window.UesrpgSkillOpposed.createPending = window.UesrpgSkillOpposed.createPending || SkillOpposedWorkflow.createPending;
-window.UesrpgSkillOpposed.handleAction = window.UesrpgSkillOpposed.handleAction || SkillOpposedWorkflow.handleAction;
+window.UesrpgSkillOpposed.createPending = window.UesrpgSkillOpposed.createPending || SkillOpposedWorkflow.createPending.bind(SkillOpposedWorkflow);
+window.UesrpgSkillOpposed.handleAction = window.UesrpgSkillOpposed.handleAction || SkillOpposedWorkflow.handleAction.bind(SkillOpposedWorkflow);

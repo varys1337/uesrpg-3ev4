@@ -48,6 +48,6 @@ export async function cachedEnrichHTML(owner, cacheKey, rawText, enrichFn) {
  *
  * @param {object} owner - Sheet instance whose cache should be cleared.
  */
-export function invalidateEnrichCache(owner) {
+function invalidateEnrichCache(owner) {
   if (owner) _sheetCaches.delete(owner);
 }

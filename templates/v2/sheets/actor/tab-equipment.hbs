@@ -1,0 +1,310 @@
+            <div class="tab equipment" data-group="primary" data-tab="equipment">
+                <div class="equipmentTabContainer">
+                    <div class="itemListContainer">
+                        <div class="tableListHeader">
+                            <div class="equipment-info-container">
+                                <div class="wealthContainer uesrpg-panel">
+                                    <div class="section-header"><span class="section-header__label">Wealth</span></div>
+                                    <input type="number" name="system.wealth" value="{{actor.system.wealth}}">
+                                    <button type="button" data-action="wealthCalc" class="wealthCalc">Add/Subtract</button>
+                                </div>
+                                <div class="encContainer uesrpg-panel">
+                                    <div class="section-header"><span class="section-header__label">Encumbrance</span></div>
+                                    <div class="encLabel">{{actor.system.carry_rating.current}} / {{actor.system.carry_rating.max}} ENC</div>
+                                    <button type="button" data-action="carryBonus" class="carryBonus">Set Carry Bonus</button>
+                                </div>
+                            </div>
+
+                            <div class="uesrpg-item-tools">
+                                <div class="uesrpg-item-search">
+                                    <input type="text" id="uesrpg-item-search" placeholder="Search items..." autocomplete="off">
+                                </div>
+
+                                {{#if sheetUi.enableLoadouts}}
+                                    <div class="uesrpg-loadouts" data-actor-id="{{actor._id}}">
+                                        <label>Loadout</label>
+                                        <select id="uesrpg-loadout-select">
+                                            <option value="">—</option>
+                                            {{#each sheetUi.loadouts as |l id|}}
+                                                <option value="{{l.id}}">{{l.name}}</option>
+                                            {{/each}}
+                                        </select>
+                                        <button type="button" data-action="loadoutSave" class="uesrpg-loadout-save">Save Current</button>
+                                        <button type="button" data-action="loadoutApply" class="uesrpg-loadout-apply">Apply</button>
+                                        <button type="button" data-action="loadoutDelete" class="uesrpg-loadout-delete" title="Delete"><i class="fas fa-trash"></i></button>
+                                    </div>
+                                {{/if}}
+                            </div>
+                        </div>
+
+                        <div class="containerList">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="container"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="containers" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Container</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th title="ENC Value of the empty container / ENC Value applied to carry limit">ENC</th>
+                                        <th>Capacity</th>
+                                        <th>Item Count</th>
+                                        <th><i class="fas fa-trash"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each actor.container as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="tableItemNameCell">
+                                                    <div class="qty-controls">
+                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    </div>
+                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td title="Container's own ENC">{{item.system.enc}}</td>
+                                            <td>{{item.system.container_enc.current}}/{{item.system.container_enc.max}}</td>
+                                            <td>{{item.system.container_enc.item_count}}</td>
+                                            <td>
+                                                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                            </td>
+                                        </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="equipmentList">
+
+                            <table class="weapon-table">
+                                <thead>
+                                    <tr>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="weapon"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="weapons" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Weapons</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th>Damage</th>
+                                        <th>Reach/Range</th>
+                                        <th>2H</th>
+                                        <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each actor.weapon.equipped as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="flex-container">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <i data-action="damageRoll" class="fas fa-dice-d20 damage-roll"></i>
+                                                    <img class="item-img" src="{{item.img}}">
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td class="damage-entry">{{item.system.damage3}}</td>
+                                            <td>
+                                                {{#if (eq item.system.attackMode "ranged")}}
+                                                    {{item.system.range}}
+                                                {{else}}
+                                                    {{item.system.reach}}
+                                                {{/if}}
+                                            </td>
+                                            <td><input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage"></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                        </tr>
+                                    {{/each}}
+                                    {{#each actor.weapon.unequipped as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="flex-container">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <i data-action="damageRoll" class="fas fa-dice-d20 damage-roll"></i>
+                                                    <img class="item-img" src="{{item.img}}">
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td class="damage-entry">{{item.system.damage3}}</td>
+                                            <td>
+                                                {{#if (eq item.system.attackMode "ranged")}}
+                                                    {{item.system.range}}
+                                                {{else}}
+                                                    {{item.system.reach}}
+                                                {{/if}}
+                                            </td>
+                                            <td><input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage"></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                        </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+
+                            <table class="ammunition-table">
+                                <thead>
+                                    <tr>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="ammunition"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="ammunition" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Ammunition</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th>Bonus</th>
+                                        <th>Qty</th>
+                                        <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each actor.ammunition.equipped as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="flex-container">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <i data-action="ammoRoll" class="fas fa-dice-d20 ammo-roll"></i>
+                                                    <img class="item-img" src="{{item.img}}">
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td>{{item.system.damage}}</td>
+                                            <td><button type="button" data-action="plusQty" class="minusQty plusQty" title="Click to Increase, right-click to decrease">{{item.system.quantity}}</button></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                        </tr>
+                                    {{/each}}
+                                    {{#each actor.ammunition.unequipped as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="flex-container">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <i data-action="ammoRoll" class="fas fa-dice-d20 ammo-roll"></i>
+                                                    <img class="item-img" src="{{item.img}}">
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td>{{item.system.damage}}</td>
+                                            <td><button type="button" data-action="plusQty" class="minusQty plusQty" title="Click to Increase, right-click to decrease">{{item.system.quantity}}</button></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                        </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+
+                            <table class="armor-table">
+                                <thead>
+                                    <tr>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="armor" data-alt-type="item"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="armor" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Armor</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th>AR</th>
+                                        <th>MR</th>
+                                        <th>BR</th>
+                                        <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each actor.armor.equipped as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="flex-container">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <img class="item-img" src="{{item.img}}">
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
+                                            <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
+                                            <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                        </tr>
+                                    {{/each}}
+                                    {{#each actor.armor.unequipped as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="flex-container">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <img class="item-img" src="{{item.img}}">
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
+                                            <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
+                                            <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                        </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="createSelect"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="gear" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Item</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th>Qty</th>
+                                        <th>ENC</th>
+                                        <th>Price</th>
+                                        <th><i class="fas fa-trash"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each actor.gear.equipped as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="tableItemNameCell">
+                                                    <div class="qty-controls">
+                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    </div>
+                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <button type="button" data-action="plusQty" class="minusQty plusQty" title="Click to increase, right click to decrease">
+                                                    <div>{{item.system.quantity}}</div>
+                                                </button>
+                                            </td>
+                                            <td>{{item.system.enc}}</td>
+                                            <td>{{item.system.price}}</td>
+                                            <td>
+                                                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                            </td>
+                                        </tr>
+                                    {{/each}}
+                                    {{#each actor.gear.unequipped as |item id|}}
+                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="tableItemNameCell">
+                                                    <div class="qty-controls">
+                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    </div>
+                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <button type="button" data-action="plusQty" class="minusQty plusQty" title="Click to increase, right click to decrease">
+                                                    <div>{{item.system.quantity}}</div>
+                                                </button>
+                                            </td>
+                                            <td>{{item.system.enc}}</td>
+                                            <td>{{item.system.price}}</td>
+                                            <td>
+                                                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                            </td>
+                                        </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+

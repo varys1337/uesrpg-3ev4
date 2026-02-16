@@ -14,6 +14,8 @@
  * - Miscellaneous helpers
  */
 
+import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
+
 import { applySenseLossPenaltyAdjustments } from "../../../traits/awareness-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { anyOtherTokensInMeleeOfEither, getMeleeReachMeters } from "../../../traits/combat-proximity.js";
@@ -24,6 +26,7 @@ import { normalizeDiceExpression } from "../rolls.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { gateRangedAttackAmmoAndLoad } from "../damage/ranged-ammo-gate.js";
 import { isDebugEnabled } from "../../../../utils/debug.js";
+import { _resolveItemViaActor } from "./docs.js";
 
 /**
  * Collect sensory situational modifiers for attacker (blinded/deafened).
@@ -135,34 +138,6 @@ export function weaponHasQuality(weapon, qualityKey, { allowLegacy = true } = {}
 }
 
 /**
- * Check if weapon has trait text (legacy fallback).
- */
-export function weaponHasTraitText(weapon, traitKey) {
-  const target = normalizeKey(traitKey);
-  if (!target) return false;
-  const raw = String(weapon?.system?.qualities ?? "");
-  if (!raw) return false;
-
-  const text = raw
-    .replace(/@Compendium\[[^\]]+\]\{([^}]+)\}/g, "$1")
-    .replace(/@UUID\[[^\]]+\]\{([^}]+)\}/g, "$1")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const tokens = text
-    .split(/[^A-Za-z0-9]+/)
-    .map(t => normalizeKey(t))
-    .filter(Boolean);
-
-  if (tokens.includes(target)) return true;
-
-  // Last resort substring for edge-case legacy exports.
-  const legacy = normalizeKey(text);
-  return !!(legacy && legacy.includes(target));
-}
-
-/**
  * Parse range triplet (e.g. "2/3/4" -> {close, effective, long}).
  */
 export function parseRangeTriplet(text) {
@@ -211,25 +186,14 @@ export function measurePointDistance(a, b) {
  * Prompt user for yes/no confirmation.
  */
 export async function promptYesNo({ title, content, yesLabel = "Yes", noLabel = "No" } = {}) {
-  return new Promise(resolve => {
-    const dlg = new Dialog({
-      title: title ?? "Confirm",
-      content: `<div style="min-width:340px;">${content ?? ""}</div>`,
-      buttons: {
-        yes: {
-          label: yesLabel,
-          callback: () => resolve(true)
-        },
-        no: {
-          label: noLabel,
-          callback: () => resolve(false)
-        }
-      },
-      default: "no",
-      close: () => resolve(false)
-    });
-    dlg.render(true);
+  const result = await confirmDialog({
+    title: title ?? "Confirm",
+    content: `<div style="min-width:340px;">${content ?? ""}</div>`,
+    yesLabel,
+    noLabel,
   });
+  // confirmDialog returns true/false/null; coerce null (close) to false for callers
+  return result === true;
 }
 
 /**
@@ -249,28 +213,21 @@ export async function promptSelectToken({ title, prompt, tokens = [] } = {}) {
       <select name="tokenId" style="width:100%;">${options}</select>
     </div>`;
 
-  return new Promise(resolve => {
-    const dlg = new Dialog({
-      title: title ?? "Select Target",
-      content,
-      buttons: {
-        ok: {
-          label: "OK",
-          callback: html => {
-            const tokenId = html?.find?.("select[name='tokenId']")?.val?.() ?? null;
-            const token = choices.find(t => t.id === tokenId) ?? null;
-            resolve(token);
-          }
-        },
-        cancel: {
-          label: "Cancel",
-          callback: () => resolve(null)
+  return customDialog({
+    title: title ?? "Select Target",
+    content,
+    buttons: {
+      ok: {
+        label: "OK",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const tokenId = root?.querySelector("select[name='tokenId']")?.value ?? null;
+          return choices.find(t => t.id === tokenId) ?? null;
         }
       },
-      default: "ok",
-      close: () => resolve(null)
-    });
-    dlg.render(true);
+      cancel: { label: "Cancel", callback: () => null }
+    },
+    defaultButton: "ok",
   });
 }
 
@@ -404,7 +361,7 @@ export async function preConsumeAttackAmmo(attacker, data) {
     const weaponUuid = String(data?.context?.weaponUuid ?? "") || getPreferredWeaponUuid(attacker, { meleeOnly: false }) || "";
     if (!weaponUuid) return true;
 
-    const weapon = await fromUuid(weaponUuid);
+    const weapon = _resolveItemViaActor(weaponUuid, attacker);
     if (!weapon || weapon.type !== "weapon") return true;
 
     // Do not consume ammunition for thrown attacks.
@@ -535,14 +492,12 @@ export function canControlActor(actor) {
  * Prompt for AoE evade escape (1m move).
  */
 export async function promptAoEEvadeEscape({ defenderName = "Defender", attackLabel = "the attack" } = {}) {
-  if (typeof Dialog?.confirm !== "function") return null;
   try {
-    return await Dialog.confirm({
+    return await confirmDialog({
       title: "AoE Evade",
       content: `<p>${defenderName} successfully evaded ${attackLabel}. Can they move 1m to exit the area?</p>`,
-      yes: "Escapes AoE",
-      no: "Still in AoE",
-      defaultYes: true
+      yesLabel: "Escapes AoE",
+      noLabel: "Still in AoE",
     });
   } catch (_e) {
     return null;
@@ -651,7 +606,7 @@ export async function getDefenseGatingContext({ attacker, defender, data }) {
   try {
     const wUuid = String(data?.context?.weaponUuid ?? '').trim() || getPreferredWeaponUuid(attacker, { meleeOnly: false });
     if (wUuid) {
-      const w = await fromUuid(wUuid);
+      const w = _resolveItemViaActor(wUuid, attacker);
       if (w?.type === 'weapon') {
         attackerWeaponTraits.flail = weaponHasQuality(w, 'flail', { allowLegacy: false });
         attackerWeaponTraits.entangling = weaponHasQuality(w, 'entangling');
@@ -771,7 +726,7 @@ export async function inferAttackModeFromPreferredWeapon(actor) {
     const weaponUuid = getPreferredWeaponUuid(actor, { meleeOnly: false }) || "";
     if (!weaponUuid) return "melee";
 
-    const weapon = await fromUuid(weaponUuid);
+    const weapon = _resolveItemViaActor(weaponUuid, actor);
     if (!weapon || weapon.type !== "weapon") return "melee";
 
     const mode = String(weapon.system?.attackMode ?? weapon.system?.weaponType ?? weapon.system?.type ?? "").toLowerCase();

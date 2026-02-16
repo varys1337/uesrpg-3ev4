@@ -6,11 +6,15 @@
     "src/system.js"
   ],
   "styles": [
+    "styles/tokens.css",
+    "styles/components.css",
     "styles/main.css",
     "styles/stamina-dialog.css",
     "styles/spell-sheet-compact.css",
+    "styles/item-sheet-compact.css",
     "styles/group-sheet.css",
-    "styles/feature-inspector.css"
+    "styles/feature-inspector.css",
+    "styles/character-menus.css"
   ],
   "packs": [
     {

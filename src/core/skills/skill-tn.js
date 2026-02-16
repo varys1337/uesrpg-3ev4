@@ -202,6 +202,7 @@ export function computeSkillTN({
   skillItem,
   difficultyKey = "average",
   manualMod = 0,
+  selectedCharacteristicKey = null,
   useSpecialization = false,
   situationalMods = []
 } = {}) {
@@ -274,6 +275,7 @@ export function computeSkillTN({
     })(),
     difficultyKey,
     manualMod,
+    selectedCharacteristicKey,
     useSpecialization,
     situationalMods: [...situational, ...fallbackSituational]
   });
@@ -282,7 +284,7 @@ export function computeSkillTN({
 /**
  * Pure TN computation operating on plain data objects (no document access).
  */
-export function computeSkillTNFromData({
+function computeSkillTNFromData({
   actor = null,
   actorSystem = {},
   actorType = null,
@@ -293,6 +295,7 @@ export function computeSkillTNFromData({
   combatTNBonuses = null,
   difficultyKey = "average",
   manualMod = 0,
+  selectedCharacteristicKey = null,
   useSpecialization = false,
   situationalMods = []
 } = {}) {
@@ -303,7 +306,54 @@ export function computeSkillTNFromData({
   // In UESRPG, the stored skill value represents the rank-derived bonus (and any legacy item-derived parts).
   // For characteristics, this is the characteristic total.
   // In chat cards, present this as "Rank" for skills or the characteristic name for char tests.
-  const baseSkill = _asNumber(skill?.system?.value);
+  const baseSkillRaw = _asNumber(skill?.system?.value);
+  const needsRuntimeFatigueWound = (skill?.type === "profession" || skill?.type === "characteristic");
+  let baseSkill = baseSkillRaw;
+
+  // Chapter 3: many skills allow choosing a governing characteristic per test.
+  // Stored `system.value` is derived from the currently selected base characteristic.
+  // For per-roll selection, swap old characteristic contribution with the selected one.
+  const selectedCharKey = String(selectedCharacteristicKey ?? "").trim().toLowerCase();
+  const currentBaseCharKey = String(skill?.system?.baseCha ?? "").trim().toLowerCase();
+  const governingRaw = String(skill?.system?.governingCha ?? "");
+  const governingTokens = new Set(
+    governingRaw
+      .split(/[,\n/]+/)
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean)
+      .map(s => {
+        switch (s) {
+          case "strength": return "str";
+          case "endurance": return "end";
+          case "agility": return "agi";
+          case "intelligence": return "int";
+          case "willpower": return "wp";
+          case "perception": return "prc";
+          case "personality": return "prs";
+          case "luck": return "lck";
+          default: return s;
+        }
+      })
+  );
+  if (
+    selectedCharKey &&
+    selectedCharKey !== currentBaseCharKey &&
+    ["skill", "magicSkill", "combatStyle"].includes(String(skill?.type ?? "")) &&
+    governingTokens.has(selectedCharKey)
+  ) {
+    const oldTotal = _asNumber(actorSystem?.characteristics?.[currentBaseCharKey]?.total ?? 0);
+    const newTotal = _asNumber(actorSystem?.characteristics?.[selectedCharKey]?.total ?? 0);
+    const delta = newTotal - oldTotal;
+    if (delta !== 0) {
+      baseSkill = baseSkillRaw + delta;
+      breakdown.push({
+        label: `Characteristic (${selectedCharKey.toUpperCase()})`,
+        value: delta,
+        source: "characteristicSelection"
+      });
+    }
+  }
+
   breakdown.push({ label: isCharacteristic ? (skill?.name ?? "Characteristic") : "Rank", value: baseSkill, source: isCharacteristic ? "characteristic" : "rank" });
 
   // Active Effects: skill-specific and global modifiers.
@@ -413,7 +463,7 @@ export function computeSkillTNFromData({
     }
   }
 
-  const fatigue = _asNumber(actorSystem?.fatigue?.penalty);
+  const fatigue = needsRuntimeFatigueWound ? _asNumber(actorSystem?.fatigue?.penalty) : 0;
   if (fatigue) breakdown.push({ label: "Fatigue", value: fatigue, source: "fatigue" });
 
   const enc = _asNumber(actorSystem?.carry_rating?.penalty);
@@ -444,7 +494,7 @@ export function computeSkillTNFromData({
     if (aa > 0) breakdown.push({ label: "Talent: Armored Agility", value: aa, source: "talentArmoredAgility" });
   }
 
-  const woundedPenalty = (actorSystem?.wounded)
+  const woundedPenalty = (needsRuntimeFatigueWound && actorSystem?.wounded)
     ? _asNumber(actorSystem?.woundPenalty)
     : 0;
   if (woundedPenalty) breakdown.push({ label: "Wounded", value: woundedPenalty, source: "wounded" });
@@ -458,7 +508,8 @@ export function computeSkillTNFromData({
   if (diff?.mod) breakdown.push({ label: `Difficulty: ${diff.label}`, value: diff.mod, source: "difficulty" });
 
   // Specialization (RAW Chapter 3): +10 when applicable.
-  const specBonus = useSpecialization ? 10 : 0;
+  const isEvade = String(skill?.name ?? "").trim().toLowerCase() === "evade";
+  const specBonus = (useSpecialization && !isEvade) ? 10 : 0;
   if (specBonus) breakdown.push({ label: "Specialization", value: specBonus, source: "specialization" });
 
   // Situational modifiers (e.g., sensory impairment toggles in opposed workflows).

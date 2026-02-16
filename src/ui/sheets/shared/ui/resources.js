@@ -1,129 +1,134 @@
 /**
  * Resource management helpers for actor sheets (HP, AP, fatigue, rest).
  * 
- * Foundry VTT v13 / AppV1-compatible. No schema changes.
+ * Shared across actor sheet modules. No schema changes.
  */
 
 import { applyShortRest, applyLongRest, buildRestChatContent } from "../../rest-workflow.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 
 /**
  * Increment resource handler.
  * 
- * @param {SimpleActorSheet} sheet - The actor sheet instance
  * @param {Event} event - The increment event
+ * @param {HTMLElement} target - The action target element
  * @returns {Promise<void>}
  */
-export async function onIncrementResource(sheet, event) {
+export const onIncrementResource = asyncGuardSheet(async function onIncrementResource(event, target) {
   event.preventDefault();
-  const resource = sheet.actor.system[event.currentTarget.dataset.resource];
-  const action = event.currentTarget.dataset.action;
-  let dataPath = `system.${event.currentTarget.dataset.resource}.value`;
+  const el = target ?? event.currentTarget;
+  const resource = this.actor.system[el.dataset.resource];
+  const action = el.dataset.direction;
+  let dataPath = `system.${el.dataset.resource}.value`;
 
   // Update and increment resource
   action == "increase"
-    ? await requestUpdateDocument(sheet.actor, { [dataPath]: resource.value + 1 })
-    : await requestUpdateDocument(sheet.actor, { [dataPath]: resource.value - 1 });
-}
+    ? await requestUpdateDocument(this.actor, { [dataPath]: resource.value + 1 })
+    : await requestUpdateDocument(this.actor, { [dataPath]: resource.value - 1 });
+});
 
 /**
  * Reset/restore resource handler.
  * 
- * @param {SimpleActorSheet} sheet - The actor sheet instance
  * @param {Event} event - The reset event
+ * @param {HTMLElement} target - The action target element
  * @returns {Promise<void>}
  */
-export async function onResetResource(sheet, event) {
+export const onResetResource = asyncGuardSheet(async function onResetResource(event, target) {
   event.preventDefault();
-  const resourceLabel = event.currentTarget?.dataset?.resource;
+  const el = target ?? event.currentTarget;
+  const resourceLabel = el?.dataset?.resource;
   if (!resourceLabel) return;
-  const resource = sheet.actor.system?.[resourceLabel];
+  const resource = this.actor.system?.[resourceLabel];
   if (!resource || typeof resource.max !== "number") return;
   const dataPath = `system.${resourceLabel}.value`;
-  return requestUpdateDocument(sheet.actor, { [dataPath]: resource.max });
-}
+  return requestUpdateDocument(this.actor, { [dataPath]: resource.max });
+});
 
 /**
  * Short rest handler.
  * 
- * @param {SimpleActorSheet} sheet - The actor sheet instance
  * @param {Event} event - The rest event
+ * @param {HTMLElement} target - The action target element
  * @returns {Promise<void>}
  */
-export async function onShortRest(sheet, event) {
+export const onShortRest = asyncGuardSheet(async function onShortRest(event, target) {
   event.preventDefault();
-  if (!sheet.actor) return;
-  if (!sheet.actor.isOwner && !game.user.isGM) {
+  if (!this.actor) return;
+  if (!this.actor.isOwner && !game.user.isGM) {
     ui.notifications.warn("You do not have permission to rest this actor.");
     return;
   }
 
-  const { line } = await applyShortRest(sheet.actor);
+  const { line } = await applyShortRest(this.actor);
   const content = buildRestChatContent("Short Rest (1 hour)", [line]);
 
   await ChatMessage.create({
     user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor: sheet.actor }),
-    content
+    speaker: ChatMessage.getSpeaker({ actor: this.actor }),
+    content,
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
 
-  await sheet.render(false);
+  await this.render(false);
   ui.notifications.info("Short rest completed.");
-}
+});
 
 /**
  * Long rest handler.
  * 
- * @param {SimpleActorSheet} sheet - The actor sheet instance
  * @param {Event} event - The rest event
+ * @param {HTMLElement} target - The action target element
  * @returns {Promise<void>}
  */
-export async function onLongRest(sheet, event) {
+export const onLongRest = asyncGuardSheet(async function onLongRest(event, target) {
   event.preventDefault();
-  if (!sheet.actor) return;
-  if (!sheet.actor.isOwner && !game.user.isGM) {
+  if (!this.actor) return;
+  if (!this.actor.isOwner && !game.user.isGM) {
     ui.notifications.warn("You do not have permission to rest this actor.");
     return;
   }
 
-  const { line } = await applyLongRest(sheet.actor);
+  const { line } = await applyLongRest(this.actor);
   const content = buildRestChatContent("Long Rest (8 hours)", [line]);
 
   await ChatMessage.create({
     user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor: sheet.actor }),
-    content
+    speaker: ChatMessage.getSpeaker({ actor: this.actor }),
+    content,
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
 
-  await sheet.render(false);
+  await this.render(false);
   ui.notifications.info("Long rest completed.");
-}
+});
 
 /**
  * Increment fatigue handler.
  * 
- * @param {SimpleActorSheet} sheet - The actor sheet instance
  * @param {Event} event - The increment event
+ * @param {HTMLElement} target - The action target element
  * @returns {Promise<void>}
  */
-export async function onIncrementFatigue(sheet, event) {
+export const onIncrementFatigue = asyncGuardSheet(async function onIncrementFatigue(event, target) {
   event.preventDefault();
-  let element = event.currentTarget;
-  let action = element.dataset.action;
-  let fatigueLevel = sheet.actor.system.fatigue.level;
-  let fatigueBonus = sheet.actor.system.fatigue.bonus;
+  let element = target ?? event.currentTarget;
+  let action = element.dataset.direction;
+  let fatigueLevel = this.actor.system.fatigue.level;
+  let fatigueBonus = this.actor.system.fatigue.bonus;
 
   if (action === "increase" && fatigueLevel < 5) {
-    await requestUpdateDocument(sheet.actor, { "system.fatigue.bonus": fatigueBonus + 1 });
+    await requestUpdateDocument(this.actor, { "system.fatigue.bonus": fatigueBonus + 1 });
   } else if (action === "decrease" && fatigueLevel > 0) {
-    await requestUpdateDocument(sheet.actor, { "system.fatigue.bonus": fatigueBonus - 1 });
+    await requestUpdateDocument(this.actor, { "system.fatigue.bonus": fatigueBonus - 1 });
   }
-}
+});
 
 /**
  * Set resource bars helper.
  * 
- * @param {SimpleActorSheet} sheet - The actor sheet instance
+ * @param {object} sheet - The actor sheet instance
  */
 export function setResourceBars(sheet) {
   const data = sheet.actor.system;

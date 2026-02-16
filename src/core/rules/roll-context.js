@@ -6,7 +6,7 @@
 
 import { buildBaseRollOptions } from "./roll-options.js";
 
-export const ROLL_CONTEXT_VERSION = 1;
+const ROLL_CONTEXT_VERSION = 1;
 
 function _safeUuid(doc) {
   if (!doc) return null;

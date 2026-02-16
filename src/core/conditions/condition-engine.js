@@ -17,11 +17,15 @@ import { applyDamage, DAMAGE_TYPES } from "../combat/damage-automation.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { isActorSkeletal, isActorUndead, isActorUndeadBloodless, isActorImmuneToCondition as isActorImmuneToConditionProfile } from "../traits/trait-registry.js";
 import { CONDITION_DESCRIPTIONS } from "../../data/conditions/conditions-data.js";
+import { doTestRoll } from "../../utils/degree-roll-helper.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 let _conditionHooksRegistered = false;
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
+const BURNING_GATE_FLAG = "chapter5.burningActionGate";
+const SILENCED_REALIZATION_FLAG = "chapter5.silencedRealization";
 
 function _knownStatusIds() {
   try {
@@ -140,6 +144,20 @@ function _isActiveCombatant(actor) {
   }
 }
 
+function _activeCombatTurnKeyForActor(actor) {
+  const combat = game.combat ?? null;
+  if (!combat?.id || !combat.started || !actor) return null;
+  const combatant = (combat.combatants ?? []).find?.((c) => c?.actor?.id === actor.id) ?? null;
+  if (!combatant?.id) return null;
+  const round = Number(combat.round ?? 0) || 0;
+  const turn = Number(combat.turn ?? 0) || 0;
+  return `${combat.id}:${round}:${turn}:${combatant.id}`;
+}
+
+function _getCharacteristicTotal(actor, key) {
+  return _toNumber(actor?.system?.characteristics?.[key]?.total ?? 0, 0);
+}
+
 function _mkBaseEffectData({ name, img = null, icon = null, description = null, condition, changes = [], origin = null, statuses = null, coreStatusId = null }) {
   const effectImg = img ?? icon ?? null;
   const conditionKey = condition?.key;
@@ -199,7 +217,7 @@ const STATIC_CONDITIONS = {
   // Package 2: common static conditions with deterministic TN modifiers.
   blinded: {
     name: "Blinded",
-    icon: "icons/svg/blind.svg",
+    img: "icons/svg/blind.svg",
     description: CONDITION_DESCRIPTIONS.get("blinded"),
     // RAW: -30 penalty to tests benefitting from sight.
     // Deterministic automation scope: Combat Style tests + Observe.
@@ -210,7 +228,7 @@ const STATIC_CONDITIONS = {
 
   deafened: {
     name: "Deafened",
-    icon: "icons/svg/deaf.svg",
+    img: "icons/svg/deaf.svg",
     description: CONDITION_DESCRIPTIONS.get("deafened"),
     // RAW: -30 penalty to tests benefitting from hearing.
     // Deterministic automation scope: Observe.
@@ -221,7 +239,7 @@ const STATIC_CONDITIONS = {
 
   crippled: {
     name: "Crippled",
-    icon: "icons/svg/bones.svg",
+    img: "icons/svg/bones.svg",
     description: CONDITION_DESCRIPTIONS.get("crippled"),
     // Tracking-only condition for now (no hard automation yet).
     changes: []
@@ -229,7 +247,7 @@ const STATIC_CONDITIONS = {
 
   silenced: {
     name: "Silenced",
-    icon: "icons/svg/sound-off.svg",
+    img: "icons/svg/sound-off.svg",
     description: CONDITION_DESCRIPTIONS.get("silenced"),
     // Tracking-only condition for now (no hard automation yet).
     changes: []
@@ -237,7 +255,7 @@ const STATIC_CONDITIONS = {
 
   stunned: {
     name: "Stunned",
-    icon: "icons/svg/stoned.svg",
+    img: "icons/svg/stoned.svg",
     description: CONDITION_DESCRIPTIONS.get("stunned"),
     // Tracking-only condition for now (no hard automation yet).
     changes: []
@@ -245,7 +263,7 @@ const STATIC_CONDITIONS = {
 
   entangled: {
     name: "Entangled",
-    icon: "icons/svg/net.svg",
+    img: "icons/svg/net.svg",
     description: CONDITION_DESCRIPTIONS.get("entangled"),
     // RAW: -20 penalty to all Combat Style tests.
     // NOTE: Movement halving is enforced in actor derived Speed (Package 4).
@@ -257,7 +275,7 @@ const STATIC_CONDITIONS = {
 
   dazed: {
     name: "Dazed",
-    icon: "icons/svg/daze.svg",
+    img: "icons/svg/daze.svg",
     description: CONDITION_DESCRIPTIONS.get("dazed"),
     // RAW: Gain 1 fewer Action Point at the beginning of each round (minimum 1).
     // Automation approach: reduce AP max by 1; combat AP refresh clamps to minimum 1 while Dazed.
@@ -268,7 +286,7 @@ const STATIC_CONDITIONS = {
 
   hidden: {
     name: "Hidden",
-    icon: "icons/svg/cowled.svg",
+    img: "icons/svg/cowled.svg",
     description: CONDITION_DESCRIPTIONS.get("hidden"),
     // Core icon (Foundry) used in the Token HUD palette.
     // RAW: Enemies cannot defend themselves against attacks from hidden characters.
@@ -279,7 +297,7 @@ const STATIC_CONDITIONS = {
 
   invisible: {
     name: "Invisible",
-    icon: "icons/svg/invisible.svg",
+    img: "icons/svg/invisible.svg",
     description: CONDITION_DESCRIPTIONS.get("invisible"),
     // RAW: Attacks made against invisible targets suffer -30 TN (handled in opposed workflow).
     changes: []
@@ -287,7 +305,7 @@ const STATIC_CONDITIONS = {
 
   frenzied: {
     name: "Frenzied",
-    icon: "icons/svg/terror.svg",
+    img: "icons/svg/terror.svg",
     description: CONDITION_DESCRIPTIONS.get("frenzied"),
     // Automated via frenzied.js; changes are dynamic based on talents
     changes: []
@@ -296,7 +314,7 @@ const STATIC_CONDITIONS = {
 
   prone: {
     name: "Prone",
-    icon: "icons/svg/falling.svg",
+    img: "icons/svg/falling.svg",
     description: CONDITION_DESCRIPTIONS.get("prone"),
     // RAW: -20 penalty to all Combat related tests.
     // NOTE: Movement restriction + stand-up cost are enforced via Package 4 semantics.
@@ -309,25 +327,25 @@ const STATIC_CONDITIONS = {
   // Package 3 gating conditions (primarily action/defense restrictions elsewhere)
   unconscious: {
     name: "Unconscious",
-    icon: "icons/svg/unconscious.svg",
+    img: "icons/svg/unconscious.svg",
     description: CONDITION_DESCRIPTIONS.get("unconscious"),
     changes: []
   },
   paralyzed: {
     name: "Paralyzed",
-    icon: "icons/svg/paralysis.svg",
+    img: "icons/svg/paralysis.svg",
     description: CONDITION_DESCRIPTIONS.get("paralyzed"),
     changes: []
   },
   restrained: {
     name: "Restrained",
-    icon: "icons/svg/anchor.svg",
+    img: "icons/svg/anchor.svg",
     description: CONDITION_DESCRIPTIONS.get("restrained"),
     changes: []
   },
   grappled: {
     name: "Grappled",
-    icon: "icons/svg/grab.svg",
+    img: "icons/svg/grab.svg",
     description: CONDITION_DESCRIPTIONS.get("grappled"),
     changes: []
   },
@@ -335,7 +353,7 @@ const STATIC_CONDITIONS = {
   // Special Actions conditions
   feinted: {
     name: "Feinted",
-    icon: "icons/svg/combat.svg",
+    img: "icons/svg/combat.svg",
     description: CONDITION_DESCRIPTIONS.get("feinted"),
     changes: []
   },
@@ -343,14 +361,14 @@ const STATIC_CONDITIONS = {
   // Package 4: movement restriction semantics (no TN modifiers; applied in derived Speed)
   slowed: {
     name: "Slowed",
-    icon: "icons/svg/wingfoot.svg",
+    img: "icons/svg/wingfoot.svg",
     description: CONDITION_DESCRIPTIONS.get("slowed"),
     // Core icon (Foundry) used in the Token HUD palette.
     changes: []
   },
   immobilized: {
     name: "Immobilized",
-    icon: "icons/svg/statue.svg",
+    img: "icons/svg/statue.svg",
     description: CONDITION_DESCRIPTIONS.get("immobilized"),
     changes: []
   }
@@ -430,7 +448,7 @@ function _mkTokenHudStatusConfigForStatic(key) {
   return {
     id: k,
     name: def.name,
-    img: def.icon,
+    img: def.img,
     description: def.description ?? null,
     hud: true,
     disabled: false,
@@ -750,20 +768,12 @@ export async function applyCondition(actor, key, { origin = null, source = null 
     return null;
   }
 
-  if (isActorUndead(actor)) {
-    const blocked = new Set(["dazed", "deafened", "poisoned", "disease"]);
-    if (blocked.has(k)) {
-      ui.notifications?.warn?.(`Undead are immune to ${def.name}.`);
-      return null;
-    }
-  }
-
 
   const coreStatusId = _coreStatusIdForKey(k);
   const statuses = coreStatusId ? [coreStatusId] : null;
   const createData = _mkBaseEffectData({
     name: def.name,
-    icon: def.icon,
+    img: def.img,
     description: def.description ?? null,
     statuses,
     coreStatusId,
@@ -772,12 +782,12 @@ export async function applyCondition(actor, key, { origin = null, source = null 
     changes: Array.isArray(def.changes) ? def.changes : []
   });
 
-  return _upsertConditionEffect(actor, k, {
+  const applied = await _upsertConditionEffect(actor, k, {
     createData,
     updateFn: async (_effect) => {
       const updates = {
         name: def.name,
-        img: def.icon,
+        img: def.img,
         changes: Array.isArray(def.changes) ? def.changes : [],
         [`${FLAG_PATH}.condition.key`]: k,
         [`${FLAG_PATH}.condition.value`]: 1
@@ -791,6 +801,12 @@ export async function applyCondition(actor, key, { origin = null, source = null 
       return updates;
     }
   });
+
+  if (k === "stunned") {
+    await _applyStunnedOnApply(actor);
+  }
+
+  return applied;
 }
 
 export async function toggleCondition(actor, key, { origin = null, source = null } = {}) {
@@ -815,6 +831,180 @@ export async function toggleCondition(actor, key, { origin = null, source = null
   }
 
   return applyCondition(actor, k, { origin, source });
+}
+
+async function _applyStunnedOnApply(actor) {
+  if (!actor) return;
+  const ap = Number(actor?.system?.action_points?.value ?? 0) || 0;
+  if (ap <= 0) return;
+  await requestUpdateDocument(actor, {
+    "system.action_points.value": 0
+  });
+}
+
+/**
+ * Chapter 5 Burning action gate:
+ * a burning actor must pass WP-20 each turn before attempting non-extinguish actions.
+ */
+export async function ensureBurningTurnActionAllowed(actor, { actionId = "action", allowExtinguish = false } = {}) {
+  if (!actor) return { allowed: false, reason: "Actor missing" };
+
+  const burningX = Math.max(0, _toNumber(getConditionValue(actor, "burning") ?? 0, 0));
+  if (burningX <= 0) return { allowed: true, reason: null, skipped: true };
+  if (!(game.combat?.started)) return { allowed: true, reason: null, skipped: true };
+
+  const actionKey = String(actionId ?? "").trim().toLowerCase();
+  if (allowExtinguish && (actionKey === "extinguish-burning" || actionKey === "put-out-fire")) {
+    return { allowed: true, reason: null, skipped: true };
+  }
+
+  const turnKey = _activeCombatTurnKeyForActor(actor) ?? `nocombat:${actor.id}`;
+  const prev = actor.getFlag(FLAG_SCOPE, BURNING_GATE_FLAG) ?? null;
+  if (prev && typeof prev === "object" && String(prev.turnKey ?? "") === turnKey && typeof prev.allowed === "boolean") {
+    return {
+      allowed: prev.allowed === true,
+      reason: prev.allowed === true ? null : "Burning"
+    };
+  }
+
+  const tn = _getCharacteristicTotal(actor, "wp") - 20;
+  const result = await doTestRoll(actor, {
+    target: tn,
+    rollFormula: "1d100",
+    allowLucky: true,
+    allowUnlucky: true
+  });
+
+  try {
+    await result?.roll?.toMessage?.({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor }),
+      flavor: `${actor.name} — Burning Action Gate (WP ${tn})`,
+      rollMode: game.settings.get("core", "rollMode")
+    });
+  } catch (_e) {
+    // Non-blocking.
+  }
+
+  const allowed = result?.isSuccess === true;
+  await requestUpdateDocument(actor, {
+    [`flags.${FLAG_SCOPE}.${BURNING_GATE_FLAG}`]: {
+      turnKey,
+      allowed,
+      burningX,
+      checkedAt: Date.now()
+    }
+  });
+
+  if (!allowed) {
+    await _applyStunnedOnApply(actor);
+    return { allowed: false, reason: "Burning" };
+  }
+
+  return { allowed: true, reason: null };
+}
+
+/**
+ * Chapter 5 burning extinguish action:
+ * - spend AP in caller
+ * - STR/AGI +20, -10 per X beyond 1
+ * - actor becomes Prone
+ * - on success remove Burning
+ */
+export async function attemptExtinguishBurning(actor) {
+  if (!actor) return { ok: false, reason: "Actor missing" };
+
+  const burningX = Math.max(0, _toNumber(getConditionValue(actor, "burning") ?? 0, 0));
+  if (burningX <= 0) return { ok: false, reason: "Not burning" };
+
+  const chooseAgi = await customDialog({
+    title: "Put Out Fire",
+    content: "<p>Choose Strength or Agility for the extinguish test.</p>",
+    buttons: {
+      strength: { label: "Strength", callback: () => false },
+      agility: { label: "Agility", callback: () => true }
+    },
+    defaultButton: "strength"
+  });
+
+  const charKey = chooseAgi === true ? "agi" : "str";
+  const base = _getCharacteristicTotal(actor, charKey);
+  const modifier = 20 - (Math.max(0, burningX - 1) * 10);
+  const tn = base + modifier;
+
+  const result = await doTestRoll(actor, {
+    target: tn,
+    rollFormula: "1d100",
+    allowLucky: true,
+    allowUnlucky: true
+  });
+
+  try {
+    await result?.roll?.toMessage?.({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor }),
+      flavor: `${actor.name} — Extinguish Fire (${charKey.toUpperCase()} ${tn})`,
+      rollMode: game.settings.get("core", "rollMode")
+    });
+  } catch (_e) {
+    // Non-blocking.
+  }
+
+  await applyCondition(actor, "prone", { source: "Burning" });
+  if (result?.isSuccess) {
+    await removeCondition(actor, "burning");
+  }
+
+  return {
+    ok: true,
+    success: result?.isSuccess === true,
+    burningValue: burningX
+  };
+}
+
+/**
+ * Silenced realization check (start of round).
+ */
+export async function runSilencedRealizationCheck(actor, { combat = game.combat } = {}) {
+  if (!actor || !combat?.id || !combat?.started) return null;
+  if (!hasCondition(actor, "silenced")) return null;
+
+  const round = Number(combat.round ?? 0) || 0;
+  const roundKey = `${combat.id}:${round}`;
+  const prev = actor.getFlag(FLAG_SCOPE, SILENCED_REALIZATION_FLAG) ?? null;
+  if (prev && typeof prev === "object" && String(prev.roundKey ?? "") === roundKey) return prev;
+
+  const tn = _getCharacteristicTotal(actor, "prc");
+  const result = await doTestRoll(actor, {
+    target: tn,
+    rollFormula: "1d100",
+    allowLucky: true,
+    allowUnlucky: true
+  });
+
+  try {
+    await result?.roll?.toMessage?.({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor }),
+      flavor: `${actor.name} — Silenced Realization (PRC ${tn})`,
+      rollMode: game.settings.get("core", "rollMode")
+    });
+  } catch (_e) {
+    // Non-blocking.
+  }
+
+  const realized = result?.isSuccess === true;
+  const payload = {
+    roundKey,
+    realized,
+    checkedAt: Date.now()
+  };
+
+  await requestUpdateDocument(actor, {
+    [`flags.${FLAG_SCOPE}.${SILENCED_REALIZATION_FLAG}`]: payload
+  });
+
+  return payload;
 }
 
 
@@ -1294,7 +1484,7 @@ export function auditConditionRegistry(_options = {}) {
       continue;
     }
     if (!def.name || typeof def.name !== "string") warnings.push(`Condition '${key}' is missing a valid name.`);
-    if (!def.icon || typeof def.icon !== "string") warnings.push(`Condition '${key}' is missing a valid icon path.`);
+    if (!def.img || typeof def.img !== "string") warnings.push(`Condition '${key}' is missing a valid icon path.`);
     if (def.changes != null && !Array.isArray(def.changes)) warnings.push(`Condition '${key}' has non-array changes.`);
     if (def.statusId != null && typeof def.statusId !== "string") warnings.push(`Condition '${key}' has non-string statusId.`);
     // Canonical status id should be stable: prefer explicit statusId else the key.
@@ -1331,6 +1521,11 @@ export const ConditionsAPI = {
   applyBurning,
   setConditionValue,
   adjustConditionValue,
+
+  // Chapter 5 automation helpers
+  ensureBurningTurnActionAllowed,
+  attemptExtinguishBurning,
+  runSilencedRealizationCheck,
 
   // Introspection and removal helpers
   removeCondition,

@@ -3,12 +3,12 @@
  * Defender advantage and block resolution handlers
  */
 
-import { _resolveDoc } from "../helpers/docs.js";
+import { _resolveDoc, _resolveActorViaToken, _resolveItemViaActor } from "../helpers/docs.js";
 import { _canControlActor, _opposedFlags } from "../helpers/util.js";
 import { _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _getDefenderDamage, _setDefenderDamage } from "../schema.js";
 import { applyOverextendEffect as _applyOverextendEffect, applyOverwhelmEffect as _applyOverwhelmEffect } from "../effects.js";
 import { promptDefenderAdvantage as _promptDefenderAdvantage } from "../dialogs/defender.js";
-import { getSpecialActionById } from "../../../config/special-actions.js";
+import { getSpecialActionById } from "../../combat-style-utils.js";
 import { listEquippedShields as _listEquippedShields } from "../helpers/utility.js";
 import { weaponHasQuality as _weaponHasQuality, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid } from "../helpers/workflow.js";
 import { getDamageTypeFromWeapon } from "../../combat-utils.js";
@@ -23,6 +23,7 @@ import { selectEquippedRangedWeapon } from "../helpers/select-equipped-ranged-we
 import { inflateSharedDamage as _inflateSharedDamage, buildSharedDamagePayload as _buildSharedDamagePayload } from "./damage.js";
 import { _buildApplyPayload, _emitInlineDamageRollMessage } from "./damage.js";
 import { getWardBlockRating, getActiveWardSpell } from "../../ward-defense.js";
+import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 
 /**
  * Handle defender advantage resolution
@@ -73,7 +74,7 @@ export async function handleDefenderAdvantage(ctx) {
     return;
   }
 
-  const attackerResolved = _resolveDoc(data?.attacker?.actorUuid);
+  const attackerResolved = _resolveActorViaToken(data?.attacker?.actorUuid, data?.attacker?.tokenUuid);
   if (!attackerResolved) {
     ui.notifications.warn("Attacker could not be resolved.");
     return;
@@ -84,7 +85,8 @@ export async function handleDefenderAdvantage(ctx) {
     attackerActor: attackerResolved,
     advantageCount: advCount,
     defenderTokenUuid: data.defender?.tokenUuid ?? null,
-    opponentTokenUuid: data.attacker?.tokenUuid ?? null
+    opponentTokenUuid: data.attacker?.tokenUuid ?? null,
+    styleUuidForKnown: data.defender?.styleUuid ?? null
   });
 
   // If the dialog was closed, do not mark as spent.
@@ -181,8 +183,14 @@ export async function handleDefenderAdvantage(ctx) {
               state.specialActionId = saId;
               state.allowCombatStyle = true;
               state.isFreeAction = true;
+              state.specialActionContext = {
+                id: saId,
+                source: "advantage-defender-free",
+                attackerStyleUuid: data.defender?.styleUuid ?? null,
+                defenderStyleUuid: data.attacker?.itemUuid ?? null
+              };
 
-              await saMessage.update({
+              await safeUpdateChatMessage(saMessage, {
                 flags: {
                   "uesrpg-3ev4": {
                     skillOpposed: {
@@ -265,7 +273,7 @@ export async function handleBlockResolve(ctx) {
   let ctxWeaponMode = "";
   if (ctxWeaponUuid) {
     try {
-      const w = await fromUuid(ctxWeaponUuid);
+      const w = _resolveItemViaActor(ctxWeaponUuid, attacker);
       ctxWeaponMode = String(w?.system?.attackMode ?? "").toLowerCase();
     } catch (_e) {
       ctxWeaponMode = "";
@@ -295,8 +303,16 @@ export async function handleBlockResolve(ctx) {
       attackerTokenUuid: data.attacker?.tokenUuid ?? null,
       opponentTokenUuid: data.defender?.tokenUuid ?? null,
       defaultWeaponUuid: data.context?.lastWeaponUuid ?? _getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? null,
+      styleUuidForKnown: data.attacker?.itemUuid ?? null,
     });
   if (!selection) return;
+
+  // Guard: DialogV2.wait() may resolve with the action string instead of the
+  // callback's return value in some edge cases. Detect and recover.
+  if (typeof selection !== "object" || selection === null) {
+    console.warn("UESRPG | block-resolve: selection is not an object (got", typeof selection, JSON.stringify(selection), ") — treating as canceled.");
+    return;
+  }
 
   if (shareDamage && !sharedSelection) {
     data.context = data.context ?? {};
@@ -304,9 +320,20 @@ export async function handleBlockResolve(ctx) {
     await _updateCard(message, data);
   }
 
-  const weapon = await fromUuid(selection.weaponUuid);
+  // Resolve weapon: prefer dialog selection, fall back to context/preferred weapon.
+  let blockWeaponUuid = selection.weaponUuid || "";
+  if (!blockWeaponUuid) {
+    blockWeaponUuid = String(data.context?.weaponUuid ?? "").trim()
+      || String(data.context?.lastWeaponUuid ?? "").trim()
+      || String(_getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? "").trim();
+    if (blockWeaponUuid) {
+      console.debug("UESRPG | block-resolve: selection.weaponUuid was empty, using fallback:", blockWeaponUuid);
+    }
+  }
+  const weapon = blockWeaponUuid ? _resolveItemViaActor(blockWeaponUuid, attacker) : null;
   if (!weapon) {
-    ui.notifications.warn("Selected weapon could not be resolved.");
+    console.warn("UESRPG | Block-resolve weapon UUID failed to resolve:", blockWeaponUuid || "(none)", "| selection:", JSON.stringify(selection?.weaponUuid), "| attacker:", attacker?.name);
+    ui.notifications.warn("Selected weapon could not be resolved. The weapon may have been deleted or unequipped.");
     return;
   }
 
@@ -523,7 +550,7 @@ export async function handleWardResolve(ctx) {
   let ctxWeaponMode = "";
   if (ctxWeaponUuid) {
     try {
-      const w = await fromUuid(ctxWeaponUuid);
+      const w = _resolveItemViaActor(ctxWeaponUuid, attacker);
       ctxWeaponMode = String(w?.system?.attackMode ?? "").toLowerCase();
     } catch (_e) {
       ctxWeaponMode = "";
@@ -553,8 +580,16 @@ export async function handleWardResolve(ctx) {
       attackerTokenUuid: data.attacker?.tokenUuid ?? null,
       opponentTokenUuid: data.defender?.tokenUuid ?? null,
       defaultWeaponUuid: data.context?.lastWeaponUuid ?? _getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? null,
+      styleUuidForKnown: data.attacker?.itemUuid ?? null,
     });
   if (!selection) return;
+
+  // Guard: DialogV2.wait() may resolve with the action string instead of the
+  // callback's return value in some edge cases. Detect and recover.
+  if (typeof selection !== "object" || selection === null) {
+    console.warn("UESRPG | ward-resolve: selection is not an object (got", typeof selection, JSON.stringify(selection), ") — treating as canceled.");
+    return;
+  }
 
   if (shareDamage && !sharedSelection) {
     data.context = data.context ?? {};
@@ -562,9 +597,20 @@ export async function handleWardResolve(ctx) {
     await _updateCard(message, data);
   }
 
-  const weapon = await fromUuid(selection.weaponUuid);
+  // Resolve weapon: prefer dialog selection, fall back to context/preferred weapon.
+  let wardWeaponUuid = selection.weaponUuid || "";
+  if (!wardWeaponUuid) {
+    wardWeaponUuid = String(data.context?.weaponUuid ?? "").trim()
+      || String(data.context?.lastWeaponUuid ?? "").trim()
+      || String(_getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? "").trim();
+    if (wardWeaponUuid) {
+      console.debug("UESRPG | ward-resolve: selection.weaponUuid was empty, using fallback:", wardWeaponUuid);
+    }
+  }
+  const weapon = wardWeaponUuid ? _resolveItemViaActor(wardWeaponUuid, attacker) : null;
   if (!weapon) {
-    ui.notifications.warn("Selected weapon could not be resolved.");
+    console.warn("UESRPG | Ward-resolve weapon UUID failed to resolve:", wardWeaponUuid || "(none)", "| selection:", JSON.stringify(selection?.weaponUuid), "| attacker:", attacker?.name);
+    ui.notifications.warn("Selected weapon could not be resolved. The weapon may have been deleted or unequipped.");
     return;
   }
 

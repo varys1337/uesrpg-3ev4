@@ -6,11 +6,73 @@
 
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { _findEnabledEffectByUesrpgKey } from "../helpers/util.js";
+import { resolveSurpriseState } from "../../surprise-state.js";
+import { getFearActionRestrictions } from "../../../fear/index.js";
 import {
   consumeOneShotAdvantageEffects as _consumeOneShotAdvantageEffects,
   consumeOrBreakAimAfterAttack as _consumeOrBreakAimAfterAttack,
   consumeHiddenAfterAttack as _consumeHiddenAfterAttack
 } from "../effects.js";
+
+/**
+ * Canonical action-eligibility gate.
+ *
+ * @param {Actor} actor
+ * @param {object} context
+ * @param {string} [context.actionFamily] - "attack" | "defense" | "movement" | "utility"
+ * @param {string} [context.actionType] - "primary" | "secondary" | "reaction" | "free"
+ * @param {boolean} [context.attackFromHidden]
+ * @returns {{allowed:boolean,reasons:string[],restrictions:string[]}}
+ */
+export function getActionEligibility(actor, context = {}) {
+  const reasons = [];
+  const restrictions = [];
+
+  if (!actor) {
+    return { allowed: false, reasons: ["Actor missing"], restrictions };
+  }
+
+  const actionFamily = String(context?.actionFamily ?? "").toLowerCase();
+  const actionType = String(context?.actionType ?? "").toLowerCase() || "primary";
+  const isReaction = actionType === "reaction";
+
+  const surprise = resolveSurpriseState(actor, { combatContext: context?.combat ?? game.combat });
+  if (surprise.onlyReactions && !isReaction && actionType !== "free") {
+    reasons.push("Surprised");
+    restrictions.push("only-reactions");
+  }
+
+  if (actionFamily === "attack" && _findEnabledEffectByUesrpgKey(actor, "defensiveStance")) {
+    reasons.push("Defensive Stance active");
+    restrictions.push("no-attacks");
+  }
+
+  if (actionFamily === "defense" && context?.attackFromHidden === true) {
+    reasons.push("Hidden");
+    restrictions.push("cannot-defend-hidden-attack");
+  }
+
+  if ((actionFamily === "attack" || actionFamily === "defense") && hasCondition(actor, "restrained")) {
+    reasons.push("Restrained");
+    restrictions.push("restrained");
+  }
+
+  const fear = getFearActionRestrictions(actor);
+  if (!isReaction && fear?.blockActions === true) {
+    reasons.push("Fear");
+    restrictions.push("fear-block-actions");
+  }
+  if (isReaction && fear?.blockReactions === true) {
+    reasons.push("Fear");
+    restrictions.push("fear-block-reactions");
+  }
+
+  return {
+    allowed: reasons.length === 0,
+    reasons,
+    restrictions
+  };
+}
 
 /**
  * Check if attacker can make an attack roll (gating rules).
@@ -19,17 +81,18 @@ import {
  * @returns {{ allowed: boolean, reason?: string }}
  */
 export function canAttackerRoll(attacker, context = {}) {
-  // Chapter 5 (Restrained): cannot attack
-  if (hasCondition(attacker, "restrained")) {
-    return { allowed: false, reason: "Restrained" };
-  }
-
-  // Chapter 5 (Defensive Stance): Attack limit reduced to 0 until next Turn
-  if (_findEnabledEffectByUesrpgKey(attacker, "defensiveStance")) {
-    return { allowed: false, reason: "Defensive Stance active" };
-  }
-
-  return { allowed: true };
+  const actionType = context?.isReactionAttack ? "reaction" : "primary";
+  const gate = getActionEligibility(attacker, {
+    ...context,
+    actionFamily: "attack",
+    actionType
+  });
+  return {
+    allowed: gate.allowed,
+    reason: gate.reasons[0],
+    reasons: gate.reasons,
+    restrictions: gate.restrictions
+  };
 }
 
 /**
@@ -39,15 +102,18 @@ export function canAttackerRoll(attacker, context = {}) {
  * @returns {{ allowed: boolean, reason?: string, isHidden?: boolean }}
  */
 export function canDefenderRoll(defender, context = {}) {
-  // Chapter 5 (Hidden): enemies cannot defend against attacks made by hidden characters
-  if (context?.attackFromHidden === true) {
-    return { allowed: false, reason: "Hidden", isHidden: true };
-  }
-
-  // Chapter 5 (Restrained): can still defend (no explicit prohibition in RAW)
-  // but may have penalties applied via active effects
-
-  return { allowed: true };
+  const gate = getActionEligibility(defender, {
+    ...context,
+    actionFamily: "defense",
+    actionType: "reaction"
+  });
+  return {
+    allowed: gate.allowed,
+    reason: gate.reasons[0],
+    reasons: gate.reasons,
+    restrictions: gate.restrictions,
+    isHidden: gate.restrictions.includes("cannot-defend-hidden-attack")
+  };
 }
 
 /**

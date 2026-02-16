@@ -23,6 +23,7 @@ import { shouldYieldToRE } from "./features/rule-elements.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { itemHasToken } from "../combat/damage-automation.js";
 import { getEffectiveWeaponHands } from "../combat/combat-utils.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 import {
   getActorCanvasToken,
@@ -169,7 +170,7 @@ function _getCorrespondingRank({ actor, defenseType, styleUuid, testLabel } = {}
 }
 
 export async function promptDoSReplacement({ title, rolledDoS, rankDoS, rankLabel } = {}) {
-  const result = await Dialog.wait({
+  const result = await customDialog({
     title: title || "Talent: Degrees of Success",
     content: `
       <div class="uesrpg">
@@ -192,9 +193,8 @@ export async function promptDoSReplacement({ title, rolledDoS, rankDoS, rankLabe
         callback: () => ({ choice: "rank" })
       }
     },
-    default: "rolled",
-    close: () => ({ choice: "rolled" })
-  });
+    default: "rolled"
+  }) ?? { choice: "rolled" };
   return result;
 }
 

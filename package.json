@@ -1,9 +1,5 @@
 {
-  "name": "uesrpg-3ev4",
-  "version": "1.0.0",
-  "description": "UESRPG 3ev4 system for Foundry VTT",
-  "private": true,
-  "scripts": {
-    "version": "node ./automation/version.js"
+  "devDependencies": {
+    "acorn": "^8.15.0"
   }
 }

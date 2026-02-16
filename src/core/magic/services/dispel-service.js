@@ -25,6 +25,7 @@
 import { cancelOriginAEUpkeep, getOriginAEs, findOriginAE } from "../effects/origin-effect.js";
 import { requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 
@@ -271,14 +272,14 @@ export async function showDispelDialog(targetActor, opts = {}) {
   ).join("");
 
   const content = `
-    <form class="uesrpg">
+    <div class="uesrpg">
       <p>Select spell effects to dispel (Spell Strength ≤ ${spellStrength}):</p>
       ${checkboxes}
       <hr/>
       <p style="font-size:0.85em;color:#666;">Dispel will remove selected effects and all their linked entities.</p>
-    </form>`;
+    </div>`;
 
-  return Dialog.wait({
+  return customDialog({
     title: `Dispel — ${targetActor.name}`,
     content,
     buttons: {
@@ -300,6 +301,7 @@ export async function showDispelDialog(targetActor, opts = {}) {
       },
       cancel: { label: "Cancel", callback: () => null }
     },
-    default: "dispel"
-  }, { width: 480 });
+    default: "dispel",
+    width: 480
+  });
 }

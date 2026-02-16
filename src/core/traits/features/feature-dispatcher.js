@@ -14,6 +14,7 @@
 import { normalizeFeatureKey } from "./feature-mod.js";
 import { normalizeTalentKey, resolveTalentSlug } from "../talents-api.js";
 import { getFeatureConfig } from "./feature-config.js";
+import { customDialog } from "../../../utils/dialog-v2-helper.js";
 
 let _debugEnabled = false;
 let _debugChecked = false;
@@ -182,15 +183,14 @@ async function _showConfirmDialog(item, cfg) {
   if (!shouldPrompt) return true; // Not our concern; let it pass
 
   try {
-    const confirmed = await Dialog.wait({
+    const confirmed = await customDialog({
       title: `Confirm: ${item.name}`,
       content: `<p>Activate <strong>${item.name}</strong>?</p>`,
       buttons: {
         yes: { icon: '<i class="fas fa-bolt"></i>', label: "Activate", callback: () => true },
         no:  { icon: '<i class="fas fa-times"></i>', label: "Cancel", callback: () => false }
       },
-      default: "yes",
-      close: () => false
+      default: "yes"
     });
     return confirmed === true;
   } catch (err) {

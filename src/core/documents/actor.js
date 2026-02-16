@@ -9,7 +9,7 @@ import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js"
 import { applyTraitDerived, collectTraitDamageModifiers, getResistanceKeyForTraitType, getActorTraitValue, isActorUndead } from "../traits/trait-registry.js";
 import { hasTalent } from "../traits/talents-api.js";
 import { isNPC } from "../rules/npc-rules.js";
-import { ensureSystemData, applyLegacyCharacteristicBonuses } from "../actors/prepare/ensure-system-data.js";
+import { ensureSystemData } from "../actors/prepare/ensure-system-data.js";
 import { prepareCharacterData } from "../actors/prepare/character.js";
 import { prepareNPCData } from "../actors/prepare/npc.js";
 import { prepareGroupData } from "../actors/prepare/group.js";
@@ -66,21 +66,15 @@ export class SimpleActor extends Actor {
     // Preps and adds standard skill items to Character types
     await super._preCreate(data, options, user);
     if (this.type === 'Player Character') {
-      let skillPack = game.packs.get("uesrpg-3ev4.core-skills");
-      let collection = await skillPack.getDocuments();
-      collection.sort(function (a, b) {
-        let nameA = a.name.toUpperCase();
-        let nameB = b.name.toUpperCase();
-        if (nameA < nameB) {
-          return -1;
-        } if (nameA > nameB) {
-          return 1;
-        }
-        return 0
-      });
+      const skillPack = game.packs.get("uesrpg-3ev4.core-skills");
+      if (!skillPack) {
+        console.warn("uesrpg-3ev4 | Core skills compendium pack not found; skipping skill pre-population.");
+        return;
+      }
+      const collection = await skillPack.getDocuments();
+      collection.sort((a, b) => a.name.localeCompare(b.name));
 
       this.updateSource({
-        _id: this._id,
         items: collection.map(i => i.toObject()),
         'system.size': 'standard'
       })
@@ -93,17 +87,19 @@ export class SimpleActor extends Actor {
     // even when actors are partially migrated or have inconsistent embedded item data.
     this._ensureSystemData();
 
-    // Apply legacy characteristic bonuses from talents/traits/powers
-    this._applyLegacyCharacteristicBonuses();
-
     try {
       const actorData = this;
 
-      if (actorData.type === "Player Character" && typeof this._prepareCharacterData === "function") {
+      if (actorData.type === "Player Character") {
         this._prepareCharacterData(actorData);
-      } else if (actorData.type === "NPC" && typeof this._prepareNPCData === "function") {
+        // Re-derive embedded item TNs now that characteristics are finalized.
+        // Items' initial prepareData() ran during super.prepareData() before
+        // _prepareCharacterData computed final characteristic totals + AE bonuses.
+        this._recomputeItemTNs();
+      } else if (actorData.type === "NPC") {
         this._prepareNPCData(actorData);
-      } else if (actorData.type === "Group" && typeof this._prepareGroupData === "function") {
+        this._recomputeItemTNs();
+      } else if (actorData.type === "Group") {
         this._prepareGroupData(actorData);
       }
     } catch (err) {
@@ -115,6 +111,26 @@ export class SimpleActor extends Actor {
 
 
   /**
+   * Re-derive TN values for embedded skill/combatStyle/magicSkill items.
+   *
+   * Item.prepareData() runs during super.prepareData() before
+   * _prepareCharacterData/_prepareNPCData computes final characteristic
+   * totals (including AE bonuses). This second pass re-computes
+   * system.value with the now-finalized characteristic data, keeping
+   * the live DataProxy in sync for both roll handlers and sheet rendering.
+   *
+   * Side-effect free: only mutates in-memory derived fields on the live
+   * DataProxy; no document updates are issued.
+   */
+  _recomputeItemTNs() {
+    for (const item of this.items) {
+      if (item.system && Object.prototype.hasOwnProperty.call(item.system, 'baseCha')) {
+        item._prepareCombatStyleData(this, item.system);
+      }
+    }
+  }
+
+  /**
    * Ensure required system data objects exist with safe defaults.
    *
    * IMPORTANT:
@@ -124,14 +140,6 @@ export class SimpleActor extends Actor {
    */
   _ensureSystemData() {
     ensureSystemData(this);
-  }
-
-  /**
-   * Apply legacy characteristic bonuses from talents/traits/powers.
-   * This ensures items with characteristicBonus fields apply their effects.
-   */
-  _applyLegacyCharacteristicBonuses() {
-    applyLegacyCharacteristicBonuses(this);
   }
 
   /**
@@ -261,57 +269,6 @@ export class SimpleActor extends Actor {
   }
 
   /**
-   * Repair Frenzied effects that have empty changes arrays.
-   * This ensures effects created before fixes were applied get their changes populated.
-   * 
-   * NOTE: This should NOT be called during prepareData as it can cause timing issues.
-   * Use the hook-based repair mechanism in frenzied.js instead.
-   */
-  _repairFrenziedEffectsIfNeeded() {
-    // Defer to next tick to avoid prepareData timing issues
-    setTimeout(() => {
-      try {
-        const frenziedEffects = Array.from(this.effects ?? []).filter(e => {
-          const isFrenzied = e?.flags?.["uesrpg-3ev4"]?.condition?.key === "frenzied" ||
-                             e?.flags?.core?.statusId === "frenzied";
-          return isFrenzied && (!Array.isArray(e.changes) || e.changes.length === 0);
-        });
-
-        if (frenziedEffects.length > 0) {
-          // Import the frenzied module dynamically to avoid circular dependencies
-          import("../conditions/frenzied.js").then(({ _mkFrenziedChanges }) => {
-            for (const effect of frenziedEffects) {
-              try {
-                const changes = _mkFrenziedChanges(this);
-                const changesToApply = changes.map(c => ({
-                  key: String(c.key ?? ""),
-                  mode: Number(c.mode ?? CONST.ACTIVE_EFFECT_MODES.ADD),
-                  value: String(c.value ?? ""),
-                  priority: Number(c.priority ?? 20)
-                }));
-
-                if (changesToApply.length > 0) {
-                  // Use update without diff to force the changes
-                  effect.update({ changes: changesToApply }, { diff: false }).catch(err => {
-                    console.warn("UESRPG | Failed to repair Frenzied effect", { effectId: effect.id, err });
-                  });
-                }
-              } catch (err) {
-                console.warn("UESRPG | Error generating changes for Frenzied effect repair", { effectId: effect.id, err });
-              }
-            }
-          }).catch(err => {
-            console.warn("UESRPG | Failed to import frenzied module for repair", err);
-          });
-        }
-      } catch (err) {
-        // Silently fail - this is a repair mechanism, not critical path
-        console.debug("UESRPG | Frenzied effect repair check failed", err);
-      }
-    }, 0);
-  }
-
-  /**
    * Prepare Character type specific data
    */
   _prepareCharacterData(actorData) {
@@ -392,49 +349,6 @@ export class SimpleActor extends Actor {
     }
   }
 
-  _calculateENC(actorData) {
-    let weighted = (actorData.items || []).filter(item => item?.system && Object.prototype.hasOwnProperty.call(item.system, "enc"));
-    let totalWeight = 0.0;
-    for (let item of weighted) {
-      let containerAppliedENC = item.type == 'container' ? (item?.system?.container_enc?.applied_enc ? Number(item.system.container_enc.applied_enc) : 0) : 0
-      let containedItemReduction = item.type != 'container' && item?.system?.containerStats?.contained ? (Number(item?.system?.enc || 0) * Number(item?.system?.quantity || 0)) : 0
-      totalWeight = totalWeight + (Number(item?.system?.enc || 0) * Number(item?.system?.quantity || 0)) + containerAppliedENC - containedItemReduction;
-    }
-    return totalWeight
-  }
-
-
-  _armorWeight(actorData) {
-    const itemsRaw = actorData?.items;
-    const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
-
-    const wornArmor = items.filter(item => {
-      if (item?.type !== "armor") return false;
-      const sys = item.system ?? {};
-      if (sys.equipped !== true) return false;
-      const isShield = Boolean(sys?.isShieldEffective ?? sys?.isShield);
-      return !isShield;
-    });
-
-    let armorENC = 0;
-    for (const item of wornArmor) {
-      const sys = item.system ?? {};
-      const enc = Number(sys.enc ?? 0);
-      const qty = Number(sys.quantity ?? 0);
-      armorENC += ((enc / 2) * qty);
-    }
-    return armorENC;
-  }
-
-  _excludeENC(actorData) {
-    let excluded = (actorData.items || []).filter(item => item?.system && item.system.excludeENC == true);
-    let totalWeight = 0.0;
-    for (let item of excluded) {
-      totalWeight = totalWeight + (Number(item?.system?.enc || 0) * Number(item?.system?.quantity || 0));
-    }
-    return totalWeight
-  }
-
   _speedCalc(actorData) {
     const itemsRaw = actorData?.items;
     const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
@@ -464,28 +378,20 @@ export class SimpleActor extends Actor {
     const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
     const attribute = items.filter(item => item && (item.type === "trait" || item.type === "talent"));
     let init = Number(actorData?.system?.initiative?.base ?? 0);
+    const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
+    const chaCalc = (ch) => Math.floor(this._getCharacteristicTotal(actorData, ch) / 10) * 3;
 
     // Rule Element: overrideValue for initiative characteristic replacement.
     const reIniChar = actorData?.system?._reOverrides?.["system.initiative.replaceCharacteristic"] ?? null;
     if (reIniChar && reIniChar !== "none") {
       const ch = String(reIniChar).toLowerCase();
-      const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
-      if (validChars.includes(ch)) {
-        return Math.floor(this._getCharacteristicTotal(actorData, ch) / 10) * 3;
-      }
+      if (validChars.includes(ch)) return chaCalc(ch);
     }
 
-    for (let item of attribute) {
+    for (const item of attribute) {
       if (item?.system?.replace?.ini && item.system.replace.ini.characteristic !== "none") {
         const ch = item.system.replace.ini.characteristic;
-        if (ch === "str") init = Math.floor(this._getCharacteristicTotal(actorData, "str") / 10) * 3;
-        else if (ch === "end") init = Math.floor(this._getCharacteristicTotal(actorData, "end") / 10) * 3;
-        else if (ch === "agi") init = Math.floor(this._getCharacteristicTotal(actorData, "agi") / 10) * 3;
-        else if (ch === "int") init = Math.floor(this._getCharacteristicTotal(actorData, "int") / 10) * 3;
-        else if (ch === "wp") init = Math.floor(this._getCharacteristicTotal(actorData, "wp") / 10) * 3;
-        else if (ch === "prc") init = Math.floor(this._getCharacteristicTotal(actorData, "prc") / 10) * 3;
-        else if (ch === "prs") init = Math.floor(this._getCharacteristicTotal(actorData, "prs") / 10) * 3;
-        else if (ch === "lck") init = Math.floor(this._getCharacteristicTotal(actorData, "lck") / 10) * 3;
+        if (validChars.includes(ch)) init = chaCalc(ch);
       }
     }
     return init;
@@ -496,35 +402,27 @@ export class SimpleActor extends Actor {
     const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
     const attribute = items.filter(item => item && (item.type === "trait" || item.type === "talent"));
     let wound = Number(actorData?.system?.wound_threshold?.base ?? 0);
+    const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
+    const chaCalc = (ch) => Math.floor(this._getCharacteristicTotal(actorData, ch) / 10) * 3;
 
     // Rule Element: overrideValue for wound threshold characteristic replacement.
     const reWtChar = actorData?.system?._reOverrides?.["system.wound_threshold.replaceCharacteristic"] ?? null;
     if (reWtChar && reWtChar !== "none") {
       const ch = String(reWtChar).toLowerCase();
-      const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
-      if (validChars.includes(ch)) {
-        return Math.floor(this._getCharacteristicTotal(actorData, ch) / 10) * 3;
-      }
+      if (validChars.includes(ch)) return chaCalc(ch);
     }
 
-    for (let item of attribute) {
+    for (const item of attribute) {
       if (item?.system?.replace?.wt && item.system.replace.wt.characteristic !== "none") {
         const ch = item.system.replace.wt.characteristic;
-        if (ch === "str") wound = Math.floor(this._getCharacteristicTotal(actorData, "str") / 10) * 3;
-        else if (ch === "end") wound = Math.floor(this._getCharacteristicTotal(actorData, "end") / 10) * 3;
-        else if (ch === "agi") wound = Math.floor(this._getCharacteristicTotal(actorData, "agi") / 10) * 3;
-        else if (ch === "int") wound = Math.floor(this._getCharacteristicTotal(actorData, "int") / 10) * 3;
-        else if (ch === "wp") wound = Math.floor(this._getCharacteristicTotal(actorData, "wp") / 10) * 3;
-        else if (ch === "prc") wound = Math.floor(this._getCharacteristicTotal(actorData, "prc") / 10) * 3;
-        else if (ch === "prs") wound = Math.floor(this._getCharacteristicTotal(actorData, "prs") / 10) * 3;
-        else if (ch === "lck") wound = Math.floor(this._getCharacteristicTotal(actorData, "lck") / 10) * 3;
+        if (validChars.includes(ch)) wound = chaCalc(ch);
       }
     }
     return wound;
   }
 
   _calcFatiguePenalty(actorData) {
-    let attribute = (actorData.items || []).filter(item => item?.system?.halfFatiguePenalty == true);
+    const attribute = (actorData.items || []).filter(item => item?.system?.halfFatiguePenalty === true);
     let penalty = 0;
     // Enduring (Chapter 4): halve penalties imposed by levels of fatigue.
     let hasEnduring = false;
@@ -540,19 +438,13 @@ export class SimpleActor extends Actor {
   }
 
   _halfWoundPenalty(actorData) {
-    let attribute = (actorData.items || []).filter(item => item?.system?.halfWoundPenalty == true);
-    let woundReduction = false;
+    const hasItem = (actorData.items || []).some(item => item?.system?.halfWoundPenalty === true);
     // Unstoppable (Chapter 4): halve the passive effects of wounds.
     let hasUnstoppable = false;
     try { hasUnstoppable = hasTalent(this, "unstoppable"); } catch (_e) { hasUnstoppable = false; }
     // Rule Element: booleanFlag halfWoundPenalty via passive RE.
     const reHalfWound = Boolean(actorData?.system?._reFlags?.halfWoundPenalty);
-    if (attribute.length >= 1 || hasUnstoppable || reHalfWound) {
-      woundReduction = true;
-    } else {
-      woundReduction = false;
-    }
-    return woundReduction
+    return hasItem || hasUnstoppable || reHalfWound;
   }
 
   _determineIbMp(actorData) {
@@ -560,7 +452,7 @@ export class SimpleActor extends Actor {
     let total = 0;
 
     // Item-based Power Well (legacy: addIBToMP checkbox on talent/trait items).
-    let addIbItems = (actorData.items || []).filter(item => item?.system?.addIBToMP == true);
+    let addIbItems = (actorData.items || []).filter(item => item?.system?.addIBToMP === true);
     if (addIbItems.length >= 1) {
       total = addIbItems.reduce(
         (acc, item) => actorIntBonus * Number(item?.system?.addIntToMPMultiplier || 0) + acc,
@@ -579,45 +471,13 @@ export class SimpleActor extends Actor {
 
     return total;
   }
-  _untrainedException(actorData) {
-    const items = actorData.items || [];
-    const attribute = items.filter(item => item?.system?.untrainedException == true);
-
-    // Chapter 4 (Arms Master): ignore the usual -20 untrained penalty for Combat Styles.
-    const hasArmsMaster = Array.isArray(items) && items.some((i) => {
-      if (String(i?.type ?? "") !== "talent") return false;
-      const slug = String(i?.system?.slug ?? i?.system?.key ?? i?.system?.id ?? "").toLowerCase();
-      const name = String(i?.name ?? "").toLowerCase();
-      return slug === "armsmaster" || name === "arms master";
-    });
-
-    return (attribute.length >= 1 || hasArmsMaster) ? 20 : 0;
-  }
 
   _isMechanical(actorData) {
-    let attribute = (actorData.items || []).filter(item => item?.system?.mechanical == true);
-    let isMechanical = false;
-    if (attribute.length >= 1) {
-      isMechanical = true;
-    } else {
-      isMechanical = false;
-    }
-    return isMechanical
+    return (actorData.items || []).some(item => item?.system?.mechanical === true);
   }
 
   _dwemerSphere(actorData) {
-    let attribute = (actorData.items || []).filter(item => item?.system?.shiftForm == true);
-    let shift = false;
-    if (attribute.length >= 1) {
-      for (let item of attribute) {
-        if (item?.system?.dailyUse == true) {
-          shift = true;
-        }
-      }
-    } else {
-      shift = false;
-    }
-    return shift
+    return (actorData.items || []).some(item => item?.system?.shiftForm === true && item?.system?.dailyUse === true);
   }
 
   _vampireLordForm(actorData) {
@@ -649,12 +509,7 @@ export class SimpleActor extends Actor {
   }
 
   _painIntolerant(actorData) {
-    let attribute = (actorData.items || []).filter(item => item?.system?.painIntolerant == true);
-    let pain = false;
-    if (attribute.length >= 1) {
-      pain = true;
-    }
-    return pain
+    return (actorData.items || []).some(item => item?.system?.painIntolerant === true);
   }
 
   /**
@@ -747,9 +602,9 @@ export class SimpleActor extends Actor {
     let speed = Number(actorData?.system?.speed?.value || 0);
     if (isWereCroc.length > 0 && halfSpeedItems.length > 0) {
       speed = Number(actorData?.system?.speed?.base || 0);
-    } else if (isWereCroc.length == 0 && halfSpeedItems.length > 0) {
+    } else if (isWereCroc.length === 0 && halfSpeedItems.length > 0) {
       speed = Math.ceil(Number(actorData?.system?.speed?.value || 0)/2) + Number(actorData?.system?.speed?.base || 0);
-    } else if (isWereCroc.length > 0 && halfSpeedItems.length == 0) {
+    } else if (isWereCroc.length > 0 && halfSpeedItems.length === 0) {
       speed = Math.ceil(Number(actorData?.system?.speed?.base || 0)/2);
     } else {
       speed = Number(actorData?.system?.speed?.value || 0);

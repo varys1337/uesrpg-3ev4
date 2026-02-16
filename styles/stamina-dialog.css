@@ -1,15 +1,69 @@
+.worldbuilding.uesrpg-resource-dialog .window-content {
+  overflow: hidden;
+}
+
+.uesrpg-resource-dialog__body,
 .uesrpg-stamina-dialog {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--uesrpg-space-md, 8px);
+}
+
+.uesrpg-resource-dialog__group {
+  margin: 0;
+}
+
+.uesrpg-resource-dialog__label {
+  display: block;
+  margin-bottom: 3px;
+  font-weight: 700;
+}
+
+.uesrpg-resource-dialog__group input[type="number"],
+.uesrpg-stamina-select,
+.uesrpg-stamina-input {
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 10px;
+}
+
+.uesrpg-resource-dialog__hint {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--uesrpg-font-sm, 12px);
+  opacity: 0.82;
+}
+
+.uesrpg-resource-dialog__hint--copy {
+  margin: 0;
+  padding: 6px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.14);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.uesrpg-magicka-barrier-dialog .buffer-source-indicator {
+  margin-left: 5px;
+  font-size: var(--uesrpg-font-sm, 12px);
+  opacity: 0.8;
+  cursor: help;
+}
+
+.uesrpg-magicka-barrier-dialog__sources {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--uesrpg-font-sm, 12px);
+  opacity: 0.88;
+}
+
+.uesrpg-stamina-dialog {
   max-height: 60vh;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
 .uesrpg-stamina-status {
-  padding: 10px;
-  border-radius: 4px;
+  padding: var(--uesrpg-space-lg, 10px);
+  border-radius: var(--uesrpg-border-radius, 4px);
   background: #2a6b2a;
   color: #fff;
 }
@@ -24,39 +78,43 @@
 }
 
 .uesrpg-stamina-warning {
-  margin: 6px 0 0 0;
+  margin: var(--uesrpg-space-sm, 6px) 0 0 0;
   color: #ffb3b3;
-  font-size: 12px;
+  font-size: var(--uesrpg-font-sm, 12px);
 }
 
+.uesrpg-resource-dialog__form,
 .uesrpg-stamina-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.uesrpg-stamina-select {
-  width: 100%;
-  padding: 5px;
-  margin-top: 5px;
+  gap: var(--uesrpg-space-md, 8px);
 }
 
 .uesrpg-stamina-power-attack {
-  margin-top: 10px;
+  margin-top: 2px;
 }
 
 .uesrpg-stamina-power-attack.is-hidden {
   display: none;
 }
 
-.uesrpg-stamina-input {
-  width: 100%;
-  padding: 5px;
-  margin-top: 5px;
+.uesrpg-stamina-action-help {
+  min-height: 16px;
 }
 
 .uesrpg-stamina-note {
   font-style: italic;
   opacity: 0.8;
   margin: 4px 0 0 0;
+}
+
+.worldbuilding.uesrpg-resource-dialog .dialog-buttons {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+
+.worldbuilding.uesrpg-resource-dialog .dialog-buttons > button {
+  flex: 1 1 0;
+  min-height: 34px;
 }

@@ -1,12 +1,12 @@
 import { UESRPG } from "../core/constants.js";
 import { SimpleActor } from "../core/documents/actor.js";
 import { SimpleItem } from "../core/documents/item.js";
-import { npcSheet } from "../ui/sheets/npc-sheet.js";
-import { SimpleActorSheet } from "../ui/sheets/actor-sheet.js";
-import { GroupSheet } from "../ui/sheets/group-sheet.js";
-import { SimpleItemSheet } from "../ui/sheets/item-sheet.js";
+import { GroupSheetV2 } from "../ui/sheets/v2/group-sheet.js";
+import { SimpleItemSheetV2 } from "../ui/sheets/v2/item-sheet.js";
+import { PCActorSheetV2 } from "../ui/sheets/v2/actor-sheet.js";
+import { NpcSheetV2 } from "../ui/sheets/v2/npc-sheet.js";
 
-import { SystemCombat } from "../core/documents/combat.js";
+import { SystemCombat, getInitiativeTieBreakTuple } from "../core/documents/combat.js";
 import { initializeChatHandlers, registerCombatChatHooks } from "../core/combat/chat-handlers.js";
 import { registerSkillTNDebug } from "../utils/dev/skill-tn-debug.js";
 import { registerActorSelectDebug } from "../utils/dev/actor-select-debug.js";
@@ -19,13 +19,31 @@ import { registerOpposedDiagnostics } from "../utils/dev/opposed-diagnostics.js"
 import { registerConditions } from "../core/conditions/index.js";
 import { registerWounds } from "../core/wounds/index.js";
 import { registerFrenzied, FrenziedAPI } from "../core/conditions/frenzied.js";
+import {
+  registerSurpriseHooks,
+  resolveSurpriseState,
+  setActorSurprised,
+  clearActorSurpriseState,
+  markSurprisedFirstTurnPassed
+} from "../core/combat/surprise-state.js";
+import { registerFearSystem } from "../core/fear/index.js";
+import { getSizeToHitModifier } from "../core/combat/tn.js";
+import { getActionEligibility } from "../core/combat/opposed/actions/eligibility.js";
 import { applyDamage, applyHealing, DAMAGE_TYPES } from "../core/combat/damage-automation.js";
 import { applyDamageResolved } from "../core/combat/damage-resolver.js";
 import { registerChatMessageSocket } from "../utils/chat-message-socket.js";
-import { registerAuthorityProxy } from "../utils/authority-proxy.js";
+import { registerAuthorityProxy, requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../utils/authority-proxy.js";
 import { registerReachVisualizer } from "../ui/canvas/reach-visualizer.js";
 import { registerRacialTalentsAutomation } from "../core/traits/racial-talents.js";
 import { registerSpellcastingTalentHooks } from "../core/traits/spellcasting-talents.js";
+import {
+  TALENT_LEARNING_MODE,
+  TALENT_NO_GOVERNING_COST_RULE,
+  TALENT_LEARNING_NOTICE_MODE,
+  validateTalentLearning,
+  notifyTalentLearningResult,
+  applyTalentLearningXpCost,
+} from "../core/traits/talent-learning.js";
 import { registerActivationStateHooks } from "../core/combat/activation-state-flags.js";
 import { CharOpposedWorkflow } from "../core/characteristics/opposed-workflow.js";
 import { isDebugEnabled } from "../utils/debug.js";
@@ -33,6 +51,7 @@ import { evaluatePredicate, isPredicate, selfTestPredicate } from "../core/rules
 import { normalizeRollOption, buildBaseRollOptions } from "../core/rules/roll-options.js";
 import { buildRollContext } from "../core/rules/roll-context.js";
 import { compileConditionsToPredicate } from "../core/traits/features/conditions-to-predicate.js";
+import { executeSpecialAction } from "../core/combat/special-actions-helper.js";
 import { getRuleElementRuntimeSupport } from "../core/traits/features/rule-elements.js";
 import { selfTestRuleElementRuntime } from "../core/traits/features/rule-element-runtime.js";
 
@@ -65,9 +84,6 @@ async function preloadHandlebarsTemplates() {
 
 async function registerSettings() {
   // Register system settings
-  function delayedReload() {
-    window.setTimeout(() => location.reload(), 500);
-  }
   
   game.settings.register("uesrpg-3ev4", "changeUiFont", {
     name: "System Font",
@@ -174,7 +190,7 @@ async function registerSettings() {
     config: false,
     default: true,
     type: Boolean,
-    onChange: delayedReload,
+    requiresReload: true,
   });
 
   // World data version stamp for the new-world-only compatibility gate.
@@ -192,6 +208,16 @@ async function registerSettings() {
   game.settings.register("uesrpg-3ev4", "debugEnabled", {
     name: "Debug Logging: Master Enable",
     hint: "Global master switch for all UESRPG debug logging. Disable to suppress all debug console output.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  // Feature Inspector visibility toggle (debug/provenance panel on actor sheets)
+  game.settings.register("uesrpg-3ev4", "showFeatureInspector", {
+    name: "Show Feature Inspector",
+    hint: "When enabled, shows the Feature Inspector provenance panel on PC and NPC actor sheets. Debug tool — hidden by default.",
     scope: "world",
     config: false,
     default: false,
@@ -384,7 +410,7 @@ async function registerSettings() {
     config: false,
     type: Boolean,
     default: false,
-    onChange: delayedReload
+    requiresReload: true
   });
 
   game.settings.register("uesrpg-3ev4", "debugAim", {
@@ -503,6 +529,61 @@ async function registerSettings() {
     type: String,
   });
 
+  game.settings.register("uesrpg-3ev4", "talentLearningMode", {
+    name: "Talents: Learning Enforcement Mode",
+    hint: "Off: no checks. Warn: allow but show RAW violations. Enforce: block invalid talent acquisition and auto-deduct XP on success.",
+    scope: "world",
+    config: false,
+    default: TALENT_LEARNING_MODE.WARN,
+    type: String,
+    choices: {
+      [TALENT_LEARNING_MODE.OFF]: "Off",
+      [TALENT_LEARNING_MODE.WARN]: "Warn",
+      [TALENT_LEARNING_MODE.ENFORCE]: "Enforce",
+    },
+  });
+
+  game.settings.register("uesrpg-3ev4", "talentNoGoverningCostRule", {
+    name: "Talents: No-Governing XP Rule",
+    hint: "How to price talents that have no governing characteristic.",
+    scope: "world",
+    config: false,
+    default: TALENT_NO_GOVERNING_COST_RULE.DISCOUNTED,
+    type: String,
+    choices: {
+      [TALENT_NO_GOVERNING_COST_RULE.DISCOUNTED]: "Discounted (75%, round down to 5)",
+      [TALENT_NO_GOVERNING_COST_RULE.BASE]: "Base Cost",
+    },
+  });
+
+  game.settings.register("uesrpg-3ev4", "talentLearningNoticeMode", {
+    name: "Talents: Learning Notification Mode",
+    hint: "Controls GM/player notification verbosity for talent learning checks.",
+    scope: "world",
+    config: false,
+    default: TALENT_LEARNING_NOTICE_MODE.PROBLEMS,
+    type: String,
+    choices: {
+      [TALENT_LEARNING_NOTICE_MODE.OFF]: "Off",
+      [TALENT_LEARNING_NOTICE_MODE.PROBLEMS]: "Problems Only",
+      [TALENT_LEARNING_NOTICE_MODE.VERBOSE]: "Verbose (includes successful checks)",
+    },
+  });
+
+  game.settings.register("uesrpg-3ev4", "chapter4AuditStartupMode", {
+    name: "Talents: Chapter 4 Audit at Startup",
+    hint: "Run catalog-based Chapter 4 compliance audit when world loads for GMs.",
+    scope: "world",
+    config: false,
+    default: "off",
+    type: String,
+    choices: {
+      off: "Off",
+      summary: "Summary",
+      full: "Full (include entries + console log)",
+    },
+  });
+
   // Client-only diagnostics panel on actor sheets (used for testing)
   game.settings.register("uesrpg-3ev4", "sheetDiagnostics", {
     name: "Debug: Sheet Diagnostics Panel",
@@ -567,30 +648,32 @@ function registerHandlebarsHelpers() {
 }
 
 async function registerSheets () {
-    // Register sheet application classes
-foundry.documents.collections.Actors.unregisterSheet("core", foundry.appv1.sheets.ActorSheet);
-foundry.documents.collections.Items.unregisterSheet("core", foundry.appv1.sheets.ItemSheet);
+  // Register sheet application classes
+  foundry.documents.collections.Actors.unregisterSheet("core", foundry.appv1.sheets.ActorSheet);
+  foundry.documents.collections.Items.unregisterSheet("core", foundry.appv1.sheets.ItemSheet);
 
-foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", SimpleActorSheet, {
-  types: ["Player Character"],
-  makeDefault: true,
-  label: "Default UESRPG Character Sheet",
-});
+  foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", PCActorSheetV2, {
+    types: ["Player Character"],
+    makeDefault: true,
+    label: "UESRPG Character Sheet",
+  });
 
-foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", GroupSheet, {
-  types: ["Group"],
-  makeDefault: true,
-  label: "Default UESRPG Group Sheet",
-});
-foundry.documents.collections.Items.registerSheet("uesrpg-3ev4", SimpleItemSheet, {
-  makeDefault: true,
-  label: "Default UESRPG Item Sheet",
-});
-foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", npcSheet, {
-  types: ["NPC"],
-  makeDefault: true,
-  label: "Default UESRPG NPC Sheet",
-});
+  foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", GroupSheetV2, {
+    types: ["Group"],
+    makeDefault: true,
+    label: "UESRPG Group Sheet",
+  });
+
+  foundry.documents.collections.Items.registerSheet("uesrpg-3ev4", SimpleItemSheetV2, {
+    makeDefault: true,
+    label: "UESRPG Item Sheet",
+  });
+
+  foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", NpcSheetV2, {
+    types: ["NPC"],
+    makeDefault: true,
+    label: "UESRPG NPC Sheet",
+  });
 }
 
 export default async function initHandler() {
@@ -642,6 +725,79 @@ export default async function initHandler() {
     console.warn("UESRPG | Failed to register spellcasting talent hooks", err);
   }
 
+  // Talent learning enforcement hooks (Chapter 4 acquisition rules): registered once.
+  if (!game.uesrpg._talentLearningHooks) {
+    game.uesrpg._talentLearningHooks = true;
+
+    Hooks.on("preCreateItem", (item, data, _options, userId) => {
+      try {
+        if (game.userId !== userId) return;
+
+        const actor = item?.parent;
+        if (!actor || actor.documentName !== "Actor") return;
+        if (actor.type !== "Player Character") return;
+
+        const itemType = String(data?.type ?? item?.type ?? "").toLowerCase();
+        if (itemType !== "talent") return;
+
+        const validation = validateTalentLearning(actor, data, { source: "preCreateItem" });
+        if (validation.mode === TALENT_LEARNING_MODE.OFF) return;
+
+        if (validation.mode === TALENT_LEARNING_MODE.WARN) {
+          notifyTalentLearningResult(validation);
+          return;
+        }
+
+        if (validation.mode === TALENT_LEARNING_MODE.ENFORCE && !validation.ok) {
+          notifyTalentLearningResult(validation, { force: true });
+          return false;
+        }
+      } catch (err) {
+        console.error("UESRPG | Talent learning preCreateItem hook failed", err);
+      }
+    });
+
+    Hooks.on("createItem", async (item, _options, userId) => {
+      try {
+        if (game.userId !== userId) return;
+
+        if (!item || item.documentName !== "Item") return;
+        if (String(item.type ?? "").toLowerCase() !== "talent") return;
+
+        const actor = item.parent;
+        if (!actor || actor.documentName !== "Actor") return;
+        if (actor.type !== "Player Character") return;
+
+        const validation = validateTalentLearning(actor, item, {
+          source: "createItem",
+          ignoreItemId: item.id,
+        });
+
+        if (validation.mode !== TALENT_LEARNING_MODE.ENFORCE) return;
+        if (!validation.rulesOk) {
+          notifyTalentLearningResult(validation, { force: true });
+          await requestDeleteEmbeddedDocuments(actor, "Item", [item.id]);
+          return;
+        }
+
+        const spend = await applyTalentLearningXpCost(actor, validation);
+        if (!spend.ok) {
+          ui.notifications?.warn?.(
+            `Talent learning blocked (${item.name}). ${spend.reason ?? "Unable to deduct XP."}`
+          );
+          await requestDeleteEmbeddedDocuments(actor, "Item", [item.id]);
+          return;
+        }
+
+        if (spend.spentXp > 0) {
+          ui.notifications?.info?.(`Spent ${spend.spentXp} XP to learn ${item.name}.`);
+        }
+      } catch (err) {
+        console.error("UESRPG | Talent learning createItem hook failed", err);
+      }
+    });
+  }
+
 // COMBAT_API_EXPORTS_V1
 // Provide stable access points for macros and downstream system automation without relying on dynamic imports.
 // This avoids incorrect relative import roots (e.g. "/scripts/systems/...") in Foundry macro contexts.
@@ -656,6 +812,13 @@ game.uesrpg.combat.applyHealing = async (actor, amount, options = {}) => {
   const src = options?.source ?? "Healing";
   return applyHealing(actor, amount, { ...options, source: src });
 };
+game.uesrpg.combat.resolveSurpriseState = resolveSurpriseState;
+game.uesrpg.combat.setActorSurprised = setActorSurprised;
+game.uesrpg.combat.clearActorSurpriseState = clearActorSurpriseState;
+game.uesrpg.combat.markSurprisedFirstTurnPassed = markSurprisedFirstTurnPassed;
+game.uesrpg.combat.getInitiativeTieBreakTuple = getInitiativeTieBreakTuple;
+game.uesrpg.combat.getSizeToHitModifier = getSizeToHitModifier;
+game.uesrpg.combat.getActionEligibility = getActionEligibility;
 
 // Characteristic Opposed Workflow — exposed for macros/downstream consumers.
 if (!game.uesrpg.characteristics) game.uesrpg.characteristics = {};
@@ -734,7 +897,10 @@ game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
         if (itemType === "talent" || itemType === "trait" || itemType === "power") return;
 
         // Only force if it looks like a default-created effect (no explicit choice).
-        await effect.update({ transfer: true });
+        // Only the owning client should perform the update — other clients skip.
+        const ownerActor = parent?.parent;
+        if (!ownerActor) return;
+        await requestUpdateDocument(effect, { transfer: true });
       } catch (err) {
         console.error("UESRPG | Default Item AE transfer create fallback failed", err);
       }
@@ -788,7 +954,6 @@ game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
 
         // If no other effects provide this buffer type, clear it
         if (otherBufferEffects.length === 0) {
-          const { requestUpdateDocument } = await import("../utils/authority-proxy.js");
           await requestUpdateDocument(targetActor, { [bufferPath]: 0 });
 
           const debugEnabled = game.settings.get("uesrpg-3ev4", "spellCastingDebug");
@@ -800,7 +965,6 @@ game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
           const maxBuffer = Math.max(...otherBufferEffects.map(ef => 
             Number(ef.flags?.["uesrpg-3ev4"]?.bufferOriginalValue ?? 0)
           ));
-          const { requestUpdateDocument } = await import("../utils/authority-proxy.js");
           await requestUpdateDocument(targetActor, { [bufferPath]: maxBuffer });
 
           const debugEnabled = game.settings.get("uesrpg-3ev4", "spellCastingDebug");
@@ -891,6 +1055,8 @@ game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
   // Chapter 5: conditions + wounds automation (AE-backed, deterministic)
   registerConditions();
   registerWounds();
+  registerSurpriseHooks();
+  registerFearSystem();
 
   // Frenzied condition automation (Chapter 5)
   try {
@@ -930,8 +1096,6 @@ Hooks.on("createChatMessage", async (message) => {
   if (!state?.outcome || !state?.specialActionId) return;
 
   try {
-    const { executeSpecialAction } = await import("../core/combat/special-actions-helper.js");
-    
     const attacker = fromUuidSync(state.attacker?.actorUuid);
     const defender = fromUuidSync(state.defender?.actorUuid);
     

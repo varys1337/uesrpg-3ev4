@@ -1,29 +1,16 @@
-<form style="height: 100%">
-  <div class="dialogForm" style="padding: 5px">
-    <div
-      style="
-        text-align: center;
-        margin: 5px;
-        padding: 5px;
-        background-color: rgba(78, 78, 78, 0.137);
-      "
-    >
-      <span style="margin-left: 10px; margin-right: 10px">
+<div class="uesrpg-startup">
+  <div class="dialogForm">
+    <div class="startup-panel">
+      <span class="startup-social-link">
         <a href="{{discordInviteUrl}}"><i class="fab fa-discord fa-2x"></i></a>
       </span>
-      <span style="margin-left: 10px; margin-right: 10px">
+      <span class="startup-social-link">
         <a href="{{githubUrl}}"><i class="fab fa-github fa-2x"></i></a>
       </span>
     </div>
 
-    <div
-      style="
-        margin: 5px;
-        padding: 5px;
-        background-color: rgba(78, 78, 78, 0.137);
-      "
-    >
-      <h2 style="text-align: center">Join the Community!</h2>
+    <div class="startup-panel">
+      <h2>Join the Community!</h2>
       <label>
         Hey adventurer! Thanks for taking the time to check out the UESRPG
         system on Foundry. UESRPG is an incredible game developed by a team of
@@ -34,7 +21,7 @@
 
       <!-- <p></p>
 
-      <h2 style="text-align: center">Recommended Game Content</h2>
+      <h2>Recommended Game Content</h2>
       <label>
         The following modules/content were created by some dedicated community
         members and are <b>highly recommended</b>
@@ -45,7 +32,7 @@
       </ul> -->
       <p></p>
 
-      <h2 style="text-align: center">Special Thanks</h2>
+      <h2>Special Thanks</h2>
       <label>
         <ul>
           <li>Thanks to DogBoneZone, the original author of the uesrpg-d100 Foundry VTT system, from which this system was forked.</li>
@@ -53,28 +40,14 @@
         </ul>
       </label>
     </div>
-    <div
-      style="
-        overflow-y: scroll;
-        height: 300px;
-        margin: 5px;
-        padding: 5px;
-        background-color: rgba(78, 78, 78, 0.137);
-      "
-    >
+    <div class="startup-panel startup-changelog">
       {{{changelogHtml}}}
     </div>
-    <div
-      style="
-        margin: 5px;
-        padding: 5px;
-        background-color: rgba(78, 78, 78, 0.137);
-      "
-    >
+    <div class="startup-panel">
       <i
         >You can disable this popup message in the System Settings and checking
         the box to not show this again.</i
       >
     </div>
   </div>
-</form>
+</div>

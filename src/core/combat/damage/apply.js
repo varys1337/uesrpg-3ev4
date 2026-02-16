@@ -78,6 +78,8 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     weapon = null,
     attackerActor = null,
     magicSource = false,
+    // When true, suppress the damage chat message (used by OverTime engine which posts its own).
+    skipChatMessage = false,
     // For magic wounds: track damage by type for proper wound side effects
     damageAppliedByType = null,
     woundThresholdDelta = 0,
@@ -469,14 +471,16 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     </div>
   `;
 
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
-    content: messageContent,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-    whisper: gmIds,
-    blind: true,
-  });
+  if (!skipChatMessage) {
+    await ChatMessage.create({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
+      content: messageContent,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+      whisper: gmIds,
+      blind: true,
+    });
+  }
 
   const prevented = Math.max(0, Number(damageCalc.totalDamage ?? rawDamage) - finalDamageAdjusted);
 
@@ -859,7 +863,7 @@ async function applyTemporaryHP(actor, amount, source = "Spell", options = {}) {
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
       content,
-      type: CONST.CHAT_MESSAGE_STYLES.OTHER
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER
     });
   }
 

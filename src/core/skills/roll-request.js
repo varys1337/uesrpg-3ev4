@@ -12,9 +12,9 @@
 import { getDifficultyByKey } from "./skill-tn.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 
-export const SKILL_ROLL_REQUEST_VERSION = 1;
+const SKILL_ROLL_REQUEST_VERSION = 1;
 
-export function isSkillRollDebugEnabled() {
+function isSkillRollDebugEnabled() {
   return isDebugEnabled("skillRollDebug");
 }
 
@@ -24,7 +24,7 @@ export function skillRollDebug(...args) {
   console.log("[UESRPG][SkillRoll]", ...args);
 }
 
-export function clampNumber(v, { min = -200, max = 200 } = {}) {
+function clampNumber(v, { min = -200, max = 200 } = {}) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
   return Math.min(max, Math.max(min, n));
@@ -35,11 +35,17 @@ export function normalizeSkillRollOptions(raw = {}, fallback = {}) {
 
   const diffKey = String(raw.difficultyKey ?? fallback.difficultyKey ?? "average");
   const diff = getDifficultyByKey(diffKey);
+  const selectedCharacteristicKey = String(
+    raw.selectedCharacteristicKey
+    ?? fallback.selectedCharacteristicKey
+    ?? ""
+  ).trim().toLowerCase();
 
   return {
     difficultyKey: diff.key,
     manualMod: clampNumber(raw.manualMod ?? fallback.manualMod ?? 0, { min: -200, max: 200 }),
     useSpec: Boolean(raw.useSpec ?? fallback.useSpec ?? false),
+    selectedCharacteristicKey,
     applyBlinded: Boolean(raw.applyBlinded ?? fallback.applyBlinded ?? false),
     applyDeafened: Boolean(raw.applyDeafened ?? fallback.applyDeafened ?? false)
   };

@@ -8,7 +8,8 @@
  * - executeAdvantageSpecialActions: Handle auto-win and free special actions from advantage spending
  */
 
-import { getSpecialActionById } from "../../config/special-actions.js";
+import { getSpecialActionById } from "../combat-style-utils.js";
+import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
 
 /**
  * Execute special actions selected during advantage spending.
@@ -28,7 +29,10 @@ export async function executeAdvantageSpecialActions({
   opponent,
   role = "attacker",
   actorTokenUuid = null,
-  opponentTokenUuid = null
+  opponentTokenUuid = null,
+  attackerStyleUuid = null,
+  defenderStyleUuid = null,
+  source = "advantage-free"
 } = {}) {
   if (!Array.isArray(specialActionIds) || specialActionIds.length === 0) return;
   if (!actor) return;
@@ -87,8 +91,14 @@ export async function executeAdvantageSpecialActions({
             state.specialActionId = saId;
             state.allowCombatStyle = true;
             state.isFreeAction = true;
+            state.specialActionContext = {
+              id: saId,
+              source,
+              attackerStyleUuid: attackerStyleUuid ?? null,
+              defenderStyleUuid: defenderStyleUuid ?? null
+            };
 
-            await message.update({
+            await safeUpdateChatMessage(message, {
               flags: {
                 "uesrpg-3ev4": {
                   skillOpposed: {

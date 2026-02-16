@@ -1,0 +1,55 @@
+{{!-- Magic Skill Sheet — Compact Layout --}}
+<header class="item-compact-header">
+    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
+    <div class="item-header-fields">
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+        <div class="item-stats-row">
+            <div class="item-stat">
+                <label>{{item.system.value}}</label>
+                <span class="item-stat-label">Target Number</span>
+            </div>
+            <div class="item-stat">
+                <select name="system.rank" data-type="String">
+                    {{selectOptions item.system.skillRanks selected=item.system.rank localize=true}}
+                </select>
+                <span class="item-stat-label">Rank</span>
+            </div>
+            <div class="item-stat">
+                <input type="text" name="system.governingCha" value="{{item.system.governingCha}}"/>
+                <span class="item-stat-label">Governing Char.</span>
+            </div>
+            <div class="item-stat">
+                <select name="system.baseCha" data-type="String">
+                    {{selectOptions item.system.characteristics selected=item.system.baseCha localize=true}}
+                </select>
+                <span class="item-stat-label">Selected Char.</span>
+            </div>
+        </div>
+        <div class="item-specialization-row">
+            <input type="text" name="system.trainedItems" value="{{item.system.trainedItems}}" data-dtype="String" placeholder="Specialization"/>
+            <span class="uesrpg-field-hint">Comma-separated or one per line.</span>
+        </div>
+    </div>
+</header>
+
+{{!-- Sheet Tab Navigation --}}
+<nav class="sheet-tabs tabs" data-group="primary">
+    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+</nav>
+
+        {{!-- Sheet Body --}}
+        <section class="sheet-body">
+
+            {{!-- Description Tab --}}
+            <div class="tab" data-group="primary" data-tab="description">
+                {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+            </div>
+        
+
+
+        {{!-- Effects Tab --}}
+        <div class="tab effects" data-group="primary" data-tab="effects">
+            {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+        </div>
+</section>

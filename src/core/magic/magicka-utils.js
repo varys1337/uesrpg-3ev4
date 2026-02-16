@@ -13,6 +13,7 @@
  */
 
 import { MagicTimekeeping } from "./timekeeping-helper.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 import { getDifficultyByKey } from "../skills/skill-tn.js";
 import { evaluateAEModifierKeysDetailed } from "../active-effects/modifier-evaluator.js";
@@ -528,7 +529,7 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
   const current = getActorMagicka(actor);
   const max = _num(actor?.system?.magicka?.max, 0);
   const next = (max > 0) ? Math.min(max, current + reduction) : (current + reduction);
-  await actor.update({ "system.magicka.value": next });
+  await requestUpdateDocument(actor, { "system.magicka.value": next });
 
   const finalCost = baseCost - reduction;
   const breakdownParts = restraintInfo.breakdown;
@@ -602,14 +603,16 @@ if (activeNoDuration) {
     };
   }
 
-  await actor.update({ "system.magicka.value": remaining });
+  await requestUpdateDocument(actor, { "system.magicka.value": remaining });
 
   // Track the most recent spell cast for RAW upkeep restrictions.
   // Best-effort only: this flag is used by the upkeep workflow to enforce
   // the "no other spell since" rule for spells with no listed duration.
   try {
-    await actor.setFlag("uesrpg-3ev4", "lastSpellCastWorldTime", Number(MagicTimekeeping.nowWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0);
-    await actor.setFlag("uesrpg-3ev4", "lastSpellCastSpellUuid", String(spell?.uuid ?? ""));
+    await requestUpdateDocument(actor, {
+      "flags.uesrpg-3ev4.lastSpellCastWorldTime": Number(MagicTimekeeping.nowWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0,
+      "flags.uesrpg-3ev4.lastSpellCastSpellUuid": String(spell?.uuid ?? "")
+    });
   } catch (_e) {
     // no-op
   }

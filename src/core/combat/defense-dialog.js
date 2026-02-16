@@ -10,7 +10,7 @@
  *  - Provides Manual Modifier and Combat Circumstance Modifiers inputs.
  *  - Live TN previews for each defense option using module/combat/tn.js computeTN().
  *
- * NOTE: This system does not use ApplicationV2.
+ * Uses DialogV2 via customDialog helper.
  */
 
 import { computeTN, listCombatStyles, hasEquippedShield } from "./tn.js";
@@ -18,6 +18,7 @@ import { hasCondition } from "../conditions/condition-engine.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "./defense-options.js";
 import { applySenseLossPenaltyAdjustments } from "../traits/awareness-talents.js";
 import { hasActiveWard, getWardBlockRating } from "./ward-defense.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 function asNumber(v) {
   if (v == null) return 0;
@@ -26,138 +27,55 @@ function asNumber(v) {
   return m ? Number(m[0]) : 0;
 }
 
-export class DefenseDialog extends Dialog {
-  /**
-   * @param {Actor} defender
-   * @param {object} options
-   * @param {Function} resolveFn
-   */
-  constructor(defender, options = {}, resolveFn) {
-    const styles = listCombatStyles(defender);
-    const defaultStyleUuid = options.defaultStyleUuid ?? styles?.[0]?.uuid ?? null;
-    const requestedDefaultDefenseType = options.defaultDefenseType ?? "evade";
-    const defaultManualMod = Number(options.defaultManualMod ?? 0) || 0;
-    const defaultCircMod = Number(options.defaultCircumstanceMod ?? 0) || 0;
+// ──────────── Content Rendering ────────────
 
-    const shieldOk = hasEquippedShield(defender);
-    const wardOk = hasActiveWard(defender);
+function _renderContent({
+  styles,
+  defaultStyleUuid,
+  defaultDefenseType,
+  defaultManualMod,
+  defaultCircMod,
+  shieldOk,
+  availability,
+  hasBlinded,
+  hasDeafened,
+  defaultApplyBlinded,
+  defaultApplyDeafened,
+  gladiator
+}) {
+  const styleOptions = styles
+    .map(s => `<option value="${s.uuid}" ${s.uuid === defaultStyleUuid ? "selected" : ""}>${Handlebars.escapeExpression(s.name)}</option>`)
+    .join("");
 
-    const hasBlinded = hasCondition(defender, "blinded");
-    const hasDeafened = hasCondition(defender, "deafened");
-    const defaultApplyBlinded = (options.defaultApplyBlinded ?? true);
-    const defaultApplyDeafened = (options.defaultApplyDeafened ?? true);
+  const showStyle = styles.length > 0;
 
-    const attackerWeaponTraits = options.attackerWeaponTraits ?? null;
-    const defenderHasSmallWeapon = !!(options.defenderHasSmallWeapon);
-    const attackMode = String(options?.context?.attackMode ?? options?.attackMode ?? "melee");
-    const allowedDefenseTypes = Array.isArray(options.allowedDefenseTypes) ? options.allowedDefenseTypes : null;
-    const allowParryRanged = Boolean(options.allowParryRanged);
+  const allowed = availability?.allowed ?? { evade: true, parry: true, block: Boolean(shieldOk), counter: true, ward: false };
+  const reasons = availability?.reasons ?? { evade: [], parry: [], block: [], counter: [], ward: [] };
+  const gates = availability?.gates ?? {
+    isRangedAttack: false,
+    attackerHasFlail: false,
+    attackerHasEntangling: false,
+    smallVsTwoHandedGate: false,
+    shieldOk: Boolean(shieldOk),
+    wardOk: false
+  };
 
-    const availability = computeDefenseAvailability({
-      attackMode,
-      attackerWeaponTraits,
-      defenderHasSmallWeapon,
-      defenderHasShield: shieldOk,
-      defenderHasWard: wardOk,
-      allowedDefenseTypes,
-      allowParryRanged
-    });
+  const blockDisabled = allowed.block ? "" : "disabled";
+  const parryDisabled = allowed.parry ? "" : "disabled";
+  const counterDisabled = allowed.counter ? "" : "disabled";
+  const wardDisabled = allowed.ward ? "" : "disabled";
 
-    const defaultDefenseType = normalizeDefenseType(requestedDefaultDefenseType, availability, "evade");
-
-    const gladiator = options.gladiator ?? null;
-
-    const content = DefenseDialog._renderContent({
-      styles,
-      defaultStyleUuid,
-      defaultDefenseType,
-      defaultManualMod,
-      defaultCircMod,
-      shieldOk,
-      availability,
-      hasBlinded,
-      hasDeafened,
-      defaultApplyBlinded,
-      defaultApplyDeafened,
-      gladiator
-    });
-
-    super({
-      title: "Defender Response",
-      content,
-      buttons: {
-        confirm: {
-          icon: '<i class="fas fa-check"></i>',
-          label: "Confirm",
-          callback: (html) => resolveFn(this._readSelection(html))
-        },
-        cancel: {
-          icon: '<i class="fas fa-times"></i>',
-          label: "Cancel",
-          callback: () => resolveFn(null)
-        }
-      },
-      default: "confirm",
-      close: () => resolveFn(null)
-    }, options);
-
-    this._defender = defender;
-    this._styles = styles;
-    this._context = options.context ?? null;
-    this._attackMode = attackMode;
-    this._attackerWeaponTraits = attackerWeaponTraits;
-    this._defenderHasSmallWeapon = defenderHasSmallWeapon;
-    this._allowParryRanged = allowParryRanged;
-    this._html = null;
+  const notes = [];
+  if (gates.isRangedAttack) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Ranged:</b> Ranged attacks cannot be parried or counter-attacked.</p>`);
+  if (gates.attackerHasFlail) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Flail:</b> Attacks with a flail cannot be parried or counter-attacked.</p>`);
+  if (gates.attackerHasEntangling) {
+    notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Entangling:</b> Attacks with an entangling weapon cannot be parried or blocked.</p>`);
   }
+  if (gates.smallVsTwoHandedGate) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Small:</b> A Small weapon cannot be used to Parry or Counter-Attack against a two-handed weapon.</p>`);
 
-  static _renderContent({
-    styles,
-    defaultStyleUuid,
-    defaultDefenseType,
-    defaultManualMod,
-    defaultCircMod,
-    shieldOk,
-    availability,
-    hasBlinded,
-    hasDeafened,
-    defaultApplyBlinded,
-    defaultApplyDeafened,
-    gladiator
-  }) {
-    const styleOptions = styles
-      .map(s => `<option value="${s.uuid}" ${s.uuid === defaultStyleUuid ? "selected" : ""}>${Handlebars.escapeExpression(s.name)}</option>`)
-      .join("");
+  const extraNotes = notes.join("");
 
-    const showStyle = styles.length > 0;
-
-    const allowed = availability?.allowed ?? { evade: true, parry: true, block: Boolean(shieldOk), counter: true, ward: false };
-    const reasons = availability?.reasons ?? { evade: [], parry: [], block: [], counter: [], ward: [] };
-    const gates = availability?.gates ?? {
-      isRangedAttack: false,
-      attackerHasFlail: false,
-      attackerHasEntangling: false,
-      smallVsTwoHandedGate: false,
-      shieldOk: Boolean(shieldOk),
-      wardOk: false
-    };
-
-    const blockDisabled = allowed.block ? "" : "disabled";
-    const parryDisabled = allowed.parry ? "" : "disabled";
-    const counterDisabled = allowed.counter ? "" : "disabled";
-    const wardDisabled = allowed.ward ? "" : "disabled";
-
-    const notes = [];
-    if (gates.isRangedAttack) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Ranged:</b> Ranged attacks cannot be parried or counter-attacked.</p>`);
-    if (gates.attackerHasFlail) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Flail:</b> Attacks with a flail cannot be parried or counter-attacked.</p>`);
-    if (gates.attackerHasEntangling) {
-      notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Entangling:</b> Attacks with an entangling weapon cannot be parried or blocked.</p>`);
-    }
-    if (gates.smallVsTwoHandedGate) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Small:</b> A Small weapon cannot be used to Parry or Counter-Attack against a two-handed weapon.</p>`);
-
-    const extraNotes = notes.join("");
-
-    const sensoryRow = (hasBlinded || hasDeafened) ? `
+  const sensoryRow = (hasBlinded || hasDeafened) ? `
   <div class="form-group" style="margin-top:8px;">
     <label><b>Sensory Impairment</b></label>
     <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
@@ -173,12 +91,12 @@ export class DefenseDialog extends Dialog {
     <p class="notes">Check only if this defense relies primarily on the impaired sense.</p>
   </div>` : ``;
 
-    const gladiatorMode = String(gladiator?.mode ?? "disabled");
-    const gladiatorTriggered = Boolean(gladiator?.triggered);
-    const gladiatorAvailable = Boolean(gladiator?.available);
-    const showGladiator = gladiatorTriggered && gladiatorMode !== "disabled";
+  const gladiatorMode = String(gladiator?.mode ?? "disabled");
+  const gladiatorTriggered = Boolean(gladiator?.triggered);
+  const gladiatorAvailable = Boolean(gladiator?.available);
+  const showGladiator = gladiatorTriggered && gladiatorMode !== "disabled";
 
-    const gladiatorBlock = showGladiator ? `
+  const gladiatorBlock = showGladiator ? `
   <div class="form-group" style="margin-top:8px;">
     <label><b>Gladiator</b></label>
     ${gladiatorMode === "updated"
@@ -194,8 +112,8 @@ export class DefenseDialog extends Dialog {
       `}
   </div>` : ``;
 
-    return `
-<form class="uesrpg defense-dialog">
+  return `
+<div class="uesrpg defense-dialog">
   <div class="form-group">
     <label><b>Manual Modifier</b></label>
     <input type="number" name="manualMod" value="${asNumber(defaultManualMod)}" step="1" />
@@ -230,14 +148,14 @@ export class DefenseDialog extends Dialog {
     <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span><input type="radio" name="defenseType" value="evade" ${defaultDefenseType === "evade" ? "checked" : ""}/> <b>Evade</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="evade">—</span></span>
+        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="evade">\u2014</span></span>
       </div>
     </label>
 
     <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${parryDisabled ? "0.45" : "1"};">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span><input type="radio" name="defenseType" value="parry" ${defaultDefenseType === "parry" ? "checked" : ""} ${parryDisabled}/> <b>Parry</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="parry">—</span></span>
+        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="parry">\u2014</span></span>
       </div>
       ${parryDisabled ? `<p class="notes">Not available for this attack.</p>` : ``}
     </label>
@@ -245,7 +163,7 @@ export class DefenseDialog extends Dialog {
     <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${blockDisabled ? "0.45" : "1"};">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span><input type="radio" name="defenseType" value="block" ${defaultDefenseType === "block" ? "checked" : ""} ${blockDisabled}/> <b>Block</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="block">—</span></span>
+        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="block">\u2014</span></span>
       </div>
       ${blockDisabled ? `<p class="notes">${Handlebars.escapeExpression(String(reasons?.block?.[0] ?? "Not available for this attack."))}</p>` : ``}
     </label>
@@ -253,7 +171,7 @@ export class DefenseDialog extends Dialog {
     <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${counterDisabled ? "0.45" : "1"};">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span><input type="radio" name="defenseType" value="counter" ${defaultDefenseType === "counter" ? "checked" : ""} ${counterDisabled}/> <b>Counter-Attack</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="counter">—</span></span>
+        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="counter">\u2014</span></span>
       </div>
       ${counterDisabled ? `<p class="notes">Not available for this attack.</p>` : ``}
     </label>
@@ -261,129 +179,150 @@ export class DefenseDialog extends Dialog {
     <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${wardDisabled ? "0.45" : "1"}; grid-column: span 2;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span><input type="radio" name="defenseType" value="ward" ${defaultDefenseType === "ward" ? "checked" : ""} ${wardDisabled}/> <b>Ward</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="ward">—</span></span>
+        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="ward">\u2014</span></span>
       </div>
       ${wardDisabled ? `<p class="notes">${Handlebars.escapeExpression(String(reasons?.ward?.[0] ?? "Requires an active Ward spell."))}</p>` : `<p class="notes">Spell acts as shield. BR = Spell Strength. Power Block incompatible.</p>`}
     </label>
   </div>
 
   ${extraNotes}
-</form>`;
+</div>`;
+}
+
+// ──────────── Main Dialog Function ────────────
+
+/**
+ * Show the defense dialog for a defender actor.
+ * @param {Actor} defender
+ * @param {object} options
+ * @returns {Promise<object|null>} Selected defense options or null if canceled.
+ */
+export async function showDefenseDialog(defender, options = {}) {
+  const styles = listCombatStyles(defender);
+  const defaultStyleUuid = options.defaultStyleUuid ?? styles?.[0]?.uuid ?? null;
+  const requestedDefaultDefenseType = options.defaultDefenseType ?? "evade";
+  const defaultManualMod = Number(options.defaultManualMod ?? 0) || 0;
+  const defaultCircMod = Number(options.defaultCircumstanceMod ?? 0) || 0;
+
+  const shieldOk = hasEquippedShield(defender);
+  const wardOk = hasActiveWard(defender);
+
+  const hasBlinded = hasCondition(defender, "blinded");
+  const hasDeafened = hasCondition(defender, "deafened");
+  const defaultApplyBlinded = (options.defaultApplyBlinded ?? true);
+  const defaultApplyDeafened = (options.defaultApplyDeafened ?? true);
+
+  const attackerWeaponTraits = options.attackerWeaponTraits ?? null;
+  const defenderHasSmallWeapon = !!(options.defenderHasSmallWeapon);
+  const attackMode = String(options?.context?.attackMode ?? options?.attackMode ?? "melee");
+  const allowedDefenseTypes = Array.isArray(options.allowedDefenseTypes) ? options.allowedDefenseTypes : null;
+  const allowParryRanged = Boolean(options.allowParryRanged);
+
+  const availability = computeDefenseAvailability({
+    attackMode,
+    attackerWeaponTraits,
+    defenderHasSmallWeapon,
+    defenderHasShield: shieldOk,
+    defenderHasWard: wardOk,
+    allowedDefenseTypes,
+    allowParryRanged
+  });
+
+  const defaultDefenseType = normalizeDefenseType(requestedDefaultDefenseType, availability, "evade");
+
+  const gladiator = options.gladiator ?? null;
+  const context = options.context ?? undefined;
+
+  const content = _renderContent({
+    styles,
+    defaultStyleUuid,
+    defaultDefenseType,
+    defaultManualMod,
+    defaultCircMod,
+    shieldOk,
+    availability,
+    hasBlinded,
+    hasDeafened,
+    defaultApplyBlinded,
+    defaultApplyDeafened,
+    gladiator
+  });
+
+  // ── Closure helpers (capture defender, attackMode, etc. from outer scope) ──
+
+  function getSelectedStyleUuid(root) {
+    const styleSelect = root.querySelector('select[name="styleUuid"]');
+    if (!styleSelect) return null;
+    return styleSelect.value ? String(styleSelect.value) : null;
   }
 
-  activateListeners(html) {
-    super.activateListeners(html);
-    this._html = html;
-
-    // If the default defense type is not allowed, force a safe fallback.
-    const shieldOk = hasEquippedShield(this._defender);
-    const wardOk = hasActiveWard(this._defender);
-    const availability = computeDefenseAvailability({
-      attackMode: this._attackMode,
-      attackerWeaponTraits: this._attackerWeaponTraits,
-      defenderHasSmallWeapon: this._defenderHasSmallWeapon,
-      defenderHasShield: shieldOk,
-      defenderHasWard: wardOk,
-      allowParryRanged: this._allowParryRanged
+  function refreshTN(root) {
+    const currentShieldOk = hasEquippedShield(defender);
+    const currentWardOk = hasActiveWard(defender);
+    const currentAvailability = computeDefenseAvailability({
+      attackMode,
+      attackerWeaponTraits,
+      defenderHasSmallWeapon,
+      defenderHasShield: currentShieldOk,
+      defenderHasWard: currentWardOk,
+      allowParryRanged
     });
-    const checked = html.find('input[name="defenseType"]:checked');
-    const v = String(checked.val() ?? "evade");
-    const normalized = normalizeDefenseType(v, availability, "evade");
+
+    const blockRadio = root.querySelector('input[name="defenseType"][value="block"]');
+    if (blockRadio) blockRadio.disabled = !currentAvailability.allowed.block;
+
+    const parryRadio = root.querySelector('input[name="defenseType"][value="parry"]');
+    if (parryRadio) parryRadio.disabled = !currentAvailability.allowed.parry;
+
+    const counterRadio = root.querySelector('input[name="defenseType"][value="counter"]');
+    if (counterRadio) counterRadio.disabled = !currentAvailability.allowed.counter;
+
+    const wardRadio = root.querySelector('input[name="defenseType"][value="ward"]');
+    if (wardRadio) wardRadio.disabled = !currentAvailability.allowed.ward;
+
+    // If the currently selected option becomes illegal, force fallback.
+    const checked = root.querySelector('input[name="defenseType"]:checked');
+    const v = String(checked?.value ?? "evade");
+    const normalized = normalizeDefenseType(v, currentAvailability, "evade");
     if (normalized !== v) {
-      html.find(`input[name="defenseType"][value="${normalized}"]`).prop("checked", true);
+      const normalizedRadio = root.querySelector(`input[name="defenseType"][value="${normalized}"]`);
+      if (normalizedRadio) normalizedRadio.checked = true;
     }
 
-    const styleSelect = html.find('select[name="styleUuid"]');
-    if (styleSelect.length) styleSelect.on("change", () => this._refreshTN(html));
-
-    const manualInput = html.find('input[name="manualMod"]');
-    if (manualInput.length) manualInput.on("change", () => this._refreshTN(html));
-
-    const circSelect = html.find('select[name="circMod"]');
-    if (circSelect.length) circSelect.on("change", () => this._refreshTN(html));
-
-    const blindCb = html.find('input[name="applyBlinded"]');
-    if (blindCb.length) blindCb.on("change", () => this._refreshTN(html));
-    const deafCb = html.find('input[name="applyDeafened"]');
-    if (deafCb.length) deafCb.on("change", () => this._refreshTN(html));
-
-    const radios = html.find('input[name="defenseType"]');
-    if (radios.length) radios.on("change", () => this._refreshTN(html));
-
-    this._refreshTN(html);
-  }
-
-  _getSelectedStyleUuid(html) {
-    const styleSelect = html.find('select[name="styleUuid"]');
-    if (!styleSelect.length) return null;
-    const val = styleSelect.val();
-    return val ? String(val) : null;
-  }
-
-  _refreshTN(html) {
-    const shieldOk = hasEquippedShield(this._defender);
-    const wardOk = hasActiveWard(this._defender);
-    const availability = computeDefenseAvailability({
-      attackMode: this._attackMode,
-      attackerWeaponTraits: this._attackerWeaponTraits,
-      defenderHasSmallWeapon: this._defenderHasSmallWeapon,
-      defenderHasShield: shieldOk,
-      defenderHasWard: wardOk,
-      allowParryRanged: this._allowParryRanged
-    });
-
-    const blockRadio = html.find('input[name="defenseType"][value="block"]');
-    if (blockRadio.length) blockRadio.prop("disabled", !availability.allowed.block);
-
-    const parryRadio = html.find('input[name="defenseType"][value="parry"]');
-    if (parryRadio.length) parryRadio.prop("disabled", !availability.allowed.parry);
-
-    const counterRadio = html.find('input[name="defenseType"][value="counter"]');
-    if (counterRadio.length) counterRadio.prop("disabled", !availability.allowed.counter);
-
-    const wardRadio = html.find('input[name="defenseType"][value="ward"]');
-    if (wardRadio.length) wardRadio.prop("disabled", !availability.allowed.ward);
-
-    // If the currently selected option becomes illegal (equipment/context change), force fallback.
-    const checked = html.find('input[name="defenseType"]:checked');
-    const v = String(checked.val() ?? "evade");
-    const normalized = normalizeDefenseType(v, availability, "evade");
-    if (normalized !== v) {
-      html.find(`input[name="defenseType"][value="${normalized}"]`).prop("checked", true);
-    }
-
-    const rawMod = html.find('input[name="manualMod"]').val() ?? "0";
+    const rawMod = root.querySelector('input[name="manualMod"]')?.value ?? "0";
     const manualMod = Number.parseInt(String(rawMod), 10) || 0;
 
-    const rawCirc = html.find('select[name="circMod"]').val() ?? "0";
+    const rawCirc = root.querySelector('select[name="circMod"]')?.value ?? "0";
     const circumstanceMod = Number.parseInt(String(rawCirc), 10) || 0;
 
-    const applyBlinded = Boolean(html.find('input[name="applyBlinded"]').prop("checked"));
-    const applyDeafened = Boolean(html.find('input[name="applyDeafened"]').prop("checked"));
+    const applyBlinded = Boolean(root.querySelector('input[name="applyBlinded"]')?.checked);
+    const applyDeafened = Boolean(root.querySelector('input[name="applyDeafened"]')?.checked);
     const situationalMods = [];
-    if (applyBlinded && hasCondition(this._defender, "blinded")) {
+    if (applyBlinded && hasCondition(defender, "blinded")) {
       situationalMods.push({ key: "blinded", conditionKey: "blinded", label: "Blinded (sight)", value: -30, source: "sense-loss" });
     }
-    if (applyDeafened && hasCondition(this._defender, "deafened")) {
+    if (applyDeafened && hasCondition(defender, "deafened")) {
       situationalMods.push({ key: "deafened", conditionKey: "deafened", label: "Deafened (hearing)", value: -30, source: "sense-loss" });
     }
-    applySenseLossPenaltyAdjustments(situationalMods, this._defender);
+    applySenseLossPenaltyAdjustments(situationalMods, defender);
 
-    const styleUuid = this._getSelectedStyleUuid(html);
+    const styleUuid = getSelectedStyleUuid(root);
 
-    const ctx = this._context ?? undefined;
-    const evadeTN = computeTN({ actor: this._defender, role: "defender", defenseType: "evade", manualMod, circumstanceMod, situationalMods, context: ctx }).finalTN;
-    const parryTN = computeTN({ actor: this._defender, role: "defender", defenseType: "parry", styleUuid, manualMod, circumstanceMod, situationalMods, context: ctx }).finalTN;
-    const counterTN = computeTN({ actor: this._defender, role: "defender", defenseType: "counter", styleUuid, manualMod, circumstanceMod, situationalMods, context: ctx }).finalTN;
-    const blockTN = availability.allowed.block
-      ? computeTN({ actor: this._defender, role: "defender", defenseType: "block", styleUuid, manualMod, circumstanceMod, situationalMods, context: ctx }).finalTN
+    const evadeTN = computeTN({ actor: defender, role: "defender", defenseType: "evade", manualMod, circumstanceMod, situationalMods, context }).finalTN;
+    const parryTN = computeTN({ actor: defender, role: "defender", defenseType: "parry", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN;
+    const counterTN = computeTN({ actor: defender, role: "defender", defenseType: "counter", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN;
+    const blockTN = currentAvailability.allowed.block
+      ? computeTN({ actor: defender, role: "defender", defenseType: "block", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN
       : 0;
     // Ward uses the same TN as Block (Combat Style/Profession based).
-    const wardTN = availability.allowed.ward
-      ? computeTN({ actor: this._defender, role: "defender", defenseType: "block", styleUuid, manualMod, circumstanceMod, situationalMods, context: ctx }).finalTN
+    const wardTN = currentAvailability.allowed.ward
+      ? computeTN({ actor: defender, role: "defender", defenseType: "block", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN
       : 0;
 
-    const setTN = (k, v) => html.find(`[data-tn-for="${k}"]`).text(String(asNumber(v)));
+    const setTN = (k, val) => {
+      const el = root.querySelector(`[data-tn-for="${k}"]`);
+      if (el) el.textContent = String(asNumber(val));
+    };
     setTN("evade", evadeTN);
     setTN("parry", parryTN);
     setTN("counter", counterTN);
@@ -391,30 +330,30 @@ export class DefenseDialog extends Dialog {
     setTN("ward", wardTN);
   }
 
-  _readSelection(html) {
-    const rawMod = html.find('input[name="manualMod"]').val() ?? "0";
+  function readSelection(root) {
+    const rawMod = root.querySelector('input[name="manualMod"]')?.value ?? "0";
     const manualMod = Number.parseInt(String(rawMod), 10) || 0;
 
-    const rawCirc = html.find('select[name="circMod"]').val() ?? "0";
+    const rawCirc = root.querySelector('select[name="circMod"]')?.value ?? "0";
     const circumstanceMod = Number.parseInt(String(rawCirc), 10) || 0;
 
-    const applyBlinded = Boolean(html.find('input[name="applyBlinded"]').prop("checked"));
-    const applyDeafened = Boolean(html.find('input[name="applyDeafened"]').prop("checked"));
-    const gladiatorFree = Boolean(html.find('input[name="gladiatorFree"]').prop("checked"));
+    const applyBlinded = Boolean(root.querySelector('input[name="applyBlinded"]')?.checked);
+    const applyDeafened = Boolean(root.querySelector('input[name="applyDeafened"]')?.checked);
+    const gladiatorFree = Boolean(root.querySelector('input[name="gladiatorFree"]')?.checked);
 
-    const rawDefenseType = String(html.find('input[name="defenseType"]:checked').val() ?? "evade");
-    const shieldOk = hasEquippedShield(this._defender);
-    const wardOk = hasActiveWard(this._defender);
-    const availability = computeDefenseAvailability({
-      attackMode: this._attackMode,
-      attackerWeaponTraits: this._attackerWeaponTraits,
-      defenderHasSmallWeapon: this._defenderHasSmallWeapon,
-      defenderHasShield: shieldOk,
-      defenderHasWard: wardOk,
-      allowParryRanged: this._allowParryRanged
+    const rawDefenseType = String(root.querySelector('input[name="defenseType"]:checked')?.value ?? "evade");
+    const currentShieldOk = hasEquippedShield(defender);
+    const currentWardOk = hasActiveWard(defender);
+    const currentAvailability = computeDefenseAvailability({
+      attackMode,
+      attackerWeaponTraits,
+      defenderHasSmallWeapon,
+      defenderHasShield: currentShieldOk,
+      defenderHasWard: currentWardOk,
+      allowParryRanged
     });
-    const defenseType = normalizeDefenseType(rawDefenseType, availability, "evade");
-    const styleUuid = this._getSelectedStyleUuid(html);
+    const defenseType = normalizeDefenseType(rawDefenseType, currentAvailability, "evade");
+    const styleUuid = getSelectedStyleUuid(root);
 
     if (defenseType === "evade") return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
     if (defenseType === "block") return { defenseType: "block", label: "Block", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
@@ -425,10 +364,63 @@ export class DefenseDialog extends Dialog {
     return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
   }
 
-  static async show(defender, options = {}) {
-    return await new Promise((resolve) => {
-      const dlg = new DefenseDialog(defender, options, resolve);
-      dlg.render(true);
-    });
-  }
+  // ── Show dialog ──
+
+  return await customDialog({
+    title: "Defender Response",
+    content,
+    buttons: {
+      confirm: {
+        icon: '<i class="fas fa-check"></i>',
+        label: "Confirm",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.element ?? html;
+          return readSelection(root);
+        }
+      },
+      cancel: {
+        icon: '<i class="fas fa-times"></i>',
+        label: "Cancel",
+        callback: () => null
+      }
+    },
+    defaultButton: "confirm",
+    render: (event, html) => {
+      const root = html instanceof HTMLElement ? html : html?.element ?? html;
+
+      // If the default defense type is not allowed, force a safe fallback.
+      const checked = root.querySelector('input[name="defenseType"]:checked');
+      const v = String(checked?.value ?? "evade");
+      const normalized = normalizeDefenseType(v, availability, "evade");
+      if (normalized !== v) {
+        const normalizedRadio = root.querySelector(`input[name="defenseType"][value="${normalized}"]`);
+        if (normalizedRadio) normalizedRadio.checked = true;
+      }
+
+      const styleSelect = root.querySelector('select[name="styleUuid"]');
+      if (styleSelect) styleSelect.addEventListener("change", () => refreshTN(root));
+
+      const manualInput = root.querySelector('input[name="manualMod"]');
+      if (manualInput) manualInput.addEventListener("change", () => refreshTN(root));
+
+      const circSelect = root.querySelector('select[name="circMod"]');
+      if (circSelect) circSelect.addEventListener("change", () => refreshTN(root));
+
+      const blindCb = root.querySelector('input[name="applyBlinded"]');
+      if (blindCb) blindCb.addEventListener("change", () => refreshTN(root));
+      const deafCb = root.querySelector('input[name="applyDeafened"]');
+      if (deafCb) deafCb.addEventListener("change", () => refreshTN(root));
+
+      for (const r of root.querySelectorAll('input[name="defenseType"]')) {
+        r.addEventListener("change", () => refreshTN(root));
+      }
+
+      refreshTN(root);
+    },
+  });
 }
+
+/** Backward-compatible class-style API wrapper. */
+export const DefenseDialog = {
+  show: showDefenseDialog
+};

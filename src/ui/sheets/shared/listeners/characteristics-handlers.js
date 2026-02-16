@@ -2,7 +2,7 @@
  * Characteristic management handlers.
  * Handles characteristic setting, rolling, and lucky/unlucky number configuration.
  *
- * Target: Foundry VTT v13 (AppV1 ActorSheet).
+ * Shared across actor sheet modules.
  */
 
 import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
@@ -15,18 +15,21 @@ import { _buildCharacteristicPseudoItem } from "../../../../core/skills/opposed/
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../../core/traits/awareness-talents.js";
 import { applyIronWillReroll } from "../../../../core/traits/resilience-talents.js";
 import { hasTalent } from "../../../../core/traits/talents-api.js";
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 
 /**
  * Open dialog to set base characteristics and favored flags.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onSetBaseCharacteristics(sheet, event) {
+export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBaseCharacteristics(event, target) {
   event.preventDefault();
 
-  const d = new Dialog({
+  await customDialog({
     title: "Set Base Characteristics",
-    content: `<form>
+    content: `<div>
 <h2>Set the Character's Base Characteristics.</h2>
 
                   <div style="border: inset; margin-bottom: 10px; padding: 5px;">
@@ -39,13 +42,13 @@ export async function onSetBaseCharacteristics(sheet, event) {
                   <div style="margin-bottom: 10px;">
                     <label><b>Points Total (without Luck): </b></label>
                     <label>
-                    ${sheet.actor.system.characteristics.str.base +
-      sheet.actor.system.characteristics.end.base +
-      sheet.actor.system.characteristics.agi.base +
-      sheet.actor.system.characteristics.int.base +
-      sheet.actor.system.characteristics.wp.base +
-      sheet.actor.system.characteristics.prc.base +
-      sheet.actor.system.characteristics.prs.base
+                    ${this.actor.system.characteristics.str.base +
+      this.actor.system.characteristics.end.base +
+      this.actor.system.characteristics.agi.base +
+      this.actor.system.characteristics.int.base +
+      this.actor.system.characteristics.wp.base +
+      this.actor.system.characteristics.prc.base +
+      this.actor.system.characteristics.prs.base
       }
 	
                     </label>
@@ -61,21 +64,21 @@ export async function onSetBaseCharacteristics(sheet, event) {
                         <th>LCK</th>
                       </tr>
                       <tr>
-                        <td><input type="number" id="strInput" value="${sheet.actor.system.characteristics.str.base
+                        <td><input type="number" id="strInput" value="${this.actor.system.characteristics.str.base
       }"></td>
-                        <td><input type="number" id="endInput" value="${sheet.actor.system.characteristics.end.base
+                        <td><input type="number" id="endInput" value="${this.actor.system.characteristics.end.base
       }"></td>
-                        <td><input type="number" id="agiInput" value="${sheet.actor.system.characteristics.agi.base
+                        <td><input type="number" id="agiInput" value="${this.actor.system.characteristics.agi.base
       }"></td>
-                        <td><input type="number" id="intInput" value="${sheet.actor.system.characteristics.int.base
+                        <td><input type="number" id="intInput" value="${this.actor.system.characteristics.int.base
       }"></td>
-                        <td><input type="number" id="wpInput" value="${sheet.actor.system.characteristics.wp.base
+                        <td><input type="number" id="wpInput" value="${this.actor.system.characteristics.wp.base
       }"></td>
-                        <td><input type="number" id="prcInput" value="${sheet.actor.system.characteristics.prc.base
+                        <td><input type="number" id="prcInput" value="${this.actor.system.characteristics.prc.base
       }"></td>
-                        <td><input type="number" id="prsInput" value="${sheet.actor.system.characteristics.prs.base
+                        <td><input type="number" id="prsInput" value="${this.actor.system.characteristics.prs.base
       }"></td>
-                        <td><input type="number" id="lckInput" value="${sheet.actor.system.characteristics.lck.base
+                        <td><input type="number" id="lckInput" value="${this.actor.system.characteristics.lck.base
       }"></td>
                       </tr>
                     </table>
@@ -106,42 +109,43 @@ export async function onSetBaseCharacteristics(sheet, event) {
                         <th>LCK</th>
                       </tr>
                       <tr>
-                        <td><input type="checkbox" id="strFav" ${sheet.actor.system.characteristics.str.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="endFav" ${sheet.actor.system.characteristics.end.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="agiFav" ${sheet.actor.system.characteristics.agi.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="intFav" ${sheet.actor.system.characteristics.int.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="wpFav" ${sheet.actor.system.characteristics.wp.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="prcFav" ${sheet.actor.system.characteristics.prc.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="prsFav" ${sheet.actor.system.characteristics.prs.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="lckFav" ${sheet.actor.system.characteristics.lck.favored ? 'checked' : ''}></td>
+                        <td><input type="checkbox" id="strFav" ${this.actor.system.characteristics.str.favored ? 'checked' : ''}></td>
+                        <td><input type="checkbox" id="endFav" ${this.actor.system.characteristics.end.favored ? 'checked' : ''}></td>
+                        <td><input type="checkbox" id="agiFav" ${this.actor.system.characteristics.agi.favored ? 'checked' : ''}></td>
+                        <td><input type="checkbox" id="intFav" ${this.actor.system.characteristics.int.favored ? 'checked' : ''}></td>
+                        <td><input type="checkbox" id="wpFav" ${this.actor.system.characteristics.wp.favored ? 'checked' : ''}></td>
+                        <td><input type="checkbox" id="prcFav" ${this.actor.system.characteristics.prc.favored ? 'checked' : ''}></td>
+                        <td><input type="checkbox" id="prsFav" ${this.actor.system.characteristics.prs.favored ? 'checked' : ''}></td>
+                        <td><input type="checkbox" id="lckFav" ${this.actor.system.characteristics.lck.favored ? 'checked' : ''}></td>
                       </tr>
                     </table>
                   </div>
 
-</form>`,
-    buttons: {
-      one: {
-        label: "Submit",
-        callback: async (html) => {
-          const strInput = parseInt(html.find('[id="strInput"]').val());
-          const endInput = parseInt(html.find('[id="endInput"]').val());
-          const agiInput = parseInt(html.find('[id="agiInput"]').val());
-          const intInput = parseInt(html.find('[id="intInput"]').val());
-          const wpInput = parseInt(html.find('[id="wpInput"]').val());
-          const prcInput = parseInt(html.find('[id="prcInput"]').val());
-          const prsInput = parseInt(html.find('[id="prsInput"]').val());
-          const lckInput = parseInt(html.find('[id="lckInput"]').val());
-          const strFav = Boolean(html.find('[id="strFav"]').prop("checked"));
-          const endFav = Boolean(html.find('[id="endFav"]').prop("checked"));
-          const agiFav = Boolean(html.find('[id="agiFav"]').prop("checked"));
-          const intFav = Boolean(html.find('[id="intFav"]').prop("checked"));
-          const wpFav = Boolean(html.find('[id="wpFav"]').prop("checked"));
-          const prcFav = Boolean(html.find('[id="prcFav"]').prop("checked"));
-          const prsFav = Boolean(html.find('[id="prsFav"]').prop("checked"));
-          const lckFav = Boolean(html.find('[id="lckFav"]').prop("checked"));
+</div>`,
+    yes: {
+      label: "Submit",
+      callback: async (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          if (!root) return;
+          const strInput = parseInt(root.querySelector('#strInput')?.value) || 0;
+          const endInput = parseInt(root.querySelector('#endInput')?.value) || 0;
+          const agiInput = parseInt(root.querySelector('#agiInput')?.value) || 0;
+          const intInput = parseInt(root.querySelector('#intInput')?.value) || 0;
+          const wpInput = parseInt(root.querySelector('#wpInput')?.value) || 0;
+          const prcInput = parseInt(root.querySelector('#prcInput')?.value) || 0;
+          const prsInput = parseInt(root.querySelector('#prsInput')?.value) || 0;
+          const lckInput = parseInt(root.querySelector('#lckInput')?.value) || 0;
+          const strFav = Boolean(root.querySelector('#strFav')?.checked);
+          const endFav = Boolean(root.querySelector('#endFav')?.checked);
+          const agiFav = Boolean(root.querySelector('#agiFav')?.checked);
+          const intFav = Boolean(root.querySelector('#intFav')?.checked);
+          const wpFav = Boolean(root.querySelector('#wpFav')?.checked);
+          const prcFav = Boolean(root.querySelector('#prcFav')?.checked);
+          const prsFav = Boolean(root.querySelector('#prsFav')?.checked);
+          const lckFav = Boolean(root.querySelector('#lckFav')?.checked);
 
           //Shortcut for characteristics
-          const chaPath = sheet.actor.system.characteristics;
+          const chaPath = this.actor.system.characteristics;
 
           //Assign values to characteristics
           chaPath.str.base = strInput;
@@ -168,7 +172,7 @@ export async function onSetBaseCharacteristics(sheet, event) {
           chaPath.lck.base = lckInput;
           chaPath.lck.total = lckInput;
 
-          await sheet.actor.update({
+          await requestUpdateDocument(this.actor, {
             system: {
               characteristics: {
                 str: { base: strInput, total: chaPath.str.total },
@@ -190,18 +194,12 @@ export async function onSetBaseCharacteristics(sheet, event) {
             "system.characteristics.prs.favored": prsFav,
             "system.characteristics.lck.favored": lckFav,
           });
-        },
-      },
-      two: {
-        label: "Cancel",
-        callback: () => {},
       },
     },
-    default: "one",
-    close: () => {},
+    no: { label: "Cancel" },
+    defaultButton: "yes",
   });
-  d.render(true);
-}
+});
 
 /**
  * Handle characteristic click for rolling.
@@ -209,22 +207,22 @@ export async function onSetBaseCharacteristics(sheet, event) {
  * mirroring the skill-roll workflow with computeSkillTN, difficulty,
  * and standardized chat card formatting.
  *
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export async function onClickCharacteristic(sheet, event) {
+export const onClickCharacteristic = asyncGuardSheet(async function onClickCharacteristic(event, target) {
   event.preventDefault();
 
-  if (!requireUserCanRollActor(game.user, sheet.actor)) return;
+  if (!requireUserCanRollActor(game.user, this.actor)) return;
 
-  const element = event.currentTarget;
+  const element = target ?? event.currentTarget;
   const chaKey = String(element.id ?? "").trim().toLowerCase();
   const chaLabel = element.getAttribute("name") || chaKey.toUpperCase();
 
   const chaUuid = `cha:${chaKey}`;
 
   // Build pseudo-skill item for this characteristic
-  const chaItem = _buildCharacteristicPseudoItem(sheet.actor, chaKey);
+  const chaItem = _buildCharacteristicPseudoItem(this.actor, chaKey);
   if (!chaItem) {
     ui.notifications.warn(`Unknown characteristic: ${chaKey}`);
     return;
@@ -234,8 +232,8 @@ export async function onClickCharacteristic(sheet, event) {
   const targets = [...(game.user.targets ?? [])];
   if (targets.length > 0) {
     const attackerToken =
-      canvas?.tokens?.controlled?.find(t => t.actor?.id === sheet.actor.id) ??
-      sheet.actor.getActiveTokens?.()?.[0] ??
+      canvas?.tokens?.controlled?.find(t => t.actor?.id === this.actor.id) ??
+      this.actor.getActiveTokens?.()?.[0] ??
       null;
 
     if (!attackerToken) {
@@ -249,7 +247,7 @@ export async function onClickCharacteristic(sheet, event) {
       const msg = await SkillOpposedWorkflow.createPending({
         attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
         defenderTokenUuid: defenderToken.document?.uuid ?? defenderToken.uuid,
-        attackerActorUuid: sheet.actor.uuid,
+        attackerActorUuid: this.actor.uuid,
         defenderActorUuid: defenderToken.actor?.uuid ?? null,
         attackerSkillUuid: chaUuid,
         attackerSkillLabel: chaLabel
@@ -263,7 +261,7 @@ export async function onClickCharacteristic(sheet, event) {
   }
 
   // --- UNTARGETED -> Characteristic Test ---
-  const resistanceSection = buildResistanceBonusSection(sheet.actor);
+  const resistanceSection = buildResistanceBonusSection(this.actor);
 
   const difficultyOptions = SKILL_DIFFICULTIES.map(d => {
     const selected = d.key === "average" ? "selected" : "";
@@ -271,7 +269,7 @@ export async function onClickCharacteristic(sheet, event) {
     return `<option value="${d.key}" ${selected}>${d.label} (${sign}${d.mod})</option>`;
   }).join("\n");
 
-  const showIronWill = chaKey === "wp" && hasTalent(sheet.actor, "ironwill");
+  const showIronWill = chaKey === "wp" && hasTalent(this.actor, "ironwill");
   const ironWillRow = showIronWill ? `
       <div class="form-group" style="margin-top:8px;">
         <label style="display:flex; align-items:center; gap:8px;">
@@ -281,7 +279,7 @@ export async function onClickCharacteristic(sheet, event) {
       </div>` : "";
 
   const dialogContent = `
-    <form class="uesrpg-skill-roll">
+    <div class="uesrpg-skill-roll">
       <div class="form-group">
         <label><b>Difficulty</b></label>
         <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
@@ -292,11 +290,11 @@ export async function onClickCharacteristic(sheet, event) {
       </div>
       ${ironWillRow}
       ${resistanceSection.html}
-    </form>`;
+    </div>`;
 
   let decl = null;
   try {
-    decl = await Dialog.wait({
+    decl = await customDialog({
       title: `${chaLabel} — Roll Options`,
       content: dialogContent,
       buttons: {
@@ -314,8 +312,9 @@ export async function onClickCharacteristic(sheet, event) {
         },
         cancel: { label: "Cancel", callback: () => null }
       },
-      default: "ok"
-    }, { width: 420 });
+      default: "ok",
+      width: 420
+    });
   } catch (_e) {
     return;
   }
@@ -327,7 +326,7 @@ export async function onClickCharacteristic(sheet, event) {
   const situationalMods = [...resMods];
 
   const tn = computeSkillTN({
-    actor: sheet.actor,
+    actor: this.actor,
     skillItem: chaItem,
     difficultyKey: decl.difficultyKey,
     manualMod: decl.manualMod,
@@ -336,9 +335,9 @@ export async function onClickCharacteristic(sheet, event) {
 
   // Build tags
   const tags = [];
-  if (Number(sheet.actor.system?.woundPenalty ?? 0) !== 0) tags.push(`<span class="tag wound-tag">Wounded ${sheet.actor.system.woundPenalty}</span>`);
-  if (sheet.actor.system.fatigue.penalty != 0) tags.push(`<span class="tag fatigue-tag">Fatigued ${sheet.actor.system.fatigue.penalty}</span>`);
-  if (sheet.actor.system.carry_rating.penalty != 0) tags.push(`<span class="tag enc-tag">Encumbered ${sheet.actor.system.carry_rating.penalty}</span>`);
+  if (Number(this.actor.system?.woundPenalty ?? 0) !== 0) tags.push(`<span class="tag wound-tag">Wounded ${this.actor.system.woundPenalty}</span>`);
+  if (this.actor.system.fatigue.penalty != 0) tags.push(`<span class="tag fatigue-tag">Fatigued ${this.actor.system.fatigue.penalty}</span>`);
+  if (this.actor.system.carry_rating.penalty != 0) tags.push(`<span class="tag enc-tag">Encumbered ${this.actor.system.carry_rating.penalty}</span>`);
 
   const armorMods = (tn.breakdown ?? []).filter(b => String(b.label || "").startsWith("Armor:") && Number(b.value) !== 0);
   for (const m of armorMods) {
@@ -354,15 +353,15 @@ export async function onClickCharacteristic(sheet, event) {
   }
 
   // Perform roll
-  const res = await doTestRoll(sheet.actor, { rollFormula: SYSTEM_ROLL_FORMULA, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
+  const res = await doTestRoll(this.actor, { rollFormula: SYSTEM_ROLL_FORMULA, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
   // Awareness talent automation
-  await applyKeenIntuitionToResult(sheet.actor, chaLabel, res, { allowPrompt: true });
-  await applyHyperAwarenessToResult(sheet.actor, chaLabel, res, { allowPrompt: true });
+  await applyKeenIntuitionToResult(this.actor, chaLabel, res, { allowPrompt: true });
+  await applyHyperAwarenessToResult(this.actor, chaLabel, res, { allowPrompt: true });
 
   // Iron Will (Chapter 4): reroll failed WP resistance tests
   const ironWillResult = await applyIronWillReroll({
-    actor: sheet.actor,
+    actor: this.actor,
     chaKey,
     result: res,
     tn,
@@ -400,12 +399,12 @@ export async function onClickCharacteristic(sheet, event) {
 
   await res.roll.toMessage({
     user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor: sheet.actor }),
+    speaker: ChatMessage.getSpeaker({ actor: this.actor }),
     flavor,
     flags: {
       uesrpg: {
         characteristicTest: {
-          actorUuid: sheet.actor.uuid,
+          actorUuid: this.actor.uuid,
           characteristicKey: chaKey,
           characteristicLabel: chaLabel,
           target: tn.finalTN,
@@ -418,7 +417,7 @@ export async function onClickCharacteristic(sheet, event) {
       },
       "uesrpg-3ev4": {
         characteristicTest: {
-          actorUuid: sheet.actor.uuid,
+          actorUuid: this.actor.uuid,
           characteristicKey: chaKey,
           characteristicLabel: chaLabel,
           target: tn.finalTN,
@@ -431,27 +430,27 @@ export async function onClickCharacteristic(sheet, event) {
     },
     rollMode
   });
-}
+});
 
 /**
  * Open lucky/unlucky numbers configuration dialog.
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {Event} event
  */
-export function onLuckyMenu(sheet, event) {
+export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, target) {
   event.preventDefault();
-  let d;
 
-  const hasThiefBirthsign = sheet.actor.items.filter(
+  const hasThiefBirthsign = this.actor.items.filter(
     (item) =>
       item.type === "trait" &&
       (item.name === "The Thief" || item.name === "The Star-Cursed Thief")
   ).length > 0;
 
-  if (hasThiefBirthsign) {
-    d = new Dialog({
-      title: "Lucky & Unlucky Numbers",
-      content: `<form style="padding: 10px">
+  const thiefInput = hasThiefBirthsign
+    ? `<input class="luckyNum thiefNum" id="ln6" type="number" value="${this.actor.system.lucky_numbers.ln6}">`
+    : "";
+
+  const content = `<div style="padding: 10px">
                     <div style="background: rgba(180, 180, 180, 0.562); border: solid 1px; padding: 10px; font-style: italic;">
                         Input your character's lucky and unlucky numbers and click submit to register them. You can change them at any point.
                     </div>
@@ -461,12 +460,12 @@ export function onLuckyMenu(sheet, event) {
                         Lucky Numbers
                       </h2>
                       <div style="display: flex; justify-content: space-around; align-items: center; text-align: center;">
-                          <input class="luckyNum" id="ln1" type="number" value="${sheet.actor.system.lucky_numbers.ln1}">
-                          <input class="luckyNum" id="ln2" type="number" value="${sheet.actor.system.lucky_numbers.ln2}">
-                          <input class="luckyNum" id="ln3" type="number" value="${sheet.actor.system.lucky_numbers.ln3}">
-                          <input class="luckyNum" id="ln4" type="number" value="${sheet.actor.system.lucky_numbers.ln4}">
-                          <input class="luckyNum" id="ln5" type="number" value="${sheet.actor.system.lucky_numbers.ln5}">
-                          <input class="luckyNum thiefNum" id="ln6" type="number" value="${sheet.actor.system.lucky_numbers.ln6}">
+                          <input class="luckyNum" id="ln1" type="number" value="${this.actor.system.lucky_numbers.ln1}">
+                          <input class="luckyNum" id="ln2" type="number" value="${this.actor.system.lucky_numbers.ln2}">
+                          <input class="luckyNum" id="ln3" type="number" value="${this.actor.system.lucky_numbers.ln3}">
+                          <input class="luckyNum" id="ln4" type="number" value="${this.actor.system.lucky_numbers.ln4}">
+                          <input class="luckyNum" id="ln5" type="number" value="${this.actor.system.lucky_numbers.ln5}">
+                          ${thiefInput}
                       </div>
                     </div>
 
@@ -475,104 +474,40 @@ export function onLuckyMenu(sheet, event) {
                         Unlucky Numbers
                       </h2>
                       <div style="display: flex; justify-content: space-around; align-items: center; text-align: center;">
-                          <input class="unluckyNum" id="ul1" type="number" value="${sheet.actor.system.unlucky_numbers.ul1}">
-                          <input class="unluckyNum" id="ul2" type="number" value="${sheet.actor.system.unlucky_numbers.ul2}">
-                          <input class="unluckyNum" id="ul3" type="number" value="${sheet.actor.system.unlucky_numbers.ul3}">
-                          <input class="unluckyNum" id="ul4" type="number" value="${sheet.actor.system.unlucky_numbers.ul4}">
-                          <input class="unluckyNum" id="ul5" type="number" value="${sheet.actor.system.unlucky_numbers.ul5}">
+                          <input class="unluckyNum" id="ul1" type="number" value="${this.actor.system.unlucky_numbers.ul1}">
+                          <input class="unluckyNum" id="ul2" type="number" value="${this.actor.system.unlucky_numbers.ul2}">
+                          <input class="unluckyNum" id="ul3" type="number" value="${this.actor.system.unlucky_numbers.ul3}">
+                          <input class="unluckyNum" id="ul4" type="number" value="${this.actor.system.unlucky_numbers.ul4}">
+                          <input class="unluckyNum" id="ul5" type="number" value="${this.actor.system.unlucky_numbers.ul5}">
                       </div>
                     </div>
-                  </form>`,
-      buttons: {
-        one: {
-          label: "Cancel",
-          callback: () => {},
-        },
-        two: {
-          label: "Submit",
-          callback: (html) => {
-            // Create input arrays
-            const luckyNums = [...document.querySelectorAll(".luckyNum")];
-            const unluckyNums = [...document.querySelectorAll(".unluckyNum")];
+                  </div>`;
 
-            // Assign input values to appropriate actor fields
-            for (let num of luckyNums) {
-              let numPath = `system.lucky_numbers.${num.id}`;
-              sheet.actor.update({ [numPath]: Number(num.value) });
-            }
+  await customDialog({
+    title: "Lucky & Unlucky Numbers",
+    content,
+    yes: {
+      label: "Submit",
+      callback: async (html) => {
+        const root = html instanceof HTMLElement ? html : html?.[0];
+        // Create input arrays from dialog root (not global document)
+        const luckyNums = [...root.querySelectorAll(".luckyNum")];
+        const unluckyNums = [...root.querySelectorAll(".unluckyNum")];
 
-            for (let num of unluckyNums) {
-              let numPath = `system.unlucky_numbers.${num.id}`;
-              sheet.actor.update({ [numPath]: Number(num.value) });
-            }
-          },
-        },
+        // Collect all lucky/unlucky number updates into a single payload
+        const updatePayload = {};
+        for (const num of luckyNums) {
+          updatePayload[`system.lucky_numbers.${num.id}`] = Number(num.value);
+        }
+        for (const num of unluckyNums) {
+          updatePayload[`system.unlucky_numbers.${num.id}`] = Number(num.value);
+        }
+        if (Object.keys(updatePayload).length) {
+            await requestUpdateDocument(this.actor, updatePayload);
+        }
       },
-      default: "two",
-      close: () => {},
-    });
-  } else {
-    d = new Dialog({
-      title: "Lucky & Unlucky Numbers",
-      content: `<form style="padding: 10px">
-                  <div style="background: rgba(180, 180, 180, 0.562); border: solid 1px; padding: 10px; font-style: italic;">
-                      Input your character's lucky and unlucky numbers and click submit to register them. You can change them at any point.
-                  </div>
-
-                  <div>
-                    <h2 style="text-align: center;">
-                      Lucky Numbers
-                    </h2>
-                    <div style="display: flex; justify-content: space-around; align-items: center; text-align: center;">
-                        <input class="luckyNum" id="ln1" type="number" value=${sheet.actor.system.lucky_numbers.ln1}>
-                        <input class="luckyNum" id="ln2" type="number" value=${sheet.actor.system.lucky_numbers.ln2}>
-                        <input class="luckyNum" id="ln3" type="number" value=${sheet.actor.system.lucky_numbers.ln3}>
-                        <input class="luckyNum" id="ln4" type="number" value=${sheet.actor.system.lucky_numbers.ln4}>
-                        <input class="luckyNum" id="ln5" type="number" value=${sheet.actor.system.lucky_numbers.ln5}>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h2 style="text-align: center;">
-                      Unlucky Numbers
-                    </h2>
-                    <div style="display: flex; justify-content: space-around; align-items: center; text-align: center;">
-                        <input class="unluckyNum" id="ul1" type="number" value=${sheet.actor.system.unlucky_numbers.ul1}>
-                        <input class="unluckyNum" id="ul2" type="number" value=${sheet.actor.system.unlucky_numbers.ul2}>
-                        <input class="unluckyNum" id="ul3" type="number" value=${sheet.actor.system.unlucky_numbers.ul3}>
-                        <input class="unluckyNum" id="ul4" type="number" value=${sheet.actor.system.unlucky_numbers.ul4}>
-                        <input class="unluckyNum" id="ul5" type="number" value=${sheet.actor.system.unlucky_numbers.ul5}>
-                    </div>
-                  </div>
-                </form>`,
-      buttons: {
-        one: {
-          label: "Cancel",
-          callback: () => {},
-        },
-        two: {
-          label: "Submit",
-          callback: (html) => {
-            // Create input arrays
-            const luckyNums = [...document.querySelectorAll(".luckyNum")];
-            const unluckyNums = [...document.querySelectorAll(".unluckyNum")];
-
-            // Assign input values to appropriate actor fields
-            for (let num of luckyNums) {
-              let numPath = `system.lucky_numbers.${num.id}`;
-              sheet.actor.update({ [numPath]: Number(num.value) });
-            }
-
-            for (let num of unluckyNums) {
-              let numPath = `system.unlucky_numbers.${num.id}`;
-              sheet.actor.update({ [numPath]: Number(num.value) });
-            }
-          },
-        },
-      },
-      default: "two",
-      close: () => {},
-    });
-  }
-  d.render(true);
-}
+    },
+    no: { label: "Cancel" },
+    defaultButton: "yes",
+  });
+});

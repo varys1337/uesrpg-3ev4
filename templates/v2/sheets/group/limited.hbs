@@ -1,0 +1,44 @@
+  <div class="sheet-section-container">
+    <div class="sheet-fixed-container">
+      <div class="character-profile-container">
+        <div class="profile-img-container">
+          <img class="profile-img" src="{{actor.img}}" title="{{actor.name}}">
+        </div>
+        <div>
+          <h1 class="charname">{{actor.name}}</h1>
+        </div>
+      </div>
+    </div>
+
+    <section class="sheet-body">
+      <div class="limited-info">
+        <i class="fas fa-users"></i>
+        <h2>{{actor.name}}</h2>
+        <p>A group of adventurers</p>
+      </div>
+
+      {{#if resolvedMembers.length}}
+      <div class="visible-members">
+        <h3>Known Members</h3>
+        <div class="member-portraits">
+          {{#each resolvedMembers as |member|}}
+          {{#if member.canView}}
+          <div class="member-portrait-limited">
+            <img src="{{member.img}}" title="{{member.name}}" data-uuid="{{member.uuid}}"
+                 data-action="viewMember" class="member-portrait-clickable">
+            <div>{{member.name}}</div>
+          </div>
+          {{/if}}
+          {{/each}}
+        </div>
+      </div>
+      {{/if}}
+
+      {{#if enrichedDescription}}
+      <div class="description-section">
+        <h3>Description</h3>
+        <div class="content-container">{{{enrichedDescription}}}</div>
+      </div>
+      {{/if}}
+    </section>
+  </div>

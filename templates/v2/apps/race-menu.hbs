@@ -1,0 +1,31 @@
+<div class="uesrpg-creation-dialog">
+  <div class="menu-pinned">
+    <div class="menu-instructions">
+      Select a Race from the cards below or input your own custom race label below.
+      Leave blank if you do NOT want to use a custom race.
+      <input type="text" id="customRace">
+    </div>
+    <div class="menu-banner">
+      <img src="systems/uesrpg-3ev4/images/dialogue/races/Races_Oblivion.webp" title="Races of Elder Scrolls">
+    </div>
+  </div>
+
+  <div class="menu-cards">
+    <h1 class="menu-section-heading">Core Races</h1>
+    <div class="menu-grid">{{{coreRaceCards}}}</div>
+
+    <h1 class="menu-section-heading">Core Race Variants</h1>
+    <div class="menu-grid">{{{variantRaceCards}}}</div>
+
+    <h1 class="menu-section-heading">Khajiit Furstocks</h1>
+    <div class="menu-grid">{{{khajiitFurstockRaceCards}}}</div>
+
+    <h1 class="menu-section-heading">Expanded Races</h1>
+    <div class="menu-grid">{{{expandedRaceCards}}}</div>
+  </div>
+
+  <div class="creation-footer">
+    <button type="button" data-action="cancel">Cancel</button>
+    <button type="button" data-action="submit" class="default">Submit</button>
+  </div>
+</div>
