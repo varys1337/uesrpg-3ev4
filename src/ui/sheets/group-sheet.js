@@ -76,7 +76,8 @@ export class GroupSheet extends ActorSheet {
     data.averageSpeedKmh = data.displayAverageSpeedKmh;
 
     // Enrich HTML fields (cached per sheet instance to avoid re-enriching on every render)
-    const _enrich = (raw) => TextEditor.enrichHTML(raw || "", { async: true });
+    const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
+    const _enrich = (raw) => enrichFn(raw || "", { async: true });
     data.actor.system.enrichedDescription = await cachedEnrichHTML(
       this, "group:desc", data.actor.system.description ?? "", _enrich
     );

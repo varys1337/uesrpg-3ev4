@@ -456,17 +456,7 @@
         "fear": 0,
         "magic": 0
       },
-      "traits": {
-        "resistance": {
-          "fire": 0,
-          "frost": 0,
-          "shock": 0,
-          "acid": 0,
-          "poison": 0,
-          "disease": 0,
-          "bleed": 0
-        }
-      },
+      "traits": "",
       "recovery": {
         "naturalHealing": {
           "multiplier": 1,
@@ -754,7 +744,6 @@
         }
       },
       "talents": "",
-      "traits": "",
       "powers": "",
       "spells": "",
       "armor_class": "",
@@ -818,7 +807,9 @@
       "combatStyle",
       "skill",
       "magicSkill",
-      "ammunition"
+      "ammunition",
+      "language",
+      "faction"
     ],
     "templates": {
       "characteristicArray": {
@@ -1430,8 +1421,8 @@
       "addIntToMPMultiplier": 1,
       "armorAcrobaticsException": false,
       "addHalfSpeed": false,
-      "doubleSwimSpeed": false
-      ,"activation": {
+      "doubleSwimSpeed": false,
+      "activation": {
         "enabled": false,
         "actionType": "passive",
         "spendCosts": false,
@@ -1567,6 +1558,16 @@
       "ammoMaterial": "standard",
       "qualitiesStructured": [],
       "qualitiesTraits": []
+    },
+    "language": {
+      "description": "",
+      "source": "",
+      "notes": ""
+    },
+    "faction": {
+      "description": "",
+      "source": "",
+      "notes": ""
     }
   }
 }

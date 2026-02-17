@@ -8,10 +8,9 @@
                         <ol class="skillList">
                             {{#each actor.magicSkill as |item id|}}
                                 <li class="item" data-item-id="{{item._id}}">
-                                    <div class="itemInfo">
-                                        <i data-action="skillRoll" class="fas fa-dice-d20 skill-roll"></i>
+                                    <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
                                         <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-                                        <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                        <div class="item-name skill-open-item">{{item.name}}</div>
                                     </div>
                                     <div class="item-controls">
                                         <div class="item-value">{{item.system.value}}%</div>

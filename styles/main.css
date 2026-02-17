@@ -211,6 +211,20 @@
   .sheet.actor.player-character .tab.equipment,
   .sheet.actor.npc .tab.equipment,
   .sheet.actor.group .tab.inventory
+) table thead th :is(.item-group-label, i) {
+  color: #efe7d4;
+}
+
+:is(
+  .worldbuilding.theme-dark,
+  .application.theme-dark .worldbuilding,
+  .application.theme-dark.worldbuilding,
+  .theme-dark .worldbuilding,
+  body.theme-dark .worldbuilding
+) :is(
+  .sheet.actor.player-character .tab.equipment,
+  .sheet.actor.npc .tab.equipment,
+  .sheet.actor.group .tab.inventory
 ) table tbody tr.item.active {
   background: rgba(245, 235, 214, 0.58);
   color: #1f1b14;
@@ -244,8 +258,7 @@
 ) :is(
   .item-name,
   td,
-  .encLabel,
-  .item-group-label
+  .encLabel
 ) {
   color: #1f1b14;
 }
@@ -423,13 +436,24 @@
 .worldbuilding .rest-controls {
   display: flex;
   gap: var(--uesrpg-space-xs);
-  margin: var(--uesrpg-space-xs) 0;
+  margin: 4px 0;
 }
 
 .worldbuilding .rest-btn {
   flex: 1;
-  padding: var(--uesrpg-space-xs) var(--uesrpg-space-sm);
-  font-size: 0.8em;
+  padding: 6px var(--uesrpg-space-sm);
+  font-size: 0.78em;
+  background: linear-gradient(180deg, rgba(95, 95, 95, 0.24), rgba(68, 68, 68, 0.34));
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  color: rgba(18, 18, 18, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+}
+
+.worldbuilding .rest-btn:hover {
+  background: linear-gradient(180deg, rgba(110, 110, 110, 0.34), rgba(78, 78, 78, 0.44));
+  border-color: rgba(0, 0, 0, 0.4);
 }
 
 /* Block-level labels (for selects, compact sections) */
@@ -491,17 +515,8 @@
   TinyMCE Editor
 ------------------------------*/
 
-.worldbuilding .editor {
-  height: 100%;
-}
-
 .worldbuilding .editor-content {
-  min-height: 300px;
   padding: 5px 0;
-}
-
-.worldbuilding .prosemirror {
-  height: 100%;
 }
 
 #tinymce body {
@@ -976,6 +991,18 @@
   display: flex;
   flex-direction: row;
   overflow: hidden;
+  gap: 10px;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.worldbuilding.sheet.actor.group > .window-content {
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  gap: 10px;
+  padding: 10px;
+  box-sizing: border-box;
 }
 
 /* ── Phase 5: per-tab PARTS for Actor/NPC sheets ─────────────────────
@@ -988,7 +1015,7 @@
   display: none;        /* hidden until .active is toggled by changeTab */
   flex: 1 1 0;          /* fill remaining width beside sidebar */
   min-width: 0;         /* prevent flex overflow */
-  padding: 10px;        /* previously provided by .sheet-body */
+  padding: 10px;        /* match group sheet primary tab body inset */
 }
 
 /* Active tab shown as flex column */
@@ -1007,17 +1034,24 @@
 .worldbuilding .sheet-fixed-container nav.sheet-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 2px 4px;
 }
 
 .worldbuilding .sheet-fixed-container nav.sheet-tabs > [data-tab] {
-  min-height: 34px;
-  padding: 6px 4px;
+  min-height: 28px;
+  padding: 3px 4px;
   overflow: visible;
   text-overflow: clip;
   white-space: normal;
-  line-height: 1.15;
+  line-height: 1.05;
   text-align: center;
+}
+
+.worldbuilding.sheet.actor:not(.group) .sheet-fixed-container nav.sheet-tabs > [data-tab] {
+  width: 88%;
+  justify-self: center;
+  font-size: clamp(14px, 1.25vw, 21px);
+  font-weight: 800;
 }
 
 
@@ -1110,6 +1144,27 @@
   border-bottom: 1px solid rgba(128, 128, 128, 0.719);
   background-color: rgba(194, 194, 194, 0.308);
   font-size: var(--uesrpg-font-md);
+}
+
+.worldbuilding .skillList .item,
+.worldbuilding .skillList .npc-item,
+.worldbuilding .single-column-list .item {
+  border: 1px solid rgba(82, 58, 22, 0.22);
+  border-left-width: 0;
+  border-right-width: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 248, 227, 0.95), rgba(220, 197, 149, 0.88)),
+    var(--uesrpg-parchment-url);
+  color: #1d1710;
+}
+
+.worldbuilding .item-controls .item-value,
+.worldbuilding .item-controls .profession input {
+  background: rgba(248, 239, 216, 0.58);
+  border: 1px solid rgba(84, 58, 23, 0.24);
+  border-radius: 3px;
+  color: #181109;
+  font-weight: 600;
 }
 
 .worldbuilding .headerWithButton .item-create,
@@ -1216,6 +1271,11 @@
   display: table-row;
 }
 
+.worldbuilding .equipmentList table,
+.worldbuilding .containerList table {
+  width: 100%;
+}
+
 .worldbuilding .equipmentList button,
 .worldbuilding .ammunition-table button,
 .worldbuilding .containerList button {
@@ -1260,7 +1320,8 @@
 .worldbuilding .fixed-data-container {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  /* Slightly tighter to make room for larger Characteristics labels. */
+  gap: 4px;
 }
 
 .worldbuilding .character-profile-container .profile-img-container {
@@ -1280,7 +1341,8 @@
 }
 
 .worldbuilding .charname {
-  margin: 6px 0 2px;
+  /* Move the name box away from the sidebar frame artwork. */
+  margin: 10px 0 6px;
 }
 
 .worldbuilding .charname input {
@@ -1395,14 +1457,14 @@
 
 /* Resource controls (up / restore / down) */
 .worldbuilding .resource-controls {
-  flex: 0 0 16px;
-  width: 16px;
+  flex: 0 0 14px;
+  width: 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 1px;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
 }
 
@@ -1410,6 +1472,20 @@
   cursor: pointer;
   padding: 0;
   color: var(--uesrpg-color-text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.worldbuilding .resource-controls i[data-direction="restore"] {
+  opacity: 0.72;
+  pointer-events: auto;
+}
+
+.worldbuilding .resource-row:hover .resource-controls i {
+  opacity: 0.92;
+  pointer-events: auto;
+  transform: translateY(-1px);
 }
 
 .worldbuilding .resource-controls i:hover {
@@ -1551,15 +1627,16 @@
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 1px 6px;
-  min-height: 28px;
+  padding: 0 6px;
+  min-height: 26px;
   border-bottom: var(--uesrpg-border);
   background-color: var(--uesrpg-bg-row);
 }
 
 .worldbuilding .characteristic-roll {
   font-family: var(--uesrpg-font-family);
-  font-size: var(--uesrpg-font-md);
+  font-size: calc(var(--uesrpg-font-md) + 1px);
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -1949,7 +2026,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: 100%;
+  min-height: 0;
   padding: 8px;
 }
 
@@ -1957,27 +2034,29 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  height: 100%;
+  min-height: 0;
   width: 100%;
 }
 
 .worldbuilding .tab.active {
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
+  min-height: 0;
 }
 
 /*----------------------------
   Actor Sheets - Core Tab
 ------------------------------*/
 .worldbuilding .bioPage {
-  height: 100%;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .worldbuilding .bioPage .contentContainer {
-  height: 100%;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
 }
 
 .worldbuilding .about-buttons {
@@ -2263,8 +2342,9 @@
   display: flex;
   flex-direction: row;
   width: 100%;
-  height: 100%;
+  height: auto;
   gap: 6px;
+  align-items: flex-start;
 }
 
 .worldbuilding .trait-container,
@@ -2390,9 +2470,43 @@
 .worldbuilding .skillList .itemInfo,
 .worldbuilding .skillList .npc-item .itemInfo {
   display: grid;
-  grid-template-columns: 16px 22px 1fr;
+  grid-template-columns: 22px 1fr;
   align-items: center;
   column-gap: 6px;
+}
+
+.worldbuilding .skillList .item .itemInfo[data-action="skillRoll"] {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 2px;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.worldbuilding .skillList .item .itemInfo[data-action="skillRoll"]:hover {
+  background: rgba(142, 102, 48, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(142, 102, 48, 0.2);
+}
+
+.worldbuilding .skillList .item .itemInfo[data-action="skillRoll"]:focus-visible {
+  outline: 2px solid rgba(125, 20, 14, 0.55);
+  outline-offset: 1px;
+}
+
+.worldbuilding .profession-roll-target {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 2px;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.worldbuilding .profession-roll-target:hover {
+  background: rgba(142, 102, 48, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(142, 102, 48, 0.24);
+}
+
+.worldbuilding .profession-roll-target:focus-visible {
+  outline: 2px solid rgba(125, 20, 14, 0.55);
+  outline-offset: 1px;
 }
 
 .worldbuilding .trait-container .section-header,
@@ -2417,7 +2531,8 @@
 .worldbuilding .trait-container .section-header .section-header__action,
 .worldbuilding .talent-container .section-header .section-header__action,
 .worldbuilding .power-container .section-header .section-header__action,
-.worldbuilding .social-field .section-header .section-header__action {
+.worldbuilding .social-field .section-header .section-header__action,
+.worldbuilding .bioPage .section-header .section-header__action {
   position: absolute;
   right: 0;
 }
@@ -2443,6 +2558,15 @@
 .worldbuilding .talent-container .single-column-list .itemInfo,
 .worldbuilding .power-container .single-column-list .itemInfo {
   justify-content: center;
+}
+
+.worldbuilding .trait-container .single-column-list .item,
+.worldbuilding .talent-container .single-column-list .item,
+.worldbuilding .power-container .single-column-list .item {
+  background:
+    linear-gradient(180deg, rgba(255, 247, 223, 0.96), rgba(214, 189, 141, 0.9)),
+    var(--uesrpg-parchment-url);
+  border: 1px solid rgba(78, 52, 20, 0.4);
 }
 
 .worldbuilding .trait-container .single-column-list .item-name,
@@ -3199,12 +3323,11 @@
 }
 /* === ITEM SHEET STRUCTURE === */
 
-/* Window content base - single scroll container */
+/* Window content is a flex shell; scrolling happens in .sheet-body. */
 .worldbuilding.sheet.item .window-content {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   height: 100%;
   max-height: 100%;
 }
@@ -3214,88 +3337,25 @@
    See item-sheet-compact.css for the replacement layout. */
 /* .worldbuilding.sheet.item .stickyHeader { ... } */
 
-/* Sheet body — overflow now handled by item-sheet-compact.css */
+/* Sheet body is the canonical scroll owner for item sheets. */
 .worldbuilding.sheet.item .sheet-body {
   flex: 1 1 auto;
   padding: 6px;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-/* Tab display — overflow now handled by item-sheet-compact.css */
+/* Tabs are non-scrolling panes; active pane fills available height. */
 .worldbuilding.sheet.item .sheet-body > .tab {
   display: none;
+  min-height: 0;
 }
 
-/* Active tab shown */
 .worldbuilding.sheet.item .sheet-body > .tab.active {
   display: flex;
   flex-direction: column;
-  height: 100%;
-}
-
-/* Description tab specific */
-.worldbuilding.sheet.item .sheet-body > .tab[data-tab="description"] {
-  display: none;
-  padding: 12px;
-}
-
-.worldbuilding.sheet.item .sheet-body > .tab[data-tab="description"].active {
-  display: flex;
-  flex-direction: column;
-}
-
-/* Editor within description tab */
-.worldbuilding.sheet.item .tab[data-tab="description"] .editor {
-  flex: 1 1 auto;
-  min-height: 300px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.worldbuilding.sheet.item .tab[data-tab="description"] .editor .editor-container {
-  flex: 1 1 auto;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.worldbuilding.sheet.item .tab[data-tab="description"] .editor .editor-content {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-/* Attributes tab */
-.worldbuilding.sheet.item .sheet-body > .tab[data-tab="attributes"] {
-  display: none;
-  padding: 12px;
-}
-
-.worldbuilding.sheet.item .sheet-body > .tab[data-tab="attributes"].active {
-  display: flex;
-  flex-direction: column;
-}
-
-/* Effects tab */
-.worldbuilding.sheet.item .sheet-body > .tab[data-tab="effects"] {
-  display: none;
-  padding: 12px;
-}
-
-.worldbuilding.sheet.item .sheet-body > .tab[data-tab="effects"].active {
-  display: flex;
-  flex-direction: column;
-}
-
-/* ProseMirror editor should fill container without creating nested scroll */
-.worldbuilding.sheet.item .ProseMirror {
-  min-height: 200px;
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
 }
 
 /* Ensure TinyMCE body doesn't force size */
@@ -3308,27 +3368,27 @@
 .worldbuilding.sheet.item.spell .window-content {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   height: 100%;
   max-height: 100%;
 }
 
 .worldbuilding.sheet.item.spell .sheet-body {
   flex: 1 1 auto;
-  overflow: hidden; /* Prevent nested scrolling */
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .worldbuilding.sheet.item.spell .sheet-body > .tab {
   display: none;
-  overflow: hidden; /* Prevent nested scrolling */
-  height: 100%;
+  min-height: 0;
 }
 
 .worldbuilding.sheet.item.spell .sheet-body > .tab.active {
-  display: block;
-  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* Ensure tab containers don't inflate - removed as part of overflow fix */
@@ -3628,46 +3688,62 @@
   opacity: 0.8;
 }
 
-/* 2) Sheet body should become the scroll container */
-.worldbuilding .sheet-section-container {
-  /* If you currently have height: 100%; it can cause growth. Prefer min-height. */
-  height: auto !important;
-  min-height: 0 !important;
+/* Canonical AppV2 overflow/editor containment model */
+.worldbuilding.sheet.actor .sheet-section-container {
+  height: 100%;
+  min-height: 0;
 }
 
-.worldbuilding .sheet-body {
-  /* Make sheet-body the flexible area and allow scrolling */
+.worldbuilding.sheet.actor .sheet-body {
   flex: 1 1 auto;
-  min-height: 0;           /* critical in flex layouts for scroll to work */
-  overflow-y: auto;        /* internal scroll instead of stretching window */
+  min-height: 0;
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.actor .tab[data-group="primary"] {
+  min-height: 0;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.worldbuilding.sheet.actor .tab[data-group="primary"].active {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
   overflow-x: hidden;
 }
 
-/* 3) Global editor flex-grow fix for TinyMCE/ProseMirror editors */
-.worldbuilding .editor {
-  display: flex;
-  flex-direction: column;
+.worldbuilding.sheet.actor .tab[data-group="primary"].active > .tabContainer {
   flex: 1 1 auto;
-  min-height: 200px;
 }
 
-.worldbuilding .editor .editor-container {
-  flex: 1 1 auto;
-  min-height: 0;
+.worldbuilding :is(.editor, .editor .editor-container, .editor .editor-content) {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+
+.worldbuilding .editor {
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: min(52vh, 560px);
+  overflow: hidden;
 }
 
 .worldbuilding .editor .editor-content {
   flex: 1 1 auto;
-  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
+.worldbuilding .editor .ProseMirror,
 .worldbuilding .ProseMirror {
-  min-height: 200px;
-  height: auto !important;
-  max-height: none !important;
+  flex: 1 1 auto;
+  min-height: 140px;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Ensure TinyMCE body doesn't inflate */
@@ -3676,17 +3752,43 @@
   min-height: 0 !important;
 }
 
-/* 4) Item sheet Description tab fix */
-.worldbuilding.sheet.item .tab[data-tab="description"] {
+/* Actor/NPC Biography section */
+.worldbuilding .tab.core .biography-container .editor {
+  min-height: 150px;
+}
+
+.worldbuilding .bioPage .contentContainer .editor {
+  min-height: 220px;
+  max-height: min(50vh, 520px);
+}
+
+.worldbuilding .bioPage .contentContainer .editor .editor-edit {
+  display: none;
+  pointer-events: none;
+}
+
+.worldbuilding.sheet.actor.group .tab.details {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.worldbuilding.sheet.actor.group .tab.details .editor-section {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  min-height: 220px;
+}
+
+.worldbuilding.sheet.actor.group .tab.details .editor-section > :is(.editor, .editor-content) {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-/* 5) Actor/NPC Biography section */
-.worldbuilding .tab.core .biography-container .editor {
-  min-height: 150px;
+.worldbuilding.sheet.actor.group .editor-section .editor .editor-edit {
+  display: none;
+  pointer-events: none;
 }
 
 /* bioPage .contentContainer merged to main rule in the Biography section above */
@@ -5098,4 +5200,340 @@
 .uesrpg-startup .startup-changelog {
   overflow-y: scroll;
   height: 300px;
+}
+
+/*----------------------------
+  Actor/Group Visual Unification (Core-like parchment surfaces)
+------------------------------*/
+
+/* Keep sidebar tab pills compact so they stay within the frame artwork. */
+.worldbuilding.sheet.actor .sheet-fixed-container nav.sheet-tabs > [data-tab] {
+  min-height: 26px;
+  padding: 1px 4px;
+  line-height: 1.05;
+}
+
+.worldbuilding.sheet.actor:not(.group) .sheet-fixed-container nav.sheet-tabs > [data-tab] {
+  width: 72%;
+  justify-self: center;
+  font-size: clamp(14px, 1.25vw, 21px);
+  font-weight: 800;
+}
+
+.worldbuilding.sheet.actor .sheet-fixed-container nav.sheet-tabs {
+  gap: 1px 2px;
+  padding: 1px 0 2px;
+}
+
+/* Non-core tab bodies use parchment (Core parity) with subtle translucent top coat. */
+.worldbuilding.sheet.actor:not(.group) .tab.combat .combatTabContainer,
+.worldbuilding.sheet.actor:not(.group) .tab.magic .magicTabContainer,
+.worldbuilding.sheet.actor:not(.group) .tab.equipment .equipmentTabContainer {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.1)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 10px;
+  padding: 8px;
+}
+
+/* Combat stat cards should match parchment surfaces instead of gray slabs. */
+.worldbuilding.sheet.actor .combat-stats-container .combat-stat {
+  background:
+    linear-gradient(
+      180deg,
+      var(--uesrpg-ornament-surface-top, rgba(248, 240, 219, 0.9)),
+      var(--uesrpg-ornament-surface-bottom, rgba(241, 233, 213, 0.84))
+    ),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+}
+
+/* Skill rows (core/magic) use parchment row styling. */
+.worldbuilding.sheet.actor .skillList .item,
+.worldbuilding.sheet.actor .skillList .npc-item,
+.worldbuilding.sheet.actor .single-column-list .item {
+  background:
+    linear-gradient(180deg, rgba(255, 250, 238, 0.74), rgba(241, 228, 198, 0.64)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border-bottom: 1px solid rgba(97, 69, 30, 0.24);
+}
+
+.worldbuilding.sheet.actor .skillList .item-controls .item-value {
+  background: rgba(249, 241, 222, 0.52);
+  border: 1px solid rgba(96, 72, 40, 0.2);
+  border-radius: 4px;
+  color: #2a2013;
+  font-weight: 600;
+  padding: 0 3px;
+}
+
+.worldbuilding.sheet.actor .skillList .item-controls .profession input {
+  background: rgba(249, 241, 222, 0.52);
+  border: 1px solid rgba(96, 72, 40, 0.2);
+  border-radius: 3px;
+  min-width: 44px;
+  text-align: center;
+}
+
+/* Replace black table heads in sheet tabs with combat-style warm palette. */
+.worldbuilding.sheet.actor .tab.combat table thead,
+.worldbuilding.sheet.actor .tab.magic table thead,
+.worldbuilding.sheet.actor .tab.equipment table thead,
+.worldbuilding.sheet.actor.group .tab.inventory table thead {
+  background:
+    linear-gradient(180deg, rgba(136, 103, 53, 0.62), rgba(92, 69, 34, 0.58)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+.worldbuilding.sheet.actor .tab.combat table thead th,
+.worldbuilding.sheet.actor .tab.magic table thead th,
+.worldbuilding.sheet.actor .tab.equipment table thead th,
+.worldbuilding.sheet.actor.group .tab.inventory table thead th {
+  color: #2a2014;
+  text-shadow: 0 1px 0 rgba(255, 245, 225, 0.18);
+  border-bottom: 1px solid rgba(88, 64, 28, 0.28);
+}
+
+/* Item rows in equipment/inventory tabs should sit on parchment, not transparent/leather. */
+.worldbuilding.sheet.actor .tab.equipment table tbody tr.item.active,
+.worldbuilding.sheet.actor.group .tab.inventory table tbody tr.item.active {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+/* Stronger Oblivion-like section headers with subtle inset accents. */
+.worldbuilding.sheet.actor .skillContainer .section-header,
+.worldbuilding.sheet.actor .magicSkillContainer .section-header {
+  border-top: 1px solid rgba(255, 245, 220, 0.46);
+  border-bottom: 1px solid rgba(78, 56, 24, 0.36);
+  background: linear-gradient(180deg, rgba(176, 138, 80, 0.14), rgba(120, 86, 44, 0.08));
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab .section-header {
+  position: relative;
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab .section-header::before {
+  content: "";
+  position: absolute;
+  inset: 2px 4px auto 4px;
+  height: 2px;
+  border-top: 1px solid rgba(255, 245, 220, 0.46);
+  pointer-events: none;
+}
+
+/* Combat-forward compact density for NPC profession rows. */
+.worldbuilding.sheet.actor.npc .skillList .npc-item {
+  padding: 1px 3px;
+  min-height: 24px;
+}
+
+.worldbuilding.sheet.actor.npc .skillList .npc-item .skill-name {
+  width: 100%;
+  min-width: 0;
+}
+
+.worldbuilding.sheet.actor.npc .skillList .npc-item .skill-name input {
+  width: 100%;
+  min-width: 0;
+  padding: 0 4px;
+  text-align: left;
+  font-weight: 600;
+}
+
+/* Dark-mode readability: keep parchment controls crisp without theme drift. */
+body.theme-dark .worldbuilding.sheet.actor :is(input, select, textarea) {
+  color: #221b12;
+  background: rgba(255, 248, 232, 0.76);
+  border-color: rgba(84, 60, 24, 0.32);
+}
+
+/* Dark-theme legibility pass for parchment actor sheets (PC/NPC/group). */
+body.theme-dark .worldbuilding.sheet.actor :is(
+  .tabContainer,
+  .combatTabContainer,
+  .magicTabContainer,
+  .equipmentTabContainer,
+  .itemListContainer,
+  .skillContainer,
+  .magicSkillContainer,
+  .bioPage,
+  .social-section,
+  .three-column-flex-container,
+  .characteristics-container
+) :is(
+  h1,
+  h2,
+  h3,
+  h4,
+  p,
+  span,
+  label,
+  li,
+  td,
+  th,
+  a,
+  .item-name,
+  .item-value,
+  .skill-name,
+  .encLabel
+) {
+  color: #2a2014;
+  text-shadow: none;
+}
+
+body.theme-dark .worldbuilding.sheet.actor .sheet-fixed-container .characteristics-container :is(
+  .characteristic-roll,
+  .characteristic-value,
+  .section-header__label
+) {
+  color: #2a2014;
+  text-shadow: none;
+}
+
+body.theme-dark .worldbuilding.sheet.actor .tab :is(button, input, select, textarea) {
+  color: #2a2014;
+  border-color: rgba(92, 69, 34, 0.35);
+  background: rgba(255, 247, 227, 0.9);
+}
+
+body.theme-dark .worldbuilding.sheet.actor :is(
+  .skillList .item .item-name,
+  .skillList .npc-item .skill-name,
+  .single-column-list .item .item-name,
+  .social-chip,
+  .social-empty
+) {
+  color: #2a2014;
+}
+
+/* Dark theme: keep Short/Long Rest buttons readable and not washed out. */
+body.theme-dark .worldbuilding.sheet.actor .rest-btn {
+  background: linear-gradient(180deg, rgba(116, 94, 59, 0.96), rgba(84, 67, 41, 0.96));
+  color: #f8ecd2;
+  border: 1px solid rgba(247, 225, 184, 0.58);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.55);
+  opacity: 1;
+}
+
+body.theme-dark .worldbuilding.sheet.actor .rest-btn:hover {
+  background: linear-gradient(180deg, rgba(137, 110, 69, 0.98), rgba(98, 77, 47, 0.98));
+  border-color: rgba(255, 234, 196, 0.72);
+  color: #fff2d7;
+}
+
+/* Group sheet sidebar tabs: larger and bolder labels for quick scanning. */
+.worldbuilding.sheet.group .sheet-fixed-container nav.sheet-tabs > [data-tab] {
+  font-size: clamp(20px, 1.35vw, 26px);
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+/* Final dark-theme parity block: group-like contrast for PC/NPC equipment tabs. */
+:is(
+  .worldbuilding.theme-dark,
+  .application.theme-dark .worldbuilding,
+  .application.theme-dark.worldbuilding,
+  .theme-dark .worldbuilding,
+  body.theme-dark .worldbuilding
+) :is(
+  .sheet.actor.player-character .tab.equipment,
+  .sheet.actor.npc .tab.equipment
+) table thead {
+  background:
+    linear-gradient(180deg, rgba(57, 40, 21, 0.96), rgba(34, 24, 13, 0.98));
+}
+
+:is(
+  .worldbuilding.theme-dark,
+  .application.theme-dark .worldbuilding,
+  .application.theme-dark.worldbuilding,
+  .theme-dark .worldbuilding,
+  body.theme-dark .worldbuilding
+) :is(
+  .sheet.actor.player-character .tab.equipment,
+  .sheet.actor.npc .tab.equipment
+) table thead th {
+  color: #f3e9d4;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+  border-bottom: 1px solid rgba(245, 225, 186, 0.22);
+}
+
+:is(
+  .worldbuilding.theme-dark,
+  .application.theme-dark .worldbuilding,
+  .application.theme-dark.worldbuilding,
+  .theme-dark .worldbuilding,
+  body.theme-dark .worldbuilding
+) :is(
+  .sheet.actor.player-character .tab.equipment,
+  .sheet.actor.npc .tab.equipment
+) table thead th :is(.item-group-label, i) {
+  color: #f3e9d4;
+}
+
+:is(
+  .worldbuilding.theme-dark,
+  .application.theme-dark .worldbuilding,
+  .application.theme-dark.worldbuilding,
+  .theme-dark .worldbuilding,
+  body.theme-dark .worldbuilding
+) :is(
+  .sheet.actor.player-character .tab.equipment,
+  .sheet.actor.npc .tab.equipment
+) table tbody tr.item.active {
+  background:
+    linear-gradient(180deg, rgba(249, 240, 221, 0.94), rgba(232, 217, 186, 0.9));
+  color: #1f170f;
+  border-bottom: 1px solid rgba(91, 69, 35, 0.24);
+}
+
+:is(
+  .worldbuilding.theme-dark,
+  .application.theme-dark .worldbuilding,
+  .application.theme-dark.worldbuilding,
+  .theme-dark .worldbuilding,
+  body.theme-dark .worldbuilding
+) :is(
+  .sheet.actor.player-character .tab.equipment,
+  .sheet.actor.npc .tab.equipment
+) table tbody tr.item.active:hover {
+  background:
+    linear-gradient(180deg, rgba(252, 244, 228, 0.98), rgba(240, 225, 195, 0.94));
+}
+
+:is(
+  .worldbuilding.theme-dark,
+  .application.theme-dark .worldbuilding,
+  .application.theme-dark.worldbuilding,
+  .theme-dark .worldbuilding,
+  body.theme-dark .worldbuilding
+) :is(
+  .sheet.actor.player-character .tab.equipment,
+  .sheet.actor.npc .tab.equipment
+) :is(.item-name, td, .encLabel) {
+  color: #1f170f;
+  text-shadow: none;
+}
+
+:is(
+  .worldbuilding.theme-dark,
+  .application.theme-dark .worldbuilding,
+  .application.theme-dark.worldbuilding,
+  .theme-dark .worldbuilding,
+  body.theme-dark .worldbuilding
+) :is(
+  .sheet.actor.player-character .tab.equipment,
+  .sheet.actor.npc .tab.equipment
+) :is(.minusQty.plusQty, .equipment-info-container button, .uesrpg-item-search input) {
+  background: rgba(80, 60, 37, 0.96);
+  color: #f8ecd2;
+  border-color: rgba(247, 225, 184, 0.62);
 }

@@ -1,4 +1,4 @@
-{{!-- Trait Sheet — Compact Layout --}}
+﻿{{!-- Trait Sheet вЂ” Compact Layout --}}
 <header class="item-compact-header">
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
     <div class="item-header-fields">
@@ -19,23 +19,23 @@
     
             {{!-- Description Tab --}}
             <div class="tab" data-group="primary" data-tab="description">
-                {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+                {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
             </div>
     
             {{!-- Attributes Tab --}}
             <div class="tab" data-group="primary" data-tab="attributes">
                 <div class="attribute-tab-container compact-attrs">
 
-                    {{!-- Flags ──────────────────────────────────────── --}}
+                    {{!-- Flags в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
                     <fieldset class="attr-fieldset">
                         <legend>Flags</legend>
                         <div class="attr-checkbox-grid">
                             <label><input class="checkbox" type="checkbox" name="system.mechanical" {{checked item.system.mechanical}}> Mechanical</label>
-                            <label><input class="checkbox" type="checkbox" name="system.halfFatiguePenalty" {{checked item.system.halfFatiguePenalty}}> ½ Fatigue Penalty</label>
-                            <label><input class="checkbox" type="checkbox" name="system.halfWoundPenalty" {{checked item.system.halfWoundPenalty}}> ½ Wound Penalty</label>
-                            <label><input class="checkbox" type="checkbox" name="system.painIntolerant" {{checked item.system.painIntolerant}}> Wound Penalty →-30</label>
-                            <label><input class="checkbox" type="checkbox" name="system.halfSpeed" {{checked item.system.halfSpeed}}> ½ Speed</label>
-                            <label><input class="checkbox" type="checkbox" name="system.addHalfSpeed" {{checked item.system.addHalfSpeed}}> Add ½ Speed</label>
+                            <label><input class="checkbox" type="checkbox" name="system.halfFatiguePenalty" {{checked item.system.halfFatiguePenalty}}> ВЅ Fatigue Penalty</label>
+                            <label><input class="checkbox" type="checkbox" name="system.halfWoundPenalty" {{checked item.system.halfWoundPenalty}}> ВЅ Wound Penalty</label>
+                            <label><input class="checkbox" type="checkbox" name="system.painIntolerant" {{checked item.system.painIntolerant}}> Wound Penalty в†’-30</label>
+                            <label><input class="checkbox" type="checkbox" name="system.halfSpeed" {{checked item.system.halfSpeed}}> ВЅ Speed</label>
+                            <label><input class="checkbox" type="checkbox" name="system.addHalfSpeed" {{checked item.system.addHalfSpeed}}> Add ВЅ Speed</label>
                         </div>
                         <div class="activation-sub-heading u-mt-sm">Structured Data (Optional)</div>
                         <div class="attr-struct-grid">
@@ -49,7 +49,7 @@
                         </div>
                     </fieldset>
 
-                    {{!-- Characteristics + Resistances + Stats ──────── --}}
+                    {{!-- Characteristics + Resistances + Stats в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
                     <div class="attr-three-col">
                         <fieldset class="attr-fieldset">
                             <legend>Characteristics</legend>
@@ -98,7 +98,7 @@
                         </fieldset>
                     </div>
 
-                    {{!-- Activation ─────────────────────────────────── --}}
+                    {{!-- Activation в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
                     <fieldset class="attr-fieldset">
                         <legend>Activation</legend>
                         <div class="activation-compact">
@@ -264,3 +264,4 @@
             {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
         </div>
     </section>
+

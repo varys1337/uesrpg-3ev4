@@ -32,7 +32,7 @@
           </div>
           <div class="maxBar" data-resource="hp">
             <div id="hpBar" class="currentBar" data-resource="hp">
-              <input type="number" name="system.hp.value" value="0"> / <label>0</label>
+              <input type="number" name="system.hp.value" value="{{actor.system.hp.value}}"> / <label>{{actor.system.hp.max}}</label>
             </div>
           </div>
         </div>
@@ -46,7 +46,7 @@
           </div>
           <div class="maxBar" data-resource="stamina">
             <div id="staminaBar" class="currentBar" data-resource="stamina">
-              <input type="number" name="system.stamina.value" value="0"> / <label>0</label>
+              <input type="number" name="system.stamina.value" value="{{actor.system.stamina.value}}"> / <label>{{actor.system.stamina.max}}</label>
             </div>
           </div>
         </div>
@@ -60,7 +60,7 @@
           </div>
           <div class="maxBar" data-resource="magicka">
             <div id="magickaBar" class="currentBar" data-resource="magicka">
-              <input type="number" name="system.magicka.value" value="0"> / <label>0</label>
+              <input type="number" name="system.magicka.value" value="{{actor.system.magicka.value}}"> / <label>{{actor.system.magicka.max}}</label>
             </div>
           </div>
         </div>
@@ -74,7 +74,7 @@
           </div>
           <div class="maxBar" data-resource="luck_points">
             <div id="luck_pointsBar" class="currentBar" data-resource="luck_points">
-              <input type="number" name="system.luck_points.value" value="0"> / <label>0</label>
+              <input type="number" name="system.luck_points.value" value="{{actor.system.luck_points.value}}"> / <label>{{actor.system.luck_points.max}}</label>
             </div>
           </div>
         </div>
@@ -89,11 +89,11 @@
           <div class="npc-button-stats">
             <div>
               <div class="styled-font">Soul Energy</div>
-              <input type="text" name="system.soul_energy" placeholder="Soul Energy" value="---">
+              <input type="text" name="system.soul_energy" placeholder="Soul Energy" value="{{actor.system.soul_energy}}">
             </div>
             <div>
               <div class="styled-font">Race</div>
-              <input type="text" placeholder="Race" value="{{actor.system.race}}">
+              <input type="text" name="system.race" placeholder="Race" value="{{actor.system.race}}">
             </div>
             <div>
               <div class="styled-font">Threat</div>
@@ -153,7 +153,7 @@
         <div class="bioPage">
           <h2>Biography</h2>
           <div class="contentContainer">
-            {{editor actor.system.enrichedBio target="system.bio" button=true owner=owner editable=editable}}
+            {{editor actor.system.bio target="system.bio" button=editable owner=owner editable=editable}}
           </div>
         </div>
 

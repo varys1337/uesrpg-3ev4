@@ -419,12 +419,12 @@
       <div class="tab details" data-group="primary" data-tab="details">
         <div class="editor-section">
           <h3>Description</h3>
-          {{editor actor.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+          {{editor actor.system.description target="system.description" engine="prosemirror" button=editable owner=owner editable=editable}}
         </div>
 
         <div class="editor-section" style="margin-top: 20px;">
           <h3>Notes</h3>
-          {{editor actor.system.enrichedNotes target="system.notes" engine="prosemirror" button=true owner=owner editable=editable}}
+          {{editor actor.system.notes target="system.notes" engine="prosemirror" button=editable owner=owner editable=editable}}
         </div>
       </div>
 

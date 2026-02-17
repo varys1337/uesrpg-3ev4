@@ -1,4 +1,4 @@
-{{!-- Combat Style Sheet — Compact Layout --}}
+﻿{{!-- Combat Style Sheet вЂ” Compact Layout --}}
 <header class="item-compact-header">
   <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
   <div class="item-header-fields">
@@ -40,7 +40,7 @@
 
     {{!-- Description Tab --}}
     <div class="tab" data-group="primary" data-tab="description">
-      {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+      {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
     </div>
 
     {{!-- Combat Style Tab --}}
@@ -98,3 +98,4 @@
     </div>
 
   </section>
+

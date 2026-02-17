@@ -1,6 +1,6 @@
-    <section class="sheet-body">
+﻿    <section class="sheet-body">
 
-      {{!-- ─── Members Tab ─── --}}
+      {{!-- в”Ђв”Ђв”Ђ Members Tab в”Ђв”Ђв”Ђ --}}
       <div class="tab members" data-group="primary" data-tab="members">
         <!-- Drop zone -->
         <div class="member-drop-zone">
@@ -69,7 +69,7 @@
         {{/if}}
       </div>
 
-      {{!-- ─── Inventory Tab ─── --}}
+      {{!-- в”Ђв”Ђв”Ђ Inventory Tab в”Ђв”Ђв”Ђ --}}
       <div class="tab inventory" data-group="primary" data-tab="inventory">
         <div class="inventory-header">
           <h3>Group Inventory</h3>
@@ -318,7 +318,7 @@
         </div>
       </div>
 
-      {{!-- ─── Travel Tab ─── --}}
+      {{!-- в”Ђв”Ђв”Ђ Travel Tab в”Ђв”Ђв”Ђ --}}
       <div class="tab travel" data-group="primary" data-tab="travel">
         <h3>Travel &amp; Movement</h3>
 
@@ -359,13 +359,13 @@
                 <td><b>Fast</b></td>
                 <td class="text-center">7 km/h</td>
                 <td class="text-center">56 km</td>
-                <td>−20 to Observe</td>
+                <td>в€’20 to Observe</td>
               </tr>
               <tr {{#if (eq currentPace 'normal')}}class="pace-active"{{/if}}>
                 <td><b>Normal</b></td>
                 <td class="text-center">5 km/h</td>
                 <td class="text-center">40 km</td>
-                <td>—</td>
+                <td>вЂ”</td>
               </tr>
               <tr {{#if (eq currentPace 'slow')}}class="pace-active"{{/if}}>
                 <td><b>Slow</b></td>
@@ -378,17 +378,28 @@
         </div>
       </div>
 
-      {{!-- ─── Details Tab ─── --}}
+      {{!-- в”Ђв”Ђв”Ђ Details Tab в”Ђв”Ђв”Ђ --}}
       <div class="tab details" data-group="primary" data-tab="details">
-        <div class="editor-section">
-          <h3>Description</h3>
-          {{editor enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+        <div class="editor-section description">
+          <h3>
+            Description
+            <button type="button" data-action="openDescriptionEditor" class="section-header__action" title="Edit Description">
+              <i class="fas fa-pen"></i>
+            </button>
+          </h3>
+          {{editor system.description target="system.description" engine="prosemirror" button=editable owner=owner editable=editable}}
         </div>
 
-        <div class="editor-section">
-          <h3>Notes</h3>
-          {{editor enrichedNotes target="system.notes" engine="prosemirror" button=true owner=owner editable=editable}}
+        <div class="editor-section notes">
+          <h3>
+            Notes
+            <button type="button" data-action="openNotesEditor" class="section-header__action" title="Edit Notes">
+              <i class="fas fa-pen"></i>
+            </button>
+          </h3>
+          {{editor system.notes target="system.notes" engine="prosemirror" button=editable owner=owner editable=editable}}
         </div>
       </div>
 
     </section>
+

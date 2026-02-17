@@ -56,6 +56,8 @@ import { buildFeatureInspectorContext } from "../shared/feature-inspector.js";
 import { MagicOpposedWorkflow } from "../../../core/magic/opposed-workflow.js";
 import { LanguageSelectorAppV2, FactionSelectorAppV2 } from "../../apps/v2/social-selectors.js";
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
+import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
+import { activateEditorButtons } from "../shared/editor-activation.js";
 
 
 
@@ -176,6 +178,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       // Chat / Inspector
       postItemToChat: NpcSheetV2.prototype._onPostItemToChat,
       featureInspectorCopy: NpcSheetV2.prototype._onFeatureInspectorCopy,
+      openBioEditor: NpcSheetV2.prototype._onOpenBioEditor,
     },
     dragDrop: [
       {
@@ -333,6 +336,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     super._onRender(context, options);
     const el = this.element;
     if (!el) return;
+    clearItemDescriptionTooltip(this);
 
     // Limited view: no interactive listeners
     if (this.document.limited) return;
@@ -351,6 +355,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
     // ── NPC status tags (wound/fatigue icons in fixed-header) ─────
     createStatusTags(this);
+
+    // ── Re-wire editor buttons (bypasses core activation when render path skips it) ─────
+    activateEditorButtons(this, el);
   }
 
   /**
@@ -380,6 +387,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
    * @param {HTMLElement} el – the root element of the rendered part
    */
   _attachTabListeners(el) {
+    bindItemDescriptionTooltips(this, el);
+
     // Right-click: magic-roll → NPC spell description to chat
     for (const magicEl of el.querySelectorAll(".magic-roll")) {
       magicEl.addEventListener("contextmenu", (ev) => {
@@ -396,6 +405,23 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         if (!itemId) return;
         const item = this.document.items.get(itemId);
         if (item) this._duplicateItem(item);
+      });
+    }
+
+    // Right-click: skill row → open skill item sheet (left-click still rolls)
+    for (const skillEl of el.querySelectorAll(".skill-roll-target")) {
+      skillEl.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        this._onItemOpen(ev, ev.currentTarget);
+      });
+    }
+
+    // Right-click: profession row → open matching skill sheet (if one exists)
+    for (const profEl of el.querySelectorAll(".profession-roll-target")) {
+      profEl.addEventListener("contextmenu", (ev) => {
+        if (ev.target?.closest?.("input, textarea, select")) return;
+        ev.preventDefault();
+        this._openProfessionSkillSheet(ev.currentTarget);
       });
     }
 
@@ -429,8 +455,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       searchInput.addEventListener("input", this._uesrpgDebouncedSearch);
     }
 
-    // Keyboard: Enter/Space on subtabs, group toggles, and characteristics config → synthetic click
-    for (const kbd of el.querySelectorAll(".uesrpg-actions-subtab, .uesrpg-group-toggle, .characteristics-config")) {
+    // Keyboard: Enter/Space on subtabs, group toggles, characteristics config, and skill rows → synthetic click
+    for (const kbd of el.querySelectorAll(".uesrpg-actions-subtab, .uesrpg-group-toggle, .characteristics-config, .skill-roll-target, .profession-roll-target")) {
       kbd.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
           ev.preventDefault();
@@ -438,6 +464,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         }
       });
     }
+
   }
 
   /* ═══════════════════════ Delegated Handlers ════════════════════════ */
@@ -518,6 +545,21 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     }).catch((err) => {
       console.warn("uesrpg | Failed to copy feature inspector data", err);
     });
+  }
+
+  _onOpenBioEditor(event, _target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+
+    const bioRoot = this.element?.querySelector?.(".bioPage .contentContainer");
+    const editButton = bioRoot?.querySelector?.(".editor-edit");
+    if (editButton) {
+      editButton.click();
+      return;
+    }
+
+    const fallbackField = bioRoot?.querySelector?.("[name='system.bio']");
+    if (fallbackField) fallbackField.focus();
   }
 
   /** Open item sheet on name/image click */
@@ -691,11 +733,16 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
    */
   async _onProfessionsRoll(event, target) {
     event.preventDefault();
+    if (event.target?.closest?.("input, textarea, select")) return;
 
     if (!requireUserCanRollActor(game.user, this.document)) return;
 
     const button = target ?? event.currentTarget;
     let profKey = null;
+
+    if (!profKey && button && typeof button.closest === "function") {
+      profKey = button.closest(".profession-roll-target")?.dataset?.professionKey ?? null;
+    }
 
     if (button && typeof button.closest === "function") {
       const li = button.closest(".item");
@@ -904,6 +951,40 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     });
   }
 
+  _openProfessionSkillSheet(target) {
+    const profKey = String(target?.dataset?.professionKey ?? "").trim();
+    if (!profKey) return;
+
+    const byName = (name) => {
+      const needle = String(name ?? "").trim().toLowerCase();
+      if (!needle) return null;
+      return this.document.items.find((it) =>
+        String(it?.type ?? "").toLowerCase() === "skill" &&
+        String(it?.name ?? "").trim().toLowerCase() === needle
+      ) ?? null;
+    };
+
+    const profMap = {
+      combat: "combat",
+      evade: "evade",
+      knowledge: "knowledge",
+      magic: "magic",
+      observe: "observe",
+      physical: "physical",
+      social: "social",
+      stealth: "stealth",
+      commerce: "commerce",
+    };
+
+    let skillItem = byName(profMap[profKey] ?? profKey);
+    if (!skillItem && ["profession1", "profession2", "profession3"].includes(profKey)) {
+      const spec = String(this.document.system?.skills?.[profKey]?.specialization ?? "").trim();
+      skillItem = byName(spec);
+    }
+
+    if (skillItem?.sheet) skillItem.sheet.render(true);
+  }
+
   /**
    * Ammo roll handler.
    */
@@ -957,7 +1038,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   /** @override */
   async _onDrop(event) {
-    const data = TextEditor.getDragEventData(event);
+    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
 
     if (data.type === "Item") {
       // Resolve once to validate payload shape; base sheet still performs create/move behavior.
@@ -971,6 +1052,11 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     }
 
     return super._onDrop(event);
+  }
+
+  _onClose(options) {
+    clearItemDescriptionTooltip(this);
+    return super._onClose(options);
   }
 
   /* ═══════════════════════ Active Effects ════════════════════════════ */

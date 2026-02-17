@@ -1,5 +1,5 @@
-
-  {{!-- ═══ HEADER ═══════════════════════════════════════════════════════ --}}
+﻿
+  {{!-- в•ђв•ђв•ђ HEADER в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
   <header class="sheet-header spell-header">
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" height="50" width="50"/>
     <div class="spell-header-fields">
@@ -37,7 +37,7 @@
     </div>
   </header>
 
-  {{!-- ═══ TABS ═════════════════════════════════════════════════════════ --}}
+  {{!-- в•ђв•ђв•ђ TABS в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
   <nav class="sheet-tabs tabs" data-group="primary">
     <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
     <a class="item" data-action="tab" data-group="primary" data-tab="casting">Casting</a>
@@ -46,20 +46,20 @@
 
   <section class="sheet-body">
 
-    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
-    {{!--  TAB 1 — DESCRIPTION                                             --}}
-    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
+    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
+    {{!--  TAB 1 вЂ” DESCRIPTION                                             --}}
+    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
     <div class="tab" data-group="primary" data-tab="description">
-      {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+      {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
     </div>
 
-    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
-    {{!--  TAB 2 — CASTING (compact configurator layout)                    --}}
-    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
+    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
+    {{!--  TAB 2 вЂ” CASTING (compact configurator layout)                    --}}
+    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
     <div class="tab" data-group="primary" data-tab="casting">
       <div class="spell-casting-body">
 
-        {{!-- ── AT A GLANCE ────────────────────────────────────────────── --}}
+        {{!-- в”Ђв”Ђ AT A GLANCE в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
         <div class="spell-glance-row">
           <span class="spell-glance-tag" title="Defense Model">
             <i class="fas fa-shield-alt"></i>
@@ -84,10 +84,10 @@
           {{/if}}
         </div>
 
-        {{!-- ══════════════════════════════════════════════════════════════ --}}
+        {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
         {{!--  SECTION: Casting Attributes (merged Classification + old     --}}
         {{!--  Casting Attributes + Defense Model)                          --}}
-        {{!-- ══════════════════════════════════════════════════════════════ --}}
+        {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
         <section class="spell-section">
           <h4 class="spell-section-title">Casting Attributes</h4>
 
@@ -177,7 +177,7 @@
                 {{selectOptions charDefFailureOptions selected=spellEngine.characteristicDefense.onFailure}}
               </select>
             </div>
-            <p class="spell-hint">TN = Defender's characteristic − modifier. "Spell Strength" uses the spell's SS value as the modifier.</p>
+            <p class="spell-hint">TN = Defender's characteristic в€’ modifier. "Spell Strength" uses the spell's SS value as the modifier.</p>
           </fieldset>
 
           {{!-- Consequences (inline when defense=characteristic & failure=consequences) --}}
@@ -185,15 +185,15 @@
           <fieldset class="spell-fieldset">
             <legend>Consequences (on failed save)</legend>
             <div class="spell-row">
-              <label class="spell-label">Stamina Δ</label>
+              <label class="spell-label">Stamina О”</label>
               <input type="number" name="system.engine.consequences.staminaDelta"
                      value="{{spellEngine.consequences.staminaDelta}}"
                      class="spell-input spell-input-xs" />
-              <label class="spell-label spell-label--offset">Health Δ</label>
+              <label class="spell-label spell-label--offset">Health О”</label>
               <input type="number" name="system.engine.consequences.healthDelta"
                      value="{{spellEngine.consequences.healthDelta}}"
                      class="spell-input spell-input-xs" />
-              <label class="spell-label spell-label--offset">Magicka Δ</label>
+              <label class="spell-label spell-label--offset">Magicka О”</label>
               <input type="number" name="system.engine.consequences.magickaDelta"
                      value="{{spellEngine.consequences.magickaDelta}}"
                      class="spell-input spell-input-xs" />
@@ -210,7 +210,7 @@
                      value="{{spellEngine.consequences.description}}"
                      class="spell-input" placeholder="Flavour text for chat" />
             </div>
-            <p class="spell-hint">Use negative values for drains (e.g., −10 SP). Applied when the defender fails the characteristic save.</p>
+            <p class="spell-hint">Use negative values for drains (e.g., в€’10 SP). Applied when the defender fails the characteristic save.</p>
           </fieldset>
           {{/if}}
           {{/if}}
@@ -246,10 +246,10 @@
           {{/if}}
         </section>
 
-        {{!-- ── SECTIONS: Targeting & Range + Duration (side by side) ───── --}}
+        {{!-- в”Ђв”Ђ SECTIONS: Targeting & Range + Duration (side by side) в”Ђв”Ђв”Ђв”Ђв”Ђ --}}
         <div class="spell-2col-grid">
 
-        {{!-- ── Targeting & Range (left column) ────────────────────────── --}}
+        {{!-- в”Ђв”Ђ Targeting & Range (left column) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
         <section class="spell-section">
           <h4 class="spell-section-title">Targeting & Range</h4>
           <div class="spell-row">
@@ -301,7 +301,7 @@
           {{/if}}
         </section>
 
-        {{!-- ── Duration & Persistence (right column) ──────────────────── --}}
+        {{!-- в”Ђв”Ђ Duration & Persistence (right column) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
         <section class="spell-section">
           <h4 class="spell-section-title">Duration & Persistence</h4>
           <div class="spell-row">
@@ -338,7 +338,7 @@
 
         </div>{{!-- /.spell-2col-grid --}}
 
-        {{!-- ── SECTION: Scaling Levels ────────────────────────────────── --}}
+        {{!-- в”Ђв”Ђ SECTION: Scaling Levels в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
         <details class="spell-details-section" data-uesrpg="scaling-levels">
           <summary class="spell-details-summary">
             Scaling Levels
@@ -394,7 +394,7 @@
           </div>
         </details>
 
-        {{!-- ── SECTION: Active Effects (compact grid rows) ────────────────────────────────── --}}
+        {{!-- в”Ђв”Ђ SECTION: Active Effects (compact grid rows) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
         <section class="spell-section">
           <h4 class="spell-section-title">
             Active Effects
@@ -417,9 +417,9 @@
           </div>
         </section>
 
-        {{!-- ══════════════════════════════════════════════════════════════ --}}
+        {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
         {{!--  ADVANCED OPTIONS (collapsible)                               --}}
-        {{!-- ══════════════════════════════════════════════════════════════ --}}
+        {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
         <details class="spell-advanced">
           <summary class="spell-advanced-summary">
             <i class="fas fa-cogs"></i>
@@ -429,7 +429,7 @@
 
           <div class="spell-advanced-body">
 
-            {{!-- ── Effect Policies (always expanded, like a category header) ────────────────────────────────────── --}}
+            {{!-- в”Ђв”Ђ Effect Policies (always expanded, like a category header) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel spell-module-panel--expanded">
               <h4 class="spell-module-title"><i class="fas fa-layer-group"></i> Effect Policies</h4>
               <div class="spell-row">
@@ -447,13 +447,13 @@
               <p class="spell-hint">Stacking: how repeated casts interact. Ownership: who receives the AE.</p>
             </section>
 
-            {{!-- ══════════════════════════════════════════════════════════ --}}
-            {{!--  AUTOMATION MODULES (4×2 grid with Buffer/Barrier moved here) --}}
-            {{!-- ══════════════════════════════════════════════════════════ --}}
+            {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
+            {{!--  AUTOMATION MODULES (4Г—2 grid with Buffer/Barrier moved here) --}}
+            {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
             <h4 class="spell-section-title">Automation Modules</h4>
             <div class="spell-modules-grid">
 
-            {{!-- Buffer / Barrier (moved from above) ────────────────────────────────── --}}
+            {{!-- Buffer / Barrier (moved from above) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if item.system.hasBuffer}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-shield-alt"></i> Buffer / Barrier</h4>
               <div class="spell-row spell-row-checks">
@@ -479,7 +479,7 @@
             </section>
 
 
-            {{!-- ── Module: Conjuration (school-gated) ─────────────────── --}}
+            {{!-- в”Ђв”Ђ Module: Conjuration (school-gated) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             {{#if (eq item.system.school "conjuration")}}
             <section class="spell-module-panel spell-module-panel--expanded">
               <h4 class="spell-module-title"><i class="fas fa-hat-wizard"></i> Conjuration</h4>
@@ -584,7 +584,7 @@
             </section>
             {{/if}}
 
-            {{!-- ── Module: Disintegrate ───────────────────────────────── --}}
+            {{!-- в”Ђв”Ђ Module: Disintegrate в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if spellEngine.disintegrate.enabled}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-atom"></i> Disintegrate</h4>
               <div class="spell-row spell-row-checks">
@@ -601,7 +601,7 @@
               {{/if}}
             </section>
 
-            {{!-- ── Module: Drain ──────────────────────────────────────── --}}
+            {{!-- в”Ђв”Ђ Module: Drain в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if spellEngine.drain.enabled}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-tint"></i> Drain</h4>
               <div class="spell-row spell-row-checks">
@@ -619,7 +619,7 @@
               {{/if}}
             </section>
 
-            {{!-- ── Module: Cloak (Aura) ───────────────────────────────── --}}
+            {{!-- в”Ђв”Ђ Module: Cloak (Aura) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if spellEngine.cloak.enabled}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-spinner"></i> Cloak (Aura)</h4>
               <div class="spell-row spell-row-checks">
@@ -640,7 +640,7 @@
               {{/if}}
             </section>
 
-            {{!-- ── Module: Rune / Trap ────────────────────────────────── --}}
+            {{!-- в”Ђв”Ђ Module: Rune / Trap в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if item.system.isRuneSpell}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-crosshairs"></i> Rune / Trap</h4>
               <div class="spell-row spell-row-checks">
@@ -663,7 +663,7 @@
               {{/if}}
             </section>
 
-            {{!-- ── Module: Persistent Zone ────────────────────────────── --}}
+            {{!-- в”Ђв”Ђ Module: Persistent Zone в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if item.system.isZonePersistent}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-globe"></i> Persistent Zone</h4>
               <div class="spell-row spell-row-checks">
@@ -674,7 +674,7 @@
               {{/if}}
             </section>
 
-            {{!-- ── Module: Spell Defense (Absorption/Reflect) ──────────── --}}
+            {{!-- в”Ђв”Ђ Module: Spell Defense (Absorption/Reflect) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if item.system.isSpellDefense}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-user-shield"></i> Spell Defense</h4>
               <div class="spell-row spell-row-checks">
@@ -687,11 +687,11 @@
                   {{selectOptions item.system.spellDefenseTypes selected=item.system.spellDefenseType}}
                 </select>
               </div>
-              <p class="spell-hint">Grants 1-round defensive buff. Threshold determined by the <strong>Strength</strong> field (Casting Attributes section). When a spell targets this actor, roll 1d10 — if roll ≤ threshold, the spell is absorbed (no effect) or reflected (redirected to caster).</p>
+              <p class="spell-hint">Grants 1-round defensive buff. Threshold determined by the <strong>Strength</strong> field (Casting Attributes section). When a spell targets this actor, roll 1d10 вЂ” if roll в‰¤ threshold, the spell is absorbed (no effect) or reflected (redirected to caster).</p>
               {{/if}}
             </section>
 
-            {{!-- ── Module: OverTime ───────────────────────────────────── --}}
+            {{!-- в”Ђв”Ђ Module: OverTime в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if item.system.hasOverTime}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-redo"></i> OverTime</h4>
               <div class="spell-row spell-row-checks">
@@ -724,7 +724,7 @@
                     <option value="seconds" {{#if (eq ot.cadenceUnit "seconds")}}selected{{/if}}>Seconds</option>
                   </select>
                   <label class="spell-label spell-label-sm">Max</label>
-                  <input type="number" name="system.overTimeEntries.{{idx}}.maxTicks" value="{{ot.maxTicks}}" min="0" placeholder="∞" class="spell-input spell-input-xs" />
+                  <input type="number" name="system.overTimeEntries.{{idx}}.maxTicks" value="{{ot.maxTicks}}" min="0" placeholder="в€ћ" class="spell-input spell-input-xs" />
                 </div>
                 <div class="spell-row">
                   <label class="spell-label">Payload</label>
@@ -788,7 +788,7 @@
               {{/if}}
             </section>
 
-            {{!-- ── Module: Summon ─────────────────────────────────────── --}}
+            {{!-- в”Ђв”Ђ Module: Summon в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
             <section class="spell-module-panel {{#if item.system.isSummonSpell}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-dragon"></i> Summon</h4>
               <div class="spell-row spell-row-checks">
@@ -809,7 +809,7 @@
 
             </div>{{!-- /.spell-modules-grid --}}
 
-            {{!-- ── Effect Recipes (Experimental — hidden by default) ──── --}}
+            {{!-- в”Ђв”Ђ Effect Recipes (Experimental вЂ” hidden by default) в”Ђв”Ђв”Ђв”Ђ --}}
             {{#if enableSpellRecipes}}
             <section class="spell-module-panel">
               <h4 class="spell-module-title">
@@ -825,7 +825,7 @@
                 {{#each spellEngine.effects.recipes as |recipe idx|}}
                 <div class="spell-recipe-row" data-recipe-index="{{idx}}">
                   <select name="system.engine.effects.recipes.{{idx}}.key" class="spell-recipe-key" data-recipe-input="true">
-                    <option value="">— Key —</option>
+                    <option value="">вЂ” Key вЂ”</option>
                     {{#each @root.modifierKeyOptions as |label key|}}
                     <option value="{{key}}" {{#if (eq key ../recipe.key)}}selected{{/if}}>{{label}}</option>
                     {{/each}}
@@ -857,9 +857,9 @@
       </div>
     </div>
 
-    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
-    {{!--  TAB 3 — INFORMATION (validation, coverage, profile preview)      --}}
-    {{!-- ═══════════════════════════════════════════════════════════════════ --}}
+    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
+    {{!--  TAB 3 вЂ” INFORMATION (validation, coverage, profile preview)      --}}
+    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
     <div class="tab" data-group="primary" data-tab="information">
       <div class="spell-casting-body">
 
@@ -910,3 +910,4 @@
     </div>
 
   </section>
+

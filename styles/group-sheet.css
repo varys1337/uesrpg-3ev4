@@ -38,12 +38,18 @@
 }
 
 .uesrpg.sheet.actor.group .sheet-tabs .item {
-  min-height: 34px;
-  padding: 5px 8px;
+  min-height: 30px;
+  padding: 4px 6px;
   line-height: 1.1;
   text-align: center;
   font-size: clamp(12px, 1.2vw, 18px);
   border-radius: 8px;
+}
+
+.uesrpg.sheet.actor.group .sheet-fixed-container nav.sheet-tabs > [data-tab] {
+  min-height: 30px;
+  padding: 4px 6px;
+  line-height: 1.05;
 }
 
 .uesrpg.sheet.actor.group .sheet-tabs .item.active {
@@ -70,6 +76,12 @@
 .uesrpg.sheet.actor.group .sheet-body {
   overflow-y: auto;
   padding: 15px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 10px;
 }
 
 /* Member items — base bg/transition (grid layout in externalized section below) */
@@ -172,7 +184,10 @@
   padding: 15px;
   margin-bottom: 15px;
   text-align: center;
-  background: rgba(255, 255, 255, 0.05);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
 }
 
 .uesrpg.sheet.actor.group .member-drop-zone .drop-icon {
@@ -199,14 +214,19 @@
   padding: var(--uesrpg-space-sm, 6px) var(--uesrpg-space-xl, 12px);
   border: 1px solid #999;
   border-radius: var(--uesrpg-border-radius, 4px);
-  background: rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(136, 103, 53, 0.62), rgba(92, 69, 34, 0.58)),
+    var(--uesrpg-parchment-url);
+  color: #2a2014;
   cursor: pointer;
   transition: var(--uesrpg-transition, all 200ms ease);
 }
 
 .uesrpg.sheet.actor.group .controls button:hover {
-  background: rgba(0, 100, 200, 0.2);
-  border-color: var(--uesrpg-color-accent, #0064c8);
+  background:
+    linear-gradient(180deg, rgba(164, 126, 68, 0.66), rgba(115, 86, 43, 0.62)),
+    var(--uesrpg-parchment-url);
+  border-color: rgba(92, 69, 34, 0.46);
   transform: translateY(-1px);
   box-shadow: var(--uesrpg-shadow-md, 0 2px 6px rgba(0,0,0,0.2));
 }
@@ -331,6 +351,12 @@
   border-bottom: 2px solid #999;
   padding-bottom: 8px;
   margin-bottom: 15px;
+  background:
+    linear-gradient(180deg, rgba(136, 103, 53, 0.22), rgba(92, 69, 34, 0.16)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border-radius: 6px;
+  padding: 8px 10px;
 }
 
 .uesrpg.sheet.actor.group .inventory-header h3 {
@@ -346,6 +372,32 @@
 .uesrpg.sheet.actor.group .itemListContainer {
   max-height: 500px;
   overflow-y: auto;
+  padding: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 8px;
+}
+
+.uesrpg.sheet.actor.group .itemListContainer table thead {
+  background:
+    linear-gradient(180deg, rgba(136, 103, 53, 0.62), rgba(92, 69, 34, 0.58)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+.uesrpg.sheet.actor.group .itemListContainer table thead th {
+  color: #2a2014;
+  text-shadow: 0 1px 0 rgba(255, 245, 225, 0.18);
+}
+
+.uesrpg.sheet.actor.group .itemListContainer table tbody tr.item.active {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
 }
 
 /* ── Travel Tab — externalized inline styles ────────────────────────── */
@@ -359,9 +411,12 @@
 
 .uesrpg.sheet.actor.group .stat-card {
   padding: 15px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
   border-radius: 6px;
-  background: var(--uesrpg-bg-inset, rgba(255, 255, 255, 0.05));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
 }
 
 .uesrpg.sheet.actor.group .stat-speed-value {
@@ -411,6 +466,13 @@
 .uesrpg.sheet.actor.group .pace-table {
   width: 100%;
   border-collapse: collapse;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 .uesrpg.sheet.actor.group .pace-table thead tr {
@@ -438,6 +500,23 @@
 
 .uesrpg.sheet.actor.group .editor-section + .editor-section {
   margin-top: 20px;
+}
+
+.uesrpg.sheet.actor.group .editor-section {
+  padding: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 8px;
+}
+
+.uesrpg.sheet.actor.group .editor-section h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 /* Ensure scrollbars are visible but styled */

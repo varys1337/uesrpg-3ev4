@@ -37,6 +37,8 @@ import { buildFeatureInspectorContext } from "../shared/feature-inspector.js";
 import { registerResourceButtonHandlers } from "../shared/listeners/resource-button-handlers.js";
 import { LanguageSelectorAppV2, FactionSelectorAppV2 } from "../../apps/v2/social-selectors.js";
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
+import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
+import { activateEditorButtons } from "../shared/editor-activation.js";
 import {
   TALENT_LEARNING_MODE,
   validateTalentLearning,
@@ -99,7 +101,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "actor", "player-character"],
-    position: { width: 780, height: 930 },
+    position: { width: 780, height: 1080 },
     window: { resizable: true },
     form: { submitOnChange: true },
     actions: {
@@ -141,6 +143,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       loadoutDelete: PCActorSheetV2.prototype._onLoadoutDelete,
       postItemToChat: PCActorSheetV2.prototype._onPostItemToChat,
       featureInspectorCopy: PCActorSheetV2.prototype._onFeatureInspectorCopy,
+      openBioEditor: PCActorSheetV2.prototype._onOpenBioEditor,
     },
     dragDrop: [
       {
@@ -273,6 +276,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     super._onRender(context, options);
     const el = this.element;
     if (!el) return;
+    clearItemDescriptionTooltip(this);
 
     // ── Tab handling (native AppV2) ─────────────────────────────────────
     this.changeTab(this.tabGroups.primary ?? "core", "primary", { force: true });
@@ -285,6 +289,9 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     try {
       setResourceBars(this);
     } catch (_e) { /* no-op */ }
+
+    // ── Re-wire editor buttons (bypasses core activation when render path skips it) ─────
+    activateEditorButtons(this, el);
   }
 
   /**
@@ -316,6 +323,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
    * @param {HTMLElement} el - The tab part's root element
    */
   _attachTabListeners(el) {
+    bindItemDescriptionTooltips(this, el);
+
     // Right-click: magic-roll → post spell to chat
     for (const magicEl of el.querySelectorAll(".magic-roll")) {
       magicEl.addEventListener("contextmenu", async (ev) => {
@@ -324,14 +333,22 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       });
     }
 
-    // Right-click: item-name → duplicate item
-    for (const nameEl of el.querySelectorAll(".item-name")) {
+    // Right-click: item-name → duplicate item (only item-open names)
+    for (const nameEl of el.querySelectorAll("[data-action='itemOpen'].item-name")) {
       nameEl.addEventListener("contextmenu", (ev) => {
         const li = ev.currentTarget?.closest?.(".item");
         const itemId = li?.dataset?.itemId;
         if (!itemId) return;
         const item = this.document.items.get(itemId);
         if (item) this._duplicateItem(item);
+      });
+    }
+
+    // Right-click: skill row → open skill item sheet (left-click still rolls)
+    for (const skillEl of el.querySelectorAll(".skill-roll-target")) {
+      skillEl.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        this._onItemOpen(ev, ev.currentTarget);
       });
     }
 
@@ -359,8 +376,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       searchInput.addEventListener("input", this._uesrpgDebouncedSearch);
     }
 
-    // Keyboard: Enter/Space on subtabs and group toggles → synthetic click
-    for (const kbd of el.querySelectorAll(".uesrpg-actions-subtab, .uesrpg-group-toggle")) {
+    // Keyboard: Enter/Space on subtabs, group toggles, and skill rows → synthetic click
+    for (const kbd of el.querySelectorAll(".uesrpg-actions-subtab, .uesrpg-group-toggle, .skill-roll-target")) {
       kbd.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
           ev.preventDefault();
@@ -368,6 +385,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         }
       });
     }
+
   }
 
   /* ═══════════════════════ Collapsible Groups ════════════════════════ */
@@ -425,6 +443,21 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     }).catch((err) => {
       console.warn("uesrpg | Failed to copy feature inspector data", err);
     });
+  }
+
+  _onOpenBioEditor(event, _target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+
+    const bioRoot = this.element?.querySelector?.(".bioPage .contentContainer");
+    const editButton = bioRoot?.querySelector?.(".editor-edit");
+    if (editButton) {
+      editButton.click();
+      return;
+    }
+
+    const fallbackField = bioRoot?.querySelector?.("[name='system.bio']");
+    if (fallbackField) fallbackField.focus();
   }
 
   /** Open item sheet on name click */
@@ -575,7 +608,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
   /** @override */
   async _onDrop(event) {
-    const data = TextEditor.getDragEventData(event);
+    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
 
     if (data.type === "Item") {
       const item = await resolveDroppedItem(data);
@@ -605,6 +638,11 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     }
 
     return super._onDrop(event);
+  }
+
+  _onClose(options) {
+    clearItemDescriptionTooltip(this);
+    return super._onClose(options);
   }
 
   /* ═══════════════════════ Active Effects ════════════════════════════ */

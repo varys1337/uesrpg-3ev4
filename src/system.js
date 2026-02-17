@@ -13,6 +13,7 @@ import {
 } from "./core/stamina/stamina-integration-hooks.js";
 import { AttackTracker } from "./core/combat/attack-tracker.js";
 import { initializeTimeService } from "./core/time/index.js";
+import { LANGUAGE_CHOICES } from "./core/social/social-choices.js";
 
 Hooks.once('ready', async function () {
   console.log(`UESRPG | Ready`);
@@ -178,6 +179,54 @@ Hooks.once('ready', async function () {
 Hooks.once("init", async function() {
   console.log(`UESRPG | Initializing`);
   await initHandler();
+
+  // Polyglot module compatibility: expose system languages via CONFIG[systemIdUpper].languages
+  // This is intentionally read-only configuration, derived from the existing LANGUAGE_CHOICES.
+  // It does not change schema and is safe for existing worlds.
+  try {
+    const systemIdUpper = String(game.system?.id ?? "").toUpperCase();
+    if (systemIdUpper) {
+      const cfg = (CONFIG[systemIdUpper] ??= {});
+      if (!cfg.languages) {
+        const slugify = (value) => String(value ?? "")
+          .trim()
+          .toLowerCase()
+          // keep letters/numbers, normalize separators
+          .replace(/['’]/g, "")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "");
+
+        /** @type {Record<string, string>} */
+        const languages = {};
+        const collisions = new Map();
+
+        for (const name of (LANGUAGE_CHOICES ?? [])) {
+          const key = slugify(name);
+          if (!key) continue;
+
+          if (languages[key] && languages[key] !== name) {
+            const list = collisions.get(key) ?? [languages[key]];
+            list.push(name);
+            collisions.set(key, list);
+            continue;
+          }
+          languages[key] = name;
+        }
+
+        // If there are key collisions, keep the first entry and warn (does not block init).
+        if (collisions.size > 0) {
+          console.warn(
+            "UESRPG | Polyglot language key collision(s) detected; keeping first occurrence:",
+            Array.from(collisions.entries()).map(([k, v]) => ({ key: k, names: v }))
+          );
+        }
+
+        cfg.languages = languages;
+      }
+    }
+  } catch (err) {
+    console.warn("UESRPG | Failed to expose CONFIG languages for Polyglot", err);
+  }
   
   // Register Handlebars helpers
   Handlebars.registerHelper('capitalize', function(str) {

@@ -5,6 +5,7 @@ import { GroupSheetV2 } from "../ui/sheets/v2/group-sheet.js";
 import { SimpleItemSheetV2 } from "../ui/sheets/v2/item-sheet.js";
 import { PCActorSheetV2 } from "../ui/sheets/v2/actor-sheet.js";
 import { NpcSheetV2 } from "../ui/sheets/v2/npc-sheet.js";
+import { LANGUAGE_CHOICES } from "../core/social/social-choices.js";
 
 import { SystemCombat, getInitiativeTieBreakTuple } from "../core/documents/combat.js";
 import { initializeChatHandlers, registerCombatChatHooks } from "../core/combat/chat-handlers.js";
@@ -110,6 +111,19 @@ async function registerSettings() {
     scope: "world",
     config: false,
     default: false,
+    type: Boolean,
+  });
+
+  // UI: Custom cursor (passive/active) akin to WFRP4e.
+  // Note: Foundry applies CONFIG.cursors for canvas interaction states.
+  // We gate this behind a world setting and require reload to apply cleanly.
+  game.settings.register("uesrpg-3ev4", "customCursor", {
+    name: "Custom Cursor",
+    hint: "Use the UESRPG stylized cursor (requires reload).",
+    scope: "world",
+    config: true,
+    requiresReload: true,
+    default: true,
     type: Boolean,
   });
 
@@ -619,6 +633,34 @@ async function registerSettings() {
 }
 
 /**
+ * Apply UESRPG custom cursor configuration (passive/active) to Foundry's cursor map.
+ *
+ * This mirrors the WFRP4e approach:
+ * - default / default-down use a passive cursor
+ * - pointer / pointer-down use an active cursor
+ *
+ * Assets live at: systems/uesrpg-3ev4/images/elements/cursors
+ */
+function applyCustomCursorConfig() {
+  try {
+    const enabled = game.settings.get("uesrpg-3ev4", "customCursor");
+    if (!enabled) return;
+
+    const root = `systems/${game.system.id}`;
+    const passive = `${root}/images/elements/cursors/inactivecursor-32.webp`;
+    const active = `${root}/images/elements/cursors/activecursor-32.webp`;
+
+    // Foundry cursor states used across the canvas and various interactive surfaces.
+    CONFIG.cursors.default = passive;
+    CONFIG.cursors["default-down"] = passive;
+    CONFIG.cursors.pointer = active;
+    CONFIG.cursors["pointer-down"] = active;
+  } catch (err) {
+    console.warn("UESRPG | Failed to apply custom cursor configuration", err);
+  }
+}
+
+/**
  * Register Handlebars helpers used by the system.
  */
 function registerHandlebarsHelpers() {
@@ -999,6 +1041,32 @@ game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
   // Record Configuration Values
   CONFIG.UESRPG = UESRPG;
 
+// Polyglot integration: expose system languages using the generic CONFIG[systemIdUpper].languages convention.
+// Safe: this only *defines* the catalog and does not mutate any Actor data.
+try {
+  const systemId = game.system?.id ?? "";
+  const systemIdUpper = systemId.toUpperCase();
+  CONFIG[systemIdUpper] = CONFIG[systemIdUpper] ?? {};
+  if (!CONFIG[systemIdUpper].languages) {
+    const slugify = (s) => String(s ?? "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/['’]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const languages = {};
+    for (const label of LANGUAGE_CHOICES ?? []) {
+      const key = slugify(label);
+      if (key) languages[key] = label;
+    }
+    CONFIG[systemIdUpper].languages = languages;
+  }
+} catch (err) {
+  console.warn("UESRPG | Polyglot language exposure failed", err);
+}
+
   // Define custom Entity classes
   CONFIG.Actor.documentClass = SimpleActor;
   CONFIG.Item.documentClass = SimpleItem;
@@ -1011,6 +1079,10 @@ game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
   Hooks.once("setup", preloadHandlebarsTemplates);
 
   await registerSettings();
+
+  // Apply custom cursor mapping after settings are registered.
+  // This requires a reload to take effect and is gated by the world setting.
+  applyCustomCursorConfig();
 
   await registerSheets();
 

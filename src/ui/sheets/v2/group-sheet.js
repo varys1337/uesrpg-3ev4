@@ -22,6 +22,8 @@ import {
 } from "../../../utils/authority-proxy.js";
 import { resolveDroppedItem } from "../../../utils/drop-data.js";
 import { asyncGuard } from "../../../utils/async-guard.js";
+import { activateEditorButtons } from "../shared/editor-activation.js";
+import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -70,6 +72,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       itemDelete: GroupSheetV2.prototype._onItemDelete,
       itemShow: GroupSheetV2.prototype._onItemShow,
       openContainer: GroupSheetV2.prototype._onOpenContainer,
+      openDescriptionEditor: GroupSheetV2.prototype._onOpenDescriptionEditor,
+      openNotesEditor: GroupSheetV2.prototype._onOpenNotesEditor,
     },
   };
 
@@ -121,10 +125,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     context.resolvedMembers = await this.#resolveMembers(actor.system.members || []);
 
     // ── Limited view: minimal data ──
+    const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
+    const _enrich = (raw) => enrichFn(raw || "");
+
     if (context.limited) {
-      context.enrichedDescription = await TextEditor.enrichHTML(
-        actor.system.description ?? ""
-      );
+      context.enrichedDescription = await _enrich(actor.system.description ?? "");
       return context;
     }
 
@@ -165,7 +170,6 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     context.currentPace = currentPace;
 
     // Enrich HTML fields (cached per sheet instance)
-    const _enrich = (raw) => TextEditor.enrichHTML(raw || "");
     context.enrichedDescription = await cachedEnrichHTML(
       this, "group:desc", actor.system.description ?? "", _enrich
     );
@@ -182,6 +186,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   _onRender(context, options) {
     super._onRender(context, options);
     const el = this.element;
+    clearItemDescriptionTooltip(this);
 
     // ── Hook: auto-refresh when a member actor updates ──
     // Registered once; cleaned up in _onClose.
@@ -199,6 +204,9 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
     // ── Tab handling (native AppV2) ──
     this.changeTab(this.tabGroups.primary ?? "members", "primary", { force: true });
+
+    // ── Re-wire editor buttons (bypasses core activation when render path skips it) ─────
+    activateEditorButtons(this, el);
   }
 
   /**
@@ -210,6 +218,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     super._attachPartListeners(partId, htmlElement, options);
 
     if (partId === "body") {
+      bindItemDescriptionTooltips(this, htmlElement);
       // ── Equip checkbox change ──
       htmlElement.querySelectorAll(".itemEquip").forEach(el => {
         el.addEventListener("change", asyncGuard(async (ev) => {
@@ -260,6 +269,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   /** @override */
   _onClose(options) {
+    clearItemDescriptionTooltip(this);
     if (this.#memberUpdateHook) {
       Hooks.off("updateActor", this.#memberUpdateHook);
       this.#memberUpdateHook = null;
@@ -276,7 +286,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   /** @override */
   async _onDrop(event) {
-    const data = TextEditor.getDragEventData(event);
+    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
     if (data.type === "Actor") return this.#onDropActor(data);
     if (data.type === "Item") return this.#onDropItem(event, data);
     return super._onDrop(event);
@@ -430,6 +440,32 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       },
     });
     await picker.browse();
+  }
+
+  _onOpenDescriptionEditor(event, _target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+    const container = this.element?.querySelector?.(".details .editor-section.description .editor");
+    const button = container?.querySelector?.(".editor-edit");
+    if (button) {
+      button.click();
+      return;
+    }
+    const field = container?.querySelector?.("[name='system.description']");
+    if (field) field.focus();
+  }
+
+  _onOpenNotesEditor(event, _target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+    const container = this.element?.querySelector?.(".details .editor-section.notes .editor");
+    const button = container?.querySelector?.(".editor-edit");
+    if (button) {
+      button.click();
+      return;
+    }
+    const field = container?.querySelector?.("[name='system.notes']");
+    if (field) field.focus();
   }
 
   /** Open a member's actor sheet */
@@ -676,4 +712,5 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (container) container.sheet.render(true);
   }
 }
+
 

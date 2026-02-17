@@ -1,4 +1,4 @@
-{{!-- Weapon Sheet — Compact Layout --}}
+﻿{{!-- Weapon Sheet вЂ” Compact Layout --}}
 <header class="item-compact-header">
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
     <div class="item-header-fields">
@@ -91,7 +91,7 @@
         <div class="tab" data-group="primary" data-tab="description">
             <div class="item-description-container">
                 <div class="basic-padding">
-                    {{editor item.system.enrichedDescription target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+                    {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
                 </div>
             </div>
         </div>
@@ -181,7 +181,7 @@
                                 <div class="weapon-field-row">
                                     <label>Ammunition</label>
                                     <select name="system.ammoId">
-                                        <option value="">—</option>
+                                        <option value="">вЂ”</option>
                                         {{#each ammoOptions}}
                                             <option value="{{this.value}}" {{#if (eq ../item.system.ammoId this.value)}}selected{{/if}}>{{this.label}}</option>
                                         {{/each}}
@@ -308,3 +308,4 @@
         </div>
 
     </section>
+

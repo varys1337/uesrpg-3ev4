@@ -1,4 +1,4 @@
-<div class="tab core" data-group="primary" data-tab="core">
+﻿<div class="tab core" data-group="primary" data-tab="core">
   <div class="tabContainer uesrpg-sheet-body">
 
     <div class="about-buttons">
@@ -18,10 +18,9 @@
       <ul class="skillList">
         {{#each actor.skill as |item id|}}
           <li class="item" data-item-id="{{item._id}}">
-            <div class="itemInfo">
-              <i data-action="skillRoll" class="fas fa-dice-d20 skill-roll"></i>
+            <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
               <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-              <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+              <div class="item-name skill-open-item">{{item.name}}</div>
             </div>
             <div class="item-controls">
               <div class="item-value">{{item.system.value}}%</div>
@@ -156,11 +155,15 @@
     <div class="bioPage">
       <div class="section-header">
         <span class="section-header__label">Biography</span>
+        <button type="button" class="section-header__action" data-action="openBioEditor" title="Edit Biography">
+          <i class="fas fa-pen"></i>
+        </button>
       </div>
       <div class="contentContainer">
-        {{editor actor.system.enrichedBio target="system.bio" button=true owner=owner engine="prosemirror" editable=editable}}
+        {{editor actor.system.bio target="system.bio" button=true owner=owner engine="prosemirror" editable=editable}}
       </div>
     </div>
 
   </div>
 </div>
+

@@ -1,4 +1,4 @@
-<div class="tab core" data-group="primary" data-tab="core">
+﻿<div class="tab core" data-group="primary" data-tab="core">
   <div class="tabContainer">
     <div class="about-buttons">
       <div class="npc-button-stats">
@@ -25,8 +25,7 @@
       </div>
       <ul class="skillList">
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Combat" id="combat"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="combat" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/melee/weapons-crossed-swords-yellow.webp" title="Send to Chat"/>
             <div class="skill-name">Combat</div>
           </div>
@@ -35,8 +34,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Evade" id="evade"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="evade" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/movement/arrow-upward-yellow.webp" title="Send to Chat"/>
             <div class="skill-name">Evade</div>
           </div>
@@ -45,8 +43,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Knowledge" id="knowledge"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="knowledge" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/trades/academics-study-reading-book.webp" title="Send to Chat"/>
             <div class="skill-name">Knowledge</div>
           </div>
@@ -55,8 +52,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Magic" id="magic"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="magic" role="button" tabindex="0">
             <img class="item-img" src="icons/sundries/books/book-open-purple.webp" title="Send to Chat"/>
             <div class="skill-name">Magic</div>
           </div>
@@ -65,8 +61,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Observe" id="observe"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="observe" role="button" tabindex="0">
             <img class="item-img" src="icons/magic/perception/eye-ringed-green.webp" title="Send to Chat"/>
             <div class="skill-name">Observe</div>
           </div>
@@ -75,8 +70,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Physical" id="physical"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="physical" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/melee/unarmed-punch-fist.webp" title="Send to Chat"/>
             <div class="skill-name">Physical</div>
           </div>
@@ -85,8 +79,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Social" id="social"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="social" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/social/diplomacy-peace-alliance.webp" title="Send to Chat"/>
             <div class="skill-name">Social</div>
           </div>
@@ -95,8 +88,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="Stealth" id="stealth"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="stealth" role="button" tabindex="0">
             <img class="item-img" src="systems/uesrpg-3ev4/images/Icons/invisible.webp" title="Send to Chat"/>
             <div class="skill-name">Stealth</div>
           </div>
@@ -105,8 +97,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="{{actor.system.skills.commerce.specialization}}" id="commerce"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="commerce" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
             <div class="skill-name">Commerce</div>
           </div>
@@ -115,8 +106,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="{{actor.system.skills.profession1.specialization}}" id="profession1"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="profession1" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
             <div class="skill-name">
               <input type="text" placeholder="Profession 1" name="system.skills.profession1.specialization" value="{{actor.system.skills.profession1.specialization}}">
@@ -127,8 +117,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="{{actor.system.skills.profession2.specialization}}" id="profession2"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="profession2" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
             <div class="skill-name">
               <input type="text" placeholder="Profession 2" name="system.skills.profession2.specialization" value="{{actor.system.skills.profession2.specialization}}">
@@ -139,8 +128,7 @@
           </div>
         </li>
         <li class="npc-item">
-          <div class="itemInfo">
-            <i class="fas fa-dice-d20 professions-roll" data-action="professionsRoll" name="{{actor.system.skills.profession3.specialization}}" id="profession3"></i>
+          <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="profession3" role="button" tabindex="0">
             <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
             <div class="skill-name">
               <input type="text" placeholder="Profession 3" name="system.skills.profession3.specialization" value="{{actor.system.skills.profession3.specialization}}">
@@ -272,11 +260,18 @@
     {{> "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs"}}
 
     <div class="bioPage">
-      <div class="section-header"><span class="section-header__label">Biography</span></div>
+      <div class="section-header">
+        <span class="section-header__label">Biography</span>
+        <button type="button" class="section-header__action" data-action="openBioEditor" title="Edit Biography">
+          <i class="fas fa-pen"></i>
+        </button>
+      </div>
       <div class="contentContainer">
-        {{editor actor.system.enrichedBio target="system.bio" engine="prosemirror" button=true owner=owner editable=editable}}
+        {{editor actor.system.bio target="system.bio" engine="prosemirror" button=true owner=owner editable=editable}}
       </div>
     </div>
 
   </div>
 </div>
+
+

@@ -31,6 +31,7 @@ import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../
 import { validateSpellConfig, formatSpellValidationMessage } from "../../../core/magic/spell-config.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { hasTalent } from "../../../core/traits/talents-api.js";
+import { activateEditorButtons } from "../shared/editor-activation.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
@@ -38,6 +39,21 @@ const SKILL_RANK_ORDER = ["untrained", "novice", "apprentice", "journeyman", "ad
 const SKILL_RANK_VALUE = { untrained: -1, novice: 0, apprentice: 1, journeyman: 2, adept: 3, expert: 4, master: 5 };
 const SKILL_RANK_XP_COST = { novice: 100, apprentice: 200, journeyman: 300, adept: 400, expert: 500, master: 800 };
 const CAMPAIGN_MAX_INDEX = { novice: 1, apprentice: 2, journeyman: 3, adept: 4, expert: 5, master: 6 };
+const ITEM_SHEET_TEMPLATE_BASE = "systems/uesrpg-3ev4/templates/v2/sheets";
+const SUPPORTED_ITEM_SHEET_TYPES = new Set([
+  "ammunition",
+  "armor",
+  "combatStyle",
+  "container",
+  "item",
+  "magicSkill",
+  "power",
+  "skill",
+  "spell",
+  "talent",
+  "trait",
+  "weapon",
+]);
 
 function _normalizeRank(rank) {
   const r = String(rank ?? "").trim().toLowerCase();
@@ -197,9 +213,10 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   _configureRenderParts(options) {
     const parts = super._configureRenderParts(options);
     const type = this.document.type;
+    const resolvedType = SUPPORTED_ITEM_SHEET_TYPES.has(type) ? type : "item";
     parts.sheet = {
       ...parts.sheet,
-      template: `systems/uesrpg-3ev4/templates/v2/sheets/${type}-sheet.hbs`,
+      template: `${ITEM_SHEET_TEMPLATE_BASE}/${resolvedType}-sheet.hbs`,
     };
     return parts;
   }
@@ -216,12 +233,23 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   async _renderHTML(context, options) {
     // Get the dynamically configured parts
     const parts = this._configureRenderParts(options);
-    const templatePath = parts.sheet?.template
-      ?? `systems/uesrpg-3ev4/templates/v2/sheets/${this.document.type}-sheet.hbs`;
+    const templatePath = parts.sheet?.template ?? `${ITEM_SHEET_TEMPLATE_BASE}/item-sheet.hbs`;
 
     // Use per-part context preparation (preserves mixin lifecycle)
     const partContext = await this._preparePartContext("sheet", context, options);
-    const htmlString = await foundry.applications.handlebars.renderTemplate(templatePath, partContext);
+    let htmlString;
+    try {
+      htmlString = await foundry.applications.handlebars.renderTemplate(templatePath, partContext);
+    } catch (err) {
+      const fallback = `${ITEM_SHEET_TEMPLATE_BASE}/item-sheet.hbs`;
+      console.warn("UESRPG | Item sheet template missing, using fallback", {
+        type: this.document.type,
+        templatePath,
+        fallback,
+        error: err?.message ?? err,
+      });
+      htmlString = await foundry.applications.handlebars.renderTemplate(fallback, partContext);
+    }
 
     // Wrap multi-root templates into a single container element
     const tmp = document.createElement("div");
@@ -1353,6 +1381,9 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (this.document.system?.containerStats && type !== "container") {
       void pushContainedItemData(this);
     }
+
+    // ── Re-wire editor buttons (bypasses core activation when _renderHTML is custom) ─────
+    activateEditorButtons(this, el);
   }
 
   /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */
