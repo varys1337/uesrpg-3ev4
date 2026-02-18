@@ -96,8 +96,19 @@ export function normalizeItemFormData(item, formData) {
 
   const structured = Array.from(structuredMap.values());
 
+  // Bridge legacy Runed checkbox to canonical structured qualities.
+  if (Object.prototype.hasOwnProperty.call(formData, "system.runed")) {
+    const rawRuned = formData["system.runed"];
+    const runedChecked = rawRuned === true || rawRuned === "true" || rawRuned === "on" || rawRuned === 1 || rawRuned === "1";
+    for (let i = structured.length - 1; i >= 0; i--) {
+      if (String(structured?.[i]?.key ?? "").toLowerCase() === "runed") structured.splice(i, 1);
+    }
+    if (runedChecked) structured.push({ key: "runed" });
+  }
+
   // Runed quality enforcement (RAW): ensures Magic quality + minimum Magic AR for armor
   const hasRuned = structured.some(q => q && q.key === "runed");
+  formData["system.runed"] = hasRuned;
   if (hasRuned) {
     if (!structured.some(q => q && q.key === "magic")) {
       structured.push({ key: "magic" });

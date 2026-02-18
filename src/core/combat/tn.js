@@ -280,11 +280,14 @@ export function hasEquippedShield(actor) {
   return (actor?.items ?? []).some(i => {
     if (i.type !== "armor") return false;
     if (!i.system?.equipped) return false;
+    const isShield = Boolean(i.system?.isShieldEffective ?? i.system?.isShield);
     const itemCat = String(i.system?.item_cat ?? "").toLowerCase();
-    if (itemCat === "shield") return true;
-    // Backwards compatibility / legacy heuristics
-    if (String(i.name ?? "").toLowerCase().includes("shield")) return true;
-    return false;
+    if (!isShield && itemCat !== "shield" && !String(i.name ?? "").toLowerCase().includes("shield")) return false;
+
+    // RAW: bucklers cannot be used to Block.
+    const shieldType = String(i.system?.shieldType ?? "normal").toLowerCase();
+    if (shieldType === "buckler") return false;
+    return true;
   });
 }
 

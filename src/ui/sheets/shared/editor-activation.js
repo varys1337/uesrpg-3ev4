@@ -35,13 +35,22 @@ function buildProseMirrorPlugins(onSave) {
   if (typeof ProseMirror === "undefined") return undefined;
   return {
     menu: ProseMirror.ProseMirrorMenu.build(ProseMirror.defaultSchema, {
-      destroyOnSave: true,
+      // Keep lifecycle in our bridge to avoid save/focus races.
+      destroyOnSave: false,
       onSave,
     }),
     keyMaps: ProseMirror.ProseMirrorKeyMaps.build(ProseMirror.defaultSchema, {
       onSave,
     }),
   };
+}
+
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+async function waitFrames(count = 1) {
+  for (let i = 0; i < count; i += 1) await nextFrame();
 }
 
 function cleanupEditor(key, { destroy = false } = {}) {
@@ -59,6 +68,22 @@ function cleanupEditor(key, { destroy = false } = {}) {
   if (entry.button) entry.button.style.display = "";
   if (entry.container && entry.engine) entry.container.classList.remove(entry.engine);
   ACTIVE_EDITORS.delete(key);
+}
+
+function scheduleCloseEditor(key, { submit = false } = {}) {
+  const entry = ACTIVE_EDITORS.get(key);
+  if (!entry || entry.closing) return;
+  entry.closing = true;
+
+  void (async () => {
+    // Let menu actions/focus handlers finish before tearing down PM internals.
+    await waitFrames(2);
+    if (submit) requestSubmitForm(entry.form);
+    await waitFrames(1);
+    cleanupEditor(key, { destroy: true });
+  })().catch(() => {
+    cleanupEditor(key, { destroy: true });
+  });
 }
 
 function resolveTarget(doc, clicked) {
@@ -135,8 +160,7 @@ async function activateLegacyEditor(app, root, target, clickOrigin) {
 
   const save = async () => {
     if (DEBUG()) console.log("UESRPG | editor save callback", { target });
-    requestSubmitForm(form);
-    cleanupEditor(key, { destroy: true });
+    scheduleCloseEditor(key, { submit: true });
   };
 
   const options = {
@@ -158,10 +182,15 @@ async function activateLegacyEditor(app, root, target, clickOrigin) {
     if (container) container.classList.add(engine);
 
     const instance = await TextEditorImpl.create(options, initial);
-    ACTIVE_EDITORS.set(key, { instance, targetEl: content, button, container, engine });
+    ACTIVE_EDITORS.set(key, { instance, targetEl: content, button, container, engine, form, closing: false });
 
-    if (instance?.focus) instance.focus();
-    else if (instance?.view?.focus) instance.view.focus();
+    // Defer focus until editor DOM is fully connected/painted.
+    await waitFrames(1);
+    const active = ACTIVE_EDITORS.get(key);
+    if (active?.targetEl?.isConnected) {
+      if (instance?.focus) instance.focus();
+      else if (instance?.view?.focus) instance.view.focus();
+    }
 
     if (DEBUG()) {
       console.log("UESRPG | editor activated", {

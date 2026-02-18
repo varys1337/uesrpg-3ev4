@@ -91,6 +91,42 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   /** @type {Function|null} Debounced item search (memoized) */
   _uesrpgDebouncedSearch = null;
+  _uesrpgTabContextMenuHandler = null;
+  _uesrpgTabChangeHandler = null;
+  _uesrpgTabInputHandler = null;
+  _uesrpgTabKeydownHandler = null;
+
+  _isSheetPerfTraceEnabled() {
+    try {
+      return Boolean(game?.settings?.get?.("uesrpg-3ev4", "sheetPerfTrace"));
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  _traceSheetPerf(stage, startedAtMs, details = {}) {
+    if (!this._isSheetPerfTraceEnabled()) return;
+    const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
+    const payload = {
+      sheet: "NpcSheetV2",
+      actorId: this.document?.id ?? null,
+      actorName: this.document?.name ?? null,
+      tab: this.tabGroups?.primary ?? "core",
+      stage,
+      elapsedMs,
+      ...details,
+    };
+    const warnThresholdMs = stage === "_onClose"
+      ? 24
+      : stage === "_onRender"
+        ? 32
+        : stage === "_prepareContext"
+          ? 40
+          : null;
+    const line = `UESRPG | sheetPerfTrace ${JSON.stringify(payload)}`;
+    if (warnThresholdMs !== null && elapsedMs > warnThresholdMs) console.warn(line);
+    else console.log(line);
+  }
 
   /**
    * Native AppV2 tab configuration — dual groups.
@@ -198,19 +234,19 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       templates: [
         "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs",
       ],
-      scrollable: [""],
+      scrollable: [".tabContainer"],
     },
     combat: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/npc/tab-combat.hbs",
-      scrollable: [""],
+      scrollable: [".combatTabContainer"],
     },
     magic: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/npc/tab-magic.hbs",
-      scrollable: [""],
+      scrollable: [".magicTabContainer"],
     },
     equipment: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/npc/tab-equipment.hbs",
-      scrollable: [""],
+      scrollable: [".equipmentTabContainer"],
     },
     limited: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/limited-npc-sheet.hbs",
@@ -254,110 +290,118 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   /* ═══════════════════════ Context Preparation ═══════════════════════ */
 
   /** @override */
+  /** @override */
   async _prepareContext(options) {
-    const context = await super._prepareContext(options);
-    const actor = this.document;
+    const perfStart = performance.now();
+    try {
+      const context = await super._prepareContext(options);
+      const actor = this.document;
 
-    // V1-compatible fields expected by templates + shared helpers
-    // Use toObject() as a base, then overlay live system data from prepareData()
-    // so that derived values (hp.max, stamina.max, magicka.max, etc.) are current.
-    const actorObj = actor.toObject();
-    actorObj.system = actor.system;
-    context.actor = actorObj;
-    context.data = context.actor.system;
-    context.dtypes = ["String", "Number", "Boolean"];
-    context.isGM = game.user.isGM;
-    context.editable = this.isEditable;
-    context.owner = actor.isOwner;
-    context.limited = actor.limited;
-    context.cssClass = this.isEditable ? "editable" : "locked";
-    context.options = { editable: this.isEditable };
+      // V1-compatible fields expected by templates + shared helpers
+      const actorObj = actor.toObject();
+      actorObj.system = actor.system;
+      context.actor = actorObj;
+      context.data = context.actor.system;
+      context.dtypes = ["String", "Number", "Boolean"];
+      context.isGM = game.user.isGM;
+      context.editable = this.isEditable;
+      context.owner = actor.isOwner;
+      context.limited = actor.limited;
+      context.cssClass = this.isEditable ? "editable" : "locked";
+      context.options = { editable: this.isEditable };
 
-    // Limited view: enriched bio only
-    if (actor.limited) {
-      context.actor.system.enrichedBio = await enrichBiography(
-        context.actor.system?.bio ?? "", this
-      );
+      if (actor.limited) {
+        context.actor.system.enrichedBio = await enrichBiography(
+          context.actor.system?.bio ?? "", this
+        );
+        context.actor.system.socialDisplay = buildSocialDisplay(context.actor.system);
+        return context;
+      }
+
+      context.items = actor.items.map(i => {
+        const obj = i.toObject();
+        obj.system = i.system;
+        return obj;
+      });
+      prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: false });
+
+      context.actor.sheetCombatQuick = buildCombatQuickContext(context.actor);
+      context.actor.sheetCombatActions = buildCombatActionsContext(actor);
+      context.actor.attackTrackerUi = {
+        current: AttackTracker.getAttackCount(actor),
+        max: AttackTracker.getAttackLimit(actor),
+        overrides: AttackTracker.getOverrides(actor),
+      };
+      applyDefensiveStanceDisabling(actor, context.actor.sheetCombatQuick);
+
+      context.sheetUi = await buildSheetUiState(actor);
+
+      const bio = context.actor.system?.bio ?? "";
+      context.actor.system.enrichedBio = await enrichBiography(bio, this);
       context.actor.system.socialDisplay = buildSocialDisplay(context.actor.system);
-      return context;
-    }
 
-    // Item categorization — V2 does not auto-populate context.items like V1 getData()
-    // Overlay live system data so derived fields (*Effective, damage3, etc.)
-    // survive into templates — mirrors the actor-level overlay above.
-    context.items = actor.items.map(i => {
-      const obj = i.toObject();
-      obj.system = i.system;
-      return obj;
-    });
-    prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: false });
+      context.effects = actor.effects
+        ? actor.effects.contents.map(e => e.toObject())
+        : [];
 
-    // Combat tab contexts
-    context.actor.sheetCombatQuick = buildCombatQuickContext(context.actor);
-    context.actor.sheetCombatActions = buildCombatActionsContext(actor);
-    context.actor.attackTrackerUi = {
-      current: AttackTracker.getAttackCount(actor),
-      max: AttackTracker.getAttackLimit(actor),
-      overrides: AttackTracker.getOverrides(actor),
-    };
-    applyDefensiveStanceDisabling(actor, context.actor.sheetCombatQuick);
-
-    // Per-user UI state
-    context.sheetUi = await buildSheetUiState(actor);
-
-    // Enriched biography
-    const bio = context.actor.system?.bio ?? "";
-    context.actor.system.enrichedBio = await enrichBiography(bio, this);
-    context.actor.system.socialDisplay = buildSocialDisplay(context.actor.system);
-
-    // Active Effects (Effects tab)
-    context.effects = actor.effects
-      ? actor.effects.contents.map(e => e.toObject())
-      : [];
-
-    // Feature Inspector
-    if (game.settings.get("uesrpg-3ev4", "showFeatureInspector")) {
-      try {
-        context.featureInspector = buildFeatureInspectorContext(actor);
-      } catch (_e) {
+      if (game.settings.get("uesrpg-3ev4", "showFeatureInspector")) {
+        try {
+          context.featureInspector = buildFeatureInspectorContext(actor);
+        } catch (_e) {
+          context.featureInspector = null;
+        }
+      } else {
         context.featureInspector = null;
       }
-    } else {
-      context.featureInspector = null;
-    }
 
-    return context;
+      return context;
+    } finally {
+      this._traceSheetPerf("_prepareContext", perfStart, {
+        renderKeys: options ? Object.keys(options).length : 0,
+      });
+    }
   }
 
   /* ═══════════════════════ Render Lifecycle ═══════════════════════ */
 
   /** @override */
+  /** @override */
   _onRender(context, options) {
-    super._onRender(context, options);
-    const el = this.element;
-    if (!el) return;
-    clearItemDescriptionTooltip(this);
-
-    // Limited view: no interactive listeners
-    if (this.document.limited) return;
-
-    // ── Tab handling (native AppV2) ───────────────────────────────
-    this.changeTab(this.tabGroups.primary ?? "core", "primary", { force: true });
-    this.changeTab(this.tabGroups.actions ?? "primary", "actions", { force: true });
-
-    // ── Collapsible groups (async — fire and forget) ──────────────
-    applyCollapsedGroups(el);
-
-    // ── Resource bars (DOM cosmetic — reads across both parts) ────
+    const perfStart = performance.now();
     try {
-      setResourceBars(this);
-    } catch (_e) { /* no-op */ }
+      super._onRender(context, options);
+      const el = this.element;
+      if (!el) return;
+      clearItemDescriptionTooltip(this);
 
-    // ── NPC status tags (wound/fatigue icons in fixed-header) ─────
-    createStatusTags(this);
+      if (this.document.limited) return;
 
-    // ── Re-wire editor buttons (bypasses core activation when render path skips it) ─────
-    activateEditorButtons(this, el);
+      const expectedPrimary = this.tabGroups.primary ?? "core";
+      const activePrimary = el.querySelector('.tab[data-group="primary"].active')?.dataset?.tab ?? null;
+      if (activePrimary !== expectedPrimary) {
+        this.changeTab(expectedPrimary, "primary", { force: true });
+      }
+      const expectedActions = this.tabGroups.actions ?? "primary";
+      const activeActions = el.querySelector('.tab[data-group="actions"].active')?.dataset?.tab ?? null;
+      if (activeActions !== expectedActions) {
+        this.changeTab(expectedActions, "actions", { force: true });
+      }
+
+      if (el.querySelector(".uesrpg-group-toggle, [data-action='groupToggle']")) {
+        applyCollapsedGroups(el);
+      }
+
+      try {
+        setResourceBars(this);
+      } catch (_e) { /* no-op */ }
+
+      createStatusTags(this);
+      activateEditorButtons(this, el);
+    } finally {
+      this._traceSheetPerf("_onRender", perfStart, {
+        limited: Boolean(this.document?.limited),
+      });
+    }
   }
 
   /**
@@ -368,17 +412,24 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
    * @override
    */
   _attachPartListeners(partId, htmlElement, options) {
-    super._attachPartListeners(partId, htmlElement, options);
+    const perfStart = performance.now();
+    try {
+      super._attachPartListeners(partId, htmlElement, options);
 
-    if (partId === "sidebar") {
-      // Resource button dialogs (HP / Stamina / Magicka)
-      registerResourceButtonHandlers(this, htmlElement);
-      return;
+      if (this.document.limited) return;
+
+      if (partId === "sidebar") {
+        if (htmlElement?.dataset?.uesrpgResourceListeners !== "1") {
+          registerResourceButtonHandlers(this, htmlElement);
+          htmlElement.dataset.uesrpgResourceListeners = "1";
+        }
+        return;
+      }
+
+      this._attachTabListeners(htmlElement);
+    } finally {
+      this._traceSheetPerf("_attachPartListeners", perfStart, { partId });
     }
-
-    // All tab parts share the same listener set; selectors absent
-    // from a given tab simply yield empty NodeLists (no-op).
-    this._attachTabListeners(htmlElement);
   }
 
   /**
@@ -387,84 +438,101 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
    * @param {HTMLElement} el – the root element of the rendered part
    */
   _attachTabListeners(el) {
+    if (!el || el.dataset.uesrpgListeners === "1") return;
+    el.dataset.uesrpgListeners = "1";
     bindItemDescriptionTooltips(this, el);
 
-    // Right-click: magic-roll → NPC spell description to chat
-    for (const magicEl of el.querySelectorAll(".magic-roll")) {
-      magicEl.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        this._postSpellDescriptionToChat(ev);
-      });
+    for (const nameEl of el.querySelectorAll(".item-name")) {
+      const txt = String(nameEl?.textContent ?? "").trim();
+      if (txt && !nameEl.getAttribute("title")) nameEl.setAttribute("title", txt);
     }
 
-    // Right-click: item-name → duplicate item
-    for (const nameEl of el.querySelectorAll("[data-action='itemOpen'].item-name")) {
-      nameEl.addEventListener("contextmenu", (ev) => {
-        const li = ev.currentTarget?.closest?.(".item");
-        const itemId = li?.dataset?.itemId;
-        if (!itemId) return;
-        const item = this.document.items.get(itemId);
-        if (item) this._duplicateItem(item);
-      });
-    }
+    if (!this._uesrpgTabContextMenuHandler) {
+      this._uesrpgTabContextMenuHandler = (ev) => {
+        const root = ev.currentTarget;
 
-    // Right-click: skill row → open skill item sheet (left-click still rolls)
-    for (const skillEl of el.querySelectorAll(".skill-roll-target")) {
-      skillEl.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        this._onItemOpen(ev, ev.currentTarget);
-      });
-    }
-
-    // Right-click: profession row → open matching skill sheet (if one exists)
-    for (const profEl of el.querySelectorAll(".profession-roll-target")) {
-      profEl.addEventListener("contextmenu", (ev) => {
-        if (ev.target?.closest?.("input, textarea, select")) return;
-        ev.preventDefault();
-        this._openProfessionSkillSheet(ev.currentTarget);
-      });
-    }
-
-    // Right-click: minusQty (same button as plusQty, contextmenu variant)
-    for (const btn of el.querySelectorAll(".minusQty")) {
-      btn.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        this._onMinusQty(ev, ev.currentTarget);
-      });
-    }
-
-    // Change: attack tracker input
-    for (const input of el.querySelectorAll(".uesrpg-attack-input")) {
-      input.addEventListener("change", (ev) => this._onAttackTrackerInputChange(ev));
-    }
-
-    // Change: active combat style select (NPC-only)
-    const styleSelect = el.querySelector(".uesrpg-active-combat-style");
-    if (styleSelect) {
-      styleSelect.addEventListener("change", (ev) => this._onActiveCombatStyleChange(ev));
-    }
-
-    // Input: debounced item search
-    const searchInput = el.querySelector("#uesrpg-item-search");
-    if (searchInput) {
-      if (!this._uesrpgDebouncedSearch) {
-        this._uesrpgDebouncedSearch = foundry.utils.debounce(
-          this._onItemSearch.bind(this), 200
-        );
-      }
-      searchInput.addEventListener("input", this._uesrpgDebouncedSearch);
-    }
-
-    // Keyboard: Enter/Space on subtabs, group toggles, characteristics config, and skill rows → synthetic click
-    for (const kbd of el.querySelectorAll(".uesrpg-actions-subtab, .uesrpg-group-toggle, .characteristics-config, .skill-roll-target, .profession-roll-target")) {
-      kbd.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter" || ev.key === " ") {
+        const magicEl = ev.target?.closest?.(".magic-roll");
+        if (magicEl && root?.contains?.(magicEl)) {
           ev.preventDefault();
-          ev.currentTarget?.click?.();
+          this._postSpellDescriptionToChat(ev, magicEl);
+          return;
         }
-      });
+
+        const nameEl = ev.target?.closest?.("[data-action='itemOpen'].item-name");
+        if (nameEl && root?.contains?.(nameEl)) {
+          const li = nameEl.closest(".item");
+          const itemId = li?.dataset?.itemId;
+          if (!itemId) return;
+          const item = this.document.items.get(itemId);
+          if (item) this._duplicateItem(item);
+          return;
+        }
+
+        const skillEl = ev.target?.closest?.(".skill-roll-target");
+        if (skillEl && root?.contains?.(skillEl)) {
+          ev.preventDefault();
+          this._onItemOpen(ev, skillEl);
+          return;
+        }
+
+        const profEl = ev.target?.closest?.(".profession-roll-target");
+        if (profEl && root?.contains?.(profEl)) {
+          if (ev.target?.closest?.("input, textarea, select")) return;
+          ev.preventDefault();
+          this._openProfessionSkillSheet(profEl);
+          return;
+        }
+
+        const minusBtn = ev.target?.closest?.(".minusQty");
+        if (minusBtn && root?.contains?.(minusBtn)) {
+          ev.preventDefault();
+          this._onMinusQty(ev, minusBtn);
+        }
+      };
     }
 
+    if (!this._uesrpgTabChangeHandler) {
+      this._uesrpgTabChangeHandler = (ev) => {
+        const root = ev.currentTarget;
+        const attackInput = ev.target?.closest?.(".uesrpg-attack-input");
+        if (attackInput && root?.contains?.(attackInput)) {
+          this._onAttackTrackerInputChange(ev, attackInput);
+          return;
+        }
+        const styleSelect = ev.target?.closest?.(".uesrpg-active-combat-style");
+        if (styleSelect && root?.contains?.(styleSelect)) {
+          this._onActiveCombatStyleChange(ev, styleSelect);
+        }
+      };
+    }
+
+    if (!this._uesrpgTabInputHandler) {
+      this._uesrpgTabInputHandler = (ev) => {
+        const root = ev.currentTarget;
+        const searchInput = ev.target?.closest?.("#uesrpg-item-search");
+        if (!searchInput || !root?.contains?.(searchInput)) return;
+        if (!this._uesrpgDebouncedSearch) {
+          this._uesrpgDebouncedSearch = foundry.utils.debounce(this._onItemSearch.bind(this), 200);
+        }
+        this._uesrpgDebouncedSearch(ev);
+      };
+    }
+
+    if (!this._uesrpgTabKeydownHandler) {
+      this._uesrpgTabKeydownHandler = (ev) => {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        const root = ev.currentTarget;
+        const kbd = ev.target?.closest?.(".uesrpg-actions-subtab, .uesrpg-group-toggle, .characteristics-config, .skill-roll-target, .profession-roll-target");
+        if (!kbd || !root?.contains?.(kbd)) return;
+        ev.preventDefault();
+        kbd.click?.();
+      };
+    }
+
+    el.addEventListener("contextmenu", this._uesrpgTabContextMenuHandler);
+    el.addEventListener("change", this._uesrpgTabChangeHandler);
+    el.addEventListener("input", this._uesrpgTabInputHandler);
+    el.addEventListener("keydown", this._uesrpgTabKeydownHandler);
   }
 
   /* ═══════════════════════ Delegated Handlers ════════════════════════ */
@@ -608,9 +676,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   }
 
   /** Active combat style dropdown change (native DOM, non-actions-map) */
-  async _onActiveCombatStyleChange(event) {
+  async _onActiveCombatStyleChange(event, target) {
     if (!this.isEditable) return;
-    const v = String(event?.currentTarget?.value ?? "").trim();
+    const v = String(target?.value ?? event?.target?.closest?.(".uesrpg-active-combat-style")?.value ?? "").trim();
     try {
       await requestUpdateDocument(this.document, { "flags.uesrpg-3ev4.activeCombatStyleId": v || "" });
       this.render(false);
@@ -664,9 +732,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   /**
    * Right-click spell icon → post description to chat (NPC format).
    */
-  async _postSpellDescriptionToChat(event) {
+  async _postSpellDescriptionToChat(event, target) {
     event.preventDefault();
-    const button = event.currentTarget;
+    const button = target ?? event.target?.closest?.(".magic-roll") ?? event.currentTarget;
     const li = button.closest(".item");
     const spell = li ? this.document.items.get(li.dataset.itemId) : null;
     if (!spell) {
@@ -1017,13 +1085,13 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   /**
    * Attack tracker input change (GM only).
    */
-  async _onAttackTrackerInputChange(event) {
+  async _onAttackTrackerInputChange(event, target) {
     event.preventDefault();
     if (!game.user?.isGM) {
       ui.notifications?.warn?.("Only the GM can adjust attack tracker values.");
       return;
     }
-    const el = event.currentTarget;
+    const el = target ?? event.target?.closest?.(".uesrpg-attack-input") ?? event.currentTarget;
     const kind = String(el?.dataset?.kind ?? "").trim().toLowerCase();
     const value = Number(el?.value ?? NaN);
     if (!Number.isFinite(value)) return;
@@ -1055,8 +1123,19 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   }
 
   _onClose(options) {
-    clearItemDescriptionTooltip(this);
-    return super._onClose(options);
+    const perfStart = performance.now();
+    try {
+      this._uesrpgDebouncedSearch?.cancel?.();
+      this._uesrpgDebouncedSearch = null;
+      this._uesrpgTabContextMenuHandler = null;
+      this._uesrpgTabChangeHandler = null;
+      this._uesrpgTabInputHandler = null;
+      this._uesrpgTabKeydownHandler = null;
+      clearItemDescriptionTooltip(this);
+      return super._onClose(options);
+    } finally {
+      this._traceSheetPerf("_onClose", perfStart, {});
+    }
   }
 
   /* ═══════════════════════ Active Effects ════════════════════════════ */

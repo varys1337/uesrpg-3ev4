@@ -45,12 +45,12 @@ const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][SoulTrap]");
  *   Black   → sentient (Player Characters, named NPCs)
  *
  * @param {Actor} actor
- * @returns {{ size: string, energy: number }}
+ * @returns {{ size: string, energy: number, soulType: string }}
  */
 function _determineSoulSize(actor) {
   // PCs and "named" NPCs → Black Soul
   if (actor.type === "Player Character" || actor.type === "character") {
-    return { size: "Black", energy: 5 };
+    return { size: "Black", energy: 1500, soulType: "black" };
   }
 
   const level = Number(
@@ -60,11 +60,11 @@ function _determineSoulSize(actor) {
     1
   ) || 1;
 
-  if (level <= 2) return { size: "Petty", energy: 1 };
-  if (level <= 4) return { size: "Lesser", energy: 2 };
-  if (level <= 6) return { size: "Common", energy: 3 };
-  if (level <= 8) return { size: "Greater", energy: 4 };
-  return { size: "Grand", energy: 5 };
+  if (level <= 2) return { size: "Petty", energy: 100, soulType: "white" };
+  if (level <= 4) return { size: "Lesser", energy: 250, soulType: "white" };
+  if (level <= 6) return { size: "Common", energy: 500, soulType: "white" };
+  if (level <= 8) return { size: "Greater", energy: 1000, soulType: "white" };
+  return { size: "Grand", energy: 1500, soulType: "white" };
 }
 
 /* ── Soul Trap Detection ──────────────────────────────────────────────────── */
@@ -100,7 +100,7 @@ function _findSoulTrapEffect(actor) {
  *
  * @param {Actor} casterActor
  * @param {Actor} trappedActor - The actor whose soul was trapped
- * @param {{ size: string, energy: number }} soulInfo
+ * @param {{ size: string, energy: number, soulType: string }} soulInfo
  * @returns {Promise<Item|null>}
  */
 async function _createSoulGemItem(casterActor, trappedActor, soulInfo) {
@@ -119,6 +119,7 @@ async function _createSoulGemItem(casterActor, trappedActor, soulInfo) {
         isSoulGem: true,
         soulSize: soulInfo.size,
         soulEnergy: soulInfo.energy,
+        soulType: soulInfo.soulType ?? "white",
         trappedActorName: trappedActor.name,
         trappedActorUuid: trappedActor.uuid
       }

@@ -8,7 +8,7 @@
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
-import { computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, applySpellRestraintRefund, isHealingSpell, getSpellScalingLevels } from "../../magicka-utils.js";
+import { computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, applySpellRestraintRefund, isHealingSpell, getSpellScalingLevels, isActorTrainedInMagicSchool } from "../../magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "../../backfire.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
 import { AttackTracker } from "../../../combat/attack-tracker.js";
@@ -27,16 +27,17 @@ function _buildCommitSpellPool(attacker, castActionType = "primary") {
   const byAction = String(castActionType) === "secondary"
     ? spellsAll.filter((s) => s?.system?.isInstant === true)
     : spellsAll;
+  const byTraining = byAction.filter((s) => isActorTrainedInMagicSchool(attacker, s?.system?.school));
 
   // For opposed workflow commit selection, include all targetable spells
   // (attack, healing, AND direct). Direct spells committed here auto-resolve
   // with no defense step in handleAttackerRoll.
-  const routed = byAction.filter((s) => {
+  const routed = byTraining.filter((s) => {
     const cls = classifySpellForRouting(s);
     return Boolean(cls?.isTargeted);
   });
 
-  return routed.length ? routed : byAction;
+  return routed.length ? routed : byTraining;
 }
 
 function _difficultyOptionsHtml(selectedKey = "average") {
@@ -52,8 +53,8 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
   const spells = _buildCommitSpellPool(attacker, castActionType);
   if (!spells.length) {
     ui.notifications.warn(castActionType === "secondary"
-      ? "No Instant spells available to commit."
-      : "No spells available to commit.");
+      ? "No castable Instant spells available to commit (must be trained in the spell's school)."
+      : "No castable spells available to commit (must be trained in the spell's school).");
     return null;
   }
 
@@ -284,6 +285,11 @@ export async function handleAttackerCommit(ctx) {
     const spell = picked.spell;
     const spellOptions = picked.spellOptions ?? {};
 
+    if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+      ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+      return;
+    }
+
     // Commit-time preflight: prevent dead commits that would certainly fail on roll.
     const spellClassification = classifySpellForRouting(spell);
     if (spellClassification.isAttack && game.combat) {
@@ -409,6 +415,11 @@ export async function handleAttackerRoll(ctx) {
   const { message, data, attacker, spell, defenders, _updateCard, workflow } = ctx;
 
   if (data.attacker.result) return;
+
+  if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+    ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+    return;
+  }
 
   // Preflight: gate attack limit BEFORE any resource consumption.
   const spellClassification = classifySpellForRouting(spell);

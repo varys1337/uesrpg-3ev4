@@ -70,6 +70,42 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
   /** @type {Function|null} Debounced item search (memoized) */
   _uesrpgDebouncedSearch = null;
+  _uesrpgTabContextMenuHandler = null;
+  _uesrpgTabChangeHandler = null;
+  _uesrpgTabInputHandler = null;
+  _uesrpgTabKeydownHandler = null;
+
+  _isSheetPerfTraceEnabled() {
+    try {
+      return Boolean(game?.settings?.get?.("uesrpg-3ev4", "sheetPerfTrace"));
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  _traceSheetPerf(stage, startedAtMs, details = {}) {
+    if (!this._isSheetPerfTraceEnabled()) return;
+    const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
+    const payload = {
+      sheet: "PCActorSheetV2",
+      actorId: this.document?.id ?? null,
+      actorName: this.document?.name ?? null,
+      tab: this.tabGroups?.primary ?? "core",
+      stage,
+      elapsedMs,
+      ...details,
+    };
+    const warnThresholdMs = stage === "_onClose"
+      ? 24
+      : stage === "_onRender"
+        ? 32
+        : stage === "_prepareContext"
+          ? 40
+          : null;
+    const line = `UESRPG | sheetPerfTrace ${JSON.stringify(payload)}`;
+    if (warnThresholdMs !== null && elapsedMs > warnThresholdMs) console.warn(line);
+    else console.log(line);
+  }
 
   /**
    * Native AppV2 tab configuration — dual groups.
@@ -163,19 +199,19 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       templates: [
         "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs",
       ],
-      scrollable: [""],
+      scrollable: [".tabContainer"],
     },
     combat: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/actor/tab-combat.hbs",
-      scrollable: [""],
+      scrollable: [".combatTabContainer"],
     },
     magic: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/actor/tab-magic.hbs",
-      scrollable: [""],
+      scrollable: [".magicTabContainer"],
     },
     equipment: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/actor/tab-equipment.hbs",
-      scrollable: [""],
+      scrollable: [".equipmentTabContainer"],
     },
   };
 
@@ -205,8 +241,10 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
   /** @override */
   async _prepareContext(options) {
-    const context = await super._prepareContext(options);
-    const actor = this.document;
+    const perfStart = performance.now();
+    try {
+      const context = await super._prepareContext(options);
+      const actor = this.document;
 
     // V1-compatible fields expected by templates + shared helpers
     // Use toObject() as a base, then overlay live system data from prepareData()
@@ -266,24 +304,41 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       ? buildFeatureInspectorContext(actor)
       : null;
 
-    return context;
+      return context;
+    } finally {
+      this._traceSheetPerf("_prepareContext", perfStart, {
+        renderKeys: options ? Object.keys(options).length : 0,
+      });
+    }
   }
 
   /* ═══════════════════════ Render Lifecycle ═══════════════════════ */
 
   /** @override */
   _onRender(context, options) {
-    super._onRender(context, options);
-    const el = this.element;
-    if (!el) return;
-    clearItemDescriptionTooltip(this);
+    const perfStart = performance.now();
+    try {
+      super._onRender(context, options);
+      const el = this.element;
+      if (!el) return;
+      clearItemDescriptionTooltip(this);
 
     // ── Tab handling (native AppV2) ─────────────────────────────────────
-    this.changeTab(this.tabGroups.primary ?? "core", "primary", { force: true });
-    this.changeTab(this.tabGroups.actions ?? "primary", "actions", { force: true });
+      const expectedPrimary = this.tabGroups.primary ?? "core";
+      const activePrimary = el.querySelector('.tab[data-group="primary"].active')?.dataset?.tab ?? null;
+      if (activePrimary !== expectedPrimary) {
+        this.changeTab(expectedPrimary, "primary", { force: true });
+      }
+      const expectedActions = this.tabGroups.actions ?? "primary";
+      const activeActions = el.querySelector('.tab[data-group="actions"].active')?.dataset?.tab ?? null;
+      if (activeActions !== expectedActions) {
+        this.changeTab(expectedActions, "actions", { force: true });
+      }
 
     // ── Collapsible groups (async — fire and forget) ──────────────
-    applyCollapsedGroups(el);
+      if (el.querySelector(".uesrpg-group-toggle, [data-action='groupToggle']")) {
+        applyCollapsedGroups(el);
+      }
 
     // ── Resource bars (DOM cosmetic — reads across both parts) ────
     try {
@@ -292,6 +347,12 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
     // ── Re-wire editor buttons (bypasses core activation when render path skips it) ─────
     activateEditorButtons(this, el);
+
+    } finally {
+      this._traceSheetPerf("_onRender", perfStart, {
+        limited: Boolean(this.document?.limited),
+      });
+    }
   }
 
   /**
@@ -302,18 +363,25 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
    * @override
    */
   _attachPartListeners(partId, htmlElement, options) {
-    super._attachPartListeners(partId, htmlElement, options);
+    const perfStart = performance.now();
+    try {
+      super._attachPartListeners(partId, htmlElement, options);
 
-    if (partId === "sidebar") {
-      // Resource button dialogs (HP / Stamina / Magicka)
-      registerResourceButtonHandlers(this, htmlElement);
-      return;
+      if (partId === "sidebar") {
+        if (htmlElement?.dataset?.uesrpgResourceListeners !== "1") {
+          registerResourceButtonHandlers(this, htmlElement);
+          htmlElement.dataset.uesrpgResourceListeners = "1";
+        }
+        return;
+      }
+
+      // All tab parts share the same listener registration.
+      // querySelectorAll returns empty NodeLists for selectors absent in a
+      // given tab, so every listener category can run against every tab safely.
+      this._attachTabListeners(htmlElement);
+    } finally {
+      this._traceSheetPerf("_attachPartListeners", perfStart, { partId });
     }
-
-    // All tab parts share the same listener registration.
-    // querySelectorAll returns empty NodeLists for selectors absent in a
-    // given tab, so every listener category can run against every tab safely.
-    this._attachTabListeners(htmlElement);
   }
 
   /**
@@ -323,69 +391,83 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
    * @param {HTMLElement} el - The tab part's root element
    */
   _attachTabListeners(el) {
+    if (!el || el.dataset.uesrpgListeners === "1") return;
+    el.dataset.uesrpgListeners = "1";
     bindItemDescriptionTooltips(this, el);
 
-    // Right-click: magic-roll → post spell to chat
-    for (const magicEl of el.querySelectorAll(".magic-roll")) {
-      magicEl.addEventListener("contextmenu", async (ev) => {
-        ev.preventDefault();
-        await postItemToChat(ev, this.document, { includeImage: true });
-      });
+    for (const nameEl of el.querySelectorAll(".item-name")) {
+      const txt = String(nameEl?.textContent ?? "").trim();
+      if (txt && !nameEl.getAttribute("title")) nameEl.setAttribute("title", txt);
     }
 
-    // Right-click: item-name → duplicate item (only item-open names)
-    for (const nameEl of el.querySelectorAll("[data-action='itemOpen'].item-name")) {
-      nameEl.addEventListener("contextmenu", (ev) => {
-        const li = ev.currentTarget?.closest?.(".item");
-        const itemId = li?.dataset?.itemId;
-        if (!itemId) return;
-        const item = this.document.items.get(itemId);
-        if (item) this._duplicateItem(item);
-      });
-    }
-
-    // Right-click: skill row → open skill item sheet (left-click still rolls)
-    for (const skillEl of el.querySelectorAll(".skill-roll-target")) {
-      skillEl.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        this._onItemOpen(ev, ev.currentTarget);
-      });
-    }
-
-    // Right-click: minusQty (same button as plusQty, contextmenu variant)
-    for (const btn of el.querySelectorAll(".minusQty")) {
-      btn.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        this._onMinusQty(ev, ev.currentTarget);
-      });
-    }
-
-    // Change: attack tracker input
-    for (const input of el.querySelectorAll(".uesrpg-attack-input")) {
-      input.addEventListener("change", (ev) => this._onAttackTrackerInputChange(ev));
-    }
-
-    // Input: debounced item search
-    const searchInput = el.querySelector("#uesrpg-item-search");
-    if (searchInput) {
-      if (!this._uesrpgDebouncedSearch) {
-        this._uesrpgDebouncedSearch = foundry.utils.debounce(
-          this._onItemSearch.bind(this), 200
-        );
-      }
-      searchInput.addEventListener("input", this._uesrpgDebouncedSearch);
-    }
-
-    // Keyboard: Enter/Space on subtabs, group toggles, and skill rows → synthetic click
-    for (const kbd of el.querySelectorAll(".uesrpg-actions-subtab, .uesrpg-group-toggle, .skill-roll-target")) {
-      kbd.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter" || ev.key === " ") {
+    if (!this._uesrpgTabContextMenuHandler) {
+      this._uesrpgTabContextMenuHandler = async (ev) => {
+        const root = ev.currentTarget;
+        const magicEl = ev.target?.closest?.(".magic-roll");
+        if (magicEl && root?.contains?.(magicEl)) {
           ev.preventDefault();
-          ev.currentTarget?.click?.();
+          await postItemToChat(ev, this.document, { includeImage: true, element: magicEl });
+          return;
         }
-      });
+        const nameEl = ev.target?.closest?.("[data-action='itemOpen'].item-name");
+        if (nameEl && root?.contains?.(nameEl)) {
+          const li = nameEl.closest(".item");
+          const itemId = li?.dataset?.itemId;
+          if (!itemId) return;
+          const item = this.document.items.get(itemId);
+          if (item) this._duplicateItem(item);
+          return;
+        }
+        const skillEl = ev.target?.closest?.(".skill-roll-target");
+        if (skillEl && root?.contains?.(skillEl)) {
+          ev.preventDefault();
+          this._onItemOpen(ev, skillEl);
+          return;
+        }
+        const minusBtn = ev.target?.closest?.(".minusQty");
+        if (minusBtn && root?.contains?.(minusBtn)) {
+          ev.preventDefault();
+          this._onMinusQty(ev, minusBtn);
+        }
+      };
     }
 
+    if (!this._uesrpgTabChangeHandler) {
+      this._uesrpgTabChangeHandler = (ev) => {
+        const root = ev.currentTarget;
+        const input = ev.target?.closest?.(".uesrpg-attack-input");
+        if (!input || !root?.contains?.(input)) return;
+        this._onAttackTrackerInputChange(ev, input);
+      };
+    }
+
+    if (!this._uesrpgTabInputHandler) {
+      this._uesrpgTabInputHandler = (ev) => {
+        const root = ev.currentTarget;
+        const searchInput = ev.target?.closest?.("#uesrpg-item-search");
+        if (!searchInput || !root?.contains?.(searchInput)) return;
+        if (!this._uesrpgDebouncedSearch) {
+          this._uesrpgDebouncedSearch = foundry.utils.debounce(this._onItemSearch.bind(this), 200);
+        }
+        this._uesrpgDebouncedSearch(ev);
+      };
+    }
+
+    if (!this._uesrpgTabKeydownHandler) {
+      this._uesrpgTabKeydownHandler = (ev) => {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        const root = ev.currentTarget;
+        const kbd = ev.target?.closest?.(".uesrpg-actions-subtab, .uesrpg-group-toggle, .skill-roll-target");
+        if (!kbd || !root?.contains?.(kbd)) return;
+        ev.preventDefault();
+        kbd.click?.();
+      };
+    }
+
+    el.addEventListener("contextmenu", this._uesrpgTabContextMenuHandler);
+    el.addEventListener("change", this._uesrpgTabChangeHandler);
+    el.addEventListener("input", this._uesrpgTabInputHandler);
+    el.addEventListener("keydown", this._uesrpgTabKeydownHandler);
   }
 
   /* ═══════════════════════ Collapsible Groups ════════════════════════ */
@@ -541,13 +623,13 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onItemEquip(event, target) { return onItemEquip.call(this, event, target); }
   async _onItemCreate(event, target) { return onItemCreate(this, event, { target }); }
 
-  async _onAttackTrackerInputChange(event) {
+  async _onAttackTrackerInputChange(event, target) {
     event.preventDefault();
     if (!game.user?.isGM) {
       ui.notifications?.warn?.("Only the GM can adjust attack tracker values.");
       return;
     }
-    const el = event.currentTarget;
+    const el = target ?? event.target?.closest?.(".uesrpg-attack-input") ?? event.currentTarget;
     const kind = String(el?.dataset?.kind ?? "").trim().toLowerCase();
     const value = Number(el?.value ?? NaN);
     if (!Number.isFinite(value)) return;
@@ -641,8 +723,19 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   }
 
   _onClose(options) {
-    clearItemDescriptionTooltip(this);
-    return super._onClose(options);
+    const perfStart = performance.now();
+    try {
+      this._uesrpgDebouncedSearch?.cancel?.();
+      this._uesrpgDebouncedSearch = null;
+      this._uesrpgTabContextMenuHandler = null;
+      this._uesrpgTabChangeHandler = null;
+      this._uesrpgTabInputHandler = null;
+      this._uesrpgTabKeydownHandler = null;
+      clearItemDescriptionTooltip(this);
+      return super._onClose(options);
+    } finally {
+      this._traceSheetPerf("_onClose", perfStart, {});
+    }
   }
 
   /* ═══════════════════════ Active Effects ════════════════════════════ */

@@ -1353,6 +1353,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (this.document.system?.containerStats && type !== "container") {
       void pushContainedItemData(this);
     }
+
   }
 
   /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */

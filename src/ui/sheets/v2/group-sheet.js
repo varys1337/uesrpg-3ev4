@@ -33,6 +33,38 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /** @type {number|null} Hooks.on("updateActor") handle for member refresh */
   #memberUpdateHook = null;
 
+  _isSheetPerfTraceEnabled() {
+    try {
+      return Boolean(game?.settings?.get?.("uesrpg-3ev4", "sheetPerfTrace"));
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  _traceSheetPerf(stage, startedAtMs, details = {}) {
+    if (!this._isSheetPerfTraceEnabled()) return;
+    const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
+    const payload = {
+      sheet: "GroupSheetV2",
+      actorId: this.document?.id ?? null,
+      actorName: this.document?.name ?? null,
+      tab: this.tabGroups?.primary ?? "members",
+      stage,
+      elapsedMs,
+      ...details,
+    };
+    const warnThresholdMs = stage === "_onClose"
+      ? 24
+      : stage === "_onRender"
+        ? 32
+        : stage === "_prepareContext"
+          ? 40
+          : null;
+    const line = `UESRPG | sheetPerfTrace ${JSON.stringify(payload)}`;
+    if (warnThresholdMs !== null && elapsedMs > warnThresholdMs) console.warn(line);
+    else console.log(line);
+  }
+
   /**
    * Native AppV2 tab configuration.
    * @type {Record<string, ApplicationTabsConfiguration>}
@@ -110,103 +142,108 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /* ──────────────────────── Context Preparation ───────────────────────── */
 
   /** @override */
+  /** @override */
   async _prepareContext(options) {
-    const context = await super._prepareContext(options);
-    const actor = this.document;
+    const perfStart = performance.now();
+    try {
+      const context = await super._prepareContext(options);
+      const actor = this.document;
 
-    context.actor = actor;
-    context.system = actor.system;
-    context.isGM = game.user.isGM;
-    context.editable = this.isEditable;
-    context.limited = !game.user.isGM && actor.limited;
-    context.owner = actor.isOwner;
+      context.actor = actor;
+      context.system = actor.system;
+      context.isGM = game.user.isGM;
+      context.editable = this.isEditable;
+      context.limited = !game.user.isGM && actor.limited;
+      context.owner = actor.isOwner;
 
-    // Resolve member UUIDs to actor data (needed for both limited and full views)
-    context.resolvedMembers = await this.#resolveMembers(actor.system.members || []);
+      context.resolvedMembers = await this.#resolveMembers(actor.system.members || []);
 
-    // ── Limited view: minimal data ──
-    const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
-    const _enrich = (raw) => enrichFn(raw || "");
+      const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
+      const _enrich = (raw) => enrichFn(raw || "");
 
-    if (context.limited) {
-      context.enrichedDescription = await _enrich(actor.system.description ?? "");
+      if (context.limited) {
+        context.enrichedDescription = await _enrich(actor.system.description ?? "");
+        return context;
+      }
+
+      const sheetData = {
+        actor: actor.toObject(),
+        items: actor.items.map(i => {
+          const obj = i.toObject();
+          obj.system = i.system;
+          return obj;
+        }),
+      };
+      prepareCharacterItems(sheetData);
+
+      context.gear = sheetData.actor.gear ?? { equipped: [], unequipped: [] };
+      context.weapon = sheetData.actor.weapon ?? { equipped: [], unequipped: [] };
+      context.armor = sheetData.actor.armor ?? { equipped: [], unequipped: [] };
+      context.ammunition = sheetData.actor.ammunition ?? { equipped: [], unequipped: [] };
+      context.container = sheetData.actor.container ?? [];
+
+      const speeds = context.resolvedMembers
+        .filter(m => m.canView && m.speed)
+        .map(m => m.speed);
+      const baseSpeed = speeds.length > 0 ? Math.min(...speeds) : 0;
+      const currentPace = actor.system.travelPace || "normal";
+      let speedMultiplier = 1.0;
+      if (currentPace === "slow") speedMultiplier = 0.6;
+      else if (currentPace === "fast") speedMultiplier = 1.4;
+
+      context.displayAverageSpeed = Math.round(baseSpeed * speedMultiplier);
+      context.displayAverageSpeedKmh = (context.displayAverageSpeed * 0.6).toFixed(1);
+      context.currentPace = currentPace;
+
+      context.enrichedDescription = await cachedEnrichHTML(
+        this, "group:desc", actor.system.description ?? "", _enrich
+      );
+      context.enrichedNotes = await cachedEnrichHTML(
+        this, "group:notes", actor.system.notes ?? "", _enrich
+      );
+
       return context;
+    } finally {
+      this._traceSheetPerf("_prepareContext", perfStart, {
+        renderKeys: options ? Object.keys(options).length : 0,
+      });
     }
-
-    // ── Full view preparation ──
-
-    // Prepare character items (inventory structure)
-    const sheetData = {
-      actor: actor.toObject(),
-      // Overlay live system data so derived fields (*Effective, etc.)
-      // survive into templates.
-      items: actor.items.map(i => {
-        const obj = i.toObject();
-        obj.system = i.system;
-        return obj;
-      }),
-    };
-    prepareCharacterItems(sheetData);
-
-    context.gear = sheetData.actor.gear ?? { equipped: [], unequipped: [] };
-    context.weapon = sheetData.actor.weapon ?? { equipped: [], unequipped: [] };
-    context.armor = sheetData.actor.armor ?? { equipped: [], unequipped: [] };
-    context.ammunition = sheetData.actor.ammunition ?? { equipped: [], unequipped: [] };
-    context.container = sheetData.actor.container ?? [];
-
-    // Calculate group speed (slowest member's speed × pace multiplier)
-    const speeds = context.resolvedMembers
-      .filter(m => m.canView && m.speed)
-      .map(m => m.speed);
-    const baseSpeed = speeds.length > 0 ? Math.min(...speeds) : 0;
-    const currentPace = actor.system.travelPace || "normal";
-    let speedMultiplier = 1.0;
-    if (currentPace === "slow") speedMultiplier = 0.6;
-    else if (currentPace === "fast") speedMultiplier = 1.4;
-
-    context.displayAverageSpeed = Math.round(baseSpeed * speedMultiplier);
-    // UESRPG conversion: 1 round = 6 seconds → (m/round × 600 rounds/hour) ÷ 1000 = km/h
-    context.displayAverageSpeedKmh = (context.displayAverageSpeed * 0.6).toFixed(1);
-    context.currentPace = currentPace;
-
-    // Enrich HTML fields (cached per sheet instance)
-    context.enrichedDescription = await cachedEnrichHTML(
-      this, "group:desc", actor.system.description ?? "", _enrich
-    );
-    context.enrichedNotes = await cachedEnrichHTML(
-      this, "group:notes", actor.system.notes ?? "", _enrich
-    );
-
-    return context;
   }
 
   /* ───────────────────────────── Lifecycle ─────────────────────────────── */
 
   /** @override */
+  /** @override */
   _onRender(context, options) {
-    super._onRender(context, options);
-    const el = this.element;
-    clearItemDescriptionTooltip(this);
+    const perfStart = performance.now();
+    try {
+      super._onRender(context, options);
+      const el = this.element;
+      clearItemDescriptionTooltip(this);
 
-    // ── Hook: auto-refresh when a member actor updates ──
-    // Registered once; cleaned up in _onClose.
-    if (!this.#memberUpdateHook) {
-      this.#memberUpdateHook = Hooks.on("updateActor", (updatedActor) => {
-        const members = this.document.system.members || [];
-        if (members.some(m => m.id === updatedActor?.uuid)) {
-          this.render(false);
-        }
+      if (!this.#memberUpdateHook) {
+        this.#memberUpdateHook = Hooks.on("updateActor", (updatedActor) => {
+          const members = this.document.system.members || [];
+          if (members.some(m => m.id === updatedActor?.uuid)) {
+            this.render(false);
+          }
+        });
+      }
+
+      if (context.limited) return;
+
+      const expectedPrimary = this.tabGroups.primary ?? "members";
+      const activePrimary = el?.querySelector('.tab[data-group="primary"].active')?.dataset?.tab ?? null;
+      if (activePrimary !== expectedPrimary) {
+        this.changeTab(expectedPrimary, "primary", { force: true });
+      }
+
+      activateEditorButtons(this, el);
+    } finally {
+      this._traceSheetPerf("_onRender", perfStart, {
+        limited: Boolean(context?.limited),
       });
     }
-
-    // Skip interactive bindings for limited view
-    if (context.limited) return;
-
-    // ── Tab handling (native AppV2) ──
-    this.changeTab(this.tabGroups.primary ?? "members", "primary", { force: true });
-
-    // ── Re-wire editor buttons (bypasses core activation when render path skips it) ─────
-    activateEditorButtons(this, el);
   }
 
   /**
@@ -215,66 +252,74 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
    * @override
    */
   _attachPartListeners(partId, htmlElement, options) {
-    super._attachPartListeners(partId, htmlElement, options);
+    const perfStart = performance.now();
+    try {
+      super._attachPartListeners(partId, htmlElement, options);
 
-    if (partId === "body") {
-      bindItemDescriptionTooltips(this, htmlElement);
-      // ── Equip checkbox change ──
-      htmlElement.querySelectorAll(".itemEquip").forEach(el => {
-        el.addEventListener("change", asyncGuard(async (ev) => {
-          const itemId = el.closest(".item")?.dataset?.itemId;
-          if (!itemId) return;
-          const item = this.document.items.get(itemId);
-          if (item) await requestUpdateDocument(item, { "system.equipped": el.checked });
-        }));
-      });
-
-      // ── Qty buttons: left-click = increase, right-click = decrease ──
-      htmlElement.querySelectorAll(".plusQty").forEach(el => {
-        el.addEventListener("click", asyncGuard(async (ev) => {
-          ev.preventDefault();
-          const itemId = el.closest(".item")?.dataset?.itemId;
-          if (!itemId) return;
-          const item = this.document.items.get(itemId);
-          if (!item) return;
-          await requestUpdateDocument(item, { "system.quantity": Number(item.system.quantity ?? 0) + 1 });
-        }));
-        el.addEventListener("contextmenu", asyncGuard(async (ev) => {
-          ev.preventDefault();
-          const itemId = el.closest(".item")?.dataset?.itemId;
-          if (!itemId) return;
-          const item = this.document.items.get(itemId);
-          if (!item) return;
-          const qty = Number(item.system.quantity ?? 0);
-          const next = Math.max(qty - 1, 0);
-          if (next === 0 && qty > 0) {
-            ui.notifications.info(`You have used your last ${item.name}!`);
-          }
-          await requestUpdateDocument(item, { "system.quantity": next });
-        }));
-      });
-
-      // ── Item name contextmenu → duplicate ──
-      htmlElement.querySelectorAll(".item-name").forEach(el => {
-        el.addEventListener("contextmenu", async (ev) => {
-          ev.preventDefault();
-          const itemId = el.closest(".item")?.dataset?.itemId;
-          if (!itemId) return;
-          const item = this.document.items.get(itemId);
-          if (item) this.#duplicateItem(item);
+      if (partId === "body") {
+        bindItemDescriptionTooltips(this, htmlElement);
+        htmlElement.querySelectorAll(".itemEquip").forEach(el => {
+          el.addEventListener("change", asyncGuard(async (_ev) => {
+            const itemId = el.closest(".item")?.dataset?.itemId;
+            if (!itemId) return;
+            const item = this.document.items.get(itemId);
+            if (item) await requestUpdateDocument(item, { "system.equipped": el.checked });
+          }));
         });
-      });
+
+        htmlElement.querySelectorAll(".plusQty").forEach(el => {
+          el.addEventListener("click", asyncGuard(async (ev) => {
+            ev.preventDefault();
+            const itemId = el.closest(".item")?.dataset?.itemId;
+            if (!itemId) return;
+            const item = this.document.items.get(itemId);
+            if (!item) return;
+            await requestUpdateDocument(item, { "system.quantity": Number(item.system.quantity ?? 0) + 1 });
+          }));
+          el.addEventListener("contextmenu", asyncGuard(async (ev) => {
+            ev.preventDefault();
+            const itemId = el.closest(".item")?.dataset?.itemId;
+            if (!itemId) return;
+            const item = this.document.items.get(itemId);
+            if (!item) return;
+            const qty = Number(item.system.quantity ?? 0);
+            const next = Math.max(qty - 1, 0);
+            if (next === 0 && qty > 0) {
+              ui.notifications.info(`You have used your last ${item.name}!`);
+            }
+            await requestUpdateDocument(item, { "system.quantity": next });
+          }));
+        });
+
+        htmlElement.querySelectorAll(".item-name").forEach(el => {
+          el.addEventListener("contextmenu", async (ev) => {
+            ev.preventDefault();
+            const itemId = el.closest(".item")?.dataset?.itemId;
+            if (!itemId) return;
+            const item = this.document.items.get(itemId);
+            if (item) this.#duplicateItem(item);
+          });
+        });
+      }
+    } finally {
+      this._traceSheetPerf("_attachPartListeners", perfStart, { partId });
     }
   }
 
   /** @override */
+  /** @override */
   _onClose(options) {
-    clearItemDescriptionTooltip(this);
-    if (this.#memberUpdateHook) {
-      Hooks.off("updateActor", this.#memberUpdateHook);
-      this.#memberUpdateHook = null;
+    const perfStart = performance.now();
+    try {
+      clearItemDescriptionTooltip(this);
+      if (this.#memberUpdateHook) {
+        Hooks.off("updateActor", this.#memberUpdateHook);
+        this.#memberUpdateHook = null;
+      }
+      return super._onClose(options);
+    } finally {
+      this._traceSheetPerf("_onClose", perfStart, {});
     }
-    super._onClose(options);
   }
 
   /* ──────────────────────────── Drag & Drop ────────────────────────────── */

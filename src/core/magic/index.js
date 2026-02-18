@@ -89,6 +89,7 @@ export {
   rollSpellHealing,
   getMaxSpellDamage,
   getMagicSkillLevel,
+  isActorTrainedInMagicSchool,
   computeMagicCastingTN,
 } from "./magicka-utils.js";
 

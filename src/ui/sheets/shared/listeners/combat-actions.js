@@ -685,7 +685,8 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       const powerDrawReduction = await applyPowerDrawBonus(actor, rangedWeapon);
       const hasRapidReload = hasTalent(actor, "rapidreload") || hasTalent(actor, "dualrapidreloadfighter");
       const talentReloadReduction = hasRapidReload ? 1 : 0;
-      let effectiveReloadCost = Math.max(0, reloadCost - powerDrawReduction - talentReloadReduction);
+      // Reload actions always cost at least 1 AP when a weapon requires reloading.
+      let effectiveReloadCost = Math.max(1, reloadCost - powerDrawReduction - talentReloadReduction);
       
       const currentAP = Number(actor.system?.action_points?.value ?? 0);
       if (currentAP < effectiveReloadCost) {

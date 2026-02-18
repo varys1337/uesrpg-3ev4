@@ -8,7 +8,7 @@
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, classifySpellForRouting, debugMagicRoutingLog } from "../../../../core/magic/spell-runtime.js";
 import { filterTargetsBySpellRange, getSpellRangeType, getSpellAoEConfig, getSpellMaxRangeMeters } from "../../../../core/magic/spell-range.js";
 import { AoEService, AOE_SOURCE_TYPES } from "../../../../core/aoe/index.js";
-import { getSpellScalingLevels } from "../../../../core/magic/magicka-utils.js";
+import { getSpellScalingLevels, isActorTrainedInMagicSchool } from "../../../../core/magic/magicka-utils.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
 import { resolveSpellProfile } from "../../../../core/magic/spell-profile.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
@@ -91,12 +91,17 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
   // If no spell provided, show picker
   if (!spell) {
     const spellsAll = actor.itemTypes?.spell ?? [];
-    const spells = (castActionType === "secondary")
+    const spellsByAction = (castActionType === "secondary")
       ? spellsAll.filter(s => s?.system?.isInstant === true)
       : spellsAll;
+
+    // RAW: untrained casters cannot cast spells from that school.
+    const spells = spellsByAction.filter(s => isActorTrainedInMagicSchool(actor, s?.system?.school));
     
     if (!spells.length) {
-      ui.notifications.warn(castActionType === "secondary" ? "No Instant spells available to cast as a Secondary action." : "No spells available to cast.");
+      ui.notifications.warn(castActionType === "secondary"
+        ? "No castable Instant spells available (must be trained in the spell's school)."
+        : "No castable spells available (must be trained in the spell's school).");
       return;
     }
     
@@ -133,6 +138,10 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
     
     spell = actor.items.get(selectedSpellId);
     if (!spell) return;
+    if (!isActorTrainedInMagicSchool(actor, spell?.system?.school)) {
+      ui.notifications.warn(`${actor.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+      return;
+    }
   }
   
   // Centralized routing

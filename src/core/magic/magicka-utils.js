@@ -463,16 +463,19 @@ export function computeSpellMagickaCost(actor, spell, options = {}) {
 /**
  * Compute the Magicka cost required to *attempt* casting a spell.
  * RAW (Chapter 6): Spell Restraint reduces cost only on a successful cast,
- * so the attempt cost is always the listed base cost.
+ * so the attempt cost starts at listed base cost before any refund.
+ * Overload doubles the attempt cost.
  *
  * @param {Actor} actor
  * @param {Item} spell
- * @param {object} options - { level }
+ * @param {object} options - { level, isOverloaded }
  * @returns {{ cost:number, baseCost:number }}
  */
 export function computeSpellAttemptMagickaCost(actor, spell, options = {}) {
   const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, options);
-  return { cost: baseCost, baseCost, baseCostRaw, aeModifier, aeBreakdown };
+  const overloadMultiplier = _bool(options?.isOverloaded) ? 2 : 1;
+  const cost = Math.max(0, Math.floor(baseCost * overloadMultiplier));
+  return { cost, baseCost, baseCostRaw, aeModifier, aeBreakdown, overloadMultiplier };
 }
 
 /**
@@ -818,6 +821,49 @@ export function getMagicSkillLevel(actor, school) {
 }
 
 /**
+ * Check whether the actor is trained in a spell school.
+ * RAW: untrained casters cannot cast spells from that school.
+ *
+ * @param {Actor} actor
+ * @param {string} school
+ * @returns {boolean}
+ */
+export function isActorTrainedInMagicSchool(actor, school) {
+  return getMagicSkillLevel(actor, school) > 0;
+}
+
+/**
+ * Resolve whether the caster has two free hands for spellcasting.
+ * RAW: lacking two free hands applies a -20 casting penalty.
+ *
+ * @param {Actor} actor
+ * @returns {boolean}
+ */
+function _hasTwoFreeHandsForCasting(actor) {
+  if (!actor) return false;
+
+  const conditions = actor?.system?.traits?.condition ?? {};
+  // Movement-restricting states that would prevent free hand motions.
+  if (conditions.restrained || conditions.paralyzed || conditions.immobilized || conditions.unconscious) return false;
+
+  const items = Array.from(actor.items ?? []);
+  const occupiedHandItems = items.filter((it) => {
+    if (!it?.system?.equipped) return false;
+    const itemType = String(it.type ?? "").toLowerCase();
+    if (itemType === "weapon" || itemType === "ammunition") {
+      const hands = Number(it.system?.hands ?? 0);
+      return Number.isFinite(hands) && hands > 0;
+    }
+    if (itemType === "armor" || itemType === "item") {
+      return Boolean(it.system?.isShieldEffective ?? it.system?.isShield);
+    }
+    return false;
+  });
+
+  return occupiedHandItems.length === 0;
+}
+
+/**
  * Compute the casting TN for a spell
  * @param {Actor} actor - The caster
  * @param {Item} spell - The spell being cast
@@ -903,6 +949,7 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
     const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced);
     const silencePenalty = isSilenced ? -20 : 0;
+    const noFreeHandsPenalty = _hasTwoFreeHandsForCasting(actor) ? 0 : -20;
 
     const modifiers = [
       { label: "Base TN", value: baseTN, keepZero: true },
@@ -914,10 +961,11 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     ];
 
     if (silencePenalty !== 0) modifiers.push({ label: "Silenced (no verbal)", value: silencePenalty });
+    if (noFreeHandsPenalty !== 0) modifiers.push({ label: "No free hands (somatic)", value: noFreeHandsPenalty });
     if (aeModifier !== 0) modifiers.push({ label: "Active Effects", value: aeModifier });
     if (manualMod !== 0) modifiers.push({ label: "Manual Modifier", value: manualMod });
 
-    const finalTN = Math.max(0, baseTN + difficultyMod + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + aeModifier + manualMod);
+    const finalTN = Math.max(0, baseTN + difficultyMod + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + noFreeHandsPenalty + aeModifier + manualMod);
     return {
       baseTN,
       spellcastingLevel,
@@ -952,6 +1000,7 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
   const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced);
   const silencePenalty = isSilenced ? -20 : 0;
+  const noFreeHandsPenalty = _hasTwoFreeHandsForCasting(actor) ? 0 : -20;
 
   const modifiers = [
     { label: "Base TN", value: baseTN, keepZero: true },
@@ -966,6 +1015,10 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     modifiers.push({ label: "Silenced (no verbal)", value: silencePenalty });
   }
 
+  if (noFreeHandsPenalty !== 0) {
+    modifiers.push({ label: "No free hands (somatic)", value: noFreeHandsPenalty });
+  }
+
   if (aeModifier !== 0) {
     modifiers.push({ label: "Active Effects", value: aeModifier });
   }
@@ -974,7 +1027,7 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     modifiers.push({ label: "Manual Modifier", value: manualMod });
   }
 
-  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + aeModifier + manualMod;
+  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + noFreeHandsPenalty + aeModifier + manualMod;
 
   return {
     baseTN,

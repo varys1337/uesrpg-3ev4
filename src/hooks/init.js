@@ -127,6 +127,24 @@ async function registerSettings() {
     type: Boolean,
   });
 
+  game.settings.register("uesrpg-3ev4", "autoResizeSheets", {
+    name: "Auto-resize Actor/Item Sheets",
+    hint: "Automatically resize AppV2 actor and item sheets to fit content (clamped to screen height). Disable to restore fixed sizing behavior.",
+    scope: "client",
+    config: true,
+    type: Boolean,
+    default: true,
+  });
+
+  game.settings.register("uesrpg-3ev4", "sheetPerfTrace", {
+    name: "Sheet Performance Trace",
+    hint: "Log AppV2 sheet timing traces for _prepareContext, _onRender, _attachPartListeners, and _onClose.",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
   game.settings.register("uesrpg-3ev4", "actionPointAutomation", {
     name: "Action Point Automation",
     hint: "Round-Based: AP is set to max at the start of each round. Turn-Based: Ap is set to max at the start of each turn, except the first round in which all combatants start with max AP. None: No automation.",

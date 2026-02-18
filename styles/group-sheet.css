@@ -42,7 +42,8 @@
   padding: 4px 6px;
   line-height: 1.1;
   text-align: center;
-  font-size: clamp(12px, 1.2vw, 18px);
+  font-size: clamp(18px, 1.6vw, 26px);
+  font-weight: 800;
   border-radius: 8px;
 }
 
@@ -50,6 +51,14 @@
   min-height: 30px;
   padding: 4px 6px;
   line-height: 1.05;
+}
+
+/* Authoritative sidebar tab typography (overrides older compact rule variants). */
+.worldbuilding.uesrpg.sheet.actor.group .sheet-fixed-container nav.sheet-tabs > [data-tab] {
+  font-size: clamp(18px, 1.35vw, 24px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.15px;
 }
 
 .uesrpg.sheet.actor.group .sheet-tabs .item.active {
@@ -494,6 +503,17 @@
 
 .uesrpg.sheet.actor.group .pace-table tr.pace-active {
   background: rgba(0, 100, 200, 0.1);
+}
+
+/* Dark theme contrast pass for travel pace table headers. */
+body.theme-dark .uesrpg.sheet.actor.group .pace-table thead {
+  background: linear-gradient(180deg, rgba(57, 40, 21, 0.96), rgba(34, 24, 13, 0.98));
+}
+
+body.theme-dark .uesrpg.sheet.actor.group .pace-table thead th {
+  color: #f3e9d4;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+  border-bottom: 1px solid rgba(245, 225, 186, 0.22);
 }
 
 /* ── Details Tab — externalized inline styles ───────────────────────── */

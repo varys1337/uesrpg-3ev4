@@ -16,8 +16,7 @@
  */
 
 import { resolveSpellProfile } from "./spell-profile.js";
-import { getActorMagicka, getActorWillpowerBonus } from "./magicka-utils.js";
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { getActorMagicka, isActorTrainedInMagicSchool } from "./magicka-utils.js";
 import { MagicOpposedWorkflow } from "./opposed-workflow.js";
 import { showSpellOptionsDialog } from "../../ui/sheets/shared/listeners/magic-cast.js";
 import { emitPreCast } from "./spell-runtime.js";
@@ -129,6 +128,11 @@ export const SpellCastingService = {
    * @returns {Promise<{valid: boolean, reason: string|null}>}
    */
   async _validateCastPrerequisites(actor, spell, profile, cfg) {
+    // RAW: untrained casters cannot cast from that school.
+    if (!isActorTrainedInMagicSchool(actor, spell?.system?.school)) {
+      return { valid: false, reason: `${actor.name} is untrained in ${spell?.system?.school ?? "this school"} and cannot cast ${spell.name}.` };
+    }
+
     // Check if actor has the spell
     const actorHasSpell = actor.items.some(i => i.id === spell.id || i.uuid === spell.uuid);
     if (!actorHasSpell && actor.type === "Player Character") {
@@ -149,7 +153,7 @@ export const SpellCastingService = {
     const requiresAP = !(profile.classification.isInstant && castActionType === "secondary");
     
     if (requiresAP) {
-      const currentAP = Number(actor.system?.actionPoints?.value ?? 0);
+      const currentAP = Number(actor.system?.action_points?.value ?? 0);
       if (currentAP < 1) {
         return { valid: false, reason: "Insufficient Action Points: 1 AP required" };
       }

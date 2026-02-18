@@ -107,6 +107,7 @@ Hooks.once('ready', async function () {
     { initializeSoulTrapService },
     { initializeDisintegrateService },
     { initializeDrainService },
+    { initializeUtilitySpellsService },
     { initializeCharacteristicDefenseService },
     { initializeCloakTickHandler },
     // Magic opposed workflow has no initialize() export вЂ” importing it eagerly
@@ -126,6 +127,7 @@ Hooks.once('ready', async function () {
     import("./core/magic/services/soul-trap-service.js"),
     import("./core/magic/services/disintegrate-service.js"),
     import("./core/magic/services/drain-service.js"),
+    import("./core/magic/services/utility-spells-service.js"),
     import("./core/magic/characteristic-defense-service.js"),
     import("./core/magic/ticks/cloak-tick-handler.js"),
     import("./core/magic/opposed-workflow.js")
@@ -168,6 +170,9 @@ Hooks.once('ready', async function () {
 
   // Initialize Drain automation (current pool drains without max reduction)
   initializeDrainService();
+
+  // Initialize utility singleton spell handlers (Recall/Detect/Telepathy/Open/Cure Disease/Stabilize)
+  initializeUtilitySpellsService();
 
   // Initialize characteristic defense (save-like defense model for spells)
   initializeCharacteristicDefenseService();
@@ -323,6 +328,16 @@ Hooks.once("init", async function() {
   const { auditChapter4 } = await import("./utils/dev/chapter4-audit.js");
   game.uesrpg.auditChapter4 = auditChapter4;
 
+  // Expose Chapter 6 audit utilities (summary + spell matrix)
+  const { auditChapter6, auditChapter6Spells } = await import("./utils/dev/chapter6-audit.js");
+  game.uesrpg.auditChapter6 = auditChapter6;
+  game.uesrpg.auditChapter6Spells = auditChapter6Spells;
+
+  // Expose Chapter 6 spell remediation utilities (dry-run + apply)
+  const { planChapter6SpellRemediation, applyChapter6SpellRemediation } = await import("./utils/dev/chapter6-spell-remediation.js");
+  game.uesrpg.planChapter6SpellRemediation = planChapter6SpellRemediation;
+  game.uesrpg.applyChapter6SpellRemediation = applyChapter6SpellRemediation;
+
   // Expose talent learning validator API (Chapter 4 acquisition checks)
   const { validateTalentLearning } = await import("./core/traits/talent-learning.js");
   game.uesrpg.talents = game.uesrpg.talents || {};
@@ -331,4 +346,3 @@ Hooks.once("init", async function() {
   // Note: The prior GM-only "AE Keys" sheet header button was a debugging aid.
   // It has been removed; the helper remains available as game.uesrpg.dumpAEKeys(...).
 });
-

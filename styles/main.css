@@ -1027,6 +1027,20 @@
   overflow-x: hidden;
 }
 
+/* Group sheet tabs: hide non-active tabs and only show the selected panel. */
+.worldbuilding.sheet.actor.group .tab[data-group="primary"] {
+  display: none;
+  min-height: 0;
+}
+
+.worldbuilding.sheet.actor.group .tab[data-group="primary"].active {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .worldbuilding img {
   border: none;
 }
@@ -1257,6 +1271,7 @@
   flex-direction: row;
   align-items: center;
   gap: 5px;
+  min-width: 0;
 }
 
 .worldbuilding .spellList table .item,
@@ -1274,6 +1289,7 @@
 .worldbuilding .equipmentList table,
 .worldbuilding .containerList table {
   width: 100%;
+  table-layout: fixed;
 }
 
 .worldbuilding .equipmentList button,
@@ -1311,6 +1327,10 @@
   box-shadow: 2px 0 6px rgba(0, 0, 0, 0.12);
 }
 
+.worldbuilding .sheet-fixed-container .character-profile-container {
+  flex: 0 0 auto;
+}
+
 .worldbuilding .sheet-fixed-container button {
   color: white;
   border: 1px solid black;
@@ -1320,6 +1340,10 @@
 .worldbuilding .fixed-data-container {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   /* Slightly tighter to make room for larger Characteristics labels. */
   gap: 4px;
 }
@@ -2036,6 +2060,7 @@
   gap: 6px;
   min-height: 0;
   width: 100%;
+  overflow: hidden;
 }
 
 .worldbuilding .tab.active {
@@ -2047,16 +2072,18 @@
 ------------------------------*/
 .worldbuilding .bioPage {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .worldbuilding .bioPage .contentContainer {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .worldbuilding .about-buttons {
@@ -2575,9 +2602,123 @@
   text-align: center;
 }
 
+/* Traits/Talents/Powers: show a compact visible slice, then scroll internally. */
+.worldbuilding.sheet.actor:not(.group) .trait-container .single-column-list,
+.worldbuilding.sheet.actor:not(.group) .talent-container .single-column-list,
+.worldbuilding.sheet.actor:not(.group) .power-container .single-column-list {
+  max-height: 232px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .worldbuilding .skillList .itemInfo .item-name {
   text-align: center;
   width: 100%;
+}
+
+/* Actor/NPC row name truncation guardrails (prevents long names from breaking layout). */
+.worldbuilding.sheet.actor:not(.group) :is(
+  .tableItemNameCell,
+  .combat-style-table .item-name-cell .flex-container,
+  .equipmentList .flex-container,
+  .containerList .flex-container,
+  .spell-name-cell,
+  .item-name-cell,
+  .skillList .itemInfo,
+  .single-column-list .itemInfo
+) {
+  min-width: 0;
+}
+
+.worldbuilding.sheet.actor:not(.group) :is(
+  .tableItemNameCell,
+  .combat-style-table .item-name-cell .flex-container,
+  .equipmentList .flex-container,
+  .containerList .flex-container,
+  .spell-name-cell,
+  .item-name-cell,
+  .skillList .itemInfo,
+  .single-column-list .itemInfo
+) .item-name {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Magic spell school tables: constrain name column so long labels ellipsize instead of stretching layout. */
+.worldbuilding.sheet.actor:not(.group) .spell-school-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-name-cell {
+  width: 74%;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-rank-cell {
+  width: 12%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-mp-cell {
+  width: 10%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-actions-cell {
+  width: 4%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table .item-name-cell {
+  width: 74%;
+  min-width: 0;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table th:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .combat-style-table td:nth-child(2) {
+  width: 10%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table th:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .combat-style-table td:nth-child(3) {
+  width: 10%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table th:nth-child(4),
+.worldbuilding.sheet.actor:not(.group) .combat-style-table td:nth-child(4) {
+  width: 6%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table td.item-name-cell > .flex-container {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: 6px;
+}
+
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-name-cell .item-name,
+.worldbuilding.sheet.actor:not(.group) .combat-style-table .item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table :is(.combat-roll, .item-img, .item-delete, .item-control) {
+  flex: 0 0 auto;
 }
 
 /* #spellFilter / #itemFilter removed — v2 uses #uesrpg-item-search */
@@ -3332,6 +3473,16 @@
   max-height: 100%;
 }
 
+/* AppV2 wraps sheet HTML in a part container; make it the flex owner so
+   header + tabs + body can allocate height and scroll correctly. */
+.worldbuilding.sheet.item .window-content > [data-application-part="sheet"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Sticky header — REMOVED: templates no longer use stickyHeader wrapper.
    Structure is now: flat header → nav → scrollable sheet-body.
    See item-sheet-compact.css for the replacement layout. */
@@ -3710,12 +3861,23 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .worldbuilding.sheet.actor .tab[data-group="primary"].active > .tabContainer {
   flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.worldbuilding.sheet.actor .tab[data-group="primary"].active > .combatTabContainer,
+.worldbuilding.sheet.actor .tab[data-group="primary"].active > .magicTabContainer,
+.worldbuilding.sheet.actor .tab[data-group="primary"].active > .equipmentTabContainer {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .worldbuilding :is(.editor, .editor .editor-container, .editor .editor-content) {
@@ -3759,7 +3921,15 @@
 
 .worldbuilding .bioPage .contentContainer .editor {
   min-height: 220px;
-  max-height: min(50vh, 520px);
+  max-height: none;
+  overflow: hidden;
+}
+
+.worldbuilding .bioPage .contentContainer .editor .editor-content,
+.worldbuilding .bioPage .contentContainer .editor .ProseMirror {
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .worldbuilding .bioPage .contentContainer .editor .editor-edit {
@@ -3767,7 +3937,7 @@
   pointer-events: none;
 }
 
-.worldbuilding.sheet.actor.group .tab.details {
+.worldbuilding.sheet.actor.group .tab.details.active {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -5536,4 +5706,119 @@ body.theme-dark .worldbuilding.sheet.actor .rest-btn:hover {
   background: rgba(80, 60, 37, 0.96);
   color: #f8ecd2;
   border-color: rgba(247, 225, 184, 0.62);
+}
+
+/* ------------------------------------------------------------------ */
+/* Actor/NPC density and overflow polish                              */
+/* ------------------------------------------------------------------ */
+
+/* Traits/Talents/Powers: show 4 rows before internal scrolling. */
+.worldbuilding.sheet.actor:not(.group) .trait-container .single-column-list,
+.worldbuilding.sheet.actor:not(.group) .talent-container .single-column-list,
+.worldbuilding.sheet.actor:not(.group) .power-container .single-column-list {
+  max-height: 152px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Magic spell table: widen Name and compress Rank/Cost columns. */
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-name-cell { width: 80%; }
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-rank-cell { width: 9%; }
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-mp-cell { width: 7%; }
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-actions-cell { width: 4%; }
+
+/* Equipment/container tables: reserve more space for name columns. */
+.worldbuilding.sheet.actor:not(.group) .containerList table,
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table,
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table,
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table,
+.worldbuilding.sheet.actor:not(.group) .equipmentList table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .containerList table th:nth-child(1),
+.worldbuilding.sheet.actor:not(.group) .containerList table td:nth-child(1) { width: 56%; }
+.worldbuilding.sheet.actor:not(.group) .containerList table th:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .containerList table td:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .containerList table th:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .containerList table td:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .containerList table th:nth-child(4),
+.worldbuilding.sheet.actor:not(.group) .containerList table td:nth-child(4) { width: 13%; }
+.worldbuilding.sheet.actor:not(.group) .containerList table th:nth-child(5),
+.worldbuilding.sheet.actor:not(.group) .containerList table td:nth-child(5) { width: 5%; }
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(1),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(1) { width: 50%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(4),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(4) { width: 14%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(5),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(5) { width: 8%; }
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table th:nth-child(1),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table td:nth-child(1) { width: 58%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table th:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table td:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table th:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table td:nth-child(3) { width: 16%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table th:nth-child(4),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table td:nth-child(4) { width: 10%; }
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table th:nth-child(1),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table td:nth-child(1) { width: 58%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table th:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table td:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table th:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table td:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table th:nth-child(4),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table td:nth-child(4) { width: 12%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table th:nth-child(5),
+.worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table td:nth-child(5) { width: 6%; }
+
+/* Generic Item table in equipment tab (Qty / ENC / Price / Delete). */
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(1),
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(1) { width: 58%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(3),
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(4),
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(4) { width: 12%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(5),
+.worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(5) { width: 6%; }
+
+/* Active Effects containment: prevent icon/control spill beyond main body. */
+.worldbuilding.sheet.actor .magic-effects-section,
+.worldbuilding.sheet.actor .effects-list {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.actor .effects-list .effect {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.actor .effects-list .effect-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worldbuilding.sheet.actor .effects-list .effect-controls { flex: 0 0 auto; }
+
+/* Remove percentile "pill" framing in Skills/Professions/Magic Skills rows. */
+.worldbuilding.sheet.actor .skillList .item-controls .item-value,
+.worldbuilding.sheet.actor .skillList .item-controls .profession input {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
 }

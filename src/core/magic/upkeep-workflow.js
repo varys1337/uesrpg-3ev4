@@ -1024,7 +1024,7 @@ export async function handleUpkeepGroupConfirm(message) {
 
   let useLivingArmory = false;
   if (canUseLivingArmory) {
-    const currentAP = _num(casterActor.system?.actionPoints?.value, 0);
+    const currentAP = _num(casterActor.system?.action_points?.value, 0);
     if (currentAP >= 1) {
       // Prefer AP over MP when Living Armory applies and AP is available
       useLivingArmory = true;
@@ -1035,10 +1035,10 @@ export async function handleUpkeepGroupConfirm(message) {
   if (bufferUpkeepMode === "free") {
     // Free upkeep — no cost
   } else if (useLivingArmory) {
-    const currentAP = _num(casterActor.system?.actionPoints?.value, 0);
+    const currentAP = _num(casterActor.system?.action_points?.value, 0);
     const newAP = currentAP - 1;
     try {
-      await requestUpdateDocument(casterActor, { "system.actionPoints.value": newAP });
+      await requestUpdateDocument(casterActor, { "system.action_points.value": newAP });
       ui.notifications?.info?.(`Living Armory: Paid 1 AP (instead of ${upkeepCost} MP) to upkeep ${data.spellName}.`);
     } catch (err) {
       console.error("UESRPG | upkeep-workflow | Failed to deduct AP (Living Armory)", err);

@@ -67,6 +67,10 @@ function safeNumber(v, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function roundPriceUp(v) {
+  return Math.max(0, Math.ceil(safeNumber(v, 0)));
+}
+
 function shouldUseBaseStats(itemData) {
   return itemData?.gmOverride?.useBaseStats === true;
 }
@@ -298,9 +302,9 @@ export class SimpleItem extends Item {
   }
 
   _prepareMerchantItem(actorData, itemData) {
-    // Guard priceMod access and use Math.round for safe numeric conversion
+    // Chapter 7: rounded prices are always rounded up.
     const priceMod = Number(actorData?.system?.priceMod ?? 0);
-    itemData.modPrice = Math.round(itemData.price + (itemData.price * (priceMod / 100)));
+    itemData.modPrice = roundPriceUp(itemData.price + (itemData.price * (priceMod / 100)));
   }
 
   _prepareArmorItem(actorData, itemData) {
@@ -320,7 +324,7 @@ export class SimpleItem extends Item {
 
     // Default: preserve current values when we cannot resolve a profile.
     let derivedEnc = baseEnc;
-    let derivedPrice = Math.round(basePrice * qualityPriceMult);
+    let derivedPrice = roundPriceUp(basePrice * qualityPriceMult);
     let derivedWeightClass = itemData.weightClass ?? "none";
 
     // Base auto-qualities: armor quality itself does not add Magic/Silver; keep for future.
@@ -361,7 +365,7 @@ export class SimpleItem extends Item {
       if (shieldProfile) {
         derivedEnc = safeNumber(shieldProfile.enc, derivedEnc) + safeNumber(typeRule.encDelta, 0);
         derivedWeightClass = stepWeightClass(shieldProfile.weightClass, weightDelta + safeNumber(typeRule.weightClassDelta, 0));
-        derivedPrice = Math.round(safeNumber(shieldProfile.price, basePrice) * qualityPriceMult * safeNumber(typeRule.priceMult, 1.0));
+        derivedPrice = roundPriceUp(safeNumber(shieldProfile.price, basePrice) * qualityPriceMult * safeNumber(typeRule.priceMult, 1.0));
         itemData.enchant_levelEffective = safeNumber(shieldProfile.enchantLevel, itemData.enchant_level);
 
         const brBase = safeNumber(shieldProfile.br, itemData.blockRating);
@@ -386,7 +390,7 @@ export class SimpleItem extends Item {
         derivedEnc = safeNumber(profile.enc, derivedEnc);
         derivedWeightClass = stepWeightClass(profile.weightClass, weightDelta);
         // Base price is table-driven (per location) but we store a single number; use body price as a conservative default.
-        derivedPrice = Math.round(safeNumber(profile.priceBody, basePrice) * qualityPriceMult);
+        derivedPrice = roundPriceUp(safeNumber(profile.priceBody, basePrice) * qualityPriceMult);
         itemData.enchant_levelEffective = safeNumber(profile.enchantLevel, itemData.enchant_level);
 
         const ar = safeNumber(profile.ar, itemData.armor);
@@ -398,10 +402,11 @@ export class SimpleItem extends Item {
     }
 
     // Runed (armor/shield): +25% price (derived only).
-    const hasRuned = (itemData.qualitiesStructured || []).some(q => String(q?.key ?? "").toLowerCase() === "runed")
+    const hasRuned = itemData.runed === true
+      || (itemData.qualitiesStructured || []).some(q => String(q?.key ?? "").toLowerCase() === "runed")
       || hasLegacyQuality(itemData.qualities, "runed");
     if (!useBaseStats && hasRuned) {
-      derivedPrice = Math.round(Number(derivedPrice ?? 0) * 1.25);
+      derivedPrice = roundPriceUp(Number(derivedPrice ?? 0) * 1.25);
     }
 
     itemData.encEffective = derivedEnc;
@@ -481,17 +486,18 @@ export class SimpleItem extends Item {
       itemData.damage3Effective = itemData.weapon2H ? itemData.damage2Effective : itemData.damageEffective;
 
       itemData.encEffective = baseEnc + encDelta;
-      itemData.priceEffective = Math.round(basePrice * matPriceMult * qualityPriceMult);
+      itemData.priceEffective = roundPriceUp(basePrice * matPriceMult * qualityPriceMult);
 
       // Enchant level is defined by material.
       if (mRule?.enchantLevel != null) itemData.enchant_levelEffective = safeNumber(mRule.enchantLevel, 0);
     }
 
-    // Runed (weapon): +25% price (derived only).
-    const hasRuned = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "runed")
+    // Runed (weapon): +20% price (derived only).
+    const hasRuned = itemData.runed === true
+      || injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "runed")
       || hasLegacyQuality(itemData.qualities, "runed");
     if (!useBaseStats && hasRuned) {
-      itemData.priceEffective = Math.round(Number(itemData.priceEffective ?? 0) * 1.25);
+      itemData.priceEffective = roundPriceUp(Number(itemData.priceEffective ?? 0) * 1.2);
     }
 
     // Store auto-qualities (material + quality), without mutating the user's toggle list.

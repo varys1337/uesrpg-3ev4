@@ -123,7 +123,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "item"],
-    position: { width: 640, height: 760 },
+    position: { width: 640, height: 620 },
     window: { resizable: true },
     form: {
       handler: SimpleItemSheetV2.prototype._onFormSubmit,
@@ -1384,6 +1384,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
     // ── Re-wire editor buttons (bypasses core activation when _renderHTML is custom) ─────
     activateEditorButtons(this, el);
+
+  }
+
+  _onClose(options) {
+    return super._onClose(options);
   }
 
   /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */

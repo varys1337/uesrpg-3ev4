@@ -16,7 +16,8 @@ import {
   computeSpellAttemptMagickaCost,
   consumeSpellMagicka,
   applySpellRestraintRefund,
-  isHealingSpell
+  isHealingSpell,
+  isActorTrainedInMagicSchool
 } from "./magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "./backfire.js";
 import { canUserRollActor } from "../../utils/permissions.js";
@@ -135,6 +136,11 @@ export const MagicOpposedWorkflow = {
       spell = await fromUuid(requestedSpellUuid);
       if (!spell) {
         ui.notifications.error("Could not resolve spell.");
+        return null;
+      }
+
+      if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+        ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
         return null;
       }
 
@@ -291,6 +297,11 @@ export const MagicOpposedWorkflow = {
 
     if (!Boolean(spell?.system?.isDirect)) {
       ui.notifications.warn("This spell is not marked as Direct.");
+      return null;
+    }
+
+    if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+      ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
       return null;
     }
 
@@ -494,6 +505,11 @@ export const MagicOpposedWorkflow = {
     const spell = await fromUuid(cfg.spellUuid);
     if (!spell) {
       ui.notifications.error("Could not resolve spell.");
+      return null;
+    }
+
+    if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+      ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
       return null;
     }
 

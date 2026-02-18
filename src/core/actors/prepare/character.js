@@ -759,6 +759,8 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
   }
 
   else {
+    // Ensure stale wound penalties do not persist once wounded state is cleared.
+    actorSystemData.woundPenalty = 0;
     for (const skill in actorSystemData.professionsWound) {
       actorSystemData.professionsWound[skill] = actorSystemData.professions[skill];
     }
