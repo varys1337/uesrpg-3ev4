@@ -1,4 +1,4 @@
-﻿            <div class="tab combat" data-group="primary" data-tab="combat">
+            <div class="tab combat" data-group="primary" data-tab="combat">
                 <div class="combatTabContainer">
                     <div class="combat-tab-primary-header">
                         <div class="combat-stats-container">
@@ -134,7 +134,7 @@
                         </div>
                     </div>
 
-                    <!-- Combat Equipped Summary removed вЂ” Quick Info bar was unused -->
+                    <!-- Combat Equipped Summary removed — Quick Info bar was unused -->
 
                     {{!-- NPC profession buttons should live on the Combat tab for quick access. --}}
                     <div class="combat-button-container">
@@ -289,27 +289,15 @@
             <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">
                 <div class="quickbar-title">Special</div>
 
-                <div class="uesrpg-combatstyle-select">
-                    <label class="uesrpg-block-label">Active Combat Style</label>
-                    <select class="uesrpg-active-combat-style u-w-full" {{#unless actor.sheetCombatActions.combatStyles.length}}disabled="disabled"{{/unless}}>
-                        <option value="">вЂ” None вЂ”</option>
-                        {{#each actor.sheetCombatActions.combatStyles as |cs|}}
-                            <option value="{{cs.id}}" {{#if cs.isActive}}selected{{/if}}>{{cs.name}}</option>
-                        {{/each}}
-                    </select>
-                    <div class="actions-help u-mt-xs">Only Special Actions marked as known in the selected Combat Style are offered as Advantage options.</div>
-                    {{#unless actor.sheetCombatActions.combatStyles.length}}
-                        <div class="actions-help u-mt-xs">No Combat Style selected. Combat tests fall back to Combat (Profession).</div>
-                    {{/unless}}
-                </div>
+                <div class="actions-help u-mb-sm">Only Special Actions marked as known in the active Combat Style are offered as Advantage options.</div>
 
                 {{#if actor.sheetCombatActions.specialActions.length}}
                     <div class="uesrpg-special-actions-list">
                         {{#each actor.sheetCombatActions.specialActions as |sa|}}
-                            <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" 
-                                    data-combat-action="specialAction" 
-                                    data-special-id="{{sa.id}}" 
-                                    data-action-type="{{sa.actionType}}" 
+                            <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction"
+                                    data-combat-action="specialAction"
+                                    data-special-id="{{sa.id}}"
+                                    data-action-type="{{sa.actionType}}"
                                     title="{{sa.description}}"
                                     {{#if (eq sa.actionType "primary")}}{{#unless sa.usableNow}}disabled="disabled"{{/unless}}{{/if}}
                             >{{sa.name}}</button>
@@ -320,7 +308,36 @@
                 {{/if}}
             </div>
         </div>
+
     </div>
+</div>
+
+{{!-- Standalone Effects section below the actions menu --}}
+<div class="combat-effects-section">
+    <header class="effects-header flexrow">
+        <h3>Effects</h3>
+        <a data-action="effectControl" class="effect-control" data-effect-action="create" title="Create Effect">
+            <i class="fas fa-plus"></i>
+        </a>
+    </header>
+    <ol class="effects-list">
+        {{#each effects as |effect|}}
+            <li class="effect flexrow" data-effect-id="{{effect._id}}">
+                <img class="effect-icon" src="{{effect.img}}" />
+                <h4 class="effect-name">{{effect.name}}</h4>
+                <div class="effect-controls flexrow">
+                    <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle Effect">
+                        <i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i>
+                    </a>
+                    <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit Effect"><i class="fas fa-edit"></i></a>
+                    <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete Effect"><i class="fas fa-trash"></i></a>
+                </div>
+            </li>
+        {{/each}}
+    </ol>
+    {{#unless effects.length}}
+        <p class="effects-empty-msg">No active effects.</p>
+    {{/unless}}
 </div>
 
 {{#if sheetUi.showDiagnostics}}

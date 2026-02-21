@@ -39,6 +39,7 @@ import {
 import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js";
 import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { getMovementActionLegality } from "../../../../core/combat/movement-rules.js";
+import { drinkPotion, applyAlchemyToWeapon } from "../../../../core/alchemy/runtime.js";
 
 /**
  * Handle Combat tab quick-action buttons.
@@ -644,6 +645,65 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
               ui.notifications.warn("Selected item could not be found.");
               return;
             }
+
+            // Alchemy products: resolve via the alchemy runtime workflows.
+            const alchemyKind = item?.flags?.["uesrpg-3ev4"]?.alchemy?.kind;
+            const isAlchemyProduct = alchemyKind === "potion" || alchemyKind === "poison" || alchemyKind === "toxin";
+
+            if (isAlchemyProduct && (alchemyKind === "poison" || alchemyKind === "toxin")) {
+              // Select weapon first; only spend AP if the player commits.
+              const weapons = actor.items.filter(w => w.type === "weapon" && w.system?.equipped === true);
+              if (!weapons.length) {
+                ui.notifications.warn("No equipped weapons were found to apply this poison/toxin.");
+                return;
+              }
+
+              const wOptions = weapons.map(w => `<option value="${w.id}">${w.name}</option>`).join("");
+              const wContent = `
+                <div class="uesrpg-apply-alchemy-form">
+                  <div class="form-group">
+                    <label>Weapon</label>
+                    <select name="weaponId">${wOptions}</select>
+                  </div>
+                </div>
+              `;
+
+              const weaponId = await customDialog({
+                title: "Apply to Weapon",
+                content: wContent,
+                yes: {
+                  label: "Apply",
+                  icon: "fas fa-check",
+                  callback: (h) => {
+                    const root = h instanceof HTMLElement ? h : h?.[0];
+                    return root?.querySelector?.("select[name='weaponId']")?.value;
+                  }
+                },
+                no: { label: "Cancel", icon: "fas fa-times" },
+                defaultButton: "yes"
+              });
+
+              if (!weaponId || typeof weaponId !== "string") return;
+              const weapon = actor.items.get(weaponId);
+              if (!weapon) {
+                ui.notifications.warn("Selected weapon could not be found.");
+                return;
+              }
+
+              if (!(await spendActionPoints(actor, 1, { reason: "Use Item" }))) return;
+              await breakAimChainIfPresent();
+              await applyAlchemyToWeapon(actor, item, weapon);
+              return;
+            }
+
+            if (isAlchemyProduct && alchemyKind === "potion") {
+              if (!(await spendActionPoints(actor, 1, { reason: "Use Item" }))) return;
+              await breakAimChainIfPresent();
+              await drinkPotion(actor, item);
+              return;
+            }
+
+            // Default consumable flow (non-alchemy): spend AP and post a card.
             if (!(await spendActionPoints(actor, 1, { reason: "Use Item" }))) return;
             await breakAimChainIfPresent();
             await postActionCard("Use Item", `<p>${item.name}</p>`);

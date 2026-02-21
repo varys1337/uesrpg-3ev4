@@ -12,7 +12,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
     id: "uesrpg-talents-settings",
     tag: "form",
     form: {
-      handler: TalentsSettingsAppV2.#onSubmit,
+      handler: TalentsSettingsAppV2._onSubmit,
       closeOnSubmit: true,
       submitOnChange: false,
     },
@@ -45,7 +45,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
     };
   }
 
-  static async #onSubmit(event, form, formData) {
+  static async _onSubmit(event, form, formData) {
     const data = formData.object;
     const toBool = (v) => Boolean(v);
     const toGladiatorMode = (v) => {

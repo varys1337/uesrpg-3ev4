@@ -87,7 +87,7 @@ export async function postWeaponDamageChatCard({
         </tbody>
       </table>
       ${extraNoteHtml ? `<div style="margin-top:0.5rem; opacity:0.9;">${extraNoteHtml}</div>` : ""}
-      ${applyButtonHtml ? `<div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;">${applyButtonHtml}</div>` : ""}
+      ${applyButtonHtml ? `<div style="margin-top:0.4rem;display:flex;flex-wrap:wrap;gap:0.5rem;">${applyButtonHtml}</div>` : ""}
     </div>
   `;
 
@@ -183,7 +183,7 @@ export async function postManualEffectChatCard({
         </tbody>
       </table>
       ${extraNoteHtml ? `<div style="margin-top:0.5rem; opacity:0.9;">${extraNoteHtml}</div>` : ""}
-      ${applyButtonHtml ? `<div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;">${applyButtonHtml}</div>` : ""}
+      ${applyButtonHtml ? `<div style="margin-top:0.4rem;display:flex;flex-wrap:wrap;gap:0.5rem;">${applyButtonHtml}</div>` : ""}
     </div>
   `;
 

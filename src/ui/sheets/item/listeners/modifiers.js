@@ -3,6 +3,8 @@
  * Modifier entry CRUD handlers for item sheets
  */
 
+import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+
 /**
  * Handler: Create a new modifier entry
  *
@@ -31,8 +33,8 @@ export function onModifierCreate(sheet, event) {
     }
   }
 
-  // Create Dialog for selecting skill/item to modify
-  const d = new Dialog({
+  // Open dialog for selecting skill/item to modify
+  customDialog({
     title: "Create Modifier",
     content: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
       <div style="background: rgba(180, 180, 180, 0.562); border: solid 1px; padding: 10px; font-style: italic;">
@@ -47,24 +49,22 @@ export function onModifierCreate(sheet, event) {
       </div>
     </div>`,
     buttons: {
-      one: { label: "Cancel" },
-      two: {
+      cancel: { label: "Cancel" },
+      create: {
         label: "Create",
-        callback: async html => {
-          const sel = html[0].querySelector("#modifierSelect");
-          const val = html[0].querySelector("#modifier-value");
+        callback: (html) => {
+          const sel = html.querySelector("#modifierSelect");
+          const val = html.querySelector("#modifier-value");
           if (!sel || !val) return;
 
           const current = Array.isArray(sheet.item?.system?.skillArray) ? foundry.utils.deepClone(sheet.item.system.skillArray) : [];
           const next = current.concat([{ name: sel.value, value: Number(val.value || 0) }]);
-          await sheet.item.update({ "system.skillArray": next });
+          sheet.item.update({ "system.skillArray": next });
         }
       }
     },
-    default: "two"
+    defaultButton: "create",
   });
-
-  d.render(true);
 }
 
 /**

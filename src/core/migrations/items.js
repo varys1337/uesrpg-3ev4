@@ -19,8 +19,8 @@ const MODULE_ID = "uesrpg-3ev4";
 
 const _NON_NUMERIC_ALLOWLIST = {
   weapon: ["damage", "damage2", "damage3"],
-  armor: ["armor", "blockRating", "special_ar", "magic_ar"],
-  ammunition: ["damage"]
+  armor: [],
+  ammunition: []
 };
 
 function _isNonNumericString(value) {
@@ -28,6 +28,95 @@ function _isNonNumericString(value) {
   const trimmed = value.trim();
   if (!trimmed) return false;
   return !Number.isFinite(Number(trimmed));
+}
+
+function _extractFirstNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const m = raw.match(/[-+]?\d+(?:\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _inferTypedLaneFromText(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  const map = [
+    ["sunlight", "sunlight"],
+    ["silver", "silver"],
+    ["disease", "disease"],
+    ["poison", "poison"],
+    ["frost", "frost"],
+    ["shock", "shock"],
+    ["fire", "fire"],
+    ["magic", "magic"],
+  ];
+  for (const [needle, out] of map) {
+    if (raw.includes(needle)) return out;
+  }
+  return null;
+}
+
+function _parseLegacyTypedNumeric(value) {
+  const number = _extractFirstNumber(value);
+  const type = _inferTypedLaneFromText(value);
+  return { number, type };
+}
+
+function _applyLegacyArmorTypedFields(system) {
+  if (!system || typeof system !== "object") return false;
+  let changed = false;
+  const numericArmorFields = ["magic_ar", "special_ar", "armor", "blockRating"];
+
+  for (const key of numericArmorFields) {
+    const raw = system[key];
+    if (raw === undefined || raw === null) continue;
+    if (typeof raw === "number" && Number.isFinite(raw)) continue;
+
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        system[key] = 0;
+        changed = true;
+        continue;
+      }
+
+      const asNum = Number(trimmed);
+      if (Number.isFinite(asNum)) {
+        system[key] = asNum;
+        changed = true;
+        continue;
+      }
+
+      const parsed = _parseLegacyTypedNumeric(trimmed);
+      if (parsed.number !== null) {
+        system[key] = parsed.number;
+        changed = true;
+        if (parsed.type && !String(system.special_ar_type ?? "").trim()) {
+          system.special_ar_type = parsed.type;
+          changed = true;
+        }
+        continue;
+      }
+    }
+
+    system[key] = 0;
+    changed = true;
+  }
+
+  const sat = String(system.special_ar_type ?? "").trim().toLowerCase();
+  const valid = new Set(["", "fire", "frost", "shock", "poison", "disease", "magic", "silver", "sunlight"]);
+  if (!valid.has(sat)) {
+    system.special_ar_type = _inferTypedLaneFromText(sat) ?? "";
+    changed = true;
+  }
+
+  return changed;
+}
+
+function _supportedItemTypes() {
+  return new Set(Object.keys(DEFAULTS?.itemSystem ?? {}));
 }
 
 function _debugEnabled() {
@@ -217,16 +306,12 @@ function _normalizeAmmoSystem(item, sys = {}) {
 }
 
 async function _migrateWorldItems() {
+  const supportedTypes = _supportedItemTypes();
   const updates = [];
   for (const item of game.items.contents) {
-    if (!["weapon", "armor", "ammunition"].includes(item.type)) continue;
-    const sys = item.system ?? {};
-    const update =
-      item.type === "weapon" ? _normalizeWeaponSystem(item, sys)
-      : item.type === "armor" ? _normalizeArmorSystem(item, sys)
-      : _normalizeAmmoSystem(item, sys);
-
-    if (Object.keys(update).length) {
+    if (!supportedTypes.has(item.type)) continue;
+    const update = _normalizeItemSystem(item);
+    if (update) {
       update._id = item.id;
       updates.push(update);
     }
@@ -239,17 +324,13 @@ async function _migrateWorldItems() {
 }
 
 async function _migrateActorItems() {
+  const supportedTypes = _supportedItemTypes();
   for (const actor of game.actors.contents) {
     const updates = [];
     for (const item of actor.items.contents) {
-      if (!["weapon", "armor", "ammunition"].includes(item.type)) continue;
-      const sys = item.system ?? {};
-      const update =
-        item.type === "weapon" ? _normalizeWeaponSystem(item, sys)
-        : item.type === "armor" ? _normalizeArmorSystem(item, sys)
-        : _normalizeAmmoSystem(item, sys);
-
-      if (Object.keys(update).length) {
+      if (!supportedTypes.has(item.type)) continue;
+      const update = _normalizeItemSystem(item);
+      if (update) {
         update._id = item.id;
         updates.push(update);
       }
@@ -387,6 +468,10 @@ function _normalizeItemSystem(item) {
   if (!type || !Object.prototype.hasOwnProperty.call(DEFAULTS?.itemSystem ?? {}, type)) return null;
 
   const currentSystem = _deepCloneSystem(item.system);
+  let preChanged = false;
+  if (type === "armor") {
+    preChanged = _applyLegacyArmorTypedFields(currentSystem) || preChanged;
+  }
   const ignorePaths = (DEFAULTS.__meta?.ignorePathsByType?.[type] ?? []).slice();
   const allowNonNumeric = _NON_NUMERIC_ALLOWLIST[type] ?? [];
   for (const key of allowNonNumeric) {
@@ -394,7 +479,7 @@ function _normalizeItemSystem(item) {
   }
   const { result: system, changed: defaultsChanged } = applyDefaults(currentSystem, DEFAULTS.itemSystem[type], { coerce: true, ignorePaths });
 
-  let changed = !!defaultsChanged;
+  let changed = Boolean(defaultsChanged || preChanged);
   let deleteEquippped = false;
 
   // Attack mode canonicalization (weapon only): melee|ranged
@@ -438,9 +523,10 @@ function _normalizeItemSystem(item) {
 }
 
 async function _normalizeWorldItems() {
+  const supportedTypes = _supportedItemTypes();
   const updates = [];
   for (const item of game.items.contents) {
-    if (!["weapon", "armor", "ammunition"].includes(item.type)) continue;
+    if (!supportedTypes.has(item.type)) continue;
     const update = _normalizeItemSystem(item);
     if (update) {
       update._id = item.id;
@@ -455,10 +541,11 @@ async function _normalizeWorldItems() {
 }
 
 async function _normalizeActorItems() {
+  const supportedTypes = _supportedItemTypes();
   for (const actor of game.actors.contents) {
     const updates = [];
     for (const item of actor.items.contents) {
-      if (!["weapon", "armor", "ammunition"].includes(item.type)) continue;
+      if (!supportedTypes.has(item.type)) continue;
       const update = _normalizeItemSystem(item);
       if (update) {
         update._id = item.id;

@@ -12,7 +12,7 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
     id: "uesrpg-combat-settings",
     tag: "form",
     form: {
-      handler: CombatSettingsAppV2.#onSubmit,
+      handler: CombatSettingsAppV2._onSubmit,
       closeOnSubmit: true,
       submitOnChange: false,
     },
@@ -41,7 +41,7 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
     };
   }
 
-  static async #onSubmit(event, form, formData) {
+  static async _onSubmit(event, form, formData) {
     const data = formData.object;
     const toBool = (v) => Boolean(v);
     if ("enableActionEconomyUI" in data) await game.settings.set(NAMESPACE, "enableActionEconomyUI", toBool(data.enableActionEconomyUI));

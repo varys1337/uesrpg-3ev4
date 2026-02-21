@@ -234,6 +234,29 @@
                                 </div>
                             </div>
 
+                            {{!-- Active Enchantment display (read-only; written by Enchanting Workshop) --}}
+                            {{#if enchantmentDisplay}}
+                            <div class="weapon-attributes-section weapon-enchantment-display">
+                                <h3>Active Enchantment</h3>
+                                <div class="weapon-field-row">
+                                    <label>Type</label>
+                                    <span class="styled-font-gold">{{enchantmentDisplay.typeLabel}}</span>
+                                </div>
+                                {{#if enchantmentDisplay.useCharges}}
+                                <div class="weapon-field-row">
+                                    <label>Charge Pool</label>
+                                    <span>{{enchantmentDisplay.chargeValue}} / {{enchantmentDisplay.chargeMax}}</span>
+                                </div>
+                                {{/if}}
+                                {{#each enchantmentDisplay.effects as |fx|}}
+                                <div class="weapon-enchant-effect-row">
+                                    <span class="enchant-effect-label">{{fx.label}}</span>
+                                    <span class="enchant-effect-params u-text-muted">{{fx.paramSummary}}</span>
+                                </div>
+                                {{/each}}
+                            </div>
+                            {{/if}}
+
                             <div class="weapon-attributes-section">
                                 <h3>Damage Instances</h3>
                                 <p class="u-text-muted u-text-xs">Additional damage types (e.g. elemental enchantments)</p>

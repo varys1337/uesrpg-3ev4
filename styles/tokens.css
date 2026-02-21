@@ -82,6 +82,14 @@
   --uesrpg-shadow-sm:           0 1px 3px rgba(0, 0, 0, 0.12);
   --uesrpg-shadow-md:           0 2px 6px rgba(0, 0, 0, 0.15);
   --uesrpg-shadow-focus:        0 0 0 2px rgba(0, 100, 200, 0.35);
+  --uesrpg-shadow-dialog:       0 4px 20px rgba(0, 0, 0, 0.35), 0 1px 4px rgba(0, 0, 0, 0.2);
+  --uesrpg-shadow-inset-top:    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* ── Gold Accent (dialog states, section markers) ───────────────── */
+  --uesrpg-gold:                rgba(218, 165, 32, 1);
+  --uesrpg-gold-faint:          rgba(218, 165, 32, 0.08);
+  --uesrpg-gold-mid:            rgba(218, 165, 32, 0.22);
+  --uesrpg-gold-glow:           0 0 8px rgba(218, 165, 32, 0.18);
 
   /* ── Component Dimensions ───────────────────────────────────────── */
   --uesrpg-input-h:             24px;
@@ -93,7 +101,7 @@
   --uesrpg-sidebar-width:       253px;
   --uesrpg-combat-stat-size:    60px;
   /* Banner / profile image variables */
-  --uesrpg-banner-url:         url("../images/elements/backgrounds/parchment5.jpg");
+  --uesrpg-banner-url:         url("../images/elements/backgrounds/parchment3.jpg");
   --uesrpg-parchment-url:      url("../images/elements/backgrounds/pale_parchment.webp");
     --uesrpg-sidebar-url:        url("../images/elements/backgrounds/drop_shadow_parchment.jpg");
     /* Alternative sidebar textures (choose one if you'd prefer):
@@ -101,8 +109,8 @@
       - ../images/elements/backgrounds/parchment4.jpg
       - ../images/elements/backgrounds/parchment6.jpg
     */
-  --uesrpg-frame-url:          url("../images/elements/uielements/banner4.webp");
-  --uesrpg-banner-overlay-url: url("../images/elements/uielements/banner4.webp");
+  --uesrpg-frame-url:          url("../images/elements/uielements/rectangle4_black.webp");
+  --uesrpg-banner-overlay-url: url("../images/elements/uielements/rectangle4_black.webp");
   --uesrpg-profile-size:       128px;
   --uesrpg-thumb-size:         48px;
     /* Sidebar banner height (percentage of the sidebar to cover). Tweak to change how much

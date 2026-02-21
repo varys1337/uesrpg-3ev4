@@ -12,7 +12,7 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     id: "uesrpg-interface-settings",
     tag: "form",
     form: {
-      handler: InterfaceSettingsAppV2.#onSubmit,
+      handler: InterfaceSettingsAppV2._onSubmit,
       closeOnSubmit: true,
       submitOnChange: false,
     },
@@ -44,10 +44,12 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
       noStartUpDialog: game.settings.get(NAMESPACE, "noStartUpDialog"),
       sortAlpha: game.settings.get(NAMESPACE, "sortAlpha"),
       enableLoadouts: game.settings.get(NAMESPACE, "enableLoadouts"),
+      customCursor: game.settings.get(NAMESPACE, "customCursor"),
+      autoResizeSheets: game.settings.get(NAMESPACE, "autoResizeSheets"),
     };
   }
 
-  static async #onSubmit(event, form, formData) {
+  static async _onSubmit(event, form, formData) {
     const data = formData.object;
     const toBool = (v) => Boolean(v);
     const toString = (v) => String(v ?? "").trim();
@@ -56,5 +58,7 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     if ("noStartUpDialog" in data) await game.settings.set(NAMESPACE, "noStartUpDialog", toBool(data.noStartUpDialog));
     if ("sortAlpha" in data) await game.settings.set(NAMESPACE, "sortAlpha", toBool(data.sortAlpha));
     if ("enableLoadouts" in data) await game.settings.set(NAMESPACE, "enableLoadouts", toBool(data.enableLoadouts));
+    if ("customCursor" in data) await game.settings.set(NAMESPACE, "customCursor", toBool(data.customCursor));
+    if ("autoResizeSheets" in data) await game.settings.set(NAMESPACE, "autoResizeSheets", toBool(data.autoResizeSheets));
   }
 }

@@ -1,4 +1,5 @@
 import { systemRootPath } from "../../core/constants.js";
+import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 /**
  * Capitalize the first letter of a string.
@@ -9,34 +10,26 @@ function capitalizeFirstLetter(string) {
   return string.charAt(0).toUpperCase() + string.slice(1);
 }
 
-const handleDialogResult = (html) => {
-  return $(html).find('input[type="radio"]:checked').val();
-};
+const getUserChoice = async (choices, penalty, defaultChoice) => {
+  const choiceTemplatePath = `${systemRootPath}/templates/partials/dialogs/choose-birthsign-penalty.hbs`;
+  const content = await foundry.applications.handlebars.renderTemplate(choiceTemplatePath, {
+    choices,
+    penalty,
+    chosen: defaultChoice,
+    groupName: "penaltyChoices"
+  });
 
-const getUserChoice = (choices, penalty, defaultChoice) => {
-  return new Promise(async (resolve) => {
-const choiceTemplatePath = `${systemRootPath}/templates/partials/dialogs/choose-birthsign-penalty.hbs`;
-const choiceTemplateHtml = await foundry.applications.handlebars.renderTemplate(choiceTemplatePath, {
-  choices,
-  penalty,
-  chosen: defaultChoice,
-  groupName: "penaltyChoices"
-});
-    const dialog = new Dialog({
-      title: "Choose Birthsign Penalty",
-      content: choiceTemplateHtml,
-      buttons: {
-        one: {
-          label: "Cancel",
-          callback: () => resolve(null),
-        },
-        two: {
-          label: "Submit",
-          callback: (html) => resolve(handleDialogResult(html)),
-        },
+  return customDialog({
+    title: "Choose Birthsign Penalty",
+    content,
+    buttons: {
+      cancel: { label: "Cancel", callback: () => null },
+      submit: {
+        label: "Submit",
+        callback: (html) => html.querySelector('input[type="radio"]:checked')?.value ?? null,
       },
-    });
-    dialog.render(true);
+    },
+    defaultButton: "submit",
   });
 };
 
@@ -45,5 +38,5 @@ export default async function chooseBirthsignPenalty(attributes, penalty) {
   for (const attribute of attributes) {
     choices[attribute] = capitalizeFirstLetter(attribute);
   }
-  return await getUserChoice(choices, penalty, attributes[0]);
+  return getUserChoice(choices, penalty, attributes[0]);
 }

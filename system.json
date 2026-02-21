@@ -12,7 +12,6 @@
     "styles/stamina-dialog.css",
     "styles/spell-sheet-compact.css",
     "styles/item-sheet-compact.css",
-    "styles/group-sheet.css",
     "styles/feature-inspector.css",
     "styles/character-menus.css"
   ],
@@ -115,6 +114,22 @@
       "private": false,
       "type": "Actor",
       "system": "uesrpg-3ev4"
+    },
+    {
+      "name": "macros",
+      "label": "Macros",
+      "path": "./packs/macros",
+      "private": false,
+      "type": "Macro",
+      "system": "uesrpg-3ev4"
+    },
+    {
+      "name": "system-macros",
+      "label": "System Macros",
+      "path": "./packs/system-macros",
+      "private": false,
+      "type": "Macro",
+      "system": "uesrpg-3ev4"
     }
   ],
   "packFolders": [
@@ -134,6 +149,7 @@
         "talents-revised",
         "traits-revised",
         "powers-revised",
+		"system-macros",
         "inhabitants-of-tamriel",
         "rules-reference",
         "journal",

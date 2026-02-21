@@ -32,6 +32,11 @@ import { validateSpellConfig, formatSpellValidationMessage } from "../../../core
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { hasTalent } from "../../../core/traits/talents-api.js";
 import { activateEditorButtons } from "../shared/editor-activation.js";
+import { DEFAULTS } from "../../../core/migrations/item-defaults.generated.js";
+import { traceSheetPerf } from "../../../core/debug/perf.js";
+import { bindDelegated } from "./_delegated-bindings.js";
+import { drinkPotion, applyAlchemyToWeapon } from "../../../core/alchemy/runtime.js";
+import { alertDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
@@ -90,6 +95,104 @@ function _normalizeChaKey(v = "") {
     case "luck": return "lck";
     default: return s;
   }
+}
+
+const _ARMOR_TYPED_NUMERIC_FIELDS = new Set(["magic_ar", "special_ar", "armor", "blockRating"]);
+
+function _isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function _cloneForRender(value) {
+  try {
+    return foundry?.utils?.deepClone ? foundry.utils.deepClone(value ?? {}) : structuredClone(value ?? {});
+  } catch (_e) {
+    return JSON.parse(JSON.stringify(value ?? {}));
+  }
+}
+
+function _extractFirstNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const m = raw.match(/[-+]?\d+(?:\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _inferTypedLaneFromText(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  const map = [
+    ["sunlight", "sunlight"],
+    ["silver", "silver"],
+    ["disease", "disease"],
+    ["poison", "poison"],
+    ["frost", "frost"],
+    ["shock", "shock"],
+    ["fire", "fire"],
+    ["magic", "magic"],
+  ];
+  for (const [needle, out] of map) {
+    if (raw.includes(needle)) return out;
+  }
+  return null;
+}
+
+function _coerceNumericValue(raw, defaultValue, path, rootSystem) {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (raw === undefined || raw === null || raw === "") return Number(defaultValue ?? 0) || 0;
+
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    const asNum = Number(trimmed);
+    if (Number.isFinite(asNum)) return asNum;
+
+    const parsed = _extractFirstNumber(trimmed);
+    if (parsed !== null) {
+      const field = path[path.length - 1] ?? "";
+      if (_ARMOR_TYPED_NUMERIC_FIELDS.has(field)) {
+        const lane = _inferTypedLaneFromText(trimmed);
+        if (lane && !String(rootSystem?.special_ar_type ?? "").trim()) {
+          rootSystem.special_ar_type = lane;
+        }
+      }
+      return parsed;
+    }
+  }
+
+  return Number(defaultValue ?? 0) || 0;
+}
+
+function _sanitizeNumericBySchema(node, schema, rootSystem, path = []) {
+  if (!_isPlainObject(schema)) return;
+  if (!_isPlainObject(node)) return;
+
+  for (const [key, schemaValue] of Object.entries(schema)) {
+    const nextPath = path.concat(key);
+    const current = node[key];
+
+    if (typeof schemaValue === "number") {
+      node[key] = _coerceNumericValue(current, schemaValue, nextPath, rootSystem);
+      continue;
+    }
+
+    if (_isPlainObject(schemaValue)) {
+      if (!_isPlainObject(current)) node[key] = {};
+      _sanitizeNumericBySchema(node[key], schemaValue, rootSystem, nextPath);
+      continue;
+    }
+  }
+}
+
+function _buildSanitizedRenderSystem(itemType, systemData) {
+  const cloned = _cloneForRender(systemData ?? {});
+  const schema = DEFAULTS?.itemSystem?.[itemType] ?? null;
+  if (!schema) return cloned;
+  _sanitizeNumericBySchema(cloned, schema, cloned);
+  return cloned;
 }
 
 export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Base) {
@@ -168,6 +271,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       reExpand: SimpleItemSheetV2.prototype._onReExpand,
       reAddCondition: SimpleItemSheetV2.prototype._onReAddCondition,
       reConditionDelete: SimpleItemSheetV2.prototype._onReConditionDelete,
+      // ── Alchemy ingredient actions ───────────────────────────────────
+      enableAlchemyIngredient: SimpleItemSheetV2.prototype._onEnableAlchemyIngredient,
+      clearAlchemyIngredient: SimpleItemSheetV2.prototype._onClearAlchemyIngredient,
+      // ── Alchemy product actions ──────────────────────────────────────
+      enableAlchemyProduct: SimpleItemSheetV2.prototype._onEnableAlchemyProduct,
+      clearAlchemyProduct: SimpleItemSheetV2.prototype._onClearAlchemyProduct,
+      drinkAlchemyProduct: SimpleItemSheetV2.prototype._onDrinkAlchemyProduct,
+      applyAlchemyProductToWeapon: SimpleItemSheetV2.prototype._onApplyAlchemyProductToWeapon,
     },
   };
 
@@ -267,13 +378,15 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * `prepareItemSheetData()` helper used by both V1 and V2.
    */
   async _prepareContext(options) {
-    const context = await super._prepareContext(options);
+    const perfStart = performance.now();
+    try {
+      const context = await super._prepareContext(options);
 
     // V1-compatible fields expected by templates + prepareItemSheetData
     // Overlay live system data so derived fields (value, *Effective, etc.)
     // survive into templates — same pattern as actor sheets.
     context.item = this.document.toObject();
-    context.item.system = this.document.system;
+    context.item.system = _buildSanitizedRenderSystem(this.document?.type, this.document?.system);
     context.data = context.item.system; // legacy alias
     context.editable = this.isEditable;
     context.isGM = game.user.isGM;
@@ -282,8 +395,21 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     context.cssClass = this.isEditable ? "editable" : "locked";
     context.options = { editable: this.isEditable };
 
-    // Shared data preparation (enriches description, derives computed values, etc.)
-    return await prepareItemSheetData(this, context);
+      // Shared data preparation (enriches description, derives computed values, etc.)
+      return await prepareItemSheetData(this, context);
+    } finally {
+      traceSheetPerf({
+        sheet: "SimpleItemSheetV2",
+        document: this.document,
+        stage: "_prepareContext",
+        startedAtMs: perfStart,
+        // Avoid expensive queries; only log lightweight counters.
+        details: {
+          renderKeys: options ? Object.keys(options).length : 0,
+        },
+        warnThresholdMs: 40,
+      });
+    }
   }
 
   _getMaxPurchasableRankIndex(actor) {
@@ -932,6 +1058,157 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     await onReConditionDelete(this.document, reId, condIdx);
   }
 
+  /* ═══════════════════════ Alchemy Ingredient Handlers ══════════════ */
+
+  /**
+   * Enable this generic item as an alchemy ingredient by writing the alchemy flags.
+   * Sets default values for school, strengthBase, and depthBase.
+   */
+  async _onEnableAlchemyIngredient(event) {
+    event.preventDefault();
+    await requestUpdateDocument(this.document, {
+      "flags.uesrpg-3ev4.alchemy": {
+        kind: "ingredient",
+        school: "destruction",
+        strengthBase: 5,
+        depthBase: 2,
+      },
+    });
+  }
+
+  /**
+   * Remove alchemy ingredient status from this item by deleting the alchemy flags.
+   */
+  async _onClearAlchemyIngredient(event) {
+    event.preventDefault();
+    await requestUpdateDocument(this.document, {
+      "flags.uesrpg-3ev4.-=alchemy": null,
+    });
+  }
+
+  /* ═══════════════════════ Alchemy Product Handlers ═════════════════ */
+
+  /**
+   * Enable this generic item as an alchemy product (potion / poison / toxin).
+   * Writes minimal alchemy flags and marks the item as consumable.
+   */
+  async _onEnableAlchemyProduct(event, target) {
+    event.preventDefault();
+    const kind = String(target?.dataset?.kind ?? "potion");
+    if (!(["potion", "poison", "toxin"].includes(kind))) {
+      ui.notifications.warn("Unknown alchemy product type.");
+      return;
+    }
+
+    const baseFlags = {
+      kind,
+      backfired: false,
+      brew: {
+        alchemistActorUuid: this.actor?.uuid ?? null,
+        alchemyRank: null,
+        brewedAt: Date.now(),
+      },
+    };
+
+    const kindFlags = kind === "poison"
+      ? { poisonLevel: 1, damageFormula: "1d4" }
+      : kind === "toxin"
+      ? { effects: [], durationRounds: 10, maxHits: 3 }
+      : { effects: [] };
+
+    await requestUpdateDocument(this.document, {
+      "system.consumable": true,
+      "system.wearable": false,
+      "system.equipped": false,
+      "flags.uesrpg-3ev4.alchemy": { ...baseFlags, ...kindFlags },
+    });
+  }
+
+  /** Remove alchemy product flags from this item. */
+  async _onClearAlchemyProduct(event) {
+    event.preventDefault();
+    await requestUpdateDocument(this.document, {
+      "flags.uesrpg-3ev4.-=alchemy": null,
+    });
+  }
+
+  /** Drink a potion directly from the item sheet (owned items only). */
+  async _onDrinkAlchemyProduct(event) {
+    event.preventDefault();
+
+    const actor = this.actor;
+    if (!actor) {
+      ui.notifications.warn("This item is not owned by an actor.");
+      return;
+    }
+
+    const kind = this.document?.flags?.["uesrpg-3ev4"]?.alchemy?.kind;
+    if (kind !== "potion") {
+      ui.notifications.warn("Only potions can be drunk.");
+      return;
+    }
+
+    await drinkPotion(actor, this.document);
+  }
+
+  /** Apply a poison/toxin to an equipped weapon (owned items only). */
+  async _onApplyAlchemyProductToWeapon(event) {
+    event.preventDefault();
+
+    const actor = this.actor;
+    if (!actor) {
+      ui.notifications.warn("This item is not owned by an actor.");
+      return;
+    }
+
+    const kind = String(this.document?.flags?.["uesrpg-3ev4"]?.alchemy?.kind ?? "");
+    if (!(kind === "poison" || kind === "toxin")) {
+      ui.notifications.warn("Only poisons and toxins can be applied to weapons.");
+      return;
+    }
+
+    const weapons = actor.items.filter((i) => i.type === "weapon" && i.system?.equipped === true);
+    if (!weapons.length) {
+      await alertDialog({
+        title: "Apply to Weapon",
+        content: "<p>No equipped weapons were found on this actor.</p>",
+      });
+      return;
+    }
+
+    const options = weapons.map((w) => `<option value="${w.id}">${w.name}</option>`).join("");
+    const content = `
+      <div class="uesrpg-apply-alchemy-form">
+        <div class="form-group">
+          <label>Weapon</label>
+          <select name="weaponId">${options}</select>
+        </div>
+      </div>
+    `;
+
+    const weaponId = await customDialog({
+      title: "Apply to Weapon",
+      content,
+      yes: {
+        label: "Apply",
+        icon: "fas fa-check",
+        callback: (html) => html?.querySelector?.("select[name='weaponId']")?.value,
+      },
+      no: { label: "Cancel", icon: "fas fa-times" },
+      defaultButton: "yes",
+    });
+
+    if (!weaponId || typeof weaponId !== "string") return;
+
+    const weapon = actor.items.get(weaponId);
+    if (!weapon) {
+      ui.notifications.warn("Selected weapon could not be found.");
+      return;
+    }
+
+    await applyAlchemyToWeapon(actor, this.document, weapon);
+  }
+
   /* ═══════════════════════ Native Non-Click Listeners ═══════════════ */
 
   /**
@@ -1054,30 +1331,36 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     try { recipesEnabled = game.settings.get("uesrpg-3ev4", "enableSpellRecipes") === true; } catch (_e) { /* noop */ }
 
     if (recipesEnabled) {
-      el.addEventListener("change", async (ev) => {
-        if (!ev.target.closest("[data-recipe-input]")) return;
-        if (!this.isEditable) return;
-
-        // Collect all recipes from DOM rows.
-        const rows = el.querySelectorAll(".spell-recipe-row");
-        const recipes = [];
-        rows.forEach(row => {
-          recipes.push({
-            key:    row.querySelector('[name$=".key"]')?.value || "",
-            mode:   row.querySelector('[name$=".mode"]')?.value || "add",
-            value:  row.querySelector('[name$=".value"]')?.value || "",
-            target: row.querySelector('[name$=".target"]')?.value || "target",
-            label:  row.querySelector('[name$=".label"]')?.value || ""
-          });
-        });
-
-        logSpellDebug("Recipe auto-save", { recipeCount: recipes.length });
-
+      const debouncedRecipeUpdate = foundry.utils.debounce(async (recipes) => {
         try {
           await requestUpdateDocument(this.document, { "system.engine.effects.recipes": recipes });
         } catch (err) {
           console.warn("UESRPG | Failed to auto-save recipe change", err);
         }
+      }, 200);
+
+      el.addEventListener("change", async (ev) => {
+        if (!ev.target.closest("[data-recipe-input]")) return;
+        if (!this.isEditable) return;
+
+        // Patch only the row that changed.
+        const row = ev.target.closest(".spell-recipe-row");
+        const idx = Number(row?.dataset?.recipeIndex);
+        if (!row || Number.isNaN(idx) || idx < 0) return;
+
+        const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
+        while (recipes.length <= idx) recipes.push({ key: "", mode: "add", value: "", target: "target", label: "" });
+
+        recipes[idx] = {
+          key: row.querySelector('[name$=".key"]')?.value || "",
+          mode: row.querySelector('[name$=".mode"]')?.value || "add",
+          value: row.querySelector('[name$=".value"]')?.value || "",
+          target: row.querySelector('[name$=".target"]')?.value || "target",
+          label: row.querySelector('[name$=".label"]')?.value || ""
+        };
+
+        logSpellDebug("Recipe auto-save", { recipeIndex: idx, recipeCount: recipes.length });
+        debouncedRecipeUpdate(recipes);
       });
     }
 
@@ -1191,78 +1474,61 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   _registerRuleElementListeners(el) {
     const item = this.document;
 
-    // ── Toggle enable/disable checkbox ───────────────────────────────
-    for (const cb of el.querySelectorAll('.re-item-toggle input[type="checkbox"]')) {
-      cb.addEventListener("change", (ev) => {
-        const li = ev.currentTarget.closest(".re-item");
-        onReToggle(item, li?.dataset?.reId, ev.currentTarget.checked);
-      });
-    }
-
-    // ── Label change ────────────────────────────────────────────────
-    for (const inp of el.querySelectorAll(".re-item-label")) {
-      inp.addEventListener("change", (ev) => {
-        const li = ev.currentTarget.closest(".re-item");
-        onReLabelChange(item, li?.dataset?.reId, ev.currentTarget.value);
-      });
-    }
-
-    // ── Predicate textarea change ───────────────────────────────────
-    for (const ta of el.querySelectorAll(".re-predicate-input")) {
-      ta.addEventListener("change", (ev) => {
-        const li = ev.currentTarget.closest(".re-item");
-        onRePredicateChange(item, li?.dataset?.reId, ev.currentTarget.value);
-      });
-    }
-
-    // ── Workflow scope toggles ──────────────────────────────────────
-    for (const cb of el.querySelectorAll(".re-workflow-toggle")) {
-      cb.addEventListener("change", (ev) => {
-        const li = ev.currentTarget.closest(".re-item");
-        const workflow = String(ev.currentTarget.dataset.workflow ?? "").trim();
-        onReWorkflowToggle(item, li?.dataset?.reId, workflow, ev.currentTarget.checked);
-      });
-    }
-
-    // ── Condition field edits (delegated on .re-list) ───────────────
+    // Delegate change handling to the list container to minimize
+    // per-render listener churn.
     const reList = el.querySelector(".re-list");
-    if (reList) {
-      reList.addEventListener("change", (ev) => {
-        const input = ev.target.closest(".re-condition-input");
-        if (!input) return;
-        const li = input.closest(".re-item");
-        const reId = li?.dataset?.reId;
-        const condIdx = Number(input.dataset.condIdx);
-        const condField = String(input.dataset.condField ?? "").trim();
+    if (!reList) return;
 
-        let value;
-        if (input.type === "checkbox") {
-          value = input.checked;
-        } else if (input.type === "number") {
-          value = Number(input.value) || 0;
-        } else {
-          value = input.value;
-        }
+    bindDelegated(reList, "change", ".re-item-toggle input[type=\"checkbox\"]", (ev, cb) => {
+      const li = cb.closest(".re-item");
+      onReToggle(item, li?.dataset?.reId, cb.checked);
+    });
 
-        onReConditionFieldChange(item, reId, condIdx, condField, value, input.type);
-      });
-    }
+    bindDelegated(reList, "change", ".re-item-label", (ev, inp) => {
+      const li = inp.closest(".re-item");
+      onReLabelChange(item, li?.dataset?.reId, inp.value);
+    });
 
-    // ── Drag-drop reorder ───────────────────────────────────────────
-    for (const li of el.querySelectorAll(".re-item")) {
-      li.addEventListener("dragstart", (ev) => {
-        ev.dataTransfer?.setData("text/plain", String(li.dataset.reId ?? ""));
-      });
-      li.addEventListener("dragover", (ev) => {
-        ev.preventDefault();
-      });
-      li.addEventListener("drop", async (ev) => {
-        ev.preventDefault();
-        const sourceId = ev.dataTransfer?.getData("text/plain");
-        const targetId = li.dataset.reId;
-        await onReReorder(item, sourceId, targetId);
-      });
-    }
+    bindDelegated(reList, "change", ".re-predicate-input", (ev, ta) => {
+      const li = ta.closest(".re-item");
+      onRePredicateChange(item, li?.dataset?.reId, ta.value);
+    });
+
+    bindDelegated(reList, "change", ".re-workflow-toggle", (ev, cb) => {
+      const li = cb.closest(".re-item");
+      const workflow = String(cb.dataset.workflow ?? "").trim();
+      onReWorkflowToggle(item, li?.dataset?.reId, workflow, cb.checked);
+    });
+
+    bindDelegated(reList, "change", ".re-condition-input", (ev, input) => {
+      const li = input.closest(".re-item");
+      const reId = li?.dataset?.reId;
+      const condIdx = Number(input.dataset.condIdx);
+      const condField = String(input.dataset.condField ?? "").trim();
+
+      let value;
+      if (input.type === "checkbox") value = input.checked;
+      else if (input.type === "number") value = Number(input.value) || 0;
+      else value = input.value;
+
+      onReConditionFieldChange(item, reId, condIdx, condField, value, input.type);
+    });
+
+    // Drag-drop reorder (delegated)
+    bindDelegated(reList, "dragstart", ".re-item", (ev, li) => {
+      ev.dataTransfer?.setData("text/plain", String(li.dataset.reId ?? ""));
+    });
+
+    bindDelegated(reList, "dragover", ".re-item", (ev) => {
+      ev.preventDefault();
+    });
+
+    bindDelegated(reList, "drop", ".re-item", async (ev, li) => {
+      ev.preventDefault();
+      const sourceId = ev.dataTransfer?.getData("text/plain");
+      const targetId = li.dataset.reId;
+      await onReReorder(item, sourceId, targetId);
+    });
   }
 
   /* ═══════════════════════ UI State Preservation ═════════════════════ */
@@ -1308,14 +1574,18 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * Restore saved UI state, bind listeners, and set up tabs on the fresh DOM.
    */
   _onRender(context, options) {
-    super._onRender(context, options);
+    const perfStart = performance.now();
+    /** @type {HTMLElement|null} */
+    let el = null;
+    try {
+      super._onRender(context, options);
 
-    const el = this.element;
-    if (!el) return;
+      el = this.element;
+      if (!el) return;
 
-    // ── Restore saved UI state ─────────────────────────────────────────
-    const state = this._savedState;
-    if (state) {
+      // ── Restore saved UI state ─────────────────────────────────────────
+      const state = this._savedState;
+      if (state) {
       // Expanded Rule Elements
       state.expandedREIds?.forEach(reId => {
         const li = el.querySelector(`.re-item[data-re-id="${reId}"]`);
@@ -1340,50 +1610,64 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         if (d) d.open = true;
       });
 
-      this._savedState = null;
-    }
+        this._savedState = null;
+      }
 
     // ── Type-specific CSS classes ──────────────────────────────────────
     // V1 passed the document type as a CSS class on the <form> element
     // (via {{cssClass}}).  In V2 we add it to the application wrapper so
     // selectors like `.worldbuilding.sheet.item.spell` continue to match.
-    el.classList.add(this.document.type);
+      el.classList.add(this.document.type);
 
     // Spell template originally also carried class="spell-sheet" on the
     // <form>; used by spell-sheet-compact.css with a different selector.
-    if (this.document.type === "spell") {
-      el.classList.add("spell-sheet");
-    }
+      if (this.document.type === "spell") {
+        el.classList.add("spell-sheet");
+      }
 
     // ── Tab handling (native AppV2) ─────────────────────────────────────
     // Different item types render different tab subsets; fall back to the
     // first nav anchor present if the remembered tab is absent.
-    const desiredTab = this.tabGroups.primary ?? "description";
-    const hasTab = el.querySelector(`.tabs [data-group="primary"][data-tab="${desiredTab}"]`);
-    const targetTab = hasTab ? desiredTab
-      : (el.querySelector('.tabs [data-group="primary"]')?.dataset?.tab ?? "description");
-    this.changeTab(targetTab, "primary", { force: true });
+      const desiredTab = this.tabGroups.primary ?? "description";
+      const hasTab = el.querySelector(`.tabs [data-group="primary"][data-tab="${desiredTab}"]`);
+      const targetTab = hasTab ? desiredTab
+        : (el.querySelector('.tabs [data-group="primary"]')?.dataset?.tab ?? "description");
+      this.changeTab(targetTab, "primary", { force: true });
 
-    // ── Type-specific native listeners ─────────────────────────────────
-    const type = this.document.type;
-    if (type === "ammunition") this._registerAmmunitionListeners(el);
-    if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
-    if (type === "spell") this._registerSpellListeners(el);
-    if (type === "container") this._registerContainmentListeners(el);
+      // ── Type-specific native listeners ───────────────────────────────
+      const type = this.document.type;
+      if (type === "ammunition") this._registerAmmunitionListeners(el);
+      if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
+      if (type === "spell") this._registerSpellListeners(el);
+      if (type === "container") this._registerContainmentListeners(el);
 
-    const _featureTypes = new Set(["trait", "talent", "power"]);
-    if (_featureTypes.has(type)) this._registerRuleElementListeners(el);
+      const _featureTypes = new Set(["trait", "talent", "power"]);
+      if (_featureTypes.has(type)) this._registerRuleElementListeners(el);
 
-    // ── Containment side-effect calls (keep snapshot data in sync) ─────
-    if (type === "container" && this.document.isOwned) {
-      void updateContainedItemsList(this);
+      // ── Containment side-effect calls (keep snapshot data in sync) ───
+      if (type === "container" && this.document.isOwned) {
+        void updateContainedItemsList(this);
+      }
+      if (this.document.system?.containerStats && type !== "container") {
+        void pushContainedItemData(this);
+      }
+
+      // ── Re-wire editor buttons (bypasses core activation when _renderHTML is custom) ───
+      activateEditorButtons(this, el);
+
+    } finally {
+      traceSheetPerf({
+        sheet: "SimpleItemSheetV2",
+        document: this.document,
+        stage: "_onRender",
+        startedAtMs: perfStart,
+        details: {
+          tab: this.tabGroups?.primary ?? null,
+          hasElement: Boolean(el),
+        },
+        warnThresholdMs: 32,
+      });
     }
-    if (this.document.system?.containerStats && type !== "container") {
-      void pushContainedItemData(this);
-    }
-
-    // ── Re-wire editor buttons (bypasses core activation when _renderHTML is custom) ─────
-    activateEditorButtons(this, el);
 
   }
 

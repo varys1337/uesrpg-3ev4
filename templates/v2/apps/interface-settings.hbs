@@ -25,6 +25,18 @@
     <label>Sheets: Enable Loadout</label>
     <input type="checkbox" name="enableLoadouts" {{checked enableLoadouts}}>
   </div>
+
+  <div class="form-group">
+    <label>Custom Cursor</label>
+    <input type="checkbox" name="customCursor" {{checked customCursor}}>
+    <p class="notes">Use the UESRPG stylized cursor (requires reload).</p>
+  </div>
+
+  <div class="form-group">
+    <label>Auto-resize Actor/Item Sheets</label>
+    <input type="checkbox" name="autoResizeSheets" {{checked autoResizeSheets}}>
+    <p class="notes">Automatically resize sheets to fit content (clamped to screen height).</p>
+  </div>
 </fieldset>
 
 <footer class="sheet-footer flexrow">

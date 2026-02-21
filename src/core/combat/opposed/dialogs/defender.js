@@ -101,6 +101,7 @@ export async function promptDefenderAdvantage({
   return await customDialog({
       title: "Use Defender Advantage",
       content,
+      classes: ["uesrpg-attack-declare"],
       buttons: {
         apply: {
           label: "Apply",

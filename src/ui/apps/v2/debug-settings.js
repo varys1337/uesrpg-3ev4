@@ -16,7 +16,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     id: "uesrpg-debug-settings",
     tag: "form",
     form: {
-      handler: DebugSettingsAppV2.#onSubmit,
+      handler: DebugSettingsAppV2._onSubmit,
       closeOnSubmit: true,
       submitOnChange: false,
     },
@@ -64,6 +64,8 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       aeLifecycleDebug: game.settings.get(NAMESPACE, "aeLifecycleDebug"),
       debugSkillTN: game.settings.get(NAMESPACE, "debugSkillTN"),
       sheetDiagnostics: game.settings.get(NAMESPACE, "sheetDiagnostics"),
+      sheetPerfTrace: game.settings.get(NAMESPACE, "sheetPerfTrace"),
+      perfDebug: game.settings.get(NAMESPACE, "perfDebug"),
       debugAim: game.settings.get(NAMESPACE, "debugAim"),
       debugActorSelect: game.settings.get(NAMESPACE, "debugActorSelect"),
     };
@@ -76,7 +78,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     };
   }
 
-  static async #onSubmit(event, form, formData) {
+  static async _onSubmit(event, form, formData) {
     const data = foundry.utils.expandObject(formData.object);
 
     const setIfPresent = async (scope, key) => {
@@ -113,6 +115,8 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     await setIfPresent("client", "aeLifecycleDebug");
     await setIfPresent("client", "debugSkillTN");
     await setIfPresent("client", "sheetDiagnostics");
+    await setIfPresent("client", "sheetPerfTrace");
+    await setIfPresent("client", "perfDebug");
     await setIfPresent("client", "debugAim");
     await setIfPresent("client", "debugActorSelect");
   }

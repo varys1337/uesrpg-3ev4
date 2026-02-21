@@ -39,8 +39,8 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
   const weaponSelect = (equippedWeapons.length >= 2)
     ? `
       <div class="form-group">
-        <label><b>Weapon</b></label>
-        <select name="weaponUuid" style="width:100%;">
+        <label>Weapon</label>
+        <select name="weaponUuid">
           ${equippedWeapons.map(w => {
             const sel = (w.uuid === preferredWeaponUuid) ? "selected" : "";
             return `<option value="${w.uuid}" ${sel}>${w.name}</option>`;
@@ -53,8 +53,8 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
   const styleSelect = showStyleSelect
     ? `
       <div class="form-group">
-        <label><b>Combat Style</b></label>
-        <select name="styleUuid" style="width:100%;">
+        <label>Combat Style</label>
+        <select name="styleUuid">
           ${styles.map(s => {
             const sel = (s.uuid === selectedStyleUuid) ? "selected" : "";
             return `<option value="${s.uuid}" ${sel}>${s.name}</option>`;
@@ -75,40 +75,17 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
   const hasBlinded = hasCondition(attackerActor, "blinded");
   const hasDeafened = hasCondition(attackerActor, "deafened");
   const sensoryControls = (hasBlinded || hasDeafened) ? `
-    <div class="form-group" style="margin-top:8px;">
-      <label><b>Sensory Impairment</b></label>
-      <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
-        ${hasBlinded ? '<label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="applyBlinded" checked/> <span>Apply Blinded (-30, sight-based)</span></label>' : ''}
-        ${hasDeafened ? '<label style="display:flex; gap:8px; align-items:center;"><input type="checkbox" name="applyDeafened" checked/> <span>Apply Deafened (-30, hearing-based)</span></label>' : ''}
-      </div>
-      <p style="opacity:0.8; font-size:12px; margin-top:6px;">
-        RAW: these penalties apply only to tests benefiting from the relevant sense.
-      </p>
+    <div class="uesrpg-sensory-section">
+      ${hasBlinded ? '<label><input type="checkbox" name="applyBlinded" checked/> <span>Apply Blinded (-30, sight-based)</span></label>' : ''}
+      ${hasDeafened ? '<label><input type="checkbox" name="applyDeafened" checked/> <span>Apply Deafened (-30, hearing-based)</span></label>' : ''}
+      <p class="uesrpg-sensory-hint">RAW: these penalties apply only to tests benefiting from the relevant sense.</p>
     </div>` : "";
 
   const content = `
-  <style>
-    /* Keep layout compact but prefer the shared adv-dialog styles for consistent alignment */
-    .uesrpg-attack-declare .form-row { display:flex; align-items:center; gap:12px; }
-    .uesrpg-attack-declare .form-row label { flex:0 0 140px; }
-    .uesrpg-attack-declare .form-row select,
-    .uesrpg-attack-declare .form-row input { flex:1 1 auto; width:100%; }
-    /* Use adv-grid defaults but keep a lightweight attacker-specific hook */
-    .uesrpg-attack-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 12px; }
-    .uesrpg-attack-grid .ps-location { margin-top:6px; width:100%; }
-    .uesrpg-attack-grid .ps-location select { width:100%; }
-    .uesrpg-attack-grid .ps-location.disabled { opacity:0.65; }
-    /* Force dialog footer buttons to be a single row, 2 columns (scoped to this dialog) */
-    .uesrpg-attack-declare .dialog-buttons { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .uesrpg-attack-declare .dialog-buttons button { width: 100%; }
-    @media (max-width: 520px) {
-      .uesrpg-attack-grid { grid-template-columns: 1fr; }
-    }
-  </style>
   <div class="uesrpg-attack-declare uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
     ${styleSelect}
     ${weaponSelect}
-    <div style="margin-top:12px;"><b>Attack Variation</b></div>
+    <div class="uesrpg-dialog-section-header">Attack Variation</div>
     <div class="uesrpg-adv-grid uesrpg-attack-grid">
       <label class="uesrpg-adv-choice">
         <input type="radio" name="attackVariant" value="normal" ${defaultVariant === "normal" ? "checked" : ""} />
@@ -123,7 +100,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
           <span class="uesrpg-adv-choice__desc">Melee only; +1 AP to +20 TN</span>
           ${hasThunderCharge ? `
             <div class="uesrpg-adv-inline ps-location ${defaultVariant === "allOut" ? "" : "disabled"}">
-              <label style="display:flex; align-items:center; gap:6px; margin:0;">
+              <label class="uesrpg-inline-check">
                 <input type="checkbox" name="thunderChargeToggle" ${defaultVariant === "allOut" ? "" : "disabled"} />
                 <span>Thunderous Charge: waive All Out surcharge</span>
               </label>
@@ -153,26 +130,26 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
     </div>
 
     ${showEyeOfNight ? `
-    <div class="form-group" style="margin-top:10px;">
-      <label style="display:flex; align-items:center; gap:8px;">
+    <div class="uesrpg-eon-section">
+      <label>
         <input type="checkbox" name="eyeOfNight" />
-        <span><b>Eye of Night</b> (night/darkness): Precision Strike without -20</span>
+        <span>Eye of Night (night/darkness): Precision Strike without -20</span>
       </label>
-      <p style="opacity:0.8; font-size:12px; margin-top:6px;">Chapter 4: applies to the first attack made while Hidden.</p>
+      <p class="uesrpg-eon-hint">Chapter 4: applies to the first attack made while Hidden.</p>
     </div>` : ""}
-	
-    <div class="form-group" style="margin-top:12px;">
-      <label><b>Combat Circumstance Modifiers</b></label>
-      <select name="circMod" style="width:100%;">
+
+    <div class="form-group">
+      <label>Circumstance</label>
+      <select name="circMod">
         <option value="0" ${Number(defaultCirc) === 0 ? "selected" : ""}>—</option>
         <option value="-10" ${Number(defaultCirc) === -10 ? "selected" : ""}>Minor Disadvantage (-10)</option>
         <option value="-20" ${Number(defaultCirc) === -20 ? "selected" : ""}>Disadvantage (-20)</option>
         <option value="-30" ${Number(defaultCirc) === -30 ? "selected" : ""}>Major Disadvantage (-30)</option>
       </select>
     </div>
-    <div class="form-group" style="margin-top:12px;">
-      <label><b>Manual Modifier</b></label>
-      <input name="manualMod" type="number" value="${Number(defaultManual) || 0}" style="width:100%;" />
+    <div class="form-group">
+      <label>Manual Modifier</label>
+      <input name="manualMod" type="number" value="${Number(defaultManual) || 0}" />
     </div>
   
     ${sensoryControls}

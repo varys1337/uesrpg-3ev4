@@ -165,6 +165,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
         }
       },
       default: "commit",
+      classes: ["uesrpg-attack-declare"],
       render: (event, html) => {
         const root = html instanceof HTMLElement ? html : html?.element ?? html;
         const spellSelect = root?.querySelector('select[name="spellId"]');

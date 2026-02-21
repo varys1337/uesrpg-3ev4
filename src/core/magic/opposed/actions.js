@@ -458,32 +458,39 @@ async function promptDefenseCommitChoice(defenderActor) {
   return await customDialog({
     title: "Commit Defense",
     content: `
-      <div class="uesrpg">
-        <div class="form-group">
-          <label><b>Defense Type</b></label>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:3px;">
-            <label style="display:flex; flex-direction:column; gap:2px; padding:6px; border:1px solid rgba(0,0,0,0.2); border-radius:5px; cursor:pointer;">
-              <span><input type="radio" name="defenseType" value="evade" checked/> <b>Evade</b></span>
-              <span style="font-size:11px; opacity:0.82;">Use Evade TN.</span>
-            </label>
-            <label style="display:flex; flex-direction:column; gap:2px; padding:6px; border:1px solid rgba(0,0,0,0.2); border-radius:5px; cursor:${canBlock ? "pointer" : "not-allowed"}; opacity:${canBlock ? "1" : "0.55"};">
-              <span><input type="radio" name="defenseType" value="block" ${canBlock ? "" : "disabled"}/> <b>Block</b></span>
-              <span style="font-size:11px; opacity:0.82;">${canBlock ? "Use Block TN." : "Requires equipped shield."}</span>
-            </label>
-            <label style="display:flex; flex-direction:column; gap:2px; padding:6px; border:1px solid rgba(0,0,0,0.2); border-radius:5px; grid-column: span 2; cursor:${canWard ? "pointer" : "not-allowed"}; opacity:${canWard ? "1" : "0.55"};">
-              <span><input type="radio" name="defenseType" value="ward" ${canWard ? "" : "disabled"}/> <b>Ward</b></span>
-              <span style="font-size:11px; opacity:0.82;">${canWard ? "BR = Spell Strength. Power Block incompatible." : "Requires active Ward spell."}</span>
-            </label>
-          </div>
+      <div class="uesrpg-adv-dialog uesrpg-adv-dialog--magic-commit">
+        <div class="uesrpg-dialog-section-header">Defense Type</div>
+        <div class="uesrpg-adv-grid">
+          <label class="uesrpg-adv-choice">
+            <input type="radio" name="defenseType" value="evade" checked/>
+            <span class="uesrpg-adv-choice__label">
+              <span class="uesrpg-adv-choice__title">Evade</span>
+              <span class="uesrpg-adv-choice__desc">Use Evade TN.</span>
+            </span>
+          </label>
+          <label class="uesrpg-adv-choice${canBlock ? "" : " disabled"}"${canBlock ? "" : ' style="opacity:0.5;pointer-events:none;"'}>
+            <input type="radio" name="defenseType" value="block" ${canBlock ? "" : "disabled"}/>
+            <span class="uesrpg-adv-choice__label">
+              <span class="uesrpg-adv-choice__title">Block</span>
+              <span class="uesrpg-adv-choice__desc">${canBlock ? "Use Block TN." : "Requires equipped shield."}</span>
+            </span>
+          </label>
+          <label class="uesrpg-adv-choice${canWard ? "" : " disabled"}" style="grid-column:span 2;${canWard ? "" : "opacity:0.5;pointer-events:none;"}">
+            <input type="radio" name="defenseType" value="ward" ${canWard ? "" : "disabled"}/>
+            <span class="uesrpg-adv-choice__label">
+              <span class="uesrpg-adv-choice__title">Ward</span>
+              <span class="uesrpg-adv-choice__desc">${canWard ? "BR = Spell Strength. Power Block incompatible." : "Requires active Ward spell."}</span>
+            </span>
+          </label>
         </div>
         <div class="form-group">
-          <label><b>Manual Modifier</b></label>
+          <label>Manual Modifier</label>
           <input type="number" name="manualMod" value="0" step="1" />
         </div>
         <div class="form-group">
-          <label><b>Combat Circumstance Modifiers</b></label>
-          <select name="circumstanceMod" style="width:100%;">
-            <option value="0" selected>-</option>
+          <label>Circumstance</label>
+          <select name="circumstanceMod">
+            <option value="0" selected>—</option>
             <option value="-10">Minor Disadvantage (-10)</option>
             <option value="-20">Disadvantage (-20)</option>
             <option value="-30">Major Disadvantage (-30)</option>
@@ -491,6 +498,7 @@ async function promptDefenseCommitChoice(defenderActor) {
         </div>
       </div>
     `,
+    classes: ["uesrpg-attack-declare"],
     buttons: {
       confirm: {
         icon: '<i class="fas fa-check"></i>',

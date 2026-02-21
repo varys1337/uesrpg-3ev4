@@ -204,6 +204,7 @@ async function _dedupeFearGroup(actor, group) {
 async function _createFearEffect(actor, {
   key,
   name,
+  description = "",
   testPenalty = 0,
   blockActions = false,
   blockReactions = false,
@@ -230,6 +231,7 @@ async function _createFearEffect(actor, {
 
   const effectData = {
     name,
+    description: String(description ?? ""),
     img: "icons/magic/control/fear-fright-mask-yellow.webp",
     disabled: false,
     duration: {},
@@ -289,6 +291,7 @@ async function _panicOutcome(actor, rollTotal) {
     await _createOneTurnFearEffect(actor, {
       key: "panic.startled",
       name: "Fear: Startled",
+      description: "Panic 01–30. You cannot take any reactions until the start of your next Turn. You immediately lose any AP you had saved.",
       blockReactions: true,
       snapOut: false
     });
@@ -299,6 +302,7 @@ async function _panicOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "panic.spooked",
       name: "Fear: Spooked",
+      description: "Panic 31–60. You are Spooked and suffer a −10 penalty to all Tests until you Snap Out.",
       testPenalty: -10,
       snapOut: true,
       snapOutMod: 0
@@ -310,6 +314,7 @@ async function _panicOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "panic.frightened",
       name: "Fear: Frightened",
+      description: "Panic 61–90. You are Frightened, suffer a −10 penalty to all Tests, and cannot willingly approach the Fear Source until you Snap Out.",
       testPenalty: -10,
       cannotApproach: true,
       snapOut: true,
@@ -322,6 +327,7 @@ async function _panicOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "panic.lostComposure",
       name: "Fear: Lost Composure",
+      description: "Panic 91–95. You are completely unable to take any actions until you Snap Out. Once you do, you suffer a −10 penalty to all Tests for the remainder of the encounter.",
       blockActions: true,
       snapOut: true,
       snapOutMod: 0,
@@ -333,6 +339,7 @@ async function _panicOutcome(actor, rollTotal) {
   await _createFearEffect(actor, {
     key: "panic.running",
     name: "Fear: Running and Screaming",
+    description: "Panic 96–00. You suffer a −20 penalty to all Tests, are unable to take any actions, and must flee from the Fear Source until you Snap Out.",
     testPenalty: -20,
     blockActions: true,
     cannotApproach: true,
@@ -349,6 +356,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createOneTurnFearEffect(actor, {
       key: "horror.blackout.short",
       name: "Horror: Momentary Blackout",
+      description: "Horror 01–40. You become catatonic for 1 Round, losing all AP and unable to take any actions. Once the effect expires, you suffer a −10 penalty to all Tests for the remainder of the encounter.",
       blockActions: true,
       applyAfterSnapPenalty: -10
     });
@@ -359,6 +367,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createOneTurnFearEffect(actor, {
       key: "horror.vomiting",
       name: "Horror: Uncontrollable Vomiting",
+      description: "Horror 41–60. You are helpless for 1 Round and lose 1 Stamina Point.",
       blockActions: true
     });
     await _spendStamina(actor, 1);
@@ -369,6 +378,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "horror.manicTerror",
       name: "Horror: Manic Terror",
+      description: "Horror 61–80. You completely lose control of your actions. At the start of each of your Turns, you must attempt to Snap Out.",
       snapOut: true,
       snapOutMod: 0
     });
@@ -381,6 +391,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "horror.despair",
       name: `Horror: Hopeless (${rounds} rounds)`,
+      description: `Horror 81–90. You are completely incapacitated for ${rounds} Rounds and lose 1d4 Stamina Points.`,
       blockActions: true,
       encounterScoped: false,
       extraFlags: { fixedRounds: rounds }
@@ -395,6 +406,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "horror.blackout.long",
       name: "Horror: Blackout",
+      description: "Horror 91–95. You enter a catatonic state from which you cannot recover without outside assistance. Duration is at the GM's discretion.",
       blockActions: true,
       snapOut: false,
       encounterScoped: false,
@@ -407,6 +419,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "horror.mindBreak",
       name: "Horror: Mind Break",
+      description: "Horror 96–99. Your mind shatters under psychological strain. You cannot make attacks or willingly approach the Fear Source until you Snap Out.",
       blockActions: true,
       cannotApproach: true,
       snapOut: true,
@@ -427,7 +440,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await endRes?.roll?.toMessage?.({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `${actor.name} � Scared to Death (END ${endTN})`,
+      flavor: `${actor.name} � Scared to Death (END ${endTN})`,
       rollMode: game.settings.get("core", "rollMode")
     });
   } catch (_e) {
@@ -452,6 +465,7 @@ async function _horrorOutcome(actor, rollTotal) {
   await _createFearEffect(actor, {
     key: "horror.blackout.long",
     name: "Horror: Blackout",
+    description: "Horror 100 (survived). You passed the Endurance test but collapse into a catatonic state. Duration is at the GM's discretion.",
     blockActions: true,
     encounterScoped: false,
     extraFlags: { longBlackout: true }
@@ -493,6 +507,7 @@ async function _applyEncounterPenaltyAfterSnapOut(actor, penalty) {
   await _createFearEffect(actor, {
     key: "fear.lingering",
     name: "Fear: Lingering Stress",
+    description: `Residual fear penalty applied after Snapping Out. Suffer a ${p} penalty to all Tests for the remainder of the encounter.`,
     testPenalty: p,
     snapOut: false,
     encounterScoped: true
@@ -517,7 +532,7 @@ export async function attemptSnapOut(actor, { combat = game.combat } = {}) {
     await res?.roll?.toMessage?.({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `${actor.name} � Snap Out (Willpower ${tn})`,
+      flavor: `${actor.name} � Snap Out (Willpower ${tn})`,
       rollMode: game.settings.get("core", "rollMode")
     });
   } catch (_e) {
@@ -567,6 +582,53 @@ async function _maybePromptSnapOutOnTurnStart(combat) {
   await attemptSnapOut(actor, { combat });
 }
 
+/**
+ * Show a DialogV2 to let the GM configure a batch fear test.
+ * Returns the form data object on confirm, or null on cancel/close.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.defaultType]     Initial type selection: "panic" | "horror". Default "panic".
+ * @param {number} [opts.defaultModifier] Initial modifier value. Default 0.
+ * @param {string} [opts.defaultSource]   Initial source description text. Default "Fear Source".
+ * @returns {Promise<{type:string, modifier:string, source:string}|null>}
+ */
+async function _showFearTestDialog({ defaultType = "panic", defaultModifier = 0, defaultSource = "Fear Source" } = {}) {
+  return foundry.applications.api.DialogV2.prompt({
+    window: { title: "Configure Fear Test" },
+    content: `
+      <div style="display:grid;gap:var(--form-gap,6px);padding:0 4px 4px">
+        <div class="form-group">
+          <label class="form-group__label">Test Type</label>
+          <div class="form-fields">
+            <select name="type">
+              <option value="panic"${defaultType === "panic" ? " selected" : ""}>Panic — Mundane Horror (WP ± X)</option>
+              <option value="horror"${defaultType === "horror" ? " selected" : ""}>Horror — Supernatural Terror (WP ± X)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-group__label">Modifier</label>
+          <div class="form-fields">
+            <input type="number" name="modifier" value="${Number(defaultModifier) || 0}" step="5" placeholder="0" />
+          </div>
+          <p class="hint">Positive = easier. Negative = harder.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-group__label">Fear Source</label>
+          <div class="form-fields">
+            <input type="text" name="source" value="${_escapeHtml(defaultSource)}" placeholder="Fear Source" />
+          </div>
+        </div>
+      </div>
+    `,
+    ok: {
+      label: "Run Tests",
+      callback: (event, button) => new FormDataExtended(button.form).object,
+    },
+    rejectClose: false,
+  });
+}
+
 export async function promptFearTest({ actor, type = "panic", modifier = 0, source = "Fear", inCombat = null } = {}) {
   if (!actor) return { ok: false, reason: "no-actor" };
 
@@ -590,7 +652,7 @@ export async function promptFearTest({ actor, type = "panic", modifier = 0, sour
     await test?.roll?.toMessage?.({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `${actor.name} � ${fearType === "panic" ? "Panic" : "Horror"} Test (WP ${tn})`,
+      flavor: `${actor.name} � ${fearType === "panic" ? "Panic" : "Horror"} Test (WP ${tn})`,
       rollMode: game.settings.get("core", "rollMode")
     });
   } catch (_e) {
@@ -606,6 +668,7 @@ export async function promptFearTest({ actor, type = "panic", modifier = 0, sour
     await _createFearEffect(actor, {
       key: "fear.nonCombat",
       name: "Fear: Unnerved",
+      description: "Failed Fear Test (out of combat). You are Unnerved and suffer a −20 penalty to all concentration-related Tests whenever near the Fear Source.",
       testPenalty: -20,
       snapOut: false,
       encounterScoped: false,
@@ -636,6 +699,62 @@ export async function promptFearTest({ actor, type = "panic", modifier = 0, sour
     tableRoll: Number(d100.total ?? 0) || 0,
     outcome: outcome?.key ?? null
   };
+}
+
+/**
+ * Prompt a fear test for ALL currently selected tokens on the canvas.
+ *
+ * RAW (Chapter 5): every character confronted by a fear source must test individually.
+ * This function shows a single configuration dialog, then iterates over all controlled
+ * token actors and runs promptFearTest() for each.
+ *
+ * @param {object} [opts]
+ * @param {string|null} [opts.type]     Pre-select type: "panic"|"horror". Null = dialog default.
+ * @param {number|null} [opts.modifier] Pre-fill modifier. Null = dialog default.
+ * @param {string|null} [opts.source]   Pre-fill source text. Null = dialog default.
+ * @returns {Promise<{ok:boolean, count?:number, results?:Array, reason?:string}>}
+ */
+export async function promptFearTestForSelection({ type = null, modifier = null, source = null } = {}) {
+  const controlled = canvas?.tokens?.controlled ?? [];
+  if (!controlled.length) {
+    ui.notifications.warn(
+      "Fear Test: No tokens selected. Select one or more tokens to run a fear test."
+    );
+    return { ok: false, reason: "no-tokens" };
+  }
+
+  const actors = controlled.map((t) => t.actor).filter(Boolean);
+  if (!actors.length) {
+    ui.notifications.warn(
+      "Fear Test: No actors found for the selected tokens."
+    );
+    return { ok: false, reason: "no-actors" };
+  }
+
+  const config = await _showFearTestDialog({
+    defaultType: type ?? "panic",
+    defaultModifier: modifier ?? 0,
+    defaultSource: source ?? "Fear Source",
+  });
+
+  if (!config) return { ok: false, reason: "cancelled" };
+
+  const testType     = String(config.type ?? "panic").toLowerCase() === "horror" ? "horror" : "panic";
+  const testModifier = Number(config.modifier ?? 0) || 0;
+  const testSource   = String(config.source ?? "Fear Source").trim() || "Fear Source";
+
+  const results = [];
+  for (const actor of actors) {
+    const result = await promptFearTest({
+      actor,
+      type: testType,
+      modifier: testModifier,
+      source: testSource,
+    });
+    results.push({ actorId: actor.id, actorName: actor.name, result });
+  }
+
+  return { ok: true, count: actors.length, results };
 }
 
 export function registerFearSystem() {
@@ -686,6 +805,7 @@ export function registerFearSystem() {
   game.uesrpg = game.uesrpg || {};
   game.uesrpg.fear = {
     promptFearTest,
+    promptFearTestForSelection,
     attemptSnapOut,
     getFearActionRestrictions
   };
@@ -693,6 +813,7 @@ export function registerFearSystem() {
 
 export const FearAPI = {
   promptFearTest,
+  promptFearTestForSelection,
   attemptSnapOut,
   getFearActionRestrictions
 };

@@ -240,6 +240,7 @@ export async function _skillRollDialog({
       title,
       content,
       render: renderCallback,
+      classes: ["uesrpg-attack-declare"],
       buttons: {
         ok: {
           label: "Roll",

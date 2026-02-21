@@ -24,7 +24,7 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     id: "uesrpg-reach-visualizer-settings",
     tag: "form",
     form: {
-      handler: ReachVisualizerSettingsAppV2.#onSubmit,
+      handler: ReachVisualizerSettingsAppV2._onSubmit,
       closeOnSubmit: true,
       submitOnChange: false,
     },
@@ -107,7 +107,7 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     syncConditionalVisibility();
   }
 
-  static async #onSubmit(event, form, formData) {
+  static async _onSubmit(event, form, formData) {
     const data = formData.object;
 
     const opacity = Math.max(0.05, Math.min(1.0, Number(data.opacity ?? DEFAULT_REACH_VISUALIZER_SETTINGS.opacity)));

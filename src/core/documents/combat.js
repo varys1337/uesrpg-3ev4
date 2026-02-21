@@ -6,7 +6,7 @@ import { hasTalent } from "../traits/talents-api.js";
 import { listTacticianInitiativeProvidersForActor } from "../traits/intellectual-talents.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
-import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { resolveSurpriseState } from "../combat/surprise-state.js";
 
 function _initiativeDebug(...args) {
@@ -399,7 +399,18 @@ export class SystemCombat extends Combat {
 	    }
 	
 	    if (earlyUpdates.length) {
-	      await requestUpdateEmbeddedDocuments(this, "Combatant", earlyUpdates);
+	      try {
+	        await this.updateEmbeddedDocuments("Combatant", earlyUpdates);
+	      } catch (err) {
+	        console.error("UESRPG | initiative update failed", {
+	          combatId: this.id,
+	          phase: "early",
+	          updates: earlyUpdates,
+	          err
+	        });
+	        ui.notifications?.error?.("Failed to apply initiative updates.");
+	        return rolls;
+	      }
 	    }
 	
 	    for (const id of otherIds) {
@@ -407,7 +418,18 @@ export class SystemCombat extends Combat {
 	    }
 	
 	    if (updates.length) {
-	      await requestUpdateEmbeddedDocuments(this, "Combatant", updates);
+	      try {
+	        await this.updateEmbeddedDocuments("Combatant", updates);
+	      } catch (err) {
+	        console.error("UESRPG | initiative update failed", {
+	          combatId: this.id,
+	          phase: "main",
+	          updates,
+	          err
+	        });
+	        ui.notifications?.error?.("Failed to apply initiative updates.");
+	        return rolls;
+	      }
 	    }
 
     // Preserve the currently active combatant turn index where possible.

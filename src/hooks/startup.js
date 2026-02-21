@@ -13,8 +13,8 @@ export default async function startupHandler() {
   // The system setting is inverted: if it's false, show the dialog.
   if (game.settings.get("uesrpg-3ev4", "noStartUpDialog") !== false) return;
 
-  const changelogTemplatePath = `${systemRootPath}/templates/partials/startup/changelog.html`;
-  const startupDialogTemplatePath = `${systemRootPath}/templates/partials/startup/startup-dialog.html`;
+  const changelogTemplatePath = `${systemRootPath}/templates/v2/startup/changelog.hbs`;
+  const startupDialogTemplatePath = `${systemRootPath}/templates/v2/startup/startup-dialog.hbs`;
 
   let changelogHtml = "";
   try {

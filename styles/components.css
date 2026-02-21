@@ -816,8 +816,9 @@ body.theme-dark .worldbuilding.sheet.actor .rest-btn {
 }
 
 .worldbuilding.sheet.actor .spell-school-section,
-.worldbuilding.sheet.actor .magic-effects-section,
-.worldbuilding.sheet.actor .spell-effects-breakdown {
+.worldbuilding.sheet.actor .spell-effects-breakdown,
+.worldbuilding.sheet.actor .combat-effects-section,
+.worldbuilding.sheet.npc   .combat-effects-section {
   background:
     linear-gradient(
       180deg,
@@ -896,4 +897,27 @@ body.theme-dark .worldbuilding.sheet.actor .rest-btn {
 
 .worldbuilding.sheet.actor.group .sheet-fixed-container .charname {
   margin: 8px 0 6px;
+}
+
+/* ========================================================================== */
+/* NPC Sheet (AppV2) — Combat Tab › Effects section scroll behavior            */
+/*                                                                            */
+/* Problem: On the NPC sheet, the combat-tab Effects list could appear         */
+/* non-scrollable (content clipped by the internal max-height list scroller). */
+/*                                                                            */
+/* Fix: For NPC sheets only, remove the internal effects-list max-height and  */
+/* rely on the combat tab's main scroll container (.combatTabContainer). This */
+/* matches the practical UX of the PC sheet where users scroll the sheet body */
+/* to review longer effect stacks, and avoids nested-scroll edge cases.       */
+/* ========================================================================== */
+
+.worldbuilding.sheet.actor.npc .combat-effects-section {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.worldbuilding.sheet.actor.npc .combat-effects-section .effects-list {
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: visible;
 }

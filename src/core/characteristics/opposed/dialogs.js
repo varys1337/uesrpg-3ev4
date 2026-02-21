@@ -49,6 +49,7 @@ export async function _charTestDialog({
     const result = await customDialog({
       title,
       content,
+      classes: ["uesrpg-attack-declare"],
       buttons: {
         ok: {
           label: "Roll",

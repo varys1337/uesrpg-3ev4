@@ -39,6 +39,8 @@ import {
 } from "../../../core/traits/features/rule-elements.js";
 import { getRuleElementRuntimeSettingsState } from "../../../core/traits/features/rule-element-runtime.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
+import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-catalog.js";
+import { getEffectByKey } from "../../../core/alchemy/effects.js";
 
 /**
  * Prepare item sheet data for rendering
@@ -506,5 +508,136 @@ export async function prepareItemSheetData(sheet, data) {
     data.ammoOptions = [];
   }
 
+  // --------------------------------------------
+  // Weapon / Armor: Enchantment display (read-only)
+  // Written by the Enchanting Workshop; surfaced here for the item sheet Attributes tab.
+  // --------------------------------------------
+  if (itemType === "weapon" || itemType === "armor" || itemType === "ammunition") {
+    const enc = sheet.item?.flags?.["uesrpg-3ev4"]?.enchanting ?? null;
+    if (enc?.version === 2 && enc.enchantType) {
+      data.enchantmentDisplay = _buildEnchantmentDisplay(enc, sheet.item);
+    } else {
+      data.enchantmentDisplay = null;
+    }
+  }
+
+  // --------------------------------------------
+  // Generic Item: Alchemy ingredient data (flag-based)
+  // Identifies items that serve as alchemy ingredients via flags["uesrpg-3ev4"].alchemy.
+  // --------------------------------------------
+  if (itemType === "item") {
+    const alchemyFlags = sheet.item?.flags?.["uesrpg-3ev4"]?.alchemy ?? null;
+    data.isAlchemyIngredient = alchemyFlags?.kind === "ingredient";
+    data.isAlchemyProduct = ["potion", "poison", "toxin"].includes(String(alchemyFlags?.kind ?? ""));
+
+    data.alchemyData = data.isAlchemyIngredient
+      ? {
+          kind: alchemyFlags.kind ?? "ingredient",
+          school: alchemyFlags.school ?? "",
+          strengthBase: Number(alchemyFlags.strengthBase ?? 0),
+          depthBase: Number(alchemyFlags.depthBase ?? 0),
+        }
+      : null;
+
+    // Alchemy product (potion / poison / toxin) summary for the generic item sheet.
+    if (data.isAlchemyProduct) {
+      const kind = String(alchemyFlags?.kind ?? "");
+      const effects = Array.isArray(alchemyFlags?.effects)
+        ? alchemyFlags.effects
+            .filter((e) => e && typeof e === "object")
+            .map((e) => {
+              const def = getEffectByKey(e.effectKey);
+              return {
+                key: String(e.effectKey ?? ""),
+                label: def?.label ?? String(e.effectKey ?? ""),
+                school: def?.school ?? String(e.school ?? ""),
+                spellLevel: Number(e.spellLevel ?? 1),
+              };
+            })
+        : [];
+
+      data.alchemyProduct = {
+        kind,
+        backfired: Boolean(alchemyFlags?.backfired),
+        poisonLevel: Number(alchemyFlags?.poisonLevel ?? 1),
+        damageFormula: String(alchemyFlags?.damageFormula ?? "1d4"),
+        durationRounds: Number(alchemyFlags?.durationRounds ?? 10),
+        maxHits: Number(alchemyFlags?.maxHits ?? 3),
+        effects,
+        brewedAt: alchemyFlags?.brew?.brewedAt ?? null,
+        alchemyRank: alchemyFlags?.brew?.alchemyRank ?? null,
+      };
+    } else {
+      data.alchemyProduct = null;
+    }
+  }
+
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a display-safe enchantment summary from the item's enchanting flags.
+ * Supports: strike enchantments (v2). Cast and constant stubs.
+ *
+ * @param {object} enc - weapon.flags["uesrpg-3ev4"].enchanting
+ * @param {Item} item
+ * @returns {object} displayable enchantment summary
+ */
+function _buildEnchantmentDisplay(enc, item) {
+  const typeLabels = {
+    strike: "Strike",
+    cast: "Cast",
+    constant: "Constant",
+  };
+
+  const typeLabel = typeLabels[enc.enchantType] ?? enc.enchantType;
+  const useCharges = enc.strike?.useCharges === true
+    || enc.cast?.useCharges === true
+    || false;
+  const chargeValue = Number(item?.system?.charge?.value ?? 0);
+  const chargeMax = Number(item?.system?.charge?.max ?? 0);
+
+  let effects = [];
+
+  if (enc.enchantType === "strike" && Array.isArray(enc.strike?.effects)) {
+    effects = enc.strike.effects
+      .map(e => {
+        const catalogEntry = STRIKE_ENCHANTMENTS_CATALOG.find(c => c.key === e.key);
+        if (!catalogEntry) return null;
+        return {
+          label: catalogEntry.label,
+          paramSummary: _buildParamSummary(catalogEntry, e),
+        };
+      })
+      .filter(Boolean);
+  } else if (enc.enchantType === "cast" || enc.enchantType === "constant") {
+    // Cast and constant: show stub — full effect details live in the workshop.
+    effects = [{ label: "See Enchanting Workshop for effect details", paramSummary: "" }];
+  }
+
+  return { typeLabel, useCharges, chargeValue, chargeMax, effects };
+}
+
+/**
+ * Format a human-readable parameter summary string for a strike effect.
+ * @param {object} catalogEntry
+ * @param {object} effectEntry - The per-effect data stored in flags
+ * @returns {string}
+ */
+function _buildParamSummary(catalogEntry, effectEntry) {
+  const parts = [];
+  if (effectEntry.sl != null && catalogEntry.paramKeys?.includes("sl")) {
+    parts.push(`SL ${effectEntry.sl}`);
+  }
+  if (effectEntry.y != null && catalogEntry.paramKeys?.includes("y")) {
+    parts.push(`Amount ${effectEntry.y}`);
+  }
+  if (effectEntry.type != null && catalogEntry.paramKeys?.includes("type")) {
+    parts.push(`Target: ${effectEntry.type}`);
+  }
+  return parts.join(", ");
 }

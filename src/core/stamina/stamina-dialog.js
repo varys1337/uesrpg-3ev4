@@ -117,7 +117,7 @@ export async function openStaminaDialog(actor) {
       };
     });
 
-  const content = await foundry.applications.handlebars.renderTemplate("systems/uesrpg-3ev4/templates/stamina-dialog.html", {
+  const content = await foundry.applications.handlebars.renderTemplate("systems/uesrpg-3ev4/templates/v2/dialogs/stamina-dialog.hbs", {
     currentSP,
     tempSP,
     maxSP,

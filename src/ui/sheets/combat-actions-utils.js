@@ -120,7 +120,7 @@ export function resolveTokenForActor(actor) {
  * @param {Actor} actor
  * @returns {Token|null}
  */
-function resolveRangeGatedTokenForActor(actor) {
+export function resolveRangeGatedTokenForActor(actor) {
   if (!actor || !canvas?.tokens) return null;
 
   const controlled = Array.isArray(canvas.tokens.controlled) ? canvas.tokens.controlled : [];

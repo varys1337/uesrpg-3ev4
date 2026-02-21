@@ -254,7 +254,7 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
   }).join("");
 
   return `
-    <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px;">
+    <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px 0;">
       <div style="display:grid; grid-template-columns: 1fr; gap:12px; max-width:100%; overflow:hidden;">
         <div style="padding-bottom:8px; border-bottom:1px solid rgba(0,0,0,0.12); min-width:0; overflow:hidden;">
           <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
@@ -416,7 +416,7 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
   const damagePanel = _buildDamagePanel(damageData);
 
   return `
-  <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px;">
+  <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px 0;">
     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; max-width:100%; overflow:hidden;">
       <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12); min-width:0; overflow:hidden;">
         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">

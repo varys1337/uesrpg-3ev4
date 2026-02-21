@@ -1,0 +1,490 @@
+{{!-- templates/v2/apps/enchanting-workshop.hbs — AppV2 Enchanting Workshop --}}
+{{!-- Rendered inside a <form> wrapper (tag: form in DEFAULT_OPTIONS) --}}
+
+<section class="enchanting-workshop-body">
+
+<input type="hidden" name="actorUuid" value="{{actorUuid}}">
+
+{{!-- ── Actor Info ──────────────────────────────────────────────────────────── --}}
+<section class="enchanting-actor-info">
+  <p class="enchanting-actor-name"><strong>Crafter:</strong> {{actorName}}</p>
+  <p class="enchanting-skill-info">
+    <strong>Enchant TN:</strong> {{enchantTN}}
+    | <strong>Rank:</strong> {{enchantRank}}
+    {{#if hasManifold}}<span class="talent-badge">Manifold Enchanter</span>{{/if}}
+    {{#if hasProcedural}}<span class="talent-badge">Procedural Enchanting</span>{{/if}}
+    {{#if hasSalvage}}<span class="talent-badge">Salvage Energy</span>{{/if}}
+  </p>
+</section>
+
+<hr>
+
+{{!-- ── Mode Selector ────────────────────────────────────────────────────────── --}}
+<div class="form-group">
+  <label>Workshop Mode</label>
+  <select name="mode">
+    {{#each modeOptions}}
+      <option value="{{key}}" {{#if (eq key ../mode)}}selected{{/if}} {{#unless available}}disabled{{/unless}}>
+        {{label}}{{#unless available}} (no eligible items){{/unless}}
+      </option>
+    {{/each}}
+  </select>
+</div>
+
+<hr>
+
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{!-- MODE: CAST ENCHANTMENT                                                     --}}
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{#if (eq mode "cast")}}
+
+<fieldset class="enchanting-section">
+  <legend>Cast Enchantment — Stored Spell</legend>
+
+  {{!-- Item selector --}}
+  <div class="form-group">
+    <label>Item to Enchant</label>
+    <select name="targetItemUuid">
+      <option value="">-- Select Item --</option>
+      {{#each enchantableItems}}
+        <option value="{{id}}">{{name}} ({{type}}, EL {{el}}){{#if enchanted}} [already enchanted]{{/if}}</option>
+      {{/each}}
+    </select>
+  </div>
+
+  {{!-- Soul Gem selector --}}
+  <div class="form-group">
+    <label>Soul Gem</label>
+    <select name="gemUuid">
+      <option value="">-- Select Soul Gem --</option>
+      {{#each gemOptions}}
+        <option value="{{id}}">{{label}}</option>
+      {{/each}}
+    </select>
+    {{#unless gemOptions.length}}<p class="notes warning">No filled soul gems in inventory.</p>{{/unless}}
+  </div>
+
+  <hr>
+
+  {{!-- Spell Slot 0 (always shown) --}}
+  <fieldset class="spell-slot">
+    <legend>Spell Slot 1</legend>
+    <div class="form-group">
+      <label>Source</label>
+      <select name="spell_source_0">
+        <option value="conventional">Conventional (existing spell item)</option>
+        <option value="unconventional">Unconventional (custom blueprint)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Label / Name</label>
+      <input type="text" name="spell_label_0" placeholder="e.g. Fireball">
+    </div>
+    <div class="form-group">
+      <label>Spell Level (1-7)</label>
+      <input type="number" name="spell_level_0" min="1" max="7" value="1">
+    </div>
+    <div class="form-group">
+      <label>Soul Energy Cost</label>
+      <input type="number" name="spell_cost_0" min="0" value="10" placeholder="0">
+    </div>
+    <div class="form-group">
+      <label>Spell UUID (conventional)</label>
+      <input type="text" name="spell_uuid_0" placeholder="Drag a spell here or paste UUID">
+    </div>
+    <div class="form-group">
+      <label>Attributes (comma-separated)</label>
+      <input type="text" name="spell_attributes_0" placeholder="e.g. upkeep, mindlock">
+    </div>
+  </fieldset>
+
+  {{!-- Spell Slots 1 and 2 (Manifold Enchanter only) --}}
+  {{#if hasManifold}}
+  <fieldset class="spell-slot">
+    <legend>Spell Slot 2 <em>(Manifold Enchanter)</em></legend>
+    <div class="form-group">
+      <label>Label / Name</label>
+      <input type="text" name="spell_label_1" placeholder="Leave empty to skip">
+    </div>
+    <div class="form-group">
+      <label>Spell Level (1-7)</label>
+      <input type="number" name="spell_level_1" min="0" max="7" value="0">
+    </div>
+    <div class="form-group">
+      <label>Soul Energy Cost</label>
+      <input type="number" name="spell_cost_1" min="0" value="0">
+    </div>
+    <div class="form-group">
+      <label>Spell UUID (optional)</label>
+      <input type="text" name="spell_uuid_1" placeholder="UUID or leave empty">
+    </div>
+    <div class="form-group">
+      <label>Attributes</label>
+      <input type="text" name="spell_attributes_1" placeholder="e.g. upkeep">
+    </div>
+  </fieldset>
+
+  <fieldset class="spell-slot">
+    <legend>Spell Slot 3 <em>(Manifold Enchanter)</em></legend>
+    <div class="form-group">
+      <label>Label / Name</label>
+      <input type="text" name="spell_label_2" placeholder="Leave empty to skip">
+    </div>
+    <div class="form-group">
+      <label>Spell Level (1-7)</label>
+      <input type="number" name="spell_level_2" min="0" max="7" value="0">
+    </div>
+    <div class="form-group">
+      <label>Soul Energy Cost</label>
+      <input type="number" name="spell_cost_2" min="0" value="0">
+    </div>
+    <div class="form-group">
+      <label>Spell UUID (optional)</label>
+      <input type="text" name="spell_uuid_2" placeholder="UUID or leave empty">
+    </div>
+    <div class="form-group">
+      <label>Attributes</label>
+      <input type="text" name="spell_attributes_2" placeholder="e.g. upkeep">
+    </div>
+  </fieldset>
+  {{/if}}
+
+  <p class="notes">
+    RAW: One Enchant test per spell slot. Pool max = min(Item EL, Gem Soul Energy).
+    {{#if hasProcedural}}Procedural Enchanting: on success, you may choose DoS or Enchant rank as Binding Strength. The chat card will show both options.{{/if}}
+    {{#if hasSalvage}}Salvage Energy: on failure, a follow-up test may preserve the soul gem.{{/if}}
+  </p>
+</fieldset>
+
+{{/if}}
+
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{!-- MODE: STRIKE ENCHANTMENT                                                   --}}
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{#if (eq mode "strike")}}
+
+<fieldset class="enchanting-section">
+  <legend>Strike Enchantment — On-Hit Effect</legend>
+
+  <div class="form-group">
+    <label>Weapon / Ammunition to Enchant</label>
+    <select name="targetItemUuid">
+      <option value="">-- Select Item --</option>
+      {{#each enchantableItems}}
+        {{#if (eq type "weapon")}}
+          <option value="{{id}}">{{name}} (EL {{el}}){{#if enchanted}} [already enchanted]{{/if}}</option>
+        {{/if}}
+      {{/each}}
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>Soul Gem</label>
+    <select name="gemUuid">
+      <option value="">-- Select Soul Gem --</option>
+      {{#each gemOptions}}
+        <option value="{{id}}">{{label}}</option>
+      {{/each}}
+    </select>
+  </div>
+
+  <hr>
+
+  {{!-- Strike Effect Slot 0 --}}
+  <fieldset class="spell-slot">
+    <legend>Strike Effect 1</legend>
+    <div class="form-group">
+      <label>Effect</label>
+      <select name="strike_key_0">
+        <option value="">-- Select Effect --</option>
+        {{#each strikeOptions}}
+          <option value="{{key}}">{{label}} ({{costFormula}})</option>
+        {{/each}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Spell Level (SL)</label>
+      <input type="number" name="strike_sl_0" min="1" max="7" value="1">
+    </div>
+    <div class="form-group">
+      <label>Y (drain/absorb amount, if applicable)</label>
+      <input type="number" name="strike_y_0" min="0" value="0">
+    </div>
+    <div class="form-group">
+      <label>Type (weapon/armor, for Disintegrate)</label>
+      <input type="text" name="strike_type_0" placeholder="weapon or armor">
+    </div>
+    <div class="form-group">
+      <label>Soul Energy Cost (computed from formula above)</label>
+      <input type="number" name="strike_cost_0" min="0" value="10">
+    </div>
+  </fieldset>
+
+  {{#if hasManifold}}
+  <fieldset class="spell-slot">
+    <legend>Strike Effect 2 <em>(Manifold Enchanter)</em></legend>
+    <div class="form-group">
+      <label>Effect</label>
+      <select name="strike_key_1">
+        <option value="">-- None --</option>
+        {{#each strikeOptions}}
+          <option value="{{key}}">{{label}}</option>
+        {{/each}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>SL</label>
+      <input type="number" name="strike_sl_1" min="0" max="7" value="0">
+    </div>
+    <div class="form-group">
+      <label>Y</label>
+      <input type="number" name="strike_y_1" min="0" value="0">
+    </div>
+    <div class="form-group">
+      <label>Type</label>
+      <input type="text" name="strike_type_1">
+    </div>
+    <div class="form-group">
+      <label>Cost</label>
+      <input type="number" name="strike_cost_1" min="0" value="0">
+    </div>
+  </fieldset>
+
+  <fieldset class="spell-slot">
+    <legend>Strike Effect 3 <em>(Manifold Enchanter)</em></legend>
+    <div class="form-group">
+      <label>Effect</label>
+      <select name="strike_key_2">
+        <option value="">-- None --</option>
+        {{#each strikeOptions}}
+          <option value="{{key}}">{{label}}</option>
+        {{/each}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>SL</label>
+      <input type="number" name="strike_sl_2" min="0" max="7" value="0">
+    </div>
+    <div class="form-group">
+      <label>Y</label>
+      <input type="number" name="strike_y_2" min="0" value="0">
+    </div>
+    <div class="form-group">
+      <label>Type</label>
+      <input type="text" name="strike_type_2">
+    </div>
+    <div class="form-group">
+      <label>Cost</label>
+      <input type="number" name="strike_cost_2" min="0" value="0">
+    </div>
+  </fieldset>
+  {{/if}}
+
+  {{#if enableChargedStrike}}
+  <p class="notes"><strong>Charged Strike Variant active:</strong> Pool = floor(Total Cost / 10) charges.</p>
+  {{else}}
+  <p class="notes">Strike enchantments have no pool by default (no recharge). Enable the Charged Strike Variant setting for optional charge pool.</p>
+  {{/if}}
+</fieldset>
+
+{{/if}}
+
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{!-- MODE: CONSTANT ENCHANTMENT                                                 --}}
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{#if (eq mode "constant")}}
+
+<fieldset class="enchanting-section">
+  <legend>Constant Enchantment — Passive Effect</legend>
+
+  <div class="form-group">
+    <label>Item to Enchant</label>
+    <select name="targetItemUuid">
+      <option value="">-- Select Item --</option>
+      {{#each enchantableItems}}
+        <option value="{{id}}">{{name}} ({{type}}, EL {{el}}){{#if enchanted}} [already enchanted]{{/if}}</option>
+      {{/each}}
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>Soul Gem</label>
+    <select name="gemUuid">
+      <option value="">-- Select Soul Gem --</option>
+      {{#each gemOptions}}
+        <option value="{{id}}">{{label}}</option>
+      {{/each}}
+    </select>
+  </div>
+
+  <hr>
+  <p class="notes warning">
+    <strong>Restrictions:</strong> Effects must have Upkeep and a listed duration.
+    Become Ethereal, Conjuration, and Necromancy effects are prohibited.
+  </p>
+
+  {{!-- Constant Effect Slot 0 --}}
+  <fieldset class="spell-slot">
+    <legend>Constant Effect 1</legend>
+    <div class="form-group">
+      <label>Effect (Upkeep-eligible only)</label>
+      <select name="const_key_0">
+        <option value="">-- Select Effect --</option>
+        {{#each spellfxConstantOptions}}
+          <option value="{{key}}">{{label}} ({{school}})</option>
+        {{/each}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Spell Level (SL)</label>
+      <input type="number" name="const_sl_0" min="1" max="7" value="1">
+    </div>
+    <div class="form-group">
+      <label>Soul Energy Cost</label>
+      <input type="number" name="const_cost_0" min="0" value="10">
+    </div>
+    <div class="form-group">
+      <label>Additional Params (JSON, e.g. {"fortifyAttr":"strength"})</label>
+      <input type="text" name="const_params_0" placeholder="{}">
+    </div>
+  </fieldset>
+
+  {{#if hasManifold}}
+  <fieldset class="spell-slot">
+    <legend>Constant Effect 2 <em>(Manifold Enchanter)</em></legend>
+    <div class="form-group">
+      <label>Effect</label>
+      <select name="const_key_1">
+        <option value="">-- None --</option>
+        {{#each spellfxConstantOptions}}
+          <option value="{{key}}">{{label}}</option>
+        {{/each}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>SL</label>
+      <input type="number" name="const_sl_1" min="0" max="7" value="0">
+    </div>
+    <div class="form-group">
+      <label>Cost</label>
+      <input type="number" name="const_cost_1" min="0" value="0">
+    </div>
+    <div class="form-group">
+      <label>Params</label>
+      <input type="text" name="const_params_1" placeholder="{}">
+    </div>
+  </fieldset>
+
+  <fieldset class="spell-slot">
+    <legend>Constant Effect 3 <em>(Manifold Enchanter)</em></legend>
+    <div class="form-group">
+      <label>Effect</label>
+      <select name="const_key_2">
+        <option value="">-- None --</option>
+        {{#each spellfxConstantOptions}}
+          <option value="{{key}}">{{label}}</option>
+        {{/each}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>SL</label>
+      <input type="number" name="const_sl_2" min="0" max="7" value="0">
+    </div>
+    <div class="form-group">
+      <label>Cost</label>
+      <input type="number" name="const_cost_2" min="0" value="0">
+    </div>
+    <div class="form-group">
+      <label>Params</label>
+      <input type="text" name="const_params_2" placeholder="{}">
+    </div>
+  </fieldset>
+  {{/if}}
+
+  {{#if enableCursed}}
+  <div class="form-group">
+    <label>Cursed Constant (optional rule)</label>
+    <input type="checkbox" name="cursed" value="1">
+    <p class="notes">Cursed constant enchantments cannot be disabled by the wearer. Special failure cadence per RAW.</p>
+  </div>
+  {{/if}}
+</fieldset>
+
+{{/if}}
+
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{!-- MODE: RECHARGE                                                              --}}
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{#if (eq mode "recharge")}}
+
+<fieldset class="enchanting-section">
+  <legend>Recharge Cast Enchantment</legend>
+
+  <p class="notes">
+    <strong>RAW:</strong> Requires trained Enchant rank. No test required.
+    1-minute ritual. Transfers gem soul energy into pool up to max; excess lost.
+  </p>
+
+  <div class="form-group">
+    <label>Enchanted Item (Cast type)</label>
+    <select name="enchantedItemUuid">
+      <option value="">-- Select Item --</option>
+      {{#each enchantedItems}}
+        {{#if (eq enchantType "cast")}}
+          <option value="{{id}}">{{name}} (Pool: {{pool.value}}/{{pool.max}})</option>
+        {{/if}}
+      {{/each}}
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>Soul Gem to use for recharge</label>
+    <select name="gemUuid">
+      <option value="">-- Select Soul Gem --</option>
+      {{#each gemOptions}}
+        <option value="{{id}}">{{label}}</option>
+      {{/each}}
+    </select>
+  </div>
+</fieldset>
+
+{{/if}}
+
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{!-- MODE: TOGGLE CONSTANT                                                       --}}
+{{!-- ══════════════════════════════════════════════════════════════════════════ --}}
+{{#if (eq mode "toggle")}}
+
+<fieldset class="enchanting-section">
+  <legend>Toggle Constant Enchantment</legend>
+
+  <p class="notes">Enable or disable a constant enchantment on an item. Cursed enchantments cannot be disabled.</p>
+
+  <div class="form-group">
+    <label>Enchanted Item (Constant type)</label>
+    <select name="enchantedItemUuid">
+      <option value="">-- Select Item --</option>
+      {{#each enchantedItems}}
+        {{#if (eq enchantType "constant")}}
+          <option value="{{id}}">{{name}}</option>
+        {{/if}}
+      {{/each}}
+    </select>
+  </div>
+</fieldset>
+
+{{/if}}
+
+{{!-- ── Submit ───────────────────────────────────────────────────────────────── --}}
+<footer class="sheet-footer flexrow">
+  <button type="submit" class="enchanting-submit">
+    <i class="fas fa-magic"></i>
+    {{#if (eq mode "cast")}}Create Cast Enchantment{{/if}}
+    {{#if (eq mode "strike")}}Create Strike Enchantment{{/if}}
+    {{#if (eq mode "constant")}}Create Constant Enchantment{{/if}}
+    {{#if (eq mode "recharge")}}Recharge{{/if}}
+    {{#if (eq mode "toggle")}}Toggle{{/if}}
+  </button>
+</footer>
+
+</section>

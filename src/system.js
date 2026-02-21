@@ -179,6 +179,23 @@ Hooks.once('ready', async function () {
 
   // Initialize cloak tick handler (AoE aura tick damage at end of turn)
   initializeCloakTickHandler();
+
+  // Initialize alchemy runtime (drink/apply/on-hit/round-tick hooks).
+  // Alchemy is a core mechanic: runtime automation is always active.
+  try {
+    const { initializeAlchemyRuntime } = await import("./core/alchemy/runtime.js");
+    initializeAlchemyRuntime();
+  } catch (err) {
+    console.warn("UESRPG | Failed to initialize alchemy runtime", err);
+  }
+
+  // Initialize strike enchantment on-hit runtime (uesrpgDamageApplied → side effects).
+  try {
+    const { initializeStrikeOnHitRuntime } = await import("./core/enchanting/runtime/strike-on-hit.js");
+    initializeStrikeOnHitRuntime();
+  } catch (err) {
+    console.warn("UESRPG | Failed to initialize strike enchantment on-hit runtime", err);
+  }
 });
 
 Hooks.once("init", async function() {
@@ -342,6 +359,16 @@ Hooks.once("init", async function() {
   const { validateTalentLearning } = await import("./core/traits/talent-learning.js");
   game.uesrpg.talents = game.uesrpg.talents || {};
   game.uesrpg.talents.validateLearning = validateTalentLearning;
+
+  // Expose Enchanting Workshop API (game.uesrpg.enchanting.openWorkshop)
+  const { registerEnchantingApi } = await import("./macros/enchanting-workshop.js");
+  registerEnchantingApi();
+
+  // Expose Alchemy Workshop API (game.uesrpg.alchemy.openWorkshop + drinkPotion + applyToWeapon + effects)
+  // ⚠️ Import from core/alchemy/index.js — the authoritative registration point that exposes
+  // the full runtime surface.  macros/alchemy-workshop.js only has the minimal openWorkshop shim.
+  const { registerAlchemyApi } = await import("./core/alchemy/index.js");
+  registerAlchemyApi();
 
   // Note: The prior GM-only "AE Keys" sheet header button was a debugging aid.
   // It has been removed; the helper remains available as game.uesrpg.dumpAEKeys(...).

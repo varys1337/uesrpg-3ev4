@@ -46,6 +46,7 @@ import { applyBleeding, hasCondition } from "../../../conditions/condition-engin
 import { getAttackModeFromWeapon } from "../../combat-utils.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { collectStrikeEnchantmentEffects, consumeStrikeCharge } from "../../../enchanting/runtime/strike-runtime.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
 
@@ -423,6 +424,15 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   }
 
+  // Strike enchantment damage components (fire, frost, shock on-hit effects).
+  // Only fires when weapon has a valid strike enchantment and sufficient charge.
+  const strikeEnchantComponents = weaponCtx
+    ? collectStrikeEnchantmentEffects(weaponCtx, attackerActor)
+    : { damageComponents: [], sideEffects: [], chargeConsumptionNeeded: false };
+  for (const sc of strikeEnchantComponents.damageComponents) {
+    components.push(sc);
+  }
+
   // Compute per-component results and apply once.
   const hitLocation = ctx.options.hitLocation ?? "Body";
   const currentHP = Number(targetActor.system?.hp?.value ?? 0);
@@ -792,10 +802,21 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       damageAppliedByType,
       hitLocation,
       source: ctx.options?.source ?? "Attack",
-      origin: ctx.options?.origin ?? null
+      weapon: ctx.options?.weapon ?? null,
+      origin: ctx.options?.origin ?? ctx.options?.weapon ?? null,
+      strikeEnchantmentSideEffects: strikeEnchantComponents.sideEffects ?? [],
     });
   } catch (err) {
     console.warn("UESRPG | uesrpgDamageApplied hook failed", err);
+  }
+
+  // Consume strike enchantment charge AFTER damage is applied and hooks have fired.
+  if (strikeEnchantComponents.chargeConsumptionNeeded && weaponCtx) {
+    try {
+      await consumeStrikeCharge(weaponCtx);
+    } catch (err) {
+      console.warn("UESRPG | Strike enchantment charge consume failed", err);
+    }
   }
 
   // Diseased (X): natural weapon damage > 0 triggers Endurance test.

@@ -140,6 +140,11 @@ const TALENT_NAME_ALIASES = {
   voidchanneler: ["Void Channeler"],
   themendingtidesoblivion: ["The Mending Tides of Oblivion", "Mending Tides of Oblivion"],
 
+  // Enchanting talents (automation)
+  manifoldenchanter: ["Manifold Enchanter"],
+  proceduralenchanting: ["Procedural Enchanting"],
+  salvageenergy: ["Salvage Energy"],
+
   // Weapon Expertise talents (automation)
   beardedwarrior: ["Bearded Warrior"],
   beastofsteel: ["Beast of Steel"],

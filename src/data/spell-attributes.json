@@ -1,0 +1,22 @@
+[
+  {
+    "key": "upkeep",
+    "label": "Upkeep",
+    "description": "The spell has an ongoing Upkeep cost each round while active. Grants eligibility for constant enchantments (requires Upkeep + listed duration)."
+  },
+  {
+    "key": "mindlock",
+    "label": "Mindlock(X)",
+    "description": "While the effect is active, the wielder (or wearer for constant) has their AP reduced by X. When used in a cast enchantment, the wielder pays the AP reduction."
+  },
+  {
+    "key": "potion",
+    "label": "Potion",
+    "description": "This effect can be used in potion crafting. Not applicable to enchantments directly."
+  },
+  {
+    "key": "toxin",
+    "label": "Toxin",
+    "description": "This effect can be used in poison crafting."
+  }
+]

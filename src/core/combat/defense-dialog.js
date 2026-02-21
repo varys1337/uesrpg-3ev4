@@ -369,6 +369,7 @@ export async function showDefenseDialog(defender, options = {}) {
   return await customDialog({
     title: "Defender Response",
     content,
+    classes: ["uesrpg-attack-declare"],
     buttons: {
       confirm: {
         icon: '<i class="fas fa-check"></i>',

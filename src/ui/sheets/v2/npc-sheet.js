@@ -70,8 +70,6 @@ import {
   enrichBiography,
 } from "../shared/prepare.js";
 
-// NPC UI filter helpers (createStatusTags targets fixed-header wound/fatigue icons)
-import { createStatusTags } from "../npc/ui/filters.js";
 
 // NPC professions-roll dependencies
 import { requireUserCanRollActor } from "../../../utils/permissions.js";
@@ -95,6 +93,81 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   _uesrpgTabChangeHandler = null;
   _uesrpgTabInputHandler = null;
   _uesrpgTabKeydownHandler = null;
+
+  /** @type {{raw: string, enriched: string}|null} */
+  _uesrpgBioCache = null;
+
+  /**
+   * Prepared inventory cache to avoid re-building large item arrays on every rerender.
+   * @type {{signature: string, items: Array<object>, actorPatch: object}|null}
+   */
+  _uesrpgItemsCache = null;
+
+  /**
+   * Build a conservative signature for the Actor's embedded items which changes when
+   * anything sheet-relevant is likely to change (equip state, quantity, containment, etc.).
+   * Correctness > micro-perf.
+   * @param {Actor} actor
+   * @returns {string}
+   */
+  _buildItemsSignature(actor) {
+    const sortAlpha = (() => {
+      try {
+        return Boolean(game?.settings?.get?.("uesrpg-3ev4", "sortAlpha"));
+      } catch (_e) {
+        return false;
+      }
+    })();
+
+    const npcSchoolRanks = (() => {
+      try {
+        return actor?.flags?.["uesrpg-3ev4"]?.npcMagicSchoolRanks ?? null;
+      } catch (_e) {
+        return null;
+      }
+    })();
+
+    const parts = [
+      actor?.id ?? "",
+      actor?.type ?? "",
+      sortAlpha ? "A" : "a",
+      npcSchoolRanks ? JSON.stringify(npcSchoolRanks) : "",
+      String(actor?.items?.size ?? 0),
+    ];
+
+    for (const i of actor?.items?.contents ?? []) {
+      const cs = i?.system?.containerStats;
+      parts.push([
+        i?.id ?? "",
+        i?.type ?? "",
+        i?.name ?? "",
+        i?.system?.equipped ? "1" : "0",
+        String(i?.system?.quantity ?? ""),
+        cs?.contained ? "1" : "0",
+        cs?.container_id ?? "",
+        i?.system?.school ?? "",
+        i?.system?.traitKey ?? "",
+        String(i?.system?.traitValue ?? ""),
+      ].join("~"));
+    }
+
+    return parts.join("|");
+  }
+
+  /**
+   * Enrich biography text with a per-sheet cache.
+   * @param {string} rawBio
+   * @returns {Promise<string>}
+   */
+  async _getEnrichedBio(rawBio) {
+    const raw = String(rawBio ?? "");
+    if (this._uesrpgBioCache && this._uesrpgBioCache.raw === raw) {
+      return this._uesrpgBioCache.enriched;
+    }
+    const enriched = await enrichBiography(raw, this);
+    this._uesrpgBioCache = { raw, enriched };
+    return enriched;
+  }
 
   _isSheetPerfTraceEnabled() {
     try {
@@ -311,19 +384,59 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       context.options = { editable: this.isEditable };
 
       if (actor.limited) {
-        context.actor.system.enrichedBio = await enrichBiography(
-          context.actor.system?.bio ?? "", this
+        context.actor.system.enrichedBio = await this._getEnrichedBio(
+          context.actor.system?.bio ?? ""
         );
         context.actor.system.socialDisplay = buildSocialDisplay(context.actor.system);
         return context;
       }
 
-      context.items = actor.items.map(i => {
-        const obj = i.toObject();
-        obj.system = i.system;
-        return obj;
-      });
-      prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: false });
+      // Items + derived inventory buckets are the most expensive part of context prep.
+      // Cache them per-sheet instance and only rebuild when the items signature changes.
+      const sig = this._buildItemsSignature(actor);
+      if (this._uesrpgItemsCache && this._uesrpgItemsCache.signature === sig) {
+        context.items = this._uesrpgItemsCache.items;
+        if (this._uesrpgItemsCache.actorPatch) {
+          Object.assign(context.actor, this._uesrpgItemsCache.actorPatch);
+        }
+      } else {
+        context.items = actor.items.map(i => {
+          const obj = i.toObject();
+          obj.system = i.system;
+          return obj;
+        });
+
+        // This mutates `context.actor` with categorized buckets used by templates.
+        prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: false });
+
+        // Cache only the derived patch fields that prepareCharacterItems attaches.
+        const ui = context.actor.ui ?? {};
+        const actorPatch = {
+          gear: context.actor.gear,
+          weapon: context.actor.weapon,
+          armor: context.actor.armor,
+          power: context.actor.power,
+          trait: context.actor.trait,
+          talent: context.actor.talent,
+          combatStyle: context.actor.combatStyle,
+          spell: context.actor.spell,
+          spellSchools: context.actor.spellSchools,
+          ammunition: context.actor.ammunition,
+          container: context.actor.container,
+          ui: {
+            ...(context.actor.ui ?? {}),
+            spellsBySchool: ui.spellsBySchool,
+            traitStackingById: ui.traitStackingById,
+            npcMagicRankOptions: ui.npcMagicRankOptions,
+          },
+        };
+
+        this._uesrpgItemsCache = {
+          signature: sig,
+          items: context.items,
+          actorPatch,
+        };
+      }
 
       context.actor.sheetCombatQuick = buildCombatQuickContext(context.actor);
       context.actor.sheetCombatActions = buildCombatActionsContext(actor);
@@ -337,7 +450,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       context.sheetUi = await buildSheetUiState(actor);
 
       const bio = context.actor.system?.bio ?? "";
-      context.actor.system.enrichedBio = await enrichBiography(bio, this);
+      context.actor.system.enrichedBio = await this._getEnrichedBio(bio);
       context.actor.system.socialDisplay = buildSocialDisplay(context.actor.system);
 
       context.effects = actor.effects
@@ -358,6 +471,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     } finally {
       this._traceSheetPerf("_prepareContext", perfStart, {
         renderKeys: options ? Object.keys(options).length : 0,
+        itemCount: this.document?.items?.size ?? null,
+        effectCount: this.document?.effects?.size ?? null,
       });
     }
   }
@@ -395,7 +510,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         setResourceBars(this);
       } catch (_e) { /* no-op */ }
 
-      createStatusTags(this);
+      this._createStatusTags();
       activateEditorButtons(this, el);
     } finally {
       this._traceSheetPerf("_onRender", perfStart, {
@@ -709,8 +824,26 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     await FactionSelectorAppV2.prompt(this.document);
   }
 
-  // Status tags (wound/fatigue icons in fixed-header)
-  _createStatusTags() { return createStatusTags(this); }
+  // Status tags — show wound/fatigue/enc icons in the fixed-header only when
+  // the corresponding penalty is active. Icons are always in the DOM (rendered
+  // by fixed-header.hbs); this method toggles their visibility post-render.
+  _createStatusTags() {
+    const actor = this.actor;
+    const el = this.element;
+    if (!el || !actor) return;
+
+    const woundPenalty = Number(actor.system?.woundPenalty ?? 0);
+    const fatiguePenalty = Number(actor.system?.fatigue?.penalty ?? 0);
+    const carryPenalty = Number(actor.system?.carry_rating?.penalty ?? 0);
+
+    const woundIcon = el.querySelector("#wound-icon");
+    const fatigueIcon = el.querySelector("#fatigue-icon");
+    const encIcon = el.querySelector("#enc-icon");
+
+    if (woundIcon) woundIcon.style.display = woundPenalty !== 0 ? "" : "none";
+    if (fatigueIcon) fatigueIcon.style.display = fatiguePenalty !== 0 ? "" : "none";
+    if (encIcon) encIcon.style.display = carryPenalty !== 0 ? "" : "none";
+  }
 
   /* ═══════════════════════ NPC-Specific Handlers ════════════════════ */
 
@@ -805,22 +938,112 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
     if (!requireUserCanRollActor(game.user, this.document)) return;
 
-    const button = target ?? event.currentTarget;
+    const button = target ?? event.currentTarget ?? event.target ?? null;
+
+    const knownProfessionKeys = new Set([
+      ...Object.keys(this.document.system?.professions ?? {}),
+      "profession1",
+      "profession2",
+      "profession3",
+    ]);
+
+    const tryResolveProfessionKey = (value) => {
+      if (!value) return null;
+
+      // Allow action objects from HUD modules.
+      if (typeof value === "object") {
+        return (
+          tryResolveProfessionKey(value.professionKey) ||
+          tryResolveProfessionKey(value.profession) ||
+          tryResolveProfessionKey(value.key) ||
+          tryResolveProfessionKey(value.id) ||
+          tryResolveProfessionKey(value.actionId) ||
+          tryResolveProfessionKey(value.action?.id) ||
+          tryResolveProfessionKey(value.value)
+        );
+      }
+
+      const raw = String(value ?? "").trim();
+      if (!raw) return null;
+      if (knownProfessionKeys.has(raw)) return raw;
+
+      // Common HUD patterns: "professions:combat", "profession|profession1", "action.profession2"
+      const tokens = raw
+        .split(/[:|/\\.]/)
+        .map((t) => String(t ?? "").trim())
+        .filter(Boolean);
+
+      for (let i = tokens.length - 1; i >= 0; i--) {
+        const t = tokens[i];
+        if (knownProfessionKeys.has(t)) return t;
+      }
+
+      // Last resort: substring match against known keys.
+      for (const k of knownProfessionKeys) {
+        if (k && raw.includes(k)) return k;
+      }
+      return null;
+    };
+
     let profKey = null;
+    const candidates = [target, event?.currentTarget, event?.target].filter(Boolean);
 
-    if (!profKey && button && typeof button.closest === "function") {
-      profKey = button.closest(".profession-roll-target")?.dataset?.professionKey ?? null;
+    for (const el of candidates) {
+      if (profKey) break;
+      if (typeof el?.closest !== "function") continue;
+
+      const keyedNode = el.closest("[data-profession-key]");
+      const keyed = String(keyedNode?.dataset?.professionKey ?? "").trim();
+      if (keyed) {
+        profKey = keyed;
+        break;
+      }
+
+      const rollTarget = el.closest(".profession-roll-target");
+      const fromTarget = String(rollTarget?.dataset?.professionKey ?? "").trim();
+      if (fromTarget) {
+        profKey = fromTarget;
+        break;
+      }
+
+      const itemNode = el.closest(".item, .npc-item");
+      const fromItem = String(itemNode?.dataset?.professionKey ?? itemNode?.dataset?.itemId ?? "").trim();
+      if (fromItem) {
+        profKey = fromItem;
+        break;
+      }
+
+      const fromNode = String(el?.dataset?.professionKey ?? el?.id ?? "").trim();
+      if (fromNode) {
+        profKey = tryResolveProfessionKey(fromNode);
+        break;
+      }
+
+      // Compatibility: Token Action HUD and similar modules.
+      const actionFromDataset =
+        el?.dataset?.professionKey ??
+        el?.dataset?.actionId ??
+        el?.dataset?.actionid ??
+        el?.dataset?.action ??
+        el?.dataset?.id ??
+        "";
+      const fromAction = tryResolveProfessionKey(actionFromDataset);
+      if (fromAction) {
+        profKey = fromAction;
+        break;
+      }
     }
 
-    if (button && typeof button.closest === "function") {
-      const li = button.closest(".item");
-      profKey = li?.dataset?.professionKey ?? li?.dataset?.itemId;
-    }
-    if (!profKey && button) {
-      profKey = button.id ?? button.dataset?.professionKey ?? button.dataset?.itemId;
-    }
     if (!profKey) {
-      profKey = event?.data?.professionKey ?? event?.data?.itemId ?? target?.id ?? null;
+      profKey =
+        tryResolveProfessionKey(event?.detail) ||
+        tryResolveProfessionKey(event?.detail?.actionId) ||
+        tryResolveProfessionKey(event?.detail?.action?.id) ||
+        tryResolveProfessionKey(event?.data) ||
+        tryResolveProfessionKey(event?.data?.professionKey) ||
+        tryResolveProfessionKey(event?.data?.itemId) ||
+        tryResolveProfessionKey(button) ||
+        null;
     }
     if (!profKey) {
       ui.notifications.warn("Profession not found.");
@@ -1131,6 +1354,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       this._uesrpgTabChangeHandler = null;
       this._uesrpgTabInputHandler = null;
       this._uesrpgTabKeydownHandler = null;
+      this._uesrpgBioCache = null;
+      this._uesrpgItemsCache = null;
       clearItemDescriptionTooltip(this);
       return super._onClose(options);
     } finally {
