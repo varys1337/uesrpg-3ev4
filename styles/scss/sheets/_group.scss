@@ -1,0 +1,628 @@
+/* Group Sheet Left Sidebar Layout*/
+
+/* Left sidebar styling (matching PC/NPC sheets)*/
+.uesrpg.sheet.actor.group .sheet-fixed-container {
+  width: var(--uesrpg-sidebar-width, 230px);
+  min-width: var(--uesrpg-sidebar-width, 230px);
+  border-right: 2px solid #999;
+  background-color: transparent;
+  background-image: var(--uesrpg-sidebar-url);
+  background-size: cover;
+  background-position: center top;
+  padding: 15px;
+}
+
+.uesrpg.sheet.actor.group .profile-img-container {
+  width: 100%;
+  height: clamp(190px, 28vh, 260px);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.uesrpg.sheet.actor.group .profile-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* Tab navigation grid layout*/
+.uesrpg.sheet.actor.group .sheet-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 5px;
+  margin-top: 2px;
+  padding: 1px 8px 6px;
+}
+
+.uesrpg.sheet.actor.group .sheet-tabs .item {
+  min-height: 25px;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 5px;
+  line-height: 1;
+  text-align: center;
+  font-size: clamp(14px, 0.95vw, 17px);
+  font-weight: 700;
+  letter-spacing: 0.04px;
+  border-radius: 8px;
+}
+
+.uesrpg.sheet.actor.group .sheet-fixed-container nav.sheet-tabs > [data-tab] {
+  min-height: 25px;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 5px;
+  line-height: 1;
+}
+
+/* Authoritative sidebar tab typography (overrides older compact rule variants).*/
+.worldbuilding.uesrpg.sheet.actor.group .sheet-fixed-container nav.sheet-tabs > [data-tab] {
+  font-size: clamp(14px, 0.95vw, 17px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04px;
+}
+
+.uesrpg.sheet.actor.group .sheet-tabs .item.active {
+  text-decoration: none;
+  background: var(--uesrpg-ornament-tab-active, rgba(225, 212, 182, 0.68));
+  border: 1px solid var(--uesrpg-ornament-border-strong, rgba(102, 76, 28, 0.45));
+  box-shadow: inset 0 -2px 0 rgba(122, 25, 15, 0.45);
+}
+
+/* Consistent spacing for all inventory sections*/
+.uesrpg.sheet.actor.group .containerList,
+.uesrpg.sheet.actor.group .equipmentList {
+  margin-bottom: 0;
+}
+
+.uesrpg.sheet.actor.group .container-table,
+.uesrpg.sheet.actor.group .weapon-table,
+.uesrpg.sheet.actor.group .ammunition-table,
+.uesrpg.sheet.actor.group .armor-table {
+  margin-bottom: 8px;
+}
+
+/* Ensure sheet body scrolls independently*/
+.uesrpg.sheet.actor.group .sheet-body {
+  overflow-y: auto;
+  padding: 15px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 10px;
+}
+
+/* Member items --- base bg/transition (grid layout in externalized section below)*/
+.uesrpg.sheet.actor.group .member-item {
+  background: var(--uesrpg-bg-inset, rgba(0, 0, 0, 0.05));
+  transition: var(--uesrpg-transition, all 200ms ease);
+}
+
+.uesrpg.sheet.actor.group .member-item:hover {
+  background: rgba(0, 100, 200, 0.1);
+}
+
+.uesrpg.sheet.actor.group .member-portrait img {
+  object-fit: cover;
+  border: 1px solid #666;
+}
+
+/* Inventory section*/
+.uesrpg.sheet.actor.group .inventory-section {
+  margin-bottom: 20px;
+}
+
+.uesrpg.sheet.actor.group .inventory-section h4 {
+  border-bottom: 2px solid #999;
+  padding-bottom: 5px;
+  margin-bottom: 10px;
+  position: relative;
+}
+
+.uesrpg.sheet.actor.group .inventory-section h4::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(90, 70, 36, 0.15), rgba(90, 70, 36, 0.5), rgba(90, 70, 36, 0.15));
+}
+
+.uesrpg.sheet.actor.group .item-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.uesrpg.sheet.actor.group .item-list .item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
+}
+
+/* Item list hover states*/
+.uesrpg.sheet.actor.group .item-list .item:hover {
+  background: rgba(0, 100, 200, 0.08);
+  cursor: default;
+}
+
+.uesrpg.sheet.actor.group .item-image {
+  border: 1px solid #666;
+  transition: var(--uesrpg-transition, all 200ms ease);
+}
+
+.uesrpg.sheet.actor.group .item-image:hover {
+  transform: scale(1.15);
+  box-shadow: var(--uesrpg-shadow-md, 0 2px 6px rgba(0,0,0,0.4));
+}
+
+.uesrpg.sheet.actor.group .item-name {
+  flex-grow: 1;
+}
+
+.uesrpg.sheet.actor.group .item-name:hover {
+  color: var(--uesrpg-color-accent, #0064c8);
+  text-decoration: underline;
+}
+
+.uesrpg.sheet.actor.group .item-delete {
+  color: #d9534f;
+  cursor: pointer;
+}
+
+.uesrpg.sheet.actor.group .item-delete:hover {
+  color: #c9302c;
+}
+
+/* Drop zone hover state*/
+.uesrpg.sheet.actor.group .member-drop-zone:hover,
+.uesrpg.sheet.actor.group .item-drop-zone:hover {
+  background: var(--uesrpg-bg-inset, rgba(0, 100, 200, 0.05));
+  border-color: var(--uesrpg-color-accent, #0064c8);
+}
+
+/* --- Members Tab --- externalized inline styles ---*/
+
+/* Drop zone*/
+.uesrpg.sheet.actor.group .member-drop-zone {
+  border: 2px dashed #999;
+  padding: 15px;
+  margin-bottom: 15px;
+  text-align: center;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+.uesrpg.sheet.actor.group .member-drop-zone .drop-icon {
+  font-size: 1.5em;
+  opacity: 0.5;
+}
+
+.uesrpg.sheet.actor.group .member-drop-zone .drop-hint {
+  margin: 8px 0 0 0;
+  opacity: 0.7;
+  font-size: 0.95em;
+}
+
+/* Controls row*/
+.uesrpg.sheet.actor.group .controls {
+  margin-bottom: 15px;
+  display: flex;
+  gap: 8px;
+}
+
+.uesrpg.sheet.actor.group .controls button {
+  flex: 1;
+  font-size: 0.9em;
+  min-height: var(--uesrpg-control-h-md, 30px);
+  padding: 2px var(--uesrpg-space-lg, 10px);
+  border: 1px solid #999;
+  border-radius: var(--uesrpg-border-radius, 4px);
+  background:
+    linear-gradient(180deg, rgba(136, 103, 53, 0.62), rgba(92, 69, 34, 0.58)),
+    var(--uesrpg-parchment-url);
+  color: #2a2014;
+  cursor: pointer;
+  transition: var(--uesrpg-transition, all 200ms ease);
+}
+
+.uesrpg.sheet.actor.group .controls button:hover {
+  background:
+    linear-gradient(180deg, rgba(164, 126, 68, 0.66), rgba(115, 86, 43, 0.62)),
+    var(--uesrpg-parchment-url);
+  border-color: rgba(92, 69, 34, 0.46);
+  transform: translateY(-1px);
+  box-shadow: var(--uesrpg-shadow-md, 0 2px 6px rgba(0,0,0,0.2));
+}
+
+.uesrpg.sheet.actor.group .controls button:active {
+  transform: translateY(0);
+  box-shadow: var(--uesrpg-shadow-sm, 0 1px 3px rgba(0,0,0,0.2));
+}
+
+/* Member list scroll container*/
+.uesrpg.sheet.actor.group .member-list-scrollable {
+  display: flex;
+  flex-direction: column;
+  gap: var(--uesrpg-field-gap, 6px);
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 5px;
+}
+
+/* Member card (grid layout)*/
+.uesrpg.sheet.actor.group .member-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 6px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: var(--uesrpg-border-radius, 4px);
+  align-items: center;
+  background:
+    linear-gradient(
+      180deg,
+      var(--uesrpg-ornament-surface-top, rgba(248, 240, 219, 0.88)),
+      var(--uesrpg-ornament-surface-bottom, rgba(241, 233, 213, 0.82))
+    );
+}
+
+/* Portrait (spans 2 rows)*/
+.uesrpg.sheet.actor.group .member-portrait {
+  cursor: pointer;
+  grid-row: 1 / 3;
+  grid-column: 1;
+}
+
+.uesrpg.sheet.actor.group .member-portrait img {
+  border-radius: var(--uesrpg-border-radius, 4px);
+  display: block;
+}
+
+.uesrpg.sheet.actor.group .member-portrait img.member-missing {
+  opacity: 0.5;
+  filter: grayscale(100%);
+}
+
+/* Name (row 1, col 2)*/
+.uesrpg.sheet.actor.group .member-name {
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.95em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  grid-row: 1;
+  grid-column: 2;
+}
+
+.uesrpg.sheet.actor.group .member-missing-label {
+  color: #d9534f;
+  font-size: 0.85em;
+}
+
+/* Stats (row 2, col 2)*/
+.uesrpg.sheet.actor.group .member-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 0.8em;
+  flex-wrap: wrap;
+  grid-row: 2;
+  grid-column: 2;
+}
+
+.uesrpg.sheet.actor.group .member-stats .stat-hp    { color: var(--uesrpg-color-hp, #c03030); }
+.uesrpg.sheet.actor.group .member-stats .stat-sp    { color: #30a0c0; }
+.uesrpg.sheet.actor.group .member-stats .stat-mp    { color: #9030c0; }
+.uesrpg.sheet.actor.group .member-stats .stat-speed { color: var(--uesrpg-color-speed, #60c030); }
+.uesrpg.sheet.actor.group .member-stats .stat-fatigue { color: #d9534f; }
+
+/* Remove button (spans 2 rows, col 3)*/
+.uesrpg.sheet.actor.group .member-remove-btn {
+  grid-row: 1 / 3;
+  grid-column: 3;
+  width: var(--uesrpg-control-h-sm, 26px);
+  height: var(--uesrpg-control-h-sm, 26px);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(200, 0, 0, 0.15);
+  border: 1px solid rgba(200, 0, 0, 0.4);
+  border-radius: var(--uesrpg-border-radius-sm, 3px);
+  cursor: pointer;
+  font-size: 0.85em;
+  transition: var(--uesrpg-transition, all 200ms ease);
+}
+
+.uesrpg.sheet.actor.group .member-remove-btn:hover {
+  background: rgba(200, 0, 0, 0.3);
+  border-color: rgba(200, 0, 0, 0.6);
+}
+
+/* Empty state*/
+.uesrpg.sheet.actor.group .group-empty {
+  text-align: center;
+  opacity: 0.6;
+  margin-top: 30px;
+  font-style: italic;
+}
+
+/* --- Inventory Tab --- externalized inline styles ---*/
+
+.uesrpg.sheet.actor.group .inventory-header {
+  border-bottom: 2px solid #999;
+  padding-bottom: 8px;
+  margin-bottom: 15px;
+  background:
+    linear-gradient(180deg, rgba(136, 103, 53, 0.22), rgba(92, 69, 34, 0.16)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.uesrpg.sheet.actor.group .inventory-header h3 {
+  margin: 0 0 5px 0;
+}
+
+.uesrpg.sheet.actor.group .inventory-header p {
+  opacity: 0.7;
+  font-size: 0.9em;
+  margin: 0;
+}
+
+.uesrpg.sheet.actor.group .itemListContainer {
+  max-height: 500px;
+  overflow-y: auto;
+  padding: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 8px;
+}
+
+.uesrpg.sheet.actor.group .itemListContainer table thead {
+  background:
+    linear-gradient(180deg, rgba(136, 103, 53, 0.62), rgba(92, 69, 34, 0.58)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+.uesrpg.sheet.actor.group .itemListContainer table thead th {
+  color: #2a2014;
+  text-shadow: 0 1px 0 rgba(255, 245, 225, 0.18);
+}
+
+.uesrpg.sheet.actor.group .itemListContainer table tbody tr.item.active {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+/* --- Travel Tab --- externalized inline styles ---*/
+
+.uesrpg.sheet.actor.group .travel-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 20px 0;
+}
+
+.uesrpg.sheet.actor.group .stat-card {
+  padding: 15px;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+.uesrpg.sheet.actor.group .stat-speed-value {
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.uesrpg.sheet.actor.group .stat-speed-kmh {
+  font-size: 16px;
+  font-weight: bold;
+  margin-top: 4px;
+  color: var(--uesrpg-color-accent, #0064c8);
+}
+
+.uesrpg.sheet.actor.group .stat-hint {
+  opacity: 0.7;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.uesrpg.sheet.actor.group .pace-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.uesrpg.sheet.actor.group .change-pace {
+  flex: 1;
+  min-height: var(--uesrpg-control-h-md, 30px);
+  padding: 2px var(--uesrpg-space-lg, 10px);
+  font-size: var(--uesrpg-font-base, 14px);
+  font-weight: bold;
+  border: 2px solid var(--uesrpg-color-accent, #0064c8);
+  background: rgba(0, 100, 200, 0.1);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: var(--uesrpg-transition, all 200ms ease);
+}
+
+.uesrpg.sheet.actor.group .change-pace:hover {
+  background: rgba(0, 100, 200, 0.3);
+}
+
+.uesrpg.sheet.actor.group .pace-reference {
+  margin-top: 20px;
+}
+
+.uesrpg.sheet.actor.group .pace-table {
+  width: 100%;
+  border-collapse: collapse;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.uesrpg.sheet.actor.group .pace-table thead tr {
+  border-bottom: 2px solid #ccc;
+}
+
+.uesrpg.sheet.actor.group .pace-table th,
+.uesrpg.sheet.actor.group .pace-table td {
+  padding: 5px 8px;
+}
+
+.uesrpg.sheet.actor.group .pace-table th {
+  text-align: left;
+}
+
+.uesrpg.sheet.actor.group .pace-table .text-center {
+  text-align: center;
+}
+
+.uesrpg.sheet.actor.group .pace-table tr.pace-active {
+  background: rgba(0, 100, 200, 0.1);
+}
+
+/* Dark theme contrast pass for travel pace table headers.*/
+body.theme-dark .uesrpg.sheet.actor.group .pace-table thead {
+  background: linear-gradient(180deg, rgba(57, 40, 21, 0.96), rgba(34, 24, 13, 0.98));
+}
+
+body.theme-dark .uesrpg.sheet.actor.group .pace-table thead th {
+  color: #f3e9d4;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+  border-bottom: 1px solid rgba(245, 225, 186, 0.22);
+}
+
+/* --- Details Tab --- externalized inline styles ---*/
+
+.uesrpg.sheet.actor.group .editor-section + .editor-section {
+  margin-top: 20px;
+}
+
+.uesrpg.sheet.actor.group .editor-section {
+  padding: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 8px;
+}
+
+.uesrpg.sheet.actor.group .editor-section h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Ensure scrollbars are visible but styled*/
+.uesrpg.sheet.actor.group .member-list-scrollable::-webkit-scrollbar,
+.uesrpg.sheet.actor.group .inventory-sections::-webkit-scrollbar {
+  width: 8px;
+}
+
+.uesrpg.sheet.actor.group .member-list-scrollable::-webkit-scrollbar-track,
+.uesrpg.sheet.actor.group .inventory-sections::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.1);
+  border-radius: 4px;
+}
+
+.uesrpg.sheet.actor.group .member-list-scrollable::-webkit-scrollbar-thumb,
+.uesrpg.sheet.actor.group .inventory-sections::-webkit-scrollbar-thumb {
+  background: var(--uesrpg-scrollbar-color, rgba(0,0,0,0.3));
+  border-radius: var(--uesrpg-border-radius, 4px);
+}
+
+.uesrpg.sheet.actor.group .member-list-scrollable::-webkit-scrollbar-thumb:hover,
+.uesrpg.sheet.actor.group .inventory-sections::-webkit-scrollbar-thumb:hover {
+  background: rgba(0,0,0,0.5);
+}
+
+/* Limited Sheet*/
+.uesrpg.sheet.actor.group.limited .limited-info {
+  padding: 20px;
+  text-align: center;
+}
+
+.uesrpg.sheet.actor.group.limited .limited-info i {
+  font-size: 3em;
+  opacity: 0.3;
+  margin-bottom: 10px;
+}
+
+.uesrpg.sheet.actor.group.limited .limited-info p {
+  opacity: 0.7;
+}
+
+.uesrpg.sheet.actor.group.limited .visible-members h3 {
+  text-align: center;
+  margin: 20px 0;
+}
+
+.uesrpg.sheet.actor.group.limited .member-portraits {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px;
+}
+
+.uesrpg.sheet.actor.group.limited .member-portrait-limited {
+  text-align: center;
+}
+
+.uesrpg.sheet.actor.group.limited .member-portrait-limited img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid #666;
+  cursor: pointer;
+}
+
+.uesrpg.sheet.actor.group.limited .member-portrait-limited div {
+  font-size: 0.85em;
+  margin-top: 5px;
+}
+
+.uesrpg.sheet.actor.group.limited .member-portrait-clickable:hover {
+  transform: scale(1.1);
+  transition: var(--uesrpg-transition, all 200ms ease);
+}
+
+.uesrpg.sheet.actor.group.limited .description-section {
+  margin-top: 20px;
+  padding: 0 20px;
+}
+

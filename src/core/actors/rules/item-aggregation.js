@@ -173,7 +173,8 @@ export function aggregateItemStats(actor, actorData) {
       stats.resist.shockR += Number(sys.shockR || 0);
       stats.resist.poisonR += Number(sys.poisonR || 0);
       stats.resist.magicR += Number(sys.magicR || 0);
-      stats.resist.natToughnessR += Number(sys.natToughnessR || 0);
+      // Chapter 4 X-traits: highest value wins when duplicated.
+      stats.resist.natToughnessR = Math.max(stats.resist.natToughnessR, Number(sys.natToughnessR || 0));
       stats.resist.silverR += Number(sys.silverR || 0);
       stats.resist.sunlightR += Number(sys.sunlightR || 0);
 

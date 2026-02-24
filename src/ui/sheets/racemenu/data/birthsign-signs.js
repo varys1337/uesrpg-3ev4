@@ -17,7 +17,7 @@ const SIGNS_PACK = "uesrpg-3ev4.signs";
 const POWERS_PACK = "uesrpg-3ev4.powers-revised";
 
 // Common item icons
-const pwIcon = "icons/magic/symbols/circle-glow-blue-green.webp";
+const pwIcon = "icons/magic/defensive/shield-barrier-glowing-blue.webp";
 const weakIcon = "icons/magic/unholy/strike-beam-blood-red-purple.webp";
 
 // ─── Warrior Constellation ───────────────────────────────────────────────────

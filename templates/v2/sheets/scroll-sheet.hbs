@@ -1,0 +1,193 @@
+{{!-- Scroll Sheet --}}
+<header class="item-compact-header">
+    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
+    <div class="item-header-fields">
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Scroll Name"/>
+        <div class="item-stats-row">
+            <div class="item-stat">
+                <input type="number" name="system.quantity" value="{{#if item.system.quantity}}{{item.system.quantity}}{{else}}1{{/if}}" min="0"/>
+                <span class="item-stat-label">Quantity</span>
+            </div>
+            <div class="item-stat">
+                <input type="number" name="system.enc" value="{{#if item.system.enc}}{{item.system.enc}}{{else}}0{{/if}}"/>
+                <span class="item-stat-label">ENC</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+{{!-- Sheet Tab Navigation --}}
+<nav class="sheet-tabs tabs" data-group="primary">
+    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="spell">Spell Reference</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+</nav>
+
+{{!-- Sheet Body --}}
+<section class="sheet-body">
+
+    {{!-- Description Tab --}}
+    <div class="tab" data-group="primary" data-tab="description">
+        <div class="item-description-container">
+            <div class="basic-padding">
+                {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+            </div>
+        </div>
+    </div>
+
+    {{!-- Spell Reference Tab --}}
+    <div class="tab" data-group="primary" data-tab="spell">
+        <div class="attribute-tab-container">
+            <div class="item-selection-container">
+                <h2>Spell Reference</h2>
+                <div class="form-group scroll-spell-drop-zone" data-scroll-spell-drop-zone="true">
+                    <label>Spell UUID</label>
+                    <input type="text" class="scroll-spell-uuid-input" name="system.spellUuid" value="{{item.system.spellUuid}}" placeholder="Drop a spell item here, or paste its UUID"/>
+                    <p class="hint">
+                        Drag a spell item from an actor sheet or compendium and drop it anywhere in this panel, or paste the spell's UUID manually. Right-click a spell item and choose "Copy UUID" to get the UUID.
+                    </p>
+                </div>
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" name="system.requireSchoolTraining" {{checked item.system.requireSchoolTraining}}>
+                        <span>Require School Training (per scroll)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" name="system.consumeMagicka" {{checked item.system.consumeMagicka}}>
+                        <span>Consume Magicka (per scroll)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" name="system.consumeOnCast" {{checked item.system.consumeOnCast}}>
+                        <span>Expire Scroll On Cast</span>
+                    </label>
+                    <p class="hint">
+                        Checked: consume 1 quantity per cast and remove the scroll when quantity reaches 0.
+                        Unchecked: keep the scroll after casting.
+                    </p>
+                </div>
+
+                {{#if hasLinkedSpell}}
+                <div class="form-group">
+                    <h3>Linked Spell</h3>
+                    <p><strong>{{scrollLinkedSpell.name}}</strong> ({{scrollLinkedSpell.school}} L{{scrollLinkedSpell.level}})</p>
+                    <p>Cost: {{scrollLinkedSpell.cost}} MP | Form: {{scrollLinkedSpell.form}} | Range: {{scrollLinkedSpell.range}}</p>
+                    <p>Duration: {{scrollLinkedSpell.duration.value}} {{scrollLinkedSpell.duration.unit}}</p>
+                    {{#if scrollLinkedSpell.damageInstances.length}}
+                    <div>
+                        <strong>Damage Instances:</strong>
+                        <ul>
+                            {{#each scrollLinkedSpell.damageInstances as |di|}}
+                            <li>{{di.formula}} {{#if di.type}}({{di.type}}){{/if}} {{#if di.label}}- {{di.label}}{{/if}}</li>
+                            {{/each}}
+                        </ul>
+                    </div>
+                    {{/if}}
+                    <p>
+                        <strong>Features:</strong>
+                        {{#if scrollLinkedSpell.isInstant}} Instant {{/if}}
+                        {{#if scrollLinkedSpell.isDirect}} Direct {{/if}}
+                        {{#if scrollLinkedSpell.isZonePersistent}} Zone {{/if}}
+                        {{#if scrollLinkedSpell.isRuneSpell}} Rune {{/if}}
+                        {{#if scrollLinkedSpell.hasOverTime}} Over Time {{/if}}
+                        {{#if scrollLinkedSpell.hasOverload}} Overload {{/if}}
+                        {{#if scrollLinkedSpell.isSummonSpell}} Summon {{/if}}
+                        {{#if scrollLinkedSpell.hasBuffer}} Buffer {{/if}}
+                    </p>
+                </div>
+                {{/if}}
+
+                {{#if linkedSpellUnresolved}}
+                <p class="hint" style="color:#a33;">Linked spell UUID could not be resolved to a spell item.</p>
+                {{/if}}
+            </div>
+
+            {{!-- Cast Button (owned items only) --}}
+            {{#if actor}}
+            <div class="item-selection-container">
+                <h2>Cast</h2>
+                <div class="activation-use-btn-wrap">
+                    <button type="button" class="uesrpg-scroll-cast" data-action="castScroll"
+                            {{#unless hasLinkedSpell}}disabled title="No valid spell assigned"{{/unless}}>
+                        <i class="fas fa-scroll"></i> Cast Scroll
+                    </button>
+                </div>
+                <p class="hint">Magicka, training, and expiration rules are configured per scroll above.</p>
+            </div>
+            {{/if}}
+
+            {{#if uiSpellcastingConfig}}
+            <div class="item-selection-container">
+                <h2>Spellcasting Configuration</h2>
+                <div class="selection-container">
+                    <p class="u-text-muted u-text-sm">
+                        Configure slot name, spell, binding strength, and cost mode/value, then save.
+                    </p>
+                    <div class="grid-container">
+                        <div>Enable Spellcasting</div>
+                        <div class="right-align-content">
+                            <button type="button" data-action="toggleSpellcastingEnable">
+                                {{#if uiSpellcastingConfig.enabled}}Disable{{else}}Enable{{/if}}
+                            </button>
+                        </div>
+                    </div>
+                    {{#if uiSpellcastingConfig.enabled}}
+                    <div class="grid-container">
+                        <div>Charge Pool (Soul)</div>
+                        <div class="right-align-content u-text-muted">Used by Soul-cost slots; synced with item Charge.</div>
+                    </div>
+                    <div class="grid-container">
+                        <div>Charge Current / Max</div>
+                        <div class="right-align-content">
+                            <input type="number" data-spellcasting-charge="value" value="{{uiSpellcastingConfig.poolValue}}" min="0" step="1" class="u-w-50" />
+                            <span>/</span>
+                            <input type="number" data-spellcasting-charge="max" value="{{uiSpellcastingConfig.poolMax}}" min="0" step="1" class="u-w-50" />
+                        </div>
+                    </div>
+                    <div class="grid-container">
+                        <div>Spell Slots</div>
+                        <div class="right-align-content">
+                            <button type="button" data-action="addSpellcastingSlot">Add Slot</button>
+                            <button type="button" data-action="editSpellcastingSlot">Save</button>
+                        </div>
+                    </div>
+                    {{#each uiSpellcastingConfig.slots as |slot|}}
+                    <div class="grid-container" data-spellcasting-slot-id="{{slot.id}}">
+                        <div>
+                            <input type="text" data-spellcasting-field="label" value="{{slot.label}}" placeholder="Label" />
+                            <div class="u-text-muted u-text-xs">{{slot.spellUuid}}</div>
+                        </div>
+                        <div class="right-align-content">
+                            <input type="number" data-spellcasting-field="cost" value="{{slot.cost}}" min="0" step="1" class="u-w-50" />
+                            <input type="number" data-spellcasting-field="bindingStrength" value="{{slot.bindingStrength}}" min="0" max="10" step="1" class="u-w-50" />
+                            <select data-spellcasting-field="costMode" class="u-w-50">
+                                <option value="soul" {{#if (eq slot.costMode "soul")}}selected{{/if}}>Soul</option>
+                                <option value="magicka" {{#if (eq slot.costMode "magicka")}}selected{{/if}}>Magicka</option>
+                                <option value="none" {{#if (eq slot.costMode "none")}}selected{{/if}}>No Cost</option>
+                            </select>
+                            <label><input type="checkbox" data-spellcasting-field="enabled" {{checked slot.enabled}} /> On</label>
+                            <button type="button" data-action="pickSpellcastingSlotSpell" data-slot-id="{{slot.id}}">Pick</button>
+                            <button type="button" data-action="removeSpellcastingSlot" data-slot-id="{{slot.id}}">Remove</button>
+                        </div>
+                    </div>
+                    {{/each}}
+                    {{#if uiSpellcastingConfig.canCast}}
+                    <div class="grid-container">
+                        <div>Cast Enchantment</div>
+                        <div class="right-align-content">
+                            <button type="button" data-action="castEnchantment">Cast Enchantment</button>
+                        </div>
+                    </div>
+                    {{/if}}
+                    {{/if}}
+                </div>
+            </div>
+            {{/if}}
+        </div>
+    </div>
+
+    {{!-- Effects Tab --}}
+    <div class="tab effects" data-group="primary" data-tab="effects">
+        {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+    </div>
+
+</section>

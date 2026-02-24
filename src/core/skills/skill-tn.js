@@ -197,6 +197,12 @@ function _isCombatStyle(skillItem) {
   return (skillItem?.type === "combatStyle") || /combat style/i.test(String(skillItem?.name || ""));
 }
 
+// Chapter 1/7: encumbrance penalty applies only to STR/END/AGI-governed tests.
+const _ENCUMBRANCE_PHYSICAL_KEYS = new Set(["str", "strength", "end", "endurance", "agi", "agility"]);
+function _encumbrancePhysicalKey(k) {
+  return _ENCUMBRANCE_PHYSICAL_KEYS.has(String(k ?? "").trim().toLowerCase());
+}
+
 export function computeSkillTN({
   actor,
   skillItem,
@@ -467,7 +473,31 @@ function computeSkillTNFromData({
   if (fatigue) breakdown.push({ label: "Fatigue", value: fatigue, source: "fatigue" });
 
   const enc = _asNumber(actorSystem?.carry_rating?.penalty);
-  if (enc) breakdown.push({ label: "Encumbrance", value: enc, source: "encumbrance" });
+  if (enc) {
+    // Chapter 1/7: scope encumbrance to STR/END/AGI-governed tests only.
+    // NPC profession pseudo-items (type: "profession") preserve legacy always-apply behavior.
+    let applyEnc = false;
+    if (skill?.type === "profession") {
+      applyEnc = true;
+    } else if (isCharacteristic) {
+      applyEnc = _encumbrancePhysicalKey(skill?._characteristicKey ?? "");
+    } else {
+      // Effective characteristic: selectedCharKey if valid in governing set, else baseCha.
+      const effectiveCharKey = (selectedCharKey && governingTokens.has(selectedCharKey))
+        ? selectedCharKey
+        : currentBaseCharKey;
+      if (_encumbrancePhysicalKey(effectiveCharKey)) {
+        applyEnc = true;
+      } else {
+        // Secondary rule: skill.system.tags may contain "physical" or "movement" to opt-in.
+        const tags = Array.isArray(skill?.system?.tags) ? skill.system.tags : [];
+        applyEnc = tags.some(t => t === "physical" || t === "movement");
+      }
+    }
+    if (applyEnc) {
+      breakdown.push({ label: "Encumbrance", value: enc, source: "encumbrance" });
+    }
+  }
 
   // Mobility: armor weight class penalties (RAW).
   // We rely on the derived actor.system.mobility object.

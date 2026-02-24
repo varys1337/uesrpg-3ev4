@@ -20,9 +20,50 @@ import { TimeService, buildEffectDuration } from "../time/index.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { _resolveActorViaToken } from "./opposed/helpers/docs.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
-import { requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
+const HOOKED_ACTION_IDS = new Set(["disarm", "trip", "takeWeapon", "take-weapon"]);
+
+function _itemHasQualityToken(item, key) {
+  const wanted = String(key ?? "").trim().toLowerCase();
+  if (!item || !wanted) return false;
+  const structured = Array.isArray(item.system?.qualitiesStructuredInjected)
+    ? item.system.qualitiesStructuredInjected
+    : (Array.isArray(item.system?.qualitiesStructured) ? item.system.qualitiesStructured : []);
+  const traits = Array.isArray(item.system?.qualitiesTraitsInjected)
+    ? item.system.qualitiesTraitsInjected
+    : (Array.isArray(item.system?.qualitiesTraits) ? item.system.qualitiesTraits : []);
+  return structured.some(q => String(q?.key ?? q ?? "").toLowerCase() === wanted)
+    || traits.some(t => String(t ?? "").toLowerCase() === wanted);
+}
+
+function _getPreferredWeapon(actor) {
+  if (!actor) return null;
+  const fromBindingIds = [
+    actor?.system?.equippedWeapons?.primaryWeapon?.id,
+    actor?.system?.equippedWeapons?.secondaryWeapon?.id,
+    actor?.system?.equippedWeapons?.equippedWeapons?.primaryWeapon?.id,
+    actor?.system?.equippedWeapons?.equippedWeapons?.secondaryWeapon?.id
+  ].filter(Boolean);
+  for (const id of fromBindingIds) {
+    const it = actor.items?.get?.(id);
+    if (it?.type === "weapon") return it;
+  }
+  return (actor.items ?? []).find(i => i?.type === "weapon" && i?.system?.equipped === true) ?? null;
+}
+
+function _getConcussiveNextBashBonus(actor) {
+  const raw = actor?.getFlag?.(SYSTEM_ID, "combat.concussiveNextBash");
+  if (typeof raw === "number") return Math.max(0, Number(raw) || 0);
+  if (raw && typeof raw === "object") return Math.max(0, Number(raw?.bonus ?? 0) || 0);
+  return 0;
+}
+
+async function _consumeConcussiveNextBashBonus(actor) {
+  if (!actor) return;
+  await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.combat.-=concussiveNextBash`]: null });
+}
 
 /**
  * Simple HTML escape to prevent XSS.
@@ -352,12 +393,36 @@ export async function handleSpecialActionCardAction(message, action) {
     // Perform roll
     let rollResult;
     let testLabel;
+    let consumeConcussiveAfterRoll = false;
+    const attackerActor = _resolveActorViaToken(attacker.actorUuid, attacker.tokenUuid);
+    let specialActionTNMod = 0;
+    if (isAttacker && specialActionId === "bash") {
+      const bonus = _getConcussiveNextBashBonus(actor);
+      if (bonus > 0) {
+        specialActionTNMod += bonus;
+        consumeConcussiveAfterRoll = true;
+      }
+    }
+    if (!isAttacker && HOOKED_ACTION_IDS.has(specialActionId)) {
+      const atkWeapon = _getPreferredWeapon(attackerActor);
+      if (atkWeapon && _itemHasQualityToken(atkWeapon, "hooked")) {
+        specialActionTNMod -= 10;
+      }
+    }
     const selectedSkillUuid = String(choice.skillUuid ?? "").trim();
     const selectedItem = (actor?.items ?? []).find(i => String(i?.uuid ?? "") === selectedSkillUuid || String(i?.id ?? "") === selectedSkillUuid) ?? null;
     const isCombatStyleTest = selectedSkillUuid.startsWith("prof:combat") || selectedItem?.type === "combatStyle";
 
     if (isCombatStyleTest) {
       const { computeTN } = await import("./tn.js");
+      // Chapter 5: Size-to-hit modifier should apply to the attacker side of Special Actions.
+      // This helper uses computeTN as a generic "Combat Style TN" resolver for both sides.
+      // To avoid incorrectly applying size-to-hit to the defender roll, only pass opponent size
+      // when the current side is the attacker.
+      const opponentActor = isAttacker
+        ? _resolveActorViaToken(defender.actorUuid, defender.tokenUuid)
+        : null;
+
       const tn = computeTN({
         actor,
         role: "attacker",
@@ -366,8 +431,14 @@ export async function handleSpecialActionCardAction(message, action) {
         manualMod: 0,
         circumstanceMod: 0,
         situationalMods: [],
-        context: { attackMode: "melee" }
+        context: {
+          attackMode: "melee",
+          selfSize: actor?.system?.size,
+          opponentSize: isAttacker ? (opponentActor?.system?.size ?? null) : null
+        }
       });
+      tn.finalTN = Math.max(0, Number(tn.finalTN ?? 0) + specialActionTNMod);
+      tn.totalMod = Number(tn.totalMod ?? 0) + specialActionTNMod;
 
       rollResult = await doTestRoll(actor, {
         rollFormula: "1d100",
@@ -402,6 +473,8 @@ export async function handleSpecialActionCardAction(message, action) {
           difficultyKey: "average",
           manualMod: 0
         });
+        tn.finalTN = Math.max(0, Number(tn.finalTN ?? 0) + specialActionTNMod);
+        tn.totalMod = Number(tn.totalMod ?? 0) + specialActionTNMod;
       }
 
       rollResult = await doTestRoll(actor, {
@@ -416,6 +489,9 @@ export async function handleSpecialActionCardAction(message, action) {
     // Update side with result
     side.result = rollResult;
     side.testLabel = testLabel;
+    if (consumeConcussiveAfterRoll) {
+      await _consumeConcussiveNextBashBonus(actor);
+    }
 
     // Check if both have rolled
     if (attacker.result && defender.result) {

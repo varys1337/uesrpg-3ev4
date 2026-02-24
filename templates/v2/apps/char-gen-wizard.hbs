@@ -1,0 +1,136 @@
+<div class="uesrpg-char-gen__root">
+  <section class="uesrpg-char-gen__layout">
+    <aside class="uesrpg-char-gen__stages">
+      <h3>Stages</h3>
+      <ol>
+        {{#each stageData}}
+          <li class="{{#if active}}is-active{{/if}} {{#if complete}}is-complete{{/if}} {{#if locked}}is-locked{{/if}}">
+            <button
+              type="button"
+              class="uesrpg-char-gen__stage-link"
+              data-action="goStage"
+              data-stage="{{id}}"
+              {{#unless clickable}}disabled{{/unless}}
+            >
+              <span class="status">{{#if complete}}OK{{else}}-{{/if}}</span>
+              <span class="label">{{label}}</span>
+            </button>
+          </li>
+        {{/each}}
+      </ol>
+    </aside>
+
+    <main class="uesrpg-char-gen__content">
+      {{#if hasResumeCandidate}}
+        <div class="uesrpg-char-gen__resume">
+          <p>Found saved progress for <strong>{{resumeActorName}}</strong>.</p>
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="resume">Resume</button>
+            <button type="button" class="dialog-button" data-action="restart">Restart</button>
+            <button type="button" class="dialog-button" data-action="dismissResume">Dismiss</button>
+          </div>
+        </div>
+      {{/if}}
+
+      <header class="uesrpg-char-gen__header">
+        <h2>{{stageTitle}}</h2>
+        <p>{{stageBody}}</p>
+        <div class="actor-pill">Actor: {{actorName}}</div>
+      </header>
+
+      {{#if isStage.actor}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <label>New Actor Name</label>
+          <input type="text" name="newActorName" value="{{ws.newActorName}}" placeholder="New Character">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="createActor">Create New PC</button>
+            {{#if hasAssignedCharacter}}
+              <button type="button" class="dialog-button" data-action="useAssignedCharacter">Use Assigned Character</button>
+            {{/if}}
+            {{#if hasSingleControlledToken}}
+              <button type="button" class="dialog-button" data-action="useSelectedTokenActor">Use Selected Token Actor</button>
+            {{/if}}
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.race}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="chooseRace">Open Race Menu</button>
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.stats}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="openStats">Open Characteristics Menu</button>
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.birthsign}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="chooseBirthsign">Roll/Choose Birthsign</button>
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.resources}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="openStartingResources">Open Starting Resources</button>
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.combatstyle}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="openCombatStyleSetup">Open Combat Style Setup</button>
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.spendxp}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="openSpendXp">Open Spend XP (RAW)</button>
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.spells}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="openSpellLearning">Open Spell Learning Menu</button>
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.luck}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button" data-action="openLuckyNumbers">Roll/Set Lucky Numbers</button>
+          </div>
+        </section>
+      {{/if}}
+
+      {{#if isStage.finish}}
+        <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
+          <div class="actions">
+            <button type="button" class="dialog-button default bright" data-action="finish">Finish</button>
+          </div>
+        </section>
+      {{/if}}
+    </main>
+  </section>
+
+  <footer class="uesrpg-char-gen__footer">
+    <button type="button" class="dialog-button" data-action="back" {{#unless canBack}}disabled{{/unless}}>Back</button>
+    <button type="button" class="dialog-button" data-action="next" {{#unless canNext}}disabled{{/unless}}>Next</button>
+    <button type="button" class="dialog-button" data-action="cancel">Cancel</button>
+  </footer>
+</div>

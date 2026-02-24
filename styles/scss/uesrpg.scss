@@ -1,0 +1,16 @@
+/*
+  UESRPG SCSS entrypoint
+  Order mirrors runtime cascade and includes tokens from SCSS source.
+*/
+
+@use "tokens/tokens";
+@use "components/panels";
+@use "base/fonts";
+@use "base/chrome";
+@use "apps/resource-dialog";
+@use "sheets/spell";
+@use "sheets/item";
+@use "debug/feature-inspector";
+@use "apps/character-menus";
+@use "apps/char-gen";
+@use "sheets/group";

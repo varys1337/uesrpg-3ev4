@@ -2,6 +2,7 @@ import { prepareCharacterItems } from "./sheet-prepare-items.js";
 import { bindCommonSheetListeners, bindCommonEditableInventoryListeners } from "./sheet-listeners.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "./rest-workflow.js";
 import { cachedEnrichHTML } from "../../utils/enrich-cache.js";
+import { customDialog, confirmDialog } from "../../utils/dialog-v2-helper.js";
 
 /**
  * Group Actor Sheet
@@ -216,55 +217,56 @@ export class GroupSheet extends ActorSheet {
 
     // Handle "createSelect" which should open a dialog for item type selection
     if (itemType === "createSelect") {
-      const d = new Dialog({
+      await customDialog({
         title: "Create Item",
         content: `<div style="padding: 10px 0;">
                     <h2>Select an Item Type</h2>
                     <label>Create an item in group inventory</label>
                   </div>`,
         buttons: {
-          one: {
+          item: {
             label: "Item",
             callback: async () => {
               const itemData = [{ name: "item", type: "item" }];
               const newItem = await this.actor.createEmbeddedDocuments("Item", itemData);
               await newItem[0].sheet.render(true);
+              return true;
             },
           },
-          two: {
+          ammunition: {
             label: "Ammunition",
             callback: async () => {
               const itemData = [{ name: "ammunition", type: "ammunition" }];
               const newItem = await this.actor.createEmbeddedDocuments("Item", itemData);
               await newItem[0].sheet.render(true);
+              return true;
             },
           },
-          three: {
+          armor: {
             label: "Armor",
             callback: async () => {
               const itemData = [{ name: "armor", type: "armor" }];
               const newItem = await this.actor.createEmbeddedDocuments("Item", itemData);
               await newItem[0].sheet.render(true);
+              return true;
             },
           },
-          four: {
+          weapon: {
             label: "Weapon",
             callback: async () => {
               const itemData = [{ name: "weapon", type: "weapon" }];
               const newItem = await this.actor.createEmbeddedDocuments("Item", itemData);
               await newItem[0].sheet.render(true);
+              return true;
             },
           },
-          five: {
+          cancel: {
             label: "Cancel",
-            callback: () => {},
+            callback: () => null,
           },
         },
-        default: "one",
-        close: () => {},
+        defaultButton: "item",
       });
-
-      d.render(true);
     } else {
       // Create item of the specified type directly
       const itemData = [{ name: itemType, type: itemType }];
@@ -279,29 +281,27 @@ export class GroupSheet extends ActorSheet {
    * @private
    */
   async _duplicateItem(item) {
-    const d = new Dialog({
+    await customDialog({
       title: "Duplicate Item",
       content: `<div style="padding: 10px; display: flex; flex-direction: row; align-items: center; justify-content: center;">
                   <div>Duplicate Item?</div>
                 </div>`,
       buttons: {
-        one: {
+        cancel: {
           label: "Cancel",
-          callback: () => {},
+          callback: () => null,
         },
-        two: {
+        duplicate: {
           label: "Duplicate",
           callback: async () => {
             const newItem = await this.actor.createEmbeddedDocuments("Item", [item.toObject()]);
             await newItem[0].sheet.render(true);
+            return true;
           },
         },
       },
-      default: "two",
-      close: () => {},
+      defaultButton: "duplicate",
     });
-
-    d.render(true);
   }
 
   /**
@@ -393,12 +393,12 @@ export class GroupSheet extends ActorSheet {
 
     // Show confirmation dialog
     const itemNameEscaped = item.name.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-    const confirmed = await Dialog.confirm({
+    const confirmed = await confirmDialog({
       title: "Delete Item",
       content: `<p>Are you sure you want to delete <strong>${itemNameEscaped}</strong>?</p>`,
-      yes: () => true,
-      no: () => false,
-      defaultYes: false
+      yesLabel: "Delete",
+      noLabel: "Cancel",
+      rejectClose: false
     });
 
     if (confirmed) {
@@ -612,7 +612,7 @@ export class GroupSheet extends ActorSheet {
     
     // Handle Item drops (add to group inventory)
     if (data.type === "Item") {
-      const ALLOWED_ITEM_TYPES = ["weapon", "armor", "ammunition", "item"];
+      const ALLOWED_ITEM_TYPES = ["weapon", "armor", "ammunition", "item", "scroll"];
       const STACKABLE_TYPES = ["ammunition"];
       const DEFAULT_QUANTITY = 1;
       

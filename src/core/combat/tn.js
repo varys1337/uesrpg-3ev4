@@ -305,6 +305,36 @@ function _hasEquippedShieldType(actor, typeKey) {
   });
 }
 
+function _weaponHasToken(weapon, token) {
+  const target = String(token ?? "").toLowerCase().trim();
+  if (!weapon?.system || !target) return false;
+  const structured = Array.isArray(weapon.system.qualitiesStructuredInjected)
+    ? weapon.system.qualitiesStructuredInjected
+    : (Array.isArray(weapon.system.qualitiesStructured) ? weapon.system.qualitiesStructured : []);
+  if (structured.some(q => String(q?.key ?? q ?? "").toLowerCase() === target)) return true;
+  const traits = Array.isArray(weapon.system.qualitiesTraitsInjected)
+    ? weapon.system.qualitiesTraitsInjected
+    : (Array.isArray(weapon.system.qualitiesTraits) ? weapon.system.qualitiesTraits : []);
+  if (traits.some(t => String(t ?? "").toLowerCase() === target)) return true;
+  return false;
+}
+
+function _getPreferredDefenderWeapon(actor) {
+  if (!actor?.items) return null;
+  const ew = actor?.system?.equippedWeapons;
+  const boundIds = [
+    ew?.primaryWeapon?.id,
+    ew?.secondaryWeapon?.id,
+    ew?.equippedWeapons?.primaryWeapon?.id,
+    ew?.equippedWeapons?.secondaryWeapon?.id
+  ].filter(Boolean);
+  for (const id of boundIds) {
+    const w = actor.items.get(id);
+    if (w?.type === "weapon" && w.system?.equipped === true) return w;
+  }
+  return (actor.items ?? []).find(i => i?.type === "weapon" && i?.system?.equipped === true) ?? null;
+}
+
 function computeCombatStyleTN(styleItem) {
   // styleItem.system.value is already computed in prepareData with penalties/bonuses.
   const value = asNumber(styleItem?.system?.value ?? 0);
@@ -561,6 +591,18 @@ export function computeTN({
 
   breakdown.push({ key: "base", label: baseLabel, value: asNumber(baseTN), source: "base", detail: baseDetail });
   if (observantEntry) breakdown.push(observantEntry);
+
+  if (role === "defender" && (defenseType === "parry" || defenseType === "counter")) {
+    const defenderWeapon = _getPreferredDefenderWeapon(actor);
+    if (_weaponHasToken(defenderWeapon, "unwieldy")) {
+      breakdown.push({
+        key: "quality:unwieldy",
+        label: "Unwieldy",
+        value: -20,
+        source: "quality"
+      });
+    }
+  }
 
   // --- Variant mod (attacker only)
   const vMod = (role === "attacker") ? variantMod(variant) : 0;

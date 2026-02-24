@@ -361,6 +361,7 @@ export class SimpleItem extends Item {
       const shieldProfile = UESRPG.SHIELD_PROFILES?.[materialKey] ?? null;
       const typeKey = String(itemData.shieldType || "normal").toLowerCase();
       const typeRule = UESRPG.SHIELD_TYPE_RULES?.[typeKey] ?? UESRPG.SHIELD_TYPE_RULES.normal;
+      itemData.treatAsFreeHandForSmallOrGrapple = (typeKey === "targe");
 
       if (shieldProfile) {
         derivedEnc = safeNumber(shieldProfile.enc, derivedEnc) + safeNumber(typeRule.encDelta, 0);
@@ -369,7 +370,10 @@ export class SimpleItem extends Item {
         itemData.enchant_levelEffective = safeNumber(shieldProfile.enchantLevel, itemData.enchant_level);
 
         const brBase = safeNumber(shieldProfile.br, itemData.blockRating);
-        const br = Math.round(brBase * safeNumber(typeRule.brMult, 1.0));
+        const brMult = safeNumber(typeRule.brMult, 1.0);
+        const br = (typeKey === "targe")
+          ? Math.ceil(brBase * brMult)
+          : Math.round(brBase * brMult);
         itemData.blockRatingEffective = Math.max(0, br - damagedValue);
 
         // Magic BR:
@@ -586,6 +590,7 @@ export class SimpleItem extends Item {
       itemData.pricePerShotEffective = Math.round((itemData.pricePer10Effective / 10) * 100) / 100;
     }
 
+    // Arrow type tags are deprecated; ignored.
     const materialAuto = Array.isArray(mRule?.autoQualities) ? mRule.autoQualities : [];
     itemData.autoQualitiesStructured = materialAuto
       .filter(q => q?.key)

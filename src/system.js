@@ -102,6 +102,7 @@ Hooks.once('ready', async function () {
     { initializeRuneTriggerService },
     { initializeConditionTriggers },
     { initializeSummonBinding },
+    { initializeMindlockHook },
     { initializeBoundItemService },
     { initializeConjurationRuntime },
     { initializeSoulTrapService },
@@ -122,6 +123,7 @@ Hooks.once('ready', async function () {
     import("./core/magic/services/rune-trigger-service.js"),
     import("./core/magic/services/condition-triggers.js"),
     import("./core/magic/conjuration/summon-binding.js"),
+    import("./core/magic/mindlock.js"),
     import("./core/magic/conjuration/bound-item-service.js"),
     import("./core/magic/conjuration/conjuration-runtime.js"),
     import("./core/magic/services/soul-trap-service.js"),
@@ -155,6 +157,9 @@ Hooks.once('ready', async function () {
 
   // Initialize summon binding (Mindlock, Restrained, binding prompt)
   initializeSummonBinding();
+
+  // Initialize generic Mindlock hook (non-summon spells with mindlockValue)
+  initializeMindlockHook();
 
   // Initialize bound item service (Conjure [Weapon/Armor] lifecycle вЂ” legacy flag-based)
   initializeBoundItemService();
@@ -363,6 +368,10 @@ Hooks.once("init", async function() {
   // Expose Enchanting Workshop API (game.uesrpg.enchanting.openWorkshop)
   const { registerEnchantingApi } = await import("./macros/enchanting-workshop.js");
   registerEnchantingApi();
+
+  // Expose Character Generation API (game.uesrpg.chargen.openWizard)
+  const { registerCharGenApi } = await import("./macros/character-generation.js");
+  registerCharGenApi();
 
   // Expose Alchemy Workshop API (game.uesrpg.alchemy.openWorkshop + drinkPotion + applyToWeapon + effects)
   // ⚠️ Import from core/alchemy/index.js — the authoritative registration point that exposes

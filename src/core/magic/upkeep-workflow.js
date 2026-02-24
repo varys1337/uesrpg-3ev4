@@ -951,6 +951,11 @@ export async function handleUpkeepGroupConfirm(message) {
   // Best-effort resolve spell (synchronous — items are always loaded)
   const spellDoc = _fromUuidSync(_str(data.spellUuid));
   const spell = (spellDoc?.documentName === "Item") ? spellDoc : null;
+  const originAE = findOriginAEByGroupKey(data.groupKey);
+  const originCastSource = originAE?.flags?.[_FLAG_NS]?.castSource ?? null;
+  const isEnchantmentOrigin = originCastSource?.type === "enchantment";
+  const enchantmentCostMode = String(originCastSource?.costMode ?? "soul").trim().toLowerCase();
+  const enchantmentSourceLane = String(originCastSource?.sourceLane ?? "workshop").trim().toLowerCase();
 
   // RAW: if no listed duration, cannot upkeep if a different spell was cast since original cast
   const anyNoListed = matches.some(m => Boolean(m.flags?.noListedDuration));
@@ -978,9 +983,67 @@ export async function handleUpkeepGroupConfirm(message) {
     }
   }
 
-  // Spend Magicka once (or spend AP if Living Armory talent applies)
+  // Spend upkeep cost once:
+  // - enchantment-origin casts spend Soul Energy from enchanted item pool
+  // - standard casts use existing Magicka/AP logic
   const upkeepCost = _num(data.upkeepCost, 0);
   const currentMP = _num(casterActor.system?.magicka?.value, 0);
+  let enchantmentUpkeepHandled = false;
+
+  if (isEnchantmentOrigin && enchantmentCostMode === "soul") {
+    enchantmentUpkeepHandled = true;
+    const itemUuid = _str(originCastSource.enchantedItemUuid);
+    const slotId = _str(originCastSource.enchantSpellSlotId);
+    const itemDoc = _fromUuidSync(itemUuid);
+    const enchantedItem = (itemDoc?.documentName === "Item") ? itemDoc : null;
+
+    if (!enchantedItem) {
+      ui.notifications?.warn?.("Upkeep failed: enchanted item no longer exists. Spell ends.");
+      if (originAE) await cancelOriginAEUpkeep(originAE);
+      return;
+    }
+
+    const pool = enchantmentSourceLane === "extension"
+      ? (enchantedItem.flags?.[_FLAG_NS]?.itemSpellcasting?.pool ?? {})
+      : (enchantedItem.flags?.[_FLAG_NS]?.enchanting?.cast?.pool ?? {});
+    const poolValue = enchantmentSourceLane === "extension"
+      ? _num(enchantedItem.system?.charge?.value, _num(pool.value, 0))
+      : _num(pool.value, 0);
+    const poolMax = enchantmentSourceLane === "extension"
+      ? _num(enchantedItem.system?.charge?.max, _num(pool.max, 0))
+      : _num(pool.max, 0);
+    if (poolValue < upkeepCost) {
+      ui.notifications?.warn?.(`Upkeep failed: not enough Soul Energy (${poolValue}/${upkeepCost}). Spell ends.`);
+      if (originAE) await cancelOriginAEUpkeep(originAE);
+      return;
+    }
+
+    const nextPool = Math.max(0, poolValue - upkeepCost);
+    try {
+      const ok = await requestUpdateDocument(enchantedItem, {
+        [enchantmentSourceLane === "extension"
+          ? `flags.${_FLAG_NS}.itemSpellcasting.pool.value`
+          : `flags.${_FLAG_NS}.enchanting.cast.pool.value`]: nextPool,
+        "system.charge.value": nextPool
+      });
+      if (!ok) throw new Error("authority update rejected");
+      ui.notifications?.info?.(`Upkeep paid from ${enchantedItem.name}: Soul Energy ${nextPool}/${poolMax}.`);
+      if (slotId) {
+        await requestUpdateDocument(enchantedItem, {
+          [enchantmentSourceLane === "extension"
+            ? `flags.${_FLAG_NS}.itemSpellcasting.activeUpkeepSlotId`
+            : `flags.${_FLAG_NS}.enchanting.cast.activeUpkeepSpellId`]: slotId
+        });
+      }
+    } catch (err) {
+      console.error("UESRPG | upkeep-workflow | Failed to deduct Soul Energy upkeep", err);
+      ui.notifications?.warn?.("Upkeep failed to spend Soul Energy. Spell ends.");
+      if (originAE) await cancelOriginAEUpkeep(originAE);
+      return;
+    }
+  } else if (isEnchantmentOrigin && enchantmentCostMode === "none") {
+    enchantmentUpkeepHandled = true;
+  }
 
   // ── Free Upkeep if Buffer Remains ─────────────────────────────────────
   // Check if the spell has the freeUpkeepIfRemains flag and evaluate buffer status.
@@ -1020,7 +1083,7 @@ export async function handleUpkeepGroupConfirm(message) {
     spellName.includes("bound armor");
   const hasLivingArmory = hasTalent(casterActor, "livingarmory");
   const allTargetsSelf = matches.every(m => m.targetActor.id === casterActor.id);
-  const canUseLivingArmory = isConjureEquipment && hasLivingArmory && allTargetsSelf;
+  const canUseLivingArmory = isConjureEquipment && hasLivingArmory && allTargetsSelf && (!isEnchantmentOrigin || enchantmentCostMode === "magicka");
 
   let useLivingArmory = false;
   if (canUseLivingArmory) {
@@ -1032,7 +1095,9 @@ export async function handleUpkeepGroupConfirm(message) {
   }
 
   // Skip MP/AP cost if buffer upkeep is free
-  if (bufferUpkeepMode === "free") {
+  if (enchantmentUpkeepHandled) {
+    // no-op: already paid from Soul Energy pool
+  } else if (bufferUpkeepMode === "free") {
     // Free upkeep — no cost
   } else if (useLivingArmory) {
     const currentAP = _num(casterActor.system?.action_points?.value, 0);
@@ -1146,7 +1211,6 @@ export async function handleUpkeepGroupConfirm(message) {
 
   // Sync Origin AE upkeep contract on the caster (if one exists)
   try {
-    const originAE = findOriginAEByGroupKey(data.groupKey);
     if (originAE) {
       await refreshOriginAEUpkeep(originAE, { costPaid: upkeepCost });
     }

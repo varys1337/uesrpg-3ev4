@@ -70,16 +70,33 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   const skill = includeSkills ? [] : null;
   const magicSkill = includeMagicSkills ? [] : null;
 
+  // Profession detection regex (Part B)
+  const _PROF_RE = includeSkills ? /^Profession\s*\[(.+?)\]\s*$/i : null;
+
   // Iterate through items, allocating to containers
   for (const i of sheetData.items ?? []) {
     // Ensure rendering has an image fallback (safe: sheet-only object)
     i.img = i.img || CONST.DEFAULT_TOKEN;
+    i.system = i.system ?? {};
+    const enchanting = i.flags?.["uesrpg-3ev4"]?.enchanting;
+    const extension = i.flags?.["uesrpg-3ev4"]?.itemSpellcasting ?? {};
+    const extensionEnabled = extension?.enabled === true;
+    const extensionSlots = Array.isArray(extension?.slots) ? extension.slots : [];
+    const extensionCanCast = extensionEnabled && extensionSlots.some((s) => s?.enabled !== false);
+
+    const workshopCast = enchanting?.cast ?? {};
+    const workshopCanCast = enchanting?.version === 2
+      && enchanting?.enchantType === "cast"
+      && Array.isArray(workshopCast?.spells)
+      && workshopCast.spells.some((s) => s?.enabled !== false);
+
+    i.system.uiHasCastEnchantment = extensionCanCast || workshopCanCast;
 
     // If an item is inside a container, hide it from the main inventory lists.
     // Contained items remain owned by the Actor and are surfaced through the container sheet UI.
     if (shouldHideFromMainInventory(i)) continue;
 
-    if (i.type === "item") {
+    if (i.type === "item" || i.type === "scroll") {
       i.system?.equipped ? gear.equipped.push(i) : gear.unequipped.push(i);
     } else if (i.type === "weapon") {
       i.system?.equipped ? weapon.equipped.push(i) : weapon.unequipped.push(i);
@@ -96,6 +113,10 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     } else if (i.type === "spell") {
       spell.push(i);
     } else if (includeSkills && i.type === "skill") {
+      // Annotate profession metadata (non-persistent, sheet-only)
+      const profMatch = _PROF_RE ? String(i.name ?? "").match(_PROF_RE) : null;
+      i._isProfession = Boolean(i.system?.isProfession) || Boolean(profMatch);
+      i._professionField = i.system?.field || (profMatch ? profMatch[1].trim() : "") || "";
       skill.push(i);
     } else if (includeMagicSkills && i.type === "magicSkill") {
       magicSkill.push(i);
@@ -227,6 +248,9 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   actorData.ammunition = ammunition;
   actorData.container = container;
 
-  if (includeSkills) actorData.skill = skill;
+  if (includeSkills) {
+    actorData.skill = skill.filter(i => !i._isProfession);
+    actorData.professionSkill = skill.filter(i => i._isProfession);
+  }
   if (includeMagicSkills) actorData.magicSkill = magicSkill;
 }

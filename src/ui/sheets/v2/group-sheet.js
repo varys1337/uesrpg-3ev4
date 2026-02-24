@@ -425,7 +425,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   /** Handle Item drag-drop (add to group inventory or unlink from container) */
   async #onDropItem(event, data) {
-    const ALLOWED_ITEM_TYPES = ["weapon", "armor", "ammunition", "item"];
+    const ALLOWED_ITEM_TYPES = ["weapon", "armor", "ammunition", "item", "scroll"];
     const STACKABLE_TYPES = ["ammunition"];
 
     if (!this.document.isOwner) {
@@ -757,5 +757,4 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (container) container.sheet.render(true);
   }
 }
-
 

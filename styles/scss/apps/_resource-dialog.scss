@@ -1,0 +1,180 @@
+.application.uesrpg-resource-dialog .window-content,
+.worldbuilding.uesrpg-resource-dialog .window-content {
+  overflow: hidden;
+}
+
+.uesrpg-resource-dialog__body,
+.uesrpg-stamina-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--uesrpg-dialog-gap, 8px);
+}
+
+.uesrpg-resource-dialog__group {
+  margin: 0;
+}
+
+.uesrpg-resource-dialog__label {
+  display: block;
+  margin-bottom: 3px;
+  font-weight: 700;
+}
+
+.uesrpg-resource-dialog__group input[type="number"],
+.uesrpg-stamina-select,
+.uesrpg-stamina-input {
+  width: 100%;
+  min-height: var(--uesrpg-control-h-md, 30px);
+  padding: 2px 8px;
+}
+
+.uesrpg-resource-dialog__hint {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--uesrpg-font-sm, 12px);
+  opacity: 0.82;
+}
+
+.uesrpg-resource-dialog__hint--copy {
+  margin: 0;
+  padding: 6px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.14);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.uesrpg-magicka-barrier-dialog .buffer-source-indicator {
+  margin-left: 5px;
+  font-size: var(--uesrpg-font-sm, 12px);
+  opacity: 0.8;
+  cursor: help;
+}
+
+.uesrpg-magicka-barrier-dialog__sources {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--uesrpg-font-sm, 12px);
+  opacity: 0.88;
+}
+
+.uesrpg-stamina-dialog {
+  max-height: 60vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.uesrpg-stamina-status {
+  padding: var(--uesrpg-space-lg, 10px);
+  border-radius: var(--uesrpg-border-radius, 4px);
+  background: linear-gradient(155deg, #2e722e 0%, #1e501e 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.uesrpg-stamina-status.is-warning {
+  background: linear-gradient(155deg, #5a2020 0%, #3d1414 100%);
+}
+
+.uesrpg-stamina-status__line {
+  margin: 0;
+  font-weight: 600;
+}
+
+.uesrpg-stamina-warning {
+  margin: var(--uesrpg-space-sm, 6px) 0 0 0;
+  color: #ffb3b3;
+  font-size: var(--uesrpg-font-sm, 12px);
+}
+
+.uesrpg-resource-dialog__form,
+.uesrpg-stamina-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--uesrpg-field-gap, 6px);
+}
+
+.uesrpg-stamina-power-attack {
+  margin-top: 2px;
+}
+
+.uesrpg-stamina-power-attack.is-hidden {
+  display: none;
+}
+
+.uesrpg-stamina-action-help {
+  min-height: 16px;
+}
+
+.uesrpg-stamina-note {
+  font-style: italic;
+  opacity: 0.8;
+  margin: 4px 0 0 0;
+}
+
+.application.uesrpg-resource-dialog .dialog-buttons,
+.worldbuilding.uesrpg-resource-dialog .dialog-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--uesrpg-dialog-gap, 8px);
+}
+
+.application.uesrpg-resource-dialog .dialog-buttons > button,
+.worldbuilding.uesrpg-resource-dialog .dialog-buttons > button {
+  flex: 1 1 160px;
+  min-height: var(--uesrpg-control-h-md, 30px);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: linear-gradient(180deg, rgba(98, 70, 28, 0.96) 0%, rgba(58, 39, 15, 0.98) 100%);
+  color: #f5ecd9;
+  border: 1px solid rgba(132, 98, 44, 0.76);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 221, 0.2);
+}
+
+.application.uesrpg-resource-dialog .dialog-buttons > button:hover,
+.worldbuilding.uesrpg-resource-dialog .dialog-buttons > button:hover {
+  background: linear-gradient(180deg, rgba(121, 88, 38, 0.98) 0%, rgba(74, 51, 21, 1) 100%);
+  color: #fff8eb;
+}
+
+.application.uesrpg-resource-dialog .dialog-buttons > button:disabled,
+.worldbuilding.uesrpg-resource-dialog .dialog-buttons > button:disabled,
+.application.uesrpg-resource-dialog .dialog-buttons > button[disabled],
+.worldbuilding.uesrpg-resource-dialog .dialog-buttons > button[disabled] {
+  opacity: 1;
+  color: #e8dcc8;
+  border-color: rgba(112, 84, 36, 0.62);
+  background: linear-gradient(180deg, rgba(93, 82, 64, 0.95) 0%, rgba(72, 62, 48, 0.96) 100%);
+}
+
+/* Wood frame + header for resource/stamina dialogs*/
+.application.uesrpg-resource-dialog,
+.worldbuilding.uesrpg-resource-dialog {
+  box-sizing: border-box;
+  border: 20px solid transparent;
+  border-image: url("../images/elements/interface/borders/dialog-frame-wood.webp") 70 / 20px stretch;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.application.uesrpg-resource-dialog .window-header,
+.worldbuilding.uesrpg-resource-dialog .window-header {
+  background-image: url("../images/elements/backgrounds/brown_leather.webp");
+  background-size: cover;
+  background-position: center;
+  color: #e8dcc8;
+}
+
+.application.uesrpg-resource-dialog .window-header a,
+.application.uesrpg-resource-dialog .window-header button,
+.worldbuilding.uesrpg-resource-dialog .window-header a,
+.worldbuilding.uesrpg-resource-dialog .window-header button {
+  color: #e8dcc8;
+}
+
+.application.uesrpg-resource-dialog .window-content,
+.worldbuilding.uesrpg-resource-dialog .window-content {
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+
+
+

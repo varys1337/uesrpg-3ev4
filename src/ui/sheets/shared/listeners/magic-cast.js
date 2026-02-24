@@ -17,6 +17,11 @@ import { MagicOpposedWorkflow } from "../../../../core/magic/opposed-workflow.js
 import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js";
 import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { ensureBurningTurnActionAllowed } from "../../../../core/conditions/condition-engine.js";
+import { castScrollFromItem, getCastableScrollCandidates } from "../../../../core/magic/scroll-casting.js";
+import { castFromEnchantedItem } from "../../../../core/enchanting/runtime/cast-enchantment-runtime.js";
+
+const _FLAG_NS = "uesrpg-3ev4";
+const _EQUIPMENT_TYPES = new Set(["weapon", "armor", "ammunition", "item", "container", "scroll"]);
 
 /**
  * Resolve a token for range-gated spells.
@@ -27,6 +32,72 @@ function resolveRangeGatedTokenForActor(actor) {
   let token = canvas.tokens?.controlled?.find(t => t.actor?.id === actor.id) ?? null;
   if (!token) token = actor.getActiveTokens?.()?.[0] ?? null;
   return token;
+}
+
+function _normalizeCostMode(mode) {
+  const raw = String(mode ?? "soul").trim().toLowerCase();
+  if (raw === "magicka" || raw === "none") return raw;
+  return "soul";
+}
+
+function _slotCostSummary(slot) {
+  const mode = _normalizeCostMode(slot?.costMode);
+  if (mode === "magicka") return "MP";
+  if (mode === "none") return "No Cost";
+  return `Soul ${Number(slot?.cost ?? 0)}`;
+}
+
+function _resolveItemSpellSlots(item) {
+  const out = [];
+  if (!_EQUIPMENT_TYPES.has(String(item?.type ?? "").toLowerCase())) return out;
+  if (item?.system?.equipped !== true) return out;
+
+  const ext = item?.flags?.[_FLAG_NS]?.itemSpellcasting ?? {};
+  if (ext?.enabled === true) {
+    const extSlots = Array.isArray(ext?.slots) ? ext.slots : [];
+    for (const slot of extSlots) {
+      if (slot?.enabled === false) continue;
+      out.push({ ...slot, sourceLane: "extension", sourceItem: item });
+    }
+  }
+
+  const enchanting = item?.flags?.[_FLAG_NS]?.enchanting;
+  if (enchanting?.version === 2 && String(enchanting?.enchantType ?? "").trim().toLowerCase() === "cast") {
+    const workshopSlots = Array.isArray(enchanting?.cast?.spells) ? enchanting.cast.spells : [];
+    for (const slot of workshopSlots) {
+      if (slot?.enabled === false) continue;
+      out.push({ ...slot, sourceLane: "workshop", sourceItem: item });
+    }
+  }
+
+  return out;
+}
+
+async function _resolveSpellFromSlot(slot) {
+  const uuid = String(slot?.spellUuid ?? "").trim();
+  if (uuid) {
+    try {
+      const spell = await fromUuid(uuid);
+      if (spell?.documentName === "Item" && spell.type === "spell") return spell;
+    } catch (_err) {
+      // fallback below
+    }
+  }
+
+  const snap = slot?.snapshot;
+  if (snap && typeof snap === "object") {
+    try {
+      const data = foundry.utils.deepClone(snap);
+      data.type = "spell";
+      if (!String(data.name ?? "").trim()) data.name = String(slot?.label ?? "Stored Spell");
+      const ItemCls = CONFIG?.Item?.documentClass ?? Item;
+      return new ItemCls(data, { temporary: true });
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -87,6 +158,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
   // after the user picks a spell, based on spell classification + available targets.
 
   let spell = preselectedSpell;
+  let selectedItemSpellcast = null;
     
   // If no spell provided, show picker
   if (!spell) {
@@ -97,27 +169,50 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
 
     // RAW: untrained casters cannot cast spells from that school.
     const spells = spellsByAction.filter(s => isActorTrainedInMagicSchool(actor, s?.system?.school));
-    
-    if (!spells.length) {
+    const scrollCandidates = await getCastableScrollCandidates(actor, { castActionType });
+    const itemRuntimeEnabled = game.settings.get(_FLAG_NS, "enchanting.enableCastEnchantmentRuntime") === true;
+    const itemSpellCandidatesAll = itemRuntimeEnabled
+      ? Array.from(actor.items ?? []).flatMap((item) => _resolveItemSpellSlots(item))
+      : [];
+    const itemSpellCandidates = [];
+    for (const slot of itemSpellCandidatesAll) {
+      if (castActionType === "secondary") {
+        const spellDoc = await _resolveSpellFromSlot(slot);
+        if (spellDoc?.system?.isInstant !== true) continue;
+      }
+      itemSpellCandidates.push(slot);
+    }
+
+    if (!spells.length && !scrollCandidates.length && !itemSpellCandidates.length) {
       ui.notifications.warn(castActionType === "secondary"
-        ? "No castable Instant spells available (must be trained in the spell's school)."
-        : "No castable spells available (must be trained in the spell's school).");
+        ? "No castable Instant spells, scrolls, or item slots available."
+        : "No castable spells, scrolls, or item slots available.");
       return;
     }
-    
-    const spellOptions = spells.map(s => 
-      `<option value="${s.id}">${s.name} (${s.system.school} L${s.system.level}, ${s.system.cost} MP)</option>`
-    ).join("");
+
+    const spellOptions = [
+      ...spells.map((s) =>
+        `<option value="spell:${s.id}">Spell: ${s.name} (${s.system.school} L${s.system.level}, ${s.system.cost} MP)</option>`
+      ),
+      ...scrollCandidates.map(({ scroll, spell: linkedSpell }) =>
+        `<option value="scroll:${scroll.id}">Scroll: ${scroll.name} -> ${linkedSpell.name} (${linkedSpell.system?.school ?? "Unknown"} L${linkedSpell.system?.level ?? 1}, Qty ${Number(scroll.system?.quantity ?? 0)})</option>`
+      ),
+      ...itemSpellCandidates.map((slot) => {
+        const item = slot.sourceItem;
+        const laneLabel = String(slot?.sourceLane ?? "extension") === "workshop" ? "RAW" : "Ext";
+        return `<option value="itemspell:${item.id}:${slot.id}">Item: ${item.name} [${laneLabel}] -> ${slot.label ?? "Stored Spell"} (L${Number(slot?.level ?? 1)}, ${_slotCostSummary(slot)})</option>`;
+      }),
+    ].join("");
     
     const content = `
       <div class="uesrpg-cast-magic-form">
         <div class="form-group">
-          <label><b>Select Spell to Cast</b></label>
+          <label><b>Select Spell, Scroll, or Item Slot</b></label>
           <select name="spellId" style="width:100%;">${spellOptions}</select>
         </div>
       </div>`;
     
-    const selectedSpellId = await customDialog({
+    const selectedCastId = await customDialog({
       title: castActionType === "secondary" ? "Cast Magic (Instant)" : "Cast Magic",
       content,
       buttons: {
@@ -134,13 +229,49 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
       width: 360
     });
     
-    if (!selectedSpellId) return;
-    
-    spell = actor.items.get(selectedSpellId);
-    if (!spell) return;
-    if (!isActorTrainedInMagicSchool(actor, spell?.system?.school)) {
-      ui.notifications.warn(`${actor.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+    if (!selectedCastId) return;
+
+    const [sourceType, sourceId, ...rest] = String(selectedCastId).split(":");
+    if (sourceType === "scroll") {
+      const scroll = actor.items.get(sourceId);
+      if (!scroll) return;
+
+      const scrollResult = await castScrollFromItem({
+        scrollItem: scroll,
+        casterActor: actor,
+        castActionType,
+      });
+
+      if (scrollResult?.error) {
+        ui.notifications.warn(scrollResult.error);
+        return;
+      }
+      if (scrollResult?.consumed === true && Number(scrollResult.newQty ?? 1) === 0) {
+        ui.notifications.info(`${scroll.name} has been used up.`);
+      }
       return;
+    }
+
+    if (sourceType === "itemspell") {
+      const slotId = String(rest.join(":") ?? "").trim();
+      const sourceItem = actor.items.get(sourceId);
+      if (!sourceItem || !slotId) return;
+      const slot = _resolveItemSpellSlots(sourceItem).find((s) => String(s?.id ?? "") === slotId);
+      if (!slot) return;
+      const spellDoc = await _resolveSpellFromSlot(slot);
+      if (!spellDoc) {
+        ui.notifications.warn("Stored item spell could not be resolved.");
+        return;
+      }
+      spell = spellDoc;
+      selectedItemSpellcast = { item: sourceItem, slot };
+    } else {
+      spell = actor.items.get(sourceId);
+      if (!spell) return;
+      if (!isActorTrainedInMagicSchool(actor, spell?.system?.school)) {
+        ui.notifications.warn(`${actor.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+        return;
+      }
     }
   }
   
@@ -214,6 +345,33 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
       workingTargets = validTargets;
       if (!workingTargets.length) return;
     }
+  }
+
+  if (selectedItemSpellcast) {
+    const slotRef = `${String(selectedItemSpellcast.slot?.sourceLane ?? "extension")}:${String(selectedItemSpellcast.slot?.id ?? "")}`;
+    const targetTokenUuids = workingTargets
+      .map((t) => t?.document?.uuid ?? t?.uuid)
+      .filter(Boolean);
+    const aoe = hasValidAoe
+      ? {
+          ...(aoeSpec ?? {}),
+          isAoE: true,
+          templateUuid: aoeTemplateUuid ?? null,
+          templateId: aoeTemplateId ?? null
+        }
+      : null;
+    const spellOptions = await showSpellOptionsDialog(actor, spell);
+    if (spellOptions === null) return;
+
+    await castFromEnchantedItem({
+      actor,
+      token: attackerToken,
+      item: selectedItemSpellcast.item,
+      spellSlotId: slotRef,
+      castActionType,
+      options: { targetTokenUuids, aoe, spellOptions }
+    });
+    return;
   }
 
   const spellCls = classifySpellForRouting(spell);
@@ -521,3 +679,4 @@ export async function castAttackSpell(sheet, spell, targets, spellOptions = null
     isAoE: hasAoeTemplate
   });
 }
+

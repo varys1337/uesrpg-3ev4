@@ -427,6 +427,39 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       const label = String(data[`spell_label_${i}`] ?? `Spell ${i + 1}`);
       const spellUuid = String(data[`spell_uuid_${i}`] ?? "");
       const attributes = String(data[`spell_attributes_${i}`] ?? "").split(",").map(s => s.trim()).filter(Boolean);
+      let snapshot = null;
+
+      if (source === "conventional" && spellUuid) {
+        try {
+          const spellDoc = fromUuidSync(spellUuid);
+          if (spellDoc?.documentName === "Item" && spellDoc?.type === "spell") {
+            snapshot = {
+              name: spellDoc.name,
+              type: "spell",
+              img: spellDoc.img,
+              system: {
+                school: spellDoc.system?.school ?? "",
+                level: Number((spellDoc.system?.level ?? level ?? 1)),
+                cost: Number((spellDoc.system?.cost ?? cost ?? 0)),
+                isDirect: Boolean(spellDoc.system?.isDirect),
+                hasUpkeep: Boolean(spellDoc.system?.hasUpkeep),
+                duration: foundry.utils.deepClone(spellDoc.system?.duration ?? { value: 0, unit: "instant" }),
+                rangeType: String(spellDoc.system?.rangeType ?? "none"),
+                aoeShape: spellDoc.system?.aoeShape ?? null,
+                aoeSize: spellDoc.system?.aoeSize ?? null,
+                aoeWidth: spellDoc.system?.aoeWidth ?? null,
+                hasBuffer: Boolean(spellDoc.system?.hasBuffer),
+                buffer: foundry.utils.deepClone(spellDoc.system?.buffer ?? {}),
+                engine: foundry.utils.deepClone(spellDoc.system?.engine ?? {}),
+                damageFormula: String(spellDoc.system?.damageFormula ?? ""),
+                damageType: String(spellDoc.system?.damageType ?? "")
+              }
+            };
+          }
+        } catch (_err) {
+          snapshot = null;
+        }
+      }
 
       spells.push({
         id: foundry.utils.randomID(),
@@ -436,7 +469,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
         cost,
         attributes,
         spellUuid: spellUuid || null,
-        snapshot: null,
+        snapshot,
         spellDefinition: null,
       });
     }

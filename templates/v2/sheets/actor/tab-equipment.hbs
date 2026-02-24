@@ -56,6 +56,9 @@
                                                     <div class="qty-controls">
                                                         <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
                                                     </div>
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
@@ -91,6 +94,9 @@
                                                 <div class="flex-container">
                                                     <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
                                                     <i data-action="damageRoll" class="fas fa-dice-d20 damage-roll"></i>
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
                                                         <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
@@ -116,6 +122,9 @@
                                                 <div class="flex-container">
                                                     <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
                                                     <i data-action="damageRoll" class="fas fa-dice-d20 damage-roll"></i>
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
                                                         <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
@@ -154,6 +163,9 @@
                                                 <div class="flex-container">
                                                     <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
                                                     <i data-action="ammoRoll" class="fas fa-dice-d20 ammo-roll"></i>
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
                                                         <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
@@ -172,6 +184,9 @@
                                                 <div class="flex-container">
                                                     <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
                                                     <i data-action="ammoRoll" class="fas fa-dice-d20 ammo-roll"></i>
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
                                                         <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
@@ -203,6 +218,9 @@
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
                                                     <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
                                                         <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
@@ -221,6 +239,9 @@
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
                                                     <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
                                                         <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
@@ -255,6 +276,9 @@
                                                     <div class="qty-controls">
                                                         <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
                                                     </div>
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
                                                     {{#if item.system.containerStats.contained}}
                                                         <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
@@ -281,6 +305,9 @@
                                                     <div class="qty-controls">
                                                         <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
                                                     </div>
+                                                    {{#if item.system.uiHasCastEnchantment}}
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                    {{/if}}
                                                     <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
                                                     {{#if item.system.containerStats.contained}}
                                                         <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
@@ -307,4 +334,3 @@
                     </div>
                 </div>
             </div>
-

@@ -14,6 +14,7 @@ function renderRaceCard(raceKey, race) {
     return `
         <div class="menu-card">
             <input type="radio" class="raceSelect" id="${inputId}" name="raceRadio" value="${raceKey}">
+            <span class="menu-card__selected" aria-hidden="true"></span>
             ${race.img ? `<img class="card-portrait" src="${race.img}" alt="${race.name}" height="100" width="70">` : ''}
             <div class="card-body">
                 <div class="card-actions">

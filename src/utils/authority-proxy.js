@@ -28,6 +28,7 @@ const NAMESPACE = "uesrpg-3ev4";
 const QUERY_UPDATE_CHAT_MESSAGE_V1 = `${NAMESPACE}.authority.updateChatMessage.v1`;
 const QUERY_CREATE_ACTIVE_EFFECT_V1 = `${NAMESPACE}.authority.createActiveEffect.v1`;
 const QUERY_UPDATE_DOCUMENT_V1 = `${NAMESPACE}.authority.updateDocument.v1`;
+const QUERY_CREATE_ACTOR_V1 = `${NAMESPACE}.authority.createActor.v1`;
 const QUERY_CREATE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.createEmbeddedDocuments.v1`;
 const QUERY_UPDATE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.updateEmbeddedDocuments.v1`;
 const QUERY_DELETE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.deleteEmbeddedDocuments.v1`;
@@ -435,6 +436,29 @@ function _sanitizeEmbeddedDocData(embeddedName, data) {
   return null;
 }
 
+function _sanitizeActorCreateData(actorData) {
+  if (!actorData || typeof actorData !== "object") return null;
+
+  const out = {};
+
+  if (typeof actorData.name === "string") out.name = actorData.name.trim() || "New Character";
+  if (typeof actorData.type === "string") out.type = actorData.type;
+  if (typeof actorData.img === "string") out.img = actorData.img;
+  if (actorData.system && typeof actorData.system === "object") out.system = _deepClonePlain(actorData.system);
+  if (actorData.flags && typeof actorData.flags === "object") out.flags = _deepClonePlain(actorData.flags);
+
+  if (!out.name) out.name = "New Character";
+  if (!out.type) out.type = "Player Character";
+
+  delete out.ownership;
+  delete out.permission;
+  delete out.folder;
+  delete out.sort;
+  delete out._id;
+
+  return out;
+}
+
 function _lockKeyForDoc(doc) {
   try {
     const docName = doc?.documentName ?? "Document";
@@ -568,6 +592,32 @@ export function registerAuthorityProxy() {
         return { ok: true };
       } catch (err) {
         console.error("UESRPG | authority-proxy | updateDocument query handler failed", err);
+        return { ok: false, error: err?.message ?? String(err) };
+      }
+    };
+  }
+
+  if (!CONFIG.queries[QUERY_CREATE_ACTOR_V1]) {
+    CONFIG.queries[QUERY_CREATE_ACTOR_V1] = async function createActorHandler(queryData) {
+      try {
+        const actorData = _sanitizeActorCreateData(queryData?.actorData ?? null);
+        if (!actorData) return { ok: false, error: "Invalid actorData" };
+
+        if (!game.user?.isGM) {
+          try {
+            const createdDirect = await Actor.create(actorData);
+            if (!createdDirect) return { ok: false, error: "Actor.create returned no document" };
+            return { ok: true, actorUuid: createdDirect.uuid, actorId: createdDirect.id };
+          } catch (err) {
+            return { ok: false, error: err?.message ?? String(err) };
+          }
+        }
+
+        const created = await Actor.create(actorData);
+        if (!created) return { ok: false, error: "Actor.create returned no document" };
+        return { ok: true, actorUuid: created.uuid, actorId: created.id };
+      } catch (err) {
+        console.error("UESRPG | authority-proxy | createActor query handler failed", err);
         return { ok: false, error: err?.message ?? String(err) };
       }
     };
@@ -861,6 +911,53 @@ export async function requestUpdateDocument(docOrUuid, updateData, { timeout = 5
   } catch (err) {
     console.error("UESRPG | authority-proxy | proxy updateDocument failed", { uuid: doc.uuid, err });
     return false;
+  }
+}
+
+/**
+ * Permission-safe Actor.create helper.
+ *
+ * - Attempts direct create first.
+ * - Falls back to active GM query lane when direct creation is not permitted.
+ */
+export async function requestCreateActor(actorData, { timeout = 5000 } = {}) {
+  const cleaned = _sanitizeActorCreateData(actorData);
+  if (!cleaned) return null;
+
+  try {
+    const created = await Actor.create(cleaned);
+    if (created) return created;
+  } catch (_err) {
+    // Fall through to GM proxy path below.
+  }
+
+  const applier = _selectActiveGM();
+  if (!applier) {
+    ui.notifications?.warn?.("A GM must be online to create a new actor.");
+    return null;
+  }
+
+  try {
+    const resp = await applier.query(QUERY_CREATE_ACTOR_V1, { actorData: cleaned }, { timeout });
+    if (!resp?.ok) {
+      ui.notifications?.warn?.(`Failed to create actor: ${resp?.error ?? "unknown error"}`);
+      return null;
+    }
+
+    if (resp.actorUuid) {
+      try {
+        const actor = await fromUuid(resp.actorUuid);
+        if (actor?.documentName === "Actor") return actor;
+      } catch (_err) {
+        /* no-op */
+      }
+    }
+
+    if (resp.actorId) return game.actors?.get?.(resp.actorId) ?? null;
+    return null;
+  } catch (err) {
+    console.error("UESRPG | authority-proxy | proxy createActor failed", err);
+    return null;
   }
 }
 

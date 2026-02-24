@@ -240,6 +240,7 @@ export function buildCastFlagsPayload(result, actor, soulGemItem, targetItem, op
       snapshot: sr.snapshot ?? null,
       spellDefinition: sr.spellDefinition ?? null,
       bindingStrength: bs,
+      costMode: "soul",
       test: sr.testResult
         ? {
             tn: sr.testResult.tn,

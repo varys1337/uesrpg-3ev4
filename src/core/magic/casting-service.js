@@ -128,37 +128,47 @@ export const SpellCastingService = {
    * @returns {Promise<{valid: boolean, reason: string|null}>}
    */
   async _validateCastPrerequisites(actor, spell, profile, cfg) {
+    const isScrollMode = cfg.scrollMode === true;
+    const ignoreTraining = cfg.ignoreTraining === true;
+    const consumeMagicka = cfg.consumeMagicka !== false; // default true; scrolls may pass false
+
     // RAW: untrained casters cannot cast from that school.
-    if (!isActorTrainedInMagicSchool(actor, spell?.system?.school)) {
+    // Scrolls bypass training when ignoreTraining is set (controlled by setting).
+    if (!ignoreTraining && !isActorTrainedInMagicSchool(actor, spell?.system?.school)) {
       return { valid: false, reason: `${actor.name} is untrained in ${spell?.system?.school ?? "this school"} and cannot cast ${spell.name}.` };
     }
 
-    // Check if actor has the spell
-    const actorHasSpell = actor.items.some(i => i.id === spell.id || i.uuid === spell.uuid);
-    if (!actorHasSpell && actor.type === "Player Character") {
-      // NPCs can cast any spell, PCs must have it in their spellbook
-      return { valid: false, reason: `${actor.name} does not have ${spell.name} in their spellbook` };
+    // Check if actor has the spell.
+    // Scroll casts reference an external spell item, so skip this check in scroll mode.
+    if (!isScrollMode) {
+      const actorHasSpell = actor.items.some(i => i.id === spell.id || i.uuid === spell.uuid);
+      if (!actorHasSpell && actor.type === "Player Character") {
+        // NPCs can cast any spell, PCs must have it in their spellbook
+        return { valid: false, reason: `${actor.name} does not have ${spell.name} in their spellbook` };
+      }
     }
-    
-    // Check Magicka availability (using attempt cost, not final cost)
-    const currentMagicka = getActorMagicka(actor);
-    const attemptCost = profile.cost.attempt;
-    
-    if (currentMagicka < attemptCost) {
-      return { valid: false, reason: `Insufficient magicka: ${attemptCost} MP required, ${currentMagicka} available` };
+
+    // Check Magicka availability (using attempt cost, not final cost).
+    // Scrolls bypass magicka when consumeMagicka is false.
+    if (consumeMagicka) {
+      const currentMagicka = getActorMagicka(actor);
+      const attemptCost = profile.cost.attempt;
+      if (currentMagicka < attemptCost) {
+        return { valid: false, reason: `Insufficient magicka: ${attemptCost} MP required, ${currentMagicka} available` };
+      }
     }
-    
+
     // Check Action Point availability (if not instant + secondary)
     const castActionType = cfg.castActionType ?? "primary";
     const requiresAP = !(profile.classification.isInstant && castActionType === "secondary");
-    
+
     if (requiresAP) {
       const currentAP = Number(actor.system?.action_points?.value ?? 0);
       if (currentAP < 1) {
         return { valid: false, reason: "Insufficient Action Points: 1 AP required" };
       }
     }
-    
+
     // All prerequisites met
     return { valid: true, reason: null };
   },
@@ -205,12 +215,18 @@ export const SpellCastingService = {
    */
   async _routeToWorkflow(actor, spell, profile, cfg) {
     const { spellOptions, targetTokenUuids, aoeConfig } = cfg;
-    
+
+    // Propagate scroll-mode flags (consumeMagicka) into spellOptions so workflow
+    // methods and magicka-utils can honour them without needing cfg access.
+    const effectiveSpellOptions = cfg.consumeMagicka === false
+      ? { ...spellOptions, consumeMagicka: false }
+      : spellOptions;
+
     // Determine workflow type
     const hasTargets = targetTokenUuids && targetTokenUuids.length > 0;
     const isAoE = profile.range.type === "aoe";
     const isDirect = profile.classification.isDirect;
-    
+
     // Get target tokens
     let targetTokens = [];
     if (hasTargets) {
@@ -219,17 +235,17 @@ export const SpellCastingService = {
         if (token) targetTokens.push(token);
       }
     }
-    
+
     // Route to appropriate workflow
     if (isDirect) {
       // Direct spells (no opposed test)
-      return await this._castDirect(actor, spell, profile, spellOptions);
+      return await this._castDirect(actor, spell, profile, effectiveSpellOptions, cfg);
     } else if (hasTargets || isAoE) {
       // Opposed workflow (uses MagicOpposedWorkflow.createPending)
-      return await this._castOpposed(actor, spell, profile, spellOptions, targetTokens);
+      return await this._castOpposed(actor, spell, profile, effectiveSpellOptions, targetTokens, cfg);
     } else {
       // Unopposed (attack spell with no targets yet, or non-targeted utility)
-      return await this._castUnopposed(actor, spell, profile, spellOptions);
+      return await this._castUnopposed(actor, spell, profile, effectiveSpellOptions, cfg);
     }
   },
   
@@ -237,15 +253,20 @@ export const SpellCastingService = {
    * Cast direct spell (no opposed test).
    * @private
    */
-  async _castDirect(actor, spell, profile, spellOptions) {
+  async _castDirect(actor, spell, profile, spellOptions, cfg = {}) {
     try {
-      // Direct casting uses MagicOpposedWorkflow.castDirectTargeted()
-      const result = await MagicOpposedWorkflow.castDirectTargeted(
-        actor,
-        spell,
-        { difficultyKey: spellOptions.difficultyKey ?? "average" },
-        spellOptions
-      );
+      const defenderTokenUuid = Array.isArray(cfg.targetTokenUuids) && cfg.targetTokenUuids.length
+        ? cfg.targetTokenUuids[0]
+        : null;
+      // Direct casting uses MagicOpposedWorkflow.castDirectTargeted(cfg)
+      const result = await MagicOpposedWorkflow.castDirectTargeted({
+        attackerActorUuid: actor.uuid,
+        attackerTokenUuid: cfg.casterTokenUuid ?? null,
+        defenderTokenUuid,
+        spellUuid: spell.uuid,
+        spellOptions,
+        castActionType: cfg.castActionType ?? "primary",
+      });
       
       return {
         success: result !== null,
@@ -262,16 +283,23 @@ export const SpellCastingService = {
    * Cast opposed spell (targets defend).
    * @private
    */
-  async _castOpposed(actor, spell, profile, spellOptions, targetTokens) {
+  async _castOpposed(actor, spell, profile, spellOptions, targetTokens, cfg = {}) {
     try {
-      // Opposed casting uses MagicOpposedWorkflow.createPending()
-      const result = await MagicOpposedWorkflow.createPending(
-        [actor],
-        targetTokens,
-        spell,
-        { difficultyKey: spellOptions.difficultyKey ?? "average" },
-        spellOptions
-      );
+      // Opposed casting uses MagicOpposedWorkflow.createPending(cfg)
+      const result = await MagicOpposedWorkflow.createPending({
+        attackerActorUuid: actor.uuid,
+        attackerTokenUuid: cfg.casterTokenUuid ?? null,
+        defenderTokenUuids: Array.isArray(cfg.targetTokenUuids)
+          ? cfg.targetTokenUuids
+          : (targetTokens ?? [])
+              .map((t) => t?.document?.uuid ?? t?.uuid)
+              .filter(Boolean),
+        spellUuid: spell.uuid,
+        spellOptions,
+        castActionType: cfg.castActionType ?? "primary",
+        aoe: cfg.aoeConfig ?? null,
+        isAoE: Boolean(cfg.aoeConfig),
+      });
       
       return {
         success: result !== null,
@@ -288,15 +316,16 @@ export const SpellCastingService = {
    * Cast unopposed spell (no targets, no defense).
    * @private
    */
-  async _castUnopposed(actor, spell, profile, spellOptions) {
+  async _castUnopposed(actor, spell, profile, spellOptions, cfg = {}) {
     try {
-      // Unopposed casting uses MagicOpposedWorkflow.castUnopposed()
-      const result = await MagicOpposedWorkflow.castUnopposed(
-        actor,
-        spell,
-        { difficultyKey: spellOptions.difficultyKey ?? "average" },
-        spellOptions
-      );
+      // Unopposed casting uses MagicOpposedWorkflow.castUnopposed(cfg)
+      const result = await MagicOpposedWorkflow.castUnopposed({
+        attackerActorUuid: actor.uuid,
+        attackerTokenUuid: cfg.casterTokenUuid ?? null,
+        spellUuid: spell.uuid,
+        spellOptions,
+        castActionType: cfg.castActionType ?? "primary",
+      });
       
       return {
         success: result !== null,

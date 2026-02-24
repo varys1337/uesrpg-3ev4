@@ -37,14 +37,20 @@ import { traceSheetPerf } from "../../../core/debug/perf.js";
 import { bindDelegated } from "./_delegated-bindings.js";
 import { drinkPotion, applyAlchemyToWeapon } from "../../../core/alchemy/runtime.js";
 import { alertDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
+import { resolveDroppedItem } from "../../../utils/drop-data.js";
+import { castScrollFromItem } from "../../../core/magic/scroll-casting.js";
+import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
+import {
+  buildSkillAdvancementPlan,
+  normalizeRank as normalizeAdvancementRank,
+  parseSpecializations as parseAdvancementSpecializations,
+} from "../../../core/advancement/skill-advancement.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
-const SKILL_RANK_ORDER = ["untrained", "novice", "apprentice", "journeyman", "adept", "expert", "master"];
-const SKILL_RANK_VALUE = { untrained: -1, novice: 0, apprentice: 1, journeyman: 2, adept: 3, expert: 4, master: 5 };
-const SKILL_RANK_XP_COST = { novice: 100, apprentice: 200, journeyman: 300, adept: 400, expert: 500, master: 800 };
-const CAMPAIGN_MAX_INDEX = { novice: 1, apprentice: 2, journeyman: 3, adept: 4, expert: 5, master: 6 };
 const ITEM_SHEET_TEMPLATE_BASE = "systems/uesrpg-3ev4/templates/v2/sheets";
+const _FLAG_NS = "uesrpg-3ev4";
+const _EQUIPMENT_ITEM_TYPES = new Set(["weapon", "armor", "ammunition", "item", "container", "scroll"]);
 const SUPPORTED_ITEM_SHEET_TYPES = new Set([
   "ammunition",
   "armor",
@@ -53,49 +59,13 @@ const SUPPORTED_ITEM_SHEET_TYPES = new Set([
   "item",
   "magicSkill",
   "power",
+  "scroll",
   "skill",
   "spell",
   "talent",
   "trait",
   "weapon",
 ]);
-
-function _normalizeRank(rank) {
-  const r = String(rank ?? "").trim().toLowerCase();
-  return SKILL_RANK_ORDER.includes(r) ? r : "untrained";
-}
-
-function _parseSpecializations(raw) {
-  const parts = String(raw ?? "")
-    .split(/[,\n]+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-  // Keep deterministic counts by unique normalized label.
-  const unique = [];
-  const seen = new Set();
-  for (const p of parts) {
-    const k = p.toLowerCase();
-    if (seen.has(k)) continue;
-    seen.add(k);
-    unique.push(p);
-  }
-  return unique;
-}
-
-function _normalizeChaKey(v = "") {
-  const s = String(v ?? "").trim().toLowerCase();
-  switch (s) {
-    case "strength": return "str";
-    case "endurance": return "end";
-    case "agility": return "agi";
-    case "intelligence": return "int";
-    case "willpower": return "wp";
-    case "perception": return "prc";
-    case "personality": return "prs";
-    case "luck": return "lck";
-    default: return s;
-  }
-}
 
 const _ARMOR_TYPED_NUMERIC_FIELDS = new Set(["magic_ar", "special_ar", "armor", "blockRating"]);
 
@@ -195,6 +165,79 @@ function _buildSanitizedRenderSystem(itemType, systemData) {
   return cloned;
 }
 
+function _normalizeSpellcastingCostMode(value) {
+  const mode = String(value ?? "soul").trim().toLowerCase();
+  if (mode === "magicka" || mode === "none") return mode;
+  return "soul";
+}
+
+function _isSpellcastingEligibleItem(item) {
+  return _EQUIPMENT_ITEM_TYPES.has(String(item?.type ?? "").toLowerCase());
+}
+
+function _buildSpellSnapshot(spell) {
+  if (!spell || spell.type !== "spell") return null;
+  const src = spell.toObject(false);
+  return {
+    name: src.name,
+    type: "spell",
+    img: src.img,
+    system: {
+      school: src.system?.school ?? "",
+      level: Number(src.system?.level ?? 1),
+      cost: Number(src.system?.cost ?? 0),
+      hasUpkeep: src.system?.hasUpkeep === true,
+      isDirect: src.system?.isDirect === true,
+      hasBuffer: src.system?.hasBuffer === true,
+      hasOverTime: src.system?.hasOverTime === true,
+      hasOverload: src.system?.hasOverload === true,
+      isRuneSpell: src.system?.isRuneSpell === true,
+      isZonePersistent: src.system?.isZonePersistent === true,
+      isSummonSpell: src.system?.isSummonSpell === true,
+      rangeType: src.system?.rangeType ?? src.system?.range ?? "",
+      aoeIncludeCaster: src.system?.aoeIncludeCaster === true,
+      duration: src.system?.duration ?? {},
+      damageInstances: Array.isArray(src.system?.damageInstances) ? src.system.damageInstances : [],
+      targeting: src.system?.targeting ?? null,
+      engine: src.system?.engine ?? null,
+      defenseModel: src.system?.defenseModel ?? null,
+      characteristicDefense: src.system?.characteristicDefense ?? null,
+      overTimeEntries: Array.isArray(src.system?.overTimeEntries) ? src.system.overTimeEntries : []
+    }
+  };
+}
+
+function _buildLegacyExtensionSeed(item) {
+  const enchanting = item?.flags?.[_FLAG_NS]?.enchanting ?? {};
+  const cast = enchanting?.cast ?? {};
+  // Do not mirror true workshop cast enchantments into the extension lane.
+  if (String(enchanting?.enchantType ?? "").trim().toLowerCase() === "cast") return null;
+  const hasSlots = Array.isArray(cast?.spells) && cast.spells.length > 0;
+  const hasToggle = Object.prototype.hasOwnProperty.call(cast, "isSpellcastingEnabled");
+  if (!hasSlots && !hasToggle) return null;
+  return cast;
+}
+
+function _ensureItemSpellcastingFlags(item) {
+  const existing = foundry.utils.deepClone(item?.flags?.[_FLAG_NS]?.itemSpellcasting ?? {});
+  const legacySeed = _buildLegacyExtensionSeed(item);
+  const source = Object.keys(existing).length ? existing : (legacySeed ?? {});
+  const sourcePool = source?.pool ?? {};
+  const currentPoolValue = Number(sourcePool?.value ?? item?.system?.charge?.value ?? 0);
+  const currentPoolMax = Number(sourcePool?.max ?? item?.system?.charge?.max ?? currentPoolValue);
+  return {
+    ...source,
+    version: 2,
+    enabled: source?.enabled === true,
+    slots: Array.isArray(source?.slots) ? source.slots : [],
+    pool: {
+      value: Number.isFinite(currentPoolValue) ? currentPoolValue : 0,
+      max: Number.isFinite(currentPoolMax) ? currentPoolMax : 0
+    },
+    activeUpkeepSlotId: source?.activeUpkeepSlotId ?? null
+  };
+}
+
 export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Base) {
 
   /** @type {object|null} Snapshot of DOM-only UI state saved before re-render */
@@ -279,6 +322,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       clearAlchemyProduct: SimpleItemSheetV2.prototype._onClearAlchemyProduct,
       drinkAlchemyProduct: SimpleItemSheetV2.prototype._onDrinkAlchemyProduct,
       applyAlchemyProductToWeapon: SimpleItemSheetV2.prototype._onApplyAlchemyProductToWeapon,
+      // ── Scroll actions ───────────────────────────────────────────────
+      castScroll: SimpleItemSheetV2.prototype._onCastScroll,
+      castEnchantment: SimpleItemSheetV2.prototype._onCastEnchantment,
+      toggleSpellcastingEnable: SimpleItemSheetV2.prototype._onToggleSpellcastingEnable,
+      addSpellcastingSlot: SimpleItemSheetV2.prototype._onAddSpellcastingSlot,
+      removeSpellcastingSlot: SimpleItemSheetV2.prototype._onRemoveSpellcastingSlot,
+      editSpellcastingSlot: SimpleItemSheetV2.prototype._onEditSpellcastingSlot,
+      pickSpellcastingSlotSpell: SimpleItemSheetV2.prototype._onPickSpellcastingSlotSpell,
     },
   };
 
@@ -396,7 +447,61 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     context.options = { editable: this.isEditable };
 
       // Shared data preparation (enriches description, derives computed values, etc.)
-      return await prepareItemSheetData(this, context);
+      const prepared = await prepareItemSheetData(this, context);
+
+      if (this.document.type === "scroll") {
+        prepared.scrollLinkedSpell = null;
+        prepared.hasLinkedSpell = false;
+        prepared.linkedSpellUnresolved = false;
+
+        const spellUuid = String(this.document.system?.spellUuid ?? "").trim();
+        if (spellUuid) {
+          try {
+            const linked = await fromUuid(spellUuid);
+            if (linked?.documentName === "Item" && String(linked?.type ?? "") === "spell") {
+              prepared.scrollLinkedSpell = {
+                uuid: String(linked.uuid ?? ""),
+                name: String(linked.name ?? ""),
+                school: String(linked.system?.school ?? ""),
+                level: Number(linked.system?.level ?? 1),
+                cost: Number(linked.system?.cost ?? 0),
+                form: String(linked.system?.form ?? ""),
+                range: String(linked.system?.rangeType ?? linked.system?.range ?? ""),
+                duration: {
+                  value: Number(linked.system?.duration?.value ?? 0),
+                  unit: String(linked.system?.duration?.unit ?? "instant"),
+                },
+                isInstant: linked.system?.isInstant === true,
+                isDirect: linked.system?.isDirect === true,
+                isZonePersistent: linked.system?.isZonePersistent === true,
+                isRuneSpell: linked.system?.isRuneSpell === true,
+                hasOverTime: linked.system?.hasOverTime === true,
+                hasOverload: linked.system?.hasOverload === true,
+                isSummonSpell: linked.system?.isSummonSpell === true,
+                hasBuffer: linked.system?.hasBuffer === true,
+                damageInstances: Array.isArray(linked.system?.damageInstances)
+                  ? linked.system.damageInstances
+                      .filter((di) => di && typeof di === "object")
+                      .map((di) => ({
+                        formula: String(di.formula ?? ""),
+                        type: String(di.type ?? "none"),
+                        label: String(di.label ?? ""),
+                      }))
+                  : [],
+              };
+              prepared.hasLinkedSpell = true;
+            } else {
+              prepared.linkedSpellUnresolved = true;
+            }
+          } catch (_err) {
+            prepared.linkedSpellUnresolved = true;
+          }
+        }
+      }
+
+      prepared.enableRuleElements = Boolean(game.settings.get("uesrpg-3ev4", "enableRuleElementsRuntime"));
+
+      return prepared;
     } finally {
       traceSheetPerf({
         sheet: "SimpleItemSheetV2",
@@ -412,29 +517,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  _getMaxPurchasableRankIndex(actor) {
-    const xpTotal = Number(actor?.system?.xpTotal ?? 0);
-    if (xpTotal >= 7000) return CAMPAIGN_MAX_INDEX.master;
-    if (xpTotal >= 5500) return CAMPAIGN_MAX_INDEX.expert;
-    if (xpTotal >= 4000) return CAMPAIGN_MAX_INDEX.adept;
-    if (xpTotal >= 2500) return CAMPAIGN_MAX_INDEX.journeyman;
-    if (xpTotal >= 1000) return CAMPAIGN_MAX_INDEX.apprentice;
-    return CAMPAIGN_MAX_INDEX.novice;
-  }
-
-  _isFavoredSkillForActor(actor, governingChaRaw = "") {
-    const keys = String(governingChaRaw ?? "")
-      .split(/[,\n/]+/)
-      .map(s => _normalizeChaKey(s))
-      .filter(Boolean);
-    return keys.some(k => Boolean(actor?.system?.characteristics?.[k]?.favored));
-  }
-
-  _discountCostIfFavored(cost, favored) {
-    if (!favored) return Number(cost) || 0;
-    return Math.floor(((Number(cost) || 0) * 0.75) / 5) * 5;
-  }
-
   _buildAdvancementPlan(flatData) {
     const item = this.document;
     const actor = item?.actor;
@@ -443,52 +525,38 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       return { ok: true, xpCost: 0, actor };
     }
 
-    const oldRank = _normalizeRank(item.system?.rank);
-    const newRank = _normalizeRank(foundry.utils.getProperty(flatData, "system.rank") ?? oldRank);
-    const oldIndex = SKILL_RANK_ORDER.indexOf(oldRank);
-    const newIndex = SKILL_RANK_ORDER.indexOf(newRank);
-    if (newIndex < 0 || oldIndex < 0) return { ok: true, xpCost: 0, actor };
-
-    if (newIndex > (oldIndex + 1)) {
-      return { ok: false, reason: "Skill ranks must be purchased in order (one rank at a time)." };
-    }
-
-    const maxIndex = this._getMaxPurchasableRankIndex(actor);
-    if (newIndex > maxIndex) {
-      return { ok: false, reason: `Campaign XP cap prevents purchasing ${newRank}. Increase Total XP first.` };
-    }
-
-    const governingRaw = String(item.system?.governingCha ?? "");
-    const favored = this._isFavoredSkillForActor(actor, governingRaw);
-
-    let xpCost = 0;
-    if (newIndex > oldIndex) {
-      const rankStepCost = Number(SKILL_RANK_XP_COST[newRank] ?? 0);
-      xpCost += this._discountCostIfFavored(rankStepCost, favored);
-    }
-
+    const oldRank = normalizeAdvancementRank(item.system?.rank);
+    const newRank = normalizeAdvancementRank(foundry.utils.getProperty(flatData, "system.rank") ?? oldRank);
     const isLoreSkill = item.type === "skill" && String(item.name ?? "").trim().toLowerCase() === "lore";
     const hasScholarTalent = isLoreSkill && hasTalent(actor, "scholar");
     const rawSpecs = String(foundry.utils.getProperty(flatData, "system.trainedItems") ?? item.system?.trainedItems ?? "");
-    const specCount = _parseSpecializations(rawSpecs).length;
-    const oldSpecCount = _parseSpecializations(item.system?.trainedItems ?? "").length;
-    const rankValue = Number(SKILL_RANK_VALUE[newRank] ?? -1);
+    const specCount = parseAdvancementSpecializations(rawSpecs).length;
+    const rankValues = { untrained: -1, novice: 0, apprentice: 1, journeyman: 2, adept: 3, expert: 4, master: 5 };
+    const rankValue = Number(rankValues[newRank] ?? -1);
     if (String(item.name ?? "").trim().toLowerCase() === "evade" && specCount > 0) {
       return { ok: false, reason: "Evade cannot have specializations (Chapter 3)." };
     }
     const baseSpecializationCap = Math.max(0, rankValue);
     const specializationCap = hasScholarTalent ? (baseSpecializationCap * 2) : baseSpecializationCap;
-    if (specCount > specializationCap) {
-      if (hasScholarTalent) {
+    const specializationUnitCost = hasScholarTalent ? 50 : 100;
+
+    const plan = buildSkillAdvancementPlan({
+      actor,
+      item,
+      flatData,
+      options: {
+        specializationCapOverride: specializationCap,
+        specializationUnitCostOverride: specializationUnitCost,
+      },
+    });
+    if (!plan.ok) {
+      if (hasScholarTalent && specCount > specializationCap) {
         return { ok: false, reason: `Lore specializations exceed Scholar cap (${specializationCap}).` };
       }
-      return { ok: false, reason: `Specializations exceed current rank cap (${specializationCap}).` };
+      return plan;
     }
-    if (specCount > oldSpecCount) {
-      const added = specCount - oldSpecCount;
-      const specializationBaseCost = hasScholarTalent ? 50 : 100;
-      xpCost += this._discountCostIfFavored(added * specializationBaseCost, favored);
-    }
+
+    let xpCost = Number(plan.xpCost ?? 0);
 
     if (item.type === "combatStyle") {
       const oldTE = Array.isArray(item.system?.trainedEquipment) ? item.system.trainedEquipment : [];
@@ -517,7 +585,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       }
       if (newEnabled > oldEnabled) {
         let added = newEnabled - oldEnabled;
-        if (oldEnabled === 0 && newIndex > oldIndex && added > 0) added -= 1;
+        const rankChanged = oldRank !== newRank;
+        if (oldEnabled === 0 && rankChanged && added > 0) added -= 1;
         if (added > 0) xpCost += added * 25;
       }
     }
@@ -1209,6 +1278,240 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     await applyAlchemyToWeapon(actor, this.document, weapon);
   }
 
+  /* ═══════════════════════ Scroll Actions ════════════════════════════ */
+
+  /**
+   * Cast the spell referenced by this scroll.
+   * Resolves the spell via spellUuid, delegates to SpellCastingService with
+   * scroll-specific flags, then decrements quantity on a non-cancelled attempt.
+   *
+   * @param {Event} event
+   * @param {HTMLElement} target
+   */
+  async _onCastScroll(event, target) {
+    event.preventDefault();
+
+    const scroll = this.document;
+
+    const result = await castScrollFromItem({
+      scrollItem: scroll,
+      casterActor: this.actor,
+      castActionType: "primary",
+    });
+
+    if (result?.error) {
+      ui.notifications.warn(result.error);
+      return;
+    }
+
+    if (result?.consumed === true && Number(result.newQty ?? 1) === 0) {
+      ui.notifications.info(`${scroll.name} has been used up.`);
+    }
+  }
+
+  async _onToggleSpellcastingEnable(event, target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+    if (!_isSpellcastingEligibleItem(this.document)) {
+      ui.notifications?.warn?.("Spellcasting configuration is available only for equipment items.");
+      return;
+    }
+
+    const spellcasting = _ensureItemSpellcastingFlags(this.document);
+    const nextEnabled = spellcasting.enabled !== true;
+    spellcasting.enabled = nextEnabled;
+    await requestUpdateDocument(this.document, {
+      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting
+    });
+  }
+
+  async _onAddSpellcastingSlot(event, target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+    if (!_isSpellcastingEligibleItem(this.document)) return;
+
+    const spellcasting = _ensureItemSpellcastingFlags(this.document);
+    const slots = Array.isArray(spellcasting.slots) ? spellcasting.slots : [];
+    const nextIndex = slots.length + 1;
+    slots.push({
+      id: foundry.utils.randomID(12),
+      source: "conventional",
+      label: `Stored Spell ${nextIndex}`,
+      level: 1,
+      cost: 0,
+      attributes: [],
+      spellUuid: "",
+      snapshot: null,
+      bindingStrength: 1,
+      enabled: true,
+      costMode: "soul"
+    });
+    spellcasting.slots = slots;
+
+    await requestUpdateDocument(this.document, {
+      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting
+    });
+  }
+
+  async _onRemoveSpellcastingSlot(event, target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+    const slotId = String(target?.dataset?.slotId ?? "").trim();
+    if (!slotId) return;
+
+    const spellcasting = _ensureItemSpellcastingFlags(this.document);
+    spellcasting.slots = (Array.isArray(spellcasting.slots) ? spellcasting.slots : [])
+      .filter((s) => String(s?.id ?? "") !== slotId);
+
+    await requestUpdateDocument(this.document, {
+      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting
+    });
+  }
+
+  async _onEditSpellcastingSlot(event, target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+
+    const spellcasting = _ensureItemSpellcastingFlags(this.document);
+    const rows = Array.from(this.element?.querySelectorAll?.("[data-spellcasting-slot-id]") ?? []);
+    const byId = new Map((Array.isArray(spellcasting.slots) ? spellcasting.slots : []).map((s) => [String(s?.id ?? ""), s]));
+    const nextSlots = [];
+
+    for (const row of rows) {
+      const slotId = String(row?.dataset?.spellcastingSlotId ?? "").trim();
+      if (!slotId) continue;
+      const prev = byId.get(slotId) ?? { id: slotId };
+      const labelInput = row.querySelector("[data-spellcasting-field='label']");
+      const costInput = row.querySelector("[data-spellcasting-field='cost']");
+      const bsInput = row.querySelector("[data-spellcasting-field='bindingStrength']");
+      const modeInput = row.querySelector("[data-spellcasting-field='costMode']");
+      const enabledInput = row.querySelector("[data-spellcasting-field='enabled']");
+
+      const label = String(labelInput?.value ?? prev?.label ?? "Stored Spell").trim() || "Stored Spell";
+      const cost = Math.max(0, Number(costInput?.value ?? prev?.cost ?? 0) || 0);
+      const bindingStrength = Math.max(0, Math.min(10, Number(bsInput?.value ?? prev?.bindingStrength ?? 0) || 0));
+      const costMode = _normalizeSpellcastingCostMode(modeInput?.value ?? prev?.costMode);
+      const enabled = enabledInput ? enabledInput.checked === true : prev?.enabled !== false;
+      const hasSpellRef = String(prev?.spellUuid ?? "").trim().length > 0 || !!prev?.snapshot;
+      if (enabled && !hasSpellRef) {
+        ui.notifications?.warn?.(`Slot "${label}" must have a selected spell before enabling.`);
+        return;
+      }
+
+      nextSlots.push({
+        ...prev,
+        id: slotId,
+        label,
+        cost,
+        bindingStrength,
+        costMode,
+        enabled
+      });
+    }
+
+    spellcasting.slots = nextSlots;
+
+    const chargeValueInput = this.element?.querySelector?.("[data-spellcasting-charge='value']");
+    const chargeMaxInput = this.element?.querySelector?.("[data-spellcasting-charge='max']");
+    const nextChargeValue = Math.max(0, Number(chargeValueInput?.value ?? this.document?.system?.charge?.value ?? 0) || 0);
+    const nextChargeMaxRaw = Math.max(0, Number(chargeMaxInput?.value ?? this.document?.system?.charge?.max ?? 0) || 0);
+    const nextChargeMax = Math.max(nextChargeValue, nextChargeMaxRaw);
+
+    await requestUpdateDocument(this.document, {
+      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting,
+      "system.charge.value": nextChargeValue,
+      "system.charge.max": nextChargeMax
+    });
+  }
+
+  async _onPickSpellcastingSlotSpell(event, target) {
+    event?.preventDefault?.();
+    if (!this.isEditable) return;
+    const slotId = String(target?.dataset?.slotId ?? "").trim();
+    if (!slotId) return;
+
+    const actorSpells = Array.from(this.actor?.items ?? []).filter((i) => i?.type === "spell");
+    const spellOptions = actorSpells
+      .map((s) => `<option value="${String(s.id)}">${s.name} (${String(s.system?.school ?? "")} L${Number(s.system?.level ?? 1)})</option>`)
+      .join("");
+
+    const content = `
+      <div class="uesrpg-cast-slot-picker">
+        <div class="form-group">
+          <label><b>Actor Spell</b></label>
+          <select name="knownSpellId" style="width:100%;">
+            <option value="">-- Use UUID below --</option>
+            ${spellOptions}
+          </select>
+        </div>
+        <div class="form-group">
+          <label><b>Spell UUID (fallback)</b></label>
+          <input type="text" name="spellUuid" style="width:100%;" placeholder="Compendium.x.y or Actor.x.Item.y" />
+        </div>
+      </div>
+    `;
+
+    const pick = await customDialog({
+      title: "Select Stored Spell",
+      content,
+      yes: {
+        label: "Set Spell",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          return {
+            knownSpellId: String(root?.querySelector?.("select[name='knownSpellId']")?.value ?? "").trim(),
+            spellUuid: String(root?.querySelector?.("input[name='spellUuid']")?.value ?? "").trim()
+          };
+        }
+      },
+      no: { label: "Cancel" },
+      defaultButton: "yes"
+    });
+    if (!pick) return;
+
+    const spellcasting = _ensureItemSpellcastingFlags(this.document);
+    const slots = Array.isArray(spellcasting.slots) ? spellcasting.slots : [];
+    const idx = slots.findIndex((s) => String(s?.id ?? "") === slotId);
+    if (idx < 0) return;
+
+    const next = foundry.utils.deepClone(slots[idx]);
+    let spellDoc = null;
+    if (pick.knownSpellId && this.actor) {
+      spellDoc = this.actor.items.get(pick.knownSpellId) ?? null;
+      next.spellUuid = String(spellDoc?.uuid ?? "");
+    } else if (pick.spellUuid) {
+      next.spellUuid = pick.spellUuid;
+      try {
+        const doc = await fromUuid(pick.spellUuid);
+        if (doc?.documentName === "Item" && doc.type === "spell") spellDoc = doc;
+      } catch (_err) {
+        spellDoc = null;
+      }
+    } else {
+      ui.notifications?.warn?.("Select a known spell or provide a spell UUID.");
+      return;
+    }
+
+    if (spellDoc?.type === "spell") {
+      next.label = String(spellDoc.name ?? next.label ?? "Stored Spell");
+      next.level = Number(spellDoc.system?.level ?? next.level ?? 1);
+      next.snapshot = _buildSpellSnapshot(spellDoc);
+      if (!(Number(next.cost) > 0)) {
+        next.cost = Number(spellDoc.system?.cost ?? 0);
+      }
+    }
+
+    slots[idx] = next;
+    spellcasting.slots = slots;
+    await requestUpdateDocument(this.document, {
+      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting
+    });
+  }
+
+  async _onCastEnchantment(event, target) {
+    return onCastEnchantmentAction.call(this, event, target, this.document);
+  }
+
   /* ═══════════════════════ Native Non-Click Listeners ═══════════════ */
 
   /**
@@ -1468,6 +1771,165 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   }
 
   /**
+   * Scroll sheet: live spell UUID validation + enlarged drop zone behavior.
+   * @param {HTMLElement} el
+   */
+  _registerScrollListeners(el) {
+    const uuidInput = el.querySelector('input[name="system.spellUuid"]');
+    const dropZone = el.querySelector('[data-scroll-spell-drop-zone="true"]');
+
+    const commitInputValue = async () => {
+      if (!this.isEditable) return;
+      if (!uuidInput) return;
+
+      const result = await this._resolveAndValidateScrollSpell(uuidInput.value);
+      if (!result.ok) {
+        ui.notifications?.warn?.(result.error ?? "Invalid spell UUID.");
+        uuidInput.value = String(this.document.system?.spellUuid ?? "");
+        return;
+      }
+
+      await this._applyScrollSpellLink(result.spellDoc);
+      uuidInput.value = String(result.canonicalUuid ?? "");
+    };
+
+    if (uuidInput) {
+      uuidInput.addEventListener("change", async () => {
+        await commitInputValue();
+      });
+
+      uuidInput.addEventListener("keydown", async (ev) => {
+        if (ev.key !== "Enter") return;
+        ev.preventDefault();
+        await commitInputValue();
+      });
+    }
+
+    if (!dropZone) return;
+
+    dropZone.addEventListener("dragover", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "link";
+      dropZone.classList.add("drag-over");
+    });
+
+    dropZone.addEventListener("dragleave", (ev) => {
+      const rect = dropZone.getBoundingClientRect();
+      const x = ev.clientX;
+      const y = ev.clientY;
+      if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+        dropZone.classList.remove("drag-over");
+      }
+    });
+
+    dropZone.addEventListener("drop", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      dropZone.classList.remove("drag-over");
+      if (!this.isEditable) return;
+
+      const dragData = foundry.applications.ux.TextEditor.implementation.getDragEventData(ev);
+      const dropped = await resolveDroppedItem(dragData);
+      if (!dropped) {
+        ui.notifications?.warn?.("Unable to resolve dropped item payload.");
+        return;
+      }
+
+      const result = await this._resolveAndValidateScrollSpell(dropped);
+      if (!result.ok) {
+        ui.notifications?.warn?.(result.error ?? "Unable to resolve dropped item payload.");
+        return;
+      }
+
+      await this._applyScrollSpellLink(result.spellDoc);
+      if (uuidInput) uuidInput.value = String(result.canonicalUuid ?? "");
+    });
+  }
+
+  /**
+   * Normalize manually entered spell references into a canonical UUID if possible.
+   * Accepts full UUIDs and world item ids.
+   * @param {string} raw
+   * @returns {Promise<string>}
+   */
+  async _normalizeScrollSpellUuid(raw) {
+    const value = String(raw ?? "").trim();
+    if (!value) return "";
+
+    // UUID-like text; resolve if possible.
+    if (value.includes(".")) {
+      try {
+        const doc = await fromUuid(value);
+        if (doc?.documentName === "Item") return String(doc.uuid ?? value);
+      } catch (_err) {
+        // Fall through to id lookup.
+      }
+    }
+
+    // World item id fallback.
+    const worldItem = game.items?.get?.(value) ?? null;
+    if (worldItem?.documentName === "Item") return String(worldItem.uuid ?? value);
+
+    return value;
+  }
+
+  /**
+   * Resolve and validate a scroll spell reference.
+   * @param {string|Item|null} rawOrDoc
+   * @returns {Promise<{ok: boolean, spellDoc: Item|null, canonicalUuid: string, error?: string}>}
+   */
+  async _resolveAndValidateScrollSpell(rawOrDoc) {
+    if (!rawOrDoc) {
+      return { ok: true, spellDoc: null, canonicalUuid: "" };
+    }
+
+    let doc = rawOrDoc;
+
+    if (typeof rawOrDoc === "string") {
+      const normalized = await this._normalizeScrollSpellUuid(rawOrDoc);
+      if (!normalized) return { ok: true, spellDoc: null, canonicalUuid: "" };
+      try {
+        doc = await fromUuid(normalized);
+      } catch (_err) {
+        doc = null;
+      }
+      if (!doc) {
+        return { ok: false, spellDoc: null, canonicalUuid: "", error: "Could not resolve spell UUID." };
+      }
+    }
+
+    if (doc?.documentName !== "Item") {
+      return { ok: false, spellDoc: null, canonicalUuid: "", error: "Dropped or referenced document is not an Item." };
+    }
+
+    if (String(doc.type ?? "") !== "spell") {
+      return { ok: false, spellDoc: null, canonicalUuid: "", error: "Only spell items can be linked to a scroll." };
+    }
+
+    return { ok: true, spellDoc: doc, canonicalUuid: String(doc.uuid ?? "") };
+  }
+
+  /**
+   * Persist scroll spell link (or clear it).
+   * @param {Item|null} spellDocOrNull
+   */
+  async _applyScrollSpellLink(spellDocOrNull) {
+    const nextUuid = String(spellDocOrNull?.uuid ?? "");
+    const ok = await requestUpdateDocument(this.document, { "system.spellUuid": nextUuid });
+    if (!ok) {
+      ui.notifications?.warn?.("Failed to update scroll spell reference.");
+      return;
+    }
+
+    if (spellDocOrNull) {
+      ui.notifications?.info?.(`Scroll linked to "${spellDocOrNull.name}".`);
+    } else {
+      ui.notifications?.info?.("Scroll spell reference cleared.");
+    }
+  }
+
+  /**
    * Rule Element change/drag listeners for trait/talent/power sheets.
    * @param {HTMLElement} el
    */
@@ -1639,6 +2101,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       if (type === "ammunition") this._registerAmmunitionListeners(el);
       if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
       if (type === "spell") this._registerSpellListeners(el);
+      if (type === "scroll") this._registerScrollListeners(el);
       if (type === "container") this._registerContainmentListeners(el);
 
       const _featureTypes = new Set(["trait", "talent", "power"]);
@@ -1700,10 +2163,38 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   /**
    * @override
-   * Handle item drops for container sheets.
+   * Handle item drops. Scroll sheets accept spell drops to fill spellUuid;
+   * container sheets delegate to their containment module; all others forward
+   * to the parent class.
    */
   async _onDrop(event) {
     event.preventDefault();
+
+    // Scroll: accept a dropped spell item to fill the spellUuid field.
+    if (this.document.type === "scroll") {
+      // Dedicated drop-zone listener handles this path already.
+      if (event?.target?.closest?.('[data-scroll-spell-drop-zone="true"]')) return;
+
+      const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
+      if (data?.type !== "Item") {
+        return super._onDrop?.(event);
+      }
+
+      const dropped = await resolveDroppedItem(data);
+      if (!dropped) {
+        ui.notifications?.warn?.("Unable to resolve dropped item payload.");
+        return;
+      }
+
+      const result = await this._resolveAndValidateScrollSpell(dropped);
+      if (!result.ok) {
+        ui.notifications?.warn?.(result.error ?? "Only spell items can be linked to a scroll.");
+        return;
+      }
+
+      await this._applyScrollSpellLink(result.spellDoc);
+      return;
+    }
 
     if (this.document.type !== "container") {
       return super._onDrop?.(event);
@@ -1719,7 +2210,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       return;
     }
 
-    const data = TextEditor.getDragEventData(event);
+    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
     if (data?.type !== "Item") {
       return super._onDrop?.(event);
     }

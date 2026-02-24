@@ -41,6 +41,28 @@ import { breakAimChainIfPresent as _breakAimChainIfPresent } from "../effects.js
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { hasActiveWard } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+
+async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
+  try {
+    if (!attacker || Number(advantage?.attacker ?? 0) <= 0) return;
+    if (String(data?.context?.attackMode ?? "melee").toLowerCase() !== "melee") return;
+    const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
+    if (!weaponUuid) return;
+    const weapon = _resolveItemViaActor(weaponUuid, attacker);
+    if (!weapon || weapon.type !== "weapon") return;
+    if (!_weaponHasQuality(weapon, "concussive")) return;
+    await requestUpdateDocument(attacker, {
+      "flags.uesrpg-3ev4.combat.concussiveNextBash": {
+        bonus: 20,
+        grantedAt: Date.now(),
+        sourceWeaponUuid: weapon.uuid ?? null
+      }
+    });
+  } catch (err) {
+    console.warn("UESRPG | Concussive bonus grant failed", err);
+  }
+}
 
 /**
  * Handle defender-nodefense action
@@ -70,7 +92,9 @@ export async function handleDefenderNoDefense(ctx) {
     const baseOutcome = _resolveOutcomeRAW(data, data.defender) ?? { winner: "tie", text: "" };
     const outcome = _applyAoEEvadeOutcome(data, baseOutcome);
     _setDefenderOutcome(data, data.defender, outcome);
-    _setDefenderAdvantage(data, data.defender, _computeAdvantageRAW(data, outcome, data.defender));
+    const advantage = _computeAdvantageRAW(data, outcome, data.defender);
+    _setDefenderAdvantage(data, data.defender, advantage);
+    await _maybeGrantConcussiveNextBash(attacker, data, advantage);
 
     const allResolved = _getDefenderEntries(data).every(def => Boolean(_getDefenderOutcome(data, def)));
     if (allResolved) {
@@ -189,6 +213,11 @@ export async function handleDefenderRoll(ctx) {
   // Attacker weapon traits can restrict eligible defense options (e.g., Flail cannot be parried/countered).
   // Keep this deterministic and schema-safe.
   const { attackerWeaponTraits, defenderHasSmallWeapon } = await _getDefenseGatingContext({ attacker, defender, data });
+  data.context = data.context ?? {};
+  data.context.attackerWeaponTraits = {
+    ...(data.context.attackerWeaponTraits ?? {}),
+    ...attackerWeaponTraits
+  };
 
   // Combat talent: Lightning Reflexes (allow Parry vs ranged weapon attacks, at -20).
   const defenseTalentOverrides = getDefenseTalentOverrides({
@@ -585,6 +614,18 @@ export async function handleDefenderRoll(ctx) {
     // Dueling Weapon: grants +1 Degree of Success on successful Parry or Counter-Attack.
     if (res.isSuccess && (choice.defenseType === "parry" || choice.defenseType === "counter")) {
       try {
+        const hasBuckler = (defender?.items ?? []).some(i =>
+          i?.type === "armor"
+          && i?.system?.equipped === true
+          && Boolean(i?.system?.isShieldEffective ?? i?.system?.isShield)
+          && String(i?.system?.shieldType ?? "").toLowerCase() === "buckler"
+        );
+        if (hasBuckler && choice.defenseType === "parry") {
+          data.defender.result.degree = Math.max(1, (Number(data.defender.result.degree) || 1) + 1);
+          data.defender.result.bucklerBonus = 1;
+          data.defender.result.textual = `${data.defender.result.degree} DoS`;
+        }
+
         const defWUuid = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
         if (defWUuid) {
           const defW = _resolveItemViaActor(defWUuid, defender);
@@ -621,7 +662,9 @@ export async function handleDefenderRoll(ctx) {
         const baseOutcome = _resolveOutcomeRAW(data, def) ?? { winner: "tie", text: "" };
         const outcome = _applyAoEEvadeOutcome(data, baseOutcome, def);
         _setDefenderOutcome(data, def, outcome);
-        _setDefenderAdvantage(data, def, _computeAdvantageRAW(data, outcome, def));
+        const advantage = _computeAdvantageRAW(data, outcome, def);
+        _setDefenderAdvantage(data, def, advantage);
+        await _maybeGrantConcussiveNextBash(attacker, data, advantage);
         resolvedAny = true;
       }
 

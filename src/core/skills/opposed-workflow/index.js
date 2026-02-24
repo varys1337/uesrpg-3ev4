@@ -52,6 +52,72 @@ import { buildRollContext } from "../../rules/roll-context.js";
 import { computeTN } from "../../combat/tn.js";
 import { buildSpecialActionTestChoicesForActor } from "../../combat/combat-style-utils.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../traits/features/rule-element-runtime.js";
+import { getPreferredWeaponUuid as _getPreferredWeaponUuid, weaponHasQuality as _weaponHasQuality } from "../../combat/opposed/helpers/workflow.js";
+import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+
+const SYSTEM_ID = "uesrpg-3ev4";
+const SPECIAL_ACTION_HOOKED_IDS = new Set(["disarm", "trip", "takeWeapon", "take-weapon"]);
+
+function _getConcussiveNextBashBonus(actor) {
+  if (!actor?.getFlag) return 0;
+  const raw = actor.getFlag(SYSTEM_ID, "combat.concussiveNextBash");
+  if (raw == null) return 0;
+  if (typeof raw === "number") return Math.max(0, Number(raw) || 0);
+  if (typeof raw === "object") return Math.max(0, Number(raw?.bonus ?? 0) || 0);
+  return 0;
+}
+
+async function _consumeConcussiveNextBash(actor) {
+  if (!actor) return;
+  await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.combat.-=concussiveNextBash`]: null });
+}
+
+function _resolveSpecialActionAttackerWeapon(actor, data) {
+  if (!actor) return null;
+  const saCtx = _getSpecialActionContext(data);
+  const sourceWeaponUuid = String(saCtx?.sourceWeaponUuid ?? "").trim();
+  if (sourceWeaponUuid) {
+    const doc = _resolveDoc(sourceWeaponUuid);
+    if (doc?.documentName === "Item" && doc?.parent?.id === actor.id) return doc;
+  }
+  const preferredUuid = String(_getPreferredWeaponUuid(actor, { meleeOnly: false }) ?? "").trim();
+  if (!preferredUuid) return null;
+  const preferred = _resolveDoc(preferredUuid);
+  return (preferred?.documentName === "Item" && preferred?.parent?.id === actor.id) ? preferred : null;
+}
+
+function _applySpecialActionMods({ side, data, actor, attackerActor, situationalMods }) {
+  if (!Array.isArray(situationalMods)) return { concussiveApplied: 0 };
+  const saId = String(_getSpecialActionContext(data)?.id ?? "").trim();
+  let concussiveApplied = 0;
+
+  if (side === "attacker" && saId === "bash") {
+    const bonus = _getConcussiveNextBashBonus(actor);
+    if (bonus > 0) {
+      situationalMods.push({
+        key: "quality:concussive-next-bash",
+        label: "Concussive (Next Bash)",
+        value: bonus,
+        source: "quality"
+      });
+      concussiveApplied = bonus;
+    }
+  }
+
+  if (side === "defender" && SPECIAL_ACTION_HOOKED_IDS.has(saId)) {
+    const weapon = _resolveSpecialActionAttackerWeapon(attackerActor, data);
+    if (weapon && _weaponHasQuality(weapon, "hooked")) {
+      situationalMods.push({
+        key: "quality:hooked",
+        label: "Hooked",
+        value: -10,
+        source: "quality"
+      });
+    }
+  }
+
+  return { concussiveApplied };
+}
 
 
 // External roll application hook (hydrates roll result from separate roll message)
@@ -710,6 +776,7 @@ if (!authorUser) return;
       }
 
       const resMods = buildResistanceBonusMods(decl?.resistanceSelected ?? []);
+      let concussiveApplied = 0;
 
       // Handle Combat Style or Combat profession separately
       let tn;
@@ -726,6 +793,13 @@ if (!authorUser) return;
         // Combat Style roll
         const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
+        ({ concussiveApplied } = _applySpecialActionMods({
+          side: "attacker",
+          data,
+          actor: attacker,
+          attackerActor: attacker,
+          situationalMods
+        }));
         
         tn = computeTN({
           actor: attacker,
@@ -740,6 +814,13 @@ if (!authorUser) return;
         // NPC Combat profession
         const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
+        ({ concussiveApplied } = _applySpecialActionMods({
+          side: "attacker",
+          data,
+          actor: attacker,
+          attackerActor: attacker,
+          situationalMods
+        }));
         
         tn = computeTN({
           actor: attacker,
@@ -756,6 +837,13 @@ if (!authorUser) return;
         skillItem = resolved.item;
         const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
+        ({ concussiveApplied } = _applySpecialActionMods({
+          side: "attacker",
+          data,
+          actor: attacker,
+          attackerActor: attacker,
+          situationalMods
+        }));
 
         tn = computeSkillTN({
           actor: attacker,
@@ -772,6 +860,13 @@ if (!authorUser) return;
         skillItem = resolved.item;
         const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
+        ({ concussiveApplied } = _applySpecialActionMods({
+          side: "attacker",
+          data,
+          actor: attacker,
+          attackerActor: attacker,
+          situationalMods
+        }));
 
         tn = computeSkillTN({
           actor: attacker,
@@ -788,6 +883,13 @@ if (!authorUser) return;
         const allowSpec = _hasSpecializations(skillItem);
         const situationalMods = _buildSensorySituationalMods(decl, attacker, { skillName: skillItem?.name ?? skillLabel });
         if (resMods.length) situationalMods.push(...resMods);
+        ({ concussiveApplied } = _applySpecialActionMods({
+          side: "attacker",
+          data,
+          actor: attacker,
+          attackerActor: attacker,
+          situationalMods
+        }));
         if (decl?.histskinUnderwater === true) {
           situationalMods.push({ key: "talent:histskin", label: "Histskin (Underwater)", value: +30, source: "talent" });
         }
@@ -895,6 +997,9 @@ if (!authorUser) return;
         result: res,
         allowPrompt: true
       });
+      if (concussiveApplied > 0) {
+        await _consumeConcussiveNextBash(attacker);
+      }
 
       skillRollDebug("opposed attacker result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 
@@ -1143,6 +1248,13 @@ if (!authorUser) return;
       if (resolved.type === "combatStyle") {
         // Combat Style roll
         const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
+        _applySpecialActionMods({
+          side: "defender",
+          data,
+          actor: defender,
+          attackerActor: attacker,
+          situationalMods
+        });
         
         tn = computeTN({
           actor: defender,
@@ -1157,6 +1269,13 @@ if (!authorUser) return;
       } else if (resolved.type === "profession" && resolved.professionKey === "combat") {
         // NPC Combat profession
         const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
+        _applySpecialActionMods({
+          side: "defender",
+          data,
+          actor: defender,
+          attackerActor: attacker,
+          situationalMods
+        });
         
         tn = computeTN({
           actor: defender,
@@ -1174,6 +1293,13 @@ if (!authorUser) return;
         defSkill = resolved.item;
         const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
+        _applySpecialActionMods({
+          side: "defender",
+          data,
+          actor: defender,
+          attackerActor: attacker,
+          situationalMods
+        });
 
         tn = computeSkillTN({
           actor: defender,
@@ -1189,6 +1315,13 @@ if (!authorUser) return;
         defSkill = resolved.item;
         const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: resolved.name });
         if (resMods.length) situationalMods.push(...resMods);
+        _applySpecialActionMods({
+          side: "defender",
+          data,
+          actor: defender,
+          attackerActor: attacker,
+          situationalMods
+        });
 
         tn = computeSkillTN({
           actor: defender,
@@ -1205,6 +1338,13 @@ if (!authorUser) return;
         const allowSpec = _hasSpecializations(defSkill);
         const situationalMods = _buildSensorySituationalMods(decl, defender, { skillName: defSkill?.name ?? skillLabel });
         if (resMods.length) situationalMods.push(...resMods);
+        _applySpecialActionMods({
+          side: "defender",
+          data,
+          actor: defender,
+          attackerActor: attacker,
+          situationalMods
+        });
         if (decl?.histskinUnderwater === true) {
           situationalMods.push({ key: "talent:histskin", label: "Histskin (Underwater)", value: +30, source: "talent" });
         }

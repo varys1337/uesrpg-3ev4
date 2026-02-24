@@ -809,7 +809,8 @@
       "magicSkill",
       "ammunition",
       "language",
-      "faction"
+      "faction",
+      "scroll"
     ],
     "templates": {
       "characteristicArray": {
@@ -1568,6 +1569,16 @@
       "description": "",
       "source": "",
       "notes": ""
+    },
+    "scroll": {
+      "description": "",
+      "quantity": 1,
+      "enc": 0,
+      "spellUuid": "",
+      "requireSchoolTraining": false,
+      "consumeMagicka": false,
+      "consumeOnCast": true,
+      "spellData": {}
     }
   }
 }

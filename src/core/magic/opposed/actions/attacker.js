@@ -22,6 +22,98 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 
+function _normalizeCastSourceCostMode(castSource = null) {
+  const mode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
+  if (mode === "magicka" || mode === "none") return mode;
+  return "soul";
+}
+
+function _resolveItemContextFromState(data = {}) {
+  const castSource = data?.attacker?.castSource ?? null;
+  const itemCtx = data?.context?.itemCastContext ?? null;
+  const itemUuid = String(itemCtx?.itemUuid ?? castSource?.itemUuid ?? "").trim();
+  const sourceLane = String(itemCtx?.sourceLane ?? castSource?.sourceLane ?? "workshop").trim().toLowerCase();
+  const slotId = String(itemCtx?.slotId ?? castSource?.spellSlotId ?? "").trim();
+  if (!itemUuid) return null;
+  let itemDoc = null;
+  try {
+    itemDoc = fromUuidSync(itemUuid);
+  } catch (_e) {
+    itemDoc = null;
+  }
+  const item = itemDoc?.documentName === "Item" ? itemDoc : null;
+  if (!item) return null;
+  return { item, sourceLane, slotId };
+}
+
+function _getItemSoulPoolSnapshot(itemCtx = null) {
+  if (!itemCtx?.item) return { value: 0, max: 0, poolPath: "" };
+  const { item, sourceLane } = itemCtx;
+  if (sourceLane === "extension") {
+    const pool = item.flags?.[_FLAG_NS]?.itemSpellcasting?.pool ?? {};
+    return {
+      value: Number(item.system?.charge?.value ?? pool?.value ?? 0) || 0,
+      max: Number(item.system?.charge?.max ?? pool?.max ?? 0) || 0,
+      poolPath: `flags.${_FLAG_NS}.itemSpellcasting.pool.value`
+    };
+  }
+  const pool = item.flags?.[_FLAG_NS]?.enchanting?.cast?.pool ?? {};
+  return {
+    value: Number(pool?.value ?? 0) || 0,
+    max: Number(pool?.max ?? 0) || 0,
+    poolPath: `flags.${_FLAG_NS}.enchanting.cast.pool.value`
+  };
+}
+
+function _resolveCastResourceSpec(attacker, data, spell) {
+  const castSource = data?.attacker?.castSource ?? null;
+  if (castSource?.type !== "enchantment") {
+    return {
+      type: "normal",
+      mode: "magicka",
+      cost: Number(computeSpellAttemptMagickaCost(attacker, spell, data?.attacker?.spellOptions ?? {})?.cost ?? 0) || 0,
+      castSource,
+      itemCtx: null
+    };
+  }
+  const mode = _normalizeCastSourceCostMode(castSource);
+  const itemCtx = _resolveItemContextFromState(data);
+  if (mode === "soul") {
+    return {
+      type: "enchantment",
+      mode,
+      cost: Math.max(0, Number(castSource?.cost ?? 0) || 0),
+      castSource,
+      itemCtx
+    };
+  }
+  return { type: "enchantment", mode, cost: 0, castSource, itemCtx };
+}
+
+function _isMagickaCommitRequired(resourceSpec) {
+  return !(resourceSpec?.type === "enchantment" && (resourceSpec?.mode === "soul" || resourceSpec?.mode === "none"));
+}
+
+function _applyBindingStrengthFloorIfNeeded(data, result) {
+  if (!result?.isSuccess) return;
+  const castSource = data?.attacker?.castSource ?? null;
+  if (castSource?.type !== "enchantment") return;
+  const floor = Math.max(0, Number(castSource?.bindingStrength ?? 0) || 0);
+  const current = Math.max(0, Number(result?.degree ?? 0) || 0);
+  if (current < floor) result.degree = floor;
+}
+
+async function _setEnchantmentUpkeepPointerIfNeeded(data, spell) {
+  if (!spell?.system?.hasUpkeep) return;
+  const itemCtx = _resolveItemContextFromState(data);
+  if (!itemCtx?.item) return;
+  if (!itemCtx?.slotId) return;
+  const upkeepPath = itemCtx.sourceLane === "extension"
+    ? `flags.${_FLAG_NS}.itemSpellcasting.activeUpkeepSlotId`
+    : `flags.${_FLAG_NS}.enchanting.cast.activeUpkeepSpellId`;
+  await requestUpdateDocument(itemCtx.item, { [upkeepPath]: itemCtx.slotId });
+}
+
 function _buildCommitSpellPool(attacker, castActionType = "primary") {
   const spellsAll = Array.from(attacker?.items ?? []).filter((i) => i?.type === "spell");
   const byAction = String(castActionType) === "secondary"
@@ -299,11 +391,26 @@ export async function handleAttackerCommit(ctx) {
         return;
       }
     }
-    const magickaInfo = computeSpellAttemptMagickaCost(attacker, spell, spellOptions);
-    const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
-    if (currentMagicka < Number(magickaInfo?.cost ?? 0)) {
-      ui.notifications.warn(`Not enough Magicka to commit ${spell?.name ?? "spell"}. Required: ${magickaInfo?.cost ?? 0}, Available: ${currentMagicka}.`);
-      return;
+    const commitPreview = {
+      attacker: {
+        ...(data?.attacker ?? {}),
+        castSource: data?.attacker?.castSource ?? null,
+        spellOptions
+      }
+    };
+    const resourceSpec = _resolveCastResourceSpec(attacker, commitPreview, spell);
+    if (_isMagickaCommitRequired(resourceSpec)) {
+      const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+      if (currentMagicka < Number(resourceSpec?.cost ?? 0)) {
+        ui.notifications.warn(`Not enough Magicka to commit ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${currentMagicka}.`);
+        return;
+      }
+    } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "soul") {
+      const pool = _getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
+      if (pool.value < Number(resourceSpec?.cost ?? 0)) {
+        ui.notifications.warn(`Not enough Soul Energy to commit ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${pool.value}.`);
+        return;
+      }
     }
 
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
@@ -439,11 +546,19 @@ export async function handleAttackerRoll(ctx) {
     return;
   }
 
-  const magickaInfo = computeSpellAttemptMagickaCost(attacker, spell, data.attacker.spellOptions ?? {});
-  const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
-  if (currentMagicka < magickaInfo.cost) {
-    ui.notifications.warn(`Not enough Magicka to cast ${spell?.name ?? "spell"}. Required: ${magickaInfo.cost}, Available: ${currentMagicka}.`);
-    return;
+  const resourceSpec = _resolveCastResourceSpec(attacker, data, spell);
+  if (_isMagickaCommitRequired(resourceSpec)) {
+    const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+    if (currentMagicka < Number(resourceSpec?.cost ?? 0)) {
+      ui.notifications.warn(`Not enough Magicka to cast ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${currentMagicka}.`);
+      return;
+    }
+  } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "soul") {
+    const pool = _getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
+    if (pool.value < Number(resourceSpec?.cost ?? 0)) {
+      ui.notifications.warn(`Not enough Soul Energy to cast ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${pool.value}.`);
+      return;
+    }
   }
 
   const apReason = (String(data.attacker.castActionType ?? "primary") === "secondary") ? "Cast Magic (Instant)" : "Cast Magic";
@@ -461,18 +576,43 @@ export async function handleAttackerRoll(ctx) {
   }
 
   // Consume Magicka at cast time. If this fails due to a race, we attempt to refund AP.
-  const magickaSpend = await consumeSpellMagicka(attacker, spell, data.attacker.spellOptions ?? {});
-  if (!magickaSpend?.ok) {
-    try {
-      await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-    } catch (_e) {
-      // best-effort
+  let magickaSpend = { ok: true, consumed: 0, remaining: Number(attacker?.system?.magicka?.value ?? 0) || 0, refund: 0 };
+  if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "soul") {
+    const pool = _getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
+    const next = Math.max(0, pool.value - Number(resourceSpec?.cost ?? 0));
+    const updates = {
+      [pool.poolPath]: next,
+      "system.charge.value": next
+    };
+    const ok = resourceSpec?.itemCtx?.item ? await requestUpdateDocument(resourceSpec.itemCtx.item, updates) : false;
+    if (!ok) {
+      try {
+        await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+      } catch (_e) {
+        // best-effort
+      }
+      ui.notifications.warn("Failed to spend Soul Energy from enchanted item.");
+      return;
     }
-    return;
+    magickaSpend.consumed = Number(resourceSpec?.cost ?? 0) || 0;
+    magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+  } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "none") {
+    magickaSpend.consumed = 0;
+    magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+  } else {
+    magickaSpend = await consumeSpellMagicka(attacker, spell, data.attacker.spellOptions ?? {});
+    if (!magickaSpend?.ok) {
+      try {
+        await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+      } catch (_e) {
+        // best-effort
+      }
+      return;
+    }
   }
 
-  data.attacker.mpSpent = magickaSpend.consumed;
-  data.attacker.mpRemaining = magickaSpend.remaining;
+  data.attacker.mpSpent = Number(magickaSpend.consumed ?? 0) || 0;
+  data.attacker.mpRemaining = Number(magickaSpend.remaining ?? attacker?.system?.magicka?.value ?? 0) || 0;
 
   const primaryDef = Array.isArray(defenders) ? defenders[0] ?? null : null;
   const targetActor = (() => {
@@ -530,6 +670,7 @@ export async function handleAttackerRoll(ctx) {
     result,
     allowPrompt: true
   });
+  _applyBindingStrengthFloorIfNeeded(data, result);
 
   await result.roll.toMessage({
     speaker: ChatMessage.getSpeaker({ actor: attacker }),
@@ -545,7 +686,9 @@ export async function handleAttackerRoll(ctx) {
 
   // RAW: Spell Restraint reduces Magicka cost only on a successful spellcast.
   try {
-    const refundInfo = await applySpellRestraintRefund(attacker, spell, data.attacker.spellOptions ?? {}, result, magickaSpend);
+    const refundInfo = (resourceSpec?.type === "enchantment" && resourceSpec?.mode !== "magicka")
+      ? { finalCost: Number(magickaSpend?.consumed ?? 0) || 0, refund: 0, breakdown: [] }
+      : await applySpellRestraintRefund(attacker, spell, data.attacker.spellOptions ?? {}, result, magickaSpend);
     if (refundInfo?.refund > 0) {
       data.attacker.mpSpent = refundInfo.finalCost;
       data.attacker.mpRemaining = Number(attacker.system?.magicka?.value ?? data.attacker.mpRemaining);
@@ -578,7 +721,8 @@ export async function handleAttackerRoll(ctx) {
         scalingChoices: (data.attacker.spellOptions?.castLevel) ? { level: data.attacker.spellOptions.castLevel } : null,
         spellOptions: data.attacker.spellOptions ?? {},
         targetUuids: defUuids,
-        castWorldTime: Number(game.time?.worldTime ?? 0) || 0
+        castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
+        castSource: data.attacker.castSource ?? null
       });
 
       // Link AoE template to Origin AE if present
@@ -603,6 +747,9 @@ export async function handleAttackerRoll(ctx) {
 
   data.attacker.result = result;
   data.attacker.backfire = needsBackfire;
+  if (result.isSuccess) {
+    await _setEnchantmentUpkeepPointerIfNeeded(data, spell);
+  }
 
   // Direct and healing spells skip the standard Block/Evade/Ward defense step
   // — resolve immediately.  Characteristic defense spells proceed to the

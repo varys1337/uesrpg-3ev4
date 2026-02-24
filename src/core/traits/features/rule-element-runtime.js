@@ -24,12 +24,6 @@ import {
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const RUNTIME_SETTING = "enableRuleElementsRuntime";
-const WORKFLOW_SETTINGS = Object.freeze({
-  skill: "enableRuleElementsRuntimeSkill",
-  characteristic: "enableRuleElementsRuntimeCharacteristic",
-  combat: "enableRuleElementsRuntimeCombat",
-  magic: "enableRuleElementsRuntimeMagic"
-});
 const FEATURE_ITEM_TYPES = new Set(["trait", "talent", "power"]);
 const SUPPORT_MATRIX = getRuleElementRuntimeSupport();
 
@@ -158,29 +152,19 @@ function _resolveTokenFromUuid(uuid) {
 
 export function getRuleElementRuntimeSettingsState() {
   const master = _safeGetSetting(SYSTEM_ID, RUNTIME_SETTING, false);
-  const workflows = {
-    skill: _safeGetSetting(SYSTEM_ID, WORKFLOW_SETTINGS.skill, false),
-    characteristic: _safeGetSetting(SYSTEM_ID, WORKFLOW_SETTINGS.characteristic, false),
-    combat: _safeGetSetting(SYSTEM_ID, WORKFLOW_SETTINGS.combat, false),
-    magic: _safeGetSetting(SYSTEM_ID, WORKFLOW_SETTINGS.magic, false)
-  };
   return {
     master,
-    workflows,
     enabled: {
-      skill: master && workflows.skill,
-      characteristic: master && workflows.characteristic,
-      combat: master && workflows.combat,
-      magic: master && workflows.magic
+      skill: master,
+      characteristic: master,
+      combat: master,
+      magic: master,
     }
   };
 }
 
 export function isRuleElementRuntimeEnabled({ workflow = "" } = {}) {
-  const state = getRuleElementRuntimeSettingsState();
-  const wf = _normalizeWorkflow(workflow);
-  if (!wf) return false;
-  return Boolean(state.master && state.workflows[wf]);
+  return _safeGetSetting(SYSTEM_ID, RUNTIME_SETTING, false);
 }
 
 function _collectAppliedEntry({ sourceItem, element, type, lane, value, phase }) {

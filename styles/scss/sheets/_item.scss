@@ -1,0 +1,391 @@
+/* ---
+   item-sheet-compact.css
+   Compact header layout + structural fixes for non-spell item sheets.
+
+   Replaces the broken stickyHeader pattern with a flat flex layout:
+   header --- nav --- scrollable sheet-body.
+
+   Scoped to .worldbuilding.sheet.item:not(.spell) to avoid conflicts
+   with spell-sheet-compact.css.
+   ---*/
+
+/* --- Design Tokens ---*/
+.worldbuilding.sheet.item:not(.spell) {
+  --item-hdr-gap:    10px;
+  --item-hdr-pad:    6px 8px;
+  --item-img:        64px;
+  --item-stat-min:   84px;
+  --item-val-font:   var(--uesrpg-font-base);
+  --item-val-color:  var(--uesrpg-color-danger);
+  --item-lbl-font:   var(--uesrpg-font-2xs);
+  --item-lbl-color:  #555;
+}
+
+/* --- Application-Part Wrapper ---*/
+.worldbuilding.sheet.item:not(.spell) [data-application-part="sheet"] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---
+   COMPACT HEADER
+   ---*/
+
+.item-compact-header {
+  display: flex;
+  gap: var(--item-hdr-gap);
+  padding: var(--item-hdr-pad);
+  align-items: center;
+  flex-shrink: 0;
+  border-bottom: var(--uesrpg-border-strong);
+}
+
+/* Profile image --- constrained 64--64*/
+.item-compact-header .profile-img {
+  width: var(--item-img);
+  height: var(--item-img);
+  flex-shrink: 0;
+  object-fit: cover;
+  border: var(--uesrpg-border-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.item-compact-header .profile-img:hover {
+  filter: brightness(1.05);
+}
+
+/* Header right column --- name + stats*/
+.item-header-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Name input*/
+.item-compact-name {
+  font-family: var(--uesrpg-font-family);
+  font-size: var(--uesrpg-font-lg);
+  border: none;
+  border-bottom: var(--uesrpg-border-input);
+  background: transparent;
+  width: 100%;
+  padding: 0 0 3px;
+}
+
+/* ---
+   STATS ROW
+   ---*/
+
+.item-stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--item-stat-min), 1fr));
+  gap: 6px 8px;
+  align-items: start;
+}
+
+/* Individual stat block --- value on top, label below*/
+.item-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: var(--item-stat-min);
+  flex: 0 0 auto;
+  position: relative;
+  min-height: 40px;
+}
+
+.item-stat input:not([type="checkbox"]) {
+  text-align: center;
+  font-family: var(--uesrpg-font-family);
+  font-size: var(--item-val-font);
+  color: var(--item-val-color);
+  border: none;
+  background: transparent;
+  width: 100%;
+  padding: 0;
+  min-height: var(--uesrpg-control-h-sm, 26px);
+  height: auto;
+}
+
+.item-stat input.u-hidden {
+  display: none;
+}
+
+.item-stat input[type="checkbox"] {
+  height: 16px;
+  width: 16px;
+}
+
+.item-stat select {
+  font-size: var(--uesrpg-font-xs);
+  text-align: center;
+  width: 100%;
+  padding: 0 2px;
+  min-height: var(--uesrpg-control-h-sm, 26px);
+  height: auto;
+}
+
+/* Read-only value display (e.g. TN label in skills)*/
+.item-stat > label {
+  font-family: var(--uesrpg-font-family);
+  font-size: var(--item-val-font);
+  color: var(--item-val-color);
+  text-align: center;
+}
+
+.item-stat-label {
+  font-size: var(--item-lbl-font);
+  text-align: center;
+  color: var(--item-lbl-color);
+  white-space: normal;
+  line-height: 1.1;
+  margin-top: 2px;
+  min-height: 20px;
+}
+
+/* Effective hint overlay --- positioned in top-left of .item-stat*/
+.item-stat .effective-hint {
+  position: absolute;
+  top: 0;
+  left: 2px;
+  font-size: 8px;
+  line-height: 1;
+  opacity: 0.8;
+  color: #000;
+  pointer-events: none;
+}
+
+.item-stat .effective-hint .label {
+  font-weight: 600;
+  margin-right: 3px;
+}
+
+/* ---
+   CHARGE ROW (item-sheet charge +/- buttons)
+   ---*/
+
+.item-charge-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-content: center;
+}
+
+.item-charge-row input {
+  width: 36px !important;
+  flex: 0 0 36px;
+}
+
+.item-charge-row i {
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.item-charge-row i:hover {
+  opacity: 1;
+}
+
+.uesrpg-charge-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+}
+
+.uesrpg-charge-btn:hover {
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.uesrpg-charge-btn i {
+  font-size: 11px;
+}
+
+.weapon-charge-row {
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.weapon-enchant-effect-row .weapon-field-row {
+  margin-bottom: 4px;
+}
+
+.weapon-enchant-effect-row .weapon-field-row:last-child {
+  margin-bottom: 0;
+}
+
+.enchanting-compact-grid .grid-container {
+  align-items: center;
+}
+
+.enchant-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.enchant-charge-inline {
+  white-space: nowrap;
+}
+
+.enchant-charge-input {
+  width: 92px;
+  min-width: 92px;
+  text-align: center;
+}
+
+.enchant-charge-sep {
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.enchant-inline .uesrpg-charge-btn {
+  flex: 0 0 auto;
+}
+
+.item-charge-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+/* ---
+   SPECIALIZATION ROW (skill / magic skill)
+   ---*/
+
+.item-specialization-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.item-specialization-row input {
+  font-family: var(--uesrpg-font-family);
+  font-size: var(--uesrpg-font-sm);
+  border: none;
+  border-bottom: var(--uesrpg-border-input);
+  background: transparent;
+  width: 100%;
+}
+
+.item-specialization-row .uesrpg-field-hint {
+  font-size: var(--uesrpg-font-2xs);
+  color: var(--item-lbl-color);
+  font-style: italic;
+}
+
+/* ---
+   STRUCTURE --- NAV, BODY, TABS
+   ---*/
+
+/* Nav stays fixed below header*/
+.worldbuilding.sheet.item:not(.spell) nav.sheet-tabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px 0;
+  border-bottom: var(--uesrpg-border-strong);
+}
+
+.worldbuilding.sheet.item:not(.spell) nav.sheet-tabs .item {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: var(--uesrpg-border-input);
+  border-bottom: none;
+  background: var(--uesrpg-bg-card);
+  border-radius: 6px 6px 0 0;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.worldbuilding.sheet.item:not(.spell) nav.sheet-tabs .item.active {
+  background: var(--uesrpg-bg-input);
+  color: var(--uesrpg-color-danger);
+  text-decoration: none;
+}
+
+/* Sheet body is the scroll container (replaces broken overflow: hidden)*/
+.worldbuilding.sheet.item:not(.spell) .sheet-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 5px 6px;
+  min-height: 0;
+}
+
+/* Tab display --- replace broken overflow: hidden rules*/
+.worldbuilding.sheet.item:not(.spell) .sheet-body > .tab {
+  display: none;
+  overflow: visible;
+}
+
+.worldbuilding.sheet.item:not(.spell) .sheet-body > .tab.active {
+  display: block;
+  height: auto;
+}
+
+/* Description tab --- flex layout for editor fill*/
+.worldbuilding.sheet.item:not(.spell) .sheet-body > .tab[data-tab="description"].active {
+  display: flex;
+  flex-direction: column;
+  min-height: 300px;
+}
+
+.worldbuilding.sheet.item.weapon .item-stats-row,
+.worldbuilding.sheet.item.armor .item-stats-row,
+.worldbuilding.sheet.item.ammunition .item-stats-row {
+  grid-template-columns: repeat(5, minmax(86px, 1fr));
+}
+
+.worldbuilding.sheet.item.combatStyle .item-stats-row {
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+}
+
+.worldbuilding.sheet.item.power .item-stats-row,
+.worldbuilding.sheet.item.talent .item-stats-row,
+.worldbuilding.sheet.item.trait .item-stats-row {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+@media (max-width: 820px) {
+  .worldbuilding.sheet.item.weapon .item-stats-row,
+  .worldbuilding.sheet.item.armor .item-stats-row,
+  .worldbuilding.sheet.item.ammunition .item-stats-row,
+  .worldbuilding.sheet.item.combatStyle .item-stats-row,
+  .worldbuilding.sheet.item.power .item-stats-row,
+  .worldbuilding.sheet.item.talent .item-stats-row,
+  .worldbuilding.sheet.item.trait .item-stats-row {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
+}
+
+/* Scroll Spell Reference drop target*/
+.worldbuilding.sheet.item.scroll .scroll-spell-drop-zone {
+  border: 1px dashed rgba(0, 0, 0, 0.28);
+  border-radius: 6px;
+  padding: 8px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.worldbuilding.sheet.item.scroll .scroll-spell-drop-zone.drag-over {
+  border-color: rgba(0, 90, 170, 0.75);
+  background: rgba(0, 90, 170, 0.08);
+}
+
+.worldbuilding.sheet.item.scroll .scroll-spell-uuid-input {
+  width: 100%;
+}
+

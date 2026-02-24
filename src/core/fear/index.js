@@ -593,8 +593,8 @@ async function _maybePromptSnapOutOnTurnStart(combat) {
  * @returns {Promise<{type:string, modifier:string, source:string}|null>}
  */
 async function _showFearTestDialog({ defaultType = "panic", defaultModifier = 0, defaultSource = "Fear Source" } = {}) {
-  return foundry.applications.api.DialogV2.prompt({
-    window: { title: "Configure Fear Test" },
+  return customDialog({
+    title: "Configure Fear Test",
     content: `
       <div style="display:grid;gap:var(--form-gap,6px);padding:0 4px 4px">
         <div class="form-group">
@@ -621,11 +621,26 @@ async function _showFearTestDialog({ defaultType = "panic", defaultModifier = 0,
         </div>
       </div>
     `,
-    ok: {
-      label: "Run Tests",
-      callback: (event, button) => new FormDataExtended(button.form).object,
+    buttons: {
+      ok: {
+        label: "Run Tests",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.element ?? html;
+          if (!(root instanceof HTMLElement)) return null;
+          const form = root.querySelector("form") ?? root;
+          const type = String(form.querySelector('select[name="type"]')?.value ?? "panic");
+          const modifier = String(form.querySelector('input[name="modifier"]')?.value ?? "0");
+          const source = String(form.querySelector('input[name="source"]')?.value ?? "Fear Source");
+          return { type, modifier, source };
+        }
+      },
+      cancel: {
+        label: "Cancel",
+        callback: () => null
+      }
     },
-    rejectClose: false,
+    defaultButton: "ok",
+    rejectClose: false
   });
 }
 

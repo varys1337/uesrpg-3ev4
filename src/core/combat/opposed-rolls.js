@@ -12,6 +12,7 @@ import { applyDamageResolved } from "./damage-resolver.js";
 import { getAttackModeFromWeapon, getHitLocationFromRoll } from "./combat-utils.js";
 import { preConsumeAttackAmmo as _preConsumeAttackAmmo, markWeaponNeedsReload as _markWeaponNeedsReload } from "./opposed/helpers/workflow.js";
 import { hasCondition } from "../conditions/condition-engine.js";
+import { getSizeToHitModifier } from "./tn.js";
 
 export const OpposedRoll = {
   /**
@@ -32,7 +33,8 @@ export const OpposedRoll = {
     damageType = DAMAGE_TYPES.PHYSICAL,
     autoApplyDamage = false,
     hitLocation = null,
-    penetration = 0
+    penetration = 0,
+    includeSizeToHit = true
   } = {}) {
     if (!attackerToken || !defenderToken) {
       ui.notifications.warn("Both attacker and defender tokens must be specified.");
@@ -54,8 +56,20 @@ export const OpposedRoll = {
     }
 
     // Derive TNs — prefer explicit, fall back to sensible fields (common placements)
-    const aTN = attackerTarget ?? Number(attacker.system?.combat?.value ?? attacker.system?.skills?.["Combat Style"]?.value ?? attacker.system?.attributes?.initiative?.value ?? 50);
+    const aTN0 = attackerTarget ?? Number(attacker.system?.combat?.value ?? attacker.system?.skills?.["Combat Style"]?.value ?? attacker.system?.attributes?.initiative?.value ?? 50);
     const dTN = defenderTarget ?? Number(defender.system?.combat?.value ?? defender.system?.skills?.["Evade"]?.value ?? defender.system?.attributes?.initiative?.value ?? 50);
+
+    // Chapter 5: size-to-hit modifier applies to the attacker TN for melee/ranged attacks.
+    // This legacy opposed-rolls path does not use the main opposed workflow TN pipeline.
+    const sizeMod = (includeSizeToHit && (attackMode === "melee" || attackMode === "ranged"))
+      ? getSizeToHitModifier({
+          mode: attackMode,
+          attackerSize: attacker?.system?.size,
+          defenderSize: defender?.system?.size
+        })
+      : 0;
+
+    const aTN = aTN0 + sizeMod;
 
     const aRes = await doTestRoll(attacker, { rollFormula: "1d100", target: aTN });
     const dRes = await doTestRoll(defender, { rollFormula: "1d100", target: dTN });

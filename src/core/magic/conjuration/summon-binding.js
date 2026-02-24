@@ -21,97 +21,14 @@
  * Target: Foundry VTT v13.351
  */
 
-import { registerLinkedEntity, findOriginAE } from "../effects/origin-effect.js";
+import { findOriginAE } from "../effects/origin-effect.js";
 import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { createDebugLogger } from "../_primitives.js";
+import { applyMindlockEffects } from "../mindlock.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 
 const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][SummonBinding]");
-
-/* ── Mindlock AE ──────────────────────────────────────────────────────────── */
-
-/**
- * Create a Mindlock AE on the caster that reduces max AP by the spell's
- * mindlock value. Links to the Origin AE for synchronized teardown.
- *
- * @param {Actor} casterActor
- * @param {ActiveEffect} originAE
- * @param {Item} spell
- * @param {object} [options]
- * @param {number} [options.mindlockOverride] - Override the spell's mindlock value
- * @returns {Promise<ActiveEffect|null>}
- */
-async function _applyMindlockAE(casterActor, originAE, spell, options = {}) {
-  const mindlockValue = options.mindlockOverride ?? (Number(spell.system?.mindlockValue ?? 0) || 0);
-  if (mindlockValue <= 0) {
-    _debug("No mindlock value for spell:", spell.name);
-    return null;
-  }
-
-  // Build duration from Origin AE (mirror its duration so they expire together)
-  const originDuration = originAE?.duration
-    ? foundry.utils.deepClone(originAE.duration)
-    : {};
-
-  const effectData = {
-    name: `Mindlock (${spell.name})`,
-    img: spell.img || "icons/magic/control/debuff-chains-ropes-purple.webp",
-    origin: spell.uuid,
-    disabled: false,
-    duration: originDuration,
-    changes: [
-      {
-        key: "system.modifiers.action_points.max",
-        mode: CONST.ACTIVE_EFFECT_MODES.ADD,
-        value: String(-mindlockValue),
-        priority: 20
-      }
-    ],
-    flags: {
-      [_FLAG_NS]: {
-        spellEffect: true,
-        isMindlock: true,
-        mindlockValue,
-        spellUuid: spell.uuid,
-        spellName: spell.name,
-        casterUuid: casterActor.uuid,
-        owner: "system",
-        effectGroup: `spell.mindlock.${spell.id || spell.uuid}`,
-        stackRule: "override",
-        source: "spell-mindlock"
-      }
-    }
-  };
-
-  try {
-    const results = await requestCreateEmbeddedDocuments(casterActor, "ActiveEffect", [effectData]);
-    const created = Array.isArray(results) ? results[0] : (results ?? null);
-
-    if (!created) {
-      _debug("Failed to create Mindlock AE (null result)");
-      return null;
-    }
-
-    _debug(`Created Mindlock AE: -${mindlockValue} AP`, { id: created.id });
-
-    // Register with Origin AE for synchronized teardown
-    if (originAE) {
-      await registerLinkedEntity(originAE, {
-        type: "casterBuff",
-        uuid: created.uuid ?? `${casterActor.uuid}.ActiveEffect.${created.id}`,
-        actorUuid: casterActor.uuid,
-        label: `Mindlock (${spell.name}) on ${casterActor.name}`
-      });
-      _debug("Registered Mindlock AE with Origin AE");
-    }
-
-    return created;
-  } catch (err) {
-    console.error("[UESRPG][SummonBinding] Failed to create Mindlock AE", err);
-    return null;
-  }
-}
 
 /* ── Restrained AP Penalty ────────────────────────────────────────────────── */
 
@@ -244,8 +161,8 @@ async function _onSummonSpawned(payload) {
     spell: spell.name
   });
 
-  // 1. Apply Mindlock AE on caster
-  await _applyMindlockAE(casterActor, originAE, spell);
+  // 1. Apply Mindlock AE on caster (via shared helper)
+  await applyMindlockEffects({ caster: casterActor, spell, originAE });
 
   // 2. Apply Restrained AP penalty on creature (if applicable)
   await _applyRestrainedPenalty(tokenDoc, originAE, spell);

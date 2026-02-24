@@ -5,115 +5,9 @@
   <legend>World (GM)</legend>
 
   <div class="form-group">
-    <label>Enable Debug Logging (Master)</label>
+    <label>Enable World Debug Logging</label>
     <input type="checkbox" name="world.debugEnabled" {{checked world.debugEnabled}}>
-    <p class="notes">Global master gate. If disabled, all UESRPG debug logs are suppressed.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Show Feature Inspector</label>
-    <input type="checkbox" name="world.showFeatureInspector" {{checked world.showFeatureInspector}}>
-    <p class="notes">Show the Feature Inspector provenance panel on PC and NPC actor sheets. Hidden by default.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Opposed Workflow Debug</label>
-    <input type="checkbox" name="world.opposedDebug" {{checked world.opposedDebug}}>
-    <p class="notes">Enable verbose opposed-workflow diagnostics in the console and chat context.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Effects/Proxy Debug</label>
-    <input type="checkbox" name="world.effectsProxyDebug" {{checked world.effectsProxyDebug}}>
-    <p class="notes">Enable concise logging for authority-proxy mutations (ChatMessage updates and target-side effect application).</p>
-  </div>
-
-  <div class="form-group">
-    <label>Opposed Debug Formula</label>
-    <input type="checkbox" name="world.opposedDebugFormula" {{checked world.opposedDebugFormula}}>
-    <p class="notes">Log formula normalization details for opposed rolls.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Show Resolution Details</label>
-    <input type="checkbox" name="world.opposedShowResolutionDetails" {{checked world.opposedShowResolutionDetails}}>
-    <p class="notes">Show extra TN breakdown and resolution details on chat cards.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Show Opposed Status Line</label>
-    <input type="checkbox" name="world.opposedShowStatusLine" {{checked world.opposedShowStatusLine}}>
-    <p class="notes">Show Status rows on opposed chat cards (Committed/Rolled/Resolved). Keep disabled for normal play.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Skill Roll Debug</label>
-    <input type="checkbox" name="world.skillRollDebug" {{checked world.skillRollDebug}}>
-    <p class="notes">Enable additional skill-roll diagnostics.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Spell Casting Debug</label>
-    <input type="checkbox" name="world.spellCastingDebug" {{checked world.spellCastingDebug}}>
-    <p class="notes">Enable verbose spell casting workflow diagnostics.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Magic Routing Debug</label>
-    <input type="checkbox" name="world.debugMagicRouting" {{checked world.debugMagicRouting}}>
-    <p class="notes">Log spell routing decisions (targeted, unopposed, legacy paths).</p>
-  </div>
-
-  <div class="form-group">
-    <label>Activation/Talent Debug</label>
-    <input type="checkbox" name="world.activationDebug" {{checked world.activationDebug}}>
-    <p class="notes">Enable activation and talent automation diagnostics.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Wounds Debug</label>
-    <input type="checkbox" name="world.woundsDebug" {{checked world.woundsDebug}}>
-    <p class="notes">Enable wound automation diagnostics.</p>
-  </div>
-</fieldset>
-
-<fieldset>
-  <legend>Rule Elements Runtime (GM)</legend>
-
-  <div class="form-group">
-    <label>Master Switch</label>
-    <input type="checkbox" name="ruleElements.enableRuleElementsRuntime" {{checked ruleElements.enableRuleElementsRuntime}}>
-    <p class="notes">Global master gate for Rule Element runtime evaluation. When disabled, all RE automation is suppressed.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Skill Workflow</label>
-    <input type="checkbox" name="ruleElements.enableRuleElementsRuntimeSkill" {{checked ruleElements.enableRuleElementsRuntimeSkill}}>
-    <p class="notes">Enable Rule Elements runtime for skill opposed workflows.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Characteristic Workflow</label>
-    <input type="checkbox" name="ruleElements.enableRuleElementsRuntimeCharacteristic" {{checked ruleElements.enableRuleElementsRuntimeCharacteristic}}>
-    <p class="notes">Enable Rule Elements runtime for characteristic opposed workflows.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Combat Workflow</label>
-    <input type="checkbox" name="ruleElements.enableRuleElementsRuntimeCombat" {{checked ruleElements.enableRuleElementsRuntimeCombat}}>
-    <p class="notes">Enable Rule Elements runtime for combat opposed workflows. Talents with configured Rule Elements will use them instead of hardcoded interceptors.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Magic Workflow</label>
-    <input type="checkbox" name="ruleElements.enableRuleElementsRuntimeMagic" {{checked ruleElements.enableRuleElementsRuntimeMagic}}>
-    <p class="notes">Enable Rule Elements runtime for magic workflows. Spellcasting talents with configured Rule Elements will use them instead of hardcoded interceptors.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Rule Elements Debug Logging</label>
-    <input type="checkbox" name="ruleElements.ruleElementDebug" {{checked ruleElements.ruleElementDebug}}>
-    <p class="notes">Log Rule Element predicate and runtime evaluation diagnostics to the browser console.</p>
+    <p class="notes">Enables all UESRPG world-level debug logging (opposed workflows, spell casting, talents, wounds, rule elements, and more). Applies to all connected clients.</p>
   </div>
 </fieldset>
 {{/if}}
@@ -122,45 +16,9 @@
   <legend>Client</legend>
 
   <div class="form-group">
-    <label>Active Effect Lifecycle Debug (Client)</label>
-    <input type="checkbox" name="client.aeLifecycleDebug" {{checked client.aeLifecycleDebug}}>
-    <p class="notes">Log safe AE fetch/delete diagnostics for your client.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Debug Skill TN (Client)</label>
-    <input type="checkbox" name="client.debugSkillTN" {{checked client.debugSkillTN}}>
-    <p class="notes">Shows TN composition helpers for your client only.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Sheet Diagnostics Panel (Client)</label>
-    <input type="checkbox" name="client.sheetDiagnostics" {{checked client.sheetDiagnostics}}>
-    <p class="notes">Shows additional diagnostics info on actor sheets (client only). Useful for testing.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Sheet Performance Trace (Client)</label>
-    <input type="checkbox" name="client.sheetPerfTrace" {{checked client.sheetPerfTrace}}>
-    <p class="notes">Logs timing traces for AppV2 sheets (_prepareContext, _onRender, etc.) to the browser console.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Performance Profiling (Client)</label>
-    <input type="checkbox" name="client.perfDebug" {{checked client.perfDebug}}>
-    <p class="notes">Enables additional console.time/timeEnd markers for selected workflows (debug only).</p>
-  </div>
-
-  <div class="form-group">
-    <label>Debug Aim (Client)</label>
-    <input type="checkbox" name="client.debugAim" {{checked client.debugAim}}>
-    <p class="notes">Enable aim-related diagnostics on your client.</p>
-  </div>
-
-  <div class="form-group">
-    <label>Debug: Actor Select (TN Context) (Client)</label>
-    <input type="checkbox" name="client.debugActorSelect" {{checked client.debugActorSelect}}>
-    <p class="notes">When enabled, logs TN-relevant actor context to the console whenever you control a token.</p>
+    <label>Enable Client Debug Logging</label>
+    <input type="checkbox" name="client.debugClientEnabled" {{checked client.debugClientEnabled}}>
+    <p class="notes">Enables all UESRPG client-level debug logging for your session (AE lifecycle, aim, sheet diagnostics, performance traces, and more).</p>
   </div>
 </fieldset>
 

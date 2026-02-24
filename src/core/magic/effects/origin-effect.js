@@ -77,6 +77,7 @@ export function spellRequiresOriginAE(spell) {
  * @param {string[]} [options.targetUuids] - UUIDs of targets (actors/tokens)
  * @param {number} [options.castWorldTime] - World time at cast
  * @param {object} [options.durationOverride] - Override Duration object for the AE
+ * @param {object|null} [options.castSource] - Optional cast-source metadata
  * @returns {Promise<ActiveEffect|null>} The created Origin AE, or null on failure
  */
 export async function createOriginAE(casterActor, spell, options = {}) {
@@ -119,6 +120,7 @@ export async function createOriginAE(casterActor, spell, options = {}) {
           targetLock: Array.isArray(options.targetUuids) ? [...options.targetUuids] : [],
           noListedDuration: _isNoListedDuration(spell)
         } : null,
+        castSource: options.castSource ?? null,
         owner: "system",
         effectGroup: `spell.origin.${spell.id ?? spell.uuid}`,
         stackRule: "replace",
@@ -282,6 +284,32 @@ export async function teardownOriginAE(originEffect, options = {}) {
       errors
     });
   } catch (_e) { /* no-op */ }
+
+  // Enchantment upkeep pointer cleanup:
+  // clear activeUpkeepSpellId only if this origin AE belongs to that exact slot.
+  const castSource = flags?.castSource;
+  if (castSource?.type === "enchantment") {
+    try {
+      const itemUuid = _str(castSource.enchantedItemUuid);
+      const slotId = _str(castSource.enchantSpellSlotId);
+      const sourceLane = _str(castSource.sourceLane || "workshop").toLowerCase();
+      if (itemUuid && slotId) {
+        const itemDoc = fromUuidSync(itemUuid);
+        const item = itemDoc?.documentName === "Item" ? itemDoc : null;
+        const current = sourceLane === "extension"
+          ? _str(item?.flags?.[_FLAG_NS]?.itemSpellcasting?.activeUpkeepSlotId)
+          : _str(item?.flags?.[_FLAG_NS]?.enchanting?.cast?.activeUpkeepSpellId);
+        if (item && current === slotId) {
+          const upkeepPath = sourceLane === "extension"
+            ? `flags.${_FLAG_NS}.itemSpellcasting.activeUpkeepSlotId`
+            : `flags.${_FLAG_NS}.enchanting.cast.activeUpkeepSpellId`;
+          await requestUpdateDocument(item, { [upkeepPath]: null });
+        }
+      }
+    } catch (_err) {
+      console.warn("UESRPG | origin-effect | Failed to clear cast enchantment upkeep pointer", _err);
+    }
+  }
 
   if (!options.silent && deletedCount > 0) {
     try {

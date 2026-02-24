@@ -433,6 +433,19 @@ export function hasActorTrait(actor, key, { param = null } = {}) {
   return false;
 }
 
+// Chapter 4 X-traits: highest value wins when duplicated.
+// Centralized mode map for known X-trait keys — do not change defaults system-wide.
+const TRAIT_STACK_MODES = {
+  weakBones: "max",
+  resistNormalWeapons: "max",
+  silverScarred: "max",
+  sunScarred: "max",
+};
+
+export function getTraitStackMode(key) {
+  return TRAIT_STACK_MODES[key] ?? "sum";
+}
+
 export function getActorTraitValue(actor, key, { param = null, mode = "sum" } = {}) {
   if (!actor) return 0;
   const useMax = String(mode ?? "sum").toLowerCase() === "max";

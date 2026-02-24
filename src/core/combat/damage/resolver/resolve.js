@@ -42,7 +42,7 @@ import {
 import { recordAssassinStrikeAoOBlock } from "../../../traits/mobility-talents.js";
 import { isActorIncorporeal, getActorTraitValue, hasActorTrait, isActorUndead } from "../../../traits/trait-registry.js";
 import { postDiseasedCheckCard } from "../../../traits/trait-automation.js";
-import { applyBleeding, hasCondition } from "../../../conditions/condition-engine.js";
+import { applyBleeding, applyCondition, hasCondition } from "../../../conditions/condition-engine.js";
 import { getAttackModeFromWeapon } from "../../combat-utils.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
@@ -52,6 +52,53 @@ const PENDING_SNEAK_TTL_MS = 30000;
 
 function _getSystemId() {
   return String(game?.system?.id ?? "uesrpg-3ev4");
+}
+
+async function _runEntanglingEscapeCheck({ attacker, defender } = {}) {
+  if (!defender) return;
+
+  const strTN = Math.max(0, Number(defender.system?.characteristics?.str?.total ?? 0) || 0);
+  const agiTN = Math.max(0, Number(defender.system?.characteristics?.agi?.total ?? 0) || 0);
+  if (strTN <= 0 && agiTN <= 0) return;
+
+  const preferred = (agiTN > strTN) ? "agi" : "str";
+  const choice = await customDialog({
+    title: "Entangling",
+    content: `
+      <div class="uesrpg">
+        <p><b>${foundry.utils.escapeHTML(defender.name ?? "Target")}</b> was hit by an Entangling attack.</p>
+        <p>Choose STR or AGI to resist being entangled.</p>
+      </div>
+    `,
+    buttons: {
+      str: { label: `STR (${strTN})`, callback: () => "str" },
+      agi: { label: `AGI (${agiTN})`, callback: () => "agi" },
+      cancel: { label: "Skip", callback: () => null }
+    },
+    defaultButton: preferred
+  });
+  if (!choice) return;
+
+  const useAgi = String(choice) === "agi";
+  const chosenLabel = useAgi ? "AGI" : "STR";
+  const targetTN = useAgi ? agiTN : strTN;
+
+  const roll = await (new Roll("1d100")).evaluate();
+  const rollTotal = Number(roll?.total ?? 100) || 100;
+  const isSuccess = rollTotal <= targetTN;
+
+  await roll.toMessage({
+    speaker: ChatMessage.getSpeaker({ actor: defender }),
+    flavor: `Entangling Escape Check (${chosenLabel}) — ${isSuccess ? "Success" : "Failure"}`,
+    rollMode: game.settings.get("core", "rollMode")
+  });
+
+  if (!isSuccess) {
+    await applyCondition(defender, "entangled", {
+      source: "entangling",
+      attackerUuid: attacker?.uuid ?? null
+    });
+  }
 }
 
 async function _promptUntouchableLpSpend({ actor, availableLp, woundThreshold, damageApplied } = {}) {
@@ -159,10 +206,6 @@ function _asInt(v) {
   if (Number.isFinite(n)) return Math.floor(n);
   const m = String(v ?? "").match(/-?\d+/);
   return m ? Number(m[0]) : 0;
-}
-
-function _sumTraitValue(actor, key) {
-  return Math.max(0, Number(getActorTraitValue(actor, key, { mode: "sum" })) || 0);
 }
 
 function _maxTraitValue(actor, key) {
@@ -600,9 +643,10 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   // Trait-based post-mitigation adjustments (after reductions and AE adjustments).
   if (totalApplied > 0) {
-    const resistNormal = _sumTraitValue(updateTarget, "resistNormalWeapons");
-    const silverScarred = _sumTraitValue(updateTarget, "silverScarred");
-    const sunScarred = _sumTraitValue(updateTarget, "sunScarred");
+    // Chapter 4 X-traits: highest value wins when duplicated.
+    const resistNormal = _maxTraitValue(updateTarget, "resistNormalWeapons");
+    const silverScarred = _maxTraitValue(updateTarget, "silverScarred");
+    const sunScarred = _maxTraitValue(updateTarget, "sunScarred");
 
     let delta = 0;
 
@@ -870,6 +914,15 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   if (newHP === 0) {
     await ensureUnconsciousEffect(updateTarget);
+  }
+
+  // Entangling (Chapter 7): on hit, target makes STR or AGI test; failure applies Entangled.
+  try {
+    if (weaponCtx && itemHasToken(weaponCtx, "entangling")) {
+      await _runEntanglingEscapeCheck({ attacker: attackerActor, defender: updateTarget });
+    }
+  } catch (err) {
+    console.warn("UESRPG | Entangling automation failed", err);
   }
 
   // Consolidated GM-only damage report

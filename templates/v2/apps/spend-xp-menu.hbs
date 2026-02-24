@@ -1,0 +1,137 @@
+<div class="uesrpg-spendxp">
+
+  <header class="uesrpg-spendxp__header">
+    <div class="uesrpg-spendxp__title">
+      <h2>Spend XP (Chargen)</h2>
+      <div class="uesrpg-spendxp__subtitle">{{actorName}}</div>
+    </div>
+
+    <div class="uesrpg-spendxp__stats">
+      <div class="uesrpg-spendxp__stat">
+        <div class="uesrpg-spendxp__stat-label">Unspent XP</div>
+        <div class="uesrpg-spendxp__stat-value">{{xp}}</div>
+      </div>
+      <div class="uesrpg-spendxp__stat">
+        <div class="uesrpg-spendxp__stat-label">Total XP</div>
+        <div class="uesrpg-spendxp__stat-value">{{xpTotal}}</div>
+      </div>
+      <div class="uesrpg-spendxp__stat">
+        <div class="uesrpg-spendxp__stat-label">Drakes</div>
+        <div class="uesrpg-spendxp__stat-value">{{wealth}}</div>
+      </div>
+      <div class="uesrpg-spendxp__stat">
+        <div class="uesrpg-spendxp__stat-label">Campaign Rank</div>
+        <div class="uesrpg-spendxp__stat-value">{{campaignRank}}</div>
+      </div>
+    </div>
+
+    <div class="uesrpg-spendxp__header-actions">
+      <label class="uesrpg-spendxp__toggle">
+        <input type="checkbox" data-action="toggleRankGate" {{#if rankGateOverride}}checked{{/if}}>
+        <span>Enforce xpTotal Rank Cap</span>
+      </label>
+      <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>
+    </div>
+  </header>
+
+  <div class="uesrpg-spendxp__scroll">
+
+    <section class="uesrpg-spendxp__section">
+      <h3>Advance a Characteristic</h3>
+      <p class="uesrpg-spendxp__hint">
+        Cost: <b>30 × current bonus</b> (Favored: 75%, rounded down to nearest 5). Luck cannot be advanced.
+      </p>
+      <div class="uesrpg-spendxp__row">
+        <select id="uesrpg-spendxp-characteristic" class="uesrpg-spendxp__select">
+          {{#each chaOptions as |c|}}
+            <option value="{{c.key}}" {{#if (eq c.key ../selectedCharacteristic)}}selected{{/if}}>{{c.label}} (Base {{c.base}}, Bonus {{c.bonus}}{{#if c.favored}}, Favored{{/if}})</option>
+          {{/each}}
+        </select>
+        <button type="button" data-action="advanceCharacteristic" class="uesrpg-spendxp__btn">
+          <i class="fas fa-arrow-up"></i> Advance (+1)
+        </button>
+      </div>
+    </section>
+
+    <section class="uesrpg-spendxp__section">
+      <h3>Skills / Magic Skills / Combat Styles</h3>
+      <p class="uesrpg-spendxp__hint">
+        Rank purchases advance one step at a time. Total XP rank-cap is controlled by the header toggle. Specializations and Combat Style expansions spend XP automatically.
+      </p>
+
+      <div class="uesrpg-spendxp__skill-list">
+        {{#each skills as |s|}}
+          <div class="uesrpg-spendxp__skill-row" data-item-id="{{s.id}}">
+            <div class="uesrpg-spendxp__skill-main">
+              <img class="uesrpg-spendxp__skill-img" src="{{s.img}}" alt="" />
+              <div class="uesrpg-spendxp__skill-text">
+                <div class="uesrpg-spendxp__skill-name">{{s.name}}</div>
+                <div class="uesrpg-spendxp__skill-meta">
+                  <span class="uesrpg-spendxp__pill">{{s.type}}</span>
+                  <span class="uesrpg-spendxp__pill">Rank: {{s.rankLabel}}</span>
+                  {{#if s.favored}}<span class="uesrpg-spendxp__pill uesrpg-spendxp__pill--favored">Favored</span>{{/if}}
+                  {{#if s.specCount}}<span class="uesrpg-spendxp__pill">Specs: {{s.specCount}}</span>{{/if}}
+                  {{#if s.teCount}}<span class="uesrpg-spendxp__pill">Equipment: {{s.teCount}}</span>{{/if}}
+                </div>
+              </div>
+            </div>
+
+            <div class="uesrpg-spendxp__skill-actions">
+              <button type="button" data-action="openItem" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--ghost" title="Open item sheet">
+                <i class="fas fa-up-right-from-square"></i>
+              </button>
+
+              {{#if s.canAdvance}}
+                <button type="button" data-action="advanceRank" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn" title="Advance rank">
+                  <i class="fas fa-arrow-up"></i> Rank ({{s.nextRankXpCost}} XP)
+                </button>
+              {{else}}
+                <button type="button" class="uesrpg-spendxp__btn" disabled title="Cannot advance (already at maximum rank)">
+                  Rank (—)
+                </button>
+              {{/if}}
+            </div>
+
+            {{#if (or (eq s.type "skill") (eq s.type "magicSkill"))}}
+              <div class="uesrpg-spendxp__skill-subrow">
+                <input type="text" data-field="newSpec" placeholder="Add specialization (100 XP)" />
+                <button type="button" data-action="addSpec" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--small">
+                  <i class="fas fa-plus"></i> Add Spec
+                </button>
+              </div>
+            {{/if}}
+
+            {{#if (eq s.type "combatStyle")}}
+              <div class="uesrpg-spendxp__skill-subrow">
+                <input type="text" data-field="newEquipment" placeholder="Add trained equipment (25 XP)" />
+                <button type="button" data-action="addEquipment" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--small">
+                  <i class="fas fa-plus"></i> Add Equipment
+                </button>
+              </div>
+            {{/if}}
+          </div>
+        {{/each}}
+
+        {{#unless skills.length}}
+          <p class="uesrpg-spendxp__hint">No skill-like items found on this actor yet. Drag & drop skills/combat styles from compendiums below.</p>
+        {{/unless}}
+      </div>
+    </section>
+
+    <section class="uesrpg-spendxp__section">
+      <h3>Learn Talents / Spells (Drag & Drop)</h3>
+      <p class="uesrpg-spendxp__hint">
+        Drop Items here: <b>Skill</b>, <b>Magic Skill</b>, <b>Combat Style</b>, <b>Talent</b>, or <b>Spell</b>.
+        Talents respect the configured learning mode: <b>{{talentLearningMode}}</b>.
+      </p>
+      <div class="uesrpg-spendxp__dropzone" role="region" aria-label="Dropzone">
+        <div class="uesrpg-spendxp__dropzone-inner">
+          <i class="fas fa-hand-pointer"></i>
+          <div>Drag Items from a compendium and drop them here to learn/add them.</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+

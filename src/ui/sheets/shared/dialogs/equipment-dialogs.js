@@ -58,6 +58,13 @@ export async function onItemCreate(sheet, event, {
             await created?.[0]?.sheet?.render?.(true);
           },
         },
+        scroll: {
+          label: "Scroll",
+          callback: async () => {
+            const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "scroll", type: "scroll" }]);
+            await created?.[0]?.sheet?.render?.(true);
+          },
+        },
         ammunition: {
           label: "Ammunition",
           callback: async () => {
@@ -128,6 +135,57 @@ export async function onItemCreate(sheet, event, {
   }
 
   const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", itemData);
+  await created?.[0]?.sheet?.render?.(true);
+}
+
+/**
+ * Handle "+ Profession" button on PC sheet.
+ * Prompts for a field name and creates a skill item representing a Profession field.
+ *
+ * @param {object} sheet
+ * @param {Event} event
+ */
+export async function onProfessionCreate(sheet, event) {
+  event?.preventDefault?.();
+  if (!sheet?.actor) return;
+
+  let fieldName = null;
+  try {
+    fieldName = await customDialog({
+      title: "Add Profession Field",
+      content: `<div class="uesrpg-skill-roll">
+        <div class="form-group">
+          <label><b>Field Name</b></label>
+          <input type="text" name="fieldName" placeholder="e.g. Smithing" style="width:100%;" autofocus />
+        </div>
+      </div>`,
+      buttons: {
+        ok: {
+          label: "Create",
+          callback: (html) => {
+            const root = html instanceof HTMLElement ? html : html?.[0];
+            return root?.querySelector('input[name="fieldName"]')?.value?.trim() || null;
+          }
+        },
+        cancel: { label: "Cancel", callback: () => null }
+      },
+      default: "ok",
+      width: 360
+    });
+  } catch (_e) {
+    return;
+  }
+
+  if (!fieldName) return;
+
+  const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{
+    name: `Profession [${fieldName}]`,
+    type: "skill",
+    "system.isProfession": true,
+    "system.field": fieldName,
+    "system.baseCha": "int",
+    "system.governingCha": "Int"
+  }]);
   await created?.[0]?.sheet?.render?.(true);
 }
 

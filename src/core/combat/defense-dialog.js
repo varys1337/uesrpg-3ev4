@@ -145,43 +145,58 @@ function _renderContent({
   <hr/>
 
   <div class="defense-grid" style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-    <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span><input type="radio" name="defenseType" value="evade" ${defaultDefenseType === "evade" ? "checked" : ""}/> <b>Evade</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="evade">\u2014</span></span>
+    <label class="def-opt">
+      <input type="radio" name="defenseType" value="evade" ${defaultDefenseType === "evade" ? "checked" : ""}/>
+      <div class="def-opt__card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span><b>Evade</b></span>
+          <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="evade">\u2014</span></span>
+        </div>
       </div>
     </label>
 
-    <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${parryDisabled ? "0.45" : "1"};">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span><input type="radio" name="defenseType" value="parry" ${defaultDefenseType === "parry" ? "checked" : ""} ${parryDisabled}/> <b>Parry</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="parry">\u2014</span></span>
+    <label class="def-opt" style="opacity:${parryDisabled ? "0.45" : "1"};">
+      <input type="radio" name="defenseType" value="parry" ${defaultDefenseType === "parry" ? "checked" : ""} ${parryDisabled}/>
+      <div class="def-opt__card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span><b>Parry</b></span>
+          <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="parry">\u2014</span></span>
+        </div>
+        ${parryDisabled ? `<p class="notes">Not available for this attack.</p>` : ``}
       </div>
-      ${parryDisabled ? `<p class="notes">Not available for this attack.</p>` : ``}
     </label>
 
-    <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${blockDisabled ? "0.45" : "1"};">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span><input type="radio" name="defenseType" value="block" ${defaultDefenseType === "block" ? "checked" : ""} ${blockDisabled}/> <b>Block</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="block">\u2014</span></span>
+    <label class="def-opt" style="opacity:${blockDisabled ? "0.45" : "1"};">
+      <input type="radio" name="defenseType" value="block" ${defaultDefenseType === "block" ? "checked" : ""} ${blockDisabled}/>
+      <div class="def-opt__card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span><b>Block</b></span>
+          <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="block">\u2014</span></span>
+        </div>
+        ${blockDisabled ? `<p class="notes">${Handlebars.escapeExpression(String(reasons?.block?.[0] ?? "Not available for this attack."))}</p>` : ``}
       </div>
-      ${blockDisabled ? `<p class="notes">${Handlebars.escapeExpression(String(reasons?.block?.[0] ?? "Not available for this attack."))}</p>` : ``}
     </label>
 
-    <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${counterDisabled ? "0.45" : "1"};">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span><input type="radio" name="defenseType" value="counter" ${defaultDefenseType === "counter" ? "checked" : ""} ${counterDisabled}/> <b>Counter-Attack</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="counter">\u2014</span></span>
+    <label class="def-opt" style="opacity:${counterDisabled ? "0.45" : "1"};">
+      <input type="radio" name="defenseType" value="counter" ${defaultDefenseType === "counter" ? "checked" : ""} ${counterDisabled}/>
+      <div class="def-opt__card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span><b>Counter-Attack</b></span>
+          <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="counter">\u2014</span></span>
+        </div>
+        ${counterDisabled ? `<p class="notes">Not available for this attack.</p>` : ``}
       </div>
-      ${counterDisabled ? `<p class="notes">Not available for this attack.</p>` : ``}
     </label>
 
-    <label class="def-opt" style="border:1px solid #9993; border-radius:8px; padding:8px; opacity:${wardDisabled ? "0.45" : "1"}; grid-column: span 2;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span><input type="radio" name="defenseType" value="ward" ${defaultDefenseType === "ward" ? "checked" : ""} ${wardDisabled}/> <b>Ward</b></span>
-        <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="ward">\u2014</span></span>
+    <label class="def-opt" style="opacity:${wardDisabled ? "0.45" : "1"}; grid-column: span 2;">
+      <input type="radio" name="defenseType" value="ward" ${defaultDefenseType === "ward" ? "checked" : ""} ${wardDisabled}/>
+      <div class="def-opt__card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span><b>Ward</b></span>
+          <span class="tn-pill" style="font-variant-numeric: tabular-nums;">TN: <span data-tn-for="ward">\u2014</span></span>
+        </div>
+        ${wardDisabled ? `<p class="notes">${Handlebars.escapeExpression(String(reasons?.ward?.[0] ?? "Requires an active Ward spell."))}</p>` : `<p class="notes">Spell acts as shield. BR = Spell Strength. Power Block incompatible.</p>`}
       </div>
-      ${wardDisabled ? `<p class="notes">${Handlebars.escapeExpression(String(reasons?.ward?.[0] ?? "Requires an active Ward spell."))}</p>` : `<p class="notes">Spell acts as shield. BR = Spell Strength. Power Block incompatible.</p>`}
     </label>
   </div>
 

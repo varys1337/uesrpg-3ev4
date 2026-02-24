@@ -39,6 +39,16 @@
   </div>
 </fieldset>
 
+<fieldset>
+  <legend>Rule Elements</legend>
+
+  <div class="form-group">
+    <label>Rule Elements Engine</label>
+    <input type="checkbox" name="enableRuleElementsRuntime" {{checked enableRuleElementsRuntime}}>
+    <p class="notes">When enabled, Rule Element automation runs during opposed workflows (combat, skill, magic). When disabled, all RE automation is suppressed and the Automation tab is hidden on item sheets.</p>
+  </div>
+</fieldset>
+
 <footer class="sheet-footer flexrow">
   <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
 </footer>

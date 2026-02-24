@@ -22,7 +22,7 @@ import { computeDefenseAvailability, normalizeDefenseType } from "../../defense-
 import { ActionEconomy } from "../../action-economy.js";
 import { breakAimChainIfPresent as _breakAimChainIfPresent } from "../effects.js";
 import { listCombatStyles, computeTN } from "../../tn.js";
-import { collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid } from "../helpers/workflow.js";
+import { collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid, weaponHasQuality as _weaponHasQuality } from "../helpers/workflow.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
 import { applyHyperAwarenessToResult } from "../../../traits/awareness-talents.js";
 import { applyCombatTalentDoSAdjustments } from "../../../traits/combat-talents.js";
@@ -30,6 +30,28 @@ import { shouldDeferEvadeApForStepAside } from "../../../traits/mobility-talents
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { hasActiveWard } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+
+async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
+  try {
+    if (!attacker || Number(advantage?.attacker ?? 0) <= 0) return;
+    if (String(data?.context?.attackMode ?? "melee").toLowerCase() !== "melee") return;
+    const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
+    if (!weaponUuid) return;
+    const weapon = _resolveItemViaActor(weaponUuid, attacker);
+    if (!weapon || weapon.type !== "weapon") return;
+    if (!_weaponHasQuality(weapon, "concussive")) return;
+    await requestUpdateDocument(attacker, {
+      "flags.uesrpg-3ev4.combat.concussiveNextBash": {
+        bonus: 20,
+        grantedAt: Date.now(),
+        sourceWeaponUuid: weapon.uuid ?? null
+      }
+    });
+  } catch (err) {
+    console.warn("UESRPG | Concussive bonus grant failed", err);
+  }
+}
 
 /**
  * Handle defender-commit-nodefense action
@@ -75,7 +97,9 @@ export async function handleDefenderCommitNoDefense(ctx) {
     const baseOutcome = _resolveOutcomeRAW(data, data.defender) ?? { winner: "tie", text: "" };
     const outcome = _applyAoEEvadeOutcome(data, baseOutcome);
     _setDefenderOutcome(data, data.defender, outcome);
-    _setDefenderAdvantage(data, data.defender, _computeAdvantageRAW(data, outcome, data.defender));
+    const advantage = _computeAdvantageRAW(data, outcome, data.defender);
+    _setDefenderAdvantage(data, data.defender, advantage);
+    await _maybeGrantConcussiveNextBash(attacker, data, advantage);
 
     const allResolved = _getDefenderEntries(data).every(def => Boolean(_getDefenderOutcome(data, def)));
     if (allResolved) {
@@ -234,6 +258,11 @@ export async function handleDefenderCommit(ctx) {
   const defenderMovementAction = _getTokenMovementAction(dToken);
 
   const { attackerWeaponTraits, defenderHasSmallWeapon } = await _getDefenseGatingContext({ attacker, defender, data });
+  data.context = data.context ?? {};
+  data.context.attackerWeaponTraits = {
+    ...(data.context.attackerWeaponTraits ?? {}),
+    ...attackerWeaponTraits
+  };
 
   // Combat talent: Lightning Reflexes (allow Parry vs ranged weapon attacks, at -20).
   const defenseTalentOverrides = getDefenseTalentOverrides({
@@ -748,6 +777,23 @@ export async function handleDefenderRollCommitted(ctx) {
     ...(res?.hyperAwarenessChoice != null ? { hyperAwarenessChoice: res.hyperAwarenessChoice } : {}),
     ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
   };
+  if (data.defender.result.isSuccess && String(data.defender?.defenseType ?? "").toLowerCase() === "parry") {
+    try {
+      const hasBuckler = (defender?.items ?? []).some(i =>
+        i?.type === "armor"
+        && i?.system?.equipped === true
+        && Boolean(i?.system?.isShieldEffective ?? i?.system?.isShield)
+        && String(i?.system?.shieldType ?? "").toLowerCase() === "buckler"
+      );
+      if (hasBuckler) {
+        data.defender.result.degree = Math.max(1, (Number(data.defender.result.degree) || 1) + 1);
+        data.defender.result.bucklerBonus = 1;
+        data.defender.result.textual = `${data.defender.result.degree} DoS`;
+      }
+    } catch (err) {
+      console.warn("UESRPG | opposed-workflow | buckler bonus lookup failed (commit path)", err);
+    }
+  }
   if (rollMessage?.id) {
     data.defender.rollMessageId = rollMessage.id;
     data.defender.rolledAt = Date.now();

@@ -14,8 +14,90 @@ import {
   buildSpecialActionsForActor,
   isSpecialActionUsableNow
 } from "../../../core/combat/combat-style-utils.js";
+import { isActorTrainedInMagicSchool } from "../../../core/magic/magicka-utils.js";
 import { getLoadoutsForActor } from "../sheet-ui-state.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
+const _FLAG_NS = "uesrpg-3ev4";
+const _EQUIPMENT_TYPES = new Set(["weapon", "armor", "ammunition", "item", "container", "scroll"]);
+
+function _resolveSpellFromUuidSync(uuid) {
+  const raw = String(uuid ?? "").trim();
+  if (!raw) return null;
+  try {
+    const doc = typeof fromUuidSync === "function" ? fromUuidSync(raw) : null;
+    if (doc?.documentName === "Item" && doc?.type === "spell") return doc;
+  } catch (_e) {
+    // no-op
+  }
+  return null;
+}
+
+function _getCastableScrollsSync(actor, { instantOnly = false } = {}) {
+  const out = [];
+  for (const it of actor?.items ?? []) {
+    if (!it || it.type !== "scroll") continue;
+    if (Number(it.system?.quantity ?? 0) <= 0) continue;
+
+    const spell = _resolveSpellFromUuidSync(it.system?.spellUuid);
+    if (!spell) continue;
+    if (instantOnly && spell.system?.isInstant !== true) continue;
+
+    const requiresTraining = it.system?.requireSchoolTraining === true;
+    if (requiresTraining && !isActorTrainedInMagicSchool(actor, spell?.system?.school)) continue;
+
+    out.push(it);
+  }
+  return out;
+}
+
+function _resolveSpellFromSlotSync(slot) {
+  const uuid = String(slot?.spellUuid ?? "").trim();
+  if (uuid) {
+    const doc = _resolveSpellFromUuidSync(uuid);
+    if (doc) return doc;
+  }
+  const snap = slot?.snapshot;
+  if (snap && typeof snap === "object") {
+    const isInstant = snap?.system?.isInstant === true;
+    return { system: { isInstant } };
+  }
+  return null;
+}
+
+function _getEquippedItemSpellcastingSlotsSync(actor, { instantOnly = false } = {}) {
+  const slots = [];
+  for (const item of actor?.items ?? []) {
+    if (!_EQUIPMENT_TYPES.has(String(item?.type ?? "").toLowerCase())) continue;
+    if (item?.system?.equipped !== true) continue;
+
+    const ext = item?.flags?.[_FLAG_NS]?.itemSpellcasting ?? {};
+    if (ext?.enabled === true) {
+      const extSlots = Array.isArray(ext?.slots) ? ext.slots : [];
+      for (const slot of extSlots) {
+        if (slot?.enabled === false) continue;
+        if (instantOnly) {
+          const spell = _resolveSpellFromSlotSync(slot);
+          if (spell?.system?.isInstant !== true) continue;
+        }
+        slots.push({ item, slot });
+      }
+    }
+
+    const enchanting = item?.flags?.[_FLAG_NS]?.enchanting;
+    if (enchanting?.version === 2 && String(enchanting?.enchantType ?? "").trim().toLowerCase() === "cast") {
+      const workshopSlots = Array.isArray(enchanting?.cast?.spells) ? enchanting.cast.spells : [];
+      for (const slot of workshopSlots) {
+        if (slot?.enabled === false) continue;
+        if (instantOnly) {
+          const spell = _resolveSpellFromSlotSync(slot);
+          if (spell?.system?.isInstant !== true) continue;
+        }
+        slots.push({ item, slot });
+      }
+    }
+  }
+  return slots;
+}
 
 /**
  * Build combat quick-action context for the combat tab.
@@ -63,6 +145,20 @@ export function buildCombatActionsContext(actor) {
       usableAsAdvantage: Boolean(sa.known)
     }));
 
+    const castableScrolls = _getCastableScrollsSync(actor, { instantOnly: false });
+    const castableInstantScrolls = _getCastableScrollsSync(actor, { instantOnly: true });
+    const itemRuntimeEnabled = game?.settings?.get?.(_FLAG_NS, "enchanting.enableCastEnchantmentRuntime") === true;
+    const equippedItemSpellSlots = itemRuntimeEnabled ? _getEquippedItemSpellcastingSlotsSync(actor, { instantOnly: false }) : [];
+    const equippedItemInstantSpellSlots = itemRuntimeEnabled ? _getEquippedItemSpellcastingSlotsSync(actor, { instantOnly: true }) : [];
+    const canCastActorSpells = Boolean(
+      actor?.itemTypes?.spell?.length
+      ?? actor?.items?.some?.(i => i.type === "spell")
+    );
+    const canCastActorInstantSpells = Boolean(
+      actor?.itemTypes?.spell?.some?.(s => s?.system?.isInstant === true)
+      ?? actor?.items?.some?.(i => i.type === "spell" && i?.system?.isInstant === true)
+    );
+
     return {
       activeCombatStyleId: activeCombatStyleId ?? "",
       combatStyles: combatStyles.map(cs => ({
@@ -72,14 +168,8 @@ export function buildCombatActionsContext(actor) {
       })),
       activeCombatStyleName: activeStyleItem?.name ?? null,
       specialActions,
-      canCastMagic: Boolean(
-        actor?.itemTypes?.spell?.length
-        ?? actor?.items?.some?.(i => i.type === "spell")
-      ),
-      canCastInstantMagic: Boolean(
-        actor?.itemTypes?.spell?.some?.(s => s?.system?.isInstant === true)
-        ?? actor?.items?.some?.(i => i.type === "spell" && i?.system?.isInstant === true)
-      )
+      canCastMagic: canCastActorSpells || castableScrolls.length > 0 || equippedItemSpellSlots.length > 0,
+      canCastInstantMagic: canCastActorInstantSpells || castableInstantScrolls.length > 0 || equippedItemInstantSpellSlots.length > 0,
     };
   } catch (_e) {
     return {

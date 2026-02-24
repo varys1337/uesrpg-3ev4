@@ -10,7 +10,7 @@ import { calculateDamage } from "./calc.js";
 import { DAMAGE_TYPES } from "./types.js";
 import { isItemMagicSource } from "./reduction.js";
 import { isActorImmuneToDamageType, isActorIncorporeal } from "../../traits/trait-registry.js";
-import { requestUpdateDocument, requestCreateActiveEffect } from "../../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestCreateActiveEffect, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isAnyDebugEnabled } from "../../../utils/debug.js";
 
 function _healingDebug(...args) {
@@ -643,6 +643,9 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
   // Choose the single most protective item on that location (deterministic).
   candidates.sort((a, b) => (b.score - a.score));
   const targetItem = candidates[0].item;
+  const targetSys = targetItem.system ?? {};
+  const targetCategory = String(targetSys.category || "").toLowerCase();
+  const isShieldTarget = Boolean(targetSys.isShieldEffective ?? targetSys.isShield) || targetCategory === "shield" || targetCategory.startsWith("shield");
 
   // Stack Damaged (X) by +1 per use.
   const current = Array.isArray(targetItem.system?.qualitiesStructured)
@@ -656,6 +659,27 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
     next[idx].value = Number.isFinite(v) ? v + 1 : 1;
   } else {
     next.push({ key: "damaged", value: 1 });
+  }
+  const oldDamaged = (idx >= 0) ? (Number(current[idx]?.value ?? 0) || 0) : 0;
+  const oldEffective = isShieldTarget
+    ? (Number(targetSys.blockEffective ?? targetSys.block ?? 0) || 0)
+    : (Number(targetSys.armorEffective ?? targetSys.armor ?? 0) || 0);
+  const baseProtective = Math.max(0, oldEffective + Math.max(0, oldDamaged));
+  const nextDamaged = Math.max(0, oldDamaged + 1);
+  const nextEffective = Math.max(0, baseProtective - nextDamaged);
+
+  if (nextEffective <= 0) {
+    const parentActor = targetItem.parent;
+    if (parentActor?.documentName === "Actor" && targetItem?.id) {
+      await requestDeleteEmbeddedDocuments(parentActor, "Item", [targetItem.id]);
+      await ChatMessage.create({
+        user: game.user.id,
+        speaker: ChatMessage.getSpeaker({ actor: parentActor }),
+        content: `<div class="uesrpg"><b>${targetItem.name}</b> is destroyed.</div>`,
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER
+      });
+      return;
+    }
   }
 
   await requestUpdateDocument(targetItem, { "system.qualitiesStructured": next });

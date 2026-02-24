@@ -209,6 +209,13 @@ export async function autoRollBanked(message, workflow, _updateCard) {
   if (!freshAfterClaim?.attacker?.result) {
     await workflow.handleAction(message, "attacker-roll");
   }
+  const freshAfterAttackerRoll = foundry.utils.deepClone(getMessageState(message));
+  if (!freshAfterAttackerRoll?.attacker?.result) {
+    console.warn("UESRPG | Magic opposed autoRollBanked aborted: attacker result missing after attacker-roll", {
+      messageId: message?.id ?? null
+    });
+    return;
+  }
 
   // ── Roll defender lanes sequentially ───────────────────────────────────
   // Re-read fresh state to determine how many defenders exist.
@@ -266,7 +273,12 @@ export async function handleDefenderRoll(ctx, action) {
   const apCost = Number(defender?.apCost ?? 1) || 1;
   const currentAP = Number(defenderActor?.system?.action_points?.value ?? 0) || 0;
   if (currentAP < apCost) {
-    ui.notifications.warn("Not enough Action Points to defend against the spell.");
+    ui.notifications.info("No Action Points available for defense; resolving as No Defense.");
+    defender.noDefense = true;
+    defender.defenseType = "-";
+    defender.tn = null;
+    defender.result = { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };
+    await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex });
     return;
   }
 
@@ -586,21 +598,21 @@ export async function handleDefenderCommit(ctx, action) {
 
   // Gate commit if defender cannot currently pay the AP cost for their chosen defense.
   // CRITICAL: No Defense and Characteristic Save do NOT cost AP, so skip the check.
-  const isNoDefenseAction = action === "defender-commit-nodefense";
+  let commitAsNoDefense = action === "defender-commit-nodefense";
   const isCharacteristicAction = action === "defender-commit-characteristic";
-  if (game.combat && !isNoDefenseAction && !isCharacteristicAction) {
+  if (!commitAsNoDefense && !isCharacteristicAction) {
     const apCost = Number(defender?.apCost ?? 1) || 1;
     const currentAP = Number(foundry.utils.getProperty(defenderActor, "system.action_points.value") ?? 0);
     if (currentAP < apCost) {
-      ui.notifications.warn(`Not enough Action Points to commit defense (${currentAP}/${apCost}).`);
-      return;
+      ui.notifications.info(`Not enough Action Points for defense (${currentAP}/${apCost}); committing No Defense.`);
+      commitAsNoDefense = true;
     }
   }
 
   ensureBankedScaffold(data);
 
   // Store defense choice
-  if (isNoDefenseAction) {
+  if (commitAsNoDefense) {
     defender.defenseType = "none";
     defender.noDefense = true;
 

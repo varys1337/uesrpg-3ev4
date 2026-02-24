@@ -472,6 +472,10 @@ export function computeSpellMagickaCost(actor, spell, options = {}) {
  * @returns {{ cost:number, baseCost:number }}
  */
 export function computeSpellAttemptMagickaCost(actor, spell, options = {}) {
+  // Scroll mode: bypass magicka cost entirely.
+  if (options?.consumeMagicka === false) {
+    return { cost: 0, baseCost: 0, baseCostRaw: 0, aeModifier: 0, aeBreakdown: [], overloadMultiplier: 1 };
+  }
   const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, options);
   const overloadMultiplier = _bool(options?.isOverloaded) ? 2 : 1;
   const cost = Math.max(0, Math.floor(baseCost * overloadMultiplier));
@@ -545,6 +549,11 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
   return { refund, finalCost, breakdown };
 }
 export async function consumeSpellMagicka(actor, spell, options = {}) {
+  // Scroll mode: skip magicka deduction entirely.
+  if (options?.consumeMagicka === false) {
+    const current = getActorMagicka(actor);
+    return { ok: true, consumed: 0, remaining: current, previous: current, required: 0, baseCost: 0 };
+  }
   const { cost: attemptCost, baseCost } = computeSpellAttemptMagickaCost(actor, spell, options);
 
   // RAW: if you are currently maintaining (Upkeep) a spell with no listed duration, you cannot cast a different spell.
@@ -847,15 +856,37 @@ function _hasTwoFreeHandsForCasting(actor) {
   if (conditions.restrained || conditions.paralyzed || conditions.immobilized || conditions.unconscious) return false;
 
   const items = Array.from(actor.items ?? []);
+  const _hasToken = (item, key) => {
+    const target = String(key ?? "").toLowerCase();
+    if (!target) return false;
+    const sys = item?.system ?? {};
+    const structured = Array.isArray(sys.qualitiesStructuredInjected)
+      ? sys.qualitiesStructuredInjected
+      : (Array.isArray(sys.qualitiesStructured) ? sys.qualitiesStructured : []);
+    if (structured.some(q => String(q?.key ?? q ?? "").toLowerCase() === target)) return true;
+    const traits = Array.isArray(sys.qualitiesTraitsInjected)
+      ? sys.qualitiesTraitsInjected
+      : (Array.isArray(sys.qualitiesTraits) ? sys.qualitiesTraits : []);
+    if (traits.some(t => String(t ?? "").toLowerCase() === target)) return true;
+    return false;
+  };
+
   const occupiedHandItems = items.filter((it) => {
     if (!it?.system?.equipped) return false;
     const itemType = String(it.type ?? "").toLowerCase();
     if (itemType === "weapon" || itemType === "ammunition") {
+      // Chapter 7: Focus weapons count as a free casting hand for somatic checks.
+      if (itemType === "weapon" && _hasToken(it, "focus")) return false;
       const hands = Number(it.system?.hands ?? 0);
       return Number.isFinite(hands) && hands > 0;
     }
     if (itemType === "armor" || itemType === "item") {
-      return Boolean(it.system?.isShieldEffective ?? it.system?.isShield);
+      const isShield = Boolean(it.system?.isShieldEffective ?? it.system?.isShield);
+      if (!isShield) return false;
+      // Chapter 7: Targe counts as functionally free for hand-use checks.
+      const shieldType = String(it.system?.shieldType ?? "").toLowerCase();
+      if (shieldType === "targe" || it.system?.treatAsFreeHandForSmallOrGrapple === true) return false;
+      return true;
     }
     return false;
   });

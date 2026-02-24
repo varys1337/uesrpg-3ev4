@@ -139,22 +139,13 @@ export function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, 
   // RAW: Thrown weapons ignore Big Three bonuses only when making ranged attacks.
   if (isThrown && isRangedWeapon) return 0;
 
-  const arrowType = String(ammoItem?.system?.arrowType ?? "").toLowerCase().trim();
-  const isArrowAmmo = Boolean(ammoItem)
-    && (arrowType === "" || arrowType === "none" || !arrowType.includes("bolt"));
-  const isArrowAttack = isRangedWeapon && !isThrown && isArrowAmmo;
-  if (isArrowAttack) {
-    if (arrowType === "slashing") addQuality("slashing", null);
-    if (arrowType === "splitting") addQuality("splitting", null);
-  }
-
   const pickBonus = (qualityKey) => {
     const k = String(qualityKey ?? "").toLowerCase();
     if (k === "crushing") {
       return hasPerfectHit ? prcBonus : baseStrengthBonus;
     }
     if (k === "slashing" || k === "splitting") {
-      if (hasCrackshot && isArrowAttack) return agiBonus;
+      if (hasCrackshot && isRangedWeapon && !isThrown) return agiBonus;
       if (hasPerfectHit) return prcBonus;
       return baseStrengthBonus;
     }

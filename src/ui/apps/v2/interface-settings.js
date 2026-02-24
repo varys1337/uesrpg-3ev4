@@ -46,6 +46,7 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
       enableLoadouts: game.settings.get(NAMESPACE, "enableLoadouts"),
       customCursor: game.settings.get(NAMESPACE, "customCursor"),
       autoResizeSheets: game.settings.get(NAMESPACE, "autoResizeSheets"),
+      enableRuleElementsRuntime: game.settings.get(NAMESPACE, "enableRuleElementsRuntime"),
     };
   }
 
@@ -60,5 +61,6 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     if ("enableLoadouts" in data) await game.settings.set(NAMESPACE, "enableLoadouts", toBool(data.enableLoadouts));
     if ("customCursor" in data) await game.settings.set(NAMESPACE, "customCursor", toBool(data.customCursor));
     if ("autoResizeSheets" in data) await game.settings.set(NAMESPACE, "autoResizeSheets", toBool(data.autoResizeSheets));
+    if ("enableRuleElementsRuntime" in data) await game.settings.set(NAMESPACE, "enableRuleElementsRuntime", toBool(data.enableRuleElementsRuntime));
   }
 }

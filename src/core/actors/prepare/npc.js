@@ -868,7 +868,8 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
   // Active Effects: Wound Threshold modifiers (bonus/value) applied after all other rule adjustments.
   applyWoundThresholdAEs(actorContext, actorSystemData);
 
-  const weakBones = Math.max(0, Number(getActorTraitValue(actorContext, "weakBones", { mode: "sum" })) || 0);
+  // Chapter 4 X-traits: highest value wins when duplicated.
+  const weakBones = Math.max(0, Number(getActorTraitValue(actorContext, "weakBones", { mode: "max" })) || 0);
   if (weakBones > 0) {
     actorSystemData.wound_threshold.value = Math.max(0, Number(actorSystemData.wound_threshold.value ?? 0) - weakBones);
   }

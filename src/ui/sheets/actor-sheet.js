@@ -9,6 +9,7 @@ import { getCollapsedGroups } from "./sheet-ui-state.js";
 import { postItemToChat } from "./shared-handlers.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { AttackTracker } from "../../core/combat/attack-tracker.js";
+import { customDialog, confirmDialog } from "../../utils/dialog-v2-helper.js";
 
 import { onCombatQuickAction } from "./shared/listeners/combat-actions.js";
 import { onCastMagicAction } from "./shared/listeners/magic-cast.js";
@@ -333,12 +334,12 @@ export class SimpleActorSheet extends foundry.appv1.sheets.ActorSheet {
     const effect = this.actor.effects?.get(effectId);
     if (!effect) return;
     const { cancelOriginAEUpkeep } = await import("../../core/magic/effects/origin-effect.js");
-    const confirmed = await Dialog.confirm({
+    const confirmed = await confirmDialog({
       title: "Cancel Spell",
       content: `<p>Cancel <strong>${effect.flags?.["uesrpg-3ev4"]?.spellName ?? effect.name}</strong>? This will end the spell and remove all linked effects.</p>`,
-      yes: () => true,
-      no: () => false,
-      defaultYes: false
+      yesLabel: "Confirm",
+      noLabel: "Cancel",
+      rejectClose: false
     });
     if (confirmed) await cancelOriginAEUpkeep(effect);
   }
@@ -410,26 +411,24 @@ export class SimpleActorSheet extends foundry.appv1.sheets.ActorSheet {
   }
 
   async _duplicateItem(item) {
-    const d = new Dialog({
+    await customDialog({
       title: "Duplicate Item",
       content: `<div style="padding: 10px; display: flex; flex-direction: row; align-items: center; justify-content: center;">
                     <div>Duplicate Item?</div>
                 </div>`,
       buttons: {
-        one: { label: "Cancel", callback: () => {} },
-        two: {
+        cancel: { label: "Cancel", callback: () => null },
+        duplicate: {
           label: "Duplicate",
           callback: async () => {
             const created = await this.actor.createEmbeddedDocuments("Item", [item.toObject()]);
             await created?.[0]?.sheet?.render?.(true);
+            return true;
           },
         },
       },
-      default: "two",
-      close: () => {},
+      defaultButton: "duplicate",
     });
-
-    d.render(true);
   }
 
   async _onWealthCalc(event) {

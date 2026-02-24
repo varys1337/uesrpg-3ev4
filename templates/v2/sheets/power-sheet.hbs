@@ -10,7 +10,7 @@
 <nav class="sheet-tabs tabs" data-group="primary">
     <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
     <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="automation">Automation</a>
+    {{#if enableRuleElements}}<a class="item" data-action="tab" data-group="primary" data-tab="automation">Automation</a>{{/if}}
     <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
 </nav>
 
@@ -259,9 +259,11 @@
             </div>
 
         {{!-- Automation Tab --}}
+        {{#if enableRuleElements}}
         <div class="tab" data-group="primary" data-tab="automation">
             {{> "systems/uesrpg-3ev4/templates/partials/sheets/automation-tab.hbs"}}
         </div>
+        {{/if}}
 
         {{!-- Effects Tab --}}
         <div class="tab effects" data-group="primary" data-tab="effects">

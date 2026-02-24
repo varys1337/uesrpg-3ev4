@@ -1,5 +1,14 @@
-{
+﻿{
+  "name": "uesrpg-3ev4-css",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Dev tooling for UESRPG CSS build",
+  "scripts": {
+    "build:css": "sass --no-source-map styles/scss/uesrpg.scss styles/uesrpg.css",
+    "watch:css": "sass --watch --no-source-map styles/scss/uesrpg.scss styles/uesrpg.css",
+    "audit:styles:encoding": "node scripts/audit-styles-encoding.mjs"
+  },
   "devDependencies": {
-    "acorn": "^8.15.0"
+    "sass": "^1.93.2"
   }
 }

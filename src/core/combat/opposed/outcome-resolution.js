@@ -85,10 +85,15 @@ export function resolveOutcomeRAW(data, defender = null) {
   // Attack vs Block: successful block wins regardless of attacker DoS.
   if (defenseType === "block" || defenseType === "ward") {
     const defLabel = defenseType === "ward" ? "wards" : "blocks";
+    const attackerHasFlail = Boolean(data?.context?.attackerWeaponTraits?.flail);
     // Critical success: treat as higher DoS than the other side if they also succeeded.
     if (A.isSuccess && D.isSuccess) {
       if (aEff._effectiveCriticalSuccess && !dEff._effectiveCriticalSuccess) return { winner: "attacker", text: `${a.name} wins — critical success overwhelms the ${defenseType}.` };
       if (dEff._effectiveCriticalSuccess && !aEff._effectiveCriticalSuccess) return { winner: "defender", text: `${d.name} wins — critical ${defenseType} holds.` };
+      // Flail exception: a successful block still loses if attacker DoS exceeds defender DoS.
+      if (defenseType === "block" && attackerHasFlail && aDoSEff > dDoSEff) {
+        return { winner: "attacker", text: `${a.name} wins — flail overpowers the block.` };
+      }
       // No critical edge: block/ward wins (RAW).
       return { winner: "defender", text: `${d.name} wins — ${defLabel} the attack.` };
     }
@@ -158,6 +163,7 @@ export function computeAdvantageRAW(data, outcome, defender = null, opts = {}) {
   // the other character fails OR via critical success rules.
 
   let adv = 0;
+  let source = null;
 
   // RAW (Critical outcomes): if both sides rolled any critical, no advantage.
   const wCrit = Boolean(W.isCriticalSuccess || W.isCriticalFailure);
@@ -189,10 +195,12 @@ export function computeAdvantageRAW(data, outcome, defender = null, opts = {}) {
     const dt = String(defSide?.defenseType ?? "");
     if (dt === "parry" && defActor && _hasEquippedShieldType(defActor, "buckler")) {
       adv = Math.max(adv, 1);
+      source = "buckler-parry-win";
     }
   }
 
-  return winnerKey === "attacker"
-    ? { attacker: adv, defender: 0 }
-    : { attacker: 0, defender: adv };
+  if (winnerKey === "attacker") {
+    return { attacker: adv, defender: 0 };
+  }
+  return source ? { attacker: 0, defender: adv, source } : { attacker: 0, defender: adv };
 }

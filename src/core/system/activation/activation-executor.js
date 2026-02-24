@@ -17,7 +17,7 @@ import { _num } from "../../../utils/coerce.js";
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
 import { runFeatureAutomation } from "../../traits/features/feature-dispatcher.js";
 import { featureNeedsEffectTransfer, applyFeatureEffectsToTargets } from "./feature-effects.js";
-import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { customDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const ACTION_TYPE_LABELS = {
@@ -1299,11 +1299,13 @@ async function _showFeatureConfirmDialog(item, fcfg) {
   if (!shouldPrompt) return true;
 
   try {
-    const confirmed = await foundry.applications.api.DialogV2.confirm({
-      window: { title: `Confirm: ${item.name}` },
+    const confirmed = await confirmDialog({
+      title: `Confirm: ${item.name}`,
       content: `<p>Activate <strong>${item.name}</strong>?</p>`,
-      yes: { label: "Activate", icon: "fas fa-bolt" },
-      no: { label: "Cancel", icon: "fas fa-times" },
+      yesLabel: "Activate",
+      noLabel: "Cancel",
+      yesIcon: "fas fa-bolt",
+      noIcon: "fas fa-times",
       rejectClose: false,
     });
     return confirmed === true;

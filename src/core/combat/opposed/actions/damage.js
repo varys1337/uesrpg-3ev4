@@ -333,7 +333,8 @@ export async function handleDamageRoll(ctx) {
                 id: saId,
                 source: "advantage-attacker-free",
                 attackerStyleUuid: data.attacker?.itemUuid ?? null,
-                defenderStyleUuid: data.defender?.styleUuid ?? null
+                defenderStyleUuid: data.defender?.styleUuid ?? null,
+                sourceWeaponUuid: weapon?.uuid ?? null
               };
 
               await safeUpdateChatMessage(saMessage, {

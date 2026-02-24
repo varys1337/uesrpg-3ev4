@@ -8,7 +8,7 @@
  * Item types which represent physical inventory and are eligible for containment.
  * @type {Set<string>}
  */
-const CONTAINABLE_ITEM_TYPES = new Set(["item", "weapon", "armor", "ammunition"]);
+const CONTAINABLE_ITEM_TYPES = new Set(["item", "scroll", "weapon", "armor", "ammunition"]);
 
 /**
  * Determine whether an item is marked as contained in a container.

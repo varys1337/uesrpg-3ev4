@@ -11,6 +11,7 @@
  * This module intentionally contains ONLY the already-implemented gating
  * semantics:
  *  - Ranged attacks cannot be Parried or Counter-Attacked.
+ *  - Magic attacks cannot be Parried or Counter-Attacked.
  *  - Flail attacks cannot be Parried or Counter-Attacked.
  *  - Entangling attacks cannot be Parried or Blocked.
  *  - A Small weapon cannot Parry/Counter against a Two-Handed weapon.
@@ -22,7 +23,7 @@
  * @typedef {object} DefenseAvailability
  * @property {{evade: boolean, parry: boolean, block: boolean, counter: boolean, ward: boolean}} allowed
  * @property {{evade: string[], parry: string[], block: string[], counter: string[], ward: string[]}} reasons
- * @property {{isRangedAttack: boolean, attackerHasFlail: boolean, attackerHasEntangling: boolean, smallVsTwoHandedGate: boolean, shieldOk: boolean, wardOk: boolean}} gates
+ * @property {{isRangedAttack: boolean, isMagicAttack: boolean, attackerHasFlail: boolean, attackerHasEntangling: boolean, smallVsTwoHandedGate: boolean, shieldOk: boolean, wardOk: boolean}} gates
  */
 
 function _asBool(v) {
@@ -37,7 +38,7 @@ function _lower(v) {
  * Compute which defense options are legal for a given attack context.
  *
  * @param {object} params
- * @param {string} params.attackMode - "melee" | "ranged" (free text tolerated)
+ * @param {string} params.attackMode - "melee" | "ranged" | "magic" (free text tolerated)
  * @param {{flail?: boolean, entangling?: boolean, isTwoHanded?: boolean}|null} params.attackerWeaponTraits
  * @param {boolean} params.defenderHasSmallWeapon
  * @param {boolean} params.defenderHasShield
@@ -56,6 +57,7 @@ export function computeDefenseAvailability({
 } = {}) {
   const mode = _lower(attackMode);
   const isRangedAttack = (mode === "ranged");
+  const isMagicAttack = (mode === "magic");
 
   const attackerHasFlail = _asBool(attackerWeaponTraits?.flail);
   const attackerHasEntangling = _asBool(attackerWeaponTraits?.entangling);
@@ -107,6 +109,10 @@ export function computeDefenseAvailability({
       reasons.parry.push("Ranged attacks cannot be parried.");
     }
   }
+  if (isMagicAttack) {
+    allowed.parry = false;
+    reasons.parry.push("Magic attacks cannot be parried.");
+  }
   if (attackerHasFlail) {
     allowed.parry = false;
     reasons.parry.push("Flail attacks cannot be parried.");
@@ -121,6 +127,10 @@ export function computeDefenseAvailability({
   if (isRangedAttack) {
     allowed.counter = false;
     reasons.counter.push("Ranged attacks cannot be counter-attacked.");
+  }
+  if (isMagicAttack) {
+    allowed.counter = false;
+    reasons.counter.push("Magic attacks cannot be counter-attacked.");
   }
   if (attackerHasFlail) {
     allowed.counter = false;
@@ -148,6 +158,7 @@ export function computeDefenseAvailability({
     reasons,
     gates: {
       isRangedAttack,
+      isMagicAttack,
       attackerHasFlail,
       attackerHasEntangling,
       smallVsTwoHandedGate,

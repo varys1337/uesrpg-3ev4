@@ -18,6 +18,32 @@ import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
+import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
+
+const CHA_KEYS = ["str", "end", "agi", "int", "wp", "prc", "prs"];
+
+function _num(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function _roll2d10() {
+  return (Math.floor(Math.random() * 10) + 1) + (Math.floor(Math.random() * 10) + 1);
+}
+
+function _randomUniqueD100(existing = new Set()) {
+  while (true) {
+    const n = Math.floor(Math.random() * 100) + 1;
+    if (!existing.has(n)) return n;
+  }
+}
+
+function _resolveDialogRoot(dialogRef) {
+  const el = dialogRef?.element ?? dialogRef;
+  const node = el instanceof HTMLElement ? el : el?.[0];
+  if (!(node instanceof HTMLElement)) return null;
+  return node.querySelector(".uesrpg-cg-dialog") ?? node;
+}
 
 /**
  * Open dialog to set base characteristics and favored flags.
@@ -27,180 +53,322 @@ import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBaseCharacteristics(event, target) {
   event.preventDefault();
 
+  const actor = this.actor;
+  const current = actor.system?.characteristics ?? {};
+  const baseline = {};
+  for (const key of CHA_KEYS) baseline[key] = _num(current[key]?.base, 0);
+  const state = {
+    mode: "roll",
+    assignmentMode: "auto",
+    rerollsUsed: 0,
+    rollPool: CHA_KEYS.map(() => _roll2d10()),
+    luckRoll: Math.min(50, 30 + _roll2d10()),
+    pointBuy: Object.fromEntries(CHA_KEYS.map((k) => [k, 0])),
+  };
+
+  function currentAssignMap(root) {
+    if (state.assignmentMode === "auto") {
+      return Object.fromEntries(CHA_KEYS.map((k, idx) => [k, idx]));
+    }
+    const map = {};
+    for (const key of CHA_KEYS) {
+      const select = root?.querySelector(`#assign-${key}`);
+      map[key] = _num(select?.value, -1);
+    }
+    return map;
+  }
+
+  function writeRollTotals(root) {
+    const assignMap = currentAssignMap(root);
+    for (const key of CHA_KEYS) {
+      const idx = _num(assignMap[key], -1);
+      const value = idx >= 0 ? baseline[key] + _num(state.rollPool[idx], 0) : baseline[key];
+      const targetInput = root?.querySelector(`#${key}Input`);
+      if (targetInput) targetInput.value = String(value);
+    }
+  }
+
+  function writePointBuyTotals(root) {
+    let total = 0;
+    for (const key of CHA_KEYS) {
+      const allocInput = root?.querySelector(`#pb-${key}`);
+      const alloc = Math.max(0, Math.min(20, _num(allocInput?.value, 0)));
+      if (allocInput) allocInput.value = String(alloc);
+      total += alloc;
+      state.pointBuy[key] = alloc;
+      const targetInput = root?.querySelector(`#${key}Input`);
+      if (targetInput) targetInput.value = String(baseline[key] + alloc);
+    }
+    const totalEl = root?.querySelector("#cgPointBuyTotal");
+    if (totalEl) totalEl.textContent = `${total}/80`;
+  }
+
+  function renderRollAssignSelectors(root) {
+    const wrap = root?.querySelector("#cgManualAssignWrap");
+    if (!wrap) return;
+    wrap.innerHTML = CHA_KEYS.map((key, idx) => {
+      const options = state.rollPool.map((roll, rIdx) => `<option value="${rIdx}" ${rIdx === idx ? "selected" : ""}>${roll}</option>`).join("");
+      return `<label style="display:flex; flex-direction:column; gap:2px;">
+        <span>${key.toUpperCase()}</span>
+        <select id="assign-${key}">${options}</select>
+      </label>`;
+    }).join("");
+  }
+
+  function refreshUi(root) {
+    if (!root) return;
+    const poolEl = root.querySelector("#cgRollPool");
+    if (poolEl) poolEl.textContent = state.rollPool.join(", ");
+    const modeEl = root.querySelector("#cgModeLabel");
+    if (modeEl) modeEl.textContent = state.mode === "pointbuy" ? "Point Buy" : "Roll";
+    const rerollsEl = root.querySelector("#cgRerollCount");
+    if (rerollsEl) rerollsEl.textContent = `${state.rerollsUsed}/3`;
+    const lck = root.querySelector("#lckInput");
+    if (lck && !String(lck.value ?? "").trim()) lck.value = String(state.luckRoll);
+
+    const isRoll = state.mode === "roll";
+    const rollSection = root.querySelector("#cgRollSection");
+    const pbSection = root.querySelector("#cgPointBuySection");
+    if (rollSection) rollSection.style.display = isRoll ? "" : "none";
+    if (pbSection) pbSection.style.display = isRoll ? "none" : "";
+
+    const manualWrap = root.querySelector("#cgManualAssignSection");
+    if (manualWrap) manualWrap.style.display = isRoll && state.assignmentMode === "manual" ? "" : "none";
+
+    if (isRoll) {
+      writeRollTotals(root);
+    } else {
+      writePointBuyTotals(root);
+    }
+  }
+
   await customDialog({
     title: "Set Base Characteristics",
-    content: `<div>
-<h2>Set the Character's Base Characteristics.</h2>
-
-                  <div style="border: inset; margin-bottom: 10px; padding: 5px;">
-                  <i>Use this menu to adjust characteristic values on the character
-                    when first creating a character or when spending XP to increase
-                    their characteristics.
-                  </i>
-                  </div>
-
-                  <div style="margin-bottom: 10px;">
-                    <label><b>Points Total (without Luck): </b></label>
-                    <label>
-                    ${this.actor.system.characteristics.str.base +
-      this.actor.system.characteristics.end.base +
-      this.actor.system.characteristics.agi.base +
-      this.actor.system.characteristics.int.base +
-      this.actor.system.characteristics.wp.base +
-      this.actor.system.characteristics.prc.base +
-      this.actor.system.characteristics.prs.base
-      }
-	
-                    </label>
-                    <table style="table-layout: fixed; text-align: center;">
-                      <tr>
-                        <th>STR</th>
-                        <th>END</th>
-                        <th>AGI</th>
-                        <th>INT</th>
-                        <th>WP</th>
-                        <th>PRC</th>
-                        <th>PRS</th>
-                        <th>LCK</th>
-                      </tr>
-                      <tr>
-                        <td><input type="number" id="strInput" value="${this.actor.system.characteristics.str.base
-      }"></td>
-                        <td><input type="number" id="endInput" value="${this.actor.system.characteristics.end.base
-      }"></td>
-                        <td><input type="number" id="agiInput" value="${this.actor.system.characteristics.agi.base
-      }"></td>
-                        <td><input type="number" id="intInput" value="${this.actor.system.characteristics.int.base
-      }"></td>
-                        <td><input type="number" id="wpInput" value="${this.actor.system.characteristics.wp.base
-      }"></td>
-                        <td><input type="number" id="prcInput" value="${this.actor.system.characteristics.prc.base
-      }"></td>
-                        <td><input type="number" id="prsInput" value="${this.actor.system.characteristics.prs.base
-      }"></td>
-                        <td><input type="number" id="lckInput" value="${this.actor.system.characteristics.lck.base
-      }"></td>
-                      </tr>
-                    </table>
-                  </div>
-
-
-
-
-
-
-
-
-                  <div style="margin-bottom: 10px;">
-                    <h3 style="margin: 0 0 6px 0;">Favored Characteristics</h3>
-                    <div style="border: inset; margin-bottom: 10px; padding: 5px;">
-                      <i>Move favored toggles here to keep the sheet compact. These match the toggles previously shown next to each characteristic.</i>
-                    </div>
-
-                    <table style="table-layout: fixed; text-align: center;">
-                      <tr>
-                        <th>STR</th>
-                        <th>END</th>
-                        <th>AGI</th>
-                        <th>INT</th>
-                        <th>WP</th>
-                        <th>PRC</th>
-                        <th>PRS</th>
-                        <th>LCK</th>
-                      </tr>
-                      <tr>
-                        <td><input type="checkbox" id="strFav" ${this.actor.system.characteristics.str.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="endFav" ${this.actor.system.characteristics.end.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="agiFav" ${this.actor.system.characteristics.agi.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="intFav" ${this.actor.system.characteristics.int.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="wpFav" ${this.actor.system.characteristics.wp.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="prcFav" ${this.actor.system.characteristics.prc.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="prsFav" ${this.actor.system.characteristics.prs.favored ? 'checked' : ''}></td>
-                        <td><input type="checkbox" id="lckFav" ${this.actor.system.characteristics.lck.favored ? 'checked' : ''}></td>
-                      </tr>
-                    </table>
-                  </div>
-
-</div>`,
+    width: 800,
+    classes: ["uesrpg-cg-compact-dialog"],
+    content: `<div class="uesrpg-cg-dialog">
+      <div class="uesrpg-cg-dialog__note">
+        RAW: Roll 2d10 seven times for non-luck and assign on top of racial baseline. Luck is 2d10 + 30 (max 50). Optional manual point-buy: distribute exactly 80 points (max 20 per non-luck characteristic).
+      </div>
+      <div class="uesrpg-cg-dialog__tools">
+        <button type="button" id="cgRollRaw">Roll RAW</button>
+        <button type="button" id="cgUseRoll">Use Roll Mode</button>
+        <button type="button" id="cgUsePointBuy">Use Point Buy Mode</button>
+        <button type="button" id="cgReroll" title="Optional RAW reroll pool (max 3)">Reroll Pool</button>
+        <label class="uesrpg-cg-dialog__small" style="display:flex; align-items:center; gap:4px;">
+          Assignment
+          <select id="cgAssignmentMode">
+            <option value="auto">Auto Assign</option>
+            <option value="manual">Manual Assign</option>
+          </select>
+        </label>
+        <span class="uesrpg-cg-dialog__small">Mode: <b id="cgModeLabel">Roll</b></span>
+        <span class="uesrpg-cg-dialog__small">Pool: <span id="cgRollPool">${state.rollPool.join(", ")}</span></span>
+        <span class="uesrpg-cg-dialog__small">Rerolls: <span id="cgRerollCount">0/3</span></span>
+      </div>
+      <div id="cgRollSection" class="uesrpg-cg-dialog__note">Roll Assignment Mode controls how the 7 rolled values are mapped to STR/END/AGI/INT/WP/PRC/PRS.</div>
+      <div id="cgManualAssignSection" style="display:none;">
+        <div class="uesrpg-cg-dialog__note">Manual Assignment (use each roll exactly once):</div>
+        <div id="cgManualAssignWrap" style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px;"></div>
+      </div>
+      <div id="cgPointBuySection" style="display:none;">
+        <div class="uesrpg-cg-dialog__note">Point Buy Allocation: <b id="cgPointBuyTotal">0/80</b> (max 20 each)</div>
+        <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px;">
+          ${CHA_KEYS.map((k) => `<label style="display:flex; flex-direction:column; gap:2px;"><span>${k.toUpperCase()}</span><input type="number" id="pb-${k}" min="0" max="20" value="0"></label>`).join("")}
+        </div>
+      </div>
+      <table class="uesrpg-cg-dialog__table">
+        <tr><th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th><th>LCK</th></tr>
+        <tr>
+          <td><input type="number" id="strInput"></td>
+          <td><input type="number" id="endInput"></td>
+          <td><input type="number" id="agiInput"></td>
+          <td><input type="number" id="intInput"></td>
+          <td><input type="number" id="wpInput"></td>
+          <td><input type="number" id="prcInput"></td>
+          <td><input type="number" id="prsInput"></td>
+          <td><input type="number" id="lckInput" value="${state.luckRoll}"></td>
+        </tr>
+      </table>
+      <div class="uesrpg-cg-dialog__note">Select exactly two favored characteristics.</div>
+      <table class="uesrpg-cg-dialog__table">
+        <tr><th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th><th>LCK</th></tr>
+        <tr>
+          <td><input type="checkbox" id="strFav" ${current?.str?.favored ? "checked" : ""}></td>
+          <td><input type="checkbox" id="endFav" ${current?.end?.favored ? "checked" : ""}></td>
+          <td><input type="checkbox" id="agiFav" ${current?.agi?.favored ? "checked" : ""}></td>
+          <td><input type="checkbox" id="intFav" ${current?.int?.favored ? "checked" : ""}></td>
+          <td><input type="checkbox" id="wpFav" ${current?.wp?.favored ? "checked" : ""}></td>
+          <td><input type="checkbox" id="prcFav" ${current?.prc?.favored ? "checked" : ""}></td>
+          <td><input type="checkbox" id="prsFav" ${current?.prs?.favored ? "checked" : ""}></td>
+          <td><input type="checkbox" id="lckFav" ${current?.lck?.favored ? "checked" : ""}></td>
+        </tr>
+      </table>
+    </div>`,
     yes: {
       label: "Submit",
       callback: async (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          if (!root) return;
-          const strInput = parseInt(root.querySelector('#strInput')?.value) || 0;
-          const endInput = parseInt(root.querySelector('#endInput')?.value) || 0;
-          const agiInput = parseInt(root.querySelector('#agiInput')?.value) || 0;
-          const intInput = parseInt(root.querySelector('#intInput')?.value) || 0;
-          const wpInput = parseInt(root.querySelector('#wpInput')?.value) || 0;
-          const prcInput = parseInt(root.querySelector('#prcInput')?.value) || 0;
-          const prsInput = parseInt(root.querySelector('#prsInput')?.value) || 0;
-          const lckInput = parseInt(root.querySelector('#lckInput')?.value) || 0;
-          const strFav = Boolean(root.querySelector('#strFav')?.checked);
-          const endFav = Boolean(root.querySelector('#endFav')?.checked);
-          const agiFav = Boolean(root.querySelector('#agiFav')?.checked);
-          const intFav = Boolean(root.querySelector('#intFav')?.checked);
-          const wpFav = Boolean(root.querySelector('#wpFav')?.checked);
-          const prcFav = Boolean(root.querySelector('#prcFav')?.checked);
-          const prsFav = Boolean(root.querySelector('#prsFav')?.checked);
-          const lckFav = Boolean(root.querySelector('#lckFav')?.checked);
+        const root = _resolveDialogRoot(html);
+        if (!root) return;
+        let values = {};
+        let assignedMap = null;
+        let pointBuyAllocation = null;
+        if (state.mode === "roll") {
+          const map = currentAssignMap(root);
+          const idxValues = Object.values(map);
+          if (idxValues.some((v) => v < 0 || v >= state.rollPool.length)) {
+            ui.notifications?.warn?.("Invalid roll assignment.");
+            return;
+          }
+          if (state.assignmentMode === "manual") {
+            if (new Set(idxValues).size !== idxValues.length) {
+              ui.notifications?.warn?.("Manual assignment must use each rolled value only once.");
+              return;
+            }
+          }
+          assignedMap = map;
+          values = Object.fromEntries(CHA_KEYS.map((k) => [k, baseline[k] + _num(state.rollPool[map[k]], 0)]));
+        } else {
+          pointBuyAllocation = {};
+          let total = 0;
+          for (const key of CHA_KEYS) {
+            const raw = _num(root.querySelector(`#pb-${key}`)?.value, 0);
+            if (raw < 0 || raw > 20) {
+              ui.notifications?.warn?.("Each point-buy allocation must be between 0 and 20.");
+              return;
+            }
+            total += raw;
+            pointBuyAllocation[key] = raw;
+          }
+          if (total !== 80) {
+            ui.notifications?.warn?.(`Point buy must total exactly 80 (currently ${total}).`);
+            return;
+          }
+          values = Object.fromEntries(CHA_KEYS.map((k) => [k, baseline[k] + _num(pointBuyAllocation[k], 0)]));
+        }
+        values.lck = Math.min(50, _num(root.querySelector("#lckInput")?.value, state.luckRoll));
+        const favored = {
+          str: Boolean(root.querySelector("#strFav")?.checked),
+          end: Boolean(root.querySelector("#endFav")?.checked),
+          agi: Boolean(root.querySelector("#agiFav")?.checked),
+          int: Boolean(root.querySelector("#intFav")?.checked),
+          wp: Boolean(root.querySelector("#wpFav")?.checked),
+          prc: Boolean(root.querySelector("#prcFav")?.checked),
+          prs: Boolean(root.querySelector("#prsFav")?.checked),
+          lck: Boolean(root.querySelector("#lckFav")?.checked),
+        };
 
-          //Shortcut for characteristics
-          const chaPath = this.actor.system.characteristics;
+        const favoredCount = Object.values(favored).filter(Boolean).length;
+        if (favoredCount !== 2) {
+          ui.notifications?.warn?.("Select exactly 2 favored characteristics.");
+          return;
+        }
 
-          //Assign values to characteristics
-          chaPath.str.base = strInput;
-          chaPath.str.total = strInput;
+        await requestUpdateDocument(actor, {
+          "system.characteristics.str.base": values.str,
+          "system.characteristics.str.total": values.str,
+          "system.characteristics.end.base": values.end,
+          "system.characteristics.end.total": values.end,
+          "system.characteristics.agi.base": values.agi,
+          "system.characteristics.agi.total": values.agi,
+          "system.characteristics.int.base": values.int,
+          "system.characteristics.int.total": values.int,
+          "system.characteristics.wp.base": values.wp,
+          "system.characteristics.wp.total": values.wp,
+          "system.characteristics.prc.base": values.prc,
+          "system.characteristics.prc.total": values.prc,
+          "system.characteristics.prs.base": values.prs,
+          "system.characteristics.prs.total": values.prs,
+          "system.characteristics.lck.base": Math.min(50, values.lck),
+          "system.characteristics.lck.total": Math.min(50, values.lck),
+          "system.characteristics.str.favored": favored.str,
+          "system.characteristics.end.favored": favored.end,
+          "system.characteristics.agi.favored": favored.agi,
+          "system.characteristics.int.favored": favored.int,
+          "system.characteristics.wp.favored": favored.wp,
+          "system.characteristics.prc.favored": favored.prc,
+          "system.characteristics.prs.favored": favored.prs,
+          "system.characteristics.lck.favored": favored.lck,
+        });
 
-          chaPath.end.base = endInput;
-          chaPath.end.total = endInput;
-
-          chaPath.agi.base = agiInput;
-          chaPath.agi.total = agiInput;
-
-          chaPath.int.base = intInput;
-          chaPath.int.total = intInput;
-
-          chaPath.wp.base = wpInput;
-          chaPath.wp.total = wpInput;
-
-          chaPath.prc.base = prcInput;
-          chaPath.prc.total = prcInput;
-
-          chaPath.prs.base = prsInput;
-          chaPath.prs.total = prsInput;
-
-          chaPath.lck.base = lckInput;
-          chaPath.lck.total = lckInput;
-
-          await requestUpdateDocument(this.actor, {
-            system: {
-              characteristics: {
-                str: { base: strInput, total: chaPath.str.total },
-                end: { base: endInput, total: chaPath.end.total },
-                agi: { base: agiInput, total: chaPath.agi.total },
-                int: { base: intInput, total: chaPath.int.total },
-                wp: { base: wpInput, total: chaPath.wp.total },
-                prc: { base: prcInput, total: chaPath.prc.total },
-                prs: { base: prsInput, total: chaPath.prs.total },
-                lck: { base: lckInput, total: chaPath.lck.total },
-              },
-            },
-            "system.characteristics.str.favored": strFav,
-            "system.characteristics.end.favored": endFav,
-            "system.characteristics.agi.favored": agiFav,
-            "system.characteristics.int.favored": intFav,
-            "system.characteristics.wp.favored": wpFav,
-            "system.characteristics.prc.favored": prcFav,
-            "system.characteristics.prs.favored": prsFav,
-            "system.characteristics.lck.favored": lckFav,
-          });
+        await appendChargenAudit(actor, {
+          step: "stats",
+          action: "submit",
+          payload: {
+            mode: state.mode,
+            rollPool: state.mode === "roll" ? [...state.rollPool] : null,
+            assignmentMode: state.mode === "roll" ? state.assignmentMode : null,
+            assignedMap,
+            pointBuyAllocation,
+            luckRoll: values.lck,
+            rerollsUsed: state.rerollsUsed,
+            final: values,
+            favored: Object.entries(favored).filter(([, enabled]) => enabled).map(([k]) => k),
+          },
+        });
+        await requestUpdateDocument(actor, {
+          "flags.uesrpg-3ev4.chargen.statsGeneration": {
+            mode: state.mode,
+            rollPool: state.mode === "roll" ? [...state.rollPool] : null,
+            assignmentMode: state.mode === "roll" ? state.assignmentMode : null,
+            assignedMap,
+            pointBuyAllocation,
+            luckRoll: values.lck,
+            rerollsUsed: state.rerollsUsed,
+          },
+        });
       },
     },
     no: { label: "Cancel" },
     defaultButton: "yes",
+    render: (_event, html) => {
+      const root = _resolveDialogRoot(html);
+      if (!root) return;
+      renderRollAssignSelectors(root);
+      refreshUi(root);
+
+      root.querySelector("#cgRollRaw")?.addEventListener("click", () => {
+        state.rollPool = CHA_KEYS.map(() => _roll2d10());
+        state.luckRoll = Math.min(50, 30 + _roll2d10());
+        root.querySelector("#lckInput").value = String(state.luckRoll);
+        renderRollAssignSelectors(root);
+        refreshUi(root);
+      });
+      root.querySelector("#cgUseRoll")?.addEventListener("click", () => {
+        state.mode = "roll";
+        refreshUi(root);
+      });
+      root.querySelector("#cgUsePointBuy")?.addEventListener("click", () => {
+        state.mode = "pointbuy";
+        refreshUi(root);
+      });
+      root.querySelector("#cgReroll")?.addEventListener("click", () => {
+        if (state.rerollsUsed >= 3) {
+          ui.notifications?.warn?.("Maximum RAW rerolls reached (3).");
+          return;
+        }
+        if (state.mode !== "roll") {
+          ui.notifications?.warn?.("Reroll pool is only available in Roll mode.");
+          return;
+        }
+        state.rerollsUsed += 1;
+        state.rollPool = CHA_KEYS.map(() => _roll2d10());
+        renderRollAssignSelectors(root);
+        refreshUi(root);
+      });
+      root.querySelector("#cgAssignmentMode")?.addEventListener("change", (ev) => {
+        state.assignmentMode = String(ev?.currentTarget?.value ?? "auto");
+        refreshUi(root);
+      });
+      for (const key of CHA_KEYS) {
+        root.querySelector(`#pb-${key}`)?.addEventListener("input", () => refreshUi(root));
+      }
+      root.addEventListener("change", (ev) => {
+        if (String(ev?.target?.id ?? "").startsWith("assign-")) refreshUi(root);
+      });
+    },
   });
 });
-
 /**
  * Handle characteristic click for rolling.
  * Supports full opposed (targeted) and unopposed (untargeted) pipelines,
@@ -337,7 +505,8 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
   const tags = [];
   if (Number(this.actor.system?.woundPenalty ?? 0) !== 0) tags.push(`<span class="tag wound-tag">Wounded ${this.actor.system.woundPenalty}</span>`);
   if (this.actor.system.fatigue.penalty != 0) tags.push(`<span class="tag fatigue-tag">Fatigued ${this.actor.system.fatigue.penalty}</span>`);
-  if (this.actor.system.carry_rating.penalty != 0) tags.push(`<span class="tag enc-tag">Encumbered ${this.actor.system.carry_rating.penalty}</span>`);
+  const encApplied = (tn.breakdown ?? []).some(b => b.source === "encumbrance");
+  if (encApplied) tags.push(`<span class="tag enc-tag">Encumbered ${this.actor.system.carry_rating.penalty}</span>`);
 
   const armorMods = (tn.breakdown ?? []).filter(b => String(b.label || "").startsWith("Armor:") && Number(b.value) !== 0);
   for (const m of armorMods) {
@@ -440,74 +609,147 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
 export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, target) {
   event.preventDefault();
 
-  const hasThiefBirthsign = this.actor.items.filter(
-    (item) =>
-      item.type === "trait" &&
-      (item.name === "The Thief" || item.name === "The Star-Cursed Thief")
-  ).length > 0;
+  const actor = this.actor;
+  const hasThiefBirthsign = actor.items.some(
+    (item) => item.type === "trait" && (item.name === "The Thief" || item.name === "The Star-Cursed Thief")
+  );
 
-  const thiefInput = hasThiefBirthsign
-    ? `<input class="luckyNum thiefNum" id="ln6" type="number" value="${this.actor.system.lucky_numbers.ln6}">`
-    : "";
+  function getLuckBonus() {
+    return Math.max(0, _num(actor.system?.characteristics?.lck?.bonus, Math.floor(_num(actor.system?.characteristics?.lck?.total, 0) / 10)));
+  }
 
-  const content = `<div style="padding: 10px">
-                    <div style="background: rgba(180, 180, 180, 0.562); border: solid 1px; padding: 10px; font-style: italic;">
-                        Input your character's lucky and unlucky numbers and click submit to register them. You can change them at any point.
-                    </div>
+  function rollNumbers() {
+    const luckyCount = Math.max(0, getLuckBonus()) + (hasThiefBirthsign ? 1 : 0);
+    const unluckyCount = Math.max(0, 5 - getLuckBonus());
+    const taken = new Set();
+    const lucky = [];
+    const unlucky = [];
+    while (lucky.length < luckyCount) {
+      const n = _randomUniqueD100(taken);
+      lucky.push(n);
+      taken.add(n);
+    }
+    while (unlucky.length < unluckyCount) {
+      const n = _randomUniqueD100(taken);
+      unlucky.push(n);
+      taken.add(n);
+    }
+    return { lucky, unlucky, luckyCount, unluckyCount };
+  }
 
-                    <div>
-                      <h2 style="text-align: center;">
-                        Lucky Numbers
-                      </h2>
-                      <div style="display: flex; justify-content: space-around; align-items: center; text-align: center;">
-                          <input class="luckyNum" id="ln1" type="number" value="${this.actor.system.lucky_numbers.ln1}">
-                          <input class="luckyNum" id="ln2" type="number" value="${this.actor.system.lucky_numbers.ln2}">
-                          <input class="luckyNum" id="ln3" type="number" value="${this.actor.system.lucky_numbers.ln3}">
-                          <input class="luckyNum" id="ln4" type="number" value="${this.actor.system.lucky_numbers.ln4}">
-                          <input class="luckyNum" id="ln5" type="number" value="${this.actor.system.lucky_numbers.ln5}">
-                          ${thiefInput}
-                      </div>
-                    </div>
+  const initialCounts = {
+    luckyCount: Math.max(0, getLuckBonus()) + (hasThiefBirthsign ? 1 : 0),
+    unluckyCount: Math.max(0, 5 - getLuckBonus()),
+  };
+  const state = { mode: "manual", rollTrace: null };
 
-                    <div>
-                      <h2 style="text-align: center;">
-                        Unlucky Numbers
-                      </h2>
-                      <div style="display: flex; justify-content: space-around; align-items: center; text-align: center;">
-                          <input class="unluckyNum" id="ul1" type="number" value="${this.actor.system.unlucky_numbers.ul1}">
-                          <input class="unluckyNum" id="ul2" type="number" value="${this.actor.system.unlucky_numbers.ul2}">
-                          <input class="unluckyNum" id="ul3" type="number" value="${this.actor.system.unlucky_numbers.ul3}">
-                          <input class="unluckyNum" id="ul4" type="number" value="${this.actor.system.unlucky_numbers.ul4}">
-                          <input class="unluckyNum" id="ul5" type="number" value="${this.actor.system.unlucky_numbers.ul5}">
-                      </div>
-                    </div>
-                  </div>`;
+  function applySet(root, data) {
+    const luckyInputs = ["ln1", "ln2", "ln3", "ln4", "ln5", "ln6"];
+    const unluckyInputs = ["ul1", "ul2", "ul3", "ul4", "ul5"];
+    luckyInputs.forEach((id, idx) => {
+      const input = root.querySelector(`#${id}`);
+      if (input) input.value = String(data.lucky[idx] ?? 0);
+    });
+    unluckyInputs.forEach((id, idx) => {
+      const input = root.querySelector(`#${id}`);
+      if (input) input.value = String(data.unlucky[idx] ?? 0);
+    });
+    const countEl = root.querySelector("#cgLuckCounts");
+    if (countEl) countEl.textContent = `Lucky ${data.luckyCount} | Unlucky ${data.unluckyCount}`;
+    state.rollTrace = data;
+  }
 
   await customDialog({
     title: "Lucky & Unlucky Numbers",
-    content,
+    width: 800,
+    classes: ["uesrpg-cg-compact-dialog"],
+    content: `<div class="uesrpg-cg-dialog">
+      <div class="uesrpg-cg-dialog__note">
+        RAW default: Lucky count = Luck bonus${hasThiefBirthsign ? " (+1 for Thief sign)" : ""}; Unlucky count = 5 - Luck bonus.
+      </div>
+      <div class="uesrpg-cg-dialog__tools">
+        <button type="button" id="cgRollLucky">Roll RAW</button>
+        <button type="button" id="cgManualLucky">Manual Edit</button>
+        <span class="uesrpg-cg-dialog__small" id="cgLuckCounts">Lucky ${initialCounts.luckyCount} | Unlucky ${initialCounts.unluckyCount}</span>
+      </div>
+      <table class="uesrpg-cg-dialog__table">
+        <tr><th colspan="${hasThiefBirthsign ? 6 : 5}">Lucky Numbers</th></tr>
+        <tr>
+          <td><input class="luckyNum" id="ln1" type="number" min="1" max="100" value=""></td>
+          <td><input class="luckyNum" id="ln2" type="number" min="1" max="100" value=""></td>
+          <td><input class="luckyNum" id="ln3" type="number" min="1" max="100" value=""></td>
+          <td><input class="luckyNum" id="ln4" type="number" min="1" max="100" value=""></td>
+          <td><input class="luckyNum" id="ln5" type="number" min="1" max="100" value=""></td>
+          ${hasThiefBirthsign ? `<td><input class="luckyNum" id="ln6" type="number" min="1" max="100" value=""></td>` : ""}
+        </tr>
+      </table>
+      <table class="uesrpg-cg-dialog__table">
+        <tr><th colspan="5">Unlucky Numbers</th></tr>
+        <tr>
+          <td><input class="unluckyNum" id="ul1" type="number" min="1" max="100" value=""></td>
+          <td><input class="unluckyNum" id="ul2" type="number" min="1" max="100" value=""></td>
+          <td><input class="unluckyNum" id="ul3" type="number" min="1" max="100" value=""></td>
+          <td><input class="unluckyNum" id="ul4" type="number" min="1" max="100" value=""></td>
+          <td><input class="unluckyNum" id="ul5" type="number" min="1" max="100" value=""></td>
+        </tr>
+      </table>
+    </div>`,
     yes: {
       label: "Submit",
       callback: async (html) => {
-        const root = html instanceof HTMLElement ? html : html?.[0];
-        // Create input arrays from dialog root (not global document)
-        const luckyNums = [...root.querySelectorAll(".luckyNum")];
-        const unluckyNums = [...root.querySelectorAll(".unluckyNum")];
+        const root = _resolveDialogRoot(html);
+        if (!root) return;
+        const luckyNums = [...root.querySelectorAll(".luckyNum")].map((input) => _num(input.value, 0)).filter((n) => n > 0);
+        const unluckyNums = [...root.querySelectorAll(".unluckyNum")].map((input) => _num(input.value, 0)).filter((n) => n > 0);
 
-        // Collect all lucky/unlucky number updates into a single payload
-        const updatePayload = {};
-        for (const num of luckyNums) {
-          updatePayload[`system.lucky_numbers.${num.id}`] = Number(num.value);
+        const uniqueLucky = new Set(luckyNums);
+        const uniqueUnlucky = new Set(unluckyNums);
+        if (uniqueLucky.size !== luckyNums.length || uniqueUnlucky.size !== unluckyNums.length) {
+          ui.notifications?.warn?.("Lucky/Unlucky numbers cannot contain duplicates.");
+          return;
         }
-        for (const num of unluckyNums) {
-          updatePayload[`system.unlucky_numbers.${num.id}`] = Number(num.value);
+        for (const n of uniqueLucky) {
+          if (uniqueUnlucky.has(n)) {
+            ui.notifications?.warn?.("Lucky and Unlucky numbers cannot overlap.");
+            return;
+          }
         }
-        if (Object.keys(updatePayload).length) {
-            await requestUpdateDocument(this.actor, updatePayload);
+        if ([...uniqueLucky, ...uniqueUnlucky].some((n) => n < 1 || n > 100)) {
+          ui.notifications?.warn?.("Numbers must be between 1 and 100.");
+          return;
         }
+
+        const luckyIds = ["ln1", "ln2", "ln3", "ln4", "ln5", "ln6"];
+        const unluckyIds = ["ul1", "ul2", "ul3", "ul4", "ul5"];
+        const updates = {};
+        luckyIds.forEach((id, idx) => { updates[`system.lucky_numbers.${id}`] = luckyNums[idx] ?? 0; });
+        unluckyIds.forEach((id, idx) => { updates[`system.unlucky_numbers.${id}`] = unluckyNums[idx] ?? 0; });
+        await requestUpdateDocument(actor, updates);
+
+        await appendChargenAudit(actor, {
+          step: "luck",
+          action: "submit",
+          payload: {
+            mode: state.mode,
+            lucky: luckyNums,
+            unlucky: unluckyNums,
+            rollTrace: state.rollTrace,
+          },
+        });
       },
     },
     no: { label: "Cancel" },
     defaultButton: "yes",
+    render: (_event, html) => {
+      const root = _resolveDialogRoot(html);
+      if (!root) return;
+      root.querySelector("#cgRollLucky")?.addEventListener("click", () => {
+        state.mode = "roll";
+        applySet(root, rollNumbers());
+      });
+      root.querySelector("#cgManualLucky")?.addEventListener("click", () => {
+        state.mode = "manual";
+      });
+    },
   });
 });

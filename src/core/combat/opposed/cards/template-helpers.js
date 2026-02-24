@@ -192,11 +192,11 @@ export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _s
         const reason = String(commitGate?.reason ?? "Unavailable");
         return `<div style="margin-top:6px; font-size:12px; opacity:0.85;"><i>Attack unavailable: ${reason}</i></div>`;
       }
-      return `<div style="margin-top:6px;">${_btn("Attack", "attacker-commit", {}, "padding:1px 4px; font-size:11px; line-height:1.05; min-width:112px;")}</div>`;
+      return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn("Attack", "attacker-commit")}</div>`;
     }
     return "";
   }
-  return `<div style="margin-top:6px;">${_btn("Roll Attack", "attacker-roll")}</div>`;
+  return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn("Roll Attack", "attacker-roll")}</div>`;
 }
 
 /**
@@ -219,15 +219,15 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
       if (commitDefenseGate?.allowed === false) {
         const reason = String(commitDefenseGate?.reason ?? "Unavailable");
         return `
-        <div style="margin-top:6px; display:grid; grid-template-columns:minmax(0, 1fr); gap:4px; align-items:stretch; width:100%; min-width:0;">
-          ${_btn("No Defense", "defender-commit-nodefense", { "defender-index": idx }, "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;")}
+        <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+          ${_btn("No Defense", "defender-commit-nodefense", { "defender-index": idx })}
           <div style="font-size:12px; opacity:0.85;"><i>Defense unavailable: ${reason}</i></div>
         </div>`;
       }
       return `
-        <div style="margin-top:6px; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px; align-items:stretch; width:100%; min-width:0;">
-          ${_btn("Defense", "defender-commit", { "defender-index": idx }, "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;")}
-          ${_btn("No Defense", "defender-commit-nodefense", { "defender-index": idx }, "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;")}
+        <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
+          ${_btn("Defense", "defender-commit", { "defender-index": idx })}
+          ${_btn("No Defense", "defender-commit-nodefense", { "defender-index": idx })}
         </div>`;
     }
 
@@ -236,7 +236,7 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
     if (dCommitted && _allDefendersCommitted(data) && !defender.result) {
       const dt = String(defender?.defenseType ?? "").toLowerCase();
       if (dt && dt !== "none") {
-        return `<div style="margin-top:6px;">${_btn("Roll Defense", "defender-roll-committed", { "defender-index": idx })}</div>`;
+        return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn("Roll Defense", "defender-roll-committed", { "defender-index": idx })}</div>`;
       }
     }
 
@@ -244,7 +244,7 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
   }
 
   return `
-    <div style="margin-top:6px; display:flex; gap:8px; flex-wrap:wrap;">
+    <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
       ${_btn("Defend", "defender-roll", { "defender-index": idx })}
       ${_btn("No Defense", "defender-nodefense", { "defender-index": idx })}
     </div>`;

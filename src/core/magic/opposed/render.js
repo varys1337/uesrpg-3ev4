@@ -118,6 +118,40 @@ function renderRollLine(result, { noRollText = "Automatic" } = {}) {
   return renderRow("Roll:", `${totalText} - ${fmtDegree(result)}`, { nowrapValue: true });
 }
 
+function getCostPresentation(attacker = {}) {
+  const castSource = attacker?.castSource ?? null;
+  const costMode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
+  const spentCost = Number(attacker?.mpSpent ?? attacker?.spellCost ?? 0) || 0;
+
+  if (castSource?.type === "enchantment") {
+    if (costMode === "none") {
+      return {
+        label: "No Resource Cost",
+        value: "0",
+        isNoCost: true
+      };
+    }
+    if (costMode === "magicka") {
+      return {
+        label: "MP Cost",
+        value: String(spentCost),
+        isNoCost: false
+      };
+    }
+    return {
+      label: "Soul Energy Cost",
+      value: `${spentCost} (pool: ${Number(castSource?.pool?.value ?? 0)}/${Number(castSource?.pool?.max ?? 0)})`,
+      isNoCost: false
+    };
+  }
+
+  return {
+    label: "MP Cost",
+    value: String(Number(attacker?.spellCost ?? 0) || 0),
+    isNoCost: false
+  };
+}
+
 
 /**
  * Render TN breakdown as collapsible details.
@@ -222,23 +256,43 @@ function getMagicAttackerCommitGate(data) {
 
   const spell = resolveSpellFromUuid(data?.attacker?.spellUuid);
   if (spell) {
+    const castSource = data?.attacker?.castSource ?? null;
+    const castMode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
+    const isEnchantSource = castSource?.type === "enchantment";
     if (game?.combat) {
       const cls = classifySpellForRouting(spell);
       if (cls?.isAttack && AttackTracker.hasExceededLimit(attacker)) {
         return { allowed: false, reason: AttackTracker.getLimitWarning(attacker) || "Attack limit reached" };
       }
     }
-    const costInfo = computeSpellAttemptMagickaCost(attacker, spell, data?.attacker?.spellOptions ?? {});
-    const needed = Number(costInfo?.cost ?? 0) || 0;
-    const currentMagicka = Number(foundry.utils.getProperty(attacker, "system.magicka.value") ?? 0);
-    if (currentMagicka < needed) return { allowed: false, reason: `${currentMagicka}/${needed} MP` };
+    if (isEnchantSource && castMode === "soul") {
+      const itemUuid = String(castSource?.itemUuid ?? "").trim();
+      const sourceLane = String(castSource?.sourceLane ?? "workshop").trim().toLowerCase();
+      let itemDoc = null;
+      try {
+        itemDoc = itemUuid ? fromUuidSync(itemUuid) : null;
+      } catch (_e) {
+        itemDoc = null;
+      }
+      const item = itemDoc?.documentName === "Item" ? itemDoc : null;
+      const needed = Number(castSource?.cost ?? 0) || 0;
+      if (!item) return { allowed: false, reason: "Item unavailable" };
+      const poolValue = sourceLane === "extension"
+        ? Number(item.system?.charge?.value ?? item.flags?.["uesrpg-3ev4"]?.itemSpellcasting?.pool?.value ?? 0) || 0
+        : Number(item.flags?.["uesrpg-3ev4"]?.enchanting?.cast?.pool?.value ?? 0) || 0;
+      if (poolValue < needed) return { allowed: false, reason: `${poolValue}/${needed} Soul` };
+    } else if (!(isEnchantSource && castMode === "none")) {
+      const costInfo = computeSpellAttemptMagickaCost(attacker, spell, data?.attacker?.spellOptions ?? {});
+      const needed = Number(costInfo?.cost ?? 0) || 0;
+      const currentMagicka = Number(foundry.utils.getProperty(attacker, "system.magicka.value") ?? 0);
+      if (currentMagicka < needed) return { allowed: false, reason: `${currentMagicka}/${needed} MP` };
+    }
   }
 
   return { allowed: true };
 }
 
 function getMagicDefenderCommitDefenseGate(defenderData) {
-  if (!game?.combat) return { allowed: true };
   const defender = resolveActorFromUuid(defenderData?.actorUuid);
   if (!defender) return { allowed: false, reason: "Target unavailable" };
   const apCost = Number(defenderData?.apCost ?? 1) || 1;
@@ -253,6 +307,8 @@ function getMagicDefenderCommitDefenseGate(defenderData) {
 function renderMultiDefenderCard(data, messageId) {
   const defenders = getDefenderEntries(data);
   const a = data.attacker ?? {};
+  const cost = getCostPresentation(a);
+  const attackerCostLine = renderRow(cost.label, cost.value);
   const bankMode = isBankChoicesEnabledForData(data);
   const anyOutcome = defenders.some(d => getDefenderOutcome(data, d));
   const { aCommitted } = getBankCommitState(data, defenders[0] ?? null);
@@ -285,11 +341,11 @@ function renderMultiDefenderCard(data, messageId) {
         if (attackerCommitGate?.allowed === false) {
           return `<div style="margin-top:8px; font-size:12px; opacity:0.85;"><i>Casting unavailable: ${String(attackerCommitGate?.reason ?? "Unavailable")}</i></div>`;
         }
-        return `<div style="margin-top:8px;">${btn({ label: "Casting", action: "attacker-commit", style: "padding:1px 4px; font-size:11px; line-height:1.05; min-width:112px;" })}</div>`;
+        return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: "Casting", action: "attacker-commit" })}</div>`;
       }
       return "";
     }
-    return `<div style="margin-top:8px;">${btn({ label: "Roll Casting Test", action: "attacker-roll" })}</div>`;
+    return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: "Roll Casting Test", action: "attacker-roll" })}</div>`;
   })();
 
   const defenderBlocks = defenders.map((d, idx) => {
@@ -330,25 +386,25 @@ function renderMultiDefenderCard(data, messageId) {
           if (isCharSave) {
             const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
             return `
-              <div style="margin-top:8px;">
-                ${btn({ label: `Commit ${charLabel} Save`, action: "defender-commit-characteristic", dataset: { "defender-index": idx }, style: "padding:1px 4px; font-size:11px; line-height:1.05; min-width:112px;" })}
+              <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+                ${btn({ label: `Commit ${charLabel} Save`, action: "defender-commit-characteristic", dataset: { "defender-index": idx } })}
               </div>
             `;
           }
           const defenseCommitGate = getMagicDefenderCommitDefenseGate(d);
           if (defenseCommitGate?.allowed === false) {
             return `
-              <div style="margin-top:6px; display:grid; grid-template-columns:minmax(0, 1fr); gap:4px; align-items:stretch; width:100%; min-width:0;">
-                ${btn({ label: "No Defense", action: "defender-commit-nodefense", dataset: { "defender-index": idx }, style: "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;" })}
+              <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+                ${btn({ label: "No Defense", action: "defender-commit-nodefense", dataset: { "defender-index": idx } })}
                 <div style="font-size:12px; opacity:0.85;"><i>Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}</i></div>
               </div>
             `;
           }
           // Standard defense: Defense / No Defense buttons
           return `
-            <div style="margin-top:6px; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px; align-items:stretch; width:100%; min-width:0;">
-              ${btn({ label: "Defense", action: "defender-commit", dataset: { "defender-index": idx }, style: "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;" })}
-              ${btn({ label: "No Defense", action: "defender-commit-nodefense", dataset: { "defender-index": idx }, style: "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;" })}
+            <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
+              ${btn({ label: "Defense", action: "defender-commit", dataset: { "defender-index": idx } })}
+              ${btn({ label: "No Defense", action: "defender-commit-nodefense", dataset: { "defender-index": idx } })}
             </div>
           `;
         }
@@ -359,7 +415,7 @@ function renderMultiDefenderCard(data, messageId) {
       if (isCharSave && a.result && !d.result) {
         const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
         return `
-          <div style="margin-top:8px;">
+          <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
             ${btn({ label: `Roll ${charLabel} Save`, action: "defender-characteristic-test", dataset: { "defender-index": idx } })}
           </div>
         `;
@@ -370,7 +426,7 @@ function renderMultiDefenderCard(data, messageId) {
         const defenderActor = d.actorUuid ? (game.actors?.get(d.actorUuid?.split(".")?.pop()) ?? null) : null;
         const wardAvailable = defenderActor ? hasActiveWard(defenderActor) : false;
         return `
-          <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+          <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
             ${btn({ label: "Block", action: "defender-roll-block", dataset: { "defender-index": idx } })}
             ${btn({ label: "Evade", action: "defender-roll-evade", dataset: { "defender-index": idx } })}
             ${wardAvailable ? btn({ label: "Ward", action: "defender-roll-ward", dataset: { "defender-index": idx } }) : ""}
@@ -388,7 +444,7 @@ function renderMultiDefenderCard(data, messageId) {
       const resolveAction = defType === "ward" ? "ward-resolve" : "block-resolve";
       const dmgData = getMagicDefenderDamage(data, d);
       const blockResolveButton = (outcome?.needsBlockResolution && !isAoE && !dmgData?.rolled)
-        ? `<div style="margin-top:8px;">${btn({ label: resolveLabel, action: resolveAction, dataset: { "defender-index": idx } })}</div>`
+        ? `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: resolveLabel, action: resolveAction, dataset: { "defender-index": idx } })}</div>`
         : "";
 
       outcomeLine = `
@@ -410,9 +466,9 @@ function renderMultiDefenderCard(data, messageId) {
 
     return `
       <div style="padding:6px; border:1px solid rgba(0,0,0,0.12); border-radius:6px;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
           <div style="font-size:14px; font-weight:700;">Target</div>
-          <div style="font-size:12px;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
+          <div style="font-size:12px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
         </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
           ${renderRow("Test:", dTestLabel)}
@@ -434,11 +490,12 @@ function renderMultiDefenderCard(data, messageId) {
         <div style="padding-bottom:8px; border-bottom:1px solid rgba(0,0,0,0.12);">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <div style="font-size:14px; font-weight:700;">✨</div>
-            <div style="font-size:13px;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
+            <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
           </div>
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
             ${renderRow("Test:", aTestLabel)}
             ${showAttackRow ? renderRow("Attack:", aAttackLabel) : ""}
+            ${attackerCostLine}
             ${renderTNLine(aTN, revealAttacker ? (a.tn?.breakdown ?? a.tn?.modifiers) : null)}
             ${aRollLine}
             ${attackerCommitLine}
@@ -459,6 +516,8 @@ function renderMultiDefenderCard(data, messageId) {
 function renderSingleDefenderCard(data, messageId) {
   const a = data.attacker;
   const d = data.defender;
+  const cost = getCostPresentation(a);
+  const attackerCostLine = renderRow(cost.label, cost.value);
 
   const bankMode = isBankChoicesEnabledForData(data);
   const { aCommitted, dCommitted, bothCommitted } = getBankCommitState(data);
@@ -524,12 +583,12 @@ function renderSingleDefenderCard(data, messageId) {
         if (attackerCommitGate?.allowed === false) {
           return `<div style="margin-top:8px; font-size:12px; opacity:0.85;"><i>Casting unavailable: ${String(attackerCommitGate?.reason ?? "Unavailable")}</i></div>`;
         }
-        return `<div style="margin-top:8px;">${btn({ label: "Casting", action: "attacker-commit", style: "padding:1px 4px; font-size:11px; line-height:1.05; min-width:112px;" })}</div>`;
+        return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: "Casting", action: "attacker-commit" })}</div>`;
       }
       return "";
     }
     
-    return `<div style="margin-top:8px;">${btn({ label: "Roll Casting Test", action: "attacker-roll" })}</div>`;
+    return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: "Roll Casting Test", action: "attacker-roll" })}</div>`;
   })();
 
   const defenderControls = (() => {
@@ -542,25 +601,25 @@ function renderSingleDefenderCard(data, messageId) {
         if (isCharSave) {
           const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
           return `
-            <div style="margin-top:8px;">
-              ${btn({ label: `Commit ${charLabel} Save`, action: "defender-commit-characteristic", style: "padding:1px 4px; font-size:11px; line-height:1.05; min-width:112px;" })}
+            <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+              ${btn({ label: `Commit ${charLabel} Save`, action: "defender-commit-characteristic" })}
             </div>
           `;
         }
         const defenseCommitGate = getMagicDefenderCommitDefenseGate(d);
         if (defenseCommitGate?.allowed === false) {
           return `
-          <div style="margin-top:6px; display:grid; grid-template-columns:minmax(0, 1fr); gap:4px; align-items:stretch; width:100%; min-width:0;">
-            ${btn({ label: "No Defense", action: "defender-commit-nodefense", style: "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;" })}
+          <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+            ${btn({ label: "No Defense", action: "defender-commit-nodefense" })}
             <div style="font-size:12px; opacity:0.85;"><i>Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}</i></div>
           </div>
         `;
         }
         // Standard defense: Defense / No Defense buttons
         return `
-          <div style="margin-top:6px; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px; align-items:stretch; width:100%; min-width:0;">
-            ${btn({ label: "Defense", action: "defender-commit", style: "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;" })}
-            ${btn({ label: "No Defense", action: "defender-commit-nodefense", style: "padding:1px 4px; font-size:11px; line-height:1.05; width:100%; min-width:0;" })}
+          <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
+            ${btn({ label: "Defense", action: "defender-commit" })}
+            ${btn({ label: "No Defense", action: "defender-commit-nodefense" })}
           </div>
         `;
       }
@@ -571,7 +630,7 @@ function renderSingleDefenderCard(data, messageId) {
     if (isCharSave && a.result && !d.result) {
       const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
       return `
-        <div style="margin-top:8px;">
+        <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
           ${btn({ label: `Roll ${charLabel} Save`, action: "defender-characteristic-test" })}
         </div>
       `;
@@ -582,7 +641,7 @@ function renderSingleDefenderCard(data, messageId) {
       const defenderActor = d.actorUuid ? (game.actors?.get(d.actorUuid?.split(".")?.pop()) ?? null) : null;
       const wardAvailable = defenderActor ? hasActiveWard(defenderActor) : false;
       return `
-        <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+        <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
           ${btn({ label: "Block", action: "defender-roll-block" })}
           ${btn({ label: "Evade", action: "defender-roll-evade" })}
           ${wardAvailable ? btn({ label: "Ward", action: "defender-roll-ward" }) : ""}
@@ -600,7 +659,7 @@ function renderSingleDefenderCard(data, messageId) {
     const resolveAction = defType === "ward" ? "ward-resolve" : "block-resolve";
     const singleDmgData = getMagicDefenderDamage(data, d);
     const blockResolveButton = (data.outcome?.needsBlockResolution && !isAoE && !singleDmgData?.rolled)
-      ? `<div style="margin-top:8px;">${btn({ label: resolveLabel, action: resolveAction })}</div>`
+      ? `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: resolveLabel, action: resolveAction })}</div>`
       : "";
 
     outcomeLine = `
@@ -622,26 +681,27 @@ function renderSingleDefenderCard(data, messageId) {
 
   return `
     <div class="ues-opposed-card ues-magic-opposed-card" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1" style="padding:6px 6px;">
-      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start;">
-        <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12);">
+      <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:stretch;">
+        <div style="min-width:0; padding-right:8px; border-right:1px solid rgba(0,0,0,0.12); box-sizing:border-box; display:flex; flex-direction:column;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <div style="font-size:14px; font-weight:700;">✨</div>
-            <div style="font-size:13px;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
+            <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
           </div>
-          <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-            ${renderRow("Test:", aTestLabel)}
-            ${showAttackRow ? renderRow("Attack:", aAttackLabel) : ""}
-            ${renderTNLine(aTN, aBreakdownEntries)}
-            ${aRollLine}
-            ${attackerCommitLine}
+        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
+          ${renderRow("Test:", aTestLabel)}
+          ${showAttackRow ? renderRow("Attack:", aAttackLabel) : ""}
+          ${attackerCostLine}
+          ${renderTNLine(aTN, aBreakdownEntries)}
+          ${aRollLine}
+          ${attackerCommitLine}
           </div>
-          ${attackerControls}
+          <div style="margin-top:auto;">${attackerControls}</div>
         </div>
 
-        <div style="padding-left:2px;">
+        <div style="min-width:0; padding-left:8px; box-sizing:border-box; display:flex; flex-direction:column;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <div style="font-size:14px; font-weight:700;">🛡️</div>
-            <div style="font-size:13px;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
+            <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
           </div>
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
             ${renderRow("Test:", dTestLabel)}
@@ -650,7 +710,7 @@ function renderSingleDefenderCard(data, messageId) {
             ${dRollLine}
             ${defenderCommitLine}
           </div>
-          ${defenderControls}
+          <div style="margin-top:auto;">${defenderControls}</div>
         </div>
       </div>
       ${outcomeLine}
@@ -671,6 +731,7 @@ function renderSingleDefenderCard(data, messageId) {
  */
 export function renderUnopposedCard(data, messageId) {
   const a = data.attacker;
+  const castSource = a.castSource ?? null;
   const spellName = a.spellName ?? "Spell";
   const spellSchool = a.spellSchool ?? "";
   const spellLevel = Number(a.spellLevel ?? 1);
@@ -682,6 +743,15 @@ export function renderUnopposedCard(data, messageId) {
 
   const spellMpSpent = Number(a.mpSpent ?? a.spellCost ?? 0) || 0;
   const spellMpRefund = Number(a.mpRefund ?? 0) || 0;
+  const cost = getCostPresentation(a);
+  const costLabel = cost.label;
+  const isEnchantmentCast = castSource?.type === "enchantment";
+  const isNoCost = cost.isNoCost === true;
+  const costDetail = isNoCost
+    ? "0"
+    : (isEnchantmentCast
+      ? cost.value
+      : `${spellCost}${spellMpSpent ? ` <span class="muted" style="opacity:0.8;">(paid: ${spellMpSpent}${spellMpRefund ? `, refunded: ${spellMpRefund}` : ""})</span>` : ""}`);
   const aTN = a.tn?.finalTN != null ? String(a.tn.finalTN) : "-";
   const aRollLine = a.result
     ? (a.result.noRoll
@@ -705,7 +775,7 @@ export function renderUnopposedCard(data, messageId) {
           <div style="font-size:18px; font-weight:800; margin-bottom:6px;">${spellName}</div>
           <div><b>School:</b> ${spellSchool || "-"}</div>
           <div><b>Level:</b> ${spellLevel}</div>${castLevelLine}
-          <div><b>MP Cost:</b> ${spellCost}${spellMpSpent ? ` <span class="muted" style="opacity:0.8;">(paid: ${spellMpSpent}${spellMpRefund ? `, refunded: ${spellMpRefund}` : ""})</span>` : ""}</div>
+          <div><b>${costLabel}:</b> ${costDetail}</div>
           <div style="margin-top:6px;"><b>TN:</b> ${aTN}</div>
           ${aRollLine}
           ${aBreakdown}
@@ -730,4 +800,3 @@ export function renderCard(data, messageId) {
   }
   return renderSingleDefenderCard(data, messageId);
 }
-

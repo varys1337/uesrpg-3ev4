@@ -20,7 +20,7 @@ import { resolveDroppedItem } from "../../../../utils/drop-data.js";
  * @returns {Set<string>}
  */
 export function getContainerAllowedTypes() {
-  return new Set(["item", "weapon", "armor", "ammunition"]);
+  return new Set(["item", "scroll", "weapon", "armor", "ammunition"]);
 }
 
 /**

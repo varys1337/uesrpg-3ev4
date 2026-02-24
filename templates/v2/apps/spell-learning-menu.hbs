@@ -1,0 +1,46 @@
+<div class="uesrpg-spelllearn">
+  <header class="uesrpg-spelllearn__header">
+    <div>
+      <h2>Spell Learning (Chargen)</h2>
+      <div class="uesrpg-spelllearn__subtitle">{{actorName}}</div>
+    </div>
+    <div class="uesrpg-spelllearn__stats">
+      <span><b>XP:</b> {{xp}}</span>
+      <span><b>Drakes:</b> {{wealth}}</span>
+    </div>
+    <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>
+  </header>
+
+  <div class="uesrpg-spelllearn__scroll">
+    <section class="uesrpg-spelllearn__section">
+      <h3>Drop Spells to Learn</h3>
+      <p>Drag and drop spell items from sidebar, compendium, or actor sheets.</p>
+      <div class="uesrpg-spelllearn__dropzones">
+        <div class="uesrpg-spelllearn__dropzone" data-zone="standard">
+          <div class="uesrpg-spelllearn__drop-title">Conventional/Unconventional Zone</div>
+          <div class="uesrpg-spelllearn__drop-sub">Accepts non-ritual spells only. Costs follow RAW by spell type and level.</div>
+        </div>
+        <div class="uesrpg-spelllearn__dropzone" data-zone="ritual">
+          <div class="uesrpg-spelllearn__drop-title">Ritual Zone</div>
+          <div class="uesrpg-spelllearn__drop-sub">Accepts ritual spells only. Uses ritual-specific RAW validation.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="uesrpg-spelllearn__section">
+      <h3>Recent Spell Learning Log</h3>
+      <ul class="uesrpg-spelllearn__log">
+        {{#each recentLog as |row|}}
+          <li>
+            <b>{{row.outcome}}</b> - {{row.spellName}} ({{row.spellType}}, L{{row.level}}, {{row.school}})
+            | {{row.paymentMode}} | XP {{row.costXp}} | Drakes {{row.costDrakes}}
+            {{#if row.reason}} | {{row.reason}}{{/if}}
+          </li>
+        {{/each}}
+        {{#unless recentLog.length}}
+          <li>No spell transactions logged yet.</li>
+        {{/unless}}
+      </ul>
+    </section>
+  </div>
+</div>

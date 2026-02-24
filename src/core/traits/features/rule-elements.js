@@ -853,20 +853,10 @@ export function shouldYieldToRE(actor, talentSlug, reType, workflow, getTalentIt
   if (!actor || !talentSlug || !reType || !workflow) return false;
   if (typeof getTalentItemFn !== "function") return false;
 
-  // Check whether the workflow runtime is actually enabled.
-  // Import-free check: read settings directly.
+  // Check whether the Rule Elements runtime is enabled.
   try {
-    const WORKFLOW_SETTINGS = {
-      skill: "enableRuleElementsRuntimeSkill",
-      characteristic: "enableRuleElementsRuntimeCharacteristic",
-      combat: "enableRuleElementsRuntimeCombat",
-      magic: "enableRuleElementsRuntimeMagic"
-    };
     const masterOn = Boolean(game?.settings?.get?.(SYSTEM_ID, "enableRuleElementsRuntime"));
-    const wfKey = WORKFLOW_SETTINGS[String(workflow).toLowerCase()];
-    if (!masterOn || !wfKey) return false;
-    const wfOn = Boolean(game?.settings?.get?.(SYSTEM_ID, wfKey));
-    if (!wfOn) return false;
+    if (!masterOn) return false;
   } catch (_e) {
     return false;
   }

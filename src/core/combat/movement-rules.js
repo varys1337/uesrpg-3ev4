@@ -41,6 +41,11 @@ export function getMovementActionLegality(actor, { actionId = "move" } = {}) {
     restrictions.push("cannot-move");
   }
 
+  if (hasCondition(actor, "entangled")) {
+    reasons.push("Entangled");
+    restrictions.push("cannot-move");
+  }
+
   if (action === "dash" && hasCondition(actor, "hidden")) {
     reasons.push("Hidden");
     restrictions.push("hidden-cannot-dash");
@@ -48,4 +53,3 @@ export function getMovementActionLegality(actor, { actionId = "move" } = {}) {
 
   return { allowed: reasons.length === 0, reasons, restrictions };
 }
-

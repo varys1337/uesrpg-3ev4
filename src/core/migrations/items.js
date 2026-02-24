@@ -343,6 +343,52 @@ async function _migrateActorItems() {
   }
 }
 
+async function _backfillScrollCastingControlsWorld(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast = true) {
+  const updates = [];
+  for (const item of game.items.contents) {
+    if (item?.type !== "scroll") continue;
+    const hasRequireTraining = item.system?.requireSchoolTraining !== undefined;
+    const hasConsumeMagicka = item.system?.consumeMagicka !== undefined;
+    const hasConsumeOnCast = item.system?.consumeOnCast !== undefined;
+    if (hasRequireTraining && hasConsumeMagicka && hasConsumeOnCast) continue;
+
+    const update = { _id: item.id };
+    if (!hasRequireTraining) update["system.requireSchoolTraining"] = defaultRequireTraining;
+    if (!hasConsumeMagicka) update["system.consumeMagicka"] = defaultConsumeMagicka;
+    if (!hasConsumeOnCast) update["system.consumeOnCast"] = defaultConsumeOnCast;
+    updates.push(update);
+  }
+
+  if (updates.length) {
+    console.log(`${MODULE_ID} | Backfilling scroll casting controls for ${updates.length} world scroll(s)`);
+    await Item.updateDocuments(updates, { diff: false });
+  }
+}
+
+async function _backfillScrollCastingControlsActorItems(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast = true) {
+  for (const actor of game.actors.contents) {
+    const updates = [];
+    for (const item of actor.items.contents) {
+      if (item?.type !== "scroll") continue;
+      const hasRequireTraining = item.system?.requireSchoolTraining !== undefined;
+      const hasConsumeMagicka = item.system?.consumeMagicka !== undefined;
+      const hasConsumeOnCast = item.system?.consumeOnCast !== undefined;
+      if (hasRequireTraining && hasConsumeMagicka && hasConsumeOnCast) continue;
+
+      const update = { _id: item.id };
+      if (!hasRequireTraining) update["system.requireSchoolTraining"] = defaultRequireTraining;
+      if (!hasConsumeMagicka) update["system.consumeMagicka"] = defaultConsumeMagicka;
+      if (!hasConsumeOnCast) update["system.consumeOnCast"] = defaultConsumeOnCast;
+      updates.push(update);
+    }
+
+    if (updates.length) {
+      console.log(`${MODULE_ID} | Backfilling scroll casting controls for ${updates.length} scroll(s) on actor ${actor.name}`);
+      await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+    }
+  }
+}
+
 export async function migrateItemsIfNeeded() {
   // Lightweight normalization pass; safe to run on every startup.
   if (!game.user.isGM) return;
@@ -353,13 +399,38 @@ export async function migrateItemsIfNeeded() {
   } catch (_e) {
     state = {};
   }
-  if (state?.items === currentVersion) return;
+  const needsItemMigration = state?.items !== currentVersion;
+  const needsScrollCastingBackfill = state?.scrollCastingControls !== currentVersion;
+  const needsScrollConsumeOnCastBackfill = state?.scrollConsumeOnCast !== currentVersion;
+  if (!needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) return;
+
+  let defaultRequireTraining = false;
+  let defaultConsumeMagicka = false;
+  const defaultConsumeOnCast = true;
+  try { defaultRequireTraining = game.settings.get(MODULE_ID, "scrollRequiresTraining") === true; } catch (_e) { /* no-op */ }
+  try { defaultConsumeMagicka = game.settings.get(MODULE_ID, "scrollConsumesMagicka") === true; } catch (_e) { /* no-op */ }
+
   try {
-    await _migrateWorldItems();
-    await _migrateActorItems();
+    if (needsItemMigration) {
+      await _migrateWorldItems();
+      await _migrateActorItems();
+      state.items = currentVersion;
+    }
+
+    if (needsScrollCastingBackfill || needsScrollConsumeOnCastBackfill) {
+      await _backfillScrollCastingControlsWorld(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast);
+      await _backfillScrollCastingControlsActorItems(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast);
+    }
+
+    if (needsScrollCastingBackfill) {
+      state.scrollCastingControls = currentVersion;
+    }
+
+    if (needsScrollConsumeOnCastBackfill) {
+      state.scrollConsumeOnCast = currentVersion;
+    }
 
     // Record migration version after a successful pass.
-    state.items = currentVersion;
     await game.settings.set(MODULE_ID, "migrationState", JSON.stringify(state));
   } catch (err) {
     console.error(`${MODULE_ID} | Item migration failed`, err);

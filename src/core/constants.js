@@ -381,11 +381,7 @@ export const UESRPG = {
       { key: "shield", label: "Shield" },
       { key: "helmet", label: "Helmet" }
     ],
-    ammunition: [
-      { key: "bodkin", label: "Bodkin" },
-      { key: "barbed", label: "Barbed" },
-      { key: "broadhead", label: "Broadhead" }
-    ]
+    ammunition: []
   },
 
   /**

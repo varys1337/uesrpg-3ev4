@@ -22,10 +22,13 @@ import { cancelOriginAEUpkeep } from "../../../core/magic/effects/origin-effect.
 
 import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
 import { onCastMagicAction } from "../shared/listeners/magic-cast.js";
+import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
 import { onSkillRoll, onSpellRoll, onCombatRoll, onResistanceRoll, onDamageRoll } from "../shared/listeners/rolls.js";
 
-import { onRaceMenu, onBirthSignMenu, onXPMenu } from "../shared/dialogs/character-menus.js";
-import { onSetBaseCharacteristics, onClickCharacteristic, onLuckyMenu } from "../shared/listeners/characteristics-handlers.js";
+import { onRaceMenu, onBirthSignMenu, onXPMenu, onStartingResourcesMenu, onAdvancementMenu } from "../shared/dialogs/character-menus.js";
+import { SpendXpMenuAppV2 } from "../../apps/v2/char-gen/spend-xp-menu.js";
+import { CharGenWizardAppV2 } from "../../apps/v2/char-gen/char-gen-wizard.js";
+import { onClickCharacteristic, onLuckyMenu } from "../shared/listeners/characteristics-handlers.js";
 
 import { onToggle2H, onPlusQty, onMinusQty, onItemEquip } from "../shared/listeners/inventory-handlers.js";
 import { onWealthCalc, onCarryBonus } from "../shared/listeners/economy-handlers.js";
@@ -146,9 +149,12 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       openLanguageSelector: PCActorSheetV2.prototype._onOpenLanguageSelector,
       openFactionSelector: PCActorSheetV2.prototype._onOpenFactionSelector,
       xpMenu: PCActorSheetV2.prototype._onXPMenu,
+      startingResourcesMenu: PCActorSheetV2.prototype._onStartingResourcesMenu,
+      spendXpMenu: PCActorSheetV2.prototype._onSpendXpMenu,
+      rawChargenWizard: PCActorSheetV2.prototype._onRawChargenWizard,
       luckyMenu: PCActorSheetV2.prototype._onLuckyMenu,
       burnLuck: PCActorSheetV2.prototype._onBurnLuck,
-      characteristicsConfig: PCActorSheetV2.prototype._onSetBaseCharacteristics,
+      advancementMenu: PCActorSheetV2.prototype._onAdvancementMenu,
       characteristicRoll: PCActorSheetV2.prototype._onClickCharacteristic,
       editPortrait: PCActorSheetV2.prototype._onEditPortrait,
       incrementResource: PCActorSheetV2.prototype._onIncrementResource,
@@ -161,6 +167,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       damageRoll: PCActorSheetV2.prototype._onDamageRoll,
       ammoRoll: PCActorSheetV2.prototype._onAmmoRoll,
       castMagic: PCActorSheetV2.prototype._onCastMagicAction,
+      castEnchantment: PCActorSheetV2.prototype._onCastEnchantmentAction,
       cancelSpell: PCActorSheetV2.prototype._onCancelSpell,
       combatQuickAction: PCActorSheetV2.prototype._onCombatQuickAction,
       effectControl: PCActorSheetV2.prototype._onEffectControl,
@@ -303,6 +310,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     context.featureInspector = game.settings.get("uesrpg-3ev4", "showFeatureInspector")
       ? buildFeatureInspectorContext(actor)
       : null;
+    context.useRawChargenWizard = Boolean(game.settings.get("uesrpg-3ev4", "useRawChargenWizard"));
 
       return context;
     } finally {
@@ -480,7 +488,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onLoadoutSave(event) { return onLoadoutSave(this, event); }
   async _onLoadoutApply(event) { return onLoadoutApply(this, event); }
   async _onLoadoutDelete(event) { return onLoadoutDelete(this, event); }
-  async _onSetBaseCharacteristics(event, target) { return onSetBaseCharacteristics.call(this, event, target); }
+  async _onAdvancementMenu(event, target) { return onAdvancementMenu.call(this, event, target); }
   async _onClickCharacteristic(event, target) { return onClickCharacteristic.call(this, event, target); }
   async _onSkillRoll(event, target) { return onSkillRoll.call(this, event, target); }
   async _onSpellRoll(event, target) { return onSpellRoll.call(this, event, target); }
@@ -488,6 +496,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onResistanceRoll(event, target) { return onResistanceRoll.call(this, event, target); }
   async _onDamageRoll(event, target) { return onDamageRoll.call(this, event, target); }
   async _onCastMagicAction(event, target, preselectedSpell = null) { return onCastMagicAction.call(this, event, target, preselectedSpell); }
+  async _onCastEnchantmentAction(event, target) { return onCastEnchantmentAction.call(this, event, target); }
 
   async _onEditPortrait(event, target) {
     event?.preventDefault?.();
@@ -680,6 +689,25 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     await FactionSelectorAppV2.prompt(this.document);
   }
   _onXPMenu(event, target) { return onXPMenu.call(this, event, target); }
+  async _onStartingResourcesMenu(event, target) { return onStartingResourcesMenu.call(this, event, target); }
+  async _onSpendXpMenu(event, _target) {
+    event?.preventDefault?.();
+    await SpendXpMenuAppV2.prompt(this.document);
+  }
+  async _onRawChargenWizard(event, _target) {
+    event?.preventDefault?.();
+    const existing = Object.values(ui.windows ?? {}).find((w) => w instanceof CharGenWizardAppV2);
+    if (existing) {
+      if (typeof existing.maximize === "function") await existing.maximize();
+      existing.bringToTop?.();
+      return;
+    }
+    const app = new CharGenWizardAppV2({
+      actorUuid: this.document?.uuid ?? null,
+      name: this.document?.name ?? "",
+    });
+    await app.render(true);
+  }
   async _onIncrementResource(event, target) { return onIncrementResource.call(this, event, target); }
   async _onResetResource(event, target) { return onResetResource.call(this, event, target); }
   async _onIncrementFatigue(event, target) { return onIncrementFatigue.call(this, event, target); }

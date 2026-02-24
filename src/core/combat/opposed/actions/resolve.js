@@ -24,6 +24,7 @@ import { inflateSharedDamage as _inflateSharedDamage, buildSharedDamagePayload a
 import { _buildApplyPayload, _emitInlineDamageRollMessage } from "./damage.js";
 import { getWardBlockRating, getActiveWardSpell } from "../../ward-defense.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+import { ActionEconomy } from "../../action-economy.js";
 
 /**
  * Handle defender advantage resolution
@@ -62,6 +63,7 @@ export async function handleDefenderAdvantage(ctx) {
 
   const advantage = _getDefenderAdvantage(data, data.defender) ?? { attacker: 0, defender: 0 };
   const advCount = Number(advantage.defender ?? 0);
+  const advantageSource = String(advantage?.source ?? "");
   if (!Number.isFinite(advCount) || advCount <= 0) {
     ui.notifications.warn("No Advantage is available to resolve for the defender.");
     return;
@@ -136,7 +138,6 @@ export async function handleDefenderAdvantage(ctx) {
 
         if (advChoice.mode === "autowin") {
           // Auto-Win: consume 1 AP, skip test, auto-succeed
-          const { ActionEconomy } = await import("../../action-economy.js");
           const def = getSpecialActionById(saId);
           await ActionEconomy.spendAP(defender, 1, { 
             reason: `Special Advantage: ${def?.name} (Auto-Win)`, 
@@ -160,6 +161,18 @@ export async function handleDefenderAdvantage(ctx) {
             });
           }
         } else if (advChoice.mode === "free") {
+          if (advantageSource === "buckler-parry-win") {
+            const def = getSpecialActionById(saId);
+            const paid = await ActionEconomy.spendAP(defender, 1, {
+              reason: `Buckler Parry-Win: Special Advantage (${def?.name ?? saId})`,
+              silent: true
+            });
+            if (!paid) {
+              ui.notifications.warn(`${defender.name} does not have enough Action Points to use Special Action Advantage from a buckler parry-win.`);
+              continue;
+            }
+          }
+
           // Free Action: 0 AP, initiate test with dropdown selection
           const attackerTokenUuid = data.attacker?.tokenUuid ?? null;
           const defenderTokenUuid = data.defender?.tokenUuid ?? null;
@@ -187,7 +200,8 @@ export async function handleDefenderAdvantage(ctx) {
                 id: saId,
                 source: "advantage-defender-free",
                 attackerStyleUuid: data.defender?.styleUuid ?? null,
-                defenderStyleUuid: data.attacker?.itemUuid ?? null
+                defenderStyleUuid: data.attacker?.itemUuid ?? null,
+                sourceWeaponUuid: String(_getPreferredWeaponUuid(defender, { meleeOnly: false }) ?? "").trim() || null
               };
 
               await safeUpdateChatMessage(saMessage, {

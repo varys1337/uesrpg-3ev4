@@ -135,6 +135,41 @@ export async function registerSettings() {
     default: false,
   });
 
+  game.settings.register("uesrpg-3ev4", "enableCharGenSlashCommand", {
+    name: "Enable /char Slash Command",
+    hint: "When enabled, `/char` opens the Character Generation Wizard.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false,
+    requiresReload: false,
+  });
+
+  game.settings.register("uesrpg-3ev4", "useRawChargenWizard", {
+    name: "Character Generation: Use RAW Wizard Button",
+    hint: "When enabled, actor sheets show a Character Creation (RAW) button that runs the RAW chargen flow.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false,
+    requiresReload: false,
+  });
+
+  game.settings.register("uesrpg-3ev4", "chargenMagicPurchaseMode", {
+    name: "Character Generation: Spell Purchase Mode",
+    hint: "Controls allowed payment resources for spell learning in RAW chargen.",
+    scope: "world",
+    config: false,
+    type: String,
+    default: "both",
+    choices: {
+      both: "Both (XP or Drakes where available)",
+      xpOnly: "XP Only",
+      drakesOnly: "Drakes Only",
+    },
+    requiresReload: false,
+  });
+
   game.settings.register("uesrpg-3ev4", "passiveTransferItemTypes", {
     name: "Passive Transfer Item Types",
     hint: "Comma-separated item types whose transfer Active Effects apply passively while the item is in an actor's inventory.",
@@ -175,12 +210,21 @@ export async function registerSettings() {
     type: String,
   });
 
-  // Global master gate for all diagnostics/debug lanes.
-  // If disabled, all debug logs are suppressed even if individual lanes are enabled.
+  // Global master gate for all world-scope debug lanes.
   game.settings.register("uesrpg-3ev4", "debugEnabled", {
-    name: "Debug Logging: Master Enable",
-    hint: "Global master switch for all UESRPG debug logging. Disable to suppress all debug console output.",
+    name: "Enable World Debug Logging",
+    hint: "Enables all UESRPG world-level debug logging. Covers opposed workflows, spell casting, talents, wounds, and more.",
     scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  // Client-scope master gate for all client debug lanes.
+  game.settings.register("uesrpg-3ev4", "debugClientEnabled", {
+    name: "Enable Client Debug Logging",
+    hint: "Enables all UESRPG client-level debug logging for this user. Covers AE lifecycle, aim, sheet diagnostics, performance traces, and more.",
+    scope: "client",
     config: false,
     default: false,
     type: Boolean,
@@ -262,51 +306,6 @@ export async function registerSettings() {
     type: Boolean,
   });
 
-  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntimeSkill", {
-    name: "Rule Elements Runtime: Skill Opposed",
-    hint: "Enable Rule Elements runtime on skill opposed workflows.",
-    scope: "world",
-    config: false,
-    default: true,
-    type: Boolean,
-  });
-
-  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntimeCharacteristic", {
-    name: "Rule Elements Runtime: Characteristic Opposed",
-    hint: "Enable Rule Elements runtime on characteristic opposed workflows.",
-    scope: "world",
-    config: false,
-    default: true,
-    type: Boolean,
-  });
-
-  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntimeCombat", {
-    name: "Rule Elements Runtime: Combat Opposed",
-    hint: "Enable Rule Elements runtime on combat opposed workflows.",
-    scope: "world",
-    config: false,
-    default: true,
-    type: Boolean,
-  });
-
-  game.settings.register("uesrpg-3ev4", "enableRuleElementsRuntimeMagic", {
-    name: "Rule Elements Runtime: Magic Opposed",
-    hint: "Enable Rule Elements runtime on magic opposed workflows.",
-    scope: "world",
-    config: false,
-    default: true,
-    type: Boolean,
-  });
-
-  // Dedicated debug lane for predicate/runtime traces.
-  game.settings.register("uesrpg-3ev4", "ruleElementDebug", {
-    name: "Rule Elements: Debug Logging",
-    hint: "When enabled, predicate and rule-element runtime diagnostics are logged to the browser console.",
-    scope: "world",
-    config: false,
-    default: false,
-    type: Boolean,
-  });
 
   game.settings.register("uesrpg-3ev4", "opposedShowResolutionDetails", {
     name: "Opposed: Show Resolution Details",
@@ -597,6 +596,16 @@ export async function registerSettings() {
     scope: "world",
     config: false,
     default: false,
+    type: Boolean,
+  });
+
+  // Cast enchantment runtime (default on).
+  game.settings.register("uesrpg-3ev4", "enchanting.enableCastEnchantmentRuntime", {
+    name: "Enchanting: Enable Cast Enchantment Runtime",
+    hint: "When enabled, cast enchantments can cast stored spells using Soul Energy from the enchanted item pool.",
+    scope: "world",
+    config: false,
+    default: true,
     type: Boolean,
   });
 

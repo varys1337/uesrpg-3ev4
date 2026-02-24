@@ -8,7 +8,7 @@
 
 import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 
-const CONTAINER_ALLOWED_TYPES = new Set(["item", "weapon", "armor", "ammunition"]);
+const CONTAINER_ALLOWED_TYPES = new Set(["item", "scroll", "weapon", "armor", "ammunition"]);
 
 /**
  * Determine whether an Item is eligible to be treated as a physical inventory object for containment.

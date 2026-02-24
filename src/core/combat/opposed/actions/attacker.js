@@ -14,6 +14,8 @@ import { applyWeaponExpertiseAttackerPreTN } from "../../../traits/weapon-expert
 import { AttackTracker } from "../../attack-tracker.js";
 import { ActionEconomy } from "../../action-economy.js";
 import { isActorSkeletal } from "../../../traits/trait-registry.js";
+import { applyDamageResolved } from "../../damage-resolver.js";
+import { getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
 
 // Internal helpers from various opposed modules
 import { _canControlActor, _findEnabledEffectByUesrpgKey, _logDebug, _opposedFlags } from "../helpers/util.js";
@@ -46,6 +48,7 @@ import {
   consumeHiddenAfterAttack as _consumeHiddenAfterAttack
 } from "../effects.js";
 import { markWeaponNeedsReload as _markWeaponNeedsReload } from "../damage/ammunition.js";
+import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 
 /**
@@ -595,6 +598,40 @@ export async function handleAttackerAction(action, ctx) {
       }
     })
   });
+
+  // Flail (Chapter 7): a critical failure with a flail attack hits the attacker.
+  if (res.isCriticalFailure === true) {
+    try {
+      const flailWeapon = runtimeWeapon
+        ?? (String(data?.context?.weaponUuid ?? "").trim()
+          ? _resolveItemViaActor(String(data.context.weaponUuid).trim(), attacker)
+          : null);
+      const hasFlail = Boolean(flailWeapon?.type === "weapon" && _weaponHasQuality(flailWeapon, "flail"));
+      if (hasFlail) {
+        const selfLocRoll = await (new Roll("1d100")).evaluate();
+        const selfLocRaw = getHitLocationFromRoll(Number(selfLocRoll?.total ?? 100));
+        const selfHitLocation = resolveHitLocationForTarget(attacker, selfLocRaw);
+        const selfDmg = await _rollWeaponDamage({
+          weapon: flailWeapon,
+          preConsumedAmmo: data.attacker?.preConsumedAmmo ?? null,
+          context: data.context ?? null
+        });
+        if (selfDmg && Number(selfDmg.finalDamage ?? 0) > 0) {
+          await applyDamageResolved(attacker, {
+            damage: Number(selfDmg.finalDamage),
+            damageType: getDamageTypeFromWeapon(flailWeapon) || "physical",
+            hitLocation: selfHitLocation,
+            source: `${flailWeapon.name} (Flail Critical Failure)`,
+            weapon: flailWeapon,
+            attackerActor: attacker,
+            attackMode: String(data?.context?.attackMode ?? "melee")
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("UESRPG | Flail critical-failure self-hit automation failed", err);
+    }
+  }
 
   // NOTE: Mid-handler applyExternalRollMessage removed (race condition fix).
   // The handler writes data.attacker.result directly below and calls _updateCard.

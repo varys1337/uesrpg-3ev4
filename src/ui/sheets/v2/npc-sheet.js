@@ -1168,7 +1168,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (this.document.system.fatigue.penalty != 0) {
       tags.push(`<span class="tag fatigue-tag">Fatigued ${this.document.system.fatigue.penalty}</span>`);
     }
-    if (this.document.system.carry_rating.penalty != 0) {
+    const encApplied = (tn.breakdown ?? []).some(b => b.source === "encumbrance");
+    if (encApplied) {
       tags.push(`<span class="tag enc-tag">Encumbered ${this.document.system.carry_rating.penalty}</span>`);
     }
 

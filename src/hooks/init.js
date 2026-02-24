@@ -9,6 +9,7 @@ import { registerSheets } from "./init/register-sheets.js";
 import { registerHandlebarsHelpers } from "./init/register-handlebars.js";
 import { registerApi } from "./init/register-api.js";
 import { registerChat, registerSpecialActionOutcomeHook } from "./init/register-chat.js";
+import { registerChatCommands } from "./init/register-chat-commands.js";
 import { registerMigrations } from "./init/register-migrations.js";
 import { registerKeybindings } from "./init/register-keybindings.js";
 
@@ -439,6 +440,7 @@ try {
     registerAuthorityProxy,
     registerReachVisualizer,
   });
+  registerChatCommands();
 
   // DERIVED_DATA_CACHE_INVALIDATION_V1
   // Ensure edits to embedded Item bonuses (Talents / Traits / Powers, but also any other embedded

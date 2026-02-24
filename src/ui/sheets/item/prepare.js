@@ -514,11 +514,14 @@ export async function prepareItemSheetData(sheet, data) {
   // --------------------------------------------
   if (itemType === "weapon" || itemType === "armor" || itemType === "ammunition") {
     const enc = sheet.item?.flags?.["uesrpg-3ev4"]?.enchanting ?? null;
+    data.uiSpellcastingConfig = _buildSpellcastingUiConfig(sheet.item);
     if (enc?.version === 2 && enc.enchantType) {
       data.enchantmentDisplay = _buildEnchantmentDisplay(enc, sheet.item);
     } else {
       data.enchantmentDisplay = null;
     }
+  } else if (itemType === "item" || itemType === "container" || itemType === "scroll") {
+    data.uiSpellcastingConfig = _buildSpellcastingUiConfig(sheet.item);
   }
 
   // --------------------------------------------
@@ -614,12 +617,88 @@ function _buildEnchantmentDisplay(enc, item) {
         };
       })
       .filter(Boolean);
-  } else if (enc.enchantType === "cast" || enc.enchantType === "constant") {
-    // Cast and constant: show stub — full effect details live in the workshop.
+  } else if (enc.enchantType === "cast") {
+    const castPool = enc.cast?.pool ?? { value: chargeValue, max: chargeMax };
+    const spellRows = Array.isArray(enc.cast?.spells) ? enc.cast.spells : [];
+    effects = spellRows.map((s) => ({
+      label: String(s?.label ?? "Stored Spell"),
+      paramSummary: `${_formatSpellcastingCostSummary(s)}, BS ${Number(s?.bindingStrength ?? 0)}`
+    }));
+    if (!effects.length) {
+      effects = [{ label: "No stored spells", paramSummary: "" }];
+    }
+    return {
+      typeLabel,
+      useCharges: true,
+      chargeValue: Number(castPool.value ?? chargeValue ?? 0),
+      chargeMax: Number(castPool.max ?? chargeMax ?? 0),
+      effects
+    };
+  } else if (enc.enchantType === "constant") {
     effects = [{ label: "See Enchanting Workshop for effect details", paramSummary: "" }];
   }
 
   return { typeLabel, useCharges, chargeValue, chargeMax, effects };
+}
+
+function _normalizeCostMode(value) {
+  const raw = String(value ?? "soul").trim().toLowerCase();
+  if (raw === "magicka" || raw === "none") return raw;
+  return "soul";
+}
+
+function _formatSpellcastingCostSummary(slot) {
+  const mode = _normalizeCostMode(slot?.costMode);
+  if (mode === "magicka") return "MP";
+  if (mode === "none") return "No Cost";
+  return `Soul ${Number(slot?.cost ?? 0)}`;
+}
+
+function _buildSpellcastingUiConfig(item) {
+  const flags = item?.flags?.["uesrpg-3ev4"] ?? {};
+  const ext = flags?.itemSpellcasting ?? {};
+  const legacy = flags?.enchanting?.cast ?? {};
+  const legacyType = String(flags?.enchanting?.enchantType ?? "").trim().toLowerCase();
+  const usingLegacyExtensionData = !Object.keys(ext ?? {}).length && legacyType !== "cast"
+    && (Object.prototype.hasOwnProperty.call(legacy, "isSpellcastingEnabled") || Array.isArray(legacy?.spells));
+  const source = usingLegacyExtensionData ? legacy : ext;
+  const slots = Array.isArray(source?.slots) ? source.slots : (Array.isArray(source?.spells) ? source.spells : []);
+  const enabled = source?.enabled === true;
+  const usesChargePool = !usingLegacyExtensionData;
+  const poolValue = usesChargePool
+    ? Number(item?.system?.charge?.value ?? source?.pool?.value ?? 0)
+    : Number(source?.pool?.value ?? item?.system?.charge?.value ?? 0);
+  const poolMax = usesChargePool
+    ? Number(item?.system?.charge?.max ?? source?.pool?.max ?? 0)
+    : Number(source?.pool?.max ?? item?.system?.charge?.max ?? 0);
+  const modeOptions = {
+    soul: "Soul Energy",
+    magicka: "Magicka",
+    none: "No Cost"
+  };
+  return {
+    canConfigure: true,
+    enabled,
+    hasLegacyCastEnchantment: flags?.enchanting?.version === 2 && legacyType === "cast",
+    usingLegacyExtensionData,
+    poolValue,
+    poolMax,
+    modeOptions,
+    slots: slots.map((slot, index) => ({
+      index,
+      id: String(slot?.id ?? ""),
+      enabled: slot?.enabled !== false,
+      label: String(slot?.label ?? "Stored Spell"),
+      spellUuid: String(slot?.spellUuid ?? ""),
+      level: Number(slot?.level ?? 1),
+      cost: Number(slot?.cost ?? 0),
+      bindingStrength: Number(slot?.bindingStrength ?? 0),
+      costMode: _normalizeCostMode(slot?.costMode),
+      costSummary: _formatSpellcastingCostSummary(slot)
+    })),
+    hasSlots: slots.length > 0,
+    canCast: enabled && slots.some((s) => s?.enabled !== false)
+  };
 }
 
 /**

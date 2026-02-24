@@ -353,18 +353,13 @@ export async function promptWeaponAndAdvantages({
         <input type="hidden" name="defaultHitLocation" value="${safeDefaultLoc}" />
 
         <div class="uesrpg-adv-grid">
-          <div class="uesrpg-adv-block">
-            <label class="uesrpg-adv-choice">
-              <input type="checkbox" name="precisionStrike" />
-              <span class="uesrpg-adv-choice__label">
-                <span class="uesrpg-adv-choice__title">Precision Strike</span>
-                <span class="uesrpg-adv-choice__desc">Choose a hit location.</span>
-              </span>
-            </label>
-            <div class="uesrpg-adv-inline">
-              <select name="precisionLocation" disabled>${locOptions}</select>
-            </div>
-          </div>
+          <label class="uesrpg-adv-choice">
+            <input type="checkbox" name="precisionStrike" />
+            <span class="uesrpg-adv-choice__label">
+              <span class="uesrpg-adv-choice__title">Precision Strike</span>
+              <span class="uesrpg-adv-choice__desc">Choose a hit location.</span>
+            </span>
+          </label>
 
           <label class="uesrpg-adv-choice">
             <input type="checkbox" name="penetrateArmor" />
@@ -399,14 +394,19 @@ export async function promptWeaponAndAdvantages({
             ${knownSpecial.map(renderSpecialOpt).join("\n")}
           ` : ``}
         </div>
+        <div class="uesrpg-adv-inline disabled">
+          <select name="precisionLocation" disabled>${locOptions}</select>
+        </div>
 
         <p class="hint">Select up to ${max} option(s).</p>
       ` : ``}
     </div>
   `;
+  const resolveDamageWidth = Math.max(420, Math.min(620, (window?.innerWidth ?? 620) - 96));
 
   return await customDialog({
       title: "Resolve Damage",
+      width: resolveDamageWidth,
       content,
       buttons: {
         continue: {
@@ -470,10 +470,13 @@ export async function promptWeaponAndAdvantages({
       const listAllCheckboxes = () => [...form.querySelectorAll('input[type="checkbox"]')];
       const computeSelectedCount = () => listAllCheckboxes().filter(el => el?.dataset?.free !== "true").filter(el => Boolean(el.checked)).length;
 
-      const updateUi = () => {        if (precisionSelect) {
+      const updateUi = () => {
+        if (precisionSelect) {
           const ps = form.querySelector('input[type="checkbox"][name="precisionStrike"]');
           const psOn = Boolean(ps?.checked);
           precisionSelect.disabled = !psOn;
+          const precisionWrap = precisionSelect.closest(".uesrpg-adv-inline");
+          if (precisionWrap) precisionWrap.classList.toggle("disabled", !psOn);
           if (!psOn) precisionSelect.value = defaultLoc;
         }
 
