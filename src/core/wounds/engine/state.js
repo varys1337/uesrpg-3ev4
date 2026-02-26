@@ -6,45 +6,32 @@
  */
 
 import { isActorUndead } from "../../traits/trait-registry.js";
-import { findFirstEffectByKind, getWoundsFlag, toNumber } from "./calc.js";
+import { findEffectsByKind, findFirstEffectByKind, toNumber } from "./calc.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 
-/**
- * Check if wound penalty should be suppressed
- */
-export function isWoundPenaltySuppressed(actor) {
-  if (isActorUndead(actor)) return true;
-  // Passive wound effect suppression immunity (e.g. Frenzy, Adrenaline Burst).
+export const WOUND_STATES = Object.freeze({
+  NONE: "none",
+  SHOCK_PENDING: "shockPending",
+  ACTIVE: "active",
+  SUPPRESSED: "suppressed",
+  TREATED: "treated"
+});
+
+function _isSuppressedByImmunity(actor) {
   try {
     const raw = actor?.system?.traits?.immunity?.passiveWounds;
     if (raw === true) return true;
     const n = Number(raw);
     if (Number.isFinite(n) && n !== 0) return true;
     const s = String(raw ?? "").trim().toLowerCase();
-    if (s === "true" || s === "yes" || s === "on") return true;
+    return s === "true" || s === "yes" || s === "on";
   } catch (_e) {
-    // ignore
+    return false;
   }
+}
 
-  // ActiveEffect-backed explicit suppression marker.
-  try {
-    const scope = game?.system?.id ?? FLAG_SCOPE;
-    const effects = Array.isArray(actor?.effects) ? actor.effects : Array.from(actor?.effects ?? []);
-    const hasExplicit = effects.some((e) => {
-      if (!e || e.disabled) return false;
-      const flags = e?.flags?.[scope] ?? e?.flags?.[FLAG_SCOPE] ?? null;
-      const wounds = flags?.wounds ?? null;
-      return wounds?.suppressWoundPenalty === true;
-    });
-    if (hasExplicit) return true;
-  } catch (_e) {
-    // ignore
-  }
-
-  // Suppression if:
-  //  - Forestall remainingRounds > 0
-  //  - First Aid present
+function _isSuppressedByMarkers(actor) {
   const forestall = findFirstEffectByKind(actor, "forestall");
   if (forestall) {
     const r = Math.max(0, toNumber(forestall?.getFlag?.(FLAG_SCOPE, "wounds")?.remainingRounds ?? 0, 0));
@@ -53,6 +40,41 @@ export function isWoundPenaltySuppressed(actor) {
   const firstAid = findFirstEffectByKind(actor, "firstAid");
   if (firstAid) return true;
   return false;
+}
+
+export function getWoundState(actor) {
+  if (!actor) return WOUND_STATES.NONE;
+  const wounds = findEffectsByKind(actor, "wound");
+  if (!wounds.length) return WOUND_STATES.NONE;
+
+  const anyShockPending = wounds.some((ef) => {
+    const w = ef?.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
+    return w.shockResolved !== true;
+  });
+  if (anyShockPending) return WOUND_STATES.SHOCK_PENDING;
+
+  const allTreated = wounds.every((ef) => {
+    const w = ef?.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
+    return w.treated === true;
+  });
+
+  if (_isSuppressedByImmunity(actor) || _isSuppressedByMarkers(actor)) {
+    return WOUND_STATES.SUPPRESSED;
+  }
+
+  return allTreated ? WOUND_STATES.TREATED : WOUND_STATES.ACTIVE;
+}
+
+export function isDerivedWounded(actor) {
+  return getWoundState(actor) !== WOUND_STATES.NONE;
+}
+
+/**
+ * Check if wound penalty should be suppressed
+ */
+export function isWoundPenaltySuppressed(actor) {
+  if (isActorUndead(actor)) return true;
+  return _isSuppressedByImmunity(actor) || _isSuppressedByMarkers(actor);
 }
 
 /**

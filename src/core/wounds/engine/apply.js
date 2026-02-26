@@ -24,7 +24,7 @@ import {
   computeDominantMagicType
 } from "./calc.js";
 import { makeEffect, formatDamageByType, getWhisperRecipientsForActor } from "./format.js";
-import { isWoundPenaltySuppressed } from "./state.js";
+import { getWoundState, isDerivedWounded, isWoundPenaltySuppressed, WOUND_STATES } from "./state.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
@@ -280,9 +280,8 @@ export async function ensureWoundedPassiveEffect(actor) {
     return;
   }
   
-  const sysWounded = actor.system?.wounded === true;
-  const isSuppressed = isWoundPenaltySuppressed(actor);
-  const shouldHaveEffect = sysWounded && !isSuppressed;
+  const state = getWoundState(actor);
+  const shouldHaveEffect = state === WOUND_STATES.ACTIVE || state === WOUND_STATES.TREATED;
   
   // Find existing "Wounded: Passive" effect
   const existingEffect = actor.effects?.find((e) => {
@@ -395,30 +394,13 @@ export async function enforceWoundInvariants(actor, { context = "unknown" } = {}
     }
   }
 
-  // Canonical invariant:
-  const hasWoundEffects = hasAnyWoundEffects(actor);
-  const sysWounded = actor.system?.wounded === true;
-
-  // If any wound has already resolved Shock, ensure passive wound state is active
-  const hasResolvedWound = findEffectsByKind(actor, "wound").some((ef) => {
-    const wf = getWoundsFlag(ef) ?? {};
-    return wf.shockResolved === true;
-  });
-
-  if (hasResolvedWound && !sysWounded) {
+  const expectedWounded = isDerivedWounded(actor);
+  const currentWounded = actor.system?.wounded === true;
+  if (currentWounded !== expectedWounded) {
     try {
-      await requestUpdateDocument(actor, { "system.wounded": true });
+      await requestUpdateDocument(actor, { "system.wounded": expectedWounded });
     } catch (err) {
-      console.warn("UESRPG | Failed to activate system.wounded for resolved wound", err);
-    }
-  }
-
-  // If the document says we are wounded but no wound markers remain, clear it
-  if (!hasWoundEffects && sysWounded) {
-    try {
-      await requestUpdateDocument(actor, { "system.wounded": false });
-    } catch (err) {
-      console.warn("UESRPG | Failed to clear system.wounded invariant", err);
+      console.warn("UESRPG | Failed to reconcile system.wounded invariant", err);
     }
   }
   
@@ -435,11 +417,12 @@ export async function cleanupWoundStateIfNoWounds(actor) {
 
   const bloodLoss = findEffectsByKind(actor, "bloodLoss");
   const forestall = findEffectsByKind(actor, "forestall");
+  const firstAid = findEffectsByKind(actor, "firstAid");
 
   const removedBloodLoss = bloodLoss.length;
   const removedForestall = forestall.length;
 
-  const toDelete = [...bloodLoss, ...forestall];
+  const toDelete = [...bloodLoss, ...forestall, ...firstAid];
 
   if (toDelete.length) {
     for (const ef of toDelete) {
@@ -453,7 +436,7 @@ export async function cleanupWoundStateIfNoWounds(actor) {
 
   let clearedWounded = false;
   try {
-    if (actor.system?.wounded) {
+    if (actor.system?.wounded !== false) {
       await requestUpdateDocument(actor, { "system.wounded": false });
       clearedWounded = true;
     }
@@ -500,13 +483,7 @@ export async function activateWoundPassiveState(actor, { resetBloodLoss = true }
   if (!actor) return;
 
   // Passive effects begin after Shock Test resolution (Chapter 5: Passive Effects).
-  if (actor.system?.wounded !== true) {
-    try {
-      await requestUpdateDocument(actor, { "system.wounded": true });
-    } catch (err) {
-      console.warn("UESRPG | Failed to set system.wounded for passive wound state", err);
-    }
-  }
+  // Mirror flag sync is handled by enforceWoundInvariants().
 
   // Blood Loss countdown begins at the same moment.
   if (resetBloodLoss && !isActorUndeadBloodless(actor)) {
@@ -728,15 +705,11 @@ export async function advanceTreatedWoundHealing(actor, effectiveHealed) {
     await requestUpdateDocument(ef, { [`${FLAG_PATH}.wounds.progress`]: next });
   }
 
-  // If no wounds remain, clear system.wounded (safe + deterministic).
-  if (actor.system?.wounded && !hasAnyWoundEffects(actor)) {
-    await requestUpdateDocument(actor, { "system.wounded": false });
-  }
-
   // Defensive invariant: when wounds are fully healed, remove any lingering blood loss / forestall.
   if (!hasAnyWoundEffects(actor)) {
     await cleanupWoundStateIfNoWounds(actor);
   }
+  await enforceWoundInvariants(actor, { context: "advanceTreatedWoundHealing" });
 }
 
 /**

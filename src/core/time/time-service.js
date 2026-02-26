@@ -78,6 +78,9 @@ class TimeServiceImpl {
       timestampToDate: (...args) => this._calendaria.timestampToDate(...args),
       dateToTimestamp: (...args) => this._calendaria.dateToTimestamp(...args),
       formatDateTime: (...args) => this._calendaria.formatDateTime(...args),
+      advanceTimeSeconds: (...args) => this._calendaria.advanceTimeSeconds(...args),
+      advanceToPreset: (...args) => this._calendaria.advanceToPreset(...args),
+      getSettings: () => this._calendaria.getSettings(),
       api: () => this.getCalendariaApi()
     });
   }
@@ -247,6 +250,59 @@ class TimeServiceImpl {
   }
 
   /**
+   * Advance world time by a number of seconds.
+   * Prefers Calendaria when active, falls back to Foundry core.
+   *
+   * @param {number} deltaSeconds
+   * @param {object} _options
+   * @returns {Promise<number>} resulting world time in seconds
+   */
+  async advanceWorldTimeSeconds(deltaSeconds, _options = {}) {
+    this.initialize();
+    const delta = _num(deltaSeconds, 0);
+    if (delta === 0) return this.getWorldTimeSeconds();
+
+    if (this._calendaria.isAvailable()) {
+      const out = await this._calendaria.advanceTimeSeconds(delta);
+      const n = _num(out, null);
+      if (n != null) return n;
+    }
+
+    try {
+      const out = await game.time.advance(delta);
+      return _num(out, this.getWorldTimeSeconds());
+    } catch (err) {
+      console.warn("UESRPG | time-service | Failed to advance world time", err);
+      return this.getWorldTimeSeconds();
+    }
+  }
+
+  /**
+   * Advance world time to a named preset.
+   * Currently relies on Calendaria when available.
+   *
+   * @param {string} preset
+   * @param {object} _options
+   * @returns {Promise<number>} resulting world time in seconds
+   */
+  async advanceWorldTimeToPreset(preset, _options = {}) {
+    this.initialize();
+    const key = String(preset ?? "").trim().toLowerCase();
+    if (!key) return this.getWorldTimeSeconds();
+
+    if (this._calendaria.isAvailable()) {
+      const out = await this._calendaria.advanceToPreset(key);
+      const n = _num(out, null);
+      if (n != null) return n;
+      console.warn(`UESRPG | time-service | Calendaria could not advance to preset "${key}"`);
+      return this.getWorldTimeSeconds();
+    }
+
+    console.warn(`UESRPG | time-service | Preset advancement "${key}" requested without Calendaria`);
+    return this.getWorldTimeSeconds();
+  }
+
+  /**
    * Subscribe to normalized time change events.
    * @param {(payload: object) => void|Promise<void>} cb
    */
@@ -279,6 +335,8 @@ class TimeServiceImpl {
       toCalendarComponents: this.toCalendarComponents.bind(this),
       componentsToWorldTimeSeconds: this.componentsToWorldTimeSeconds.bind(this),
       format: this.format.bind(this),
+      advanceWorldTimeSeconds: this.advanceWorldTimeSeconds.bind(this),
+      advanceWorldTimeToPreset: this.advanceWorldTimeToPreset.bind(this),
 
       // Interop aliases
       worldTimeSecondsToComponents: this.worldTimeSecondsToComponents.bind(this),

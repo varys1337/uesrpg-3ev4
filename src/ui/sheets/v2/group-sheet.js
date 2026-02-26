@@ -13,6 +13,7 @@
 import { prepareCharacterItems } from "../sheet-prepare-items.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "../rest-workflow.js";
+import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 import { confirmDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
 import {
@@ -560,6 +561,12 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       if (line) lines.push(line);
     }
 
+    const timeForward = await forwardTimeForGroupRest({
+      restType: "short",
+      actor: this.document,
+      actorLabel: this.document?.name ?? null,
+    });
+
     const content = buildRestChatContent("Short Rest (1 hour)", lines);
     await requestUpdateDocument(this.document, {
       "system.lastRest.short": game.time.worldTime,
@@ -572,7 +579,13 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
     await this.render(false);
-    ui.notifications.info("Short rest completed.");
+    if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
+      ui.notifications.warn(`Short rest completed. ${timeForward.reason}`);
+    } else if (timeForward.applied) {
+      ui.notifications.info("Short rest completed. Time advanced by 1 hour.");
+    } else {
+      ui.notifications.info("Short rest completed.");
+    }
   }
 
   /** Apply long rest to all visible group members */
@@ -593,6 +606,12 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       if (line) lines.push(line);
     }
 
+    const timeForward = await forwardTimeForGroupRest({
+      restType: "long",
+      actor: this.document,
+      actorLabel: this.document?.name ?? null,
+    });
+
     const content = buildRestChatContent("Long Rest (8 hours)", lines);
     await requestUpdateDocument(this.document, {
       "system.lastRest.long": game.time.worldTime,
@@ -605,7 +624,15 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
     await this.render(false);
-    ui.notifications.info("Long rest completed.");
+    if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
+      ui.notifications.warn(`Long rest completed. ${timeForward.reason}`);
+    } else if (timeForward.applied && timeForward.mode === "sunrise") {
+      ui.notifications.info("Long rest completed. Time advanced to sunrise.");
+    } else if (timeForward.applied) {
+      ui.notifications.info("Long rest completed. Time advanced by 8 hours.");
+    } else {
+      ui.notifications.info("Long rest completed.");
+    }
   }
 
   /** Deploy group members as tokens on the active canvas (GM only) */
@@ -757,4 +784,3 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (container) container.sheet.render(true);
   }
 }
-

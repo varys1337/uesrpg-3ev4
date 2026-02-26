@@ -437,7 +437,20 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     // Overlay live system data so derived fields (value, *Effective, etc.)
     // survive into templates — same pattern as actor sheets.
     context.item = this.document.toObject();
-    context.item.system = _buildSanitizedRenderSystem(this.document?.type, this.document?.system);
+    // Cache sanitized render system per (docId, modifiedTime) to avoid repeated
+    // deep-clone + coercion on every render when the document hasn't changed.
+    {
+      const docId = this.document.id;
+      const modifiedTime = this.document._stats?.modifiedTime ?? null;
+      const cache = this._renderSystemCache;
+      if (cache && cache.docId === docId && modifiedTime !== null && cache.modifiedTime === modifiedTime) {
+        context.item.system = cache.sanitizedSystem;
+      } else {
+        const sanitizedSystem = _buildSanitizedRenderSystem(this.document?.type, this.document?.system);
+        this._renderSystemCache = { docId, modifiedTime, sanitizedSystem };
+        context.item.system = sanitizedSystem;
+      }
+    }
     context.data = context.item.system; // legacy alias
     context.editable = this.isEditable;
     context.isGM = game.user.isGM;

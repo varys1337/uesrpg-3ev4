@@ -39,6 +39,9 @@ import {
   applyWoundThresholdAEs
 } from "../actors/ae/modifiers.js";
 
+/** Item types that carry a TN via baseCha and implement _prepareCombatStyleData. */
+const TN_ITEM_TYPES = new Set(["skill", "combatStyle", "magicSkill"]);
+
 export class SimpleActor extends Actor {
   async _preCreate(data, options, user) {
 
@@ -124,9 +127,9 @@ export class SimpleActor extends Actor {
    */
   _recomputeItemTNs() {
     for (const item of this.items) {
-      if (item.system && Object.prototype.hasOwnProperty.call(item.system, 'baseCha')) {
-        item._prepareCombatStyleData(this, item.system);
-      }
+      if (!TN_ITEM_TYPES.has(item.type)) continue;
+      if (typeof item._prepareCombatStyleData !== "function") continue;
+      item._prepareCombatStyleData(this, item.system);
     }
   }
 

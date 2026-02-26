@@ -1,8 +1,7 @@
-import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
-import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { resolveDroppedItem } from "../../../../utils/drop-data.js";
 import {
-  applySpellLearningPurchase,
   computeSpellLearningCosts,
   normalizeSpellLearningType,
   validateSpellLearningPurchase,
@@ -18,6 +17,45 @@ function asNumber(value, fallback = 0) {
 
 function asString(value) {
   return String(value ?? "").trim();
+}
+
+function cloneData(value) {
+  return foundry.utils.deepClone(value ?? {});
+}
+
+function spellSignature(spellLike) {
+  const name = asString(spellLike?.name).toLowerCase();
+  const school = asString(spellLike?.system?.school).toLowerCase();
+  const level = Math.max(1, asNumber(spellLike?.system?.level, 1));
+  const type = asString(normalizeSpellLearningType(spellLike)).toLowerCase();
+  return `${name}|${school}|${level}|${type}`;
+}
+
+function buildSpellLearningSummary(logEntries) {
+  const rows = Array.isArray(logEntries) ? logEntries : [];
+  const learned = rows.filter((r) => r?.outcome === "learned");
+  const blocked = rows.filter((r) => r?.outcome === "blocked");
+  const bySchool = {};
+  const byType = {};
+  let spentXp = 0;
+  let spentDrakes = 0;
+  for (const row of learned) {
+    const school = asString(row?.spell?.school || "unknown").toLowerCase() || "unknown";
+    const type = asString(row?.spell?.type || "conventional").toLowerCase() || "conventional";
+    bySchool[school] = (bySchool[school] ?? 0) + 1;
+    byType[type] = (byType[type] ?? 0) + 1;
+    spentXp += asNumber(row?.costs?.xp, 0);
+    spentDrakes += asNumber(row?.costs?.drakes, 0);
+  }
+  return {
+    learnedCount: learned.length,
+    blockedCount: blocked.length,
+    spentXp,
+    spentDrakes,
+    bySchool,
+    byType,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function readDropData(event) {
@@ -36,11 +74,18 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   #actor;
   #onClose = null;
   #dropBound = false;
+  #sessionBase = null;
+  #draftEntries = [];
+  #draftDerived = null;
+  #dirty = false;
+  #nextDraftId = 1;
 
   constructor(actor, options = {}) {
     super(options);
     this.#actor = actor;
     this.#onClose = typeof options.onClose === "function" ? options.onClose : null;
+    this.#captureSessionBase();
+    this.#recomputeDraftDerived();
   }
 
   static DEFAULT_OPTIONS = {
@@ -59,6 +104,9 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     ],
     actions: {
       close: SpellLearningMenuAppV2.prototype._onCloseClick,
+      removeDraftEntry: SpellLearningMenuAppV2.prototype._onRemoveDraftEntry,
+      discardDraft: SpellLearningMenuAppV2.prototype._onDiscardDraft,
+      confirmDraft: SpellLearningMenuAppV2.prototype._onConfirmDraft,
     },
   };
 
@@ -75,9 +123,231 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     return app;
   }
 
+  #buildLiveFingerprint() {
+    const actor = this.#actor;
+    const spells = actor.items
+      .filter((it) => it.type === "spell")
+      .map((it) => spellSignature(it))
+      .sort();
+    return JSON.stringify({
+      xp: asNumber(actor?.system?.xp, 0),
+      wealth: asNumber(actor?.system?.wealth, 0),
+      spells,
+    });
+  }
+
+  #captureSessionBase() {
+    this.#sessionBase = {
+      actorName: this.#actor?.name ?? "Unknown",
+      xp: asNumber(this.#actor?.system?.xp, 0),
+      wealth: asNumber(this.#actor?.system?.wealth, 0),
+      items: this.#actor?.items?.map((it) => cloneData(it.toObject())) ?? [],
+      fingerprint: this.#buildLiveFingerprint(),
+    };
+  }
+
+  #buildProjectedState() {
+    const base = this.#sessionBase;
+    const spellSigs = new Set(
+      (base.items ?? [])
+        .filter((it) => it.type === "spell")
+        .map((it) => spellSignature(it))
+    );
+    const projected = {
+      xp: asNumber(base?.xp, 0),
+      wealth: asNumber(base?.wealth, 0),
+      spellSigs,
+      totals: { costXp: 0, costWealth: 0 },
+    };
+    for (const entry of this.#draftEntries) {
+      projected.totals.costXp += asNumber(entry.costXp, 0);
+      projected.totals.costWealth += asNumber(entry.costWealth, 0);
+      projected.xp -= asNumber(entry.costXp, 0);
+      projected.wealth -= asNumber(entry.costWealth, 0);
+      if (entry.kind === "spellLearn") {
+        const itemData = cloneData(entry.payload?.itemData ?? {});
+        if (itemData.type === "spell") projected.spellSigs.add(spellSignature(itemData));
+      }
+    }
+    return projected;
+  }
+
+  #recomputeDraftDerived() {
+    this.#draftDerived = this.#buildProjectedState();
+    this.#dirty = this.#draftEntries.length > 0;
+  }
+
+  #buildValidationActor(derived, extraItems = [], { includeDraft = true } = {}) {
+    const draftItems = includeDraft
+      ? this.#draftEntries
+          .filter((e) => e.kind === "spellLearn")
+          .map((e) => cloneData(e.payload?.itemData ?? {}))
+      : [];
+    const items = [...(this.#sessionBase?.items ?? []), ...draftItems, ...extraItems].map((it) => cloneData(it));
+    return {
+      documentName: "Actor",
+      type: this.#actor?.type ?? "Player Character",
+      system: {
+        ...cloneData(this.#actor?.system),
+        xp: asNumber(derived?.xp, 0),
+        wealth: asNumber(derived?.wealth, 0),
+      },
+      items,
+      getFlag: (...args) => this.#actor?.getFlag?.(...args),
+    };
+  }
+
+  #nextEntryId() {
+    const id = `d${this.#nextDraftId}`;
+    this.#nextDraftId += 1;
+    return id;
+  }
+
+  async #stageOperation(op) {
+    this.#draftEntries.push({
+      id: this.#nextEntryId(),
+      kind: asString(op.kind || "spellLearn"),
+      label: asString(op.label || "Staged spell learning"),
+      costXp: asNumber(op.costXp, 0),
+      costWealth: asNumber(op.costWealth, 0),
+      payload: cloneData(op.payload ?? {}),
+      timestamp: new Date().toISOString(),
+    });
+    this.#recomputeDraftDerived();
+    await this.render();
+  }
+
+  async #removeStagedOperation(entryId) {
+    const idx = this.#draftEntries.findIndex((e) => String(e.id) === String(entryId));
+    if (idx < 0) return;
+    this.#draftEntries.splice(idx, 1);
+    this.#recomputeDraftDerived();
+    await this.render();
+  }
+
+  async #clearDraft() {
+    this.#draftEntries = [];
+    this.#recomputeDraftDerived();
+    await this.render();
+  }
+
+  async #confirmDiscardIfDirty() {
+    if (!this.#dirty) return true;
+    return confirmDialog({
+      title: "Discard Unconfirmed Spell Purchases",
+      content: "<p>Discard all staged spell purchases and close?</p>",
+      yesLabel: "Discard",
+      noLabel: "Keep Editing",
+    });
+  }
+
+  #isDrifted() {
+    return this.#buildLiveFingerprint() !== this.#sessionBase?.fingerprint;
+  }
+
+  async #appendSpellLearningRows(rows) {
+    if (!rows.length) return;
+    const chargen = this.#actor.getFlag("uesrpg-3ev4", "chargen") ?? {};
+    const spellLearning = cloneData(chargen.spellLearning);
+    const log = Array.isArray(spellLearning?.log) ? [...spellLearning.log] : [];
+    for (const row of rows) log.push(row);
+    await requestUpdateDocument(this.#actor, {
+      "flags.uesrpg-3ev4.chargen.spellLearning.log": log,
+      "flags.uesrpg-3ev4.chargen.spellLearning.lastSummary": buildSpellLearningSummary(log),
+    });
+  }
+
+  async #finalizeDraft() {
+    if (!this.#draftEntries.length) return { ok: true, applied: 0 };
+    if (this.#isDrifted()) {
+      return { ok: false, reason: "Actor data changed while this menu was open. Reopen Spell Learning and stage again." };
+    }
+
+    const createdData = [];
+    const learnedRows = [];
+    const extraItems = [];
+    let projectedXp = asNumber(this.#actor?.system?.xp, 0);
+    let projectedWealth = asNumber(this.#actor?.system?.wealth, 0);
+
+    for (const entry of this.#draftEntries) {
+      const itemData = cloneData(entry.payload?.itemData ?? {});
+      const paymentMode = asString(entry.payload?.paymentMode) === "drakes" ? "drakes" : "xp";
+      const actorMock = this.#buildValidationActor({ xp: projectedXp, wealth: projectedWealth }, extraItems, { includeDraft: false });
+      const validation = validateSpellLearningPurchase(actorMock, itemData, paymentMode);
+      if (!validation.ok) return { ok: false, reason: validation.reason || `Blocked: ${itemData?.name ?? "Spell"}` };
+
+      const costXp = paymentMode === "xp" ? asNumber(validation.costs?.xpCost, 0) : 0;
+      const costDrakes = paymentMode === "drakes" ? asNumber(validation.costs?.drakesCost, 0) : 0;
+      projectedXp -= costXp;
+      projectedWealth -= costDrakes;
+      createdData.push(itemData);
+      extraItems.push(itemData);
+      learnedRows.push({
+        outcome: "learned",
+        reason: "",
+        paymentMode,
+        spell: {
+          name: asString(itemData?.name || "Unknown"),
+          school: asString(itemData?.system?.school).toLowerCase(),
+          level: Math.max(1, asNumber(itemData?.system?.level, 1)),
+          type: normalizeSpellLearningType(itemData),
+        },
+        costs: { xp: costXp, drakes: costDrakes },
+        sourceUuid: asString(itemData?.uuid || itemData?.flags?.core?.sourceId || ""),
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", createdData);
+    const createdSpells = Array.isArray(created) ? created : [];
+    for (let i = 0; i < createdSpells.length; i += 1) {
+      if (!learnedRows[i]) continue;
+      learnedRows[i].spell.id = createdSpells[i]?.id ?? "";
+      learnedRows[i].spell.name = createdSpells[i]?.name ?? learnedRows[i].spell.name;
+    }
+
+    await requestUpdateDocument(this.#actor, {
+      "system.xp": Math.max(0, projectedXp),
+      "system.wealth": Math.max(0, projectedWealth),
+    });
+    await this.#appendSpellLearningRows(learnedRows);
+    await appendChargenAudit(this.#actor, {
+      step: "spells",
+      action: "confirmDraft",
+      payload: {
+        appliedCount: this.#draftEntries.length,
+        totalXp: this.#draftEntries.reduce((sum, e) => sum + asNumber(e.costXp, 0), 0),
+        totalWealth: this.#draftEntries.reduce((sum, e) => sum + asNumber(e.costWealth, 0), 0),
+        remainingXp: Math.max(0, projectedXp),
+        remainingWealth: Math.max(0, projectedWealth),
+        entries: this.#draftEntries.map((e) => ({
+          id: e.id,
+          kind: e.kind,
+          label: e.label,
+          costXp: e.costXp,
+          costWealth: e.costWealth,
+        })),
+      },
+    });
+
+    this.#draftEntries = [];
+    this.#captureSessionBase();
+    this.#recomputeDraftDerived();
+    await this.render();
+    return { ok: true, applied: createdSpells.length };
+  }
+
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
     const log = this.#actor?.getFlag?.("uesrpg-3ev4", "chargen")?.spellLearning?.log ?? [];
+    const derived = this.#draftDerived;
+    const stagedEntries = this.#draftEntries.map((e) => ({
+      id: e.id,
+      label: e.label,
+      kind: e.kind,
+      costXp: asNumber(e.costXp, 0),
+      costWealth: asNumber(e.costWealth, 0),
+    }));
     const recentLog = Array.isArray(log)
       ? [...log].slice(-12).reverse().map((row) => ({
         outcome: asString(row?.outcome),
@@ -94,9 +364,16 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
 
     return {
       ...context,
-      actorName: this.#actor?.name ?? "Unknown",
-      xp: asNumber(this.#actor?.system?.xp, 0),
-      wealth: asNumber(this.#actor?.system?.wealth, 0),
+      actorName: this.#sessionBase?.actorName ?? this.#actor?.name ?? "Unknown",
+      xp: asNumber(this.#sessionBase?.xp, 0),
+      xpProjected: asNumber(derived?.xp, 0),
+      wealth: asNumber(this.#sessionBase?.wealth, 0),
+      wealthProjected: asNumber(derived?.wealth, 0),
+      stagedEntries,
+      stagedCount: stagedEntries.length,
+      stagedCostXp: asNumber(derived?.totals?.costXp, 0),
+      stagedCostWealth: asNumber(derived?.totals?.costWealth, 0),
+      hasDraft: stagedEntries.length > 0,
       recentLog,
     };
   }
@@ -113,6 +390,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   }
 
   async close(options = {}) {
+    if (!(await this.#confirmDiscardIfDirty())) return this;
     await requestUpdateDocument(this.#actor, {
       "flags.uesrpg-3ev4.chargen.spellLearning.stageState": {
         mode: "dropOnly",
@@ -159,8 +437,9 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
 
   async #pickPaymentMode(spell) {
     const costs = computeSpellLearningCosts(spell, this.#actor);
-    const xpValidation = validateSpellLearningPurchase(this.#actor, spell, "xp");
-    const drakesValidation = validateSpellLearningPurchase(this.#actor, spell, "drakes");
+    const actorMock = this.#buildValidationActor(this.#draftDerived);
+    const xpValidation = validateSpellLearningPurchase(actorMock, spell, "xp");
+    const drakesValidation = validateSpellLearningPurchase(actorMock, spell, "drakes");
     const xpOk = xpValidation.ok;
     const drakesOk = drakesValidation.ok;
 
@@ -220,36 +499,72 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
       return;
     }
 
-    const result = await applySpellLearningPurchase(this.#actor, spell, { paymentMode: picked.paymentMode });
-    if (!result.ok) {
-      ui.notifications?.warn?.(result.reason || "Spell learning blocked.");
-      await appendChargenAudit(this.#actor, {
-        step: "spells",
-        action: "blocked",
-        payload: {
-          spell: spell.name,
-          school: spell.system?.school ?? "",
-          level: spell.system?.level ?? 1,
-          paymentMode: picked.paymentMode,
-          reason: result.reason ?? "blocked",
-        },
-      });
+    const actorMock = this.#buildValidationActor(this.#draftDerived);
+    const validation = validateSpellLearningPurchase(actorMock, spell, picked.paymentMode);
+    if (!validation.ok) {
+      ui.notifications?.warn?.(validation.reason || "Spell learning blocked.");
       return;
     }
 
-    ui.notifications?.info?.(`Learned spell: ${result.createdSpell?.name ?? spell.name}.`);
+    const costXp = picked.paymentMode === "xp" ? asNumber(validation.costs?.xpCost, 0) : 0;
+    const costWealth = picked.paymentMode === "drakes" ? asNumber(validation.costs?.drakesCost, 0) : 0;
+    await this.#stageOperation({
+      kind: "spellLearn",
+      label: `Learn Spell: ${spell.name} (${picked.paymentMode.toUpperCase()})`,
+      costXp,
+      costWealth,
+      payload: {
+        paymentMode: picked.paymentMode,
+        itemData: cloneData(typeof spell.toObject === "function" ? spell.toObject() : spell),
+      },
+    });
     await appendChargenAudit(this.#actor, {
       step: "spells",
-      action: "purchase",
+      action: "stage",
       payload: {
-        spell: result.createdSpell?.name ?? spell.name,
+        spell: spell.name,
         school: spell.system?.school ?? "",
         level: spell.system?.level ?? 1,
         type: normalizeSpellLearningType(spell),
-        paymentMode: result.paymentMode,
-        costXp: result.costs?.xp ?? 0,
-        costWealth: result.costs?.drakes ?? 0,
+        paymentMode: picked.paymentMode,
+        costXp,
+        costWealth,
       },
     });
+    ui.notifications?.info?.(`Staged spell: ${spell.name}.`);
+  }
+
+  async _onRemoveDraftEntry(event, target) {
+    event?.preventDefault?.();
+    const id = asString(target?.dataset?.entryId);
+    if (!id) return;
+    await this.#removeStagedOperation(id);
+  }
+
+  async _onDiscardDraft(event) {
+    event?.preventDefault?.();
+    if (!this.#dirty) return;
+    const confirmed = await confirmDialog({
+      title: "Discard Staged Spell Purchases",
+      content: "<p>Discard all staged spell purchases?</p>",
+      yesLabel: "Discard",
+      noLabel: "Cancel",
+    });
+    if (!confirmed) return;
+    await this.#clearDraft();
+  }
+
+  async _onConfirmDraft(event) {
+    event?.preventDefault?.();
+    if (!this.#draftEntries.length) {
+      ui.notifications?.info?.("No staged spell purchases to confirm.");
+      return;
+    }
+    const out = await this.#finalizeDraft();
+    if (!out.ok) {
+      ui.notifications?.error?.(out.reason || "Failed to confirm staged spell purchases.");
+      return;
+    }
+    ui.notifications?.info?.(`Confirmed ${out.applied} staged spell purchase(s).`);
   }
 }

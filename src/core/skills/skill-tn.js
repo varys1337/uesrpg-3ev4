@@ -524,9 +524,7 @@ function computeSkillTNFromData({
     if (aa > 0) breakdown.push({ label: "Talent: Armored Agility", value: aa, source: "talentArmoredAgility" });
   }
 
-  const woundedPenalty = (needsRuntimeFatigueWound && actorSystem?.wounded)
-    ? _asNumber(actorSystem?.woundPenalty)
-    : 0;
+  const woundedPenalty = needsRuntimeFatigueWound ? _asNumber(actorSystem?.woundPenalty) : 0;
   if (woundedPenalty) breakdown.push({ label: "Wounded", value: woundedPenalty, source: "wounded" });
 
   // Environmental penalty scaffolding: optional structured penalties by skill name.

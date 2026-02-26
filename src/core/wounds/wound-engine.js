@@ -28,7 +28,7 @@ import {
 } from "./engine/calc.js";
 
 import { makeEffect } from "./engine/format.js";
-import { resolveActorLike } from "./engine/state.js";
+import { getWoundState, isDerivedWounded, resolveActorLike, WOUND_STATES } from "./engine/state.js";
 
 import {
   applyShockUnconditional,
@@ -41,16 +41,59 @@ import {
   tickShockMarkers,
   applyHealingForestall,
   advanceTreatedWoundHealing,
-  removeShockMarkersForApplication,
-  ensureWoundedPassiveEffect
+  removeShockMarkersForApplication
 } from "./engine/apply.js";
 import { tickDeathTestsEndTurn } from "./death-tests.js";
+import { doTestRoll } from "../../utils/degree-roll-helper.js";
 
 // ===== INTERNAL STATE =====
 
 let _woundHooksRegistered = false;
 const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
+
+function _findHealerKit(actor) {
+  const items = actor?.items?.contents ?? [];
+  return items.some((i) => {
+    const qty = Number(i?.system?.quantity ?? 1);
+    if (qty <= 0) return false;
+    const name = String(i?.name ?? "").toLowerCase();
+    return name.includes("healer") || name.includes("healing kit") || name.includes("medicine kit") || name.includes("bandage");
+  });
+}
+
+function _resolveHealingTestTarget(healer) {
+  if (!healer) return 0;
+  const candidates = [];
+  const prof = healer.system?.professions ?? {};
+  candidates.push(Number(prof?.physical ?? 0) || 0);
+  candidates.push(Number(prof?.knowledge ?? 0) || 0);
+  for (const [k, v] of Object.entries(prof)) {
+    const key = String(k ?? "").toLowerCase();
+    if (key.includes("medicine") || key.includes("survival")) candidates.push(Number(v ?? 0) || 0);
+  }
+  const items = healer.items?.contents ?? [];
+  for (const i of items) {
+    const name = String(i?.name ?? "").toLowerCase();
+    if (!(name.includes("survival") || name.includes("medicine"))) continue;
+    candidates.push(Number(i?.system?.value ?? i?.system?.tn ?? 0) || 0);
+  }
+  return Math.max(0, ...candidates);
+}
+
+async function _postWoundWorkflowCard({ title, actor, healer, lines = [] } = {}) {
+  try {
+    const content = `<div class="uesrpg-chat-card"><header class="card-header"><h3>${title}</h3></header><div class="card-content"><p><strong>Target:</strong> ${actor?.name ?? "Actor"}</p><p><strong>Healer:</strong> ${healer?.name ?? "N/A"}</p>${lines.map((l) => `<p>${l}</p>`).join("")}</div></div>`;
+    await ChatMessage.create({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor: actor ?? null }),
+      content,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER
+    });
+  } catch (_e) {
+    // Non-blocking.
+  }
+}
 
 // ===== PUBLIC API: WOUND CRUD OPERATIONS =====
 
@@ -168,16 +211,25 @@ export async function firstAid(actorLike) {
 
   await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effect]);
   
-  // Remove "Wounded: Passive" effect when First Aid is applied
-  await ensureWoundedPassiveEffect(actor);
+  await enforceWoundInvariants(actor, { context: "firstAid" });
 
   return { removedBloodLoss, createdFirstAid: true };
+}
+
+export async function removeFirstAid(actorLike) {
+  const actor = await resolveActorLike(actorLike);
+  if (!actor) return { removed: 0 };
+  const markers = findEffectsByKind(actor, "firstAid");
+  if (!markers.length) return { removed: 0 };
+  await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", markers.map((m) => m.id));
+  await enforceWoundInvariants(actor, { context: "removeFirstAid" });
+  return { removed: markers.length };
 }
 
 /**
  * Treat a specific wound
  */
-export async function treatWound(actorLike, effectId) {
+export async function treatWound(actorLike, effectId, meta = {}) {
   const actor = await resolveActorLike(actorLike);
   if (!actor || !effectId) return;
   const ef = actor.effects?.get?.(effectId) ?? null;
@@ -189,8 +241,13 @@ export async function treatWound(actorLike, effectId) {
   await requestUpdateDocument(ef, {
     [`${FLAG_PATH}.wounds.treated`]: true,
     [`${FLAG_PATH}.wounds.treatedAt`]: Date.now(),
-    [`${FLAG_PATH}.wounds.progress`]: 0
+    [`${FLAG_PATH}.wounds.progress`]: 0,
+    [`${FLAG_PATH}.wounds.treatedBy`]: String(meta?.treatedBy ?? ""),
+    [`${FLAG_PATH}.wounds.treatmentMethod`]: String(meta?.method ?? "medicine"),
+    [`${FLAG_PATH}.wounds.gmOverride`]: meta?.gmOverride === true,
+    [`${FLAG_PATH}.wounds.treatmentDurationHours`]: 1
   });
+  await enforceWoundInvariants(actor, { context: "treatWound" });
 }
 
 /**
@@ -202,8 +259,223 @@ export async function treatAllWounds(actorLike) {
   for (const ef of findEffectsByKind(actor, "wound")) {
     const data = ef.getFlag(FLAG_SCOPE, "wounds") ?? {};
     if (data.treated === true) continue;
-    await treatWound(actor, ef.id);
+    await treatWound(actor, ef.id, {});
   }
+}
+
+export async function attemptFirstAid(actorLike, { healerActor = null, skill = null, hasKit = null, bypass = false } = {}) {
+  const actor = await resolveActorLike(actorLike);
+  if (!actor) return { ok: false, reason: "invalidTarget" };
+  const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
+  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : _findHealerKit(healer);
+  const tn = Math.max(0, Number(skill ?? _resolveHealingTestTarget(healer)) || 0);
+
+  if (!bypass && !resolvedHasKit) {
+    await _postWoundWorkflowCard({ title: "First Aid", actor, healer, lines: ["Failed: missing healer's kit/supplies."] });
+    return { ok: false, reason: "missingKit" };
+  }
+  if (!bypass && tn <= 0) {
+    await _postWoundWorkflowCard({ title: "First Aid", actor, healer, lines: ["Failed: no valid Survival/Medicine test target."] });
+    return { ok: false, reason: "invalidTestTarget" };
+  }
+
+  let passed = true;
+  if (!bypass) {
+    const roll = await doTestRoll(healer, { target: tn, rollFormula: "1d100" });
+    passed = Boolean(roll?.isSuccess);
+    try {
+      await roll?.roll?.toMessage?.({
+        speaker: ChatMessage.getSpeaker({ actor: healer }),
+        flavor: `First Aid Test - ${healer.name} (TN ${tn})`
+      });
+    } catch (_e) {
+      // Non-blocking.
+    }
+  }
+
+  if (!passed) {
+    await _postWoundWorkflowCard({ title: "First Aid", actor, healer, lines: [`Failed test${tn ? ` (TN ${tn})` : ""}.`] });
+    return { ok: false, reason: "failedTest", tn };
+  }
+
+  const result = await firstAid(actor);
+  await _postWoundWorkflowCard({
+    title: "First Aid",
+    actor,
+    healer,
+    lines: [
+      `Success${bypass ? " (GM override)" : ""}.`,
+      `Removed Blood Loss effects: ${Number(result?.removedBloodLoss ?? 0)}`,
+      `Applied stabilization marker: ${result?.createdFirstAid ? "Yes" : "Already present"}`
+    ]
+  });
+  return { ok: true, ...result, tn, bypass: bypass === true };
+}
+
+export async function attemptTreatWound(actorLike, woundEffectId, { healerActor = null, hasKit = null, bypass = false } = {}) {
+  const actor = await resolveActorLike(actorLike);
+  if (!actor) return { ok: false, reason: "invalidTarget" };
+  const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
+  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : _findHealerKit(healer);
+  const tn = Math.max(0, _resolveHealingTestTarget(healer));
+
+  if (!bypass && !resolvedHasKit) {
+    await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer, lines: ["Failed: missing healer's kit/supplies."] });
+    return { ok: false, reason: "missingKit" };
+  }
+  if (!bypass && tn <= 0) {
+    await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer, lines: ["Failed: no valid Profession[Medicine] / Survival test target."] });
+    return { ok: false, reason: "invalidTestTarget" };
+  }
+
+  let passed = true;
+  if (!bypass) {
+    const roll = await doTestRoll(healer, { target: tn, rollFormula: "1d100" });
+    passed = Boolean(roll?.isSuccess);
+    try {
+      await roll?.roll?.toMessage?.({
+        speaker: ChatMessage.getSpeaker({ actor: healer }),
+        flavor: `Treat Wound Test - ${healer.name} (TN ${tn})`
+      });
+    } catch (_e) {
+      // Non-blocking.
+    }
+  }
+  if (!passed) {
+    await _postWoundWorkflowCard({ title: "Treat Wound", actor, healer, lines: [`Failed test (TN ${tn}).`] });
+    return { ok: false, reason: "failedTest", tn };
+  }
+
+  await treatWound(actor, woundEffectId, {
+    treatedBy: healer?.id ?? healer?.name ?? "",
+    method: "profession-medicine",
+    gmOverride: bypass === true
+  });
+  await _postWoundWorkflowCard({
+    title: "Treat Wound",
+    actor,
+    healer,
+    lines: [`Success${bypass ? " (GM override)" : ""}. Wound marked treated (1-hour treatment workflow).`]
+  });
+  return { ok: true, tn, bypass: bypass === true };
+}
+
+export async function attemptTreatAllWounds(actorLike, { healerActor = null, hasKit = null, bypass = false } = {}) {
+  const actor = await resolveActorLike(actorLike);
+  if (!actor) return { ok: false, reason: "invalidTarget" };
+  const wounds = findEffectsByKind(actor, "wound").filter((ef) => (ef.getFlag?.(FLAG_SCOPE, "wounds")?.treated !== true));
+  if (!wounds.length) return { ok: true, treated: 0 };
+
+  const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
+  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : _findHealerKit(healer);
+  const tn = Math.max(0, _resolveHealingTestTarget(healer));
+  if (!bypass && !resolvedHasKit) return { ok: false, reason: "missingKit" };
+  if (!bypass && tn <= 0) return { ok: false, reason: "invalidTestTarget" };
+
+  let passed = true;
+  if (!bypass) {
+    const roll = await doTestRoll(healer, { target: tn, rollFormula: "1d100" });
+    passed = Boolean(roll?.isSuccess);
+    try {
+      await roll?.roll?.toMessage?.({
+        speaker: ChatMessage.getSpeaker({ actor: healer }),
+        flavor: `Treat All Wounds Test - ${healer.name} (TN ${tn})`
+      });
+    } catch (_e) {}
+  }
+  if (!passed) return { ok: false, reason: "failedTest", tn };
+
+  let treated = 0;
+  for (const ef of wounds) {
+    await treatWound(actor, ef.id, {
+      treatedBy: healer?.id ?? healer?.name ?? "",
+      method: "profession-medicine",
+      gmOverride: bypass === true
+    });
+    treated++;
+  }
+  await _postWoundWorkflowCard({
+    title: "Treat Wounds",
+    actor,
+    healer,
+    lines: [`Success${bypass ? " (GM override)" : ""}. Treated wounds: ${treated}.`]
+  });
+  return { ok: true, treated, tn };
+}
+
+export async function reconcileWoundState(actorLike, { reason = "manual", emitLog = false } = {}) {
+  const actor = await resolveActorLike(actorLike);
+  if (!actor) return { ok: false, reason: "invalidTarget" };
+  const before = {
+    woundState: getWoundState(actor),
+    wounded: actor.system?.wounded === true,
+    woundCount: findEffectsByKind(actor, "wound").length
+  };
+  await enforceWoundInvariants(actor, { context: `reconcile:${reason}` });
+  const after = {
+    woundState: getWoundState(actor),
+    wounded: actor.system?.wounded === true,
+    woundCount: findEffectsByKind(actor, "wound").length
+  };
+  if (emitLog) {
+    console.log("UESRPG | Wounds reconcile", { actor: actor.name, reason, before, after });
+  }
+  return { ok: true, before, after };
+}
+
+export async function runWorldWoundMigration({ dryRun = false } = {}) {
+  if (!game.user?.isGM) return { ok: false, reason: "gmOnly" };
+  const actors = game.actors?.contents ?? [];
+  let touched = 0;
+  for (const actor of actors) {
+    const before = actor.system?.wounded === true;
+    if (!dryRun) await enforceWoundInvariants(actor, { context: "worldMigration" });
+    const after = actor.system?.wounded === true;
+    if (before !== after) touched++;
+  }
+  return { ok: true, actors: actors.length, touched, dryRun: dryRun === true };
+}
+
+function _buildWoundStatusLabel(state, data = {}) {
+  if (state === WOUND_STATES.SUPPRESSED) return "Wounded (Suppressed)";
+  if (state === WOUND_STATES.TREATED) return "Wounded (Treated)";
+  if (state === WOUND_STATES.ACTIVE) return "Wounded (Untreated)";
+  if (state === WOUND_STATES.SHOCK_PENDING) return "Wound Pending Shock";
+  return "No Wounds";
+}
+
+export function getWoundManagerData(actorLike) {
+  const actor = (actorLike?.documentName === "Actor") ? actorLike : null;
+  if (!actor) return null;
+  const wounds = findEffectsByKind(actor, "wound");
+  const bloodLoss = findFirstEffectByKind(actor, "bloodLoss");
+  const forestall = findFirstEffectByKind(actor, "forestall");
+  const firstAidMarker = findFirstEffectByKind(actor, "firstAid");
+  const state = getWoundState(actor);
+  const rows = wounds.map((ef) => {
+    const w = ef.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
+    const damage = Math.max(0, Number(w.damage ?? 0) || 0);
+    const progress = Math.max(0, Number(w.progress ?? 0) || 0);
+    return {
+      id: ef.id,
+      name: ef.name,
+      hitLocation: String(w.hitLocation ?? "Body"),
+      damage,
+      treated: w.treated === true,
+      shockResolved: w.shockResolved === true,
+      progress,
+      remainingToCure: Math.max(0, damage - progress)
+    };
+  });
+  return {
+    state,
+    label: _buildWoundStatusLabel(state),
+    hasWounds: rows.length > 0,
+    bloodLossRounds: Math.max(0, Number(bloodLoss?.getFlag?.(FLAG_SCOPE, "wounds")?.remainingRounds ?? 0) || 0),
+    forestallRounds: Math.max(0, Number(forestall?.getFlag?.(FLAG_SCOPE, "wounds")?.remainingRounds ?? 0) || 0),
+    hasFirstAid: Boolean(firstAidMarker),
+    wounds: rows
+  };
 }
 
 /**
@@ -213,7 +485,7 @@ export async function stabilize(actorLike) {
   const actor = await resolveActorLike(actorLike);
   if (!actor) return { stabilizedWounds: 0, firstAid: { removedBloodLoss: 0, createdFirstAid: false } };
 
-  const firstAidResult = await firstAid(actor);
+  const firstAidResult = await attemptFirstAid(actor, { bypass: true });
 
   const now = Date.now();
   let stabilizedWounds = 0;
@@ -259,6 +531,7 @@ export async function clearWound(actorLike, effectId) {
   if (!hasAnyWoundEffects(actor)) {
     await cleanupWoundStateIfNoWounds(actor);
   }
+  await enforceWoundInvariants(actor, { context: "clearWound" });
 }
 
 /**
@@ -274,14 +547,7 @@ export async function clearAllWounds(actorLike) {
   if (!toDelete.length) return;
   await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", toDelete.map(e => e.id));
 
-  // Clear canonical actor flag
-  if (actor.system?.wounded) {
-    try {
-      await requestUpdateDocument(actor, { "system.wounded": false });
-    } catch (err) {
-      console.warn("UESRPG | Failed to clear system.wounded during clearAllWounds", err);
-    }
-  }
+  await enforceWoundInvariants(actor, { context: "clearAllWounds" });
 }
 
 /**
@@ -401,7 +667,7 @@ export function registerWoundHooks() {
       await enforceWoundInvariants(actor, { context: "uesrpgHealingApplied" });
 
       // Only apply wound healing interactions when the actor is currently wounded or has wound effects.
-      const hasWound = actor.system?.wounded === true || hasAnyWoundEffects(actor);
+      const hasWound = isDerivedWounded(actor) || hasAnyWoundEffects(actor);
       if (!hasWound) return;
 
       const effectiveHealed = Math.max(0, toNumber(data?.effectiveHealed ?? 0, 0));
@@ -409,6 +675,7 @@ export function registerWoundHooks() {
         await applyHealingForestall(actor, effectiveHealed);
         await advanceTreatedWoundHealing(actor, effectiveHealed);
       }
+      await enforceWoundInvariants(actor, { context: "uesrpgHealingApplied:post" });
     } catch (err) {
       console.warn("UESRPG | Wound healing interaction failed", err);
     }
@@ -452,6 +719,41 @@ export function registerWoundHooks() {
       console.warn("UESRPG | Wound healing interaction failed", err);
     }
   });
+
+  Hooks.on("updateActor", (actor, changed) => {
+    if (!isActiveGMUser(game.user)) return;
+    if (!Object.prototype.hasOwnProperty.call(changed ?? {}, "system")) return;
+    if (!Object.prototype.hasOwnProperty.call(changed?.system ?? {}, "wounded")) return;
+    enforceWoundInvariants(actor, { context: "updateActor:woundedChanged" }).catch(() => {});
+  });
+
+  const reconcileFromEffect = async (effect, context) => {
+    try {
+      const actor = effect?.parent?.documentName === "Actor" ? effect.parent : null;
+      if (!actor) return;
+      const w = effect?.getFlag?.(FLAG_SCOPE, "wounds") ?? null;
+      const group = String(effect?.flags?.[FLAG_SCOPE]?.effectGroup ?? "");
+      if (!w && group !== "wounds.passive") return;
+      await enforceWoundInvariants(actor, { context });
+    } catch (_e) {
+      // Non-blocking.
+    }
+  };
+
+  Hooks.on("createActiveEffect", (effect) => {
+    if (!isActiveGMUser(game.user)) return;
+    reconcileFromEffect(effect, "createActiveEffect");
+  });
+  Hooks.on("updateActiveEffect", (effect) => {
+    if (!isActiveGMUser(game.user)) return;
+    reconcileFromEffect(effect, "updateActiveEffect");
+  });
+  Hooks.on("deleteActiveEffect", (effect) => {
+    if (!isActiveGMUser(game.user)) return;
+    const actor = effect?.parent?.documentName === "Actor" ? effect.parent : null;
+    if (!actor) return;
+    enforceWoundInvariants(actor, { context: "deleteActiveEffect" }).catch(() => {});
+  });
 }
 
 // ===== EXPORTED API OBJECT =====
@@ -460,10 +762,18 @@ export const WoundsAPI = {
   createWoundFromDamage,
   upsertBloodLoss,
   firstAid,
+  removeFirstAid,
+  attemptFirstAid,
   stabilize,
   treatWound,
   treatAllWounds,
+  attemptTreatWound,
+  attemptTreatAllWounds,
   clearWound,
   clearAllWounds,
-  canNaturalHeal
+  canNaturalHeal,
+  getWoundState,
+  getWoundManagerData,
+  reconcileWoundState,
+  runWorldWoundMigration
 };

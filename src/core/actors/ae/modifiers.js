@@ -9,8 +9,101 @@
  * origin-deduplication logic is maintained in a single location.
  */
 
-import { collectApplicableEffects } from "../../active-effects/modifier-evaluator.js";
+import { collectApplicableEffects, getApplicableEffectsCached } from "../../active-effects/modifier-evaluator.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
+
+/**
+ * All AE key paths evaluated during actor prepare. Maintained centrally so
+ * buildActorAETotalsMap can collect them in a single effect-array pass.
+ */
+const _ALL_ACTOR_AE_KEYS = [
+  // Characteristic bonuses (post-calculation)
+  "system.characteristics.str.bonus", "system.characteristics.end.bonus",
+  "system.characteristics.agi.bonus", "system.characteristics.int.bonus",
+  "system.characteristics.wp.bonus",  "system.characteristics.prc.bonus",
+  "system.characteristics.prs.bonus", "system.characteristics.lck.bonus",
+  // Resources: hp, magicka, stamina, luck_points
+  "system.modifiers.hp.base",          "system.modifiers.hp.bonus",
+  "system.modifiers.hp.max",           "system.modifiers.hp.value",
+  "system.modifiers.magicka.base",     "system.modifiers.magicka.bonus",
+  "system.modifiers.magicka.max",      "system.modifiers.magicka.value",
+  "system.modifiers.stamina.base",     "system.modifiers.stamina.bonus",
+  "system.modifiers.stamina.max",      "system.modifiers.stamina.value",
+  "system.modifiers.luck_points.base", "system.modifiers.luck_points.bonus",
+  "system.modifiers.luck_points.max",  "system.modifiers.luck_points.value",
+  // Initiative
+  "system.modifiers.initiative.bonus",    "system.modifiers.initiative.base",
+  "system.modifiers.initiative.value",    "system.modifiers.initiative.flat",
+  "system.modifiers.initiative.mult.agi", "system.modifiers.initiative.mult.int",
+  "system.modifiers.initiative.mult.prc",
+  // Speed
+  "system.modifiers.speed.value",    "system.modifiers.speed.flySpeed",
+  "system.modifiers.speed.swimSpeed",
+  // Action Points
+  "system.modifiers.action_points.max", "system.modifiers.action_points.value",
+  // Lucky/Unlucky slots (alias pairs merged by _mergeFromMap)
+  "system.modifiers.lucky_numbers.max",   "system.modifiers.lucky_numbers.value",
+  "system.modifiers.unlucky_numbers.max", "system.modifiers.unlucky_numbers.value",
+  // Carry/Encumbrance
+  "system.modifiers.carry.base",    "system.modifiers.carry.bonus",
+  "system.modifiers.carry.override",
+  "system.modifiers.encumbrance.penalty",      "system.modifiers.encumbrance.testPenalty",
+  "system.modifiers.encumbrance.speedPenalty", "system.modifiers.encumbrance.staminaPenalty",
+  // Fatigue/Exhaustion (alias pairs)
+  "system.modifiers.fatigue.bonus",   "system.modifiers.exhaustion.bonus",
+  "system.modifiers.fatigue.penalty", "system.modifiers.exhaustion.penalty",
+  // Resistances (all paths from applyResistanceAEModifiers)
+  "system.modifiers.resistance.fireR",    "system.traits.resistance.fire",
+  "system.modifiers.resistance.frostR",   "system.traits.resistance.frost",
+  "system.modifiers.resistance.shockR",   "system.traits.resistance.shock",
+  "system.modifiers.resistance.poisonR",  "system.resistances.poison",
+  "system.traits.resistance.poison",
+  "system.modifiers.resistance.magicR",   "system.resistances.magic",
+  "system.modifiers.resistance.diseaseR", "system.resistances.disease",
+  "system.traits.resistance.disease",
+  "system.modifiers.resistance.silverR",  "system.modifiers.resistance.sunlightR",
+  "system.modifiers.resistance.natToughness",
+  // Wound Threshold
+  "system.modifiers.wound_threshold.bonus", "system.modifiers.wound_threshold.value",
+];
+
+/**
+ * Merge AE key results from a pre-built totals map as an aliased key-set.
+ * Equivalent to collectAEModifiersForKeySetMerged but reads from a cached map.
+ * OVERRIDE from any key wins; ADDs accumulate until an OVERRIDE is seen.
+ * @param {Record<string, {add: number, override: number|null}>} map
+ * @param {string[]} keySet
+ * @returns {{add: number, override: number|null}}
+ */
+function _mergeFromMap(map, keySet) {
+  const out = { add: 0, override: null };
+  for (const k of keySet) {
+    const m = map[k];
+    if (!m) continue;
+    if (m.override != null) {
+      out.override = m.override;
+      out.add = 0;
+    } else if (out.override == null) {
+      out.add += m.add;
+    }
+  }
+  return out;
+}
+
+/**
+ * Build (or return cached) the full AE modifier totals map for the given actor.
+ * Evaluates all known actor-prepare AE key paths in one effect-array pass.
+ * Cached on actor._aeTotalsMap; must be invalidated alongside actor._aeApplicableCache
+ * in AE lifecycle hooks.
+ * @param {SimpleActor} actor
+ * @returns {Record<string, {add: number, override: number|null}>}
+ */
+export function buildActorAETotalsMap(actor) {
+  if (actor?._aeTotalsMap) return actor._aeTotalsMap;
+  const map = collectAEModifiersForKeys(actor, _ALL_ACTOR_AE_KEYS);
+  if (actor) actor._aeTotalsMap = map;
+  return map;
+}
 
 /**
  * Collect numeric Active Effect modifiers for a set of target keys.
@@ -41,7 +134,7 @@ export function collectAEModifiersForKeys(actor, targetKeys = []) {
 
   // Use the shared effect collection helper (disabled-filtering, transfer-gating,
   // origin-deduplication all handled centrally in modifier-evaluator.js).
-  const effects = collectApplicableEffects(actor, { dedupeByOrigin: true, debug: false });
+  const effects = getApplicableEffectsCached(actor);
 
   for (const effect of effects) {
     const changes = Array.isArray(effect.changes) ? effect.changes : [];
@@ -89,7 +182,7 @@ export function collectAEModifiersForKeySetMerged(actor, keySet = []) {
   const OVERRIDE = CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
 
   // Use the shared effect collection helper.
-  const effects = collectApplicableEffects(actor, { dedupeByOrigin: true, debug: false });
+  const effects = getApplicableEffectsCached(actor);
 
   const out = { add: 0, override: null };
 
@@ -123,18 +216,16 @@ export function collectAEModifiersForKeySetMerged(actor, keySet = []) {
  */
 export function getResourceAEModifiers(actor, resourceKey) {
   const rk = String(resourceKey ?? '').trim();
-  const keys = [
-    `system.modifiers.${rk}.base`,
-    `system.modifiers.${rk}.bonus`,
-    `system.modifiers.${rk}.max`,
-    `system.modifiers.${rk}.value`
-  ];
-  const map = collectAEModifiersForKeys(actor, keys);
+  const baseKey  = `system.modifiers.${rk}.base`;
+  const bonusKey = `system.modifiers.${rk}.bonus`;
+  const maxKey   = `system.modifiers.${rk}.max`;
+  const valueKey = `system.modifiers.${rk}.value`;
+  const map = buildActorAETotalsMap(actor);
   return {
-    base: map[keys[0]] ?? { add: 0, override: null },
-    bonus: map[keys[1]] ?? { add: 0, override: null },
-    max: map[keys[2]] ?? { add: 0, override: null },
-    value: map[keys[3]] ?? { add: 0, override: null }
+    base:  map[baseKey]  ?? { add: 0, override: null },
+    bonus: map[bonusKey] ?? { add: 0, override: null },
+    max:   map[maxKey]   ?? { add: 0, override: null },
+    value: map[valueKey] ?? { add: 0, override: null }
   };
 }
 
@@ -143,27 +234,16 @@ export function getResourceAEModifiers(actor, resourceKey) {
  * @param {SimpleActor} actor
  */
 export function getInitiativeAEModifiers(actor) {
-  const keys = {
-    bonus: "system.modifiers.initiative.bonus",
-    base: "system.modifiers.initiative.base",
-    value: "system.modifiers.initiative.value",
-    flat: "system.modifiers.initiative.flat",
-    multAgi: "system.modifiers.initiative.mult.agi",
-    multInt: "system.modifiers.initiative.mult.int",
-    multPrc: "system.modifiers.initiative.mult.prc"
-  };
-
-  const map = collectAEModifiersForKeys(actor, Object.values(keys));
-
+  const map = buildActorAETotalsMap(actor);
   return {
-    bonus: map[keys.bonus] ?? { add: 0, override: null },
-    base: map[keys.base] ?? { add: 0, override: null },
-    value: map[keys.value] ?? { add: 0, override: null },
-    flat: map[keys.flat] ?? { add: 0, override: null },
+    bonus: map["system.modifiers.initiative.bonus"]    ?? { add: 0, override: null },
+    base:  map["system.modifiers.initiative.base"]     ?? { add: 0, override: null },
+    value: map["system.modifiers.initiative.value"]    ?? { add: 0, override: null },
+    flat:  map["system.modifiers.initiative.flat"]     ?? { add: 0, override: null },
     mult: {
-      agi: map[keys.multAgi] ?? { add: 0, override: null },
-      int: map[keys.multInt] ?? { add: 0, override: null },
-      prc: map[keys.multPrc] ?? { add: 0, override: null }
+      agi: map["system.modifiers.initiative.mult.agi"] ?? { add: 0, override: null },
+      int: map["system.modifiers.initiative.mult.int"] ?? { add: 0, override: null },
+      prc: map["system.modifiers.initiative.mult.prc"] ?? { add: 0, override: null }
     }
   };
 }
@@ -173,16 +253,11 @@ export function getInitiativeAEModifiers(actor) {
  * @param {SimpleActor} actor
  */
 export function getSpeedAEModifiers(actor) {
-  const keys = {
-    value: "system.modifiers.speed.value",
-    flySpeed: "system.modifiers.speed.flySpeed",
-    swimSpeed: "system.modifiers.speed.swimSpeed"
-  };
-  const map = collectAEModifiersForKeys(actor, Object.values(keys));
+  const map = buildActorAETotalsMap(actor);
   return {
-    value: map[keys.value] ?? { add: 0, override: null },
-    flySpeed: map[keys.flySpeed] ?? { add: 0, override: null },
-    swimSpeed: map[keys.swimSpeed] ?? { add: 0, override: null }
+    value:     map["system.modifiers.speed.value"]     ?? { add: 0, override: null },
+    flySpeed:  map["system.modifiers.speed.flySpeed"]  ?? { add: 0, override: null },
+    swimSpeed: map["system.modifiers.speed.swimSpeed"] ?? { add: 0, override: null }
   };
 }
 
@@ -191,14 +266,10 @@ export function getSpeedAEModifiers(actor) {
  * @param {SimpleActor} actor
  */
 export function getActionPointsAEModifiers(actor) {
-  const keys = {
-    max: "system.modifiers.action_points.max",
-    value: "system.modifiers.action_points.value"
-  };
-  const map = collectAEModifiersForKeys(actor, Object.values(keys));
+  const map = buildActorAETotalsMap(actor);
   return {
-    max: map[keys.max] ?? { add: 0, override: null },
-    value: map[keys.value] ?? { add: 0, override: null }
+    max:   map["system.modifiers.action_points.max"]   ?? { add: 0, override: null },
+    value: map["system.modifiers.action_points.value"] ?? { add: 0, override: null }
   };
 }
 
@@ -207,14 +278,9 @@ export function getActionPointsAEModifiers(actor) {
  * @param {SimpleActor} actor
  */
 export function getLuckyUnluckySlotAEModifiers(actor) {
-  const lucky = collectAEModifiersForKeySetMerged(actor, [
-    "system.modifiers.lucky_numbers.max",
-    "system.modifiers.lucky_numbers.value"
-  ]);
-  const unlucky = collectAEModifiersForKeySetMerged(actor, [
-    "system.modifiers.unlucky_numbers.max",
-    "system.modifiers.unlucky_numbers.value"
-  ]);
+  const map = buildActorAETotalsMap(actor);
+  const lucky   = _mergeFromMap(map, ["system.modifiers.lucky_numbers.max",   "system.modifiers.lucky_numbers.value"]);
+  const unlucky = _mergeFromMap(map, ["system.modifiers.unlucky_numbers.max", "system.modifiers.unlucky_numbers.value"]);
   return { lucky, unlucky };
 }
 
@@ -223,33 +289,20 @@ export function getLuckyUnluckySlotAEModifiers(actor) {
  * @param {SimpleActor} actor
  */
 export function getCarryAEModifiers(actor) {
-  const keys = {
-    carryBase: "system.modifiers.carry.base",
-    carryBonus: "system.modifiers.carry.bonus",
-    carryOverride: "system.modifiers.carry.override",
-
-    // Encumbrance lanes (RAW): test penalty, speed penalty, stamina penalty.
-    encPenaltyLegacy: "system.modifiers.encumbrance.penalty",
-    encTestPenalty: "system.modifiers.encumbrance.testPenalty",
-    encSpeedPenalty: "system.modifiers.encumbrance.speedPenalty",
-    encStaminaPenalty: "system.modifiers.encumbrance.staminaPenalty"
-  };
-
-  const map = collectAEModifiersForKeys(actor, Object.values(keys));
-
-  // Prefer the explicit RAW-aligned key if present; otherwise fall back to the legacy alias.
-  const testPenalty = map[keys.encTestPenalty] ?? map[keys.encPenaltyLegacy] ?? { add: 0, override: null };
-
+  const map = buildActorAETotalsMap(actor);
+  // Prefer the explicit RAW-aligned testPenalty key; fall back to the legacy alias.
+  const testPenalty = map["system.modifiers.encumbrance.testPenalty"]
+    ?? map["system.modifiers.encumbrance.penalty"]
+    ?? { add: 0, override: null };
   return {
-    base: map[keys.carryBase] ?? { add: 0, override: null },
-    bonus: map[keys.carryBonus] ?? { add: 0, override: null },
-    override: map[keys.carryOverride] ?? { add: 0, override: null },
-
+    base:     map["system.modifiers.carry.base"]     ?? { add: 0, override: null },
+    bonus:    map["system.modifiers.carry.bonus"]    ?? { add: 0, override: null },
+    override: map["system.modifiers.carry.override"] ?? { add: 0, override: null },
     // Keep old property name working, but also expose the clearer name.
-    encPenalty: testPenalty,
-    encTestPenalty: testPenalty,
-    encSpeedPenalty: map[keys.encSpeedPenalty] ?? { add: 0, override: null },
-    encStaminaPenalty: map[keys.encStaminaPenalty] ?? { add: 0, override: null }
+    encPenalty:        testPenalty,
+    encTestPenalty:    testPenalty,
+    encSpeedPenalty:   map["system.modifiers.encumbrance.speedPenalty"]   ?? { add: 0, override: null },
+    encStaminaPenalty: map["system.modifiers.encumbrance.staminaPenalty"] ?? { add: 0, override: null }
   };
 }
 
@@ -258,15 +311,11 @@ export function getCarryAEModifiers(actor) {
  * @param {SimpleActor} actor
  */
 export function getFatigueAEModifiers(actor) {
-  const bonusLane = collectAEModifiersForKeySetMerged(actor, [
-    "system.modifiers.fatigue.bonus",
-    "system.modifiers.exhaustion.bonus"
-  ]);
-  const penaltyLane = collectAEModifiersForKeySetMerged(actor, [
-    "system.modifiers.fatigue.penalty",
-    "system.modifiers.exhaustion.penalty"
-  ]);
-  return { bonus: bonusLane, penalty: penaltyLane };
+  const map = buildActorAETotalsMap(actor);
+  return {
+    bonus:   _mergeFromMap(map, ["system.modifiers.fatigue.bonus",   "system.modifiers.exhaustion.bonus"]),
+    penalty: _mergeFromMap(map, ["system.modifiers.fatigue.penalty", "system.modifiers.exhaustion.penalty"])
+  };
 }
 
 /**
@@ -317,18 +366,8 @@ export function applyResistanceAEModifiers(actor, resistanceData) {
     }
   };
   
-  // Collect all AE keys to evaluate
-  const allKeys = [];
-  for (const resKey in resistanceKeyMap) {
-    const paths = resistanceKeyMap[resKey];
-    if (paths.legacy) allKeys.push(paths.legacy);
-    if (paths.resistances) allKeys.push(paths.resistances);
-    if (paths.traits) allKeys.push(paths.traits);
-  }
-  
-  // Evaluate all resistance AE modifiers using OVERRIDE-wins semantics
-  // (consistent with all other stat pipelines in this file).
-  const aeMods = collectAEModifiersForKeys(actor, allKeys);
+  // Use the centrally-cached totals map (includes all resistance key paths).
+  const aeMods = buildActorAETotalsMap(actor);
   
   // Apply modifiers to each resistance value
   const result = { ...resistanceData };
@@ -415,23 +454,18 @@ export function hasWoundPenaltySuppression(actor, actorData) {
 export function applyWoundThresholdAEs(actor, actorSystemData) {
   if (!actorSystemData) return;
 
-  const keys = [
-    "system.modifiers.wound_threshold.bonus",
-    "system.modifiers.wound_threshold.value"
-  ];
-
-  const map = collectAEModifiersForKeys(actor, keys);
+  const map = buildActorAETotalsMap(actor);
 
   // Bonus lane
   {
-    const m = map[keys[0]] ?? { add: 0, override: null };
+    const m = map["system.modifiers.wound_threshold.bonus"] ?? { add: 0, override: null };
     if (m.override != null) actorSystemData.wound_threshold.bonus = Number(m.override);
     else if (m.add) actorSystemData.wound_threshold.bonus = Number(actorSystemData.wound_threshold.bonus ?? 0) + Number(m.add);
   }
 
   // Value lane (final)
   {
-    const m = map[keys[1]] ?? { add: 0, override: null };
+    const m = map["system.modifiers.wound_threshold.value"] ?? { add: 0, override: null };
     if (m.override != null) actorSystemData.wound_threshold.value = Number(m.override);
     else if (m.add) actorSystemData.wound_threshold.value = Number(actorSystemData.wound_threshold.value ?? 0) + Number(m.add);
   }

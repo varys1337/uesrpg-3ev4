@@ -612,7 +612,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
           const base = Number(item.system?.value ?? 0);
           const fatigue = Number(this.actor.system?.fatigue?.penalty ?? 0);
           const enc = Number(this.actor.system?.carry_rating?.penalty ?? 0);
-          const wound = this.actor.system?.wounded ? Number(this.actor.system?.woundPenalty ?? 0) : 0;
+          const wound = Number(this.actor.system?.woundPenalty ?? 0);
 
           const breakdown = [];
           breakdown.push({ label: "Base TN", value: base });

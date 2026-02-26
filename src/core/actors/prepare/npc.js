@@ -7,7 +7,7 @@ import { isDebugEnabled } from "../../../utils/debug.js";
 import { aggregateItemStats } from "../rules/item-aggregation.js";
 import { getArmorMobilityPenalties } from "../rules/armor-mobility.js";
 import {
-  collectAEModifiersForKeys,
+  buildActorAETotalsMap,
   getResourceAEModifiers,
   getInitiativeAEModifiers,
   getCarryAEModifiers,
@@ -26,6 +26,7 @@ import { applyRacialTalentDerivedBonuses, applyRacialTalentPostSpeedDerived } fr
 import { collectFeatureMods, applyFeatureModTotals, filterModsForApplication, applyWeaknessToResistance } from "../../traits/features/collect-feature-mods.js";
 import { reduceAllByStacking } from "../../traits/features/stacking.js";
 import { getSocialStateFromSystem } from "../../social/social-data.js";
+import { getSpeedAgiMultiplier } from "../../system/homebrew.js";
 
 /**
  * Prepare NPC type specific data.
@@ -107,7 +108,8 @@ export function prepareNPCData(actorContext, actorData) {
     "system.characteristics.prs.bonus",
     "system.characteristics.lck.bonus"
   ];
-  const charBonusMods = collectAEModifiersForKeys(actorContext, charBonusKeys);
+  // Primes the actor-level AE totals map cache; all subsequent helper calls reuse it.
+  const charBonusMods = buildActorAETotalsMap(actorContext);
   for (const key of charBonusKeys) {
     // Extract characteristic name from "system.characteristics.{charName}.bonus"
     const parts = key.split('.');
@@ -213,7 +215,8 @@ export function prepareNPCData(actorContext, actorData) {
     actorSystemData.speed.base = 16;
     actorSystemData.professions.evade = 70;
   } else {
-      actorSystemData.speed.base = strBonus + (2 * agiBonus) + (actorSystemData.speed.bonus);
+    const agiMult = getSpeedAgiMultiplier();
+    actorSystemData.speed.base = strBonus + (agiMult * agiBonus) + (actorSystemData.speed.bonus);
   }
   actorSystemData.speed.value = actorContext._speedCalc(actorData);
   // Guard: Use Math.round for safe numeric conversion instead of parseFloat(toFixed)
@@ -658,9 +661,12 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
     }
   }
 
-  // Wound Penalties
-  const woundSuppressed = actorContext._hasWoundPenaltySuppression(actorData);
-  if (actorSystemData.wounded === true && !woundSuppressed) {
+  // Wound Penalties (effects-canonical; system.wounded is a derived mirror)
+  const woundState = game?.uesrpg?.wounds?.getWoundState?.(actorContext) ?? (actorSystemData.wounded ? "active" : "none");
+  actorSystemData.wounded = woundState !== "none";
+  const woundSuppressed = actorContext._hasWoundPenaltySuppression(actorData) || woundState === "suppressed";
+  const woundActiveForPenalty = woundState === "active" || woundState === "treated";
+  if (woundActiveForPenalty && !woundSuppressed) {
     let woundPen = 0;
     actorContext._painIntolerant(actorData) ? woundPen = -30 : woundPen = -20;
 
@@ -677,7 +683,7 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
       }
     }
   }
-  else if (actorSystemData.wounded === true && woundSuppressed) {
+  else if (woundActiveForPenalty && woundSuppressed) {
     // Passive wound penalties are suppressed by first aid / magical healing forestall,
     // without clearing the wounded state.
     actorSystemData.woundPenalty = 0;

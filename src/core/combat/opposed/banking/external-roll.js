@@ -13,6 +13,7 @@
 import { computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
 import { applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
+import { cloneFlagState, clonePlain } from "../../../../utils/clone.js";
 
 /**
  * Bank an externally-created roll message (attacker-roll / defender-roll / defender-nodefense)
@@ -101,12 +102,14 @@ export async function applyExternalRollMessage(rollMessage, deps) {
   selectDefenderEntry(data, { defenderIndex, defenderTokenUuid: meta?.defenderTokenUuid, defenderActorUuid: meta?.defenderActorUuid });
 
   let dirty = false;
+  // Per-invocation UUID cache — deduplicates actor/token lookups within this banking call.
+  const _resolver = createUuidResolver();
 
   const applyResult = async (side) => {
     if (!side?.actorUuid) return null;
     let actor = null;
     try {
-      const doc = fromUuidSync(side.actorUuid);
+      const doc = _resolver.resolveSync(side.actorUuid);
       actor = (doc?.documentName === "Actor") ? doc : (doc?.actor ?? null);
     } catch (_e) {
       actor = null;
@@ -482,7 +485,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
   const freshParent = game.messages.get(parentId) ?? parent;
   const freshFlags = freshParent?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
   if (freshFlags && typeof freshFlags === "object") {
-    const merged = JSON.parse(JSON.stringify(freshFlags));
+    const merged = cloneFlagState(freshFlags);
 
     // Re-select the correct defender entry on the merged snapshot so that
     // defender-lane writes target the right sub-object.
@@ -494,13 +497,13 @@ export async function applyExternalRollMessage(rollMessage, deps) {
 
     if (stage === "attacker-roll") {
       // Overlay our attacker data onto the fresh snapshot.
-      merged.attacker = JSON.parse(JSON.stringify(data.attacker));
+      merged.attacker = clonePlain(data.attacker);
     } else if (stage === "defender-roll" || stage === "defender-nodefense") {
       // Overlay our defender data onto the fresh snapshot.
-      merged.defender = JSON.parse(JSON.stringify(data.defender));
+      merged.defender = clonePlain(data.defender);
       // For multi-defender, also merge the defenders array.
       if (isMultiDefender(data) && Array.isArray(data.defenders)) {
-        merged.defenders = JSON.parse(JSON.stringify(data.defenders));
+        merged.defenders = clonePlain(data.defenders);
       }
     }
 
@@ -509,7 +512,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
     if (data.context) {
       merged.context = foundry.utils.mergeObject(
         merged.context ?? {},
-        JSON.parse(JSON.stringify(data.context)),
+        clonePlain(data.context),
         { overwrite: true, inplace: false }
       );
     }
@@ -517,7 +520,7 @@ export async function applyExternalRollMessage(rollMessage, deps) {
 
     // Merge any outcome/advantage that was resolved in this banking call.
     // Only overwrite with a non-null value to avoid clobbering the other lane's resolution.
-    if (data.outcome && !merged.outcome) merged.outcome = JSON.parse(JSON.stringify(data.outcome));
+    if (data.outcome && !merged.outcome) merged.outcome = clonePlain(data.outcome);
     if (data.advantage != null && merged.advantage == null) merged.advantage = data.advantage;
 
     await updateCard(freshParent, merged);

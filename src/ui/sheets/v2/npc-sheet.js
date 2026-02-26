@@ -246,8 +246,16 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       skillRoll: NpcSheetV2.prototype._onSkillRoll,
       combatRoll: NpcSheetV2.prototype._onCombatRoll,
       combatQuickAction: NpcSheetV2.prototype._onCombatQuickAction,
+      woundFirstAid: NpcSheetV2.prototype._onWoundFirstAid,
+      woundRemoveFirstAid: NpcSheetV2.prototype._onWoundRemoveFirstAid,
+      woundTreat: NpcSheetV2.prototype._onWoundTreat,
+      woundTreatAll: NpcSheetV2.prototype._onWoundTreatAll,
+      woundClear: NpcSheetV2.prototype._onWoundClear,
+      woundClearAll: NpcSheetV2.prototype._onWoundClearAll,
+      woundReconcile: NpcSheetV2.prototype._onWoundReconcile,
 
       // Characteristics (from fixed-header)
+      advancementMenu: NpcSheetV2.prototype._onSetBaseCharacteristics,
       characteristicsConfig: NpcSheetV2.prototype._onSetBaseCharacteristics,
       characteristicRoll: NpcSheetV2.prototype._onClickCharacteristic,
       editPortrait: NpcSheetV2.prototype._onEditPortrait,
@@ -440,6 +448,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       context.actor.sheetCombatQuick = buildCombatQuickContext(context.actor);
       context.actor.sheetCombatActions = buildCombatActionsContext(actor);
+      context.actor.woundManager = game?.uesrpg?.wounds?.getWoundManagerData?.(actor) ?? null;
       context.actor.attackTrackerUi = {
         current: AttackTracker.getAttackCount(actor),
         max: AttackTracker.getAttackLimit(actor),
@@ -654,6 +663,45 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   // Combat
   async _onCombatQuickAction(event, target) { return onCombatQuickAction.call(this, event, target); }
+  async _onWoundFirstAid() {
+    const fn = game?.uesrpg?.wounds?.attemptFirstAid;
+    if (typeof fn === "function") await fn(this.document, {});
+    await this.render({ parts: ["combat"] });
+  }
+  async _onWoundRemoveFirstAid() {
+    const fn = game?.uesrpg?.wounds?.removeFirstAid;
+    if (typeof fn === "function") await fn(this.document);
+    await this.render({ parts: ["combat"] });
+  }
+  async _onWoundTreat(_event, target) {
+    const id = String(target?.dataset?.woundId ?? "").trim();
+    if (!id) return;
+    const fn = game?.uesrpg?.wounds?.attemptTreatWound;
+    if (typeof fn === "function") await fn(this.document, id, {});
+    await this.render({ parts: ["combat"] });
+  }
+  async _onWoundTreatAll() {
+    const fn = game?.uesrpg?.wounds?.attemptTreatAllWounds;
+    if (typeof fn === "function") await fn(this.document, {});
+    await this.render({ parts: ["combat"] });
+  }
+  async _onWoundClear(_event, target) {
+    const id = String(target?.dataset?.woundId ?? "").trim();
+    if (!id) return;
+    const fn = game?.uesrpg?.wounds?.clearWound;
+    if (typeof fn === "function") await fn(this.document, id);
+    await this.render({ parts: ["combat"] });
+  }
+  async _onWoundClearAll() {
+    const fn = game?.uesrpg?.wounds?.clearAllWounds;
+    if (typeof fn === "function") await fn(this.document);
+    await this.render({ parts: ["combat"] });
+  }
+  async _onWoundReconcile() {
+    const fn = game?.uesrpg?.wounds?.reconcileWoundState;
+    if (typeof fn === "function") await fn(this.document, { reason: "sheet", emitLog: true });
+    await this.render({ parts: ["combat"] });
+  }
   async _onToggleGroupCollapse(event, target) { return onToggleGroupCollapse(this, event, target); }
   _onItemSearch(event) { return onItemSearch(this, event); }
   async _onLoadoutSave(event) { return onLoadoutSave(this, event); }

@@ -29,41 +29,27 @@ function _isFeatureActive(item) {
 
 /**
  * Aggregate item stats in a single pass to avoid repeated item.filter() work.
+ *
+ * Cache invalidation is event-driven via DERIVED_DATA_CACHE_INVALIDATION_V1 hooks in
+ * src/hooks/init.js (item create/update/delete clears actor._aggCache).
+ * Secondary invalidation: combat state, because _isFeatureActive() gates passive features
+ * on game.combat.started.
+ *
  * @param {SimpleActor} actor
  * @param {object} actorData - Actor data (for legacy compatibility)
  * @returns {object} Aggregated stats
  */
-// Fast numeric hash for cache invalidation.
-function _sysHash(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-  }
-  return h;
-}
-
 export function aggregateItemStats(actor, actorData) {
-  // Build a signature of items to detect changes.
-  // Hash each item's full system data so ANY field change invalidates the cache.
-  // (#8) Include combat state so cache invalidates when combat starts/ends.
-  const itemsRaw = actorData?.items;
-  const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
-  const combatState = game?.combat?.started ? "combat" : "peace";
-  let sigParts = [`__combat:${combatState}`];
-  for (let it of items) {
-    const sys = it?.system ?? {};
-    try {
-      sigParts.push(`${it?._id || ''}:${_sysHash(JSON.stringify(sys))}`);
-    } catch (_e) {
-      // Fallback if JSON.stringify fails (circular refs, etc.)
-      sigParts.push(`${it?._id || ''}:?`);
-    }
-  }
-  const signature = sigParts.join('|');
+  const combatState = Boolean(game?.combat?.started);
 
-  if (actor._aggCache && actor._aggCache.signature === signature && actor._aggCache.agg) {
+  // Return cached result if the cache is still valid.
+  // Cache is nulled by item create/update/delete hooks; combat state guards feature gating.
+  if (actor._aggCache?.agg && actor._aggCache.combatState === combatState) {
     return actor._aggCache.agg;
   }
+
+  const itemsRaw = actorData?.items;
+  const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
 
   const stats = {
     charBonus: { str:0, end:0, agi:0, int:0, wp:0, prc:0, prs:0, lck:0 },
@@ -244,6 +230,6 @@ export function aggregateItemStats(actor, actorData) {
     stats.totalEnc += Math.floor(stats.zeroEncItemCount / 10);
   }
 
-  actor._aggCache = { signature, agg: stats };
+  actor._aggCache = { agg: stats, combatState };
   return stats;
 }

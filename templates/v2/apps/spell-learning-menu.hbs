@@ -5,13 +5,47 @@
       <div class="uesrpg-spelllearn__subtitle">{{actorName}}</div>
     </div>
     <div class="uesrpg-spelllearn__stats">
-      <span><b>XP:</b> {{xp}}</span>
-      <span><b>Drakes:</b> {{wealth}}</span>
+      <span><b>XP:</b> {{xp}} -> {{xpProjected}}</span>
+      <span><b>Drakes:</b> {{wealth}} -> {{wealthProjected}}</span>
     </div>
     <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>
   </header>
 
   <div class="uesrpg-spelllearn__scroll">
+    <section class="uesrpg-spelllearn__section uesrpg-spelllearn__draft">
+      <h3>Draft Summary</h3>
+      <p class="uesrpg-spelllearn__hint">
+        Staged entries: <b>{{stagedCount}}</b> | Staged XP: <b>{{stagedCostXp}}</b> | Staged Drakes: <b>{{stagedCostWealth}}</b>
+      </p>
+
+      {{#if hasDraft}}
+        <div class="uesrpg-spelllearn__draft-list">
+          {{#each stagedEntries as |row|}}
+            <div class="uesrpg-spelllearn__draft-row">
+              <div class="uesrpg-spelllearn__draft-text">
+                <div class="uesrpg-spelllearn__draft-label">{{row.label}}</div>
+                <div class="uesrpg-spelllearn__draft-meta">{{row.kind}} | XP {{row.costXp}} | Drakes {{row.costWealth}}</div>
+              </div>
+              <button type="button" data-action="removeDraftEntry" data-entry-id="{{row.id}}" class="uesrpg-spelllearn__rollback-btn">
+                <i class="fas fa-rotate-left"></i> Remove
+              </button>
+            </div>
+          {{/each}}
+        </div>
+      {{else}}
+        <p class="uesrpg-spelllearn__hint">No staged spell purchases yet.</p>
+      {{/if}}
+
+      <div class="uesrpg-spelllearn__confirm-actions">
+        <button type="button" data-action="confirmDraft">
+          <i class="fas fa-check"></i> Confirm Purchases
+        </button>
+        <button type="button" data-action="discardDraft">
+          <i class="fas fa-trash"></i> Discard Draft
+        </button>
+      </div>
+    </section>
+
     <section class="uesrpg-spelllearn__section">
       <h3>Drop Spells to Learn</h3>
       <p>Drag and drop spell items from sidebar, compendium, or actor sheets.</p>

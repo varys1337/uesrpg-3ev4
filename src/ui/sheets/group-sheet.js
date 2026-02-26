@@ -1,6 +1,7 @@
 import { prepareCharacterItems } from "./sheet-prepare-items.js";
 import { bindCommonSheetListeners, bindCommonEditableInventoryListeners } from "./sheet-listeners.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "./rest-workflow.js";
+import { forwardTimeForGroupRest } from "../../core/time/rest-time-forwarding.js";
 import { cachedEnrichHTML } from "../../utils/enrich-cache.js";
 import { customDialog, confirmDialog } from "../../utils/dialog-v2-helper.js";
 
@@ -433,6 +434,12 @@ export class GroupSheet extends ActorSheet {
       if (line) lines.push(line);
     }
 
+    const timeForward = await forwardTimeForGroupRest({
+      restType: "short",
+      actor: this.actor,
+      actorLabel: this.actor?.name ?? null
+    });
+
     const content = buildRestChatContent("Short Rest (1 hour)", lines);
 
     // Update last rest timestamp
@@ -448,7 +455,13 @@ export class GroupSheet extends ActorSheet {
 
     // Refresh sheet to show updated stats
     await this.render(false);
-    ui.notifications.info("Short rest completed.");
+    if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
+      ui.notifications.warn(`Short rest completed. ${timeForward.reason}`);
+    } else if (timeForward.applied) {
+      ui.notifications.info("Short rest completed. Time advanced by 1 hour.");
+    } else {
+      ui.notifications.info("Short rest completed.");
+    }
   }
 
   async _onLongRest(event) {
@@ -468,6 +481,12 @@ export class GroupSheet extends ActorSheet {
       if (line) lines.push(line);
     }
 
+    const timeForward = await forwardTimeForGroupRest({
+      restType: "long",
+      actor: this.actor,
+      actorLabel: this.actor?.name ?? null
+    });
+
     const content = buildRestChatContent("Long Rest (8 hours)", lines);
 
     // Update last rest timestamp
@@ -483,7 +502,15 @@ export class GroupSheet extends ActorSheet {
 
     // Refresh sheet to show updated stats
     await this.render(false);
-    ui.notifications.info("Long rest completed.");
+    if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
+      ui.notifications.warn(`Long rest completed. ${timeForward.reason}`);
+    } else if (timeForward.applied && timeForward.mode === "sunrise") {
+      ui.notifications.info("Long rest completed. Time advanced to sunrise.");
+    } else if (timeForward.applied) {
+      ui.notifications.info("Long rest completed. Time advanced by 8 hours.");
+    } else {
+      ui.notifications.info("Long rest completed.");
+    }
   }
 
   async _onDeployGroup(event) {

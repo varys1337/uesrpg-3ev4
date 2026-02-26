@@ -98,7 +98,11 @@ function _evaluateCore(actor, keys, options = {}) {
     return { totalsByKey, entries: [], resolvedByKey: totalsByKey, detailsByKey };
   }
 
-  const effects = collectApplicableEffects(actor, { dedupeByOrigin, debug });
+  // Use the per-actor cache when using the default dedupeByOrigin=true path.
+  // The cache is invalidated by AE lifecycle hooks (see init.js _aeCacheInvalidationHooks).
+  const effects = dedupeByOrigin
+    ? getApplicableEffectsCached(actor)
+    : collectApplicableEffects(actor, { dedupeByOrigin, debug });
 
   // We aggregate ADD contributions across all effects and independently select the OVERRIDE
   // candidate by priority.
@@ -328,6 +332,27 @@ export function collectApplicableEffects(actor, { dedupeByOrigin = true, debug =
   }
 
   return actorEffects.concat(transferable);
+}
+
+/**
+ * Return applicable effects for an actor, using a per-actor ephemeral cache.
+ *
+ * The cache is stored as `actor._aeApplicableCache = { effects }` and is cleared
+ * by AE lifecycle hooks (_aeCacheInvalidationHooks in src/hooks/init.js) whenever
+ * any ActiveEffect or embedded Item changes on the actor.
+ *
+ * Only supports the default `dedupeByOrigin: true` path. Callers that need
+ * `dedupeByOrigin: false` should call `collectApplicableEffects` directly.
+ *
+ * @param {import("foundry").documents.BaseActor} actor
+ * @returns {any[]} Array of ActiveEffect-like objects
+ */
+export function getApplicableEffectsCached(actor) {
+  const cache = actor?._aeApplicableCache;
+  if (cache?.effects) return cache.effects;
+  const effects = collectApplicableEffects(actor, { dedupeByOrigin: true, debug: false });
+  if (actor) actor._aeApplicableCache = { effects };
+  return effects;
 }
 
 /**

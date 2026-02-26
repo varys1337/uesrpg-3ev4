@@ -318,6 +318,49 @@
   opacity: 0.9;
 }
 
+.uesrpg-spelllearn__draft-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.uesrpg-spelllearn__draft-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(120, 120, 120, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 6px 8px;
+}
+
+.uesrpg-spelllearn__draft-text {
+  min-width: 0;
+}
+
+.uesrpg-spelllearn__draft-label {
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.uesrpg-spelllearn__draft-meta {
+  font-size: 11px;
+  color: rgba(36, 36, 36, 0.68);
+}
+
+.uesrpg-spelllearn__rollback-btn {
+  flex: none;
+}
+
+.uesrpg-spelllearn__confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .uesrpg-spelllearn__manual-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -12,6 +12,7 @@ import { isItemMagicSource } from "./reduction.js";
 import { isActorImmuneToDamageType, isActorIncorporeal } from "../../traits/trait-registry.js";
 import { requestUpdateDocument, requestCreateActiveEffect, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isAnyDebugEnabled } from "../../../utils/debug.js";
+import { shouldTriggerWound } from "../../wounds/wound-rules.js";
 
 function _healingDebug(...args) {
   if (!isAnyDebugEnabled(["woundsDebug", "spellCastingDebug"])) return;
@@ -148,8 +149,8 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   if (damageCalc.immunity?.isImmune) finalDamageAdjusted = 0;
   if (damageCalc.incorporealBlock?.isBlocked) finalDamageAdjusted = 0;
 
-  // Wound Threshold (RAW): WOUNDED is applied when a *single* instance of damage meets/exceeds
-  // the target's Wound Threshold value. This is not derived from remaining HP.
+  // Wound Threshold: canonical trigger behavior is routed through wounds/wound-rules.js
+  // to support both standard and alternate rules modes.
   // Schema: actor.system.wound_threshold.value (PC + NPC).
   const baseWoundThreshold = (() => {
     const wt = actor.system?.wound_threshold;
@@ -200,21 +201,25 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
 
   const updateTarget = isUnlinkedToken ? activeToken.actor : actor;
 
-  // Determine wound status from RAW threshold.
-  // NOTE: We intentionally do not auto-clear the flag on healing.
-  const isWounded = (finalDamageAdjusted >= Math.max(0, woundThreshold)) && finalDamageAdjusted > 0 && woundThreshold > 0;
+  // Canonical wound trigger routing.
+  const woundEval = shouldTriggerWound({
+    damageApplied: finalDamageAdjusted,
+    woundThreshold,
+    isCriticalSuccess: Boolean(options?.criticalSuccess ?? options?.isCritical ?? false),
+    newHp: newHP
+  });
+  const isWounded = woundEval.triggered === true;
 
   let woundStatus = "uninjured";
   if (newHP === 0) woundStatus = "unconscious";
   else if (isWounded) woundStatus = "wounded";
 
-  // Persist Wounded flag if the damage exceeded the threshold.
-  // Keep update minimal: only write the flag when it needs to be set.
+  // Keep this path free of direct wounded-flag writes.
+  // Wounds subsystem reconciles `system.wounded` as a derived compatibility mirror.
   const updateData = { 
     "system.hp.value": newHP,
     "system.tempHP": newTempHP
   };
-  if (isWounded && !updateTarget.system?.wounded) updateData["system.wounded"] = true;
 
   await requestUpdateDocument(updateTarget, updateData);
 
@@ -230,6 +235,9 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
       damageAppliedByType: damageAppliedByType,
       woundThreshold,
       woundThresholdDelta: Number(woundThresholdDelta) || 0,
+      woundMode: woundEval.mode,
+      woundTriggerReason: woundEval.reason,
+      criticalSuccess: Boolean(options?.criticalSuccess ?? options?.isCritical ?? false),
       woundTriggered: isWounded === true
     });
   } catch (err) {

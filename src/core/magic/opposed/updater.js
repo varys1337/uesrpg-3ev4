@@ -14,6 +14,7 @@
  */
 
 import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
+import { cloneFlagState } from "../../../utils/clone.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 const _FLAG_KEY = "magicOpposed";
@@ -91,7 +92,7 @@ async function _updateCardCore(message, data, _renderCard) {
   let merged;
 
   if (liveState && typeof liveState === "object") {
-    const freshState = JSON.parse(JSON.stringify(liveState));
+    const freshState = cloneFlagState(liveState);
 
     // Defense-in-depth: prevent handler's stale clone from overwriting results
     // that another handler has already written to the live state.

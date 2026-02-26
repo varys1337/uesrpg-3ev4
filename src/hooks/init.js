@@ -1,7 +1,7 @@
 import { UESRPG } from "../core/constants.js";
 import { SimpleActor } from "../core/documents/actor.js";
 import { SimpleItem } from "../core/documents/item.js";
-import { LANGUAGE_CHOICES } from "../core/social/social-choices.js";
+import { registerPolyglotLanguages } from "../core/integrations/polyglot.js";
 
 import { preloadHandlebarsTemplates } from "./init/register-templates.js";
 import { registerSettings } from "./init/register-settings.js";
@@ -386,31 +386,9 @@ export default async function initHandler() {
   // Record Configuration Values
   CONFIG.UESRPG = UESRPG;
 
-// Polyglot integration: expose system languages using the generic CONFIG[systemIdUpper].languages convention.
-// Safe: this only *defines* the catalog and does not mutate any Actor data.
-try {
-  const systemId = game.system?.id ?? "";
-  const systemIdUpper = systemId.toUpperCase();
-  CONFIG[systemIdUpper] = CONFIG[systemIdUpper] ?? {};
-  if (!CONFIG[systemIdUpper].languages) {
-    const slugify = (s) => String(s ?? "")
-      .trim()
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/['’]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    const languages = {};
-    for (const label of LANGUAGE_CHOICES ?? []) {
-      const key = slugify(label);
-      if (key) languages[key] = label;
-    }
-    CONFIG[systemIdUpper].languages = languages;
-  }
-} catch (err) {
-  console.warn("UESRPG | Polyglot language exposure failed", err);
-}
+// Polyglot integration: register system languages for the Polyglot module.
+// Implementation lives in src/core/integrations/polyglot.js.
+registerPolyglotLanguages();
 
   // Define custom Entity classes
   CONFIG.Actor.documentClass = SimpleActor;
@@ -456,19 +434,50 @@ try {
     game.uesrpg._aggCacheInvalidationHooks = true;
 
     /**
-     * Clear per-actor aggregation caches so derived data recomputes on the next prepare.
+     * Clear per-actor aggregation and AE caches so derived data recomputes on the next prepare.
      * @param {Item} item
      */
     const invalidateActorAggCacheFromItem = (item) => {
       const actor = item?.parent;
       if (!actor || actor.documentName !== "Actor") return;
       if (Object.prototype.hasOwnProperty.call(actor, "_aggCache")) actor._aggCache = null;
+      if (Object.prototype.hasOwnProperty.call(actor, "_aeApplicableCache")) actor._aeApplicableCache = null;
+      if (Object.prototype.hasOwnProperty.call(actor, "_aeTotalsMap")) actor._aeTotalsMap = null;
     };
 
     Hooks.on("preUpdateItem", (item, _changes, _options, _userId) => invalidateActorAggCacheFromItem(item));
     Hooks.on("updateItem", (item, _changes, _options, _userId) => invalidateActorAggCacheFromItem(item));
     Hooks.on("createItem", (item, _options, _userId) => invalidateActorAggCacheFromItem(item));
     Hooks.on("deleteItem", (item, _options, _userId) => invalidateActorAggCacheFromItem(item));
+  }
+
+  // AE_CACHE_INVALIDATION_V1
+  // Clear the per-actor applicable-effects cache whenever an ActiveEffect changes.
+  // The cache is populated by getApplicableEffectsCached() in modifier-evaluator.js
+  // and avoids repeated effect collection during a single actor prepare cycle.
+  if (!game.uesrpg._aeCacheInvalidationHooks) {
+    game.uesrpg._aeCacheInvalidationHooks = true;
+
+    const clearActorAECache = (actor) => {
+      if (!actor || actor.documentName !== "Actor") return;
+      if (Object.prototype.hasOwnProperty.call(actor, "_aeApplicableCache")) actor._aeApplicableCache = null;
+      if (Object.prototype.hasOwnProperty.call(actor, "_aeTotalsMap")) actor._aeTotalsMap = null;
+    };
+
+    const invalidateAECacheFromEffect = (effect) => {
+      const parent = effect?.parent;
+      if (!parent) return;
+      if (parent.documentName === "Actor") {
+        clearActorAECache(parent);
+      } else if (parent.documentName === "Item") {
+        const actorParent = parent.parent;
+        if (actorParent?.documentName === "Actor") clearActorAECache(actorParent);
+      }
+    };
+
+    Hooks.on("createActiveEffect", (effect) => invalidateAECacheFromEffect(effect));
+    Hooks.on("updateActiveEffect", (effect) => invalidateAECacheFromEffect(effect));
+    Hooks.on("deleteActiveEffect", (effect) => invalidateAECacheFromEffect(effect));
   }
 
   // Chapter 5: conditions + wounds automation (AE-backed, deterministic)

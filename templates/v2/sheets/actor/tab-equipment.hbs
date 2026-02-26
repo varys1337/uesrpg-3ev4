@@ -1,5 +1,6 @@
             <div class="tab equipment" data-group="primary" data-tab="equipment">
                 <div class="equipmentTabContainer">
+                    <div class="uesrpg-equipment-main-body">
                     <div class="itemListContainer">
                         <div class="tableListHeader">
                             <div class="equipment-info-container">
@@ -331,6 +332,35 @@
                             </table>
 
                         </div>
+                    </div>
+                    </div>
+                    <div class="uesrpg-equipment-sub-body">
+                    <div class="uesrpg-panel uesrpg-panel--subtle uesrpg-equipment-effects-section">
+                        <header class="effects-header flexrow">
+                            <h3>Effects</h3>
+                            <a data-action="effectControl" class="effect-control" data-effect-action="create" title="Create Effect">
+                                <i class="fas fa-plus"></i>
+                            </a>
+                        </header>
+                        <ol class="effects-list uesrpg-equipment-effects-list">
+                            {{#each effects as |effect|}}
+                                <li class="effect flexrow" data-effect-id="{{effect._id}}">
+                                    <img class="effect-icon" src="{{effect.img}}" />
+                                    <h4 class="effect-name">{{effect.name}}</h4>
+                                    <div class="effect-controls flexrow">
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle Effect">
+                                            <i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i>
+                                        </a>
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit Effect"><i class="fas fa-edit"></i></a>
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete Effect"><i class="fas fa-trash"></i></a>
+                                    </div>
+                                </li>
+                            {{/each}}
+                        </ol>
+                        {{#unless effects.length}}
+                            <p class="effects-empty-msg">No active effects.</p>
+                        {{/unless}}
+                    </div>
                     </div>
                 </div>
             </div>

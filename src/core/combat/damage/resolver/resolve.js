@@ -47,6 +47,7 @@ import { getAttackModeFromWeapon } from "../../combat-utils.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { collectStrikeEnchantmentEffects, consumeStrikeCharge } from "../../../enchanting/runtime/strike-runtime.js";
+import { shouldTriggerWound } from "../../../wounds/wound-rules.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
 
@@ -754,8 +755,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   }
 
 
-  // Chapter 5 Wounds: if damage from a single attack (all components) is in excess of WT, a wound is triggered.
-  woundTriggered = (woundThreshold > 0 && totalApplied > woundThreshold && totalApplied > 0);
+  // Canonical wound trigger routing is resolved after final HP is applied.
 
   // Provide per-damage-type totals for wound shock follow-ups (e.g. fire vs shock effects).
   const damageAppliedByType = results.reduce((acc, r) => {
@@ -836,11 +836,22 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   }
   await requestUpdateDocument(updateTarget, updateData);
 
+  const woundEval = shouldTriggerWound({
+    damageApplied: Math.max(0, totalApplied),
+    woundThreshold,
+    isCriticalSuccess: Boolean(ctx.options?.criticalSuccess ?? ctx.options?.isCritical ?? false),
+    newHp: newHP
+  });
+  woundTriggered = woundEval.triggered === true;
+
   // Emit canonical damage-applied hook for downstream automation (e.g. Chapter 5 wounds/shock).
   try {
     Hooks.callAll("uesrpgDamageApplied", updateTarget, {
       applicationId,
       woundTriggered,
+      woundMode: woundEval.mode,
+      woundTriggerReason: woundEval.reason,
+      criticalSuccess: Boolean(ctx.options?.criticalSuccess ?? ctx.options?.isCritical ?? false),
       woundThreshold,
       amountApplied: Math.max(0, totalApplied),
       damageAppliedByType,

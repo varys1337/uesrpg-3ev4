@@ -24,7 +24,8 @@ export class HPTempHPDialog {
     const currentHP = Number(actor.system?.hp?.value ?? 0);
     const maxHP = Number(actor.system?.hp?.max ?? 0);
     const currentTempHP = Number(actor.system?.tempHP ?? 0);
-    const isWounded = Boolean(actor.system?.wounded);
+    const woundState = game?.uesrpg?.wounds?.getWoundState?.(actor) ?? (actor.system?.wounded ? "active" : "none");
+    const isWounded = woundState !== "none";
     
     const content = `
       <div class="uesrpg-resource-dialog__body uesrpg-hp-dialog">

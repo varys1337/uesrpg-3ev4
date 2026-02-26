@@ -5,6 +5,7 @@
 
 import { canUserRollActor } from "../../../utils/permissions.js";
 import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
+import { cloneFlagState } from "../../../utils/clone.js";
 import { updateCard as _updateCardViaUpdater } from "./cards/updater.js";
 import {
   renderMultiDefenderCard,
@@ -718,7 +719,7 @@ export async function retargetOpposedMessage(
       return false;
     }
 
-    const data = JSON.parse(JSON.stringify(env.state));
+    const data = cloneFlagState(env.state);
     if (!_canInteractSkillOpposed(user, live, data) && !(forceAutomation && automationAllowed)) {
       ui.notifications?.warn?.("You do not have permission to modify this opposed card.");
       return false;
@@ -765,7 +766,7 @@ export async function retargetOpposedMessage(
     return false;
   }
 
-  const data = JSON.parse(JSON.stringify(env.state));
+  const data = cloneFlagState(env.state);
   if (!_canInteractMagicOpposed(user, live, data) && !(forceAutomation && automationAllowed)) {
     ui.notifications?.warn?.("You do not have permission to modify this opposed card.");
     return false;

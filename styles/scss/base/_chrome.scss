@@ -1024,7 +1024,7 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   border-image: url("../images/elements/interface/borders/window-frame-wood.webp") 70 / 20px stretch;
   margin: 6px 0;
   padding: 0 !important;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* 2. Message header --- frameline only, no fill; text readable on parchment*/
@@ -2628,9 +2628,11 @@ body.system-uesrpg-3ev4 .window-app .window-content,
 .worldbuilding .combatTabContainer {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1 1 auto;
+  height: auto;
   gap: 4px;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
 }
 
@@ -2752,6 +2754,118 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   font-family: var(--uesrpg-font-family);
   font-size: var(--uesrpg-font-sm);
   opacity: 0.9;
+}
+
+/* Combat Tab - Wounds panel (compact + scroll-safe) */
+.worldbuilding.sheet.actor .uesrpg-wounds-panel,
+.worldbuilding.sheet.npc .uesrpg-wounds-panel {
+  min-height: 0;
+  padding: var(--uesrpg-space-sm) var(--uesrpg-space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-toolbar,
+.worldbuilding.sheet.npc .uesrpg-wounds-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  padding-bottom: 2px;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-toolbar .uesrpg-quick-action,
+.worldbuilding.sheet.npc .uesrpg-wounds-toolbar .uesrpg-quick-action {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  height: 24px;
+  padding: 1px 8px;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table-wrap,
+.worldbuilding.sheet.npc .uesrpg-wounds-table-wrap {
+  max-height: none;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table,
+.worldbuilding.sheet.npc .uesrpg-wounds-table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table th:nth-child(1),
+.worldbuilding.sheet.actor .uesrpg-wounds-table td:nth-child(1),
+.worldbuilding.sheet.npc .uesrpg-wounds-table th:nth-child(1),
+.worldbuilding.sheet.npc .uesrpg-wounds-table td:nth-child(1) {
+  width: 30%;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table th:nth-child(2),
+.worldbuilding.sheet.actor .uesrpg-wounds-table td:nth-child(2),
+.worldbuilding.sheet.npc .uesrpg-wounds-table th:nth-child(2),
+.worldbuilding.sheet.npc .uesrpg-wounds-table td:nth-child(2) {
+  width: 14%;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table th:nth-child(3),
+.worldbuilding.sheet.actor .uesrpg-wounds-table td:nth-child(3),
+.worldbuilding.sheet.npc .uesrpg-wounds-table th:nth-child(3),
+.worldbuilding.sheet.npc .uesrpg-wounds-table td:nth-child(3) {
+  width: 36%;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table th:nth-child(4),
+.worldbuilding.sheet.actor .uesrpg-wounds-table td:nth-child(4),
+.worldbuilding.sheet.npc .uesrpg-wounds-table th:nth-child(4),
+.worldbuilding.sheet.npc .uesrpg-wounds-table td:nth-child(4) {
+  width: 20%;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table :is(th, td),
+.worldbuilding.sheet.npc .uesrpg-wounds-table :is(th, td) {
+  padding: 4px 6px;
+  vertical-align: middle;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table td:nth-child(3),
+.worldbuilding.sheet.npc .uesrpg-wounds-table td:nth-child(3) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-actions,
+.worldbuilding.sheet.npc .uesrpg-wounds-actions {
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-row-actions,
+.worldbuilding.sheet.npc .uesrpg-wounds-row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-row-actions .uesrpg-quick-action,
+.worldbuilding.sheet.npc .uesrpg-wounds-row-actions .uesrpg-quick-action {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
 }
 
 /* --- Special Actions (Actor/NPC Sheet) - Minimalist List Style ---*/
@@ -3293,9 +3407,31 @@ body.system-uesrpg-3ev4 .window-app .window-content,
 .worldbuilding .equipmentTabContainer {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   width: 100%;
-  height: 100%;
+  height: auto;
   gap: var(--uesrpg-space-md);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.worldbuilding .uesrpg-equipment-main-body,
+.worldbuilding .uesrpg-equipment-sub-body {
+  position: relative;
+  z-index: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.worldbuilding .uesrpg-equipment-main-body {
+  flex: 0 0 auto;
+}
+
+.worldbuilding .uesrpg-equipment-sub-body {
+  flex: 0 0 auto;
+  margin-top: var(--uesrpg-space-sm);
+  clear: both;
 }
 
 .worldbuilding .equipment-info-container {
@@ -3345,6 +3481,7 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   flex-direction: column;
   width: 100%;
   gap: 10px;
+  min-height: 0;
 }
 
 .worldbuilding .equipmentList table thead th.item-create,
@@ -4417,7 +4554,10 @@ body.system-uesrpg-3ev4 .window-app .window-content,
 .worldbuilding.sheet.actor .tab[data-group="primary"].active > .combatTabContainer,
 .worldbuilding.sheet.actor .tab[data-group="primary"].active > .magicTabContainer,
 .worldbuilding.sheet.actor .tab[data-group="primary"].active > .equipmentTabContainer {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
+  height: 100%;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -6631,46 +6771,57 @@ body.theme-dark .worldbuilding.sheet.actor .rest-btn:hover {
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(5),
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(5) { width: 6%; }
 
-/* Active Effects containment: prevent icon/control spill beyond main body.*/
-.worldbuilding.sheet.actor .effects-list {
+/* --- Equipment tab --- Active Effects section (single-scroller model) --- */
+.worldbuilding.sheet.actor .uesrpg-equipment-effects-section,
+.worldbuilding.sheet.npc   .uesrpg-equipment-effects-section {
+  position: relative;
+  z-index: 1;
   min-width: 0;
   overflow: hidden;
+  isolation: isolate;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(248, 240, 219, 0.97),
+      rgba(241, 233, 213, 0.97)
+    ),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
 }
 
-.worldbuilding.sheet.actor .effects-list .effect {
+.worldbuilding.sheet.actor .uesrpg-equipment-effects-list,
+.worldbuilding.sheet.npc   .uesrpg-equipment-effects-list {
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+  max-height: none;
+}
+
+.worldbuilding.sheet.actor .uesrpg-equipment-effects-list .effect,
+.worldbuilding.sheet.npc   .uesrpg-equipment-effects-list .effect {
   display: flex;
   min-width: 0;
   overflow: hidden;
+  background: rgba(250, 245, 229, 0.92);
 }
 
-.worldbuilding.sheet.actor .effects-list .effect-name {
+.worldbuilding.sheet.actor .uesrpg-equipment-effects-list .effect-name,
+.worldbuilding.sheet.npc   .uesrpg-equipment-effects-list .effect-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.worldbuilding.sheet.actor .effects-list .effect-controls { flex: 0 0 auto; }
-
-/* --- Combat tab --- Effects standalone section ---
- * Sits below the uesrpg-actions-section, matches magic-effects-section visuals.
- * The list scrolls when content exceeds max-height.*/
-.worldbuilding.sheet.actor .combat-effects-section,
-.worldbuilding.sheet.npc   .combat-effects-section {
-  min-width: 0;
-  overflow: hidden;
+.worldbuilding.sheet.actor .uesrpg-equipment-effects-list .effect-controls,
+.worldbuilding.sheet.npc   .uesrpg-equipment-effects-list .effect-controls {
+  flex: 0 0 auto;
 }
 
-.worldbuilding.sheet.actor .combat-effects-section .effects-list,
-.worldbuilding.sheet.npc   .combat-effects-section .effects-list {
-  overflow-x: hidden;
-  overflow-y: auto;
-  max-height: 110px;
-}
-
-/* Empty-state message*/
-.worldbuilding.sheet.actor .combat-effects-section .effects-empty-msg,
-.worldbuilding.sheet.npc   .combat-effects-section .effects-empty-msg {
+.worldbuilding.sheet.actor .uesrpg-equipment-effects-section .effects-empty-msg,
+.worldbuilding.sheet.npc   .uesrpg-equipment-effects-section .effects-empty-msg {
   text-align: center;
   font-style: italic;
   color: var(--color-text-dark-secondary, #888);

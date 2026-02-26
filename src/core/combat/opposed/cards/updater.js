@@ -9,6 +9,7 @@
  */
 
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+import { cloneFlagState } from "../../../../utils/clone.js";
 
 /* ────────────────────────────────────────────────────────────────────────
  * Per-message async mutex.
@@ -83,7 +84,7 @@ async function _updateCardCore(message, data, _renderCard) {
   const liveRaw = message?.flags?.["uesrpg-3ev4"]?.opposed;
   let merged;
   if (liveRaw && typeof liveRaw === "object") {
-    const freshState = JSON.parse(JSON.stringify(liveRaw));
+    const freshState = cloneFlagState(liveRaw);
 
     // Defense-in-depth: prevent handler's stale clone from overwriting results
     // that another handler has already written to the live state.

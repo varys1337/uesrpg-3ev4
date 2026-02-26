@@ -311,33 +311,62 @@
     </div>
 </div>
 
-{{!-- Standalone Effects section below the actions menu --}}
-<div class="combat-effects-section">
-    <header class="effects-header flexrow">
-        <h3>Effects</h3>
-        <a data-action="effectControl" class="effect-control" data-effect-action="create" title="Create Effect">
-            <i class="fas fa-plus"></i>
-        </a>
-    </header>
-    <ol class="effects-list">
-        {{#each effects as |effect|}}
-            <li class="effect flexrow" data-effect-id="{{effect._id}}">
-                <img class="effect-icon" src="{{effect.img}}" />
-                <h4 class="effect-name">{{effect.name}}</h4>
-                <div class="effect-controls flexrow">
-                    <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle Effect">
-                        <i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i>
-                    </a>
-                    <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit Effect"><i class="fas fa-edit"></i></a>
-                    <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete Effect"><i class="fas fa-trash"></i></a>
-                </div>
-            </li>
-        {{/each}}
-    </ol>
-    {{#unless effects.length}}
-        <p class="effects-empty-msg">No active effects.</p>
-    {{/unless}}
+{{#if actor.woundManager}}
+<div class="uesrpg-panel uesrpg-panel--subtle uesrpg-wounds-panel">
+    <div class="section-header"><span class="section-header__label">Wounds</span></div>
+    <div class="actions-help">{{actor.woundManager.label}}</div>
+    <div class="uesrpg-wounds-toolbar">
+        {{#if actor.woundManager.hasWounds}}
+        <button type="button" class="uesrpg-quick-action" data-action="woundFirstAid">First Aid</button>
+        <button type="button" class="uesrpg-quick-action" data-action="woundTreatAll">Treat All</button>
+        <button type="button" class="uesrpg-quick-action" data-action="woundClearAll">Clear All</button>
+        {{/if}}
+        {{#if actor.woundManager.hasFirstAid}}
+        <button type="button" class="uesrpg-quick-action" data-action="woundRemoveFirstAid">Remove First Aid</button>
+        {{/if}}
+        {{#if isGM}}
+        <button type="button" class="uesrpg-quick-action" data-action="woundReconcile">Reconcile</button>
+        {{/if}}
+    </div>
+    <div class="actions-help-small">
+        Blood Loss: {{actor.woundManager.bloodLossRounds}} | Forestall: {{actor.woundManager.forestallRounds}}
+    </div>
+    {{#if actor.woundManager.wounds.length}}
+    <div class="uesrpg-wounds-table-wrap">
+        <table class="uesrpg-wounds-table">
+            <thead>
+                <tr>
+                    <th>Location</th>
+                    <th>Damage</th>
+                    <th>Status</th>
+                    <th class="right-align-cell">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#each actor.woundManager.wounds as |w|}}
+                <tr>
+                    <td>{{w.hitLocation}}</td>
+                    <td>{{w.progress}} / {{w.damage}}</td>
+                    <td title="{{#if w.shockResolved}}Shock Resolved{{else}}Shock Pending{{/if}}{{#if w.treated}}; Treated{{else}}; Untreated{{/if}}">
+                        {{#if w.shockResolved}}Shock Resolved{{else}}Shock Pending{{/if}}
+                        {{#if w.treated}}; Treated{{else}}; Untreated{{/if}}
+                    </td>
+                    <td class="right-align-cell uesrpg-wounds-actions">
+                        <div class="uesrpg-wounds-row-actions">
+                            {{#unless w.treated}}
+                            <button type="button" class="uesrpg-quick-action" data-action="woundTreat" data-wound-id="{{w.id}}">Treat</button>
+                            {{/unless}}
+                            <button type="button" class="uesrpg-quick-action" data-action="woundClear" data-wound-id="{{w.id}}">Clear</button>
+                        </div>
+                    </td>
+                </tr>
+                {{/each}}
+            </tbody>
+        </table>
+    </div>
+    {{/if}}
 </div>
+{{/if}}
 
 {{#if sheetUi.showDiagnostics}}
                         <div class="uesrpg-diagnostics-panel">
@@ -349,4 +378,3 @@
 
                 </div>
             </div>
-

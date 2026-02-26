@@ -24,6 +24,7 @@ import { requestUpdateDocument, requestUpdateChatMessage } from "../../utils/aut
 import { canUserRollActor } from "../../utils/permissions.js";
 import { customDialog, confirmDialog } from "../../utils/dialog-v2-helper.js";
 import { doTestRoll, formatDegree, resolveOpposed } from "../../utils/degree-roll-helper.js";
+import { cloneFlagState } from "../../utils/clone.js";
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -498,7 +499,7 @@ async function _persistSkillOpposedResult(message, side, newResult, _extraFlags)
   const live = game.messages?.get?.(message.id) ?? message;
   const raw = live.flags?.[SYSTEM_ID]?.skillOpposed;
   if (!raw) return;
-  const data = JSON.parse(JSON.stringify(raw.state ?? raw));
+  const data = cloneFlagState(raw.state ?? raw);
 
   if (side.role === "attacker") {
     data.attacker.result = newResult;
@@ -525,7 +526,7 @@ async function _persistCharOpposedResult(message, side, newResult, _extraFlags) 
   const live = game.messages?.get?.(message.id) ?? message;
   const raw = live.flags?.[SYSTEM_ID]?.charOpposed;
   if (!raw) return;
-  const data = JSON.parse(JSON.stringify(raw.state ?? raw));
+  const data = cloneFlagState(raw.state ?? raw);
 
   if (side.role === "attacker") {
     data.attacker.result = newResult;
@@ -557,7 +558,7 @@ async function _persistMagicOpposedResult(message, side, newResult, _extraFlags)
   const live = game.messages?.get?.(message.id) ?? message;
   const raw = live.flags?.[SYSTEM_ID]?.magicOpposed;
   if (!raw) return;
-  const data = JSON.parse(JSON.stringify(raw.state ?? raw));
+  const data = cloneFlagState(raw.state ?? raw);
 
   if (side.role === "attacker") {
     data.attacker.result = newResult;

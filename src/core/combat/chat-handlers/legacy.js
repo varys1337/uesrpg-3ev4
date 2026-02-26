@@ -20,6 +20,7 @@ import { canUserRollActor } from "../../../utils/permissions.js";
 import { resolveShockTestFromChat } from "../../wounds/wound-engine.js";
 import { requestUpdateChatMessage, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { getDiseaseResistancePercent, isActorImmuneToDamageType } from "../../traits/trait-registry.js";
+import { cloneFlagState } from "../../../utils/clone.js";
 import { getGeneralTalentRerollEligibility, rerollSkillTestFromChatMessage } from "../../traits/general-talents.js";
 import { hasTalent } from "../../traits/talents-api.js";
 import { canApplyCharGenGatedImperialTalents } from "../../traits/racial-talents.js";
@@ -488,7 +489,7 @@ async function _markInlineDamageApplied(message, targetUuid) {
 async function _markMagicInlineDamageApplied(message, targetUuid) {
   const raw = message?.flags?.["uesrpg-3ev4"]?.magicOpposed;
   if (!raw) return;
-  const data = JSON.parse(JSON.stringify(raw.state ?? raw));
+  const data = cloneFlagState(raw.state ?? raw);
 
   // Locate the matching defender entry.
   let defender = null;

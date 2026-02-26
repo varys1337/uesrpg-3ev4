@@ -10,8 +10,9 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 function hasUntreatedWounds(actor) {
   const api = game?.uesrpg?.wounds;
   if (api?.canNaturalHeal) return !api.canNaturalHeal(actor);
-  // Fallback: if we cannot evaluate wound treatment state, assume wounded = untreated.
-  return Boolean(actor?.system?.wounded);
+  // Fallback: use wound effects directly when API is unavailable.
+  const effects = actor?.effects?.contents ?? [];
+  return effects.some((e) => String(e?.getFlag?.("uesrpg-3ev4", "wounds")?.kind ?? "") === "wound");
 }
 
 const _hpHealSkipNotify = new Map();

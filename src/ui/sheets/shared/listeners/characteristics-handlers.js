@@ -106,8 +106,10 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
   function renderRollAssignSelectors(root) {
     const wrap = root?.querySelector("#cgManualAssignWrap");
     if (!wrap) return;
+    const existingMap = currentAssignMap(root);
     wrap.innerHTML = CHA_KEYS.map((key, idx) => {
-      const options = state.rollPool.map((roll, rIdx) => `<option value="${rIdx}" ${rIdx === idx ? "selected" : ""}>${roll}</option>`).join("");
+      const current = _num(existingMap[key], idx);
+      const options = state.rollPool.map((roll, rIdx) => `<option value="${rIdx}" ${rIdx === current ? "selected" : ""}>${roll}</option>`).join("");
       return `<label style="display:flex; flex-direction:column; gap:2px;">
         <span>${key.toUpperCase()}</span>
         <select id="assign-${key}">${options}</select>
@@ -123,6 +125,8 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
     if (modeEl) modeEl.textContent = state.mode === "pointbuy" ? "Point Buy" : "Roll";
     const rerollsEl = root.querySelector("#cgRerollCount");
     if (rerollsEl) rerollsEl.textContent = `${state.rerollsUsed}/3`;
+    const behaviorEl = root.querySelector("#cgRollBehavior");
+    if (behaviorEl) behaviorEl.value = state.assignmentMode;
     const lck = root.querySelector("#lckInput");
     if (lck && !String(lck.value ?? "").trim()) lck.value = String(state.luckRoll);
 
@@ -152,20 +156,20 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       </div>
       <div class="uesrpg-cg-dialog__tools">
         <button type="button" id="cgRollRaw">Roll RAW</button>
-        <button type="button" id="cgUseRoll">Use Roll Mode</button>
-        <button type="button" id="cgUsePointBuy">Use Point Buy Mode</button>
-        <button type="button" id="cgReroll" title="Optional RAW reroll pool (max 3)">Reroll Pool</button>
         <label class="uesrpg-cg-dialog__small" style="display:flex; align-items:center; gap:4px;">
-          Assignment
-          <select id="cgAssignmentMode">
-            <option value="auto">Auto Assign</option>
-            <option value="manual">Manual Assign</option>
+          Roll Behavior
+          <select id="cgRollBehavior">
+            <option value="auto">Roll + Auto Assign</option>
+            <option value="manual">Roll + Manual Distribute</option>
           </select>
         </label>
+        <button type="button" id="cgUsePointBuy">Use Point Buy Mode</button>
+        <button type="button" id="cgReroll" title="Optional RAW reroll pool (max 3)">Reroll Pool</button>
         <span class="uesrpg-cg-dialog__small">Mode: <b id="cgModeLabel">Roll</b></span>
         <span class="uesrpg-cg-dialog__small">Pool: <span id="cgRollPool">${state.rollPool.join(", ")}</span></span>
         <span class="uesrpg-cg-dialog__small">Rerolls: <span id="cgRerollCount">0/3</span></span>
       </div>
+      <div class="uesrpg-cg-dialog__note">Fields are editable. Typed values are used on submit.</div>
       <div id="cgRollSection" class="uesrpg-cg-dialog__note">Roll Assignment Mode controls how the 7 rolled values are mapped to STR/END/AGI/INT/WP/PRC/PRS.</div>
       <div id="cgManualAssignSection" style="display:none;">
         <div class="uesrpg-cg-dialog__note">Manual Assignment (use each roll exactly once):</div>
@@ -178,8 +182,20 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         </div>
       </div>
       <table class="uesrpg-cg-dialog__table">
-        <tr><th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th><th>LCK</th></tr>
+        <tr><th></th><th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th><th>LCK</th></tr>
         <tr>
+          <th scope="row">Current</th>
+          <td><input type="number" value="${baseline.str}" readonly disabled></td>
+          <td><input type="number" value="${baseline.end}" readonly disabled></td>
+          <td><input type="number" value="${baseline.agi}" readonly disabled></td>
+          <td><input type="number" value="${baseline.int}" readonly disabled></td>
+          <td><input type="number" value="${baseline.wp}" readonly disabled></td>
+          <td><input type="number" value="${baseline.prc}" readonly disabled></td>
+          <td><input type="number" value="${baseline.prs}" readonly disabled></td>
+          <td><input type="number" value="${_num(current?.lck?.base, 0)}" readonly disabled></td>
+        </tr>
+        <tr>
+          <th scope="row">Result</th>
           <td><input type="number" id="strInput"></td>
           <td><input type="number" id="endInput"></td>
           <td><input type="number" id="agiInput"></td>
@@ -210,7 +226,6 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       callback: async (html) => {
         const root = _resolveDialogRoot(html);
         if (!root) return;
-        let values = {};
         let assignedMap = null;
         let pointBuyAllocation = null;
         if (state.mode === "roll") {
@@ -227,7 +242,6 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
             }
           }
           assignedMap = map;
-          values = Object.fromEntries(CHA_KEYS.map((k) => [k, baseline[k] + _num(state.rollPool[map[k]], 0)]));
         } else {
           pointBuyAllocation = {};
           let total = 0;
@@ -244,9 +258,19 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
             ui.notifications?.warn?.(`Point buy must total exactly 80 (currently ${total}).`);
             return;
           }
-          values = Object.fromEntries(CHA_KEYS.map((k) => [k, baseline[k] + _num(pointBuyAllocation[k], 0)]));
         }
-        values.lck = Math.min(50, _num(root.querySelector("#lckInput")?.value, state.luckRoll));
+        // Typed field values are authoritative on submit. Roll/Point-Buy controls
+        // are helper prefills that users may manually override before confirming.
+        const values = {
+          str: _num(root.querySelector("#strInput")?.value, 0),
+          end: _num(root.querySelector("#endInput")?.value, 0),
+          agi: _num(root.querySelector("#agiInput")?.value, 0),
+          int: _num(root.querySelector("#intInput")?.value, 0),
+          wp: _num(root.querySelector("#wpInput")?.value, 0),
+          prc: _num(root.querySelector("#prcInput")?.value, 0),
+          prs: _num(root.querySelector("#prsInput")?.value, 0),
+          lck: Math.min(50, _num(root.querySelector("#lckInput")?.value, state.luckRoll)),
+        };
         const favored = {
           str: Boolean(root.querySelector("#strFav")?.checked),
           end: Boolean(root.querySelector("#endFav")?.checked),
@@ -328,14 +352,12 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       refreshUi(root);
 
       root.querySelector("#cgRollRaw")?.addEventListener("click", () => {
+        state.mode = "roll";
+        state.assignmentMode = String(root.querySelector("#cgRollBehavior")?.value ?? "auto");
         state.rollPool = CHA_KEYS.map(() => _roll2d10());
         state.luckRoll = Math.min(50, 30 + _roll2d10());
         root.querySelector("#lckInput").value = String(state.luckRoll);
         renderRollAssignSelectors(root);
-        refreshUi(root);
-      });
-      root.querySelector("#cgUseRoll")?.addEventListener("click", () => {
-        state.mode = "roll";
         refreshUi(root);
       });
       root.querySelector("#cgUsePointBuy")?.addEventListener("click", () => {
@@ -356,8 +378,10 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         renderRollAssignSelectors(root);
         refreshUi(root);
       });
-      root.querySelector("#cgAssignmentMode")?.addEventListener("change", (ev) => {
+      root.querySelector("#cgRollBehavior")?.addEventListener("change", (ev) => {
         state.assignmentMode = String(ev?.currentTarget?.value ?? "auto");
+        state.mode = "roll";
+        renderRollAssignSelectors(root);
         refreshUi(root);
       });
       for (const key of CHA_KEYS) {

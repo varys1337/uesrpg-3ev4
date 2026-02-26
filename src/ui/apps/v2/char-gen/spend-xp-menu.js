@@ -1,10 +1,9 @@
 import {
   requestUpdateDocument,
   requestCreateEmbeddedDocuments,
-  requestDeleteEmbeddedDocuments,
 } from "../../../../utils/authority-proxy.js";
 import { resolveDroppedItem } from "../../../../utils/drop-data.js";
-import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { customDialog, confirmDialog } from "../../../../utils/dialog-v2-helper.js";
 import {
   buildSkillAdvancementPlan,
   normalizeRank,
@@ -19,10 +18,8 @@ import {
   getTalentLearningMode,
   validateTalentLearning,
   notifyTalentLearningResult,
-  applyTalentLearningXpCost,
 } from "../../../../core/traits/talent-learning.js";
 import {
-  applySpellLearningPurchase,
   computeSpellLearningCosts,
   normalizeSpellLearningType,
   validateSpellLearningPurchase,
@@ -38,16 +35,7 @@ function _asNumber(value, fallback = 0) {
 }
 
 function _chaLabel(key) {
-  const map = {
-    str: "STR",
-    end: "END",
-    agi: "AGI",
-    int: "INT",
-    wp: "WP",
-    prc: "PRC",
-    prs: "PRS",
-    lck: "LCK",
-  };
+  const map = { str: "STR", end: "END", agi: "AGI", int: "INT", wp: "WP", prc: "PRC", prs: "PRS", lck: "LCK" };
   return map[String(key ?? "").toLowerCase()] ?? String(key ?? "").toUpperCase();
 }
 
@@ -57,12 +45,53 @@ function _nextRank(rank) {
   return SKILL_RANK_ORDER[idx + 1];
 }
 
+function _slug(text) {
+  return String(text ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/[\u2019']/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function _spellSignature(spellLike) {
+  const name = String(spellLike?.name ?? "").trim().toLowerCase();
+  const school = String(spellLike?.system?.school ?? "").trim().toLowerCase();
+  const level = Math.max(1, _asNumber(spellLike?.system?.level, 1));
+  const type = String(normalizeSpellLearningType(spellLike)).trim().toLowerCase();
+  return `${name}|${school}|${level}|${type}`;
+}
+
+function _cloneSystem(system) {
+  return foundry.utils.deepClone(system ?? {});
+}
+
+function _cloneItemLike(item) {
+  return {
+    id: String(item?.id ?? item?._id ?? ""),
+    name: String(item?.name ?? "Item"),
+    type: String(item?.type ?? ""),
+    img: String(item?.img ?? ""),
+    system: _cloneSystem(item?.system),
+    flags: foundry.utils.deepClone(item?.flags ?? {}),
+  };
+}
+
+function _buildSkillKey(itemId, tempId) {
+  if (tempId) return `temp:${tempId}`;
+  return `id:${itemId}`;
+}
+
 export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   #actor;
   #onClose = null;
   #dropZonesBound = false;
   #selectedCharacteristic = "str";
   #rankGateOverride = false;
+  #sessionBase = null;
+  #draftEntries = [];
+  #draftDerived = null;
+  #dirty = false;
+  #nextDraftId = 1;
 
   constructor(actor, options = {}) {
     super(options);
@@ -71,19 +100,15 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const initial = Object.keys(actor?.system?.characteristics ?? {}).find((k) => k !== "lck");
     this.#selectedCharacteristic = String(initial ?? "str");
     this.#rankGateOverride = Boolean(actor?.getFlag?.("uesrpg-3ev4", "chargen")?.spendXp?.rankGateOverride ?? false);
+    this.#captureSessionBase();
+    this.#recomputeDraftDerived();
   }
 
   static DEFAULT_OPTIONS = {
     id: "uesrpg-spend-xp-menu-v2",
     classes: ["worldbuilding", "uesrpg", "uesrpg-spendxp-app"],
-    position: {
-      width: 980,
-      height: 760,
-    },
-    window: {
-      title: "Spend XP (Chargen)",
-      resizable: true,
-    },
+    position: { width: 980, height: 760 },
+    window: { title: "Spend XP (Chargen)", resizable: true },
     actions: {
       close: SpendXpMenuAppV2.prototype._onCloseClick,
       advanceCharacteristic: SpendXpMenuAppV2.prototype._onAdvanceCharacteristic,
@@ -92,13 +117,11 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       addSpec: SpendXpMenuAppV2.prototype._onAddSpecialization,
       addEquipment: SpendXpMenuAppV2.prototype._onAddEquipment,
       openItem: SpendXpMenuAppV2.prototype._onOpenItem,
+      removeDraftEntry: SpendXpMenuAppV2.prototype._onRemoveDraftEntry,
+      discardDraft: SpendXpMenuAppV2.prototype._onDiscardDraft,
+      confirmDraft: SpendXpMenuAppV2.prototype._onConfirmDraft,
     },
-    dragDrop: [
-      {
-        dragSelector: null,
-        dropSelector: ".uesrpg-spendxp__dropzone",
-      },
-    ],
+    dragDrop: [{ dragSelector: null, dropSelector: ".uesrpg-spendxp__dropzone" }],
   };
 
   static PARTS = {
@@ -114,17 +137,400 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     return app;
   }
 
+  #buildLiveFingerprint() {
+    const actor = this.#actor;
+    const fp = { xp: _asNumber(actor?.system?.xp, 0), wealth: _asNumber(actor?.system?.wealth, 0), characteristics: {}, skills: [], talents: [], spells: [] };
+    for (const key of ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"]) {
+      fp.characteristics[key] = {
+        base: _asNumber(actor?.system?.characteristics?.[key]?.base, 0),
+        total: _asNumber(actor?.system?.characteristics?.[key]?.total, 0),
+        favored: Boolean(actor?.system?.characteristics?.[key]?.favored),
+      };
+    }
+    fp.skills = actor.items
+      .filter((it) => ["skill", "magicSkill", "combatStyle"].includes(it.type))
+      .map((it) => ({
+        id: it.id,
+        type: it.type,
+        name: it.name,
+        rank: normalizeRank(it.system?.rank),
+        trainedItems: String(it.system?.trainedItems ?? ""),
+        trainedEquipment: Array.isArray(it.system?.trainedEquipment) ? it.system.trainedEquipment.map((v) => String(v ?? "").trim()) : [],
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    fp.talents = actor.items.filter((it) => it.type === "talent").map((it) => _slug(it.name)).sort();
+    fp.spells = actor.items.filter((it) => it.type === "spell").map((it) => _spellSignature(it)).sort();
+    return JSON.stringify(fp);
+  }
+
+  #captureSessionBase() {
+    const actor = this.#actor;
+    const characteristics = {};
+    for (const key of Object.keys(actor?.system?.characteristics ?? {})) {
+      const c = actor.system.characteristics[key] ?? {};
+      characteristics[key] = {
+        base: _asNumber(c.base, 0),
+        total: _asNumber(c.total, 0),
+        bonus: _asNumber(c.bonus, Math.floor(_asNumber(c.total, 0) / 10)),
+        favored: Boolean(c.favored),
+      };
+    }
+    const skills = actor.items
+      .filter((it) => ["skill", "magicSkill", "combatStyle"].includes(it.type))
+      .map((it) => ({
+        key: _buildSkillKey(it.id, null),
+        itemId: it.id,
+        tempId: null,
+        type: it.type,
+        name: it.name,
+        img: it.img,
+        system: _cloneSystem(it.system),
+      }));
+    this.#sessionBase = {
+      actorName: actor?.name ?? "Unknown",
+      xp: _asNumber(actor?.system?.xp, 0),
+      xpTotal: _asNumber(actor?.system?.xpTotal, 0),
+      wealth: _asNumber(actor?.system?.wealth, 0),
+      campaignRank: campaignRankFromXpTotal(_asNumber(actor?.system?.xpTotal, 0)),
+      characteristics,
+      skills,
+      validationItems: actor.items.map((it) => _cloneItemLike(it)),
+      fingerprint: this.#buildLiveFingerprint(),
+    };
+  }
+
+  #buildProjectedState() {
+    const base = this.#sessionBase;
+    const skills = new Map();
+    for (const s of base.skills) {
+      skills.set(s.key, {
+        key: s.key,
+        itemId: s.itemId,
+        tempId: s.tempId,
+        type: s.type,
+        name: s.name,
+        img: s.img,
+        system: _cloneSystem(s.system),
+      });
+    }
+
+    const projected = {
+      xp: base.xp,
+      wealth: base.wealth,
+      xpTotal: base.xpTotal,
+      campaignRank: base.campaignRank,
+      characteristics: foundry.utils.deepClone(base.characteristics),
+      skills,
+      talentSlugs: new Set(
+        (base.validationItems ?? [])
+          .filter((it) => it.type === "talent")
+          .map((it) => _slug(it.name))
+      ),
+      spellSigs: new Set(
+        (base.validationItems ?? [])
+          .filter((it) => it.type === "spell")
+          .map((it) => _spellSignature(it))
+      ),
+      totals: { costXp: 0, costWealth: 0 },
+    };
+
+    for (const entry of this.#draftEntries) {
+      projected.totals.costXp += _asNumber(entry.costXp, 0);
+      projected.totals.costWealth += _asNumber(entry.costWealth, 0);
+      projected.xp -= _asNumber(entry.costXp, 0);
+      projected.wealth -= _asNumber(entry.costWealth, 0);
+
+      switch (entry.kind) {
+        case "characteristicAdvance": {
+          const key = String(entry.payload?.key ?? "").toLowerCase();
+          const cha = projected.characteristics[key];
+          if (!cha) break;
+          cha.base = _asNumber(cha.base, 0) + 1;
+          cha.total = _asNumber(cha.total, 0) + 1;
+          cha.bonus = Math.floor(_asNumber(cha.total, 0) / 10);
+          break;
+        }
+        case "skillRankAdvance":
+        case "skillAddSpec":
+        case "combatStyleAddEquipment": {
+          const ref = String(entry.payload?.itemRef ?? "");
+          const skill = projected.skills.get(ref);
+          if (!skill) break;
+          const flatData = entry.payload?.flatData ?? {};
+          for (const [path, value] of Object.entries(flatData)) {
+            foundry.utils.setProperty(skill, path.replace(/^system\./, "system."), value);
+          }
+          break;
+        }
+        case "addSkillLikeItem": {
+          const itemData = foundry.utils.deepClone(entry.payload?.itemData ?? {});
+          const tempId = String(entry.payload?.tempId ?? "");
+          if (!tempId) break;
+          const key = _buildSkillKey(null, tempId);
+          projected.skills.set(key, {
+            key,
+            itemId: null,
+            tempId,
+            type: String(itemData.type ?? ""),
+            name: String(itemData.name ?? "New Item"),
+            img: String(itemData.img ?? ""),
+            system: _cloneSystem(itemData.system),
+          });
+          break;
+        }
+        case "talentLearn": {
+          const name = String(entry.payload?.itemData?.name ?? "");
+          if (name) projected.talentSlugs.add(_slug(name));
+          break;
+        }
+        case "spellLearn": {
+          const itemData = entry.payload?.itemData ?? null;
+          if (itemData) projected.spellSigs.add(_spellSignature(itemData));
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    return projected;
+  }
+
+  #recomputeDraftDerived() {
+    this.#draftDerived = this.#buildProjectedState();
+    this.#dirty = this.#draftEntries.length > 0;
+  }
+
+  #getProjectedSkill(itemRef) {
+    return this.#draftDerived?.skills?.get?.(String(itemRef ?? "")) ?? null;
+  }
+
+  #buildValidationActor(derived) {
+    const items = (this.#sessionBase.validationItems ?? []).map((it) => _cloneItemLike(it));
+
+    for (const skill of derived.skills.values()) {
+      const idx = items.findIndex((it) => String(it.id ?? "") === String(skill.itemId ?? ""));
+      const plain = {
+        id: skill.itemId ?? skill.tempId ?? "",
+        name: skill.name,
+        type: skill.type,
+        img: skill.img,
+        system: _cloneSystem(skill.system),
+        flags: {},
+      };
+      if (idx >= 0) items[idx] = plain;
+      else items.push(plain);
+    }
+
+    for (const entry of this.#draftEntries) {
+      if (entry.kind === "talentLearn") {
+        items.push({
+          id: `draft-talent-${entry.id}`,
+          name: String(entry.payload?.itemData?.name ?? "Talent"),
+          type: "talent",
+          img: String(entry.payload?.itemData?.img ?? ""),
+          system: _cloneSystem(entry.payload?.itemData?.system),
+          flags: foundry.utils.deepClone(entry.payload?.itemData?.flags ?? {}),
+        });
+      }
+      if (entry.kind === "spellLearn") {
+        items.push({
+          id: `draft-spell-${entry.id}`,
+          name: String(entry.payload?.itemData?.name ?? "Spell"),
+          type: "spell",
+          img: String(entry.payload?.itemData?.img ?? ""),
+          system: _cloneSystem(entry.payload?.itemData?.system),
+          flags: foundry.utils.deepClone(entry.payload?.itemData?.flags ?? {}),
+        });
+      }
+    }
+
+    return {
+      documentName: "Actor",
+      type: this.#actor?.type ?? "Player Character",
+      system: {
+        ...foundry.utils.deepClone(this.#actor?.system ?? {}),
+        xp: derived.xp,
+        wealth: derived.wealth,
+        characteristics: foundry.utils.deepClone(derived.characteristics),
+      },
+      items,
+      getFlag: (...args) => this.#actor?.getFlag?.(...args),
+    };
+  }
+
+  #planSkillChange(skill, flatData, derived) {
+    const actorMock = {
+      system: {
+        xp: derived.xp,
+        xpTotal: derived.xpTotal,
+        characteristics: foundry.utils.deepClone(derived.characteristics),
+      },
+    };
+    const itemMock = { type: skill.type, system: _cloneSystem(skill.system) };
+    return buildSkillAdvancementPlan({ actor: actorMock, item: itemMock, flatData });
+  }
+
+  #nextEntryId() {
+    const id = `d${this.#nextDraftId}`;
+    this.#nextDraftId += 1;
+    return id;
+  }
+
+  async #stageOperation(op) {
+    this.#draftEntries.push({
+      id: this.#nextEntryId(),
+      kind: String(op.kind ?? "unknown"),
+      label: String(op.label ?? "Staged operation"),
+      costXp: _asNumber(op.costXp, 0),
+      costWealth: _asNumber(op.costWealth, 0),
+      payload: foundry.utils.deepClone(op.payload ?? {}),
+      timestamp: new Date().toISOString(),
+    });
+    this.#recomputeDraftDerived();
+    await this.render();
+  }
+
+  async #removeStagedOperation(entryId) {
+    const idx = this.#draftEntries.findIndex((e) => String(e.id) === String(entryId));
+    if (idx < 0) return;
+    this.#draftEntries.splice(idx, 1);
+    this.#recomputeDraftDerived();
+    await this.render();
+  }
+
+  async #clearDraft() {
+    this.#draftEntries = [];
+    this.#recomputeDraftDerived();
+    await this.render();
+  }
+
+  async #confirmDiscardIfDirty() {
+    if (!this.#dirty) return true;
+    return confirmDialog({
+      title: "Discard Unconfirmed Purchases",
+      content: "<p>Discard all staged purchases and close?</p>",
+      yesLabel: "Discard",
+      noLabel: "Keep Editing",
+    });
+  }
+
+  #isDrifted() {
+    return this.#buildLiveFingerprint() !== this.#sessionBase?.fingerprint;
+  }
+
+  async #appendSpendLogEntries(entries) {
+    const flagData = this.#actor.getFlag("uesrpg-3ev4", "chargen") ?? {};
+    const spendLog = Array.isArray(flagData.spendLog) ? [...flagData.spendLog] : [];
+    for (const row of entries) {
+      spendLog.push({
+        type: row.type,
+        name: row.name,
+        costXp: _asNumber(row.costXp, 0),
+        costWealth: _asNumber(row.costWealth, 0),
+        timestamp: new Date().toISOString(),
+        details: row.details ?? {},
+      });
+    }
+    await requestUpdateDocument(this.#actor, { "flags.uesrpg-3ev4.chargen.spendLog": spendLog });
+  }
+
+  async #finalizeDraft() {
+    if (!this.#draftEntries.length) return { ok: true, applied: 0 };
+    if (this.#isDrifted()) {
+      return {
+        ok: false,
+        reason: "Actor data changed while this menu was open. Reopen Spend XP and stage again.",
+      };
+    }
+
+    const tempIdToRealId = new Map();
+    const spendRows = [];
+
+    try {
+      for (const entry of this.#draftEntries) {
+        if (entry.kind === "addSkillLikeItem") {
+          const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", [foundry.utils.deepClone(entry.payload?.itemData ?? {})]);
+          const createdItem = created?.[0] ?? null;
+          if (!createdItem) throw new Error(`Failed to create item for staged operation ${entry.id}.`);
+          const tempId = String(entry.payload?.tempId ?? "");
+          if (tempId) tempIdToRealId.set(tempId, createdItem.id);
+          spendRows.push({ type: "item", name: createdItem.name, costXp: entry.costXp, costWealth: entry.costWealth, details: { stagedKind: entry.kind } });
+          continue;
+        }
+
+        if (entry.kind === "talentLearn" || entry.kind === "spellLearn") {
+          const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", [foundry.utils.deepClone(entry.payload?.itemData ?? {})]);
+          const createdItem = created?.[0] ?? null;
+          if (!createdItem) throw new Error(`Failed to create item for staged operation ${entry.id}.`);
+          spendRows.push({
+            type: entry.kind === "talentLearn" ? "talent" : "spell",
+            name: createdItem.name,
+            costXp: entry.costXp,
+            costWealth: entry.costWealth,
+            details: { stagedKind: entry.kind, paymentMode: entry.payload?.paymentMode ?? "xp" },
+          });
+          continue;
+        }
+
+        if (entry.kind === "skillRankAdvance" || entry.kind === "skillAddSpec" || entry.kind === "combatStyleAddEquipment") {
+          const ref = String(entry.payload?.itemRef ?? "");
+          let itemId = null;
+          if (ref.startsWith("id:")) itemId = ref.slice(3);
+          if (ref.startsWith("temp:")) itemId = tempIdToRealId.get(ref.slice(5)) ?? null;
+          const item = itemId ? this.#actor.items.get(itemId) : null;
+          if (!item) throw new Error(`Failed to resolve staged item update ${entry.id}.`);
+          await requestUpdateDocument(item, entry.payload?.flatData ?? {});
+          spendRows.push({ type: entry.kind, name: item.name, costXp: entry.costXp, costWealth: entry.costWealth, details: { stagedKind: entry.kind } });
+        }
+      }
+
+      const next = this.#draftDerived;
+      const actorUpdate = {
+        "system.xp": Math.max(0, _asNumber(next?.xp, 0)),
+        "system.wealth": Math.max(0, _asNumber(next?.wealth, 0)),
+        "flags.uesrpg-3ev4.chargen.spendXp.rankGateOverride": Boolean(this.#rankGateOverride),
+      };
+      for (const key of ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"]) {
+        const cha = next?.characteristics?.[key];
+        if (!cha) continue;
+        actorUpdate[`system.characteristics.${key}.base`] = _asNumber(cha.base, 0);
+        actorUpdate[`system.characteristics.${key}.total`] = _asNumber(cha.total, 0);
+      }
+      await requestUpdateDocument(this.#actor, actorUpdate);
+
+      const totalXp = this.#draftEntries.reduce((sum, e) => sum + _asNumber(e.costXp, 0), 0);
+      const totalWealth = this.#draftEntries.reduce((sum, e) => sum + _asNumber(e.costWealth, 0), 0);
+      await this.#appendSpendLogEntries(spendRows);
+      await appendChargenAudit(this.#actor, {
+        step: "spendxp",
+        action: "confirmDraft",
+        payload: {
+          appliedCount: this.#draftEntries.length,
+          totalXp,
+          totalWealth,
+          remainingXp: Math.max(0, _asNumber(next?.xp, 0)),
+          entries: this.#draftEntries.map((e) => ({ id: e.id, kind: e.kind, label: e.label, costXp: e.costXp, costWealth: e.costWealth })),
+        },
+      });
+    } catch (err) {
+      return { ok: false, reason: String(err?.message ?? err ?? "Unknown finalize failure.") };
+    }
+
+    this.#draftEntries = [];
+    this.#captureSessionBase();
+    this.#recomputeDraftDerived();
+    return { ok: true, applied: spendRows.length };
+  }
+
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
-    const actor = this.#actor;
+    this.#recomputeDraftDerived();
 
-    const xp = _asNumber(actor?.system?.xp, 0);
-    const xpTotal = _asNumber(actor?.system?.xpTotal, 0);
-    const wealth = _asNumber(actor?.system?.wealth, 0);
-    const campaignRank = campaignRankFromXpTotal(xpTotal);
-    const characteristics = actor?.system?.characteristics ?? {};
+    const derived = this.#draftDerived;
+    const xpTotal = _asNumber(this.#sessionBase?.xpTotal, 0);
 
-    const chaOptions = Object.entries(characteristics)
+    const chaOptions = Object.entries(derived?.characteristics ?? {})
       .filter(([key]) => key !== "lck")
       .map(([key, c]) => ({
         key,
@@ -134,47 +540,65 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
         favored: Boolean(c?.favored),
       }));
 
-    const skills = actor.items
-      .filter((it) => ["skill", "magicSkill", "combatStyle"].includes(it.type))
-      .map((it) => {
-        const rank = normalizeRank(it.system?.rank);
+    const skills = Array.from(derived?.skills?.values?.() ?? [])
+      .map((s) => {
+        const rank = normalizeRank(s.system?.rank);
         const nextRank = _nextRank(rank);
-        const favored = Boolean(this.#isFavoredForItem(it));
+        const favored = Boolean(this.#isFavoredForSkillSystem(s.system, derived));
         const nextRankBase = nextRank ? _asNumber(SKILL_RANK_XP_COST[nextRank], 0) : 0;
         const nextRankXpCost = nextRank ? discountCostIfFavored(nextRankBase, favored) : 0;
         const maxIdx = getMaxPurchasableRankIndexFromXpTotal(xpTotal);
         const rankAllowedByXp = !nextRank ? false : SKILL_RANK_ORDER.indexOf(nextRank) <= maxIdx;
         const canAdvance = Boolean(nextRank) && (this.#rankGateOverride || rankAllowedByXp);
-
+        const specCount = parseSpecializations(s.system?.trainedItems ?? "").length;
+        const teCount = Array.isArray(s.system?.trainedEquipment)
+          ? s.system.trainedEquipment.map((v) => String(v ?? "").trim()).filter(Boolean).length
+          : 0;
         return {
-          id: it.id,
-          name: it.name,
-          img: it.img,
-          type: it.type,
+          id: s.key,
+          name: s.name,
+          img: s.img,
+          type: s.type,
           rank,
           rankLabel: rank.charAt(0).toUpperCase() + rank.slice(1),
           favored,
           nextRankXpCost,
           canAdvance,
-          specCount: parseSpecializations(it.system?.trainedItems ?? "").length,
-          teCount: Array.isArray(it.system?.trainedEquipment)
-            ? it.system.trainedEquipment.map((v) => String(v ?? "").trim()).filter(Boolean).length
-            : 0,
+          specCount,
+          teCount,
+          isTemp: Boolean(s.tempId),
+          itemId: s.itemId ?? "",
         };
-      });
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const stagedEntries = this.#draftEntries.map((e) => ({
+      id: e.id,
+      label: e.label,
+      kind: e.kind,
+      costXp: _asNumber(e.costXp, 0),
+      costWealth: _asNumber(e.costWealth, 0),
+    }));
 
     return {
       ...context,
-      actorName: actor?.name ?? "Unknown",
-      xp,
-      xpTotal,
-      wealth,
-      campaignRank,
+      actorName: this.#sessionBase?.actorName ?? this.#actor?.name ?? "Unknown",
+      xp: _asNumber(this.#sessionBase?.xp, 0),
+      xpProjected: _asNumber(derived?.xp, 0),
+      xpTotal: _asNumber(this.#sessionBase?.xpTotal, 0),
+      wealth: _asNumber(this.#sessionBase?.wealth, 0),
+      wealthProjected: _asNumber(derived?.wealth, 0),
+      campaignRank: campaignRankFromXpTotal(_asNumber(this.#sessionBase?.xpTotal, 0)),
       chaOptions,
       selectedCharacteristic: this.#selectedCharacteristic,
       rankGateOverride: this.#rankGateOverride,
       skills,
       talentLearningMode: String(getTalentLearningMode() ?? TALENT_LEARNING_MODE.OFF).toUpperCase(),
+      stagedEntries,
+      stagedCount: stagedEntries.length,
+      stagedCostXp: _asNumber(derived?.totals?.costXp, 0),
+      stagedCostWealth: _asNumber(derived?.totals?.costWealth, 0),
+      hasDraft: stagedEntries.length > 0,
     };
   }
 
@@ -186,35 +610,94 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const item = await resolveDroppedItem(data);
     if (!item) return;
 
-    if (item.type === "talent") {
-      await this.#handleTalentDrop(item);
-      await this.render();
-      return;
-    }
-    if (item.type === "spell") {
-      await this.#handleSpellDrop(item);
-      await this.render();
-      return;
-    }
+    const derived = this.#draftDerived;
     if (["skill", "magicSkill", "combatStyle"].includes(item.type)) {
-      const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", [item.toObject()]);
-      if (created?.length) {
-        ui.notifications?.info?.(`Added ${item.name}.`);
-        await appendChargenAudit(this.#actor, {
-          step: "spendxp",
-          action: "dropItemAdded",
-          payload: { name: item.name, type: item.type },
-        });
-      }
-      await this.render();
+      const tempId = `sk-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+      await this.#stageOperation({
+        kind: "addSkillLikeItem",
+        label: `Add ${item.type}: ${item.name}`,
+        costXp: 0,
+        costWealth: 0,
+        payload: { tempId, itemData: item.toObject() },
+      });
       return;
     }
 
-    await appendChargenAudit(this.#actor, {
-      step: "spendxp",
-      action: "dropUnsupported",
-      payload: { name: item.name, type: item.type },
-    });
+    if (item.type === "talent") {
+      const actorMock = this.#buildValidationActor(derived);
+      const mode = getTalentLearningMode();
+      const validation = validateTalentLearning(actorMock, item.toObject(), { source: "chargen-spendxp" });
+
+      if (mode === TALENT_LEARNING_MODE.WARN) notifyTalentLearningResult(validation);
+      if (mode === TALENT_LEARNING_MODE.ENFORCE && !validation.ok) {
+        notifyTalentLearningResult(validation, { force: true });
+        return;
+      }
+      if (mode !== TALENT_LEARNING_MODE.ENFORCE && !validation.rulesOk) {
+        notifyTalentLearningResult(validation, { force: true });
+        return;
+      }
+
+      const xpCost = Math.max(0, _asNumber(validation.xpCost, 0));
+      if (xpCost > _asNumber(derived?.xp, 0)) {
+        ui.notifications?.warn?.(`Not enough XP. Required ${xpCost}, available ${_asNumber(derived?.xp, 0)}.`);
+        return;
+      }
+
+      await this.#stageOperation({
+        kind: "talentLearn",
+        label: `Learn talent: ${item.name}`,
+        costXp: xpCost,
+        costWealth: 0,
+        payload: { itemData: item.toObject(), mode },
+      });
+      return;
+    }
+
+    if (item.type === "spell") {
+      const actorMock = this.#buildValidationActor(derived);
+      const costs = computeSpellLearningCosts(item, actorMock);
+      const spellType = normalizeSpellLearningType(item);
+      const xpValidation = validateSpellLearningPurchase(actorMock, item, "xp");
+      const drakesValidation = validateSpellLearningPurchase(actorMock, item, "drakes");
+      const xpLabel = spellType === "ritual"
+        ? "Learn Ritual (25 XP)"
+        : `${spellType === "unconventional" ? "Unconventional" : "Conventional"} (XP ${costs.xpCost})`;
+
+      if (!xpValidation.ok && !drakesValidation.ok) {
+        ui.notifications?.warn?.(xpValidation.reason || drakesValidation.reason || "Spell learning blocked.");
+        return;
+      }
+
+      const answer = await customDialog({
+        title: `Stage Spell Learn: ${item.name}`,
+        content: `<div style="display:flex; flex-direction:column; gap:8px;"><p style="margin:0;">Type: <b>${spellType}</b> | Level <b>${costs.level}</b>.</p><p style="margin:0;">Choose payment mode for staged purchase.</p></div>`,
+        buttons: {
+          ...(xpValidation.ok ? { xp: { label: xpLabel } } : {}),
+          ...(drakesValidation.ok ? { drakes: { label: `Learn (${costs.drakesCost} Drakes)` } } : {}),
+          cancel: { label: "Cancel" },
+        },
+        default: xpValidation.ok ? "xp" : "drakes",
+      });
+
+      if (!answer || answer === "cancel") return;
+      const paymentMode = answer === "drakes" ? "drakes" : "xp";
+      const validation = validateSpellLearningPurchase(actorMock, item, paymentMode);
+      if (!validation.ok) {
+        ui.notifications?.warn?.(validation.reason ?? "Spell learning blocked.");
+        return;
+      }
+
+      await this.#stageOperation({
+        kind: "spellLearn",
+        label: `Learn spell: ${item.name} (${paymentMode.toUpperCase()})`,
+        costXp: paymentMode === "xp" ? _asNumber(validation.costs?.xpCost, 0) : 0,
+        costWealth: paymentMode === "drakes" ? _asNumber(validation.costs?.drakesCost, 0) : 0,
+        payload: { itemData: item.toObject(), paymentMode },
+      });
+      return;
+    }
+
     ui.notifications?.warn?.(`Unsupported drop type: ${item.type}`);
   }
 
@@ -238,6 +721,10 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   }
 
   async close(options = {}) {
+    if (!Boolean(options?.force)) {
+      const ok = await this.#confirmDiscardIfDirty();
+      if (!ok) return this;
+    }
     const result = await super.close(options);
     if (this.#onClose) {
       try {
@@ -251,7 +738,12 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
 
   async _onOpenItem(event, target) {
     event?.preventDefault?.();
-    const itemId = String(target?.dataset?.itemId ?? "").trim();
+    const itemRef = String(target?.dataset?.itemId ?? "").trim();
+    if (!itemRef || itemRef.startsWith("temp:")) {
+      ui.notifications?.info?.("This item is staged and not yet created.");
+      return;
+    }
+    const itemId = itemRef.startsWith("id:") ? itemRef.slice(3) : itemRef;
     const item = this.#actor.items.get(itemId);
     if (!item) return;
     await item.sheet?.render?.(true);
@@ -267,132 +759,124 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       return;
     }
 
-    const c = this.#actor.system?.characteristics?.[key];
+    const derived = this.#draftDerived;
+    const c = derived?.characteristics?.[key];
     if (!c) return;
+
     const bonus = _asNumber(c?.bonus, Math.floor(_asNumber(c?.total, 0) / 10));
     const baseCost = 30 * bonus;
     const favored = Boolean(c?.favored);
     const xpCost = discountCostIfFavored(baseCost, favored);
-    const currentXp = _asNumber(this.#actor.system?.xp, 0);
+    const currentXp = _asNumber(derived?.xp, 0);
     if (xpCost > currentXp) {
       ui.notifications?.warn?.(`Not enough XP. Required ${xpCost}, available ${currentXp}.`);
       return;
     }
 
-    const base = _asNumber(c?.base, 0);
-    const total = _asNumber(c?.total, base);
-    const nextXp = currentXp - xpCost;
-
-    await requestUpdateDocument(this.#actor, {
-      [`system.characteristics.${key}.base`]: base + 1,
-      [`system.characteristics.${key}.total`]: total + 1,
-      "system.xp": nextXp,
-    });
-
-    await this.#appendSpendLog({
-      type: "characteristic",
-      name: _chaLabel(key),
+    await this.#stageOperation({
+      kind: "characteristicAdvance",
+      label: `Advance ${_chaLabel(key)} (+1)`,
       costXp: xpCost,
       costWealth: 0,
-      details: { favored, baseCost, bonus },
+      payload: { key, favored, baseCost, bonus },
     });
-    await appendChargenAudit(this.#actor, {
-      step: "spendxp",
-      action: "advanceCharacteristic",
-      payload: { key, xpCost, favored, from: base, to: base + 1 },
-    });
-
-    ui.notifications?.info?.(`Advanced ${_chaLabel(key)} for ${xpCost} XP.`);
-    await this.render();
   }
 
   async _onAdvanceRank(event, target) {
     event?.preventDefault?.();
-    const item = this.#actor.items.get(String(target?.dataset?.itemId ?? ""));
-    if (!item) return;
-    const currentRank = normalizeRank(item.system?.rank);
+    const itemRef = String(target?.dataset?.itemId ?? "");
+    const skill = this.#getProjectedSkill(itemRef);
+    if (!skill) return;
+
+    const currentRank = normalizeRank(skill.system?.rank);
     const nextRank = _nextRank(currentRank);
     if (!nextRank) {
       ui.notifications?.warn?.("Rank is already at maximum.");
       return;
     }
     if (!this.#rankGateOverride) {
-      const xpTotal = _asNumber(this.#actor.system?.xpTotal, 0);
+      const xpTotal = _asNumber(this.#draftDerived?.xpTotal, 0);
       const maxIdx = getMaxPurchasableRankIndexFromXpTotal(xpTotal);
       if (SKILL_RANK_ORDER.indexOf(nextRank) > maxIdx) {
         ui.notifications?.warn?.(`Total XP gating blocks rank ${nextRank}. Enable override to bypass.`);
         return;
       }
     }
-    await this.#applySkillPlan(item, { "system.rank": nextRank }, {
-      type: "rank",
-      name: `${item.name}: ${currentRank} -> ${nextRank}`,
-      details: { itemType: item.type },
+
+    const flatData = { "system.rank": nextRank };
+    const plan = this.#planSkillChange(skill, flatData, this.#draftDerived);
+    if (!plan.ok) {
+      ui.notifications?.warn?.(plan.reason ?? "Unable to stage rank advance.");
+      return;
+    }
+
+    await this.#stageOperation({
+      kind: "skillRankAdvance",
+      label: `${skill.name}: ${currentRank} -> ${nextRank}`,
+      costXp: _asNumber(plan.xpCost, 0),
+      costWealth: 0,
+      payload: { itemRef: skill.key, flatData },
     });
-    await this.render();
   }
 
   async _onToggleRankGate(event, target) {
     event?.preventDefault?.();
-    const checked = Boolean(target?.checked);
-    this.#rankGateOverride = checked;
-    await requestUpdateDocument(this.#actor, {
-      "flags.uesrpg-3ev4.chargen.spendXp.rankGateOverride": checked,
-    });
-    await appendChargenAudit(this.#actor, {
-      step: "spendxp",
-      action: "toggleRankGate",
-      payload: { overrideEnabled: checked },
-    });
+    this.#rankGateOverride = Boolean(target?.checked);
     await this.render();
   }
 
   async _onAddSpecialization(event, target) {
     event?.preventDefault?.();
-    const item = this.#actor.items.get(String(target?.dataset?.itemId ?? ""));
-    if (!item) return;
-    if (!["skill", "magicSkill"].includes(item.type)) {
+    const skill = this.#getProjectedSkill(String(target?.dataset?.itemId ?? ""));
+    if (!skill) return;
+    if (!["skill", "magicSkill"].includes(skill.type)) {
       ui.notifications?.warn?.("Specializations are only supported for skills and magic skills.");
       return;
     }
+
     const row = target.closest(".uesrpg-spendxp__skill-row");
     const input = row?.querySelector?.('input[data-field="newSpec"]');
     const spec = String(input?.value ?? "").trim();
     if (!spec) return;
-
-    const specs = parseSpecializations(item.system?.trainedItems ?? "");
+    const specs = parseSpecializations(skill.system?.trainedItems ?? "");
     if (specs.some((s) => s.toLowerCase() === spec.toLowerCase())) {
       ui.notifications?.warn?.("Specialization already exists.");
       return;
     }
-    const nextSpecs = [...specs, spec].join(", ");
 
-    await this.#applySkillPlan(item, { "system.trainedItems": nextSpecs }, {
-      type: "specialization",
-      name: `${item.name}: ${spec}`,
-      details: { itemType: item.type },
+    const flatData = { "system.trainedItems": [...specs, spec].join(", ") };
+    const plan = this.#planSkillChange(skill, flatData, this.#draftDerived);
+    if (!plan.ok) {
+      ui.notifications?.warn?.(plan.reason ?? "Unable to stage specialization.");
+      return;
+    }
+
+    await this.#stageOperation({
+      kind: "skillAddSpec",
+      label: `${skill.name}: Add specialization "${spec}"`,
+      costXp: _asNumber(plan.xpCost, 0),
+      costWealth: 0,
+      payload: { itemRef: skill.key, flatData },
     });
-    await this.render();
   }
 
   async _onAddEquipment(event, target) {
     event?.preventDefault?.();
-    const item = this.#actor.items.get(String(target?.dataset?.itemId ?? ""));
-    if (!item || item.type !== "combatStyle") return;
+    const skill = this.#getProjectedSkill(String(target?.dataset?.itemId ?? ""));
+    if (!skill || skill.type !== "combatStyle") return;
 
     const row = target.closest(".uesrpg-spendxp__skill-row");
     const input = row?.querySelector?.('input[data-field="newEquipment"]');
     const equipmentLabel = String(input?.value ?? "").trim();
     if (!equipmentLabel) return;
 
-    const current = Array.isArray(item.system?.trainedEquipment) ? [...item.system.trainedEquipment] : [];
+    const current = Array.isArray(skill.system?.trainedEquipment) ? [...skill.system.trainedEquipment] : [];
     if (current.some((v) => String(v ?? "").trim().toLowerCase() === equipmentLabel.toLowerCase())) {
       ui.notifications?.warn?.("That equipment entry already exists.");
       return;
     }
-    if (current.length < 10) {
-      current.push(equipmentLabel);
-    } else {
+    if (current.length < 10) current.push(equipmentLabel);
+    else {
       const idx = current.findIndex((v) => !String(v ?? "").trim());
       if (idx === -1) {
         ui.notifications?.warn?.("Combat Style trained equipment is capped at 10 entries.");
@@ -401,56 +885,59 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       current[idx] = equipmentLabel;
     }
 
-    await this.#applySkillPlan(item, { "system.trainedEquipment": current }, {
-      type: "combatStyleExpansion",
-      name: `${item.name}: ${equipmentLabel}`,
-      details: { itemType: item.type },
-    });
-    await this.render();
-  }
-
-  async #applySkillPlan(item, flatData, logBase) {
-    const plan = buildSkillAdvancementPlan({ actor: this.#actor, item, flatData });
+    const flatData = { "system.trainedEquipment": current };
+    const plan = this.#planSkillChange(skill, flatData, this.#draftDerived);
     if (!plan.ok) {
-      ui.notifications?.warn?.(plan.reason ?? "Unable to apply advancement.");
+      ui.notifications?.warn?.(plan.reason ?? "Unable to stage equipment entry.");
       return;
     }
 
-    if (plan.xpCost > 0) {
-      await requestUpdateDocument(this.#actor, { "system.xp": plan.nextXp });
-    }
-    try {
-      await requestUpdateDocument(item, flatData);
-    } catch (err) {
-      if (plan.xpCost > 0) {
-        await requestUpdateDocument(this.#actor, { "system.xp": _asNumber(this.#actor.system?.xp, 0) + plan.xpCost });
-      }
-      throw err;
-    }
-
-    if (plan.xpCost > 0) {
-      await this.#appendSpendLog({
-        ...logBase,
-        costXp: plan.xpCost,
-        costWealth: 0,
-      });
-      await appendChargenAudit(this.#actor, {
-        step: "spendxp",
-        action: logBase?.type ?? "advance",
-        payload: {
-          name: logBase?.name ?? item?.name ?? "unknown",
-          itemId: item?.id ?? null,
-          xpCost: plan.xpCost,
-          itemType: item?.type ?? null,
-        },
-      });
-      ui.notifications?.info?.(`Spent ${plan.xpCost} XP.`);
-    }
+    await this.#stageOperation({
+      kind: "combatStyleAddEquipment",
+      label: `${skill.name}: Add trained equipment "${equipmentLabel}"`,
+      costXp: _asNumber(plan.xpCost, 0),
+      costWealth: 0,
+      payload: { itemRef: skill.key, flatData },
+    });
   }
 
-  #isFavoredForItem(item) {
-    const governingRaw = String(item?.system?.governingCha ?? item?.system?.baseCha ?? "");
-    const raw = governingRaw.toLowerCase();
+  async _onRemoveDraftEntry(event, target) {
+    event?.preventDefault?.();
+    const id = String(target?.dataset?.entryId ?? "");
+    if (!id) return;
+    await this.#removeStagedOperation(id);
+  }
+
+  async _onDiscardDraft(event, _target) {
+    event?.preventDefault?.();
+    if (!this.#dirty) return;
+    const yes = await confirmDialog({
+      title: "Discard Staged Purchases",
+      content: "<p>Discard all staged purchases?</p>",
+      yesLabel: "Discard",
+      noLabel: "Cancel",
+    });
+    if (!yes) return;
+    await this.#clearDraft();
+  }
+
+  async _onConfirmDraft(event, _target) {
+    event?.preventDefault?.();
+    if (!this.#draftEntries.length) {
+      ui.notifications?.info?.("No staged purchases to confirm.");
+      return;
+    }
+    const out = await this.#finalizeDraft();
+    if (!out.ok) {
+      ui.notifications?.error?.(out.reason ?? "Failed to confirm staged purchases.");
+      return;
+    }
+    ui.notifications?.info?.(`Confirmed ${out.applied} staged purchase(s).`);
+    await this.render();
+  }
+
+  #isFavoredForSkillSystem(skillSystem, derived) {
+    const raw = String(skillSystem?.governingCha ?? skillSystem?.baseCha ?? "").toLowerCase();
     const map = [
       ["str", /\bstr\b|\bstrength\b/],
       ["end", /\bend\b|\bendurance\b/],
@@ -462,179 +949,9 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       ["lck", /\blck\b|\bluck\b/],
     ];
     for (const [key, rx] of map) {
-      if (rx.test(raw) && this.#actor.system?.characteristics?.[key]?.favored) return true;
+      if (rx.test(raw) && derived?.characteristics?.[key]?.favored) return true;
     }
     return false;
-  }
-
-  async #handleTalentDrop(item) {
-    const mode = getTalentLearningMode();
-    const validation = validateTalentLearning(this.#actor, item.toObject(), { source: "chargen-spendxp" });
-
-    if (mode === TALENT_LEARNING_MODE.WARN) notifyTalentLearningResult(validation);
-    if (mode === TALENT_LEARNING_MODE.ENFORCE && !validation.ok) {
-      notifyTalentLearningResult(validation, { force: true });
-      await appendChargenAudit(this.#actor, {
-        step: "spendxp",
-        action: "dropTalentRejected",
-        payload: { name: item.name, reason: validation.reason ?? "blocked-enforce" },
-      });
-      return;
-    }
-    if (mode !== TALENT_LEARNING_MODE.ENFORCE && !validation.rulesOk) {
-      notifyTalentLearningResult(validation, { force: true });
-      await appendChargenAudit(this.#actor, {
-        step: "spendxp",
-        action: "dropTalentRejected",
-        payload: { name: item.name, reason: validation.reason ?? "rules-not-ok" },
-      });
-      return;
-    }
-
-    const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", [item.toObject()]);
-    const createdTalent = created?.[0];
-    if (!createdTalent) return;
-
-    if (mode !== TALENT_LEARNING_MODE.ENFORCE) {
-      const spend = await applyTalentLearningXpCost(this.#actor, {
-        ...validation,
-        mode: TALENT_LEARNING_MODE.ENFORCE,
-        ok: true,
-        rulesOk: true,
-      });
-      if (!spend?.ok) {
-        await requestDeleteEmbeddedDocuments(this.#actor, "Item", [createdTalent.id]);
-        ui.notifications?.warn?.(spend?.reason ?? "Talent XP deduction failed.");
-        await appendChargenAudit(this.#actor, {
-          step: "spendxp",
-          action: "dropTalentRollback",
-          payload: { name: createdTalent.name, reason: spend?.reason ?? "xp-deduction-failed" },
-        });
-        return;
-      }
-      if (spend.spentXp > 0) {
-        await this.#appendSpendLog({
-          type: "talent",
-          name: createdTalent.name,
-          costXp: spend.spentXp,
-          costWealth: 0,
-          details: { mode: "manual" },
-        });
-      }
-    } else if (_asNumber(validation.xpCost, 0) > 0) {
-      await this.#appendSpendLog({
-        type: "talent",
-        name: createdTalent.name,
-        costXp: _asNumber(validation.xpCost, 0),
-        costWealth: 0,
-        details: { mode: "enforce-hook" },
-      });
-    }
-
-    await appendChargenAudit(this.#actor, {
-      step: "spendxp",
-      action: "dropTalentApplied",
-      payload: { name: createdTalent.name, mode },
-    });
-    ui.notifications?.info?.(`Learned talent: ${createdTalent.name}`);
-  }
-
-  async #handleSpellDrop(item) {
-    const costs = computeSpellLearningCosts(item, this.#actor);
-    const spellType = normalizeSpellLearningType(item);
-    const xpValidation = validateSpellLearningPurchase(this.#actor, item, "xp");
-    const drakesValidation = validateSpellLearningPurchase(this.#actor, item, "drakes");
-    const xpLabel = spellType === "ritual"
-      ? "Learn Ritual (25 XP)"
-      : `${spellType === "unconventional" ? "Unconventional" : "Conventional"} (XP ${costs.xpCost})`;
-
-    if (!xpValidation.ok && !drakesValidation.ok) {
-      const blocked = await applySpellLearningPurchase(this.#actor, item, { paymentMode: "xp" });
-      const reason = blocked?.reason || xpValidation.reason || drakesValidation.reason || "Spell learning blocked.";
-      await appendChargenAudit(this.#actor, {
-        step: "spendxp",
-        action: "dropSpellBlocked",
-        payload: {
-          name: item.name,
-          reason,
-          school: item.system?.school ?? "",
-          level: item.system?.level ?? 1,
-        },
-      });
-      ui.notifications?.warn?.(reason);
-      return;
-    }
-
-    const answer = await customDialog({
-      title: `Learn Spell: ${item.name}`,
-      content: `<div style="display:flex; flex-direction:column; gap:8px;">
-        <p style="margin:0;">Type: <b>${spellType}</b> | Level <b>${costs.level}</b>.</p>
-        <p style="margin:0;">Choose how to pay for learning this spell.</p>
-      </div>`,
-      buttons: {
-        ...(xpValidation.ok ? { xp: { label: xpLabel } } : {}),
-        ...(drakesValidation.ok ? { drakes: { label: `Learn (${costs.drakesCost} Drakes)` } } : {}),
-        cancel: { label: "Cancel" },
-      },
-      default: xpValidation.ok ? "xp" : "drakes",
-    });
-
-    if (!answer || answer === "cancel") return;
-    const paymentMode = answer === "drakes" ? "drakes" : "xp";
-    const result = await applySpellLearningPurchase(this.#actor, item, { paymentMode });
-    if (!result.ok) {
-      await appendChargenAudit(this.#actor, {
-        step: "spendxp",
-        action: "dropSpellBlocked",
-        payload: {
-          name: item.name,
-          paymentMode,
-          reason: result.reason ?? "blocked",
-          school: item.system?.school ?? "",
-          level: item.system?.level ?? 1,
-        },
-      });
-      ui.notifications?.warn?.(result.reason ?? "Spell learning blocked.");
-      return;
-    }
-
-    await this.#appendSpendLog({
-      type: "spell",
-      name: result.createdSpell?.name ?? item.name,
-      costXp: result.costs?.xp ?? 0,
-      costWealth: result.costs?.drakes ?? 0,
-      details: { payment: paymentMode, level: costs.level, type: spellType },
-    });
-    await appendChargenAudit(this.#actor, {
-      step: "spendxp",
-      action: "dropSpellApplied",
-      payload: {
-        name: result.createdSpell?.name ?? item.name,
-        payment: paymentMode,
-        costXp: result.costs?.xp ?? 0,
-        costWealth: result.costs?.drakes ?? 0,
-        level: costs.level,
-        type: spellType,
-      },
-    });
-
-    ui.notifications?.info?.(`Learned spell: ${result.createdSpell?.name ?? item.name}`);
-  }
-
-  async #appendSpendLog(entry) {
-    const flagData = this.#actor.getFlag("uesrpg-3ev4", "chargen") ?? {};
-    const spendLog = Array.isArray(flagData.spendLog) ? [...flagData.spendLog] : [];
-    spendLog.push({
-      type: entry.type,
-      name: entry.name,
-      costXp: _asNumber(entry.costXp, 0),
-      costWealth: _asNumber(entry.costWealth, 0),
-      timestamp: new Date().toISOString(),
-      details: entry.details ?? {},
-    });
-    await requestUpdateDocument(this.#actor, {
-      "flags.uesrpg-3ev4.chargen.spendLog": spendLog,
-    });
   }
 
   #readDropData(event) {

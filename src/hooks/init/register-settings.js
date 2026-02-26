@@ -12,6 +12,8 @@ import {
   registerReachVisualizerSettingsMenu,
   registerReachVisualizerSettingsStorage
 } from "../../ui/apps/reach-visualizer-settings.js";
+import { registerHomebrewSettingsMenu } from "../../ui/apps/homebrew-settings.js";
+import { invalidateCachedSetting } from "../../core/config/settings-cache.js";
 
 export async function registerSettings() {
   // Register system settings
@@ -153,6 +155,7 @@ export async function registerSettings() {
     type: Boolean,
     default: false,
     requiresReload: false,
+    onChange: () => invalidateCachedSetting("useRawChargenWizard"),
   });
 
   game.settings.register("uesrpg-3ev4", "chargenMagicPurchaseMode", {
@@ -238,6 +241,7 @@ export async function registerSettings() {
     config: false,
     default: false,
     type: Boolean,
+    onChange: () => invalidateCachedSetting("showFeatureInspector"),
   });
 
   // Opposed workflow diagnostics
@@ -409,6 +413,19 @@ export async function registerSettings() {
     config: false,
     default: false,
     type: Boolean
+  });
+
+  game.settings.register("uesrpg-3ev4", "woundsMode", {
+    name: "Wounds: Rules Mode",
+    hint: "Standard: wound when damage exceeds WT. Alternate: wound on critical-success damage or reducing target to 0 HP.",
+    scope: "world",
+    config: false,
+    default: "standard",
+    type: String,
+    choices: {
+      standard: "Standard (Excess WT)",
+      alternate: "Alternate (Critical / 0 HP)"
+    }
   });
 
 
@@ -694,6 +711,20 @@ export async function registerSettings() {
 
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ── Homebrew ──────────────────────────────────────────────────────────────────
+
+  game.settings.register("uesrpg-3ev4", "homebrew.speedFormulaSBAB", {
+    name: "Homebrew: Speed Formula (SB + AB)",
+    hint: "When enabled, base Speed is computed as SB + AB (instead of SB + 2×AB). Requires a reload to apply consistently.",
+    scope: "world",
+    config: false,
+    requiresReload: true,
+    default: false,
+    type: Boolean,
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // Register a dedicated Debugging menu to avoid clutter in System Settings.
   registerDebugSettingsMenu();
 
@@ -705,5 +736,8 @@ export async function registerSettings() {
   // Reach Visualizer submenu (client scoped)
   registerReachVisualizerSettingsStorage();
   registerReachVisualizerSettingsMenu();
+
+  // Homebrew submenu (GM-restricted, world-scoped house rules)
+  registerHomebrewSettingsMenu();
 
 }

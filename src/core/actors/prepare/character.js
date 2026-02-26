@@ -7,7 +7,7 @@ import { isDebugEnabled } from "../../../utils/debug.js";
 import { aggregateItemStats } from "../rules/item-aggregation.js";
 import { getArmorMobilityPenalties } from "../rules/armor-mobility.js";
 import {
-  collectAEModifiersForKeys,
+  buildActorAETotalsMap,
   getResourceAEModifiers,
   getInitiativeAEModifiers,
   getCarryAEModifiers,
@@ -25,6 +25,7 @@ import { applyRacialTalentDerivedBonuses, applyRacialTalentPostSpeedDerived } fr
 import { collectFeatureMods, applyFeatureModTotals, filterModsForApplication, applyWeaknessToResistance } from "../../traits/features/collect-feature-mods.js";
 import { reduceAllByStacking } from "../../traits/features/stacking.js";
 import { getSocialStateFromSystem } from "../../social/social-data.js";
+import { getSpeedAgiMultiplier } from "../../system/homebrew.js";
 
 /**
  * Prepare Character type specific data.
@@ -115,7 +116,8 @@ export function prepareCharacterData(actorContext, actorData) {
     "system.characteristics.prs.bonus",
     "system.characteristics.lck.bonus"
   ];
-  const charBonusMods = collectAEModifiersForKeys(actorContext, charBonusKeys);
+  // Primes the actor-level AE totals map cache; all subsequent helper calls reuse it.
+  const charBonusMods = buildActorAETotalsMap(actorContext);
   for (const key of charBonusKeys) {
     // Extract characteristic name from "system.characteristics.{charName}.bonus"
     const parts = key.split('.');
@@ -238,7 +240,8 @@ if (actorSystemData.xpTotal >= 7000) {
     actorSystemData.wound_threshold.value = Math.max(0, 3 * Number(lckBonus || 0));
   }
 
-  actorSystemData.speed.base = strBonus + (2 * agiBonus) + (actorSystemData.speed.bonus);
+  const agiMult = getSpeedAgiMultiplier();
+  actorSystemData.speed.base = strBonus + (agiMult * agiBonus) + (actorSystemData.speed.bonus);
   actorSystemData.speed.value = actorContext._speedCalc(actorData);
   actorSystemData.speed.swimSpeed = Math.floor(actorSystemData.speed.value/2);
   actorSystemData.speed.swimSpeed += agg.doubleSwimSpeed ? (agg.swimBonus * 2) : agg.swimBonus;
@@ -357,11 +360,10 @@ actorSystemData.magicka.value = Math.clamp(Number(actorSystemData.magicka.value 
 }
 }
 
-// Stamina
+// Stamina — sAE declared outside block so it can be reused in the negative-SP-max check below.
 actorSystemData.stamina.max = endBonus + actorSystemData.stamina.bonus;
+const sAE = getResourceAEModifiers(actorContext, 'stamina');
 {
-  const sAE = getResourceAEModifiers(actorContext, 'stamina');
-
   const bonus = (sAE.bonus.override != null) ? Number(sAE.bonus.override) : (Number(actorSystemData.stamina.bonus ?? 0) + Number(sAE.bonus.add ?? 0));
   actorSystemData.stamina.bonus = bonus;
 
@@ -585,7 +587,7 @@ actorSystemData.luck_points.value = Math.clamp(Number(actorSystemData.luck_point
       // Ensure current SP does not exceed the new max.
       // If a deterministic AE `.value` modifier is present for Stamina, we allow overcap and do not
 // force current SP down to 0 here. Otherwise, keep the normal invariant (value <= max).
-const sAE = getResourceAEModifiers(actorContext, 'stamina');
+// sAE is the same result from the stamina block above — no re-evaluation needed.
 const stamina_allowOvercap = (sAE.value.override != null) || (Number(sAE.value.add ?? 0) !== 0);
 actorSystemData.stamina.value = stamina_allowOvercap
 ? Math.max(0, Number(actorSystemData.stamina.value ?? 0))
@@ -727,9 +729,12 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
     }
   }
 
-  // Wound Penalties
-  const woundSuppressed = actorContext._hasWoundPenaltySuppression(actorData);
-  if (actorSystemData.wounded === true && !woundSuppressed) {
+  // Wound Penalties (effects-canonical; system.wounded is a derived mirror)
+  const woundState = game?.uesrpg?.wounds?.getWoundState?.(actorContext) ?? (actorSystemData.wounded ? "active" : "none");
+  actorSystemData.wounded = woundState !== "none";
+  const woundSuppressed = actorContext._hasWoundPenaltySuppression(actorData) || woundState === "suppressed";
+  const woundActiveForPenalty = woundState === "active" || woundState === "treated";
+  if (woundActiveForPenalty && !woundSuppressed) {
     let woundPen = 0;
     actorContext._painIntolerant(actorData) ? woundPen = -30 : woundPen = -20;
 
@@ -746,7 +751,7 @@ actorContext._applyMovementRestrictionSemantics(actorData, actorSystemData);
       }
     }
   }
-  else if (actorSystemData.wounded === true && woundSuppressed) {
+  else if (woundActiveForPenalty && woundSuppressed) {
     // Passive wound penalties are suppressed by first aid / magical healing forestall,
     // without clearing the wounded state.
     actorSystemData.woundPenalty = 0;

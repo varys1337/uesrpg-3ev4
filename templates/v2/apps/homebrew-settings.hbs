@@ -1,0 +1,20 @@
+{{!-- templates/v2/apps/homebrew-settings.hbs — AppV2 (no <form> wrapper) --}}
+<section class="uesrpg-settings">
+<fieldset>
+  <legend>Movement</legend>
+
+  <div class="form-group">
+    <label>Speed Formula: SB + AB (Homebrew)</label>
+    <input type="checkbox" name="homebrew.speedFormulaSBAB" {{checked homebrewSpeedFormulaSBAB}}>
+    <p class="notes">
+      When enabled, base Speed is computed as <strong>SB + AB + bonus</strong> (Homebrew)
+      instead of the RAW formula <strong>SB + (2 × AB) + bonus</strong>.
+      Applies to all Characters and NPCs. <em>Requires a reload to apply consistently.</em>
+    </p>
+  </div>
+</fieldset>
+
+<footer class="sheet-footer flexrow">
+  <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+</footer>
+</section>

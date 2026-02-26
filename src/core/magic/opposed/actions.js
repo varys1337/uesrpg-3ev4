@@ -53,6 +53,7 @@ import { applySpellEffectsToTarget } from "../effects/spell-effects.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../traits/features/rule-element-runtime.js";
 
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { createUuidResolver } from "../../../utils/uuid-cache.js";
 
 // Centralized card updater (single source of truth for card persistence).
 import { updateCard } from "./updater.js";
@@ -99,6 +100,8 @@ export async function dispatchAction(message, action, opts, workflow, renderCard
     opts,
     workflow,
     spell: null, // Will be resolved as needed by handlers
+    // Per-workflow UUID resolution cache (ephemeral — GC'd with this closure)
+    _uuidResolver: createUuidResolver(),
     // Helper functions
     resolveActor,
     _updateCard: (msg, d) => updateCard(msg, d, renderCard),
@@ -108,7 +111,7 @@ export async function dispatchAction(message, action, opts, workflow, renderCard
 
   // Resolve spell if needed
   if (data.attacker?.spellUuid) {
-    ctx.spell = await fromUuid(data.attacker.spellUuid);
+    ctx.spell = await ctx._uuidResolver.resolve(data.attacker.spellUuid);
     if (!ctx.spell && (action === "attacker-roll" || action === "block-resolve" || action === "ward-resolve" || action === "defender-characteristic-test")) {
       ui.notifications.error("Could not resolve spell.");
       return;
@@ -396,7 +399,7 @@ export async function handleDefenderCharacteristicTest(ctx) {
 
   // Characteristic defense doesn't cost AP - it's a saving throw
   // Use ctx.spell (resolved by dispatch) — ctx.attacker is the Actor doc, not the data object.
-  const spell = ctx.spell ?? (data.attacker?.spellUuid ? await fromUuid(data.attacker.spellUuid) : null);
+  const spell = ctx.spell ?? (data.attacker?.spellUuid ? await ctx._uuidResolver.resolve(data.attacker.spellUuid) : null);
   if (!spell) {
     ui.notifications.error("Cannot resolve characteristic defense: spell not found.");
     return;
@@ -559,7 +562,7 @@ export async function handleDefenderCommit(ctx, action) {
 
     // Pre-calculate TN for immediate display (before roll)
     // Use ctx.spell (resolved by dispatch) — ctx.attacker is the Actor doc, not data.
-    const spell = ctx.spell ?? (data.attacker?.spellUuid ? await fromUuid(data.attacker.spellUuid) : null);
+    const spell = ctx.spell ?? (data.attacker?.spellUuid ? await ctx._uuidResolver.resolve(data.attacker.spellUuid) : null);
     if (spell) {
       const tnData = computeCharacteristicDefenseTN(defenderActor, spell);
       if (tnData) {

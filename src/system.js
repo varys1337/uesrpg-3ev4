@@ -13,7 +13,8 @@ import {
 } from "./core/stamina/stamina-integration-hooks.js";
 import { AttackTracker } from "./core/combat/attack-tracker.js";
 import { initializeTimeService } from "./core/time/index.js";
-import { LANGUAGE_CHOICES } from "./core/social/social-choices.js";
+import { isDebugEnabled } from "./utils/debug.js";
+import { initSettingsCache } from "./core/config/settings-cache.js";
 
 Hooks.once('ready', async function () {
   console.log(`UESRPG | Ready`);
@@ -62,6 +63,10 @@ Hooks.once('ready', async function () {
   }
 
   await startupHandler();
+
+  // Populate the hot-settings cache (showFeatureInspector, useRawChargenWizard).
+  // Must run after startupHandler so all settings are guaranteed registered.
+  initSettingsCache();
 
   // Optional Chapter 4 compliance audit on startup (GM only).
   try {
@@ -207,54 +212,8 @@ Hooks.once("init", async function() {
   console.log(`UESRPG | Initializing`);
   await initHandler();
 
-  // Polyglot module compatibility: expose system languages via CONFIG[systemIdUpper].languages
-  // This is intentionally read-only configuration, derived from the existing LANGUAGE_CHOICES.
-  // It does not change schema and is safe for existing worlds.
-  try {
-    const systemIdUpper = String(game.system?.id ?? "").toUpperCase();
-    if (systemIdUpper) {
-      const cfg = (CONFIG[systemIdUpper] ??= {});
-      if (!cfg.languages) {
-        const slugify = (value) => String(value ?? "")
-          .trim()
-          .toLowerCase()
-          // keep letters/numbers, normalize separators
-          .replace(/['’]/g, "")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "");
+  // Polyglot language exposure is handled canonically in src/hooks/init.js (initHandler).
 
-        /** @type {Record<string, string>} */
-        const languages = {};
-        const collisions = new Map();
-
-        for (const name of (LANGUAGE_CHOICES ?? [])) {
-          const key = slugify(name);
-          if (!key) continue;
-
-          if (languages[key] && languages[key] !== name) {
-            const list = collisions.get(key) ?? [languages[key]];
-            list.push(name);
-            collisions.set(key, list);
-            continue;
-          }
-          languages[key] = name;
-        }
-
-        // If there are key collisions, keep the first entry and warn (does not block init).
-        if (collisions.size > 0) {
-          console.warn(
-            "UESRPG | Polyglot language key collision(s) detected; keeping first occurrence:",
-            Array.from(collisions.entries()).map(([k, v]) => ({ key: k, names: v }))
-          );
-        }
-
-        cfg.languages = languages;
-      }
-    }
-  } catch (err) {
-    console.warn("UESRPG | Failed to expose CONFIG languages for Polyglot", err);
-  }
-  
   // Register Handlebars helpers
   Handlebars.registerHelper('capitalize', function(str) {
     const s = String(str || '');
@@ -265,12 +224,15 @@ Hooks.once("init", async function() {
   if (!Handlebars.helpers?.inc) {
     Handlebars.registerHelper('inc', function(n) { return Number(n ?? 0) + 1; });
   }
-  // Expose AE key inspection helper (lazy-loaded; dev/debug only)
   game.uesrpg = game.uesrpg || {};
-  game.uesrpg.dumpAEKeys = async (...args) => {
-    const { dumpAEKeys } = await import("./utils/dev/ae-keys-dump.js");
-    return dumpAEKeys(...args);
-  };
+
+  // Expose AE key inspection helper (lazy-loaded; GM + debug flag required)
+  if (game.user?.isGM && isDebugEnabled(null)) {
+    game.uesrpg.dumpAEKeys = async (...args) => {
+      const { dumpAEKeys } = await import("./utils/dev/ae-keys-dump.js");
+      return dumpAEKeys(...args);
+    };
+  }
 
   // Initialize system-wide time API
   initializeTimeService();
@@ -329,41 +291,48 @@ Hooks.once("init", async function() {
   game.uesrpg.magic.drainMagicka = drainMagicka;
   game.uesrpg.magic.drainHealth = drainHealth;
   
-  // Expose modifier registry API (dev/debugging)
-  const { getAllModifierKeys, validateAEChanges, isKnownModifierKey } = await import("./core/active-effects/modifier-registry.js");
-  game.uesrpg.modifierRegistry = { getAllKeys: getAllModifierKeys, validate: validateAEChanges, isKnown: isKnownModifierKey };
+  // Expose modifier registry API (dev/debugging — GM + debug flag required)
+  if (game.user?.isGM && isDebugEnabled(null)) {
+    const { getAllModifierKeys, validateAEChanges, isKnownModifierKey } = await import("./core/active-effects/modifier-registry.js");
+    game.uesrpg.modifierRegistry = { getAllKeys: getAllModifierKeys, validate: validateAEChanges, isKnown: isKnownModifierKey };
+  }
   
   // Expose OverTime helpers (authoring, inspection)
   const { createOverTimeConfig, hasOverTimeConfig, getOverTimeConfig, buildOverTimeChange, OVERTIME_CHANGE_KEY } = await import("./core/magic/ticks/overtime-engine.js");
   game.uesrpg.magic.overTime = { createConfig: createOverTimeConfig, hasConfig: hasOverTimeConfig, getConfig: getOverTimeConfig, buildChange: buildOverTimeChange, CHANGE_KEY: OVERTIME_CHANGE_KEY };
   
-  // Register spell profile test utility (development/debugging)
-  const { registerSpellProfileTest } = await import("./utils/dev/spell-profile-test.js");
-  registerSpellProfileTest();
+  // Register spell profile test utility (development/debugging — GM + debug flag required)
+  if (game.user?.isGM && isDebugEnabled(null)) {
+    const { registerSpellProfileTest } = await import("./utils/dev/spell-profile-test.js");
+    registerSpellProfileTest();
+  }
 
-  // Expose spell audit utility (GM debugging/quality assurance)
-  const { auditSpellPack, showSpellAuditReport } = await import("./utils/dev/spell-audit.js");
-  game.uesrpg.auditSpellPack = auditSpellPack;
-  game.uesrpg.showSpellAuditReport = showSpellAuditReport;
+  // Expose audit, remediation, and acquisition-check utilities (GM-only)
+  if (game.user?.isGM) {
+    // Spell audit utility (GM debugging/quality assurance)
+    const { auditSpellPack, showSpellAuditReport } = await import("./utils/dev/spell-audit.js");
+    game.uesrpg.auditSpellPack = auditSpellPack;
+    game.uesrpg.showSpellAuditReport = showSpellAuditReport;
 
-  // Expose Chapter 4 audit utility (catalog-based compliance gaps)
-  const { auditChapter4 } = await import("./utils/dev/chapter4-audit.js");
-  game.uesrpg.auditChapter4 = auditChapter4;
+    // Chapter 4 audit utility (catalog-based compliance gaps)
+    const { auditChapter4 } = await import("./utils/dev/chapter4-audit.js");
+    game.uesrpg.auditChapter4 = auditChapter4;
 
-  // Expose Chapter 6 audit utilities (summary + spell matrix)
-  const { auditChapter6, auditChapter6Spells } = await import("./utils/dev/chapter6-audit.js");
-  game.uesrpg.auditChapter6 = auditChapter6;
-  game.uesrpg.auditChapter6Spells = auditChapter6Spells;
+    // Chapter 6 audit utilities (summary + spell matrix)
+    const { auditChapter6, auditChapter6Spells } = await import("./utils/dev/chapter6-audit.js");
+    game.uesrpg.auditChapter6 = auditChapter6;
+    game.uesrpg.auditChapter6Spells = auditChapter6Spells;
 
-  // Expose Chapter 6 spell remediation utilities (dry-run + apply)
-  const { planChapter6SpellRemediation, applyChapter6SpellRemediation } = await import("./utils/dev/chapter6-spell-remediation.js");
-  game.uesrpg.planChapter6SpellRemediation = planChapter6SpellRemediation;
-  game.uesrpg.applyChapter6SpellRemediation = applyChapter6SpellRemediation;
+    // Chapter 6 spell remediation utilities (dry-run + apply)
+    const { planChapter6SpellRemediation, applyChapter6SpellRemediation } = await import("./utils/dev/chapter6-spell-remediation.js");
+    game.uesrpg.planChapter6SpellRemediation = planChapter6SpellRemediation;
+    game.uesrpg.applyChapter6SpellRemediation = applyChapter6SpellRemediation;
 
-  // Expose talent learning validator API (Chapter 4 acquisition checks)
-  const { validateTalentLearning } = await import("./core/traits/talent-learning.js");
-  game.uesrpg.talents = game.uesrpg.talents || {};
-  game.uesrpg.talents.validateLearning = validateTalentLearning;
+    // Talent learning validator API (Chapter 4 acquisition checks)
+    const { validateTalentLearning } = await import("./core/traits/talent-learning.js");
+    game.uesrpg.talents = game.uesrpg.talents || {};
+    game.uesrpg.talents.validateLearning = validateTalentLearning;
+  }
 
   // Expose Enchanting Workshop API (game.uesrpg.enchanting.openWorkshop)
   const { registerEnchantingApi } = await import("./macros/enchanting-workshop.js");
@@ -380,5 +349,5 @@ Hooks.once("init", async function() {
   registerAlchemyApi();
 
   // Note: The prior GM-only "AE Keys" sheet header button was a debugging aid.
-  // It has been removed; the helper remains available as game.uesrpg.dumpAEKeys(...).
+  // It has been removed; the helper is available as game.uesrpg.dumpAEKeys(...) when GM + debug mode is enabled.
 });
