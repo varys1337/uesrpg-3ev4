@@ -268,7 +268,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   /* ═══════════════════════ Static Configuration ═══════════════════════ */
 
   static DEFAULT_OPTIONS = {
-    classes: ["worldbuilding", "sheet", "item"],
+    classes: ["worldbuilding", "sheet", "item", "uesrpg-sheet-root"],
     position: { width: 640, height: 620 },
     window: { resizable: true },
     form: {

@@ -42,6 +42,7 @@ import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { hasActiveWard } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 
 async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
   try {
@@ -492,6 +493,39 @@ export async function handleDefenderRoll(ctx) {
     defenseType: String(choice?.defenseType ?? ""),
     tn
   });
+
+  // ── Homebrew: Reach & Length — Length Penalty TN injection ────────────────
+  {
+    const attackerWeapon = (() => {
+      try {
+        const uuid = String(data?.context?.weaponUuid ?? "").trim();
+        return uuid ? fromUuidSync(uuid) : null;
+      } catch { return null; }
+    })();
+    const defenderWeapon = (() => {
+      try {
+        const choiceUuid = String(choice?.weaponUuid ?? "").trim();
+        if (choiceUuid) {
+          const doc = _resolveItemViaActor(choiceUuid, defender);
+          if (doc?.type === "weapon") return doc;
+        }
+        for (const item of (defender?.items ?? [])) {
+          if (item.type !== "weapon") continue;
+          if (!item.system?.equipped) continue;
+          if (String(item.system?.attackMode ?? "").toLowerCase() === "melee") return item;
+        }
+        return null;
+      } catch { return null; }
+    })();
+    applyLengthPenaltyToTN({
+      tn,
+      ownWeapon: defenderWeapon,
+      opponentWeapon: attackerWeapon,
+      ownerToken: dToken ?? null,
+      opponentToken: aToken ?? null
+    });
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   data.defender.target = tn.finalTN;
   const declaredMod = (Number(manualMod) || 0) + (Number(circumstanceMod) || 0);

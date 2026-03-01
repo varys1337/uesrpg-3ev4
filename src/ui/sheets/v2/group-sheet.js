@@ -85,7 +85,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /* ──────────────────────── Static Configuration ──────────────────────── */
 
   static DEFAULT_OPTIONS = {
-    classes: ["worldbuilding", "sheet", "actor", "group"],
+    classes: ["worldbuilding", "sheet", "actor", "group", "uesrpg-sheet-root"],
     position: { width: 780, height: 900 },
     window: { resizable: true },
     form: { submitOnChange: true },

@@ -348,6 +348,10 @@ Hooks.once("init", async function() {
   const { registerAlchemyApi } = await import("./core/alchemy/index.js");
   registerAlchemyApi();
 
+  // Expose Travel Planner API (game.uesrpg.travel.openPlanner/createStarterEventTables/resetPlannerState)
+  const { registerTravelApi } = await import("./core/travel/index.js");
+  registerTravelApi();
+
   // Note: The prior GM-only "AE Keys" sheet header button was a debugging aid.
   // It has been removed; the helper is available as game.uesrpg.dumpAEKeys(...) when GM + debug mode is enabled.
 });

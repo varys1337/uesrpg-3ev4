@@ -14,6 +14,10 @@ import {
 } from "../../ui/apps/reach-visualizer-settings.js";
 import { registerHomebrewSettingsMenu } from "../../ui/apps/homebrew-settings.js";
 import { invalidateCachedSetting } from "../../core/config/settings-cache.js";
+import {
+  scheduleEngagementFlankingRefresh,
+  clearFlankedConditions,
+} from "../../core/homebrew/engagement-flanking/index.js";
 
 export async function registerSettings() {
   // Register system settings
@@ -721,6 +725,67 @@ export async function registerSettings() {
     requiresReload: true,
     default: false,
     type: Boolean,
+  });
+
+  // ── Homebrew: Reach & Length Overhaul ─────────────────────────────────────
+
+  game.settings.register("uesrpg-3ev4", "homebrew.reachLength.enabled", {
+    name: "Homebrew: Reach & Length Overhaul (Harnmaster-inspired)",
+    hint: "When enabled, weapons gain explicit Length (LNG) values and model-specific homebrew reach overrides. Unlocks Length Penalty automation and the In Close condition. Requires a reload to apply consistently.",
+    scope: "world",
+    config: false,
+    requiresReload: true,
+    default: false,
+    type: Boolean,
+  });
+
+  game.settings.register("uesrpg-3ev4", "homebrew.reachLength.reachModel", {
+    name: "Homebrew: Reach Model",
+    hint: "Classic: min/max reach values per weapon (Harnmaster-style). Simplified: max reach only (d20-style, no minimum reach gating).",
+    scope: "world",
+    config: false,
+    requiresReload: false,
+    default: "classic",
+    type: String,
+    choices: {
+      classic: "Classic (Min + Max Reach)",
+      simplified: "Simplified (Max Reach Only)",
+    },
+  });
+
+  game.settings.register("uesrpg-3ev4", "homebrew.engagementFlanking.enabled", {
+    name: "Homebrew: Engagement & Flanking",
+    hint: "Automatically computes Flanked (X) from engagement pressure and defensive training. Melee attackers gain +5 TN per Flanked point.",
+    scope: "world",
+    config: false,
+    requiresReload: false,
+    default: false,
+    type: Boolean,
+    onChange: async (enabled) => {
+      try {
+        if (enabled) scheduleEngagementFlankingRefresh();
+        else if (game.user?.isGM) await clearFlankedConditions();
+      } catch (err) {
+        console.warn("UESRPG | Engagement & Flanking onChange failed", err);
+      }
+    },
+  });
+
+  game.settings.register("uesrpg-3ev4", "homebrew.engagementFlanking.onlyInCombat", {
+    name: "Homebrew: Engagement & Flanking (Only In Combat)",
+    hint: "When enabled, Flanked (X) automation runs only while combat is started.",
+    scope: "world",
+    config: false,
+    requiresReload: false,
+    default: true,
+    type: Boolean,
+    onChange: () => {
+      try {
+        scheduleEngagementFlankingRefresh();
+      } catch (err) {
+        console.warn("UESRPG | Engagement & Flanking onlyInCombat onChange failed", err);
+      }
+    },
   });
 
   // ─────────────────────────────────────────────────────────────────────────────

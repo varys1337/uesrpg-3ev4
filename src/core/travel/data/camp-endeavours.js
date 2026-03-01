@@ -1,0 +1,70 @@
+export const CAMP_ENDEAVOURS = Object.freeze([
+  {
+    key: "cook",
+    label: "Cook",
+    lane: null,
+    defaultTestMode: "skill",
+    description: "Prepare safe meals from gathered food. Failure can spoil food and trigger complications.",
+    suggestedSkills: ["Profession (Cook)", "Survival"],
+    suggestedCharacteristics: ["int", "prs"],
+  },
+  {
+    key: "journal",
+    label: "Journal",
+    lane: null,
+    defaultTestMode: "skill",
+    description: "Document the expedition for later use or publication.",
+    suggestedSkills: ["Performance (Writing)", "Logic (Archiving)"],
+    suggestedCharacteristics: ["int", "prs"],
+  },
+  {
+    key: "makeCamp",
+    label: "Make Camp",
+    lane: "makeCamp",
+    defaultTestMode: "skill",
+    description: "Secure shelter and rest quality. Success helps against weather and exposure.",
+    suggestedSkills: ["Survival"],
+    suggestedCharacteristics: ["int", "end"],
+  },
+  {
+    key: "recuperate",
+    label: "Recuperate",
+    lane: null,
+    defaultTestMode: "characteristic",
+    description: "Take recovery time instead of extra tasks to clear fatigue and recover.",
+    suggestedSkills: [],
+    suggestedCharacteristics: ["end", "wp"],
+  },
+  {
+    key: "trap",
+    label: "Trap",
+    lane: null,
+    defaultTestMode: "skill",
+    description: "Set traps near camp to secure extra food by morning.",
+    suggestedSkills: ["Survival (Traps)"],
+    suggestedCharacteristics: ["int", "prc"],
+  },
+  {
+    key: "watch",
+    label: "Watch",
+    lane: "watch",
+    defaultTestMode: "characteristic",
+    description: "Stand watch during rest. Can be taken as an extra endeavour but risks fatigue.",
+    suggestedSkills: ["Observe"],
+    suggestedCharacteristics: ["wp", "prc"],
+    extraEndeavour: true,
+  },
+  {
+    key: "custom",
+    label: "Custom Endeavour",
+    lane: null,
+    defaultTestMode: "skill",
+    description: "Use this row for homebrew or situational camp actions.",
+    suggestedSkills: [],
+    suggestedCharacteristics: ["int"],
+  },
+]);
+
+export function getCampEndeavour(key) {
+  return CAMP_ENDEAVOURS.find((e) => e.key === key) ?? null;
+}

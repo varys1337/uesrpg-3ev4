@@ -31,6 +31,38 @@ import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { hasActiveWard } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
+
+// ── Homebrew: Reach & Length Overhaul helpers ─────────────────────────────
+
+/**
+ * Resolve the defender's active weapon for the Length Penalty calculation.
+ * Tries choice.weaponUuid first, then falls back to the first equipped melee weapon.
+ *
+ * @param {Actor} defender
+ * @param {object} choice - Defender commit choice object
+ * @returns {Item|null}
+ */
+function _resolveDefenderWeapon(defender, choice) {
+  try {
+    const choiceUuid = String(choice?.weaponUuid ?? "").trim();
+    if (choiceUuid) {
+      const doc = _resolveItemViaActor(choiceUuid, defender);
+      if (doc?.type === "weapon") return doc;
+    }
+    // Fallback: first equipped melee weapon
+    for (const item of (defender?.items ?? [])) {
+      if (item.type !== "weapon") continue;
+      if (!item.system?.equipped) continue;
+      if (String(item.system?.attackMode ?? "").toLowerCase() === "melee") return item;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
   try {
@@ -538,6 +570,25 @@ export async function handleDefenderCommit(ctx) {
     defenseType: String(choice?.defenseType ?? ""),
     tn
   });
+
+  // ── Homebrew: Reach & Length — Length Penalty TN injection ────────────────
+  {
+    const attackerWeapon = (() => {
+      try {
+        const uuid = String(data?.context?.weaponUuid ?? "").trim();
+        return uuid ? fromUuidSync(uuid) : null;
+      } catch { return null; }
+    })();
+    const defenderWeapon = _resolveDefenderWeapon(defender, choice);
+    applyLengthPenaltyToTN({
+      tn,
+      ownWeapon: defenderWeapon,
+      opponentWeapon: attackerWeapon,
+      ownerToken: dToken ?? null,
+      opponentToken: aToken ?? null
+    });
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   data.defender.target = tn.finalTN;
   const declaredMod = (Number(manualMod) || 0) + (Number(circumstanceMod) || 0);

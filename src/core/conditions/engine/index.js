@@ -161,7 +161,7 @@ function _getCharacteristicTotal(actor, key) {
 function _mkBaseEffectData({ name, img = null, icon = null, description = null, condition, changes = [], origin = null, statuses = null, coreStatusId = null }) {
   const effectImg = img ?? icon ?? null;
   const conditionKey = condition?.key;
-  const isNumericCondition = conditionKey === "bleeding" || conditionKey === "burning";
+  const isNumericCondition = conditionKey === "bleeding" || conditionKey === "burning" || conditionKey === "flanked";
   const stackRule = isNumericCondition ? "refresh" : "override";
   const effectGroup = conditionKey ? `condition.${conditionKey}` : null;
   
@@ -371,6 +371,24 @@ const STATIC_CONDITIONS = {
     img: "icons/svg/statue.svg",
     description: CONDITION_DESCRIPTIONS.get("immobilized"),
     changes: []
+  },
+
+  // Homebrew — Engagement & Flanking
+  // Numeric tracking condition; effects are applied in combat TN computation.
+  flanked: {
+    name: "Flanked (X)",
+    img: "icons/svg/target.svg",
+    description: CONDITION_DESCRIPTIONS.get("flanked"),
+    changes: []
+  },
+
+  // Homebrew — Reach & Length Overhaul
+  // No persistent AE modifiers; the Length Penalty direction is resolved at TN time.
+  inclose: {
+    name: "In Close",
+    img: "icons/svg/combat.svg",
+    description: CONDITION_DESCRIPTIONS.get("inclose"),
+    changes: []
   }
 };
 
@@ -395,9 +413,11 @@ const TOKEN_HUD_CONDITION_ORDER = [
   "deafened",
   "crippled",
   "entangled",
+  "flanked",
   "frenzied",
   "hidden",
   "immobilized",
+  "inclose",
   "invisible",
   "paralyzed",
   "prone",
@@ -429,7 +449,7 @@ export const CONDITION_KEYS = Object.freeze((() => {
 })());
 
 /** @type {Set<string>} */
-export const TOKEN_HUD_XVALUE_STATUS_ID_SET = new Set(["bleeding", "burning"]);
+export const TOKEN_HUD_XVALUE_STATUS_ID_SET = new Set(["bleeding", "burning", "flanked"]);
 
 function _deepClone(obj) {
   try {
@@ -601,7 +621,7 @@ export async function upgradeTokenHudStatusEffects(actor) {
 
     // Determine an appropriate value for X-value conditions from the effect name, if present.
     let xValue = 1;
-    if (k === "bleeding" || k === "burning") {
+    if (k === "bleeding" || k === "burning" || k === "flanked") {
       try {
         const m = String(effect.name || "").match(/\((\d+)\)/);
         if (m && m[1]) xValue = Math.max(1, Number(m[1]) || 1);
@@ -621,6 +641,11 @@ export async function upgradeTokenHudStatusEffects(actor) {
       if (k === "burning") {
         const cur = getConditionValue(actor, k) ?? xValue;
         const desiredName = `Burning (${cur})`;
+        if (effect.name !== desiredName) updates.name = desiredName;
+      }
+      if (k === "flanked") {
+        const cur = getConditionValue(actor, k) ?? xValue;
+        const desiredName = `Flanked (${cur})`;
         if (effect.name !== desiredName) updates.name = desiredName;
       }
       // Ensure core linkage exists for toggleStatusEffect removal.
@@ -1260,6 +1285,10 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
 
     if (k === "bleeding") return applyBleeding(actor, next, { origin: null, source: "Bleeding" });
     if (k === "burning") return applyBurning(actor, next, { origin: null, source: "Burning" });
+    if (k === "flanked") {
+      await applyCondition(actor, k, { origin: null, source: "Engagement & Flanking" });
+      return setConditionValue(actor, k, next);
+    }
     return applyCondition(actor, k, { origin: null, source: null });
   }
 
@@ -1295,6 +1324,8 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
     const storedLoc = String(c.hitLocation || "Body");
     updates.name = `Burning (${next})`;
     updates[`${FLAG_PATH}.condition.hitLocation`] = storedLoc;
+  } else if (k === "flanked") {
+    updates.name = `Flanked (${next})`;
   } else {
     // Static condition: clamp to 1
     updates[`${FLAG_PATH}.condition.value`] = 1;
@@ -1335,7 +1366,7 @@ export function getConditionValue(actor, key) {
   if (!all.length) return null;
 
   // Defensive: if duplicates exist for X-value conditions, combine their values.
-  if (k === "bleeding" || k === "burning") {
+  if (k === "bleeding" || k === "burning" || k === "flanked") {
     let sum = 0;
     for (const ef of all) {
       const c = _getConditionData(ef);

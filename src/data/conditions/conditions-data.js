@@ -420,6 +420,33 @@ const CONDITIONS_DATASET = Object.freeze([
     description:
       `<p>The character is knocked out and loses consciousness. They fall prone if the circumstances allow and may not take actions. If a character gains a level of fatigue while unconscious, they die.</p>`,
     rulesRef: { chapter: "Chapter 5 - Advanced Mechanics", section: "Conditions" }
+  },
+
+  // ── Flanked (X) (Homebrew — Engagement & Flanking) ─────────────────────────
+  {
+    id: "flanked",
+    name: "Flanked (X)",
+    img: "icons/svg/target.svg",
+    hudVisible: true,
+    description:
+      `<p>This combatant is under coordinated melee pressure. <strong>Flanked (X)</strong> is auto-calculated as:</p>` +
+      `<p><code>max(Enemies Threatening - Engagement Score - Ally Support, 0)</code></p>` +
+      `<p>Ally Support is contributed by allies who threaten the same enemies; each enemy can be canceled only once.</p>` +
+      `<p>Attackers gain <strong>+5 TN per X</strong> on melee attacks and melee combat maneuvers against this target.</p>` +
+      `<p><em>Homebrew — Engagement &amp; Flanking. This status is automated and should not be toggled manually.</em></p>`,
+    rulesRef: { chapter: "Homebrew — Engagement & Flanking", section: "Flanked (X)" }
+  },
+
+  // ── In Close (Homebrew — Reach & Length Overhaul) ──────────────────────────
+  {
+    id: "inclose",
+    name: "In Close",
+    img: "icons/svg/combat.svg",
+    hudVisible: true,
+    description:
+      `<p>This combatant is engaged In Close with one or more opponents (within 1 m). While In Close, the <strong>longer</strong> weapon suffers the Length Penalty instead of the shorter weapon. Apply the <em>In Close</em> status when combatants close to within 1 m via the Close In manoeuvre or by moving adjacent.</p>` +
+      `<p><em>Homebrew — Reach &amp; Length Overhaul. Requires the "Enable Reach &amp; Length Overhaul" setting to be active.</em></p>`,
+    rulesRef: { chapter: "Homebrew — Reach & Length Overhaul", section: "In Close" }
   }
 
 ]);

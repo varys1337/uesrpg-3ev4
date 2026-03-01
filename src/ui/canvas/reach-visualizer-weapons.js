@@ -10,6 +10,7 @@
  */
 
 import { getLastMeleeWeaponForActor } from "./reach-visualizer-state.js";
+import { getWeaponReachBoundsEffective } from "../../core/homebrew/reach-length/weapon.js";
 
 /* -------------------------------------------- */
 /* Weapon Detection                             */
@@ -36,13 +37,38 @@ export function isMeleeWeapon(item) {
 
 /**
  * Get the reach bounds (max and min) from a weapon item.
+ * Delegates to the homebrew reach-length resolver so the visualizer always
+ * matches combat legality checks.
  * @param {Item} weapon
  * @returns {{max: number, min: number}}
  */
 export function getWeaponReachBoundsUnits(weapon) {
-  const max = Number(weapon?.system?.reach ?? 0);
-  const min = Number(weapon?.system?.reachMin ?? 0);
+  const { min, max } = getWeaponReachBoundsEffective(weapon);
   return { max: Math.max(0, max), min: Math.max(0, min) };
+}
+
+/**
+ * Select the equipped melee weapon with the greatest effective max reach.
+ *
+ * @param {Actor} actor
+ * @returns {{weapon: Item|null, bounds: {max:number, min:number}}}
+ */
+export function getLongestEquippedMeleeWeapon(actor) {
+  const weapons = actor?.items?.filter(isMeleeWeapon) ?? [];
+  if (!weapons.length) return { weapon: null, bounds: { max: 0, min: 0 } };
+
+  let best = weapons[0];
+  let bestBounds = getWeaponReachBoundsUnits(best);
+
+  for (const w of weapons.slice(1)) {
+    const b = getWeaponReachBoundsUnits(w);
+    if (b.max > bestBounds.max) {
+      best = w;
+      bestBounds = b;
+    }
+  }
+
+  return { weapon: best, bounds: bestBounds };
 }
 
 /**
@@ -64,16 +90,5 @@ export function getActiveMeleeWeapon(actor, reachSource) {
   }
 
   // Default (maxEquipped): pick the equipped melee weapon with the highest reach.
-  let best = weapons[0];
-  let bestBounds = getWeaponReachBoundsUnits(best);
-
-  for (const w of weapons.slice(1)) {
-    const b = getWeaponReachBoundsUnits(w);
-    if (b.max > bestBounds.max) {
-      best = w;
-      bestBounds = b;
-    }
-  }
-
-  return { weapon: best, bounds: bestBounds };
+  return getLongestEquippedMeleeWeapon(actor);
 }

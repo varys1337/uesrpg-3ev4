@@ -473,3 +473,48 @@ export function applyWoundThresholdAEs(actor, actorSystemData) {
   // Safety: wound threshold cannot be negative
   actorSystemData.wound_threshold.value = Math.max(0, Number(actorSystemData.wound_threshold.value ?? 0));
 }
+
+/**
+ * Collect AE modifiers targeting custom skill items.
+ *
+ * Scans all active effects on the actor for changes whose key matches the
+ * pattern `skill.{skillName}.bonus` and accumulates the totals by skill name.
+ * ADD mode values are summed; OVERRIDE mode sets an absolute value (last one wins).
+ *
+ * This is intentionally separate from buildActorAETotalsMap because skill
+ * modifiers operate on embedded Item documents, not actor system data paths.
+ *
+ * Supported key format:  skill.{Skill Name}.bonus
+ * Example:               skill.Alchemy.bonus
+ *
+ * @param {Actor} actor
+ * @returns {Record<string, number>}  Map of skillName → total bonus to apply
+ */
+export function collectSkillAEModifiers(actor) {
+  const result = {};
+  const overrideTracker = {};
+
+  for (const effect of actor.effects ?? []) {
+    if (!effect.active) continue;
+    for (const change of effect.changes ?? []) {
+      const m = String(change.key ?? "").match(/^skill\.(.+)\.bonus$/);
+      if (!m) continue;
+      const name = m[1];
+      const val = Number(change.value) || 0;
+      const mode = Number(change.mode);
+      // mode 5 = OVERRIDE, mode 2 = ADD (Foundry CONST.ACTIVE_EFFECT_MODES)
+      if (mode === 5) {
+        overrideTracker[name] = val;
+      } else {
+        result[name] = (result[name] ?? 0) + val;
+      }
+    }
+  }
+
+  // Overrides take precedence over accumulated adds
+  for (const [name, val] of Object.entries(overrideTracker)) {
+    result[name] = val;
+  }
+
+  return result;
+}

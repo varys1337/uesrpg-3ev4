@@ -16,6 +16,8 @@ import {
 } from "../../../core/combat/combat-style-utils.js";
 import { isActorTrainedInMagicSchool } from "../../../core/magic/magicka-utils.js";
 import { getLoadoutsForActor } from "../sheet-ui-state.js";
+import { isReachLengthHomebrewEnabled } from "../../../core/homebrew/reach-length/weapon.js";
+import { hasCondition } from "../../../core/conditions/condition-engine.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 const _FLAG_NS = "uesrpg-3ev4";
 const _EQUIPMENT_TYPES = new Set(["weapon", "armor", "ammunition", "item", "container", "scroll"]);
@@ -159,6 +161,8 @@ export function buildCombatActionsContext(actor) {
       ?? actor?.items?.some?.(i => i.type === "spell" && i?.system?.isInstant === true)
     );
 
+    const inCloseEnabled = isReachLengthHomebrewEnabled();
+
     return {
       activeCombatStyleId: activeCombatStyleId ?? "",
       combatStyles: combatStyles.map(cs => ({
@@ -170,6 +174,8 @@ export function buildCombatActionsContext(actor) {
       specialActions,
       canCastMagic: canCastActorSpells || castableScrolls.length > 0 || equippedItemSpellSlots.length > 0,
       canCastInstantMagic: canCastActorInstantSpells || castableInstantScrolls.length > 0 || equippedItemInstantSpellSlots.length > 0,
+      inCloseEnabled,
+      actorIsInClose: inCloseEnabled && hasCondition(actor, "inclose"),
     };
   } catch (_e) {
     return {
@@ -178,7 +184,9 @@ export function buildCombatActionsContext(actor) {
       activeCombatStyleName: null,
       specialActions: [],
       canCastMagic: false,
-      canCastInstantMagic: false
+      canCastInstantMagic: false,
+      inCloseEnabled: false,
+      actorIsInClose: false,
     };
   }
 }

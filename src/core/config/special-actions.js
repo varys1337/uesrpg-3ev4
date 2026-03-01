@@ -26,7 +26,9 @@ export const SPECIAL_ACTIONS = [
   { id: "feint", name: "Feint", actionType: "primary" },
   { id: "forceMovement", name: "Force Movement", actionType: "primary" },
   { id: "resist", name: "Resist", actionType: "secondary" },
-  { id: "trip", name: "Trip", actionType: "secondary" }
+  { id: "trip", name: "Trip", actionType: "secondary" },
+  // Homebrew — Reach & Length Overhaul
+  { id: "inClose", name: "In Close", actionType: "secondary" }
 ];
 
 /**

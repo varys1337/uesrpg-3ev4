@@ -70,7 +70,7 @@
       </div>
 
       {{!-- в”Ђв”Ђв”Ђ Inventory Tab в”Ђв”Ђв”Ђ --}}
-      <div class="tab inventory" data-group="primary" data-tab="inventory">
+      <div class="tab inventory" data-group="primary" data-tab="inventory" data-ues-section="group-inventory">
         <div class="inventory-header">
           <h3>Group Inventory</h3>
           <p>Drag items here to add to group inventory</p>
@@ -79,7 +79,7 @@
         <div class="itemListContainer">
 
           {{!-- Containers --}}
-          <table>
+          <table class="ues-table--group-gear">
             <thead>
               <tr>
                 <th class="item-name-cell">Containers</th>
@@ -259,15 +259,15 @@
           <table>
             <thead>
               <tr>
-                <th class="item-name-cell item-create" data-action="itemCreate" id="createSelect">Items +</th>
-                <th>Qty</th>
-                <th><i class="fas fa-trash"></i></th>
+                <th class="item-name-cell item-create ues-col-name" data-action="itemCreate" id="createSelect">Items +</th>
+                <th class="ues-col-stat">Qty</th>
+                <th class="ues-col-actions"><i class="fas fa-trash"></i></th>
               </tr>
             </thead>
             <tbody>
               {{#each gear.equipped as |item id|}}
                 <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                  <td>
+                  <td class="ues-col-name">
                     <div class="tableItemNameCell">
                       <div class="qty-controls">
                         <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
@@ -279,19 +279,19 @@
                       <div class="item-name" data-action="itemShow">{{item.name}}</div>
                     </div>
                   </td>
-                  <td>
+                  <td class="ues-col-stat">
                     <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
                       <div>{{item.system.quantity}}</div>
                     </button>
                   </td>
-                  <td>
+                  <td class="ues-col-actions">
                     <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
                   </td>
                 </tr>
               {{/each}}
               {{#each gear.unequipped as |item id|}}
                 <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
-                  <td>
+                  <td class="ues-col-name">
                     <div class="tableItemNameCell">
                       <div class="qty-controls">
                         <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
@@ -303,12 +303,12 @@
                       <div class="item-name" data-action="itemShow">{{item.name}}</div>
                     </div>
                   </td>
-                  <td>
+                  <td class="ues-col-stat">
                     <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
                       <div>{{item.system.quantity}}</div>
                     </button>
                   </td>
-                  <td>
+                  <td class="ues-col-actions">
                     <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
                   </td>
                 </tr>

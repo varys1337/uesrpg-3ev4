@@ -70,8 +70,6 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   const skill = includeSkills ? [] : null;
   const magicSkill = includeMagicSkills ? [] : null;
 
-  // Profession detection regex (Part B)
-  const _PROF_RE = includeSkills ? /^Profession\s*\[(.+?)\]\s*$/i : null;
 
   // Iterate through items, allocating to containers
   for (const i of sheetData.items ?? []) {
@@ -113,10 +111,11 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     } else if (i.type === "spell") {
       spell.push(i);
     } else if (includeSkills && i.type === "skill") {
-      // Annotate profession metadata (non-persistent, sheet-only)
-      const profMatch = _PROF_RE ? String(i.name ?? "").match(_PROF_RE) : null;
-      i._isProfession = Boolean(i.system?.isProfession) || Boolean(profMatch);
-      i._professionField = i.system?.field || (profMatch ? profMatch[1].trim() : "") || "";
+      // Annotate profession metadata (non-persistent, sheet-only).
+      // Only the explicit system.isProfession flag governs profession classification;
+      // bracket notation in the name must not affect skill visibility.
+      i._isProfession = Boolean(i.system?.isProfession);
+      i._professionField = i.system?.field ?? "";
       skill.push(i);
     } else if (includeMagicSkills && i.type === "magicSkill") {
       magicSkill.push(i);

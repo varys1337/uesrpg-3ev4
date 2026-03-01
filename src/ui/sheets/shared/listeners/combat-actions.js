@@ -40,6 +40,7 @@ import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js"
 import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { getMovementActionLegality } from "../../../../core/combat/movement-rules.js";
 import { drinkPotion, applyAlchemyToWeapon } from "../../../../core/alchemy/runtime.js";
+import { toggleInCloseForActor } from "../../../../core/conditions/status-hud.js";
 
 /**
  * Handle Combat tab quick-action buttons.
@@ -891,6 +892,14 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         isReactionAttack: true,
         skipAttackerAPDeduction: false
       });
+      return;
+    }
+
+    case "inClose": {
+      // Homebrew — Reach & Length Overhaul: Enter or Leave In Close with a target token.
+      // Delegates to status-hud.js which handles token resolution, partner selection,
+      // pairwise flag management, and condition toggling.
+      await toggleInCloseForActor(actor);
       return;
     }
 

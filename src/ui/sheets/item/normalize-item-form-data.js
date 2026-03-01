@@ -39,6 +39,15 @@ export function normalizeItemFormData(item, formData) {
   const itemType = item?.type;
 
   // ──────────────────────────────────────────────────────────────
+  // 1 & 2. Qualities (qualitiesTraits + qualitiesStructured)
+  //   Only item types that carry these schema fields should receive
+  //   this normalization. All others (skill, magicSkill, talent,
+  //   trait, power, combatStyle, container, spell) are skipped to
+  //   prevent injecting unknown fields into their DataModel updates.
+  // ──────────────────────────────────────────────────────────────
+  const QUALITIES_TYPES = new Set(["item", "scroll", "armor", "weapon", "ammunition"]);
+  if (QUALITIES_TYPES.has(itemType)) {
+
   // 1. Other Traits selection (checkbox pill UI)
   // ──────────────────────────────────────────────────────────────
   const selectedTraits = new Set();
@@ -160,6 +169,8 @@ export function normalizeItemFormData(item, formData) {
 
   structured.sort((a, b) => (a.key || "").localeCompare(b.key || ""));
   formData["system.qualitiesStructured"] = structured;
+
+  } // end QUALITIES_TYPES guard
 
   // ──────────────────────────────────────────────────────────────
   // 3. Activation Damage Qualities (Talents / Traits / Powers)

@@ -11,6 +11,7 @@
  */
 
 import { prepareCharacterItems } from "../sheet-prepare-items.js";
+import { collectSkillAEModifiers } from "../../../core/actors/ae/modifiers.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
@@ -69,6 +70,26 @@ import { getCachedSetting } from "../../../core/config/settings-cache.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2Base = foundry.applications.sheets.ActorSheetV2;
+
+function resolveWeaponDistanceHeaderLabel(weaponBuckets) {
+  const equipped = Array.isArray(weaponBuckets?.equipped) ? weaponBuckets.equipped : [];
+  const unequipped = Array.isArray(weaponBuckets?.unequipped) ? weaponBuckets.unequipped : [];
+  const weapons = [...equipped, ...unequipped];
+  if (!weapons.length) return "Distance";
+
+  let hasRanged = false;
+  let hasMelee = false;
+  for (const weapon of weapons) {
+    const mode = String(weapon?.system?.attackMode ?? "").toLowerCase();
+    if (mode === "ranged") hasRanged = true;
+    else hasMelee = true;
+    if (hasRanged && hasMelee) return "Distance";
+  }
+
+  if (hasRanged) return "Range";
+  if (hasMelee) return "Reach";
+  return "Distance";
+}
 
 export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
@@ -140,7 +161,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   /* ═══════════════════════ Static Configuration ═══════════════════════ */
 
   static DEFAULT_OPTIONS = {
-    classes: ["worldbuilding", "sheet", "actor", "player-character"],
+    classes: ["worldbuilding", "sheet", "actor", "player-character", "uesrpg-sheet-root"],
     position: { width: 780, height: 1080 },
     window: { resizable: true },
     form: { submitOnChange: true },
@@ -294,6 +315,20 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       });
       prepareCharacterItems(context, { includeSkills: true, includeMagicSkills: true });
       normalizeItemRanks(context.items);
+
+      // Apply AE modifiers for custom skill items (non-persistent, sheet-only).
+      // AE key pattern: skill.{Skill Name}.bonus
+      const skillAEMods = collectSkillAEModifiers(actor);
+      if (Object.keys(skillAEMods).length > 0) {
+        for (const skillItem of context.actor.skill ?? []) {
+          const mod = skillAEMods[skillItem.name];
+          if (mod) skillItem.system.bonus = (Number(skillItem.system.bonus) || 0) + mod;
+        }
+        for (const skillItem of context.actor.professionSkill ?? []) {
+          const mod = skillAEMods[skillItem.name];
+          if (mod) skillItem.system.bonus = (Number(skillItem.system.bonus) || 0) + mod;
+        }
+      }
     } else {
       context.items = [];
     }
@@ -322,6 +357,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     } else {
       context.sheetUi = null;
     }
+    context.sheetUi = context.sheetUi ?? {};
+    context.sheetUi.weaponDistanceHeaderLabel = resolveWeaponDistanceHeaderLabel(context.actor?.weapon);
 
     // Core tab: enriched biography + social display
     if (_needs("core")) {

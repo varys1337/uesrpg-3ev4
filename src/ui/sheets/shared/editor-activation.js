@@ -45,6 +45,30 @@ function buildProseMirrorPlugins(onSave) {
   };
 }
 
+/**
+ * Extract current HTML content from a ProseMirror editor instance.
+ * Tries Foundry's built-in getData(), then ProseMirror DOM serializer, then
+ * raw DOM innerHTML as a last resort.
+ */
+function getEditorHTML(instance) {
+  if (typeof instance?.getData === "function") {
+    const d = instance.getData();
+    if (d != null) return String(d);
+  }
+  if (instance?.view?.state && typeof ProseMirror !== "undefined") {
+    try {
+      const pm = ProseMirror;
+      const serializer = pm.DOMSerializer.fromSchema(pm.defaultSchema);
+      const div = document.createElement("div");
+      div.appendChild(serializer.serializeFragment(instance.view.state.doc.content));
+      return div.innerHTML;
+    } catch (_e) {
+      // fall through to DOM fallback
+    }
+  }
+  return instance?.view?.dom?.innerHTML ?? "";
+}
+
 function nextFrame() {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
@@ -159,8 +183,22 @@ async function activateLegacyEditor(app, root, target, clickOrigin) {
   const form = getSubmitForm(app, root);
 
   const save = async () => {
-    if (DEBUG()) console.log("UESRPG | editor save callback", { target });
-    scheduleCloseEditor(key, { submit: true });
+    if (DEBUG()) console.log("UESRPG | editor save callback (direct update)", { target });
+    // Direct document update bypasses FormDataExtended, which cannot reliably read
+    // ProseMirror custom element content. submitOnChange: true on item sheets already
+    // persists all non-editor form fields on every keystroke, so no form submit is needed.
+    const entry = ACTIVE_EDITORS.get(key);
+    if (!entry?.instance) {
+      scheduleCloseEditor(key, { submit: false });
+      return;
+    }
+    const html = getEditorHTML(entry.instance);
+    try {
+      if (app.document) await app.document.update({ [target]: html });
+    } catch (err) {
+      if (DEBUG()) console.warn("UESRPG | editor direct save failed", { target, err });
+    }
+    scheduleCloseEditor(key, { submit: false });
   };
 
   const options = {

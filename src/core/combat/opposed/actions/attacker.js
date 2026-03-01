@@ -50,6 +50,7 @@ import {
 import { markWeaponNeedsReload as _markWeaponNeedsReload } from "../damage/ammunition.js";
 import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
+import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 
 /**
  * Handle attacker actions: roll, commit, or roll-committed
@@ -363,6 +364,7 @@ export async function handleAttackerAction(action, ctx) {
       situationalMods,
       context: {
         opponentUuid: defender?.uuid ?? null,
+        opponentActor: defender ?? null,
         opponentSize: defender?.system?.size ?? null,
         attackMode: data.context?.attackMode ?? "melee",
         itemUuid: data.context?.weaponUuid ?? null,
@@ -388,6 +390,33 @@ export async function handleAttackerAction(action, ctx) {
     data.attacker.tn = tn;
     data.attacker.pendingApCost = pendingApCost;
     data.attacker.pendingApVariant = decl.variant;
+
+    // ── Homebrew: Reach & Length — LP injection (attacker side) ──────────────
+    if (String(data.context?.attackMode ?? "melee").toLowerCase() === "melee" && declaredWeapon) {
+      let defenderWeaponForLP = null;
+      try {
+        for (const item of (defender?.items ?? [])) {
+          if (item.type !== "weapon") continue;
+          if (!item.system?.equipped) continue;
+          if (String(item.system?.attackMode ?? "").toLowerCase() === "melee") {
+            defenderWeaponForLP = item;
+            break;
+          }
+        }
+      } catch (_e) { /* no-op */ }
+      const lpApplied = applyLengthPenaltyToTN({
+        tn,
+        ownWeapon: declaredWeapon,
+        opponentWeapon: defenderWeaponForLP,
+        ownerToken: aToken ?? null,
+        opponentToken: dToken ?? null
+      });
+      if (lpApplied) {
+        data.attacker.target = tn.finalTN;
+        data.attacker.totalMod = tn.totalMod;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     _logDebug("attackerDeclare", {
       attackerUuid: data.attacker.actorUuid,

@@ -14,6 +14,62 @@
   </div>
 </fieldset>
 
+<fieldset>
+  <legend>Combat — Reach &amp; Length (Harnmaster-inspired)</legend>
+
+  <div class="form-group">
+    <label>Enable Reach &amp; Length Overhaul</label>
+    <input type="checkbox" name="homebrew.reachLength.enabled" {{checked homebrew.reachLengthEnabled}}>
+    <p class="notes">
+      Unlocks per-weapon <strong>Length (LNG)</strong> and homebrew reach overrides, the
+      <strong>In Close</strong> Token HUD condition, and Length Penalty TN automation.
+      <em>Requires a reload to apply consistently.</em>
+    </p>
+  </div>
+
+  <div class="form-group">
+    <label>Reach Model</label>
+    <select name="homebrew.reachLength.reachModel" {{#unless homebrew.reachLengthEnabled}}disabled{{/unless}}>
+      <option value="classic" {{#if (eq homebrew.reachLengthModel "classic")}}selected{{/if}}>Classic (Min + Max Reach)</option>
+      <option value="simplified" {{#if (eq homebrew.reachLengthModel "simplified")}}selected{{/if}}>Simplified (Max Reach Only)</option>
+    </select>
+    <p class="notes">
+      <strong>Classic:</strong> Weapons have both a minimum and maximum reach (polearms cannot attack adjacent).
+      <strong>Simplified:</strong> Only maximum reach is used (no minimum reach gating).
+    </p>
+  </div>
+
+  <div class="form-group">
+    <p class="notes">
+      When enabled: Length Penalty automation (ΔL×5 on parry/counter), the <strong>In Close</strong>
+      Token HUD condition with pairwise tracking, and auto-prune when tokens move beyond 1 m are all
+      active. The only option is which reach model to use.
+    </p>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Combat — Engagement &amp; Flanking</legend>
+
+  <div class="form-group">
+    <label>Enable Engagement &amp; Flanking</label>
+    <input type="checkbox" name="homebrew.engagementFlanking.enabled" {{checked homebrew.engagementFlankingEnabled}}>
+    <p class="notes">
+      Auto-computes <strong>Flanked (X)</strong> from nearby threats, defensive skill, and ally support from shared threatened foes.
+      Melee attacks and melee maneuvers against that target gain <strong>+5 TN per Flanked point</strong>.
+    </p>
+  </div>
+
+  <div class="form-group">
+    <label>Only In Combat</label>
+    <input type="checkbox" name="homebrew.engagementFlanking.onlyInCombat" {{checked homebrew.engagementFlankingOnlyInCombat}}>
+    <p class="notes">
+      Restricts Flanked automation to active combats only (<code>game.combat.started</code>).
+    </p>
+  </div>
+
+</fieldset>
+
 <footer class="sheet-footer flexrow">
   <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
 </footer>

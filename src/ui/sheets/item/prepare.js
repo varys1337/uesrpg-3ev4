@@ -41,6 +41,10 @@ import { getRuleElementRuntimeSettingsState } from "../../../core/traits/feature
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-catalog.js";
 import { getEffectByKey } from "../../../core/alchemy/effects.js";
+import {
+  isReachLengthHomebrewEnabled,
+  getReachLengthModel,
+} from "../../../core/homebrew/reach-length/weapon.js";
 
 /**
  * Prepare item sheet data for rendering
@@ -506,6 +510,14 @@ export async function prepareItemSheetData(sheet, data) {
   } else if (itemType === "weapon") {
     // Unowned weapon (world item): provide empty array
     data.ammoOptions = [];
+  }
+
+  // --------------------------------------------
+  // Weapon: Homebrew Reach & Length Overhaul fields
+  // --------------------------------------------
+  if (itemType === "weapon") {
+    data.homebrewReachLengthEnabled = isReachLengthHomebrewEnabled();
+    data.homebrewReachModel = getReachLengthModel();
   }
 
   // --------------------------------------------

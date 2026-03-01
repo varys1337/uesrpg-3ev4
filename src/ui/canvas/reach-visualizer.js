@@ -33,6 +33,8 @@ import {
   drawSolidEdgeQuads,
   drawDashedEdgeQuads,
 } from "./reach-visualizer-render.js";
+import { isEngagementFlankingHomebrewEnabled } from "../../core/system/homebrew.js";
+import { getEngagementScore } from "../../core/homebrew/engagement-flanking/index.js";
 
 const OVERLAY_NAME = "uesrpg-reach-visualizer-overlay";
 const CONTROL_TOOL_NAME = "uesrpg-reach-visualizer";
@@ -40,6 +42,7 @@ const CONTROL_TOOL_NAME = "uesrpg-reach-visualizer";
 let _enabled = false;
 let _settings = normalizeReachVisualizerSettings({});
 let _overlayContainer = null;
+let _labelContainer = null;
 let _hoveredToken = null;
 let _debouncedRedraw = null;
 let _hooksRegistered = false;
@@ -143,12 +146,46 @@ function _getOverlayContainer() {
   return _overlayContainer;
 }
 
+function _getLabelContainer() {
+  if (!_isCanvasReady()) return null;
+
+  if (!_labelContainer || _labelContainer.destroyed) {
+    _labelContainer = new PIXI.Container();
+    _labelContainer.name = `${OVERLAY_NAME}-labels`;
+    _labelContainer.sortableChildren = true;
+    _labelContainer.zIndex = 100000;
+
+    try {
+      _labelContainer.eventMode = "none";
+    } catch (_e) {
+      // ignore
+    }
+    _labelContainer.interactiveChildren = false;
+
+    try {
+      const parent = canvas.interface ?? canvas.tokens;
+      if (!parent) return null;
+      if (typeof parent.addChildAt === "function") parent.addChildAt(_labelContainer, parent.children.length);
+      else parent.addChild(_labelContainer);
+    } catch (_e) {
+      _labelContainer = null;
+      return null;
+    }
+  }
+  return _labelContainer;
+}
+
 function _destroyOverlayContainer() {
   if (_overlayContainer && !_overlayContainer.destroyed) {
     try { _overlayContainer.parent?.removeChild?.(_overlayContainer); } catch (_e) { /* no-op */ }
     try { _overlayContainer.destroy({ children: true }); } catch (_e) { /* no-op */ }
   }
   _overlayContainer = null;
+  if (_labelContainer && !_labelContainer.destroyed) {
+    try { _labelContainer.parent?.removeChild?.(_labelContainer); } catch (_e) { /* no-op */ }
+    try { _labelContainer.destroy({ children: true }); } catch (_e) { /* no-op */ }
+  }
+  _labelContainer = null;
   _tokenOverlays.clear();
 }
 
@@ -183,6 +220,8 @@ function _applyOverlayAlpha(token) {
   if (!entry?.container) return;
   const a = _getOverlayAlphaForToken(token);
   if (Number(entry.container.alpha) !== Number(a)) entry.container.alpha = a;
+  if (entry.label && Number(entry.label.alpha) !== Number(a)) entry.label.alpha = a;
+  if (entry.distLabel && Number(entry.distLabel.alpha) !== Number(a)) entry.distLabel.alpha = a;
 }
 
 function _getSceneUnitsLabel() {
@@ -214,6 +253,51 @@ function _getTokenColor(token) {
   if (_settings.colorMode === REACH_COLOR_MODE.DISPOSITION) return _getDispositionColor(token, 0x33ff66);
   if (_settings.colorMode === REACH_COLOR_MODE.UNIFORM) return _hexToNumber(_settings.uniformColor, 0x33ff66);
   return 0x33ff66;
+}
+
+function _isAssistantOrGM(user) {
+  if (!user) return false;
+  if (user.isGM) return true;
+  const assistantRole = Number(CONST?.USER_ROLES?.ASSISTANT ?? 3);
+  return Number(user.role ?? 0) >= assistantRole;
+}
+
+function _collectViewerDispositions(user) {
+  const out = new Set();
+  const ownerLevel = Number(CONST?.DOCUMENT_OWNERSHIP_LEVELS?.OWNER ?? CONST?.DOCUMENT_PERMISSION_LEVELS?.OWNER ?? 3);
+  const tokens = canvas?.tokens?.placeables ?? [];
+  for (const token of tokens) {
+    if (!token?.actor || !token?.document) continue;
+    try {
+      if (!token.actor.testUserPermission(user, ownerLevel)) continue;
+    } catch (_e) {
+      continue;
+    }
+    const disp = Number(token.document.disposition);
+    if (Number.isFinite(disp)) out.add(disp);
+  }
+
+  // Fallback for edge cases where ownership cannot be resolved but control exists.
+  if (!out.size) {
+    const controlled = canvas?.tokens?.controlled ?? [];
+    for (const token of controlled) {
+      const disp = Number(token?.document?.disposition);
+      if (Number.isFinite(disp)) out.add(disp);
+    }
+  }
+  return out;
+}
+
+function _shouldShowEngagementLabel(token) {
+  const user = game.user;
+  if (!user) return false;
+  if (_isAssistantOrGM(user)) return true;
+
+  const disp = Number(token?.document?.disposition);
+  if (!Number.isFinite(disp)) return false;
+
+  const allowedDispositions = _collectViewerDispositions(user);
+  return allowedDispositions.has(disp);
 }
 
 /* -------------------------------------------- */
@@ -252,7 +336,8 @@ function _ensureOverlayEntry(token) {
   if (existing && existing.container && !existing.container.destroyed) return existing;
 
   const overlay = _getOverlayContainer();
-  if (!overlay) return null;
+  const labelOverlay = _getLabelContainer();
+  if (!overlay || !labelOverlay) return null;
 
   const container = new PIXI.Container();
   container.sortableChildren = true;
@@ -274,31 +359,31 @@ function _ensureOverlayEntry(token) {
   {
     const text = new PIXI.Text("", {
       fontFamily: "Signika",
-      fontSize: 14,
+      fontSize: Math.round(14 * 1.2),
       fill: 0xffffff,
       stroke: 0x000000,
       strokeThickness: 4,
       align: "center",
     });
     text.anchor.set(0.5, 1.0);
-    text.zIndex = 10;
+    text.zIndex = 10000;
     entry.label = text;
-    container.addChild(text);
+    labelOverlay.addChild(text);
   }
 
   {
     const text = new PIXI.Text("", {
       fontFamily: "Signika",
-      fontSize: 12,
+      fontSize: Math.round(12 * 1.2),
       fill: 0xffffff,
       stroke: 0x000000,
       strokeThickness: 4,
       align: "center",
     });
     text.anchor.set(0.5, 0.0);
-    text.zIndex = 11;
+    text.zIndex = 10001;
     entry.distLabel = text;
-    container.addChild(text);
+    labelOverlay.addChild(text);
   }
 
   overlay.addChild(container);
@@ -310,6 +395,10 @@ function _destroyOverlayEntry(tokenId) {
   const entry = _tokenOverlays.get(tokenId);
   if (!entry) return;
 
+  try { entry.label?.parent?.removeChild?.(entry.label); } catch (_e) { /* no-op */ }
+  try { entry.label?.destroy?.(); } catch (_e) { /* no-op */ }
+  try { entry.distLabel?.parent?.removeChild?.(entry.distLabel); } catch (_e) { /* no-op */ }
+  try { entry.distLabel?.destroy?.(); } catch (_e) { /* no-op */ }
   try { entry.container?.parent?.removeChild?.(entry.container); } catch (_e) { /* no-op */ }
   try { entry.container?.destroy?.({ children: true }); } catch (_e) { /* no-op */ }
   _tokenOverlays.delete(tokenId);
@@ -367,16 +456,22 @@ function _positionOverlay(token, entry) {
 
   // Label offsets
   const topY = -(token.h / 2) - 4;
-  if (entry.label) entry.label.position.set(0, topY);
-  if (entry.distLabel) entry.distLabel.position.set(0, (token.h / 2) + 4);
+  if (entry.label) entry.label.position.set(c.x, c.y + topY);
+  if (entry.distLabel) entry.distLabel.position.set(c.x, c.y + (token.h / 2) + 4);
 }
 
 function _updateLabels(token, entry, bounds) {
   const units = _getSceneUnitsLabel();
 
   if (entry.label) {
-    entry.label.text = bounds.max > 0 ? `${bounds.max} ${units}`.trim() : "";
-    entry.label.visible = Boolean(_settings.showLabel && bounds.max > 0);
+    if (isEngagementFlankingHomebrewEnabled()) {
+      const es = getEngagementScore(token.actor);
+      entry.label.text = `ES ${es}`;
+      entry.label.visible = Boolean(_settings.showLabel && _shouldShowEngagementLabel(token));
+    } else {
+      entry.label.text = bounds.max > 0 ? `${bounds.max} ${units}`.trim() : "";
+      entry.label.visible = Boolean(_settings.showLabel && bounds.max > 0);
+    }
   }
 
   if (entry.distLabel) {
@@ -430,7 +525,6 @@ function _redrawTokenOverlay(token) {
   }
 
   // Geometry
-  const origin = token.center;
   const pxPerUnit = _getPxPerUnit();
   const maxPx = maxU * pxPerUnit;
   const minPx = minU * pxPerUnit;

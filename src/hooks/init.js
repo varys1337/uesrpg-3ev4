@@ -55,6 +55,10 @@ import { executeSpecialAction } from "../core/combat/special-actions-helper.js";
 import { getRuleElementRuntimeSupport } from "../core/traits/features/rule-elements.js";
 import { selfTestRuleElementRuntime } from "../core/traits/features/rule-element-runtime.js";
 import { migrateItemsIfNeeded, normalizeItems } from "../core/migrations/items.js";
+import { pruneInClosePair } from "../core/conditions/status-hud.js";
+import { isReachLengthHomebrewEnabled } from "../core/homebrew/reach-length/weapon.js";
+import { measureTokenDistance } from "../core/combat/opposed/range.js";
+import { registerEngagementFlanking } from "../core/homebrew/engagement-flanking/index.js";
 
 /**
  * Preload Handlebars partials used by system sheets.
@@ -449,6 +453,67 @@ registerPolyglotLanguages();
     Hooks.on("updateItem", (item, _changes, _options, _userId) => invalidateActorAggCacheFromItem(item));
     Hooks.on("createItem", (item, _options, _userId) => invalidateActorAggCacheFromItem(item));
     Hooks.on("deleteItem", (item, _options, _userId) => invalidateActorAggCacheFromItem(item));
+
+    // Diagnostic: log a stack trace when a skill item is deleted so any unexpected deletion
+    // can be identified and traced. Gated behind isDebugEnabled() — no production overhead.
+    Hooks.on("preDeleteItem", (item) => {
+      if (item.type !== "skill") return;
+      if (!isDebugEnabled()) return;
+      console.warn("UESRPG | preDeleteItem skill", item.name, new Error().stack);
+    });
+  }
+
+  // IN_CLOSE_AUTO_PRUNE
+  // When a token moves, check whether any In Close pairs have been broken (distance > 1 m).
+  // Runs only when the Reach & Length homebrew is enabled. GM-only for document update authority.
+  if (!game.uesrpg._inCloseAutoPruneHook) {
+    game.uesrpg._inCloseAutoPruneHook = true;
+
+    Hooks.on("updateToken", async (tokenDoc, changed, _options, _userId) => {
+      try {
+        // Only run if position changed
+        if (!("x" in changed) && !("y" in changed)) return;
+        // GM only for update authority
+        if (!game.user?.isGM) return;
+        // Feature gate
+        if (!isReachLengthHomebrewEnabled()) return;
+
+        const inCloseWith = tokenDoc.getFlag("uesrpg-3ev4", "reachLength.inCloseWith");
+        if (!inCloseWith || !Object.keys(inCloseWith).length) return;
+
+        const tokenPlaceable = canvas?.tokens?.get(tokenDoc.id);
+        if (!tokenPlaceable) return;
+
+        for (const [partnerUuid] of Object.entries(inCloseWith)) {
+          const partnerDoc = fromUuidSync(partnerUuid);
+          if (!partnerDoc) {
+            // Stale entry — clean up silently by removing own reference
+            const staleMap = foundry.utils.deepClone(tokenDoc.getFlag("uesrpg-3ev4", "reachLength.inCloseWith") ?? {});
+            delete staleMap[partnerUuid];
+            if (Object.keys(staleMap).length > 0) {
+              await tokenDoc.setFlag("uesrpg-3ev4", "reachLength.inCloseWith", staleMap);
+            } else {
+              await tokenDoc.unsetFlag("uesrpg-3ev4", "reachLength.inCloseWith");
+            }
+            continue;
+          }
+
+          const partnerPlaceable = canvas?.tokens?.get(partnerDoc.id);
+          const dist = partnerPlaceable
+            ? measureTokenDistance(tokenPlaceable, partnerPlaceable)
+            : Infinity;
+
+          if (dist == null || dist > 1) {
+            if (isDebugEnabled()) {
+              console.log(`UESRPG | In Close auto-prune: ${tokenDoc.name} ↔ ${partnerDoc.name} (dist=${dist})`);
+            }
+            await pruneInClosePair(tokenDoc, partnerDoc);
+          }
+        }
+      } catch (err) {
+        if (isDebugEnabled()) console.warn("UESRPG | In Close auto-prune hook error", err);
+      }
+    });
   }
 
   // AE_CACHE_INVALIDATION_V1
@@ -482,6 +547,7 @@ registerPolyglotLanguages();
 
   // Chapter 5: conditions + wounds automation (AE-backed, deterministic)
   registerConditions();
+  registerEngagementFlanking();
   registerWounds();
   registerSurpriseHooks();
   registerFearSystem();

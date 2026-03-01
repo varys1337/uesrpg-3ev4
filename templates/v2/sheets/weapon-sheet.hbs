@@ -141,6 +141,29 @@
                                 </div>
                                 
                                 {{#unless (eq item.system.attackMode "ranged")}}
+                                {{#if homebrewReachLengthEnabled}}
+                                <div class="weapon-field-row weapon-field-row--length">
+                                    <label>Length (LNG)</label>
+                                    <input type="number" name="flags.uesrpg-3ev4.homebrew.reachLength.length"
+                                           value="{{lookup (lookup (lookup (lookup item.flags 'uesrpg-3ev4') 'homebrew') 'reachLength') 'length'}}"
+                                           min="0" step="1" placeholder="0"/>
+                                </div>
+                                <div class="weapon-field-row weapon-field-row--reach">
+                                    <label>Reach</label>
+                                    <div class="weapon-reach-inline">
+                                        <span class="weapon-reach-label">Min</span>
+                                        <input class="weapon-reach-input" type="number"
+                                               name="flags.uesrpg-3ev4.homebrew.reachLength.{{homebrewReachModel}}.min"
+                                               value="{{lookup (lookup (lookup (lookup (lookup item.flags 'uesrpg-3ev4') 'homebrew') 'reachLength') homebrewReachModel) 'min'}}"
+                                               min="0" step="1" placeholder="0"/>
+                                        <span class="weapon-reach-label">Max</span>
+                                        <input class="weapon-reach-input" type="number"
+                                               name="flags.uesrpg-3ev4.homebrew.reachLength.{{homebrewReachModel}}.max"
+                                               value="{{lookup (lookup (lookup (lookup (lookup item.flags 'uesrpg-3ev4') 'homebrew') 'reachLength') homebrewReachModel) 'max'}}"
+                                               min="0" step="1" placeholder="0"/>
+                                    </div>
+                                </div>
+                                {{else}}
                                 <div class="weapon-field-row weapon-field-row--reach">
                                     <label>Reach</label>
                                     <div class="weapon-reach-inline">
@@ -150,6 +173,7 @@
                                         <input class="weapon-reach-input" type="number" name="system.reach" value="{{item.system.reach}}" min="0" step="1"/>
                                     </div>
                                 </div>
+                                {{/if}}
                                 {{/unless}}
 
                                 <div class="weapon-field-row">

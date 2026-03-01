@@ -1,0 +1,526 @@
+{{#if error}}
+<section class="uesrpg-travel-planner-root">
+  <p>{{error}}</p>
+</section>
+{{else}}
+<section class="uesrpg-travel-planner-root">
+  <header class="travel-planner__header">
+    <div class="travel-planner__header-left">
+      <h2>{{group.name}}</h2>
+      <p>Wilderness Travel Planner</p>
+      <div class="travel-planner__header-roster">
+        <h3>Group Roster</h3>
+        <ul class="travel-planner__roster travel-planner__roster--header">
+          {{#each members}}
+          <li draggable="true" data-drag-actor-uuid="{{this.uuid}}">
+            <img src="{{this.img}}" alt="{{this.name}}" />
+            <span>{{this.name}}</span>
+          </li>
+          {{/each}}
+        </ul>
+      </div>
+    </div>
+    <div class="travel-planner__header-controls">
+      <div class="travel-planner__journey-box">
+        <div class="travel-planner__section-header">
+          <h3>Journey Entries</h3>
+          <button type="button" data-action="addJourneyEntry" {{#unless editable}}disabled{{/unless}}>Add Entry</button>
+        </div>
+        <div class="travel-planner__journey-list">
+          {{#each journeyEntries}}
+          <div class="travel-planner__journey-row {{#if (eq this.id ../activeJourneyEntryId)}}is-active{{/if}}">
+            <label>
+              <span>Terrain</span>
+              <select name="journey:{{this.id}}:terrain" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../terrains}}
+                <option value="{{this.key}}" {{#if (eq this.key ../terrain)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </label>
+            <label>
+              <span>Current</span>
+              <input type="number" min="1" name="journey:{{this.id}}:currentStage" value="{{this.currentStage}}" {{#unless ../editable}}disabled{{/unless}} />
+            </label>
+            <label>
+              <span>Total</span>
+              <input type="number" min="1" name="journey:{{this.id}}:totalStages" value="{{this.totalStages}}" {{#unless ../editable}}disabled{{/unless}} />
+            </label>
+            <div class="travel-planner__actions">
+              <button type="button" data-action="useJourneyEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>Use</button>
+              <button type="button" data-action="removeJourneyEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>Remove</button>
+            </div>
+          </div>
+          {{/each}}
+        </div>
+      </div>
+      <label class="travel-planner__checkbox">
+        <input type="checkbox" name="session.navigateLostPenaltyActive" {{checked state.session.navigateLostPenaltyActive}} {{#unless editable}}disabled{{/unless}} />
+        <span>Navigate Lost Penalty (-30 active)</span>
+      </label>
+      <div class="travel-planner__header-actions-row">
+        <button type="button" data-action="shortRestGroup" {{#unless editable}}disabled{{/unless}}>Short Rest</button>
+        <button type="button" data-action="longRestGroup" {{#unless editable}}disabled{{/unless}}>Long Rest</button>
+        <button type="button" data-action="createStarterTables" {{#unless editable}}disabled{{/unless}}>Starter Tables</button>
+        <button type="button" data-action="resetPlanner" {{#unless editable}}disabled{{/unless}}>Reset Planner</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="travel-planner__tabs">
+    <button type="button" data-action="switchTab" data-tab="planning" class="{{#if (eq activeTab 'planning')}}is-active{{/if}}">Planning</button>
+    <button type="button" data-action="switchTab" data-tab="travel" class="{{#if (eq activeTab 'travel')}}is-active{{/if}}">Travelling</button>
+    <button type="button" data-action="switchTab" data-tab="camping" class="{{#if (eq activeTab 'camping')}}is-active{{/if}}">Camping</button>
+  </nav>
+
+  {{#if (eq activeTab "planning")}}
+  <div class="travel-planner__tab tab-planning">
+    <section class="travel-planner__summary-grid">
+      <article class="travel-planner__card">
+        <h3>Planning Pool</h3>
+        <p><b>Total DoS:</b> {{planningTotals.dos}}</p>
+        <p><b>Total DoF:</b> {{planningTotals.dof}}</p>
+        <p><b>Benefits:</b> {{planningTotals.benefits}} (spent {{planningTotals.spentBenefits}}, available {{spendable.benefits}})</p>
+        <div class="travel-planner__tracker">
+          {{#each benefitTracker}}
+          <button
+            type="button"
+            class="tracker-dot {{#if this.spent}}is-spent{{else}}is-available{{/if}}"
+            data-action="{{#if this.spent}}trackerUndoBenefit{{else}}trackerSpendBenefit{{/if}}"
+            title="{{#if this.spent}}Click to undo latest benefit spend{{else}}Click to spend one benefit{{/if}}"
+            {{#unless ../editable}}disabled{{/unless}}
+          ></button>
+          {{/each}}
+        </div>
+        <p><b>Impairments:</b> {{planningTotals.impairments}} (spent {{planningTotals.spentImpairments}}, available {{spendable.impairments}})</p>
+        <div class="travel-planner__tracker">
+          {{#each impairmentTracker}}
+          <button
+            type="button"
+            class="tracker-dot {{#if this.spent}}is-spent{{else}}is-available{{/if}}"
+            data-action="{{#if this.spent}}trackerUndoImpairment{{else}}trackerSpendImpairment{{/if}}"
+            title="{{#if this.spent}}Click to undo latest impairment spend{{else}}Click to spend one impairment{{/if}}"
+            {{#unless ../editable}}disabled{{/unless}}
+          ></button>
+          {{/each}}
+        </div>
+      </article>
+      <article class="travel-planner__card">
+        <h3>Spend Benefits</h3>
+        {{#each planningBenefits}}
+        <div class="travel-planner__spend-row">
+          <div>
+            <b>{{this.label}}</b>
+            <p>{{this.description}}</p>
+          </div>
+          <button type="button" data-action="spendBenefit" data-effect-key="{{this.key}}" {{#unless ../editable}}disabled{{/unless}}>Spend</button>
+        </div>
+        {{/each}}
+        <button type="button" data-action="spendCustomBenefit" {{#unless editable}}disabled{{/unless}}>Spend Custom Benefit</button>
+      </article>
+      <article class="travel-planner__card">
+        <h3>Spend Impairments</h3>
+        {{#each planningImpairments}}
+        <div class="travel-planner__spend-row">
+          <div>
+            <b>{{this.label}}</b>
+            <p>{{this.description}}</p>
+          </div>
+          <button type="button" data-action="spendImpairment" data-effect-key="{{this.key}}" {{#unless ../editable}}disabled{{/unless}}>Spend</button>
+        </div>
+        {{/each}}
+        <button type="button" data-action="spendCustomImpairment" {{#unless editable}}disabled{{/unless}}>Spend Custom Impairment</button>
+      </article>
+      <article class="travel-planner__card">
+        <h3>Spend Log</h3>
+        <div class="travel-planner__spend-log">
+          {{#each spendRows}}
+          <div class="travel-planner__spend-log-row">
+            <div>
+              <b>{{this.typeLabel}}:</b> {{this.effectLabel}}
+            </div>
+            <button type="button" data-action="removeSpend" data-spend-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>Undo</button>
+          </div>
+          {{/each}}
+          {{#unless spendRows.length}}
+          <p>No spends recorded.</p>
+          {{/unless}}
+        </div>
+      </article>
+    </section>
+
+    <section class="travel-planner__card">
+      <div class="travel-planner__section-header">
+        <h3>Planning Tests</h3>
+        <button type="button" data-action="addPlanningEntry" {{#unless editable}}disabled{{/unless}}>Add Test</button>
+      </div>
+      <table class="travel-planner__table">
+        <thead>
+          <tr>
+            <th>Actor</th>
+            <th>Mode</th>
+            <th>Skill / Characteristic</th>
+            <th>Difficulty</th>
+            <th>Manual</th>
+            <th>Spec</th>
+            <th>Result</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each planningRows}}
+          <tr data-assign-drop data-phase="planning" data-assign-id="{{this.id}}" class="{{#if this.missingActor}}is-missing-actor{{/if}} {{#if this.missingInput}}is-missing-input{{/if}} {{#if this.hasResult}}is-has-result{{/if}}">
+            <td>
+              <select name="planning:{{this.id}}:actorUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">-- Select --</option>
+                {{#each ../actorOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../actorUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>
+              <select name="planning:{{this.id}}:testMode" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="skill" {{#if (eq this.testMode "skill")}}selected{{/if}}>Skill</option>
+                <option value="characteristic" {{#if (eq this.testMode "characteristic")}}selected{{/if}}>Characteristic</option>
+              </select>
+            </td>
+            <td>
+              {{#if (eq this.testMode "skill")}}
+              <select name="planning:{{this.id}}:skillUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">-- Skill --</option>
+                {{#each this.skillOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../skillUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+              {{else}}
+              <select name="planning:{{this.id}}:charKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each this.charOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../charKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{/if}}
+            </td>
+            <td>
+              <select name="planning:{{this.id}}:difficultyKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../difficultyOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../difficultyKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td><input type="number" name="planning:{{this.id}}:manualMod" value="{{this.manualMod}}" {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td><input type="checkbox" name="planning:{{this.id}}:useSpec" {{checked this.useSpec}} {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td>{{#if this.result}}{{this.result.textual}} ({{this.result.rollTotal}}/{{this.result.target}}){{/if}}</td>
+            <td class="travel-planner__actions">
+              <button type="button" data-action="rollPlanningEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>Roll</button>
+              <button type="button" data-action="removePlanningEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>Remove</button>
+            </td>
+          </tr>
+          {{/each}}
+          {{#unless planningRows.length}}
+          <tr><td colspan="8">No planning tests yet.</td></tr>
+          {{/unless}}
+        </tbody>
+      </table>
+    </section>
+  </div>
+  {{/if}}
+
+  {{#if (eq activeTab "travel")}}
+  <div class="travel-planner__tab tab-travel">
+    <section class="travel-planner__card">
+      <h3>Survival Tracking</h3>
+      <div class="travel-planner__resources">
+        <label>
+          Food Days
+          <div class="travel-planner__stepper">
+            <button type="button" data-action="decrementResource" data-field="foodDays" {{#unless editable}}disabled{{/unless}}>-</button>
+            <input type="number" min="0" name="travel.resources.foodDays" value="{{state.travel.resources.foodDays}}" {{#unless editable}}disabled{{/unless}} />
+            <button type="button" data-action="incrementResource" data-field="foodDays" {{#unless editable}}disabled{{/unless}}>+</button>
+          </div>
+        </label>
+        <label>
+          Cooked Food Days
+          <div class="travel-planner__stepper">
+            <button type="button" data-action="decrementResource" data-field="cookedFoodDays" {{#unless editable}}disabled{{/unless}}>-</button>
+            <input type="number" min="0" name="travel.resources.cookedFoodDays" value="{{state.travel.resources.cookedFoodDays}}" {{#unless editable}}disabled{{/unless}} />
+            <button type="button" data-action="incrementResource" data-field="cookedFoodDays" {{#unless editable}}disabled{{/unless}}>+</button>
+          </div>
+        </label>
+        <label>
+          Water Days
+          <div class="travel-planner__stepper">
+            <button type="button" data-action="decrementResource" data-field="waterDays" {{#unless editable}}disabled{{/unless}}>-</button>
+            <input type="number" min="0" name="travel.resources.waterDays" value="{{state.travel.resources.waterDays}}" {{#unless editable}}disabled{{/unless}} />
+            <button type="button" data-action="incrementResource" data-field="waterDays" {{#unless editable}}disabled{{/unless}}>+</button>
+          </div>
+        </label>
+        <label>
+          Fodder Days
+          <div class="travel-planner__stepper">
+            <button type="button" data-action="decrementResource" data-field="fodderDays" {{#unless editable}}disabled{{/unless}}>-</button>
+            <input type="number" min="0" name="travel.resources.fodderDays" value="{{state.travel.resources.fodderDays}}" {{#unless editable}}disabled{{/unless}} />
+            <button type="button" data-action="incrementResource" data-field="fodderDays" {{#unless editable}}disabled{{/unless}}>+</button>
+          </div>
+        </label>
+      </div>
+    </section>
+
+    <section class="travel-planner__card travel-planner__events">
+      <h3>Travel Events ({{terrainLabel}})</h3>
+      <div class="travel-planner__section-header">
+        <p>Multiple entries are supported per terrain.</p>
+        <button type="button" data-action="addTravelTableEntry" {{#unless editable}}disabled{{/unless}}>Add Table Entry</button>
+      </div>
+      <div class="travel-planner__event-list">
+        {{#each travelEventRows}}
+        <div class="travel-planner__event-controls">
+          <select name="table:travel:{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>
+            <option value="">-- Choose RollTable --</option>
+            {{#each ../tableOptions}}
+            <option value="{{this.uuid}}" {{#if (eq this.uuid ../uuid)}}selected{{/if}}>{{this.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" data-action="rollTravelEvent" data-table-index="{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>Roll Event Check (2d10)</button>
+          <button type="button" data-action="removeTravelTableEntry" data-table-index="{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>Remove Entry</button>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    <section class="travel-planner__card">
+      <div class="travel-planner__section-header">
+        <h3>Travel Endeavours</h3>
+        <button type="button" data-action="addTravelAssignment" {{#unless editable}}disabled{{/unless}}>Add Endeavour</button>
+      </div>
+      {{#unless hasteValidation.valid}}
+      <p class="travel-planner__warning">{{hasteValidation.reason}}</p>
+      {{/unless}}
+      <table class="travel-planner__table">
+        <thead>
+          <tr>
+            <th>Endeavour</th>
+            <th>Actor</th>
+            <th>Mode</th>
+            <th>Skill / Characteristic</th>
+            <th>Difficulty</th>
+            <th>Manual</th>
+            <th>Terrain</th>
+            <th>Result</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each travelRows}}
+          <tr data-assign-drop data-phase="travel" data-assign-id="{{this.id}}" class="{{#if this.missingActor}}is-missing-actor{{/if}} {{#if this.missingInput}}is-missing-input{{/if}} {{#if this.customLabelMissing}}is-missing-input{{/if}} {{#if this.hasResult}}is-has-result{{/if}}">
+            <td>
+              <select name="travel:{{this.id}}:endeavourKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../travelEndeavours}}
+                <option value="{{this.key}}" {{#if (eq this.key ../endeavourKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{#if (eq this.endeavourKey "custom")}}
+              <input type="text" name="travel:{{this.id}}:note" value="{{this.note}}" placeholder="Custom endeavour label" {{#unless ../editable}}disabled{{/unless}} />
+              {{#if this.customLabelMissing}}
+              <div class="travel-planner__warning">Custom endeavour label is required.</div>
+              {{/if}}
+              {{/if}}
+            </td>
+            <td>
+              <select name="travel:{{this.id}}:actorUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">-- Select --</option>
+                {{#each ../actorOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../actorUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>
+              <select name="travel:{{this.id}}:testMode" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="skill" {{#if (eq this.testMode "skill")}}selected{{/if}}>Skill</option>
+                <option value="characteristic" {{#if (eq this.testMode "characteristic")}}selected{{/if}}>Characteristic</option>
+              </select>
+            </td>
+            <td>
+              {{#if (eq this.testMode "skill")}}
+              <select name="travel:{{this.id}}:skillUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">-- Skill --</option>
+                {{#each this.skillOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../skillUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+              {{else}}
+              <select name="travel:{{this.id}}:charKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each this.charOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../charKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{/if}}
+            </td>
+            <td>
+              <select name="travel:{{this.id}}:difficultyKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../difficultyOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../difficultyKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td><input type="number" name="travel:{{this.id}}:manualMod" value="{{this.manualMod}}" {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td>
+              <select name="travel:{{this.id}}:terrainMod" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../terrainModifierOptions}}
+                <option value="{{this.value}}" {{#if (eq this.value ../terrainMod)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>
+              {{#if this.result}}
+              {{this.result.textual}} ({{this.result.rollTotal}}/{{this.result.target}})
+              {{/if}}
+              {{#if this.advice}}
+              <div class="travel-planner__hint">{{this.advice.label}}</div>
+              {{/if}}
+            </td>
+            <td class="travel-planner__actions">
+              <button type="button" data-action="rollTravelAssignment" data-id="{{this.id}}" {{#unless this.canRoll}}disabled{{/unless}} {{#unless ../editable}}disabled{{/unless}}>Roll</button>
+              <button type="button" data-action="removeTravelAssignment" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>Remove</button>
+            </td>
+          </tr>
+          <tr class="travel-planner__desc-row">
+            <td colspan="9">
+              <div class="travel-planner__row-description"><b>Endeavour details:</b> {{this.meta.description}}</div>
+            </td>
+          </tr>
+          {{/each}}
+          {{#unless travelRows.length}}
+          <tr><td colspan="9">No travel endeavours assigned.</td></tr>
+          {{/unless}}
+        </tbody>
+      </table>
+    </section>
+  </div>
+  {{/if}}
+
+  {{#if (eq activeTab "camping")}}
+  <div class="travel-planner__tab tab-camping">
+    <section class="travel-planner__card travel-planner__events">
+      <h3>Camping Events ({{terrainLabel}})</h3>
+      <div class="travel-planner__section-header">
+        <p>Multiple entries are supported per terrain.</p>
+        <button type="button" data-action="addCampingTableEntry" {{#unless editable}}disabled{{/unless}}>Add Table Entry</button>
+      </div>
+      <div class="travel-planner__event-list">
+        {{#each campEventRows}}
+        <div class="travel-planner__event-controls">
+          <select name="table:camping:{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>
+            <option value="">-- Choose RollTable --</option>
+            {{#each ../tableOptions}}
+            <option value="{{this.uuid}}" {{#if (eq this.uuid ../uuid)}}selected{{/if}}>{{this.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" data-action="rollCampEvent" data-table-index="{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>Roll Event Check (2d10)</button>
+          <button type="button" data-action="removeCampingTableEntry" data-table-index="{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>Remove Entry</button>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    <section class="travel-planner__card">
+      <div class="travel-planner__section-header">
+        <h3>Camp Endeavours</h3>
+        <button type="button" data-action="addCampAssignment" {{#unless editable}}disabled{{/unless}}>Add Endeavour</button>
+      </div>
+      <table class="travel-planner__table">
+        <thead>
+          <tr>
+            <th>Endeavour</th>
+            <th>Actor</th>
+            <th>Mode</th>
+            <th>Skill / Characteristic</th>
+            <th>Difficulty</th>
+            <th>Manual</th>
+            <th>Terrain</th>
+            <th>Result</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each campRows}}
+          <tr data-assign-drop data-phase="camping" data-assign-id="{{this.id}}" class="{{#if this.missingActor}}is-missing-actor{{/if}} {{#if this.missingInput}}is-missing-input{{/if}} {{#if this.customLabelMissing}}is-missing-input{{/if}} {{#if this.hasResult}}is-has-result{{/if}}">
+            <td>
+              <select name="camping:{{this.id}}:endeavourKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../campEndeavours}}
+                <option value="{{this.key}}" {{#if (eq this.key ../endeavourKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{#if (eq this.endeavourKey "custom")}}
+              <input type="text" name="camping:{{this.id}}:note" value="{{this.note}}" placeholder="Custom endeavour label" {{#unless ../editable}}disabled{{/unless}} />
+              {{#if this.customLabelMissing}}
+              <div class="travel-planner__warning">Custom endeavour label is required.</div>
+              {{/if}}
+              {{/if}}
+              <details class="travel-planner__hint">
+                <summary>Endeavour details</summary>
+                <div title="{{this.meta.description}}">{{this.meta.description}}</div>
+              </details>
+            </td>
+            <td>
+              <select name="camping:{{this.id}}:actorUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">-- Select --</option>
+                {{#each ../actorOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../actorUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>
+              <select name="camping:{{this.id}}:testMode" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="skill" {{#if (eq this.testMode "skill")}}selected{{/if}}>Skill</option>
+                <option value="characteristic" {{#if (eq this.testMode "characteristic")}}selected{{/if}}>Characteristic</option>
+              </select>
+            </td>
+            <td>
+              {{#if (eq this.testMode "skill")}}
+              <select name="camping:{{this.id}}:skillUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">-- Skill --</option>
+                {{#each this.skillOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../skillUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+              {{else}}
+              <select name="camping:{{this.id}}:charKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each this.charOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../charKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{/if}}
+            </td>
+            <td>
+              <select name="camping:{{this.id}}:difficultyKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../difficultyOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../difficultyKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td><input type="number" name="camping:{{this.id}}:manualMod" value="{{this.manualMod}}" {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td>
+              <select name="camping:{{this.id}}:terrainMod" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../terrainModifierOptions}}
+                <option value="{{this.value}}" {{#if (eq this.value ../terrainMod)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>{{#if this.result}}{{this.result.textual}} ({{this.result.rollTotal}}/{{this.result.target}}){{/if}}</td>
+            <td class="travel-planner__actions">
+              <button type="button" data-action="rollCampAssignment" data-id="{{this.id}}" {{#unless this.canRoll}}disabled{{/unless}} {{#unless ../editable}}disabled{{/unless}}>Roll</button>
+              <button type="button" data-action="removeCampAssignment" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>Remove</button>
+            </td>
+          </tr>
+          {{/each}}
+          {{#unless campRows.length}}
+          <tr><td colspan="9">No camp endeavours assigned.</td></tr>
+          {{/unless}}
+        </tbody>
+      </table>
+    </section>
+  </div>
+  {{/if}}
+</section>
+{{/if}}
+
+

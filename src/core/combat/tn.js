@@ -15,6 +15,8 @@
 import { skillHelper, skillModHelper } from "../../utils/skillCalcHelper.js";
 import { collectCombatTNModifiersFromAE } from "../active-effects/combat-tn-modifiers.js";
 import { hasTalent } from "../traits/talents-api.js";
+import { getConditionValue } from "../conditions/condition-engine.js";
+import { isEngagementFlankingHomebrewEnabled } from "../system/homebrew.js";
 
 /**
  * Read combat TN modifiers from actor.system.modifiers.combat.*.
@@ -65,6 +67,20 @@ function asNumber(v) {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   const m = String(v).match(/-?\d+(?:\.\d+)?/);
   return m ? Number(m[0]) : 0;
+}
+
+function _resolveOpponentActorFromContext(context) {
+  const direct = context?.opponentActor ?? context?.defender ?? null;
+  if (direct?.documentName === "Actor") return direct;
+
+  const uuid = String(context?.opponentUuid ?? "").trim();
+  if (!uuid) return null;
+  try {
+    const doc = fromUuidSync(uuid);
+    return doc?.documentName === "Actor" ? doc : null;
+  } catch (_e) {
+    return null;
+  }
 }
 
 function getCharTotal(actor, key) {
@@ -647,6 +663,22 @@ export function computeTN({
       defenderSize: context?.opponentSize
     });
     if (sizeMod) breakdown.push({ key: "size", label: "Size", value: sizeMod, source: "size" });
+  }
+
+  // --- Homebrew: Engagement & Flanking (+5 TN per Flanked X on melee attacks/maneuvers)
+  if (role === "attacker"
+    && String(context?.attackMode ?? "").toLowerCase() === "melee"
+    && isEngagementFlankingHomebrewEnabled()) {
+    const opponentActor = _resolveOpponentActorFromContext(context);
+    const flankedX = Math.max(0, Number(getConditionValue(opponentActor, "flanked") ?? 0));
+    if (flankedX > 0) {
+      breakdown.push({
+        key: "homebrew:flanked",
+        label: `Flanked (${flankedX})`,
+        value: 5 * flankedX,
+        source: "homebrew"
+      });
+    }
   }
 
   // --- Active Effects combat TN modifiers (from system.modifiers.combat.*)

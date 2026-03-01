@@ -9,6 +9,7 @@
  */
 
 import { hasCondition, applyCondition, removeCondition } from "../conditions/condition-engine.js";
+import { toggleInCloseForActor } from "../conditions/status-hud.js";
 import {
   getSpecialActionById,
   buildSpecialActionTestChoicesForActor,
@@ -433,6 +434,8 @@ export async function handleSpecialActionCardAction(message, action) {
         situationalMods: [],
         context: {
           attackMode: "melee",
+          opponentActor: isAttacker ? (opponentActor ?? null) : null,
+          opponentUuid: isAttacker ? (opponentActor?.uuid ?? null) : null,
           selfSize: actor?.system?.size,
           opponentSize: isAttacker ? (opponentActor?.system?.size ?? null) : null
         }
@@ -599,6 +602,8 @@ export async function executeSpecialAction({
       return await _executeResist({ actor, target, winner, actorName, targetName, isAutoWin });
     case "trip":
       return await _executeTrip({ actor, target, winner, actorName, targetName, isAutoWin });
+    case "inClose":
+      return await _executeInClose({ actor, actorName, isAutoWin });
     default:
       return { success: false, message: `No automation for ${def.name}.` };
   }
@@ -625,6 +630,12 @@ export async function initiateSpecialActionFromSheet({
   if (!def) {
     ui.notifications.warn("Unknown Special Action.");
     return null;
+  }
+
+  // In Close: no opposed test, direct state toggle (Homebrew — Reach & Length Overhaul)
+  if (specialActionId === "inClose") {
+    await toggleInCloseForActor(actor);
+    return { success: true, message: "In Close toggled." };
   }
 
   // Arise doesn't need a target
@@ -872,4 +883,13 @@ async function _executeTrip({ actor, target, winner, actorName, targetName, isAu
     };
   }
   return { success: false, message: `${actorName} fails to trip ${targetName}.` };
+}
+
+async function _executeInClose({ actor, actorName, isAutoWin }) {
+  // toggleInCloseForActor already guards against homebrew being disabled.
+  await toggleInCloseForActor(actor);
+  return {
+    success: true,
+    message: `${actorName} ${isAutoWin ? "automatically enters" : "enters"} In Close.`
+  };
 }

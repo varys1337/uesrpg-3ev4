@@ -85,6 +85,26 @@ import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpe
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2Base = foundry.applications.sheets.ActorSheetV2;
 
+function resolveWeaponDistanceHeaderLabel(weaponBuckets) {
+  const equipped = Array.isArray(weaponBuckets?.equipped) ? weaponBuckets.equipped : [];
+  const unequipped = Array.isArray(weaponBuckets?.unequipped) ? weaponBuckets.unequipped : [];
+  const weapons = [...equipped, ...unequipped];
+  if (!weapons.length) return "Distance";
+
+  let hasRanged = false;
+  let hasMelee = false;
+  for (const weapon of weapons) {
+    const mode = String(weapon?.system?.attackMode ?? "").toLowerCase();
+    if (mode === "ranged") hasRanged = true;
+    else hasMelee = true;
+    if (hasRanged && hasMelee) return "Distance";
+  }
+
+  if (hasRanged) return "Range";
+  if (hasMelee) return "Reach";
+  return "Distance";
+}
+
 export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   /** @type {Function|null} Debounced item search (memoized) */
@@ -230,7 +250,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   /* ═══════════════════════ Static Configuration ═══════════════════════ */
 
   static DEFAULT_OPTIONS = {
-    classes: ["worldbuilding", "sheet", "actor", "npc"],
+    classes: ["worldbuilding", "sheet", "actor", "npc", "uesrpg-sheet-root"],
     position: { width: 858, height: 930 },
     window: { resizable: true },
     form: { submitOnChange: true },
@@ -457,6 +477,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       applyDefensiveStanceDisabling(actor, context.actor.sheetCombatQuick);
 
       context.sheetUi = await buildSheetUiState(actor);
+      context.sheetUi = context.sheetUi ?? {};
+      context.sheetUi.weaponDistanceHeaderLabel = resolveWeaponDistanceHeaderLabel(context.actor?.weapon);
 
       const bio = context.actor.system?.bio ?? "";
       context.actor.system.enrichedBio = await this._getEnrichedBio(bio);
@@ -475,6 +497,13 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       } else {
         context.featureInspector = null;
       }
+
+      context.engagementFlankingMaxES = (() => {
+        try {
+          const val = actor?.flags?.["uesrpg-3ev4"]?.homebrew?.maxEngagementScore;
+          return (typeof val === "number" && Number.isFinite(val)) ? val : "";
+        } catch { return ""; }
+      })();
 
       return context;
     } finally {
@@ -548,6 +577,14 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           htmlElement.dataset.uesrpgResourceListeners = "1";
         }
         return;
+      }
+
+      if (partId === "combat") {
+        htmlElement.addEventListener("change", (ev) => {
+          const target = ev.target.closest?.(".uesrpg-max-engagement-score");
+          if (target) this._onMaxEngagementScoreChange(ev, target).catch(err =>
+            console.error("UESRPG | Max Engagement Score change failed", err));
+        });
       }
 
       this._attachTabListeners(htmlElement);
@@ -848,6 +885,21 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     } catch (err) {
       console.error("UESRPG | Failed to update active combat style", { actor: this.document?.uuid, err });
       ui.notifications?.error?.("Failed to update active combat style");
+    }
+  }
+
+  async _onMaxEngagementScoreChange(event, target) {
+    if (!this.isEditable) return;
+    const raw = String(target?.value ?? "").trim();
+    const val = raw === "" ? null : Math.max(0, Math.round(Number(raw) || 0));
+    try {
+      await requestUpdateDocument(this.document, {
+        "flags.uesrpg-3ev4.homebrew.maxEngagementScore": val,
+      });
+      this.render(false);
+    } catch (err) {
+      console.error("UESRPG | Failed to update max engagement score", { actor: this.document?.uuid, err });
+      ui.notifications?.error?.("Failed to update max engagement score.");
     }
   }
 

@@ -1,6 +1,6 @@
-            <div class="tab combat" data-group="primary" data-tab="combat">
+            <div class="tab combat" data-group="primary" data-tab="combat" data-ues-section="combat-tab">
                 <div class="combatTabContainer">
-                    <div class="combat-tab-primary-header">
+                    <div class="combat-tab-primary-header" data-ues-section="combat-header">
                         <div class="combat-stats-container">
                             <div class="combat-stat">
                                 <div class="stat-value-label">{{actor.system.speed.value}}</div>
@@ -63,7 +63,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="resistance-container uesrpg-panel">
+                        <div class="resistance-container uesrpg-panel ues-panel--resistance" data-ues-section="resistance-panel">
                             <div class="section-header"><span class="section-header__label">Resistances</span></div>
                             <div class="resistance-grid">
                                 <div class="flex-container">
@@ -104,7 +104,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="status-controls-container uesrpg-panel">
+                        <div class="status-controls-container uesrpg-panel ues-panel--status" data-ues-section="status-panel">
                             <div class="section-header"><span class="section-header__label">Status</span></div>
                             <div class="status-grid-container"><div class="flex-container">
                                     <div>Fatigue</div>
@@ -209,6 +209,14 @@
                     <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="hide" data-label="Hide">Hide</button>
                     <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="reload-weapon" data-label="Reload Weapon">Reload Weapon</button>
                     <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="use-item" data-label="Use Item">Use Item</button>
+                    {{#if actor.sheetCombatActions.inCloseEnabled}}
+                    <button type="button" data-action="combatQuickAction"
+                            class="uesrpg-quick-action{{#if actor.sheetCombatActions.actorIsInClose}} uesrpg-quick-action--active{{/if}}"
+                            data-combat-action="inClose"
+                            data-label="In Close">
+                        {{#if actor.sheetCombatActions.actorIsInClose}}Leave In Close{{else}}Enter In Close{{/if}}
+                    </button>
+                    {{/if}}
                     {{#if actor.sheetCombatActions.canCastInstantMagic}}
                     <button type="button" data-action="castMagic" class="uesrpg-cast-magic" data-action-type="secondary">Cast Magic (Instant)</button>
                     {{/if}}

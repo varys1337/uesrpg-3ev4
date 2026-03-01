@@ -8,6 +8,7 @@ import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "../../combat-u
 import { weaponHasQuality as _weaponHasQuality } from "./workflow.js";
 import { _normalizeKey } from "./util.js";
 import { _measureTokenDistance } from "./docs.js";
+import { getWeaponReachBoundsEffective } from "../../../homebrew/reach-length/weapon.js";
 
 // ====== WEAPON UTILITIES ======
 
@@ -245,12 +246,12 @@ export function computeRangedRangeContext({ attackerToken, defenderToken, weapon
 // ====== REACH MECHANICS ======
 
 /**
- * Get weapon reach bounds (min/max)
+ * Get weapon reach bounds (min/max).
+ * Delegates to the homebrew reach-length resolver when the overhaul is enabled,
+ * so combat legality and the reach visualizer always use the same values.
  */
 export function getWeaponReachBounds(weapon) {
-  const sys = weapon?.system ?? {};
-  const max = Number(sys.reach ?? 0);
-  const min = Number(sys.reachMin ?? 0);
+  const { min, max } = getWeaponReachBoundsEffective(weapon);
   return {
     min: Number.isFinite(min) ? min : 0,
     max: Number.isFinite(max) ? max : 0

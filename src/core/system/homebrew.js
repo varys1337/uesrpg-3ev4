@@ -28,3 +28,54 @@ export function isSpeedFormulaSBABEnabled() {
 export function getSpeedAgiMultiplier() {
   return isSpeedFormulaSBABEnabled() ? 1 : 2;
 }
+
+// ── Reach & Length Overhaul ──────────────────────────────────────────────────
+
+/**
+ * Returns true when the Reach & Length Overhaul homebrew is enabled.
+ * @returns {boolean}
+ */
+export function isReachLengthHomebrewEnabled() {
+  try {
+    return Boolean(game.settings?.get(NAMESPACE, "homebrew.reachLength.enabled"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns the active reach model: "classic" | "simplified".
+ * Falls back to "classic" if settings are unavailable.
+ * @returns {"classic"|"simplified"}
+ */
+export function getReachLengthModel() {
+  try {
+    return game.settings?.get(NAMESPACE, "homebrew.reachLength.reachModel") ?? "classic";
+  } catch {
+    return "classic";
+  }
+}
+
+/**
+ * Returns true when Engagement & Flanking homebrew is enabled.
+ * @returns {boolean}
+ */
+export function isEngagementFlankingHomebrewEnabled() {
+  try {
+    return Boolean(game.settings?.get(NAMESPACE, "homebrew.engagementFlanking.enabled"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns true when Engagement & Flanking should only run during active combat.
+ * @returns {boolean}
+ */
+export function isEngagementFlankingOnlyInCombat() {
+  try {
+    return Boolean(game.settings?.get(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat"));
+  } catch {
+    return true;
+  }
+}

@@ -1020,6 +1020,7 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   background-repeat: repeat;
   background-size: auto;
   box-sizing: border-box;
+  position: relative;
   border: 20px solid transparent;
   border-image: url("../images/elements/interface/borders/window-frame-wood.webp") 70 / 20px stretch;
   margin: 6px 0;
@@ -1124,6 +1125,82 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   border-color: rgba(88, 64, 28, 0.45);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.20);
 }
+
+/* 7b. Chat composer + controls use the same parchment/wood palette as cards */
+body.system-uesrpg-3ev4 #chat-form {
+  background-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.10)),
+    url("../images/elements/backgrounds/pale_parchment.webp");
+  background-repeat: repeat;
+  background-size: auto;
+  border: 14px solid transparent;
+  border-image: url("../images/elements/interface/borders/window-frame-wood.webp") 70 / 14px stretch;
+  box-shadow: inset 0 1px 0 rgba(255, 248, 231, 0.35);
+  padding: 4px;
+}
+
+body.system-uesrpg-3ev4 #chat-message {
+  background-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.08)),
+    url("../images/elements/backgrounds/pale_parchment.webp");
+  background-repeat: repeat;
+  background-size: auto;
+  border: 2px solid rgba(101, 69, 29, 0.96);
+  border-radius: 8px;
+  color: #1f160c;
+  font-weight: 600;
+  caret-color: #4f3414;
+  box-shadow: inset 0 1px 0 rgba(255, 249, 236, 0.38);
+}
+
+body.system-uesrpg-3ev4 #chat-message::placeholder {
+  color: rgba(70, 50, 24, 0.72);
+  font-weight: 500;
+}
+
+body.system-uesrpg-3ev4 #chat-message:focus {
+  border-color: rgba(164, 113, 43, 0.98);
+  box-shadow: 0 0 0 2px rgba(218, 165, 32, 0.30), inset 0 1px 0 rgba(255, 249, 236, 0.55);
+  outline: none;
+}
+
+body.system-uesrpg-3ev4 #chat-controls {
+  background-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.06)),
+    url("../images/elements/backgrounds/pale_parchment.webp");
+  background-repeat: repeat;
+  background-size: auto;
+  border: 10px solid transparent;
+  border-image: url("../images/elements/interface/borders/window-frame-wood.webp") 70 / 10px stretch;
+  padding: 4px 6px;
+}
+
+body.system-uesrpg-3ev4 #chat-controls :is(a, button, .roll-type-select, select) {
+  background-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.10), rgba(0, 0, 0, 0.04)),
+    url("../images/elements/backgrounds/pale_parchment.webp");
+  background-repeat: repeat;
+  background-size: auto;
+  border: 1px solid rgba(104, 71, 28, 0.9);
+  color: #24190d;
+  box-shadow: inset 0 1px 0 rgba(255, 250, 237, 0.52);
+  border-radius: 7px;
+}
+
+body.system-uesrpg-3ev4 #chat-controls :is(a, button):hover,
+body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):hover {
+  background-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.07), rgba(0, 0, 0, 0.02)),
+    url("../images/elements/backgrounds/pale_parchment.webp");
+  border-color: rgba(146, 100, 38, 0.98);
+}
+
+body.system-uesrpg-3ev4 #chat-controls :is(a, button):focus-visible,
+body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(218, 165, 32, 0.3), inset 0 1px 0 rgba(255, 250, 237, 0.95);
+}
+
 
 .chat-message :is(
   button[data-ues-opposed-action],
@@ -6760,16 +6837,26 @@ body.theme-dark .worldbuilding.sheet.actor .rest-btn:hover {
 .worldbuilding.sheet.actor:not(.group) .equipmentList .armor-table td:nth-child(5) { width: 6%; }
 
 /* Generic Item table in equipment tab (Qty / ENC / Price / Delete).*/
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ues-table--gear :is(th, td).ues-col-name,
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ues-table--container :is(th, td).ues-col-name,
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(1),
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(1) { width: 58%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ues-table--gear :is(th, td).ues-col-stat,
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ues-table--container :is(th, td).ues-col-stat,
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(2),
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(2),
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(3),
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(3),
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(4),
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(4) { width: 12%; }
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ues-table--gear :is(th, td).ues-col-actions,
+.worldbuilding.sheet.actor:not(.group) .equipmentList .ues-table--container :is(th, td).ues-col-actions,
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) th:nth-child(5),
 .worldbuilding.sheet.actor:not(.group) .equipmentList table:not(.weapon-table):not(.ammunition-table):not(.armor-table) td:nth-child(5) { width: 6%; }
+
+.worldbuilding.sheet.actor.group .ues-table--group-gear :is(th, td).ues-col-name { width: 70%; }
+.worldbuilding.sheet.actor.group .ues-table--group-gear :is(th, td).ues-col-stat { width: 20%; }
+.worldbuilding.sheet.actor.group .ues-table--group-gear :is(th, td).ues-col-actions { width: 10%; }
 
 /* --- Equipment tab --- Active Effects section (single-scroller model) --- */
 .worldbuilding.sheet.actor .uesrpg-equipment-effects-section,
@@ -7267,3 +7354,113 @@ body.theme-dark .worldbuilding.sheet.actor .rest-btn:hover {
   font-size: var(--uesrpg-font-sm);
   line-height: 1.5;
 }
+
+/* ==========================================================================
+   Combat header overflow + equipment compact scale parity (PC + NPC)
+   Mirrors late overrides in styles/uesrpg.css.
+   ========================================================================== */
+
+.worldbuilding.sheet.actor .combat-tab-primary-header {
+  align-items: flex-start;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header > :is(.ues-panel--resistance, .ues-panel--status, .resistance-container, .status-controls-container) {
+  align-self: flex-start;
+  height: fit-content;
+  width: auto;
+  flex: 1 1 0;
+  min-width: 190px;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header :is(.resistance-grid, .status-grid-container, .flex-container) {
+  min-width: 0;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header :is(.ues-panel--resistance, .ues-panel--status, .resistance-container, .status-controls-container) .flex-container > :first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header :is(.ues-panel--resistance, .ues-panel--status, .resistance-container, .status-controls-container) .flex-container > :last-child {
+  flex: 0 0 auto;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header .label-flex-container {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header .label-flex-container > label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header .status-controls-container select {
+  max-width: 100%;
+}
+
+/* Keep grid math inside panel bounds: 2 columns + gap must never exceed width. */
+.worldbuilding.sheet.actor .combat-tab-primary-header .resistance-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header .resistance-grid .flex-container {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Hard-clip status row right-side content so numbers/icons cannot leak out. */
+.worldbuilding.sheet.actor .combat-tab-primary-header .status-grid-container .flex-container {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.actor .combat-tab-primary-header .status-grid-container .flex-container > :last-child {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.equipment {
+  --uesrpg-equipment-scale: 0.8;
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.equipment :is(.containerList table thead th, .equipmentList table thead th) {
+  font-size: calc(var(--uesrpg-font-base) * var(--uesrpg-equipment-scale));
+  min-height: calc(34px * var(--uesrpg-equipment-scale));
+  padding: calc(3px * var(--uesrpg-equipment-scale)) calc(6px * var(--uesrpg-equipment-scale));
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.equipment :is(.containerList table tbody td, .equipmentList table tbody td) {
+  font-size: calc(var(--uesrpg-font-base) * var(--uesrpg-equipment-scale));
+  padding-top: calc(2px * var(--uesrpg-equipment-scale));
+  padding-bottom: calc(2px * var(--uesrpg-equipment-scale));
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.equipment :is(.containerList .item-img, .equipmentList .item-img) {
+  width: calc(24px * var(--uesrpg-equipment-scale));
+  height: calc(24px * var(--uesrpg-equipment-scale));
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.equipment :is(.minusQty.plusQty, .equipment-info-container button) {
+  height: calc(24px * var(--uesrpg-equipment-scale));
+  line-height: calc(14px * var(--uesrpg-equipment-scale));
+  font-size: calc(var(--uesrpg-font-base) * var(--uesrpg-equipment-scale));
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.equipment .uesrpg-group-toggle {
+  font-size: calc(var(--uesrpg-font-base) * var(--uesrpg-equipment-scale));
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.equipment :is(.item-group-add) {
+  width: calc(14px * var(--uesrpg-equipment-scale));
+  height: calc(14px * var(--uesrpg-equipment-scale));
+  font-size: calc(10px * var(--uesrpg-equipment-scale));
+}
+
