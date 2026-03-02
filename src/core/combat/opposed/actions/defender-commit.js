@@ -644,7 +644,7 @@ export async function handleDefenderCommit(ctx) {
  * @param {Object} ctx - Context: { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, opts }
  */
 export async function handleDefenderRollCommitted(ctx) {
-  const { message, data, attacker, defender, defenderIndex, aToken, dToken, bankMode, _updateCard } = ctx;
+  const { message, data, attacker, defender, defenderIndex, aToken, dToken, bankMode, batchedUpdate, _updateCard } = ctx;
 
   if (!bankMode) {
     ui.notifications.warn("Banked choices are not enabled for this opposed test.");
@@ -850,6 +850,7 @@ export async function handleDefenderRollCommitted(ctx) {
     data.defender.rolledAt = Date.now();
   }
 
+  if (batchedUpdate) return data;
   await _updateCard(message, data);
-  return;
+  return data;
 }

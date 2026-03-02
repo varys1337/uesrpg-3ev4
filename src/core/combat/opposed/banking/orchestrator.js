@@ -19,6 +19,7 @@ import {
   _cleanupAutoRollContext,
   _anyActiveGMOnline
 } from "./state.js";
+import { perfStart, perfEnd } from "../../../../utils/debug.js";
 
 import { _getDefenderOutcome, _setDefenderOutcome, _setDefenderAdvantage } from "../schema.js";
 import { resolveOutcomeRAW, computeAdvantageRAW } from "../outcome-resolution.js";
@@ -200,7 +201,10 @@ export async function autoRollBanked(parentMessageId, { trigger = "auto" } = {},
       data.context.autoRollRequestedBy = game.user.id;
     }
 
+    const claimLabel = `banked.claim.write:combat:${parentMessageId}`;
+    perfStart(claimLabel);
     await _updateCard(message, data);
+    perfEnd(claimLabel);
 
     // Verify we still own the claim after the persisted update.
     // (If another runner wrote a different claimId, they are the canonical runner.)
@@ -215,11 +219,20 @@ export async function autoRollBanked(parentMessageId, { trigger = "auto" } = {},
     // The null-overwrite guard only covers `result`; sequential dispatch is
     // the only reliable way to prevent cross-lane clobbering.
     const freshDefenders = _getDefenderEntries(freshOpposed);
+    let workingData = foundry.utils.deepClone(freshOpposed);
 
     // Attacker lane first.
     const committedIdx = freshDefenders.findIndex(def => _getBankCommitState(freshOpposed, def).bothCommitted);
     if (!freshOpposed?.attacker?.result && committedIdx >= 0) {
-      await workflow.handleAction(fresh, "attacker-roll-committed", { defenderIndex: committedIdx });
+      const attackerLabel = `banked.attacker.roll:combat:${parentMessageId}`;
+      perfStart(attackerLabel);
+      const next = await workflow.handleAction(fresh, "attacker-roll-committed", {
+        defenderIndex: committedIdx,
+        batchedUpdate: true,
+        dataOverride: workingData
+      });
+      if (next && typeof next === "object") workingData = next;
+      perfEnd(attackerLabel);
     }
 
     // Defender lanes in order.
@@ -228,11 +241,28 @@ export async function autoRollBanked(parentMessageId, { trigger = "auto" } = {},
       if (!def || def.result || def.noDefense === true) continue;
       const bankState = _getBankCommitState(freshOpposed, def);
       if (!bankState.bothCommitted) continue;
-      await workflow.handleAction(fresh, "defender-roll-committed", { defenderIndex: idx });
+      const defenderLabel = `banked.defender.roll:combat:${parentMessageId}:${idx}`;
+      perfStart(defenderLabel);
+      const next = await workflow.handleAction(fresh, "defender-roll-committed", {
+        defenderIndex: idx,
+        batchedUpdate: true,
+        dataOverride: workingData
+      });
+      if (next && typeof next === "object") workingData = next;
+      perfEnd(defenderLabel);
     }
 
-    // After all rolls complete, resolve outcomes on the fresh card state.
-    await _resolveOutcomesAfterRolls(fresh, _updateCard);
+    // After all rolls complete, resolve outcomes in-memory and persist once.
+    const resolveLabel = `banked.resolve:combat:${parentMessageId}`;
+    perfStart(resolveLabel);
+    const resolved = await _resolveOutcomesAfterRolls(fresh, _updateCard, workingData, { persist: false });
+    if (resolved && typeof resolved === "object") workingData = resolved;
+    perfEnd(resolveLabel);
+
+    const finalLabel = `banked.final.write:combat:${parentMessageId}`;
+    perfStart(finalLabel);
+    await _updateCard(fresh, workingData);
+    perfEnd(finalLabel);
   } finally {
     _bankedAutoRollLocalLocks.delete(parentMessageId);
   }
@@ -251,11 +281,13 @@ export async function autoRollBanked(parentMessageId, { trigger = "auto" } = {},
  * @returns {Promise<void>}
  * @private
  */
-async function _resolveOutcomesAfterRolls(message, _updateCard) {
+async function _resolveOutcomesAfterRolls(message, _updateCard, dataOverride = null, { persist = true } = {}) {
   try {
     const messageId = message?.id ?? message?._id ?? null;
     const live = messageId ? (game.messages.get(messageId) ?? message) : message;
-    const opposed = live?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
+    const opposed = (dataOverride && typeof dataOverride === "object")
+      ? dataOverride
+      : (live?.flags?.["uesrpg-3ev4"]?.opposed ?? null);
     if (!opposed) return;
 
     const data = foundry.utils.deepClone(opposed);
@@ -299,7 +331,7 @@ async function _resolveOutcomesAfterRolls(message, _updateCard) {
       dirty = true;
     }
 
-    if (!dirty) return;
+    if (!dirty) return data;
 
     // Check if all defenders are resolved.
     const allResolved = defenders.every(def => Boolean(_getDefenderOutcome(data, def)));
@@ -311,7 +343,8 @@ async function _resolveOutcomesAfterRolls(message, _updateCard) {
       _cleanupAutoRollContext(data.context);
     }
 
-    await _updateCard(live, data);
+    if (persist) await _updateCard(live, data);
+    return data;
   } catch (err) {
     console.error("UESRPG | _resolveOutcomesAfterRolls failed", err);
   }

@@ -307,7 +307,10 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
 
       const label = String(btn?.dataset?.label ?? "Attack");
       const weaponItem = actor?.items?.get?.(weaponId);
-      const attackMode = String(weaponItem?.system?.attackMode ?? "melee").toLowerCase();
+      const explicitAttackMode = String(btn?.dataset?.attackMode ?? "").trim().toLowerCase();
+      const attackMode = (explicitAttackMode === "melee" || explicitAttackMode === "ranged")
+        ? explicitAttackMode
+        : String(weaponItem?.system?.attackMode ?? "melee").toLowerCase();
 
       if (attackMode === "melee") {
         try { void setLastMeleeWeaponForActor(actor.id, weaponId); } catch (_e) { /* no-op */ }

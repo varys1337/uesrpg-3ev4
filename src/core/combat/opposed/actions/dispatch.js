@@ -68,7 +68,10 @@ async function _updateCard(message, data) {
 export async function dispatchOpposedAction(message, action, opts = {}, workflow = null) {
   const messageId = message?.id ?? message?._id ?? null;
   const liveMessage = messageId ? (game.messages.get(messageId) ?? message) : message;
-  const raw = liveMessage?.flags?.["uesrpg-3ev4"]?.opposed;
+  const overrideData = (opts?.dataOverride && typeof opts.dataOverride === "object")
+    ? foundry.utils.deepClone(opts.dataOverride)
+    : null;
+  const raw = overrideData ?? liveMessage?.flags?.["uesrpg-3ev4"]?.opposed;
   if (!raw) return;
 
   // Clone so we never mutate ChatMessage flags directly (prevents stale-snapshot regressions).
@@ -118,6 +121,7 @@ export async function dispatchOpposedAction(message, action, opts = {}, workflow
     dToken,
     bankMode,
     isAoE,
+    batchedUpdate: Boolean(opts?.batchedUpdate),
     opts,
     workflow,    // Workflow reference for _autoRollBanked and createPending
     _updateCard  // Inject card updater with renderCard dependency

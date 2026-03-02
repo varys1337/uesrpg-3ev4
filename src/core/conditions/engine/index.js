@@ -19,6 +19,7 @@ import { isActorSkeletal, isActorUndead, isActorUndeadBloodless, isActorImmuneTo
 import { CONDITION_DESCRIPTIONS } from "../../../data/conditions/conditions-data.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { isDebugEnabled } from "../../../utils/debug.js";
 
 let _conditionHooksRegistered = false;
 
@@ -26,6 +27,10 @@ const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const BURNING_GATE_FLAG = "chapter5.burningActionGate";
 const SILENCED_REALIZATION_FLAG = "chapter5.silencedRealization";
+
+function _isConditionDebugEnabled() {
+  return isDebugEnabled("effectsProxyDebug");
+}
 
 function _knownStatusIds() {
   try {
@@ -1280,15 +1285,97 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
     return existing ?? null;
   }
 
+  // Flanked is numeric and externally computed; upsert directly with the computed value.
+  // This avoids the static applyCondition path, which intentionally normalizes value to 1.
+  if (k === "flanked") {
+    if (_isConditionDebugEnabled()) {
+      const current = Number(getConditionValue(actor, k) ?? 0);
+      console.log("UESRPG | Conditions | flanked set intent", {
+        actor: actor?.name ?? null,
+        actorUuid: actor?.uuid ?? null,
+        key: k,
+        current,
+        next,
+        hadExisting: Boolean(existing),
+      });
+    }
+
+    if (next <= 0) {
+      await removeCondition(actor, k);
+      if (_isConditionDebugEnabled()) {
+        console.log("UESRPG | Conditions | flanked removed", {
+          actor: actor?.name ?? null,
+          actorUuid: actor?.uuid ?? null,
+          requested: next,
+          readback: Number(getConditionValue(actor, k) ?? 0),
+        });
+      }
+      return null;
+    }
+
+    const def = STATIC_CONDITIONS[k];
+    const coreStatusId = _coreStatusIdForKey(k);
+    const statuses = coreStatusId ? [coreStatusId] : null;
+    const hadExisting = Boolean(existing);
+    const createData = _mkBaseEffectData({
+      name: `Flanked (${next})`,
+      img: def?.img ?? "icons/svg/target.svg",
+      description: def?.description ?? null,
+      statuses,
+      coreStatusId,
+      origin: null,
+      condition: { key: k, value: next, source: "Engagement & Flanking" },
+      changes: []
+    });
+
+    const result = await _upsertConditionEffect(actor, k, {
+      createData,
+      updateFn: async (effect) => {
+        const c = _getConditionData(effect) ?? {};
+        const source = String(c.source || "Engagement & Flanking");
+        if (_isConditionDebugEnabled()) {
+          console.log("UESRPG | Conditions | flanked upsert path", {
+            actor: actor?.name ?? null,
+            actorUuid: actor?.uuid ?? null,
+            mode: hadExisting ? "update" : "create-or-sync",
+            effectId: effect?.id ?? null,
+            from: Number(c.value ?? 0),
+            to: next,
+          });
+        }
+        const updates = {
+          name: `Flanked (${next})`,
+          [`${FLAG_PATH}.condition.key`]: k,
+          [`${FLAG_PATH}.condition.value`]: next,
+          [`${FLAG_PATH}.condition.source`]: source
+        };
+
+        if (coreStatusId) {
+          updates["flags.core.statusId"] = coreStatusId;
+          updates.statuses = statuses ?? [coreStatusId];
+        }
+
+        return updates;
+      }
+    });
+
+    const readback = Number(getConditionValue(actor, k) ?? 0);
+    if (_isConditionDebugEnabled()) {
+      console.log("UESRPG | Conditions | flanked set result", {
+        actor: actor?.name ?? null,
+        actorUuid: actor?.uuid ?? null,
+        requested: next,
+        readback,
+      });
+    }
+    return result;
+  }
+
   if (!existing) {
     if (next <= 0) return null;
 
     if (k === "bleeding") return applyBleeding(actor, next, { origin: null, source: "Bleeding" });
     if (k === "burning") return applyBurning(actor, next, { origin: null, source: "Burning" });
-    if (k === "flanked") {
-      await applyCondition(actor, k, { origin: null, source: "Engagement & Flanking" });
-      return setConditionValue(actor, k, next);
-    }
     return applyCondition(actor, k, { origin: null, source: null });
   }
 

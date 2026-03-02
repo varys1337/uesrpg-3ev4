@@ -7307,6 +7307,24 @@ button[data-ues-skill-opposed-action]) {
   outline-offset: -4px;
 }
 
+/* ── Actor-sheet container row: drop-zone highlight ──────────────────────── */
+/* Applied via JS dragenter/dragleave to rows with data-item-type="container" */
+.worldbuilding.sheet.actor tr[data-item-type="container"].uesrpg-drag-over,
+.worldbuilding.sheet.actor.group tr[data-item-type="container"].uesrpg-drag-over {
+  background-color: rgba(76, 164, 255, 0.12);
+  outline: 2px dashed var(--uesrpg-color-accent, #4ca4ff);
+  outline-offset: -2px;
+  cursor: copy;
+}
+
+/* Draggable item rows: grab cursor on actor sheets */
+.worldbuilding.sheet.actor table tbody tr.item[draggable="true"] {
+  cursor: grab;
+}
+.worldbuilding.sheet.actor table tbody tr.item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 
 .worldbuilding .container-drop-zone tr[draggable=true] {
   cursor: grab;

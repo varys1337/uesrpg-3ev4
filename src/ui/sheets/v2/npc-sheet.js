@@ -20,7 +20,11 @@ import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-c
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
-import { resolveDroppedItem } from "../../../utils/drop-data.js";
+import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
+import { buildItemDragPayload } from "../../../utils/drag-payload.js";
+import { handleExternalItemDrop } from "../../../utils/drop-item-create-data.js";
+import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
+import { onDropItemIntoContainer } from "../item/listeners/containment.js";
 import { AttackTracker } from "../../../core/combat/attack-tracker.js";
 import { SYSTEM_ID } from "../../../core/combat/combat-style-utils.js";
 
@@ -57,6 +61,7 @@ import { MagicOpposedWorkflow } from "../../../core/magic/opposed-workflow.js";
 import { LanguageSelectorAppV2, FactionSelectorAppV2 } from "../../apps/v2/social-selectors.js";
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
+import { enableItemRowDragSources } from "./shared/drag-sources.js";
 import { activateEditorButtons } from "../shared/editor-activation.js";
 
 
@@ -251,7 +256,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "actor", "npc", "uesrpg-sheet-root"],
-    position: { width: 858, height: 930 },
+    position: { width: 910, height: 960 },
     window: { resizable: true },
     form: { submitOnChange: true },
     actions: {
@@ -320,7 +325,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     dragDrop: [
       {
         dragSelector: ".item, .npc-item, .spell-row",
-        dropSelector: ".window-content, .sheet-body, .tab, .tabContainer, .itemListContainer",
+        dropSelector: ".window-content, .sheet-body, .tab, .tabContainer, .itemListContainer, [data-item-type='container']",
       },
     ],
   };
@@ -491,7 +496,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       if (game.settings.get("uesrpg-3ev4", "showFeatureInspector")) {
         try {
           context.featureInspector = buildFeatureInspectorContext(actor);
-        } catch (_e) {
+        } catch (err) {
+          console.warn("UESRPG | Feature inspector build failed for NPC", actor?.name, err);
           context.featureInspector = null;
         }
       } else {
@@ -602,6 +608,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (!el || el.dataset.uesrpgListeners === "1") return;
     el.dataset.uesrpgListeners = "1";
     bindItemDescriptionTooltips(this, el);
+    enableItemRowDragSources(el, { actor: this.document });
 
     for (const nameEl of el.querySelectorAll(".item-name")) {
       const txt = String(nameEl?.textContent ?? "").trim();
@@ -694,6 +701,22 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     el.addEventListener("change", this._uesrpgTabChangeHandler);
     el.addEventListener("input", this._uesrpgTabInputHandler);
     el.addEventListener("keydown", this._uesrpgTabKeydownHandler);
+
+    // Container row: visual drag-over highlight.
+    for (const containerRow of el.querySelectorAll("[data-item-type='container']")) {
+      containerRow.addEventListener("dragenter", (ev) => {
+        ev.preventDefault();
+        ev.currentTarget.classList.add("uesrpg-drag-over");
+      });
+      containerRow.addEventListener("dragleave", (ev) => {
+        if (!ev.currentTarget.contains(ev.relatedTarget)) {
+          ev.currentTarget.classList.remove("uesrpg-drag-over");
+        }
+      });
+      containerRow.addEventListener("drop", (ev) => {
+        ev.currentTarget.classList.remove("uesrpg-drag-over");
+      });
+    }
   }
 
   /* ═══════════════════════ Delegated Handlers ════════════════════════ */
@@ -1428,18 +1451,168 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */
 
+  /**
+   * Build a proper Item drag payload from data-item-id.
+   * Mirrors the same override on PCActorSheetV2 — NPC inventory rows do not
+   * carry data-document-uuid so we resolve the live Item and stamp the payload.
+   * @override
+   */
+  _onDragStart(event) {
+    const existing = String(event?.dataTransfer?.getData?.("text/plain") ?? "").trim();
+    if (existing) return;
+
+    const row = event.target?.closest?.("[data-item-id]") ?? event.currentTarget;
+    const itemId = row?.dataset?.itemId;
+    if (!itemId) return super._onDragStart(event);
+
+    const item = this.document.items.get(itemId);
+    if (!item) return super._onDragStart(event);
+
+    const traceId = makeDndTraceId("npc-drag");
+    const payload = buildItemDragPayload(item, { traceId });
+    event.dataTransfer?.setData("text/plain", JSON.stringify(payload));
+    dndDebug("sheet.dragstart.fallback", {
+      sheet: "NpcSheetV2",
+      actor: this.document?.uuid ?? null,
+      item: item?.uuid ?? null,
+      itemId: item?.id ?? null,
+    }, { traceId });
+  }
+
+  /** @override */
+  _canDragDrop(_selector) {
+    return this.isEditable;
+  }
+
+  /** @override */
+  _canDragStart(_selector) {
+    return this.isEditable;
+  }
+
   /** @override */
   async _onDrop(event) {
-    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
+    const traceId = makeDndTraceId("npc-drop");
+    const data = readDropData(event, { traceId });
+    dndDebug("sheet.drop.received", {
+      sheet: "NpcSheetV2",
+      actor: this.document?.uuid ?? null,
+      type: data?.type ?? null,
+      uuid: data?.uuid ?? null,
+      itemId: data?.itemId ?? null,
+      targetContainer: event.target?.closest?.("[data-item-type='container']")?.dataset?.itemId ?? null,
+    }, { traceId });
 
     if (data.type === "Item") {
-      // Resolve once to validate payload shape; base sheet still performs create/move behavior.
-      const resolved = await resolveDroppedItem(data);
-      if (!resolved) {
-        console.debug?.("UESRPG | NPC sheet received unresolved item drop payload", {
-          actor: this.document?.uuid,
+      // Route to container containment logic when the drop lands on a container row.
+      const containerRow =
+        event.currentTarget?.dataset?.itemType === "container"
+          ? event.currentTarget
+          : event.target.closest?.("[data-item-type='container']");
+
+      if (containerRow?.dataset?.itemId) {
+        const containerItem = this.document.items.get(containerRow.dataset.itemId);
+        if (containerItem?.type === "container") {
+          containerRow.classList.remove("uesrpg-drag-over");
+          dndDebug("sheet.drop.route.container", {
+            sheet: "NpcSheetV2",
+            actor: this.document?.uuid ?? null,
+            container: containerItem?.uuid ?? null,
+            data,
+          }, { traceId });
+          return onDropItemIntoContainer(
+            { item: containerItem, actor: this.document, isEditable: this.isEditable },
+            data
+          );
+        }
+      }
+
+      // Resolve for debug logging; base sheet still performs create/move behavior.
+      const resolved = await resolveDroppedItemDetailed(data, { traceId });
+      if (!resolved.item) {
+        dndDebug("sheet.drop.unresolved", {
+          sheet: "NpcSheetV2",
+          actor: this.document?.uuid ?? null,
           data,
+          resolved,
+        }, { traceId });
+        dndWarnFailure("Unable to resolve dropped item payload.", {
+          traceId,
+          details: {
+            sheet: "NpcSheetV2",
+            actor: this.document?.uuid ?? null,
+            data,
+            resolved,
+          },
         });
+        return super._onDrop(event);
+      }
+
+      if (resolved.item.actor?.id === this.document.id) {
+        dndDebug("sheet.drop.sameActor", {
+          sheet: "NpcSheetV2",
+          actor: this.document?.uuid ?? null,
+          item: resolved.item?.uuid ?? null,
+          sourceKind: resolved.sourceKind,
+        }, { traceId });
+        return super._onDrop(event);
+      }
+
+      // External item drops (compendium/world/other actor): create explicitly so
+      // legacy generic-item type/category metadata is normalized on first drop.
+      if (!this.isEditable || !this.document?.isOwner) {
+        dndWarnFailure("You do not have permission to modify this actor's inventory.", {
+          traceId,
+          details: {
+            sheet: "NpcSheetV2",
+            actor: this.document?.uuid ?? null,
+            item: resolved.item?.uuid ?? null,
+          },
+        });
+        return;
+      }
+
+      try {
+        const created = await handleExternalItemDrop(this.document, resolved.item, {
+          normalizeType: true,
+          traceId,
+        });
+        if (!created) {
+          throw new Error("handleExternalItemDrop returned null");
+        }
+        dndDebug("sheet.drop.externalCreate.success", {
+          sheet: "NpcSheetV2",
+          actor: this.document?.uuid ?? null,
+          sourceItem: resolved.item?.uuid ?? null,
+          sourceKind: resolved.sourceKind,
+          createdId: created?.id ?? null,
+          createdType: created?.type ?? null,
+        }, { traceId });
+        return;
+      } catch (err) {
+        dndDebug("sheet.drop.externalCreate.failed", {
+          sheet: "NpcSheetV2",
+          actor: this.document?.uuid ?? null,
+          item: resolved.item?.uuid ?? null,
+          sourceKind: resolved.sourceKind,
+          err: err?.message ?? String(err),
+          resolutionPath: resolved?.resolutionPath ?? [],
+          errors: resolved?.errors ?? [],
+        }, { traceId });
+        try {
+          return await super._onDrop(event);
+        } catch (fallbackErr) {
+          dndWarnFailure("Item drop failed. Check console diagnostics.", {
+            traceId,
+            details: {
+              sheet: "NpcSheetV2",
+              actor: this.document?.uuid ?? null,
+              item: resolved.item?.uuid ?? null,
+              err: err?.message ?? String(err),
+              fallbackErr: fallbackErr?.message ?? String(fallbackErr),
+            },
+          });
+          return;
+        }
       }
     }
 

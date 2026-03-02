@@ -10,6 +10,7 @@
 
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
+import { perfStart, perfEnd } from "../../../../utils/debug.js";
 
 /* ────────────────────────────────────────────────────────────────────────
  * Per-message async mutex.
@@ -111,6 +112,14 @@ async function _updateCardCore(message, data, _renderCard) {
     merged = data;
   }
 
+  // No-op short-circuit: skip render/persist when the semantic card state is unchanged.
+  try {
+    const diff = foundry.utils.diffObject(liveRaw ?? {}, merged ?? {});
+    if (!diff || Object.keys(diff).length === 0) return;
+  } catch (_e) {
+    // If diffObject fails, continue with normal persistence.
+  }
+
   // Touch context for diagnostics
   merged.context = merged.context ?? {};
   merged.context.schemaVersion = merged.context.schemaVersion ?? 1;
@@ -121,14 +130,23 @@ async function _updateCardCore(message, data, _renderCard) {
   const handlerSeq = Number(data?.context?.updatedSeq ?? 0);
   merged.context.updatedSeq = Math.max(liveSeq, handlerSeq) + 1;
 
+  const msgId = message?.id ?? message?._id ?? "unknown";
+  const renderLabel = `card.update.render:combat:${msgId}`;
+  perfStart(renderLabel);
+  const content = _renderCard(merged, message.id);
+  perfEnd(renderLabel);
+
   const payload = {
-    content: _renderCard(merged, message.id),
+    content,
     flags: { "uesrpg-3ev4": { opposed: merged } }
   };
 
   // Permission-safe update: defenders (non-message-authors) cannot update ChatMessage directly.
   // If lacking permission, ask the active GM to apply the update via socket.
+  const persistLabel = `card.update.persist:combat:${msgId}`;
+  perfStart(persistLabel);
   await safeUpdateChatMessage(message, payload);
+  perfEnd(persistLabel);
 }
 
 /**

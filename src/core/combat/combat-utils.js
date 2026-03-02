@@ -152,9 +152,10 @@ export function getAttackModeFromWeapon(weapon) {
   if (!weapon) return "";
   const sys = weapon.system ?? {};
   const modeRaw = String(sys.attackMode ?? sys.weaponType ?? sys.type ?? "").toLowerCase();
-  if (modeRaw.includes("ranged")) return "ranged";
-  if (itemHasToken(weapon, "thrown")) return "ranged";
   if (modeRaw.includes("melee")) return "melee";
+  if (modeRaw.includes("ranged")) return "ranged";
+  // Legacy fallback only when explicit mode is absent.
+  if (itemHasToken(weapon, "thrown")) return "ranged";
   return "melee";
 }
 

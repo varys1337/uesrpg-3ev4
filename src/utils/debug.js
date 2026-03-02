@@ -99,7 +99,7 @@ const _PERF_SETTING = "perfDebug";
  *
  * @param {string} label - Timer label for `console.time`
  */
-function perfStart(label) {
+export function perfStart(label) {
   if (!isDebugEnabled(_PERF_SETTING)) return;
   try { console.time(`[UESRPG][perf] ${label}`); } catch (_e) { /* no-op */ }
 }
@@ -110,7 +110,7 @@ function perfStart(label) {
  *
  * @param {string} label - Timer label for `console.timeEnd`
  */
-function perfEnd(label) {
+export function perfEnd(label) {
   if (!isDebugEnabled(_PERF_SETTING)) return;
   try { console.timeEnd(`[UESRPG][perf] ${label}`); } catch (_e) { /* no-op */ }
 }

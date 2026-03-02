@@ -48,9 +48,10 @@ export async function repairContainerContainedItems(sheet) {
   const containerId = sheet.item.id;
   const current = Array.isArray(sheet.item.system?.contained_items) ? sheet.item.system.contained_items : [];
 
-  const byId = new Map();
+  // Phase 1: collect valid sources (Item documents) without serializing yet.
+  const byId = new Map(); // id → Item document
 
-  // Seed from current list (but validate against actor items + containerStats)
+  // Seed from current list (validate against actor items + containerStats)
   for (const entry of current) {
     const id = entry?._id;
     if (!id) continue;
@@ -63,10 +64,10 @@ export async function repairContainerContainedItems(sheet) {
     const isInThis = !!cs?.contained && (cs?.container_id === containerId);
     if (!isInThis) continue;
 
-    byId.set(id, { _id: id, item: source.toObject() });
+    byId.set(id, source);
   }
 
-  // Add any actor items that claim they are in this container but are missing from list
+  // Add actor items that claim they are in this container but are missing from list
   for (const source of sheet.actor.items) {
     if (!source) continue;
     if (source.type === "container") continue;
@@ -74,29 +75,30 @@ export async function repairContainerContainedItems(sheet) {
     const isInThis = !!cs?.contained && (cs?.container_id === containerId);
     if (!isInThis) continue;
     if (byId.has(source.id)) continue;
-    byId.set(source.id, { _id: source.id, item: source.toObject() });
+    byId.set(source.id, source);
   }
 
-  const next = Array.from(byId.values());
+  const nextIds = Array.from(byId.keys());
 
-  // Detect meaningful change
+  // Phase 2: detect structural changes (membership / order) with no serialization.
   const curIds = current.map(e => e?._id).filter(Boolean);
-  const nextIds = next.map(e => e?._id).filter(Boolean);
   const changedIds = (curIds.length !== nextIds.length) || curIds.some((id, idx) => id !== nextIds[idx]);
 
-  // Also update if any snapshot modifiedTime differs (or missing snapshots)
+  // Also check modifiedTime for snapshot staleness (lightweight _stats access).
   let changedSnapshot = false;
   if (!changedIds) {
-    for (const entry of next) {
-      const cur = current.find(e => e?._id === entry._id);
+    for (const [id, source] of byId) {
+      const cur = current.find(e => e?._id === id);
       const curMT = cur?.item?._stats?.modifiedTime;
-      const nextMT = entry?.item?._stats?.modifiedTime;
-      if (curMT !== nextMT) { changedSnapshot = true; break; }
+      const srcMT = source._stats?.modifiedTime;
+      if (curMT !== srcMT) { changedSnapshot = true; break; }
     }
   }
 
   if (!changedIds && !changedSnapshot) return false;
 
+  // Phase 3: serialize only when an update is confirmed necessary.
+  const next = nextIds.map(id => ({ _id: id, item: byId.get(id).toObject() }));
   await requestUpdateDocument(sheet.item, { "system.contained_items": next });
   return true;
 }
@@ -116,8 +118,10 @@ export async function updateContainedItemsList(sheet) {
   if (repaired) return;
 
   const current = Array.isArray(sheet.item.system?.contained_items) ? sheet.item.system.contained_items : [];
+
+  // Phase 1: change detection using lightweight _stats access — no toObject() yet.
   let changed = false;
-  const next = [];
+  const valid = []; // [{id, source}] — items confirmed to exist on actor
 
   for (const entry of current) {
     const id = entry?._id;
@@ -125,15 +129,18 @@ export async function updateContainedItemsList(sheet) {
     const source = sheet.actor.items.get(id);
     if (!source) { changed = true; continue; }
 
-    const sourceObj = source.toObject();
+    // _stats.modifiedTime is readable without serialization
     const curMT = entry?.item?._stats?.modifiedTime;
-    const nextMT = sourceObj?._stats?.modifiedTime;
-    if (curMT !== nextMT) changed = true;
+    const srcMT = source._stats?.modifiedTime;
+    if (curMT !== srcMT) changed = true;
 
-    next.push({ _id: id, item: sourceObj });
+    valid.push({ id, source });
   }
 
   if (!changed) return;
+
+  // Phase 2: serialize only when we know an update is needed.
+  const next = valid.map(({ id, source }) => ({ _id: id, item: source.toObject() }));
   await requestUpdateDocument(sheet.item, { "system.contained_items": next });
 }
 

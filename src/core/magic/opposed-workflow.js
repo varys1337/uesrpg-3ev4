@@ -892,6 +892,10 @@ export const MagicOpposedWorkflow = {
     const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
     const forcedHitLocation = String(data?.context?.forcedHitLocation ?? "").trim();
 
+    const updateCardFn = opts?.batchedUpdate
+      ? (async () => {})
+      : ((msg, d) => magicUpdateCard(msg, d, renderCard));
+
     await resolveOutcome({
       message,
       data,
@@ -901,7 +905,7 @@ export const MagicOpposedWorkflow = {
       spell,
       isAoE,
       forcedHitLocation,
-      _updateCard: (msg, d) => magicUpdateCard(msg, d, renderCard)
+      _updateCard: updateCardFn
     });
   },
 

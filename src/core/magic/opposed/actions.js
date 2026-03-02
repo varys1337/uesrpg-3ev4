@@ -57,6 +57,7 @@ import { createUuidResolver } from "../../../utils/uuid-cache.js";
 
 // Centralized card updater (single source of truth for card persistence).
 import { updateCard } from "./updater.js";
+import { perfStart, perfEnd } from "../../../utils/debug.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -72,7 +73,10 @@ const _FLAG_NS = "uesrpg-3ev4";
  * @returns {Promise<void>}
  */
 export async function dispatchAction(message, action, opts, workflow, renderCard) {
-  const data = getMessageState(message);
+  const overrideData = (opts?.dataOverride && typeof opts.dataOverride === "object")
+    ? foundry.utils.deepClone(opts.dataOverride)
+    : null;
+  const data = overrideData ?? getMessageState(message);
   if (!data) return;
 
   const attacker = resolveActor(data.attacker.actorUuid);
@@ -97,6 +101,7 @@ export async function dispatchAction(message, action, opts, workflow, renderCard
     defenders,
     isMulti: defenders.length > 1,
     bankMode,
+    batchedUpdate: Boolean(opts?.batchedUpdate),
     opts,
     workflow,
     spell: null, // Will be resolved as needed by handlers
@@ -184,6 +189,7 @@ export async function dispatchAction(message, action, opts, workflow, renderCard
 export async function autoRollBanked(message, workflow, _updateCard) {
   let data = foundry.utils.deepClone(getMessageState(message));
   if (!data) return;
+  const messageId = message?.id ?? message?._id ?? "unknown";
 
   // For banking: require ALL defenders to be committed before rolling
   if (!allDefendersCommitted(data)) return;
@@ -202,18 +208,28 @@ export async function autoRollBanked(message, workflow, _updateCard) {
   data.context.autoRollStartedAt = Date.now();
   data.context.autoRollStartedBy = game.user.id;
 
+  const claimLabel = `banked.claim.write:magic:${messageId}`;
+  perfStart(claimLabel);
   await _updateCard(message, data);
+  perfEnd(claimLabel);
 
   // Verify we still own the claim after the persisted update.
   const freshAfterClaim = foundry.utils.deepClone(getMessageState(message));
   if (freshAfterClaim?.context?.autoRollClaimId && freshAfterClaim.context.autoRollClaimId !== claimId) return;
+  let workingData = foundry.utils.deepClone(freshAfterClaim);
 
   // ── Roll attacker if not yet rolled ────────────────────────────────────
-  if (!freshAfterClaim?.attacker?.result) {
-    await workflow.handleAction(message, "attacker-roll");
+  if (!workingData?.attacker?.result) {
+    const attackerLabel = `banked.attacker.roll:magic:${messageId}`;
+    perfStart(attackerLabel);
+    const next = await workflow.handleAction(message, "attacker-roll", {
+      batchedUpdate: true,
+      dataOverride: workingData
+    });
+    if (next && typeof next === "object") workingData = next;
+    perfEnd(attackerLabel);
   }
-  const freshAfterAttackerRoll = foundry.utils.deepClone(getMessageState(message));
-  if (!freshAfterAttackerRoll?.attacker?.result) {
+  if (!workingData?.attacker?.result) {
     console.warn("UESRPG | Magic opposed autoRollBanked aborted: attacker result missing after attacker-roll", {
       messageId: message?.id ?? null
     });
@@ -221,16 +237,12 @@ export async function autoRollBanked(message, workflow, _updateCard) {
   }
 
   // ── Roll defender lanes sequentially ───────────────────────────────────
-  // Re-read fresh state to determine how many defenders exist.
-  let currentData = foundry.utils.deepClone(getMessageState(message));
+  // Keep lane updates in-memory; persist once at the end.
+  let currentData = foundry.utils.deepClone(workingData);
   if (!currentData) return;
   const defenderCount = getDefenderEntries(currentData).length;
 
   for (let idx = 0; idx < defenderCount; idx++) {
-    // Re-read fresh state at the start of each iteration to avoid stale data.
-    currentData = foundry.utils.deepClone(getMessageState(message));
-    if (!currentData) return;
-
     const currentDefenders = getDefenderEntries(currentData);
     const def = currentDefenders[idx];
     if (!def) continue;
@@ -240,7 +252,13 @@ export async function autoRollBanked(message, workflow, _updateCard) {
 
     // No-defense with result but no outcome → resolve immediately.
     if (def?.noDefense && def?.result && !getDefenderOutcome(currentData, def)) {
-      await workflow._resolveOutcome(message, currentData, attacker, defActor, { defenderIndex: idx });
+      const resolveLabel = `banked.resolve:magic:${messageId}:${idx}`;
+      perfStart(resolveLabel);
+      await workflow._resolveOutcome(message, currentData, attacker, defActor, {
+        defenderIndex: idx,
+        batchedUpdate: true
+      });
+      perfEnd(resolveLabel);
       continue;
     }
 
@@ -253,9 +271,22 @@ export async function autoRollBanked(message, workflow, _updateCard) {
           : def?.defenseType === "ward"
             ? "defender-roll-ward"
             : "defender-roll-evade";
-      await workflow.handleAction(message, defenseAction, { defenderIndex: idx });
+      const defenderLabel = `banked.defender.roll:magic:${messageId}:${idx}`;
+      perfStart(defenderLabel);
+      const next = await workflow.handleAction(message, defenseAction, {
+        defenderIndex: idx,
+        batchedUpdate: true,
+        dataOverride: currentData
+      });
+      if (next && typeof next === "object") currentData = next;
+      perfEnd(defenderLabel);
     }
   }
+
+  const finalLabel = `banked.final.write:magic:${messageId}`;
+  perfStart(finalLabel);
+  await _updateCard(message, currentData);
+  perfEnd(finalLabel);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -269,7 +300,7 @@ export async function autoRollBanked(message, workflow, _updateCard) {
  * @returns {Promise<void>}
  */
 export async function handleDefenderRoll(ctx, action) {
-  const { message, data, attacker, defender, defenderActor, defenderIndex, workflow } = ctx;
+  const { message, data, attacker, defender, defenderActor, defenderIndex, workflow, batchedUpdate } = ctx;
 
   if (defender?.result || defender?.noDefense) return;
 
@@ -281,8 +312,8 @@ export async function handleDefenderRoll(ctx, action) {
     defender.defenseType = "-";
     defender.tn = null;
     defender.result = { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };
-    await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex });
-    return;
+    await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex, batchedUpdate });
+    return data;
   }
 
   const defenseType = (action === "defender-roll-block") ? "block" : (action === "defender-roll-ward") ? "ward" : "evade";
@@ -358,7 +389,8 @@ export async function handleDefenderRoll(ctx, action) {
   defender.defenseType = defenseLabel;
   defender.tn = tnObj;
 
-  await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex });
+  await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex, batchedUpdate });
+  return data;
 }
 
 /**
@@ -367,7 +399,7 @@ export async function handleDefenderRoll(ctx, action) {
  * @returns {Promise<void>}
  */
 export async function handleDefenderNoDefense(ctx) {
-  const { message, data, attacker, defender, defenderActor, defenderIndex, bankMode, workflow } = ctx;
+  const { message, data, attacker, defender, defenderActor, defenderIndex, bankMode, workflow, batchedUpdate } = ctx;
 
   // This action should only be called in NON-banked mode
   // In banked mode, No Defense is committed and result is set immediately
@@ -384,7 +416,8 @@ export async function handleDefenderNoDefense(ctx) {
   defender.tn = null;
   defender.result = { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };
 
-  await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex });
+  await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex, batchedUpdate });
+  return data;
 }
 
 /**
@@ -393,7 +426,7 @@ export async function handleDefenderNoDefense(ctx) {
  * @returns {Promise<void>}
  */
 export async function handleDefenderCharacteristicTest(ctx) {
-  const { message, data, attacker, defender, defenderActor, defenderIndex, workflow } = ctx;
+  const { message, data, attacker, defender, defenderActor, defenderIndex, workflow, batchedUpdate } = ctx;
 
   if (defender?.result || defender?.noDefense) return;
 
@@ -447,7 +480,8 @@ export async function handleDefenderCharacteristicTest(ctx) {
   defender.characteristicLabel = defResult.characteristicLabel;
   defender.tn = defResult.tnData;
 
-  await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex });
+  await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex, batchedUpdate });
+  return data;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

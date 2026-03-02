@@ -57,6 +57,16 @@ let _chatHooksRegistered = false;
 let _chatContextHooksRegistered = false;
 let _ctxMenuDebugHelperRegistered = false;
 let _chatLogContextProbeRegistered = false;
+let _magicOpposedWorkflowModulePromise = null;
+
+async function _getMagicOpposedWorkflow() {
+  if (!_magicOpposedWorkflowModulePromise) {
+    _magicOpposedWorkflowModulePromise = import("../../magic/opposed-workflow.js")
+      .then((m) => m?.MagicOpposedWorkflow ?? null)
+      .catch((_err) => null);
+  }
+  return await _magicOpposedWorkflowModulePromise;
+}
 
 function _ctxMenuDebugEnabled() {
   const runtimeToggle = Boolean(globalThis?.__UESRPG_CTX_MENU_DEBUG__ === true);
@@ -1243,6 +1253,13 @@ function _isRelevantOpposedUpdate(changes) {
   return false;
 }
 
+function _isContentOnlyUpdate(changes) {
+  if (!changes || typeof changes !== "object") return false;
+  const keys = Object.keys(changes);
+  if (keys.length !== 1 || keys[0] !== "content") return false;
+  return true;
+}
+
 /**
  * Register chat handlers (v13).
  */
@@ -1332,6 +1349,7 @@ export function initializeChatHandlers() {
       const opposed = message?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
       if (opposed) {
         if (!_isRelevantOpposedUpdate(changes)) return;
+        if (_isContentOnlyUpdate(changes) && (opposed?.context?.autoRollRequested === true || opposed?.context?.autoRollStarted === true)) return;
         const activeGM = game.users.activeGM ?? null;
         if (activeGM) {
           OpposedWorkflow.maybeAutoRollBanked(message).catch((err) => console.error("UESRPG | Opposed banked GM auto-roll hook failed", err));
@@ -1345,15 +1363,14 @@ export function initializeChatHandlers() {
       const skillOpposed = message?.flags?.["uesrpg-3ev4"]?.skillOpposed ?? null;
       if (skillOpposed) {
         if (!_isRelevantOpposedUpdate(changes)) return;
+        const skillState = skillOpposed?.state ?? null;
+        if (_isContentOnlyUpdate(changes) && skillState?.context?.autoRollStarted === true) return;
         const activeGM = game.users.activeGM ?? null;
-        // Import SkillOpposedWorkflow dynamically to avoid circular dependencies
-        import("../../skills/opposed-workflow.js").then(({ SkillOpposedWorkflow }) => {
-          if (activeGM) {
-            SkillOpposedWorkflow.maybeAutoRollBanked?.(message).catch((err) => console.error("UESRPG | Skill opposed banked GM auto-roll hook failed", err));
-          } else {
-            SkillOpposedWorkflow.maybeAutoRollBankedNoGM?.(message).catch((err) => console.error("UESRPG | Skill opposed banked no-GM auto-roll hook failed", err));
-          }
-        }).catch((err) => console.error("UESRPG | Failed to load SkillOpposedWorkflow for banked auto-roll", err));
+        if (activeGM) {
+          SkillOpposedWorkflow.maybeAutoRollBanked?.(message).catch((err) => console.error("UESRPG | Skill opposed banked GM auto-roll hook failed", err));
+        } else {
+          SkillOpposedWorkflow.maybeAutoRollBankedNoGM?.(message).catch((err) => console.error("UESRPG | Skill opposed banked no-GM auto-roll hook failed", err));
+        }
         return;
       }
 
@@ -1361,21 +1378,28 @@ export function initializeChatHandlers() {
       const magicOpposed = message?.flags?.["uesrpg-3ev4"]?.magicOpposed ?? null;
       if (magicOpposed) {
         if (!_isRelevantOpposedUpdate(changes)) return;
+        const magicState = magicOpposed?.state ?? null;
+        if (_isContentOnlyUpdate(changes) && magicState?.context?.autoRollStarted === true) return;
         const activeGM = game.users.activeGM ?? null;
-        // Import MagicOpposedWorkflow dynamically to avoid circular dependencies
-        import("../../magic/opposed-workflow.js").then(({ MagicOpposedWorkflow }) => {
+        _getMagicOpposedWorkflow().then((MagicOpposedWorkflow) => {
+          if (!MagicOpposedWorkflow) {
+            console.error("UESRPG | Failed to load MagicOpposedWorkflow for banked auto-roll");
+            return;
+          }
           if (activeGM) {
             MagicOpposedWorkflow.maybeAutoRollBanked?.(message).catch((err) => console.error("UESRPG | Magic opposed banked GM auto-roll hook failed", err));
           } else {
             MagicOpposedWorkflow.maybeAutoRollBankedNoGM?.(message).catch((err) => console.error("UESRPG | Magic opposed banked no-GM auto-roll hook failed", err));
           }
-        }).catch((err) => console.error("UESRPG | Failed to load MagicOpposedWorkflow for banked auto-roll", err));
+        });
       }
 
       // Check for characteristic opposed workflow
       const charOpposed = message?.flags?.["uesrpg-3ev4"]?.charOpposed ?? null;
       if (charOpposed) {
         if (!_isRelevantOpposedUpdate(changes)) return;
+        const charState = charOpposed?.state ?? null;
+        if (_isContentOnlyUpdate(changes) && charState?.context?.autoRollStarted === true) return;
         const activeGM = game.users.activeGM ?? null;
         if (activeGM) {
           CharOpposedWorkflow.maybeAutoRollBanked?.(message).catch((err) => console.error("UESRPG | Char opposed banked GM auto-roll hook failed", err));

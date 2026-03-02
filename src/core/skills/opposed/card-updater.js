@@ -15,6 +15,7 @@ import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
 import { cloneFlagState } from "../../../utils/clone.js";
 import { FLAG_NS, FLAG_KEY, CARD_VERSION } from "./constants.js";
 import { _renderCard } from "./render.js";
+import { perfStart, perfEnd } from "../../../utils/debug.js";
 
 /* ────────────────────────────────────────────────────────────────────────
  * Per-message async mutex.
@@ -85,6 +86,14 @@ async function _updateCardCore(message, data) {
     merged = data;
   }
 
+  // No-op short-circuit: skip render/persist when the semantic card state is unchanged.
+  try {
+    const diff = foundry.utils.diffObject(liveState ?? {}, merged ?? {});
+    if (!diff || Object.keys(diff).length === 0) return;
+  } catch (_e) {
+    // If diffObject fails, continue with normal persistence.
+  }
+
   merged.context = merged.context ?? {};
   merged.context.schemaVersion = merged.context.schemaVersion ?? CARD_VERSION;
   merged.context.updatedAt = Date.now();
@@ -93,10 +102,19 @@ async function _updateCardCore(message, data) {
   const handlerSeq = Number(data?.context?.updatedSeq ?? 0);
   merged.context.updatedSeq = Math.max(liveSeq, handlerSeq) + 1;
 
+  const msgId = message?.id ?? message?._id ?? "unknown";
+  const renderLabel = `card.update.render:skills:${msgId}`;
+  perfStart(renderLabel);
+  const content = _renderCard(merged, message.id);
+  perfEnd(renderLabel);
+
   const payload = {
-    content: _renderCard(merged, message.id),
+    content,
     flags: { [FLAG_NS]: { [FLAG_KEY]: { version: CARD_VERSION, state: merged } } }
   };
 
+  const persistLabel = `card.update.persist:skills:${msgId}`;
+  perfStart(persistLabel);
   await safeUpdateChatMessage(message, payload);
+  perfEnd(persistLabel);
 }

@@ -11,6 +11,14 @@ function _isGM() {
   return Boolean(game.user?.isGM);
 }
 
+function _settingExists(key) {
+  try {
+    return game.settings?.settings?.has?.(`${NAMESPACE}.${key}`) === true;
+  } catch (_e) {
+    return false;
+  }
+}
+
 export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
     id: "uesrpg-debug-settings",
@@ -62,6 +70,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         "ruleElementDebug", "showFeatureInspector",
       ];
       for (const key of worldKeys) {
+        if (!_settingExists(key)) continue;
         await game.settings.set(NAMESPACE, key, worldEnabled);
       }
     }
@@ -72,8 +81,11 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const clientKeys = [
       "aeLifecycleDebug", "perfDebug", "debugSkillTN",
       "debugAim", "debugActorSelect", "sheetDiagnostics", "sheetPerfTrace",
+      "dndDebugEnabled", "dndDebugVerbose", "dndDebugNotifyOnFailure",
+      "dndDebugDomEvents", "dndDebugCacheFallbackEnabled",
     ];
     for (const key of clientKeys) {
+      if (!_settingExists(key)) continue;
       await game.settings.set(NAMESPACE, key, clientEnabled);
     }
   }

@@ -81,6 +81,60 @@ export async function registerSettings() {
     default: false,
   });
 
+  game.settings.register("uesrpg-3ev4", "dndDebugEnabled", {
+    name: "DnD Debug Logging",
+    hint: "Log detailed drag-and-drop payload parsing and resolution diagnostics for sheet item transfers.",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
+  game.settings.register("uesrpg-3ev4", "dndDebugVerbose", {
+    name: "DnD Debug Verbose Groups",
+    hint: "Use grouped console output for drag-and-drop diagnostics (requires DnD Debug Logging).",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
+  game.settings.register("uesrpg-3ev4", "dndDebugNotifyOnFailure", {
+    name: "DnD Debug Failure Notifications",
+    hint: "Show user warnings for terminal drag-and-drop failures with correlation IDs.",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: true,
+  });
+
+  game.settings.register("uesrpg-3ev4", "dndDebugDomEvents", {
+    name: "DnD Debug DOM Events",
+    hint: "Log low-level DOM dragstart/drop observer events (high volume).",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
+  game.settings.register("uesrpg-3ev4", "dndDebugKeepRecentCount", {
+    name: "DnD Debug Recent Trace Count",
+    hint: "How many recent in-memory DnD trace events to keep for dumpDndTrace helpers.",
+    scope: "client",
+    config: false,
+    type: Number,
+    default: 100,
+  });
+
+  game.settings.register("uesrpg-3ev4", "dndDebugCacheFallbackEnabled", {
+    name: "DnD Cache Fallback Enabled",
+    hint: "Allow last-drag payload cache fallback when drop payload parsing is incomplete.",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: true,
+  });
+
   game.settings.register("uesrpg-3ev4", "actionPointAutomation", {
     name: "Action Point Automation",
     hint: "Round-Based: AP is set to max at the start of each round. Turn-Based: Ap is set to max at the start of each turn, except the first round in which all combatants start with max AP. None: No automation.",

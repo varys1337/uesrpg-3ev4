@@ -21,6 +21,7 @@ import {
 import { AttackTracker } from "../../attack-tracker.js";
 import { canAttackerRoll } from "../actions/eligibility.js";
 import { _resolveActor, _resolveActorViaToken } from "../helpers/docs.js";
+import { _isBankAutoRollInProgress } from "../banking/state.js";
 
 function _attackerTestLabel(value) {
   const raw = String(value ?? "Attack").trim();
@@ -113,6 +114,7 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
   const a = data.attacker ?? {};
   const showResolutionDetails = !!(game?.settings?.get?.("uesrpg-3ev4", "opposedShowResolutionDetails"));
   const bankMode = _isBankChoicesEnabledForData(data);
+  const isAutoRolling = _isBankAutoRollInProgress(data);
   const anyGMOnline = _anyActiveGMOnline();
   const anyOutcome = defenders.some(d => d?.outcome);
   const { aCommitted } = _getBankCommitState(data, defenders[0] ?? null);
@@ -146,7 +148,8 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
     aCommitted,
     data,
     _safeGetSetting: helpers._safeGetSetting,
-    commitGate: attackerCommitGate
+    commitGate: attackerCommitGate,
+    isAutoRolling
   });
 
   const defenderBlocks = defenders.map((d, idx) => {
@@ -182,7 +185,8 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
       idx,
       data,
       _allDefendersCommitted,
-      commitDefenseGate: _getDefenderCommitGate(d)
+      commitDefenseGate: _getDefenderCommitGate(d),
+      isAutoRolling
     });
 
     const allDefendersCommitted = _isMultiDefender(data) 
@@ -307,6 +311,7 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
   const showResolutionDetails = !!(game?.settings?.get?.("uesrpg-3ev4", "opposedShowResolutionDetails"));
 
   const bankMode = _isBankChoicesEnabledForData(data);
+  const isAutoRolling = _isBankAutoRollInProgress(data);
   const { aCommitted, dCommitted, bothCommitted } = _getBankCommitState(data);
 
   const anyGMOnline = _anyActiveGMOnline();
@@ -366,7 +371,8 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
     aCommitted,
     data,
     _safeGetSetting: helpers._safeGetSetting,
-    commitGate: attackerCommitGate
+    commitGate: attackerCommitGate,
+    isAutoRolling
   });
 
   const defenderActions = _buildDefenderActions({
@@ -376,7 +382,8 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
     idx,
     data,
     _allDefendersCommitted,
-    commitDefenseGate: _getDefenderCommitGate(d)
+    commitDefenseGate: _getDefenderCommitGate(d),
+    isAutoRolling
   });
 
   const outcomeLine = _buildOutcomeLine({

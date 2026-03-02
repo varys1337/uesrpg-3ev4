@@ -54,6 +54,7 @@ import { buildSpecialActionTestChoicesForActor } from "../../combat/combat-style
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../traits/features/rule-element-runtime.js";
 import { getPreferredWeaponUuid as _getPreferredWeaponUuid, weaponHasQuality as _weaponHasQuality } from "../../combat/opposed/helpers/workflow.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { perfStart, perfEnd } from "../../../utils/debug.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const SPECIAL_ACTION_HOOKED_IDS = new Set(["disarm", "trip", "takeWeapon", "take-weapon"]);
@@ -207,27 +208,45 @@ export const SkillOpposedWorkflow = {
       data.context.autoRollStartedBy = game.user.id;
       data.context.autoRollStartedTrigger = String(trigger ?? "unknown");
 
+      const claimLabel = `banked.claim.write:skills:${parentMessageId}`;
+      perfStart(claimLabel);
       await _updateCard(message, data);
+      perfEnd(claimLabel);
 
       // Verify we still own the claim after the persisted update.
       const freshAfterClaim = foundry.utils.deepClone(_getMessageState(message));
       if (freshAfterClaim?.context?.autoRollClaimId && freshAfterClaim.context.autoRollClaimId !== claimId) return;
 
+      let workingData = foundry.utils.deepClone(freshAfterClaim);
+
       // Roll attacker lane first if needed.
       if (!freshAfterClaim?.attacker?.result) {
-        await this.handleAction(message, "attacker-roll-committed");
+        const aLabel = `banked.attacker.roll:skills:${parentMessageId}`;
+        perfStart(aLabel);
+        const next = await this.handleAction(message, "attacker-roll-committed", {
+          batchedUpdate: true,
+          dataOverride: workingData
+        });
+        if (next && typeof next === "object") workingData = next;
+        perfEnd(aLabel);
       }
-
-      // Refresh after attacker roll for fresh state.
-      const fresh = game.messages.get(parentMessageId) ?? null;
-      if (!fresh) return;
-      const freshData = foundry.utils.deepClone(_getMessageState(fresh));
-      if (!freshData) return;
 
       // Roll defender lane if needed.
-      if (!freshData.defender?.result) {
-        await this.handleAction(fresh, "defender-roll-committed");
+      if (!workingData?.defender?.result) {
+        const dLabel = `banked.defender.roll:skills:${parentMessageId}`;
+        perfStart(dLabel);
+        const next = await this.handleAction(message, "defender-roll-committed", {
+          batchedUpdate: true,
+          dataOverride: workingData
+        });
+        if (next && typeof next === "object") workingData = next;
+        perfEnd(dLabel);
       }
+
+      const finalLabel = `banked.final.write:skills:${parentMessageId}`;
+      perfStart(finalLabel);
+      await _updateCard(message, workingData);
+      perfEnd(finalLabel);
     } finally {
       bankedAutoRollLocalLocks.delete(parentMessageId);
     }
@@ -256,6 +275,8 @@ export const SkillOpposedWorkflow = {
     const normalized = _normalizeCardFlag(raw);
     const current = normalized.state;
     if (!current || typeof current !== "object") return;
+    if (rollId && stage === "attacker-roll" && String(current?.attacker?.rollMessageId ?? "") === String(rollId)) return;
+    if (rollId && stage === "defender-roll" && String(current?.defender?.rollMessageId ?? "") === String(rollId)) return;
 
 
 
@@ -612,8 +633,10 @@ if (!authorUser) return;
     return message;
   },
 
-  async handleAction(message, action, { event } = {}) {
-    const data = _getMessageState(message);
+  async handleAction(message, action, { event, batchedUpdate = false, dataOverride = null } = {}) {
+    const data = (dataOverride && typeof dataOverride === "object")
+      ? foundry.utils.deepClone(dataOverride)
+      : _getMessageState(message);
     if (!data) return;
 
     const attacker = _resolveActor(data.attacker.actorUuid);
@@ -806,7 +829,14 @@ if (!authorUser) return;
           role: "attacker",
           styleUuid: decl.skillUuid,
           manualMod: decl.manualMod,
-          situationalMods
+          situationalMods,
+          context: {
+            attackMode: "melee",
+            opponentActor: defender ?? null,
+            opponentUuid: defender?.uuid ?? null,
+            selfSize: attacker?.system?.size ?? null,
+            opponentSize: defender?.system?.size ?? null,
+          }
         });
         skillLabel = resolved.name;
         skillItem = null; // Combat Style doesn't use skillItem
@@ -827,7 +857,14 @@ if (!authorUser) return;
           role: "attacker",
           styleUuid: decl.skillUuid,
           manualMod: decl.manualMod,
-          situationalMods
+          situationalMods,
+          context: {
+            attackMode: "melee",
+            opponentActor: defender ?? null,
+            opponentUuid: defender?.uuid ?? null,
+            selfSize: attacker?.system?.size ?? null,
+            opponentSize: defender?.system?.size ?? null,
+          }
         });
         skillLabel = resolved.name;
         skillItem = null; // Combat profession doesn't use skillItem
@@ -1104,8 +1141,9 @@ if (!authorUser) return;
         await _executeSpecialActionIfWinner(freshDataAR);
       }
 
+      if (batchedUpdate && isCommittedRoll) return freshDataAR;
       await _updateCard(freshMsgAR, freshDataAR);
-      return;
+      return freshDataAR;
     }
 
     if (action === "defender-roll" || action === "defender-roll-committed") {
@@ -1559,8 +1597,9 @@ if (!authorUser) return;
         await _executeSpecialActionIfWinner(freshDataDR);
       }
 
+      if (batchedUpdate && isCommittedRoll) return freshDataDR;
       await _updateCard(freshMsgDR, freshDataDR);
-      return;
+      return freshDataDR;
     }
   }
 };

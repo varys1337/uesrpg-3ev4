@@ -121,8 +121,8 @@
     --uesrpg-sidebar-frame-opacity: 1;
     --uesrpg-sidebar-frame-width: 244px;
     --uesrpg-sidebar-frame-height: 838px;
-    --uesrpg-sidebar-content-gap: 8px;
-    --uesrpg-sidebar-resource-gap: 5px;
+    --uesrpg-sidebar-content-gap: 5px;
+    --uesrpg-sidebar-resource-gap: 2px;
     --uesrpg-sidebar-resource-row-inset: 2px;
     --uesrpg-ornament-surface-top: rgba(236, 224, 196, 0.9);
     --uesrpg-ornament-surface-bottom: rgba(223, 208, 176, 0.86);

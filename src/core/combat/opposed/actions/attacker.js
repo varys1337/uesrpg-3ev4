@@ -15,7 +15,7 @@ import { AttackTracker } from "../../attack-tracker.js";
 import { ActionEconomy } from "../../action-economy.js";
 import { isActorSkeletal } from "../../../traits/trait-registry.js";
 import { applyDamageResolved } from "../../damage-resolver.js";
-import { getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
+import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
 
 // Internal helpers from various opposed modules
 import { _canControlActor, _findEnabledEffectByUesrpgKey, _logDebug, _opposedFlags } from "../helpers/util.js";
@@ -71,7 +71,7 @@ import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js
  * @param {object} ctx.opts - Additional options passed to the workflow
  */
 export async function handleAttackerAction(action, ctx) {
-  const { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, opts, _updateCard } = ctx;
+  const { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, batchedUpdate, opts, _updateCard } = ctx;
 
   const isCommit = action === "attacker-commit";
   const isRollCommitted = action === "attacker-roll-committed";
@@ -179,15 +179,14 @@ export async function handleAttackerAction(action, ctx) {
       data.context.forcedHitLocation = null;
     }
 
-    // Normalize attackMode from the explicitly selected weapon (covers thrown weapons where weaponType may be melee).
+    // Normalize attackMode from the explicitly selected weapon.
     let declaredWeapon = null;
     if (data.context.weaponUuid) {
       try {
         const w = _resolveItemViaActor(data.context.weaponUuid, attacker);
         if (w?.type === "weapon") {
           declaredWeapon = w;
-          const wt = String(w.system?.attackMode ?? w.system?.weaponType ?? w.system?.type ?? "").toLowerCase();
-          data.context.attackMode = (wt.includes("ranged") || _weaponHasQuality(w, "thrown")) ? "ranged" : "melee";
+          data.context.attackMode = String(getAttackModeFromWeapon(w) || "melee").toLowerCase();
         }
       } catch (_e) {
         // No-op; keep previously inferred mode.
@@ -751,5 +750,7 @@ export async function handleAttackerAction(action, ctx) {
   // RAW: attacking causes the Hidden condition to be lost immediately after the attack.
   await applyPostAttackState(attacker, data.context, data);
 
+  if (batchedUpdate && isRollCommitted) return data;
   await _updateCard(message, data);
+  return data;
 }

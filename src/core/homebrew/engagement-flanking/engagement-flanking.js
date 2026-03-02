@@ -10,6 +10,7 @@ import {
   isEngagementFlankingHomebrewEnabled,
   isEngagementFlankingOnlyInCombat,
 } from "../../system/homebrew.js";
+import { isDebugEnabled } from "../../../utils/debug.js";
 
 const NAMESPACE = "uesrpg-3ev4";
 const FLAG_HOOKS = "_engagementFlankingHooks";
@@ -41,6 +42,10 @@ const SIZE_NUMERIC = Object.freeze({
 
 let _debouncedRefresh = null;
 const _tokenPositionCache = new Map(); // tokenId → {x: number, y: number}
+
+function _isEFDebugEnabled() {
+  return isDebugEnabled("effectsProxyDebug");
+}
 
 function _asFiniteNumber(value, fallback = 0) {
   const n = Number(value);
@@ -312,6 +317,7 @@ function _computeSupportCoverage({ defender, threats, threatens, tokens }) {
 function _computeFlankedByActor(tokens) {
   const { threatenedBy, threatens } = _computeThreatMaps(tokens);
   const perToken = new Map();
+  const perTokenDiagnostics = new Map();
 
   for (const defender of tokens) {
     const threats = threatenedBy.get(defender.id) ?? new Set();
@@ -325,18 +331,30 @@ function _computeFlankedByActor(tokens) {
 
     const x = Math.max(0, threats.size - score - allySupport);
     perToken.set(defender.id, x);
+    perTokenDiagnostics.set(defender.id, {
+      tokenId: defender.id,
+      actorId: defender.actor?.id ?? null,
+      threats: threats.size,
+      score,
+      allySupport,
+      flanked: x,
+    });
   }
 
   const byActorId = new Map();
+  const byActorDiagnostics = new Map();
   for (const token of tokens) {
     const actor = token?.actor;
     if (!actor?.id) continue;
     const x = Number(perToken.get(token.id) ?? 0);
     const prev = Number(byActorId.get(actor.id) ?? 0);
-    if (x > prev) byActorId.set(actor.id, x);
+    if (x > prev) {
+      byActorId.set(actor.id, x);
+      byActorDiagnostics.set(actor.id, perTokenDiagnostics.get(token.id) ?? null);
+    }
   }
 
-  return byActorId;
+  return { byActorId, byActorDiagnostics };
 }
 
 function _sceneActors(tokens) {
@@ -381,14 +399,45 @@ export async function refreshEngagementFlanking() {
 
   if (!canvas?.ready) return;
   const tokens = _collectEvaluableTokens();
-  const byActorId = _computeFlankedByActor(tokens);
+  const { byActorId, byActorDiagnostics } = _computeFlankedByActor(tokens);
   const sceneActorMap = _sceneActors(tokens);
+
+  if (_isEFDebugEnabled()) {
+    console.log("UESRPG | Engagement & Flanking | refresh start", {
+      tokenCount: tokens.length,
+      actorCount: sceneActorMap.size,
+      homebrewEnabled: _isEnabledNow(),
+      onlyInCombat: isEngagementFlankingOnlyInCombat(),
+      combatActive: _isCombatActive(),
+    });
+  }
 
   for (const actor of sceneActorMap.values()) {
     const next = Number(byActorId.get(actor.id) ?? 0);
     const current = Number(getConditionValue(actor, "flanked") ?? 0);
+    const diag = byActorDiagnostics.get(actor.id) ?? null;
+    if (_isEFDebugEnabled()) {
+      console.log("UESRPG | Engagement & Flanking | actor eval", {
+        actor: actor?.name ?? null,
+        actorId: actor?.id ?? null,
+        current,
+        next,
+        threats: diag?.threats ?? null,
+        score: diag?.score ?? null,
+        allySupport: diag?.allySupport ?? null,
+      });
+    }
     if (next === current) continue;
     await setConditionValue(actor, "flanked", next);
+    if (_isEFDebugEnabled()) {
+      const readback = Number(getConditionValue(actor, "flanked") ?? 0);
+      console.log("UESRPG | Engagement & Flanking | actor write", {
+        actor: actor?.name ?? null,
+        actorId: actor?.id ?? null,
+        requested: next,
+        readback,
+      });
+    }
   }
 
   for (const actor of (game.actors ?? [])) {

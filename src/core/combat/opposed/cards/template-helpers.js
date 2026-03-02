@@ -171,9 +171,10 @@ export function _buildDefenderStatusLine({ bankMode, outcome, rolled, dCommitted
  * @param {boolean} options.aCommitted - True if attacker committed.
  * @param {Object} options.data - Full opposed workflow data.
  * @param {Function} options._safeGetSetting - Safe settings getter function.
+ * @param {boolean} options.isAutoRolling - True while banked auto-roll is pending/running.
  * @returns {string} - HTML action buttons or empty string.
  */
-export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _safeGetSetting, commitGate = null }) {
+export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _safeGetSetting, commitGate = null, isAutoRolling = false }) {
   if (attacker.result) {
     const fus = data?.context?.followUpStrike;
     const followUpEnabled = _safeGetSetting?.("uesrpg-3ev4", "enableFollowupStrike", false) ?? false;
@@ -187,6 +188,7 @@ export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _s
     return "";
   }
   if (bankMode) {
+    if (isAutoRolling) return "";
     if (!aCommitted) {
       if (commitGate?.allowed === false) {
         const reason = String(commitGate?.reason ?? "Unavailable");
@@ -209,12 +211,14 @@ export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _s
  * @param {number} options.idx - Defender index (for multi-defender).
  * @param {Object} options.data - Full opposed workflow data.
  * @param {Function} options._allDefendersCommitted - Helper to check if all committed.
+ * @param {boolean} options.isAutoRolling - True while banked auto-roll is pending/running.
  * @returns {string} - HTML action buttons or empty string.
  */
-export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, data, _allDefendersCommitted, commitDefenseGate = null }) {
+export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, data, _allDefendersCommitted, commitDefenseGate = null, isAutoRolling = false }) {
   if (defender.result || defender.noDefense) return "";
 
   if (bankMode) {
+    if (isAutoRolling) return "";
     if (!dCommitted) {
       if (commitDefenseGate?.allowed === false) {
         const reason = String(commitDefenseGate?.reason ?? "Unavailable");

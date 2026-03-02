@@ -91,6 +91,7 @@ const CHARACTERISTIC_LABELS = Object.freeze({
 });
 
 const _xpSpendLocks = new Set();
+const _noticeDedupMap = new Map();
 const _KNOWN_TALENT_SLUGS = new Set(listKnownTalentSlugs());
 
 function _key(v) {
@@ -298,6 +299,40 @@ function _joinReasonLines(lines = []) {
   return lines.filter(Boolean).join(" ");
 }
 
+function _noticeDedupKey(result) {
+  const actorId = String(result?.actorId ?? "");
+  const slug = String(result?.slug ?? "").trim().toLowerCase();
+  const mode = String(result?.mode ?? "").trim().toLowerCase();
+  const source = String(result?.source ?? "").trim().toLowerCase();
+  const reasons = Array.isArray(result?.reasons) ? result.reasons.join("|") : "";
+  const guidance = Array.isArray(result?.guidance) ? result.guidance.join("|") : "";
+  const warnings = Array.isArray(result?.warnings) ? result.warnings.join("|") : "";
+  return [actorId, slug, mode, source, reasons, guidance, warnings].join("::");
+}
+
+function _shouldSuppressNotice(result) {
+  const source = String(result?.source ?? "").trim().toLowerCase();
+  if (!source) return false;
+  // De-duplicate drop pipeline warnings that can be emitted by both preflight and create hooks.
+  if (!(source === "drop" || source === "precreateitem" || source === "createitem")) return false;
+
+  const key = _noticeDedupKey(result);
+  if (!key) return false;
+
+  const now = Date.now();
+  const prevTs = Number(_noticeDedupMap.get(key) ?? 0);
+  _noticeDedupMap.set(key, now);
+
+  // Keep map bounded over time.
+  if (_noticeDedupMap.size > 250) {
+    for (const [k, ts] of _noticeDedupMap.entries()) {
+      if (now - Number(ts) > 5000) _noticeDedupMap.delete(k);
+    }
+  }
+
+  return (now - prevTs) <= 1500;
+}
+
 export function validateTalentLearning(actor, talentLike, opts = {}) {
   const mode = _normalizeMode(opts.mode ?? getTalentLearningMode());
   const noGoverningRule = _normalizeNoGovernRule(
@@ -334,6 +369,7 @@ export function validateTalentLearning(actor, talentLike, opts = {}) {
       noGoverningDiscountApplied: false,
       duplicate: false,
       requiresManualReview: false,
+      actorId: actor?.id ?? null,
       prerequisites: { requires: [], replaces: [], unresolved: [], satisfied: true },
       characteristic: { satisfied: true, checks: [] },
     };
@@ -478,6 +514,7 @@ export function validateTalentLearning(actor, talentLike, opts = {}) {
     favoredDiscountApplied,
     noGoverningDiscountApplied,
     duplicate,
+    actorId: actor?.id ?? null,
     reasons,
     warnings,
     guidance,
@@ -499,6 +536,7 @@ function _formatValidationSummary(result) {
 
 export function notifyTalentLearningResult(result, { force = false } = {}) {
   if (!result) return;
+  if (_shouldSuppressNotice(result)) return;
   const summary = _formatValidationSummary(result);
   if (!summary) return;
   const noticeMode = getTalentLearningNoticeMode();

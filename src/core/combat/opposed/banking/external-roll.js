@@ -78,6 +78,9 @@ export async function applyExternalRollMessage(rollMessage, deps) {
     : ((stage === "defender-roll" || stage === "defender-nodefense") ? defenderEntry : null);
 
   if (!expectedSide?.actorUuid) return;
+  if (rollId && stage === "attacker-roll" && String(current?.attacker?.rollMessageId ?? "") === String(rollId)) return;
+  if (rollId && stage === "defender-roll" && String(defenderEntry?.rollMessageId ?? "") === String(rollId)) return;
+  if (rollId && stage === "defender-nodefense" && String(defenderEntry?.noDefenseMessageId ?? "") === String(rollId)) return;
 
   const expectedActor = resolveActor(expectedSide.actorUuid);
   if (!expectedActor) return;

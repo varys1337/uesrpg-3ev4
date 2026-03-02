@@ -520,7 +520,7 @@ export async function handleAttackerCommit(ctx) {
  * @returns {Promise<void>}
  */
 export async function handleAttackerRoll(ctx) {
-  const { message, data, attacker, spell, defenders, _updateCard, workflow } = ctx;
+  const { message, data, attacker, spell, defenders, batchedUpdate, _updateCard, workflow } = ctx;
 
   if (data.attacker.result) return;
 
@@ -767,12 +767,14 @@ export async function handleAttackerRoll(ctx) {
     for (let i = 0; i < defenders.length; i += 1) {
       const defActor = ctx.resolveActor(defenders[i]?.actorUuid);
       if (!defActor) continue;
-      await workflow._resolveOutcome(message, data, attacker, defActor, { defenderIndex: i });
+      await workflow._resolveOutcome(message, data, attacker, defActor, { defenderIndex: i, batchedUpdate });
     }
-    return;
+    return data;
   }
 
   data.context.phase = "awaiting-defense";
   ctx._markResolutionPhase(data);
+  if (batchedUpdate) return data;
   await _updateCard(message, data);
+  return data;
 }

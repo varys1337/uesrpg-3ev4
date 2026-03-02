@@ -561,6 +561,39 @@
 .worldbuilding.sheet.actor.player-character .resource-row,
 .worldbuilding.sheet.actor.npc .resource-row {
   padding-inline: var(--uesrpg-sidebar-resource-row-inset, 2px);
+  /* Keep rows visually distinct after reducing vertical spacing */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.worldbuilding.sheet.actor.player-character .resourceBars .resource-row:last-child,
+.worldbuilding.sheet.actor.npc .resourceBars .resource-row:last-child {
+  border-bottom: none;
+}
+
+/* NPC sidebar density pass: prevent initial sidebar scroll without affecting PC layout. */
+.worldbuilding.sheet.actor.npc .sheet-fixed-container {
+  padding: calc(var(--uesrpg-space-sm) + 4px);
+}
+
+.worldbuilding.sheet.actor.npc .fixed-data-container {
+  gap: 4px;
+}
+
+.worldbuilding.sheet.actor.npc .resourceBars {
+  gap: 1px;
+}
+
+.worldbuilding.sheet.actor.npc .charname {
+  margin: 8px 0 4px;
+}
+
+.worldbuilding.sheet.actor.npc .charname input {
+  height: 34px;
+}
+
+.worldbuilding.sheet.actor.npc .characteristic {
+  min-height: 24px;
+  padding: 0 5px;
 }
 
 .worldbuilding.sheet.actor .tab.core .tabContainer {

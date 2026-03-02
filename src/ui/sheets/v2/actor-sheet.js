@@ -17,7 +17,11 @@ import { postItemToChat } from "../shared-handlers.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
-import { resolveDroppedItem } from "../../../utils/drop-data.js";
+import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
+import { buildItemDragPayload } from "../../../utils/drag-payload.js";
+import { handleExternalItemDrop } from "../../../utils/drop-item-create-data.js";
+import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
+import { onDropItemIntoContainer } from "../item/listeners/containment.js";
 import { AttackTracker } from "../../../core/combat/attack-tracker.js";
 import { cancelOriginAEUpkeep } from "../../../core/magic/effects/origin-effect.js";
 
@@ -42,6 +46,7 @@ import { registerResourceButtonHandlers } from "../shared/listeners/resource-but
 import { LanguageSelectorAppV2, FactionSelectorAppV2 } from "../../apps/v2/social-selectors.js";
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
+import { enableItemRowDragSources } from "./shared/drag-sources.js";
 import { activateEditorButtons } from "../shared/editor-activation.js";
 import {
   TALENT_LEARNING_MODE,
@@ -162,7 +167,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "actor", "player-character", "uesrpg-sheet-root"],
-    position: { width: 780, height: 1080 },
+    position: { width: 910, height: 960},
     window: { resizable: true },
     form: { submitOnChange: true },
     actions: {
@@ -220,7 +225,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     dragDrop: [
       {
         dragSelector: ".item, .npc-item, .spell-row",
-        dropSelector: ".window-content, .sheet-body, .tab, .tabContainer, .itemListContainer",
+        dropSelector: ".window-content, .sheet-body, .tab, .tabContainer, .itemListContainer, [data-item-type='container']",
       },
     ],
   };
@@ -386,9 +391,16 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
     // Core tab: feature inspector + chargen wizard flag
     if (_needs("core")) {
-      context.featureInspector = getCachedSetting("showFeatureInspector")
-        ? buildFeatureInspectorContext(actor)
-        : null;
+      if (getCachedSetting("showFeatureInspector")) {
+        try {
+          context.featureInspector = buildFeatureInspectorContext(actor);
+        } catch (err) {
+          console.warn("UESRPG | Feature inspector build failed", actor?.name, err);
+          context.featureInspector = null;
+        }
+      } else {
+        context.featureInspector = null;
+      }
       context.useRawChargenWizard = Boolean(getCachedSetting("useRawChargenWizard"));
     } else {
       context.featureInspector = null;
@@ -485,6 +497,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     if (!el || el.dataset.uesrpgListeners === "1") return;
     el.dataset.uesrpgListeners = "1";
     bindItemDescriptionTooltips(this, el);
+    enableItemRowDragSources(el, { actor: this.document });
 
     for (const nameEl of el.querySelectorAll(".item-name")) {
       const txt = String(nameEl?.textContent ?? "").trim();
@@ -559,6 +572,25 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     el.addEventListener("change", this._uesrpgTabChangeHandler);
     el.addEventListener("input", this._uesrpgTabInputHandler);
     el.addEventListener("keydown", this._uesrpgTabKeydownHandler);
+
+    // Container row: visual drag-over highlight.
+    // Native dragenter/dragleave are used for the CSS class; the actual drop is
+    // handled by the DragDrop-bound _onDrop via the updated dropSelector.
+    for (const containerRow of el.querySelectorAll("[data-item-type='container']")) {
+      containerRow.addEventListener("dragenter", (ev) => {
+        ev.preventDefault();
+        ev.currentTarget.classList.add("uesrpg-drag-over");
+      });
+      containerRow.addEventListener("dragleave", (ev) => {
+        // Only remove when the pointer truly leaves the row, not when entering a child.
+        if (!ev.currentTarget.contains(ev.relatedTarget)) {
+          ev.currentTarget.classList.remove("uesrpg-drag-over");
+        }
+      });
+      containerRow.addEventListener("drop", (ev) => {
+        ev.currentTarget.classList.remove("uesrpg-drag-over");
+      });
+    }
   }
 
   /* ═══════════════════════ Collapsible Groups ════════════════════════ */
@@ -654,7 +686,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     navigator.clipboard.writeText(json).then(() => {
       ui.notifications?.info?.("Feature Inspector data copied to clipboard.");
     }).catch((err) => {
-      console.warn("uesrpg | Failed to copy feature inspector data", err);
+      console.warn("UESRPG | Failed to copy feature inspector data", err);
+      ui.notifications?.warn?.("Failed to copy to clipboard. Try using a secure (HTTPS) context.");
     });
   }
 
@@ -838,17 +871,116 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
   /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */
 
+  /**
+   * Build a proper Item drag payload from data-item-id.
+   * The base ActorSheetV2._onDragStart relies on data-document-uuid which actor
+   * inventory rows do not carry; this override resolves the live Item document
+   * and stamps the correct { type, uuid } payload so same-sheet and cross-sheet
+   * drops both work correctly.
+   * @override
+   */
+  _onDragStart(event) {
+    const existing = String(event?.dataTransfer?.getData?.("text/plain") ?? "").trim();
+    if (existing) return;
+
+    const row = event.target?.closest?.("[data-item-id]") ?? event.currentTarget;
+    const itemId = row?.dataset?.itemId;
+    if (!itemId) return super._onDragStart(event);
+
+    const item = this.document.items.get(itemId);
+    if (!item) return super._onDragStart(event);
+
+    const traceId = makeDndTraceId("pc-drag");
+    const payload = buildItemDragPayload(item, { traceId });
+    event.dataTransfer?.setData("text/plain", JSON.stringify(payload));
+    dndDebug("sheet.dragstart.fallback", {
+      sheet: "PCActorSheetV2",
+      actor: this.document?.uuid ?? null,
+      item: item?.uuid ?? null,
+      itemId: item?.id ?? null,
+    }, { traceId });
+  }
+
+  /** @override */
+  _canDragDrop(_selector) {
+    return this.isEditable;
+  }
+
+  /** @override */
+  _canDragStart(_selector) {
+    return this.isEditable;
+  }
+
   /** @override */
   async _onDrop(event) {
-    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
+    const traceId = makeDndTraceId("pc-drop");
+    const data = readDropData(event, { traceId });
+    dndDebug("sheet.drop.received", {
+      sheet: "PCActorSheetV2",
+      actor: this.document?.uuid ?? null,
+      type: data?.type ?? null,
+      uuid: data?.uuid ?? null,
+      itemId: data?.itemId ?? null,
+      targetContainer: event.target?.closest?.("[data-item-type='container']")?.dataset?.itemId ?? null,
+    }, { traceId });
 
     if (data.type === "Item") {
-      const item = await resolveDroppedItem(data);
+      // Route to container containment logic when the drop lands on a container row.
+      // event.currentTarget is the matched dropSelector element (container <tr> row
+      // when dropSelector includes [data-item-type='container']).
+      // Also check event.target.closest() as a belt-and-suspenders for child targets.
+      const containerRow =
+        event.currentTarget?.dataset?.itemType === "container"
+          ? event.currentTarget
+          : event.target.closest?.("[data-item-type='container']");
+
+      if (containerRow?.dataset?.itemId) {
+        const containerItem = this.document.items.get(containerRow.dataset.itemId);
+        if (containerItem?.type === "container") {
+          containerRow.classList.remove("uesrpg-drag-over");
+          dndDebug("sheet.drop.route.container", {
+            sheet: "PCActorSheetV2",
+            actor: this.document?.uuid ?? null,
+            container: containerItem?.uuid ?? null,
+            data,
+          }, { traceId });
+          return onDropItemIntoContainer(
+            { item: containerItem, actor: this.document, isEditable: this.isEditable },
+            data
+          );
+        }
+      }
+
+      const resolved = await resolveDroppedItemDetailed(data, { traceId });
+      const item = resolved.item;
       if (!item) {
-        console.debug?.("UESRPG | PC sheet received unresolved item drop payload", {
-          actor: this.document?.uuid,
+        dndDebug("sheet.drop.unresolved", {
+          sheet: "PCActorSheetV2",
+          actor: this.document?.uuid ?? null,
           data,
+          resolved,
+        }, { traceId });
+        dndWarnFailure("Unable to resolve dropped item payload.", {
+          traceId,
+          details: {
+            sheet: "PCActorSheetV2",
+            actor: this.document?.uuid ?? null,
+            data,
+            resolved,
+          },
         });
+        return super._onDrop(event);
+      }
+
+      const isExternalItem = item.actor?.id !== this.document.id;
+      if (!isExternalItem) {
+        dndDebug("sheet.drop.sameActor", {
+          sheet: "PCActorSheetV2",
+          actor: this.document?.uuid ?? null,
+          item: item?.uuid ?? null,
+          sourceKind: resolved.sourceKind,
+        }, { traceId });
+        return super._onDrop(event);
       }
 
       // Talent learning preflight for external drops onto PC sheet.
@@ -864,6 +996,64 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         }
         if (validation.mode === TALENT_LEARNING_MODE.ENFORCE && !validation.ok) {
           notifyTalentLearningResult(validation, { force: true });
+          return;
+        }
+      }
+
+      // External item drops (compendium/world/other actor): create explicitly so
+      // we can normalize legacy generic-item types on first drop.
+      if (!this.isEditable || !this.document?.isOwner) {
+        dndWarnFailure("You do not have permission to modify this actor's inventory.", {
+          traceId,
+          details: {
+            sheet: "PCActorSheetV2",
+            actor: this.document?.uuid ?? null,
+            item: item?.uuid ?? null,
+          },
+        });
+        return;
+      }
+
+      try {
+        const created = await handleExternalItemDrop(this.document, item, {
+          normalizeType: true,
+          traceId,
+        });
+        if (!created) {
+          throw new Error("handleExternalItemDrop returned null");
+        }
+        dndDebug("sheet.drop.externalCreate.success", {
+          sheet: "PCActorSheetV2",
+          actor: this.document?.uuid ?? null,
+          sourceItem: item?.uuid ?? null,
+          sourceKind: resolved.sourceKind,
+          createdId: created?.id ?? null,
+          createdType: created?.type ?? null,
+        }, { traceId });
+        return;
+      } catch (err) {
+        dndDebug("sheet.drop.externalCreate.failed", {
+          sheet: "PCActorSheetV2",
+          actor: this.document?.uuid ?? null,
+          item: item?.uuid ?? null,
+          sourceKind: resolved.sourceKind,
+          err: err?.message ?? String(err),
+          resolutionPath: resolved?.resolutionPath ?? [],
+          errors: resolved?.errors ?? [],
+        }, { traceId });
+        try {
+          return await super._onDrop(event);
+        } catch (fallbackErr) {
+          dndWarnFailure("Item drop failed. Check console diagnostics.", {
+            traceId,
+            details: {
+              sheet: "PCActorSheetV2",
+              actor: this.document?.uuid ?? null,
+              item: item?.uuid ?? null,
+              err: err?.message ?? String(err),
+              fallbackErr: fallbackErr?.message ?? String(fallbackErr),
+            },
+          });
           return;
         }
       }

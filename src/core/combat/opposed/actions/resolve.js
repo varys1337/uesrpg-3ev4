@@ -11,7 +11,7 @@ import { promptDefenderAdvantage as _promptDefenderAdvantage } from "../dialogs/
 import { getSpecialActionById } from "../../combat-style-utils.js";
 import { listEquippedShields as _listEquippedShields } from "../helpers/utility.js";
 import { weaponHasQuality as _weaponHasQuality, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid } from "../helpers/workflow.js";
-import { getDamageTypeFromWeapon } from "../../combat-utils.js";
+import { getAttackModeFromWeapon, getDamageTypeFromWeapon } from "../../combat-utils.js";
 import { getBlockValue } from "../../mitigation.js";
 import { DAMAGE_TYPES } from "../../damage-automation.js";
 import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
@@ -283,17 +283,22 @@ export async function handleBlockResolve(ctx) {
 
   // Roll the incoming attack damage (attacker weapon selection).
   const attackMode = String(data.context?.attackMode ?? "melee").toLowerCase();
+  const hasExplicitContextMode = Boolean(
+    String(data?.context?.attackMode ?? "").trim() || String(data?.context?.attackType ?? "").trim()
+  );
   const ctxWeaponUuid = String(data.context?.weaponUuid ?? "").trim();
   let ctxWeaponMode = "";
   if (ctxWeaponUuid) {
     try {
       const w = _resolveItemViaActor(ctxWeaponUuid, attacker);
-      ctxWeaponMode = String(w?.system?.attackMode ?? "").toLowerCase();
+      ctxWeaponMode = String(getAttackModeFromWeapon(w) ?? "").toLowerCase();
     } catch (_e) {
       ctxWeaponMode = "";
     }
   }
-  const isRanged = String(attackMode ?? "").toLowerCase() === "ranged" || String(ctxWeaponMode ?? "").toLowerCase() === "ranged";
+  const isRanged = hasExplicitContextMode
+    ? String(attackMode ?? "").toLowerCase() === "ranged"
+    : String(ctxWeaponMode ?? "").toLowerCase() === "ranged";
   const rangedWeapon = isRanged ? (selectEquippedRangedWeapon(attacker) ?? null) : null;
   const rangedWeaponUuid = isRanged
     ? (String(data.context?.weaponUuid ?? "").trim()
@@ -560,17 +565,22 @@ export async function handleWardResolve(ctx) {
 
   // Roll the incoming attack damage (attacker weapon selection).
   const attackMode = String(data.context?.attackMode ?? "melee").toLowerCase();
+  const hasExplicitContextMode = Boolean(
+    String(data?.context?.attackMode ?? "").trim() || String(data?.context?.attackType ?? "").trim()
+  );
   const ctxWeaponUuid = String(data.context?.weaponUuid ?? "").trim();
   let ctxWeaponMode = "";
   if (ctxWeaponUuid) {
     try {
       const w = _resolveItemViaActor(ctxWeaponUuid, attacker);
-      ctxWeaponMode = String(w?.system?.attackMode ?? "").toLowerCase();
+      ctxWeaponMode = String(getAttackModeFromWeapon(w) ?? "").toLowerCase();
     } catch (_e) {
       ctxWeaponMode = "";
     }
   }
-  const isRanged = String(attackMode ?? "").toLowerCase() === "ranged" || String(ctxWeaponMode ?? "").toLowerCase() === "ranged";
+  const isRanged = hasExplicitContextMode
+    ? String(attackMode ?? "").toLowerCase() === "ranged"
+    : String(ctxWeaponMode ?? "").toLowerCase() === "ranged";
   const rangedWeapon = isRanged ? (selectEquippedRangedWeapon(attacker) ?? null) : null;
   const rangedWeaponUuid = isRanged
     ? (String(data.context?.weaponUuid ?? "").trim()

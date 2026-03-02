@@ -18,6 +18,7 @@ import { registerCombatChatHandlers } from "../core/combat/chat-handlers.js";
 import { registerSkillTNDebug } from "../utils/dev/skill-tn-debug.js";
 import { registerActorSelectDebug } from "../utils/dev/actor-select-debug.js";
 import { registerOpposedDiagnostics } from "../utils/dev/opposed-diagnostics.js";
+import { registerDndDebugObservers } from "../utils/dnd-debugger.js";
 import { registerConditions } from "../core/conditions/index.js";
 import { registerWounds } from "../core/wounds/index.js";
 import { registerFrenzied, FrenziedAPI } from "../core/conditions/frenzied.js";
@@ -126,6 +127,13 @@ export default async function initHandler() {
     registerOpposedDiagnostics();
   } catch (err) {
     console.warn("UESRPG | Failed to register opposed diagnostics", err);
+  }
+
+  // DnD diagnostics observers (hook + DOM capture listeners; logs are debug-gated).
+  try {
+    registerDndDebugObservers();
+  } catch (err) {
+    console.warn("UESRPG | Failed to register DnD diagnostics observers", err);
   }
 
   // Racial talent/power automation hooks (Chapter 4): registered once.

@@ -331,7 +331,8 @@ export class SimpleItem extends Item {
     itemData.autoQualitiesStructured = [];
 
     // Apply damaged (X): reduces all AR/BR by X (min 0)
-    const damagedQ = (itemData.qualitiesStructured || []).find(q => q?.key === "damaged");
+    const injected = itemData.qualitiesStructuredInjected ?? itemData.qualitiesStructured ?? [];
+    const damagedQ = injected.find(q => q?.key === "damaged");
     const damagedValue = safeNumber(damagedQ?.value, 0);
 
     const stepWeightClass = (base, delta) => {
@@ -407,7 +408,7 @@ export class SimpleItem extends Item {
 
     // Runed (armor/shield): +25% price (derived only).
     const hasRuned = itemData.runed === true
-      || (itemData.qualitiesStructured || []).some(q => String(q?.key ?? "").toLowerCase() === "runed")
+      || injected.some(q => String(q?.key ?? "").toLowerCase() === "runed")
       || hasLegacyQuality(itemData.qualities, "runed");
     if (!useBaseStats && hasRuned) {
       derivedPrice = roundPriceUp(Number(derivedPrice ?? 0) * 1.25);
@@ -665,11 +666,16 @@ async _duplicateContainedItemsOnActor(actorData, itemData) {
 
   if (itemsToDuplicate.length === 0) return;
 
-  const createdContainedItems = await requestCreateEmbeddedDocuments(actorData, "Item", itemsToDuplicate);
+  try {
+    const createdContainedItems = await requestCreateEmbeddedDocuments(actorData, "Item", itemsToDuplicate);
 
-  // Persist the newly created item references back to the container document.
-  const newContainedItems = (createdContainedItems ?? []).map(item => ({ _id: item._id, item }));
-  await requestUpdateDocument(this, { 'system.contained_items': newContainedItems });
+    // Persist the newly created item references back to the container document.
+    const newContainedItems = (createdContainedItems ?? []).map(item => ({ _id: item._id, item }));
+    await requestUpdateDocument(this, { 'system.contained_items': newContainedItems });
+  } catch (err) {
+    console.error("UESRPG | Failed to duplicate contained items onto actor", { container: this.name, err });
+    ui.notifications?.error?.("Failed to create contained items for container.");
+  }
 }
   _untrainedException(actorData) {
     // Defensive guard: safe property access and array filtering

@@ -17,6 +17,7 @@ import { collectCombatTNModifiersFromAE } from "../active-effects/combat-tn-modi
 import { hasTalent } from "../traits/talents-api.js";
 import { getConditionValue } from "../conditions/condition-engine.js";
 import { isEngagementFlankingHomebrewEnabled } from "../system/homebrew.js";
+import { isDebugEnabled } from "../../utils/debug.js";
 
 /**
  * Read combat TN modifiers from actor.system.modifiers.combat.*.
@@ -81,6 +82,27 @@ function _resolveOpponentActorFromContext(context) {
   } catch (_e) {
     return null;
   }
+}
+
+function _resolveAttackModeFromContext(context, role = null) {
+  const candidates = [
+    context?.attackMode,
+    context?.mode,
+    context?.testType,
+  ];
+
+  for (const raw of candidates) {
+    const normalized = String(raw ?? "").trim().toLowerCase();
+    if (normalized === "melee" || normalized === "ranged") return normalized;
+  }
+
+  return role === "attacker" ? "melee" : "";
+}
+
+function _getFlankedXFromContext(context) {
+  const opponentActor = _resolveOpponentActorFromContext(context);
+  const x = Math.max(0, Number(getConditionValue(opponentActor, "flanked") ?? 0));
+  return { opponentActor, x };
 }
 
 function getCharTotal(actor, key) {
@@ -535,6 +557,7 @@ export function computeTN({
 } = {}) {
   const breakdown = [];
   let observantEntry = null;
+  const attackMode = _resolveAttackModeFromContext(context, role);
 
   // --- Base TN
   let baseTN = 0;
@@ -658,7 +681,7 @@ export function computeTN({
   // Caller must provide sizes in context to keep computeTN synchronous.
   if (role === "attacker") {
     const sizeMod = getSizeToHitModifier({
-      mode: context?.attackMode,
+      mode: attackMode,
       attackerSize: context?.selfSize ?? actor?.system?.size,
       defenderSize: context?.opponentSize
     });
@@ -666,19 +689,31 @@ export function computeTN({
   }
 
   // --- Homebrew: Engagement & Flanking (+5 TN per Flanked X on melee attacks/maneuvers)
-  if (role === "attacker"
-    && String(context?.attackMode ?? "").toLowerCase() === "melee"
-    && isEngagementFlankingHomebrewEnabled()) {
-    const opponentActor = _resolveOpponentActorFromContext(context);
-    const flankedX = Math.max(0, Number(getConditionValue(opponentActor, "flanked") ?? 0));
-    if (flankedX > 0) {
+  const engagementEnabled = isEngagementFlankingHomebrewEnabled();
+  const { opponentActor, x: flankedX } = _getFlankedXFromContext(context);
+  const flankedBonus = (role === "attacker" && attackMode === "melee" && engagementEnabled)
+    ? (5 * flankedX)
+    : 0;
+  if (flankedBonus > 0) {
       breakdown.push({
         key: "homebrew:flanked",
         label: `Flanked (${flankedX})`,
-        value: 5 * flankedX,
+        value: flankedBonus,
         source: "homebrew"
       });
-    }
+  }
+
+  if (role === "attacker" && isDebugEnabled("effectsProxyDebug")) {
+    console.log("UESRPG | TN | flanked evaluation", {
+      attacker: actor?.name ?? null,
+      attackerUuid: actor?.uuid ?? null,
+      attackMode,
+      engagementEnabled,
+      opponent: opponentActor?.name ?? null,
+      opponentUuid: opponentActor?.uuid ?? (String(context?.opponentUuid ?? "").trim() || null),
+      flankedX,
+      appliedBonus: flankedBonus,
+    });
   }
 
   // --- Active Effects combat TN modifiers (from system.modifiers.combat.*)

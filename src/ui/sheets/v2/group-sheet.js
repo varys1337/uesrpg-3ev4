@@ -21,10 +21,15 @@ import {
   requestCreateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments,
 } from "../../../utils/authority-proxy.js";
-import { resolveDroppedItem } from "../../../utils/drop-data.js";
+import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
+import { onDropItemIntoContainer } from "../item/listeners/containment.js";
 import { asyncGuard } from "../../../utils/async-guard.js";
 import { activateEditorButtons } from "../shared/editor-activation.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
+import { enableItemRowDragSources } from "./shared/drag-sources.js";
+import { buildItemDragPayload } from "../../../utils/drag-payload.js";
+import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
+import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -91,7 +96,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     form: { submitOnChange: true },
     dragDrop: [{
       dragSelector: ".member-item, .item, .npc-item",
-      dropSelector: ".window-content, .sheet-body, .tab, .itemListContainer",
+      dropSelector: ".window-content, .sheet-body, .tab, .itemListContainer, [data-item-type='container']",
     }],
     actions: {
       editPortrait: GroupSheetV2.prototype._onEditPortrait,
@@ -259,6 +264,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
       if (partId === "body") {
         bindItemDescriptionTooltips(this, htmlElement);
+        enableItemRowDragSources(htmlElement, { actor: this.document });
         htmlElement.querySelectorAll(".itemEquip").forEach(el => {
           el.addEventListener("change", asyncGuard(async (_ev) => {
             const itemId = el.closest(".item")?.dataset?.itemId;
@@ -301,6 +307,22 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
             if (item) this.#duplicateItem(item);
           });
         });
+
+        // Container row: visual drag-over highlight.
+        for (const containerRow of htmlElement.querySelectorAll("[data-item-type='container']")) {
+          containerRow.addEventListener("dragenter", (ev) => {
+            ev.preventDefault();
+            ev.currentTarget.classList.add("uesrpg-drag-over");
+          });
+          containerRow.addEventListener("dragleave", (ev) => {
+            if (!ev.currentTarget.contains(ev.relatedTarget)) {
+              ev.currentTarget.classList.remove("uesrpg-drag-over");
+            }
+          });
+          containerRow.addEventListener("drop", (ev) => {
+            ev.currentTarget.classList.remove("uesrpg-drag-over");
+          });
+        }
       }
     } finally {
       this._traceSheetPerf("_attachPartListeners", perfStart, { partId });
@@ -331,8 +353,54 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   }
 
   /** @override */
+  _canDragStart(_selector) {
+    return this.isEditable;
+  }
+
+  /**
+   * Build a proper Item drag payload from data-item-id.
+   * Group inventory rows carry data-item-id, not data-document-uuid, so the
+   * base _onDragStart would produce an empty payload. We resolve the live Item
+   * and stamp the correct { type, uuid } so cross-sheet drops work correctly.
+   * Member rows use data-uuid (handled by super) — fall through for those.
+   * @override
+   */
+  _onDragStart(event) {
+    const existing = String(event?.dataTransfer?.getData?.("text/plain") ?? "").trim();
+    if (existing) return;
+
+    const row = event.target?.closest?.("[data-item-id]") ?? event.currentTarget;
+    const itemId = row?.dataset?.itemId;
+    if (!itemId) return super._onDragStart(event);
+
+    const item = this.document.items.get(itemId);
+    if (!item) return super._onDragStart(event);
+
+    const traceId = makeDndTraceId("group-drag");
+    const payload = buildItemDragPayload(item, { traceId });
+    event.dataTransfer?.setData("text/plain", JSON.stringify(payload));
+    dndDebug("sheet.dragstart.fallback", {
+      sheet: "GroupSheetV2",
+      actor: this.document?.uuid ?? null,
+      item: item?.uuid ?? null,
+      itemId: item?.id ?? null,
+    }, { traceId });
+  }
+
+  /** @override */
   async _onDrop(event) {
-    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
+    const traceId = makeDndTraceId("group-drop");
+    const data = readDropData(event, {
+      traceId,
+    });
+    dndDebug("sheet.drop.received", {
+      sheet: "GroupSheetV2",
+      actor: this.document?.uuid ?? null,
+      type: data?.type ?? null,
+      uuid: data?.uuid ?? null,
+      itemId: data?.itemId ?? null,
+      targetContainer: event.target?.closest?.("[data-item-type='container']")?.dataset?.itemId ?? null,
+    }, { traceId });
     if (data.type === "Actor") return this.#onDropActor(data);
     if (data.type === "Item") return this.#onDropItem(event, data);
     return super._onDrop(event);
@@ -424,46 +492,124 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     ui.notifications.info(`${actor.name} added to group.`);
   }
 
-  /** Handle Item drag-drop (add to group inventory or unlink from container) */
+  /** Handle Item drag-drop (add to group inventory, route into container, or reorder) */
   async #onDropItem(event, data) {
     const ALLOWED_ITEM_TYPES = ["weapon", "armor", "ammunition", "item", "scroll"];
-    const STACKABLE_TYPES = ["ammunition"];
+    const traceId = makeDndTraceId("group-itemdrop");
 
     if (!this.document.isOwner) {
-      ui.notifications.warn("You do not have permission to modify this group's inventory.");
+      dndWarnFailure("You do not have permission to modify this group's inventory.", {
+        traceId,
+        details: {
+          actor: this.document?.uuid ?? null,
+          data,
+        },
+      });
       return;
     }
 
-    const item = await resolveDroppedItem(data);
-    if (!item) {
-      console.debug?.("UESRPG | Group sheet received unresolved item drop payload", {
-        actor: this.document?.uuid,
-        data,
-      });
-      ui.notifications.warn("Could not find item.");
-      return;
+    // Container-row drop: route to containment logic before any other checks so
+    // that both same-actor and cross-actor items can be placed into a container.
+    const containerRow =
+      event.currentTarget?.dataset?.itemType === "container"
+        ? event.currentTarget
+        : event.target.closest?.("[data-item-type='container']");
+
+    if (containerRow?.dataset?.itemId) {
+      const containerItem = this.document.items.get(containerRow.dataset.itemId);
+      if (containerItem?.type === "container") {
+        containerRow.classList.remove("uesrpg-drag-over");
+        dndDebug("sheet.drop.route.container", {
+          sheet: "GroupSheetV2",
+          actor: this.document?.uuid ?? null,
+          container: containerItem?.uuid ?? null,
+          data,
+        }, { traceId });
+        return onDropItemIntoContainer(
+          { item: containerItem, actor: this.document, isEditable: this.isEditable },
+          data
+        );
+      }
     }
-    // Same-actor drops should keep native reorder/sort behavior.
+
+    const resolved = await resolveDroppedItemDetailed(data, { traceId });
+    const item = resolved.item;
+    if (!item) {
+      dndDebug("sheet.drop.unresolved", {
+        sheet: "GroupSheetV2",
+        actor: this.document?.uuid ?? null,
+        data,
+        resolved,
+      }, { traceId });
+      dndWarnFailure("Unable to resolve dropped item payload.", {
+        traceId,
+        details: {
+          sheet: "GroupSheetV2",
+          actor: this.document?.uuid ?? null,
+          data,
+          resolved,
+        },
+      });
+      return super._onDrop(event);
+    }
+    // Same-actor drops (non-container) keep native reorder/sort behavior.
     if (item.actor?.id === this.document.id) {
+      dndDebug("sheet.drop.sameActor", {
+        sheet: "GroupSheetV2",
+        actor: this.document?.uuid ?? null,
+        item: item?.uuid ?? null,
+        sourceKind: resolved.sourceKind,
+      }, { traceId });
       return super._onDrop(event);
     }
 
-    if (!ALLOWED_ITEM_TYPES.includes(item.type)) {
-      ui.notifications.warn(`Cannot add ${item.type} items to group inventory.`);
+    const effectiveType = inferDroppedItemType(item);
+    if (!ALLOWED_ITEM_TYPES.includes(effectiveType)) {
+      ui.notifications.warn(`Cannot add ${effectiveType} items to group inventory.`);
       return;
     }
 
-    const itemData = item.toObject();
-    delete itemData._id;
-    if (
-      itemData.system?.quantity !== undefined &&
-      !STACKABLE_TYPES.includes(itemData.type)
-    ) {
-      itemData.system.quantity = 1;
+    try {
+      const created = await handleExternalItemDrop(this.document, item, {
+        normalizeType: true,
+        traceId,
+      });
+      if (!created) throw new Error("handleExternalItemDrop returned null");
+      dndDebug("sheet.drop.externalCreate.success", {
+        sheet: "GroupSheetV2",
+        actor: this.document?.uuid ?? null,
+        sourceItem: item?.uuid ?? null,
+        sourceKind: resolved.sourceKind,
+        createdId: created?.id ?? null,
+        createdType: created?.type ?? null,
+      }, { traceId });
+      ui.notifications.info(`${item.name} added to group inventory.`);
+      return;
+    } catch (err) {
+      dndDebug("sheet.drop.externalCreate.failed", {
+        sheet: "GroupSheetV2",
+        actor: this.document?.uuid ?? null,
+        item: item?.uuid ?? null,
+        sourceKind: resolved.sourceKind,
+        err: err?.message ?? String(err),
+        resolutionPath: resolved?.resolutionPath ?? [],
+        errors: resolved?.errors ?? [],
+      }, { traceId });
+      try {
+        return await super._onDrop(event);
+      } catch (fallbackErr) {
+        dndWarnFailure("Item drop failed. Check console diagnostics.", {
+          traceId,
+          details: {
+            sheet: "GroupSheetV2",
+            actor: this.document?.uuid ?? null,
+            item: item?.uuid ?? null,
+            err: err?.message ?? String(err),
+            fallbackErr: fallbackErr?.message ?? String(fallbackErr),
+          },
+        });
+      }
     }
-
-    await requestCreateEmbeddedDocuments(this.document, "Item", [itemData]);
-    ui.notifications.info(`${item.name} added to group inventory.`);
   }
 
   /* ────────────────── Action Handlers (instance methods) ─────────────── */

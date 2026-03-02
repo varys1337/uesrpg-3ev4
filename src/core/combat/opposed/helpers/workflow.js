@@ -729,10 +729,8 @@ export async function inferAttackModeFromPreferredWeapon(actor) {
     const weapon = _resolveItemViaActor(weaponUuid, actor);
     if (!weapon || weapon.type !== "weapon") return "melee";
 
-    const mode = String(weapon.system?.attackMode ?? weapon.system?.weaponType ?? weapon.system?.type ?? "").toLowerCase();
-    if (mode.includes("ranged")) return "ranged";
-    if (weaponHasQuality(weapon, "thrown")) return "ranged";
-    return "melee";
+    const mode = String(getAttackModeFromWeapon(weapon) ?? "").toLowerCase();
+    return mode === "ranged" ? "ranged" : "melee";
   } catch (_err) {
     return "melee";
   }

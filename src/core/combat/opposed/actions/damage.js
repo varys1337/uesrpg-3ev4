@@ -160,12 +160,15 @@ export async function handleDamageRoll(ctx) {
 
   const advantage = _getDefenderAdvantage(data, data.defender) ?? { attacker: 0, defender: 0 };
   const attackMode = getContextAttackMode(data.context);
+  const hasExplicitContextMode = Boolean(
+    String(data?.context?.attackMode ?? "").trim() || String(data?.context?.attackType ?? "").trim()
+  );
   const ctxWeaponUuid = String(data.context?.weaponUuid ?? "").trim();
   let ctxWeaponMode = "";
   if (ctxWeaponUuid) {
     try {
       const w = _resolveItemViaActor(ctxWeaponUuid, attacker);
-      ctxWeaponMode = String(w?.system?.attackMode ?? "").toLowerCase();
+      ctxWeaponMode = String(getAttackModeFromWeapon(w) ?? "").toLowerCase();
     } catch (_e) {
       ctxWeaponMode = "";
     }
@@ -183,7 +186,9 @@ export async function handleDamageRoll(ctx) {
   const activationMode = String(activationDamage?.mode ?? "weapon").toLowerCase().trim();
   const allowNoWeapon = Boolean(activationDamage && activationMode !== "weapon");
 
-  const isRanged = String(attackMode ?? "").toLowerCase() === "ranged" || String(ctxWeaponMode ?? "").toLowerCase() === "ranged";
+  const isRanged = hasExplicitContextMode
+    ? String(attackMode ?? "").toLowerCase() === "ranged"
+    : String(ctxWeaponMode ?? "").toLowerCase() === "ranged";
   const rangedWeapon = isRanged ? (selectEquippedRangedWeapon(attacker) ?? null) : null;
   const rangedWeaponUuid = isRanged
     ? (String(data.context?.weaponUuid ?? "").trim()

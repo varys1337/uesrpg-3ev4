@@ -532,7 +532,7 @@
 .worldbuilding .rest-controls {
   display: flex;
   gap: var(--uesrpg-space-xs);
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .worldbuilding .rest-btn {

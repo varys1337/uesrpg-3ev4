@@ -836,6 +836,30 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
+  /* ═══════════════════ Array Mutation Lock ══════════════════════════ */
+
+  /**
+   * Per-array in-flight lock to prevent concurrent read-modify-write races.
+   *
+   * When two async calls read the same array before either write resolves,
+   * the second write clobbers the first. The lock ensures only one mutation
+   * per logical array runs at a time. Different arrays can still mutate
+   * concurrently (they use separate lock keys).
+   *
+   * @param {string} lockKey  Instance-level property name for the lock flag.
+   * @param {Function} fn     Async function containing the mutation logic.
+   * @returns {Promise<void>}
+   */
+  async _withArrayMutationLock(lockKey, fn) {
+    if (this[lockKey]) return;
+    this[lockKey] = true;
+    try {
+      await fn();
+    } finally {
+      this[lockKey] = false;
+    }
+  }
+
   /* ═══════════════════ Spell Scaling Actions ════════════════════════ */
 
   /**
@@ -847,27 +871,29 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     event.preventDefault();
     if (!this.isEditable) return;
 
-    const fallbackUnit = this.document.system?.duration?.unit || "instant";
-    let currentLevels = getScalingLevelsArray(this.document).map(e => normalizeScalingEntry(e, fallbackUnit));
+    return this._withArrayMutationLock("_scalingMutLock", async () => {
+      const fallbackUnit = this.document.system?.duration?.unit || "instant";
+      const currentLevels = getScalingLevelsArray(this.document).map(e => normalizeScalingEntry(e, fallbackUnit));
 
-    const maxLevel = currentLevels.reduce((max, entry) => Math.max(max, Number(entry.level) || 0), 0);
-    const nextLevel = maxLevel + 1;
-    if (nextLevel > 7) {
-      ui.notifications?.warn?.("Maximum 7 spell levels (Novice to Grandmaster).");
-      return;
-    }
+      const maxLevel = currentLevels.reduce((max, entry) => Math.max(max, Number(entry.level) || 0), 0);
+      const nextLevel = maxLevel + 1;
+      if (nextLevel > 7) {
+        ui.notifications?.warn?.("Maximum 7 spell levels (Novice to Grandmaster).");
+        return;
+      }
 
-    const newLevel = {
-      level: nextLevel,
-      cost: 0,
-      damageFormula: "",
-      duration: { value: 0, unit: fallbackUnit },
-      description: ""
-    };
+      const newLevel = {
+        level: nextLevel,
+        cost: 0,
+        damageFormula: "",
+        duration: { value: 0, unit: fallbackUnit },
+        description: ""
+      };
 
-    logSpellDebug("Add scaling level", { nextLevel, currentLevels });
-    await requestUpdateDocument(this.document, {
-      "system.scaling.levels": [...currentLevels, newLevel]
+      logSpellDebug("Add scaling level", { nextLevel, currentLevels });
+      await requestUpdateDocument(this.document, {
+        "system.scaling.levels": [...currentLevels, newLevel]
+      });
     });
   }
 
@@ -883,13 +909,15 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const index = parseInt(target.dataset.index, 10);
     if (isNaN(index)) return;
 
-    const fallbackUnit = this.document.system?.duration?.unit || "instant";
-    let currentLevels = getScalingLevelsArray(this.document).map(e => normalizeScalingEntry(e, fallbackUnit));
-    const newLevels = currentLevels.filter((_, idx) => idx !== index);
+    return this._withArrayMutationLock("_scalingMutLock", async () => {
+      const fallbackUnit = this.document.system?.duration?.unit || "instant";
+      const currentLevels = getScalingLevelsArray(this.document).map(e => normalizeScalingEntry(e, fallbackUnit));
+      const newLevels = currentLevels.filter((_, idx) => idx !== index);
 
-    logSpellDebug("Remove scaling level", { index, newLevels });
-    await requestUpdateDocument(this.document, {
-      "system.scaling.levels": newLevels
+      logSpellDebug("Remove scaling level", { index, newLevels });
+      await requestUpdateDocument(this.document, {
+        "system.scaling.levels": newLevels
+      });
     });
   }
 
@@ -904,15 +932,16 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     event.preventDefault();
     if (!this.isEditable) return;
 
-    const entries = foundry.utils.deepClone(this.document.system?.overTimeEntries ?? []);
-    entries.push({
-      trigger: "turnStart", cadenceEvery: 1, cadenceUnit: "rounds",
-      payloadType: "damage", formula: "1d6", damageType: "fire",
-      saveKey: "", saveTN: 0, saveSuccess: "endEffect", saveFailure: "damage",
-      maxTicks: null, label: "", chatLog: true
+    return this._withArrayMutationLock("_overtimeMutLock", async () => {
+      const entries = foundry.utils.deepClone(this.document.system?.overTimeEntries ?? []);
+      entries.push({
+        trigger: "turnStart", cadenceEvery: 1, cadenceUnit: "rounds",
+        payloadType: "damage", formula: "1d6", damageType: "fire",
+        saveKey: "", saveTN: 0, saveSuccess: "endEffect", saveFailure: "damage",
+        maxTicks: null, label: "", chatLog: true
+      });
+      await requestUpdateDocument(this.document, { "system.overTimeEntries": entries });
     });
-
-    await requestUpdateDocument(this.document, { "system.overTimeEntries": entries });
   }
 
   /**
@@ -927,10 +956,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const index = parseInt(target.dataset.index, 10);
     if (isNaN(index)) return;
 
-    const entries = foundry.utils.deepClone(this.document.system?.overTimeEntries ?? []);
-    entries.splice(index, 1);
-
-    await requestUpdateDocument(this.document, { "system.overTimeEntries": entries });
+    return this._withArrayMutationLock("_overtimeMutLock", async () => {
+      const entries = foundry.utils.deepClone(this.document.system?.overTimeEntries ?? []);
+      entries.splice(index, 1);
+      await requestUpdateDocument(this.document, { "system.overTimeEntries": entries });
+    });
   }
 
   /* ═══════════════════ Effect Recipe Actions ════════════════════════ */
@@ -944,11 +974,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     event.preventDefault();
     if (!this.isEditable) return;
 
-    const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
-    recipes.push({ key: "", mode: "add", value: "", target: "target", label: "" });
+    return this._withArrayMutationLock("_recipeMutLock", async () => {
+      const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
+      recipes.push({ key: "", mode: "add", value: "", target: "target", label: "" });
 
-    logSpellDebug("Add effect recipe", { newCount: recipes.length });
-    await requestUpdateDocument(this.document, { "system.engine.effects.recipes": recipes });
+      logSpellDebug("Add effect recipe", { newCount: recipes.length });
+      await requestUpdateDocument(this.document, { "system.engine.effects.recipes": recipes });
+    });
   }
 
   /**
@@ -963,11 +995,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const index = parseInt(target.dataset.recipeIndex, 10);
     if (isNaN(index)) return;
 
-    const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
-    recipes.splice(index, 1);
+    return this._withArrayMutationLock("_recipeMutLock", async () => {
+      const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
+      recipes.splice(index, 1);
 
-    logSpellDebug("Remove effect recipe", { index, newCount: recipes.length });
-    await requestUpdateDocument(this.document, { "system.engine.effects.recipes": recipes });
+      logSpellDebug("Remove effect recipe", { index, newCount: recipes.length });
+      await requestUpdateDocument(this.document, { "system.engine.effects.recipes": recipes });
+    });
   }
 
   /* ═══════════════════ Conjure Actions ══════════════════════════════ */
@@ -1050,10 +1084,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     event.preventDefault();
     if (!this.isEditable) return;
 
-    const instances = foundry.utils.deepClone(this.document.system?.damageInstances ?? []);
-    instances.push({ formula: "", type: "none", label: "" });
-
-    await requestUpdateDocument(this.document, { "system.damageInstances": instances });
+    return this._withArrayMutationLock("_dmgInstanceMutLock", async () => {
+      const instances = foundry.utils.deepClone(this.document.system?.damageInstances ?? []);
+      instances.push({ formula: "", type: "none", label: "" });
+      await requestUpdateDocument(this.document, { "system.damageInstances": instances });
+    });
   }
 
   /**
@@ -1068,10 +1103,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const index = parseInt(target.dataset.index, 10);
     if (isNaN(index)) return;
 
-    const instances = foundry.utils.deepClone(this.document.system?.damageInstances ?? []);
-    instances.splice(index, 1);
-
-    await requestUpdateDocument(this.document, { "system.damageInstances": instances });
+    return this._withArrayMutationLock("_dmgInstanceMutLock", async () => {
+      const instances = foundry.utils.deepClone(this.document.system?.damageInstances ?? []);
+      instances.splice(index, 1);
+      await requestUpdateDocument(this.document, { "system.damageInstances": instances });
+    });
   }
 
   /* ═══════════════════ Containment Action Handlers ═══════════════════ */

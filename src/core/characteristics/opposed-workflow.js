@@ -29,6 +29,7 @@ import { _charTestDialog } from "./opposed/dialogs.js";
 import { _resolveOutcome, computeCharacteristicTN } from "./opposed/helpers.js";
 import { buildRollContext } from "../rules/roll-context.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../traits/features/rule-element-runtime.js";
+import { perfStart, perfEnd } from "../../utils/debug.js";
 
 
 // ── Roll-off for both critical successes ──
@@ -220,22 +221,30 @@ export const CharOpposedWorkflow = {
    * @param {ChatMessage} message
    * @param {string} action - "attacker-roll" | "defender-roll" | "begin-banked-roll"
    */
-  async handleAction(message, action) {
-    const data = _getMessageState(message);
+  async handleAction(message, action, { batchedUpdate = false, dataOverride = null } = {}) {
+    const data = (dataOverride && typeof dataOverride === "object")
+      ? foundry.utils.deepClone(dataOverride)
+      : _getMessageState(message);
     if (!data) return;
 
     const mutable = foundry.utils.deepClone(data);
 
     if (action === "attacker-roll" || action === "attacker-roll-committed") {
-      await this._handleAttackerRoll(message, mutable, { fromCommit: action === "attacker-roll-committed" });
+      return await this._handleAttackerRoll(message, mutable, {
+        fromCommit: action === "attacker-roll-committed",
+        batchedUpdate
+      });
     } else if (action === "defender-roll" || action === "defender-roll-committed") {
-      await this._handleDefenderRoll(message, mutable, { fromCommit: action === "defender-roll-committed" });
+      return await this._handleDefenderRoll(message, mutable, {
+        fromCommit: action === "defender-roll-committed",
+        batchedUpdate
+      });
     } else if (action === "begin-banked-roll") {
       await this._autoRollBanked(message.id, { trigger: "button" });
     }
   },
 
-  async _handleAttackerRoll(message, data, { fromCommit = false } = {}) {
+  async _handleAttackerRoll(message, data, { fromCommit = false, batchedUpdate = false } = {}) {
     const attacker = _resolveActor(data.attacker?.actorUuid);
     if (!attacker) return;
 
@@ -314,11 +323,13 @@ export const CharOpposedWorkflow = {
         });
       }
 
+      if (batchedUpdate && fromCommit) return data;
       await _updateCard(message, data);
+      return data;
     }
   },
 
-  async _handleDefenderRoll(message, data, { fromCommit = false } = {}) {
+  async _handleDefenderRoll(message, data, { fromCommit = false, batchedUpdate = false } = {}) {
     const defender = _resolveActor(data.defender?.actorUuid);
     if (!defender) return;
 
@@ -395,7 +406,9 @@ export const CharOpposedWorkflow = {
         });
       }
 
+      if (batchedUpdate && fromCommit) return data;
       await _updateCard(message, data);
+      return data;
     }
   },
 
@@ -476,27 +489,45 @@ export const CharOpposedWorkflow = {
       data.context.autoRollStartedBy = game.user.id;
       data.context.autoRollStartedTrigger = String(trigger ?? "unknown");
 
+      const claimLabel = `banked.claim.write:char:${parentMessageId}`;
+      perfStart(claimLabel);
       await _updateCard(message, data);
+      perfEnd(claimLabel);
 
       // Verify we still own the claim after the persisted update.
       const freshAfterClaim = foundry.utils.deepClone(_getMessageState(message));
       if (freshAfterClaim?.context?.autoRollClaimId && freshAfterClaim.context.autoRollClaimId !== claimId) return;
 
+      let workingData = foundry.utils.deepClone(freshAfterClaim);
+
       // Roll attacker first if needed.
       if (!freshAfterClaim?.attacker?.result) {
-        await this.handleAction(message, "attacker-roll-committed");
+        const aLabel = `banked.attacker.roll:char:${parentMessageId}`;
+        perfStart(aLabel);
+        const next = await this.handleAction(message, "attacker-roll-committed", {
+          batchedUpdate: true,
+          dataOverride: workingData
+        });
+        if (next && typeof next === "object") workingData = next;
+        perfEnd(aLabel);
       }
-
-      // Refresh after attacker roll for fresh state.
-      const fresh = game.messages.get(parentMessageId) ?? null;
-      if (!fresh) return;
-      const freshData = foundry.utils.deepClone(_getMessageState(fresh));
-      if (!freshData) return;
 
       // Roll defender if needed.
-      if (!freshData.defender?.result) {
-        await this.handleAction(fresh, "defender-roll-committed");
+      if (!workingData?.defender?.result) {
+        const dLabel = `banked.defender.roll:char:${parentMessageId}`;
+        perfStart(dLabel);
+        const next = await this.handleAction(message, "defender-roll-committed", {
+          batchedUpdate: true,
+          dataOverride: workingData
+        });
+        if (next && typeof next === "object") workingData = next;
+        perfEnd(dLabel);
       }
+
+      const finalLabel = `banked.final.write:char:${parentMessageId}`;
+      perfStart(finalLabel);
+      await _updateCard(message, workingData);
+      perfEnd(finalLabel);
     } finally {
       bankedAutoRollLocalLocks.delete(parentMessageId);
     }
@@ -523,6 +554,8 @@ export const CharOpposedWorkflow = {
     const normalized = _normalizeCardFlag(raw);
     const current = normalized.state;
     if (!current || typeof current !== "object") return;
+    if (rollId && stage === "attacker-roll" && String(current?.attacker?.rollMessageId ?? "") === String(rollId)) return;
+    if (rollId && stage === "defender-roll" && String(current?.defender?.rollMessageId ?? "") === String(rollId)) return;
 
     const expectedSide = (stage === "attacker-roll")
       ? current.attacker

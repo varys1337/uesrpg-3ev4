@@ -48,28 +48,16 @@
                 <span class="item-stat-label">Equipped</span>
             </div>
             <div class="item-stat">
+                <input type="text" name="system.damage" value="{{item.system.damage}}"/>
                 {{#if item.system.damageEffective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.damageEffective}}" readonly/>
-                        <input type="text" name="system.damage" value="{{item.system.damage}}" class="u-hidden"/>
-                    {{else}}
-                        <input type="text" name="system.damage" value="{{item.system.damage}}"/>
-                    {{/unless}}
-                {{else}}
-                    <input type="text" name="system.damage" value="{{item.system.damage}}"/>
+                    <div class="effective-hint"><span class="label">Eff</span>{{item.system.damageEffective}}</div>
                 {{/if}}
                 <span class="item-stat-label">Damage</span>
             </div>
             <div class="item-stat">
+                <input type="text" name="system.damage2" value="{{item.system.damage2}}"/>
                 {{#if item.system.damage2Effective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.damage2Effective}}" readonly/>
-                        <input type="text" name="system.damage2" value="{{item.system.damage2}}" class="u-hidden"/>
-                    {{else}}
-                        <input type="text" name="system.damage2" value="{{item.system.damage2}}"/>
-                    {{/unless}}
-                {{else}}
-                    <input type="text" name="system.damage2" value="{{item.system.damage2}}"/>
+                    <div class="effective-hint"><span class="label">Eff</span>{{item.system.damage2Effective}}</div>
                 {{/if}}
                 <span class="item-stat-label">2H Damage</span>
             </div>

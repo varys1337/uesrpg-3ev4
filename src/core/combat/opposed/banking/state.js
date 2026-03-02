@@ -53,6 +53,20 @@ export function _isBankChoicesEnabledForData(data) {
 }
 
 /**
+ * Check if banked auto-roll has been requested or started.
+ * While true, chat cards should suppress manual action buttons to avoid
+ * transient flicker during the auto-resolution handoff window.
+ *
+ * @param {Object} data - Opposed test data object.
+ * @returns {boolean} - True if bank auto-roll is in progress.
+ */
+export function _isBankAutoRollInProgress(data) {
+  if (!_isBankChoicesEnabledForData(data)) return false;
+  const ctx = data?.context ?? {};
+  return ctx.autoRollRequested === true || ctx.autoRollStarted === true;
+}
+
+/**
  * Ensure banking scaffold exists on data object.
  * 
  * @param {Object} data - Opposed test data object (mutated).
