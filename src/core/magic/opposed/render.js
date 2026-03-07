@@ -6,12 +6,13 @@
  * Chat card rendering for magic opposed workflow.
  */
 
-import { getDefenderEntries, isMultiDefender, isBankChoicesEnabledForData, getBankCommitState, getDefenderOutcome, getMagicDefenderDamage } from "./schema.js";
+import { getDefenderEntries, isMultiDefender, isBankChoicesEnabledForData, getBankCommitState, getDefenderOutcome, getMagicDefenderDamage, allDefendersCommitted } from "./schema.js";
 import { hasActiveWard } from "../../combat/ward-defense.js";
 import { AttackTracker } from "../../combat/attack-tracker.js";
 import { computeSpellAttemptMagickaCost } from "../magicka-utils.js";
 import { classifySpellForRouting } from "../spell-runtime.js";
 import { _buildDamagePanel } from "../../combat/opposed/cards/template-helpers.js";
+import { createUuidResolver, getActorFromResolvedDocument, resolveUuidSync } from "../../../utils/uuid-cache.js";
 
 /**
  * Format signed number (+/-).
@@ -219,33 +220,60 @@ function btn({ label, action, disabled = false, title = "", dataset = null, styl
   `;
 }
 
-function resolveActorFromUuid(uuid) {
-  const raw = String(uuid ?? "").trim();
-  if (!raw) return null;
-  try {
-    const doc = fromUuidSync(raw);
-    if (doc?.documentName === "Actor") return doc;
-    if (doc?.actor) return doc.actor;
-  } catch (_e) {
-    // no-op
-  }
-  const actorId = raw.split(".").pop();
-  return game.actors?.get(actorId) ?? null;
+function actionRowClass(count = 1) {
+  const n = Math.max(1, Number(count) || 1);
+  if (n === 1) return "uesrpg-opposed-action-row uesrpg-opposed-action-row--single";
+  if (n === 2) return "uesrpg-opposed-action-row uesrpg-opposed-action-row--pair";
+  if (n === 3) return "uesrpg-opposed-action-row uesrpg-opposed-action-row--triple";
+  return "uesrpg-opposed-action-row uesrpg-opposed-action-row--quad";
 }
 
-function resolveSpellFromUuid(uuid) {
-  const raw = String(uuid ?? "").trim();
-  if (!raw) return null;
-  try {
-    const doc = fromUuidSync(raw);
-    return (doc?.documentName === "Item") ? doc : null;
-  } catch (_e) {
-    return null;
-  }
+function createRenderContext() {
+  return {
+    uuid: createUuidResolver(),
+    actors: new Map(),
+    spells: new Map(),
+    items: new Map()
+  };
 }
 
-function getMagicAttackerCommitGate(data) {
-  const attacker = resolveActorFromUuid(data?.attacker?.actorUuid);
+function resolveActorFromUuid(uuid, ctx) {
+  const raw = String(uuid ?? "").trim();
+  if (!raw) return null;
+  if (ctx?.actors?.has(raw)) return ctx.actors.get(raw);
+
+  const doc = ctx?.uuid?.resolveSync(raw) ?? resolveUuidSync(raw);
+  let actor = getActorFromResolvedDocument(doc);
+  if (!actor) {
+    const actorId = raw.split(".").pop();
+    actor = game.actors?.get(actorId) ?? null;
+  }
+  if (ctx?.actors) ctx.actors.set(raw, actor);
+  return actor;
+}
+
+function resolveSpellFromUuid(uuid, ctx) {
+  const raw = String(uuid ?? "").trim();
+  if (!raw) return null;
+  if (ctx?.spells?.has(raw)) return ctx.spells.get(raw);
+  const doc = ctx?.uuid?.resolveSync(raw) ?? resolveUuidSync(raw);
+  const spell = (doc?.documentName === "Item") ? doc : null;
+  if (ctx?.spells) ctx.spells.set(raw, spell);
+  return spell;
+}
+
+function resolveItemFromUuid(uuid, ctx) {
+  const raw = String(uuid ?? "").trim();
+  if (!raw) return null;
+  if (ctx?.items?.has(raw)) return ctx.items.get(raw);
+  const doc = ctx?.uuid?.resolveSync(raw) ?? resolveUuidSync(raw);
+  const item = doc?.documentName === "Item" ? doc : null;
+  if (ctx?.items) ctx.items.set(raw, item);
+  return item;
+}
+
+function getMagicAttackerCommitGate(data, ctx) {
+  const attacker = resolveActorFromUuid(data?.attacker?.actorUuid, ctx);
   if (!attacker) return { allowed: false, reason: "Caster unavailable" };
 
   if (game?.combat) {
@@ -254,7 +282,7 @@ function getMagicAttackerCommitGate(data) {
     if (currentAP < apCost) return { allowed: false, reason: `${currentAP}/${apCost} AP` };
   }
 
-  const spell = resolveSpellFromUuid(data?.attacker?.spellUuid);
+  const spell = resolveSpellFromUuid(data?.attacker?.spellUuid, ctx);
   if (spell) {
     const castSource = data?.attacker?.castSource ?? null;
     const castMode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
@@ -268,13 +296,7 @@ function getMagicAttackerCommitGate(data) {
     if (isEnchantSource && castMode === "soul") {
       const itemUuid = String(castSource?.itemUuid ?? "").trim();
       const sourceLane = String(castSource?.sourceLane ?? "workshop").trim().toLowerCase();
-      let itemDoc = null;
-      try {
-        itemDoc = itemUuid ? fromUuidSync(itemUuid) : null;
-      } catch (_e) {
-        itemDoc = null;
-      }
-      const item = itemDoc?.documentName === "Item" ? itemDoc : null;
+      const item = itemUuid ? resolveItemFromUuid(itemUuid, ctx) : null;
       const needed = Number(castSource?.cost ?? 0) || 0;
       if (!item) return { allowed: false, reason: "Item unavailable" };
       const poolValue = sourceLane === "extension"
@@ -292,8 +314,8 @@ function getMagicAttackerCommitGate(data) {
   return { allowed: true };
 }
 
-function getMagicDefenderCommitDefenseGate(defenderData) {
-  const defender = resolveActorFromUuid(defenderData?.actorUuid);
+function getMagicDefenderCommitDefenseGate(defenderData, ctx) {
+  const defender = resolveActorFromUuid(defenderData?.actorUuid, ctx);
   if (!defender) return { allowed: false, reason: "Target unavailable" };
   const apCost = Number(defenderData?.apCost ?? 1) || 1;
   const currentAP = Number(foundry.utils.getProperty(defender, "system.action_points.value") ?? 0);
@@ -304,7 +326,7 @@ function getMagicDefenderCommitDefenseGate(defenderData) {
 /**
  * Render multi-defender card.
  */
-function renderMultiDefenderCard(data, messageId) {
+function renderMultiDefenderCard(data, messageId, ctx) {
   const defenders = getDefenderEntries(data);
   const a = data.attacker ?? {};
   const cost = getCostPresentation(a);
@@ -312,6 +334,7 @@ function renderMultiDefenderCard(data, messageId) {
   const bankMode = isBankChoicesEnabledForData(data);
   const anyOutcome = defenders.some(d => getDefenderOutcome(data, d));
   const { aCommitted } = getBankCommitState(data, defenders[0] ?? null);
+  const readyToBegin = bankMode && allDefendersCommitted(data) && !anyOutcome && !a?.result;
   const revealAttacker = !bankMode || aCommitted || anyOutcome;
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
   const isMultiCharSave = defenders.some(d => d.defenseType === "characteristic-save");
@@ -332,7 +355,7 @@ function renderMultiDefenderCard(data, messageId) {
     const statusText = anyOutcome ? "Resolved" : rolled ? "Rolled" : (aCommitted ? "Committed" : "Awaiting choice");
     return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
   })();
-  const attackerCommitGate = getMagicAttackerCommitGate(data);
+  const attackerCommitGate = getMagicAttackerCommitGate(data, ctx);
 
   const attackerControls = (() => {
     if (a.result) return "";
@@ -341,7 +364,7 @@ function renderMultiDefenderCard(data, messageId) {
         if (attackerCommitGate?.allowed === false) {
           return `<div style="margin-top:8px; font-size:12px; opacity:0.85;"><i>Casting unavailable: ${String(attackerCommitGate?.reason ?? "Unavailable")}</i></div>`;
         }
-        return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: "Casting", action: "attacker-commit" })}</div>`;
+        return `<div class="${actionRowClass(1)}">${btn({ label: "Casting", action: "attacker-commit" })}</div>`;
       }
       return "";
     }
@@ -386,23 +409,23 @@ function renderMultiDefenderCard(data, messageId) {
           if (isCharSave) {
             const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
             return `
-              <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+              <div class="${actionRowClass(1)}">
                 ${btn({ label: `Commit ${charLabel} Save`, action: "defender-commit-characteristic", dataset: { "defender-index": idx } })}
               </div>
             `;
           }
-          const defenseCommitGate = getMagicDefenderCommitDefenseGate(d);
+          const defenseCommitGate = getMagicDefenderCommitDefenseGate(d, ctx);
           if (defenseCommitGate?.allowed === false) {
             return `
-              <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+              <div class="${actionRowClass(1)}">
                 ${btn({ label: "No Defense", action: "defender-commit-nodefense", dataset: { "defender-index": idx } })}
-                <div style="font-size:12px; opacity:0.85;"><i>Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}</i></div>
               </div>
+              <div style="margin-top:4px; font-size:12px; opacity:0.85;"><i>Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}</i></div>
             `;
           }
           // Standard defense: Defense / No Defense buttons
           return `
-            <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
+            <div class="${actionRowClass(2)}">
               ${btn({ label: "Defense", action: "defender-commit", dataset: { "defender-index": idx } })}
               ${btn({ label: "No Defense", action: "defender-commit-nodefense", dataset: { "defender-index": idx } })}
             </div>
@@ -415,7 +438,7 @@ function renderMultiDefenderCard(data, messageId) {
       if (isCharSave && a.result && !d.result) {
         const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
         return `
-          <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+          <div class="${actionRowClass(1)}">
             ${btn({ label: `Roll ${charLabel} Save`, action: "defender-characteristic-test", dataset: { "defender-index": idx } })}
           </div>
         `;
@@ -423,16 +446,15 @@ function renderMultiDefenderCard(data, messageId) {
 
       // NON-BANK MODE: Standard defense roll buttons
       if (canRollDefender && !isCharSave) {
-        const defenderActor = d.actorUuid ? (game.actors?.get(d.actorUuid?.split(".")?.pop()) ?? null) : null;
+        const defenderActor = resolveActorFromUuid(d.actorUuid, ctx);
         const wardAvailable = defenderActor ? hasActiveWard(defenderActor) : false;
-        return `
-          <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
-            ${btn({ label: "Block", action: "defender-roll-block", dataset: { "defender-index": idx } })}
-            ${btn({ label: "Evade", action: "defender-roll-evade", dataset: { "defender-index": idx } })}
-            ${wardAvailable ? btn({ label: "Ward", action: "defender-roll-ward", dataset: { "defender-index": idx } }) : ""}
-            ${btn({ label: "No Defense", action: "defender-no-defense", dataset: { "defender-index": idx } })}
-          </div>
-        `;
+        const buttons = [
+          btn({ label: "Block", action: "defender-roll-block", dataset: { "defender-index": idx } }),
+          btn({ label: "Evade", action: "defender-roll-evade", dataset: { "defender-index": idx } }),
+          ...(wardAvailable ? [btn({ label: "Ward", action: "defender-roll-ward", dataset: { "defender-index": idx } })] : []),
+          btn({ label: "No Defense", action: "defender-no-defense", dataset: { "defender-index": idx } })
+        ];
+        return `<div class="${actionRowClass(buttons.length)}">${buttons.join("")}</div>`;
       }
       return "";
     })();
@@ -444,7 +466,7 @@ function renderMultiDefenderCard(data, messageId) {
       const resolveAction = defType === "ward" ? "ward-resolve" : "block-resolve";
       const dmgData = getMagicDefenderDamage(data, d);
       const blockResolveButton = (outcome?.needsBlockResolution && !isAoE && !dmgData?.rolled)
-        ? `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: resolveLabel, action: resolveAction, dataset: { "defender-index": idx } })}</div>`
+        ? `<div class="${actionRowClass(1)}">${btn({ label: resolveLabel, action: resolveAction, dataset: { "defender-index": idx } })}</div>`
         : "";
 
       outcomeLine = `
@@ -484,6 +506,10 @@ function renderMultiDefenderCard(data, messageId) {
     `;
   }).join("");
 
+  const beginRollActions = readyToBegin
+    ? `<div style="margin-top:8px;" data-ues-gm-only="true" class="${actionRowClass(1)}">${btn({ label: "Begin Opposed Roll", action: "begin-banked-roll" })}</div>`
+    : "";
+
   return `
     <div class="ues-opposed-card ues-magic-opposed-card" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1" style="padding:6px 6px;">
       <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
@@ -505,6 +531,7 @@ function renderMultiDefenderCard(data, messageId) {
         <div style="display:grid; grid-template-columns: 1fr; gap:10px;">
           ${defenderBlocks}
         </div>
+        ${beginRollActions}
       </div>
     </div>
   `;
@@ -513,7 +540,7 @@ function renderMultiDefenderCard(data, messageId) {
 /**
  * Render single-defender card.
  */
-function renderSingleDefenderCard(data, messageId) {
+function renderSingleDefenderCard(data, messageId, ctx) {
   const a = data.attacker;
   const d = data.defender;
   const cost = getCostPresentation(a);
@@ -521,6 +548,7 @@ function renderSingleDefenderCard(data, messageId) {
 
   const bankMode = isBankChoicesEnabledForData(data);
   const { aCommitted, dCommitted, bothCommitted } = getBankCommitState(data);
+  const readyToBegin = bankMode && allDefendersCommitted(data) && !data?.outcome && !a?.result;
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
   const isCharSave = d.defenseType === "characteristic-save";
   const defenseNote = isAoE
@@ -566,7 +594,7 @@ function renderSingleDefenderCard(data, messageId) {
     const statusText = resolved ? "Resolved" : rolled ? "Rolled" : (aCommitted ? "Committed" : "Awaiting choice");
     return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
   })();
-  const attackerCommitGate = getMagicAttackerCommitGate(data);
+  const attackerCommitGate = getMagicAttackerCommitGate(data, ctx);
 
   const defenderCommitLine = (() => {
     if (!bankMode || !shouldShowStatusLine()) return "";
@@ -583,12 +611,12 @@ function renderSingleDefenderCard(data, messageId) {
         if (attackerCommitGate?.allowed === false) {
           return `<div style="margin-top:8px; font-size:12px; opacity:0.85;"><i>Casting unavailable: ${String(attackerCommitGate?.reason ?? "Unavailable")}</i></div>`;
         }
-        return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: "Casting", action: "attacker-commit" })}</div>`;
+        return `<div class="${actionRowClass(1)}">${btn({ label: "Casting", action: "attacker-commit" })}</div>`;
       }
       return "";
     }
     
-    return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: "Roll Casting Test", action: "attacker-roll" })}</div>`;
+    return `<div class="${actionRowClass(1)}">${btn({ label: "Roll Casting Test", action: "attacker-roll" })}</div>`;
   })();
 
   const defenderControls = (() => {
@@ -601,23 +629,23 @@ function renderSingleDefenderCard(data, messageId) {
         if (isCharSave) {
           const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
           return `
-            <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+            <div class="${actionRowClass(1)}">
               ${btn({ label: `Commit ${charLabel} Save`, action: "defender-commit-characteristic" })}
             </div>
           `;
         }
-        const defenseCommitGate = getMagicDefenderCommitDefenseGate(d);
+        const defenseCommitGate = getMagicDefenderCommitDefenseGate(d, ctx);
         if (defenseCommitGate?.allowed === false) {
           return `
-          <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+          <div class="${actionRowClass(1)}">
             ${btn({ label: "No Defense", action: "defender-commit-nodefense" })}
-            <div style="font-size:12px; opacity:0.85;"><i>Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}</i></div>
           </div>
+          <div style="margin-top:4px; font-size:12px; opacity:0.85;"><i>Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}</i></div>
         `;
         }
         // Standard defense: Defense / No Defense buttons
         return `
-          <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
+          <div class="${actionRowClass(2)}">
             ${btn({ label: "Defense", action: "defender-commit" })}
             ${btn({ label: "No Defense", action: "defender-commit-nodefense" })}
           </div>
@@ -630,7 +658,7 @@ function renderSingleDefenderCard(data, messageId) {
     if (isCharSave && a.result && !d.result) {
       const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
       return `
-        <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+        <div class="${actionRowClass(1)}">
           ${btn({ label: `Roll ${charLabel} Save`, action: "defender-characteristic-test" })}
         </div>
       `;
@@ -638,16 +666,15 @@ function renderSingleDefenderCard(data, messageId) {
     
     // NON-BANK MODE: Standard defense roll buttons
     if (a.result && !d.result && !d.noDefense && !isCharSave) {
-      const defenderActor = d.actorUuid ? (game.actors?.get(d.actorUuid?.split(".")?.pop()) ?? null) : null;
+      const defenderActor = resolveActorFromUuid(d.actorUuid, ctx);
       const wardAvailable = defenderActor ? hasActiveWard(defenderActor) : false;
-      return `
-        <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
-          ${btn({ label: "Block", action: "defender-roll-block" })}
-          ${btn({ label: "Evade", action: "defender-roll-evade" })}
-          ${wardAvailable ? btn({ label: "Ward", action: "defender-roll-ward" }) : ""}
-          ${btn({ label: "No Defense", action: "defender-no-defense" })}
-        </div>
-      `;
+      const buttons = [
+        btn({ label: "Block", action: "defender-roll-block" }),
+        btn({ label: "Evade", action: "defender-roll-evade" }),
+        ...(wardAvailable ? [btn({ label: "Ward", action: "defender-roll-ward" })] : []),
+        btn({ label: "No Defense", action: "defender-no-defense" })
+      ];
+      return `<div class="${actionRowClass(buttons.length)}">${buttons.join("")}</div>`;
     }
     return "";
   })();
@@ -659,7 +686,7 @@ function renderSingleDefenderCard(data, messageId) {
     const resolveAction = defType === "ward" ? "ward-resolve" : "block-resolve";
     const singleDmgData = getMagicDefenderDamage(data, d);
     const blockResolveButton = (data.outcome?.needsBlockResolution && !isAoE && !singleDmgData?.rolled)
-      ? `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: resolveLabel, action: resolveAction })}</div>`
+      ? `<div class="${actionRowClass(1)}">${btn({ label: resolveLabel, action: resolveAction })}</div>`
       : "";
 
     outcomeLine = `
@@ -678,6 +705,9 @@ function renderSingleDefenderCard(data, messageId) {
   }
 
   const singleDamagePanel = _buildDamagePanel(getMagicDefenderDamage(data, d));
+  const beginRollActions = readyToBegin
+    ? `<div style="margin-top:8px;" data-ues-gm-only="true" class="${actionRowClass(1)}">${btn({ label: "Begin Opposed Roll", action: "begin-banked-roll" })}</div>`
+    : "";
 
   return `
     <div class="ues-opposed-card ues-magic-opposed-card" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1" style="padding:6px 6px;">
@@ -713,6 +743,7 @@ function renderSingleDefenderCard(data, messageId) {
           <div style="margin-top:auto;">${defenderControls}</div>
         </div>
       </div>
+      ${beginRollActions}
       ${outcomeLine}
       ${singleDamagePanel}
     </div>
@@ -795,8 +826,9 @@ export function renderUnopposedCard(data, messageId) {
  * @returns {string} Rendered HTML string
  */
 export function renderCard(data, messageId) {
+  const ctx = createRenderContext();
   if (isMultiDefender(data)) {
-    return renderMultiDefenderCard(data, messageId);
+    return renderMultiDefenderCard(data, messageId, ctx);
   }
-  return renderSingleDefenderCard(data, messageId);
+  return renderSingleDefenderCard(data, messageId, ctx);
 }

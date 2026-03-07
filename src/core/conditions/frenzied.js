@@ -32,8 +32,8 @@ import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, request
 import { safeGetEffect } from "../../utils/ae-helpers.js";
 import { TimeService } from "../time/index.js";
 import { isDebugEnabled } from "../../utils/debug.js";
-
-const FLAG_SCOPE = "uesrpg-3ev4";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { normalizeKey } from "../../utils/coerce.js";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const CONDITION_KEY = "frenzied";
 const FRENZIED_END_GUARD_PATH = `${FLAG_PATH}.frenzied.endSpend`;
@@ -104,11 +104,6 @@ function _effectsOf(actor) {
   }
 }
 
-function _normKey(k) {
-  return String(k ?? "").trim().toLowerCase();
-}
-
-
 function _debugEnabled() {
   return isDebugEnabled("effectsProxyDebug");
 }
@@ -120,17 +115,17 @@ function _dbg(...args) {
 function _isFrenziedEffect(effect) {
   if (!effect) return false;
   
-  const k = _normKey(effect?.getFlag?.(FLAG_SCOPE, "condition")?.key ?? effect?.flags?.[FLAG_SCOPE]?.condition?.key);
+  const k = normalizeKey(effect?.getFlag?.(FLAG_SCOPE, "condition")?.key ?? effect?.flags?.[FLAG_SCOPE]?.condition?.key);
   if (k === CONDITION_KEY) return true;
 
-  const coreId = _normKey(effect?.getFlag?.("core", "statusId") ?? effect?.flags?.core?.statusId);
+  const coreId = normalizeKey(effect?.getFlag?.("core", "statusId") ?? effect?.flags?.core?.statusId);
   if (coreId === CONDITION_KEY) return true;
 
   try {
     if (effect.statuses && typeof effect.statuses?.has === "function" && effect.statuses.has(CONDITION_KEY)) return true;
   } catch (_err) {}
 
-  const nm = _normKey(effect.name);
+  const nm = normalizeKey(effect.name);
   return nm.startsWith(CONDITION_KEY) || nm === "frenzied";
 }
 
@@ -191,8 +186,8 @@ async function _dedup(actor) {
 
 function _hasTalent(actor, talentName) {
   if (!actor?.items) return false;
-  const norm = _normKey(talentName);
-  return actor.items.some(i => i.type === "talent" && _normKey(i.name) === norm);
+  const norm = normalizeKey(talentName);
+  return actor.items.some(i => i.type === "talent" && normalizeKey(i.name) === norm);
 }
 
 function _getTalentModifiers(actor) {
@@ -410,9 +405,9 @@ function _registerFrenziedPreCreateHook() {
       const key2 = data?.flags?.core?.statusId;
       const key3 = data?.statuses?.[0] ?? (Array.isArray(data?.statuses) ? data.statuses[0] : null);
       
-      const isFrenzied = _normKey(key1) === CONDITION_KEY || 
-                         _normKey(key2) === CONDITION_KEY ||
-                         _normKey(key3) === CONDITION_KEY;
+      const isFrenzied = normalizeKey(key1) === CONDITION_KEY || 
+                         normalizeKey(key2) === CONDITION_KEY ||
+                         normalizeKey(key3) === CONDITION_KEY;
       
       if (!isFrenzied) return;
       

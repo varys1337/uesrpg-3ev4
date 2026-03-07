@@ -1,5 +1,5 @@
 import { measureTokenDistance } from "../../combat/opposed/range.js";
-import { getLongestEquippedMeleeWeapon } from "../../../ui/canvas/reach-visualizer-weapons.js";
+import { getLongestEquippedMeleeWeapon } from "./equipped-weapons.js";
 import {
   hasCondition,
   getConditionValue,
@@ -42,9 +42,11 @@ const SIZE_NUMERIC = Object.freeze({
 
 let _debouncedRefresh = null;
 const _tokenPositionCache = new Map(); // tokenId → {x: number, y: number}
+const _flankedTouchedActorIds = new Set(); // actor ids touched by flanked writes
+let _flankedTouchedSeeded = false;
 
 function _isEFDebugEnabled() {
-  return isDebugEnabled("effectsProxyDebug");
+  return isDebugEnabled("homebrewEngagementFlanking") || isDebugEnabled("effectsProxyDebug");
 }
 
 function _asFiniteNumber(value, fallback = 0) {
@@ -143,6 +145,88 @@ function _getLongestEquippedMeleeReach(actor) {
   return { ...DEFAULT_UNARMED_REACH };
 }
 
+function _isActorFlankedPresent(actor) {
+  if (!actor) return false;
+  if (!hasCondition(actor, "flanked")) return false;
+  return Number(getConditionValue(actor, "flanked") ?? 0) > 0;
+}
+
+function _trackActorForFlankedCleanup(actor) {
+  const actorId = String(actor?.id ?? "").trim();
+  if (!actorId) return;
+  _flankedTouchedActorIds.add(actorId);
+}
+
+function _untrackActorIfNoFlanked(actor) {
+  const actorId = String(actor?.id ?? "").trim();
+  if (!actorId) return;
+  if (!_isActorFlankedPresent(actor)) _flankedTouchedActorIds.delete(actorId);
+}
+
+function _seedTouchedFlankedActorsIfNeeded() {
+  if (_flankedTouchedSeeded) return;
+  _flankedTouchedSeeded = true;
+  if (!game.user?.isGM) return;
+  for (const actor of (game.actors ?? [])) {
+    if (!actor?.id) continue;
+    if (!_isActorFlankedPresent(actor)) continue;
+    _flankedTouchedActorIds.add(actor.id);
+  }
+}
+
+function _resetTouchedFlankedState() {
+  _flankedTouchedActorIds.clear();
+  _flankedTouchedSeeded = false;
+}
+
+function _distanceKey(aToken, bToken) {
+  const aId = String(aToken?.id ?? "");
+  const bId = String(bToken?.id ?? "");
+  if (!aId || !bId) return "";
+  return aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
+}
+
+function _measureTokenDistanceCached(aToken, bToken, distanceCache) {
+  const key = _distanceKey(aToken, bToken);
+  if (!key) return measureTokenDistance(aToken, bToken);
+  if (distanceCache.has(key)) return distanceCache.get(key);
+  const value = measureTokenDistance(aToken, bToken);
+  distanceCache.set(key, value);
+  return value;
+}
+
+function _getEngagementScoreCached(actor, engagementScoreCache) {
+  const actorId = String(actor?.id ?? "").trim();
+  if (!actorId) return _getEngagementScore(actor);
+  if (engagementScoreCache.has(actorId)) return engagementScoreCache.get(actorId);
+  const score = _getEngagementScore(actor);
+  engagementScoreCache.set(actorId, score);
+  return score;
+}
+
+function _getLongestEquippedMeleeReachCached(actor, reachCache) {
+  const actorId = String(actor?.id ?? "").trim();
+  if (!actorId) {
+    return { reach: _getLongestEquippedMeleeReach(actor), weaponUuid: null };
+  }
+  if (reachCache.has(actorId)) return reachCache.get(actorId);
+
+  const longest = getLongestEquippedMeleeWeapon(actor);
+  const bounds = longest?.bounds ?? null;
+  const reach = (bounds && Number.isFinite(bounds.max) && bounds.max > 0)
+    ? {
+        min: Math.max(0, _asFiniteNumber(bounds.min, 0)),
+        max: Math.max(0, _asFiniteNumber(bounds.max, 0)),
+      }
+    : { ...DEFAULT_UNARMED_REACH };
+  const data = {
+    reach,
+    weaponUuid: String(longest?.weapon?.uuid ?? "") || null,
+  };
+  reachCache.set(actorId, data);
+  return data;
+}
+
 function _isThreatDistance(distance, bounds) {
   const d = _asFiniteNumber(distance, NaN);
   if (!Number.isFinite(d)) return false;
@@ -218,20 +302,20 @@ function _drawDebugError(err) {
   }
 }
 
-function _computeThreatMaps(tokens) {
+function _computeThreatMaps(tokens, caches) {
   const threatenedBy = new Map();
   const threatens = new Map();
 
   for (const attacker of tokens) {
     const aId = attacker.id;
-    const aBounds = _getLongestEquippedMeleeReach(attacker.actor);
+    const aBounds = _getLongestEquippedMeleeReachCached(attacker.actor, caches.reachCache).reach;
     const aThreatens = new Set();
 
     for (const defender of tokens) {
       if (!defender || defender.id === aId) continue;
       if (!_isEnemyByDisposition(attacker.document, defender.document)) continue;
 
-      const distance = measureTokenDistance(attacker, defender);
+      const distance = _measureTokenDistanceCached(attacker, defender, caches.distanceCache);
       if (!_isThreatDistance(distance, aBounds)) continue;
 
       aThreatens.add(defender.id);
@@ -255,14 +339,14 @@ function _collectSupportAllies(defender, tokens) {
   return out;
 }
 
-function _computeSupportCoverage({ defender, threats, threatens, tokens }) {
+function _computeSupportCoverage({ defender, threats, threatens, tokens, caches }) {
   const allies = _collectSupportAllies(defender, tokens);
   if (!allies.length || !threats.size) return 0;
 
   const allyRows = allies.map((ally) => {
     const allyThreatens = threatens.get(ally.id) ?? new Set();
     const coverable = new Set(Array.from(threats).filter(enemyId => allyThreatens.has(enemyId)));
-    const capacity = Math.max(0, _asFiniteNumber(_getEngagementScore(ally.actor), 0));
+    const capacity = Math.max(0, _asFiniteNumber(_getEngagementScoreCached(ally.actor, caches.engagementScoreCache), 0));
     const effectiveCapacity = Math.min(capacity, coverable.size);
     return {
       ally,
@@ -314,19 +398,20 @@ function _computeSupportCoverage({ defender, threats, threatens, tokens }) {
   return matched;
 }
 
-function _computeFlankedByActor(tokens) {
-  const { threatenedBy, threatens } = _computeThreatMaps(tokens);
+function _computeFlankedByActor(tokens, caches) {
+  const { threatenedBy, threatens } = _computeThreatMaps(tokens, caches);
   const perToken = new Map();
   const perTokenDiagnostics = new Map();
 
   for (const defender of tokens) {
     const threats = threatenedBy.get(defender.id) ?? new Set();
-    const score = _getEngagementScore(defender.actor);
+    const score = _getEngagementScoreCached(defender.actor, caches.engagementScoreCache);
     const allySupport = _computeSupportCoverage({
       defender,
       threats,
       threatens,
       tokens,
+      caches,
     });
 
     const x = Math.max(0, threats.size - score - allySupport);
@@ -381,6 +466,52 @@ export async function clearFlankedConditions({ activeSceneOnly = false } = {}) {
     if (!actor) continue;
     if (!hasCondition(actor, "flanked")) continue;
     await removeCondition(actor, "flanked");
+    _untrackActorIfNoFlanked(actor);
+  }
+}
+
+async function _syncActorFlankedValue(actor, next, { diagnostics = null } = {}) {
+  const current = Number(getConditionValue(actor, "flanked") ?? 0);
+  if (next === current) {
+    if (next > 0) _trackActorForFlankedCleanup(actor);
+    else _untrackActorIfNoFlanked(actor);
+    return;
+  }
+
+  await setConditionValue(actor, "flanked", next);
+  const readback = Number(getConditionValue(actor, "flanked") ?? 0);
+  if (readback > 0) _trackActorForFlankedCleanup(actor);
+  else _untrackActorIfNoFlanked(actor);
+
+  if (_isEFDebugEnabled()) {
+    console.log("UESRPG | Engagement & Flanking | actor write", {
+      actor: actor?.name ?? null,
+      actorId: actor?.id ?? null,
+      requested: next,
+      readback,
+      threats: diagnostics?.threats ?? null,
+      score: diagnostics?.score ?? null,
+      allySupport: diagnostics?.allySupport ?? null,
+    });
+  }
+}
+
+async function _clearStaleTouchedFlankedActors(computedByActorId) {
+  const touchedIds = Array.from(_flankedTouchedActorIds);
+  for (const actorId of touchedIds) {
+    const actor = game.actors?.get?.(actorId) ?? null;
+    if (!actor) {
+      _flankedTouchedActorIds.delete(actorId);
+      continue;
+    }
+    const next = Number(computedByActorId.get(actorId) ?? 0);
+    if (next > 0) continue;
+    if (!hasCondition(actor, "flanked")) {
+      _flankedTouchedActorIds.delete(actorId);
+      continue;
+    }
+    await removeCondition(actor, "flanked");
+    _untrackActorIfNoFlanked(actor);
   }
 }
 
@@ -389,6 +520,7 @@ export async function refreshEngagementFlanking() {
 
   if (!_isEnabledNow()) {
     await clearFlankedConditions();
+    _resetTouchedFlankedState();
     return;
   }
 
@@ -398,8 +530,14 @@ export async function refreshEngagementFlanking() {
   }
 
   if (!canvas?.ready) return;
+  _seedTouchedFlankedActorsIfNeeded();
+  const caches = {
+    distanceCache: new Map(),
+    engagementScoreCache: new Map(),
+    reachCache: new Map(),
+  };
   const tokens = _collectEvaluableTokens();
-  const { byActorId, byActorDiagnostics } = _computeFlankedByActor(tokens);
+  const { byActorId, byActorDiagnostics } = _computeFlankedByActor(tokens, caches);
   const sceneActorMap = _sceneActors(tokens);
 
   if (_isEFDebugEnabled()) {
@@ -427,24 +565,10 @@ export async function refreshEngagementFlanking() {
         allySupport: diag?.allySupport ?? null,
       });
     }
-    if (next === current) continue;
-    await setConditionValue(actor, "flanked", next);
-    if (_isEFDebugEnabled()) {
-      const readback = Number(getConditionValue(actor, "flanked") ?? 0);
-      console.log("UESRPG | Engagement & Flanking | actor write", {
-        actor: actor?.name ?? null,
-        actorId: actor?.id ?? null,
-        requested: next,
-        readback,
-      });
-    }
+    await _syncActorFlankedValue(actor, next, { diagnostics: diag });
   }
 
-  for (const actor of (game.actors ?? [])) {
-    if (!actor || sceneActorMap.has(actor.id)) continue;
-    if (!hasCondition(actor, "flanked")) continue;
-    await removeCondition(actor, "flanked");
-  }
+  await _clearStaleTouchedFlankedActors(byActorId);
 }
 
 export function scheduleEngagementFlankingRefresh() {
@@ -533,13 +657,21 @@ export function registerEngagementFlanking() {
     }
   });
 
-  Hooks.on("createToken", () => {
+  Hooks.on("createToken", (tokenDoc) => {
     if (!_isEnabledNow()) return;
+    const id = String(tokenDoc?.id ?? tokenDoc?._id ?? "").trim();
+    if (id) {
+      const x = _asFiniteNumber(tokenDoc?.x, NaN);
+      const y = _asFiniteNumber(tokenDoc?.y, NaN);
+      if (Number.isFinite(x) && Number.isFinite(y)) _tokenPositionCache.set(id, { x, y });
+    }
     scheduleEngagementFlankingRefresh();
   });
 
-  Hooks.on("deleteToken", () => {
+  Hooks.on("deleteToken", (tokenDoc) => {
     if (!_isEnabledNow()) return;
+    const id = String(tokenDoc?.id ?? tokenDoc?._id ?? "").trim();
+    if (id) _tokenPositionCache.delete(id);
     scheduleEngagementFlankingRefresh();
   });
 

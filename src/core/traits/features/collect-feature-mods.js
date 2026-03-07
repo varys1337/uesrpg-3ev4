@@ -14,30 +14,16 @@ import { contributeTraitMods, contributeTalentMods, contributePowerMods } from "
 import { getFeatureConfig } from "./feature-config.js";
 import { getRuleElements } from "./rule-elements.js";
 import { FEATURE_DOMAINS, STACKING_MODES, makeFeatureMod } from "./feature-mod.js";
+import { createSeverityDebugLogger } from "../../../utils/debug.js";
 
-let _debugEnabled = false;
-let _debugChecked = false;
-
-function _isDebug() {
-  if (!_debugChecked) {
-    try {
-      _debugEnabled = game?.settings?.get?.("uesrpg-3ev4", "activationDebug") === true;
-    } catch (_e) {
-      _debugEnabled = false;
-    }
-    _debugChecked = true;
-    setTimeout(() => { _debugChecked = false; }, 30_000);
-  }
-  return _debugEnabled;
-}
+const _featureCollectDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 
 const _warnedKeys = new Set();
 
 function _warnOnce(key, msg) {
-  if (!_isDebug()) return;
   if (_warnedKeys.has(key)) return;
   _warnedKeys.add(key);
-  console.debug(`uesrpg | collectFeatureMods: ${msg}`);
+  _featureCollectDebug(`uesrpg | collectFeatureMods: ${msg}`);
 }
 
 const PASSIVE_FLAT_TARGET_MAP = Object.freeze({

@@ -35,13 +35,13 @@ import {
 import { _num, _lower } from "./_primitives.js";
 import { _bool, _strTrim } from "../../utils/coerce.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
 
 /** Flag namespace for spellcasting primed states. */
-const FLAG_SCOPE = "uesrpg-3ev4";
 const PRIMED_FLAG = "spellcasting.primed";
 
 /** Milestone subsystems that some talents require. */

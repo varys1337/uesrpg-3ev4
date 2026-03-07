@@ -17,6 +17,7 @@
 import { doTestRoll, computeResultFromRollTotal } from "../../utils/degree-roll-helper.js";
 import { UESRPG } from "../constants.js";
 import { hasCondition } from "../conditions/condition-engine.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 import { DefenseDialog } from "./defense-dialog.js";
 import { computeTN, listCombatStyles, hasEquippedShield, variantMod as computeVariantMod } from "./tn.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "./defense-options.js";
@@ -28,7 +29,7 @@ import { AttackTracker } from "./attack-tracker.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { requestCreateActiveEffect } from "../../utils/authority-proxy.js";
 import { buildSpecialActionsForActor, isSpecialActionUsableNow, SPECIAL_ACTIONS, getSpecialActionById } from "./combat-style-utils.js";
-import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "../stamina/stamina-dialog.js";
+import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "../stamina/stamina-effects.js";
 import { isActorSkeletal, isActorUndead } from "../traits/trait-registry.js";
 import { canTokenEscapeTemplate } from "../../utils/aoe-utils.js";
 import { TimeService, buildEffectDuration } from "../time/index.js";
@@ -160,152 +161,7 @@ import {
   promptWeaponAndAdvantages
 } from "./opposed/dialogs/attacker.js";
 import { _resolveItemViaActor } from "./opposed/helpers/docs.js";
-
-// Re-export modular components for backward compatibility and performance
-export {
-  _debugEnabled,
-  _logDebug,
-  _findEnabledEffectByUesrpgKey,
-  _userHasActorOwnership,
-  _asNumber,
-  _normalizeKey,
-  _getSystemId,
-  _safeGetSetting,
-  _anyActiveGMOnline,
-  _canControlActor,
-  _getChatMessageAuthorUser,
-  _opposedFlags
-} from "./opposed/helpers/util.js";
-
-export {
-  _resolveDoc,
-  _resolveActor,
-  _resolveActorViaToken,
-  _resolveItemViaActor,
-  _resolveToken,
-  _measureTokenDistance,
-  _isIsolatedDuelByTokens
-} from "./opposed/helpers/docs.js";
-
-export {
-  measurePointDistance as _measurePointDistance
-} from "./opposed/helpers/workflow.js";
-
-// Phase 17: Consolidated into workflow-helpers.js
-export {
-  weaponHasQuality as _weaponHasQuality,
-  getPreferredWeaponUuid as _getPreferredWeaponUuid
-} from "./opposed/helpers/workflow.js";
-
-export {
-  normalizeDiceExpression,
-  safeEvaluateRoll
-} from "./opposed/rolls.js";
-
-// Phase 17: Consolidated into outcome-resolution.js and workflow-helpers.js
-export {
-  getContextAttackMode
-} from "./opposed/helpers/workflow.js";
-
-export {
-  fmtDegree as _fmtDegree,
-  resolveOutcomeRAW as _resolveOutcomeRAW,
-  computeAdvantageRAW as _computeAdvantageRAW
-} from "./opposed/outcome-resolution.js";
-
-// Phase 17: Consolidated into ammunition-consumption.js
-export {
-  consumePendingAmmo as _consumePendingAmmo,
-  markWeaponNeedsReload as _markWeaponNeedsReload
-} from "./opposed/damage/ammunition.js";
-
-export {
-  _getDefenderEntries,
-  _isMultiDefender,
-  _resolveDefenderIndex,
-  _selectDefenderEntry,
-  _getDefenderOutcome,
-  _setDefenderOutcome,
-  _getDefenderAdvantage,
-  _setDefenderAdvantage,
-  _getDefenderResolutionState,
-  _isBankChoicesEnabledForData,
-  _ensureBankedScaffold,
-  _getBankCommitState,
-  _allDefendersCommitted,
-  _applyDefenderCommitToData,
-  _applyAttackerCommitToData
-} from "./opposed/schema.js";
-
-export {
-  _variantLabel,
-  _circumstanceLabel,
-  _btn,
-  _renderBreakdown,
-  _extractRollTotal,
-  _renderRollLine
-} from "./opposed/render.js";
-
-export {
-  createTemporaryEffect as _createTemporaryEffect,
-  advantageDurationData as _advantageDurationData,
-  isAdvantageEffect as _isAdvantageEffect,
-  isAdvantageEffectExpired as _isAdvantageEffectExpired,
-  expireAdvantageEffects as _expireAdvantageEffects,
-  registerAdvantageExpirationHooks as _registerAdvantageExpirationHooks,
-  deleteActorEffectSafe as _deleteActorEffectSafe,
-  getAimStateFromEffect as _getAimStateFromEffect,
-  breakAimChainIfPresent as _breakAimChainIfPresent,
-  consumeOrBreakAimAfterAttack as _consumeOrBreakAimAfterAttack,
-  applyPressAdvantageEffect as _applyPressAdvantageEffect,
-  applyOverextendEffect as _applyOverextendEffect,
-  applyOverwhelmEffect as _applyOverwhelmEffect,
-  consumeOneShotAdvantageEffects as _consumeOneShotAdvantageEffects,
-  consumeHiddenAfterAttack as _consumeHiddenAfterAttack,
-  markPendingSneakAttack as _markPendingSneakAttack
-} from "./opposed/effects.js";
-
-export {
-  rollWeaponDamage as _rollWeaponDamage,
-  rollManualDamage as _rollManualDamage
-} from "./opposed/damage/roller.js";
-
-export {
-  promptYesNo as _promptYesNo,
-  promptSelectToken as _promptSelectToken,
-  promptAoEEvadeEscape as _promptAoEEvadeEscape,
-  promptWeaponAndAdvantages as _promptWeaponAndAdvantages
-} from "./opposed/dialogs/common.js";
-
-export {
-  promptDefenderAdvantage as _promptDefenderAdvantage
-} from "./opposed/dialogs/defender.js";
-
-export {
-  getEquippedWeaponItems as _getEquippedWeaponItems,
-  getEquippedOneHandMeleeWeapons as _getEquippedOneHandMeleeWeapons,
-  getOtherDualWieldWeaponUuid as _getOtherDualWieldWeaponUuid,
-  weaponHasTraitText as _weaponHasTraitText,
-  parseRangeBandsFromWeapon as _parseRangeBandsFromWeapon,
-  getWeaponRangeBands as _getWeaponRangeBands,
-  computeRangedRangeContext as _computeRangedRangeContext,
-  getWeaponReachBounds as _getWeaponReachBounds,
-  computeMeleeReachContext as _computeMeleeReachContext
-} from "./opposed/helpers/combat.js";
-
-export {
-  _getActiveCombatRoundContext,
-  _getGladiatorAutomationMode,
-  _getGladiatorRoundContext,
-  _getGladiatorContext,
-  _markGladiatorFreeReactionUsed,
-  _getFreeDefenseReactionContext,
-  _getUnstoppableMightWeaponEligibility,
-  _hasUnstoppableMightEligibleWeapons,
-  _promptUnstoppableMightUsage,
-  _maybeEnableFollowUpStrike,
-  _maybeApplyMightyCleave
-} from "./opposed/helpers/talents.js";
+import { createPending as _createPendingImpl } from "./opposed/createPending.js";
 
 // Export internal wrapper function needed by action handlers
 export { _ensureResolvedForPostActions };
@@ -497,7 +353,7 @@ registerAdvantageExpirationHooks();
 
 function _findEnabledEffectByUesrpgKey(actor, key) {
   if (!actor || !key) return null;
-  return actor.effects?.find?.((e) => !e.disabled && e?.flags?.uesrpg?.key === key) ?? null;
+  return actor.effects?.find?.((e) => !e.disabled && getFlagValueWithFallback(e, "key") === key) ?? null;
 }
 
 async function _deleteActorEffectSafe(actor, effect) {
@@ -850,179 +706,7 @@ export const OpposedWorkflow = {
    * Compatible with legacy callers.
    */
   async createPending(cfg = {}) {
-    const aDoc = _resolveDoc(cfg.attackerTokenUuid) ?? _resolveDoc(cfg.attackerActorUuid) ?? _resolveDoc(cfg.attackerUuid);
-    const aToken = _resolveToken(aDoc);
-    const attacker = _resolveActor(aDoc);
-
-    const defenderRefs = [];
-    const addDefenderRef = (ref) => {
-      if (!ref) return;
-      if (typeof ref === "string") defenderRefs.push(ref);
-      else if (ref?.uuid) defenderRefs.push(ref.uuid);
-    };
-
-    if (Array.isArray(cfg.defenders)) {
-      for (const def of cfg.defenders) {
-        addDefenderRef(def?.tokenUuid ?? def?.actorUuid ?? def?.uuid ?? def);
-      }
-    }
-    if (Array.isArray(cfg.defenderTokenUuids)) {
-      for (const ref of cfg.defenderTokenUuids) addDefenderRef(ref);
-    }
-    if (Array.isArray(cfg.defenderActorUuids)) {
-      for (const ref of cfg.defenderActorUuids) addDefenderRef(ref);
-    }
-    addDefenderRef(cfg.defenderTokenUuid ?? cfg.defenderActorUuid ?? cfg.defenderUuid);
-
-    const defenderEntries = [];
-    const seen = new Set();
-    for (const ref of defenderRefs) {
-      const dDoc = _resolveDoc(ref);
-      const dToken = _resolveToken(dDoc);
-      const dActor = _resolveActor(dDoc);
-      if (!dActor) continue;
-      const key = dToken?.document?.uuid ?? dToken?.uuid ?? dActor.uuid;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      defenderEntries.push({
-        actorUuid: dActor.uuid,
-        tokenUuid: dToken?.document?.uuid ?? null,
-        tokenName: dToken?.name ?? null,
-        name: dActor.name,
-        label: null,
-        testLabel: null,
-        defenseLabel: null,
-        target: null,
-        defenseType: null,
-        result: null,
-        noDefense: false,
-        banked: { committed: false, committedAt: null, committedBy: null },
-        tn: null,
-        outcome: null,
-        advantage: null
-      });
-    }
-
-    if (!attacker || defenderEntries.length === 0) {
-      ui.notifications.warn("Opposed test requires both an attacker and at least one defender (token or actor).");
-      return null;
-    }
-
-    // Chapter 5 (Defensive Stance): Attack limit reduced to 0 until next Turn.
-    // Prevent creating a pending attack when Defensive Stance is active.
-    if (String(cfg.mode ?? "attack") === "attack" && _findEnabledEffectByUesrpgKey(attacker, "defensiveStance")) {
-      ui.notifications.warn("Defensive Stance is active: you cannot attack until your next Turn.");
-      return null;
-    }
-
-    const baseTarget = Number(cfg.attackerTarget ?? 0);
-
-    // Seed the opposed context with a weapon UUID.
-    //
-    // Default behavior: use the attacker's preferred equipped weapon.
-    // Override behavior (cfg.weaponUuid): used by sheet quick-actions to ensure
-    // the pending card reflects the clicked weapon and that the Declare dialog
-    // preselects the correct weapon.
-    //
-    // This is required for deterministic range band TN modifiers and weapon-quality gating
-    // (e.g., Flail) during DefenseDialog, before any damage-resolution step.
-    let seededWeaponUuid = "";
-    if (cfg.weaponUuid) {
-      try {
-        const w = _resolveItemViaActor(cfg.weaponUuid, attacker);
-        if (w && w.documentName === "Item" && w.type === "weapon") {
-          seededWeaponUuid = w.uuid;
-        }
-      } catch (_e) {
-        seededWeaponUuid = "";
-      }
-    }
-    if (!seededWeaponUuid) seededWeaponUuid = _getPreferredWeaponUuid(attacker, { meleeOnly: false }) || "";
-    const seededAttackMode = cfg.attackMode ? String(cfg.attackMode) : await _inferAttackModeFromPreferredWeapon(attacker);
-
-    const isAoE = Boolean(cfg?.aoe?.isAoE || cfg?.context?.aoe?.isAoE || cfg?.isAoE);
-    const isFollowUpStrike = Boolean(cfg?.followUpStrike);
-    const isReactionAttack = Boolean(cfg?.isReactionAttack);
-    const skipApDeduction = Boolean(cfg?.skipAttackerAPDeduction || isFollowUpStrike);
-    const skipAttackCountIncrement = Boolean(cfg?.skipAttackCountIncrement || isFollowUpStrike);
-    const isFreeActionAttack = Boolean(cfg?.isFreeActionAttack || isFollowUpStrike);
-    const data = {
-        context: {
-          schemaVersion: 1,
-          createdAt: Date.now(),
-          createdBy: game.user.id,
-          updatedAt: Date.now(),
-          updatedBy: game.user.id,
-          phase: 'pending',
-          waitingSince: null,
-          weaponUuid: seededWeaponUuid || null,
-          attackMode: seededAttackMode || "melee",
-          forcedHitLocation: isAoE ? "Body" : (cfg.forcedHitLocation ?? null),
-          aoe: cfg?.aoe ? foundry.utils.deepClone(cfg.aoe) : undefined,
-          isAoE: cfg?.isAoE ?? undefined,
-          activation: cfg.activation ?? null,
-          skipAttackerAPDeduction: skipApDeduction,
-          skipAttackCountIncrement,
-          isFreeActionAttack,
-          isReactionAttack,
-          followUpStrike: isFollowUpStrike
-            ? {
-                active: true,
-                penalty: -20,
-                sourceWeaponUuid: cfg?.followUpStrikeSourceWeaponUuid ?? null
-              }
-            : undefined,
-          bankChoicesEnabled: true,
-          autoRollRequested: false,
-        autoRollRequestedAt: null,
-        autoRollRequestedBy: null,
-        autoRollStarted: false,
-        autoRollStartedAt: null,
-        autoRollStartedBy: null
-      },
-      status: "pending",
-      mode: cfg.mode ?? "attack",
-      attacker: {
-        actorUuid: attacker.uuid,
-        tokenUuid: aToken?.document?.uuid ?? null,
-        tokenName: aToken?.name ?? null,
-        name: attacker.name,
-        label: cfg.attackerLabel ?? "Attack",
-        itemUuid: cfg.attackerItemUuid ?? cfg.itemUuid ?? null,
-        baseTarget,
-        hasDeclared: false,
-        banked: { committed: false, committedAt: null, committedBy: null },
-        variant: "normal",
-        variantMod: 0,
-        manualMod: 0,
-        totalMod: 0,
-        target: baseTarget,
-        tn: null,
-        result: null
-      },
-      defender: defenderEntries[0] ?? {},
-      defenders: defenderEntries,
-      outcome: null
-    };
-
-    const message = await ChatMessage.create({
-      user: game.user.id,
-      speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
-      content: _renderCard(data, ""),
-      flags: { "uesrpg-3ev4": { opposed: data } }
-    });
-
-    await safeUpdateChatMessage(message, { content: _renderCard(data, message.id) });
-
-    _logDebug("createPending", {
-      messageId: message.id,
-      attackerUuid: data.attacker.actorUuid,
-      defenderUuid: data.defender.actorUuid,
-      mode: data.mode
-    });
-
-    return message;
+    return await _createPendingImpl(cfg);
   },
 
   async handleAction(message, action, opts = {}) {

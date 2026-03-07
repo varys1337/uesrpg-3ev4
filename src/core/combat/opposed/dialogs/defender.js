@@ -12,6 +12,17 @@ import { buildSpecialActionsForActor } from "../../combat-style-utils.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { canUseExploitAdvantage as _canUseExploitAdvantage } from "../helpers/workflow.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../../data/tooltips/index.js";
+import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
+
+function _escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 /**
  * Prompt defender to spend Advantage after successful defense.
@@ -50,15 +61,17 @@ export async function promptDefenderAdvantage({
     if (!id) return "";
     const label = String(sa?.name ?? id);
     const typ = String(sa?.actionType ?? "").toLowerCase();
+    const tooltip = buildSpecialActionTooltipText({ name: label, id, actionType: typ || "primary/secondary" });
+    const helpText = buildSpecialActionHelpText({ name: label, id });
     const chipClass = typ === "primary" ? "uesrpg-adv-chip--primary" : "uesrpg-adv-chip--secondary";
     const chipLabel = typ === "primary" ? "Primary" : "Secondary";
     return `
-      <label class="uesrpg-adv-choice">
+      <label class="uesrpg-adv-choice" title="${_escapeHtml(tooltip)}" data-uesrpg-inline-help="true" data-uesrpg-inline-help-label="${_escapeHtml(label)}" data-uesrpg-inline-help-text="${_escapeHtml(tooltip)}" data-uesrpg-inline-help-dialog-text="${_escapeHtml(helpText)}">
         <input type="checkbox" name="sa_${id}" />
         <span class="uesrpg-adv-choice__label">
           <span class="uesrpg-adv-choice__title">${label}</span>
+          <span class="uesrpg-adv-chip uesrpg-adv-chip--inline ${chipClass}">${chipLabel}</span>
         </span>
-        <span class="uesrpg-adv-chip ${chipClass}">${chipLabel}</span>
       </label>
     `;
   };
@@ -77,9 +90,6 @@ export async function promptDefenderAdvantage({
             <span class="uesrpg-adv-choice__desc">Opponent's next attack within 1 round suffers -10.</span>
           </span>
         </label>
-        ${hasExploitTalent ? `
-        <p class="hint" style="margin:0.25rem 0 0 0;">${exploitEligible ? "Exploit Advantage: Overextend is doubled (-20) (isolated duel)." : "Exploit Advantage: requires an isolated duel to double Overextend."}</p>
-        ` : ``}
         <label class="uesrpg-adv-choice">
           <input type="checkbox" name="overwhelm" />
           <span class="uesrpg-adv-choice__label">
@@ -87,6 +97,11 @@ export async function promptDefenderAdvantage({
             <span class="uesrpg-adv-choice__desc">Opponent cannot make Attacks of Opportunity until your next turn.</span>
           </span>
         </label>
+        ${hasExploitTalent ? `
+        <div class="uesrpg-adv-section">
+          <p class="hint" style="margin:0;">${exploitEligible ? "Exploit Advantage: Overextend is doubled (-20) (isolated duel)." : "Exploit Advantage: requires an isolated duel to double Overextend."}</p>
+        </div>
+        ` : ``}
         ${knownSpecial.length ? `
           <div class="uesrpg-adv-section">
             <div class="uesrpg-adv-section__title"><b>Known Special Actions</b></div>
@@ -98,8 +113,10 @@ export async function promptDefenderAdvantage({
     </div>
   `;
 
-  return await customDialog({
-      title: "Use Defender Advantage",
+  const tooltipScope = { kind: "adv-dialog", domain: "defender-advantage" };
+  try {
+    return await customDialog({
+      title: "Resolve Defender Advantage",
       content,
       classes: ["uesrpg-attack-declare"],
       buttons: {
@@ -137,6 +154,7 @@ export async function promptDefenderAdvantage({
 
     render: (event, html) => {
       const root = html instanceof HTMLElement ? html : html?.element ?? html;
+      if (root instanceof HTMLElement) bindItemDescriptionTooltips(tooltipScope, root);
       const form = root?.querySelector(".uesrpg-adv-dialog--defender") ?? root;
       if (!form) return;
 
@@ -176,4 +194,7 @@ export async function promptDefenderAdvantage({
       updateUi();
     },
   });
+  } finally {
+    clearItemDescriptionTooltip(tooltipScope);
+  }
 }

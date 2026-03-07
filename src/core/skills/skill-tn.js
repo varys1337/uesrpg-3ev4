@@ -14,6 +14,8 @@ import { hasTalent } from "../traits/talents-api.js";
 import { applySenseLossPenaltyAdjustments } from "../traits/awareness-talents.js";
 import { getArmoredAgilityAcrobaticsBonus } from "../traits/mobility-talents.js";
 import { hasCondition } from "../conditions/condition-engine.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
+import { normalizeKey } from "./key-utils.js";
 
 export const SKILL_DIFFICULTIES = Object.freeze([
   { key: "effortless", label: "Effortless", mod: 40 },
@@ -39,17 +41,65 @@ function _asNumber(v) {
 }
 
 
-function _normalizeKey(s) {
-  return String(s ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[^a-z0-9_]/g, "");
+const _governingParseCache = new WeakMap();
+
+function _canonicalCharacteristicToken(v) {
+  switch (v) {
+    case "strength": return "str";
+    case "endurance": return "end";
+    case "agility": return "agi";
+    case "intelligence": return "int";
+    case "willpower": return "wp";
+    case "perception": return "prc";
+    case "personality": return "prs";
+    case "luck": return "lck";
+    default: return v;
+  }
+}
+
+function _getParsedGoverningData(skill) {
+  const skillObj = (skill && typeof skill === "object") ? skill : null;
+  const skillSystem = (skillObj?.system && typeof skillObj.system === "object") ? skillObj.system : null;
+  const cacheKey = skillSystem ?? skillObj;
+  const governingRaw = String(skillSystem?.governingCha ?? "");
+  const baseRaw = String(skillSystem?.baseCha ?? "");
+  const baseNorm = _canonicalCharacteristicToken(baseRaw.trim().toLowerCase());
+
+  if (!cacheKey || (typeof cacheKey !== "object")) {
+    const tokens = new Set(
+      governingRaw
+        .split(/[,\n/]+/)
+        .map(s => _canonicalCharacteristicToken(s.trim().toLowerCase()))
+        .filter(Boolean)
+    );
+    return { tokens, baseNorm };
+  }
+
+  const cached = _governingParseCache.get(cacheKey);
+  if (cached && cached.raw === governingRaw && cached.base === baseRaw) {
+    return { tokens: cached.tokens, baseNorm: cached.baseNorm };
+  }
+
+  const tokens = new Set(
+    governingRaw
+      .split(/[,\n/]+/)
+      .map(s => _canonicalCharacteristicToken(s.trim().toLowerCase()))
+      .filter(Boolean)
+  );
+
+  _governingParseCache.set(cacheKey, {
+    raw: governingRaw,
+    base: baseRaw,
+    baseNorm,
+    tokens
+  });
+
+  return { tokens, baseNorm };
 }
 
 function _maybeAddObservantEvadeMod(actor, skillItem, situationalMods) {
   if (!actor || !skillItem || !Array.isArray(situationalMods)) return;
-  if (_normalizeKey(skillItem?.name) !== "evade") return;
+  if (normalizeKey(skillItem?.name) !== "evade") return;
   if (!hasTalent(actor, "observant")) return;
 
   const baseTN = _asNumber(skillItem?.system?.value ?? 0);
@@ -93,7 +143,7 @@ function _maybeAddSenseLossAwarenessMods(actor, skillItem, situationalMods) {
   }
 
   // Unopposed baseline: only auto-hydrate observe penalties that already exist via condition AEs.
-  const skillKey = _normalizeKey(skillItem?.name);
+  const skillKey = normalizeKey(skillItem?.name);
   if (skillKey !== "observe") return;
 
   const hasBlind = hasCondition(actor, "blinded");
@@ -160,11 +210,11 @@ function _collectItemSkillBonuses(actor, skill) {
   const candidates = new Set();
   if (key) {
     candidates.add(key.toLowerCase());
-    candidates.add(_normalizeKey(key));
+    candidates.add(normalizeKey(key));
   }
   if (name) {
     candidates.add(name.toLowerCase());
-    candidates.add(_normalizeKey(name));
+    candidates.add(normalizeKey(name));
   }
 
   const seen = new Set(); // dedupe by itemId+entryKey+value
@@ -180,7 +230,7 @@ function _collectItemSkillBonuses(actor, skill) {
       if (!eName || !eValue) continue;
 
       const lc = eName.toLowerCase();
-      const ek = _normalizeKey(eName);
+      const ek = normalizeKey(eName);
       if (!(candidates.has(lc) || candidates.has(ek))) continue;
 
       const sig = `${item.id}|${ek}|${eValue}`;
@@ -223,9 +273,9 @@ export function computeSkillTN({
   // - system.modifiers.skills.<normalizedSkillName>
   //
   // We evaluate these deterministically at roll-time to support both ADD and OVERRIDE modes.
-  const _aeSkillNorm = _normalizeKey(skillItem?.name);
-  const _aeProfessionNorm = _normalizeKey(skillItem?._professionKey);
-  const _aeCharacteristicNorm = _normalizeKey(skillItem?._characteristicKey);
+  const _aeSkillNorm = normalizeKey(skillItem?.name);
+  const _aeProfessionNorm = normalizeKey(skillItem?._professionKey);
+  const _aeCharacteristicNorm = normalizeKey(skillItem?._characteristicKey);
   const _aeSkillKeys = new Set([
     "system.modifiers.tests.all",
     "system.modifiers.skills._all",
@@ -245,7 +295,7 @@ export function computeSkillTN({
     !_asNumber(_aeSkillResolved["system.modifiers.skills.physicalExertion"] ?? 0)
   ) {
     const hasLegacy = actor.effects?.some(e =>
-      !e.disabled && e?.flags?.uesrpg?.key === "stamina-physical-exertion"
+      !e.disabled && getFlagValueWithFallback(e, "key") === "stamina-physical-exertion"
     );
     if (hasLegacy) {
       fallbackSituational.push({ key: "physicalExertion", label: "Physical Exertion", value: 20, source: "staminaLegacy" });
@@ -319,28 +369,8 @@ function computeSkillTNFromData({
   // Chapter 3: many skills allow choosing a governing characteristic per test.
   // Stored `system.value` is derived from the currently selected base characteristic.
   // For per-roll selection, swap old characteristic contribution with the selected one.
-  const selectedCharKey = String(selectedCharacteristicKey ?? "").trim().toLowerCase();
-  const currentBaseCharKey = String(skill?.system?.baseCha ?? "").trim().toLowerCase();
-  const governingRaw = String(skill?.system?.governingCha ?? "");
-  const governingTokens = new Set(
-    governingRaw
-      .split(/[,\n/]+/)
-      .map(s => s.trim().toLowerCase())
-      .filter(Boolean)
-      .map(s => {
-        switch (s) {
-          case "strength": return "str";
-          case "endurance": return "end";
-          case "agility": return "agi";
-          case "intelligence": return "int";
-          case "willpower": return "wp";
-          case "perception": return "prc";
-          case "personality": return "prs";
-          case "luck": return "lck";
-          default: return s;
-        }
-      })
-  );
+  const selectedCharKey = _canonicalCharacteristicToken(String(selectedCharacteristicKey ?? "").trim().toLowerCase());
+  const { tokens: governingTokens, baseNorm: currentBaseCharKey } = _getParsedGoverningData(skill);
   if (
     selectedCharKey &&
     selectedCharKey !== currentBaseCharKey &&
@@ -369,7 +399,7 @@ function computeSkillTNFromData({
   // - system.modifiers.skills.<normalizedSkillName>
   //
   // We evaluate these deterministically at roll-time to support both ADD and OVERRIDE modes.
-  const normName = _normalizeKey(skill?.name);
+  const normName = normalizeKey(skill?.name);
   const resolved = aeSkillResolved ?? {};
 
   // Global test lane
@@ -385,7 +415,7 @@ function computeSkillTNFromData({
   }
 
   // Skill-specific lane
-  const normProfession = _normalizeKey(skill?._professionKey);
+  const normProfession = normalizeKey(skill?._professionKey);
   const specificBonus = normName ? _asNumber(resolved[`system.modifiers.skills.${normName}`] ?? 0) : 0;
   if (specificBonus) {
     const labelName = String(skill?.name ?? "").trim();
@@ -409,7 +439,7 @@ function computeSkillTNFromData({
   }
 
   // Characteristic-specific AE modifier lane
-  const normCharacteristic = _normalizeKey(skill?._characteristicKey);
+  const normCharacteristic = normalizeKey(skill?._characteristicKey);
   if (normCharacteristic) {
     const chaBonus = _asNumber(resolved[`system.modifiers.characteristics.${normCharacteristic}`] ?? 0);
     if (chaBonus) {

@@ -19,8 +19,8 @@
 import { hasCondition } from "./condition-engine.js";
 import { applyDamage } from "../combat/damage-automation.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
-
-const FLAG_SCOPE = "uesrpg-3ev4";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { normalizeKey } from "../../utils/coerce.js";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const CONDITION_KEY = "bleeding";
 
@@ -50,10 +50,6 @@ function _effectsOf(actor) {
   return Array.isArray(e.contents) ? e.contents : [];
 }
 
-function _normKey(k) {
-  return String(k ?? "").trim().toLowerCase();
-}
-
 function _readBleedingValue(effect) {
   // Prefer canonical flag value; fall back to parsing the name "Bleeding (X)".
   try {
@@ -76,17 +72,17 @@ function _readBleedingValue(effect) {
 
 function _isBleedingEffect(effect) {
   if (!effect) return false;
-  const k = _normKey(effect?.getFlag?.(FLAG_SCOPE, "condition")?.key ?? effect?.flags?.[FLAG_SCOPE]?.condition?.key);
+  const k = normalizeKey(effect?.getFlag?.(FLAG_SCOPE, "condition")?.key ?? effect?.flags?.[FLAG_SCOPE]?.condition?.key);
   if (k === CONDITION_KEY) return true;
 
-  const coreId = _normKey(effect?.getFlag?.("core", "statusId") ?? effect?.flags?.core?.statusId);
+  const coreId = normalizeKey(effect?.getFlag?.("core", "statusId") ?? effect?.flags?.core?.statusId);
   if (coreId === CONDITION_KEY) return true;
 
   try {
     if (effect.statuses && typeof effect.statuses?.has === "function" && effect.statuses.has(CONDITION_KEY)) return true;
   } catch (_err) {}
 
-  const nm = _normKey(effect.name);
+  const nm = normalizeKey(effect.name);
   return nm.startsWith(CONDITION_KEY);
 }
 

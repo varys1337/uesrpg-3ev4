@@ -6,12 +6,12 @@
  */
 
 import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
-import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow.js";
+import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
 import { doTestRoll, formatDegree } from "../../../../utils/degree-roll-helper.js";
 import { requireUserCanRollActor } from "../../../../utils/permissions.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../../../../core/traits/trait-resistance-ui.js";
-import { _buildCharacteristicPseudoItem } from "../../../../core/skills/opposed/skills.js";
+import { _buildCharacteristicPseudoItem } from "../../../../core/skills/opposed-workflow/core/skills.js";
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../../core/traits/awareness-talents.js";
 import { applyIronWillReroll } from "../../../../core/traits/resilience-talents.js";
 import { hasTalent } from "../../../../core/traits/talents-api.js";
@@ -60,13 +60,15 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
   const state = {
     mode: "roll",
     assignmentMode: "auto",
+    hasRolled: false,
     rerollsUsed: 0,
-    rollPool: CHA_KEYS.map(() => _roll2d10()),
-    luckRoll: Math.min(50, 30 + _roll2d10()),
+    rollPool: CHA_KEYS.map(() => null),
+    luckRoll: null,
     pointBuy: Object.fromEntries(CHA_KEYS.map((k) => [k, 0])),
   };
 
   function currentAssignMap(root) {
+    if (!state.hasRolled) return null;
     if (state.assignmentMode === "auto") {
       return Object.fromEntries(CHA_KEYS.map((k, idx) => [k, idx]));
     }
@@ -79,6 +81,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
   }
 
   function writeRollTotals(root) {
+    if (!state.hasRolled) return;
     const assignMap = currentAssignMap(root);
     for (const key of CHA_KEYS) {
       const idx = _num(assignMap[key], -1);
@@ -106,7 +109,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
   function renderRollAssignSelectors(root) {
     const wrap = root?.querySelector("#cgManualAssignWrap");
     if (!wrap) return;
-    const existingMap = currentAssignMap(root);
+    const existingMap = currentAssignMap(root) ?? {};
     wrap.innerHTML = CHA_KEYS.map((key, idx) => {
       const current = _num(existingMap[key], idx);
       const options = state.rollPool.map((roll, rIdx) => `<option value="${rIdx}" ${rIdx === current ? "selected" : ""}>${roll}</option>`).join("");
@@ -119,29 +122,31 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
 
   function refreshUi(root) {
     if (!root) return;
+    const isRoll = state.mode === "roll";
     const poolEl = root.querySelector("#cgRollPool");
-    if (poolEl) poolEl.textContent = state.rollPool.join(", ");
+    if (poolEl) poolEl.textContent = state.hasRolled ? state.rollPool.join(", ") : "Stand by";
     const modeEl = root.querySelector("#cgModeLabel");
     if (modeEl) modeEl.textContent = state.mode === "pointbuy" ? "Point Buy" : "Roll";
     const rerollsEl = root.querySelector("#cgRerollCount");
     if (rerollsEl) rerollsEl.textContent = `${state.rerollsUsed}/3`;
-    const behaviorEl = root.querySelector("#cgRollBehavior");
-    if (behaviorEl) behaviorEl.value = state.assignmentMode;
     const lck = root.querySelector("#lckInput");
-    if (lck && !String(lck.value ?? "").trim()) lck.value = String(state.luckRoll);
-
-    const isRoll = state.mode === "roll";
+    if (lck) {
+      if (state.hasRolled && state.luckRoll !== null) lck.value = String(state.luckRoll);
+      else if (!String(lck.dataset.userEdited ?? "").trim()) lck.value = "";
+    }
+    const rerollBtn = root.querySelector("#cgReroll");
+    if (rerollBtn) rerollBtn.disabled = !(isRoll && state.hasRolled);
     const rollSection = root.querySelector("#cgRollSection");
     const pbSection = root.querySelector("#cgPointBuySection");
     if (rollSection) rollSection.style.display = isRoll ? "" : "none";
     if (pbSection) pbSection.style.display = isRoll ? "none" : "";
 
     const manualWrap = root.querySelector("#cgManualAssignSection");
-    if (manualWrap) manualWrap.style.display = isRoll && state.assignmentMode === "manual" ? "" : "none";
+    if (manualWrap) manualWrap.style.display = isRoll && state.hasRolled && state.assignmentMode === "manual" ? "" : "none";
 
-    if (isRoll) {
+    if (isRoll && state.hasRolled) {
       writeRollTotals(root);
-    } else {
+    } else if (!isRoll) {
       writePointBuyTotals(root);
     }
   }
@@ -155,22 +160,15 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         RAW: Roll 2d10 seven times for non-luck and assign on top of racial baseline. Luck is 2d10 + 30 (max 50). Optional manual point-buy: distribute exactly 80 points (max 20 per non-luck characteristic).
       </div>
       <div class="uesrpg-cg-dialog__tools">
-        <button type="button" id="cgRollRaw">Roll RAW</button>
-        <label class="uesrpg-cg-dialog__small" style="display:flex; align-items:center; gap:4px;">
-          Roll Behavior
-          <select id="cgRollBehavior">
-            <option value="auto">Roll + Auto Assign</option>
-            <option value="manual">Roll + Manual Distribute</option>
-          </select>
-        </label>
+        <button type="button" id="cgRollAssign">Roll + Assign</button>
+        <button type="button" id="cgRollDistribute">Roll + Distribute</button>
         <button type="button" id="cgUsePointBuy">Use Point Buy Mode</button>
         <button type="button" id="cgReroll" title="Optional RAW reroll pool (max 3)">Reroll Pool</button>
         <span class="uesrpg-cg-dialog__small">Mode: <b id="cgModeLabel">Roll</b></span>
-        <span class="uesrpg-cg-dialog__small">Pool: <span id="cgRollPool">${state.rollPool.join(", ")}</span></span>
+        <span class="uesrpg-cg-dialog__small">Pool: <span id="cgRollPool">Stand by</span></span>
         <span class="uesrpg-cg-dialog__small">Rerolls: <span id="cgRerollCount">0/3</span></span>
       </div>
-      <div class="uesrpg-cg-dialog__note">Fields are editable. Typed values are used on submit.</div>
-      <div id="cgRollSection" class="uesrpg-cg-dialog__note">Roll Assignment Mode controls how the 7 rolled values are mapped to STR/END/AGI/INT/WP/PRC/PRS.</div>
+      <div id="cgRollSection" class="uesrpg-cg-dialog__note">Fields are editable and typed values are used on submit. Roll assignment mode controls how the 7 rolled values map to STR/END/AGI/INT/WP/PRC/PRS.</div>
       <div id="cgManualAssignSection" style="display:none;">
         <div class="uesrpg-cg-dialog__note">Manual Assignment (use each roll exactly once):</div>
         <div id="cgManualAssignWrap" style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px;"></div>
@@ -203,7 +201,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           <td><input type="number" id="wpInput"></td>
           <td><input type="number" id="prcInput"></td>
           <td><input type="number" id="prsInput"></td>
-          <td><input type="number" id="lckInput" value="${state.luckRoll}"></td>
+          <td><input type="number" id="lckInput" value=""></td>
         </tr>
       </table>
       <div class="uesrpg-cg-dialog__note">Select exactly two favored characteristics.</div>
@@ -228,7 +226,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         if (!root) return;
         let assignedMap = null;
         let pointBuyAllocation = null;
-        if (state.mode === "roll") {
+        if (state.mode === "roll" && state.hasRolled) {
           const map = currentAssignMap(root);
           const idxValues = Object.values(map);
           if (idxValues.some((v) => v < 0 || v >= state.rollPool.length)) {
@@ -242,7 +240,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
             }
           }
           assignedMap = map;
-        } else {
+        } else if (state.mode === "pointbuy") {
           pointBuyAllocation = {};
           let total = 0;
           for (const key of CHA_KEYS) {
@@ -324,7 +322,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
             assignmentMode: state.mode === "roll" ? state.assignmentMode : null,
             assignedMap,
             pointBuyAllocation,
-            luckRoll: values.lck,
+            luckRoll: state.hasRolled ? values.lck : null,
             rerollsUsed: state.rerollsUsed,
             final: values,
             favored: Object.entries(favored).filter(([, enabled]) => enabled).map(([k]) => k),
@@ -333,11 +331,11 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         await requestUpdateDocument(actor, {
           "flags.uesrpg-3ev4.chargen.statsGeneration": {
             mode: state.mode,
-            rollPool: state.mode === "roll" ? [...state.rollPool] : null,
-            assignmentMode: state.mode === "roll" ? state.assignmentMode : null,
+            rollPool: state.mode === "roll" && state.hasRolled ? [...state.rollPool] : null,
+            assignmentMode: state.mode === "roll" && state.hasRolled ? state.assignmentMode : null,
             assignedMap,
             pointBuyAllocation,
-            luckRoll: values.lck,
+            luckRoll: state.hasRolled ? values.lck : null,
             rerollsUsed: state.rerollsUsed,
           },
         });
@@ -351,20 +349,27 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       renderRollAssignSelectors(root);
       refreshUi(root);
 
-      root.querySelector("#cgRollRaw")?.addEventListener("click", () => {
+      const rollPool = (assignmentMode) => {
         state.mode = "roll";
-        state.assignmentMode = String(root.querySelector("#cgRollBehavior")?.value ?? "auto");
+        state.assignmentMode = assignmentMode;
+        state.hasRolled = true;
         state.rollPool = CHA_KEYS.map(() => _roll2d10());
         state.luckRoll = Math.min(50, 30 + _roll2d10());
         root.querySelector("#lckInput").value = String(state.luckRoll);
         renderRollAssignSelectors(root);
         refreshUi(root);
-      });
+      };
+      root.querySelector("#cgRollAssign")?.addEventListener("click", () => rollPool("auto"));
+      root.querySelector("#cgRollDistribute")?.addEventListener("click", () => rollPool("manual"));
       root.querySelector("#cgUsePointBuy")?.addEventListener("click", () => {
         state.mode = "pointbuy";
         refreshUi(root);
       });
       root.querySelector("#cgReroll")?.addEventListener("click", () => {
+        if (!state.hasRolled) {
+          ui.notifications?.warn?.("Roll a pool first.");
+          return;
+        }
         if (state.rerollsUsed >= 3) {
           ui.notifications?.warn?.("Maximum RAW rerolls reached (3).");
           return;
@@ -375,18 +380,17 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         }
         state.rerollsUsed += 1;
         state.rollPool = CHA_KEYS.map(() => _roll2d10());
-        renderRollAssignSelectors(root);
-        refreshUi(root);
-      });
-      root.querySelector("#cgRollBehavior")?.addEventListener("change", (ev) => {
-        state.assignmentMode = String(ev?.currentTarget?.value ?? "auto");
-        state.mode = "roll";
+        state.luckRoll = Math.min(50, 30 + _roll2d10());
+        root.querySelector("#lckInput").value = String(state.luckRoll);
         renderRollAssignSelectors(root);
         refreshUi(root);
       });
       for (const key of CHA_KEYS) {
         root.querySelector(`#pb-${key}`)?.addEventListener("input", () => refreshUi(root));
       }
+      root.querySelector("#lckInput")?.addEventListener("input", (ev) => {
+        ev.currentTarget.dataset.userEdited = "true";
+      });
       root.addEventListener("change", (ev) => {
         if (String(ev?.target?.id ?? "").startsWith("assign-")) refreshUi(root);
       });

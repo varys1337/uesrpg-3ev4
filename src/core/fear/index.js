@@ -6,13 +6,15 @@
 
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
-import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { applyGroupedEffect } from "../../utils/ae-helpers.js";
+import { requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { isActiveGMUser } from "../wounds/wound-schema.js";
-
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../system/namespace.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 const FEAR_FLAG = "fear";
-const SNAP_PROMPT_FLAG = "chapter5.fearSnapPrompt";
 const FEAR_GROUP_PREFIX = "fear.";
+const SNAP_PROMPT_DEDUPE_MAX = 5000;
+const _snapPromptTurnKeys = new Set();
 
 let _fearRegistered = false;
 
@@ -21,7 +23,7 @@ function _effects(actor) {
 }
 
 function _isFearEffect(effect) {
-  const lane = effect?.getFlag?.(SYSTEM_ID, FEAR_FLAG);
+  const lane = getFlagValueWithFallback(effect, FEAR_FLAG);
   return lane && typeof lane === "object";
 }
 
@@ -30,7 +32,7 @@ function _getFearEffects(actor) {
 }
 
 function _fearLane(effect) {
-  return effect?.getFlag?.(SYSTEM_ID, FEAR_FLAG) ?? null;
+  return getFlagValueWithFallback(effect, FEAR_FLAG) ?? null;
 }
 
 function _escapeHtml(str) {
@@ -94,6 +96,22 @@ function _nameWithRounds(baseName, rounds) {
   return `${name} (${n} rounds)`;
 }
 
+function _combatTurnPromptKey(combat, actorId = "") {
+  const cid = String(combat?.id ?? "");
+  const round = Number(combat?.round ?? 0);
+  const turn = Number(combat?.turn ?? 0);
+  const aid = String(actorId ?? "");
+  return `${cid}:${round}:${turn}:${aid}`;
+}
+
+function _pruneSnapPromptDedupe({ combatId = "" } = {}) {
+  const cid = String(combatId ?? "");
+  if (!cid) return;
+  for (const key of _snapPromptTurnKeys) {
+    if (key.startsWith(`${cid}:`)) _snapPromptTurnKeys.delete(key);
+  }
+}
+
 async function _expireStartOfTurnFearEffects(combat) {
   if (!combat?.started) return;
   const combatant = combat?.combatant ?? null;
@@ -140,6 +158,8 @@ async function _tickFixedRoundFearEffects(combat, changed = {}) {
   for (const c of combatants) {
     const actor = c?.actor ?? null;
     if (!actor) continue;
+    const effectIdsToDelete = [];
+    const effectUpdates = [];
 
     for (const ef of _getFearEffects(actor)) {
       const lane = _fearLane(ef);
@@ -153,15 +173,23 @@ async function _tickFixedRoundFearEffects(combat, changed = {}) {
 
       const next = remaining - 1;
       if (next <= 0) {
-        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
+        effectIdsToDelete.push(ef.id);
         continue;
       }
 
-      await requestUpdateDocument(ef, {
+      effectUpdates.push({
+        _id: ef.id,
         name: _nameWithRounds(ef.name, next),
         [`flags.${SYSTEM_ID}.${FEAR_FLAG}.fixedRounds`]: next,
         [`flags.${SYSTEM_ID}.${FEAR_FLAG}.fixedRoundsTickKey`]: tickKey
       });
+    }
+
+    if (effectIdsToDelete.length) {
+      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", effectIdsToDelete);
+    }
+    if (effectUpdates.length) {
+      await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", effectUpdates);
     }
   }
 }
@@ -186,19 +214,6 @@ async function _postFearMessage(actor, title, body) {
     content,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
-}
-
-async function _dedupeFearGroup(actor, group) {
-  const g = String(group ?? "").trim();
-  if (!actor || !g) return;
-  const effects = _getFearEffects(actor)
-    .filter((e) => String(e?.flags?.[SYSTEM_ID]?.effectGroup ?? "") === g);
-
-  if (effects.length <= 1) return;
-  const keep = effects[effects.length - 1];
-  const toDelete = effects.filter((e) => e.id !== keep.id).map((e) => e.id);
-  if (!toDelete.length) return;
-  await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", toDelete);
 }
 
 async function _createFearEffect(actor, {
@@ -244,10 +259,12 @@ async function _createFearEffect(actor, {
         stackRule: "override",
         [FEAR_FLAG]: {
           key: fearKey,
+          // NOTE: Exposed by getFearActionRestrictions and consumed by movement/combat gating.
           blockActions: blockActions === true,
           blockReactions: blockReactions === true,
           cannotApproach: cannotApproach === true,
           snapOut: snapOut === true,
+          // NOTE: Stored for compatibility/advisory consumers; current snap-out TN does not apply it.
           snapOutMod: Number(snapOutMod ?? 0) || 0,
           encounterScoped: encounterScoped !== false,
           applyAfterSnapPenalty: Number(applyAfterSnapPenalty ?? 0) || 0,
@@ -258,16 +275,24 @@ async function _createFearEffect(actor, {
     }
   };
 
-  await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData]);
-  await _dedupeFearGroup(actor, group);
+  await applyGroupedEffect(actor, effectData);
 }
 
 async function _createOneTurnFearEffect(actor, opts = {}) {
+  const nextTurnExpiry = _buildStartOfNextTurnExpiry(actor);
+  const hasTurnExpiry = Object.keys(nextTurnExpiry).length > 0;
+  const combat = game.combat ?? null;
+  const fallbackFixedRound =
+    !hasTurnExpiry && combat?.started
+      ? { fixedRounds: 1 }
+      : {};
+
   await _createFearEffect(actor, {
     ...opts,
     extraFlags: {
       ...opts.extraFlags,
-      ..._buildStartOfNextTurnExpiry(actor)
+      ...nextTurnExpiry,
+      ...fallbackFixedRound
     }
   });
 }
@@ -291,30 +316,30 @@ async function _panicOutcome(actor, rollTotal) {
     await _createOneTurnFearEffect(actor, {
       key: "panic.startled",
       name: "Fear: Startled",
-      description: "Panic 01–30. You cannot take any reactions until the start of your next Turn. You immediately lose any AP you had saved.",
+      description: "Panic 1-30. You may not make any reactions until the beginning of their next Turn.",
       blockReactions: true,
       snapOut: false
     });
-    return { key: "startled", text: "Startled: cannot take reactions until your next Turn begins." };
+    return { key: "startled", text: "You may not make any reactions until the beginning of their next Turn." };
   }
 
   if (d100 <= 60) {
     await _createFearEffect(actor, {
       key: "panic.spooked",
       name: "Fear: Spooked",
-      description: "Panic 31–60. You are Spooked and suffer a −10 penalty to all Tests until you Snap Out.",
+      description: "Panic 31-60. You are Spooked and suffer a -10 penalty to all Tests until you Snap Out.",
       testPenalty: -10,
       snapOut: true,
       snapOutMod: 0
     });
-    return { key: "spooked", text: "Spooked: -10 to all tests until you snap out of it." };
+    return { key: "spooked", text: "Spooked: -10 to all tests until you Snap Out of it." };
   }
 
   if (d100 <= 90) {
     await _createFearEffect(actor, {
       key: "panic.frightened",
       name: "Fear: Frightened",
-      description: "Panic 61–90. You are Frightened, suffer a −10 penalty to all Tests, and cannot willingly approach the Fear Source until you Snap Out.",
+      description: "Panic 61-90. You are Frightened, suffer a -10 penalty to all Tests, and cannot willingly approach the Fear Source until you Snap Out.",
       testPenalty: -10,
       cannotApproach: true,
       snapOut: true,
@@ -327,7 +352,7 @@ async function _panicOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "panic.lostComposure",
       name: "Fear: Lost Composure",
-      description: "Panic 91–95. You are completely unable to take any actions until you Snap Out. Once you do, you suffer a −10 penalty to all Tests for the remainder of the encounter.",
+      description: "Panic 91-95. You are completely unable to take any actions until you Snap Out. Once you do, you suffer a -10 penalty to all Tests for the remainder of the encounter.",
       blockActions: true,
       snapOut: true,
       snapOutMod: 0,
@@ -339,7 +364,7 @@ async function _panicOutcome(actor, rollTotal) {
   await _createFearEffect(actor, {
     key: "panic.running",
     name: "Fear: Running and Screaming",
-    description: "Panic 96–00. You suffer a −20 penalty to all Tests, are unable to take any actions, and must flee from the Fear Source until you Snap Out.",
+    description: "Panic 96-00. You suffer a -20 penalty to all Tests, are unable to take any actions, and must flee from the Fear Source until you Snap Out.",
     testPenalty: -20,
     blockActions: true,
     cannotApproach: true,
@@ -356,7 +381,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createOneTurnFearEffect(actor, {
       key: "horror.blackout.short",
       name: "Horror: Momentary Blackout",
-      description: "Horror 01–40. You become catatonic for 1 Round, losing all AP and unable to take any actions. Once the effect expires, you suffer a −10 penalty to all Tests for the remainder of the encounter.",
+      description: "Horror 01-40. You become catatonic for 1 Round, losing all AP and unable to take any actions. Once the effect expires, you suffer a -10 penalty to all Tests for the remainder of the encounter.",
       blockActions: true,
       applyAfterSnapPenalty: -10
     });
@@ -367,7 +392,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createOneTurnFearEffect(actor, {
       key: "horror.vomiting",
       name: "Horror: Uncontrollable Vomiting",
-      description: "Horror 41–60. You are helpless for 1 Round and lose 1 Stamina Point.",
+      description: "Horror 41-60. You are helpless for 1 Round and lose 1 Stamina Point.",
       blockActions: true
     });
     await _spendStamina(actor, 1);
@@ -378,11 +403,11 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "horror.manicTerror",
       name: "Horror: Manic Terror",
-      description: "Horror 61–80. You completely lose control of your actions. At the start of each of your Turns, you must attempt to Snap Out.",
+      description: "Horror 61-80. You completely lose control of your actions. At the start of each of your Turns, you can attempt to Snap Out, lose 1d4 Stamina points immediately after Snap Out.",
       snapOut: true,
       snapOutMod: 0
     });
-    return { key: "manic-terror", text: "Manic Terror: lose control; attempt to snap out at the start of each of your turns." };
+    return { key: "manic-terror", text: "Manic Terror: lose control; attempt to snap out at the start of each of your turns,lose 1d4 Stamina points immediately after Snap Out." };
   }
 
   if (d100 <= 90) {
@@ -391,7 +416,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "horror.despair",
       name: `Horror: Hopeless (${rounds} rounds)`,
-      description: `Horror 81–90. You are completely incapacitated for ${rounds} Rounds and lose 1d4 Stamina Points.`,
+      description: `Horror 81-90. You are completely incapacitated for ${rounds} Rounds and lose 1d4 Stamina Points.`,
       blockActions: true,
       encounterScoped: false,
       extraFlags: { fixedRounds: rounds }
@@ -406,7 +431,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "horror.blackout.long",
       name: "Horror: Blackout",
-      description: "Horror 91–95. You enter a catatonic state from which you cannot recover without outside assistance. Duration is at the GM's discretion.",
+      description: "Horror 91-95. You enter a catatonic state from which you cannot recover without outside assistance. Duration is at the GM's discretion.",
       blockActions: true,
       snapOut: false,
       encounterScoped: false,
@@ -419,13 +444,13 @@ async function _horrorOutcome(actor, rollTotal) {
     await _createFearEffect(actor, {
       key: "horror.mindBreak",
       name: "Horror: Mind Break",
-      description: "Horror 96–99. Your mind shatters under psychological strain. You cannot make attacks or willingly approach the Fear Source until you Snap Out.",
+      description: "Horror 96-99. The character's will bends as their mind shatters. They drop to the ground while stuttering and mumbling incomprehensibly for 1d6 rounds. The character's mind is irrepressibly damaged, and they lose either 1d8 Willpower or Personality (player's choice) permanently from the harrowing experience. Afterwards, the character cannot attack or approach the source of horror until they snap out of the effect or for the rest of the encounter.",
       blockActions: true,
       cannotApproach: true,
       snapOut: true,
       snapOutMod: 0
     });
-    return { key: "mind-break", text: "Mind Break: severe psychological collapse; cannot attack/approach source until snapping out." };
+    return { key: "mind-break", text: "Mind Break: The character's will bends as their mind shatters. They drop to the ground while stuttering and mumbling incomprehensibly for 1d6 rounds. The character's mind is irrepressibly damaged, and they lose either 1d8 Willpower or Personality (player's choice) permanently from the harrowing experience. Afterwards, the character cannot attack or approach the source of horror until they snap out of the effect or for the rest of the encounter." };
   }
 
   const endTN = Number(actor?.system?.characteristics?.end?.total ?? 0) || 0;
@@ -440,7 +465,7 @@ async function _horrorOutcome(actor, rollTotal) {
     await endRes?.roll?.toMessage?.({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `${actor.name} � Scared to Death (END ${endTN})`,
+      flavor: `${actor.name} - Scared to Death (END ${endTN})`,
       rollMode: game.settings.get("core", "rollMode")
     });
   } catch (_e) {
@@ -449,7 +474,7 @@ async function _horrorOutcome(actor, rollTotal) {
 
   if (!endRes?.isSuccess) {
     await requestUpdateDocument(actor, {
-      "flags.uesrpg-3ev4.chapter5.deathState": {
+      [`flags.${SYSTEM_ID}.chapter5.deathState`]: {
         unconsciousAtZeroHp: true,
         failureCount: 999,
         autoFailNextTest: false,
@@ -459,7 +484,7 @@ async function _horrorOutcome(actor, rollTotal) {
         lastResult: { kind: "fear-death", at: Date.now() }
       }
     });
-    return { key: "scared-to-death", text: "Scared to Death: failed Endurance test and dies immediately." };
+    return { key: "scared-to-death", text: "Scared to Death: The character is so immeasurably overcome with terror and horror that their heart stops beating; they must make an Endurance test or die on the spot. Should they succeed, they instead fall catatonic for 1d4 hours as with Blackout." };
   }
 
   await _createFearEffect(actor, {
@@ -470,7 +495,7 @@ async function _horrorOutcome(actor, rollTotal) {
     encounterScoped: false,
     extraFlags: { longBlackout: true }
   });
-  return { key: "scared-to-death-survived", text: "Scared to Death: survived Endurance test; collapses catatonic." };
+  return { key: "scared-to-death-survived", text: "Scared to Death: The character is so immeasurably overcome with terror and horror that their heart stops beating; they must make an Endurance test or die on the spot. Should they succeed, they instead fall catatonic for 1d4 hours as with Blackout." };
 }
 
 export function getFearActionRestrictions(actor) {
@@ -532,7 +557,7 @@ export async function attemptSnapOut(actor, { combat = game.combat } = {}) {
     await res?.roll?.toMessage?.({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `${actor.name} � Snap Out (Willpower ${tn})`,
+      flavor: `${actor.name} - Snap Out (Willpower ${tn})`,
       rollMode: game.settings.get("core", "rollMode")
     });
   } catch (_e) {
@@ -554,13 +579,6 @@ export async function attemptSnapOut(actor, { combat = game.combat } = {}) {
   return { attempted: true, success: true };
 }
 
-function _combatTurnPromptKey(combat) {
-  const cid = String(combat?.id ?? "");
-  const round = Number(combat?.round ?? 0);
-  const turn = Number(combat?.turn ?? 0);
-  return `${cid}:${round}:${turn}`;
-}
-
 async function _maybePromptSnapOutOnTurnStart(combat) {
   if (!combat?.started) return;
 
@@ -571,13 +589,12 @@ async function _maybePromptSnapOutOnTurnStart(combat) {
   const hasSnapOut = _getFearEffects(actor).some((e) => _fearLane(e)?.snapOut === true);
   if (!hasSnapOut) return;
 
-  const key = _combatTurnPromptKey(combat);
-  const prev = String(actor.getFlag(SYSTEM_ID, SNAP_PROMPT_FLAG) ?? "");
-  if (prev === key) return;
-
-  await requestUpdateDocument(actor, {
-    [`flags.${SYSTEM_ID}.${SNAP_PROMPT_FLAG}`]: key
-  });
+  const key = _combatTurnPromptKey(combat, actor.id);
+  if (_snapPromptTurnKeys.has(key)) return;
+  _snapPromptTurnKeys.add(key);
+  if (_snapPromptTurnKeys.size > SNAP_PROMPT_DEDUPE_MAX) {
+    _pruneSnapPromptDedupe({ combatId: String(combat.id ?? "") });
+  }
 
   await attemptSnapOut(actor, { combat });
 }
@@ -601,8 +618,8 @@ async function _showFearTestDialog({ defaultType = "panic", defaultModifier = 0,
           <label class="form-group__label">Test Type</label>
           <div class="form-fields">
             <select name="type">
-              <option value="panic"${defaultType === "panic" ? " selected" : ""}>Panic — Mundane Horror (WP ± X)</option>
-              <option value="horror"${defaultType === "horror" ? " selected" : ""}>Horror — Supernatural Terror (WP ± X)</option>
+              <option value="panic"${defaultType === "panic" ? " selected" : ""}>Panic - Mundane Horror (WP +/- X)</option>
+              <option value="horror"${defaultType === "horror" ? " selected" : ""}>Horror - Supernatural Terror (WP +/- X)</option>
             </select>
           </div>
         </div>
@@ -667,7 +684,7 @@ export async function promptFearTest({ actor, type = "panic", modifier = 0, sour
     await test?.roll?.toMessage?.({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
-      flavor: `${actor.name} � ${fearType === "panic" ? "Panic" : "Horror"} Test (WP ${tn})`,
+      flavor: `${actor.name} - ${fearType === "panic" ? "Panic" : "Horror"} Test (WP ${tn})`,
       rollMode: game.settings.get("core", "rollMode")
     });
   } catch (_e) {
@@ -683,7 +700,7 @@ export async function promptFearTest({ actor, type = "panic", modifier = 0, sour
     await _createFearEffect(actor, {
       key: "fear.nonCombat",
       name: "Fear: Unnerved",
-      description: "Failed Fear Test (out of combat). You are Unnerved and suffer a −20 penalty to all concentration-related Tests whenever near the Fear Source.",
+      description: "Failed Fear Test (out of combat). You are Unnerved and suffer a -20 penalty to all concentration-related Tests whenever near the Fear Source.",
       testPenalty: -20,
       snapOut: false,
       encounterScoped: false,
@@ -801,6 +818,7 @@ export function registerFearSystem() {
   Hooks.on("deleteCombat", async (combat) => {
     try {
       if (!isActiveGMUser(game.user)) return;
+      _pruneSnapPromptDedupe({ combatId: String(combat?.id ?? "") });
       const combatants = Array.isArray(combat?.combatants)
         ? combat.combatants
         : Array.from(combat?.combatants ?? []);

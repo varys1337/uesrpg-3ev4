@@ -13,6 +13,7 @@
  */
 
 import { _anyActiveGMOnline } from "../helpers/util.js";
+import { cleanupAutoRollContext as _cleanupAutoRollContextImpl } from "../../../opposed/shared/auto-roll-claim.js";
 
 /**
  * Local lock set: prevents same-client re-entrancy during banked auto-roll.
@@ -26,18 +27,12 @@ export const _bankedAutoRollLocalLocks = new Set();
 
 /**
  * Cleanup auto-roll context flags after roll completion or cancellation.
- * 
+ * Delegates to shared implementation in opposed/shared/auto-roll-claim.js.
+ *
  * @param {Object} ctx - Context object (data.context).
  */
 export function _cleanupAutoRollContext(ctx) {
-  ctx.autoRollRequested = false;
-  ctx.autoRollRequestedAt = null;
-  ctx.autoRollRequestedBy = null;
-  ctx.autoRollStarted = false;
-  ctx.autoRollStartedAt = null;
-  ctx.autoRollStartedBy = null;
-  ctx.autoRollStartedTrigger = null;
-  ctx.autoRollClaimId = null;
+  _cleanupAutoRollContextImpl(ctx);
 }
 
 /**

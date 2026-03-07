@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/ui/sheets/shared/editor-activation.js
  *
  * AppV2 bridge for legacy {{editor}} helper markup (.editor > .editor-content[data-edit]).
@@ -283,3 +283,4 @@ export function activateEditorButtons(app, element) {
     void activateLegacyEditor(app, element, target, clickOrigin);
   }, true);
 }
+

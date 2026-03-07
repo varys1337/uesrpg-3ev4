@@ -14,6 +14,7 @@
 
 import { DAMAGE_TYPES, itemHasToken } from "./damage-automation.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
 const _KNOWN_DAMAGE_TYPES = new Set(Object.values(DAMAGE_TYPES).map((v) => String(v).toLowerCase()));
 // Source-capability tags that should not override physical weapon damage type.
@@ -101,9 +102,8 @@ export function getDamageTypeFromWeapon(weapon) {
 }
 
 /**
- * Get all damage instances for a weapon, including the base damage from existing fields.
- * Returns an array suitable for per-instance rolling, each with {formula, type, label}.
- * When no damageInstances are configured, wraps the base damage as a single entry.
+ * Get weapon damage payload as a single base instance.
+ * Additional weapon damage instances are deprecated and intentionally ignored.
  * @param {Item} weapon
  * @returns {Array<{formula: string, type: string, label: string}>}
  */
@@ -123,20 +123,6 @@ export function getWeaponDamageInstances(weapon) {
       type: primaryType,
       label: "Base"
     });
-  }
-
-  // Additional configured instances
-  const extra = weapon?.system?.damageInstances;
-  if (Array.isArray(extra)) {
-    for (const inst of extra) {
-      const formula = String(inst?.formula ?? "").trim();
-      if (!formula) continue;
-      instances.push({
-        formula,
-        type: String(inst?.type ?? "physical").toLowerCase(),
-        label: String(inst?.label ?? "").trim()
-      });
-    }
   }
 
   return instances;
@@ -218,7 +204,7 @@ export function getEffectiveWeaponHands(weapon) {
   };
 }
 
-const DASH_FLAG_SCOPE = "uesrpg-3ev4";
+const DASH_FLAG_SCOPE = FLAG_SCOPE;
 const DASH_FLAG_KEY = "dashContext";
 
 function _getTokenCenterPoint(token) {

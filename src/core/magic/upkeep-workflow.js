@@ -56,8 +56,10 @@ import { AttackTracker } from "../combat/attack-tracker.js";
 import { safeGetEffect } from "../../utils/ae-helpers.js";
 import { findOriginAEByGroupKey, refreshOriginAEUpkeep, cancelOriginAEUpkeep } from "./effects/origin-effect.js";
 import { hasTalent } from "../traits/talents-api.js";
+import { resolveActorFromUuidSync, resolveUuidSync } from "../../utils/uuid-cache.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 
 /** @type {Set<string>} Serialization locks to prevent concurrent prompts for the same group+boundary. */
 const _promptLocks = new Set();
@@ -105,12 +107,7 @@ import { _num, _str } from "./_primitives.js";
  * @returns {foundry.abstract.Document|null}
  */
 function _fromUuidSync(uuid) {
-  if (!uuid || typeof uuid !== "string") return null;
-  try {
-    return fromUuidSync(uuid) ?? null;
-  } catch (_e) {
-    return null;
-  }
+  return resolveUuidSync(uuid);
 }
 
 /**
@@ -120,11 +117,7 @@ function _fromUuidSync(uuid) {
  * @returns {Actor|null}
  */
 function _resolveActorSync(uuid) {
-  const doc = _fromUuidSync(uuid);
-  if (!doc) return null;
-  if (doc instanceof Actor) return doc;
-  // Token / TokenDocument → delegate to .actor
-  return doc.actor ?? null;
+  return resolveActorFromUuidSync(uuid);
 }
 
 /**

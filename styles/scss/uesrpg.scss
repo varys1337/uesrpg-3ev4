@@ -1,7 +1,11 @@
-/*
-  UESRPG SCSS entrypoint
-  Order mirrors runtime cascade and includes tokens from SCSS source.
-*/
+/*!
+ * Generated CSS target: styles/uesrpg.css
+ * Do not edit styles/uesrpg.css directly.
+ * Edit styles/scss/** and rebuild via standalone Sass CLI.
+ *
+ * UESRPG SCSS entrypoint
+ * Order mirrors runtime cascade and includes tokens from SCSS source.
+ */
 
 @use "tokens/tokens";
 @use "components/panels";

@@ -24,6 +24,7 @@ export function registerApi({
   getSizeToHitModifier,
   getActionEligibility,
   CharOpposedWorkflow,
+  runCombatLegacyReadinessScan,
 } = {}) {
   if (!game.uesrpg) game.uesrpg = {};
   if (!game.uesrpg.rules) game.uesrpg.rules = {};
@@ -63,6 +64,7 @@ export function registerApi({
   game.uesrpg.combat.getInitiativeTieBreakTuple = getInitiativeTieBreakTuple;
   game.uesrpg.combat.getSizeToHitModifier = getSizeToHitModifier;
   game.uesrpg.combat.getActionEligibility = getActionEligibility;
+  game.uesrpg.combat.scanLegacyReadiness = runCombatLegacyReadinessScan;
 
   if (!game.uesrpg.characteristics) game.uesrpg.characteristics = {};
   game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;

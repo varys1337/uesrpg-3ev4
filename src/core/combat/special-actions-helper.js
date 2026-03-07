@@ -22,8 +22,9 @@ import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { _resolveActorViaToken } from "./opposed/helpers/docs.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
-
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../system/namespace.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 const HOOKED_ACTION_IDS = new Set(["disarm", "trip", "takeWeapon", "take-weapon"]);
 
 function _itemHasQualityToken(item, key) {
@@ -787,7 +788,7 @@ async function _executeBlindOpponent({ actor, target, winner, actorName, targetN
 
     const effect = target.effects.find(e =>
       !e.disabled &&
-      (e?.flags?.["uesrpg-3ev4"]?.condition?.key === "blinded")
+      (getFlagValueWithFallback(e, "condition.key") === "blinded")
     );
     if (effect) {
       const parent = effect.parent;
@@ -828,13 +829,13 @@ async function _executeFeint({ actor, target, winner, actorName, targetName, isA
 
     const effect = target.effects.find(e =>
       !e.disabled &&
-      (e?.flags?.["uesrpg-3ev4"]?.condition?.key === "feinted")
+      (getFlagValueWithFallback(e, "condition.key") === "feinted")
     );
 
     if (effect) {
       const effectUpdates = {
         duration,
-        [`flags.uesrpg-3ev4.condition.attackerUuid`]: actor.uuid
+        [`flags.${FLAG_SCOPE}.condition.attackerUuid`]: actor.uuid
       };
       const parent = effect.parent;
       if (parent) {

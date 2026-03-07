@@ -15,22 +15,9 @@ import { normalizeFeatureKey } from "./feature-mod.js";
 import { normalizeTalentKey, resolveTalentSlug } from "../talents-api.js";
 import { getFeatureConfig } from "./feature-config.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { createSeverityDebugLogger } from "../../../utils/debug.js";
 
-let _debugEnabled = false;
-let _debugChecked = false;
-
-function _isDebug() {
-  if (!_debugChecked) {
-    try {
-      _debugEnabled = game?.settings?.get?.("uesrpg-3ev4", "activationDebug") === true;
-    } catch (_e) {
-      _debugEnabled = false;
-    }
-    _debugChecked = true;
-    setTimeout(() => { _debugChecked = false; }, 30_000);
-  }
-  return _debugEnabled;
-}
+const _featureDispatcherDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 
 /**
  * Run feature automation for a trait/talent/power item.
@@ -48,33 +35,25 @@ export async function runFeatureAutomation({ actor, item, context = {}, enforceF
   if (enforceFeatureConfig) {
     // Master toggle
     if (cfg.enabled === false) {
-      if (_isDebug()) {
-        console.debug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" BLOCKED (disabled via featureConfig)`);
-      }
+      _featureDispatcherDebug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" BLOCKED (disabled via featureConfig)`);
       return false;
     }
 
     // Combat-only gating
     if (cfg.combatOnly && !game.combat?.started) {
-      if (_isDebug()) {
-        console.debug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" BLOCKED (combatOnly, no active combat)`);
-      }
+      _featureDispatcherDebug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" BLOCKED (combatOnly, no active combat)`);
       return false;
     }
 
     // Out-of-combat gating
     if (!cfg.outOfCombatAllowed && !game.combat?.started) {
-      if (_isDebug()) {
-        console.debug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" BLOCKED (outOfCombatAllowed=false, no active combat)`);
-      }
+      _featureDispatcherDebug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" BLOCKED (outOfCombatAllowed=false, no active combat)`);
       return false;
     }
 
     // Apply mode: manual -> do not auto-dispatch
     if (cfg.applyMode === "manual") {
-      if (_isDebug()) {
-        console.debug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" SKIPPED (applyMode=manual)`);
-      }
+      _featureDispatcherDebug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" SKIPPED (applyMode=manual)`);
       return false;
     }
 
@@ -82,22 +61,18 @@ export async function runFeatureAutomation({ actor, item, context = {}, enforceF
     if (cfg.applyMode === "confirm") {
       const confirmed = await _showConfirmDialog(item, cfg);
       if (!confirmed) {
-        if (_isDebug()) {
-          console.debug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" CANCELLED by user confirmation`);
-        }
+        _featureDispatcherDebug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" CANCELLED by user confirmation`);
         return false;
       }
     }
   }
 
-  if (_isDebug()) {
-    console.debug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" -> key="${featureKey}"`, {
-      actor: actor.name,
-      context,
-      featureConfig: cfg,
-      enforceFeatureConfig
-    });
-  }
+  _featureDispatcherDebug(`uesrpg | feature-dispatcher: ${itemType} "${item.name}" -> key="${featureKey}"`, {
+    actor: actor.name,
+    context,
+    featureConfig: cfg,
+    enforceFeatureConfig
+  });
 
   switch (itemType) {
     case "trait":

@@ -7,9 +7,11 @@
 
 import { hasTalent } from "../traits/talents-api.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "./combat-utils.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 
-const ATTACK_OVERRIDE_MAX_PATH = "flags.uesrpg.combat.attackTrackerOverrides.max";
-const ATTACK_OVERRIDE_CURRENT_PATH = "flags.uesrpg.combat.attackTrackerOverrides.current";
+const ATTACK_OVERRIDE_MAX_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.max`;
+const ATTACK_OVERRIDE_CURRENT_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.current`;
 
 export class AttackTracker {
   static _getCombatRound() {
@@ -56,7 +58,8 @@ export class AttackTracker {
   static _readOverride(actor, path) {
     if (!actor) return null;
     try {
-      const v = foundry.utils.getProperty(actor, path);
+      const key = path.replace(`flags.${FLAG_SCOPE}.`, "");
+      const v = getFlagValueWithFallback(actor, key);
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
     } catch (_e) {

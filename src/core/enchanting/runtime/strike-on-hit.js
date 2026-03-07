@@ -10,6 +10,13 @@
  * Damage-type effects (fire/frost/shock) are handled inline in resolve.js
  * via collectStrikeEnchantmentEffects() before damage is applied.
  *
+ * Per-hit document update strategy (Phase 2):
+ *  - All targetActor system/flag updates are accumulated into a single object
+ *    and applied with at most one requestUpdateDocument call per hit.
+ *  - All condition ActiveEffects are batched into a single requestCreateEmbeddedDocuments call.
+ *  - Attacker updates (absorb restore) are applied separately (different actor).
+ *  - Chat messages are posted after all document writes.
+ *
  * Must be initialized once at system ready via initializeStrikeOnHitRuntime().
  *
  * Target: Foundry VTT v13.351
@@ -17,145 +24,123 @@
 
 import { requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
+import { SYSTEM_ID } from "../../constants.js";
 
 // ---------------------------------------------------------------------------
-// Internal routing
+// Synchronous accumulator helpers
+// Each _compute* function mutates the shared accumulators (targetUpdates,
+// effectsToCreate, attackerRef) and returns a human-readable chat description
+// string, or null if the effect was skipped.
 // ---------------------------------------------------------------------------
 
 /**
- * Apply a single strike enchantment side effect to the target actor.
+ * Accumulate a drain resource update into targetUpdates.
+ * Reads the current value from the accumulator first (handles multiple drains
+ * on the same pool in one hit without a separate document read per effect).
+ *
  * @param {Actor} targetActor
- * @param {object} fx - Side effect descriptor from collectStrikeEnchantmentEffects
- * @param {object} hookData - Full uesrpgDamageApplied hook data payload
+ * @param {object} fx
+ * @param {object} targetUpdates - Shared mutable accumulator
+ * @returns {string|null} Chat description or null if skipped.
  */
-async function _applyStrikeSideEffect(targetActor, fx, hookData) {
-  switch (fx.effectType) {
-    case "drain":
-      await _applyDrain(targetActor, fx);
-      break;
-    case "absorb":
-      await _applyAbsorb(targetActor, fx, hookData);
-      break;
-    case "condition":
-      await _applyCondition(targetActor, fx, hookData);
-      break;
-    case "soulTrap":
-      await _applySoulTrap(targetActor, fx, hookData);
-      break;
-    case "dispel":
-      _stubNotify(targetActor, fx, "Dispel");
-      break;
-    case "disintegrate":
-      _stubNotify(targetActor, fx, "Disintegrate");
-      break;
-    default:
-      console.warn(`UESRPG | Unknown strike enchantment effectType "${fx.effectType}" — skipping.`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Drain
-// ---------------------------------------------------------------------------
-
-/**
- * Drain a resource pool from the target by fx.y.
- * Handles: drainHealth, drainMagicka, drainStamina.
- */
-async function _applyDrain(targetActor, fx) {
+function _computeDrain(targetActor, fx, targetUpdates) {
   const amount = Math.max(0, Number(fx.y ?? fx.sl ?? 0));
-  if (amount === 0) return;
+  if (amount === 0) return null;
 
-  let path = null;
-  let currentValue = 0;
+  let path;
+  let currentValue;
 
   switch (fx.catalog.drainPool) {
     case "health":
       path = "system.hp.value";
-      currentValue = Number(targetActor.system?.hp?.value ?? 0);
+      currentValue = targetUpdates[path] ?? Number(targetActor.system?.hp?.value ?? 0);
       break;
     case "magicka":
       path = "system.magicka.value";
-      currentValue = Number(targetActor.system?.magicka?.value ?? 0);
+      currentValue = targetUpdates[path] ?? Number(targetActor.system?.magicka?.value ?? 0);
       break;
     case "stamina":
       // Dual-path: some actors use staminaPoints, others stamina.
       if (targetActor.system?.staminaPoints !== undefined) {
         path = "system.staminaPoints.value";
-        currentValue = Number(targetActor.system?.staminaPoints?.value ?? 0);
+        currentValue = targetUpdates[path] ?? Number(targetActor.system?.staminaPoints?.value ?? 0);
       } else {
         path = "system.stamina.value";
-        currentValue = Number(targetActor.system?.stamina?.value ?? 0);
+        currentValue = targetUpdates[path] ?? Number(targetActor.system?.stamina?.value ?? 0);
       }
       break;
     default:
       console.warn(`UESRPG | Strike drain: unknown drainPool "${fx.catalog.drainPool}".`);
-      return;
+      return null;
   }
 
-  const newValue = Math.max(0, currentValue - amount);
-  await requestUpdateDocument(targetActor, { [path]: newValue });
-
-  _postSideEffectChat(targetActor, fx.weaponName, `${fx.catalog.label}: drained ${amount} from ${targetActor.name}`);
+  targetUpdates[path] = Math.max(0, currentValue - amount);
+  return `${fx.catalog.label}: drained ${amount} from ${targetActor.name}`;
 }
 
-// ---------------------------------------------------------------------------
-// Absorb
-// ---------------------------------------------------------------------------
-
 /**
- * Drain fx.y HP from target and restore it to the attacker.
+ * Accumulate an absorb (drain target HP + restore attacker HP) into the shared accumulators.
+ * Reads from accumulated targetUpdates so it composes correctly with prior drain effects.
+ *
+ * @param {Actor} targetActor
+ * @param {object} fx
+ * @param {object} hookData - Full uesrpgDamageApplied payload
+ * @param {object} targetUpdates - Shared mutable accumulator
+ * @param {{ actor: Actor|null, updates: object }} attackerRef - Shared attacker accumulator
+ * @returns {string|null}
  */
-async function _applyAbsorb(targetActor, fx, hookData) {
+function _computeAbsorb(targetActor, fx, hookData, targetUpdates, attackerRef) {
   const amount = Math.max(0, Number(fx.y ?? fx.sl ?? 0));
-  if (amount === 0) return;
+  if (amount === 0) return null;
 
-  // Drain from target
-  const targetHP = Number(targetActor.system?.hp?.value ?? 0);
+  // Drain from target (reads accumulated value if prior effects already modified HP).
+  const targetHP = targetUpdates["system.hp.value"] ?? Number(targetActor.system?.hp?.value ?? 0);
   const actualDrained = Math.min(amount, targetHP);
   if (actualDrained > 0) {
-    await requestUpdateDocument(targetActor, { "system.hp.value": Math.max(0, targetHP - actualDrained) });
+    targetUpdates["system.hp.value"] = Math.max(0, targetHP - actualDrained);
   }
 
-  // Restore to attacker
+  // Restore to attacker (separate actor — tracked in attackerRef).
   const attackerActor = hookData.weapon?.actor ?? null;
   if (attackerActor && actualDrained > 0) {
-    const attackerHP = Number(attackerActor.system?.hp?.value ?? 0);
+    if (!attackerRef.actor) {
+      attackerRef.actor = attackerActor;
+      attackerRef.updates = {};
+    }
     const attackerMaxHP = Number(attackerActor.system?.hp?.max ?? 0);
+    const attackerHP = attackerRef.updates["system.hp.value"] ?? Number(attackerActor.system?.hp?.value ?? 0);
     const newHP = Math.min(attackerMaxHP, attackerHP + actualDrained);
     if (newHP !== attackerHP) {
-      await requestUpdateDocument(attackerActor, { "system.hp.value": newHP });
+      attackerRef.updates["system.hp.value"] = newHP;
     }
   }
 
-  _postSideEffectChat(
-    targetActor,
-    fx.weaponName,
-    `${fx.catalog.label}: absorbed ${actualDrained} HP from ${targetActor.name}${attackerActor ? ` → restored to ${attackerActor.name}` : ""}`
-  );
+  return `${fx.catalog.label}: absorbed ${actualDrained} HP from ${targetActor.name}${attackerActor ? ` → restored to ${attackerActor.name}` : ""}`;
 }
 
-// ---------------------------------------------------------------------------
-// Condition
-// ---------------------------------------------------------------------------
-
 /**
- * Apply a temporary condition via an ActiveEffect on the target.
+ * Accumulate a condition ActiveEffect into effectsToCreate.
  * turnUndead only fires against undead targets.
+ *
+ * @param {Actor} targetActor
+ * @param {object} fx
+ * @param {object[]} effectsToCreate - Shared mutable accumulator
+ * @returns {string|null}
  */
-async function _applyCondition(targetActor, fx, _hookData) {
+function _computeCondition(targetActor, fx, effectsToCreate) {
   const conditionKey = fx.catalog.condition ?? null;
   if (!conditionKey) {
     console.warn(`UESRPG | Strike condition effect "${fx.key}" has no catalog.condition key.`);
-    return;
+    return null;
   }
 
-  // turnUndead: only applies to undead targets
-  if (fx.key === "turnUndead" && !isActorUndead(targetActor)) return;
+  // turnUndead: only applies to undead targets.
+  if (fx.key === "turnUndead" && !isActorUndead(targetActor)) return null;
 
   const durationRounds = Math.max(1, Number(fx.sl ?? 1));
   const conditionLabel = _capitalize(conditionKey);
 
-  const aeData = {
+  effectsToCreate.push({
     name: `${conditionLabel} (${fx.weaponName})`,
     img: _conditionIcon(conditionKey),
     duration: {
@@ -163,54 +148,39 @@ async function _applyCondition(targetActor, fx, _hookData) {
       startRound: game.combat?.round ?? 0,
     },
     flags: {
-      "uesrpg-3ev4": {
+      [SYSTEM_ID]: {
         source: "strikeEnchantment",
         conditionKey,
         weaponName: fx.weaponName,
       },
     },
     // Marker-only AE — no effect changes. GMs apply mechanical consequences.
-  };
-
-  try {
-    await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", [aeData]);
-    _postSideEffectChat(
-      targetActor,
-      fx.weaponName,
-      `${fx.catalog.label}: ${conditionLabel} applied to ${targetActor.name} for ${durationRounds} round(s)`
-    );
-  } catch (err) {
-    console.error("UESRPG | Strike enchantment condition AE creation failed", err);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Soul Trap
-// ---------------------------------------------------------------------------
-
-/**
- * Mark the target as soul-trapped for 1 minute (10 rounds).
- * If the target dies while soul-trapped, their soul can be harvested.
- */
-async function _applySoulTrap(targetActor, fx, _hookData) {
-  const expiresAtRound = (game.combat?.round ?? 0) + 10; // 1 minute = 10 rounds
-
-  await requestUpdateDocument(targetActor, {
-    "flags.uesrpg-3ev4.soulTrapped": {
-      active: true,
-      weaponName: fx.weaponName,
-      attackerActorId: fx.attackerActorId,
-      attackerActorUuid: fx.attackerActorUuid,
-      expiresAtRound,
-      appliedAt: Date.now(),
-    },
   });
 
-  _postSideEffectChat(
-    targetActor,
-    fx.weaponName,
-    `Soul Trap: ${targetActor.name} is soul-trapped. If they die within 10 rounds, their soul can be captured.`
-  );
+  return `${fx.catalog.label}: ${conditionLabel} applied to ${targetActor.name} for ${durationRounds} round(s)`;
+}
+
+/**
+ * Accumulate a soul trap flag update into targetUpdates.
+ *
+ * @param {Actor} targetActor
+ * @param {object} fx
+ * @param {object} targetUpdates - Shared mutable accumulator
+ * @returns {string}
+ */
+function _computeSoulTrap(targetActor, fx, targetUpdates) {
+  const expiresAtRound = (game.combat?.round ?? 0) + 10; // 1 minute = 10 rounds
+
+  targetUpdates[`flags.${SYSTEM_ID}.soulTrapped`] = {
+    active: true,
+    weaponName: fx.weaponName,
+    attackerActorId: fx.attackerActorId,
+    attackerActorUuid: fx.attackerActorUuid,
+    expiresAtRound,
+    appliedAt: Date.now(),
+  };
+
+  return `Soul Trap: ${targetActor.name} is soul-trapped. If they die within 10 rounds, their soul can be captured.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,12 +249,73 @@ export function initializeStrikeOnHitRuntime() {
     const effects = data?.strikeEnchantmentSideEffects;
     if (!Array.isArray(effects) || effects.length === 0) return;
 
+    // Accumulators: collect all updates synchronously, then apply in batch.
+    const targetUpdates = {};
+    const effectsToCreate = [];
+    const attackerRef = { actor: null, updates: {} };
+    const chatDescriptions = [];
+
     for (const fx of effects) {
       try {
-        await _applyStrikeSideEffect(targetActor, fx, data);
+        let desc = null;
+        switch (fx.effectType) {
+          case "drain":
+            desc = _computeDrain(targetActor, fx, targetUpdates);
+            break;
+          case "absorb":
+            desc = _computeAbsorb(targetActor, fx, data, targetUpdates, attackerRef);
+            break;
+          case "condition":
+            desc = _computeCondition(targetActor, fx, effectsToCreate);
+            break;
+          case "soulTrap":
+            desc = _computeSoulTrap(targetActor, fx, targetUpdates);
+            break;
+          case "dispel":
+            _stubNotify(targetActor, fx, "Dispel");
+            break;
+          case "disintegrate":
+            _stubNotify(targetActor, fx, "Disintegrate");
+            break;
+          default:
+            console.warn(`UESRPG | Unknown strike enchantment effectType "${fx.effectType}" — skipping.`);
+        }
+        if (desc) chatDescriptions.push({ weaponName: fx.weaponName, desc });
       } catch (err) {
         console.error(`UESRPG | Strike enchantment side effect "${fx.key}" failed`, err);
       }
+    }
+
+    // Apply all targetActor updates in a single document operation.
+    if (Object.keys(targetUpdates).length > 0) {
+      try {
+        await requestUpdateDocument(targetActor, targetUpdates);
+      } catch (err) {
+        console.error("UESRPG | Strike enchantment batch target update failed", err);
+      }
+    }
+
+    // Apply attacker updates (absorb restore) — separate actor, separate call.
+    if (attackerRef.actor && Object.keys(attackerRef.updates).length > 0) {
+      try {
+        await requestUpdateDocument(attackerRef.actor, attackerRef.updates);
+      } catch (err) {
+        console.error("UESRPG | Strike enchantment batch attacker update failed", err);
+      }
+    }
+
+    // Create all condition AEs in a single embedded document operation.
+    if (effectsToCreate.length > 0) {
+      try {
+        await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", effectsToCreate);
+      } catch (err) {
+        console.error("UESRPG | Strike enchantment AE creation failed", err);
+      }
+    }
+
+    // Post chat messages after document writes.
+    for (const { weaponName, desc } of chatDescriptions) {
+      _postSideEffectChat(targetActor, weaponName, desc);
     }
   });
 }

@@ -5,6 +5,14 @@
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 
 /**
+ * Legacy sheet-listener registrar kept for compatibility with index.js.
+ * AppV2 sheet classes route effect actions via data-action handlers.
+ */
+export function registerEffectListeners(_sheet, _html) {
+  // no-op by design
+}
+
+/**
  * Handle Active Effect controls from the Effects tab.
  *
  * @param {ItemSheet} sheet

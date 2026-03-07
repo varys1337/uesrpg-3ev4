@@ -1,3 +1,4 @@
+﻿import { SYSTEM_ID, templatePath } from "../../constants.js";
 /**
  * src/ui/apps/v2/debug-settings.js
  *
@@ -5,7 +6,7 @@
  */
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-const NAMESPACE = "uesrpg-3ev4";
+const NAMESPACE = SYSTEM_ID;
 
 function _isGM() {
   return Boolean(game.user?.isGM);
@@ -29,7 +30,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG — Debugging",
+      title: "UESRPG вЂ” Debugging",
     },
     position: {
       width: 520,
@@ -39,7 +40,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
   static PARTS = {
     form: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/debug-settings.hbs",
+      template: templatePath("v2/apps/debug-settings.hbs"),
     },
   };
 
@@ -90,3 +91,4 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
   }
 }
+

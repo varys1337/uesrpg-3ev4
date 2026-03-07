@@ -18,6 +18,7 @@ import { hasTalent } from "../traits/talents-api.js";
 import { getConditionValue } from "../conditions/condition-engine.js";
 import { isEngagementFlankingHomebrewEnabled } from "../system/homebrew.js";
 import { isDebugEnabled } from "../../utils/debug.js";
+import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
 
 /**
  * Read combat TN modifiers from actor.system.modifiers.combat.*.
@@ -75,13 +76,7 @@ function _resolveOpponentActorFromContext(context) {
   if (direct?.documentName === "Actor") return direct;
 
   const uuid = String(context?.opponentUuid ?? "").trim();
-  if (!uuid) return null;
-  try {
-    const doc = fromUuidSync(uuid);
-    return doc?.documentName === "Actor" ? doc : null;
-  } catch (_e) {
-    return null;
-  }
+  return resolveActorFromUuidSync(uuid);
 }
 
 function _resolveAttackModeFromContext(context, role = null) {

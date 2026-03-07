@@ -8,9 +8,10 @@ import { doTestRoll, formatDegree } from "../../utils/degree-roll-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { isActiveGMUser } from "./wound-schema.js";
+import { SYSTEM_ID } from "../constants.js";
 
-const SYSTEM_ID = "uesrpg-3ev4";
 const FLAG_KEY = "chapter5.deathState";
+const esc = (s) => foundry.utils.escapeHTML(String(s ?? ""));
 
 let _deathHooksRegistered = false;
 
@@ -144,7 +145,7 @@ async function _announceDeathTest(actor, { success, autoFailed = false, degree =
     <div class="uesrpg-chat-card">
       <header class="card-header"><h3>Death Test</h3></header>
       <div class="card-content">
-        <p><b>Actor:</b> ${actor.name}</p>
+        <p><b>Actor:</b> ${esc(actor.name)}</p>
         <p><b>Result:</b> ${status}${details}</p>
         ${extra}
       </div>
@@ -164,7 +165,7 @@ async function _announceDeath(actor) {
     <div class="uesrpg-chat-card">
       <header class="card-header"><h3>Character Death</h3></header>
       <div class="card-content">
-        <p><b>${actor.name}</b> dies from sustained trauma while unconscious.</p>
+        <p><b>${esc(actor.name)}</b> dies from sustained trauma while unconscious.</p>
       </div>
     </div>
   `;
@@ -316,3 +317,8 @@ export function registerDeathTestHooks() {
     }
   });
 }
+
+
+
+
+

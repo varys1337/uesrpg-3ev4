@@ -9,18 +9,12 @@ import { canUseHeroicActions } from "../rules/npc-rules.js";
 import { isActorUndead } from "../traits/trait-registry.js";
 import { hasTalent } from "../traits/talents-api.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { SYSTEM_ID, systemRootPath } from "../constants.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
+import { STAMINA_EFFECT_KEYS, getActiveStaminaEffect, consumeStaminaEffect } from "./stamina-effects.js";
 
-/**
- * Stamina effect key constants to avoid typos
- */
-export const STAMINA_EFFECT_KEYS = {
-  PHYSICAL_EXERTION: "stamina-physical-exertion",
-  SPRINT: "stamina-sprint",
-  POWER_DRAW: "stamina-power-draw",
-  POWER_ATTACK: "stamina-power-attack",
-  POWER_BLOCK: "stamina-power-block",
-  HEROIC_USED: "stamina-heroic-used-this-round"
-};
+export { STAMINA_EFFECT_KEYS, getActiveStaminaEffect, consumeStaminaEffect };
 
 /**
  * Stamina spending options with their costs and descriptions
@@ -72,7 +66,7 @@ const STAMINA_OPTIONS = [
     name: "Heroic Action",
     cost: 1,
     description: "Immediately regain 1 AP (once per round)",
-    effectKey: "stamina-heroic-action",
+    effectKey: STAMINA_EFFECT_KEYS.HEROIC_ACTION,
     consumeOn: "immediate",
     immediate: true
   }
@@ -87,6 +81,29 @@ function _esc(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function _spendFromPools({ sp = 0, temp = 0, cost = 0 } = {}) {
+  let remainingCost = Math.max(0, Number(cost ?? 0) || 0);
+  let newTemp = Number(temp ?? 0) || 0;
+  let newSp = Number(sp ?? 0) || 0;
+
+  if (remainingCost > 0 && newTemp > 0) {
+    const tempConsumed = Math.min(newTemp, remainingCost);
+    newTemp -= tempConsumed;
+    remainingCost -= tempConsumed;
+  }
+
+  if (remainingCost > 0) {
+    newSp -= remainingCost;
+  }
+
+  return {
+    newSp,
+    newTemp,
+    tempConsumed: Math.max(0, (Number(temp ?? 0) || 0) - newTemp),
+    regularConsumed: Math.max(0, (Number(sp ?? 0) || 0) - newSp),
+  };
 }
 
 /**
@@ -117,7 +134,7 @@ export async function openStaminaDialog(actor) {
       };
     });
 
-  const content = await foundry.applications.handlebars.renderTemplate("systems/uesrpg-3ev4/templates/v2/dialogs/stamina-dialog.hbs", {
+  const content = await foundry.applications.handlebars.renderTemplate(`${systemRootPath}/templates/v2/dialogs/stamina-dialog.hbs`, {
     currentSP,
     tempSP,
     maxSP,
@@ -214,38 +231,24 @@ async function spendStamina(actor, option, spAmount = 1) {
     const combat = game.combat;
     const isInCombat = combat && combat.started;
     
-    const systemId = game.system?.id ?? "uesrpg-3ev4";
     const updates = {};
     
     if (isInCombat) {
       // Check for heroic action flag this round
       const currentRound = Number(combat.round ?? 0);
-      const lastUsedRound = actor.getFlag(systemId, "heroicActionLastRound");
+      const lastUsedRound = actor.getFlag(SYSTEM_ID, "heroicActionLastRound");
       
       if (lastUsedRound === currentRound) {
         ui.notifications.warn("Heroic Action can only be used once per round.");
         return;
       }
       
-      updates[`flags.${systemId}.heroicActionLastRound`] = currentRound;
+      updates[`flags.${SYSTEM_ID}.heroicActionLastRound`] = currentRound;
     }
     
     const newAP = Math.min(currentAP + 1, maxAP);
     
-    // Consume temp SP first, then regular SP
-    let remainingCost = cost;
-    let newTemp = currentTemp;
-    let newSP = currentSP;
-    
-    if (remainingCost > 0 && newTemp > 0) {
-      const tempConsumed = Math.min(newTemp, remainingCost);
-      newTemp -= tempConsumed;
-      remainingCost -= tempConsumed;
-    }
-    
-    if (remainingCost > 0) {
-      newSP -= remainingCost;
-    }
+    const { newSp: newSP, newTemp } = _spendFromPools({ sp: currentSP, temp: currentTemp, cost });
     
     updates["system.stamina.temp"] = newTemp;
     updates["system.stamina.value"] = newSP;
@@ -276,20 +279,7 @@ async function spendStamina(actor, option, spAmount = 1) {
     return;
   }
 
-  // Consume temp SP first, then regular SP
-  let remainingCost = cost;
-  let newTemp = currentTemp;
-  let newSP = currentSP;
-  
-  if (remainingCost > 0 && newTemp > 0) {
-    const tempConsumed = Math.min(newTemp, remainingCost);
-    newTemp -= tempConsumed;
-    remainingCost -= tempConsumed;
-  }
-  
-  if (remainingCost > 0) {
-    newSP -= remainingCost;
-  }
+  const { newSp: newSP, newTemp } = _spendFromPools({ sp: currentSP, temp: currentTemp, cost });
   
   // Update stamina
   await requestUpdateDocument(actor, {
@@ -299,7 +289,7 @@ async function spendStamina(actor, option, spAmount = 1) {
 
   // Remove any existing effect of the same type (replacing)
   const existing = actor.effects.find(e => 
-    !e.disabled && e?.flags?.uesrpg?.key === option.effectKey
+    !e.disabled && getFlagValueWithFallback(e, "key") === option.effectKey
   );
   if (existing) {
     await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [existing.id]);
@@ -312,7 +302,7 @@ async function spendStamina(actor, option, spAmount = 1) {
     img: getStaminaIcon(option.id),
     duration: {}, // Empty duration = persists until consumed
     flags: {
-      uesrpg: {
+      [FLAG_SCOPE]: {
         key: option.effectKey,
         spentSP: cost,
         consumeOn: option.consumeOn,
@@ -327,9 +317,9 @@ async function spendStamina(actor, option, spAmount = 1) {
     const multiplier = hasTalent(actor, "killingblow") ? 3 : 2;
     const damageBonus = spAmount * multiplier;
     if (option.id === "power-attack" && hasTalent(actor, "killingblow")) {
-      effectData.flags.uesrpg.description = "+3 damage per SP spent (max +9), spend before damage roll";
+      effectData.flags[FLAG_SCOPE].description = "+3 damage per SP spent (max +9), spend before damage roll";
     }
-    effectData.flags.uesrpg.damageBonus = damageBonus;
+    effectData.flags[FLAG_SCOPE].damageBonus = damageBonus;
     effectData.changes.push({
       key: "system.modifiers.combat.damage.dealt",
       mode: CONST.ACTIVE_EFFECT_MODES.ADD,
@@ -362,8 +352,8 @@ async function spendStamina(actor, option, spAmount = 1) {
     content: `<div class="uesrpg-stamina-card">
       <h3>Stamina: ${_esc(option.name)}</h3>
       <p><b>Cost:</b> ${cost} SP ${tempConsumedTotal > 0 ? `(${tempConsumedTotal} temp, ${regularConsumedTotal} regular)` : ''}</p>
-      <p><b>Effect:</b> ${_esc(effectData.flags.uesrpg.description)}</p>
-      ${option.allowAmount ? `<p><b>Damage Bonus:</b> +${effectData.flags.uesrpg.damageBonus}</p>` : ''}
+      <p><b>Effect:</b> ${_esc(effectData.flags[FLAG_SCOPE].description)}</p>
+      ${option.allowAmount ? `<p><b>Damage Bonus:</b> +${effectData.flags[FLAG_SCOPE].damageBonus}</p>` : ''}
       <p><b>Remaining SP:</b> ${remainingSPDisplay} / ${maxSP}</p>
       <p class="uesrpg-stamina-note">Effect will persist until consumed by the appropriate action.</p>
     </div>`,
@@ -388,58 +378,4 @@ function getStaminaIcon(optionId) {
     "heroic-action": "icons/magic/control/buff-flight-wings-runes-purple.webp"
   };
   return icons[optionId] || "icons/svg/aura.svg";
-}
-
-/**
- * Check if actor has a specific stamina effect active
- * @param {Actor} actor - The actor to check
- * @param {string} effectKey - The effect key to look for
- * @returns {ActiveEffect|null} The active effect or null
- */
-export function getActiveStaminaEffect(actor, effectKey) {
-  if (!actor) return null;
-  return actor.effects.find(e => 
-    !e.disabled && e?.flags?.uesrpg?.key === effectKey
-  ) || null;
-}
-
-/**
- * Consume a stamina effect and post chat message
- * @param {Actor} actor - The actor whose effect to consume
- * @param {string} effectKey - The effect key to consume
- * @param {Object} context - Additional context for the consumption message
- * @returns {Promise<Object|null>} The effect's data before deletion, or null
- */
-export async function consumeStaminaEffect(actor, effectKey, context = {}) {
-  const effect = getActiveStaminaEffect(actor, effectKey);
-  if (!effect) return null;
-
-  const effectFlags = effect.flags?.uesrpg || {};
-  const effectName = effect.name || "Stamina Effect";
-  const bonus = effectFlags.damageBonus || 0;
-  const description = effectFlags.description || "";
-
-  // Delete the effect
-  await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
-
-  // Post consumption message
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    content: `<div class="uesrpg-stamina-consumed">
-      <h3>Stamina Effect Consumed: ${_esc(effectName)}</h3>
-      <p><b>Effect:</b> ${_esc(description)}</p>
-      ${bonus > 0 ? `<p><b>Bonus Applied:</b> +${bonus} damage</p>` : ''}
-      ${context.bonus ? `<p><b>Bonus Applied:</b> ${_esc(context.bonus)}</p>` : ''}
-      ${context.message ? `<p>${_esc(context.message)}</p>` : ''}
-    </div>`,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER
-  });
-
-  return {
-    name: effectName,
-    bonus,
-    description,
-    flags: effectFlags
-  };
 }

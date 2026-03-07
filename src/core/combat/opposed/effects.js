@@ -15,6 +15,8 @@ import { getEffectiveWeaponHands } from "../combat-utils.js";
 import { getContextAttackMode } from "./helpers/workflow.js";
 import { _resolveDoc } from "./helpers/docs.js";
 import { _getSystemId, _findEnabledEffectByUesrpgKey } from "./helpers/util.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
+import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../../system/flags.js";
 
 // ====== ACTIVE EFFECT CREATION ======
 
@@ -49,7 +51,7 @@ let _advantageExpiryRegistered = false;
 
 export function isAdvantageEffect(effect) {
   if (!effect) return false;
-  const f = effect?.flags?.uesrpg ?? null;
+  const f = getSystemFlagsWithFallback(effect) ?? null;
   if (!f || f.category !== "advantage") return false;
   const key = String(f.key ?? "");
   return _ADVANTAGE_KEYS.has(key);
@@ -147,10 +149,9 @@ export async function deleteActorEffectSafe(actor, effect) {
 export function getAimStateFromEffect(effect) {
   if (!effect) return { stacks: 0, itemUuid: null };
 
-  // Preferred: flags.uesrpg.aim
-  const fa = effect?.flags?.uesrpg?.aim;
+  const fa = getFlagValueWithFallback(effect, "aim");
   const stacks = Number(fa?.stacks ?? 0) || 0;
-  const itemUuid = String(fa?.itemUuid ?? effect?.flags?.uesrpg?.conditions?.itemUuid ?? "").trim() || null;
+  const itemUuid = String(fa?.itemUuid ?? getFlagValueWithFallback(effect, "conditions.itemUuid") ?? "").trim() || null;
 
   // Fallback: infer from change value (+10/+20/+30)
   if (!stacks) {
@@ -256,7 +257,7 @@ export async function applyPressAdvantageEffect(attacker, defender, { attackerTo
       }
     ],
     flags: {
-      uesrpg: {
+      [FLAG_SCOPE]: {
         category: "advantage",
         key: "pressAdvantage",
         source: {
@@ -303,7 +304,7 @@ export async function applyOverextendEffect(opponent, { defenderUuid = null, def
       }
     ],
     flags: {
-      uesrpg: {
+      [FLAG_SCOPE]: {
         category: "advantage",
         key: "overextend",
         source: {
@@ -340,14 +341,14 @@ export async function applyOverwhelmEffect(opponent, { defenderUuid = null } = {
     duration,
     changes: [
       {
-        key: "flags.uesrpg.combat.noAoO",
+        key: `flags.${FLAG_SCOPE}.combat.noAoO`,
         mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE,
         value: true,
         priority: 20
       }
     ],
     flags: {
-      uesrpg: {
+      [FLAG_SCOPE]: {
         category: "advantage",
         key: "overwhelm",
         meta: defenderUuid ? { defenderUuid } : {}
@@ -370,7 +371,7 @@ export async function consumeOneShotAdvantageEffects(actor, { opponentUuid = nul
 
     for (const ef of (actor.effects ?? [])) {
       if (!ef || ef.disabled) continue;
-      const f = ef.flags?.uesrpg;
+      const f = getSystemFlagsWithFallback(ef);
       if (!f || f.category !== "advantage") continue;
       const key = String(f.key ?? "");
       if (key !== "pressAdvantage" && key !== "overextend") continue;
@@ -413,7 +414,7 @@ export async function consumeHiddenAfterAttack(actor) {
 
     for (const ef of effects) {
       if (!ef?.id) continue;
-      const k = String(ef.getFlag?.("uesrpg-3ev4", "condition")?.key ?? ef.flags?.["uesrpg-3ev4"]?.condition?.key ?? "").trim().toLowerCase();
+      const k = String(ef.getFlag?.(FLAG_SCOPE, "condition")?.key ?? ef.flags?.[FLAG_SCOPE]?.condition?.key ?? "").trim().toLowerCase();
       const coreId = String(ef.getFlag?.("core", "statusId") ?? ef.flags?.core?.statusId ?? "").trim().toLowerCase();
       const hasStatus = typeof ef.statuses?.has === "function" ? ef.statuses.has("hidden") : false;
 

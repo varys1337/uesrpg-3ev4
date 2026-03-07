@@ -1,4 +1,4 @@
-import {
+﻿import {
   requestUpdateDocument,
   requestCreateEmbeddedDocuments,
 } from "../../../../utils/authority-proxy.js";
@@ -23,9 +23,12 @@ import {
   computeSpellLearningCosts,
   normalizeSpellLearningType,
   validateSpellLearningPurchase,
+  spellSignature,
+  buildKnownSpellIndex,
 } from "../../../../core/advancement/spell-learning.js";
 import { campaignRankFromXpTotal } from "../../../sheets/shared/dialogs/character-menus.js";
 import { appendChargenAudit } from "./audit-log.js";
+import { SYSTEM_ID, templatePath } from "../../../constants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -51,14 +54,6 @@ function _slug(text) {
     .trim()
     .replace(/[\u2019']/g, "")
     .replace(/[^a-z0-9]+/g, "");
-}
-
-function _spellSignature(spellLike) {
-  const name = String(spellLike?.name ?? "").trim().toLowerCase();
-  const school = String(spellLike?.system?.school ?? "").trim().toLowerCase();
-  const level = Math.max(1, _asNumber(spellLike?.system?.level, 1));
-  const type = String(normalizeSpellLearningType(spellLike)).trim().toLowerCase();
-  return `${name}|${school}|${level}|${type}`;
 }
 
 function _cloneSystem(system) {
@@ -126,7 +121,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
 
   static PARTS = {
     main: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/spend-xp-menu.hbs",
+      template: templatePath("v2/apps/spend-xp-menu.hbs"),
       scrollable: [".uesrpg-spendxp__scroll"],
     },
   };
@@ -159,7 +154,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       }))
       .sort((a, b) => a.id.localeCompare(b.id));
     fp.talents = actor.items.filter((it) => it.type === "talent").map((it) => _slug(it.name)).sort();
-    fp.spells = actor.items.filter((it) => it.type === "spell").map((it) => _spellSignature(it)).sort();
+    fp.spells = actor.items.filter((it) => it.type === "spell").map((it) => spellSignature(it)).sort();
     return JSON.stringify(fp);
   }
 
@@ -229,7 +224,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       spellSigs: new Set(
         (base.validationItems ?? [])
           .filter((it) => it.type === "spell")
-          .map((it) => _spellSignature(it))
+          .map((it) => spellSignature(it))
       ),
       totals: { costXp: 0, costWealth: 0 },
     };
@@ -285,7 +280,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
         }
         case "spellLearn": {
           const itemData = entry.payload?.itemData ?? null;
-          if (itemData) projected.spellSigs.add(_spellSignature(itemData));
+          if (itemData) projected.spellSigs.add(spellSignature(itemData));
           break;
         }
         default:
@@ -420,7 +415,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   }
 
   async #appendSpendLogEntries(entries) {
-    const flagData = this.#actor.getFlag("uesrpg-3ev4", "chargen") ?? {};
+    const flagData = this.#actor.getFlag(SYSTEM_ID, "chargen") ?? {};
     const spendLog = Array.isArray(flagData.spendLog) ? [...flagData.spendLog] : [];
     for (const row of entries) {
       spendLog.push({
@@ -658,8 +653,9 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       const actorMock = this.#buildValidationActor(derived);
       const costs = computeSpellLearningCosts(item, actorMock);
       const spellType = normalizeSpellLearningType(item);
-      const xpValidation = validateSpellLearningPurchase(actorMock, item, "xp");
-      const drakesValidation = validateSpellLearningPurchase(actorMock, item, "drakes");
+      const knownSpellIndex = buildKnownSpellIndex(actorMock);
+      const xpValidation = validateSpellLearningPurchase(actorMock, item, "xp", { knownSpellIndex });
+      const drakesValidation = validateSpellLearningPurchase(actorMock, item, "drakes", { knownSpellIndex });
       const xpLabel = spellType === "ritual"
         ? "Learn Ritual (25 XP)"
         : `${spellType === "unconventional" ? "Unconventional" : "Conventional"} (XP ${costs.xpCost})`;
@@ -682,7 +678,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
 
       if (!answer || answer === "cancel") return;
       const paymentMode = answer === "drakes" ? "drakes" : "xp";
-      const validation = validateSpellLearningPurchase(actorMock, item, paymentMode);
+      const validation = validateSpellLearningPurchase(actorMock, item, paymentMode, { knownSpellIndex });
       if (!validation.ok) {
         ui.notifications?.warn?.(validation.reason ?? "Spell learning blocked.");
         return;
@@ -988,3 +984,4 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     this.#dropZonesBound = true;
   }
 }
+

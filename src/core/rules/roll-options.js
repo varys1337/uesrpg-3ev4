@@ -3,6 +3,8 @@
  *
  * Roll-option helpers used by rule-element predicates.
  */
+import { SYSTEM_ID } from "../constants.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 
 const SAFE_OPTION_RE = /[^a-z0-9:_-]/g;
 
@@ -55,6 +57,7 @@ export function addRollOptions(set, options = []) {
 function _isActorInCombat(actor) {
   if (!actor) return false;
   try {
+    if (typeof actor?.inCombat === "boolean") return actor.inCombat;
     if (!game?.combat?.started) return false;
     const id = String(actor.id ?? "");
     if (!id) return false;
@@ -83,8 +86,8 @@ function _isActorHidden(actor) {
     const effects = Array.from(actor.effects ?? []);
     return effects.some((e) => {
       if (!e || e.disabled) return false;
-      const keyA = String(e?.flags?.uesrpg?.key ?? "").toLowerCase();
-      const keyB = String(e?.flags?.["uesrpg-3ev4"]?.condition?.key ?? "").toLowerCase();
+      const keyA = String(getFlagValueWithFallback(e, "key") ?? "").toLowerCase();
+      const keyB = String(e?.flags?.[SYSTEM_ID]?.condition?.key ?? "").toLowerCase();
       const name = String(e?.name ?? "").toLowerCase();
       return keyA === "hidden" || keyB === "hidden" || name === "hidden";
     });
@@ -146,4 +149,3 @@ export function buildBaseRollOptions({
 
   return options;
 }
-

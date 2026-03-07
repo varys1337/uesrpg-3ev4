@@ -1,4 +1,4 @@
-            <div class="tab equipment" data-group="primary" data-tab="equipment" data-ues-section="equipment-tab">
+﻿            <div class="tab equipment" data-group="primary" data-tab="equipment" data-ues-section="equipment-tab">
                 <div class="equipmentTabContainer">
                     <div class="uesrpg-equipment-main-body">
                     <div class="itemListContainer">
@@ -13,6 +13,9 @@
                                     <div class="section-header"><span class="section-header__label">Encumbrance</span></div>
                                     <div class="encLabel">{{actor.system.carry_rating.current}} / {{actor.system.carry_rating.max}} ENC</div>
                                     <button type="button" class="carryBonus" data-action="carryBonus">Set Carry Bonus</button>
+                                    {{#if sheetUi.encBreakdownEnabled}}
+                                        <button type="button" class="encBreakdown" data-action="encBreakdown">ENC Details</button>
+                                    {{/if}}
                                 </div>
                             </div>
 
@@ -25,7 +28,7 @@
                                     <div class="uesrpg-loadouts" data-actor-id="{{actor._id}}">
                                         <label>Loadout</label>
                                         <select id="uesrpg-loadout-select">
-                                            <option value="">—</option>
+                                            <option value="">вЂ”</option>
                                             {{#each sheetUi.loadouts as |l|}}
                                                 <option value="{{l.id}}">{{l.name}}</option>
                                             {{/each}}
@@ -42,7 +45,7 @@
                             <table class="ues-table--container">
                                 <thead>
                                     <tr>
-                                        <th class="item-name-cell item-create ues-col-name" data-action="itemCreate" id="container"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="containers" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Container</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th class="item-name-cell item-create ues-col-name" data-action="itemCreate" id="container"><div class="ues-th-content"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="containers" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Container</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
                                         <th class="ues-col-stat" title="ENC Value of the empty container / ENC Value applied to carry limit">ENC</th>
                                         <th class="ues-col-stat">Capacity</th>
                                         <th class="ues-col-stat">Item Count</th>
@@ -51,7 +54,7 @@
                                 </thead>
                                 <tbody>
                                     {{#each actor.container as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell ues-col-name">
                                                 <div class="tableItemNameCell">
                                                     <div class="qty-controls">
@@ -78,7 +81,7 @@
                             <table class="weapon-table">
                                 <thead>
                                     <tr>
-                                        <th class="item-name-cell item-create" data-action="itemCreate" id="weapon"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="weapons" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Weapons</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th class="item-name-cell item-create" data-action="itemCreate" id="weapon"><div class="ues-th-content"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="weapons" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Weapons</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
                                         <th>Damage</th>
                                         <th>{{sheetUi.weaponDistanceHeaderLabel}}</th>
                                         <th>2H</th>
@@ -87,7 +90,7 @@
                                 </thead>
                                 <tbody>
                                     {{#each actor.weapon.equipped as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
                                                     <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
@@ -102,9 +105,9 @@
                                             <td class="damage-entry">{{item.system.damage3}}</td>
                                             <td>
                                                 {{#if (eq item.system.attackMode "ranged")}}
-                                                    {{item.system.range}}
+                                                    {{item.system.resolvedDistanceDisplay}}
                                                 {{else}}
-                                                    {{item.system.reach}}
+                                                    {{item.system.resolvedDistanceDisplay}}
                                                 {{/if}}
                                             </td>
                                             <td><input class="toggle2H checkbox" data-action="toggle2H" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage"></td>
@@ -112,7 +115,7 @@
                                         </tr>
                                     {{/each}}
                                     {{#each actor.weapon.unequipped as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
                                                     <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
@@ -127,9 +130,9 @@
                                             <td class="damage-entry">{{item.system.damage3}}</td>
                                             <td>
                                                 {{#if (eq item.system.attackMode "ranged")}}
-                                                    {{item.system.range}}
+                                                    {{item.system.resolvedDistanceDisplay}}
                                                 {{else}}
-                                                    {{item.system.reach}}
+                                                    {{item.system.resolvedDistanceDisplay}}
                                                 {{/if}}
                                             </td>
                                             <td><input class="toggle2H checkbox" data-action="toggle2H" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage"></td>
@@ -142,7 +145,7 @@
                             <table class="ammunition-table">
                                 <thead>
                                     <tr>
-                                        <th class="item-name-cell item-create" data-action="itemCreate" id="ammunition"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="ammunition" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Ammunition</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th class="item-name-cell item-create" data-action="itemCreate" id="ammunition"><div class="ues-th-content"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="ammunition" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Ammunition</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
                                         <th>Bonus</th>
                                         <th>Qty</th>
                                         <th class="right-align-cell"><i class="fas fa-trash"></i></th>
@@ -150,7 +153,7 @@
                                 </thead>
                                 <tbody>
                                     {{#each actor.ammunition.equipped as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
                                                     <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
@@ -168,7 +171,7 @@
                                         </tr>
                                     {{/each}}
                                     {{#each actor.ammunition.unequipped as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
                                                     <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
@@ -191,7 +194,7 @@
                             <table class="armor-table">
                                 <thead>
                                     <tr>
-                                        <th class="item-name-cell item-create" data-action="itemCreate" id="armor" data-alt-type="item"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="armor" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Armor</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th class="item-name-cell item-create" data-action="itemCreate" id="armor" data-alt-type="equipment"><div class="ues-th-content"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="armor" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Armor</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
                                         <th>AR</th>
                                         <th>MR</th>
                                         <th>BR</th>
@@ -200,7 +203,7 @@
                                 </thead>
                                 <tbody>
                                     {{#each actor.armor.equipped as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
                                                     <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
@@ -218,7 +221,7 @@
                                         </tr>
                                     {{/each}}
                                     {{#each actor.armor.unequipped as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
                                                     <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
@@ -241,7 +244,7 @@
                             <table class="ues-table--gear">
                                 <thead>
                                     <tr>
-                                        <th class="item-name-cell item-create ues-col-name" data-action="itemCreate" id="createSelect"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="gear" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Item</span><span class="item-group-add" aria-hidden="true">+</span></th>
+                                        <th class="item-name-cell item-create ues-col-name" data-action="itemCreate" id="createSelect"><div class="ues-th-content"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="gear" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Equipment</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
                                         <th class="ues-col-stat">Qty</th>
                                         <th class="ues-col-stat">ENC</th>
                                         <th class="ues-col-stat">Price</th>
@@ -250,7 +253,7 @@
                                 </thead>
                                 <tbody>
                                     {{#each actor.gear.equipped as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell ues-col-name">
                                                 <div class="tableItemNameCell">
                                                     <div class="qty-controls">
@@ -276,7 +279,7 @@
                                         </tr>
                                     {{/each}}
                                     {{#each actor.gear.unequipped as |item id|}}
-                                        <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell ues-col-name">
                                                 <div class="tableItemNameCell">
                                                     <div class="qty-controls">
@@ -337,3 +340,6 @@
                     </div>
                 </div>
             </div>
+
+
+

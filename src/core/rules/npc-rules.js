@@ -1,4 +1,4 @@
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../constants.js";
 
 const NPC_LUCK_FLAG = "npcLuckAllowed";
 const NPC_ELITE_FLAG = "npcEliteAllowed";
@@ -12,6 +12,19 @@ function getNpcCriticalBands() {
   return { successMax: 3, failureMin: 98 };
 }
 
+function _actorItems(actor) {
+  if (!actor) return [];
+  const items = actor.items;
+  if (!items) return [];
+  if (Array.isArray(items)) return items;
+  if (typeof items?.values === "function") return Array.from(items.values());
+  try {
+    return Array.from(items);
+  } catch (_e) {
+    return [];
+  }
+}
+
 export function canUseLuck(actor) {
   if (!actor) return false;
   if (!isNPC(actor)) return true;
@@ -20,7 +33,7 @@ export function canUseLuck(actor) {
     // Supported allow signals:
     // - A trait item with system.activation.flags.npcLuckAllowed === true
     // - Legacy/GM override actor flag flags.uesrpg-3ev4.npcLuckAllowed
-    const items = actor.items ? Array.from(actor.items.values?.() ?? actor.items ?? []) : [];
+    const items = _actorItems(actor);
     const allowedByTrait = items.some(i => {
       if (!i) return false;
       if (String(i.type ?? "").toLowerCase() !== "trait") return false;
@@ -44,7 +57,7 @@ export function canUseHeroicActions(actor) {
   // - A trait that sets activation flag npcEliteAllowed
   // - Legacy/GM override actor flag flags.uesrpg-3ev4.npcEliteAllowed
   try {
-    const items = actor.items ? Array.from(actor.items.values?.() ?? actor.items ?? []) : [];
+    const items = _actorItems(actor);
     const hasEliteTrait = items.some(i => {
       if (!i) return false;
       if (String(i.type ?? "").toLowerCase() !== "trait") return false;
@@ -74,10 +87,11 @@ export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allo
   if (!Number.isFinite(total)) return { isCriticalSuccess: false, isCriticalFailure: false };
 
   const npc = isNPC(actor);
+  const luckUsable = canUseLuck(actor);
 
   // RAW (Chapter 1): NPCs default to fixed critical bands unless their statblock specifies otherwise.
   // System convention: a trait/flag can allow an NPC to use Lucky/Unlucky numbers like a PC.
-  if (npc && !canUseLuck(actor)) {
+  if (npc && !luckUsable) {
     const { successMax, failureMin } = getNpcCriticalBands();
     return {
       isCriticalSuccess: total <= successMax,
@@ -86,7 +100,7 @@ export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allo
   }
 
   // If Luck is not usable (or not present), no criticals.
-  if (!canUseLuck(actor)) return { isCriticalSuccess: false, isCriticalFailure: false };
+  if (!luckUsable) return { isCriticalSuccess: false, isCriticalFailure: false };
 
   let isCriticalSuccess = false;
   let isCriticalFailure = false;

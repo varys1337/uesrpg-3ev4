@@ -4,21 +4,12 @@
  * Canonical Combat Style + Special Action utility layer.
  */
 
-/** @typedef {"primary"|"secondary"} SpecialActionType */
+import { SPECIAL_ACTIONS, SPECIAL_ACTIONS_BY_ID, getSpecialActionById } from "../config/special-actions.js";
+import { SYSTEM_ID } from "../constants.js";
 
-/** @type {Array<{id: string, name: string, actionType: SpecialActionType}>} */
-export const SPECIAL_ACTIONS = [
-  { id: "arise", name: "Arise", actionType: "secondary" },
-  { id: "bash", name: "Bash", actionType: "primary" },
-  { id: "blindOpponent", name: "Blind Opponent", actionType: "secondary" },
-  { id: "disarm", name: "Disarm", actionType: "primary" },
-  { id: "feint", name: "Feint", actionType: "primary" },
-  { id: "forceMovement", name: "Force Movement", actionType: "primary" },
-  { id: "resist", name: "Resist", actionType: "secondary" },
-  { id: "trip", name: "Trip", actionType: "secondary" },
-  // Homebrew — Reach & Length Overhaul
-  { id: "inClose", name: "In Close", actionType: "secondary" }
-];
+// Backward-compat re-exports: all callers that import from this module continue to work unchanged.
+export { SPECIAL_ACTIONS, SPECIAL_ACTIONS_BY_ID, getSpecialActionById } from "../config/special-actions.js";
+export { SYSTEM_ID } from "../constants.js";
 
 /**
  * Canonical test-option registry for Special Actions.
@@ -107,19 +98,8 @@ export const SPECIAL_ACTION_TEST_OPTIONS = Object.freeze({
   }
 });
 
-export const SYSTEM_ID = "uesrpg-3ev4";
 export const NPC_KNOWN_FLAG = "npcSpecialActionsKnown";
 const ACTIVE_STYLE_FLAG = "activeCombatStyleId";
-
-/**
- * @param {string} id
- * @returns {{id:string,name:string,actionType:SpecialActionType}|null}
- */
-export function getSpecialActionById(id) {
-  const key = String(id ?? "").trim();
-  if (!key) return null;
-  return SPECIAL_ACTIONS.find(sa => sa.id === key) ?? null;
-}
 
 /**
  * @param {string} specialActionId

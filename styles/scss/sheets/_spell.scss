@@ -1014,7 +1014,9 @@
   cursor: pointer;
   margin: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+  color: #2a2014;
+  text-shadow: none;
   user-select: none;
   transition: background 0.2s;
 }
@@ -1108,6 +1110,9 @@
 
 .spell-name-cell .item-name {
   font-size: 13px;
+  font-weight: 700;
+  color: #2a2014;
+  text-shadow: none;
 }
 
 .spell-rank-cell,
@@ -1234,4 +1239,3 @@
   margin-left: var(--spell-gap-sm);
   font-size: 0.75em;
 }
-

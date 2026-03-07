@@ -1,5 +1,5 @@
 /**
- * applyDefaults(target, defaults, { coerce=true, ignorePaths=[] })
+ * applyDefaults(target, defaults, { coerce=true, ignorePaths=[], clone=true })
  *
  * Idempotently applies a "defaults object" onto a target object:
  * - Missing keys (undefined/null) are set from defaults
@@ -68,13 +68,16 @@ function _deepClone(obj) {
  * @template T
  * @param {T} target
  * @param {object} defaults
- * @param {{coerce?: boolean, ignorePaths?: string[]}} [options]
+ * @param {{coerce?: boolean, ignorePaths?: string[], clone?: boolean}} [options]
  * @returns {{ result: T, changed: boolean }}
  */
 export function applyDefaults(target, defaults, options = {}) {
   const coerce = options.coerce !== false;
+  const clone = options.clone !== false;
   const ignore = new Set(Array.isArray(options.ignorePaths) ? options.ignorePaths : []);
-  const root = (target && typeof target === "object") ? _deepClone(target) : /** @type {any} */ ({});
+  const root = (target && typeof target === "object")
+    ? (clone ? _deepClone(target) : target)
+    : /** @type {any} */ ({});
   let changed = false;
 
   /**

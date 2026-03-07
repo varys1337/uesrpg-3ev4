@@ -10,9 +10,11 @@ import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, request
 import { isActorUndead, isActorUndeadBloodless } from "../../traits/trait-registry.js";
 import { hasTalent } from "../../traits/talents-api.js";
 import { applyGroupedEffect, getEffectGroup } from "../../../utils/ae-helpers.js";
-import { normalizeHitLocation, isActiveGMUser, SHOCK_KINDS, normalizeDamageTypeKey, SHOCK_MAGIC_TYPES } from "../wound-schema.js";
+import { normalizeHitLocation, isActiveGMUser, normalizeDamageTypeKey, canonicalizeShockKind, isShockKind, SHOCK_KINDS } from "../wound-schema.js";
 import { requestWoundsGM } from "../wound-socket.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { SYSTEM_ID, FLAG_SCOPE } from "../../constants.js";
+import { SKILL_DIFFICULTIES } from "../../skills/skill-tn.js";
 import { 
   findEffectsByKind, 
   findFirstEffectByKind, 
@@ -23,12 +25,249 @@ import {
   getWoundsFlag,
   computeDominantMagicType
 } from "./calc.js";
-import { makeEffect, formatDamageByType, getWhisperRecipientsForActor } from "./format.js";
+import { makeEffect, getWhisperRecipientsForActor } from "./format.js";
 import { getWoundState, isDerivedWounded, isWoundPenaltySuppressed, WOUND_STATES } from "./state.js";
 
-const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const _SHOCK_IN_FLIGHT = new Set();
+const _INVARIANTS_IN_FLIGHT = new Map();
+const esc = (s) => foundry.utils.escapeHTML(String(s ?? ""));
+
+function _difficultyOptionsHtml(defaultKey = "average") {
+  return SKILL_DIFFICULTIES.map((d) => {
+    const sign = d.mod >= 0 ? "+" : "";
+    const selected = d.key === defaultKey ? "selected" : "";
+    return `<option value="${d.key}" ${selected}>${d.label} (${sign}${d.mod})</option>`;
+  }).join("\n");
+}
+
+async function _promptShockRollOptions(actor, baseTn) {
+  const content = `
+    <div class="uesrpg-skill-roll">
+      <div class="form-group">
+        <label><b>Base TN (END)</b></label>
+        <input type="number" value="${Number(baseTn) || 0}" disabled style="width:100%;" />
+      </div>
+      <div class="form-group" style="margin-top:8px;">
+        <label><b>Difficulty</b></label>
+        <select name="difficultyKey" style="width:100%;">${_difficultyOptionsHtml("average")}</select>
+      </div>
+      <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <label style="margin:0;"><b>Manual Modifier</b></label>
+        <input name="manualMod" type="number" value="0" style="width:120px;" />
+      </div>
+    </div>
+  `;
+  const picked = await customDialog({
+    title: `Shock Test - ${esc(actor?.name ?? "Actor")} Roll Options`,
+    content,
+    buttons: {
+      roll: {
+        label: "Roll",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          const difficultyKey = String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average");
+          const manualMod = Number.parseInt(String(root?.querySelector('input[name="manualMod"]')?.value ?? "0"), 10) || 0;
+          return { difficultyKey, manualMod };
+        }
+      },
+      cancel: { label: "Cancel", callback: () => null }
+    },
+    default: "roll",
+    width: 420
+  });
+  if (!picked) return null;
+  const diff = SKILL_DIFFICULTIES.find((d) => d.key === String(picked.difficultyKey ?? "average")) ?? SKILL_DIFFICULTIES.find((d) => d.key === "average");
+  const finalTn = Math.max(0, (Number(baseTn) || 0) + (Number(diff?.mod ?? 0) || 0) + (Number(picked.manualMod ?? 0) || 0));
+  return {
+    difficulty: diff,
+    manualMod: Number(picked.manualMod ?? 0) || 0,
+    target: finalTn
+  };
+}
+
+function _currentWorldTimeSeconds() {
+  const fromApi = Number(game?.uesrpg?.time?.getWorldTimeSeconds?.() ?? NaN);
+  if (Number.isFinite(fromApi)) return fromApi;
+  const fromCore = Number(game?.time?.worldTime ?? NaN);
+  if (Number.isFinite(fromCore)) return fromCore;
+  return 0;
+}
+
+function _findShockMarker(actor, { applicationId = "", kind = "", hitLocation = "" } = {}) {
+  const appId = String(applicationId ?? "").trim();
+  const targetKind = canonicalizeShockKind(kind);
+  if (!appId || !targetKind) return null;
+  const targetLoc = String(hitLocation ?? "").trim().toLowerCase();
+  const effects = getEffects(actor);
+  for (const ef of effects) {
+    const wf = getWoundsFlag(ef) ?? {};
+    if (String(wf.applicationId ?? "").trim() !== appId) continue;
+    if (canonicalizeShockKind(wf.kind) !== targetKind) continue;
+    if (!targetLoc) return ef;
+    const efLoc = String(wf.hitLocation ?? "").trim().toLowerCase();
+    if (!efLoc || efLoc === targetLoc) return ef;
+  }
+  return null;
+}
+
+function _statusesForShockKind(kind) {
+  const canonical = canonicalizeShockKind(kind);
+  if (canonical === "shockStunned") return ["stunned"];
+  return [];
+}
+
+async function _upsertShockMarker(actor, { applicationId = "", kind = "", hitLocation = null, name = "Marker", img = "icons/svg/skull.svg", changes = [], extraWoundFlags = {} } = {}) {
+  if (!actor) return null;
+  const appId = String(applicationId ?? "").trim();
+  const canonicalKind = canonicalizeShockKind(kind);
+  if (!canonicalKind) return null;
+  if (appId) {
+    const existing = _findShockMarker(actor, { applicationId: appId, kind: canonicalKind, hitLocation });
+    if (existing) return existing;
+  }
+
+  const woundFlags = {
+    kind: canonicalKind,
+    ...(appId ? { applicationId: appId } : {}),
+    ...(hitLocation ? { hitLocation: String(hitLocation) } : {}),
+    ...(extraWoundFlags ?? {})
+  };
+  const docs = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
+    name: String(name ?? "Marker"),
+    img,
+    statuses: _statusesForShockKind(canonicalKind),
+    changes: Array.isArray(changes) ? changes : [],
+    flags: { [FLAG_SCOPE]: { wounds: woundFlags } }
+  }]);
+  const created = Array.isArray(docs) ? (docs[0] ?? null) : null;
+  if (created) await _applyPersistentConditionForLostMarker(actor, { kind: canonicalKind, hitLocation });
+  return created;
+}
+
+function _lostKindForLocation(loc) {
+  const key = String(loc?.key ?? "").toLowerCase();
+  if (key.includes("eye")) return "shockLostEye";
+  if (key.includes("ear")) return "shockLostEar";
+  return "shockLostLimb";
+}
+
+async function _applyPersistentConditionForLostMarker(actor, { kind = "", hitLocation = "" } = {}) {
+  const api = game?.uesrpg?.conditions;
+  if (!api?.setConditionValue) return;
+
+  const effects = getEffects(actor);
+  const countKind = (k) => effects.filter((ef) => canonicalizeShockKind(getWoundsFlag(ef)?.kind) === k).length;
+
+  if (kind === "shockLostEye") {
+    if (countKind("shockLostEye") >= 2) await api.setConditionValue(actor, "blinded", 1);
+    return;
+  }
+  if (kind === "shockLostEar") {
+    if (countKind("shockLostEar") >= 2) await api.setConditionValue(actor, "deafened", 1);
+    return;
+  }
+  if (kind !== "shockLostLimb") return;
+
+  const label = String(hitLocation ?? "").toLowerCase();
+  const isLegLike = label.includes("leg") || label.includes("foot");
+  if (!isLegLike) return;
+
+  await api.setConditionValue(actor, "slowed", 1);
+  const legLossCount = effects.filter((ef) => {
+    const wf = getWoundsFlag(ef) ?? {};
+    if (canonicalizeShockKind(wf?.kind) !== "shockLostLimb") return false;
+    const loc = String(wf?.hitLocation ?? "").toLowerCase();
+    return loc.includes("leg") || loc.includes("foot");
+  }).length;
+  if (legLossCount >= 2) await api.setConditionValue(actor, "immobilized", 1);
+}
+
+export async function applyMaimedOutcomeForWound(actor, woundEffect, { reason = "maimed", immediate = false } = {}) {
+  if (!actor || !woundEffect) return { applied: false, reason: "invalid" };
+  const w = getWoundsFlag(woundEffect) ?? {};
+  const appId = String(w?.applicationId ?? woundEffect?.id ?? "").trim();
+  if (!appId) return { applied: false, reason: "missingAppId" };
+
+  const loc = normalizeHitLocation(w?.hitLocation ?? "Body");
+  const label = loc?.label ?? "Body";
+  const region = loc?.region ?? "body";
+  const now = Date.now();
+
+  if (region === "head") {
+    await _upsertShockMarker(actor, {
+      applicationId: appId,
+      kind: "shockLostEye",
+      hitLocation: label,
+      name: `Lost Eye (${label})`,
+      img: "icons/svg/eye.svg",
+      extraWoundFlags: { permanent: true, maimed: true, maimedAt: now, maimedReason: reason, immediate: immediate === true }
+    });
+  } else if (region === "limb") {
+    await _upsertShockMarker(actor, {
+      applicationId: appId,
+      kind: _lostKindForLocation(loc),
+      hitLocation: label,
+      name: `Lost Limb (${label})`,
+      img: "icons/svg/skull.svg",
+      extraWoundFlags: { permanent: true, maimed: true, maimedAt: now, maimedReason: reason, immediate: immediate === true }
+    });
+  } else {
+    await _upsertShockMarker(actor, {
+      applicationId: appId,
+      kind: "shockCrippleBody",
+      hitLocation: label,
+      name: `Maimed Body (${label})`,
+      img: "icons/svg/skull.svg",
+      changes: [
+        { key: "system.stamina.max", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -1, priority: 20 },
+        { key: "system.wound_threshold.value", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -1, priority: 20 }
+      ],
+      extraWoundFlags: { permanent: true, maimed: true, maimedAt: now, maimedReason: reason, immediate: immediate === true }
+    });
+  }
+
+  try {
+    await requestUpdateDocument(woundEffect, {
+      [`${FLAG_PATH}.wounds.maimed`]: true,
+      [`${FLAG_PATH}.wounds.maimedAt`]: now,
+      [`${FLAG_PATH}.wounds.maimedReason`]: String(reason ?? "maimed")
+    });
+  } catch (_e) {
+    // Non-blocking.
+  }
+  return { applied: true, reason };
+}
+
+async function _deleteEffects(actor, effectIds, { reason = "wounds" } = {}) {
+  if (!actor || !Array.isArray(effectIds) || !effectIds.length) return true;
+
+  const ids = effectIds
+    .map((id) => String(id ?? "").trim())
+    .filter(Boolean);
+  if (!ids.length) return true;
+
+  try {
+    const ok = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
+    if (ok !== false) return true;
+  } catch (_err) {
+    // Fall through to one-by-one fallback.
+  }
+
+  let allOk = true;
+  for (const id of ids) {
+    try {
+      const ok = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [id]);
+      if (ok === false) allOk = false;
+    } catch (_err) {
+      allOk = false;
+    }
+  }
+  if (!allOk) {
+    console.warn(`${SYSTEM_ID} | Failed to delete one or more ActiveEffects during ${reason}`, { actor: actor?.uuid ?? actor?.id ?? null });
+  }
+  return allOk;
+}
 
 /**
  * Apply unconditional shock effects (immediate, not test-gated)
@@ -57,17 +296,26 @@ export async function applyShockUnconditional(actor, { hitLocation, applicationI
   // For limb/head we create tracking AEs. These are non-HUD, non-migrating markers.
   if (region === "limb") {
     const name = `Crippled Limb (${hitLocationLabel || "Limb"})`;
-    await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [
-      { name, icon: "icons/svg/bones.svg", changes: [], flags: { [FLAG_SCOPE]: { wounds: { kind: "shockCrippledLimb", applicationId: String(applicationId ?? ""), hitLocation: hitLocationLabel ?? null } } } }
-    ]);
+    await _upsertShockMarker(actor, {
+      applicationId: String(applicationId ?? ""),
+      kind: "shockCripple",
+      hitLocation: hitLocationLabel ?? null,
+      name,
+      img: "icons/svg/bones.svg"
+    });
     return;
   }
 
   if (region === "head") {
     const name = `Stunned (${hitLocationLabel || "Head"})`;
-    await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [
-      { name, icon: "icons/svg/daze.svg", changes: [], flags: { [FLAG_SCOPE]: { wounds: { kind: "shockStunned", applicationId: String(applicationId ?? ""), remainingTurns: 1 } } } }
-    ]);
+    await _upsertShockMarker(actor, {
+      applicationId: String(applicationId ?? ""),
+      kind: "shockStunned",
+      hitLocation: hitLocationLabel ?? null,
+      name,
+      img: "icons/svg/daze.svg",
+      extraWoundFlags: { remainingTurns: 1 }
+    });
     return;
   }
 }
@@ -78,24 +326,40 @@ export async function applyShockUnconditional(actor, { hitLocation, applicationI
 export async function applyShockFailConsequence(actor, { hitLocation, applicationId } = {}) {
   if (!actor) return { note: null };
   const region = hitLocation?.region ?? "body";
+  const hitLocationLabel = hitLocation?.label ?? "Limb";
+  const appId = String(applicationId ?? "").trim();
 
   if (region === "body") {
+    if (appId) {
+      await _upsertShockMarker(actor, {
+        applicationId: appId,
+        kind: "shockCrippleBody",
+        hitLocation: hitLocationLabel ?? "Body",
+        name: `Crippled Body (${hitLocationLabel ?? "Body"})`,
+        img: "icons/svg/skull.svg"
+      });
+    }
+
     const cur = Number(actor.system?.action_points?.value ?? 0) || 0;
     if (cur > 0) {
       await requestUpdateDocument(actor, { "system.action_points.value": Math.max(0, cur - 1) });
-      return { note: "Lost AP (1)" };
+      return { note: "Lost AP (1), Crippled Body" };
     }
 
     const debtRaw = Number(actor.getFlag(FLAG_SCOPE, "wounds.apDebtNextRefresh") ?? 0);
     const debt = Number.isFinite(debtRaw) ? debtRaw : 0;
     await requestUpdateDocument(actor, { [`${FLAG_PATH}.wounds.apDebtNextRefresh`]: debt + 1 });
-    return { note: "AP Debt (1)" };
+    return { note: "AP Debt (1), Crippled Body" };
   }
 
   if (region === "limb") {
-    await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [
-      { name: "Lost Limb (Shock)", icon: "icons/svg/skull.svg", changes: [], flags: { [FLAG_SCOPE]: { wounds: { kind: "shockLostLimb", applicationId: String(applicationId ?? "") } } } }
-    ]);
+    await _upsertShockMarker(actor, {
+      applicationId: appId,
+      kind: "shockLostLimb",
+      hitLocation: hitLocationLabel,
+      name: `Lost Limb (${hitLocationLabel})`,
+      img: "icons/svg/skull.svg"
+    });
     return { note: "Lost Limb" };
   }
 
@@ -111,15 +375,23 @@ export async function applyShockFailConsequence(actor, { hitLocation, applicatio
     });
 
     if (choice === "ear") {
-      await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [
-        { name: "Lost Ear (Shock)", icon: "icons/svg/skull.svg", changes: [], flags: { [FLAG_SCOPE]: { wounds: { kind: "shockLostEar", applicationId: String(applicationId ?? "") } } } }
-      ]);
+      await _upsertShockMarker(actor, {
+        applicationId: appId,
+        kind: "shockLostEar",
+        hitLocation: hitLocationLabel ?? "Head",
+        name: `Lost Ear (${hitLocationLabel ?? "Head"})`,
+        img: "icons/svg/skull.svg"
+      });
       return { note: "Lost Ear" };
     }
 
-    await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [
-      { name: "Lost Eye (Shock)", icon: "icons/svg/eye.svg", changes: [], flags: { [FLAG_SCOPE]: { wounds: { kind: "shockLostEye", applicationId: String(applicationId ?? "") } } } }
-    ]);
+    await _upsertShockMarker(actor, {
+      applicationId: appId,
+      kind: "shockLostEye",
+      hitLocation: hitLocationLabel ?? "Head",
+      name: `Lost Eye (${hitLocationLabel ?? "Head"})`,
+      img: "icons/svg/eye.svg"
+    });
     return { note: "Lost Eye" };
   }
 
@@ -199,6 +471,10 @@ export async function postShockTestChatCard({ actor, woundEffect, hitLocation, d
   if (!actor || !woundEffect) return;
   const endTN = Number(actor.system?.characteristics?.end?.total ?? 0) || 0;
   const hitLocationLabel = hitLocation?.label ?? String(hitLocation ?? "");
+  const actorName = esc(actor.name);
+  const safeHitLocationLabel = esc(hitLocationLabel || "(unknown)");
+  const actorUuid = esc(actor.uuid);
+  const woundEffectId = esc(woundEffect.id);
 
   const cardHtml = `
   <div class="uesrpg-chat-card" data-card="shock">
@@ -206,12 +482,12 @@ export async function postShockTestChatCard({ actor, woundEffect, hitLocation, d
       <h3>Shock Test</h3>
     </header>
     <div class="card-content">
-      <p><strong>Target:</strong> ${actor.name}</p>
-      <p><strong>Wound Location:</strong> ${hitLocationLabel || "(unknown)"}</p>
+      <p><strong>Target:</strong> ${actorName}</p>
+      <p><strong>Wound Location:</strong> ${safeHitLocationLabel}</p>
       <p><strong>Endurance TN:</strong> ${endTN}</p>
     </div>
     <footer class="card-footer">
-      <button type="button" data-ues-shock-action="shock-roll" data-actor-uuid="${actor.uuid}" data-wound-effect-id="${woundEffect.id}">Roll Shock (END)</button>
+      <button type="button" data-ues-shock-action="shock-roll" data-actor-uuid="${actorUuid}" data-wound-effect-id="${woundEffectId}">Roll Shock (END)</button>
     </footer>
   </div>`;
 
@@ -295,7 +571,7 @@ export async function ensureWoundedPassiveEffect(actor) {
     if (!existingEffect || existingEffect.disabled) {
       const effectData = {
         name: "Wounded: Passive",
-        icon: "icons/svg/skull.svg",
+        img: "icons/svg/skull.svg",
         disabled: false,
         duration: {},
         changes: [
@@ -354,58 +630,73 @@ export async function ensureUnconsciousEffect(actor) {
  */
 export async function enforceWoundInvariants(actor, { context = "unknown" } = {}) {
   if (!actor) return;
+  const actorKey = String(actor.uuid ?? actor.id ?? "");
+  if (!actorKey) return;
+  const inFlight = _INVARIANTS_IN_FLIGHT.get(actorKey);
+  if (inFlight) return inFlight;
 
-  // De-duplicate singleton effects.
-  await dedupeSingletonEffect(actor, "forestall", { pick: "last" });
-  await dedupeSingletonEffect(actor, "bloodLoss", { pick: "last" });
-  await dedupeSingletonEffect(actor, "firstAid", { pick: "last" });
+  const run = (async () => {
+    await evaluateUntreatedWoundDeadlines(actor);
 
-  // Normalize treated wound progress.
-  const treated = findEffectsByKind(actor, "wound").filter(ef => {
-    const wf = getWoundsFlag(ef) ?? {};
-    return wf.treated === true;
-  });
+    // De-duplicate singleton effects.
+    await dedupeSingletonEffect(actor, "forestall", { pick: "last" });
+    await dedupeSingletonEffect(actor, "bloodLoss", { pick: "last" });
+    await dedupeSingletonEffect(actor, "firstAid", { pick: "last" });
 
-  for (const ef of treated) {
-    const w = getWoundsFlag(ef) ?? {};
+    // Normalize treated wound progress.
+    const treated = findEffectsByKind(actor, "wound").filter(ef => {
+      const wf = getWoundsFlag(ef) ?? {};
+      return wf.treated === true;
+    });
 
-    const damage = Number(w.damage ?? 0);
-    const progress = Number(w.progress ?? 0);
-    const d = Number.isFinite(damage) ? Math.max(0, damage) : 0;
-    const p = Number.isFinite(progress) ? Math.max(0, progress) : 0;
+    for (const ef of treated) {
+      const w = getWoundsFlag(ef) ?? {};
 
-    if (d <= 0) continue;
+      const damage = Number(w.damage ?? 0);
+      const progress = Number(w.progress ?? 0);
+      const d = Number.isFinite(damage) ? Math.max(0, damage) : 0;
+      const p = Number.isFinite(progress) ? Math.max(0, progress) : 0;
 
-    if (p >= d) {
-      try {
-        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
-      } catch (err) {
-        console.warn("UESRPG | Failed to delete fully healed wound effect", err);
+      if (d <= 0) continue;
+
+      if (p >= d) {
+        try {
+          await _deleteEffects(actor, [ef.id], { reason: "enforceWoundInvariants:deleteHealedWounds" });
+        } catch (err) {
+          console.warn(`${SYSTEM_ID} | Failed to delete fully healed wound effect`, err);
+        }
+        continue;
       }
-      continue;
-    }
 
-    if (p != progress || d != damage) {
-      try {
-        await requestUpdateDocument(ef, { [`${FLAG_PATH}.wounds.damage`]: d, [`${FLAG_PATH}.wounds.progress`]: p });
-      } catch (err) {
-        console.warn("UESRPG | Failed to normalize treated wound progress", err);
+      if (p != progress || d != damage) {
+        try {
+          await requestUpdateDocument(ef, { [`${FLAG_PATH}.wounds.damage`]: d, [`${FLAG_PATH}.wounds.progress`]: p });
+        } catch (err) {
+          console.warn(`${SYSTEM_ID} | Failed to normalize treated wound progress`, err);
+        }
       }
     }
-  }
 
-  const expectedWounded = isDerivedWounded(actor);
-  const currentWounded = actor.system?.wounded === true;
-  if (currentWounded !== expectedWounded) {
-    try {
-      await requestUpdateDocument(actor, { "system.wounded": expectedWounded });
-    } catch (err) {
-      console.warn("UESRPG | Failed to reconcile system.wounded invariant", err);
+    const expectedWounded = isDerivedWounded(actor);
+    const currentWounded = actor.system?.wounded === true;
+    if (currentWounded !== expectedWounded) {
+      try {
+        await requestUpdateDocument(actor, { "system.wounded": expectedWounded });
+      } catch (err) {
+        console.warn(`${SYSTEM_ID} | Failed to reconcile system.wounded invariant`, err);
+      }
     }
+
+    // Ensure "Wounded: Passive" effect matches current state.
+    await ensureWoundedPassiveEffect(actor);
+  })();
+
+  _INVARIANTS_IN_FLIGHT.set(actorKey, run);
+  try {
+    return await run;
+  } finally {
+    _INVARIANTS_IN_FLIGHT.delete(actorKey);
   }
-  
-  // Ensure "Wounded: Passive" effect matches current state
-  await ensureWoundedPassiveEffect(actor);
 }
 
 /**
@@ -425,13 +716,7 @@ export async function cleanupWoundStateIfNoWounds(actor) {
   const toDelete = [...bloodLoss, ...forestall, ...firstAid];
 
   if (toDelete.length) {
-    for (const ef of toDelete) {
-      try {
-        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
-      } catch (_err) {
-        // Non-blocking.
-      }
-    }
+    await _deleteEffects(actor, toDelete.map((ef) => ef.id), { reason: "cleanupWoundStateIfNoWounds" });
   }
 
   let clearedWounded = false;
@@ -447,6 +732,60 @@ export async function cleanupWoundStateIfNoWounds(actor) {
   return { clearedWounded, removedBloodLoss, removedForestall };
 }
 
+export async function evaluateUntreatedWoundDeadlines(actor, { now = Date.now(), nowWorldTimeSeconds = null, lazyConvert = true } = {}) {
+  if (!actor) return { converted: 0 };
+  const wounds = findEffectsByKind(actor, "wound");
+  if (!wounds.length) return { converted: 0 };
+
+  const worldNow = Number.isFinite(Number(nowWorldTimeSeconds))
+    ? Number(nowWorldTimeSeconds)
+    : _currentWorldTimeSeconds();
+  const wallNow = Number(now);
+
+  let converted = 0;
+  for (const ef of wounds) {
+    const w = getWoundsFlag(ef) ?? {};
+    if (w.treated === true) continue;
+    if (w.maimed === true) continue;
+
+    let deadlineWorld = Number(w.expiresAtForTreatmentWorldTime ?? NaN);
+    const deadlineWall = Number(w.expiresAtForTreatment ?? NaN);
+
+    if (!Number.isFinite(deadlineWorld) && Number.isFinite(deadlineWall) && lazyConvert === true) {
+      // Legacy fallback: convert remaining real-time delta into world-time delta.
+      const remainingSeconds = (deadlineWall - wallNow) / 1000;
+      deadlineWorld = worldNow + remainingSeconds;
+
+      const updates = {
+        [`${FLAG_PATH}.wounds.expiresAtForTreatmentWorldTime`]: deadlineWorld
+      };
+      const existingCreatedWorld = Number(w.createdAtWorldTime ?? NaN);
+      if (!Number.isFinite(existingCreatedWorld)) {
+        const endBonusDays = Math.max(0, Number(w.treatmentDeadlineDays ?? 0) || 0);
+        if (endBonusDays > 0) {
+          updates[`${FLAG_PATH}.wounds.createdAtWorldTime`] = deadlineWorld - (endBonusDays * 86400);
+        } else {
+          updates[`${FLAG_PATH}.wounds.createdAtWorldTime`] = worldNow;
+        }
+      }
+      try {
+        await requestUpdateDocument(ef, updates);
+      } catch (_e) {
+        // Non-blocking: proceed with in-memory converted value.
+      }
+    }
+
+    let expired = false;
+    if (Number.isFinite(deadlineWorld)) expired = worldNow >= deadlineWorld;
+    else if (Number.isFinite(deadlineWall)) expired = wallNow >= deadlineWall;
+    if (!expired) continue;
+
+    const r = await applyMaimedOutcomeForWound(actor, ef, { reason: "untreated-deadline", immediate: false });
+    if (r?.applied) converted += 1;
+  }
+  return { converted };
+}
+
 /**
  * Remove shock markers for a wound application
  */
@@ -455,14 +794,15 @@ export async function removeShockMarkersForApplication(actor, applicationId, { r
   const appId = String(applicationId ?? "").trim();
   if (!appId) return;
 
-  const shockKinds = new Set(SHOCK_KINDS);
+  const shockKinds = new Set(SHOCK_KINDS.map((kind) => canonicalizeShockKind(kind)));
   const lostKinds = new Set(["shockLostLimb", "shockLostEar", "shockLostEye"]);
 
   const toDelete = getEffects(actor).filter((ef) => {
     const wf = getWoundsFlag(ef) ?? {};
     if (String(wf.applicationId ?? "") !== appId) return false;
-    const kind = String(wf.kind ?? "");
-    if (!shockKinds.has(kind)) return false;
+    const kind = canonicalizeShockKind(wf.kind);
+    if (!isShockKind(kind) || !shockKinds.has(kind)) return false;
+    if (wf?.permanent === true || wf?.maimed === true) return false;
     if (!removeLost && lostKinds.has(kind)) return false;
     return true;
   });
@@ -470,9 +810,9 @@ export async function removeShockMarkersForApplication(actor, applicationId, { r
   if (!toDelete.length) return;
 
   try {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", toDelete.map(e => e.id));
+    await _deleteEffects(actor, toDelete.map(e => e.id), { reason: "removeShockMarkersForApplication" });
   } catch (err) {
-    console.warn("UESRPG | Failed to remove shock markers for wound", { appId, err });
+    console.warn(`${SYSTEM_ID} | Failed to remove shock markers for wound`, { appId, err });
   }
 }
 
@@ -494,7 +834,7 @@ export async function activateWoundPassiveState(actor, { resetBloodLoss = true }
       if (!existing) {
         const effect = makeEffect({
           name: `Blood Loss (${next})`,
-          icon: "icons/svg/blood.svg",
+          img: "icons/svg/blood.svg",
           flags: {
             wounds: {
               kind: "bloodLoss",
@@ -590,7 +930,7 @@ export async function tickBloodLoss(actor) {
       await ChatMessage.create({
         user: game.user.id,
         speaker: ChatMessage.getSpeaker({ actor }),
-        content: `<div class="uesrpg-chat-card"><div class="header"><b>${actor.name}</b></div><div>Blood loss: HP dropped to 0.</div></div>`,
+        content: `<div class="uesrpg-chat-card"><div class="header"><b>${esc(actor.name)}</b></div><div>Blood loss: HP dropped to 0.</div></div>`,
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
     } catch (_e) {
@@ -652,7 +992,7 @@ export async function applyHealingForestall(actor, effectiveHealed) {
   if (!existing) {
     const ef = makeEffect({
       name: `Wound Forestall (${add})`,
-      icon: "icons/svg/regen.svg",
+      img: "icons/svg/regen.svg",
       flags: {
         wounds: {
           kind: "forestall",
@@ -781,7 +1121,11 @@ export async function resolveShockTestFromChat(...args) {
       // Non-blocking.
     }
 
-    let test = await doTestRoll(actor, { target: endTN, rollFormula: "1d100" });
+    const rollOptions = await _promptShockRollOptions(actor, endTN);
+    if (!rollOptions) return;
+    const rollTn = Math.max(0, Number(rollOptions?.target ?? endTN) || endTN);
+
+    let test = await doTestRoll(actor, { target: rollTn, rollFormula: "1d100" });
     let passed = !!test?.isSuccess;
     let dieHardRerolled = false;
 
@@ -792,7 +1136,7 @@ export async function resolveShockTestFromChat(...args) {
       if (hasDieHard && !dieHardUsed && !passed) {
         const wants = await customDialog({
           title: "Die-Hard",
-          content: `<p><b>${foundry.utils.escapeHTML(actor.name ?? "Actor")}</b> failed the Shock Test. Use <b>Die-Hard</b> to reroll (once per test)?</p>`,
+          content: `<p><b>${esc(actor.name ?? "Actor")}</b> failed the Shock Test. Use <b>Die-Hard</b> to reroll (once per test)?</p>`,
           buttons: {
             reroll: { label: "Reroll", callback: () => true },
             keep: { label: "Keep Failure", callback: () => false }
@@ -811,7 +1155,7 @@ export async function resolveShockTestFromChat(...args) {
           } catch (_e) {
             // Non-blocking.
           }
-          test = await doTestRoll(actor, { target: endTN, rollFormula: "1d100" });
+          test = await doTestRoll(actor, { target: rollTn, rollFormula: "1d100" });
           passed = !!test?.isSuccess;
         }
       }
@@ -823,7 +1167,7 @@ export async function resolveShockTestFromChat(...args) {
     try {
       await test.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor }),
-        flavor: `Shock Test — ${actor.name} (END)`,
+        flavor: `Shock Test - ${actor.name} (END, TN ${rollTn})`,
         rollMode: "roll",
         whisper: getWhisperRecipientsForActor(actor)
       });
@@ -869,6 +1213,7 @@ export async function resolveShockTestFromChat(...args) {
         [`${FLAG_PATH}.wounds.shockResolved`]: true,
         [`${FLAG_PATH}.wounds.shockResolvedAt`]: Date.now(),
         [`${FLAG_PATH}.wounds.shockPassed`]: passed,
+        [`${FLAG_PATH}.wounds.shockFailed`]: passed ? false : true,
         [`${FLAG_PATH}.wounds.shockResolving`]: false
       });
       resolvingSet = false;
@@ -879,11 +1224,11 @@ export async function resolveShockTestFromChat(...args) {
     // Post a deterministic result summary.
     try {
       const parts = [];
-      parts.push(`<p><strong>Target:</strong> ${actor.name}</p>`);
-      parts.push(`<p><strong>Wound Location:</strong> ${hitLocation?.label ?? "Body"}</p>`);
-      parts.push(`<p><strong>Shock Test (END):</strong> ${passed ? "Success" : "Failure"}</p>`);
-      if (failNote) parts.push(`<p><strong>Failure Consequence:</strong> ${failNote}</p>`);
-      if (magicNote) parts.push(`<p><strong>Magic Side Effect:</strong> ${magicNote}</p>`);
+      parts.push(`<p><strong>Target:</strong> ${esc(actor.name)}</p>`);
+      parts.push(`<p><strong>Wound Location:</strong> ${esc(hitLocation?.label ?? "Body")}</p>`);
+      parts.push(`<p><strong>Shock Test (END):</strong> ${esc(passed ? "Success" : "Failure")}</p>`);
+      if (failNote) parts.push(`<p><strong>Failure Consequence:</strong> ${esc(failNote)}</p>`);
+      if (magicNote) parts.push(`<p><strong>Magic Side Effect:</strong> ${esc(magicNote)}</p>`);
 
       const whisper = getWhisperRecipientsForActor(actor);
       await ChatMessage.create({

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/core/homebrew/reach-length/weapon.js
  *
  * Shared resolver for the Harnmaster-inspired Reach & Length Overhaul homebrew.
@@ -11,12 +11,44 @@
  *  - src/core/combat/opposed/actions/defender-commit.js (Length Penalty TN injection)
  */
 
-import { isReachLengthHomebrewEnabled, getReachLengthModel } from "../../system/homebrew.js";
+import {
+  isReachLengthHomebrewEnabled,
+  getReachLengthModel,
+  isReachLengthAttackerAdvantageOnlyEnabled
+} from "../../system/homebrew.js";
+import { hasCondition } from "../../conditions/condition-engine.js";
+import { createDebugLogger, createSeverityDebugLogger } from "../../../utils/debug.js";
 
 export { isReachLengthHomebrewEnabled, getReachLengthModel };
 
 const NAMESPACE = "uesrpg-3ev4";
-const HOMEBREW_FLAG_PATH = "homebrew.reachLength";
+
+function _isMeleeWeapon(item) {
+  if (!item || item.type !== "weapon") return false;
+  return String(item?.system?.attackMode ?? "melee").toLowerCase() === "melee";
+}
+
+function _resolveOwnerActor({ ownerActor, ownerToken, ownWeapon } = {}) {
+  if (ownerActor) return ownerActor;
+  if (ownerToken?.actor) return ownerToken.actor;
+  if (ownWeapon?.parent?.documentName === "Actor") return ownWeapon.parent;
+  return null;
+}
+
+function _resolveInCloseState({ ownerToken, opponentToken, ownerActor } = {}) {
+  const hasPairContext = Boolean(ownerToken?.document && opponentToken?.document?.uuid);
+  const icMap = hasPairContext
+    ? (ownerToken.document.getFlag(NAMESPACE, "reachLength.inCloseWith") ?? {})
+    : null;
+  const pairFlag = hasPairContext ? Boolean(icMap?.[opponentToken.document.uuid]) : false;
+  const actorEffect = Boolean(ownerActor && hasCondition(ownerActor, "inclose"));
+  const inClose = pairFlag || actorEffect;
+  const source = pairFlag ? "pairFlag" : (actorEffect ? "actorEffect" : "none");
+  return { inClose, source };
+}
+
+const _debugLengthTN = createDebugLogger("opposedDebug", "UESRPG | Length TN");
+const _warnLengthTN = createSeverityDebugLogger("opposedDebug", "UESRPG | Length TN |", "warn");
 
 /**
  * Returns the weapon's explicit Length (LNG) value from homebrew flags.
@@ -69,7 +101,7 @@ export function getWeaponReachBoundsEffective(weapon) {
     return { min, max, source: "homebrew-simplified" };
   }
 
-  // Unknown model — fall back to system
+  // Unknown model - fall back to system
   return systemResult;
 }
 
@@ -80,15 +112,16 @@ export function getWeaponReachBoundsEffective(weapon) {
  * side suffers the penalty, then mutates `tn` in-place if so.
  *
  * Rules:
- *  - Both weapons must have explicit LNG values set (> 0).
- *  - Outside In Close: longer weapon = +ΔL×5 bonus; shorter weapon = -ΔL×5 penalty.
- *  - In Close: shorter weapon = +ΔL×5 bonus; longer weapon = -ΔL×5 penalty.
+ *  - Both weapons must be melee and have explicit LNG values (> 0).
+ *  - Outside In Close: longer weapon = +deltaL*5 bonus; shorter weapon = -deltaL*5 penalty.
+ *  - In Close: shorter weapon = +deltaL*5 bonus; longer weapon = -deltaL*5 penalty.
  *  - The signed modifier is applied from the caller's own-side perspective.
  *  - Called separately for attacker and defender; each receives their correct sign.
  *
- * In Close detection: uses pairwise `inCloseWith` token flags exclusively.
- * Only the two combatants who deliberately entered In Close together have their LP reversed.
- * A third combatant standing nearby does NOT get the reversal unless they entered In Close.
+ * In Close detection:
+ *  - Primary: pairwise `inCloseWith` token flags.
+ *  - Fallback: acting-side actor condition `inclose`.
+ *  - Effective logic: pair flag OR actor condition.
  *
  * @param {object} params
  * @param {object}     params.tn              - TN breakdown object (mutated in place)
@@ -96,43 +129,93 @@ export function getWeaponReachBoundsEffective(weapon) {
  * @param {Item|null}  params.opponentWeapon  - Opponent's weapon item
  * @param {Token|null} params.ownerToken      - This side's token placeable
  * @param {Token|null} params.opponentToken   - Opponent's token placeable
+ * @param {Actor|null} params.ownerActor      - This side's actor fallback for In Close state
+ * @param {"attacker"|"defender"|null} params.ownRole - This side's combat role for attacker-only advantage mode
  * @returns {boolean} true if the penalty was applied, false otherwise
  */
-export function applyLengthPenaltyToTN({ tn, ownWeapon, opponentWeapon, ownerToken, opponentToken } = {}) {
+export function applyLengthPenaltyToTN({
+  tn,
+  ownWeapon,
+  opponentWeapon,
+  ownerToken,
+  opponentToken,
+  ownerActor,
+  ownRole = null
+} = {}) {
   try {
     if (!isReachLengthHomebrewEnabled()) return false;
     if (!tn || !ownWeapon || !opponentWeapon) return false;
+    if (!_isMeleeWeapon(ownWeapon) || !_isMeleeWeapon(opponentWeapon)) return false;
 
     const Lown = getWeaponLength(ownWeapon);
     const Lopp = getWeaponLength(opponentWeapon);
-    // Both weapons must have explicit non-zero Length values set
-    if (!Lown || !Lopp) return false;
+
+    if (!Lown || !Lopp) {
+      _warnLengthTN("skipped due to missing/invalid weapon length", {
+        ownLength: Lown,
+        opponentLength: Lopp
+      });
+      _debugLengthTN({
+        applied: false,
+        reason: "missingLength",
+        ownLength: Lown,
+        opponentLength: Lopp
+      });
+      return false;
+    }
 
     const delta = Math.abs(Lown - Lopp);
-    if (!delta) return false; // Equal lengths: no penalty
+    if (!delta) return false;
 
     const LP = delta * 5;
+    const actorForFallback = _resolveOwnerActor({ ownerActor, ownerToken, ownWeapon });
+    const { inClose, source } = _resolveInCloseState({
+      ownerToken,
+      opponentToken,
+      ownerActor: actorForFallback
+    });
 
-    // Determine In Close state: always use pairwise flags.
-    // In Close is explicit and bilateral — distance proximity alone does not reverse LP.
-    const icMap = ownerToken?.document?.getFlag(NAMESPACE, "reachLength.inCloseWith") ?? {};
-    const inClose = Boolean(icMap[opponentToken?.document?.uuid]);
-
-    // Outside In Close: longer weapon = advantage (+LP bonus), shorter = penalty (-LP).
-    // In Close: shorter weapon = advantage (+LP bonus), longer = penalty (-LP).
-    // Both sides call this function; each receives the signed modifier for their own side.
     const ownLonger = Lown > Lopp;
     const ownAdvantaged = inClose ? !ownLonger : ownLonger;
-    const modifier = ownAdvantaged ? +LP : -LP;
+    let modifier = ownAdvantaged ? +LP : -LP;
+
+    if (
+      modifier > 0
+      && isReachLengthAttackerAdvantageOnlyEnabled()
+      && String(ownRole ?? "").toLowerCase() === "defender"
+    ) {
+      _debugLengthTN({
+        applied: false,
+        reason: "attackerOnlyAdvantageSuppressed",
+        ownLength: Lown,
+        opponentLength: Lopp,
+        lengthDelta: delta,
+        inClose,
+        inCloseSource: source,
+        ownRole
+      });
+      return false;
+    }
 
     const label = modifier > 0
-      ? `Length Advantage (\u0394L\xd75)${inClose ? " (In Close)" : ""}`
-      : `Length Penalty (\u0394L\xd75)${inClose ? " (In Close)" : ""}`;
+      ? `Length Adv.${inClose ? " (In Close)" : ""}`
+      : `Length Pen.${inClose ? " (In Close)" : ""}`;
 
     tn.breakdown = tn.breakdown ?? [];
     tn.breakdown.push({ key: "homebrew:lengthModifier", label, value: modifier, source: "homebrew" });
     tn.totalMod = (tn.totalMod ?? 0) + modifier;
-    tn.finalTN  = (tn.finalTN ?? tn.baseTN ?? 0) + modifier;
+    tn.finalTN = (tn.finalTN ?? tn.baseTN ?? 0) + modifier;
+
+    _debugLengthTN({
+      applied: true,
+      ownLength: Lown,
+      opponentLength: Lopp,
+      lengthDelta: delta,
+      inClose,
+      inCloseSource: source,
+      modifier
+    });
+
     return true;
   } catch (err) {
     console.warn("UESRPG | applyLengthPenaltyToTN failed", err);

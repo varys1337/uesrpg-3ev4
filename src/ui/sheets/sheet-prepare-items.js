@@ -1,5 +1,15 @@
 import { shouldHideFromMainInventory } from "./sheet-inventory.js";
 
+function _resolveWeaponDistanceDisplay(system = {}) {
+  const mode = String(system?.attackMode ?? "").toLowerCase();
+  if (mode === "ranged") {
+    const range = String(system?.rangeBandsDerivedEffective?.display ?? system?.range ?? "").trim();
+    return range || "-";
+  }
+  const reach = String(system?.reachResolvedLabel ?? system?.reach ?? "").trim();
+  return reach || "-";
+}
+
 /**
  * Categorize Actor-owned Items into sheet-ready buckets.
  *
@@ -94,9 +104,10 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     // Contained items remain owned by the Actor and are surfaced through the container sheet UI.
     if (shouldHideFromMainInventory(i)) continue;
 
-    if (i.type === "item" || i.type === "scroll") {
+    if (i.type === "equipment" || i.type === "scroll") {
       i.system?.equipped ? gear.equipped.push(i) : gear.unequipped.push(i);
     } else if (i.type === "weapon") {
+      i.system.resolvedDistanceDisplay = _resolveWeaponDistanceDisplay(i.system);
       i.system?.equipped ? weapon.equipped.push(i) : weapon.unequipped.push(i);
     } else if (i.type === "armor") {
       i.system?.equipped ? armor.equipped.push(i) : armor.unequipped.push(i);

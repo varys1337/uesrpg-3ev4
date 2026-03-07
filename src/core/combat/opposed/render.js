@@ -8,6 +8,7 @@ import { renderMultiDefenderCard, renderSingleDefenderCard } from "./cards/rende
 import { _getDefenderEntries, _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _allDefendersCommitted, _isMultiDefender } from "./schema.js";
 import { _isBankChoicesEnabledForData, _getBankCommitState } from "./banking/state.js";
 import { _anyActiveGMOnline, _safeGetSetting } from "./helpers/util.js";
+import { circumstanceLabel } from "../../opposed/circumstance.js";
 
 /**
  * Render an opposed card's HTML content.
@@ -58,13 +59,7 @@ export function _variantLabel(variant) {
  * @returns {string} Display label
  */
 export function _circumstanceLabel(mod) {
-  const v = Number(mod ?? 0) || 0;
-  switch (v) {
-    case -10: return "Minor Disadvantage (-10)";
-    case -20: return "Disadvantage (-20)";
-    case -30: return "Major Disadvantage (-30)";
-    default: return "—";
-  }
+  return circumstanceLabel(mod);
 }
 
 /**
@@ -118,15 +113,14 @@ export function _extractRollTotal(res) {
 export function _renderRollLine({ result = null, noDefense = false } = {}) {
   if (noDefense) {
     const stub = { rollTotal: 100, isSuccess: false, degree: 1 };
-    return `<div><b>Roll:</b> 100 → <span style="color: red;">${_fmtDegree(stub)}</span></div>`;
+    return `<div><b>Roll:</b> 100 (${_fmtDegree(stub)})</div>`;
   }
-  if (!result) return "";
+  if (!result) return `<div><b>Roll:</b> -</div>`;
+  if (result.noRoll) {
+    const outcome = result.isSuccess ? "Automatic Success" : "Automatic Failure";
+    return `<div><b>Roll:</b> ${outcome} (${_fmtDegree(result)})</div>`;
+  }
   const total = _extractRollTotal(result);
-  const totalText = (total == null) ? "??" : String(total);
-  const notes = Array.isArray(result?.talentNotes) ? result.talentNotes.filter(Boolean) : [];
-  const notesHtml = notes.length
-    ? `<div class="uesrpg-opposed-notes" style="font-size:0.85em; opacity:0.85;">${notes.map(n => `<div>${n}</div>`).join("")}</div>`
-    : "";
-  const cls = result?.isSuccess ? "green" : "red";
-  return `<div><b>Roll:</b> ${totalText} → <span style="color: ${cls};">${_fmtDegree(result)}</span></div>${notesHtml}`;
+  if (total == null) return `<div><b>Roll:</b> -</div>`;
+  return `<div><b>Roll:</b> ${total} (${_fmtDegree(result)})</div>`;
 }

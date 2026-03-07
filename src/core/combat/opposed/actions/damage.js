@@ -13,9 +13,15 @@ import { getPreferredWeaponUuid as _getPreferredWeaponUuid, getContextAttackMode
 import { _canControlActor } from "../helpers/util.js";
 import { getSpecialActionById } from "../../combat-style-utils.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
-import { _promptWeaponAndAdvantages, _ensureResolvedForPostActions, _applyPressAdvantageEffect } from "../../opposed-workflow.js";
-import { UESRPG } from "../../../constants.js";
+import { _ensureResolvedForPostActions } from "../../opposed-workflow.js";
+import { promptWeaponAndAdvantages as _promptWeaponAndAdvantages } from "../dialogs/attacker.js";
+import { applyPressAdvantageEffect as _applyPressAdvantageEffect } from "../effects.js";
 import { selectEquippedRangedWeapon } from "../helpers/select-equipped-ranged-weapon.js";
+import {
+  buildInlineQualityTags,
+  collectWeaponInlineQualities,
+  collectActivationDamageQualities,
+} from "../helpers/weapon-quality-display.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 
 const DAMAGE_TYPES = {
@@ -94,6 +100,7 @@ export function _buildApplyPayload({
   targetUuid, targetName, attackerActorUuid, weaponUuid, ammoUuid,
   sourceItemUuid, damage, damageType, hitLocation, dosBonus = 0,
   penetration = 0, penetrateArmor = false, forcefulImpact = false,
+  damagedValue = 0,
   pressAdvantage = false, attackMode, attackHidden = false,
   magicSource = false, source, buttonLabel, healing, tempHp,
   ignoreReduction = false,
@@ -114,6 +121,7 @@ export function _buildApplyPayload({
   p.penetration = String(penetration);
   p.penetrateArmor = penetrateArmor ? "1" : "0";
   p.forcefulImpact = forcefulImpact ? "1" : "0";
+  p.damagedValue = String(Number(damagedValue || 0));
   p.pressAdvantage = pressAdvantage ? "1" : "0";
   p.ignoreReduction = ignoreReduction ? "1" : "0";
   if (attackMode != null) p.attackMode = attackMode;
@@ -319,7 +327,7 @@ export async function handleDamageRoll(ctx) {
           const defenderToken = defenderTokenUuid ? fromUuidSync(defenderTokenUuid)?.object : null;
 
           if (attackerToken && defenderToken) {
-            const { SkillOpposedWorkflow } = await import("../../../skills/opposed-workflow.js");
+            const { SkillOpposedWorkflow } = await import("../../../skills/opposed-workflow/index.js");
             const def = getSpecialActionById(saId);
             
             const saMessage = await SkillOpposedWorkflow.createPending({
@@ -373,7 +381,7 @@ export async function handleDamageRoll(ctx) {
   const activationFormula = String(activationDamage?.formula ?? "").trim();
   const activationType = String(activationDamage?.type ?? "").trim().toLowerCase();
   const activationTags = Array.isArray(activationCtx?.tags) ? activationCtx.tags : [];
-  const activationQualities = _collectActivationDamageQualities(activationDamage);
+  const activationQualities = collectActivationDamageQualities(activationDamage);
   const hasActivationQualities = activationQualities.structured.length > 0 || activationQualities.traits.length > 0;
 
   const useManual = activationDamage && activationMode !== "weapon";
@@ -389,43 +397,7 @@ export async function handleDamageRoll(ctx) {
   }
 
   // Render a weapon damage chat card, gated by the opposed result.
-    let pillsInline = (() => {
-      if (!weapon) return '<span style="opacity:0.75;">—</span>';
-      const injected = Array.isArray(weapon.system?.qualitiesStructuredInjected)
-        ? weapon.system.qualitiesStructuredInjected
-        : Array.isArray(weapon.system?.qualitiesStructured)
-          ? weapon.system.qualitiesStructured
-          : [];
-
-    const labelIndex = (() => {
-      const core = UESRPG?.QUALITIES_CORE_BY_TYPE?.weapon ?? UESRPG?.QUALITIES_CATALOG ?? [];
-      const traits = UESRPG?.TRAITS_BY_TYPE?.weapon ?? [];
-      const idx = new Map();
-      for (const q of [...core, ...traits, ...(UESRPG?.QUALITIES_CATALOG ?? [])]) {
-        if (!q?.key) continue;
-        idx.set(String(q.key).toLowerCase(), String(q.label ?? q.key));
-      }
-      return idx;
-    })();
-
-    const out = [];
-    for (const q of injected) {
-      const key = String(q?.key ?? q ?? "").toLowerCase().trim();
-      if (!key) continue;
-      const label = labelIndex.get(key) ?? key;
-      const v = (q?.value !== undefined && q?.value !== null && q?.value !== "") ? Number(q.value) : null;
-      out.push(`<span class="tag">${v != null && !Number.isNaN(v) ? `${label} (${v})` : label}</span>`);
-    }
-    const traits = Array.isArray(weapon.system?.qualitiesTraits) ? weapon.system.qualitiesTraits : [];
-    for (const t of traits) {
-      const key = String(t ?? "").toLowerCase().trim();
-      if (!key) continue;
-      const label = labelIndex.get(key) ?? key;
-      out.push(`<span class="tag">${label}</span>`);
-    }
-    if (!out.length) return '<span style="opacity:0.75;">—</span>';
-    return `<span class="uesrpg-inline-tags">${out.join("")}</span>`;
-  })();
+    let pillsInline = buildInlineQualityTags(collectWeaponInlineQualities(weapon));
 
     const sourceLabel = activationCtx?.itemName ?? weapon?.name ?? "Attack";
     const sourceImg = activationCtx?.itemImg ?? weapon?.img ?? null;
@@ -439,8 +411,8 @@ export async function handleDamageRoll(ctx) {
   })();
 
   pillsInline = hasActivationQualities
-    ? _buildInlineQualityTags(activationQualities)
-    : _buildInlineQualityTags(_collectWeaponInlineQualities(weapon));
+    ? buildInlineQualityTags(activationQualities)
+    : buildInlineQualityTags(collectWeaponInlineQualities(weapon));
 
   magicSource = (() => {
     const tags = activationTags.map(t => String(t ?? "").toLowerCase());
@@ -574,6 +546,7 @@ export async function handleDamageRoll(ctx) {
         hitLocation,
         penetrateArmor: selection.penetrateArmor,
         forcefulImpact: selection.forcefulImpact,
+        damagedValue: dmg.damagedValue ?? 0,
         pressAdvantage: selection.pressAdvantage,
         attackMode,
         attackHidden,
@@ -667,6 +640,7 @@ export async function handleDamageRoll(ctx) {
       hitLocation,
       penetrateArmor: selection.penetrateArmor,
       forcefulImpact: selection.forcefulImpact,
+      damagedValue: dmg.damagedValue ?? 0,
       pressAdvantage: selection.pressAdvantage,
       attackMode,
       attackHidden,
@@ -828,7 +802,7 @@ export async function handleCounterDamageRoll(ctx) {
     weaponImg: weapon.img,
     weaponUuid: weapon.uuid ?? "",
     damageType,
-    qualityPillsHtml: _buildInlineQualityTags(_collectWeaponInlineQualities(weapon)),
+    qualityPillsHtml: buildInlineQualityTags(collectWeaponInlineQualities(weapon)),
     extraNoteHtml: `<b>Strike:</b> Counter-Attack against ${aToken?.name ?? attacker.name}`,
     extraNotes: "",
     applyPayload: _buildApplyPayload({
@@ -842,6 +816,7 @@ export async function handleCounterDamageRoll(ctx) {
       hitLocation,
       penetrateArmor: selection.penetrateArmor,
       forcefulImpact: selection.forcefulImpact,
+      damagedValue: dmg.damagedValue ?? 0,
       pressAdvantage: selection.pressAdvantage,
       attackMode: counterAttackMode,
       attackHidden: counterHidden,
@@ -853,57 +828,6 @@ export async function handleCounterDamageRoll(ctx) {
   _setDefenderDamage(data, data.defender, damageObj);
   await _updateCard(message, data);
   return;
-}
-
-// --- Helper functions (extracted from original actions.js) ---
-
-function _collectActivationDamageQualities(activationDamage) {
-  if (!activationDamage) return { structured: [], traits: [] };
-  return {
-    structured: Array.isArray(activationDamage.qualitiesStructured) ? activationDamage.qualitiesStructured : [],
-    traits: Array.isArray(activationDamage.qualitiesTraits) ? activationDamage.qualitiesTraits : []
-  };
-}
-
-function _collectWeaponInlineQualities(weapon) {
-  if (!weapon) return { structured: [], traits: [] };
-  const injected = Array.isArray(weapon.system?.qualitiesStructuredInjected)
-    ? weapon.system.qualitiesStructuredInjected
-    : Array.isArray(weapon.system?.qualitiesStructured)
-      ? weapon.system.qualitiesStructured
-      : [];
-  const traits = Array.isArray(weapon.system?.qualitiesTraits) ? weapon.system.qualitiesTraits : [];
-  return { structured: injected, traits };
-}
-
-function _buildInlineQualityTags(qualities) {
-  const labelIndex = (() => {
-    const core = UESRPG?.QUALITIES_CORE_BY_TYPE?.weapon ?? UESRPG?.QUALITIES_CATALOG ?? [];
-    const traits = UESRPG?.TRAITS_BY_TYPE?.weapon ?? [];
-    const idx = new Map();
-    for (const q of [...core, ...traits, ...(UESRPG?.QUALITIES_CATALOG ?? [])]) {
-      if (!q?.key) continue;
-      idx.set(String(q.key).toLowerCase(), String(q.label ?? q.key));
-    }
-    return idx;
-  })();
-
-  const out = [];
-  for (const q of qualities.structured) {
-    const key = String(q?.key ?? q ?? "").toLowerCase().trim();
-    if (!key) continue;
-    const label = labelIndex.get(key) ?? key;
-    const v = (q?.value !== undefined && q?.value !== null && q?.value !== "") ? Number(q.value) : null;
-    out.push(`<span class="tag">${v != null && !Number.isNaN(v) ? `${label} (${v})` : label}</span>`);
-  }
-  for (const t of qualities.traits) {
-    const key = String(t ?? "").toLowerCase().trim();
-    if (!key) continue;
-    const label = labelIndex.get(key) ?? key;
-    out.push(`<span class="tag">${label}</span>`);
-  }
-  if (!out.length) return '<span style="opacity:0.75;">—</span>';
-  return `<span class="uesrpg-inline-tags">${out.join("")}</span>`;
 }
 
 export function inflateSharedDamage(shared) {
@@ -939,3 +863,6 @@ export function buildSharedDamagePayload({ mode, dmg, weaponUuid = null, damageT
 // Internal aliases for backward compatibility within this file
 const _inflateSharedDamage = inflateSharedDamage;
 const _buildSharedDamagePayload = buildSharedDamagePayload;
+
+
+

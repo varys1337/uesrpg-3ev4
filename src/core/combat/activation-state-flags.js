@@ -8,11 +8,14 @@
 
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { _num } from "../../utils/coerce.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 
-const FLAG_FREE_DEFENSE = "flags.uesrpg.combat.freeNextDefenseCommit";
-const FLAG_THUNDER_CHARGE = "flags.uesrpg.talents.thunderCharge";
+const FLAG_FREE_DEFENSE = `flags.${FLAG_SCOPE}.combat.freeNextDefenseCommit`;
+const FLAG_THUNDER_CHARGE = `flags.${FLAG_SCOPE}.talents.thunderCharge`;
 
 let _activationStateHooksRegistered = false;
+const _activationFlagActors = new Set();
 
 function _worldTimeSeconds() {
   return _num(game?.time?.worldTime, 0);
@@ -30,10 +33,28 @@ function _roundTimeSecondsSafe() {
 function _readFlagByPath(actor, path) {
   try {
     if (!actor) return null;
+    const canonicalPrefix = `flags.${FLAG_SCOPE}.`;
+    if (path.startsWith(canonicalPrefix)) {
+      return getFlagValueWithFallback(actor, path.slice(canonicalPrefix.length)) ?? null;
+    }
     return foundry.utils.getProperty(actor, path) ?? null;
   } catch (_err) {
     return null;
   }
+}
+
+function _trackActorForActivationCleanup(actor) {
+  const actorId = String(actor?.id ?? "").trim();
+  if (!actorId) return;
+  _activationFlagActors.add(actorId);
+}
+
+function _untrackActorIfNoActivationFlags(actor) {
+  const actorId = String(actor?.id ?? "").trim();
+  if (!actorId) return;
+  const hasFree = Boolean(_readFlagByPath(actor, FLAG_FREE_DEFENSE));
+  const hasThunder = Boolean(_readFlagByPath(actor, FLAG_THUNDER_CHARGE));
+  if (!hasFree && !hasThunder) _activationFlagActors.delete(actorId);
 }
 
 function _isFreeDefenseExpired(state, { combat = null, worldTime = null } = {}) {
@@ -108,13 +129,16 @@ export async function grantFreeNextDefenseCommit(actor, payload = {}) {
     // Fallback TTL: 1 combat round (or 6 seconds out of combat).
     state.expiresWorldTime = worldTime + Math.max(1, _roundTimeSecondsSafe());
   }
-  return requestUpdateDocument(actor, { [FLAG_FREE_DEFENSE]: state });
+  const ok = await requestUpdateDocument(actor, { [FLAG_FREE_DEFENSE]: state });
+  if (ok) _trackActorForActivationCleanup(actor);
+  return ok;
 }
 
 export async function consumeFreeNextDefenseCommit(actor, { messageId = null } = {}) {
   const state = peekFreeNextDefenseCommit(actor, { messageId });
   if (!state) return null;
   const ok = await requestUpdateDocument(actor, { [FLAG_FREE_DEFENSE]: null });
+  if (ok) _untrackActorIfNoActivationFlags(actor);
   return ok ? state : null;
 }
 
@@ -139,13 +163,16 @@ export async function setThunderChargePrimed(actor, payload = {}) {
   if (!Object.prototype.hasOwnProperty.call(state, "combatId")) state.combatId = combat?.id ?? null;
   if (!Object.prototype.hasOwnProperty.call(state, "round")) state.round = combat ? _num(combat.round, 0) : null;
   if (!Object.prototype.hasOwnProperty.call(state, "turn")) state.turn = combat ? _num(combat.turn, 0) : null;
-  return requestUpdateDocument(actor, { [FLAG_THUNDER_CHARGE]: state });
+  const ok = await requestUpdateDocument(actor, { [FLAG_THUNDER_CHARGE]: state });
+  if (ok) _trackActorForActivationCleanup(actor);
+  return ok;
 }
 
 export async function consumeThunderChargePrimed(actor) {
   const state = peekThunderChargePrimed(actor);
   if (!state) return null;
   const ok = await requestUpdateDocument(actor, { [FLAG_THUNDER_CHARGE]: null });
+  if (ok) _untrackActorIfNoActivationFlags(actor);
   return ok ? state : null;
 }
 
@@ -174,6 +201,15 @@ export function registerActivationStateHooks() {
   if (globalThis.__UESRPG_ACTIVATION_STATE_HOOKS__) return;
   globalThis.__UESRPG_ACTIVATION_STATE_HOOKS__ = true;
 
+  if (game.user?.isGM) {
+    const actors = Array.from(game?.actors?.contents ?? []);
+    for (const actor of actors) {
+      const hasFree = Boolean(_readFlagByPath(actor, FLAG_FREE_DEFENSE));
+      const hasThunder = Boolean(_readFlagByPath(actor, FLAG_THUNDER_CHARGE));
+      if (hasFree || hasThunder) _trackActorForActivationCleanup(actor);
+    }
+  }
+
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
     if (!game.user?.isGM) return;
     if (payload?.source !== "combat") return;
@@ -186,6 +222,7 @@ export function registerActivationStateHooks() {
     const wt = _num(payload?.worldTime, _worldTimeSeconds());
     for (const combatant of combat.combatants ?? []) {
       await _cleanupActorActivationFlags(combatant?.actor ?? null, { combat, worldTime: wt });
+      _untrackActorIfNoActivationFlags(combatant?.actor ?? null);
     }
   });
 
@@ -194,6 +231,7 @@ export function registerActivationStateHooks() {
     const wt = _worldTimeSeconds();
     for (const combatant of combat?.combatants ?? []) {
       await _cleanupActorActivationFlags(combatant?.actor ?? null, { combat: null, worldTime: wt });
+      _untrackActorIfNoActivationFlags(combatant?.actor ?? null);
     }
   });
 
@@ -202,9 +240,14 @@ export function registerActivationStateHooks() {
     const source = String(payload?.source ?? "");
     if (source !== "worldTime" && source !== "calendaria") return;
     const wt = _num(payload?.worldTime, _worldTimeSeconds());
-    const actors = Array.from(game?.actors?.contents ?? []);
-    for (const actor of actors) {
+    for (const actorId of Array.from(_activationFlagActors)) {
+      const actor = game?.actors?.get?.(actorId) ?? null;
+      if (!actor) {
+        _activationFlagActors.delete(actorId);
+        continue;
+      }
       await _cleanupActorActivationFlags(actor, { combat: game?.combat ?? null, worldTime: wt });
+      _untrackActorIfNoActivationFlags(actor);
     }
   });
 }

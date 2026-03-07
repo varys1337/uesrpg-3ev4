@@ -40,15 +40,7 @@ export function _getSpecialActionContext(data) {
       defenderStyleUuid: String(ctx.defenderStyleUuid ?? "").trim() || null
     };
   }
-
-  const legacyId = String(data?.specialActionId ?? "").trim();
-  if (!legacyId) return null;
-  return {
-    id: legacyId,
-    source: "legacy",
-    attackerStyleUuid: null,
-    defenderStyleUuid: null
-  };
+  return null;
 }
 
 /**
@@ -104,3 +96,4 @@ export function _isSpecialActionSelectionLegal(decl, legality) {
   const selectedUuid = String(decl?.skillUuid ?? "").trim();
   return Boolean(selectedUuid && legality.allowedSet.has(selectedUuid));
 }
+

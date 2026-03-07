@@ -41,6 +41,24 @@ import {
 
 /** Item types that carry a TN via baseCha and implement _prepareCombatStyleData. */
 const TN_ITEM_TYPES = new Set(["skill", "combatStyle", "magicSkill"]);
+let _coreSkillsCachePromise = null;
+
+async function _getCoreSkillSourcesSorted() {
+  if (_coreSkillsCachePromise) return _coreSkillsCachePromise;
+
+  _coreSkillsCachePromise = (async () => {
+    const skillPack = game.packs.get("uesrpg-3ev4.core-skills");
+    if (!skillPack) {
+      console.warn("uesrpg-3ev4 | Core skills compendium pack not found; skipping skill pre-population.");
+      return [];
+    }
+    const collection = await skillPack.getDocuments();
+    collection.sort((a, b) => a.name.localeCompare(b.name));
+    return collection.map(i => i.toObject());
+  })();
+
+  return _coreSkillsCachePromise;
+}
 
 export class SimpleActor extends Actor {
   async _preCreate(data, options, user) {
@@ -69,26 +87,25 @@ export class SimpleActor extends Actor {
     // Preps and adds standard skill items to Character types
     await super._preCreate(data, options, user);
     if (this.type === 'Player Character') {
-      const skillPack = game.packs.get("uesrpg-3ev4.core-skills");
-      if (!skillPack) {
-        console.warn("uesrpg-3ev4 | Core skills compendium pack not found; skipping skill pre-population.");
-        return;
-      }
-      const collection = await skillPack.getDocuments();
-      collection.sort((a, b) => a.name.localeCompare(b.name));
+      if (Array.isArray(data?.items) && data.items.length > 0) return;
+      const sources = await _getCoreSkillSourcesSorted();
+      if (!Array.isArray(sources) || sources.length === 0) return;
 
       this.updateSource({
-        items: collection.map(i => i.toObject()),
+        items: sources.map(s => foundry.utils.deepClone(s)),
         'system.size': 'standard'
       })
     }
   }
-  prepareData() {
-    super.prepareData();
-
-    // Ensure required data structures exist so downstream derived-data logic is resilient,
-    // even when actors are partially migrated or have inconsistent embedded item data.
+  prepareBaseData() {
+    // Ensure minimum scaffolding before base prep to tolerate partial/corrupt actor payloads.
     this._ensureSystemData();
+    this._uesrpgPrepareCtx = null;
+    super.prepareBaseData();
+  }
+
+  prepareDerivedData() {
+    super.prepareDerivedData();
 
     try {
       const actorData = this;
@@ -96,8 +113,8 @@ export class SimpleActor extends Actor {
       if (actorData.type === "Player Character") {
         this._prepareCharacterData(actorData);
         // Re-derive embedded item TNs now that characteristics are finalized.
-        // Items' initial prepareData() ran during super.prepareData() before
-        // _prepareCharacterData computed final characteristic totals + AE bonuses.
+        // Items' initial prepareData() ran before _prepareCharacterData computed
+        // final characteristic totals + AE bonuses.
         this._recomputeItemTNs();
       } else if (actorData.type === "NPC") {
         this._prepareNPCData(actorData);
@@ -106,7 +123,7 @@ export class SimpleActor extends Actor {
         this._prepareGroupData(actorData);
       }
     } catch (err) {
-      console.error(`uesrpg-3ev4 | Error during prepareData for ${this.name || this.id}:`, err);
+      console.error(`uesrpg-3ev4 | Error during prepareDerivedData for ${this.name || this.id}:`, err);
       // Re-ensure minimum safe defaults after a failure to prevent cascading errors in rendering.
       this._ensureSystemData();
     }
@@ -128,9 +145,41 @@ export class SimpleActor extends Actor {
   _recomputeItemTNs() {
     for (const item of this.items) {
       if (!TN_ITEM_TYPES.has(item.type)) continue;
+      if (!item?.system || !Object.prototype.hasOwnProperty.call(item.system, "baseCha")) continue;
       if (typeof item._prepareCombatStyleData !== "function") continue;
       item._prepareCombatStyleData(this, item.system);
     }
+  }
+
+  _getPrepareCtx() {
+    if (this._uesrpgPrepareCtx) return this._uesrpgPrepareCtx;
+
+    const items = Array.from(this?.items?.contents ?? this?.items ?? []);
+    const equippedItems = items.filter(item => item?.system?.equipped === true);
+    const talents = items.filter(item => item?.type === "talent");
+    const traitsAndTalents = items.filter(item => item && (item.type === "trait" || item.type === "talent"));
+    const talentSlugSet = new Set();
+    for (const t of talents) {
+      const sys = t?.system ?? {};
+      const slug = String(sys.slug ?? sys.key ?? sys.id ?? "").trim().toLowerCase();
+      const name = String(t?.name ?? "").trim().toLowerCase().replace(/\s+/g, "");
+      if (slug) talentSlugSet.add(slug);
+      if (name) talentSlugSet.add(name);
+    }
+
+    this._uesrpgPrepareCtx = { items, equippedItems, talents, traitsAndTalents, talentSlugSet };
+    return this._uesrpgPrepareCtx;
+  }
+
+  _hasTalentCached(key) {
+    const k = String(key ?? "").trim().toLowerCase();
+    if (!k) return false;
+    const normalized = k.replace(/\s+/g, "");
+    const set = this._getPrepareCtx()?.talentSlugSet;
+    if (set instanceof Set) {
+      if (set.has(k) || set.has(normalized)) return true;
+    }
+    try { return hasTalent(this, key); } catch (_e) { return false; }
   }
 
   /**
@@ -353,8 +402,7 @@ export class SimpleActor extends Actor {
   }
 
   _speedCalc(actorData) {
-    const itemsRaw = actorData?.items;
-    const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
+    const items = this._getPrepareCtx().items;
     const attribute = items.filter(item => item?.system?.halfSpeed === true);
     let speed = Number(actorData?.system?.speed?.base ?? 0);
     if (attribute.length >= 1) speed = Math.ceil(speed / 2);
@@ -363,7 +411,7 @@ export class SimpleActor extends Actor {
     // Current system models an explicit -1 Speed penalty for tower shields in this method;
     // armor weight-class speed penalties are tracked elsewhere. Apply the RAW override to this lane.
     let ignoreArmorSpeedPenalty = false;
-    try { ignoreArmorSpeedPenalty = hasTalent(this, "wallofsteel"); } catch (_e) { ignoreArmorSpeedPenalty = false; }
+    try { ignoreArmorSpeedPenalty = this._hasTalentCached("wallofsteel"); } catch (_e) { ignoreArmorSpeedPenalty = false; }
     const hasTowerShield = items.some(item => {
       if (!item || item.type !== "armor") return false;
       const sys = item.system ?? {};
@@ -377,9 +425,7 @@ export class SimpleActor extends Actor {
   }
 
   _iniCalc(actorData) {
-    const itemsRaw = actorData?.items;
-    const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
-    const attribute = items.filter(item => item && (item.type === "trait" || item.type === "talent"));
+    const attribute = this._getPrepareCtx().traitsAndTalents;
     let init = Number(actorData?.system?.initiative?.base ?? 0);
     const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
     const chaCalc = (ch) => Math.floor(this._getCharacteristicTotal(actorData, ch) / 10) * 3;
@@ -401,9 +447,7 @@ export class SimpleActor extends Actor {
   }
 
   _woundThresholdCalc(actorData) {
-    const itemsRaw = actorData?.items;
-    const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
-    const attribute = items.filter(item => item && (item.type === "trait" || item.type === "talent"));
+    const attribute = this._getPrepareCtx().traitsAndTalents;
     let wound = Number(actorData?.system?.wound_threshold?.base ?? 0);
     const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
     const chaCalc = (ch) => Math.floor(this._getCharacteristicTotal(actorData, ch) / 10) * 3;
@@ -425,11 +469,11 @@ export class SimpleActor extends Actor {
   }
 
   _calcFatiguePenalty(actorData) {
-    const attribute = (actorData.items || []).filter(item => item?.system?.halfFatiguePenalty === true);
+    const attribute = this._getPrepareCtx().items.filter(item => item?.system?.halfFatiguePenalty === true);
     let penalty = 0;
     // Enduring (Chapter 4): halve penalties imposed by levels of fatigue.
     let hasEnduring = false;
-    try { hasEnduring = hasTalent(this, "enduring"); } catch (_e) { hasEnduring = false; }
+    try { hasEnduring = this._hasTalentCached("enduring"); } catch (_e) { hasEnduring = false; }
     // Rule Element: booleanFlag halfFatiguePenalty via passive RE.
     const reHalfFatigue = Boolean(actorData?.system?._reFlags?.halfFatiguePenalty);
     if (attribute.length >= 1 || hasEnduring || reHalfFatigue) {
@@ -441,10 +485,10 @@ export class SimpleActor extends Actor {
   }
 
   _halfWoundPenalty(actorData) {
-    const hasItem = (actorData.items || []).some(item => item?.system?.halfWoundPenalty === true);
+    const hasItem = this._getPrepareCtx().items.some(item => item?.system?.halfWoundPenalty === true);
     // Unstoppable (Chapter 4): halve the passive effects of wounds.
     let hasUnstoppable = false;
-    try { hasUnstoppable = hasTalent(this, "unstoppable"); } catch (_e) { hasUnstoppable = false; }
+    try { hasUnstoppable = this._hasTalentCached("unstoppable"); } catch (_e) { hasUnstoppable = false; }
     // Rule Element: booleanFlag halfWoundPenalty via passive RE.
     const reHalfWound = Boolean(actorData?.system?._reFlags?.halfWoundPenalty);
     return hasItem || hasUnstoppable || reHalfWound;
@@ -455,7 +499,7 @@ export class SimpleActor extends Actor {
     let total = 0;
 
     // Item-based Power Well (legacy: addIBToMP checkbox on talent/trait items).
-    let addIbItems = (actorData.items || []).filter(item => item?.system?.addIBToMP === true);
+    let addIbItems = this._getPrepareCtx().items.filter(item => item?.system?.addIBToMP === true);
     if (addIbItems.length >= 1) {
       total = addIbItems.reduce(
         (acc, item) => actorIntBonus * Number(item?.system?.addIntToMPMultiplier || 0) + acc,
@@ -467,7 +511,7 @@ export class SimpleActor extends Actor {
     // RAW: "The character gains the Power Well (IB × 5) Trait."
     // Coded directly to avoid requiring a manual Power Well item on the character.
     try {
-      if (hasTalent(this, "depthofunderstanding")) {
+      if (this._hasTalentCached("depthofunderstanding")) {
         total += actorIntBonus * 5;
       }
     } catch (_e) { /* graceful degradation during init */ }
@@ -476,10 +520,14 @@ export class SimpleActor extends Actor {
   }
 
   _isMechanical(actorData) {
+    const cached = actorData?._aggCache?.agg?.actorFlags?.isMechanical;
+    if (cached != null) return cached === true;
     return (actorData.items || []).some(item => item?.system?.mechanical === true);
   }
 
   _dwemerSphere(actorData) {
+    const cached = actorData?._aggCache?.agg?.actorFlags?.dwemerSphere;
+    if (cached != null) return cached === true;
     return (actorData.items || []).some(item => item?.system?.shiftForm === true && item?.system?.dailyUse === true);
   }
 
@@ -512,6 +560,8 @@ export class SimpleActor extends Actor {
   }
 
   _painIntolerant(actorData) {
+    const cached = actorData?._aggCache?.agg?.actorFlags?.painIntolerant;
+    if (cached != null) return cached === true;
     return (actorData.items || []).some(item => item?.system?.painIntolerant === true);
   }
 
@@ -600,8 +650,9 @@ export class SimpleActor extends Actor {
   }
 
   _addHalfSpeed(actorData) {
-    let halfSpeedItems = (actorData.items || []).filter(item => item?.system?.addHalfSpeed === true);
-    let isWereCroc = (actorData.items || []).filter(item => item?.system?.shiftFormStyle === "shiftFormWereCrocodile");
+    const items = this._getPrepareCtx().items;
+    let halfSpeedItems = items.filter(item => item?.system?.addHalfSpeed === true);
+    let isWereCroc = items.filter(item => item?.system?.shiftFormStyle === "shiftFormWereCrocodile");
     let speed = Number(actorData?.system?.speed?.value || 0);
     if (isWereCroc.length > 0 && halfSpeedItems.length > 0) {
       speed = Number(actorData?.system?.speed?.base || 0);

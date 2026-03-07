@@ -49,8 +49,11 @@
  */
 
 import { canUserRollActor } from "../../../utils/permissions.js";
+import { cloneFlagState } from "../../../utils/clone.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
+import { getActorFromResolvedDocument, resolveUuidSync } from "../../../utils/uuid-cache.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 const _FLAG_KEY = "magicOpposed";
 
 /**
@@ -61,8 +64,8 @@ const _FLAG_KEY = "magicOpposed";
 export function getMessageState(message) {
   const raw = message?.flags?.[_FLAG_NS]?.[_FLAG_KEY];
   if (!raw || typeof raw !== "object") return null;
-  if (Number(raw.version) >= 1 && raw.state) return raw.state;
-  if (raw.attacker && raw.defender) return raw;
+  if (Number(raw.version) >= 1 && raw.state) return cloneFlagState(raw.state);
+  if (raw.attacker && raw.defender) return cloneFlagState(raw);
   return null;
 }
 
@@ -285,12 +288,7 @@ export function allDefendersCommitted(data) {
  * @returns {Document|null}
  */
 export function resolveDoc(uuid) {
-  if (!uuid) return null;
-  try {
-    return fromUuidSync(uuid);
-  } catch (_e) {
-    return null;
-  }
+  return resolveUuidSync(uuid);
 }
 
 /**
@@ -300,11 +298,7 @@ export function resolveDoc(uuid) {
  */
 export function resolveActor(docOrUuid) {
   const doc = typeof docOrUuid === "string" ? resolveDoc(docOrUuid) : docOrUuid;
-  if (!doc) return null;
-  if (doc.documentName === "Actor") return doc;
-  if (doc.documentName === "Token") return doc.actor ?? null;
-  if (doc.actor) return doc.actor;
-  return null;
+  return getActorFromResolvedDocument(doc);
 }
 
 /**

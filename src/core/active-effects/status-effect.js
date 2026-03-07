@@ -6,12 +6,17 @@
  */
 
 import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { getFlagValueWithFallback, getCanonicalFlags, getLegacyFlags } from "../system/flags.js";
+
+const COMBAT_ACTION_KEYS = new Set(["defensiveStance", "aim", "powerAttack", "powerBlock", "powerDraw"]);
 
 export async function createOrUpdateStatusEffect(actor, { statusId, name, img, duration = null, flags = {}, changes = [] } = {}) {
   if (!actor) return null;
 
   const sid = typeof statusId === "string" && statusId.trim().length ? statusId.trim() : null;
-  const key = flags?.uesrpg?.key ? String(flags.uesrpg.key) : null;
+  const incomingKey = getFlagValueWithFallback({ flags }, "key");
+  const key = incomingKey ? String(incomingKey) : null;
 
   const isEnabled = (e) => e && !e.disabled;
   const hasStatus = (e) => {
@@ -27,7 +32,7 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
 
   // Prefer canonical uesrpg key matching, then statusId matching.
   let existing = null;
-  if (key) existing = actor.effects.find((e) => isEnabled(e) && e?.flags?.uesrpg?.key === key) ?? null;
+  if (key) existing = actor.effects.find((e) => isEnabled(e) && getFlagValueWithFallback(e, "key") === key) ?? null;
   if (!existing && sid) existing = actor.effects.find((e) => isEnabled(e) && hasStatus(e)) ?? null;
 
   // Foundry v13: ActiveEffect uses `img`, not `icon`. Prefer `img` first.
@@ -38,26 +43,27 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
   const mergedFlags = {
     ...(existing?.flags ?? {}),
     ...(flags ?? {}),
-    uesrpg: {
-      ...(existing?.flags?.uesrpg ?? {}),
-      ...(flags?.uesrpg ?? {}),
+    [FLAG_SCOPE]: {
+      ...getCanonicalFlags(existing ?? {}),
+      ...getLegacyFlags(existing ?? {}),
+      ...getCanonicalFlags({ flags }),
+      ...getLegacyFlags({ flags }),
       ...(key ? { key } : {})
     }
   };
 
   // Add standardized metadata for combat action effects (identified by flags.uesrpg.key)
-  if (key && !mergedFlags["uesrpg-3ev4"]?.effectGroup) {
+  if (key && !mergedFlags[FLAG_SCOPE]?.effectGroup) {
     // Combat action effects: defensiveStance, aim, powerAttack, etc.
-    const combatActionKeys = new Set(["defensiveStance", "aim", "powerAttack", "powerBlock", "powerDraw"]);
     // Stamina effects: stamina-power-attack, stamina-power-block, etc.
     const isStaminaEffect = key.startsWith("stamina-");
     
-    if (combatActionKeys.has(key) || isStaminaEffect) {
-      if (!mergedFlags["uesrpg-3ev4"]) mergedFlags["uesrpg-3ev4"] = {};
-      mergedFlags["uesrpg-3ev4"].owner = "system";
-      mergedFlags["uesrpg-3ev4"].effectGroup = `combat.${key}`;
-      mergedFlags["uesrpg-3ev4"].stackRule = "override";
-      mergedFlags["uesrpg-3ev4"].source = "combat";
+    if (COMBAT_ACTION_KEYS.has(key) || isStaminaEffect) {
+      if (!mergedFlags[FLAG_SCOPE]) mergedFlags[FLAG_SCOPE] = {};
+      mergedFlags[FLAG_SCOPE].owner = "system";
+      mergedFlags[FLAG_SCOPE].effectGroup = `combat.${key}`;
+      mergedFlags[FLAG_SCOPE].stackRule = "override";
+      mergedFlags[FLAG_SCOPE].source = "combat";
     }
   }
 

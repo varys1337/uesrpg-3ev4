@@ -1,4 +1,5 @@
-import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+﻿import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { SYSTEM_ID, templatePath } from "../../../constants.js";
 
 function asNumber(value, fallback = 0) {
   const n = Number(value);
@@ -7,7 +8,7 @@ function asNumber(value, fallback = 0) {
 
 export async function appendChargenAudit(actor, entry = {}) {
   if (!actor) return [];
-  const chargen = actor.getFlag("uesrpg-3ev4", "chargen") ?? {};
+  const chargen = actor.getFlag(SYSTEM_ID, "chargen") ?? {};
   const log = Array.isArray(chargen.auditLog) ? [...chargen.auditLog] : [];
   log.push({
     step: String(entry.step ?? "unknown"),
@@ -44,11 +45,11 @@ export function buildChargenSummary(actor, auditLog = []) {
   const unluckyNumbers = Object.values(system.unlucky_numbers ?? {})
     .map((v) => asNumber(v, 0))
     .filter((v) => v > 0);
-  const spendLog = Array.isArray(actor?.getFlag("uesrpg-3ev4", "chargen")?.spendLog)
-    ? actor.getFlag("uesrpg-3ev4", "chargen").spendLog
+  const spendLog = Array.isArray(actor?.getFlag(SYSTEM_ID, "chargen")?.spendLog)
+    ? actor.getFlag(SYSTEM_ID, "chargen").spendLog
     : [];
-  const spellLearningLog = Array.isArray(actor?.getFlag("uesrpg-3ev4", "chargen")?.spellLearning?.log)
-    ? actor.getFlag("uesrpg-3ev4", "chargen").spellLearning.log
+  const spellLearningLog = Array.isArray(actor?.getFlag(SYSTEM_ID, "chargen")?.spellLearning?.log)
+    ? actor.getFlag(SYSTEM_ID, "chargen").spellLearning.log
     : [];
   const learnedSpells = spellLearningLog
     .filter((row) => row?.outcome === "learned")
@@ -175,3 +176,4 @@ export function buildChargenSummaryChatHtml(summary) {
     </details>
   </div>`;
 }
+

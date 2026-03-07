@@ -3,7 +3,8 @@
  * Shared constants for characteristic opposed workflow
  */
 
-export const FLAG_NS = "uesrpg-3ev4";
+import { FLAG_SCOPE } from "../../system/namespace.js";
+export const FLAG_NS = FLAG_SCOPE;
 export const FLAG_KEY = "charOpposed";
 export const CARD_VERSION = 1;
 

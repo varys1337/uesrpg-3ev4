@@ -19,8 +19,13 @@ import { spellRequiresOriginAE, createOriginAE, registerLinkedEntity, findOrigin
 import { isCharacteristicDefense, computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { emitSuppressedOpposedSubRollDice } from "../spell-helpers.js";
+import { FLAG_SCOPE } from "../../../system/namespace.js";
+import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
+import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
+const NAMESPACE = FLAG_SCOPE;
 
 function _normalizeCastSourceCostMode(castSource = null) {
   const mode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
@@ -35,12 +40,7 @@ function _resolveItemContextFromState(data = {}) {
   const sourceLane = String(itemCtx?.sourceLane ?? castSource?.sourceLane ?? "workshop").trim().toLowerCase();
   const slotId = String(itemCtx?.slotId ?? castSource?.spellSlotId ?? "").trim();
   if (!itemUuid) return null;
-  let itemDoc = null;
-  try {
-    itemDoc = fromUuidSync(itemUuid);
-  } catch (_e) {
-    itemDoc = null;
-  }
+  const itemDoc = resolveUuidSync(itemUuid);
   const item = itemDoc?.documentName === "Item" ? itemDoc : null;
   if (!item) return null;
   return { item, sourceLane, slotId };
@@ -155,6 +155,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
   const preferredSpell = spells.find((s) => String(s?.uuid ?? "") === preferredUuid) ?? spells[0];
   const preferredId = String(preferredSpell?.id ?? spells[0]?.id ?? "");
   const startingDifficulty = String(attackerState?.spellOptions?.difficultyKey ?? "average");
+  const startingCircumstance = Number(attackerState?.spellOptions?.circumstanceMod ?? 0) || 0;
   const startingManual = Number(attackerState?.spellOptions?.manualModifier ?? 0) || 0;
 
   const hasOverchargeTalent = Array.from(attacker?.items ?? []).some((i) => i?.type === "talent" && i?.name === "Overcharge");
@@ -172,7 +173,8 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
   return await customDialog({
     title: "Cast Magic",
     content: `
-        <div class="uesrpg">
+        <div class="uesrpg uesrpg-adv-dialog uesrpg-adv-dialog--magic-cast">
+          <div class="uesrpg-dialog-section-header">Cast Magic</div>
           <div class="form-group">
             <label><b>Select Spell to Commit</b></label>
             <select name="spellId" style="width:100%;">${spellOptions}</select>
@@ -186,35 +188,36 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
             <select name="difficultyKey" style="width:100%;">${_difficultyOptionsHtml(startingDifficulty)}</select>
           </div>
           <div class="form-group">
+            <label><b>Circumstance Modifier</b></label>
+            <select name="circumstanceMod" style="width:100%;">${buildCircumstanceOptionsHtml(startingCircumstance)}</select>
+          </div>
+          <div class="form-group">
             <label><b>Manual Modifier</b></label>
             <input type="number" name="manualModifier" value="${startingManual}" step="1" />
           </div>
-          <div class="form-group" id="ues-restrain-group">
-            <label style="display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" name="restrain" />
-              <span><b>Spell Restraint</b> (reduce cost by ${wpBonus} to min 1)</span>
-            </label>
+          <div class="uesrpg-defense-flags">
+            <span class="uesrpg-defense-flags__label">Casting Options</span>
+            <div class="uesrpg-defense-flags__items">
+              <label class="uesrpg-inline-check" id="ues-restrain-group">
+                <input type="checkbox" name="restrain" />
+                <span><b>Spell Restraint</b> (reduce cost by ${wpBonus} to min 1)</span>
+              </label>
+              <label class="uesrpg-inline-check" id="ues-overload-group" style="display:none;">
+                <input type="checkbox" name="overload" />
+                <span><b>Overload</b></span>
+              </label>
+              ${hasOverchargeTalent ? `
+              <label class="uesrpg-inline-check">
+                <input type="checkbox" name="overcharge" />
+                <span><b>Overcharge</b> (talent option)</span>
+              </label>` : ""}
+              ${hasMagickaCyclingTalent ? `
+              <label class="uesrpg-inline-check">
+                <input type="checkbox" name="magickaCycling" />
+                <span><b>Magicka Cycling</b> (talent option)</span>
+              </label>` : ""}
+            </div>
           </div>
-          <div class="form-group" id="ues-overload-group" style="display:none;">
-            <label style="display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" name="overload" />
-              <span><b>Overload</b></span>
-            </label>
-          </div>
-          ${hasOverchargeTalent ? `
-          <div class="form-group">
-            <label style="display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" name="overcharge" />
-              <span><b>Overcharge</b> (talent option)</span>
-            </label>
-          </div>` : ""}
-          ${hasMagickaCyclingTalent ? `
-          <div class="form-group">
-            <label style="display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" name="magickaCycling" />
-              <span><b>Magicka Cycling</b> (talent option)</span>
-            </label>
-          </div>` : ""}
         </div>
       `,
       buttons: {
@@ -239,6 +242,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
               spell: selectedSpell,
               spellOptions: {
                 difficultyKey: String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average"),
+                circumstanceMod: Number(root?.querySelector('select[name="circumstanceMod"]')?.value ?? 0) || 0,
                 manualModifier: Number(root?.querySelector('input[name="manualModifier"]')?.value ?? 0) || 0,
                 isRestrained: Boolean(root?.querySelector('input[name="restrain"]')?.checked),
                 isOverloaded,
@@ -415,24 +419,11 @@ export async function handleAttackerCommit(ctx) {
 
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
     const primaryDef = getDefenderEntries(data)[0] ?? null;
-    const targetActor = (() => {
-      const actorUuid = String(primaryDef?.actorUuid ?? "").trim();
-      if (!actorUuid) return null;
-      try {
-        const doc = fromUuidSync(actorUuid);
-        return doc?.documentName === "Actor" ? doc : (doc?.actor ?? null);
-      } catch (_e) {
-        return null;
-      }
-    })();
+    const targetActor = getActorFromResolvedDocument(resolveUuidSync(String(primaryDef?.actorUuid ?? "").trim()));
     const targetToken = (() => {
       const tokenUuid = String(primaryDef?.tokenUuid ?? "").trim();
       if (!tokenUuid) return null;
-      try {
-        return fromUuidSync(tokenUuid)?.object ?? null;
-      } catch (_e) {
-        return null;
-      }
+      return resolveUuidSync(tokenUuid)?.object ?? null;
     })();
     applyRuntimePreRollToTN({
       actor: attacker,
@@ -615,24 +606,11 @@ export async function handleAttackerRoll(ctx) {
   data.attacker.mpRemaining = Number(magickaSpend.remaining ?? attacker?.system?.magicka?.value ?? 0) || 0;
 
   const primaryDef = Array.isArray(defenders) ? defenders[0] ?? null : null;
-  const targetActor = (() => {
-    const actorUuid = String(primaryDef?.actorUuid ?? "").trim();
-    if (!actorUuid) return null;
-    try {
-      const doc = fromUuidSync(actorUuid);
-      return doc?.documentName === "Actor" ? doc : (doc?.actor ?? null);
-    } catch (_e) {
-      return null;
-    }
-  })();
+  const targetActor = getActorFromResolvedDocument(resolveUuidSync(String(primaryDef?.actorUuid ?? "").trim()));
   const targetToken = (() => {
     const tokenUuid = String(primaryDef?.tokenUuid ?? "").trim();
     if (!tokenUuid) return null;
-    try {
-      return fromUuidSync(tokenUuid)?.object ?? null;
-    } catch (_e) {
-      return null;
-    }
+    return resolveUuidSync(tokenUuid)?.object ?? null;
   })();
 
   const castingTn = (data.attacker?.tn && typeof data.attacker.tn === "object")
@@ -672,11 +650,18 @@ export async function handleAttackerRoll(ctx) {
   });
   _applyBindingStrengthFloorIfNeeded(data, result);
 
-  await result.roll.toMessage({
-    speaker: ChatMessage.getSpeaker({ actor: attacker }),
-    flavor: `<b>${spell.name}</b> — Casting Test`,
-    flags: { [_FLAG_NS]: { magicOpposedMeta: { parentMessageId: message.id, stage: "attacker" } } }
-  });
+  const postSubRolls = game.settings?.settings?.has?.(`${NAMESPACE}.opposedPostSubRollMessages`)
+    ? game.settings.get(NAMESPACE, "opposedPostSubRollMessages")
+    : true;
+  if (postSubRolls) {
+    await result.roll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor: attacker }),
+      flavor: `<b>${spell.name}</b> — Casting Test`,
+      flags: { [_FLAG_NS]: { magicOpposedMeta: { parentMessageId: message.id, stage: "attacker" } } }
+    });
+  } else {
+    emitSuppressedOpposedSubRollDice(result.roll, { rollMode: game.settings.get("core", "rollMode") });
+  }
 
   // Backfire (RAW / system rules)
   const needsBackfire = shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
@@ -767,7 +752,7 @@ export async function handleAttackerRoll(ctx) {
     for (let i = 0; i < defenders.length; i += 1) {
       const defActor = ctx.resolveActor(defenders[i]?.actorUuid);
       if (!defActor) continue;
-      await workflow._resolveOutcome(message, data, attacker, defActor, { defenderIndex: i, batchedUpdate });
+      await workflow._resolveOutcome(message, data, attacker, defActor, { defenderIndex: i, batchedUpdate, spell });
     }
     return data;
   }

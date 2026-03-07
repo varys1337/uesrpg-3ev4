@@ -10,7 +10,7 @@
 import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
 import { isLucky, isUnlucky } from "../../../../utils/skillCalcHelper.js";
 import { getDamageTypeFromWeapon, getHitLocationFromRoll } from "../../../../core/combat/combat-utils.js";
-import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow.js";
+import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
 import { doTestRoll, formatDegree, computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
 import { requireUserCanRollActor } from "../../../../utils/permissions.js";
@@ -27,6 +27,10 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { MagicOpposedWorkflow } from "../../../../core/magic/opposed-workflow.js";
+import {
+  buildInlineQualityTags,
+  collectWeaponInlineQualities,
+} from "../../../../core/combat/opposed/helpers/weapon-quality-display.js";
 
 function _normalizeChaKey(v = "") {
   const s = String(v ?? "").trim().toLowerCase();
@@ -841,44 +845,7 @@ export const onDamageRoll = asyncGuardSheet(async function onDamageRoll(event, t
     ? `<div style="margin-top:0.25rem;font-size:x-small;line-height:1.2;">Roll A: ${weaponRoll.total}<br>Roll B: ${altRoll.total}</div>`
     : "";
 
-  const labelIndex = (() => {
-    const core = UESRPG?.QUALITIES_CORE_BY_TYPE?.weapon ?? UESRPG?.QUALITIES_CATALOG ?? [];
-    const traits = UESRPG?.TRAITS_BY_TYPE?.weapon ?? [];
-    const idx = new Map();
-    for (const q of [...core, ...traits, ...(UESRPG?.QUALITIES_CATALOG ?? [])]) {
-      if (!q?.key) continue;
-      idx.set(String(q.key).toLowerCase(), String(q.label ?? q.key));
-    }
-    return idx;
-  })();
-
-  const qualitiesHtml = (() => {
-    const pills = [];
-    const injected = Array.isArray(shortcutWeapon.system.qualitiesStructuredInjected)
-      ? shortcutWeapon.system.qualitiesStructuredInjected
-      : Array.isArray(shortcutWeapon.system.qualitiesStructured)
-        ? shortcutWeapon.system.qualitiesStructured
-        : [];
-
-    for (const q of injected) {
-      const key = String(q?.key ?? q ?? "").toLowerCase().trim();
-      if (!key) continue;
-      const label = labelIndex.get(key) ?? key;
-      const v = (q?.value !== undefined && q?.value !== null && q?.value !== "") ? Number(q.value) : null;
-      pills.push(`<span class="tag">${v != null && !Number.isNaN(v) ? `${label} (${v})` : label}</span>`);
-    }
-
-    const traits = Array.isArray(shortcutWeapon.system.qualitiesTraits) ? shortcutWeapon.system.qualitiesTraits : [];
-    for (const t of traits) {
-      const key = String(t ?? "").toLowerCase().trim();
-      if (!key) continue;
-      const label = labelIndex.get(key) ?? key;
-      pills.push(`<span class="tag">${label}</span>`);
-    }
-
-    if (!pills.length) return "<span style=\"opacity:0.75;\">—</span>";
-    return `<span class="uesrpg-inline-tags">${pills.join("")}</span>`;
-  })();
+  const qualitiesHtml = buildInlineQualityTags(collectWeaponInlineQualities(shortcutWeapon));
 
   const damageType = getDamageTypeFromWeapon(shortcutWeapon);
 
@@ -951,3 +918,4 @@ export const onDamageRoll = asyncGuardSheet(async function onDamageRoll(event, t
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
   });
 })
+

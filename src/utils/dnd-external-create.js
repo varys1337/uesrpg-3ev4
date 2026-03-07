@@ -6,7 +6,7 @@ import { requestCreateEmbeddedDocuments } from "./authority-proxy.js";
 import { dndDebug } from "./dnd-debugger.js";
 
 const STACKABLE_DEFAULT = new Set(["ammunition"]);
-const PHYSICAL_TYPES = new Set(["item", "scroll", "weapon", "armor", "ammunition", "container"]);
+const PHYSICAL_TYPES = new Set(["equipment", "scroll", "weapon", "armor", "ammunition", "container"]);
 
 function _str(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -19,7 +19,8 @@ function _hasAny(haystack, needles) {
 export function inferDroppedItemType(item) {
   const rawType = String(item?.type ?? "").trim();
   const sourceType = rawType.toLowerCase();
-  if (sourceType && sourceType !== "item") return rawType;
+  if (sourceType === "item") return "equipment";
+  if (sourceType && sourceType !== "equipment") return rawType;
 
   const sys = item?.system ?? {};
   const itemCat = _str(sys.item_cat);
@@ -51,8 +52,7 @@ export function inferDroppedItemType(item) {
 
   const isAmmoByFields =
     sys.arrowType != null ||
-    sys.ammoMaterial != null ||
-    sys.pricePer10 != null;
+    sys.ammoMaterial != null;
 
   const isWeaponByFields =
     sys.attackMode != null ||
@@ -65,7 +65,7 @@ export function inferDroppedItemType(item) {
   if (_hasAny(combined, armorKeys) || isArmorByFields) return "armor";
   if (_hasAny(combined, ammoKeys) || isAmmoByFields) return "ammunition";
   if (_hasAny(combined, weaponKeys) || isWeaponByFields) return "weapon";
-  return "item";
+  return "equipment";
 }
 
 export function buildDroppedItemCreateData(item, options = {}) {
@@ -74,7 +74,7 @@ export function buildDroppedItemCreateData(item, options = {}) {
     : new Set(options.stackableTypes ?? STACKABLE_DEFAULT);
 
   const data = item.toObject();
-  const sourceType = _str(item?.type) || "item";
+  const sourceType = _str(item?.type) || "equipment";
   const inferredType = inferDroppedItemType(item);
 
   delete data._id;

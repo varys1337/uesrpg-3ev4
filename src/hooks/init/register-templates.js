@@ -10,6 +10,8 @@ export async function preloadHandlebarsTemplates() {
     "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs",
     "systems/uesrpg-3ev4/templates/partials/sheets/feature-config-tab.hbs",
     "systems/uesrpg-3ev4/templates/partials/sheets/automation-tab.hbs",
+    "systems/uesrpg-3ev4/templates/partials/sheets/feature-stat-sections.hbs",
+    "systems/uesrpg-3ev4/templates/partials/sheets/feature-activation.hbs",
     // Enchanting Workshop (macro-launched AppV2)
     "systems/uesrpg-3ev4/templates/v2/apps/enchanting-workshop.hbs",
     // Alchemy Workshop (macro-launched AppV2)

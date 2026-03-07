@@ -16,7 +16,7 @@
  * This module consolidates logic from:
  * - magicka-utils.js (cost, damage, scaling)
  * - spell-range.js (range, AoE)
- * - spell-routing.js (classification)
+ * - routing classification helpers
  * - opposed/spell-helpers.js (duration, upkeep)
  *
  * Target: Foundry VTT v13.351

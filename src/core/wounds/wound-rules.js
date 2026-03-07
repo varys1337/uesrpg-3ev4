@@ -6,7 +6,7 @@
  * - Alternate: wound on critical success with damage OR reduced to 0 HP.
  */
 
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../constants.js";
 
 export const WOUNDS_MODE = Object.freeze({
   STANDARD: "standard",
@@ -50,4 +50,3 @@ export function shouldTriggerWound({
     reason: (wt > 0 && dmg > wt) ? "standard:excessWT" : "none"
   };
 }
-

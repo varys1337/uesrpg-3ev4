@@ -3,8 +3,8 @@
  */
 
 import { dndDebug, getRecentItemDragPayload } from "./dnd-debugger.js";
+import { SYSTEM_ID } from "../core/constants.js";
 
-const SYSTEM_ID = "uesrpg-3ev4";
 const CACHE_COOL_STREAK = 8;
 let _cleanDropReadStreak = 0;
 

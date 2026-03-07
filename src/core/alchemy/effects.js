@@ -335,6 +335,35 @@ export const POISON_DICE = Object.freeze({
 // ── Internal map for O(1) lookups ─────────────────────────────────────────────
 const _CATALOG_BY_KEY = Object.fromEntries(_CATALOG.map(e => [e.key, e]));
 
+// ── Precompiled cost functions (one Function per catalog entry, compiled at module load) ──
+// Eliminates repeated `new Function(...)` calls during brew validation/preview/creation.
+const _COMPILED_COST_FNS = new Map();
+for (const entry of _CATALOG) {
+  if (entry.fixedCost != null) continue;
+  const formula = (entry.costFormula ?? "SL * 10").replace(/\bSL\b/gi, "sl");
+  try {
+    // eslint-disable-next-line no-new-func
+    _COMPILED_COST_FNS.set(entry.key, new Function("sl", `return (${formula});`));
+  } catch (_) {
+    _COMPILED_COST_FNS.set(entry.key, () => 0);
+  }
+}
+
+// ── Precomputed effect lists (avoids filtering _CATALOG on every call) ─────────
+const _POTION_EFFECTS = Object.freeze(_CATALOG.filter(e => e.attributes.includes("potion")));
+const _TOXIN_EFFECTS  = Object.freeze(_CATALOG.filter(e => e.attributes.includes("toxin")));
+
+const _POTION_BY_SCHOOL = new Map();
+const _TOXIN_BY_SCHOOL  = new Map();
+for (const e of _POTION_EFFECTS) {
+  if (!_POTION_BY_SCHOOL.has(e.school)) _POTION_BY_SCHOOL.set(e.school, []);
+  _POTION_BY_SCHOOL.get(e.school).push(e);
+}
+for (const e of _TOXIN_EFFECTS) {
+  if (!_TOXIN_BY_SCHOOL.has(e.school)) _TOXIN_BY_SCHOOL.set(e.school, []);
+  _TOXIN_BY_SCHOOL.get(e.school).push(e);
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -344,11 +373,8 @@ const _CATALOG_BY_KEY = Object.fromEntries(_CATALOG.map(e => [e.key, e]));
  * @returns {object[]}
  */
 export function listPotionEffects({ school = null } = {}) {
-  return _CATALOG.filter(e => {
-    if (!e.attributes.includes("potion")) return false;
-    if (school && e.school !== school) return false;
-    return true;
-  });
+  if (school) return (_POTION_BY_SCHOOL.get(school) ?? []).slice();
+  return _POTION_EFFECTS.slice();
 }
 
 /**
@@ -358,11 +384,8 @@ export function listPotionEffects({ school = null } = {}) {
  * @returns {object[]}
  */
 export function listToxinEffects({ school = null } = {}) {
-  return _CATALOG.filter(e => {
-    if (!e.attributes.includes("toxin")) return false;
-    if (school && e.school !== school) return false;
-    return true;
-  });
+  if (school) return (_TOXIN_BY_SCHOOL.get(school) ?? []).slice();
+  return _TOXIN_EFFECTS.slice();
 }
 
 /**
@@ -376,7 +399,8 @@ export function getEffectByKey(effectKey) {
 
 /**
  * Compute the numeric cost of an effect at a given spell level.
- * Honors fixedCost. Falls back gracefully if the formula cannot be evaluated.
+ * Honors fixedCost. Uses precompiled cost functions for performance.
+ * Falls back gracefully if the function cannot be evaluated.
  * @param {string} effectKey
  * @param {number} sl  Spell level.
  * @returns {number}
@@ -385,14 +409,13 @@ export function computeEffectCost(effectKey, sl) {
   const effect = getEffectByKey(effectKey);
   if (!effect) return 0;
   if (effect.fixedCost != null) return Number(effect.fixedCost);
-  const formula = effect.costFormula ?? "SL * 10";
-  const expr = formula.replace(/\bSL\b/gi, String(Math.max(1, Number(sl) || 1)));
+  const safeSl = Math.max(1, Number(sl) || 1);
+  const fn = _COMPILED_COST_FNS.get(effectKey);
+  if (!fn) return 0;
   try {
-    // eslint-disable-next-line no-new-func
-    const result = new Function(`return (${expr});`)();
-    return Math.ceil(Number(result) || 0);
+    return Math.ceil(Number(fn(safeSl)) || 0);
   } catch (err) {
-    console.warn(`UESRPG | alchemy.computeEffectCost: formula "${formula}" evaluation failed`, err);
+    console.warn(`UESRPG | alchemy.computeEffectCost: compiled fn for "${effectKey}" failed`, err);
     return 0;
   }
 }

@@ -23,6 +23,90 @@ function _healingDebug(...args) {
   }
 }
 
+function _normalizeLocationKey(hitLocation = "Body") {
+  const locationMap = {
+    Head: "Head",
+    Body: "Body",
+    "Right Arm": "RightArm",
+    "Left Arm": "LeftArm",
+    "Right Leg": "RightLeg",
+    "Left Leg": "LeftLeg",
+    RightArm: "RightArm",
+    LeftArm: "LeftArm",
+    RightLeg: "RightLeg",
+    LeftLeg: "LeftLeg",
+  };
+  return locationMap[hitLocation] ?? hitLocation;
+}
+
+function _normalizeCoverageOverride(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw === "full" || raw === "partial" || raw === "none") return raw;
+  if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
+    return "none";
+  }
+  return "";
+}
+
+function _getCoveredLocations(item, locationKey = null) {
+  const ARMOR_CATEGORY_TO_LOCATIONS = {
+    head: ["Head"],
+    body: ["Body"],
+    l_arm: ["LeftArm"],
+    r_arm: ["RightArm"],
+    l_leg: ["LeftLeg"],
+    r_leg: ["RightLeg"],
+  };
+  const ARMOR_LOCATION_KEYS = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
+
+  const sys = item?.system ?? {};
+  const category = String(sys.category || "").toLowerCase();
+  let armorClass = String(sys.armorClass || "partial").toLowerCase();
+  if (armorClass !== "full" && armorClass !== "partial" && armorClass !== "none") armorClass = "partial";
+  const override = _normalizeCoverageOverride(sys?.hitLocationStates?.[locationKey]?.coverageOverride);
+  if (override) armorClass = override;
+  if (armorClass === "none") return new Set();
+
+  const hitLocs = sys.hitLocations ?? {};
+  const isShield = Boolean(sys.isShieldEffective ?? sys.isShield) || category === "shield" || category.startsWith("shield");
+  const anyExplicit = ARMOR_LOCATION_KEYS.some(k => hitLocs?.[k] === true);
+
+  if (isShield && anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
+  if (isShield) return new Set(["LeftArm", "RightArm"]);
+
+  const catLocs = ARMOR_CATEGORY_TO_LOCATIONS[category] ?? null;
+  if (catLocs) return new Set(catLocs);
+
+  if (anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
+  return new Set();
+}
+
+export async function applyArmorLocationDamage(targetActor, hitLocation, damagedValue = 0) {
+  if (!targetActor?.items) return 0;
+  const amount = Math.max(0, Math.floor(Number(damagedValue) || 0));
+  if (!amount) return 0;
+
+  const propertyName = _normalizeLocationKey(hitLocation);
+  const equippedArmor = targetActor.items?.filter((i) => i.type === "armor" && i.system?.equipped === true) ?? [];
+  let updatedCount = 0;
+
+  for (const item of equippedArmor) {
+    const covered = _getCoveredLocations(item, propertyName);
+    if (!covered.has(propertyName)) continue;
+
+    const hitLocationStates = foundry.utils.deepClone(item.system?.hitLocationStates ?? {});
+    const stateForLocation = { ...(hitLocationStates[propertyName] ?? {}) };
+    const current = Number.isFinite(Number(stateForLocation.damaged)) ? Math.max(0, Math.floor(Number(stateForLocation.damaged))) : 0;
+    stateForLocation.damaged = current + amount;
+    hitLocationStates[propertyName] = stateForLocation;
+    await requestUpdateDocument(item, { "system.hitLocationStates": hitLocationStates });
+    updatedCount += 1;
+  }
+
+  return updatedCount;
+}
+
 /**
  * Apply damage to an actor.
  * 
@@ -46,6 +130,7 @@ function _healingDebug(...args) {
  * @param {string} options.hitLocation - Hit location (Head, Body, RightArm, etc.)
  * @param {boolean} options.penetrateArmorForTriggers - For weapon qualities
  * @param {boolean} options.forcefulImpact - Apply Forceful Impact (Damaged +1 to armor)
+ * @param {number} options.damagedValue - Apply per-location armor damage value to all covering armor pieces
  * @param {boolean} options.pressAdvantage - Informational flag for Press Advantage
  * @param {Item} options.weapon - Weapon item (for quality bonuses)
  * @param {Actor} options.attackerActor - Attacker (for AE modifiers)
@@ -73,6 +158,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     // Advantage: Forceful Impact — applies/advances Damaged (1) on the armor piece protecting the hit location.
     // Current implementation: increments the Damaged quality on ONE equipped armor piece covering the location.
     forcefulImpact = false,
+    damagedValue = 0,
     // Advantage: Press Advantage — currently informational only (advantage economy is handled in opposed workflow).
     pressAdvantage = false,
     // Optional: enable RAW weapon-quality bonuses.
@@ -247,6 +333,14 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
 
   // Optional: Forceful Impact may damage the armor protecting the hit location.
   // This is intentionally best-effort and should never block damage resolution.
+  if (Number(damagedValue || 0) > 0) {
+    try {
+      await applyArmorLocationDamage(updateTarget, hitLocation, damagedValue);
+    } catch (err) {
+      console.warn("UESRPG | Armor location damage update failed", err);
+    }
+  }
+
   if (forcefulImpact && String(damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL) {
     try {
       await _applyForcefulImpact(updateTarget, hitLocation);
@@ -595,28 +689,40 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
     r_leg: ["RightLeg"],
   };
   const ARMOR_LOCATION_KEYS = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
+  const normalizeCoverageOverride = (value) => {
+    const raw = String(value ?? "").trim().toLowerCase();
+    if (!raw) return "";
+    if (raw === "full" || raw === "partial" || raw === "none") return raw;
+    if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
+      return "none";
+    }
+    return "";
+  };
 
-  const getCoveredLocations = (item) => {
+  const getCoveredLocations = (item, locationKey = null) => {
     const sys = item?.system ?? {};
     const category = String(sys.category || "").toLowerCase();
-    const armorClass = String(sys.armorClass || "partial").toLowerCase();
+    let armorClass = String(sys.armorClass || "partial").toLowerCase();
+    if (armorClass !== "full" && armorClass !== "partial" && armorClass !== "none") armorClass = "partial";
+    const override = normalizeCoverageOverride(sys?.hitLocationStates?.[locationKey]?.coverageOverride);
+    if (override) armorClass = override;
     const hitLocs = sys.hitLocations ?? {};
     const isShield = Boolean(sys.isShieldEffective ?? sys.isShield) || category === "shield" || category.startsWith("shield");
+    if (armorClass === "none") return new Set();
 
     // If explicit coverage exists, use it (works for both armor and shields).
     const anyExplicit = ARMOR_LOCATION_KEYS.some(k => hitLocs?.[k] === true);
-    if (anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
+    if (isShield && anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
 
     // Shields without explicit coverage: treat as arm-protection for Forceful Impact.
     if (isShield) return new Set(["LeftArm", "RightArm"]);
 
-    // Armor pieces: category-based fallback when legacy "all true" would otherwise misbehave.
-    const allTrue = ARMOR_LOCATION_KEYS.every(k => hitLocs?.[k] === true);
+    // Armor pieces: category is authoritative for active behavior.
     const catLocs = ARMOR_CATEGORY_TO_LOCATIONS[category] ?? null;
-    if (catLocs && (armorClass === "full" || (armorClass === "partial" && allTrue))) {
-      return new Set(catLocs);
-    }
+    if (catLocs) return new Set(catLocs);
 
+    // Legacy compatibility fallback for uncategorized data.
+    if (anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
     return new Set();
   };
 
@@ -628,7 +734,7 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
     const category = String(sys.category || "").toLowerCase();
     const isShield = Boolean(sys.isShieldEffective ?? sys.isShield) || category === "shield" || category.startsWith("shield");
 
-    const covered = getCoveredLocations(item);
+    const covered = getCoveredLocations(item, propertyName);
     if (!covered.has(propertyName)) continue;
 
     // Forceful Impact selects one piece/shield. Prefer the piece that is currently most protective:
@@ -655,26 +761,17 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
   const targetCategory = String(targetSys.category || "").toLowerCase();
   const isShieldTarget = Boolean(targetSys.isShieldEffective ?? targetSys.isShield) || targetCategory === "shield" || targetCategory.startsWith("shield");
 
-  // Stack Damaged (X) by +1 per use.
-  const current = Array.isArray(targetItem.system?.qualitiesStructured)
-    ? targetItem.system.qualitiesStructured
-    : [];
-  const next = current.map(q => ({ ...q }));
-
-  const idx = next.findIndex(q => String(q?.key ?? "").toLowerCase() === "damaged");
-  if (idx >= 0) {
-    const v = Number(next[idx].value ?? 0);
-    next[idx].value = Number.isFinite(v) ? v + 1 : 1;
-  } else {
-    next.push({ key: "damaged", value: 1 });
-  }
-  const oldDamaged = (idx >= 0) ? (Number(current[idx]?.value ?? 0) || 0) : 0;
+  const hitLocationStates = foundry.utils.deepClone(targetItem.system?.hitLocationStates ?? {});
+  const stateForLocation = { ...(hitLocationStates[propertyName] ?? {}) };
+  const oldDamagedRaw = stateForLocation.damaged;
+  const oldDamaged = Number.isFinite(Number(oldDamagedRaw)) ? Math.max(0, Math.floor(Number(oldDamagedRaw))) : (oldDamagedRaw === true ? 1 : 0);
+  stateForLocation.damaged = oldDamaged + 1;
+  hitLocationStates[propertyName] = stateForLocation;
   const oldEffective = isShieldTarget
     ? (Number(targetSys.blockEffective ?? targetSys.block ?? 0) || 0)
     : (Number(targetSys.armorEffective ?? targetSys.armor ?? 0) || 0);
-  const baseProtective = Math.max(0, oldEffective + Math.max(0, oldDamaged));
-  const nextDamaged = Math.max(0, oldDamaged + 1);
-  const nextEffective = Math.max(0, baseProtective - nextDamaged);
+  const baseProtective = Math.max(0, oldEffective + oldDamaged);
+  const nextEffective = Math.max(0, baseProtective - (oldDamaged + 1));
 
   if (nextEffective <= 0) {
     const parentActor = targetItem.parent;
@@ -690,7 +787,7 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
     }
   }
 
-  await requestUpdateDocument(targetItem, { "system.qualitiesStructured": next });
+  await requestUpdateDocument(targetItem, { "system.hitLocationStates": hitLocationStates });
 }
 
 /**

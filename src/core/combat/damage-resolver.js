@@ -10,7 +10,7 @@
  *
  * Importers (4 files):
  *  - src/hooks/init.js
- *  - src/core/combat/chat-handlers.js
+ *  - src/core/combat/chat-handlers/index.js
  *  - src/core/conditions/condition-automation.js
  *  - src/core/combat/opposed-rolls.js
  *

@@ -8,7 +8,7 @@ import { _getDefenderOutcome, _setDefenderOutcome, _setDefenderAdvantage, _getDe
 import { _getBankCommitState, _allDefendersCommitted, _cleanupAutoRollContext } from "../banking/state.js";
 import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _computeAdvantageRAW } from "../outcome-resolution.js";
 import { applyAoEEvadeOutcome as _applyAoEEvadeOutcome, getTokenMovementAction as _getTokenMovementAction } from "../helpers/workflow.js";
-import { _canControlActor, _logDebug, _opposedFlags } from "../helpers/util.js";
+import { _canControlActor, _emitSuppressedSubRollDice, _logDebug, _opposedFlags, _safeGetSetting } from "../helpers/util.js";
 import { removeCondition } from "../../../conditions/condition-engine.js";
 import { canDefenderRoll, markDefenderIneligibleForHidden } from "./eligibility.js";
 import { getDefenseTalentOverrides, applyDefenderTalentTNMods, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
@@ -32,6 +32,8 @@ import { hasActiveWard } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
+import { FLAG_SCOPE } from "../../../system/namespace.js";
+import { getFlagValueWithFallback } from "../../../system/flags.js";
 
 // ── Homebrew: Reach & Length Overhaul helpers ─────────────────────────────
 
@@ -48,7 +50,7 @@ function _resolveDefenderWeapon(defender, choice) {
     const choiceUuid = String(choice?.weaponUuid ?? "").trim();
     if (choiceUuid) {
       const doc = _resolveItemViaActor(choiceUuid, defender);
-      if (doc?.type === "weapon") return doc;
+      if (doc?.type === "weapon" && String(doc?.system?.attackMode ?? "melee").toLowerCase() === "melee") return doc;
     }
     // Fallback: first equipped melee weapon
     for (const item of (defender?.items ?? [])) {
@@ -74,7 +76,7 @@ async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
     if (!weapon || weapon.type !== "weapon") return;
     if (!_weaponHasQuality(weapon, "concussive")) return;
     await requestUpdateDocument(attacker, {
-      "flags.uesrpg-3ev4.combat.concussiveNextBash": {
+      [`flags.${FLAG_SCOPE}.combat.concussiveNextBash`]: {
         bonus: 20,
         grantedAt: Date.now(),
         sourceWeaponUuid: weapon.uuid ?? null
@@ -178,12 +180,12 @@ export async function handleDefenderCommit(ctx) {
   // CORRECTED: Feint gating - force No Defense if Feinted by this specific attacker
   const feintedEffect = defender.effects.find(e => 
     !e.disabled && 
-    (e?.flags?.uesrpg?.key === "feinted" || e?.flags?.["uesrpg-3ev4"]?.condition?.key === "feinted")
+    (getFlagValueWithFallback(e, "key") === "feinted" || getFlagValueWithFallback(e, "condition.key") === "feinted")
   );
 
   if (feintedEffect) {
-    const feintedByUuid = feintedEffect?.flags?.uesrpg?.attackerUuid ?? 
-                          feintedEffect?.flags?.["uesrpg-3ev4"]?.condition?.attackerUuid;
+    const feintedByUuid = getFlagValueWithFallback(feintedEffect, "attackerUuid")
+      ?? getFlagValueWithFallback(feintedEffect, "condition.attackerUuid");
     
     if (feintedByUuid && feintedByUuid === attacker.uuid) {
       // RAW: treat next melee attack as if attacker were Hidden
@@ -576,17 +578,26 @@ export async function handleDefenderCommit(ctx) {
     const attackerWeapon = (() => {
       try {
         const uuid = String(data?.context?.weaponUuid ?? "").trim();
-        return uuid ? fromUuidSync(uuid) : null;
+        if (!uuid) return null;
+        const doc = fromUuidSync(uuid);
+        return doc?.type === "weapon" ? doc : null;
       } catch { return null; }
     })();
     const defenderWeapon = _resolveDefenderWeapon(defender, choice);
-    applyLengthPenaltyToTN({
-      tn,
-      ownWeapon: defenderWeapon,
-      opponentWeapon: attackerWeapon,
-      ownerToken: dToken ?? null,
-      opponentToken: aToken ?? null
-    });
+    const mode = String(data?.context?.attackMode ?? "melee").toLowerCase();
+    const attackerMelee = String(attackerWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
+    const defenderMelee = String(defenderWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
+    if (mode === "melee" && attackerMelee && defenderMelee) {
+      applyLengthPenaltyToTN({
+        tn,
+        ownWeapon: defenderWeapon,
+        opponentWeapon: attackerWeapon,
+        ownerToken: dToken ?? null,
+        opponentToken: aToken ?? null,
+        ownerActor: defender ?? null,
+        ownRole: "defender"
+      });
+    }
   }
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -781,30 +792,35 @@ export async function handleDefenderRollCommitted(ctx) {
     allowPrompt: true
   });
 
-
-  const rollMessage = await res.roll.toMessage({
-    speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
-    flavor: `${data.defender.label} \u2014 Defender Roll`,
-    rollMode: game.settings.get("core", "rollMode"),
-    flags: _opposedFlags(message.id, "defender-roll", {
-      defenderIndex,
-      commit: {
-        defender: {
-          defenseType: data.defender.defenseType,
-          styleUuid: data.defender.styleUuid ?? null,
-          label: data.defender.label,
-          defenseLabel: data.defender.defenseLabel,
-          testLabel: data.defender.testLabel,
-          target: data.defender.target,
-          targetLabel: data.defender.targetLabel,
-          tn: data.defender.tn,
-          talentDoSChoice: res?.talentDoSChoice ?? null,
-          talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
-          hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
+  const postSubRolls = _safeGetSetting("uesrpg-3ev4", "opposedPostSubRollMessages", true);
+  let rollMessage = null;
+  if (postSubRolls) {
+    rollMessage = await res.roll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
+      flavor: `${data.defender.label} \u2014 Defender Roll`,
+      rollMode: game.settings.get("core", "rollMode"),
+      flags: _opposedFlags(message.id, "defender-roll", {
+        defenderIndex,
+        commit: {
+          defender: {
+            defenseType: data.defender.defenseType,
+            styleUuid: data.defender.styleUuid ?? null,
+            label: data.defender.label,
+            defenseLabel: data.defender.defenseLabel,
+            testLabel: data.defender.testLabel,
+            target: data.defender.target,
+            targetLabel: data.defender.targetLabel,
+            tn: data.defender.tn,
+            talentDoSChoice: res?.talentDoSChoice ?? null,
+            talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+            hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
+          }
         }
-      }
-    })
-  });
+      })
+    });
+  } else {
+    _emitSuppressedSubRollDice(res.roll, { rollMode: game.settings.get("core", "rollMode") });
+  }
 
   // NOTE: Mid-handler applyExternalRollMessage removed (race condition fix).
   // The handler writes data.defender.result directly below and calls _updateCard.
@@ -845,10 +861,8 @@ export async function handleDefenderRollCommitted(ctx) {
       console.warn("UESRPG | opposed-workflow | buckler bonus lookup failed (commit path)", err);
     }
   }
-  if (rollMessage?.id) {
-    data.defender.rollMessageId = rollMessage.id;
-    data.defender.rolledAt = Date.now();
-  }
+  data.defender.rolledAt = Date.now();
+  if (rollMessage?.id) data.defender.rollMessageId = rollMessage.id;
 
   if (batchedUpdate) return data;
   await _updateCard(message, data);

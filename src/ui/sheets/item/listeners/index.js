@@ -44,23 +44,6 @@ export function registerItemSheetListeners(sheet, html) {
     });
   }
 
-  // Ammunition: live update derived Price / Shot display when Price / 10 changes
-  if (sheet.item && sheet.item.type === "ammunition") {
-    const p10Input = html.find('input[name="system.pricePer10"]');
-    const pShotDisplay = html.find('[data-uesrpg="pricePerShot"]');
-
-    const refresh = () => {
-      const v = Number(p10Input.val() || 0);
-      const ps = Math.round((v / 10) * 100) / 100;
-      pShotDisplay.val(String(ps));
-    };
-
-    if (p10Input.length && pShotDisplay.length) {
-      p10Input.on("input", refresh);
-      p10Input.on("change", refresh);
-    }
-  }
-
   // Combat Style: set active style on owner actor
   if (sheet.item?.type === "combatStyle" && sheet.item.isOwned && sheet.actor) {
     // Combat Style: auto-save UX
@@ -552,8 +535,8 @@ export function registerItemSheetListeners(sheet, html) {
     });
   }
 
-  // ── Damage Instances CRUD (spells + weapons) ──
-  if (sheet.item && (sheet.item.type === "spell" || sheet.item.type === "weapon")) {
+  // ── Damage Instances CRUD (spells only) ──
+  if (sheet.item && sheet.item.type === "spell") {
     html.off("click.uesrpg", "[data-action='add-damage-instance']").on("click.uesrpg", "[data-action='add-damage-instance']", async (ev) => {
       ev.preventDefault();
       if (!sheet.isEditable) return;

@@ -23,6 +23,7 @@ export function buildDamageContext(payload = {}) {
   const rawDamage = asNumber(payload.rawDamage ?? payload.damage ?? 0);
   const dosBonus = asNumber(payload.dosBonus ?? 0);
   const penetration = asNumber(payload.penetration ?? 0);
+  const damagedValue = Math.max(0, asNumber(payload.damagedValue ?? 0));
   const hitLocation = normalizeHitLocation(payload.hitLocation ?? payload.location ?? "Body");
   const damageType = normalizeDamageType(payload.damageType ?? DAMAGE_TYPES.PHYSICAL);
   const attackModeRaw = String(payload.attackMode ?? "").trim().toLowerCase();
@@ -75,6 +76,7 @@ export function buildDamageContext(payload = {}) {
     hitLocation,
     dosBonus,
     penetration,
+    damagedValue,
 
     // Optional enrichment
     weapon,

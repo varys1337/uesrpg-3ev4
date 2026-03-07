@@ -14,6 +14,36 @@ import { canTokenEscapeTemplate } from "../../../utils/aoe-utils.js";
 import { canUserRollActor } from "../../../utils/permissions.js";
 import { resolveToken } from "./schema.js";
 
+export function emitSuppressedOpposedSubRollDice(roll, { rollMode = null } = {}) {
+  if (!roll) return null;
+  const dsn = game?.dice3d;
+  if (!dsn || typeof dsn.showForRoll !== "function") return null;
+
+  const mode = String(rollMode ?? game?.settings?.get?.("core", "rollMode") ?? "roll").toLowerCase();
+  const isPublic = mode === "roll" || mode === "publicroll";
+  const sync = Boolean(isPublic);
+
+  try {
+    const primary = dsn.showForRoll(roll, game.user, sync);
+    Promise.resolve(primary).catch(() => {
+      try {
+        const fallback = dsn.showForRoll(roll);
+        Promise.resolve(fallback).catch(() => {});
+      } catch (_err2) {
+        // no-op
+      }
+    });
+  } catch (_err) {
+    try {
+      const fallback = dsn.showForRoll(roll);
+      Promise.resolve(fallback).catch(() => {});
+    } catch (_err2) {
+      // no-op
+    }
+  }
+  return null;
+}
+
 async function _postSpellDamageRollMessage({
   attacker,
   spell,

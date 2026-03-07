@@ -23,10 +23,13 @@ import { canTokenEscapeTemplate } from "../../../../utils/aoe-utils.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands, getTokenDashContext } from "../../combat-utils.js";
 import { isActorUndead } from "../../../traits/trait-registry.js";
 import { normalizeDiceExpression } from "../rolls.js";
-import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { doesUserOwnActor, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { gateRangedAttackAmmoAndLoad } from "../damage/ranged-ammo-gate.js";
 import { isDebugEnabled } from "../../../../utils/debug.js";
+import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
 import { _resolveItemViaActor } from "./docs.js";
+import { circumstanceLabel as sharedCircumstanceLabel } from "../../../opposed/circumstance.js";
+export { getRuntimeSystemId as getSystemId } from "../../../system/namespace.js";
 
 /**
  * Collect sensory situational modifiers for attacker (blinded/deafened).
@@ -69,13 +72,6 @@ export function normalizeKey(v) {
   return String(v ?? "")
     .toLowerCase()
     .replace(/[\s_-]+/g, "");
-}
-
-/**
- * Get the system ID (runtime or canonical).
- */
-export function getSystemId() {
-  return String(game?.system?.id ?? "uesrpg-3ev4");
 }
 
 /**
@@ -295,12 +291,7 @@ export function getContextAttackMode(ctx) {
  * Resolve document from UUID (sync).
  */
 export function resolveDoc(uuid) {
-  if (!uuid) return null;
-  try {
-    return fromUuidSync(uuid);
-  } catch (_e) {
-    return null;
-  }
+  return resolveUuidSync(uuid);
 }
 
 /**
@@ -435,11 +426,7 @@ export { markWeaponNeedsReload } from "../damage/ammunition.js";
  */
 export function resolveActor(docOrUuid) {
   const doc = typeof docOrUuid === "string" ? resolveDoc(docOrUuid) : docOrUuid;
-  if (!doc) return null;
-  if (doc.documentName === "Actor") return doc;
-  if (doc.documentName === "Token") return doc.actor ?? null;
-  if (doc.actor) return doc.actor;
-  return null;
+  return getActorFromResolvedDocument(doc);
 }
 
 /**
@@ -587,6 +574,7 @@ export function variantLabel(variant) {
  * Get circumstance label for display.
  */
 export function circumstanceLabel(mod) {
+  return sharedCircumstanceLabel(mod);
   const v = Number(mod ?? 0) || 0;
   switch (v) {
     case -10: return "Minor Disadvantage (-10)";
@@ -764,17 +752,7 @@ export function logDebug(event, payload) {
  * Check if user has actor ownership.
  */
 export function userHasActorOwnership(user, actor) {
-  try {
-    if (!user || !actor) return false;
-    if (user.isGM) return true;
-    if (typeof actor.testUserPermission === 'function') {
-      return actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER);
-    }
-    const level = Number(actor?.ownership?.[user.id] ?? 0);
-    return level >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
-  } catch (_e) {
-    return false;
-  }
+  return doesUserOwnActor(user, actor);
 }
 
 /**

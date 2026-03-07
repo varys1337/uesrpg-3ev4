@@ -61,6 +61,6 @@ export function normalizeRulePhase(value, { fallback = "" } = {}) {
  * @param {string} value
  * @returns {boolean}
  */
-function isRulePhase(value) {
+export function isRulePhase(value) {
   return Boolean(normalizeRulePhase(value, { fallback: "" }));
 }

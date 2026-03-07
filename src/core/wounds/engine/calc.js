@@ -6,8 +6,7 @@
  */
 
 import { SHOCK_MAGIC_TYPES, normalizeDamageTypeKey } from "../wound-schema.js";
-
-const FLAG_SCOPE = "uesrpg-3ev4";
+import { FLAG_SCOPE } from "../../constants.js";
 
 /**
  * Convert value to number with fallback

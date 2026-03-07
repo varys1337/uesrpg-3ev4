@@ -4,8 +4,8 @@
  */
 
 import { isDebugEnabled } from "./debug.js";
+import { SYSTEM_ID } from "../core/constants.js";
 
-const SYSTEM_ID = "uesrpg-3ev4";
 const SETTING_DEBUG = "dndDebugEnabled";
 const SETTING_VERBOSE = "dndDebugVerbose";
 const SETTING_NOTIFY = "dndDebugNotifyOnFailure";

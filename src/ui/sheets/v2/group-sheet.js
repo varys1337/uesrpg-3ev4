@@ -27,9 +27,11 @@ import { asyncGuard } from "../../../utils/async-guard.js";
 import { activateEditorButtons } from "../shared/editor-activation.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
+import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
+import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -38,6 +40,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   /** @type {number|null} Hooks.on("updateActor") handle for member refresh */
   #memberUpdateHook = null;
+  _uesrpgRestoreDblClickHandler = null;
+  _uesrpgRestoreDblClickEl = null;
 
   _isSheetPerfTraceEnabled() {
     try {
@@ -225,6 +229,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     try {
       super._onRender(context, options);
       const el = this.element;
+      applySheetDensityClass(el);
+      bindWindowRestoreGuard(this, el);
       clearItemDescriptionTooltip(this);
 
       if (!this.#memberUpdateHook) {
@@ -339,6 +345,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
         Hooks.off("updateActor", this.#memberUpdateHook);
         this.#memberUpdateHook = null;
       }
+      if (this._uesrpgRestoreDblClickEl && this._uesrpgRestoreDblClickHandler) {
+        this._uesrpgRestoreDblClickEl.removeEventListener("dblclick", this._uesrpgRestoreDblClickHandler, true);
+      }
+      this._uesrpgRestoreDblClickHandler = null;
+      this._uesrpgRestoreDblClickEl = null;
       return super._onClose(options);
     } finally {
       this._traceSheetPerf("_onClose", perfStart, {});

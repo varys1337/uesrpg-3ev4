@@ -1,10 +1,11 @@
-/**
+﻿/**
  * src/ui/apps/v2/reach-visualizer-settings.js
  *
  * ApplicationV2 reach-visualizer settings panel.
  * Uses native DOM event binding via _onRender.
  */
 
+import { templatePath } from "../../constants.js";
 import {
   DEFAULT_REACH_VISUALIZER_SETTINGS,
   REACH_BEHAVIOUR,
@@ -39,7 +40,7 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
 
   static PARTS = {
     form: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/reach-visualizer-settings.hbs",
+      template: templatePath("v2/apps/reach-visualizer-settings.hbs"),
     },
   };
 
@@ -71,7 +72,7 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     };
   }
 
-  /** @override — replaces jQuery activateListeners with native DOM */
+  /** @override вЂ” replaces jQuery activateListeners with native DOM */
   _onRender(context, options) {
     super._onRender(context, options);
 
@@ -155,3 +156,4 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     }
   }
 }
+

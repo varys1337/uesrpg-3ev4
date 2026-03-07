@@ -3,6 +3,8 @@
  * General utility helpers for characteristic opposed workflow
  */
 
+import { doesUserOwnActor } from "../../../utils/authority-proxy.js";
+
 export function _esc(value) {
   const raw = String(value ?? "");
   if (foundry?.utils?.escapeHTML) return foundry.utils.escapeHTML(raw);
@@ -19,8 +21,7 @@ export function _canControlActor(actor) {
 }
 
 export function _userHasActorOwnership(user, actor) {
-  if (!actor || !user) return false;
-  return actor.testUserPermission?.(user, "OWNER") ?? false;
+  return doesUserOwnActor(user, actor);
 }
 
 export function _fmtDegree(res) {

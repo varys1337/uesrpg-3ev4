@@ -18,7 +18,7 @@ import { applyDamageResolved } from "../../damage-resolver.js";
 import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
 
 // Internal helpers from various opposed modules
-import { _canControlActor, _findEnabledEffectByUesrpgKey, _logDebug, _opposedFlags } from "../helpers/util.js";
+import { _canControlActor, _emitSuppressedSubRollDice, _findEnabledEffectByUesrpgKey, _logDebug, _opposedFlags, _safeGetSetting } from "../helpers/util.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
 import { _getBankCommitState, _allDefendersCommitted, _getDefenderEntries } from "../banking/state.js";
 import { 
@@ -391,7 +391,11 @@ export async function handleAttackerAction(action, ctx) {
     data.attacker.pendingApVariant = decl.variant;
 
     // ── Homebrew: Reach & Length — LP injection (attacker side) ──────────────
-    if (String(data.context?.attackMode ?? "melee").toLowerCase() === "melee" && declaredWeapon) {
+    if (
+      String(data.context?.attackMode ?? "melee").toLowerCase() === "melee"
+      && declaredWeapon?.type === "weapon"
+      && String(declaredWeapon?.system?.attackMode ?? "melee").toLowerCase() === "melee"
+    ) {
       let defenderWeaponForLP = null;
       try {
         for (const item of (defender?.items ?? [])) {
@@ -408,7 +412,9 @@ export async function handleAttackerAction(action, ctx) {
         ownWeapon: declaredWeapon,
         opponentWeapon: defenderWeaponForLP,
         ownerToken: aToken ?? null,
-        opponentToken: dToken ?? null
+        opponentToken: dToken ?? null,
+        ownerActor: attacker ?? null,
+        ownRole: "attacker"
       });
       if (lpApplied) {
         data.attacker.target = tn.finalTN;
@@ -600,32 +606,37 @@ export async function handleAttackerAction(action, ctx) {
     allowPrompt: true
   });
 
-  const rollMessage = await res.roll.toMessage({
-    speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
-    flavor: `${data.attacker.label} \u2014 Attacker Roll`,
-    rollMode: game.settings.get("core", "rollMode"),
-    flags: _opposedFlags(message.id, "attacker-roll", {
-      commit: {
-        attacker: {
-          hasDeclared: true,
-          variant: data.attacker.variant,
-          variantLabel: data.attacker.variantLabel,
-          variantMod: data.attacker.variantMod,
-          manualMod: data.attacker.manualMod,
-          circumstanceMod: data.attacker.circumstanceMod,
-          circumstanceLabel: data.attacker.circumstanceLabel,
-          totalMod: data.attacker.totalMod,
-          baseTarget: data.attacker.baseTarget,
-          target: data.attacker.target,
-          tn: data.attacker.tn,
-          itemUuid: data.attacker.itemUuid,
-          label: data.attacker.label,
-          talentDoSChoice: res?.talentDoSChoice ?? null,
-          talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null
+  const postSubRolls = _safeGetSetting("uesrpg-3ev4", "opposedPostSubRollMessages", true);
+  if (postSubRolls) {
+    await res.roll.toMessage({
+      speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
+      flavor: `${data.attacker.label} \u2014 Attacker Roll`,
+      rollMode: game.settings.get("core", "rollMode"),
+      flags: _opposedFlags(message.id, "attacker-roll", {
+        commit: {
+          attacker: {
+            hasDeclared: true,
+            variant: data.attacker.variant,
+            variantLabel: data.attacker.variantLabel,
+            variantMod: data.attacker.variantMod,
+            manualMod: data.attacker.manualMod,
+            circumstanceMod: data.attacker.circumstanceMod,
+            circumstanceLabel: data.attacker.circumstanceLabel,
+            totalMod: data.attacker.totalMod,
+            baseTarget: data.attacker.baseTarget,
+            target: data.attacker.target,
+            tn: data.attacker.tn,
+            itemUuid: data.attacker.itemUuid,
+            label: data.attacker.label,
+            talentDoSChoice: res?.talentDoSChoice ?? null,
+            talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null
+          }
         }
-      }
-    })
-  });
+      })
+    });
+  } else {
+    _emitSuppressedSubRollDice(res.roll, { rollMode: game.settings.get("core", "rollMode") });
+  }
 
   // Flail (Chapter 7): a critical failure with a flail attack hits the attacker.
   if (res.isCriticalFailure === true) {
@@ -649,6 +660,7 @@ export async function handleAttackerAction(action, ctx) {
             damage: Number(selfDmg.finalDamage),
             damageType: getDamageTypeFromWeapon(flailWeapon) || "physical",
             hitLocation: selfHitLocation,
+            damagedValue: Number(selfDmg.damagedValue ?? 0) || 0,
             source: `${flailWeapon.name} (Flail Critical Failure)`,
             weapon: flailWeapon,
             attackerActor: attacker,

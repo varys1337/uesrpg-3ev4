@@ -1,3 +1,4 @@
+﻿import { SYSTEM_ID, templatePath } from "../../constants.js";
 /**
  * src/ui/apps/v2/combat-settings.js
  *
@@ -5,7 +6,7 @@
  */
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-const NAMESPACE = "uesrpg-3ev4";
+const NAMESPACE = SYSTEM_ID;
 
 export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
@@ -17,7 +18,7 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG — Combat",
+      title: "UESRPG вЂ” Combat",
     },
     position: {
       width: 520,
@@ -27,7 +28,7 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
 
   static PARTS = {
     form: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/combat-settings.hbs",
+      template: templatePath("v2/apps/combat-settings.hbs"),
     },
   };
 
@@ -51,3 +52,4 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
     if ("aoeOriginMeasurement" in data) await game.settings.set(NAMESPACE, "aoeOriginMeasurement", data.aoeOriginMeasurement);
   }
 }
+

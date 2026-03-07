@@ -14,7 +14,8 @@
  *   §7.4  Round tick-down   — upkeep/duration tracking via updateCombat hook
  *   §7.5  Chat card button  — click handler wired to renderChatMessage
  *
- * Internal helpers are not exported; only initializeAlchemyRuntime() is public.
+ * Internal helpers are not exported; only initializeAlchemyRuntime(), drinkPotion(),
+ * and applyAlchemyToWeapon() are public.
  */
 
 import { getEffectByKey, computeEffectCost, computeUpkeepDuration, effectHasUpkeep } from "./effects.js";
@@ -22,9 +23,41 @@ import { rollPotionBackfire } from "./backfire.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { applyDamage, applyHealing } from "../combat/damage/apply.js";
 import { getChatMessageRoot } from "../combat/chat-handlers/render/render-chat-message.js";
+import { renderApplyToWeaponCard, renderAlchemyUseCard } from "./render.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
-// ── Guard ─────────────────────────────────────────────────────────────────────
-// No runtime gating: alchemy automation is always active.
+// ── Flag namespace constant (delegated to canonical FLAG_SCOPE from namespace.js) ──
+const FLAG_NS = FLAG_SCOPE;
+
+// ── Internal flag helpers ─────────────────────────────────────────────────────
+
+function _getAlchemyFlags(item) {
+  return item?.flags?.[FLAG_NS]?.alchemy ?? {};
+}
+
+function _getAppliedAlchemy(weapon) {
+  return weapon?.flags?.[FLAG_NS]?.alchemyApplied ?? null;
+}
+
+// ── Idempotency guard ─────────────────────────────────────────────────────────
+let _runtimeInitialized = false;
+
+// ── §H Stamina path resolver ──────────────────────────────────────────────────
+
+/**
+ * Resolve the correct stamina document path and current values for an actor.
+ * Actors with `staminaPoints` use that field; others use `stamina`.
+ * @param {Actor} actor
+ * @returns {{ valuePath: string, value: number, max: number }}
+ */
+function _resolveStaminaPaths(actor) {
+  const usePoints = actor.system?.staminaPoints !== undefined;
+  return {
+    valuePath: usePoints ? "system.staminaPoints.value" : "system.stamina.value",
+    value: Number(actor.system?.staminaPoints?.value ?? actor.system?.stamina?.value ?? 0),
+    max: Number(actor.system?.staminaPoints?.max ?? actor.system?.stamina?.max ?? 0),
+  };
+}
 
 // ── §7.1 Drink Potion ─────────────────────────────────────────────────────────
 
@@ -42,7 +75,7 @@ import { getChatMessageRoot } from "../combat/chat-handlers/render/render-chat-m
  */
 export async function drinkPotion(actor, potionItem) {
   if (!actor || !potionItem) return;
-  const algData = potionItem.flags?.["uesrpg-3ev4"]?.alchemy;
+  const algData = _getAlchemyFlags(potionItem);
   if (!algData || algData.kind !== "potion") {
     ui.notifications.warn("That item is not a brewed potion.");
     return;
@@ -75,12 +108,10 @@ export async function drinkPotion(actor, potionItem) {
 
       case "minor_effects":
       case "dangerous":
-        // Minor effects / dangerous: apply inline (descriptive only, GM resolves manually).
         if (bfResult.minorEffect?.entry) {
           backfireHtml += `<div class="uesrpg-da-row"><span class="k">Minor Effect (2d8=${bfResult.minorEffect.roll})</span><span class="v">${bfResult.minorEffect.entry.label} — ${bfResult.minorEffect.entry.description}</span></div>`;
         }
         if (bfEntry?.outcome === "dangerous") {
-          // Apply 1d8 physical damage (ignoring armor).
           const dmgRoll = new Roll("1d8");
           await dmgRoll.evaluate();
           await applyDamage(actor, dmgRoll.total, "physical", {
@@ -94,7 +125,6 @@ export async function drinkPotion(actor, potionItem) {
         return;
 
       case "sickened":
-        // Sickened: Endurance test (descriptive, GM calls).
         backfireHtml += `<div class="uesrpg-da-row"><span class="k">Sickened</span><span class="v">Make an Endurance test or gain Poisoned for 1d6 rounds.</span></div>`;
         await _consumeAlchemyItem(actor, potionItem);
         await _postAlchemyUseMessage(actor, potionItem, "Potion Consumed — Sickened!", backfireHtml);
@@ -155,13 +185,9 @@ async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, 
   }
 
   if (key === "restoreStamina") {
-    const current = Number(actor.system?.stamina?.value ?? actor.system?.staminaPoints?.value ?? 0);
-    const max = Number(actor.system?.stamina?.max ?? actor.system?.staminaPoints?.max ?? 0);
-    const path = actor.system?.staminaPoints !== undefined
-      ? "system.staminaPoints.value"
-      : "system.stamina.value";
-    const newVal = Math.min(max, current + magnitude);
-    await requestUpdateDocument(actor, { [path]: newVal });
+    const { valuePath, value, max } = _resolveStaminaPaths(actor);
+    const newVal = Math.min(max, value + magnitude);
+    await requestUpdateDocument(actor, { [valuePath]: newVal });
     return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">+${magnitude} Stamina restored</span></div>`;
   }
 
@@ -202,7 +228,7 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
       : { seconds: durationRounds * 6 },
     changes,
     flags: {
-      "uesrpg-3ev4": {
+      [FLAG_NS]: {
         spellEffect: true,
         alchemyPotion: true,
         potionEffectKey: effectDef.key,
@@ -221,8 +247,6 @@ function _buildAEChanges(effectKey, magnitude) {
     case "shieldSpell":
       return [{ key: "magic_ar", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(magnitude) }];
     case "fortifyAttribute":
-      // Attribute not selected in this path — returns an empty change set;
-      // the AE name makes it visible for manual tracking.
       return [];
     case "feather":
       return [{ key: "system.encumbrance.bonus", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(-magnitude * 5) }];
@@ -248,7 +272,7 @@ export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
     return;
   }
 
-  const algData = alchemyItem.flags?.["uesrpg-3ev4"]?.alchemy;
+  const algData = _getAlchemyFlags(alchemyItem);
   if (!algData || (algData.kind !== "poison" && algData.kind !== "toxin")) {
     ui.notifications.warn("That item is not a brewed poison or toxin.");
     return;
@@ -256,17 +280,15 @@ export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
 
   // Store on the weapon in flags so the on-hit hook can read it.
   await requestUpdateDocument(weaponItem, {
-    "flags.uesrpg-3ev4.alchemyApplied": {
+    [`flags.${FLAG_NS}.alchemyApplied`]: {
       kind: algData.kind,
       itemUuid: alchemyItem.uuid,
       appliedAt: Date.now(),
-      // Poison: damage dice + level
       ...(algData.kind === "poison" && {
         damageFormula: algData.damageFormula ?? "1d4",
         poisonLevel: algData.poisonLevel ?? 1,
         backfired: algData.backfired ?? false,
       }),
-      // Toxin: effects array + duration state
       ...(algData.kind === "toxin" && {
         effects: algData.effects ?? [],
         durationRounds: algData.durationRounds ?? 10,
@@ -281,25 +303,18 @@ export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
   await _consumeAlchemyItem(actor, alchemyItem);
 
   // Confirmation chat card.
-  const content = `
-    <div class="uesrpg-alchemy-brew-card">
-      <div class="hdr">
-        <img class="actor-thumb" src="${actor.img ?? "icons/svg/mystery-man.svg"}" alt="">
-        <div class="hdr-text">
-          <div class="title">${actor.name}</div>
-          <div class="sub">Applied ${algData.kind === "poison" ? "Poison" : "Toxin"} to ${weaponItem.name}</div>
-        </div>
-      </div>
-      <div class="body">
-        <div class="uesrpg-da-row"><span class="k">Weapon</span><span class="v">${weaponItem.name}</span></div>
-        ${algData.kind === "poison"
-          ? `<div class="uesrpg-da-row"><span class="k">Poison Level</span><span class="v">${algData.poisonLevel ?? 1} (${algData.damageFormula ?? "1d4"})</span></div>`
-          : (algData.effects ?? []).map(e => `<div class="uesrpg-da-row"><span class="k">${getEffectByKey(e.effectKey)?.label ?? e.effectKey}</span><span class="v">SL ${e.spellLevel ?? 1}</span></div>`).join("")}
-        <div class="uesrpg-da-row"><span class="k">Hits</span><span class="v">${algData.kind === "toxin" ? (algData.maxHits ?? 3) : 1} remaining</span></div>
-        ${algData.backfired ? '<div class="uesrpg-da-row" style="color:#c62828;"><span class="k">⚠ Backfired</span><span class="v">Effects may be unpredictable</span></div>' : ""}
-      </div>
-    </div>
-  `;
+  const content = renderApplyToWeaponCard({
+    actorImg: actor.img ?? "icons/svg/mystery-man.svg",
+    actorName: actor.name,
+    weaponName: weaponItem.name,
+    kind: algData.kind,
+    poisonLevel: algData.poisonLevel ?? 1,
+    damageFormula: algData.damageFormula ?? "1d4",
+    effects: algData.effects ?? [],
+    maxHits: algData.kind === "toxin" ? (algData.maxHits ?? 3) : 1,
+    backfired: algData.backfired ?? false,
+    getEffectLabel: (k) => getEffectByKey(k)?.label ?? k,
+  });
 
   await ChatMessage.create({
     user: game.user.id,
@@ -316,20 +331,16 @@ export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
  * Checks if the attacker's weapon has alchemyApplied data; if so, resolves it.
  */
 async function _onDamageApplied(targetActor, context) {
-  // context.weapon is populated by the combat resolver (resolve.js).
-  // context.origin is the legacy/direct-path fallback (e.g. spells, AoE).
   const weapon = context?.weapon ?? context?.origin ?? null;
   if (!weapon || weapon.documentName !== "Item") return;
 
-  const applied = weapon.flags?.["uesrpg-3ev4"]?.alchemyApplied;
+  const applied = _getAppliedAlchemy(weapon);
   if (!applied) return;
 
-  // Resolve poison.
   if (applied.kind === "poison") {
     await _resolvePoisonOnHit(targetActor, weapon, applied);
   }
 
-  // Resolve toxin.
   if (applied.kind === "toxin") {
     await _resolveToxinOnHit(targetActor, weapon, applied);
   }
@@ -345,21 +356,52 @@ async function _resolvePoisonOnHit(targetActor, weaponItem, applied) {
   const damage = applied.backfired ? Math.floor(dmgRoll.total / 2) : dmgRoll.total;
 
   await applyDamage(targetActor, damage, "poison", {
-    ignoreReduction: true,   // RAW: poison damage bypasses armor
+    ignoreReduction: true,
     source: `Poison (Level ${applied.poisonLevel ?? 1})`,
     skipChatMessage: false,
   });
 
   // Poison is single-use: clear the applied flag from the weapon.
-  await requestUpdateDocument(weaponItem, { "flags.uesrpg-3ev4.alchemyApplied": null });
+  await requestUpdateDocument(weaponItem, { [`flags.${FLAG_NS}.alchemyApplied`]: null });
+}
+
+/**
+ * Build AE data for a condition-applying toxin effect.
+ * Pure function — no Foundry calls.
+ */
+function _buildConditionAEData(conditionName, aeName, durationRounds, combatActive) {
+  return {
+    name: aeName,
+    icon: "icons/magic/death/undead-ghost-strike-green.webp",
+    statuses: [conditionName.toLowerCase()],
+    duration: combatActive
+      ? { rounds: durationRounds, combat: game.combat.id }
+      : { seconds: durationRounds * 6 },
+    changes: [],
+    flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true } },
+  };
 }
 
 /**
  * Apply toxin effects on hit and decrement remaining hits.
+ * Batches all actor stat updates into one requestUpdateDocument call and
+ * all AE creations into one createEmbeddedDocuments call to reduce lag.
  * When hitsRemaining reaches 0, the toxin is cleared from the weapon.
  */
 async function _resolveToxinOnHit(targetActor, weaponItem, applied) {
   const effects = applied.effects ?? [];
+  const combatActive = !!game.combat?.active;
+  const durationRounds = applied.durationRounds ?? 10;
+
+  // Accumulate all updates before applying.
+  const aeCreates = [];
+  let totalDrainHealthDamage = 0;
+  let magickaDrain = 0;
+  let staminaDrain = 0;
+
+  // Read current resource values once (avoids stale reads across per-effect updates).
+  const currentMagicka = Number(targetActor.system?.magicka?.value ?? 0);
+  const { valuePath: staminaPath, value: currentStamina } = _resolveStaminaPaths(targetActor);
 
   for (const effectEntry of effects) {
     const effectDef = getEffectByKey(effectEntry.effectKey);
@@ -367,18 +409,77 @@ async function _resolveToxinOnHit(targetActor, weaponItem, applied) {
 
     const sl = Number(effectEntry.spellLevel ?? 1);
     const magnitude = applied.backfired ? Math.max(1, Math.floor(sl / 2)) : sl;
-    const durationRounds = applied.durationRounds ?? 10;
+    const key = effectDef.key;
 
-    await _applyToxinEffect(targetActor, effectDef, sl, magnitude, durationRounds, effectEntry);
+    if (key === "drainHealth") {
+      totalDrainHealthDamage += magnitude;
+    } else if (key === "drainMagicka") {
+      magickaDrain += magnitude;
+    } else if (key === "drainStamina") {
+      staminaDrain += magnitude;
+    } else if (key === "paralyze") {
+      aeCreates.push(_buildConditionAEData("Paralyzed", `Paralyze Toxin SL${sl}`, durationRounds, combatActive));
+    } else if (key === "silence") {
+      aeCreates.push(_buildConditionAEData("Silenced", `Silence Toxin SL${sl}`, durationRounds, combatActive));
+    } else if (key === "frenzy") {
+      aeCreates.push(_buildConditionAEData("Frenzied", `Frenzy Toxin SL${sl}`, durationRounds, combatActive));
+    } else if (key === "calm") {
+      aeCreates.push(_buildConditionAEData("Calmed", `Calm Toxin SL${sl}`, durationRounds, combatActive));
+    } else if (key === "demoralize") {
+      aeCreates.push(_buildConditionAEData("Frightened", `Demoralize Toxin SL${sl}`, durationRounds, combatActive));
+    } else if (key === "burden") {
+      aeCreates.push({
+        name: `Burden Toxin SL${sl}`,
+        icon: "icons/equipment/back/pack-heavy.webp",
+        duration: combatActive
+          ? { rounds: durationRounds, combat: game.combat.id }
+          : { seconds: durationRounds * 6 },
+        changes: [{ key: "system.encumbrance.penalty", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(sl * 5) }],
+        flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true } },
+      });
+    } else {
+      // Fallback: descriptive AE for GM to resolve.
+      aeCreates.push({
+        name: `${effectDef.label} (Toxin SL${sl})`,
+        icon: "icons/magic/death/undead-ghost-strike-green.webp",
+        duration: combatActive
+          ? { rounds: durationRounds, combat: game.combat.id }
+          : { seconds: durationRounds * 6 },
+        changes: [],
+        flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true, toxinEffectKey: key, toxinSL: sl } },
+      });
+    }
   }
 
-  // Decrement hits.
+  // Apply accumulated drain health (single applyDamage call).
+  if (totalDrainHealthDamage > 0) {
+    await applyDamage(targetActor, totalDrainHealthDamage, "physical", {
+      ignoreReduction: true,
+      source: "Drain Health (Toxin)",
+      skipChatMessage: true,
+    });
+  }
+
+  // Apply accumulated magicka and stamina drains (single requestUpdateDocument call).
+  const actorUpdate = {};
+  if (magickaDrain > 0) actorUpdate["system.magicka.value"] = Math.max(0, currentMagicka - magickaDrain);
+  if (staminaDrain > 0) actorUpdate[staminaPath] = Math.max(0, currentStamina - staminaDrain);
+  if (Object.keys(actorUpdate).length) {
+    await requestUpdateDocument(targetActor, actorUpdate);
+  }
+
+  // Apply all AE creations in one batch.
+  if (aeCreates.length) {
+    await targetActor.createEmbeddedDocuments("ActiveEffect", aeCreates);
+  }
+
+  // Decrement hits (on the weapon document — cannot be merged with actor update).
   const hitsRemaining = Math.max(0, Number(applied.hitsRemaining ?? 1) - 1);
   if (hitsRemaining <= 0) {
-    await requestUpdateDocument(weaponItem, { "flags.uesrpg-3ev4.alchemyApplied": null });
+    await requestUpdateDocument(weaponItem, { [`flags.${FLAG_NS}.alchemyApplied`]: null });
   } else {
     await requestUpdateDocument(weaponItem, {
-      "flags.uesrpg-3ev4.alchemyApplied.hitsRemaining": hitsRemaining,
+      [`flags.${FLAG_NS}.alchemyApplied.hitsRemaining`]: hitsRemaining,
     });
   }
 
@@ -395,118 +496,16 @@ async function _resolveToxinOnHit(targetActor, weaponItem, applied) {
   });
 }
 
-/**
- * Apply a single toxin effect to the target (creates AE or applies damage).
- */
-async function _applyToxinEffect(targetActor, effectDef, sl, magnitude, durationRounds, effectEntry) {
-  const key = effectDef.key;
-
-  // Drain effects: instant HP/Magicka/Stamina reduction.
-  if (key === "drainHealth") {
-    await applyDamage(targetActor, magnitude * 1, "physical", {
-      ignoreReduction: true,
-      source: `Drain Health (Toxin SL${sl})`,
-      skipChatMessage: true,
-    });
-    return;
-  }
-  if (key === "drainMagicka") {
-    const current = Number(targetActor.system?.magicka?.value ?? 0);
-    await requestUpdateDocument(targetActor, {
-      "system.magicka.value": Math.max(0, current - magnitude),
-    });
-    return;
-  }
-  if (key === "drainStamina") {
-    const path = targetActor.system?.staminaPoints !== undefined
-      ? "system.staminaPoints.value"
-      : "system.stamina.value";
-    const current = Number(targetActor.system?.staminaPoints?.value ?? targetActor.system?.stamina?.value ?? 0);
-    await requestUpdateDocument(targetActor, { [path]: Math.max(0, current - magnitude) });
-    return;
-  }
-
-  // Condition-applying effects: create an AE that signals the condition.
-  // The condition engine picks up statuses from AEs.
-  if (key === "paralyze") {
-    await _createConditionAE(targetActor, "Paralyzed", `Paralyze Toxin SL${sl}`, durationRounds);
-    return;
-  }
-  if (key === "silence") {
-    await _createConditionAE(targetActor, "Silenced", `Silence Toxin SL${sl}`, durationRounds);
-    return;
-  }
-  if (key === "frenzy") {
-    await _createConditionAE(targetActor, "Frenzied", `Frenzy Toxin SL${sl}`, durationRounds);
-    return;
-  }
-  if (key === "calm") {
-    await _createConditionAE(targetActor, "Calmed", `Calm Toxin SL${sl}`, durationRounds);
-    return;
-  }
-  if (key === "demoralize") {
-    await _createConditionAE(targetActor, "Frightened", `Demoralize Toxin SL${sl}`, durationRounds);
-    return;
-  }
-
-  // Burden: add encumbrance AE.
-  if (key === "burden") {
-    const combatActive = !!game.combat?.active;
-    await targetActor.createEmbeddedDocuments("ActiveEffect", [{
-      name: `Burden Toxin SL${sl}`,
-      icon: "icons/equipment/back/pack-heavy.webp",
-      duration: combatActive
-        ? { rounds: durationRounds, combat: game.combat.id }
-        : { seconds: durationRounds * 6 },
-      changes: [{ key: "system.encumbrance.penalty", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(sl * 5) }],
-      flags: { "uesrpg-3ev4": { spellEffect: true, alchemyToxin: true } },
-    }]);
-    return;
-  }
-
-  // Fallback: descriptive AE for GM to resolve.
-  const combatActive = !!game.combat?.active;
-  await targetActor.createEmbeddedDocuments("ActiveEffect", [{
-    name: `${effectDef.label} (Toxin SL${sl})`,
-    icon: "icons/magic/death/undead-ghost-strike-green.webp",
-    duration: combatActive
-      ? { rounds: durationRounds, combat: game.combat.id }
-      : { seconds: durationRounds * 6 },
-    changes: [],
-    flags: { "uesrpg-3ev4": { spellEffect: true, alchemyToxin: true, toxinEffectKey: key, toxinSL: sl } },
-  }]);
-}
-
-async function _createConditionAE(targetActor, conditionName, aeName, durationRounds) {
-  const combatActive = !!game.combat?.active;
-  await targetActor.createEmbeddedDocuments("ActiveEffect", [{
-    name: aeName,
-    icon: "icons/magic/death/undead-ghost-strike-green.webp",
-    statuses: [conditionName.toLowerCase()],
-    duration: combatActive
-      ? { rounds: durationRounds, combat: game.combat.id }
-      : { seconds: durationRounds * 6 },
-    changes: [],
-    flags: { "uesrpg-3ev4": { spellEffect: true, alchemyToxin: true } },
-  }]);
-}
-
 // ── §7.4 Round tick-down ──────────────────────────────────────────────────────
 
 /**
  * Called on `updateCombat` when the round advances.
- * Logs remaining duration on active alchemy AEs (actual expiry is handled by the
- * spell-effect-expiration system which already tracks AE duration natively).
- * This hook is lightweight — if the expiration system handles it, we skip.
+ * The Foundry AE duration system decrements `remaining` each round automatically.
+ * This hook exists as an extension point for custom countdown chat messages.
  */
 function _onUpdateCombat(combat, updateData) {
-  // Only fire when the round advances (not on initiative/turn changes alone).
   if (!("round" in updateData)) return;
-
-  // The Foundry AE duration system decrements `remaining` each round automatically
-  // when the AE has a `rounds` duration and a combat ID.  Our alchemy AEs are
-  // created with that structure so no additional tick logic is needed here.
-  // This hook exists as an extension point for custom countdown chat messages.
+  // No additional tick logic needed — native AE duration handles expiry.
 }
 
 // ── §7.5 Chat button handler ──────────────────────────────────────────────────
@@ -518,7 +517,6 @@ function _onUpdateCombat(combat, updateData) {
  * Wired to `renderChatMessageHTML` via initializeAlchemyRuntime().
  */
 function _onRenderChatMessage(message, html) {
-  // Foundry v13 passes an HTMLElement; some module interactions may provide a jQuery wrapper.
   const root = getChatMessageRoot(html);
   if (!root) return;
 
@@ -557,7 +555,6 @@ function _onRenderChatMessage(message, html) {
       const alchyItem  = await fromUuid(itemUuid);
       if (!actor || !alchyItem) return;
 
-      // Show weapon picker dialog.
       const weapon = await _pickWeapon(actor);
       if (!weapon) return;
       await applyAlchemyToWeapon(actor, alchyItem, weapon);
@@ -579,7 +576,6 @@ async function _pickWeapon(actor) {
 
   if (weapons.length === 1) return weapons[0];
 
-  // Build option list for a simple select dialog.
   const options = weapons.map((w) => `<option value="${w.id}">${w.name}</option>`).join("");
   const content = `<p>Select a weapon to coat:</p><select name="weaponId" style="width:100%;">${options}</select>`;
 
@@ -614,21 +610,16 @@ async function _consumeAlchemyItem(actor, item) {
 }
 
 async function _postAlchemyUseMessage(actor, item, title, bodyHtml) {
+  const content = renderAlchemyUseCard({
+    actorImg: actor.img ?? "icons/svg/mystery-man.svg",
+    actorName: actor.name,
+    title,
+    bodyHtml,
+  });
   await ChatMessage.create({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
-    content: `
-      <div class="uesrpg-alchemy-brew-card">
-        <div class="hdr">
-          <img class="actor-thumb" src="${actor.img ?? "icons/svg/mystery-man.svg"}" alt="">
-          <div class="hdr-text">
-            <div class="title">${actor.name}</div>
-            <div class="sub">${title}</div>
-          </div>
-        </div>
-        <div class="body">${bodyHtml}</div>
-      </div>
-    `,
+    content,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
   });
 }
@@ -638,11 +629,15 @@ async function _postAlchemyUseMessage(actor, item, title, bodyHtml) {
 /**
  * Register all alchemy runtime hooks.
  * Call once from the system.js ready handler.
- *
- * Runtime is always enabled. Hooks are still registered in a single place and
- * only once to keep lifecycle deterministic and avoid duplicate listeners.
+ * Idempotent — safe to call multiple times; duplicate registrations are silently skipped.
  */
 export function initializeAlchemyRuntime() {
+  if (_runtimeInitialized) {
+    console.warn("UESRPG | Alchemy runtime already initialized — skipping duplicate registration.");
+    return;
+  }
+  _runtimeInitialized = true;
+
   // On-hit: react to any damage-applied event.
   Hooks.on("uesrpgDamageApplied", (targetActor, context) => {
     _onDamageApplied(targetActor, context).catch((err) => {

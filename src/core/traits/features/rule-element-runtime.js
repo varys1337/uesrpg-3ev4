@@ -21,8 +21,8 @@ import {
   normalizeRuleElement,
   validateRuleElement
 } from "./rule-elements.js";
+import { SYSTEM_ID } from "../../system/namespace.js";
 
-const SYSTEM_ID = "uesrpg-3ev4";
 const RUNTIME_SETTING = "enableRuleElementsRuntime";
 const FEATURE_ITEM_TYPES = new Set(["trait", "talent", "power"]);
 const SUPPORT_MATRIX = getRuleElementRuntimeSupport();

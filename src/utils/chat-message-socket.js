@@ -15,7 +15,7 @@ import {
   canUserUpdateChatMessage,
   sanitizeChatMessageUpdatePayload,
   isChatMessageUpdateFresh,
-  getMessageAuthorId
+  getChatMessageAuthorId
 } from "./authority-proxy.js";
 
 const SOCKET_EVENT_V1 = "uesrpg.chatMessageUpdate.v1";
@@ -26,14 +26,6 @@ const SOCKET_EVENT_V3 = "uesrpg.chatMessageUpdate.v3";
 
 function _socketChannel() {
   return `system.${game.system.id}`;
-}
-
-function _isAuthor(message, user) {
-  try {
-    return Boolean(user?.id) && (getMessageAuthorId(message) === user.id);
-  } catch (_e) {
-    return false;
-  }
 }
 
 /**
@@ -68,7 +60,7 @@ export function registerChatMessageSocket() {
       if (anyActiveGM && !game.user?.isGM) return;
 
       // Only allow application by a GM or the message author.
-      const isEligibleApplier = Boolean(game.user?.isGM) || _isAuthor(message, game.user);
+      const isEligibleApplier = Boolean(game.user?.isGM) || (getChatMessageAuthorId(message) === game.user?.id);
       if (!isEligibleApplier) return;
 
       // And only if they can actually update the document.
@@ -82,7 +74,12 @@ export function registerChatMessageSocket() {
 
       try {
         await message.update(payload, { render: false });
-        if (ui?.chat) ui.chat.render?.(true);
+        if (ui?.chat) {
+          const _chatLog = document.getElementById("chat-log");
+          const _wasAtBottom = !_chatLog || (_chatLog.scrollHeight - _chatLog.scrollTop - _chatLog.clientHeight) < 50;
+          ui.chat.render?.(true);
+          if (_wasAtBottom) requestAnimationFrame(() => ui.chat?.scrollBottom?.());
+        }
       } catch (err) {
         console.error("UESRPG | chat-message-socket | apply failed", { messageId, err });
       }

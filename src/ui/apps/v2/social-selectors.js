@@ -1,12 +1,14 @@
-import { LANGUAGE_CHOICES, FACTION_CHOICES } from "../../sheets/shared/data/social-choices.js";
+﻿import { LANGUAGE_CHOICES, FACTION_CHOICES } from "../../sheets/shared/data/social-choices.js";
 import {
   buildKnownLanguagesStringFromEntries,
+  formatLanguageSlotSummary,
   getSocialStateFromSystem,
   normalizeFactionEntries,
   normalizeLanguageEntries,
   toSlug,
 } from "../../../core/social/social-data.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { SYSTEM_ID, templatePath } from "../../constants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -39,7 +41,7 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
 
   static PARTS = {
     main: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/language-selector.hbs",
+      template: templatePath("v2/apps/language-selector.hbs"),
       scrollable: [".social-choice-list", ".social-selected-list"],
     },
   };
@@ -58,7 +60,7 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
 
     return {
       maxSlots: state.languages.max,
-      slotSummary: `Cyrodilic (free) - Max additional: ${state.languages.max} (IB-2, max 4)`,
+      slotSummary: formatLanguageSlotSummary(state.languages.max),
       choices: LANGUAGE_CHOICES
         .filter((name) => name.toLowerCase() !== "cyrodilic")
         .map((name) => ({
@@ -213,7 +215,7 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
 
   static PARTS = {
     main: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/faction-selector.hbs",
+      template: templatePath("v2/apps/faction-selector.hbs"),
       scrollable: [".social-choice-list", ".social-selected-list"],
     },
   };
@@ -363,3 +365,4 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
     this.close();
   }
 }
+

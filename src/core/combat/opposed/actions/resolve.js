@@ -15,9 +15,10 @@ import { getAttackModeFromWeapon, getDamageTypeFromWeapon } from "../../combat-u
 import { getBlockValue } from "../../mitigation.js";
 import { DAMAGE_TYPES } from "../../damage-automation.js";
 import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
-import { _promptWeaponAndAdvantages, _ensureResolvedForPostActions } from "../../opposed-workflow.js";
+import { _ensureResolvedForPostActions } from "../../opposed-workflow.js";
+import { promptWeaponAndAdvantages as _promptWeaponAndAdvantages } from "../dialogs/attacker.js";
 import { getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
-import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "../../../stamina/stamina-dialog.js";
+import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "../../../stamina/stamina-effects.js";
 import { UESRPG } from "../../../constants.js";
 import { selectEquippedRangedWeapon } from "../helpers/select-equipped-ranged-weapon.js";
 import { inflateSharedDamage as _inflateSharedDamage, buildSharedDamagePayload as _buildSharedDamagePayload } from "./damage.js";
@@ -181,7 +182,7 @@ export async function handleDefenderAdvantage(ctx) {
 
           // Defender initiates, so swap attacker/defender roles
           if (attackerToken && defenderToken) {
-            const { SkillOpposedWorkflow } = await import("../../../skills/opposed-workflow.js");
+            const { SkillOpposedWorkflow } = await import("../../../skills/opposed-workflow/index.js");
             const def = getSpecialActionById(saId);
             
             const saMessage = await SkillOpposedWorkflow.createPending({
@@ -413,6 +414,7 @@ export async function handleBlockResolve(ctx) {
         damage: reducedDamage,
         damageType,
         hitLocation: hitLocationAoE,
+        damagedValue: dmg.damagedValue ?? 0,
         attackMode,
         attackHidden,
         source: weapon.name,
@@ -505,6 +507,7 @@ export async function handleBlockResolve(ctx) {
       damage: dmg.finalDamage,
       damageType,
       hitLocation: resolvedShieldArm,
+      damagedValue: dmg.damagedValue ?? 0,
       attackMode,
       attackHidden: data.context?.attackFromHidden === true,
       source: weapon.name,
@@ -703,6 +706,7 @@ export async function handleWardResolve(ctx) {
         damage: reducedDamage,
         damageType,
         hitLocation: hitLocationAoE,
+        damagedValue: dmg.damagedValue ?? 0,
         attackMode,
         attackHidden,
         source: weapon.name,
@@ -777,6 +781,7 @@ export async function handleWardResolve(ctx) {
       damage: dmg.finalDamage,
       damageType,
       hitLocation: resolvedWardArm,
+      damagedValue: dmg.damagedValue ?? 0,
       attackMode,
       attackHidden: data.context?.attackFromHidden === true,
       source: weapon.name,

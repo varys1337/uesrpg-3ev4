@@ -16,43 +16,14 @@
 import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
 import { cloneFlagState } from "../../../utils/clone.js";
 import { perfStart, perfEnd } from "../../../utils/debug.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
+import { createMessageQueue } from "../../opposed/shared/message-queue.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 const _FLAG_KEY = "magicOpposed";
 const _CARD_VERSION = 2;
 
-/* ────────────────────────────────────────────────────────────────────────
- * Per-message async mutex.
- *
- * Banking mode dispatches rolls sequentially, but outcome resolution
- * and card updates can still overlap if hooks fire mid-flight.
- * The mutex ensures that at most one updateCard call per messageId is
- * in-flight.  The second caller waits until the first completes, then
- * reads the freshly-updated flags and merges correctly.
- * ──────────────────────────────────────────────────────────────────────── */
-
-/** @type {Map<string, Promise<void>>} */
-const _cardUpdateQueues = new Map();
-
-/**
- * Enqueue `fn` behind any pending updateCard call for the same message.
- * Returns the result of `fn()`.
- * @param {string} messageId
- * @param {() => Promise<void>} fn
- * @returns {Promise<void>}
- */
-function _enqueueCardUpdate(messageId, fn) {
-  const prev = _cardUpdateQueues.get(messageId) ?? Promise.resolve();
-  // Chain: wait for previous write, then run ours.  Swallow errors from
-  // earlier writes so they don't block subsequent ones.
-  const next = prev.catch(() => {}).then(fn);
-  _cardUpdateQueues.set(messageId, next);
-  // Clean up once the full chain for this id settles (avoid memory leak).
-  next.finally(() => {
-    if (_cardUpdateQueues.get(messageId) === next) _cardUpdateQueues.delete(messageId);
-  });
-  return next;
-}
+const _enqueueCardUpdate = createMessageQueue();
 
 /**
  * Update magic opposed card with new data.

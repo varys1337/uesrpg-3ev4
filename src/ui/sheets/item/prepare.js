@@ -65,8 +65,7 @@ export async function prepareItemSheetData(sheet, data) {
   data.canEditReloadAPCost = Boolean(
     data.editable &&
     data.item?.type === "weapon" &&
-    String(data.item?.system?.attackMode ?? "").toLowerCase() === "ranged" &&
-    data.item?.system?.gmOverride?.useBaseStats === true
+    String(data.item?.system?.attackMode ?? "").toLowerCase() === "ranged"
   );
 
   // Enrich Description (cached per sheet instance)
@@ -238,8 +237,8 @@ export async function prepareItemSheetData(sheet, data) {
     healing: "Healing"
   };
 
-  // Normalize damageInstances for rendering (weapons + spells)
-  if (itemType === "spell" || itemType === "weapon") {
+  // Normalize damageInstances for rendering (spells only)
+  if (itemType === "spell") {
     const rawInstances = data.item?.system?.damageInstances;
     data.item.system.damageInstances = Array.isArray(rawInstances)
       ? rawInstances.filter(i => i && typeof i === "object").map(i => ({
@@ -299,14 +298,6 @@ export async function prepareItemSheetData(sheet, data) {
     disease: "Disease",
     magic: "Magic"
   };
-
-  // --------------------------------------------
-  // Ammunition: Derived Price Per Shot
-  // --------------------------------------------
-  if (data.item && data.item.type === "ammunition") {
-    const p10 = Number((data.item.system && data.item.system.pricePer10 != null) ? data.item.system.pricePer10 : 0);
-    data.item.system.pricePerShot = Math.round((p10 / 10) * 100) / 100;
-  }
 
   // --------------------------------------------
   // Structured Qualities v1 (shared)
@@ -524,7 +515,7 @@ export async function prepareItemSheetData(sheet, data) {
   // Weapon / Armor: Enchantment display (read-only)
   // Written by the Enchanting Workshop; surfaced here for the item sheet Attributes tab.
   // --------------------------------------------
-  if (itemType === "weapon" || itemType === "armor" || itemType === "ammunition") {
+  if (itemType === "weapon" || itemType === "armor" || itemType === "ammunition" || itemType === "equipment") {
     const enc = sheet.item?.flags?.["uesrpg-3ev4"]?.enchanting ?? null;
     data.uiSpellcastingConfig = _buildSpellcastingUiConfig(sheet.item);
     if (enc?.version === 2 && enc.enchantType) {
@@ -532,7 +523,7 @@ export async function prepareItemSheetData(sheet, data) {
     } else {
       data.enchantmentDisplay = null;
     }
-  } else if (itemType === "item" || itemType === "container" || itemType === "scroll") {
+  } else if (itemType === "container" || itemType === "scroll") {
     data.uiSpellcastingConfig = _buildSpellcastingUiConfig(sheet.item);
   }
 
@@ -540,7 +531,7 @@ export async function prepareItemSheetData(sheet, data) {
   // Generic Item: Alchemy ingredient data (flag-based)
   // Identifies items that serve as alchemy ingredients via flags["uesrpg-3ev4"].alchemy.
   // --------------------------------------------
-  if (itemType === "item") {
+  if (itemType === "equipment") {
     const alchemyFlags = sheet.item?.flags?.["uesrpg-3ev4"]?.alchemy ?? null;
     data.isAlchemyIngredient = alchemyFlags?.kind === "ingredient";
     data.isAlchemyProduct = ["potion", "poison", "toxin"].includes(String(alchemyFlags?.kind ?? ""));

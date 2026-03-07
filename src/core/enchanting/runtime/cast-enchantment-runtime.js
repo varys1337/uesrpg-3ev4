@@ -1,6 +1,7 @@
 import { MagicOpposedWorkflow } from "../../magic/opposed-workflow.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 
 function _settingEnabled() {
   return game.settings.get(_FLAG_NS, "enchanting.enableCastEnchantmentRuntime") === true;

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/core/combat/opposed/dialogs/attacker.js
  *
  * Attacker-side dialog functions for opposed combat workflow.
@@ -19,6 +19,18 @@ import {
   getPreferredWeaponUuid as _getPreferredWeaponUuid
 } from "../helpers/workflow.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../../data/tooltips/index.js";
+import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
+import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
+
+function _escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 /**
  * Display attacker's attack declaration dialog.
@@ -139,12 +151,9 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
     </div>` : ""}
 
     <div class="form-group">
-      <label>Circumstance</label>
+      <label>Circumstance Modifier</label>
       <select name="circMod">
-        <option value="0" ${Number(defaultCirc) === 0 ? "selected" : ""}>—</option>
-        <option value="-10" ${Number(defaultCirc) === -10 ? "selected" : ""}>Minor Disadvantage (-10)</option>
-        <option value="-20" ${Number(defaultCirc) === -20 ? "selected" : ""}>Disadvantage (-20)</option>
-        <option value="-30" ${Number(defaultCirc) === -30 ? "selected" : ""}>Major Disadvantage (-30)</option>
+        ${buildCircumstanceOptionsHtml(defaultCirc)}
       </select>
     </div>
     <div class="form-group">
@@ -157,7 +166,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
 `;
 
     return await customDialog({
-      title: `${attackerLabel} — Attack Options`,
+      title: `${attackerLabel} \u2014 Attack Options`,
       content,
       buttons: {
         ok: {
@@ -317,31 +326,51 @@ export async function promptWeaponAndAdvantages({
     if (!id) return "";
     const label = String(sa?.name ?? id);
     const typ = String(sa?.actionType ?? "").toLowerCase();
+    const tooltip = buildSpecialActionTooltipText({ name: label, id, actionType: typ || "primary/secondary" });
+    const helpText = buildSpecialActionHelpText({ name: label, id });
     const chipClass = typ === "primary" ? "uesrpg-adv-chip--primary" : "uesrpg-adv-chip--secondary";
     const chipLabel = typ === "primary" ? "Primary" : "Secondary";
     return `
-      <label class="uesrpg-adv-choice">
+      <label class="uesrpg-adv-choice" title="${_escapeHtml(tooltip)}" data-uesrpg-inline-help="true" data-uesrpg-inline-help-label="${_escapeHtml(label)}" data-uesrpg-inline-help-text="${_escapeHtml(tooltip)}" data-uesrpg-inline-help-dialog-text="${_escapeHtml(helpText)}">
         <input type="checkbox" name="sa_${id}" />
         <span class="uesrpg-adv-choice__label">
           <span class="uesrpg-adv-choice__title">${label}</span>
+          <span class="uesrpg-adv-chip uesrpg-adv-chip--inline ${chipClass}">${chipLabel}</span>
         </span>
-        <span class="uesrpg-adv-chip ${chipClass}">${chipLabel}</span>
       </label>
     `;
   };
 
+  const showWeaponSelect = allowNoWeapon || weapons.length >= 2;
   const noneSelected = allowNoWeapon && !defaultWeapon;
   const noneOption = allowNoWeapon ? `<option value="" ${noneSelected ? "selected" : ""}>None</option>` : "";
   const weaponOptions = `${noneOption}${weapons
     .map(w => `<option value="${w.uuid}" ${w.uuid === defaultWeapon?.uuid ? "selected" : ""}>${w.name}</option>`)
     .join("\n")}`;
+  const resolvedWeaponUuid = defaultWeapon?.uuid ?? "";
+  const hasChoiceUi = max > 0;
+
+  if (!showWeaponSelect && !hasChoiceUi) {
+    return {
+      weaponUuid: resolvedWeaponUuid,
+      precisionStrike: false,
+      precisionLocation: safeDefaultLoc,
+      penetrateArmor: false,
+      forcefulImpact: false,
+      pressAdvantage: false,
+      pressAdvantageDouble: false,
+      specialActionsSelected: []
+    };
+  }
 
   const content = `
     <div class="uesrpg-opp-dmg uesrpg-adv-dialog uesrpg-adv-dialog--attacker">
+      ${showWeaponSelect ? `
       <div class="form-group uesrpg-adv-weapon">
         <label><b>Weapon</b></label>
         <select name="weaponUuid">${weaponOptions}</select>
       </div>
+      ` : `<input type="hidden" name="weaponUuid" value="${_escapeHtml(resolvedWeaponUuid)}" />`}
 
       ${max > 0 ? `
         <hr style="margin:0.5rem 0;" />
@@ -353,11 +382,14 @@ export async function promptWeaponAndAdvantages({
         <input type="hidden" name="defaultHitLocation" value="${safeDefaultLoc}" />
 
         <div class="uesrpg-adv-grid">
-          <label class="uesrpg-adv-choice">
+          <label class="uesrpg-adv-choice uesrpg-precision-option">
             <input type="checkbox" name="precisionStrike" />
             <span class="uesrpg-adv-choice__label">
               <span class="uesrpg-adv-choice__title">Precision Strike</span>
               <span class="uesrpg-adv-choice__desc">Choose a hit location.</span>
+              <span class="uesrpg-adv-inline ps-location disabled">
+                <select name="precisionLocation" disabled>${locOptions}</select>
+              </span>
             </span>
           </label>
 
@@ -394,17 +426,15 @@ export async function promptWeaponAndAdvantages({
             ${knownSpecial.map(renderSpecialOpt).join("\n")}
           ` : ``}
         </div>
-        <div class="uesrpg-adv-inline disabled">
-          <select name="precisionLocation" disabled>${locOptions}</select>
-        </div>
-
         <p class="hint">Select up to ${max} option(s).</p>
       ` : ``}
     </div>
   `;
   const resolveDamageWidth = Math.max(420, Math.min(620, (window?.innerWidth ?? 620) - 96));
 
-  return await customDialog({
+  const tooltipScope = { kind: "adv-dialog", domain: "attacker-weapon-advantages" };
+  try {
+    return await customDialog({
       title: "Resolve Damage",
       width: resolveDamageWidth,
       content,
@@ -417,7 +447,7 @@ export async function promptWeaponAndAdvantages({
             if (!form) return null;
 
             const q = (name) => form.querySelector(`[name="${name}"]`);
-            const weaponUuid = String(q("weaponUuid")?.value ?? "");
+            const weaponUuid = String(q("weaponUuid")?.value ?? resolvedWeaponUuid);
 
             const precisionStrike = Boolean(q("precisionStrike")?.checked);
             const defaultLoc = String(q("defaultHitLocation")?.value ?? "Body");
@@ -461,6 +491,7 @@ export async function promptWeaponAndAdvantages({
 
     render: (event, html) => {
       const root = html instanceof HTMLElement ? html : html?.element ?? html;
+      if (root instanceof HTMLElement) bindItemDescriptionTooltips(tooltipScope, root);
       const form = root?.querySelector(".uesrpg-opp-dmg") ?? root;
       if (!form) return;
 
@@ -475,7 +506,7 @@ export async function promptWeaponAndAdvantages({
           const ps = form.querySelector('input[type="checkbox"][name="precisionStrike"]');
           const psOn = Boolean(ps?.checked);
           precisionSelect.disabled = !psOn;
-          const precisionWrap = precisionSelect.closest(".uesrpg-adv-inline");
+          const precisionWrap = precisionSelect.closest(".ps-location");
           if (precisionWrap) precisionWrap.classList.toggle("disabled", !psOn);
           if (!psOn) precisionSelect.value = defaultLoc;
         }
@@ -508,9 +539,12 @@ export async function promptWeaponAndAdvantages({
       updateUi();
     },
   });
+  } finally {
+    clearItemDescriptionTooltip(tooltipScope);
+  }
 }
 
-// ──────────── Helper Functions ────────────
+// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Helper Functions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
 /**
  * List equipped weapons for an actor.
@@ -519,10 +553,11 @@ export async function promptWeaponAndAdvantages({
 function _listEquippedWeapons(actor) {
   const equipped = actor?.itemTypes?.weapon?.filter(w => w.system?.equipped === true) ?? [];
   if (equipped.length) return equipped.map(w => ({ uuid: w.uuid, name: w.name ?? "Weapon", img: w.img ?? "" }));
-  // Fallback: NPCs often lack explicit equipped flags — return all weapons
+  // Fallback: NPCs often lack explicit equipped flags вЂ” return all weapons
   const all = actor?.itemTypes?.weapon ?? [];
   if (all.length) {
-    console.debug("UESRPG | _listEquippedWeapons: no weapons with equipped=true for", actor?.name, "— falling back to all weapons");
+    console.debug("UESRPG | _listEquippedWeapons: no weapons with equipped=true for", actor?.name, "вЂ” falling back to all weapons");
   }
   return all.map(w => ({ uuid: w.uuid, name: w.name ?? "Weapon", img: w.img ?? "" }));
 }
+

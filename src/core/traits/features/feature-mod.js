@@ -13,6 +13,7 @@
  */
 
 import { normalizeTalentKey } from "../talents-api.js";
+import { isDebugEnabled } from "../../../utils/debug.js";
 
 // ─── Domain constants ────────────────────────────────────────────────
 
@@ -86,23 +87,6 @@ export const STACKING_MODES = Object.freeze({
 
 // ─── Factory ─────────────────────────────────────────────────────────
 
-let _debugEnabled = false;
-let _debugChecked = false;
-
-function _isDebug() {
-  if (!_debugChecked) {
-    try {
-      _debugEnabled = game?.settings?.get?.("uesrpg-3ev4", "activationDebug") === true;
-    } catch (_e) {
-      _debugEnabled = false;
-    }
-    _debugChecked = true;
-    // Re-check every 30s to pick up runtime setting changes.
-    setTimeout(() => { _debugChecked = false; }, 30_000);
-  }
-  return _debugEnabled;
-}
-
 const REQUIRED_FIELDS = ["domain", "path", "mode", "value", "source"];
 
 /**
@@ -132,7 +116,7 @@ export function makeFeatureMod(partial) {
   };
 
   // Soft validation in debug mode only.
-  if (_isDebug()) {
+  if (isDebugEnabled("activationDebug")) {
     for (const field of REQUIRED_FIELDS) {
       if (mod[field] === undefined || mod[field] === null || mod[field] === "") {
         if (field === "value") continue; // 0 is valid

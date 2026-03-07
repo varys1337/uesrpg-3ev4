@@ -9,6 +9,7 @@
  * fromUuid() when the effect might have been deleted by another user or workflow.
  */
 import { isDebugEnabled } from "./debug.js";
+import { FLAG_SCOPE } from "../core/constants.js";
 import {
   requestCreateEmbeddedDocuments,
   requestUpdateEmbeddedDocuments,
@@ -128,8 +129,6 @@ export function isMissingDocError(err) {
 }
 
 // ── Effect Grouping & Stacking (merged from ae-grouping.js) ─────────────────
-
-const FLAG_SCOPE = "uesrpg-3ev4";
 
 /**
  * Get the effect group identifier from an ActiveEffect.

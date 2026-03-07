@@ -51,10 +51,10 @@ export async function onItemCreate(sheet, event, {
                   <label>Create an item on this sheet</label>
                 </div>`,
       buttons: {
-        item: {
-          label: "Item",
+        equipment: {
+          label: "Equipment",
           callback: async () => {
-            const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "item", type: "item" }]);
+            const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "equipment", type: "equipment" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
@@ -88,7 +88,7 @@ export async function onItemCreate(sheet, event, {
         },
         cancel: { label: "Cancel" },
       },
-      defaultButton: "item",
+      defaultButton: "equipment",
     });
     return;
   }
@@ -223,7 +223,7 @@ export async function onEquipItems(sheet, event) {
   for (const item of itemList) {
     switch (item.type) {
       case "armor":
-      case "item":
+      case "equipment":
         tableEntry = `<tr>
                             <td data-item-id="${item._id}">
                                 <div style="display: flex; flex-direction: row; align-items: center; gap: 5px;">
@@ -283,7 +283,7 @@ export async function onEquipItems(sheet, event) {
 
   switch (itemList[0].type) {
     case "armor":
-    case "item":
+    case "equipment":
       tableHeader = `<div>
                           <div style="padding: 5px 0;">
                               <label>Selecting nothing will unequip all items</label>

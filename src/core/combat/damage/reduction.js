@@ -137,22 +137,44 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
 
   const ARMOR_LOCATION_KEYS = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
 
-  const getCoveredLocations = (item) => {
+  const normalizeCoverageOverride = (value) => {
+    const raw = String(value ?? "").trim().toLowerCase();
+    if (!raw) return "";
+    if (raw === "full" || raw === "partial" || raw === "none") return raw;
+    if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
+      return "none";
+    }
+    return "";
+  };
+
+  const resolveArmorClass = (sys, locationKey = null, { applyProne = true } = {}) => {
+    let armorClass = String(sys?.armorClass || "partial").toLowerCase();
+    if (armorClass !== "full" && armorClass !== "partial" && armorClass !== "none") armorClass = "partial";
+    const override = normalizeCoverageOverride(sys?.hitLocationStates?.[locationKey]?.coverageOverride);
+    if (override) armorClass = override;
+    if (applyProne && isProneForArmor && armorClass === "full") armorClass = "partial";
+    return armorClass;
+  };
+
+  const getLocationDamagedValue = (sys, locationKey) => {
+    const raw = sys?.hitLocationStates?.[locationKey]?.damaged;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.max(0, Math.floor(n));
+  };
+
+  const getCoveredLocations = (item, locationKey = null) => {
     const sys = item?.system ?? {};
-    let armorClass = String(sys.armorClass || "partial").toLowerCase();
+    const armorClass = resolveArmorClass(sys, locationKey);
     const category = String(sys.category || "").toLowerCase();
     const hitLocs = sys.hitLocations ?? {};
 
-    if (isProneForArmor && armorClass === "full") armorClass = "partial";
-
-    const allTrue = ARMOR_LOCATION_KEYS.every(k => hitLocs?.[k] === true);
+    if (armorClass === "none") return new Set();
 
     const catLocs = ARMOR_CATEGORY_TO_LOCATIONS[category] ?? null;
-    if (catLocs && (armorClass === "full" || (armorClass === "partial" && allTrue))) {
-      return new Set(catLocs);
-    }
+    if (catLocs) return new Set(catLocs);
 
-    // Only explicit true counts.
+    // Legacy compatibility fallback for uncategorized pieces.
     return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
   };
 
@@ -185,13 +207,13 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
       if (item.system?.isShield) continue;
       if (ignoreNonMagicArmor && !isItemMagicSource(item)) continue;
 
-      const covered = getCoveredLocations(item);
+      const covered = getCoveredLocations(item, propertyName);
       if (!covered.has(propertyName)) continue;
       
-      let armorClass = String(item.system?.armorClass || "partial").toLowerCase();
-      if (isProneForArmor && armorClass === "full") armorClass = "partial";
+      const resolvedArmorClass = resolveArmorClass(item.system, propertyName);
+      if (resolvedArmorClass === "none") continue;
       
-      if (armorClass === "full") {
+      if (resolvedArmorClass === "full") {
         coverageClass = "full";
       } else if (coverageClass !== "full") {
         coverageClass = "partial";
@@ -207,8 +229,8 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
       // This ensures AR follows the partial profile even if armorEffective was derived as full.
       if (isProneForArmor) {
         const sys = item.system ?? {};
-        const armorClass = String(sys.armorClass || "partial").toLowerCase();
-        if (armorClass === "full") {
+        const armorClassBeforeProne = resolveArmorClass(sys, propertyName, { applyProne: false });
+        if (armorClassBeforeProne === "full") {
           const materialKey = String(sys.material || "").trim();
           const partialProfile = UESRPG?.ARMOR_PROFILES?.partial?.[materialKey] ?? null;
 
@@ -220,6 +242,9 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
           }
         }
       }
+
+      const locDamaged = getLocationDamagedValue(item.system, propertyName);
+      if (locDamaged > 0) ar = Math.max(0, ar - locDamaged);
 
       // Wall of Steel (Chapter 4): +1 AR to any worn armor.
       if (wallBonus) ar += wallBonus;
@@ -250,21 +275,24 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
       // Shields do not contribute AR; they are handled via Block in later steps.
       if (item.system?.isShield) continue;
 
-      const covered = getCoveredLocations(item);
+      const covered = getCoveredLocations(item, propertyName);
       if (!covered.has(propertyName)) continue;
 
       const sys = item.system ?? {};
 
       // Typed mitigation (elemental, poison, etc.)
       const specialType = String(sys.special_ar_type ?? "").toLowerCase();
-      const specialAR = Number(sys.special_arEffective ?? sys.special_ar ?? 0);
+      let specialAR = Number(sys.special_arEffective ?? sys.special_ar ?? 0);
+      const locDamaged = getLocationDamagedValue(sys, propertyName);
+      if (locDamaged > 0) specialAR = Math.max(0, specialAR - locDamaged);
       if (specialType && specialType === dtLower && Number.isFinite(specialAR) && specialAR) {
         armor += Math.max(0, specialAR);
       }
 
       // Generic magic mitigation lane
       if (dtLower === DAMAGE_TYPES.MAGIC) {
-        const magicAR = Number(sys.magic_arEffective ?? sys.magic_ar ?? 0);
+        let magicAR = Number(sys.magic_arEffective ?? sys.magic_ar ?? 0);
+        if (locDamaged > 0) magicAR = Math.max(0, magicAR - locDamaged);
         if (Number.isFinite(magicAR) && magicAR) armor += Math.max(0, magicAR);
       }
     }

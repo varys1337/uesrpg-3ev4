@@ -10,66 +10,17 @@
  */
 
 import { getLastMeleeWeaponForActor } from "./reach-visualizer-state.js";
-import { getWeaponReachBoundsEffective } from "../../core/homebrew/reach-length/weapon.js";
+import {
+  isMeleeWeapon,
+  getWeaponReachBoundsUnits,
+  getLongestEquippedMeleeWeapon
+} from "../../core/homebrew/engagement-flanking/equipped-weapons.js";
 
 /* -------------------------------------------- */
 /* Weapon Detection                             */
 /* -------------------------------------------- */
 
-/**
- * Check if an item is an equipped melee weapon.
- * @param {Item} item
- * @returns {boolean}
- */
-export function isMeleeWeapon(item) {
-  if (!item) return false;
-  if (item.type !== "weapon") return false;
-
-  // System-specific melee selector:
-  // - primary: system.attackMode === "melee" (as per item menu)
-  // - fallback: system.mode === "melee"
-  const mode = item.system?.attackMode ?? item.system?.mode;
-  if (String(mode ?? "").toLowerCase() !== "melee") return false;
-
-  const equipped = Boolean(item.system?.equipped);
-  return equipped;
-}
-
-/**
- * Get the reach bounds (max and min) from a weapon item.
- * Delegates to the homebrew reach-length resolver so the visualizer always
- * matches combat legality checks.
- * @param {Item} weapon
- * @returns {{max: number, min: number}}
- */
-export function getWeaponReachBoundsUnits(weapon) {
-  const { min, max } = getWeaponReachBoundsEffective(weapon);
-  return { max: Math.max(0, max), min: Math.max(0, min) };
-}
-
-/**
- * Select the equipped melee weapon with the greatest effective max reach.
- *
- * @param {Actor} actor
- * @returns {{weapon: Item|null, bounds: {max:number, min:number}}}
- */
-export function getLongestEquippedMeleeWeapon(actor) {
-  const weapons = actor?.items?.filter(isMeleeWeapon) ?? [];
-  if (!weapons.length) return { weapon: null, bounds: { max: 0, min: 0 } };
-
-  let best = weapons[0];
-  let bestBounds = getWeaponReachBoundsUnits(best);
-
-  for (const w of weapons.slice(1)) {
-    const b = getWeaponReachBoundsUnits(w);
-    if (b.max > bestBounds.max) {
-      best = w;
-      bestBounds = b;
-    }
-  }
-
-  return { weapon: best, bounds: bestBounds };
-}
+export { isMeleeWeapon, getWeaponReachBoundsUnits, getLongestEquippedMeleeWeapon };
 
 /**
  * Determine the "active" melee weapon for an actor based on reach source setting.

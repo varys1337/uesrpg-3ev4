@@ -5,8 +5,10 @@
  * Target: Foundry VTT v13.351
  */
 
+import { FLAG_SCOPE } from "../system/namespace.js";
+
 /** @type {string} */
-export const FLAG_NAMESPACE = "uesrpg-3ev4";
+export const FLAG_NAMESPACE = FLAG_SCOPE;
 
 /**
  * Canonical MeasuredTemplate shape types accepted by Foundry.

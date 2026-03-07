@@ -12,7 +12,7 @@
  *  - Capability-driven: item type determines which options are relevant.
  */
 
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../../system/namespace.js";
 const FLAG_KEY  = "featureConfig";
 
 // ─── Default Configuration ───────────────────────────────────────────

@@ -4,6 +4,9 @@
  */
 
 import { isDebugEnabled } from "../../../../utils/debug.js";
+import { doesUserOwnActor, getChatMessageAuthorUser } from "../../../../utils/authority-proxy.js";
+export { getRuntimeSystemId as _getSystemId } from "../../../system/namespace.js";
+import { getFlagValueWithFallback } from "../../../system/flags.js";
 
 export function _debugEnabled() {
   return isDebugEnabled("opposedDebug");
@@ -25,21 +28,11 @@ export function _logDebug(event, payload) {
 
 export function _findEnabledEffectByUesrpgKey(actor, key) {
   if (!actor || !key) return null;
-  return actor.effects?.find?.((e) => !e.disabled && e?.flags?.uesrpg?.key === key) ?? null;
+  return actor.effects?.find?.((e) => !e.disabled && getFlagValueWithFallback(e, "key") === key) ?? null;
 }
 
 export function _userHasActorOwnership(user, actor) {
-  try {
-    if (!user || !actor) return false;
-    if (user.isGM) return true;
-    if (typeof actor.testUserPermission === 'function') {
-      return actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER);
-    }
-    const level = Number(actor?.ownership?.[user.id] ?? 0);
-    return level >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
-  } catch (_e) {
-    return false;
-  }
+  return doesUserOwnActor(user, actor);
 }
 
 export function _asNumber(v) {
@@ -53,11 +46,6 @@ export function _normalizeKey(v) {
   return String(v ?? "")
     .toLowerCase()
     .replace(/[\s_-]+/g, "");
-}
-
-export function _getSystemId() {
-  // Prefer runtime system id; fall back to the canonical package id.
-  return String(game?.system?.id ?? "uesrpg-3ev4");
 }
 
 export function _safeGetSetting(namespace, key, fallback = false) {
@@ -85,14 +73,7 @@ export function _canControlActor(actor) {
 }
 
 export function _getChatMessageAuthorUser(msg) {
-  const authorId =
-    msg?.author?.id ??
-    msg?._source?.author ??
-    msg?._source?.user ??
-    msg?.data?.author ??
-    msg?.data?.user ??
-    null;
-  return authorId ? (game.users.get(String(authorId)) ?? null) : null;
+  return getChatMessageAuthorUser(msg);
 }
 
 export function _opposedFlags(parentMessageId, stage, extra = null) {
@@ -108,4 +89,34 @@ export function _opposedFlags(parentMessageId, stage, extra = null) {
       opposed
     }
   };
+}
+
+export function _emitSuppressedSubRollDice(roll, { rollMode = null } = {}) {
+  if (!roll) return null;
+  const dsn = game?.dice3d;
+  if (!dsn || typeof dsn.showForRoll !== "function") return null;
+
+  const mode = String(rollMode ?? game?.settings?.get?.("core", "rollMode") ?? "roll").toLowerCase();
+  const isPublic = mode === "roll" || mode === "publicroll";
+  const sync = Boolean(isPublic);
+
+  try {
+    const primary = dsn.showForRoll(roll, game.user, sync);
+    Promise.resolve(primary).catch(() => {
+      try {
+        const fallback = dsn.showForRoll(roll);
+        Promise.resolve(fallback).catch(() => {});
+      } catch (_err2) {
+        // no-op
+      }
+    });
+  } catch (_err) {
+    try {
+      const fallback = dsn.showForRoll(roll);
+      Promise.resolve(fallback).catch(() => {});
+    } catch (_err2) {
+      // no-op
+    }
+  }
+  return null;
 }

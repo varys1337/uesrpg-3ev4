@@ -12,8 +12,29 @@
  */
 
 import { UESRPG } from "../../../constants.js";
+import { buildQualityTooltipText } from "../../../../data/tooltips/index.js";
 
 let _qualityLabelIndexCache = null;
+
+function _escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function _buildQualityTagHtml({ label, key, value = null, className = "tag" } = {}) {
+  const normalizedLabel = String(label ?? "").trim() || String(key ?? "").trim();
+  const normalizedKey = String(key ?? "").trim();
+  const numericValue = (value !== undefined && value !== null && value !== "") ? Number(value) : null;
+  const display = numericValue != null && !Number.isNaN(numericValue)
+    ? `${normalizedLabel} (${numericValue})`
+    : normalizedLabel;
+  const tooltip = buildQualityTooltipText({ label: normalizedLabel, key: normalizedKey, itemType: "weapon" });
+  return `<span class="${_escapeHtml(className)}" title="${_escapeHtml(tooltip)}">${_escapeHtml(display)}</span>`;
+}
 
 /**
  * Get cached quality label index (key → display label mapping).
@@ -51,18 +72,20 @@ export function buildInlineQualityTags({ structured = [], traits = [] } = {}) {
   const out = [];
 
   for (const q of structured) {
-    const key = String(q?.key ?? q ?? "").toLowerCase().trim();
-    if (!key) continue;
-    const label = labelIndex.get(key) ?? key;
+    const keyRaw = String(q?.key ?? q ?? "").trim();
+    if (!keyRaw) continue;
+    const key = keyRaw.toLowerCase();
+    const label = labelIndex.get(key) ?? keyRaw;
     const v = (q?.value !== undefined && q?.value !== null && q?.value !== "") ? Number(q.value) : null;
-    out.push(`<span class="tag">${v != null && !Number.isNaN(v) ? `${label} (${v})` : label}</span>`);
+    out.push(_buildQualityTagHtml({ label, key: keyRaw, value: v }));
   }
 
   for (const t of traits) {
-    const key = String(t ?? "").toLowerCase().trim();
-    if (!key) continue;
-    const label = labelIndex.get(key) ?? key;
-    out.push(`<span class="tag">${label}</span>`);
+    const keyRaw = String(t ?? "").trim();
+    if (!keyRaw) continue;
+    const key = keyRaw.toLowerCase();
+    const label = labelIndex.get(key) ?? keyRaw;
+    out.push(_buildQualityTagHtml({ label, key: keyRaw }));
   }
 
   if (!out.length) return '<span style="opacity:0.75;">-</span>';
@@ -122,11 +145,27 @@ export function buildWeaponPillsInline(weapon) {
 
   const structured = injected
     .filter(q => q?.active)
-    .map(q => q?.name)
-    .filter(Boolean);
+    .map((q) => {
+      const key = String(q?.key ?? "").trim();
+      const label = q?.name ?? q?.label ?? key;
+      const value = (q?.value !== undefined && q?.value !== null && q?.value !== "") ? Number(q.value) : null;
+      return { key, label, value };
+    })
+    .filter((q) => q.key || q.label);
 
   const traits = Array.isArray(weapon.system?.qualitiesTraits) ? weapon.system.qualitiesTraits : [];
-  const pills = [...structured, ...traits].filter(Boolean);
-  
-  return pills.map(p => `<span class="uesrpg-pill">${p}</span>`).join(" ");
+  const pills = [
+    ...structured.map((q) => _buildQualityTagHtml({ label: q.label, key: q.key, value: q.value, className: "uesrpg-pill" })),
+    ...traits
+      .map((t) => {
+        const keyRaw = String(t ?? "").trim();
+        if (!keyRaw) return "";
+        const key = keyRaw.toLowerCase();
+        const label = getQualityLabelIndex().get(key) ?? keyRaw;
+        return _buildQualityTagHtml({ label, key: keyRaw, className: "uesrpg-pill" });
+      })
+      .filter(Boolean),
+  ].filter(Boolean);
+
+  return pills.join(" ");
 }

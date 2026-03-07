@@ -23,6 +23,9 @@
  *    (these fields can be introduced later without rewriting this function)
  *  - other item types: inactive by default (conservative; we whitelist types deliberately)
  */
+
+import { getRuntimeSystemId } from "../system/namespace.js";
+
 // Module-level cache for the passive-transfer setting. Invalidated on settings
 // change so we avoid re-parsing the setting string on every isTransferEffectActive
 // call (~60+ per actor per prepare cycle).
@@ -31,7 +34,7 @@ let _passiveTypesCacheRaw = undefined;
 
 function getPassiveTransferItemTypes() {
   try {
-    const raw = game?.settings?.get?.("uesrpg-3ev4", "passiveTransferItemTypes") ?? "";
+    const raw = game?.settings?.get?.(getRuntimeSystemId(), "passiveTransferItemTypes") ?? "";
     // Return cached result if the underlying setting value hasn't changed.
     if (_passiveTypesCache !== null && raw === _passiveTypesCacheRaw) return _passiveTypesCache;
     _passiveTypesCacheRaw = raw;
@@ -66,7 +69,8 @@ export function isTransferEffectActive(actor, item, effect) {
   // apply to the owning actor (they are meant to be transferred to targets instead).
   if (type === "talent" || type === "trait" || type === "power") {
     try {
-      const suppress = item.getFlag?.("uesrpg-3ev4", "featureConfig")?.suppressSelfTransfer;
+      const suppress = item.getFlag?.(getRuntimeSystemId(), "featureConfig")?.suppressSelfTransfer
+        ?? item.getFlag?.("uesrpg-3ev4", "featureConfig")?.suppressSelfTransfer;
       if (suppress === true) return false;
     } catch (_e) { /* safe fallback — allow transfer */ }
     return true;
@@ -86,7 +90,7 @@ export function isTransferEffectActive(actor, item, effect) {
   //  - item.flags.<systemId>.activeSpell (preferred; sheet checkbox)
   //  - item.system.active / item.system.isActive (legacy/compat)
   if (type === "spell") {
-    const scope = game?.system?.id ?? "uesrpg-3ev4";
+    const scope = getRuntimeSystemId();
     const flagActive = item.getFlag?.(scope, "activeSpell") ?? foundry.utils.getProperty(item, `flags.${scope}.activeSpell`);
     const sysActive = item?.system?.active ?? item?.system?.isActive;
     return flagActive === true || sysActive === true;

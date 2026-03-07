@@ -18,9 +18,10 @@
 
 import { hasTalent } from "../../traits/talents-api.js";
 import { getEffectiveEnchantRank, computeStrikeConstantPenalty } from "../penalties.js";
-import { computePoolMax } from "../enchant-level.js";
+import { computePoolMax, getItemEL } from "../enchant-level.js";
 import { executeEnchantTest, executeSalvageEnergyRoll } from "../tests.js";
 import { resolveSoulGemData } from "../soul-gems.js";
+import { getEnchantingSettings } from "../settings.js";
 
 const MAX_EFFECTS_NO_MANIFOLD = 1;
 const MAX_EFFECTS_MANIFOLD = 3;
@@ -44,10 +45,30 @@ const MAX_EFFECTS_MANIFOLD = 3;
  */
 
 /**
+ * @typedef {object} BuildStrikeResult
+ * @property {boolean} valid
+ * @property {string[]} errors - Empty when valid === true.
+ * @property {number} itemEL
+ * @property {number} poolMax
+ * @property {number} energyLost
+ * @property {number} totalCost
+ * @property {number} totalSL
+ * @property {number} penalty
+ * @property {number} effectiveEnchantRank
+ * @property {object} gemAudit
+ * @property {object|null} testResult
+ * @property {object|null} salvageResult
+ * @property {boolean} anySuccess
+ * @property {boolean} gemPreserved
+ * @property {boolean} useCharges
+ * @property {number|null} chargePoolMax
+ */
+
+/**
  * Validate and (optionally) roll the enchant test for a strike enchantment.
  *
  * @param {BuildStrikeConfig} cfg
- * @returns {Promise<object>}
+ * @returns {Promise<BuildStrikeResult>}
  */
 export async function buildStrike(cfg) {
   const { actor, targetItem, soulGemItem, effects = [], skipRolls = false } = cfg;
@@ -71,7 +92,7 @@ export async function buildStrike(cfg) {
   const gemData = resolveSoulGemData(soulGemItem);
   if (!gemData) errors.push("Soul gem item has invalid soul gem flags.");
 
-  const itemEL = Number(targetItem?.system?.enchantLevel ?? targetItem?.flags?.["uesrpg-3ev4"]?.itemEL ?? 10);
+  const itemEL = getItemEL(targetItem);
   const totalCost = effects.reduce((sum, e) => sum + Number(e.cost ?? 0), 0);
   const totalSL = effects.reduce((sum, e) => sum + Number(e.sl ?? 0), 0);
 
@@ -100,7 +121,12 @@ export async function buildStrike(cfg) {
     : {};
 
   if (errors.length) {
-    return { valid: false, errors, itemEL, poolMax, energyLost, totalCost, totalSL, penalty, gemAudit, testResult: null, anySuccess: false, gemPreserved: false };
+    return {
+      valid: false, errors,
+      itemEL, poolMax, energyLost, totalCost, totalSL, penalty, effectiveEnchantRank,
+      gemAudit, testResult: null, salvageResult: null,
+      anySuccess: false, gemPreserved: false, useCharges: false, chargePoolMax: null,
+    };
   }
 
   let testResult = null;
@@ -120,9 +146,9 @@ export async function buildStrike(cfg) {
     }
   }
 
-  // Charged strike variant: pool.max = floor(totalCost / 10)
-  const useCharges = game.settings.get("uesrpg-3ev4", "enchanting.enableChargedStrikeVariant") ?? false;
-  const chargePoolMax = useCharges ? Math.floor(totalCost / 10) : null;
+  // Charged strike variant: pool.max = floor(totalCost / 10).
+  const { enableChargedStrikeVariant } = getEnchantingSettings();
+  const chargePoolMax = enableChargedStrikeVariant ? Math.floor(totalCost / 10) : null;
 
   return {
     valid: true,
@@ -139,7 +165,7 @@ export async function buildStrike(cfg) {
     salvageResult,
     anySuccess: skipRolls ? true : anySuccess,
     gemPreserved,
-    useCharges,
+    useCharges: enableChargedStrikeVariant,
     chargePoolMax,
   };
 }
@@ -147,7 +173,7 @@ export async function buildStrike(cfg) {
 /**
  * Build the strike enchantment flags payload.
  *
- * @param {object} result - From buildStrike()
+ * @param {BuildStrikeResult} result - From buildStrike()
  * @param {Actor} actor
  * @param {Item} soulGemItem
  * @param {Item} targetItem

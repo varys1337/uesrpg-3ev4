@@ -12,6 +12,8 @@ import { tickConditionsEndTurn, runSilencedRealizationCheck } from "./condition-
 import { getActorTraitValue } from "../traits/trait-registry.js";
 import { postRegenerationPrompt } from "../traits/trait-automation.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
+import { FLAG_SCOPE } from "./constants.js";
+import { getSystemFlagsWithFallback } from "../system/flags.js";
 
 let _registered = false;
 
@@ -75,7 +77,7 @@ async function _expireStartOfTurnEffects(combat, changed) {
   const effects = actor?.effects?.contents ?? [];
   const toRemove = effects.filter((e) => {
     if (!e || e.disabled) return false;
-    const flags = e.flags?.uesrpg ?? null;
+    const flags = getSystemFlagsWithFallback(e) ?? null;
     if (!flags) return false;
     if (flags.expiresOnTurnStart !== true) return false;
     const eCombatId = String(flags.expiresCombatId ?? "");
@@ -140,11 +142,11 @@ async function _postRegenerationPrompts(combat, changed) {
     const value = Number(getActorTraitValue(actor, "regeneration", { mode: "max" })) || 0;
     if (value <= 0) continue;
 
-    const lastRound = Number(actor.getFlag("uesrpg-3ev4", "regenerationPromptRound") ?? 0);
+    const lastRound = Number(actor.getFlag(FLAG_SCOPE, "regenerationPromptRound") ?? 0);
     if (lastRound === round) continue;
 
     await postRegenerationPrompt({ actor, traitValue: value, round });
-    await requestUpdateDocument(actor, { "flags.uesrpg-3ev4.regenerationPromptRound": round });
+    await requestUpdateDocument(actor, { [`flags.${FLAG_SCOPE}.regenerationPromptRound`]: round });
   }
 }
 

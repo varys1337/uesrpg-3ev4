@@ -75,7 +75,7 @@ export async function executeAdvantageSpecialActions({
         const opponentToken = opponentTokenUuid ? fromUuidSync(opponentTokenUuid)?.object : null;
 
         if (actorToken && opponentToken) {
-          const { SkillOpposedWorkflow } = await import("../../skills/opposed-workflow.js");
+          const { SkillOpposedWorkflow } = await import("../../skills/opposed-workflow/index.js");
           const def = getSpecialActionById(saId);
           
           // Actor initiates the free action test against opponent

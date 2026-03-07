@@ -3,11 +3,14 @@
  * Keep this file free of Foundry runtime dependencies so it can be imported safely anywhere.
  */
 
+export { SYSTEM_ID, FLAG_SCOPE } from "./system/namespace.js";
+import { SYSTEM_ID } from "./system/namespace.js";
+
 /**
  * Root path for this system's static assets and templates.
  * Some modules import this by name (e.g. startup.js), so it must remain a named export.
  */
-export const systemRootPath = "systems/uesrpg-3ev4";
+export const systemRootPath = `systems/${SYSTEM_ID}`;
 
 
 // Central roll formula used by all tests (PC and NPC).

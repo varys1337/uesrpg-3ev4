@@ -30,10 +30,11 @@ export function _resolveOutcome(data) {
  * @param {Actor} actor
  * @param {string} charKey - Characteristic key (e.g. "wp")
  * @param {number} [manualMod=0]
+ * @param {number} [circumstanceMod=0]
  * @param {number} [ssModifier=0] - Spell Strength modifier applied to target's TN
  * @returns {{ finalTN: number, baseTN: number, breakdown: Array<{label: string, value: number}> }}
  */
-export function computeCharacteristicTN(actor, charKey, manualMod = 0, ssModifier = 0) {
+export function computeCharacteristicTN(actor, charKey, manualMod = 0, circumstanceMod = 0, ssModifier = 0) {
   const chars = actor?.system?.characteristics ?? {};
   const charData = chars[charKey];
   const baseTN = Number(charData?.total ?? charData?.value ?? 0);
@@ -47,6 +48,11 @@ export function computeCharacteristicTN(actor, charKey, manualMod = 0, ssModifie
   if (manualMod) {
     finalTN += manualMod;
     breakdown.push({ label: "Manual Modifier", value: manualMod });
+  }
+
+  if (circumstanceMod) {
+    finalTN += circumstanceMod;
+    breakdown.push({ label: "Circumstance Modifier", value: circumstanceMod });
   }
 
   if (ssModifier) {

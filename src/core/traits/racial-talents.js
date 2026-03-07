@@ -16,6 +16,7 @@ import { applyHealing } from "../combat/damage-automation.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { ensureWoundedPassiveEffect } from "../wounds/engine/apply.js";
 import { _num } from "./_primitives.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 
 const SYSTEM_SCOPE = "uesrpg-3ev4";
 const CHAR_GEN_SCOPE = "uesrpg";
@@ -327,7 +328,7 @@ export function registerRacialTalentsAutomation() {
       const toProcess = combatants.map(c => c?.actor).filter(Boolean);
       for (const actor of toProcess) {
         const effects = Array.from(actor.effects ?? []);
-        const toDelete = effects.filter(e => !e.disabled && e?.flags?.uesrpg?.key === EFFECT_KEY_ADRENALINE_RUSH).map(e => e.id);
+        const toDelete = effects.filter(e => !e.disabled && getFlagValueWithFallback(e, "key") === EFFECT_KEY_ADRENALINE_RUSH).map(e => e.id);
         if (!toDelete.length) continue;
         await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", toDelete);
         try { await ensureWoundedPassiveEffect(actor); } catch (_e) { /* ignore */ }

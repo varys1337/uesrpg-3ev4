@@ -11,6 +11,12 @@
  *  - No schema changes
  *  - No direct document mutation (uses document update APIs)
  *  - Conditions persist as actor ActiveEffects with system-scoped flags
+ *
+ * Stage-06 update:
+ *  - Pure lookup helpers extracted to engine/selectors.js (imported as underscore aliases).
+ *  - Per-actor condition index cache introduced via engine/index-cache.js.
+ *  - FLAG_SCOPE centralized in conditions/constants.js.
+ *  - AE lifecycle hooks added to registerConditionHooks() to invalidate the index.
  */
 
 import { applyDamage, DAMAGE_TYPES } from "../../combat/damage-automation.js";
@@ -21,9 +27,24 @@ import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
 
+// Stage-06: pure helpers from selectors.js (aliased with underscore prefix for internal call-site compatibility).
+import {
+  normalizeConditionKey as _normalizeConditionKey,
+  getEffectsArray as _effects,
+  effectHasCoreStatus as _effectHasCoreStatus,
+  coreStatusAliasesForKey as _coreStatusAliasesForKey,
+  findCoreStatusEffect as _findCoreStatusEffect,
+  findCoreStatusEffects as _findCoreStatusEffects
+} from "./selectors.js";
+
+// Stage-06: per-actor condition index cache.
+import { getConditionIndex, invalidateConditionIndex } from "./index-cache.js";
+
+// Stage-06: centralized flag scope constant.
+import { FLAG_SCOPE } from "../constants.js";
+
 let _conditionHooksRegistered = false;
 
-const FLAG_SCOPE = "uesrpg-3ev4";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const BURNING_GATE_FLAG = "chapter5.burningActionGate";
 const SILENCED_REALIZATION_FLAG = "chapter5.silencedRealization";
@@ -59,76 +80,28 @@ function _immunityFlagIsTrue(raw) {
   return s === "true" || s === "yes" || s === "on";
 }
 
-function _effectHasCoreStatus(effect, key) {
-  const k = String(key || "").trim().toLowerCase();
-  if (!effect || !k) return false;
-
-  try {
-    const statusId = effect.getFlag?.("core", "statusId");
-    if (String(statusId || "").toLowerCase() === k) return true;
-  } catch (_e) {}
-
-  try {
-    const statuses = effect?.statuses;
-    if (statuses && typeof statuses.has === "function") return statuses.has(k);
-    if (Array.isArray(statuses)) return statuses.map(s => String(s).toLowerCase()).includes(k);
-  } catch (_e) {}
-
-  return false;
-}
-
-function _coreStatusAliasesForKey(key) {
-  const k = _normalizeConditionKey(key);
-  if (!k) return [];
-  // Foundry core uses 'blind'/'deaf' while the system uses 'blinded'/'deafened'.
-  if (k === "blinded") return ["blinded", "blind"];
-  if (k === "deafened") return ["deafened", "deaf"];
-  return [k];
-}
-
-function _findCoreStatusEffect(actor, key) {
-  const aliases = _coreStatusAliasesForKey(key);
-  if (!aliases.length) return null;
-  const effects = _effects(actor);
-  for (const k of aliases) {
-    const hit = effects.find(e => _effectHasCoreStatus(e, k));
-    if (hit) return hit;
-  }
-  return null;
-}
-
-function _findCoreStatusEffects(actor, key) {
-  const aliases = _coreStatusAliasesForKey(key);
-  if (!aliases.length) return [];
-  const out = [];
-  const effects = _effects(actor);
-  for (const ef of effects) {
-    if (!ef) continue;
-    for (const k of aliases) {
-      if (_effectHasCoreStatus(ef, k)) {
-        out.push(ef);
-        break;
-      }
-    }
-  }
-  return out;
-}
-
-
-function _effects(actor) {
-  return actor?.effects?.contents ?? [];
-}
-
+/**
+ * Find the single "best" condition effect for a key on an actor.
+ * Priority: system-flagged (flags[FLAG_SCOPE].condition.key) > core status interop.
+ * Uses the per-actor index cache to avoid repeated scans.
+ *
+ * @param {Actor} actor
+ * @param {string} key
+ * @returns {ActiveEffect|null}
+ */
 function _findConditionEffect(actor, key) {
   const k = _normalizeConditionKey(key);
-  if (!k) return null;
+  if (!k || !actor) return null;
 
-  // Canonical system-scoped condition effect.
-  const byFlag = _effects(actor).find(e => e?.getFlag?.(FLAG_SCOPE, "condition")?.key === k) ?? null;
-  if (byFlag) return byFlag;
+  const idx = getConditionIndex(actor);
 
-  // Core status effect interop (Token HUD or other tooling).
-  return _findCoreStatusEffect(actor, k);
+  // Lane 1: canonical system-scoped flag.
+  const fromFlag = idx.byFlag.get(k);
+  if (fromFlag?.length) return fromFlag[0];
+
+  // Lane 2: core status interop fallback.
+  const fromCore = idx.byCore.get(k);
+  return fromCore?.[0] ?? null;
 }
 
 function _getConditionData(effect) {
@@ -169,7 +142,7 @@ function _mkBaseEffectData({ name, img = null, icon = null, description = null, 
   const isNumericCondition = conditionKey === "bleeding" || conditionKey === "burning" || conditionKey === "flanked";
   const stackRule = isNumericCondition ? "refresh" : "override";
   const effectGroup = conditionKey ? `condition.${conditionKey}` : null;
-  
+
   const data = {
     name,
     // Foundry v13 ActiveEffect data uses "img". Accept a legacy "icon" arg internally.
@@ -708,20 +681,6 @@ export async function upgradeTokenHudStatusEffects(actor) {
 
 }
 
-
-function _normalizeConditionKey(key) {
-  let k = String(key || "").trim().toLowerCase();
-  if (!k) return "";
-
-  // Normalize common core ↔ system naming differences.
-  if (k === "blind") k = "blinded";
-  if (k === "deaf") k = "deafened";
-
-  // Strip any accidental numeric suffixes from ids/names (e.g., 'bleeding (1)').
-  k = k.replace(/\s*\(\s*\d+\s*\)\s*$/, "").trim();
-  return k;
-}
-
 function _fallbackHasConditionByName(actor, key) {
   const k = _normalizeConditionKey(key);
   if (!k) return false;
@@ -1059,36 +1018,21 @@ function _mkBleedingWTChanges(x) {
   ];
 }
 
+/**
+ * Find all condition effects on an actor matching a key (both system-flag and core-status lanes).
+ * Uses the per-actor index cache. Returns system-flagged effects first, then core-status effects,
+ * each group in actor.effects.contents order.
+ *
+ * @param {Actor} actor
+ * @param {string} key
+ * @returns {ActiveEffect[]}
+ */
 function _findAllConditionEffects(actor, key) {
   const k = _normalizeConditionKey(key);
-  if (!k) return [];
+  if (!k || !actor) return [];
 
-  const out = [];
-  const effects = _effects(actor);
-  const aliases = _coreStatusAliasesForKey(k);
-
-  for (const ef of effects) {
-    if (!ef) continue;
-
-    // Canonical system-scoped condition flag
-    try {
-      const sysKey = ef?.getFlag?.(FLAG_SCOPE, "condition")?.key;
-      if (_normalizeConditionKey(sysKey) === k) {
-        out.push(ef);
-        continue;
-      }
-    } catch (_e) {}
-
-    // Core status linkage / statuses set
-    for (const a of aliases) {
-      if (_effectHasCoreStatus(ef, a)) {
-        out.push(ef);
-        break;
-      }
-    }
-  }
-
-  return out;
+  const idx = getConditionIndex(actor);
+  return [...(idx.byFlag.get(k) ?? []), ...(idx.byCore.get(k) ?? [])];
 }
 
 async function _dedupeConditionEffects(actor, key) {
@@ -1545,10 +1489,14 @@ async function _tickBurning(actor) {
 /**
  * Healing interaction (Chapter 5):
  * - If the character regains HP from any source, subtract total HP regained (including overheal) from Bleeding X.
+ *
+ * Stage-06: also registers AE lifecycle invalidation hooks for the condition index cache.
  */
 export function registerConditionHooks() {
   if (_conditionHooksRegistered) return;
   _conditionHooksRegistered = true;
+
+  // Healing hook: reduce Bleeding X by total HP regained.
   Hooks.on("uesrpgHealingApplied", async (actor, data) => {
     try {
       if (!actor) return;
@@ -1579,6 +1527,32 @@ export function registerConditionHooks() {
     } catch (err) {
       console.warn("UESRPG | Bleeding healing adjustment failed", err);
     }
+  });
+
+  // Stage-06: invalidate per-actor condition index cache on AE lifecycle events.
+  // Surgical invalidation: only the parent actor of the changed effect is invalidated.
+  Hooks.on("createActiveEffect", (effect) => {
+    try {
+      if (effect?.parent?.documentName === "Actor") {
+        invalidateConditionIndex(effect.parent);
+      }
+    } catch (_e) {}
+  });
+
+  Hooks.on("updateActiveEffect", (effect) => {
+    try {
+      if (effect?.parent?.documentName === "Actor") {
+        invalidateConditionIndex(effect.parent);
+      }
+    } catch (_e) {}
+  });
+
+  Hooks.on("deleteActiveEffect", (effect) => {
+    try {
+      if (effect?.parent?.documentName === "Actor") {
+        invalidateConditionIndex(effect.parent);
+      }
+    } catch (_e) {}
   });
 }
 

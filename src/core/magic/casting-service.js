@@ -18,7 +18,7 @@
 import { resolveSpellProfile } from "./spell-profile.js";
 import { getActorMagicka, isActorTrainedInMagicSchool } from "./magicka-utils.js";
 import { MagicOpposedWorkflow } from "./opposed-workflow.js";
-import { showSpellOptionsDialog } from "../../ui/sheets/shared/listeners/magic-cast.js";
+import { showSpellOptionsDialog } from "./dialogs/spell-options-dialog.js";
 import { emitPreCast } from "./spell-runtime.js";
 
 /**

@@ -160,13 +160,13 @@ export const MagicTimekeeping = {
    * This is magic-domain behavior and remains in the magic subsystem.
    *
    * Note: ensureSpellEffectCombatDurations was removed as dead code. The spell
-   * effect expiration system (spell-effect-expiration.js) handles combat-based
+   * effect expiration system (`effects/spell-effect-expiration.js`) handles combat-based
    * duration anchoring via its own hooks.  This method is retained as a no-op
    * for backward compatibility.
    */
   async ensureAllCombatDurations() {
     if (!game?.combat || !game.user?.isGM) return;
-    // No-op: combat duration anchoring handled by spell-effect-expiration system.
+    // No-op: combat duration anchoring handled by the canonical effect expiration system.
   },
 
   /**

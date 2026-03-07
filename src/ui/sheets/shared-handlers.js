@@ -1,4 +1,4 @@
-import { executeItemActivation, executeItemMacroBestEffort } from "../../core/system/activation/activation-executor.js";
+import { executeItemActivation, executeItemMacroBestEffort } from "../../core/system/activation/index.js";
 
 /**
  * Shared sheet handler utilities.
@@ -12,7 +12,7 @@ function _buildDefaultPostContent({ item, actor, includeImage }) {
     <i><b>${item.type}</b></i><p>
       <i>${item.system.description}</i>`;
   }
-  // NPC/Merchant sheet format: <p> directly after </h2> on same line
+  // NPC sheet format: <p> directly after </h2> on same line
   return `<h2>${item.name}</h2><p>
   <i><b>${item.type}</b></i><p>
     <i>${item.system.description}</i>`;

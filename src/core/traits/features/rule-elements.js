@@ -18,8 +18,8 @@
 import { isPredicate } from "../../rules/predicate.js";
 import { normalizeRulePhase } from "../../rules/phases.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { SYSTEM_ID } from "../../system/namespace.js";
 
-const SYSTEM_ID = "uesrpg-3ev4";
 const FLAG_KEY  = "ruleElements";
 
 const RULE_ELEMENT_WORKFLOWS = Object.freeze(["skill", "characteristic", "combat", "magic", "all"]);

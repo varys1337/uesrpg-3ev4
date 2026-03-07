@@ -22,8 +22,9 @@
  */
 
 import { isDebugEnabled } from "./debug.js";
+import { SYSTEM_ID } from "../core/constants.js";
 
-const NAMESPACE = "uesrpg-3ev4";
+const NAMESPACE = SYSTEM_ID;
 
 const QUERY_UPDATE_CHAT_MESSAGE_V1 = `${NAMESPACE}.authority.updateChatMessage.v1`;
 const QUERY_CREATE_ACTIVE_EFFECT_V1 = `${NAMESPACE}.authority.createActiveEffect.v1`;
@@ -152,6 +153,51 @@ export function getMessageAuthorId(message) {
   }
 }
 
+export function getChatMessageAuthorId(message) {
+  return getMessageAuthorId(message);
+}
+
+export function getChatMessageAuthorUser(message) {
+  try {
+    const authorId = getChatMessageAuthorId(message);
+    if (!authorId) return null;
+    const user = game.users?.get?.(authorId) ?? null;
+    return user?.active ? user : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+export function doesUserOwnActor(user, actor) {
+  try {
+    if (!user || !actor) return false;
+    if (user.isGM) return true;
+    if (typeof actor.testUserPermission === "function") {
+      return actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER);
+    }
+    const userId = user?.id ?? user?._id ?? null;
+    if (!userId) return false;
+    const ownership = actor?.ownership ?? actor?.permission ?? {};
+    const userLevel = Number(ownership[userId] ?? ownership.default ?? 0);
+    return userLevel >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
+  } catch (_e) {
+    return false;
+  }
+}
+
+export function getActorOwnerUser(actor) {
+  try {
+    if (!actor) return null;
+    const owners = (game.users?.contents ?? [])
+      .filter((user) => user?.active && doesUserOwnActor(user, actor));
+    if (!owners.length) return null;
+    owners.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return owners[0];
+  } catch (_e) {
+    return null;
+  }
+}
+
 export function canUserUpdateChatMessage(message, user) {
   try {
     if (!message || !user) return false;
@@ -161,7 +207,7 @@ export function canUserUpdateChatMessage(message, user) {
       return message.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER);
     }
     // Fallback: author match.
-    return getMessageAuthorId(message) === user.id;
+    return getChatMessageAuthorId(message) === user.id;
   } catch (_e) {
     return false;
   }
@@ -169,7 +215,7 @@ export function canUserUpdateChatMessage(message, user) {
 
 function _isAuthor(message, user) {
   try {
-    return Boolean(user?.id) && (getMessageAuthorId(message) === user.id);
+    return Boolean(user?.id) && (getChatMessageAuthorId(message) === user.id);
   } catch (_e) {
     return false;
   }
@@ -299,28 +345,11 @@ function _selectActiveGM() {
 }
 
 function _selectActorOwner(actor) {
-  try {
-    if (!actor) return null;
-    const owners = (game.users?.contents ?? [])
-      .filter(u => u?.active && actor.testUserPermission?.(u, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER));
-    if (!owners.length) return null;
-    owners.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    return owners[0];
-  } catch (_e) {
-    return null;
-  }
+  return getActorOwnerUser(actor);
 }
 
 function _selectChatMessageAuthor(message) {
-  try {
-    const authorId = getMessageAuthorId(message);
-    if (!authorId) return null;
-    const u = game.users?.get?.(authorId) ?? null;
-    if (u?.active) return u;
-    return null;
-  } catch (_e) {
-    return null;
-  }
+  return getChatMessageAuthorUser(message);
 }
 
 function _selectDocumentOwner(doc) {
@@ -498,7 +527,13 @@ export function registerAuthorityProxy() {
         if (!isChatMessageUpdateFresh(message, sanitized)) return { ok: false, error: "Stale payload" };
 
         await message.update(sanitized, { render: false });
-        if (ui?.chat) ui.chat.render?.(true);
+        if (ui?.chat) {
+          // Capture scroll state BEFORE render(true) resets the DOM (race-condition fix).
+          const _chatLog = document.getElementById("chat-log");
+          const _wasAtBottom = !_chatLog || (_chatLog.scrollHeight - _chatLog.scrollTop - _chatLog.clientHeight) < 50;
+          ui.chat.render?.(true);
+          if (_wasAtBottom) requestAnimationFrame(() => ui.chat?.scrollBottom?.());
+        }
 
         return { ok: true };
       } catch (err) {
@@ -779,7 +814,12 @@ export async function requestUpdateChatMessage(message, payload, { timeout = 500
       _dwarn("direct update failed; applying non-rendering fallback", { messageId: message.id, err });
       try {
         await message.update(sanitized, { render: false });
-        if (ui?.chat) ui.chat.render?.(true);
+        if (ui?.chat) {
+          const _chatLog = document.getElementById("chat-log");
+          const _wasAtBottom = !_chatLog || (_chatLog.scrollHeight - _chatLog.scrollTop - _chatLog.clientHeight) < 50;
+          ui.chat.render?.(true);
+          if (_wasAtBottom) requestAnimationFrame(() => ui.chat?.scrollBottom?.());
+        }
         return true;
       } catch (err2) {
         console.error("UESRPG | authority-proxy | direct update fallback failed", { messageId: message.id, err: err2 });
@@ -1017,9 +1057,22 @@ export async function requestUpdateEmbeddedDocuments(actor, embeddedName, update
   if (!actor || !embeddedName || !Array.isArray(updates) || !updates.length) return false;
   if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return false;
 
+  const cleanedUpdates = updates
+    .map((u) => {
+      if (!u || typeof u !== "object") return null;
+      const id = u._id ?? u.id;
+      if (!id) return null;
+      const cleaned = _sanitizeEmbeddedDocData(embeddedName, u);
+      if (!cleaned) return null;
+      cleaned._id = String(id);
+      return cleaned;
+    })
+    .filter((u) => u && Object.keys(u).length > 0);
+  if (!cleanedUpdates.length) return false;
+
   // Direct path.
   if (game.user?.isGM || actor.isOwner) {
-    await actor.updateEmbeddedDocuments(embeddedName, updates);
+    await actor.updateEmbeddedDocuments(embeddedName, cleanedUpdates);
     return true;
   }
 
@@ -1031,7 +1084,11 @@ export async function requestUpdateEmbeddedDocuments(actor, embeddedName, update
 
   _dlog("proxy updateEmbeddedDocuments requested", { actorUuid: actor.uuid, embeddedName, applierUserId: applier.id, requestedBy: game.user?.id ?? null });
   try {
-    const resp = await applier.query(QUERY_UPDATE_EMBEDDED_DOCS_V1, { actorUuid: actor.uuid, embeddedName, updates }, { timeout });
+    const resp = await applier.query(
+      QUERY_UPDATE_EMBEDDED_DOCS_V1,
+      { actorUuid: actor.uuid, embeddedName, updates: cleanedUpdates },
+      { timeout }
+    );
     if (!resp?.ok) {
       _dwarn("proxy updateEmbeddedDocuments rejected", { actorUuid: actor.uuid, embeddedName, resp });
       ui.notifications?.warn?.(`Failed to update embedded documents: ${resp?.error ?? "unknown error"}`);

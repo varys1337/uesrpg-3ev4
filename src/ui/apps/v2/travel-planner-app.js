@@ -1,4 +1,4 @@
-const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+﻿const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 import { customDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import {
@@ -32,8 +32,9 @@ import { SKILL_DIFFICULTIES } from "../../../core/skills/skill-tn.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "../../sheets/rest-workflow.js";
 import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { SYSTEM_ID, templatePath } from "../../constants.js";
 
-const TEMPLATE_PATH = "systems/uesrpg-3ev4/templates/v2/apps/travel-planner.hbs";
+const TEMPLATE_PATH = templatePath("v2/apps/travel-planner.hbs");
 const TRACKER_DEFAULT_EFFECTS = {
   benefit: "favorableWeather",
   impairment: "extraFatigue",
@@ -1439,3 +1440,4 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     return next;
   }
 }
+

@@ -7,8 +7,7 @@
 
 import { isActorUndead } from "../../traits/trait-registry.js";
 import { findEffectsByKind, findFirstEffectByKind, toNumber } from "./calc.js";
-
-const FLAG_SCOPE = "uesrpg-3ev4";
+import { FLAG_SCOPE } from "../../constants.js";
 
 export const WOUND_STATES = Object.freeze({
   NONE: "none",

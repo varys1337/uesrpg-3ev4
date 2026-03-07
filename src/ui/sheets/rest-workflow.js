@@ -68,6 +68,7 @@ export async function applyShortRest(actor, opts = {}) {
   const maxHP = _num(actor.system?.hp?.max ?? 0);
 
   const updateData = {};
+  let hpHealed = 0;
   let line = `<li><b>${actor.name}</b>: `;
 
   // Meditation (Chapter 4): optional short rest mode that doubles MP/SP regeneration.
@@ -113,6 +114,7 @@ export async function applyShortRest(actor, opts = {}) {
       const roll = await new Roll("1d4").evaluate();
       const heal = Math.max(0, Number(roll.total ?? 0) || 0);
       if (heal > 0) {
+        hpHealed = Math.min(heal, Math.max(0, maxHP - currentHP));
         const newHP = Math.min(maxHP, currentHP + heal);
         updateData["system.hp.value"] = newHP;
         line += ` (+${heal} HP)`;
@@ -128,6 +130,16 @@ export async function applyShortRest(actor, opts = {}) {
 
   const hasUpdates = Object.keys(updateData).length > 0;
   if (hasUpdates) await requestUpdateDocument(actor, updateData);
+  if (hpHealed > 0) {
+    try {
+      const applyNatural = game?.uesrpg?.wounds?.applyNaturalHealingToWounds;
+      if (typeof applyNatural === "function") {
+        await applyNatural(actor, hpHealed, { source: "shortRest" });
+      }
+    } catch (_e) {
+      // Non-blocking.
+    }
+  }
   try { await clearRacialTalentUsageOnRest(actor, { restType: "short" }); } catch (_e) { /* ignore */ }
 
   return { line, updatesApplied: hasUpdates };
@@ -146,8 +158,10 @@ export async function applyLongRest(actor) {
   const currentMP = _num(actor.system?.magicka?.value ?? 0);
   const maxMP = _num(actor.system?.magicka?.max ?? 0);
   const untreatedWounds = hasUntreatedWounds(actor);
+  const longRestCounter = Number(actor?.getFlag?.("uesrpg-3ev4", "wounds.longRestCounter") ?? 0) || 0;
 
   const updateData = {};
+  let hpHealed = 0;
   const recoveryParts = [];
 
   // RAW: Remove fatigue levels first; remaining recovery applies to SP.
@@ -173,7 +187,7 @@ export async function applyLongRest(actor) {
   if (!untreatedWounds && currentHP < maxHP && endBonus > 0) {
     // Rapid Recovery (Chapter 4): double natural healing rate.
     const healBase = hasTalent(actor, "rapidrecovery") ? (endBonus * 2) : endBonus;
-    const hpHealed = Math.min(healBase, maxHP - currentHP);
+    hpHealed = Math.min(healBase, maxHP - currentHP);
     updateData["system.hp.value"] = currentHP + hpHealed;
     recoveryParts.push(`Healed ${hpHealed} HP`);
   } else if (untreatedWounds && currentHP < maxHP) {
@@ -186,12 +200,32 @@ export async function applyLongRest(actor) {
     recoveryParts.push("Recovered all MP");
   }
 
+  updateData["flags.uesrpg-3ev4.wounds.longRestCounter"] = longRestCounter + 1;
+
   if (!recoveryParts.length) recoveryParts.push("No recovery needed");
 
   const line = `<li><b>${actor.name}</b>: ${recoveryParts.join("; ")}</li>`;
 
   const hasUpdates = Object.keys(updateData).length > 0;
   if (hasUpdates) await requestUpdateDocument(actor, updateData);
+  if (hpHealed > 0) {
+    try {
+      const applyNatural = game?.uesrpg?.wounds?.applyNaturalHealingToWounds;
+      if (typeof applyNatural === "function") {
+        await applyNatural(actor, hpHealed, { source: "longRest" });
+      }
+    } catch (_e) {
+      // Non-blocking.
+    }
+  }
+  try {
+    const reconcile = game?.uesrpg?.wounds?.reconcileWoundState;
+    if (typeof reconcile === "function") {
+      await reconcile(actor, { reason: "longRest", emitLog: false });
+    }
+  } catch (_e) {
+    // Non-blocking.
+  }
   try { await clearRacialTalentUsageOnRest(actor, { restType: "long" }); } catch (_e) { /* ignore */ }
 
   if (untreatedWounds && currentHP < maxHP) _notifyHpHealingSkipped(actor);

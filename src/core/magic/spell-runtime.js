@@ -6,7 +6,7 @@
  *
  * Merges:
  *  - spell-hooks.js        → emitPreCast, emitCastResolved, emitEffectApplied
- *  - spell-routing.js      → classifySpellForRouting, getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog
+ *  - prior routing helper  → classifySpellForRouting, getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog
  *  - spell-reflect.js      → getSpellReflectThreshold, trySpellReflect
  *  - spell-zone-service.js → linkTemplateToOriginAE, getTokensInTemplate, getActiveSpellZones
  *
@@ -19,6 +19,7 @@ import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js"
 import { registerLinkedEntity, getOriginAEs } from "./effects/origin-effect.js";
 import { _str, createDebugLogger, isDebugEnabled } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
 // ── Shared Private Helpers ───────────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ export function emitEffectApplied(payload) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 2: Spell Routing (from spell-routing.js)
+// SECTION 2: Spell Routing
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -305,7 +306,7 @@ export async function trySpellReflect(targetActor, spell, casterActor, options =
 // SECTION 4: Spell Zone Service (from spell-zone-service.js)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 
 /**
  * Link an existing MeasuredTemplate to an Origin AE.

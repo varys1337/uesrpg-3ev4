@@ -19,7 +19,9 @@ import { getLoadoutsForActor } from "../sheet-ui-state.js";
 import { isReachLengthHomebrewEnabled } from "../../../core/homebrew/reach-length/weapon.js";
 import { hasCondition } from "../../../core/conditions/condition-engine.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
-const _FLAG_NS = "uesrpg-3ev4";
+import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../data/tooltips/index.js";
+import { SYSTEM_ID } from "../../constants.js";
+const _FLAG_NS = SYSTEM_ID;
 const _EQUIPMENT_TYPES = new Set(["weapon", "armor", "ammunition", "item", "container", "scroll"]);
 
 function _resolveSpellFromUuidSync(uuid) {
@@ -143,6 +145,15 @@ export function buildCombatActionsContext(actor) {
 
     const specialActions = buildSpecialActionsForActor(actor).map(sa => ({
       ...sa,
+      description: buildSpecialActionTooltipText({
+        name: sa?.name ?? sa?.id ?? "Special Action",
+        id: sa?.id ?? "",
+        actionType: sa?.actionType ?? "primary/secondary",
+      }),
+      helpText: buildSpecialActionHelpText({
+        name: sa?.name ?? sa?.id ?? "Special Action",
+        id: sa?.id ?? "",
+      }),
       usableNow: isSpecialActionUsableNow(actor, sa.actionType),
       usableAsAdvantage: Boolean(sa.known)
     }));
@@ -216,8 +227,8 @@ export function applyDefensiveStanceDisabling(actor, combatQuickContext) {
  * @returns {Promise<object>} Sheet UI state
  */
 export async function buildSheetUiState(actor) {
-  const enableLoadouts = Boolean(game?.settings?.get?.("uesrpg-3ev4", "enableLoadouts"));
-  const showDiagnostics = Boolean(game?.settings?.get?.("uesrpg-3ev4", "sheetDiagnostics"));
+  const enableLoadouts = Boolean(game?.settings?.get?.(SYSTEM_ID, "enableLoadouts"));
+  const showDiagnostics = Boolean(game?.settings?.get?.(SYSTEM_ID, "sheetDiagnostics"));
   const loadouts = enableLoadouts ? await getLoadoutsForActor(actor.id) : [];
 
   return {

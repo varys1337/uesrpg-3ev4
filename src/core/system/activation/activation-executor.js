@@ -12,14 +12,14 @@ import { filterTargetsBySpellRange, getSpellAoEConfig, getSpellRangeType, getSpe
 import { AoEService, AOE_SOURCE_TYPES } from "../../aoe/index.js";
 import { findLatestOpposedMessageByDefender, retargetOpposedMessage } from "../../combat/opposed/retarget.js";
 import { grantFreeNextDefenseCommit, registerActivationStateHooks } from "../../combat/activation-state-flags.js";
-import { isDebugEnabled } from "../../../utils/debug.js";
+import { createSeverityDebugLogger } from "../../../utils/debug.js";
 import { _num } from "../../../utils/coerce.js";
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
 import { runFeatureAutomation } from "../../traits/features/feature-dispatcher.js";
 import { featureNeedsEffectTransfer, applyFeatureEffectsToTargets } from "./feature-effects.js";
 import { customDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
-
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../system-id.js";
+import { getRoundTimeSecondsSafe } from "../time/round-time.js";
 const ACTION_TYPE_LABELS = {
   passive: "Passive",
   free: "Free",
@@ -31,25 +31,7 @@ const ACTION_TYPE_LABELS = {
 
 const AUTOMATION_TALENT_KEYS = new Set(["defender", "hardtarget", "thundercharge", "inspireheroism"]);
 
-function _activationDebug(...args) {
-  if (!isDebugEnabled("activationDebug")) return;
-  try {
-    console.debug(...args);
-  } catch (_e) {
-    // no-op
-  }
-}
-
-
-
-function _getRoundTimeSecondsSafe() {
-  try {
-    const roundTime = Number(CONFIG?.time?.roundTime ?? 6);
-    return Number.isFinite(roundTime) && roundTime > 0 ? roundTime : 6;
-  } catch (_err) {
-    return 6;
-  }
-}
+const _activationDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 
 function _resolveTalentAutomationKey(item) {
   const raw = normalizeTalentKey(item?.name ?? "");
@@ -260,7 +242,7 @@ async function _activateDefenderTalent({ item, actor, context }) {
     createdAt: now,
     expiresAt: now + 60000,
     createdWorldTime: worldTime,
-    expiresWorldTime: worldTime + Math.max(1, _getRoundTimeSecondsSafe()),
+    expiresWorldTime: worldTime + Math.max(1, getRoundTimeSecondsSafe()),
     combatId: combat?.id ?? null,
     round: combat ? Number(combat.round ?? 0) : null,
     turn: combat ? Number(combat.turn ?? 0) : null,
@@ -311,7 +293,7 @@ async function runTalentActivationAutomation({ item, actor, context = {} } = {})
     if (isActivatableSpellcastingTalent(item)) await activateSpellcastingTalent(actor, item);
     await handleRacialTalentActivation({ actor, item, itemKey: k });
   } catch (err) {
-    console.warn("uesrpg-3ev4 | Talent activation automation failed", { item: item?.name, key: k, err });
+    console.warn(`${SYSTEM_ID} | Talent activation automation failed`, { item: item?.name, key: k, err });
   }
 }
 
@@ -1042,7 +1024,7 @@ export async function executeItemActivation({
     // Master toggle — demoted from hard block to automation-only gate.
     if (fcfg.enabled === false) {
       featureAutomationEnabled = false;
-      _activationDebug("uesrpg-3ev4 | activation: featureConfig.enabled=false, automation disabled but chat+effects will proceed", item.name);
+      _activationDebug(`${SYSTEM_ID} | activation: featureConfig.enabled=false, automation disabled but chat+effects will proceed`, item.name);
     }
 
     // Combat-only gating
@@ -1061,7 +1043,7 @@ export async function executeItemActivation({
     if (featureAutomationEnabled && fcfg.applyMode === "confirm") {
       const confirmed = await _showFeatureConfirmDialog(item, fcfg);
       if (!confirmed) {
-        _activationDebug("uesrpg-3ev4 | activation: CANCELLED by user confirmation", item.name);
+        _activationDebug(`${SYSTEM_ID} | activation: CANCELLED by user confirmation`, item.name);
         return { ok: false };
       }
     }
@@ -1114,7 +1096,7 @@ export async function executeItemActivation({
         }
       }
     } catch (err) {
-      console.warn("uesrpg-3ev4 | Racial activation preflight failed", err);
+      console.warn(`${SYSTEM_ID} | Racial activation preflight failed`, err);
     }
 
     usageResult = await consumeActivationUsage({ item, activation });
@@ -1184,16 +1166,16 @@ export async function executeItemActivation({
             });
           }
         } catch (err) {
-          console.warn("uesrpg-3ev4 | Feature effect transfer failed", { item: item?.name, err });
+          console.warn(`${SYSTEM_ID} | Feature effect transfer failed`, { item: item?.name, err });
         }
       } else if (rawTargets.length > 0) {
         // Targets existed but all were self-excluded
         ui.notifications?.info?.(`${item.name}: Cannot transfer effects to self \u2014 select a different target.`);
-        _activationDebug("uesrpg-3ev4 | feature-effects: item has AEs but no valid targets (self excluded)", item.name);
+        _activationDebug(`${SYSTEM_ID} | feature-effects: item has AEs but no valid targets (self excluded)`, item.name);
       } else {
         // No targets selected at all — prompt user
         ui.notifications?.info?.(`${item.name} has activation effects \u2014 select target token(s) to transfer them.`);
-        _activationDebug("uesrpg-3ev4 | feature-effects: item has activation AEs but no targets selected", item.name);
+        _activationDebug(`${SYSTEM_ID} | feature-effects: item has activation AEs but no targets selected`, item.name);
       }
     }
   }
@@ -1210,7 +1192,7 @@ export async function executeItemActivation({
         enforceFeatureConfig: false
       });
     } catch (err) {
-      console.warn("uesrpg-3ev4 | Feature automation dispatch failed", err);
+      console.warn(`${SYSTEM_ID} | Feature automation dispatch failed`, err);
     }
   }
 
@@ -1222,7 +1204,7 @@ export async function executeItemActivation({
       const k = _resolveTalentAutomationKey(item);
       await handleRacialPowerActivation({ actor, item, itemKey: k });
     } catch (err) {
-      console.warn("uesrpg-3ev4 | Talent activation automation failed", err);
+      console.warn(`${SYSTEM_ID} | Talent activation automation failed`, err);
     }
   }
 
@@ -1240,7 +1222,7 @@ export async function executeItemMacroBestEffort(item, { event } = {}) {
     const canExecute = itemMacroActive && typeof item.executeMacro === "function" && typeof item.hasMacro === "function" && item.hasMacro();
     if (canExecute) await item.executeMacro({ event });
   } catch (err) {
-    console.warn("uesrpg-3ev4 | ItemMacro execution failed", err);
+    console.warn(`${SYSTEM_ID} | ItemMacro execution failed`, err);
   }
 }
 
@@ -1310,7 +1292,7 @@ async function _showFeatureConfirmDialog(item, fcfg) {
     });
     return confirmed === true;
   } catch (err) {
-    console.warn("uesrpg-3ev4 | Feature confirm dialog error", err);
+    console.warn(`${SYSTEM_ID} | Feature confirm dialog error`, err);
     return false;
   }
 }

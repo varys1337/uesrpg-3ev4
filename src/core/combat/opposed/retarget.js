@@ -24,14 +24,13 @@ import { _isBankChoicesEnabledForData, _getBankCommitState } from "./banking/sta
 import { _anyActiveGMOnline, _safeGetSetting } from "./helpers/util.js";
 import { inferAttackModeFromPreferredWeapon, getPreferredWeaponUuid, getContextAttackMode } from "./helpers/workflow.js";
 import { getExplicitActiveCombatStyleItem } from "../combat-style-utils.js";
-import { _renderCard as _renderSkillOpposedCard } from "../../skills/opposed/render.js";
-import { _normalizeCardFlag as _normalizeSkillCardFlag } from "../../skills/opposed/schema.js";
-import { FLAG_NS as SKILL_FLAG_NS, FLAG_KEY as SKILL_FLAG_KEY, CARD_VERSION as SKILL_CARD_VERSION } from "../../skills/opposed/constants.js";
+import { _renderCard as _renderSkillOpposedCard } from "../../skills/opposed-workflow/core/render.js";
+import { _normalizeCardFlag as _normalizeSkillCardFlag } from "../../skills/opposed-workflow/core/schema.js";
+import { FLAG_NS as SKILL_FLAG_NS, FLAG_KEY as SKILL_FLAG_KEY, CARD_VERSION as SKILL_CARD_VERSION } from "../../skills/opposed-workflow/core/constants.js";
 import { renderCard as _renderMagicOpposedCard } from "../../magic/opposed/render.js";
 import { computeMagicCastingTN } from "../../magic/magicka-utils.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
-
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../../system/namespace.js";
 const MAGIC_FLAG_KEY = "magicOpposed";
 
 function _retargetDebugEnabled() {

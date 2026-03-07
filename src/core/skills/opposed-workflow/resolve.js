@@ -5,7 +5,7 @@
  */
 
 import { doTestRoll, resolveOpposed } from "../../../utils/degree-roll-helper.js";
-import { _esc } from "../opposed/util.js";
+import { _esc } from "./core/util.js";
 
 /**
  * If both sides rolled a critical success and the outcome is a tie, perform a
@@ -118,3 +118,4 @@ export async function _maybeResolveBothCritSuccessRollOff({ message, data, attac
     };
   }
 }
+

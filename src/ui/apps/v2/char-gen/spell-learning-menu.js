@@ -1,12 +1,16 @@
-import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+﻿import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { resolveDroppedItem } from "../../../../utils/drop-data.js";
 import {
   computeSpellLearningCosts,
   normalizeSpellLearningType,
   validateSpellLearningPurchase,
+  spellSignature,
+  computeSpellLearningSummary,
+  buildKnownSpellIndex,
 } from "../../../../core/advancement/spell-learning.js";
 import { appendChargenAudit } from "./audit-log.js";
+import { SYSTEM_ID, templatePath } from "../../../constants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -21,41 +25,6 @@ function asString(value) {
 
 function cloneData(value) {
   return foundry.utils.deepClone(value ?? {});
-}
-
-function spellSignature(spellLike) {
-  const name = asString(spellLike?.name).toLowerCase();
-  const school = asString(spellLike?.system?.school).toLowerCase();
-  const level = Math.max(1, asNumber(spellLike?.system?.level, 1));
-  const type = asString(normalizeSpellLearningType(spellLike)).toLowerCase();
-  return `${name}|${school}|${level}|${type}`;
-}
-
-function buildSpellLearningSummary(logEntries) {
-  const rows = Array.isArray(logEntries) ? logEntries : [];
-  const learned = rows.filter((r) => r?.outcome === "learned");
-  const blocked = rows.filter((r) => r?.outcome === "blocked");
-  const bySchool = {};
-  const byType = {};
-  let spentXp = 0;
-  let spentDrakes = 0;
-  for (const row of learned) {
-    const school = asString(row?.spell?.school || "unknown").toLowerCase() || "unknown";
-    const type = asString(row?.spell?.type || "conventional").toLowerCase() || "conventional";
-    bySchool[school] = (bySchool[school] ?? 0) + 1;
-    byType[type] = (byType[type] ?? 0) + 1;
-    spentXp += asNumber(row?.costs?.xp, 0);
-    spentDrakes += asNumber(row?.costs?.drakes, 0);
-  }
-  return {
-    learnedCount: learned.length,
-    blockedCount: blocked.length,
-    spentXp,
-    spentDrakes,
-    bySchool,
-    byType,
-    updatedAt: new Date().toISOString(),
-  };
 }
 
 function readDropData(event) {
@@ -112,7 +81,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
 
   static PARTS = {
     main: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/spell-learning-menu.hbs",
+      template: templatePath("v2/apps/spell-learning-menu.hbs"),
       scrollable: [".uesrpg-spelllearn__scroll"],
     },
   };
@@ -247,13 +216,13 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
 
   async #appendSpellLearningRows(rows) {
     if (!rows.length) return;
-    const chargen = this.#actor.getFlag("uesrpg-3ev4", "chargen") ?? {};
+    const chargen = this.#actor.getFlag(SYSTEM_ID, "chargen") ?? {};
     const spellLearning = cloneData(chargen.spellLearning);
     const log = Array.isArray(spellLearning?.log) ? [...spellLearning.log] : [];
     for (const row of rows) log.push(row);
     await requestUpdateDocument(this.#actor, {
       "flags.uesrpg-3ev4.chargen.spellLearning.log": log,
-      "flags.uesrpg-3ev4.chargen.spellLearning.lastSummary": buildSpellLearningSummary(log),
+      "flags.uesrpg-3ev4.chargen.spellLearning.lastSummary": computeSpellLearningSummary(log),
     });
   }
 
@@ -273,7 +242,8 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
       const itemData = cloneData(entry.payload?.itemData ?? {});
       const paymentMode = asString(entry.payload?.paymentMode) === "drakes" ? "drakes" : "xp";
       const actorMock = this.#buildValidationActor({ xp: projectedXp, wealth: projectedWealth }, extraItems, { includeDraft: false });
-      const validation = validateSpellLearningPurchase(actorMock, itemData, paymentMode);
+      const knownSpellIndex = buildKnownSpellIndex(actorMock);
+      const validation = validateSpellLearningPurchase(actorMock, itemData, paymentMode, { knownSpellIndex });
       if (!validation.ok) return { ok: false, reason: validation.reason || `Blocked: ${itemData?.name ?? "Spell"}` };
 
       const costXp = paymentMode === "xp" ? asNumber(validation.costs?.xpCost, 0) : 0;
@@ -438,8 +408,9 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   async #pickPaymentMode(spell) {
     const costs = computeSpellLearningCosts(spell, this.#actor);
     const actorMock = this.#buildValidationActor(this.#draftDerived);
-    const xpValidation = validateSpellLearningPurchase(actorMock, spell, "xp");
-    const drakesValidation = validateSpellLearningPurchase(actorMock, spell, "drakes");
+    const knownSpellIndex = buildKnownSpellIndex(actorMock);
+    const xpValidation = validateSpellLearningPurchase(actorMock, spell, "xp", { knownSpellIndex });
+    const drakesValidation = validateSpellLearningPurchase(actorMock, spell, "drakes", { knownSpellIndex });
     const xpOk = xpValidation.ok;
     const drakesOk = drakesValidation.ok;
 
@@ -500,7 +471,8 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     }
 
     const actorMock = this.#buildValidationActor(this.#draftDerived);
-    const validation = validateSpellLearningPurchase(actorMock, spell, picked.paymentMode);
+    const knownSpellIndex = buildKnownSpellIndex(actorMock);
+    const validation = validateSpellLearningPurchase(actorMock, spell, picked.paymentMode, { knownSpellIndex });
     if (!validation.ok) {
       ui.notifications?.warn?.(validation.reason || "Spell learning blocked.");
       return;
@@ -568,3 +540,4 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     ui.notifications?.info?.(`Confirmed ${out.applied} staged spell purchase(s).`);
   }
 }
+

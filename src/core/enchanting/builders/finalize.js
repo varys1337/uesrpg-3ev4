@@ -15,8 +15,9 @@
 
 import { consumeSoulGem } from "../soul-gems.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { SYSTEM_ID } from "../../constants.js";
 
-const _NS = "uesrpg-3ev4";
+const _NS = SYSTEM_ID;
 
 /**
  * Apply the completed enchantment to the item and post a chat card.

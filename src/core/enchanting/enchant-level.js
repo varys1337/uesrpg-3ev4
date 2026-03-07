@@ -18,7 +18,9 @@
  * Target: Foundry VTT v13.351
  */
 
-const _NS = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../constants.js";
+
+const _NS = SYSTEM_ID;
 const DEFAULT_EL = 10;
 
 /**

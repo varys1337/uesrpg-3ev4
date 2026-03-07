@@ -5,8 +5,7 @@
  */
 
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
-
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../system/namespace.js";
 const SURPRISE_FLAG_PATH = "chapter5.surpriseState";
 
 let _hooksRegistered = false;

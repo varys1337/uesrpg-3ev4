@@ -5,23 +5,15 @@
 
 import { getMeleeReachMeters, anyOtherTokensInMeleeOfEither } from "../../../traits/combat-proximity.js";
 import { measureTokenDistance as _measureTokenDistance } from "../range.js";
+import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
 
 export function _resolveDoc(uuid) {
-  if (!uuid) return null;
-  try {
-    return fromUuidSync(uuid);
-  } catch (_e) {
-    return null;
-  }
+  return resolveUuidSync(uuid);
 }
 
 export function _resolveActor(docOrUuid) {
   const doc = typeof docOrUuid === "string" ? _resolveDoc(docOrUuid) : docOrUuid;
-  if (!doc) return null;
-  if (doc.documentName === "Actor") return doc;
-  if (doc.documentName === "Token") return doc.actor ?? null;
-  if (doc.actor) return doc.actor;
-  return null;
+  return getActorFromResolvedDocument(doc);
 }
 
 /**
@@ -57,7 +49,7 @@ export function _resolveItemViaActor(itemUuid, actor = null) {
   if (!itemUuid) return null;
   const uuid = String(itemUuid).trim();
   if (!uuid) return null;
-  const direct = fromUuidSync(uuid);
+  const direct = resolveUuidSync(uuid);
   if (direct) return direct;
   // Fallback: extract item ID from UUID and look up in actor's items
   if (actor?.items) {

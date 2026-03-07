@@ -9,45 +9,12 @@
  */
 
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+export { getChatMessageAuthorUser } from "../../../../utils/authority-proxy.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { perfStart, perfEnd } from "../../../../utils/debug.js";
+import { createMessageQueue } from "../../../opposed/shared/message-queue.js";
 
-/* ────────────────────────────────────────────────────────────────────────
- * Per-message async mutex.
- *
- * Banking mode dispatches attacker + defender rolls via Promise.allSettled,
- * so both handlers call updateCard concurrently.  Without serialization the
- * merge-on-write pattern breaks: both callers read the same stale
- * message.flags snapshot, merge their lane changes on top, and the second
- * message.update() to complete overwrites the first (classic lost-update).
- *
- * The mutex ensures that at most one updateCard call per messageId is
- * in-flight.  The second caller waits until the first completes, then
- * reads the freshly-updated flags and merges correctly.
- * ──────────────────────────────────────────────────────────────────────── */
-
-/** @type {Map<string, Promise<void>>} */
-const _cardUpdateQueues = new Map();
-
-/**
- * Enqueue `fn` behind any pending updateCard call for the same message.
- * Returns the result of `fn()`.
- * @param {string} messageId
- * @param {() => Promise<void>} fn
- * @returns {Promise<void>}
- */
-function _enqueueCardUpdate(messageId, fn) {
-  const prev = _cardUpdateQueues.get(messageId) ?? Promise.resolve();
-  // Chain: wait for previous write, then run ours.  Swallow errors from
-  // earlier writes so they don't block subsequent ones.
-  const next = prev.catch(() => {}).then(fn);
-  _cardUpdateQueues.set(messageId, next);
-  // Clean up once the full chain for this id settles (avoid memory leak).
-  next.finally(() => {
-    if (_cardUpdateQueues.get(messageId) === next) _cardUpdateQueues.delete(messageId);
-  });
-  return next;
-}
+const _enqueueCardUpdate = createMessageQueue();
 
 /**
  * Update opposed combat card with new data.
@@ -147,25 +114,6 @@ async function _updateCardCore(message, data, _renderCard) {
   perfStart(persistLabel);
   await safeUpdateChatMessage(message, payload);
   perfEnd(persistLabel);
-}
-
-/**
- * Get the author user for a chat message.
- * 
- * Handles various data structures (v12 vs v13 ChatMessage schemas).
- * 
- * @param {ChatMessage} msg - The chat message.
- * @returns {User|null} - The author User object or null.
- */
-export function getChatMessageAuthorUser(msg) {
-  const authorId =
-    msg?.author?.id ??
-    msg?._source?.author ??
-    msg?._source?.user ??
-    msg?.data?.author ??
-    msg?.data?.user ??
-    null;
-  return authorId ? (game.users.get(String(authorId)) ?? null) : null;
 }
 
 /**

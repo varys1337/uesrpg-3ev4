@@ -21,9 +21,10 @@
 
 import { hasTalent } from "../../traits/talents-api.js";
 import { getEffectiveEnchantRank, computeStrikeConstantPenalty } from "../penalties.js";
-import { computePoolMax } from "../enchant-level.js";
+import { computePoolMax, getItemEL } from "../enchant-level.js";
 import { executeEnchantTest, executeSalvageEnergyRoll } from "../tests.js";
 import { resolveSoulGemData } from "../soul-gems.js";
+import { getEnchantingSettings } from "../settings.js";
 
 const MAX_EFFECTS_NO_MANIFOLD = 1;
 const MAX_EFFECTS_MANIFOLD = 3;
@@ -80,10 +81,30 @@ const BANNED_CONSTANT_SCHOOLS = new Set(["conjuration", "necromancy"]);
  */
 
 /**
+ * @typedef {object} BuildConstantResult
+ * @property {boolean} valid
+ * @property {string[]} errors - Empty when valid === true.
+ * @property {number} itemEL
+ * @property {number} poolMax
+ * @property {number} energyLost
+ * @property {number} totalSL
+ * @property {number} totalCost
+ * @property {number} minSoulEnergy
+ * @property {number} penalty
+ * @property {number} effectiveEnchantRank
+ * @property {object} gemAudit
+ * @property {object|null} testResult
+ * @property {object|null} salvageResult
+ * @property {boolean} anySuccess
+ * @property {boolean} gemPreserved
+ * @property {boolean} cursed
+ */
+
+/**
  * Validate and (optionally) roll the enchant test for a constant enchantment.
  *
  * @param {BuildConstantConfig} cfg
- * @returns {Promise<object>}
+ * @returns {Promise<BuildConstantResult>}
  */
 export async function buildConstant(cfg) {
   const { actor, targetItem, soulGemItem, effects = [], cursed = false, skipRolls = false } = cfg;
@@ -96,8 +117,8 @@ export async function buildConstant(cfg) {
 
   // Cursed setting gate
   if (cursed) {
-    const cursedEnabled = game.settings.get("uesrpg-3ev4", "enchanting.enableCursedConstant") ?? false;
-    if (!cursedEnabled) errors.push("Cursed Constant Enchantments are not enabled (enchanting.enableCursedConstant = false).");
+    const { enableCursedConstant } = getEnchantingSettings();
+    if (!enableCursedConstant) errors.push("Cursed Constant Enchantments are not enabled (enchanting.enableCursedConstant = false).");
   }
 
   const hasManifold = hasTalent(actor, "manifoldenchanter");
@@ -134,7 +155,7 @@ export async function buildConstant(cfg) {
   const gemData = resolveSoulGemData(soulGemItem);
   if (!gemData) errors.push("Soul gem item has invalid soul gem flags.");
 
-  const itemEL = Number(targetItem?.system?.enchantLevel ?? targetItem?.flags?.["uesrpg-3ev4"]?.itemEL ?? 10);
+  const itemEL = getItemEL(targetItem);
   const totalSL = effects.reduce((sum, e) => sum + Number(e.sl ?? 0), 0);
   const totalCost = effects.reduce((sum, e) => sum + Number(e.cost ?? 0), 0);
 
@@ -166,7 +187,12 @@ export async function buildConstant(cfg) {
     : {};
 
   if (errors.length) {
-    return { valid: false, errors, itemEL, poolMax, energyLost, totalSL, totalCost, minSoulEnergy, penalty, gemAudit, testResult: null, anySuccess: false, gemPreserved: false };
+    return {
+      valid: false, errors,
+      itemEL, poolMax, energyLost, totalSL, totalCost, minSoulEnergy, penalty, effectiveEnchantRank,
+      gemAudit, testResult: null, salvageResult: null,
+      anySuccess: false, gemPreserved: false, cursed,
+    };
   }
 
   let testResult = null;
@@ -209,7 +235,7 @@ export async function buildConstant(cfg) {
 /**
  * Build the constant enchantment flags payload.
  *
- * @param {object} result - From buildConstant()
+ * @param {BuildConstantResult} result - From buildConstant()
  * @param {Actor} actor
  * @param {Item} soulGemItem
  * @param {Item} targetItem

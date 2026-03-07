@@ -4,21 +4,13 @@
  */
 import { hasTalent } from "../traits/talents-api.js";
 import { listTacticianInitiativeProvidersForActor } from "../traits/intellectual-talents.js";
-import { isDebugEnabled } from "../../utils/debug.js";
+import { createDebugLogger } from "../../utils/debug.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { resolveSurpriseState } from "../combat/surprise-state.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
-function _initiativeDebug(...args) {
-  try {
-    if (isDebugEnabled("skillRollDebug")) {
-      // eslint-disable-next-line no-console
-      console.log("[UESRPG][Initiative]", ...args);
-    }
-  } catch (_e) {
-    // Ignore debug errors.
-  }
-}
+const _initiativeDebug = createDebugLogger("skillRollDebug", "[UESRPG][Initiative]");
 
 function _numericOr(value, fallback = 0) {
   const n = Number(value);
@@ -142,14 +134,14 @@ export class SystemCombat extends Combat {
     // Chapter 5: Wounds to the body cause the target to lose 1 AP, or start next refresh
     // with 1 fewer AP if already at 0. We implement the "next refresh" rule as a debt flag
     // that is consumed on the next AP refresh.
-    const debtRaw = Number(actor.getFlag("uesrpg-3ev4", "wounds.apDebtNextRefresh") ?? 0);
+    const debtRaw = Number(actor.getFlag(FLAG_SCOPE, "wounds.apDebtNextRefresh") ?? 0);
     const debt = Number.isFinite(debtRaw) ? debtRaw : 0;
     const updateData = { "system.action_points.value": next };
     if (debt > 0) {
       next = Math.max(min, next - debt);
       updateData["system.action_points.value"] = next;
       // Clear debt once consumed.
-      updateData["flags.uesrpg-3ev4.wounds.-=apDebtNextRefresh"] = null;
+      updateData[`flags.${FLAG_SCOPE}.wounds.-=apDebtNextRefresh`] = null;
     }
 
     await requestUpdateDocument(actor, updateData).catch(err => {
@@ -158,11 +150,13 @@ export class SystemCombat extends Combat {
   }
 
   async resetAllActionPoints() {
-    const promises = [];
-    for (const combatant of this.turns) {
-      promises.push(this._refreshActionPoints(combatant?.actor));
+    const BATCH_SIZE = 25;
+    const turns = Array.from(this.turns ?? []);
+    for (let i = 0; i < turns.length; i += BATCH_SIZE) {
+      const slice = turns.slice(i, i + BATCH_SIZE);
+      const promises = slice.map(combatant => this._refreshActionPoints(combatant?.actor));
+      await Promise.allSettled(promises);
     }
-    await Promise.all(promises);
   }
 
   /** @override */

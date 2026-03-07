@@ -1,4 +1,4 @@
-import { UESRPG } from "../core/constants.js";
+import { UESRPG, FLAG_SCOPE, SYSTEM_ID } from "../core/constants.js";
 import { SimpleActor } from "../core/documents/actor.js";
 import { SimpleItem } from "../core/documents/item.js";
 import { registerPolyglotLanguages } from "../core/integrations/polyglot.js";
@@ -12,12 +12,12 @@ import { registerChat, registerSpecialActionOutcomeHook } from "./init/register-
 import { registerChatCommands } from "./init/register-chat-commands.js";
 import { registerMigrations } from "./init/register-migrations.js";
 import { registerKeybindings } from "./init/register-keybindings.js";
+import { registerDevTools } from "./init/register-devtools.js";
+import { registerFeatureHooks } from "./init/features/register-feature-hooks.js";
+import { registerOnce } from "./_internal/hook-registry.js";
 
 import { SystemCombat, getInitiativeTieBreakTuple } from "../core/documents/combat.js";
-import { registerCombatChatHandlers } from "../core/combat/chat-handlers.js";
-import { registerSkillTNDebug } from "../utils/dev/skill-tn-debug.js";
-import { registerActorSelectDebug } from "../utils/dev/actor-select-debug.js";
-import { registerOpposedDiagnostics } from "../utils/dev/opposed-diagnostics.js";
+import { registerCombatChatHandlers } from "../core/combat/chat-handlers/index.js";
 import { registerDndDebugObservers } from "../utils/dnd-debugger.js";
 import { registerConditions } from "../core/conditions/index.js";
 import { registerWounds } from "../core/wounds/index.js";
@@ -35,16 +35,10 @@ import { getActionEligibility } from "../core/combat/opposed/actions/eligibility
 import { applyDamage, applyHealing, DAMAGE_TYPES } from "../core/combat/damage-automation.js";
 import { applyDamageResolved } from "../core/combat/damage-resolver.js";
 import { registerChatMessageSocket } from "../utils/chat-message-socket.js";
-import { registerAuthorityProxy, requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../utils/authority-proxy.js";
+import { registerAuthorityProxy } from "../utils/authority-proxy.js";
 import { registerReachVisualizer } from "../ui/canvas/reach-visualizer.js";
 import { registerRacialTalentsAutomation } from "../core/traits/racial-talents.js";
 import { registerSpellcastingTalentHooks } from "../core/traits/spellcasting-talents.js";
-import {
-  TALENT_LEARNING_MODE,
-  validateTalentLearning,
-  notifyTalentLearningResult,
-  applyTalentLearningXpCost,
-} from "../core/traits/talent-learning.js";
 import { registerActivationStateHooks } from "../core/combat/activation-state-flags.js";
 import { CharOpposedWorkflow } from "../core/characteristics/opposed-workflow.js";
 import { isDebugEnabled } from "../utils/debug.js";
@@ -56,35 +50,23 @@ import { executeSpecialAction } from "../core/combat/special-actions-helper.js";
 import { getRuleElementRuntimeSupport } from "../core/traits/features/rule-elements.js";
 import { selfTestRuleElementRuntime } from "../core/traits/features/rule-element-runtime.js";
 import { migrateItemsIfNeeded, normalizeItems } from "../core/migrations/items.js";
+import { migrateActorsIfNeeded, normalizeActors } from "../core/migrations/actors.js";
+import { migrateCombatLegacyIfNeeded } from "../core/migrations/combat-legacy.js";
 import { pruneInClosePair } from "../core/conditions/status-hud.js";
 import { isReachLengthHomebrewEnabled } from "../core/homebrew/reach-length/weapon.js";
 import { measureTokenDistance } from "../core/combat/opposed/range.js";
 import { registerEngagementFlanking } from "../core/homebrew/engagement-flanking/index.js";
+import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
 
-/**
- * Preload Handlebars partials used by system sheets.
- *
- * Foundry requires partial templates to be loaded before they can be referenced via {{> }}.
- */
-/**
- * Apply UESRPG custom cursor configuration (passive/active) to Foundry's cursor map.
- *
- * This mirrors the WFRP4e approach:
- * - default / default-down use a passive cursor
- * - pointer / pointer-down use an active cursor
- *
- * Assets live at: systems/uesrpg-3ev4/images/elements/cursors
- */
 function applyCustomCursorConfig() {
   try {
-    const enabled = game.settings.get("uesrpg-3ev4", "customCursor");
+    const enabled = game.settings.get(SYSTEM_ID, "customCursor");
     if (!enabled) return;
 
     const root = `systems/${game.system.id}`;
     const passive = `${root}/images/elements/cursors/inactivecursor-32.webp`;
     const active = `${root}/images/elements/cursors/activecursor-32.webp`;
 
-    // Foundry cursor states used across the canvas and various interactive surfaces.
     CONFIG.cursors.default = passive;
     CONFIG.cursors["default-down"] = passive;
     CONFIG.cursors.pointer = active;
@@ -94,9 +76,81 @@ function applyCustomCursorConfig() {
   }
 }
 
-export default async function initHandler() {
+const _RETIRED_SOCIAL_ITEM_TYPES = new Set(["language", "faction"]);
 
-  // Stable system API / rules exports
+function retireLegacySocialItemCreateTypesInMemory() {
+  const pruneArrayInPlace = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (let i = arr.length - 1; i >= 0; i -= 1) {
+      const key = String(arr[i] ?? "").trim().toLowerCase();
+      if (_RETIRED_SOCIAL_ITEM_TYPES.has(key)) arr.splice(i, 1);
+    }
+  };
+
+  const pruneObjectKeys = (obj) => {
+    if (!obj || typeof obj !== "object") return;
+    for (const key of Object.keys(obj)) {
+      if (_RETIRED_SOCIAL_ITEM_TYPES.has(String(key).trim().toLowerCase())) {
+        delete obj[key];
+      }
+    }
+  };
+
+    pruneArrayInPlace(game?.documentTypes?.Item);
+  pruneArrayInPlace(CONFIG?.Item?.types);
+  pruneArrayInPlace(CONFIG?.Item?.metadata?.types);
+  pruneArrayInPlace(CONFIG?.Item?.documentClass?.metadata?.types);
+  pruneObjectKeys(CONFIG?.Item?.typeLabels);
+  pruneObjectKeys(CONFIG?.Item?.typeIcons);
+  pruneObjectKeys(CONFIG?.Item?.dataModels);
+}
+
+function pruneRetiredSocialItemTypesFromCreateDialogs(root) {
+  const targetRoot = root instanceof HTMLElement ? root : document;
+  const selects = targetRoot.querySelectorAll?.("select[name='type']");
+  if (!selects?.length) return;
+
+  for (const select of selects) {
+    let changed = false;
+    for (const option of Array.from(select.options ?? [])) {
+      const key = String(option?.value ?? "").trim().toLowerCase();
+      if (_RETIRED_SOCIAL_ITEM_TYPES.has(key)) {
+        option.remove();
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    if (_RETIRED_SOCIAL_ITEM_TYPES.has(String(select.value ?? "").trim().toLowerCase())) {
+      const fallback = select.options?.[0]?.value ?? "";
+      select.value = fallback;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+}
+
+function registerRetiredSocialCreateTypeUiGuard() {
+  const guard = (_app, html) => {
+    const root = html?.[0] ?? html ?? document;
+    pruneRetiredSocialItemTypesFromCreateDialogs(root);
+  };
+
+  Hooks.on("renderDocumentDirectory", guard);
+  Hooks.on("renderDialog", guard);
+  Hooks.on("renderDialogV2", guard);
+  Hooks.once("ready", () => {
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes ?? []) {
+          if (!(node instanceof HTMLElement)) continue;
+          pruneRetiredSocialItemTypesFromCreateDialogs(node);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
+export default async function initHandler() {
   registerApi({
     isPredicate,
     evaluatePredicate,
@@ -119,310 +173,57 @@ export default async function initHandler() {
     getSizeToHitModifier,
     getActionEligibility,
     CharOpposedWorkflow,
+    runCombatLegacyReadinessScan,
   });
 
-  // Opposed workflow diagnostics helpers (per-client trace ring buffer + console dump utilities)
-  // Safe: no schema changes; GM-only dump functions.
-  try {
-    registerOpposedDiagnostics();
-  } catch (err) {
-    console.warn("UESRPG | Failed to register opposed diagnostics", err);
-  }
+  void registerDevTools();
 
-  // DnD diagnostics observers (hook + DOM capture listeners; logs are debug-gated).
   try {
     registerDndDebugObservers();
   } catch (err) {
     console.warn("UESRPG | Failed to register DnD diagnostics observers", err);
   }
 
-  // Racial talent/power automation hooks (Chapter 4): registered once.
   try {
     registerRacialTalentsAutomation();
   } catch (err) {
     console.warn("UESRPG | Failed to register racial talent automation", err);
   }
 
-  // Spellcasting talent hooks (Chapter 4 Spellcasting): registered once.
   try {
     registerSpellcastingTalentHooks();
   } catch (err) {
     console.warn("UESRPG | Failed to register spellcasting talent hooks", err);
   }
 
-  // Talent learning enforcement hooks (Chapter 4 acquisition rules): registered once.
-  if (!game.uesrpg._talentLearningHooks) {
-    game.uesrpg._talentLearningHooks = true;
+  registerFeatureHooks();
 
-    Hooks.on("preCreateItem", (item, data, _options, userId) => {
-      try {
-        if (game.userId !== userId) return;
-
-        const actor = item?.parent;
-        if (!actor || actor.documentName !== "Actor") return;
-        if (actor.type !== "Player Character") return;
-
-        const itemType = String(data?.type ?? item?.type ?? "").toLowerCase();
-        if (itemType !== "talent") return;
-
-        const validation = validateTalentLearning(actor, data, { source: "preCreateItem" });
-        if (validation.mode === TALENT_LEARNING_MODE.OFF) return;
-
-        if (validation.mode === TALENT_LEARNING_MODE.WARN) {
-          notifyTalentLearningResult(validation);
-          return;
-        }
-
-        if (validation.mode === TALENT_LEARNING_MODE.ENFORCE && !validation.ok) {
-          notifyTalentLearningResult(validation, { force: true });
-          return false;
-        }
-      } catch (err) {
-        console.error("UESRPG | Talent learning preCreateItem hook failed", err);
-      }
-    });
-
-    Hooks.on("createItem", async (item, _options, userId) => {
-      try {
-        if (game.userId !== userId) return;
-
-        if (!item || item.documentName !== "Item") return;
-        if (String(item.type ?? "").toLowerCase() !== "talent") return;
-
-        const actor = item.parent;
-        if (!actor || actor.documentName !== "Actor") return;
-        if (actor.type !== "Player Character") return;
-
-        const validation = validateTalentLearning(actor, item, {
-          source: "createItem",
-          ignoreItemId: item.id,
-        });
-
-        if (validation.mode !== TALENT_LEARNING_MODE.ENFORCE) return;
-        if (!validation.rulesOk) {
-          notifyTalentLearningResult(validation, { force: true });
-          await requestDeleteEmbeddedDocuments(actor, "Item", [item.id]);
-          return;
-        }
-
-        const spend = await applyTalentLearningXpCost(actor, validation);
-        if (!spend.ok) {
-          ui.notifications?.warn?.(
-            `Talent learning blocked (${item.name}). ${spend.reason ?? "Unable to deduct XP."}`
-          );
-          await requestDeleteEmbeddedDocuments(actor, "Item", [item.id]);
-          return;
-        }
-
-        if (spend.spentXp > 0) {
-          ui.notifications?.info?.(`Spent ${spend.spentXp} XP to learn ${item.name}.`);
-        }
-      } catch (err) {
-        console.error("UESRPG | Talent learning createItem hook failed", err);
-      }
-    });
-  }
-
-  if (!game.uesrpg._defaultItemAETransferHook) {
-    game.uesrpg._defaultItemAETransferHook = true;
-
-    Hooks.on("preCreateActiveEffect", (effect, data, options, userId) => {
-      try {
-        if (game.userId !== userId) return;
-
-        const parent = effect?.parent ?? options?.parent ?? null;
-        if (!parent || parent.documentName !== "Item") return;
-
-        // Respect explicit setting
-        if (data?.transfer !== undefined) return;
-
-        // Ensure we can mutate the pending create data
-        if (foundry?.utils?.mergeObject) {
-          foundry.utils.mergeObject(data, { transfer: true }, { inplace: true });
-        } else {
-          data.transfer = true;
-        }
-
-        // Add constant enchantment metadata flags for Item Active Effects
-        // Constant enchantments are Item Active Effects with transfer=true
-        const FLAG_SCOPE = "uesrpg-3ev4";
-        const existingFlags = data?.flags ?? {};
-        const scopeFlags = existingFlags[FLAG_SCOPE] ?? {};
-        
-        // Ensure standardized metadata flags are present for constant enchantments
-        // effectGroup uses item UUID to ensure uniqueness per item
-        const itemUuid = parent?.uuid ?? parent?.id ?? "";
-        const effectName = String(data?.name ?? "").trim().toLowerCase().replace(/\s+/g, "-") || "effect";
-        const effectGroup = `enchantment.${itemUuid}.${effectName}`;
-        
-        const enhancedFlags = {
-          ...existingFlags,
-          [FLAG_SCOPE]: {
-            ...scopeFlags,
-            constant: true, // Mark as constant enchantment
-            owner: scopeFlags.owner ?? "item",
-            effectGroup: scopeFlags.effectGroup ?? effectGroup,
-            stackRule: scopeFlags.stackRule ?? "override", // Constant enchantments typically override
-            source: scopeFlags.source ?? "enchantment",
-            // Preserve cursed flag if present
-            cursed: scopeFlags.cursed ?? false
-          }
-        };
-        
-        if (foundry?.utils?.mergeObject) {
-          foundry.utils.mergeObject(data, { flags: enhancedFlags }, { inplace: true });
-        } else {
-          data.flags = enhancedFlags;
-        }
-      } catch (err) {
-        console.error("UESRPG | Default Item AE transfer preCreate failed", err);
-      }
-    });
-
-    // Fallback: if some creation path bypasses preCreate mutation, enforce immediately after create.
-    // For feature types (talent/trait/power), respect the explicit transfer value so users
-    // can control the passive (transfer:true) vs activation (transfer:false) distinction.
-    Hooks.on("createActiveEffect", async (effect, options, userId) => {
-      try {
-        if (game.userId !== userId) return;
-        const parent = effect?.parent;
-        if (!parent || parent.documentName !== "Item") return;
-
-        if (effect.transfer) return;
-
-        // Feature types use transfer:false semantically to mean "activation-only effect".
-        // Do NOT override it — the user intentionally left it as transfer:false.
-        const itemType = String(parent.type ?? "").toLowerCase();
-        if (itemType === "talent" || itemType === "trait" || itemType === "power") return;
-
-        // Only force if it looks like a default-created effect (no explicit choice).
-        // Only the owning client should perform the update — other clients skip.
-        const ownerActor = parent?.parent;
-        if (!ownerActor) return;
-        await requestUpdateDocument(effect, { transfer: true });
-      } catch (err) {
-        console.error("UESRPG | Default Item AE transfer create fallback failed", err);
-      }
-    });
-  }
-
-  if (!game.uesrpg._upkeepDeleteGuardHook) {
-    game.uesrpg._upkeepDeleteGuardHook = true;
-    Hooks.on("preDeleteActiveEffect", (effect, options) => {
-      try {
-        const flags = effect?.flags?.["uesrpg-3ev4"];
-        if (!flags?.spellEffect || !flags?.hasUpkeep) return;
-        if (!flags?.upkeepAwaiting) return;
-        if (options?.uesrpgAllowUpkeepDelete) return;
-
-        // Only block deletions explicitly marked as automated expiration
-        // sweeps that could race with the upkeep prompt.  All other
-        // deletions (manual UI, upkeep-cancel, etc.) are allowed through.
-        if (!options?.uesrpgExpirationSweep) return;
-
-        return false;
-      } catch (err) {
-        console.error("UESRPG | Upkeep delete guard failed", err);
-      }
-    });
-  }
-
-  // Buffer cleanup on effect deletion
-  if (!game.uesrpg._bufferCleanupHook) {
-    game.uesrpg._bufferCleanupHook = true;
-    Hooks.on("deleteActiveEffect", async (effect, _options, userId) => {
-      try {
-        // Only run on the initiating client to avoid duplicate processing
-        if (game.userId !== userId) return;
-
-        const flags = effect?.flags?.["uesrpg-3ev4"];
-        if (!flags?.bufferApplied || !flags?.bufferType) return;
-
-        const targetActor = effect.parent;
-        if (!targetActor || targetActor.documentName !== "Actor") return;
-
-        const bufferType = flags.bufferType; // "physical", "magical", or "elemental"
-        const bufferPath = `system.buffers.${bufferType}`;
-
-        // Check if there are other active effects still providing this buffer type
-        const otherBufferEffects = targetActor.effects?.filter(ef => 
-          ef.id !== effect.id && 
-          ef.flags?.["uesrpg-3ev4"]?.bufferApplied && 
-          ef.flags?.["uesrpg-3ev4"]?.bufferType === bufferType
-        ) ?? [];
-
-        // If no other effects provide this buffer type, clear it
-        if (otherBufferEffects.length === 0) {
-          await requestUpdateDocument(targetActor, { [bufferPath]: 0 });
-
-          const debugEnabled = game.settings.get("uesrpg-3ev4", "spellCastingDebug");
-          if (debugEnabled) {
-            console.log(`UESRPG | Buffer cleanup: Cleared ${bufferType} buffer on ${targetActor.name} (effect ${effect.name} deleted)`);
-          }
-        } else {
-          // Recalculate buffer to the max of remaining effects
-          const maxBuffer = Math.max(...otherBufferEffects.map(ef => 
-            Number(ef.flags?.["uesrpg-3ev4"]?.bufferOriginalValue ?? 0)
-          ));
-          await requestUpdateDocument(targetActor, { [bufferPath]: maxBuffer });
-
-          const debugEnabled = game.settings.get("uesrpg-3ev4", "spellCastingDebug");
-          if (debugEnabled) {
-            console.log(`UESRPG | Buffer cleanup: Recalculated ${bufferType} buffer to ${maxBuffer} on ${targetActor.name}`);
-          }
-        }
-      } catch (err) {
-        console.error("UESRPG | Buffer cleanup failed", err);
-      }
-    });
-  }
-
-
-  // NOTE: Spell Item Active Effects use the same deterministic transfer semantics as other item types.
-  // See src/core/active-effects/transfer.js for activation gating (spells require an explicit "Active" toggle).
-
-
-  /**
-   * Set an initiative formula for the system
-   * @type {String}
-   */
   CONFIG.Combat.initiative = {
-    // Use the derived initiative value so Active Effects can influence initiative reliably.
     formula: "1d6 + @initiative.value",
     decimals: 0,
   };
 
-  // Set up custom combat functionality for the system.
   CONFIG.Combat.documentClass = SystemCombat;
-
-  // Record Configuration Values
   CONFIG.UESRPG = UESRPG;
 
-// Polyglot integration: register system languages for the Polyglot module.
-// Implementation lives in src/core/integrations/polyglot.js.
-registerPolyglotLanguages();
+  registerPolyglotLanguages();
 
-  // Define custom Entity classes
   CONFIG.Actor.documentClass = SimpleActor;
   CONFIG.Item.documentClass = SimpleItem;
-  
-  // Register Handlebars helpers
-  registerHandlebarsHelpers();
+  retireLegacySocialItemCreateTypesInMemory();
+  registerRetiredSocialCreateTypeUiGuard();
+  Hooks.once("setup", retireLegacySocialItemCreateTypesInMemory);
+  Hooks.once("ready", retireLegacySocialItemCreateTypesInMemory);
 
-  // Preload sheet partials after the Handlebars application namespace is fully initialized.
-  // Running this too early causes Foundry to fall back to deprecated global loaders.
+  registerHandlebarsHelpers();
   Hooks.once("setup", preloadHandlebarsTemplates);
 
   await registerSettings();
-
-  // Apply custom cursor mapping after settings are registered.
-  // This requires a reload to take effect and is gated by the world setting.
   applyCustomCursorConfig();
 
   await registerSheets();
   registerKeybindings();
 
-  // Initialize chat handlers, sockets/proxy, and canvas interaction registries.
   registerChat({
     registerCombatChatHandlers,
     registerActivationStateHooks,
@@ -432,61 +233,14 @@ registerPolyglotLanguages();
   });
   registerChatCommands();
 
-  // DERIVED_DATA_CACHE_INVALIDATION_V1
-  // Ensure edits to embedded Item bonuses (Talents / Traits / Powers, but also any other embedded
-  // item that contributes to derived data) immediately reflect on the Actor.
-  //
-  // Root cause: SimpleActor#_aggregateItemStats caches aggregated embedded-item stats on the Actor
-  // instance (this._aggCache) and reuses them across prepare cycles when its lightweight signature
-  // does not change. Some non-encumbrance bonus fields (e.g., system.hpBonus) were not represented
-  // in that signature, causing stale derived data until a full server refresh recreated documents.
-  //
-  // Fix: invalidate the cache whenever an embedded Item is created, updated, or deleted.
-  if (!game.uesrpg._aggCacheInvalidationHooks) {
-    game.uesrpg._aggCacheInvalidationHooks = true;
-
-    /**
-     * Clear per-actor aggregation and AE caches so derived data recomputes on the next prepare.
-     * @param {Item} item
-     */
-    const invalidateActorAggCacheFromItem = (item) => {
-      const actor = item?.parent;
-      if (!actor || actor.documentName !== "Actor") return;
-      if (Object.prototype.hasOwnProperty.call(actor, "_aggCache")) actor._aggCache = null;
-      if (Object.prototype.hasOwnProperty.call(actor, "_aeApplicableCache")) actor._aeApplicableCache = null;
-      if (Object.prototype.hasOwnProperty.call(actor, "_aeTotalsMap")) actor._aeTotalsMap = null;
-    };
-
-    Hooks.on("preUpdateItem", (item, _changes, _options, _userId) => invalidateActorAggCacheFromItem(item));
-    Hooks.on("updateItem", (item, _changes, _options, _userId) => invalidateActorAggCacheFromItem(item));
-    Hooks.on("createItem", (item, _options, _userId) => invalidateActorAggCacheFromItem(item));
-    Hooks.on("deleteItem", (item, _options, _userId) => invalidateActorAggCacheFromItem(item));
-
-    // Diagnostic: log a stack trace when a skill item is deleted so any unexpected deletion
-    // can be identified and traced. Gated behind isDebugEnabled() — no production overhead.
-    Hooks.on("preDeleteItem", (item) => {
-      if (item.type !== "skill") return;
-      if (!isDebugEnabled()) return;
-      console.warn("UESRPG | preDeleteItem skill", item.name, new Error().stack);
-    });
-  }
-
-  // IN_CLOSE_AUTO_PRUNE
-  // When a token moves, check whether any In Close pairs have been broken (distance > 1 m).
-  // Runs only when the Reach & Length homebrew is enabled. GM-only for document update authority.
-  if (!game.uesrpg._inCloseAutoPruneHook) {
-    game.uesrpg._inCloseAutoPruneHook = true;
-
+  registerOnce("hooks:in-close-auto-prune", () => {
     Hooks.on("updateToken", async (tokenDoc, changed, _options, _userId) => {
       try {
-        // Only run if position changed
         if (!("x" in changed) && !("y" in changed)) return;
-        // GM only for update authority
         if (!game.user?.isGM) return;
-        // Feature gate
         if (!isReachLengthHomebrewEnabled()) return;
 
-        const inCloseWith = tokenDoc.getFlag("uesrpg-3ev4", "reachLength.inCloseWith");
+        const inCloseWith = tokenDoc.getFlag(FLAG_SCOPE, "reachLength.inCloseWith");
         if (!inCloseWith || !Object.keys(inCloseWith).length) return;
 
         const tokenPlaceable = canvas?.tokens?.get(tokenDoc.id);
@@ -495,13 +249,12 @@ registerPolyglotLanguages();
         for (const [partnerUuid] of Object.entries(inCloseWith)) {
           const partnerDoc = fromUuidSync(partnerUuid);
           if (!partnerDoc) {
-            // Stale entry — clean up silently by removing own reference
-            const staleMap = foundry.utils.deepClone(tokenDoc.getFlag("uesrpg-3ev4", "reachLength.inCloseWith") ?? {});
+            const staleMap = foundry.utils.deepClone(tokenDoc.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {});
             delete staleMap[partnerUuid];
             if (Object.keys(staleMap).length > 0) {
-              await tokenDoc.setFlag("uesrpg-3ev4", "reachLength.inCloseWith", staleMap);
+              await tokenDoc.setFlag(FLAG_SCOPE, "reachLength.inCloseWith", staleMap);
             } else {
-              await tokenDoc.unsetFlag("uesrpg-3ev4", "reachLength.inCloseWith");
+              await tokenDoc.unsetFlag(FLAG_SCOPE, "reachLength.inCloseWith");
             }
             continue;
           }
@@ -513,7 +266,7 @@ registerPolyglotLanguages();
 
           if (dist == null || dist > 1) {
             if (isDebugEnabled()) {
-              console.log(`UESRPG | In Close auto-prune: ${tokenDoc.name} ↔ ${partnerDoc.name} (dist=${dist})`);
+              console.log(`UESRPG | In Close auto-prune: ${tokenDoc.name} - ${partnerDoc.name} (dist=${dist})`);
             }
             await pruneInClosePair(tokenDoc, partnerDoc);
           }
@@ -522,15 +275,9 @@ registerPolyglotLanguages();
         if (isDebugEnabled()) console.warn("UESRPG | In Close auto-prune hook error", err);
       }
     });
-  }
+  });
 
-  // AE_CACHE_INVALIDATION_V1
-  // Clear the per-actor applicable-effects cache whenever an ActiveEffect changes.
-  // The cache is populated by getApplicableEffectsCached() in modifier-evaluator.js
-  // and avoids repeated effect collection during a single actor prepare cycle.
-  if (!game.uesrpg._aeCacheInvalidationHooks) {
-    game.uesrpg._aeCacheInvalidationHooks = true;
-
+  registerOnce("hooks:ae-cache-invalidation", () => {
     const clearActorAECache = (actor) => {
       if (!actor || actor.documentName !== "Actor") return;
       if (Object.prototype.hasOwnProperty.call(actor, "_aeApplicableCache")) actor._aeApplicableCache = null;
@@ -551,16 +298,21 @@ registerPolyglotLanguages();
     Hooks.on("createActiveEffect", (effect) => invalidateAECacheFromEffect(effect));
     Hooks.on("updateActiveEffect", (effect) => invalidateAECacheFromEffect(effect));
     Hooks.on("deleteActiveEffect", (effect) => invalidateAECacheFromEffect(effect));
-  }
+    Hooks.on("updateActor", (actor, changed) => {
+      if (!actor || actor.documentName !== "Actor") return;
+      const touchedEquippedWeapons = Boolean(changed?.system?.equippedWeapons)
+        || foundry.utils.hasProperty(changed, "system.equippedWeapons");
+      if (!touchedEquippedWeapons) return;
+      clearActorAECache(actor);
+    });
+  });
 
-  // Chapter 5: conditions + wounds automation (AE-backed, deterministic)
   registerConditions();
   registerEngagementFlanking();
   registerWounds();
   registerSurpriseHooks();
   registerFearSystem();
 
-  // Frenzied condition automation (Chapter 5)
   try {
     registerFrenzied();
     if (!game.uesrpg.conditions) game.uesrpg.conditions = {};
@@ -570,11 +322,11 @@ registerPolyglotLanguages();
   }
 
   registerMigrations({
+    migrateActorsIfNeeded,
+    normalizeActors,
     migrateItemsIfNeeded,
     normalizeItems,
-    isDebugEnabled,
-    registerSkillTNDebug,
-    registerActorSelectDebug,
+    migrateCombatLegacyIfNeeded,
   });
 
   registerSpecialActionOutcomeHook({ executeSpecialAction });

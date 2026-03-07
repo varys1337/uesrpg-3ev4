@@ -19,12 +19,14 @@ import {
   _cleanupAutoRollContext,
   _anyActiveGMOnline
 } from "./state.js";
+import { verifyAutoRollClaim } from "../../../opposed/shared/auto-roll-claim.js";
 import { perfStart, perfEnd } from "../../../../utils/debug.js";
 
 import { _getDefenderOutcome, _setDefenderOutcome, _setDefenderAdvantage } from "../schema.js";
 import { resolveOutcomeRAW, computeAdvantageRAW } from "../outcome-resolution.js";
 import { applyAoEEvadeOutcome } from "../helpers/workflow.js";
 import { markPendingSneakAttack } from "../effects.js";
+import { resolveActorFromUuidSync } from "../../../../utils/uuid-cache.js";
 
 /**
  * Auto-roll banking workflow when both sides commit (GM orchestration).
@@ -210,8 +212,7 @@ export async function autoRollBanked(parentMessageId, { trigger = "auto" } = {},
     // (If another runner wrote a different claimId, they are the canonical runner.)
     const fresh = game.messages.get(parentMessageId) ?? message;
     const freshOpposed = fresh?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
-    const freshClaimId = freshOpposed?.context?.autoRollClaimId ?? null;
-    if (freshClaimId && freshClaimId !== claimId) return;
+    if (!verifyAutoRollClaim(freshOpposed?.context, claimId)) return;
 
     // Roll lanes SEQUENTIALLY — parallel dispatch is unsafe because each
     // handler clones the full card state; mergeObject then overwrites ALL
@@ -315,7 +316,7 @@ async function _resolveOutcomesAfterRolls(message, _updateCard, dataOverride = n
       // Sneak attack marking (Hidden → attacker wins)
       if (data.context?.attackFromHidden === true && outcome?.winner === "attacker") {
         try {
-          const actor = def.actorUuid ? (fromUuidSync(def.actorUuid)?.actor ?? fromUuidSync(def.actorUuid) ?? null) : null;
+          const actor = resolveActorFromUuidSync(def.actorUuid);
           if (actor) {
             await markPendingSneakAttack(actor, {
               weaponUuid: data.context?.weaponUuid ?? null,

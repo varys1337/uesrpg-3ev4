@@ -14,13 +14,21 @@ import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestUpdateEmb
 import { resolveDroppedItem } from "../../../../utils/drop-data.js";
 
 /**
+ * Legacy sheet-listener registrar kept for compatibility with index.js.
+ * AppV2 sheet classes register containment listeners natively.
+ */
+export function registerContainmentListeners(_sheet, _html) {
+  // no-op by design
+}
+
+/**
  * Return the set of item types that are allowed to be placed into containers.
  * We intentionally exclude non-physical "character build" items (skills, talents, traits, powers, etc).
  *
  * @returns {Set<string>}
  */
 export function getContainerAllowedTypes() {
-  return new Set(["item", "scroll", "weapon", "armor", "ammunition"]);
+  return new Set(["equipment", "scroll", "weapon", "armor", "ammunition"]);
 }
 
 /**

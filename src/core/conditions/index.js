@@ -1,5 +1,8 @@
 /**
  * src/core/conditions/index.js
+ *
+ * Stage-06: registers conditionsHudUpgradeV2Done world setting so the ready-hook
+ * upgrade sweep in status-hud.js runs only once per world.
  */
 
 import { registerConditionHooks, ConditionsAPI, auditConditionRegistry } from "./condition-engine.js";
@@ -7,12 +10,28 @@ export { CONDITION_KEYS } from "./condition-engine.js";
 import { registerConditionTurnTicker } from "./turn-ticker.js";
 import { registerSystemStatusEffects, registerStatusHudInterop } from "./status-hud.js";
 import { isAnyDebugEnabled } from "../../utils/debug.js";
+import { getSystemId } from "./constants.js";
 
 let _conditionsRegistered = false;
 
 export function registerConditions() {
   if (_conditionsRegistered) return;
   _conditionsRegistered = true;
+
+  // Register world setting that gates the Token HUD status-effect upgrade sweep.
+  // Must be registered before ready so game.settings.get/set works in the ready hook.
+  try {
+    game.settings.register(getSystemId(), "conditionsHudUpgradeV2Done", {
+      name: "Conditions HUD Upgrade v2 Done",
+      scope: "world",
+      config: false,
+      type: Boolean,
+      default: false
+    });
+  } catch (_e) {
+    // Already registered (safe no-op if registerConditions is called more than once).
+  }
+
   // Token HUD: expose system conditions as status effects and route interactions through the
   // deterministic condition engine.
   // Apply early.
@@ -33,11 +52,11 @@ export function registerConditions() {
     }
 
     const audit = auditConditionRegistry();
-if (log && Array.isArray(audit?.warnings) && audit.warnings.length) {
-  try {
-    console.warn("UESRPG | Condition registry audit warnings", audit.warnings);
-  } catch (_e) {}
-}
+    if (log && Array.isArray(audit?.warnings) && audit.warnings.length) {
+      try {
+        console.warn("UESRPG | Condition registry audit warnings", audit.warnings);
+      } catch (_e) {}
+    }
 
   });
 

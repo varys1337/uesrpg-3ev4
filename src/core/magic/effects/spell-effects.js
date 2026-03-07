@@ -1,7 +1,7 @@
 /**
  * @module magic/effects/spell-effects
  *
- * src/core/magic/spell-effects.js
+ * src/core/magic/effects/spell-effects.js
  *
  * Spell effect application with RAW stacking rules and duration tracking.
  * Chapter 6 p.128 lines 234-241: Effects don't stack with themselves,
@@ -15,6 +15,8 @@ import { emitEffectApplied } from "../spell-runtime.js";
 import { validateAEChanges } from "../../active-effects/modifier-registry.js";
 import { buildOverTimeChange } from "../ticks/overtime-engine.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
+import { getFlagValueWithFallback } from "../../system/flags.js";
 
 /* ── OverTime entry resolution (private) ────────────────────────────────── */
 
@@ -161,7 +163,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
   // and destroy linked entities (conjured items, summons, target AEs).
   const existing = targetActor.effects.filter(e => {
     if (e.origin !== spellUuid) return false;
-    if (e.flags?.["uesrpg-3ev4"]?.isOriginAE) return false;
+    if (getFlagValueWithFallback(e, "isOriginAE")) return false;
     return true;
   });
   if (existing.length) {
@@ -198,7 +200,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
       duration: _buildEffectDuration(),
       changes: clonedChanges,
       flags: {
-        "uesrpg-3ev4": {
+        [FLAG_SCOPE]: {
           spellEffect: true,
           spellUuid,
           spellName: spell.name,
@@ -340,7 +342,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
         disabled: false,
         duration: _buildEffectDuration(),
         changes: trackerChanges,
-        flags: { "uesrpg-3ev4": trackerFlags }
+        flags: { [FLAG_SCOPE]: trackerFlags }
       });
     }
   }
@@ -354,9 +356,9 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
     if (originAE) {
       for (const data of toCreate) {
         data.flags = data.flags ?? {};
-        data.flags["uesrpg-3ev4"] = data.flags["uesrpg-3ev4"] ?? {};
-        data.flags["uesrpg-3ev4"].originAEUuid = originAE.uuid;
-        data.flags["uesrpg-3ev4"].originAEId = originAE.id;
+        data.flags[FLAG_SCOPE] = data.flags[FLAG_SCOPE] ?? {};
+        data.flags[FLAG_SCOPE].originAEUuid = originAE.uuid;
+        data.flags[FLAG_SCOPE].originAEId = originAE.id;
       }
     }
 
@@ -417,9 +419,9 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
                 if (live) {
                   await requestUpdateEmbeddedDocuments(targetActor, "ActiveEffect", [{
                     _id: live.id,
-                    [`flags.uesrpg-3ev4.bufferApplied`]: true,
-                    [`flags.uesrpg-3ev4.bufferType`]: bufferType,
-                    [`flags.uesrpg-3ev4.bufferOriginalValue`]: bufferValue,
+                    [`flags.${FLAG_SCOPE}.bufferApplied`]: true,
+                    [`flags.${FLAG_SCOPE}.bufferType`]: bufferType,
+                    [`flags.${FLAG_SCOPE}.bufferOriginalValue`]: bufferValue,
                   }]);
                 }
               } catch (flagErr) {
@@ -508,7 +510,7 @@ async function removeOpposingSpellEffects(targetActor, spell) {
   if (!opposing) return;
   
   const toRemove = targetActor.effects.filter(e => 
-    e.flags["uesrpg-3ev4"]?.spellEffect && e.flags["uesrpg-3ev4"]?.spellName === opposing
+    getFlagValueWithFallback(e, "spellEffect") && getFlagValueWithFallback(e, "spellName") === opposing
   );
   
   if (toRemove.length) {

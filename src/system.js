@@ -342,6 +342,10 @@ Hooks.once("init", async function() {
   const { registerCharGenApi } = await import("./macros/character-generation.js");
   registerCharGenApi();
 
+  // Expose Treat Wounds macro API (game.uesrpg.wounds.openTreatWoundsMacro)
+  const { registerTreatWoundsMacroApi } = await import("./macros/treat-wounds.js");
+  registerTreatWoundsMacroApi();
+
   // Expose Alchemy Workshop API (game.uesrpg.alchemy.openWorkshop + drinkPotion + applyToWeapon + effects)
   // ⚠️ Import from core/alchemy/index.js — the authoritative registration point that exposes
   // the full runtime surface.  macros/alchemy-workshop.js only has the minimal openWorkshop shim.

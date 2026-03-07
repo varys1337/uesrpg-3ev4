@@ -14,6 +14,7 @@
  */
 
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 
 /**
  * Safe, minimal HTML escaping for plain-text insertion into markup.
@@ -38,7 +39,7 @@ function _findEnabledEffectByKey(actor, key) {
   if (!actor) return null;
   const k = String(key ?? "").trim();
   if (!k) return null;
-  return actor.effects?.find((e) => !e.disabled && e?.flags?.uesrpg?.key === k) ?? null;
+  return actor.effects?.find((e) => !e.disabled && getFlagValueWithFallback(e, "key") === k) ?? null;
 }
 
 function _buildActionCardMarkup({ title, body, collapsed = true } = {}) {

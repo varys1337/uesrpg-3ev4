@@ -9,8 +9,8 @@
  *   (flag paths are stable and changing them would break saved data)
  */
 
-/** System identifier */
-export const SYSTEM_ID = "uesrpg-3ev4";
+/** System identifier — re-exported from canonical namespace */
+export { SYSTEM_ID } from "../../system/namespace.js";
 
 /** Opposed workflow message flag keys */
 export const FLAGS = {

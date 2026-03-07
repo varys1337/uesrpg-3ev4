@@ -5,6 +5,14 @@
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 
 /**
+ * Legacy sheet-listener registrar kept for compatibility with index.js.
+ * AppV2 sheet classes route charge actions via data-action handlers.
+ */
+export function registerUsageListeners(_sheet, _html) {
+  // no-op by design
+}
+
+/**
  * Handler: Increase item charges
  *
  * @param {ItemSheet} sheet

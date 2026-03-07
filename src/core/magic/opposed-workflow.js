@@ -38,8 +38,9 @@ import { updateCard as magicUpdateCard } from "./opposed/updater.js";
 import { applySpellEffectsToTarget } from "./effects/spell-effects.js";
 import { spellRequiresOriginAE, createOriginAE } from "./effects/origin-effect.js";
 import { buildRollContext } from "../rules/roll-context.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 const _FLAG_KEY = "magicOpposed";
 const _CARD_VERSION = 2;
 const _magicAutoRollLocalLocks = new Set();
@@ -191,6 +192,14 @@ export const MagicOpposedWorkflow = {
       if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
         ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
         return null;
+      }
+
+      if (game?.combat) {
+        const cls = classifySpellForRouting(spell);
+        if (cls?.isAttack && AttackTracker.hasExceededLimit(attacker)) {
+          ui.notifications.warn(AttackTracker.getLimitWarning(attacker) || "Attack limit reached.");
+          return null;
+        }
       }
 
       // Direct spells resolve immediately (no casting/defense tests).
@@ -872,7 +881,7 @@ export const MagicOpposedWorkflow = {
     if (_magicAutoRollLocalLocks.has(messageId)) return;
     _magicAutoRollLocalLocks.add(messageId);
     try {
-      return await autoRollBanked(message, this, (msg, d) => magicUpdateCard(msg, d, renderCard));
+      return await autoRollBanked(message, this, (msg, d) => magicUpdateCard(msg, d, renderCard), { reason: "hook" });
     } finally {
       _magicAutoRollLocalLocks.delete(messageId);
     }
@@ -883,7 +892,7 @@ export const MagicOpposedWorkflow = {
    * Delegates to outcome-resolution module.
    */
   async _resolveOutcome(message, data, attacker, defender, opts = {}) {
-    const spell = await fromUuid(data.attacker.spellUuid);
+    const spell = opts?.spell ?? await fromUuid(data.attacker.spellUuid);
     if (!spell) return;
 
     const { defender: defenderEntry } = selectDefenderEntry(data, opts);
@@ -965,40 +974,3 @@ export const MagicOpposedWorkflow = {
     }
   }
 };
-
-// Chat hook: bind button clicks (v13).
-Hooks.on("renderChatMessageHTML", (message, html) => {
-  const data = getMessageState(message);
-  if (!data) return;
-
-  const root = html instanceof HTMLElement ? html : html?.[0];
-  if (!root) return;
-
-  root.querySelectorAll("[data-ues-magic-opposed-action]").forEach((el) => {
-    const action = el.dataset.uesMagicOpposedAction;
-    const defenderIndex = Number.isFinite(Number(el.dataset?.defenderIndex)) ? Number(el.dataset.defenderIndex) : null;
-
-    // Permission-aware button state
-    try {
-      const attackerUuid = data?.attacker?.actorUuid;
-      const defenders = getDefenderEntries(data);
-      const defEntry = (defenderIndex != null && defenders[defenderIndex]) ? defenders[defenderIndex] : data?.defender;
-      const defenderUuid = defEntry?.actorUuid;
-      const actorUuid = (action === "attacker-roll") ? attackerUuid : (action?.startsWith?.("defender-") ? defenderUuid : null);
-      const actor = actorUuid ? resolveActor(actorUuid) : null;
-      if (actor && !canUserRollActor(game.user, actor)) {
-        el.setAttribute("disabled", "disabled");
-        el.setAttribute("title", "You do not have permission to roll for this actor.");
-      }
-    } catch (_e) {
-      // no-op
-    }
-
-    el.addEventListener("click", async (ev) => {
-      ev.preventDefault();
-      const act = ev.currentTarget?.dataset?.uesMagicOpposedAction;
-      if (!act) return;
-      await MagicOpposedWorkflow.handleAction(message, act, { defenderIndex });
-    });
-  });
-});

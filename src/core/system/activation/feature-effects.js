@@ -12,20 +12,14 @@
 
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
-import { isDebugEnabled } from "../../../utils/debug.js";
+import { createSeverityDebugLogger } from "../../../utils/debug.js";
+import { SYSTEM_ID } from "../system-id.js";
+import { getRoundTimeSecondsSafe } from "../time/round-time.js";
 
-const SYSTEM_ID = "uesrpg-3ev4";
+const _featureEffectsDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 
 /* ── Duration helpers ────────────────────────────────────────────────── */
 
-function _getRoundTimeSeconds() {
-  try {
-    const rt = Number(CONFIG?.time?.roundTime ?? 6);
-    return Number.isFinite(rt) && rt > 0 ? rt : 6;
-  } catch (_e) {
-    return 6;
-  }
-}
 
 /**
  * Compute duration from the item's activation config.
@@ -46,7 +40,7 @@ function computeFeatureEffectDuration(item) {
     : (unitRaw === "day") ? "days"
     : unitRaw;
 
-  const rt = _getRoundTimeSeconds();
+  const rt = getRoundTimeSecondsSafe();
   let rounds = 0;
   let seconds = 0;
 
@@ -159,7 +153,7 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
   // to the owning actor and should NOT be cloned to targets.
   const sourceEffects = Array.from(item.effects ?? []).filter(e => !e.disabled && !e.transfer);
   if (!sourceEffects.length) {
-    if (isDebugEnabled("activationDebug")) console.debug(`${SYSTEM_ID} | feature-effects: no enabled AEs on "${item.name}", skipping transfer`);
+    _featureEffectsDebug(`${SYSTEM_ID} | feature-effects: no enabled AEs on "${item.name}", skipping transfer`);
     return { applied: 0, targets: [] };
   }
 
@@ -223,9 +217,7 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
       totalCreated += count;
       if (count) appliedTargets.push(targetActor.name);
 
-      if (isDebugEnabled("activationDebug")) {
-        console.debug(`${SYSTEM_ID} | feature-effects: applied ${count} AE(s) from "${item.name}" to ${targetActor.name}`);
-      }
+      _featureEffectsDebug(`${SYSTEM_ID} | feature-effects: applied ${count} AE(s) from "${item.name}" to ${targetActor.name}`);
     } catch (err) {
       console.error(`${SYSTEM_ID} | feature-effects: failed to create AEs on ${targetActor.name}`, err);
     }

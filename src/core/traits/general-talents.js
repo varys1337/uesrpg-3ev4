@@ -12,6 +12,8 @@ import { normalizeTalentKey } from "./talents-api.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { getFlagValueWithFallback, getCanonicalFlags, getLegacyFlags } from "../system/flags.js";
 
 function _debugEnabled() {
   return isDebugEnabled("skillRollDebug");
@@ -156,20 +158,20 @@ export async function rerollSkillTestFromChatMessage(message) {
   const canUpdate = Boolean(game.user?.isGM) || Boolean(message.isAuthor);
   if (!canUpdate) return false;
 
-  const st = message?.flags?.uesrpg?.skillTest ?? null;
+  const st = getFlagValueWithFallback(message, "skillTest");
   if (!st || typeof st !== "object") return false;
 
-  const reroll = message?.flags?.uesrpg?.reroll ?? {};
+  const reroll = getFlagValueWithFallback(message, "reroll") ?? {};
   if (reroll?.used === true) return false;
   if (reroll?.isReroll === true) return false;
 
-  const actorUuid = String(st.actorUuid ?? "") || String(message?.flags?.uesrpg?.rollRequest?.actorUuid ?? "") || "";
+  const actorUuid = String(st.actorUuid ?? "") || String(getFlagValueWithFallback(message, "rollRequest.actorUuid") ?? "") || "";
   if (!actorUuid) return false;
   let actor = null;
   try { actor = fromUuidSync(actorUuid); } catch (_e) { actor = null; }
   if (!actor) return false;
 
-  const skillName = String(st.skillName ?? "").trim() || (message?.flags?.uesrpg?.rollRequest?.skill?.name ?? null);
+  const skillName = String(st.skillName ?? "").trim() || (getFlagValueWithFallback(message, "rollRequest.skill.name") ?? null);
   if (!skillName) return false;
 
   const useSpecialization = Boolean(st.useSpecialization);
@@ -188,9 +190,9 @@ export async function rerollSkillTestFromChatMessage(message) {
 
   // Mark original as used FIRST to avoid double-click racing.
   await requestUpdateDocument(message, {
-    "flags.uesrpg.reroll.used": true,
-    "flags.uesrpg.reroll.source": eligibility.source,
-    "flags.uesrpg.reroll.usedAt": Date.now()
+    [`flags.${FLAG_SCOPE}.reroll.used`]: true,
+    [`flags.${FLAG_SCOPE}.reroll.source`]: eligibility.source,
+    [`flags.${FLAG_SCOPE}.reroll.usedAt`]: Date.now()
   });
 
   const flavor = `
@@ -205,9 +207,9 @@ export async function rerollSkillTestFromChatMessage(message) {
     speaker: ChatMessage.getSpeaker({ actor }),
     flavor,
     flags: {
-      ...(message.flags ?? {}),
-      uesrpg: {
-        ...(message.flags?.uesrpg ?? {}),
+      [FLAG_SCOPE]: {
+        ...getLegacyFlags(message),
+        ...getCanonicalFlags(message),
         reroll: {
           isReroll: true,
           parentMessageId: message.id,

@@ -20,10 +20,12 @@
 import { buildDamageContext } from "./context.js";
 import { getAETwitterMods, collectTypedBonusDamage } from "./ae-mods.js";
 import { asNumber } from "./normalize.js";
+import { getFlagValueWithFallback } from "../../../system/flags.js";
 import {
   applyDamage,
   calculateDamage,
   DAMAGE_TYPES,
+  applyArmorLocationDamage,
   applyForcefulImpact,
   ensureUnconsciousEffect,
   isItemMagicSource,
@@ -48,12 +50,9 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { collectStrikeEnchantmentEffects, consumeStrikeCharge } from "../../../enchanting/runtime/strike-runtime.js";
 import { shouldTriggerWound } from "../../../wounds/wound-rules.js";
+import { getRuntimeSystemId as _getSystemId } from "../../../system/namespace.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
-
-function _getSystemId() {
-  return String(game?.system?.id ?? "uesrpg-3ev4");
-}
 
 async function _runEntanglingEscapeCheck({ attacker, defender } = {}) {
   if (!defender) return;
@@ -280,7 +279,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   const attackerActor = ctx.options?.attackerActor ?? null;
   const mods = getAETwitterMods(attackerActor, targetActor);
   const powerAttackEffect = attackerActor?.effects?.find((e) =>
-    !e.disabled && e.flags?.uesrpg?.key === "stamina-power-attack"
+    !e.disabled && getFlagValueWithFallback(e, "key") === "stamina-power-attack"
   ) ?? null;
   let powerAttackAppliedBonus = 0;
   let powerAttackFromAe = 0;
@@ -307,7 +306,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   // --- Resolve and consume Power Attack effect (one-time, activation-driven stamina action) ---
   if (powerAttackEffect) {
     try {
-      const fromFlag = Number(powerAttackEffect.flags?.uesrpg?.damageBonus ?? 0);
+      const fromFlag = Number(getFlagValueWithFallback(powerAttackEffect, "damageBonus") ?? 0);
       const fromChange = (powerAttackEffect.changes ?? [])
         .filter((ch) => String(ch?.key ?? "") === "system.modifiers.combat.damage.dealt")
         .reduce((sum, ch) => sum + (Number(ch?.value ?? 0) || 0), 0);
@@ -891,6 +890,15 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   }
 
   // Forceful Impact: only meaningful for primary physical hits.
+  const locationDamagedValue = Math.max(0, Math.floor(Number(ctx.options?.damagedValue ?? 0) || 0));
+  if (locationDamagedValue > 0) {
+    try {
+      await applyArmorLocationDamage(updateTarget, hitLocation, locationDamagedValue);
+    } catch (err) {
+      console.warn("UESRPG | Armor location damage update failed", err);
+    }
+  }
+
   if (ctx.options?.forcefulImpact && String(ctx.damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL) {
     const primaryApplied = results.find(r => r.kind === "primary")?.finalApplied ?? 0;
     if (primaryApplied > 0) {

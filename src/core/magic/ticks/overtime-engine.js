@@ -46,13 +46,15 @@
 
 import { registerSpellTickHandler } from "./spell-tick-engine.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
-import { _num, _numOrNull, _str, isDebugEnabled } from "../_primitives.js";
+import { _num, _numOrNull, _str, createDebugLogger, isDebugEnabled } from "../_primitives.js";
 import { applyDamage, applyHealing } from "../../combat/damage/apply.js";
 import { DAMAGE_TYPES } from "../../combat/damage/types.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
+import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 
 /** The AE changes key prefix used for OverTime configuration. */
 export const OVERTIME_CHANGE_KEY = `flags.${_FLAG_NS}.OverTime`;
@@ -67,13 +69,7 @@ const HEAL_TYPES = Object.freeze(new Set(["heal", "healing"]));
 
 // ─── Utility Helpers ─────────────────────────────────────────────────────────
 
-/** @returns {boolean} */
-function _isDebug() { return isDebugEnabled("overTimeDebug"); }
-
-function _debug(/** @type {...any} */ ...args) {
-  if (!_isDebug()) return;
-  try { console.log("[UESRPG][OverTime]", ...args); } catch (_e) { /* no-op */ }
-}
+const _debug = createDebugLogger("overTimeDebug", "[UESRPG][OverTime]");
 
 function _warn(/** @type {...any} */ ...args) {
   try { console.warn("[UESRPG][OverTime][WARN]", ...args); } catch (_e) { /* no-op */ }
@@ -387,7 +383,7 @@ async function _onTick(ctx) {
   const trigger = ctx.trigger;
   if (!VALID_TRIGGERS.has(trigger)) return;
 
-  const debug = _isDebug();
+  const debug = isDebugEnabled("overTimeDebug");
 
   if (debug) _debug("═══ OverTime Tick START ═══", { trigger, actor: ctx.actor?.name, round: ctx.round, turn: ctx.turn });
 
@@ -456,6 +452,7 @@ async function _onTick(ctx) {
 function _collectOverTimeEffects(trigger, ctx, debug) {
   /** @type {OverTimeCandidate[]} */
   const results = [];
+  const uuidCache = new Map();
 
   // Diagnostic counters (only tracked when debug is on)
   let totalActors = 0, totalEffects = 0;
@@ -469,14 +466,7 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
 
     // Resolve the live actor from UUID — fromUuidSync is safe here because
     // world actors and canvas token actors are always loaded
-    let actor;
-    try {
-      const doc = fromUuidSync(actorUuid);
-      // fromUuidSync may return a Token, TokenDocument, or Actor
-      actor = (doc?.documentName === "Token" || doc?.documentName === "TokenDocument")
-        ? doc.actor
-        : doc;
-    } catch (_e) { continue; }
+    const actor = resolveActorFromUuidSync(actorUuid, { cache: uuidCache });
     if (!actor?.effects) continue;
 
     for (const [effectId, cachedConfigs] of effectMap) {
@@ -699,6 +689,7 @@ async function _resolveOriginTargets(originEffect, casterActor) {
   const flags = originEffect.flags?.[_FLAG_NS];
   /** @type {Set<string>} */
   const targetUuids = new Set();
+  const uuidCache = new Map();
 
   // Primary: linkedEntities
   const linked = flags?.linkedEntities;
@@ -724,14 +715,9 @@ async function _resolveOriginTargets(originEffect, casterActor) {
   /** @type {Actor[]} */
   const actors = [];
   for (const uuid of targetUuids) {
-    try {
-      // Use synchronous lookup — actors/tokens are always loaded client-side
-      const doc = fromUuidSync(uuid);
-      const resolved = doc instanceof Actor ? doc : doc?.actor;
-      if (resolved) actors.push(resolved);
-    } catch (_e) {
-      _debug(`Failed to resolve target UUID: ${uuid}`);
-    }
+    const actor = resolveActorFromUuidSync(uuid, { cache: uuidCache });
+    if (actor) actors.push(actor);
+    else _debug(`Failed to resolve target UUID: ${uuid}`);
   }
 
   return actors.length ? actors : [casterActor];

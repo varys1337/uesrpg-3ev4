@@ -6,6 +6,7 @@
 import { _esc } from "./util.js";
 import { CHARACTERISTICS } from "./constants.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { buildCircumstanceOptionsHtml } from "../../opposed/circumstance.js";
 
 /**
  * Show a dialog for choosing characteristic and manual modifier.
@@ -13,6 +14,7 @@ import { customDialog } from "../../../utils/dialog-v2-helper.js";
  * @param {object} opts
  * @param {string}  opts.title - Dialog title
  * @param {string}  [opts.defaultCharKey="wp"] - Default characteristic key
+ * @param {number}  [opts.defaultCircumstanceMod=0] - Default circumstance modifier
  * @param {number}  [opts.defaultManualMod=0] - Default manual modifier
  * @param {boolean} [opts.showCharSelect=true] - Whether to allow changing the characteristic
  * @returns {Promise<{charKey: string, manualMod: number}|null>}
@@ -20,6 +22,7 @@ import { customDialog } from "../../../utils/dialog-v2-helper.js";
 export async function _charTestDialog({
   title = "Characteristic Test",
   defaultCharKey = "wp",
+  defaultCircumstanceMod = 0,
   defaultManualMod = 0,
   showCharSelect = true
 } = {}) {
@@ -40,6 +43,10 @@ export async function _charTestDialog({
     <div class="uesrpg-char-declare">
       ${charSelect}
       <div class="form-group" style="margin-top:8px;">
+        <label><b>Circumstance Modifier</b></label>
+        <select name="circumstanceMod" style="width:100%;">${buildCircumstanceOptionsHtml(defaultCircumstanceMod)}</select>
+      </div>
+      <div class="form-group" style="margin-top:8px;">
         <label><b>Manual Modifier</b></label>
         <input name="manualMod" type="number" value="${Number(defaultManualMod) || 0}" style="width:100%;" />
       </div>
@@ -58,9 +65,11 @@ export async function _charTestDialog({
             const charKey = root?.querySelector('select[name="charKey"]')?.value
               ?? root?.querySelector('input[name="charKey"]')?.value
               ?? defaultCharKey;
+            const rawCircumstance = root?.querySelector('select[name="circumstanceMod"]')?.value ?? "0";
+            const circumstanceMod = Number.parseInt(String(rawCircumstance), 10) || 0;
             const rawManual = root?.querySelector('input[name="manualMod"]')?.value ?? "0";
             const manualMod = Number.parseInt(String(rawManual), 10) || 0;
-            return { charKey, manualMod };
+            return { charKey, circumstanceMod, manualMod };
           }
         },
         cancel: { label: "Cancel", callback: () => null }

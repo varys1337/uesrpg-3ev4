@@ -18,6 +18,9 @@
  * @returns {object} Mobility penalties and sources
  */
 export function getArmorMobilityPenalties(actorData) {
+  const cached = actorData?._aggCache?.agg?.mobility;
+  if (cached) return cached;
+
   const itemsRaw = actorData?.items;
   const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
 

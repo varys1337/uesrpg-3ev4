@@ -4,8 +4,7 @@
  * Integrates combat rolls, damage calculation, and automation
  */
 
-import { OpposedRoll } from "./opposed-rolls.js";
-import { getDamageTypeFromWeapon } from "./combat-utils.js";
+import { OpposedWorkflow } from "./opposed-workflow.js";
 import { DefenseDialog } from "./defense-dialog.js";
 import { resolveStyleForCombatTest } from "./combat-style-utils.js";
 
@@ -34,16 +33,10 @@ export async function performWeaponAttack(attackerToken, defenderToken, weapon, 
   // Determine combat style skill value for attacker
   const attackSkill = getAttackSkill(attacker, weapon);
   
-  // Determine defense skill for defender (typically Evade or Block)
-  // If requested, prompt for the defense choice (GM/attacker workflow).
-  let defenseType = options.defenseType;
-  let defenseSkill;
-  if (!defenseType || defenseType === "prompt") {
-    const choice = await DefenseDialog.show(defender);
-    defenseType = choice?.defenseType ?? "evade";
-    defenseSkill = Number(choice?.skill ?? 0) || getDefenseSkill(defender, defenseType);
-  } else {
-    defenseSkill = getDefenseSkill(defender, defenseType);
+  // Preserve explicit defense prompt side effects for caller workflows that expect it,
+  // but canonical opposed pending flow does not require defender TN at creation time.
+  if (options.defenseType === "prompt") {
+    await DefenseDialog.show(defender);
   }
 
   // Determine damage roll (Automation Contract: fully effective damage)
@@ -57,26 +50,19 @@ export async function performWeaponAttack(attackerToken, defenderToken, weapon, 
     ui.notifications.warn(`Weapon "${weapon.name}" has no damage formula configured.`);
   }
 
-  // Determine damage type from weapon qualities
-  const damageType = getDamageTypeFromWeapon(weapon);
+  const attackerTokenUuid = attackerToken?.document?.uuid ?? attackerToken?.uuid ?? null;
+  const defenderTokenUuid = defenderToken?.document?.uuid ?? defenderToken?.uuid ?? null;
+  if (!attackerTokenUuid || !defenderTokenUuid) {
+    ui.notifications.warn("Unable to resolve token UUIDs for attack workflow.");
+    return null;
+  }
 
-  // Get penetration if weapon has it
-  const penetration = Number(weapon?.system?.penetration ?? 0);
-  // Default to confirmation (Apply Damage button); callers can override.
-  const autoApplyDamage = (typeof options.autoApplyDamage === "boolean")
-    ? options.autoApplyDamage
-    : false;
-
-  // Perform opposed roll with damage
-  const result = await OpposedRoll.perform(attackerToken, defenderToken, {
+  const result = await OpposedWorkflow.createPending({
+    attackerTokenUuid,
+    defenderTokenUuid,
     attackerTarget: attackSkill,
-    defenderTarget: defenseSkill,
-    weapon: weapon,
-    damageRoll: damageRoll,
-    damageType: damageType,
-    autoApplyDamage: autoApplyDamage,
-    penetration: penetration,
-    flavor: options.flavor || ""
+    weaponUuid: weapon?.uuid ?? null,
+    mode: "attack"
   });
 
   return result;
@@ -122,34 +108,6 @@ function getAttackSkill(actor, weapon) {
  * @param {string} defenseType - Type of defense (evade, block, parry)
  * @returns {number} - Defense skill value
  */
-function getDefenseSkill(actor, defenseType = 'evade') {
-  if (!actor?.system) return 50;
-
-  // NPC defense: Evade profession for Evade, otherwise active Combat Style with profession fallback.
-  if (String(actor.type ?? "") === "NPC") {
-    const dt = String(defenseType ?? "evade").toLowerCase();
-    if (dt === "evade") return Number(actor.system?.professions?.evade ?? 50);
-    const styleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
-    if (styleCtx) return Number(styleCtx.base ?? 0);
-    return Number(actor.system?.professions?.combat ?? 50);
-  }
-
-  // Look for specific defense skill
-  const defenseSkillName = defenseType.charAt(0).toUpperCase() + defenseType.slice(1);
-  const defenseSkill = actor.items.find(i => 
-    (i.type === 'skill' || i.type === 'combatStyle') && 
-    i.name.toLowerCase() === defenseSkillName.toLowerCase()
-  );
-
-  if (defenseSkill?.system?.value) {
-    return Number(defenseSkill.system.value);
-  }
-
-  // Fallback to agility-based defense
-  const agiTotal = Number(actor?.system?.characteristics?.agi?.total || 50);
-  return agiTotal;
-}
-
 /**
  * Quick attack macro - attacks selected target with specified weapon
  * @param {string} weaponName - Name of weapon to use

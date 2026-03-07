@@ -16,33 +16,9 @@ import { cloneFlagState } from "../../../utils/clone.js";
 import { FLAG_NS, FLAG_KEY, CARD_VERSION } from "./constants.js";
 import { _renderCard } from "./render.js";
 import { perfStart, perfEnd } from "../../../utils/debug.js";
+import { createMessageQueue } from "../../opposed/shared/message-queue.js";
 
-/* ────────────────────────────────────────────────────────────────────────
- * Per-message async mutex.
- *
- * Ensures that at most one _updateCard call per messageId is in-flight.
- * The second caller waits until the first completes, then reads the
- * freshly-updated flags and merges correctly.
- * ──────────────────────────────────────────────────────────────────────── */
-
-/** @type {Map<string, Promise<void>>} */
-const _cardUpdateQueues = new Map();
-
-/**
- * Enqueue `fn` behind any pending _updateCard call for the same message.
- * @param {string} messageId
- * @param {() => Promise<void>} fn
- * @returns {Promise<void>}
- */
-function _enqueueCardUpdate(messageId, fn) {
-  const prev = _cardUpdateQueues.get(messageId) ?? Promise.resolve();
-  const next = prev.catch(() => {}).then(fn);
-  _cardUpdateQueues.set(messageId, next);
-  next.finally(() => {
-    if (_cardUpdateQueues.get(messageId) === next) _cardUpdateQueues.delete(messageId);
-  });
-  return next;
-}
+const _enqueueCardUpdate = createMessageQueue();
 
 /**
  * Update characteristic opposed card with new data.

@@ -1,4 +1,4 @@
-{{!-- templates/v2/apps/homebrew-settings.hbs — AppV2 (no <form> wrapper) --}}
+﻿{{!-- templates/v2/apps/homebrew-settings.hbs - AppV2 (no <form> wrapper) --}}
 <section class="uesrpg-settings">
 <fieldset>
   <legend>Movement</legend>
@@ -8,14 +8,14 @@
     <input type="checkbox" name="homebrew.speedFormulaSBAB" {{checked homebrewSpeedFormulaSBAB}}>
     <p class="notes">
       When enabled, base Speed is computed as <strong>SB + AB + bonus</strong> (Homebrew)
-      instead of the RAW formula <strong>SB + (2 × AB) + bonus</strong>.
+      instead of the RAW formula <strong>SB + (2 x AB) + bonus</strong>.
       Applies to all Characters and NPCs. <em>Requires a reload to apply consistently.</em>
     </p>
   </div>
 </fieldset>
 
 <fieldset>
-  <legend>Combat — Reach &amp; Length (Harnmaster-inspired)</legend>
+  <legend>Combat - Reach &amp; Length (Harnmaster-inspired)</legend>
 
   <div class="form-group">
     <label>Enable Reach &amp; Length Overhaul</label>
@@ -40,8 +40,17 @@
   </div>
 
   <div class="form-group">
+    <label>Length Advantage: Attacker Only</label>
+    <input type="checkbox" name="homebrew.reachLength.attackerAdvantageOnly" {{checked homebrew.reachLengthAttackerAdvantageOnly}} {{#unless homebrew.reachLengthEnabled}}disabled{{/unless}}>
     <p class="notes">
-      When enabled: Length Penalty automation (ΔL×5 on parry/counter), the <strong>In Close</strong>
+      When enabled, <strong>positive</strong> Length TN modifiers are only granted to the attacker side.
+      Defender-side Length bonuses are suppressed, while Length penalties still apply normally.
+    </p>
+  </div>
+
+  <div class="form-group">
+    <p class="notes">
+      When enabled: Length Penalty automation (deltaL x 5 on parry/counter), the <strong>In Close</strong>
       Token HUD condition with pairwise tracking, and auto-prune when tokens move beyond 1 m are all
       active. The only option is which reach model to use.
     </p>
@@ -49,7 +58,7 @@
 </fieldset>
 
 <fieldset>
-  <legend>Combat — Engagement &amp; Flanking</legend>
+  <legend>Combat - Engagement &amp; Flanking</legend>
 
   <div class="form-group">
     <label>Enable Engagement &amp; Flanking</label>

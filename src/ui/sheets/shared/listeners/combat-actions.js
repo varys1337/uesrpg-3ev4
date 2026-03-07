@@ -10,8 +10,8 @@
 import { buildCollapsedActionCardHtml, getAimStateFromEffect, getEnabledEffectByKey, resolveTokenForActor, spendActionPoints } from "../../combat-actions-utils.js";
 import { createOrUpdateStatusEffect } from "../../../../core/active-effects/status-effect.js";
 import { buildEffectDuration } from "../../../../core/time/effect-duration.js";
-import { executeActivation, buildSpecialActionActivation } from "../../../../core/system/activation/activation-executor.js";
-import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow.js";
+import { executeActivation, buildSpecialActionActivation } from "../../../../core/system/activation/index.js";
+import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
 import {
   getSpecialActionById,
   getExplicitActiveCombatStyleItem,
@@ -510,30 +510,37 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         const selected = prevItemUuid && c.uuid === prevItemUuid ? " selected" : "";
         return `<option value="${c.uuid}"${selected}>${c.label}</option>`;
       }).join("");
+      const defaultSelectedUuid = String(
+        (prevItemUuid && candidates.some((c) => c.uuid === prevItemUuid) ? prevItemUuid : (candidates[0]?.uuid ?? ""))
+      ).trim() || null;
 
-      const content = `
-        <div class="uesrpg-aim-form">
-          <div class="form-group">
-            <label>Aim At</label>
-            <select name="aimItemUuid">${options}</select>
+      let selectedUuid = defaultSelectedUuid;
+      if (candidates.length >= 2) {
+        const content = `
+          <div class="uesrpg-aim-form">
+            <div class="form-group">
+              <label>Aim At</label>
+              <select name="aimItemUuid">${options}</select>
+            </div>
           </div>
-        </div>
-      `;
+        `;
 
-      const selectedUuid = await customDialog({
-        title: "Aim",
-        content,
-        yes: {
-          label: "Aim",
-          callback: (html) => {
-            const el = html instanceof HTMLElement ? html : html?.[0];
-            const uuid = el?.querySelector("select[name='aimItemUuid']")?.value;
-            return String(uuid ?? "").trim() || null;
-          }
-        },
-        no: { label: "Cancel" },
-        defaultButton: "yes"
-      });
+        selectedUuid = await customDialog({
+          title: "Aim",
+          width: 520,
+          content,
+          yes: {
+            label: "Aim",
+            callback: (html) => {
+              const el = html instanceof HTMLElement ? html : html?.[0];
+              const uuid = el?.querySelector("select[name='aimItemUuid']")?.value;
+              return String(uuid ?? "").trim() || null;
+            }
+          },
+          no: { label: "Cancel" },
+          defaultButton: "yes"
+        });
+      }
 
       if (!selectedUuid) return;
 
@@ -614,7 +621,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       const candidates = actor.items.filter(i => {
         const consumable = Boolean(i?.system?.consumable);
         const type = String(i?.type ?? "");
-        const isPhysical = type === "item" || type === "container";
+        const isPhysical = type === "equipment" || type === "container";
         return consumable && isPhysical;
       });
 
@@ -910,3 +917,4 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       return;
   }
 });
+

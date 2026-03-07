@@ -85,3 +85,13 @@ export function _strTrim(v) {
 export function _lower(v) {
   return String(v ?? "").toLowerCase().trim();
 }
+
+/**
+ * Trim + lowercase a value, coercing nullish to empty string.
+ * Kept explicit for generic key matching without additional normalization.
+ * @param {*} v
+ * @returns {string}
+ */
+export function normalizeKey(v) {
+  return String(v ?? "").trim().toLowerCase();
+}

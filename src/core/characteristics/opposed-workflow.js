@@ -29,7 +29,85 @@ import { _charTestDialog } from "./opposed/dialogs.js";
 import { _resolveOutcome, computeCharacteristicTN } from "./opposed/helpers.js";
 import { buildRollContext } from "../rules/roll-context.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../traits/features/rule-element-runtime.js";
+import { verifyAutoRollClaim } from "../opposed/shared/auto-roll-claim.js";
 import { perfStart, perfEnd } from "../../utils/debug.js";
+
+
+// ── Ephemeral per-action UUID resolver cache ──────────────────────────────
+
+/**
+ * Create an ephemeral UUID resolver cache for a single workflow action.
+ * Prevents repeated fromUuidSync calls for the same UUID within one action.
+ * Cache is discarded when the action completes — no long-lived state.
+ *
+ * @returns {{ resolveSync: (uuid: string|null|undefined) => any }}
+ */
+function createActionUuidResolver() {
+  const cache = new Map();
+  return {
+    resolveSync(uuid) {
+      if (!uuid) return null;
+      if (cache.has(uuid)) return cache.get(uuid);
+      const result = _resolveDoc(uuid);
+      cache.set(uuid, result);
+      return result;
+    }
+  };
+}
+
+/**
+ * Resolve an actor using an optional ephemeral cache.
+ * When a resolver is provided and the input is a UUID string, the doc is
+ * resolved once (cached) and passed directly to _resolveActor, avoiding a
+ * second fromUuidSync call. Falls back to standard _resolveActor behavior
+ * when no resolver is provided or when input is already a doc object.
+ *
+ * @param {string|object|null} docOrUuid
+ * @param {{ resolveSync: function }|null} [resolver]
+ * @returns {Actor|null}
+ */
+function _resolveActorCached(docOrUuid, resolver) {
+  if (!docOrUuid) return null;
+  if (typeof docOrUuid !== "string") return _resolveActor(docOrUuid);
+  const doc = resolver ? resolver.resolveSync(docOrUuid) : _resolveDoc(docOrUuid);
+  return _resolveActor(doc);
+}
+
+/**
+ * Resolve a token using an optional ephemeral cache.
+ * Tolerates both TokenDocument UUIDs (preferred, from new cards) and Token
+ * UUIDs (legacy, from existing chat cards). Falls back to standard
+ * _resolveToken behavior when no resolver is provided or input is already a
+ * doc object.
+ *
+ * @param {string|object|null} docOrUuid
+ * @param {{ resolveSync: function }|null} [resolver]
+ * @returns {TokenDocument|null}
+ */
+function _resolveTokenCached(docOrUuid, resolver) {
+  if (!docOrUuid) return null;
+  if (typeof docOrUuid !== "string") return _resolveToken(docOrUuid);
+  const doc = resolver ? resolver.resolveSync(docOrUuid) : _resolveDoc(docOrUuid);
+  return _resolveToken(doc);
+}
+
+
+// ── Token UUID normalization ──────────────────────────────────────────────
+
+/**
+ * Return the TokenDocument UUID for a token-like object.
+ * Prefers `token.document.uuid` (TokenDocument) over `token.uuid` (Token).
+ * This ensures newly created cards consistently store TokenDocument UUIDs,
+ * while remaining backward compatible: existing cards that stored Token UUIDs
+ * still resolve correctly because _resolveToken handles both documentName
+ * values ("Token" and "TokenDocument").
+ *
+ * @param {Token|TokenDocument|null|undefined} tokenLike
+ * @returns {string|null}
+ */
+function getTokenDocumentUuid(tokenLike) {
+  return tokenLike?.document?.uuid ?? tokenLike?.uuid ?? null;
+}
 
 
 // ── Roll-off for both critical successes ──
@@ -158,7 +236,7 @@ export const CharOpposedWorkflow = {
     const data = {
       attacker: {
         actorUuid: attackerActor.uuid,
-        tokenUuid: attackerToken?.document?.uuid ?? attackerToken?.uuid ?? null,
+        tokenUuid: getTokenDocumentUuid(attackerToken),
         tokenName: attackerToken?.name ?? attackerActor.name,
         name: attackerActor.name,
         charKey,
@@ -170,7 +248,7 @@ export const CharOpposedWorkflow = {
       },
       defender: {
         actorUuid: defenderActor.uuid,
-        tokenUuid: defenderToken?.document?.uuid ?? defenderToken?.uuid ?? null,
+        tokenUuid: getTokenDocumentUuid(defenderToken),
         tokenName: defenderToken?.name ?? defenderActor.name,
         name: defenderActor.name,
         charKey,
@@ -218,6 +296,9 @@ export const CharOpposedWorkflow = {
 
   /**
    * Handle a button action from the chat card.
+   * Creates an ephemeral UUID resolver for the action and delegates to the
+   * appropriate side handler.
+   *
    * @param {ChatMessage} message
    * @param {string} action - "attacker-roll" | "defender-roll" | "begin-banked-roll"
    */
@@ -228,81 +309,113 @@ export const CharOpposedWorkflow = {
     if (!data) return;
 
     const mutable = foundry.utils.deepClone(data);
+    const resolver = createActionUuidResolver();
 
     if (action === "attacker-roll" || action === "attacker-roll-committed") {
       return await this._handleAttackerRoll(message, mutable, {
         fromCommit: action === "attacker-roll-committed",
-        batchedUpdate
+        batchedUpdate,
+        resolver
       });
     } else if (action === "defender-roll" || action === "defender-roll-committed") {
       return await this._handleDefenderRoll(message, mutable, {
         fromCommit: action === "defender-roll-committed",
-        batchedUpdate
+        batchedUpdate,
+        resolver
       });
     } else if (action === "begin-banked-roll") {
       await this._autoRollBanked(message.id, { trigger: "button" });
     }
   },
 
-  async _handleAttackerRoll(message, data, { fromCommit = false, batchedUpdate = false } = {}) {
-    const attacker = _resolveActor(data.attacker?.actorUuid);
-    if (!attacker) return;
+  /**
+   * Shared roll handler for both attacker and defender sides.
+   * Handles two phases:
+   *  - Commit phase: show dialog, compute TN, store committed state.
+   *  - Roll phase: perform d100 roll, apply runtime adjustments, resolve outcome.
+   *
+   * @param {ChatMessage} message
+   * @param {CharOpposedState} data - Mutable deep-clone of the card state.
+   * @param {object} opts
+   * @param {"attacker"|"defender"} opts.side
+   * @param {boolean} [opts.fromCommit=false]
+   * @param {boolean} [opts.batchedUpdate=false]
+   * @param {{ resolveSync: function }|null} [opts.resolver=null]
+   * @private
+   */
+  async _handleSideRoll(message, data, { side, fromCommit = false, batchedUpdate = false, resolver = null } = {}) {
+    const sideData = data[side];
+    const crossSide = side === "attacker" ? "defender" : "attacker";
+    const crossData = data[crossSide];
 
-    // If not from an auto-committed flow, prompt for choices
-    if (!fromCommit && !data.attacker.committedAt) {
-      if (!_canControlActor(attacker)) {
-        ui.notifications.warn("You do not control the initiator actor.");
-        return;
+    const actor = _resolveActorCached(sideData?.actorUuid, resolver);
+    if (!actor) return;
+
+    // Phase 1: Commit choices (dialog)
+    if (!fromCommit && !sideData.committedAt) {
+      if (side === "attacker") {
+        if (!_canControlActor(actor)) {
+          ui.notifications.warn("You do not control the initiator actor.");
+          return;
+        }
+      } else {
+        if (!_canControlActor(actor) && !game.user.isGM) {
+          ui.notifications.warn("You do not control the target actor.");
+          return;
+        }
       }
 
+      const ssModifier = side === "defender" ? Number(data.context?.ssModifier ?? 0) : 0;
+      const titleSuffix = side === "defender" ? " (Defender)" : "";
       const choices = await _charTestDialog({
-        title: `${attacker.name} — ${data.context?.label ?? "Characteristic Test"}`,
-        defaultCharKey: data.attacker.charKey ?? data.context?.charKey ?? "wp",
+        title: `${actor.name} — ${data.context?.label ?? "Characteristic Test"}${titleSuffix}`,
+        defaultCharKey: sideData.charKey ?? data.context?.charKey ?? "wp",
+        defaultCircumstanceMod: 0,
         defaultManualMod: 0,
         showCharSelect: true
       });
       if (!choices) return;
 
-      data.attacker.charKey = choices.charKey;
-      data.attacker.charLabel = CHARACTERISTICS[choices.charKey] ?? choices.charKey.toUpperCase();
-      data.attacker.declared = { manualMod: choices.manualMod };
+      data[side].charKey = choices.charKey;
+      data[side].charLabel = CHARACTERISTICS[choices.charKey] ?? choices.charKey.toUpperCase();
+      data[side].declared = { manualMod: choices.manualMod, circumstanceMod: choices.circumstanceMod };
 
-      const tn = computeCharacteristicTN(attacker, choices.charKey, choices.manualMod, 0);
+      const tn = computeCharacteristicTN(actor, choices.charKey, choices.manualMod, choices.circumstanceMod, ssModifier);
       applyRuntimePreRollToTN({
-        actor: attacker,
-        targetActor: _resolveActor(data?.defender?.actorUuid),
-        targetToken: _resolveToken(data?.defender?.tokenUuid),
+        actor,
+        targetActor: _resolveActorCached(crossData?.actorUuid, resolver),
+        targetToken: _resolveTokenCached(crossData?.tokenUuid, resolver),
         rollContext: data?.context?.rollContext,
         workflow: "characteristic",
-        side: "attacker",
+        side,
         characteristicKey: choices.charKey,
         tn
       });
-      data.attacker.tn = tn;
-      data.attacker.committedAt = Date.now();
-      data.attacker.committedBy = game.user.id;
+      data[side].tn = tn;
+      data[side].committedAt = Date.now();
+      data[side].committedBy = game.user.id;
 
       await _updateCard(message, data);
       return;
     }
 
-    // If committed, perform the roll
-    if (data.attacker.committedAt && !data.attacker.result) {
-      const target = Number(data.attacker.tn?.finalTN ?? 0);
-      const result = await doTestRoll(attacker, { rollFormula: "1d100", target, allowLucky: true, allowUnlucky: true });
+    // Phase 2: Perform the roll
+    if (sideData.committedAt && !sideData.result) {
+      const target = Number(sideData.tn?.finalTN ?? 0);
+      const result = await doTestRoll(actor, { rollFormula: "1d100", target, allowLucky: true, allowUnlucky: true });
       await applyRuntimePostRollToResult({
-        actor: attacker,
-        targetActor: _resolveActor(data?.defender?.actorUuid),
-        targetToken: _resolveToken(data?.defender?.tokenUuid),
+        actor,
+        targetActor: _resolveActorCached(crossData?.actorUuid, resolver),
+        targetToken: _resolveTokenCached(crossData?.tokenUuid, resolver),
         rollContext: data?.context?.rollContext,
         workflow: "characteristic",
-        side: "attacker",
-        characteristicKey: data?.attacker?.charKey ?? data?.context?.charKey ?? "",
+        side,
+        characteristicKey: sideData?.charKey ?? data?.context?.charKey ?? "",
         result,
         allowPrompt: true
       });
 
-      data.attacker.result = {
+      data[side].result = {
         rollTotal: result.rollTotal,
         target: result.target,
         isSuccess: result.isSuccess,
@@ -311,15 +424,18 @@ export const CharOpposedWorkflow = {
         isCriticalSuccess: result.isCriticalSuccess,
         isCriticalFailure: result.isCriticalFailure
       };
-      data.attacker.rolledAt = Date.now();
+      data[side].rolledAt = Date.now();
 
       // Try to resolve if both sides have results
-      if (data.defender?.result) {
+      if (crossData?.result) {
         data.outcome = _resolveOutcome(data);
         data.status = "resolved";
 
+        // Reuse the already-resolved actor for the current side; use cache for the other.
+        const attackerActor = side === "attacker" ? actor : _resolveActorCached(data.attacker.actorUuid, resolver);
+        const defenderActor = side === "defender" ? actor : _resolveActorCached(data.defender.actorUuid, resolver);
         await _maybeResolveBothCritSuccessRollOff({
-          message, data, attacker, defender: _resolveActor(data.defender.actorUuid)
+          message, data, attacker: attackerActor, defender: defenderActor
         });
       }
 
@@ -329,87 +445,18 @@ export const CharOpposedWorkflow = {
     }
   },
 
-  async _handleDefenderRoll(message, data, { fromCommit = false, batchedUpdate = false } = {}) {
-    const defender = _resolveActor(data.defender?.actorUuid);
-    if (!defender) return;
+  /**
+   * Thin wrapper — delegates to _handleSideRoll for the attacker side.
+   */
+  async _handleAttackerRoll(message, data, { fromCommit = false, batchedUpdate = false, resolver = null } = {}) {
+    return this._handleSideRoll(message, data, { side: "attacker", fromCommit, batchedUpdate, resolver });
+  },
 
-    if (!fromCommit && !data.defender.committedAt) {
-      if (!_canControlActor(defender) && !game.user.isGM) {
-        ui.notifications.warn("You do not control the target actor.");
-        return;
-      }
-
-      const ssModifier = Number(data.context?.ssModifier ?? 0);
-      const choices = await _charTestDialog({
-        title: `${defender.name} — ${data.context?.label ?? "Characteristic Test"} (Defender)`,
-        defaultCharKey: data.defender.charKey ?? data.context?.charKey ?? "wp",
-        defaultManualMod: 0,
-        showCharSelect: true
-      });
-      if (!choices) return;
-
-      data.defender.charKey = choices.charKey;
-      data.defender.charLabel = CHARACTERISTICS[choices.charKey] ?? choices.charKey.toUpperCase();
-      data.defender.declared = { manualMod: choices.manualMod };
-
-      const tn = computeCharacteristicTN(defender, choices.charKey, choices.manualMod, ssModifier);
-      applyRuntimePreRollToTN({
-        actor: defender,
-        targetActor: _resolveActor(data?.attacker?.actorUuid),
-        targetToken: _resolveToken(data?.attacker?.tokenUuid),
-        rollContext: data?.context?.rollContext,
-        workflow: "characteristic",
-        side: "defender",
-        characteristicKey: choices.charKey,
-        tn
-      });
-      data.defender.tn = tn;
-      data.defender.committedAt = Date.now();
-      data.defender.committedBy = game.user.id;
-
-      await _updateCard(message, data);
-      return;
-    }
-
-    if (data.defender.committedAt && !data.defender.result) {
-      const target = Number(data.defender.tn?.finalTN ?? 0);
-      const result = await doTestRoll(defender, { rollFormula: "1d100", target, allowLucky: true, allowUnlucky: true });
-      await applyRuntimePostRollToResult({
-        actor: defender,
-        targetActor: _resolveActor(data?.attacker?.actorUuid),
-        targetToken: _resolveToken(data?.attacker?.tokenUuid),
-        rollContext: data?.context?.rollContext,
-        workflow: "characteristic",
-        side: "defender",
-        characteristicKey: data?.defender?.charKey ?? data?.context?.charKey ?? "",
-        result,
-        allowPrompt: true
-      });
-
-      data.defender.result = {
-        rollTotal: result.rollTotal,
-        target: result.target,
-        isSuccess: result.isSuccess,
-        degree: result.degree,
-        textual: result.textual,
-        isCriticalSuccess: result.isCriticalSuccess,
-        isCriticalFailure: result.isCriticalFailure
-      };
-      data.defender.rolledAt = Date.now();
-
-      if (data.attacker?.result) {
-        data.outcome = _resolveOutcome(data);
-        data.status = "resolved";
-
-        await _maybeResolveBothCritSuccessRollOff({
-          message, data, attacker: _resolveActor(data.attacker.actorUuid), defender
-        });
-      }
-
-      if (batchedUpdate && fromCommit) return data;
-      await _updateCard(message, data);
-      return data;
-    }
+  /**
+   * Thin wrapper — delegates to _handleSideRoll for the defender side.
+   */
+  async _handleDefenderRoll(message, data, { fromCommit = false, batchedUpdate = false, resolver = null } = {}) {
+    return this._handleSideRoll(message, data, { side: "defender", fromCommit, batchedUpdate, resolver });
   },
 
   /**
@@ -463,6 +510,7 @@ export const CharOpposedWorkflow = {
 
   /**
    * Auto-roll both sides once both have committed.
+   * Each handleAction call creates its own ephemeral resolver internally.
    */
   async _autoRollBanked(parentMessageId, { trigger = "unknown" } = {}) {
     if (!parentMessageId) return;
@@ -496,7 +544,7 @@ export const CharOpposedWorkflow = {
 
       // Verify we still own the claim after the persisted update.
       const freshAfterClaim = foundry.utils.deepClone(_getMessageState(message));
-      if (freshAfterClaim?.context?.autoRollClaimId && freshAfterClaim.context.autoRollClaimId !== claimId) return;
+      if (!verifyAutoRollClaim(freshAfterClaim?.context, claimId)) return;
 
       let workingData = foundry.utils.deepClone(freshAfterClaim);
 
@@ -562,7 +610,8 @@ export const CharOpposedWorkflow = {
       : (stage === "defender-roll" ? current.defender : null);
     if (!expectedSide?.actorUuid) return;
 
-    const expectedActor = _resolveActor(expectedSide.actorUuid);
+    const resolver = createActionUuidResolver();
+    const expectedActor = _resolveActorCached(expectedSide.actorUuid, resolver);
     if (!expectedActor) return;
 
     const speakerActorId = rollMessage?.speaker?.actor ?? null;
@@ -582,7 +631,7 @@ export const CharOpposedWorkflow = {
 
     const applyResult = async (side, { sideRole = "" } = {}) => {
       if (!side?.actorUuid) return null;
-      const actor = _resolveActor(side.actorUuid);
+      const actor = _resolveActorCached(side.actorUuid, resolver);
       if (!actor) return null;
 
       const roll = rollMessage?.rolls?.[0] ?? null;
@@ -593,11 +642,11 @@ export const CharOpposedWorkflow = {
       const res = computeResultFromRollTotal(actor, { rollTotal, target, allowLucky: true, allowUnlucky: true });
 
       const targetActor = (sideRole === "attacker")
-        ? _resolveActor(data?.defender?.actorUuid)
-        : (sideRole === "defender" ? _resolveActor(data?.attacker?.actorUuid) : null);
+        ? _resolveActorCached(data?.defender?.actorUuid, resolver)
+        : (sideRole === "defender" ? _resolveActorCached(data?.attacker?.actorUuid, resolver) : null);
       const targetToken = (sideRole === "attacker")
-        ? _resolveToken(data?.defender?.tokenUuid)
-        : (sideRole === "defender" ? _resolveToken(data?.attacker?.tokenUuid) : null);
+        ? _resolveTokenCached(data?.defender?.tokenUuid, resolver)
+        : (sideRole === "defender" ? _resolveTokenCached(data?.attacker?.tokenUuid, resolver) : null);
 
       await applyRuntimePostRollToResult({
         actor,
@@ -665,8 +714,8 @@ export const CharOpposedWorkflow = {
 
       await _maybeResolveBothCritSuccessRollOff({
         message: parent, data,
-        attacker: _resolveActor(data.attacker.actorUuid),
-        defender: _resolveActor(data.defender.actorUuid)
+        attacker: _resolveActorCached(data.attacker.actorUuid, resolver),
+        defender: _resolveActorCached(data.defender.actorUuid, resolver)
       });
     }
 

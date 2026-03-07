@@ -6,10 +6,10 @@
  * Public API:
  *   getAlchemySkill(actor)                         → skill item | null
  *   getAlchemyTalents(actor)                       → { isMasterAlchemist, alchemistSchools, hasNothingVentured, hasTrialAndError }
- *   computeEffectiveStrength(ingredient, actor)    → number
+ *   computeEffectiveStrength(ingredient, actor, opts?)  → number
  *   buildBrewRecipe(actor, workshopData)            → recipe object | null (with error)
  *   validateBrewRecipe(actor, recipe)              → { ok, errors[] }
- *   computeBrewModifiers(actor, recipe)            → { tn, baseModifiers, totalMod, penaltyBreakdown }
+ *   computeBrewModifiers(actor, recipe, opts?)     → { tn, baseModifiers, totalMod, penaltyBreakdown }
  *   createPendingBrewMessage(actor, recipe)        → Promise<ChatMessage>
  *   handleBrewChatAction(messageId, actionId)      → Promise<void>   (idempotent dispatch)
  *   resolveBrew(actor, recipe, rollResult)         → Promise<{ success, item, backfire }>
@@ -22,7 +22,6 @@ import {
   computeUpkeepDuration,
   getEffectToxinOverrides,
   POISON_DICE,
-  QUALITY_TIERS,
 } from "./effects.js";
 
 import {
@@ -32,6 +31,22 @@ import {
 } from "./backfire.js";
 
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+
+import {
+  renderBrewPendingCard,
+  renderBrewResultCard,
+} from "./render.js";
+
+import { FLAG_SCOPE } from "../system/namespace.js";
+
+// ── Flag namespace constant (delegated to canonical FLAG_SCOPE from namespace.js) ──
+const FLAG_NS = FLAG_SCOPE;
+
+// ── Internal flag helpers ─────────────────────────────────────────────────────
+
+function _getAlchemyFlags(item) {
+  return item?.flags?.[FLAG_NS]?.alchemy ?? {};
+}
 
 // ── Talent helpers ────────────────────────────────────────────────────────────
 
@@ -83,15 +98,18 @@ export function getAlchemyTalents(actor) {
  * Compute the effective strength of an ingredient after applying talent bonuses.
  * Alchemist [School] grants +10% (round down) to matching school ingredients.
  * Master Alchemist grants +20% (stacks to +30% total).
+ *
  * @param {Item} ingredient
  * @param {Actor} actor
+ * @param {object} opts
+ * @param {object} [opts.talents]  Pre-resolved talents (avoids repeated actor scan).
  * @returns {number}
  */
-export function computeEffectiveStrength(ingredient, actor) {
-  const data = ingredient?.flags?.["uesrpg-3ev4"]?.alchemy ?? {};
+export function computeEffectiveStrength(ingredient, actor, opts = {}) {
+  const data = _getAlchemyFlags(ingredient);
   const base = Number(data.strengthBase ?? 0);
   const school = String(data.school ?? "").toLowerCase();
-  const talents = getAlchemyTalents(actor);
+  const talents = opts.talents ?? getAlchemyTalents(actor);
 
   const hasSchool = talents.alchemistSchools.includes(school);
   const isMaster = talents.isMasterAlchemist;
@@ -128,7 +146,7 @@ function _recipeHash(recipe) {
  */
 async function _getTrialAndErrorBonus(actor, recipe) {
   const hash = _recipeHash(recipe);
-  const te = actor?.flags?.["uesrpg-3ev4"]?.alchemy?.trialAndError ?? {};
+  const te = actor?.flags?.[FLAG_NS]?.alchemy?.trialAndError ?? {};
   return Math.min(30, (te[hash] ?? 0) * 10);
 }
 
@@ -142,11 +160,11 @@ async function _incrementTrialAndError(actor, recipe) {
   if (!actor) return;
   const hash = _recipeHash(recipe);
   const existing = foundry.utils.deepClone(
-    actor?.flags?.["uesrpg-3ev4"]?.alchemy?.trialAndError ?? {}
+    actor?.flags?.[FLAG_NS]?.alchemy?.trialAndError ?? {}
   );
   existing[hash] = Math.min(3, (existing[hash] ?? 0) + 1);
   await requestUpdateDocument(actor, {
-    "flags.uesrpg-3ev4.alchemy.trialAndError": existing,
+    [`flags.${FLAG_NS}.alchemy.trialAndError`]: existing,
   });
 }
 
@@ -159,12 +177,12 @@ async function _resetTrialAndError(actor, recipe) {
   if (!actor) return;
   const hash = _recipeHash(recipe);
   const existing = foundry.utils.deepClone(
-    actor?.flags?.["uesrpg-3ev4"]?.alchemy?.trialAndError ?? {}
+    actor?.flags?.[FLAG_NS]?.alchemy?.trialAndError ?? {}
   );
   if (existing[hash]) {
     delete existing[hash];
     await requestUpdateDocument(actor, {
-      "flags.uesrpg-3ev4.alchemy.trialAndError": existing,
+      [`flags.${FLAG_NS}.alchemy.trialAndError`]: existing,
     });
   }
 }
@@ -184,12 +202,14 @@ async function _resetTrialAndError(actor, recipe) {
  * @param {Actor}  actor
  * @param {object} recipe
  * @param {object} opts
- * @param {boolean} opts.nothingVentured   Nothing Ventured… is active.
- * @param {number}  opts.trialAndErrorBonus Bonus from Trial and Error (0/10/20/30).
+ * @param {boolean} opts.nothingVentured     Nothing Ventured… is active.
+ * @param {number}  opts.trialAndErrorBonus  Bonus from Trial and Error (0/10/20/30).
+ * @param {Item}    [opts.skill]             Pre-resolved Alchemy skill item (avoids re-scan).
  * @returns {object}
  */
-export function computeBrewModifiers(actor, recipe, { nothingVentured = false, trialAndErrorBonus = 0 } = {}) {
-  const skill = getAlchemySkill(actor);
+export function computeBrewModifiers(actor, recipe, opts = {}) {
+  const { nothingVentured = false, trialAndErrorBonus = 0, skill: precomputedSkill } = opts;
+  const skill = precomputedSkill ?? getAlchemySkill(actor);
   const tn = Number(skill?.system?.total ?? 0);
   const skillLevel = Number(skill?.system?.level ?? skill?.system?.total ?? 0);
   const alchemyRank = Math.floor(skillLevel / 10);
@@ -257,7 +277,7 @@ export function computeBrewModifiers(actor, recipe, { nothingVentured = false, t
  */
 export function validateBrewRecipe(actor, recipe) {
   const errors = [];
-  const requireLab = game.settings.get("uesrpg-3ev4", "alchemy.requireLab");
+  const requireLab = game.settings.get(FLAG_NS, "alchemy.requireLab");
 
   // Lab check.
   if (requireLab) {
@@ -293,7 +313,7 @@ export function validateBrewRecipe(actor, recipe) {
         continue;
       }
 
-      const algData = ingredient.flags?.["uesrpg-3ev4"]?.alchemy ?? {};
+      const algData = _getAlchemyFlags(ingredient);
       const effectData = getEffectByKey(slot.effectKey);
 
       if (!effectData) {
@@ -348,7 +368,7 @@ export function validateBrewRecipe(actor, recipe) {
     if (!ingredient) {
       errors.push("No destruction ingredient selected.");
     } else {
-      const algData = ingredient.flags?.["uesrpg-3ev4"]?.alchemy ?? {};
+      const algData = _getAlchemyFlags(ingredient);
       if (String(algData.school ?? "").toLowerCase() !== "destruction") {
         errors.push("Poison brewing requires a Destruction ingredient.");
       }
@@ -371,6 +391,7 @@ export function validateBrewRecipe(actor, recipe) {
  * @returns {Promise<ChatMessage>}
  */
 export async function createPendingBrewMessage(actor, recipe, { nothingVentured = false } = {}) {
+  // Resolve skill and talents once to avoid repeated actor item scans.
   const skill = getAlchemySkill(actor);
   const talents = getAlchemyTalents(actor);
   const trialBonus = talents.hasTrialAndError
@@ -380,13 +401,14 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
   const { tn, alchemyRank, penaltyBreakdown, totalMod, brewTime } = computeBrewModifiers(actor, recipe, {
     nothingVentured,
     trialAndErrorBonus: trialBonus,
+    skill,
   });
 
   const adjustedTN = Math.max(0, tn + totalMod);
   const modeLabel = { potion: "Brew Potion", poison: "Brew Poison", toxin: "Brew Toxin" }[recipe.mode] ?? recipe.mode;
 
   // Render penalty rows.
-  const penaltyRows = penaltyBreakdown.map(
+  const penaltyRowsHtml = penaltyBreakdown.map(
     (p) => `<div class="uesrpg-da-row"><span class="k">${p.label}</span><span class="v">${p.value > 0 ? "+" : ""}${p.value}</span></div>`
   ).join("");
 
@@ -396,8 +418,7 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
     const rows = (recipe.slots ?? []).filter((s) => s.ingredientId && s.effectKey).map((s) => {
       const ingredient = actor.items.get(s.ingredientId);
       const effectData = getEffectByKey(s.effectKey);
-      const algData = ingredient?.flags?.["uesrpg-3ev4"]?.alchemy ?? {};
-      const effStr = computeEffectiveStrength(ingredient, actor);
+      const effStr = computeEffectiveStrength(ingredient, actor, { talents });
       const cost = computeEffectCost(s.effectKey, s.spellLevel ?? 1);
       const upkeepDur = effectHasUpkeep(s.effectKey)
         ? computeUpkeepDuration(s.effectKey, effStr, cost)
@@ -412,7 +433,7 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
   let poisonHtml = "";
   if (recipe.mode === "poison") {
     const ingredient = actor.items.get(recipe.ingredientId);
-    const algData = ingredient?.flags?.["uesrpg-3ev4"]?.alchemy ?? {};
+    const algData = _getAlchemyFlags(ingredient);
     const depth = Number(algData.depthBase ?? 1);
     const dice = POISON_DICE[depth] ?? "1d4";
     poisonHtml = `<div class="uesrpg-da-row"><span class="k">Ingredient</span><span class="v">${ingredient?.name ?? "?"}</span></div>
@@ -421,39 +442,26 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
     recipe.damageFormula = dice;
   }
 
-  const content = `
-    <div class="uesrpg-alchemy-brew-card">
-      <div class="hdr">
-        <img class="actor-thumb" src="${actor.img ?? "icons/svg/mystery-man.svg"}" alt="">
-        <div class="hdr-text">
-          <div class="title">${actor.name}</div>
-          <div class="sub">${modeLabel}</div>
-        </div>
-      </div>
-      <div class="body">
-        <div class="uesrpg-da-row"><span class="k">Alchemy Skill</span><span class="v">${skill?.name ?? "Alchemy"} (TN ${tn})</span></div>
-        <div class="uesrpg-da-row"><span class="k">Alchemy Rank</span><span class="v">${alchemyRank}</span></div>
-        ${effectsHtml}${poisonHtml}
-        ${penaltyRows}
-        <div class="uesrpg-da-row"><span class="k">Adjusted TN</span><span class="v"><strong>${adjustedTN}</strong></span></div>
-        ${nothingVentured ? '<div class="uesrpg-da-row"><span class="k">⚠ Nothing Ventured</span><span class="v">Doubles or fail = backfire</span></div>' : ""}
-        ${trialBonus > 0 ? `<div class="uesrpg-da-row"><span class="k">Trial and Error</span><span class="v">+${trialBonus}</span></div>` : ""}
-        <div class="uesrpg-da-row"><span class="k">Brew Time</span><span class="v">${brewTime} hour${brewTime !== 1 ? "s" : ""}</span></div>
-      </div>
-      <div class="footer" style="margin-top:0.5rem;">
-        <button type="button"
-          data-action="alchemyRoll"
-          data-actor-uuid="${actor.uuid}"
-          style="width:100%;padding:0.4rem 0;font-weight:bold;">
-          Roll Alchemy (TN ${adjustedTN})
-        </button>
-      </div>
-    </div>
-  `;
+  const content = renderBrewPendingCard({
+    actorImg: actor.img ?? "icons/svg/mystery-man.svg",
+    actorName: actor.name,
+    modeLabel,
+    skillName: skill?.name ?? "Alchemy",
+    tn,
+    alchemyRank,
+    effectsHtml,
+    poisonHtml,
+    penaltyRowsHtml,
+    adjustedTN,
+    nothingVentured,
+    trialBonus,
+    brewTime,
+    actorUuid: actor.uuid,
+  });
 
   // Persist recipe + modifier context in message flags for idempotent resolution.
   const messageFlags = {
-    "uesrpg-3ev4": {
+    [FLAG_NS]: {
       alchemy: {
         type: "brewPending",
         actorUuid: actor.uuid,
@@ -463,6 +471,7 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
         alchemyRank,
         trialBonus,
         resolved: false,
+        resolving: false,
       },
     },
   };
@@ -483,6 +492,7 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
 /**
  * Handle a click on the Roll Alchemy button embedded in a brew-pending chat card.
  * Idempotent: stores resolution state in message flags so double-clicks are safe.
+ * Optimistic lock: sets `resolving` flag before proceeding to prevent race conditions.
  *
  * @param {string} messageId  ID of the ChatMessage.
  */
@@ -490,23 +500,37 @@ export async function handleBrewChatAction(messageId) {
   const message = game.messages.get(messageId);
   if (!message) return;
 
-  const flags = message.flags?.["uesrpg-3ev4"]?.alchemy;
+  const flags = message.flags?.[FLAG_NS]?.alchemy;
   if (!flags || flags.type !== "brewPending") return;
 
-  // Idempotency guard — already resolved.
-  if (flags.resolved) {
+  // Idempotency guard — already resolved or currently resolving.
+  if (flags.resolved || flags.resolving) {
+    ui.notifications.info("This brew has already been resolved.");
+    return;
+  }
+
+  // Set resolving flag to claim the resolution slot.
+  await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: true });
+
+  // Re-read the message to confirm we won any race (another client may have resolved first).
+  const freshMsg = game.messages.get(messageId);
+  const freshFlags = freshMsg?.flags?.[FLAG_NS]?.alchemy;
+  if (freshFlags?.resolved) {
+    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     ui.notifications.info("This brew has already been resolved.");
     return;
   }
 
   const actor = await fromUuid(flags.actorUuid);
   if (!actor) {
+    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     ui.notifications.error("UESRPG | Alchemy: Actor not found.");
     return;
   }
 
   // Only the owner (or GM) may resolve.
   if (!actor.isOwner && !game.user.isGM) {
+    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     ui.notifications.warn("You do not own this actor and cannot resolve this brew.");
     return;
   }
@@ -525,23 +549,36 @@ export async function handleBrewChatAction(messageId) {
   const criticalSuccess = doubles && success;
   const criticalFail = doubles && !success;
 
-  // Resolve brew.
-  const result = await resolveBrew(actor, recipe, {
-    rollTotal,
-    success,
-    criticalSuccess,
-    criticalFail,
-    doubles,
-    nothingVentured,
-    alchemyRank,
-    adjustedTN,
-  });
+  // Resolve talents once so resolveBrew doesn't re-scan.
+  const talents = getAlchemyTalents(actor);
 
-  // Mark the message as resolved (prevents double-resolution).
+  let result;
+  try {
+    result = await resolveBrew(actor, recipe, {
+      rollTotal,
+      success,
+      criticalSuccess,
+      criticalFail,
+      doubles,
+      nothingVentured,
+      alchemyRank,
+      adjustedTN,
+      talents,
+    });
+  } catch (err) {
+    // Clear resolving flag so the UI is not permanently stuck.
+    await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
+    console.error("UESRPG | Brew resolution failed", err);
+    ui.notifications.error("Brew resolution failed — see console.");
+    return;
+  }
+
+  // Mark resolved, clear resolving.
   await message.update({
-    "flags.uesrpg-3ev4.alchemy.resolved": true,
-    "flags.uesrpg-3ev4.alchemy.rollTotal": rollTotal,
-    "flags.uesrpg-3ev4.alchemy.success": success,
+    [`flags.${FLAG_NS}.alchemy.resolved`]: true,
+    [`flags.${FLAG_NS}.alchemy.resolving`]: false,
+    [`flags.${FLAG_NS}.alchemy.rollTotal`]: rollTotal,
+    [`flags.${FLAG_NS}.alchemy.success`]: success,
   });
 
   // Post result chat card.
@@ -566,10 +603,13 @@ export async function resolveBrew(actor, recipe, rollCtx) {
     doubles = false,
     nothingVentured = false,
     alchemyRank = 0,
+    talents: precomputedTalents,
   } = rollCtx;
 
-  // Determine backfire conditions.
-  const talents = getAlchemyTalents(actor);
+  // Reuse precomputed talents if provided (avoids re-scanning actor items).
+  const talents = precomputedTalents ?? getAlchemyTalents(actor);
+  const skill = getAlchemySkill(actor);
+
   const effects = recipe.slots?.filter((s) => s.ingredientId && s.effectKey) ?? [];
   const multiEffect = effects.length > 1;
   const highestSL = Math.max(1, ...effects.map((e) => Number(e.spellLevel ?? 1)));
@@ -596,11 +636,9 @@ export async function resolveBrew(actor, recipe, rollCtx) {
     const outcome = backfireResult.entry?.outcome ?? "lost";
 
     if (outcome !== "lost") {
-      // "backfired" outcome → create item with backfired flag.
-      createdItem = await _createAlchemyItem(actor, recipe, { backfired: true, backfireResult });
+      createdItem = await _createAlchemyItem(actor, recipe, { backfired: true, backfireResult, skill, talents });
     }
 
-    // Increment Trial and Error on failure.
     if (talents.hasTrialAndError) {
       await _incrementTrialAndError(actor, recipe);
     }
@@ -609,9 +647,8 @@ export async function resolveBrew(actor, recipe, rollCtx) {
   }
 
   if (success) {
-    createdItem = await _createAlchemyItem(actor, recipe, { backfired: false });
+    createdItem = await _createAlchemyItem(actor, recipe, { backfired: false, skill, talents });
 
-    // Reset Trial and Error on success.
     if (talents.hasTrialAndError) {
       await _resetTrialAndError(actor, recipe);
     }
@@ -636,11 +673,14 @@ export async function resolveBrew(actor, recipe, rollCtx) {
  * @param {object} opts
  * @param {boolean} opts.backfired
  * @param {object|null} opts.backfireResult
+ * @param {Item|null}   [opts.skill]    Pre-resolved Alchemy skill item.
+ * @param {object|null} [opts.talents]  Pre-resolved talents.
  * @returns {Promise<Item|null>}
  */
-async function _createAlchemyItem(actor, recipe, { backfired = false, backfireResult = null } = {}) {
-  const skill = getAlchemySkill(actor);
-  const alchemyRank = Math.floor(Number(skill?.system?.level ?? 0) / 10);
+async function _createAlchemyItem(actor, recipe, { backfired = false, backfireResult = null, skill, talents } = {}) {
+  const resolvedSkill = skill ?? getAlchemySkill(actor);
+  const resolvedTalents = talents ?? getAlchemyTalents(actor);
+  const alchemyRank = Math.floor(Number(resolvedSkill?.system?.level ?? 0) / 10);
 
   let itemName;
   let alchemyFlags;
@@ -654,7 +694,7 @@ async function _createAlchemyItem(actor, recipe, { backfired = false, backfireRe
 
     const effects = (recipe.slots ?? []).filter((s) => s.ingredientId && s.effectKey).map((s) => {
       const ingredient = actor.items.get(s.ingredientId);
-      const effStr = computeEffectiveStrength(ingredient, actor);
+      const effStr = computeEffectiveStrength(ingredient, actor, { talents: resolvedTalents });
       const cost = computeEffectCost(s.effectKey, s.spellLevel ?? 1);
       const upkeepDur = effectHasUpkeep(s.effectKey)
         ? computeUpkeepDuration(s.effectKey, effStr, cost)
@@ -740,10 +780,8 @@ async function _createAlchemyItem(actor, recipe, { backfired = false, backfireRe
     name: itemName,
     type: "item",
     img: "icons/consumables/potions/bottle-conical-empty-glass.webp",
-    // Use canonical UESRPG item schema keys (template.json): enc, quantity, description.
-    // Mark alchemical products as consumable so they appear in the Combat → Use Item picker.
     system: { quantity: 1, enc: 0, description: "", consumable: true, wearable: false, equipped: false },
-    flags: { "uesrpg-3ev4": { alchemy: alchemyFlags } },
+    flags: { [FLAG_NS]: { alchemy: alchemyFlags } },
   };
 
   const [created] = await actor.createEmbeddedDocuments("Item", [itemData]);
@@ -792,6 +830,7 @@ async function _postBrewResultMessage(actor, recipe, roll, rollTotal, adjustedTN
     : "Failure";
 
   const outcomeColor = success ? "#388e3c" : "#c62828";
+
   const backfireHtml = result.backfireResult
     ? `<div class="uesrpg-da-row" style="color:#c62828;"><span class="k">⚡ Backfire</span><span class="v">${formatCreationBackfire(result.backfireResult)}</span></div>`
     : "";
@@ -803,16 +842,16 @@ async function _postBrewResultMessage(actor, recipe, roll, rollTotal, adjustedTN
     : "";
 
   let drinkButtonHtml = "";
-  if (result.item && (result.item.flags?.["uesrpg-3ev4"]?.alchemy?.kind === "potion")) {
+  const algFlags = result.item?.flags?.[FLAG_NS]?.alchemy;
+  if (algFlags?.kind === "potion") {
     drinkButtonHtml = `<button type="button"
       data-action="alchemyDrink"
       data-item-uuid="${result.item.uuid}"
       data-actor-uuid="${actor.uuid}"
       style="margin-top:0.5rem;width:100%;padding:0.3rem;">
-      Drink Potion${result.item.flags?.["uesrpg-3ev4"]?.alchemy?.backfired ? " (Backfired!)" : ""}
+      Drink Potion${algFlags.backfired ? " (Backfired!)" : ""}
     </button>`;
-  }
-  if (result.item && (result.item.flags?.["uesrpg-3ev4"]?.alchemy?.kind === "poison" || result.item.flags?.["uesrpg-3ev4"]?.alchemy?.kind === "toxin")) {
+  } else if (algFlags?.kind === "poison" || algFlags?.kind === "toxin") {
     drinkButtonHtml = `<button type="button"
       data-action="alchemyApplyToWeapon"
       data-item-uuid="${result.item.uuid}"
@@ -822,23 +861,18 @@ async function _postBrewResultMessage(actor, recipe, roll, rollTotal, adjustedTN
     </button>`;
   }
 
-  const content = `
-    <div class="uesrpg-alchemy-brew-card">
-      <div class="hdr">
-        <img class="actor-thumb" src="${actor.img ?? "icons/svg/mystery-man.svg"}" alt="">
-        <div class="hdr-text">
-          <div class="title">${actor.name} — Brew Result</div>
-          <div class="sub" style="color:${outcomeColor};font-weight:bold;">${outcomeLabel} (${rollTotal} vs TN ${adjustedTN})</div>
-        </div>
-      </div>
-      <div class="body">
-        ${await roll.render()}
-        ${itemHtml}
-        ${backfireHtml}
-        ${drinkButtonHtml}
-      </div>
-    </div>
-  `;
+  const content = await renderBrewResultCard({
+    actorImg: actor.img ?? "icons/svg/mystery-man.svg",
+    actorName: actor.name,
+    outcomeLabel,
+    outcomeColor,
+    rollTotal,
+    adjustedTN,
+    roll,
+    itemHtml,
+    backfireHtml,
+    drinkButtonHtml,
+  });
 
   await ChatMessage.create({
     user: game.user.id,

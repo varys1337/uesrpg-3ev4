@@ -11,8 +11,10 @@
  * - Heroic Action: Immediate effect, fully implemented
  */
 
-import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "./stamina-dialog.js";
+import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "./stamina-effects.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { SYSTEM_ID } from "../constants.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 
 /**
  * Check and apply Physical Exertion bonus to characteristic test
@@ -114,7 +116,7 @@ export async function applyPowerAttackBonus(actor) {
   const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.POWER_ATTACK);
   if (!effect) return 0;
   
-  const bonus = effect.flags?.uesrpg?.damageBonus || 0;
+  const bonus = getFlagValueWithFallback(effect, "damageBonus") || 0;
   
   // Consume the effect
   await consumeStaminaEffect(actor, STAMINA_EFFECT_KEYS.POWER_ATTACK, {
@@ -146,11 +148,10 @@ export async function applySprintBonus(actor) {
 
 function _getPowerDrawStoredReduction(weapon) {
   if (!weapon) return 0;
-  const systemId = game.system?.id ?? "uesrpg-3ev4";
   try {
     const v = (typeof weapon.getFlag === "function")
-      ? weapon.getFlag(systemId, "powerDrawReloadReduction")
-      : weapon?.flags?.[systemId]?.powerDrawReloadReduction;
+      ? weapon.getFlag(SYSTEM_ID, "powerDrawReloadReduction")
+      : weapon?.flags?.[SYSTEM_ID]?.powerDrawReloadReduction;
     const n = Number(v ?? 0);
     return Number.isFinite(n) ? n : 0;
   } catch (_e) {
@@ -160,16 +161,14 @@ function _getPowerDrawStoredReduction(weapon) {
 
 async function _setPowerDrawStoredReduction(weapon, value) {
   if (!weapon) return false;
-  const systemId = game.system?.id ?? "uesrpg-3ev4";
   const n = Number(value ?? 0);
   if (!Number.isFinite(n)) return false;
-  return requestUpdateDocument(weapon, { [`flags.${systemId}.powerDrawReloadReduction`]: n });
+  return requestUpdateDocument(weapon, { [`flags.${SYSTEM_ID}.powerDrawReloadReduction`]: n });
 }
 
 async function _clearPowerDrawStoredReduction(weapon) {
   if (!weapon) return false;
-  const systemId = game.system?.id ?? "uesrpg-3ev4";
-  return requestUpdateDocument(weapon, { [`flags.${systemId}.powerDrawReloadReduction`]: 0 });
+  return requestUpdateDocument(weapon, { [`flags.${SYSTEM_ID}.powerDrawReloadReduction`]: 0 });
 }
 
 /**

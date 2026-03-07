@@ -7,6 +7,7 @@
  */
 
 import { getDiseaseResistancePercent } from "./trait-registry.js";
+import { doesUserOwnActor } from "../../utils/authority-proxy.js";
 
 function _norm(str) {
   return String(str ?? "").trim();
@@ -22,10 +23,7 @@ function _getOwnerUserIds(actor) {
       out.add(user.id);
       continue;
     }
-    const hasOwner = typeof actor?.testUserPermission === "function"
-      ? actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)
-      : Number(actor?.ownership?.[user.id] ?? 0) >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
-    if (hasOwner) out.add(user.id);
+    if (doesUserOwnActor(user, actor)) out.add(user.id);
   }
 
   return Array.from(out);

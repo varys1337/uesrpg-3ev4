@@ -10,19 +10,11 @@
  */
 
 import { getDifficultyByKey } from "./skill-tn.js";
-import { isDebugEnabled } from "../../utils/debug.js";
+import { createDebugLogger } from "../../utils/debug.js";
 
 const SKILL_ROLL_REQUEST_VERSION = 1;
 
-function isSkillRollDebugEnabled() {
-  return isDebugEnabled("skillRollDebug");
-}
-
-export function skillRollDebug(...args) {
-  if (!isSkillRollDebugEnabled()) return;
-  // eslint-disable-next-line no-console
-  console.log("[UESRPG][SkillRoll]", ...args);
-}
+export const skillRollDebug = createDebugLogger("skillRollDebug", "[UESRPG][SkillRoll]");
 
 function clampNumber(v, { min = -200, max = 200 } = {}) {
   const n = Number(v);
@@ -43,6 +35,7 @@ export function normalizeSkillRollOptions(raw = {}, fallback = {}) {
 
   return {
     difficultyKey: diff.key,
+    circumstanceMod: clampNumber(raw.circumstanceMod ?? fallback.circumstanceMod ?? 0, { min: -30, max: 30 }),
     manualMod: clampNumber(raw.manualMod ?? fallback.manualMod ?? 0, { min: -200, max: 200 }),
     useSpec: Boolean(raw.useSpec ?? fallback.useSpec ?? false),
     selectedCharacteristicKey,

@@ -100,13 +100,6 @@ export async function dispatchOpposedAction(message, action, opts = {}, workflow
   _ensureBankedScaffold(data);
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
 
-  // Back-compat: treat legacy actions as banked commits when bankMode is enabled.
-  if (bankMode) {
-    if (action === "attacker-roll") action = "attacker-commit";
-    if (action === "defender-roll") action = "defender-commit";
-    if (action === "defender-nodefense") action = "defender-commit-nodefense";
-  }
-
   // Build shared context object for handlers
   const ctx = {
     message,

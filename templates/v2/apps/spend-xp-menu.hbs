@@ -34,39 +34,55 @@
   </header>
 
   <div class="uesrpg-spendxp__scroll">
-    <section class="uesrpg-spendxp__section uesrpg-spendxp__draft">
-      <h3>Draft Summary</h3>
-      <p class="uesrpg-spendxp__hint">
-        Staged entries: <b>{{stagedCount}}</b> | Staged XP: <b>{{stagedCostXp}}</b> | Staged Drakes: <b>{{stagedCostWealth}}</b>
-      </p>
+    <div class="uesrpg-spendxp__top-row">
+      <section class="uesrpg-spendxp__section uesrpg-spendxp__section--top uesrpg-spendxp__draft">
+        <h3>Draft Summary</h3>
+        <p class="uesrpg-spendxp__hint">
+          Staged entries: <b>{{stagedCount}}</b> | Staged XP: <b>{{stagedCostXp}}</b> | Staged Drakes: <b>{{stagedCostWealth}}</b>
+        </p>
 
-      {{#if hasDraft}}
-        <div class="uesrpg-spendxp__draft-list">
-          {{#each stagedEntries as |row|}}
-            <div class="uesrpg-spendxp__draft-row">
-              <div class="uesrpg-spendxp__draft-text">
-                <div class="uesrpg-spendxp__draft-label">{{row.label}}</div>
-                <div class="uesrpg-spendxp__draft-meta">{{row.kind}} | XP {{row.costXp}} | Drakes {{row.costWealth}}</div>
+        {{#if hasDraft}}
+          <div class="uesrpg-spendxp__draft-list">
+            {{#each stagedEntries as |row|}}
+              <div class="uesrpg-spendxp__draft-row">
+                <div class="uesrpg-spendxp__draft-text">
+                  <div class="uesrpg-spendxp__draft-label">{{row.label}}</div>
+                  <div class="uesrpg-spendxp__draft-meta">{{row.kind}} | XP {{row.costXp}} | Drakes {{row.costWealth}}</div>
+                </div>
+                <button type="button" data-action="removeDraftEntry" data-entry-id="{{row.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__rollback-btn">
+                  <i class="fas fa-rotate-left"></i> Remove
+                </button>
               </div>
-              <button type="button" data-action="removeDraftEntry" data-entry-id="{{row.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__rollback-btn">
-                <i class="fas fa-rotate-left"></i> Remove
-              </button>
-            </div>
-          {{/each}}
-        </div>
-      {{else}}
-        <p class="uesrpg-spendxp__hint">No staged purchases yet.</p>
-      {{/if}}
+            {{/each}}
+          </div>
+        {{else}}
+          <p class="uesrpg-spendxp__hint">No staged purchases yet.</p>
+        {{/if}}
 
-      <div class="uesrpg-spendxp__confirm-actions">
-        <button type="button" data-action="confirmDraft" class="uesrpg-spendxp__btn">
-          <i class="fas fa-check"></i> Confirm Purchases
-        </button>
-        <button type="button" data-action="discardDraft" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--ghost">
-          <i class="fas fa-trash"></i> Discard Draft
-        </button>
-      </div>
-    </section>
+        <div class="uesrpg-spendxp__confirm-actions">
+          <button type="button" data-action="confirmDraft" class="uesrpg-spendxp__btn">
+            <i class="fas fa-check"></i> Confirm Purchases
+          </button>
+          <button type="button" data-action="discardDraft" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--ghost">
+            <i class="fas fa-trash"></i> Discard Draft
+          </button>
+        </div>
+      </section>
+
+      <section class="uesrpg-spendxp__section uesrpg-spendxp__section--top uesrpg-spendxp__section--drop">
+        <h3>Learn Talents / Spells (Drag and Drop)</h3>
+        <p class="uesrpg-spendxp__hint">
+          Drop Items here: <b>Skill</b>, <b>Magic Skill</b>, <b>Combat Style</b>, <b>Talent</b>, or <b>Spell</b>.
+          Talent learning mode: <b>{{talentLearningMode}}</b>.
+        </p>
+        <div class="uesrpg-spendxp__dropzone" role="region" aria-label="Dropzone">
+          <div class="uesrpg-spendxp__dropzone-inner">
+            <i class="fas fa-hand-pointer"></i>
+            <div>Dropped purchases are staged and only applied on Confirm Purchases.</div>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <section class="uesrpg-spendxp__section">
       <h3>Advance a Characteristic</h3>
@@ -150,18 +166,5 @@
       </div>
     </section>
 
-    <section class="uesrpg-spendxp__section">
-      <h3>Learn Talents / Spells (Drag and Drop)</h3>
-      <p class="uesrpg-spendxp__hint">
-        Drop Items here: <b>Skill</b>, <b>Magic Skill</b>, <b>Combat Style</b>, <b>Talent</b>, or <b>Spell</b>.
-        Talent learning mode: <b>{{talentLearningMode}}</b>.
-      </p>
-      <div class="uesrpg-spendxp__dropzone" role="region" aria-label="Dropzone">
-        <div class="uesrpg-spendxp__dropzone-inner">
-          <i class="fas fa-hand-pointer"></i>
-          <div>Dropped purchases are staged and only applied on Confirm Purchases.</div>
-        </div>
-      </div>
-    </section>
   </div>
 </div>

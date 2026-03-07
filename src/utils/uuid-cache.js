@@ -22,6 +22,30 @@
  * @typedef {{ resolveSync: (uuid: string|null|undefined) => any, resolve: (uuid: string|null|undefined) => Promise<any>, clear: () => void }} UuidResolver
  */
 
+export function resolveUuidSync(uuid, { cache } = {}) {
+  if (!uuid || typeof uuid !== "string") return null;
+  if (cache?.has?.(uuid)) return cache.get(uuid) ?? null;
+
+  let doc = null;
+  try { doc = fromUuidSync(uuid) ?? null; } catch (_e) { doc = null; }
+
+  cache?.set?.(uuid, doc);
+  return doc;
+}
+
+export function getActorFromResolvedDocument(doc) {
+  if (!doc) return null;
+  if (doc?.documentName === "Actor") return doc;
+  if (doc?.actor) return doc.actor ?? null;
+  const parent = doc?.parent ?? null;
+  if (parent?.documentName === "Actor") return parent;
+  return null;
+}
+
+export function resolveActorFromUuidSync(uuid, { cache } = {}) {
+  return getActorFromResolvedDocument(resolveUuidSync(uuid, { cache }));
+}
+
 /**
  * Create a new ephemeral UUID resolver instance.
  * @returns {UuidResolver}
@@ -38,12 +62,7 @@ export function createUuidResolver() {
      * @returns {any}
      */
     resolveSync(uuid) {
-      if (!uuid) return null;
-      if (_cache.has(uuid)) return _cache.get(uuid);
-      let doc = null;
-      try { doc = fromUuidSync(uuid) ?? null; } catch (_e) { doc = null; }
-      _cache.set(uuid, doc);
-      return doc;
+      return resolveUuidSync(uuid, { cache: _cache });
     },
 
     /**

@@ -1,4 +1,4 @@
-import { requestCreateActor, requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+﻿import { requestCreateActor, requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { RaceMenuAppV2, BirthSignMenuAppV2, rollBirthsignSelection, applyBirthsignSelection } from "../character-creation-menus.js";
 import { onSetBaseCharacteristics, onLuckyMenu } from "../../../sheets/shared/listeners/characteristics-handlers.js";
 import { onStartingResourcesMenu } from "../../../sheets/shared/dialogs/character-menus.js";
@@ -7,6 +7,7 @@ import { SpellLearningMenuAppV2 } from "./spell-learning-menu.js";
 import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { appendChargenAudit, buildChargenSummary, buildChargenSummaryChatHtml } from "./audit-log.js";
 import { SPECIAL_ACTIONS } from "../../../../core/config/special-actions.js";
+import { SYSTEM_ID, templatePath } from "../../../constants.js";
 import {
   SKILL_RANK_ORDER,
   SKILL_RANK_XP_COST,
@@ -36,6 +37,7 @@ function _defaultWizardState(name = "") {
   return {
     actorUuid: null,
     stage: "actor",
+    tokenActorFreeNavigation: false,
     completion: {
       actor: false,
       race: false,
@@ -121,7 +123,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
   static PARTS = {
     main: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/char-gen-wizard.hbs",
+      template: templatePath("v2/apps/char-gen-wizard.hbs"),
       scrollable: [".uesrpg-char-gen__content"],
     },
   };
@@ -132,7 +134,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const stage = this._ws.stage;
 
     const stageData = STAGES.map((id) => {
-      const clickable = id === stage || Boolean(this._ws.completion[id]);
+      const clickable = this.#isStageUnlocked(id);
       return {
       id,
       label: STAGE_LABELS[id],
@@ -241,6 +243,8 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       normalized.stage = String(raw.stage);
     }
 
+    normalized.tokenActorFreeNavigation = Boolean(raw.tokenActorFreeNavigation);
+
     const completion = raw.completion;
     if (completion && typeof completion === "object") {
       for (const stage of STAGES) {
@@ -253,6 +257,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     if (!normalized.actorUuid) {
       normalized.completion.actor = false;
       normalized.stage = "actor";
+      normalized.tokenActorFreeNavigation = false;
     }
 
     if (normalized.stage !== "actor" && !normalized.completion.actor) {
@@ -320,12 +325,21 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
   }
 
-  #setActor(actor) {
+  #setActor(actor, { tokenActorFreeNavigation = false } = {}) {
     if (!actor || actor.documentName !== "Actor") return;
     this._ws.actorUuid = actor.uuid;
     this._ws.completion.actor = true;
+    this._ws.tokenActorFreeNavigation = Boolean(tokenActorFreeNavigation);
     if (this._ws.stage === "actor") this._ws.stage = "race";
     this.#persistState();
+  }
+
+  #isStageUnlocked(stage) {
+    if (!STAGES.includes(stage)) return false;
+    if (stage === this._ws.stage) return true;
+    if (Boolean(this._ws.completion[stage])) return true;
+    if (!this._ws.tokenActorFreeNavigation) return false;
+    return stage !== "finish";
   }
 
   #canAdvanceFromStage(stage) {
@@ -364,7 +378,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const stage = String(target?.dataset?.stage ?? "").trim();
     if (!STAGES.includes(stage)) return;
-    if (stage === this._ws.stage || this._ws.completion[stage]) {
+    if (this.#isStageUnlocked(stage)) {
       this._ws.stage = stage;
       this.#persistState();
       await this.render();
@@ -419,7 +433,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       ui.notifications?.warn?.("No assigned character found for your user.");
       return;
     }
-    this.#setActor(actor);
+    this.#setActor(actor, { tokenActorFreeNavigation: false });
     await this.render();
   }
 
@@ -435,7 +449,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       ui.notifications?.warn?.("The selected token has no actor.");
       return;
     }
-    this.#setActor(actor);
+    this.#setActor(actor, { tokenActorFreeNavigation: true });
     await this.render();
   }
 
@@ -463,7 +477,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
 
     this._ws.createdByWizard = true;
-    this.#setActor(actor);
+    this.#setActor(actor, { tokenActorFreeNavigation: false });
     await this.render();
   }
 
@@ -748,7 +762,9 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         favored,
         desiredTe,
         nextSa,
-        xpCost: rankCost + teCost + saCost,
+        actualXpCost: rankCost + teCost + saCost,
+        xpCost: input.freeCombatStyle ? 0 : (rankCost + teCost + saCost),
+        freeCombatStyle: Boolean(input.freeCombatStyle),
         breakdown: { rankCost, teCost, saCost },
       };
     };
@@ -771,6 +787,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       ],
       specialAdvantages: [...(root?.querySelectorAll(".cg-sa:checked") ?? [])].map((el) => String(el.value)),
       setActive: Boolean(root?.querySelector("#cgSetActiveStyle")?.checked),
+      freeCombatStyle: Boolean(root?.querySelector("#cgFreeCombatStyle")?.checked),
     });
 
     const result = await customDialog({
@@ -812,6 +829,10 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           ${saChecks}
         </div>
         <div class="uesrpg-cg-dialog__note"><b>Estimated Cost:</b> <span id="cgCombatStyleCost">0</span> XP <span id="cgCombatStyleCostBreakdown"></span></div>
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="checkbox" id="cgFreeCombatStyle">
+          <span>Free Combat Style</span>
+        </label>
         <label style="display:flex; align-items:center; gap:6px;">
           <input type="checkbox" id="cgSetActiveStyle" checked>
           <span>Set as Active Combat Style</span>
@@ -871,7 +892,9 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           if (valueEl) valueEl.textContent = String(out.ok ? out.xpCost : 0);
           if (breakEl) {
             breakEl.textContent = out.ok
-              ? `(Rank ${out.breakdown.rankCost} + TE ${out.breakdown.teCost} + SA ${out.breakdown.saCost})`
+              ? (out.freeCombatStyle
+                ? `(Free Combat Style: waived ${out.actualXpCost} XP)`
+                : `(Rank ${out.breakdown.rankCost} + TE ${out.breakdown.teCost} + SA ${out.breakdown.saCost})`)
               : `(${out.reason ?? "Invalid"})`;
           }
         };
@@ -890,6 +913,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           "#cgTe8",
           "#cgTe9",
           "#cgTe10",
+          "#cgFreeCombatStyle",
           "#cgSetActiveStyle",
         ];
         for (const sel of watched) {
@@ -951,9 +975,10 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const desiredTe = computed.desiredTe;
     const nextSa = computed.nextSa;
     const xpCost = computed.xpCost;
+    const freeCombatStyle = Boolean(computed.freeCombatStyle);
 
     const currentXp = _asNum(actor.system?.xp, 0);
-    if (xpCost > currentXp) {
+    if (!freeCombatStyle && xpCost > currentXp) {
       ui.notifications?.warn?.(`Not enough XP for combat style setup. Required ${xpCost}, available ${currentXp}.`);
       return;
     }
@@ -964,7 +989,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       "system.trainedEquipment": desiredTe,
       "system.specialAdvantages": nextSa,
     });
-    if (xpCost > 0) {
+    if (!freeCombatStyle && xpCost > 0) {
       await requestUpdateDocument(actor, { "system.xp": currentXp - xpCost });
     }
 
@@ -979,8 +1004,10 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         rank: targetRank,
         trainedEquipment: desiredTe.filter(Boolean),
         specialAdvantages: result.specialAdvantages,
-        activeStyleId: result.setActive ? style.id : (actor.getFlag("uesrpg-3ev4", "activeCombatStyleId") ?? null),
+        activeStyleId: result.setActive ? style.id : (actor.getFlag(SYSTEM_ID, "activeCombatStyleId") ?? null),
         spentXp: xpCost,
+        waivedXp: freeCombatStyle ? _asNum(computed.actualXpCost, 0) : 0,
+        freeCombatStyle,
       },
     });
     await appendChargenAudit(actor, {
@@ -994,6 +1021,8 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         specialAdvantages: result.specialAdvantages,
         setActive: result.setActive,
         spentXp: xpCost,
+        waivedXp: freeCombatStyle ? _asNum(computed.actualXpCost, 0) : 0,
+        freeCombatStyle,
       },
     });
     this._ws.completion.combatstyle = true;
@@ -1022,7 +1051,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           step: "spells",
           action: "close",
           payload: {
-            learnedCount: Number(actor.getFlag("uesrpg-3ev4", "chargen")?.spellLearning?.lastSummary?.learnedCount ?? 0),
+            learnedCount: Number(actor.getFlag(SYSTEM_ID, "chargen")?.spellLearning?.lastSummary?.learnedCount ?? 0),
           },
         });
         this.#persistState();
@@ -1068,7 +1097,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       "flags.uesrpg.charGen.inProgress": false,
     });
 
-    const chargenFlags = actor.getFlag("uesrpg-3ev4", "chargen") ?? {};
+    const chargenFlags = actor.getFlag(SYSTEM_ID, "chargen") ?? {};
     const auditLog = Array.isArray(chargenFlags.auditLog) ? chargenFlags.auditLog : [];
     const summary = buildChargenSummary(actor, auditLog);
     const alreadyPosted = Boolean(chargenFlags.finalSummary?.postedAt);
@@ -1094,3 +1123,4 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     actor.sheet?.render?.(true);
   }
 }
+

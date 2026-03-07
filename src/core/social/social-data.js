@@ -5,6 +5,36 @@ const CYRODILIC_KEY = normalizeKey("Cyrodilic");
 const LANGUAGE_PREVIEW_LIMIT = 6;
 const FACTION_PREVIEW_LIMIT = 3;
 
+/**
+ * @typedef {object} SocialLanguageEntry
+ * @property {string} [id]
+ * @property {string} name
+ * @property {boolean} [speak]
+ * @property {boolean} [readWrite]
+ * @property {"catalog"|"custom"} [source]
+ */
+
+/**
+ * @typedef {object} SocialFactionEntry
+ * @property {string} [id]
+ * @property {string} name
+ * @property {string} [rankTitle]
+ * @property {string} [location]
+ * @property {string} [notes]
+ */
+
+/**
+ * @typedef {object} SocialState
+ * @property {{ entries: SocialLanguageEntry[], knownString: string, max: number }} languages
+ * @property {SocialFactionEntry[]} factions
+ */
+
+/**
+ * @typedef {object} SocialDisplay
+ * @property {{ entries: SocialLanguageEntry[], known: string[], preview: string[], hiddenCount: number, knownString: string, knownCount: number, selectedCount: number, customCount: number, max: number, slotSummary: string }} languages
+ * @property {{ entries: SocialFactionEntry[], preview: SocialFactionEntry[], hiddenCount: number, count: number }} factions
+ */
+
 export function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase();
 }
@@ -104,9 +134,12 @@ export function normalizeLanguageEntries(entries = []) {
 }
 
 export function buildKnownLanguagesStringFromEntries(entries = []) {
-  return dedupeByNormalized(
-    normalizeLanguageEntries(entries).map((entry) => entry.name)
-  ).join(", ");
+  const normalized = normalizeLanguageEntries(entries);
+  return normalized.map((entry) => entry.name).join(", ");
+}
+
+export function formatLanguageSlotSummary(maxLanguages) {
+  return `Cyrodilic (free) - Max additional: ${maxLanguages} (IB-2, max 4)`;
 }
 
 export function getSocialStateFromSystem(actorSystem = {}) {
@@ -120,9 +153,7 @@ export function getSocialStateFromSystem(actorSystem = {}) {
     ...currentEntries,
     ...parseCsvList(linguisticsKnown).map((name) => ({
       name,
-      speak: true,
       readWrite: true,
-      source: KNOWN_LANG_SET.has(normalizeKey(name)) ? "catalog" : "custom",
     })),
   ]);
 
@@ -155,7 +186,7 @@ export function buildSocialDisplay(actorSystem = {}) {
       selectedCount: state.languages.entries.length,
       customCount: state.languages.entries.filter((e) => e.source === "custom").length,
       max: state.languages.max,
-      slotSummary: `Cyrodilic (free) - Max additional: ${state.languages.max} (IB-2, max 4)`,
+      slotSummary: formatLanguageSlotSummary(state.languages.max),
     },
     factions: {
       entries: state.factions,

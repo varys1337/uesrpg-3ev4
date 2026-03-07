@@ -61,8 +61,34 @@ export function aggregateItemStats(actor, actorData) {
     skillModifiers: {},
     traitsAndTalents: [],
     shiftForms: [],
+    forms: {
+      vampireLord: false,
+      wereWolf: false,
+      wereBat: false,
+      wereBoar: false,
+      wereBear: false,
+      wereCrocodile: false,
+      wereVulture: false,
+      lichForm: false,
+      boneTyrant: false,
+      skeletonChampion: false,
+    },
+    actorFlags: {
+      isMechanical: false,
+      dwemerSphere: false,
+      painIntolerant: false,
+    },
+    mobility: null,
     itemCount: items.length
   };
+
+  // Mobility accumulation (same semantics as armor-mobility fallback scan).
+  const mobilityOrder = ["none", "light", "medium", "heavy", "superheavy", "crippling"];
+  const clampMobilityIndex = (i) => Math.max(0, Math.min(mobilityOrder.length - 1, i));
+  const norm = (v) => String(v ?? "").trim().toLowerCase();
+  const normWeightClass = (v) => norm(v).replace(/[\s_-]+/g, "");
+  let mobilityMaxIdx = 0;
+  let mobilitySources = [];
 
   // Track schema resistance values contributed by trait items specifically.
   // collectTraitDamageModifiers() also parses trait items via traitKey/traitParam/traitValue
@@ -120,11 +146,6 @@ export function aggregateItemStats(actor, actorData) {
     }
 
     stats.totalEnc += contributedWeight;
-
-    // Track excluded ENC for items with excludeENC flag
-    if (sys.excludeENC === true) {
-      stats.excludedEnc += contributedWeight;
-    }
 
     // Track worn armor ENC separately for display purposes
     if (isWornArmor) {
@@ -197,8 +218,88 @@ export function aggregateItemStats(actor, actorData) {
     }
 
     if (item.type === 'trait' || item.type === 'talent') stats.traitsAndTalents.push(item);
-    if (sys.shiftFormStyle) stats.shiftForms.push(sys.shiftFormStyle);
+    if (sys.shiftFormStyle) {
+      stats.shiftForms.push(sys.shiftFormStyle);
+      const style = String(sys.shiftFormStyle);
+      if (style === "shiftFormVampireLord") stats.forms.vampireLord = true;
+      if (style === "shiftFormWereWolf" || style === "shiftFormWereLion") stats.forms.wereWolf = true;
+      if (style === "shiftFormWereBat") stats.forms.wereBat = true;
+      if (style === "shiftFormWereBoar") stats.forms.wereBoar = true;
+      if (style === "shiftFormWereBear") stats.forms.wereBear = true;
+      if (style === "shiftFormWereCrocodile") stats.forms.wereCrocodile = true;
+      if (style === "shiftFormWereVulture") stats.forms.wereVulture = true;
+    }
+
+    if (sys.mechanical === true) stats.actorFlags.isMechanical = true;
+    if (sys.shiftForm === true && sys.dailyUse === true) stats.actorFlags.dwemerSphere = true;
+    if (sys.painIntolerant === true) stats.actorFlags.painIntolerant = true;
+
+    // Track heaviest effective equipped non-shield armor in the same pass.
+    if (item?.type === "armor" && isEquipped) {
+      const isShield = Boolean(sys?.isShieldEffective ?? sys?.isShield);
+      if (!isShield) {
+        const baseWC = normWeightClass(
+          sys.weightClass ??
+          sys.effectiveWeightClass ??
+          sys.armorWeightClass ??
+          sys.armor_class ??
+          sys.armorClass
+        ) || "none";
+        const q = norm(sys.qualityLevel) || "common";
+        let idx = mobilityOrder.indexOf(baseWC);
+        if (idx < 0) idx = 0;
+        if (q === "inferior") idx = clampMobilityIndex(idx + 1);
+        else if (q === "superior") idx = clampMobilityIndex(idx - 1);
+
+        if (idx > mobilityMaxIdx) {
+          mobilityMaxIdx = idx;
+          mobilitySources = [item];
+        } else if (idx === mobilityMaxIdx && idx > 0) {
+          mobilitySources.push(item);
+        }
+      }
+    }
   }
+
+  if (mobilityMaxIdx === 0) {
+    const actorWC = normWeightClass(actorData?.system?.armor_class);
+    const actorIdx = mobilityOrder.indexOf(actorWC);
+    if (actorIdx > 0) mobilityMaxIdx = actorIdx;
+  }
+
+  const effectiveWeightClass = mobilityOrder[mobilityMaxIdx] ?? "none";
+  const mobility = {
+    armorWeightClass: effectiveWeightClass,
+    agilityTestPenalty: 0,
+    agilityPenaltyExemptSkills: ["combatstyle", "combat_style", "combat style"],
+    skillTestPenalties: {},
+    allTestPenalty: 0,
+    speedPenalty: 0,
+    sources: mobilitySources.map(s => ({ id: s._id, name: s.name })),
+  };
+  switch (effectiveWeightClass) {
+    case "light":
+      mobility.skillTestPenalties["acrobatics"] = -10;
+      break;
+    case "medium":
+      mobility.agilityTestPenalty = -10;
+      mobility.speedPenalty = -1;
+      break;
+    case "heavy":
+      mobility.agilityTestPenalty = -20;
+      mobility.speedPenalty = -2;
+      break;
+    case "superheavy":
+      mobility.agilityTestPenalty = -30;
+      mobility.speedPenalty = -3;
+      break;
+    case "crippling":
+      mobility.allTestPenalty = -40;
+      break;
+    default:
+      break;
+  }
+  stats.mobility = mobility;
 
   const traitDamage = collectTraitDamageModifiers(items);
   stats.traitDamage = traitDamage;
@@ -232,4 +333,63 @@ export function aggregateItemStats(actor, actorData) {
 
   actor._aggCache = { agg: stats, combatState };
   return stats;
+}
+
+/**
+ * Build a canonical ENC contribution breakdown for actor-owned items.
+ * Uses the same ENC math as aggregateItemStats() without mutating documents.
+ *
+ * @param {Actor} actor
+ * @returns {{rows: Array<object>, totals: object}}
+ */
+export function buildEncumbranceBreakdown(actor) {
+  const trackedTypes = new Set(["armor", "ammunition", "weapon", "equipment", "container", "scroll"]);
+  const rows = [];
+  const totals = {
+    totalEnc: 0,
+    armorEncRaw: 0,
+    excludedEnc: 0,
+    zeroEncItemCount: 0,
+    zeroEncEffectiveEnc: 0,
+  };
+
+  const items = Array.from(actor?.items?.contents ?? []);
+  for (const item of items) {
+    const sys = item?.system ?? {};
+    const itemType = String(item?.type ?? "").trim();
+    if (!trackedTypes.has(itemType)) continue;
+
+    const enc = Number(sys.enc || 0);
+    const qty = Number(sys.quantity || 0);
+    const itemWeight = enc * qty;
+    const isEquipped = Object.prototype.hasOwnProperty.call(sys, "equipped") ? sys.equipped : true;
+
+    const isShield = (itemType === "armor") && Boolean(sys?.isShieldEffective ?? sys?.isShield);
+    const isWornArmor = (itemType === "armor" && isEquipped && !isShield);
+    const isContained = (sys?.containerStats?.contained === true);
+    let contributedEnc = itemWeight;
+    if (isContained) contributedEnc = contributedEnc / 2;
+    if (isWornArmor) contributedEnc = contributedEnc / 2;
+
+    if (enc === 0 && qty > 0) totals.zeroEncItemCount += qty;
+    totals.totalEnc += contributedEnc;
+    if (isWornArmor) totals.armorEncRaw += itemWeight;
+
+    rows.push({
+      itemId: item?._id ?? item?.id ?? "",
+      name: item?.name ?? "",
+      type: itemType ?? "",
+      qty,
+      enc,
+      contributedEnc,
+      isContained,
+      isWornArmor,
+      isShield,
+    });
+  }
+
+  totals.zeroEncEffectiveEnc = totals.zeroEncItemCount >= 10 ? Math.floor(totals.zeroEncItemCount / 10) : 0;
+  totals.totalEnc += totals.zeroEncEffectiveEnc;
+
+  return { rows, totals };
 }

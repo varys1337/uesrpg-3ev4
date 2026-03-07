@@ -4,7 +4,7 @@
  * Text formatting and data transformation helpers for wound engine.
  */
 
-const FLAG_SCOPE = "uesrpg-3ev4";
+import { FLAG_SCOPE } from "../../constants.js";
 
 /**
  * Format damage-by-type map for display

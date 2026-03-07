@@ -13,22 +13,9 @@
  */
 
 import { STACKING_MODES } from "./feature-mod.js";
+import { createSeverityDebugLogger, isDebugEnabled } from "../../../utils/debug.js";
 
-let _debugEnabled = false;
-let _debugChecked = false;
-
-function _isDebug() {
-  if (!_debugChecked) {
-    try {
-      _debugEnabled = game?.settings?.get?.("uesrpg-3ev4", "activationDebug") === true;
-    } catch (_e) {
-      _debugEnabled = false;
-    }
-    _debugChecked = true;
-    setTimeout(() => { _debugChecked = false; }, 30_000);
-  }
-  return _debugEnabled;
-}
+const _stackingDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 
 /**
  * Reduce an incoming FeatureMod against an existing array of mods for the same path.
@@ -48,12 +35,10 @@ export function reduceByStacking(existing, incoming, stackingMode) {
     // ── Non-stackable: keep the first contributor only ──
     case STACKING_MODES.NONE: {
       if (existing.length > 0) {
-        if (_isDebug()) {
-          console.debug(
-            `uesrpg | Stacking NONE: ignoring duplicate for path="${incoming.path}" ` +
-            `from ${incoming.source?.itemName ?? incoming.source?.key ?? "?"}`,
-          );
-        }
+        _stackingDebug(
+          `uesrpg | Stacking NONE: ignoring duplicate for path="${incoming.path}" ` +
+          `from ${incoming.source?.itemName ?? incoming.source?.key ?? "?"}`,
+        );
         return { mods: existing, changed: false };
       }
       return { mods: [incoming], changed: true };
@@ -68,12 +53,10 @@ export function reduceByStacking(existing, incoming, stackingMode) {
       const currentBest = existing[0];
       const currentVal = Number(currentBest.value ?? 0);
       if (incomingVal > currentVal) {
-        if (_isDebug()) {
-          console.debug(
-            `uesrpg | Stacking HIGHEST: ${incoming.source?.itemName ?? "?"} ` +
-            `(${incomingVal}) supersedes (${currentVal}) for path="${incoming.path}"`,
-          );
-        }
+        _stackingDebug(
+          `uesrpg | Stacking HIGHEST: ${incoming.source?.itemName ?? "?"} ` +
+          `(${incomingVal}) supersedes (${currentVal}) for path="${incoming.path}"`,
+        );
         // Replace — only the highest contributor is kept
         return { mods: [incoming], changed: true };
       }
@@ -104,7 +87,7 @@ export function reduceByStacking(existing, incoming, stackingMode) {
     }
 
     default: {
-      if (_isDebug()) {
+      if (isDebugEnabled("activationDebug")) {
         console.warn(`uesrpg | Unknown stacking mode "${mode}", defaulting to NONE`);
       }
       if (existing.length > 0) return { mods: existing, changed: false };

@@ -1,14 +1,6 @@
 import { systemRootPath } from "../../core/constants.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
-
-/**
- * Capitalize the first letter of a string.
- * @param {string} string - The input string
- * @returns {string} The string with first letter capitalized
- */
-function capitalizeFirstLetter(string) {
-  return string.charAt(0).toUpperCase() + string.slice(1);
-}
+import { capitalizeFirstLetter } from "../../utils/stringHelpers.js";
 
 const getUserChoice = async (choices, penalty, defaultChoice) => {
   const choiceTemplatePath = `${systemRootPath}/templates/partials/dialogs/choose-birthsign-penalty.hbs`;

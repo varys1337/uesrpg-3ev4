@@ -22,6 +22,10 @@ export {
   requestDeleteEmbeddedDocuments,
   requestUpdateChatMessage,
   getMessageAuthorId,
+  getChatMessageAuthorId,
+  getChatMessageAuthorUser,
+  doesUserOwnActor,
+  getActorOwnerUser,
   canUserUpdateChatMessage,
   sanitizeChatMessageUpdatePayload,
   isChatMessageUpdateFresh

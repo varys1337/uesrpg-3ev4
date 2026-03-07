@@ -12,8 +12,15 @@
 
 import { applyDefaults } from "./apply-defaults.js";
 import { DEFAULTS } from "./item-defaults.generated.js";
+import { SYSTEM_ID } from "../constants.js";
+import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
 
-const MODULE_ID = "uesrpg-3ev4";
+const MODULE_ID = SYSTEM_ID;
+const _RETIRED_SOCIAL_ITEM_TYPES = new Set(["language", "faction"]);
+const _combatLegacyItemStats = {
+  weaponsEnhancedFromQualities: 0,
+  weaponsEnhancedFromRange: 0,
+};
 
 /** @typedef {"melee"|"ranged"} AttackMode */
 
@@ -116,12 +123,50 @@ function _applyLegacyArmorTypedFields(system) {
 }
 
 function _supportedItemTypes() {
-  return new Set(Object.keys(DEFAULTS?.itemSystem ?? {}));
+  const supported = new Set(Object.keys(DEFAULTS?.itemSystem ?? {}));
+  supported.add("equipment");
+  supported.add("item");
+  return supported;
+}
+
+async function _cleanupRetiredSocialItems() {
+  let worldDeleted = 0;
+  let actorDeleted = 0;
+  let actorsTouched = 0;
+
+  const worldIds = (game?.items?.contents ?? [])
+    .filter((item) => _RETIRED_SOCIAL_ITEM_TYPES.has(String(item?.type ?? "").toLowerCase()))
+    .map((item) => item.id)
+    .filter(Boolean);
+
+  if (worldIds.length) {
+    worldDeleted = worldIds.length;
+    await Item.deleteDocuments(worldIds);
+  }
+
+  for (const actor of game?.actors?.contents ?? []) {
+    const embeddedIds = (actor?.items?.contents ?? [])
+      .filter((item) => _RETIRED_SOCIAL_ITEM_TYPES.has(String(item?.type ?? "").toLowerCase()))
+      .map((item) => item.id)
+      .filter(Boolean);
+
+    if (!embeddedIds.length) continue;
+    actorsTouched += 1;
+    actorDeleted += embeddedIds.length;
+    await actor.deleteEmbeddedDocuments("Item", embeddedIds);
+  }
+
+  return {
+    worldDeleted,
+    actorDeleted,
+    actorsTouched,
+    totalDeleted: worldDeleted + actorDeleted,
+  };
 }
 
 function _debugEnabled() {
   try {
-    return !!game.settings.get(MODULE_ID, "opposedDebug");
+    return !!game.settings.get(MODULE_ID, "migrationDebug");
   } catch (_e) {
     return false;
   }
@@ -156,6 +201,136 @@ function _normalizeEnchantLevel(item, sys = {}) {
   }
 
   return update;
+}
+
+function _stripRichText(raw = "") {
+  return String(raw ?? "")
+    .replace(/@Compendium\[[^\]]+\]\{([^}]+)\}/g, "$1")
+    .replace(/@UUID\[[^\]]+\]\{([^}]+)\}/g, "$1")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function _parseRangeTriplet(text) {
+  if (!text) return null;
+  const m = String(text).match(/(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/);
+  if (!m) return null;
+  return { short: Number(m[1]) || 0, medium: Number(m[2]) || 0, long: Number(m[3]) || 0 };
+}
+
+function _hasQualityKey(structured = [], key = "") {
+  const target = String(key ?? "").toLowerCase();
+  if (!target || !Array.isArray(structured)) return false;
+  return structured.some((q) => String(q?.key ?? q ?? "").toLowerCase() === target);
+}
+
+function _hasQualityTrait(traits = [], key = "") {
+  const target = String(key ?? "").toLowerCase();
+  if (!target || !Array.isArray(traits)) return false;
+  return traits.some((t) => String(t ?? "").toLowerCase() === target);
+}
+
+function _ensureBooleanQuality(nextTraits, nextStructured, key) {
+  let changed = false;
+  if (!_hasQualityTrait(nextTraits, key)) {
+    nextTraits.push(key);
+    changed = true;
+  }
+  if (!_hasQualityKey(nextStructured, key)) {
+    nextStructured.push({ key, value: true });
+    changed = true;
+  }
+  return changed;
+}
+
+function _applyLegacyWeaponCombatShape(sys = {}) {
+  const update = {};
+  let qualitiesEnhanced = false;
+  let rangeEnhanced = false;
+
+  const legacyRaw = _stripRichText(sys.qualities ?? "");
+  const hasLegacyText = Boolean(legacyRaw);
+
+  const existingStructured = Array.isArray(sys.qualitiesStructured) ? sys.qualitiesStructured : [];
+  const existingTraits = Array.isArray(sys.qualitiesTraits) ? sys.qualitiesTraits : [];
+  const nextStructured = existingStructured.slice();
+  const nextTraits = existingTraits.slice();
+
+  const hasCanonicalQualityData = existingStructured.length > 0 || existingTraits.length > 0;
+  if (hasLegacyText && !hasCanonicalQualityData) {
+    const lower = legacyRaw.toLowerCase();
+    const booleanQualityPatterns = [
+      ["thrown", /\bthrown\b/i],
+      ["sling", /\bsling\b/i],
+      ["runed", /\bruned\b/i],
+      ["flail", /\bflail\b/i],
+      ["entangling", /\bentangling\b/i],
+      ["twoHanded", /\b(two[\s-]*hand(?:ed)?|2h)\b/i],
+      ["small", /\bsmall\b/i],
+      ["dueling", /\bduel(?:ing)?\b/i],
+      ["shieldSplitter", /\bshield[\s-]*splitter\b/i],
+      ["concussive", /\bconcussive\b/i],
+    ];
+
+    for (const [key, pattern] of booleanQualityPatterns) {
+      if (!pattern.test(lower)) continue;
+      if (_ensureBooleanQuality(nextTraits, nextStructured, key)) qualitiesEnhanced = true;
+    }
+
+    const reloadMatch = lower.match(/\breload\s*\(\s*(\d+)\s*\)/i);
+    if (reloadMatch) {
+      const reloadValue = Number(reloadMatch[1]) || 0;
+      if (!_hasQualityTrait(nextTraits, "reload")) {
+        nextTraits.push("reload");
+        qualitiesEnhanced = true;
+      }
+      const reloadIndex = nextStructured.findIndex((q) => String(q?.key ?? "").toLowerCase() === "reload");
+      if (reloadIndex >= 0) {
+        const existingValue = Number(nextStructured[reloadIndex]?.value);
+        if (!Number.isFinite(existingValue)) {
+          nextStructured[reloadIndex] = { ...nextStructured[reloadIndex], key: "reload", value: reloadValue };
+          qualitiesEnhanced = true;
+        }
+      } else {
+        nextStructured.push({ key: "reload", value: reloadValue });
+        qualitiesEnhanced = true;
+      }
+    }
+  }
+
+  if (qualitiesEnhanced) {
+    if (nextStructured.length) update["system.qualitiesStructured"] = nextStructured;
+    if (nextTraits.length) update["system.qualitiesTraits"] = nextTraits;
+  }
+
+  const hasRangeField = typeof sys.range === "string" && sys.range.trim().length > 0;
+  const parsedFromRangeField = _parseRangeTriplet(sys.range);
+  const rangedTriplet = legacyRaw.match(/\bRanged\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*\)/i);
+  const thrownTriplet = legacyRaw.match(/\bThrown\s*\(\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*\)/i);
+
+  if (!hasRangeField && rangedTriplet) {
+    update["system.range"] = `${Number(rangedTriplet[1]) || 0}/${Number(rangedTriplet[2]) || 0}/${Number(rangedTriplet[3]) || 0}`;
+    rangeEnhanced = true;
+  }
+
+  const hasThrownShort = Number.isFinite(Number(sys.thrownShort));
+  const hasThrownMed = Number.isFinite(Number(sys.thrownMed));
+  const hasThrownLong = Number.isFinite(Number(sys.thrownLong));
+  if (thrownTriplet && (!hasThrownShort || !hasThrownMed || !hasThrownLong)) {
+    if (!hasThrownShort) update["system.thrownShort"] = Number(thrownTriplet[1]) || 0;
+    if (!hasThrownMed) update["system.thrownMed"] = Number(thrownTriplet[2]) || 0;
+    if (!hasThrownLong) update["system.thrownLong"] = Number(thrownTriplet[3]) || 0;
+    rangeEnhanced = true;
+  }
+
+  const hasValidAttackMode = sys.attackMode === "melee" || sys.attackMode === "ranged";
+  if (!hasValidAttackMode && (rangedTriplet || thrownTriplet || parsedFromRangeField)) {
+    update["system.attackMode"] = "ranged";
+    rangeEnhanced = true;
+  }
+
+  return { update, qualitiesEnhanced, rangeEnhanced };
 }
 
 /**
@@ -200,6 +375,18 @@ function _inferAttackMode(item, sys = {}) {
 
 function _normalizeWeaponSystem(item, sys = {}) {
   const update = {};
+  const combatLegacy = _applyLegacyWeaponCombatShape(sys);
+  Object.assign(update, combatLegacy.update);
+  if (combatLegacy.qualitiesEnhanced) _combatLegacyItemStats.weaponsEnhancedFromQualities += 1;
+  if (combatLegacy.rangeEnhanced) _combatLegacyItemStats.weaponsEnhancedFromRange += 1;
+
+  const inferredSys = foundry.utils.deepClone(sys ?? {});
+  for (const [k, v] of Object.entries(update)) {
+    if (!k.startsWith("system.")) continue;
+    const path = k.slice("system.".length);
+    if (!path || path.startsWith("-=")) continue;
+    foundry.utils.setProperty(inferredSys, path, v);
+  }
 
   // Fix legacy typo: equippped -> equipped
   if (Object.prototype.hasOwnProperty.call(sys, "equippped") && !Object.prototype.hasOwnProperty.call(sys, "equipped")) {
@@ -211,9 +398,9 @@ function _normalizeWeaponSystem(item, sys = {}) {
 
   // Ensure attackMode exists (melee|ranged).
   // Legacy assumption in this system has been melee unless explicitly ranged.
-  const hasValidAttackMode = sys.attackMode === "melee" || sys.attackMode === "ranged";
+  const hasValidAttackMode = inferredSys.attackMode === "melee" || inferredSys.attackMode === "ranged";
   if (!hasValidAttackMode) {
-    const inferred = _inferAttackMode(item, sys);
+    const inferred = _inferAttackMode(item, inferredSys);
     if (inferred) update["system.attackMode"] = inferred;
     else update["system.attackMode"] = "melee";
 
@@ -230,6 +417,7 @@ function _normalizeWeaponSystem(item, sys = {}) {
 
   // Ensure structured qualities array
   if (!Array.isArray(sys.qualitiesStructured)) update["system.qualitiesStructured"] = [];
+  if (Object.prototype.hasOwnProperty.call(sys, "damageInstances")) update["system.-=damageInstances"] = null;
 
   // ------------------------------------------------------------
   // Reach migration
@@ -281,6 +469,49 @@ function _normalizeArmorSystem(item, sys = {}) {
 
   if (!Array.isArray(sys.qualitiesStructured)) update["system.qualitiesStructured"] = [];
 
+  const locationKeys = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
+  const normalizeCoverageOverride = (value) => {
+    const raw = String(value ?? "").trim().toLowerCase();
+    if (!raw) return "";
+    if (raw === "full" || raw === "partial" || raw === "none") return raw;
+    if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
+      return "none";
+    }
+    return null;
+  };
+  const normalizeDamagedValue = (value) => {
+    if (value === true) return 1;
+    if (value === false || value === null || value === undefined || value === "") return 0;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.floor(n);
+  };
+
+  let nextHitLocationStates = null;
+  let malformedCoverage = false;
+  for (const key of locationKeys) {
+    const rawState = sys?.hitLocationStates?.[key] ?? {};
+    const normalizedCoverage = normalizeCoverageOverride(rawState.coverageOverride);
+    const normalizedDamaged = normalizeDamagedValue(rawState?.damaged);
+    const currentCoverage = String(rawState?.coverageOverride ?? "");
+    if (normalizedCoverage === null || currentCoverage !== normalizedCoverage || rawState?.damaged !== normalizedDamaged) {
+      if (!nextHitLocationStates) nextHitLocationStates = foundry.utils.deepClone(sys?.hitLocationStates ?? {});
+      const nextLoc = { ...(nextHitLocationStates[key] ?? {}) };
+      if (normalizedCoverage === null) {
+        nextLoc.coverageOverride = "";
+        malformedCoverage = true;
+      } else {
+        nextLoc.coverageOverride = normalizedCoverage;
+      }
+      nextLoc.damaged = normalizedDamaged;
+      nextHitLocationStates[key] = nextLoc;
+    }
+  }
+  if (nextHitLocationStates) update["system.hitLocationStates"] = nextHitLocationStates;
+  if (malformedCoverage) {
+    console.warn(`${MODULE_ID} | Normalized malformed armor hit-location coverage override on item ${item?.name ?? "<unknown>"} (${item?.id ?? "no-id"})`);
+  }
+
   Object.assign(update, _normalizeEnchantLevel(item, sys));
 
   return update;
@@ -288,12 +519,8 @@ function _normalizeArmorSystem(item, sys = {}) {
 
 function _normalizeAmmoSystem(item, sys = {}) {
   const update = {};
-
-  // Per-10 pricing: if missing, backfill from legacy per-item price
-  if (sys.pricePer10 === undefined || sys.pricePer10 === null) {
-    const legacy = Number(sys.price ?? 0);
-    update["system.pricePer10"] = Number.isFinite(legacy) ? legacy : 0;
-  }
+  if (Object.prototype.hasOwnProperty.call(sys, "pricePer10")) update["system.-=pricePer10"] = null;
+  if (Object.prototype.hasOwnProperty.call(sys, "pricePerShot")) update["system.-=pricePerShot"] = null;
 
   if (!sys.arrowType) update["system.arrowType"] = "none";
   if (!sys.ammoMaterial) update["system.ammoMaterial"] = "standard";
@@ -305,42 +532,144 @@ function _normalizeAmmoSystem(item, sys = {}) {
   return update;
 }
 
-async function _migrateWorldItems() {
+async function _processWorldItems(modeLabel, { silent = false } = {}) {
   const supportedTypes = _supportedItemTypes();
   const updates = [];
+  const legacyPlanned = [];
   for (const item of game.items.contents) {
     if (!supportedTypes.has(item.type)) continue;
     const update = _normalizeItemSystem(item);
     if (update) {
       update._id = item.id;
       updates.push(update);
+      if (item.type === "item" && update.type === "equipment") {
+        legacyPlanned.push(item.id);
+      }
     }
   }
 
   if (updates.length) {
-    console.log(`${MODULE_ID} | Migrating ${updates.length} world item(s)`);
+    if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${updates.length} world item(s)`);
     await Item.updateDocuments(updates, { diff: false });
   }
+
+  return {
+    plannedLegacyConversions: legacyPlanned.length,
+  };
 }
 
-async function _migrateActorItems() {
+async function _processActorItems(modeLabel, { silent = false } = {}) {
   const supportedTypes = _supportedItemTypes();
+  let plannedLegacyConversions = 0;
   for (const actor of game.actors.contents) {
     const updates = [];
+    const typeChangeUpdates = [];
     for (const item of actor.items.contents) {
       if (!supportedTypes.has(item.type)) continue;
       const update = _normalizeItemSystem(item);
       if (update) {
         update._id = item.id;
-        updates.push(update);
+        if (Object.prototype.hasOwnProperty.call(update, "type") && String(update.type ?? "") !== String(item.type ?? "")) {
+          typeChangeUpdates.push({ item, update });
+        } else {
+          updates.push(update);
+        }
+        if (item.type === "item" && update.type === "equipment") {
+          plannedLegacyConversions += 1;
+        }
       }
     }
 
     if (updates.length) {
-      console.log(`${MODULE_ID} | Migrating ${updates.length} item(s) on actor ${actor.name}`);
+      if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${updates.length} item(s) on actor ${actor.name}`);
       await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
     }
+
+    if (typeChangeUpdates.length) {
+      if (!silent) console.log(`${MODULE_ID} | ${modeLabel} ${typeChangeUpdates.length} type-conversion item(s) on actor ${actor.name}`);
+
+      const directUpdates = typeChangeUpdates.map(({ update }) => {
+        const clean = { _id: update._id, type: update.type, system: update.system ?? {} };
+        if (Object.prototype.hasOwnProperty.call(update, "system.-=equippped")) {
+          clean["system.-=equippped"] = null;
+        }
+        return clean;
+      });
+
+      let remainingFallback = [];
+      try {
+        await actor.updateEmbeddedDocuments("Item", directUpdates, { diff: false, recursive: false });
+      } catch (err) {
+        remainingFallback = typeChangeUpdates;
+        if (_debugEnabled()) {
+          console.warn(`${MODULE_ID} | Direct embedded type-conversion update failed, using recreate/delete fallback`, {
+            actor: actor.name,
+            err,
+          });
+        }
+      }
+
+      if (!remainingFallback.length) {
+        const lingering = typeChangeUpdates.filter(({ item }) => actor.items.get(item.id)?.type === "item");
+        remainingFallback = lingering;
+      }
+
+      if (remainingFallback.length) {
+        for (const { item, update } of remainingFallback) {
+          try {
+            const source = item.toObject();
+            delete source._id;
+            source.type = update.type;
+            source.system = update.system ?? source.system ?? {};
+            await actor.createEmbeddedDocuments("Item", [source], { keepId: false });
+            await actor.deleteEmbeddedDocuments("Item", [item.id]);
+          } catch (err) {
+            if (_debugEnabled()) {
+              console.warn(`${MODULE_ID} | Embedded type-conversion fallback failed`, {
+                actor: actor.name,
+                item: item.name,
+                itemId: item.id,
+                err,
+              });
+            }
+          }
+        }
+      }
+    }
   }
+
+  return { plannedLegacyConversions };
+}
+
+function _collectLegacyItemReferences() {
+  const refs = [];
+  for (const item of game.items.contents ?? []) {
+    if (item?.type === "item") refs.push(`WorldItem:${item.id}:${item.name ?? ""}`);
+  }
+  for (const actor of game.actors.contents ?? []) {
+    for (const item of actor.items.contents ?? []) {
+      if (item?.type === "item") refs.push(`ActorItem:${actor.id}:${actor.name ?? ""}:${item.id}:${item.name ?? ""}`);
+    }
+  }
+  return refs;
+}
+
+async function _repairLegacyItemTypeCutoverIfNeeded() {
+  const before = _collectLegacyItemReferences();
+  if (!before.length) {
+    return { attempted: false, beforeCount: 0, afterCount: 0, remaining: [] };
+  }
+
+  await _processWorldItems("Repairing", { silent: true });
+  await _processActorItems("Repairing", { silent: true });
+  const after = _collectLegacyItemReferences();
+
+  return {
+    attempted: true,
+    beforeCount: before.length,
+    afterCount: after.length,
+    remaining: after,
+  };
 }
 
 async function _backfillScrollCastingControlsWorld(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast = true) {
@@ -392,17 +721,44 @@ async function _backfillScrollCastingControlsActorItems(defaultRequireTraining, 
 export async function migrateItemsIfNeeded() {
   // Lightweight normalization pass; safe to run on every startup.
   if (!game.user.isGM) return;
-  const currentVersion = String(game.system?.version ?? "").trim() || "0";
-  let state = {};
-  try {
-    state = JSON.parse(String(game.settings.get(MODULE_ID, "migrationState") ?? "{}")) ?? {};
-  } catch (_e) {
-    state = {};
-  }
+  const currentVersion = getSystemVersionString();
+  const state = getMigrationState();
+  const needsSocialRetirementCleanup = state?.socialItemRetirementCleanup !== currentVersion;
   const needsItemMigration = state?.items !== currentVersion;
   const needsScrollCastingBackfill = state?.scrollCastingControls !== currentVersion;
   const needsScrollConsumeOnCastBackfill = state?.scrollConsumeOnCast !== currentVersion;
-  if (!needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) return;
+  if (!needsSocialRetirementCleanup && !needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) {
+    try {
+      const socialCleanup = await _cleanupRetiredSocialItems();
+      const repaired = await _repairLegacyItemTypeCutoverIfNeeded();
+      if (!repaired.attempted && socialCleanup.totalDeleted === 0) return;
+
+      if (socialCleanup.totalDeleted > 0 || state.socialItemRetirementCleanup !== currentVersion) {
+        state.socialItemRetirementCleanup = currentVersion;
+      }
+      state.itemLegacyRepair = currentVersion;
+      await setMigrationState(state);
+
+      if (repaired.afterCount > 0 && _debugEnabled()) {
+        console.warn(`${MODULE_ID} | Legacy item->equipment self-repair could not clear all docs`, {
+          before: repaired.beforeCount,
+          remaining: repaired.afterCount,
+          references: repaired.remaining,
+        });
+      } else if (socialCleanup.totalDeleted > 0 && _debugEnabled()) {
+        console.log(`${MODULE_ID} | Retired social item cleanup complete`, socialCleanup);
+      } else if (_debugEnabled()) {
+        console.log(`${MODULE_ID} | Legacy item->equipment self-repair complete`, {
+          converted: Math.max(0, repaired.beforeCount - repaired.afterCount),
+          remaining: repaired.afterCount,
+        });
+      }
+    } catch (err) {
+      console.error(`${MODULE_ID} | Legacy item self-repair failed`, err);
+      ui.notifications?.error?.("UESRPG item migration self-repair failed; check console for details.");
+    }
+    return;
+  }
 
   let defaultRequireTraining = false;
   let defaultConsumeMagicka = false;
@@ -411,9 +767,44 @@ export async function migrateItemsIfNeeded() {
   try { defaultConsumeMagicka = game.settings.get(MODULE_ID, "scrollConsumesMagicka") === true; } catch (_e) { /* no-op */ }
 
   try {
+    _combatLegacyItemStats.weaponsEnhancedFromQualities = 0;
+    _combatLegacyItemStats.weaponsEnhancedFromRange = 0;
+    const migrationTelemetry = {
+      converted: 0,
+      skipped: 0,
+      failures: 0,
+    };
+
+    if (needsSocialRetirementCleanup) {
+      const cleanup = await _cleanupRetiredSocialItems();
+      console.log(
+        `${MODULE_ID} | Social item retirement cleanup`,
+        cleanup
+      );
+      state.socialItemRetirementCleanup = currentVersion;
+    }
+
     if (needsItemMigration) {
-      await _migrateWorldItems();
-      await _migrateActorItems();
+      const legacyBefore = _collectLegacyItemReferences();
+      const worldResult = await _processWorldItems("Migrating");
+      const actorResult = await _processActorItems("Migrating");
+      const legacyAfter = _collectLegacyItemReferences();
+
+      migrationTelemetry.converted = Number(worldResult?.plannedLegacyConversions ?? 0) + Number(actorResult?.plannedLegacyConversions ?? 0);
+      migrationTelemetry.skipped = Math.max(0, legacyBefore.length - migrationTelemetry.converted);
+      migrationTelemetry.failures = legacyAfter.length;
+
+      console.log(`${MODULE_ID} | Combat legacy weapon migration summary`, {
+        weaponsEnhancedFromQualities: _combatLegacyItemStats.weaponsEnhancedFromQualities,
+        weaponsEnhancedFromRange: _combatLegacyItemStats.weaponsEnhancedFromRange
+      });
+      console.log(`${MODULE_ID} | Legacy item->equipment migration telemetry`, migrationTelemetry);
+      if (legacyAfter.length && _debugEnabled()) {
+        console.warn(`${MODULE_ID} | Stale legacy item docs remain after migration`, {
+          remaining: legacyAfter.length,
+          references: legacyAfter,
+        });
+      }
       state.items = currentVersion;
     }
 
@@ -431,7 +822,7 @@ export async function migrateItemsIfNeeded() {
     }
 
     // Record migration version after a successful pass.
-    await game.settings.set(MODULE_ID, "migrationState", JSON.stringify(state));
+    await setMigrationState(state);
   } catch (err) {
     console.error(`${MODULE_ID} | Item migration failed`, err);
     ui.notifications?.error?.("UESRPG item migration failed; check console for details.");
@@ -534,49 +925,70 @@ function _applyLegacyGuardrails(item, system) {
   return update;
 }
 
+function _applySystemUpdateObject(system, updateObject = {}) {
+  for (const [k, v] of Object.entries(updateObject ?? {})) {
+    if (!k.startsWith("system.")) continue;
+    const path = k.slice("system.".length);
+    if (!path) continue;
+    if (path.startsWith("-=")) continue;
+    foundry.utils.setProperty(system, path, v);
+  }
+}
+
 function _normalizeItemSystem(item) {
-  const type = item?.type;
-  if (!type || !Object.prototype.hasOwnProperty.call(DEFAULTS?.itemSystem ?? {}, type)) return null;
+  const sourceType = item?.type;
+  const type = sourceType === "item" ? "equipment" : sourceType;
+  if (!type) return null;
+  const hasDefaults = Object.prototype.hasOwnProperty.call(DEFAULTS?.itemSystem ?? {}, type);
+  if (!hasDefaults && type !== "equipment") return null;
 
   const currentSystem = _deepCloneSystem(item.system);
   let preChanged = false;
   if (type === "armor") {
     preChanged = _applyLegacyArmorTypedFields(currentSystem) || preChanged;
   }
-  const ignorePaths = (DEFAULTS.__meta?.ignorePathsByType?.[type] ?? []).slice();
-  const allowNonNumeric = _NON_NUMERIC_ALLOWLIST[type] ?? [];
-  for (const key of allowNonNumeric) {
-    if (_isNonNumericString(currentSystem[key])) ignorePaths.push(key);
+  let system = currentSystem;
+  let defaultsChanged = false;
+  if (hasDefaults) {
+    const ignorePaths = (DEFAULTS.__meta?.ignorePathsByType?.[type] ?? []).slice();
+    const allowNonNumeric = _NON_NUMERIC_ALLOWLIST[type] ?? [];
+    for (const key of allowNonNumeric) {
+      if (_isNonNumericString(currentSystem[key])) ignorePaths.push(key);
+    }
+    const defaultsResult = applyDefaults(
+      currentSystem,
+      DEFAULTS.itemSystem[type],
+      { coerce: true, ignorePaths, clone: false }
+    );
+    system = defaultsResult.result;
+    defaultsChanged = defaultsResult.changed;
   }
-  const { result: system, changed: defaultsChanged } = applyDefaults(currentSystem, DEFAULTS.itemSystem[type], { coerce: true, ignorePaths });
 
   let changed = Boolean(defaultsChanged || preChanged);
   let deleteEquippped = false;
 
-  // Attack mode canonicalization (weapon only): melee|ranged
   if (type === "weapon") {
-    const hasValid = system.attackMode === "melee" || system.attackMode === "ranged";
-    if (!hasValid) {
-      const inferred = _inferAttackMode(item, system);
-      system.attackMode = inferred ?? "melee";
+    const wUpdate = _normalizeWeaponSystem(item, system);
+    if (Object.keys(wUpdate).length) {
+      _applySystemUpdateObject(system, wUpdate);
       changed = true;
-      if (!inferred && _debugEnabled()) {
-        const ident = `${item?.type ?? "item"}:${item?.name ?? item?.id ?? "<unknown>"}`;
-        console.warn(`${MODULE_ID} | attackMode inference fallback (defaulted to melee) for ${ident}`);
-      }
+      if (Object.prototype.hasOwnProperty.call(wUpdate, "system.-=equippped")) deleteEquippped = true;
     }
   }
 
-  // Non-breaking armor.item_cat behavior
   if (type === "armor") {
+    const aUpdate = _normalizeArmorSystem(item, system);
+    if (Object.keys(aUpdate).length) {
+      _applySystemUpdateObject(system, aUpdate);
+      changed = true;
+    }
     if (_ensureArmorItemCatNonBreaking(system)) changed = true;
   }
 
-  // Ammunition per-10 pricing backfill (legacy)
   if (type === "ammunition") {
-    if (system.pricePer10 === undefined || system.pricePer10 === null) {
-      const legacy = Number(system.price ?? 0);
-      system.pricePer10 = Number.isFinite(legacy) ? legacy : 0;
+    const ammoUpdate = _normalizeAmmoSystem(item, system);
+    if (Object.keys(ammoUpdate).length) {
+      _applySystemUpdateObject(system, ammoUpdate);
       changed = true;
     }
   }
@@ -586,55 +998,19 @@ function _normalizeItemSystem(item) {
   if (legacy.changed) changed = true;
   if (legacy.deleteEquippped) deleteEquippped = true;
 
-  if (!changed && !deleteEquippped) return null;
+  if (!changed && !deleteEquippped && sourceType === type) return null;
 
   const update = { system };
+  if (sourceType !== type) update.type = type;
   if (deleteEquippped) update["system.-=equippped"] = null;
   return update;
-}
-
-async function _normalizeWorldItems() {
-  const supportedTypes = _supportedItemTypes();
-  const updates = [];
-  for (const item of game.items.contents) {
-    if (!supportedTypes.has(item.type)) continue;
-    const update = _normalizeItemSystem(item);
-    if (update) {
-      update._id = item.id;
-      updates.push(update);
-    }
-  }
-
-  if (updates.length) {
-    console.log(`${MODULE_ID} | Normalizing ${updates.length} world item(s)`);
-    await Item.updateDocuments(updates, { diff: false });
-  }
-}
-
-async function _normalizeActorItems() {
-  const supportedTypes = _supportedItemTypes();
-  for (const actor of game.actors.contents) {
-    const updates = [];
-    for (const item of actor.items.contents) {
-      if (!supportedTypes.has(item.type)) continue;
-      const update = _normalizeItemSystem(item);
-      if (update) {
-        update._id = item.id;
-        updates.push(update);
-      }
-    }
-    if (updates.length) {
-      console.log(`${MODULE_ID} | Normalizing ${updates.length} item(s) on actor ${actor.name}`);
-      await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
-    }
-  }
 }
 
 export async function normalizeItems() {
   if (!game.user.isGM) return;
   try {
-    await _normalizeWorldItems();
-    await _normalizeActorItems();
+    await _processWorldItems("Normalizing");
+    await _processActorItems("Normalizing");
   } catch (err) {
     console.error(`${MODULE_ID} | Item normalization failed`, err);
     ui.notifications?.error?.("UESRPG item normalization failed; check console for details.");

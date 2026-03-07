@@ -26,8 +26,10 @@ import { cancelOriginAEUpkeep, getOriginAEs, findOriginAE } from "../effects/ori
 import { requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
+import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 
 const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][Dispel]");
 
@@ -82,11 +84,8 @@ export function enumerateDispellableEffects(targetActor, opts = {}) {
     // Resolve caster name
     let casterName = "Unknown";
     if (casterUuid) {
-      try {
-        const doc = fromUuidSync(casterUuid);
-        const actor = doc?.documentName === "Actor" ? doc : doc?.actor;
-        if (actor) casterName = actor.name;
-      } catch (_e) { /* no-op */ }
+      const actor = resolveActorFromUuidSync(casterUuid);
+      if (actor) casterName = actor.name;
     }
 
     results.push({
@@ -206,19 +205,14 @@ async function _dispelSingleEffect(targetActor, entry) {
 
   // Route 2: Try to find Origin AE on the caster by spell UUID
   if (entry.casterUuid && entry.spellUuid) {
-    try {
-      const casterDoc = fromUuidSync(entry.casterUuid);
-      const casterActor = casterDoc?.documentName === "Actor" ? casterDoc : casterDoc?.actor;
-      if (casterActor) {
-        const originAE = findOriginAE(casterActor, entry.spellUuid);
-        if (originAE) {
-          await cancelOriginAEUpkeep(originAE);
-          _debug("Dispelled via caster Origin AE:", entry.name);
-          return true;
-        }
+    const casterActor = resolveActorFromUuidSync(entry.casterUuid);
+    if (casterActor) {
+      const originAE = findOriginAE(casterActor, entry.spellUuid);
+      if (originAE) {
+        await cancelOriginAEUpkeep(originAE);
+        _debug("Dispelled via caster Origin AE:", entry.name);
+        return true;
       }
-    } catch (_e) {
-      // Fall through to direct deletion
     }
   }
 

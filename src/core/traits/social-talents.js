@@ -17,8 +17,8 @@ import { doTestRoll, formatDegree } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ROLL_FORMULA } from "../constants.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { SYSTEM_ID } from "../system/namespace.js";
 
-const SYSTEM_ID = "uesrpg-3ev4";
 const EFFECT_KEY_INSPIRE_HEROISM = "talent:inspireHeroism";
 
 /* ------------------------------------------------------------------ */

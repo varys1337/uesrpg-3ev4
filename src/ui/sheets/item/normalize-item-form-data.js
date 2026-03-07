@@ -45,7 +45,7 @@ export function normalizeItemFormData(item, formData) {
   //   trait, power, combatStyle, container, spell) are skipped to
   //   prevent injecting unknown fields into their DataModel updates.
   // ──────────────────────────────────────────────────────────────
-  const QUALITIES_TYPES = new Set(["item", "scroll", "armor", "weapon", "ammunition"]);
+  const QUALITIES_TYPES = new Set(["equipment", "scroll", "armor", "weapon", "ammunition"]);
   if (QUALITIES_TYPES.has(itemType)) {
 
   // 1. Other Traits selection (checkbox pill UI)
@@ -219,9 +219,9 @@ export function normalizeItemFormData(item, formData) {
   }
 
   // ──────────────────────────────────────────────────────────────
-  // 4. Damage Instances normalization (spells + weapons)
+  // 4. Damage Instances normalization (spells)
   // ──────────────────────────────────────────────────────────────
-  if (itemType === "spell" || itemType === "weapon") {
+  if (itemType === "spell") {
     const diPrefix = "system.damageInstances.";
     const diIndices = new Set();
     const diEntries = new Map();

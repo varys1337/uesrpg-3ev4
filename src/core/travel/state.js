@@ -1,6 +1,5 @@
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
-
-const FLAG_SCOPE = "uesrpg-3ev4";
+import { FLAG_SCOPE } from "../system/namespace.js";
 const FLAG_KEY = "travelPlanner";
 const STATE_VERSION = 1;
 

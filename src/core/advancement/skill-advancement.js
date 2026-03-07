@@ -17,6 +17,8 @@
  * - Favored skills (governed by a favored characteristic) cost 75% (round down to nearest 5).
  */
 
+import { _num as _asNumber } from "../../utils/coerce.js";
+
 export const SKILL_RANK_ORDER = Object.freeze([
   "untrained",
   "novice",
@@ -26,6 +28,16 @@ export const SKILL_RANK_ORDER = Object.freeze([
   "expert",
   "master",
 ]);
+
+const RANK_INDEX = Object.freeze({
+  untrained: 0,
+  novice: 1,
+  apprentice: 2,
+  journeyman: 3,
+  adept: 4,
+  expert: 5,
+  master: 6,
+});
 
 /** Incremental XP cost to *purchase* the given rank step. */
 export const SKILL_RANK_XP_COST = Object.freeze({
@@ -46,11 +58,6 @@ const _RANK_VALUE = Object.freeze({
   expert: 4,
   master: 5,
 });
-
-function _asNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 /**
  * Normalize an Item.system.rank value to a canonical key in SKILL_RANK_ORDER.
@@ -143,12 +150,12 @@ export function isFavoredSkillForActor(actor, governingRaw) {
 export function getMaxPurchasableRankIndexFromXpTotal(xpTotal) {
   const total = Math.max(0, _asNumber(xpTotal, 0));
   // Thresholds match the XP menu and RAW Chapter 2.
-  if (total < 1000) return SKILL_RANK_ORDER.indexOf("novice");
-  if (total < 2500) return SKILL_RANK_ORDER.indexOf("apprentice");
-  if (total < 4000) return SKILL_RANK_ORDER.indexOf("journeyman");
-  if (total < 5500) return SKILL_RANK_ORDER.indexOf("adept");
-  if (total < 7000) return SKILL_RANK_ORDER.indexOf("expert");
-  return SKILL_RANK_ORDER.indexOf("master");
+  if (total < 1000) return RANK_INDEX.novice;
+  if (total < 2500) return RANK_INDEX.apprentice;
+  if (total < 4000) return RANK_INDEX.journeyman;
+  if (total < 5500) return RANK_INDEX.adept;
+  if (total < 7000) return RANK_INDEX.expert;
+  return RANK_INDEX.master;
 }
 
 function _getFlat(flatData, path) {
@@ -164,7 +171,13 @@ function _buildProposedTrainedEquipment(item, flatData) {
 
   // Support flattened index updates: system.trainedEquipment.0, ...
   const prefix = "system.trainedEquipment.";
-  const hasIndexed = Object.keys(flatData ?? {}).some((k) => k.startsWith(prefix));
+  let hasIndexed = false;
+  for (const k in (flatData ?? {})) {
+    if (k.startsWith(prefix)) {
+      hasIndexed = true;
+      break;
+    }
+  }
   if (!hasIndexed) return Array.isArray(item?.system?.trainedEquipment)
     ? item.system.trainedEquipment.map((v) => String(v ?? ""))
     : [];
@@ -216,8 +229,8 @@ export function buildSkillAdvancementPlan({ actor, item, flatData, options = {} 
 
   const currentRank = normalizeRank(item.system?.rank);
   const proposedRank = normalizeRank(_getFlat(flatData, "system.rank") ?? currentRank);
-  const currentIdx = SKILL_RANK_ORDER.indexOf(currentRank);
-  const proposedIdx = SKILL_RANK_ORDER.indexOf(proposedRank);
+  const currentIdx = RANK_INDEX[currentRank] ?? -1;
+  const proposedIdx = RANK_INDEX[proposedRank] ?? -1;
 
   if (currentIdx < 0 || proposedIdx < 0) {
     return { ok: false, xpCost: 0, nextXp: currentXp, actor, reason: "Unrecognized skill rank value." };
@@ -294,8 +307,14 @@ export function buildSkillAdvancementPlan({ actor, item, flatData, options = {} 
   // ── Combat Style trained equipment expansions ───────────────────────
   // RAW: each additional trained equipment entry costs 25 XP.
   if (item.type === "combatStyle") {
-    const teKeys = Object.keys(flatData ?? {}).filter((k) => k === "system.trainedEquipment" || k.startsWith("system.trainedEquipment."));
-    if (teKeys.length) {
+    let hasTrainedEquipmentChange = false;
+    for (const k in (flatData ?? {})) {
+      if (k === "system.trainedEquipment" || k.startsWith("system.trainedEquipment.")) {
+        hasTrainedEquipmentChange = true;
+        break;
+      }
+    }
+    if (hasTrainedEquipmentChange) {
       const currentArr = Array.isArray(item.system?.trainedEquipment) ? item.system.trainedEquipment : [];
       const proposedArr = _buildProposedTrainedEquipment(item, flatData);
       const currentCount = _countNonEmpty(currentArr);

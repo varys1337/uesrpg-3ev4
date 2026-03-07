@@ -14,8 +14,7 @@
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { getChapter4Catalog } from "./chapter4-catalog.js";
 import { listKnownTalentSlugs, resolveTalentSlug } from "./talents-api.js";
-
-const SYSTEM_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../system/namespace.js";
 
 export const TALENT_LEARNING_MODE = Object.freeze({
   OFF: "off",

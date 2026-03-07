@@ -1,33 +1,112 @@
 /**
  * @module magic/effects/spell-effect-expiration
  *
- * src/core/magic/spell-effect-expiration.js
+ * src/core/magic/effects/spell-effect-expiration.js
  *
  * GM-side expiration & combat-binding refresh for spell-created Active Effects.
- *
- * Why this exists:
- *  - Foundry tracks durations, but removing expired AEs in real-time becomes inconsistent
- *    when external calendar modules advance time (Calendaria, Simple Timekeeping, etc.).
- *  - We use the MagicTimekeeping helper as a single integration point for world-time change
- *    events and providers.
- *
- * Contract:
- *  - Only affects system-generated spell AEs (flags[uesrpg-3ev4].spellEffect && owner === "system").
- *  - Non-Upkeep: expired effects are deleted.
- *  - Upkeep: on expiry the effect is disabled, and is eligible for upkeep prompts; if not refreshed
- *    it will be deleted after a short grace window.
  */
 
 import { MagicTimekeeping } from "../timekeeping-helper.js";
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { safeGetEffect, safeGetEffectByUuidSync, isMissingDocError as _isMissingDocError } from "../../../utils/ae-helpers.js";
 import { _num } from "../_primitives.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 const _deleteInFlight = new Map();
+const _trackedSpellEffects = new Map(); // Map<actorId, Set<effectId>>
 
 function _fromUuidSync(uuid) {
   return safeGetEffectByUuidSync(uuid);
+}
+
+function _actorId(actor) {
+  return String(actor?.id ?? "").trim();
+}
+
+function _trackActorEffect(actor, effect) {
+  const actorId = _actorId(actor);
+  const effectId = String(effect?.id ?? "").trim();
+  if (!actorId || !effectId) return;
+  let bucket = _trackedSpellEffects.get(actorId);
+  if (!bucket) {
+    bucket = new Set();
+    _trackedSpellEffects.set(actorId, bucket);
+  }
+  bucket.add(effectId);
+}
+
+function _untrackActorEffect(actorId, effectId) {
+  const aId = String(actorId ?? "").trim();
+  const eId = String(effectId ?? "").trim();
+  if (!aId || !eId) return;
+  const bucket = _trackedSpellEffects.get(aId);
+  if (!bucket) return;
+  bucket.delete(eId);
+  if (!bucket.size) _trackedSpellEffects.delete(aId);
+}
+
+function _dropActor(actorId) {
+  const aId = String(actorId ?? "").trim();
+  if (!aId) return;
+  _trackedSpellEffects.delete(aId);
+}
+
+function _hasTrackedEffects(actorId) {
+  const aId = String(actorId ?? "").trim();
+  if (!aId) return false;
+  return (_trackedSpellEffects.get(aId)?.size ?? 0) > 0;
+}
+
+function _isSystemSpellEffect(effect) {
+  if (!effect) return false;
+  const f = effect.flags?.[_FLAG_NS];
+  return Boolean(f?.spellEffect) && String(f?.owner ?? "") === "system";
+}
+
+function _trackEffectIfRelevant(actor, effect) {
+  if (!_isSystemSpellEffect(effect)) return;
+  _trackActorEffect(actor, effect);
+}
+
+function _reconcileTrackedActor(actor) {
+  const actorId = _actorId(actor);
+  if (!actorId) return;
+
+  const liveIds = new Set();
+  for (const effect of (actor?.effects ?? [])) {
+    if (!_isSystemSpellEffect(effect)) continue;
+    const effectId = String(effect?.id ?? "").trim();
+    if (!effectId) continue;
+    liveIds.add(effectId);
+    _trackActorEffect(actor, effect);
+  }
+
+  const bucket = _trackedSpellEffects.get(actorId);
+  if (!bucket) return;
+  for (const effectId of Array.from(bucket)) {
+    if (!liveIds.has(effectId)) bucket.delete(effectId);
+  }
+  if (!bucket.size) _trackedSpellEffects.delete(actorId);
+}
+
+function _seedTrackedSpellEffects() {
+  _trackedSpellEffects.clear();
+  const actors = MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []);
+  for (const actor of actors) _reconcileTrackedActor(actor);
+}
+
+function _getTrackedActors() {
+  const out = [];
+  for (const [actorId] of _trackedSpellEffects) {
+    const actor = game.actors?.get?.(actorId) ?? null;
+    if (!actor) {
+      _dropActor(actorId);
+      continue;
+    }
+    out.push(actor);
+  }
+  return out;
 }
 
 function _getCasterCombatTurnIndex(combat, effect) {
@@ -74,12 +153,6 @@ function _markDeleteInFlight(actor, effect, nowTime) {
   _deleteInFlight.set(key, { time: _num(nowTime, MagicTimekeeping.nowWorldTimeSeconds()) });
 }
 
-function _isSystemSpellEffect(effect) {
-  if (!effect) return false;
-  const f = effect.flags?.[_FLAG_NS];
-  return Boolean(f?.spellEffect) && String(f?.owner ?? "") === "system";
-}
-
 function _getEndTime(effect) {
   const d = effect?.duration ?? {};
   const seconds = _num(d.seconds, 0);
@@ -95,13 +168,6 @@ function _isExpiredByWorldTime(effect, nowTime) {
   return nowTime >= end;
 }
 
-/**
- * Combat expiry semantics:
- * - For an effect with duration.rounds = N and (startRound, startTurn), it expires when combat reaches
- *   the same turn index on round (startRound + N).
- *
- * This matches the expected "beginning of the actor's turn" behavior for round-based spell durations.
- */
 function _isExpiredByCombat(effect, combat, { inclusive = false, endTurnOverride = null } = {}) {
   if (!combat) return false;
   const d = effect?.duration ?? {};
@@ -109,7 +175,6 @@ function _isExpiredByCombat(effect, combat, { inclusive = false, endTurnOverride
   const rounds = _num(d.rounds, 0);
   if (!(rounds > 0) || !Number.isFinite(rounds)) return false;
 
-  // startRound/startTurn can legitimately be 0 depending on when combat was initialized.
   const srRaw = d.startRound;
   const stRaw = d.startTurn;
   if (srRaw === null || srRaw === undefined) return false;
@@ -132,22 +197,29 @@ function _isExpiredByCombat(effect, combat, { inclusive = false, endTurnOverride
 
 async function _deleteEffectOnActor(actor, effect, nowTime) {
   if (!actor || !effect?.id) return false;
-  
-  // Double-check existence before attempting deletion to prevent race conditions
   const effectExists = actor.effects?.get?.(effect.id);
-  if (!effectExists) return false;
-  
+  if (!effectExists) {
+    _untrackActorEffect(actor?.id, effect?.id);
+    return false;
+  }
+
   if (_isDeleteInFlight(actor, effect, nowTime)) return false;
   _markDeleteInFlight(actor, effect, nowTime);
-  
+
   try {
-    // Final existence check right before deletion (minimize race window)
-    if (!actor.effects?.get?.(effect.id)) return false;
-    
+    if (!actor.effects?.get?.(effect.id)) {
+      _untrackActorEffect(actor?.id, effect?.id);
+      return false;
+    }
+
     await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    _untrackActorEffect(actor?.id, effect?.id);
     return true;
   } catch (err) {
-    if (_isMissingDocError(err)) return false;
+    if (_isMissingDocError(err)) {
+      _untrackActorEffect(actor?.id, effect?.id);
+      return false;
+    }
     console.error("UESRPG | spell-effect-expiration | Failed to delete effect", { actor: actor?.uuid, effectId: effect?.id, err });
     return false;
   }
@@ -158,7 +230,6 @@ async function _updateEffect(effect, updates) {
   if (!effect.id) return false;
   const parent = effect.parent;
   if (!parent) return false;
-  // Use safe getter to avoid "does not exist" errors
   const currentEffect = safeGetEffect(parent, effect.id);
   if (!currentEffect) return false;
   try {
@@ -171,17 +242,28 @@ async function _updateEffect(effect, updates) {
   }
 }
 
-async function _expireSpellEffects({ nowTime, source } = {}) {
+async function _expireSpellEffects({ nowTime } = {}) {
   if (!game.user?.isGM) return;
 
   const worldTime = _num(nowTime, MagicTimekeeping.nowWorldTimeSeconds());
   const combat = game.combat ?? null;
   const rt = _num(MagicTimekeeping.roundTimeSeconds(), 6);
 
-  for (const actor of (MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []))) {
-    const effects = actor?.effects ?? [];
-    for (const effect of effects) {
-      if (!_isSystemSpellEffect(effect)) continue;
+  for (const actor of _getTrackedActors()) {
+    _reconcileTrackedActor(actor);
+    const actorId = _actorId(actor);
+    const effectIds = Array.from(_trackedSpellEffects.get(actorId) ?? []);
+
+    for (const effectId of effectIds) {
+      const effect = safeGetEffect(actor, effectId);
+      if (!effect) {
+        _untrackActorEffect(actorId, effectId);
+        continue;
+      }
+      if (!_isSystemSpellEffect(effect)) {
+        _untrackActorEffect(actorId, effectId);
+        continue;
+      }
 
       const flags = effect.flags?.[_FLAG_NS] ?? {};
       const hasUpkeep = Boolean(flags?.hasUpkeep);
@@ -200,12 +282,9 @@ async function _expireSpellEffects({ nowTime, source } = {}) {
         continue;
       }
 
-      // Upkeep: disable at expiry so modifiers stop applying, but allow the upkeep workflow
-      // to refresh it. If upkeep is not paid within a grace window (1 round), delete the effect.
-      const endTime = _getEndTime(effect);
       const expiredAt = _num(flags?.expiredAtWorldTime, 0);
       const expiredAtRound = _num(flags?.expiredAtCombatRound, -1);
-      const upkeepGraceWindow = rt; // 1 round (typically 6 seconds)
+      const upkeepGraceWindow = rt;
 
       if (!effect.disabled) {
         await _updateEffect(effect, {
@@ -217,24 +296,20 @@ async function _expireSpellEffects({ nowTime, source } = {}) {
         continue;
       }
 
-      // Effect is already disabled (awaiting upkeep). Check if grace window has passed.
-      // In combat: use round count (more reliable than world time which may not advance between turns).
-      // Out of combat: use world time.
       let graceExpired = false;
       if (combat && expiredAtRound >= 0) {
         const currentRound = _num(combat.round, 0);
-        // Grace = 1 full round: if we're at least 1 round past the expiry round, grace is over
         graceExpired = (currentRound - expiredAtRound) >= 1;
       } else if (expiredAt > 0) {
         graceExpired = (worldTime - expiredAt) > upkeepGraceWindow;
       }
 
       if (graceExpired) {
-        // Grace window expired - upkeep was not paid, delete the effect
         await _deleteEffectOnActor(actor, effect, worldTime);
-        continue;
       }
     }
+
+    if (!_hasTrackedEffects(actorId)) _dropActor(actorId);
   }
 }
 
@@ -256,7 +331,7 @@ async function _ensureCombatStartMarkers(effect, combat) {
       "duration.startTurn": _num(combat.turn, 0)
     });
   } catch (_e) {
-    /* no-op */
+    // no-op
   }
 }
 
@@ -265,9 +340,22 @@ async function _refreshCombatBinding() {
   const combat = game.combat;
   if (!combat?.id) return;
 
-  for (const actor of (MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []))) {
-    for (const effect of (actor?.effects ?? [])) {
-      if (!_isSystemSpellEffect(effect)) continue;
+  for (const actor of _getTrackedActors()) {
+    _reconcileTrackedActor(actor);
+    const actorId = _actorId(actor);
+    const effectIds = Array.from(_trackedSpellEffects.get(actorId) ?? []);
+
+    for (const effectId of effectIds) {
+      const effect = safeGetEffect(actor, effectId);
+      if (!effect) {
+        _untrackActorEffect(actorId, effectId);
+        continue;
+      }
+      if (!_isSystemSpellEffect(effect)) {
+        _untrackActorEffect(actorId, effectId);
+        continue;
+      }
+
       const d = effect.duration ?? {};
       const flags = effect.flags?.[_FLAG_NS] ?? {};
 
@@ -284,67 +372,65 @@ async function _refreshCombatBinding() {
       }
       await _ensureCombatStartMarkers(effect, combat);
     }
+
+    if (!_hasTrackedEffects(actorId)) _dropActor(actorId);
   }
 }
 
-/**
- * Initialize the spell effect expiration system.
- *
- * Registers hooks for world-time changes and combat progression to
- * automatically expire ActiveEffects whose durations have elapsed.
- * Must be called exactly once during system boot (GM only).
- */
+function _registerTrackingHooks() {
+  Hooks.on("createActiveEffect", (effect) => {
+    if (!game.user?.isGM) return;
+    const actor = effect?.parent;
+    if (!actor || actor.documentName !== "Actor") return;
+    _trackEffectIfRelevant(actor, effect);
+  });
+
+  Hooks.on("updateActiveEffect", (effect) => {
+    if (!game.user?.isGM) return;
+    const actor = effect?.parent;
+    if (!actor || actor.documentName !== "Actor") return;
+
+    if (_isSystemSpellEffect(effect)) _trackActorEffect(actor, effect);
+    else _untrackActorEffect(actor?.id, effect?.id);
+  });
+
+  Hooks.on("deleteActiveEffect", (effect) => {
+    if (!game.user?.isGM) return;
+    const actor = effect?.parent;
+    _untrackActorEffect(actor?.id, effect?.id);
+  });
+}
+
 export function initializeSpellEffectExpirationSystem() {
-  // Guard: prevent double-registration if called more than once.
   if (initializeSpellEffectExpirationSystem._initialized) return;
   initializeSpellEffectExpirationSystem._initialized = true;
 
-  // Use the timekeeping helper as the single integration point for time change.
-  MagicTimekeeping.onTimeChange(async ({ worldTime, source } = {}) => {
+  _seedTrackedSpellEffects();
+  _registerTrackingHooks();
+
+  MagicTimekeeping.onTimeChange(async ({ worldTime } = {}) => {
     if (game.combat) return;
-    await _expireSpellEffects({ nowTime: worldTime, source });
+    await _expireSpellEffects({ nowTime: worldTime });
   });
 
-  // Combat: combat turn/round progression does not reliably emit world-time changes.
-  // We therefore expire spell effects on combat updates as well.
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
     if (!game.user?.isGM) return;
     if (payload?.source !== "combat") return;
     if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-    await _expireSpellEffects({ nowTime: _num(payload?.worldTime, MagicTimekeeping.nowWorldTimeSeconds()), source: "combat" });
+    await _expireSpellEffects({ nowTime: _num(payload?.worldTime, MagicTimekeeping.nowWorldTimeSeconds()) });
   });
 
   Hooks.on("createCombat", async () => {
     await _refreshCombatBinding();
     if (!game.user?.isGM) return;
-    await _expireSpellEffects({ nowTime: MagicTimekeeping.nowWorldTimeSeconds(), source: "combat" });
+    await _expireSpellEffects({ nowTime: MagicTimekeeping.nowWorldTimeSeconds() });
   });
 }
 
-/**
- * Check whether an ActiveEffect is expired based on world time.
- *
- * Exported for other time-bound systems (combat, conditions) to reuse
- * the same expiration semantics without duplicating logic.
- *
- * @param {ActiveEffect} effect - The effect to check
- * @param {number} nowTime - Current world time in seconds
- * @returns {boolean} `true` if the effect's world-time duration has elapsed
- */
 export function isEffectExpiredByWorldTime(effect, nowTime) {
   return _isExpiredByWorldTime(effect, nowTime);
 }
 
-/**
- * Check whether an ActiveEffect is expired based on combat round/turn.
- *
- * @param {ActiveEffect} effect - The effect to check
- * @param {Combat} combat - The current combat encounter
- * @param {object} [options={}] - Additional options
- * @param {number} [options.round] - Override combat round
- * @param {number} [options.turn] - Override combat turn
- * @returns {boolean} `true` if the effect's combat duration has elapsed
- */
 export function isEffectExpiredByCombat(effect, combat, options = {}) {
   return _isExpiredByCombat(effect, combat, options);
 }

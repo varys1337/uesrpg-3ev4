@@ -6,6 +6,7 @@
  * Barrel export for the Enchanting Workshop core engine.
  */
 
+export * from "./settings.js";
 export * from "./soul-gems.js";
 export * from "./enchant-level.js";
 export * from "./penalties.js";

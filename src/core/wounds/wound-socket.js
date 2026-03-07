@@ -13,6 +13,7 @@
  */
 
 import { WOUND_SOCKET_TYPES, WOUND_SOCKET_VERSION, isActiveGMUser } from "./wound-schema.js";
+import { SYSTEM_ID } from "../constants.js";
 
 let _woundSocketRegistered = false;
 
@@ -20,7 +21,7 @@ let _woundSocketRegistered = false;
  * @returns {string}
  */
 function _channel() {
-  const id = game.system?.id ?? "uesrpg-3ev4";
+  const id = game.system?.id ?? SYSTEM_ID;
   return `system.${id}`;
 }
 

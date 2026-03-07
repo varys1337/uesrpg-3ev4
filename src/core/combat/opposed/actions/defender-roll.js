@@ -11,7 +11,7 @@ import {
   _setDefenderOutcome, 
   _setDefenderAdvantage 
 } from "../schema.js";
-import { _canControlActor, _logDebug, _opposedFlags } from "../helpers/util.js";
+import { _canControlActor, _emitSuppressedSubRollDice, _logDebug, _opposedFlags, _safeGetSetting } from "../helpers/util.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { 
@@ -43,6 +43,8 @@ import { hasActiveWard } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
+import { FLAG_SCOPE } from "../../../system/namespace.js";
+import { getFlagValueWithFallback } from "../../../system/flags.js";
 
 async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
   try {
@@ -54,7 +56,7 @@ async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
     if (!weapon || weapon.type !== "weapon") return;
     if (!_weaponHasQuality(weapon, "concussive")) return;
     await requestUpdateDocument(attacker, {
-      "flags.uesrpg-3ev4.combat.concussiveNextBash": {
+      [`flags.${FLAG_SCOPE}.combat.concussiveNextBash`]: {
         bonus: 20,
         grantedAt: Date.now(),
         sourceWeaponUuid: weapon.uuid ?? null
@@ -145,12 +147,12 @@ export async function handleDefenderRoll(ctx) {
   // CORRECTED: Feint gating - force No Defense if Feinted by this specific attacker
   const feintedEffect = defender.effects.find(e => 
     !e.disabled && 
-    (e?.flags?.uesrpg?.key === "feinted" || e?.flags?.["uesrpg-3ev4"]?.condition?.key === "feinted")
+    (getFlagValueWithFallback(e, "key") === "feinted" || getFlagValueWithFallback(e, "condition.key") === "feinted")
   );
 
   if (feintedEffect) {
-    const feintedByUuid = feintedEffect?.flags?.uesrpg?.attackerUuid ?? 
-                          feintedEffect?.flags?.["uesrpg-3ev4"]?.condition?.attackerUuid;
+    const feintedByUuid = getFlagValueWithFallback(feintedEffect, "attackerUuid")
+      ?? getFlagValueWithFallback(feintedEffect, "condition.attackerUuid");
     
     if (feintedByUuid && feintedByUuid === attacker.uuid) {
       // RAW: treat next melee attack as if attacker were Hidden
@@ -499,7 +501,9 @@ export async function handleDefenderRoll(ctx) {
     const attackerWeapon = (() => {
       try {
         const uuid = String(data?.context?.weaponUuid ?? "").trim();
-        return uuid ? fromUuidSync(uuid) : null;
+        if (!uuid) return null;
+        const doc = fromUuidSync(uuid);
+        return doc?.type === "weapon" ? doc : null;
       } catch { return null; }
     })();
     const defenderWeapon = (() => {
@@ -507,7 +511,7 @@ export async function handleDefenderRoll(ctx) {
         const choiceUuid = String(choice?.weaponUuid ?? "").trim();
         if (choiceUuid) {
           const doc = _resolveItemViaActor(choiceUuid, defender);
-          if (doc?.type === "weapon") return doc;
+          if (doc?.type === "weapon" && String(doc?.system?.attackMode ?? "melee").toLowerCase() === "melee") return doc;
         }
         for (const item of (defender?.items ?? [])) {
           if (item.type !== "weapon") continue;
@@ -517,13 +521,20 @@ export async function handleDefenderRoll(ctx) {
         return null;
       } catch { return null; }
     })();
-    applyLengthPenaltyToTN({
-      tn,
-      ownWeapon: defenderWeapon,
-      opponentWeapon: attackerWeapon,
-      ownerToken: dToken ?? null,
-      opponentToken: aToken ?? null
-    });
+    const mode = String(data?.context?.attackMode ?? "melee").toLowerCase();
+    const attackerMelee = String(attackerWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
+    const defenderMelee = String(defenderWeapon?.system?.attackMode ?? "").toLowerCase() === "melee";
+    if (mode === "melee" && attackerMelee && defenderMelee) {
+      applyLengthPenaltyToTN({
+        tn,
+        ownWeapon: defenderWeapon,
+        opponentWeapon: attackerWeapon,
+        ownerToken: dToken ?? null,
+        opponentToken: aToken ?? null,
+        ownerActor: defender ?? null,
+        ownRole: "defender"
+      });
+    }
   }
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -604,33 +615,38 @@ export async function handleDefenderRoll(ctx) {
       allowPrompt: true
     });
 
-    // IMPORTANT: The defender may not have permission to update the parent opposed card
-    // (ChatMessage authored by the attacker). We therefore include the computed TN and
-    // defense choice metadata in the roll message flags so the GM/author banking hook can
-    // accurately commit the defender lane into the parent card.
-    await res.roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
-      flavor: `${data.defender.label} \u2014 Defender Roll`,
-      rollMode: game.settings.get("core", "rollMode"),
-      flags: _opposedFlags(message.id, "defender-roll", {
-        defenderIndex,
-        commit: {
-          defender: {
-            defenseType: data.defender.defenseType,
-            styleUuid: data.defender.styleUuid ?? null,
-            label: data.defender.label,
-            defenseLabel: data.defender.defenseLabel,
-            testLabel: data.defender.testLabel,
-            target: data.defender.target,
-            targetLabel: data.defender.targetLabel,
-            tn: data.defender.tn,
-            talentDoSChoice: res?.talentDoSChoice ?? null,
-            talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
-            hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
+    const postSubRolls = _safeGetSetting("uesrpg-3ev4", "opposedPostSubRollMessages", true);
+    if (postSubRolls) {
+      // IMPORTANT: The defender may not have permission to update the parent opposed card
+      // (ChatMessage authored by the attacker). We therefore include the computed TN and
+      // defense choice metadata in the roll message flags so the GM/author banking hook can
+      // accurately commit the defender lane into the parent card.
+      await res.roll.toMessage({
+        speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
+        flavor: `${data.defender.label} \u2014 Defender Roll`,
+        rollMode: game.settings.get("core", "rollMode"),
+        flags: _opposedFlags(message.id, "defender-roll", {
+          defenderIndex,
+          commit: {
+            defender: {
+              defenseType: data.defender.defenseType,
+              styleUuid: data.defender.styleUuid ?? null,
+              label: data.defender.label,
+              defenseLabel: data.defender.defenseLabel,
+              testLabel: data.defender.testLabel,
+              target: data.defender.target,
+              targetLabel: data.defender.targetLabel,
+              tn: data.defender.tn,
+              talentDoSChoice: res?.talentDoSChoice ?? null,
+              talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
+              hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
+            }
           }
-        }
-      })
-    });
+        })
+      });
+    } else {
+      _emitSuppressedSubRollDice(res.roll, { rollMode: game.settings.get("core", "rollMode") });
+    }
 
     data.defender.result = {
       rollTotal: res.rollTotal,

@@ -19,8 +19,8 @@
  */
 
 import { hasTalent } from "../../traits/talents-api.js";
-import { getEffectiveEnchantRank, computeCastPenalty } from "../penalties.js";
-import { computePoolMax } from "../enchant-level.js";
+import { getEffectiveEnchantRank, computeCastPenalty, getEnchantTN } from "../penalties.js";
+import { computePoolMax, getItemEL } from "../enchant-level.js";
 import { executeEnchantTest, executeSalvageEnergyRoll } from "../tests.js";
 import { resolveSoulGemData } from "../soul-gems.js";
 
@@ -52,10 +52,11 @@ const MAX_SPELLS_MANIFOLD = 3;
 /**
  * @typedef {object} BuildCastResult
  * @property {boolean} valid
- * @property {string[]} errors
+ * @property {string[]} errors - Empty when valid === true.
  * @property {number} itemEL
  * @property {number} poolMax
  * @property {number} energyLost
+ * @property {number} effectiveEnchantRank
  * @property {object} gemAudit
  * @property {object[]} spellResults
  * @property {boolean} anySuccess
@@ -93,8 +94,8 @@ export async function buildCast(cfg) {
   const gemData = resolveSoulGemData(soulGemItem);
   if (!gemData) errors.push("Soul gem item has invalid soul gem flags.");
 
-  // EL and pool computation
-  const itemEL = Number(targetItem?.system?.enchantLevel ?? targetItem?.flags?.["uesrpg-3ev4"]?.itemEL ?? 10);
+  // EL and pool computation via canonical helper
+  const itemEL = getItemEL(targetItem);
   const { poolMax, energyLost } = gemData
     ? computePoolMax(itemEL, gemData.soulEnergy)
     : { poolMax: 0, energyLost: 0 };
@@ -118,13 +119,18 @@ export async function buildCast(cfg) {
     : 0;
 
   if (errors.length) {
-    return { valid: false, errors, itemEL, poolMax, energyLost, gemAudit, spellResults: [], anySuccess: false, gemPreserved: false };
+    return {
+      valid: false, errors,
+      itemEL, poolMax, energyLost, effectiveEnchantRank,
+      gemAudit, spellResults: [], anySuccess: false, gemPreserved: false,
+    };
   }
 
   // ── Per-spell tests ──────────────────────────────────────────────────────────
   const spellResults = [];
   let anySuccess = false;
-  let gemPreserved = !skipRolls ? false : true; // if no rolls, gem is consumed regardless
+  // In preview mode (skipRolls), no tests run and no gem is consumed.
+  let gemPreserved = skipRolls;
 
   const hasSalvage = hasTalent(actor, "salvageenergy");
   const hasProcedural = hasTalent(actor, "proceduralenchanting");
@@ -144,24 +150,21 @@ export async function buildCast(cfg) {
 
       if (testResult.success) {
         bindingStrength = testResult.bindingStrength;
-        // Procedural Enchanting: actor may choose DoS or enchantRank
-        // (the UI will prompt this; we store both options and the flag)
+        // Procedural Enchanting: actor may choose DoS or enchantRank.
+        // The UI will prompt this; we store both options and the flag.
         proceduralChoice = hasProcedural
           ? "dos" // default; UI can let them pick "enchantrank"
           : "dos";
       } else if (hasSalvage && !gemPreserved) {
-        // One salvage attempt per enchanting session (per RAW intent)
+        // One salvage attempt per enchanting session (per RAW intent).
         salvageResult = await executeSalvageEnergyRoll(actor, testResult.tn);
         if (salvageResult.success) {
           gemPreserved = true;
         }
       }
     } else {
-      // Preview mode: just compute the TN for display
-      const baseTN = Number(actor?.items
-        ?.find(i => ["skill", "magicSkill"].includes(i.type) &&
-          ["enchant", "enchanting"].includes(String(i.name ?? "").toLowerCase().trim()))
-        ?.system?.value ?? 0);
+      // Preview mode: compute TN for display using the canonical getEnchantTN() helper.
+      const baseTN = getEnchantTN(actor);
       testResult = {
         tn: Math.max(1, baseTN + penalty),
         roll: null,
@@ -201,6 +204,7 @@ export async function buildCast(cfg) {
     itemEL,
     poolMax,
     energyLost,
+    effectiveEnchantRank,
     gemAudit,
     spellResults,
     anySuccess: skipRolls ? true : anySuccess,

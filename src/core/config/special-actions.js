@@ -15,28 +15,43 @@
 /** @typedef {"primary"|"secondary"} SpecialActionType */
 
 /**
- * @type {Array<{id: string, name: string, actionType: SpecialActionType}>}
+ * @type {Readonly<Array<Readonly<{id: string, name: string, actionType: SpecialActionType}>>>}
  */
-export const SPECIAL_ACTIONS = [
-  { id: "arise", name: "Arise", actionType: "secondary" },
-  { id: "bash", name: "Bash", actionType: "primary" },
+export const SPECIAL_ACTIONS = Object.freeze([
+  Object.freeze({ id: "arise", name: "Arise", actionType: "secondary" }),
+  Object.freeze({ id: "bash", name: "Bash", actionType: "primary" }),
   // Chapter 5: user-confirmed Secondary
-  { id: "blindOpponent", name: "Blind Opponent", actionType: "secondary" },
-  { id: "disarm", name: "Disarm", actionType: "primary" },
-  { id: "feint", name: "Feint", actionType: "primary" },
-  { id: "forceMovement", name: "Force Movement", actionType: "primary" },
-  { id: "resist", name: "Resist", actionType: "secondary" },
-  { id: "trip", name: "Trip", actionType: "secondary" },
+  Object.freeze({ id: "blindOpponent", name: "Blind Opponent", actionType: "secondary" }),
+  Object.freeze({ id: "disarm", name: "Disarm", actionType: "primary" }),
+  Object.freeze({ id: "feint", name: "Feint", actionType: "primary" }),
+  Object.freeze({ id: "forceMovement", name: "Force Movement", actionType: "primary" }),
+  Object.freeze({ id: "resist", name: "Resist", actionType: "secondary" }),
+  Object.freeze({ id: "trip", name: "Trip", actionType: "secondary" }),
   // Homebrew — Reach & Length Overhaul
-  { id: "inClose", name: "In Close", actionType: "secondary" }
-];
+  Object.freeze({ id: "inClose", name: "In Close", actionType: "secondary" })
+]);
+
+// Build O(1) lookup; warn on duplicate IDs (guards against future registry corruption).
+const _byId = Object.create(null);
+for (const sa of SPECIAL_ACTIONS) {
+  if (_byId[sa.id] !== undefined) {
+    console.warn(`UESRPG | Special Actions: duplicate id "${sa.id}" detected in registry.`);
+  }
+  _byId[sa.id] = sa;
+}
+
+/**
+ * Frozen null-prototype object for O(1) id → entry lookups.
+ * @type {Readonly<Record<string, Readonly<{id:string,name:string,actionType:SpecialActionType}>>>}
+ */
+export const SPECIAL_ACTIONS_BY_ID = Object.freeze(_byId);
 
 /**
  * @param {string} id
- * @returns {{id:string,name:string,actionType:SpecialActionType}|null}
+ * @returns {Readonly<{id:string,name:string,actionType:SpecialActionType}>|null}
  */
 export function getSpecialActionById(id) {
   const key = String(id ?? "").trim();
   if (!key) return null;
-  return SPECIAL_ACTIONS.find(sa => sa.id === key) ?? null;
+  return SPECIAL_ACTIONS_BY_ID[key] ?? null;
 }

@@ -19,37 +19,28 @@
 
 import { applyDamageResolved } from "../combat/damage-resolver.js";
 import { hasCondition, isImmuneToCondition } from "./condition-engine.js";
-
-const FLAG_SCOPE = "uesrpg-3ev4";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { _num, _num as _asNumber, normalizeKey } from "../../utils/coerce.js";
 const MODE_ADD = (globalThis.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2);
 
 /* -------------------------------------------- */
 /* Condition template helpers                    */
 /* -------------------------------------------- */
 
-function _asNumber(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function _normKey(k) {
-  return String(k ?? "").trim().toLowerCase();
-}
-
 function _getConditionKeyFromAECreateData(data = {}) {
   const k1 = data?.flags?.[FLAG_SCOPE]?.condition?.key;
-  if (k1) return _normKey(k1);
+  if (k1) return normalizeKey(k1);
 
   const k2 = data?.flags?.core?.statusId;
-  if (k2) return _normKey(k2);
+  if (k2) return normalizeKey(k2);
 
   // Sometimes Foundry provides statuses as a Set or array (varies by caller)
   const sts = data?.statuses;
   try {
-    if (Array.isArray(sts) && sts.length) return _normKey(sts[0]);
+    if (Array.isArray(sts) && sts.length) return normalizeKey(sts[0]);
     if (sts && typeof sts?.values === "function") {
       const v = sts.values().next?.().value;
-      if (v) return _normKey(v);
+      if (v) return normalizeKey(v);
     }
   } catch (_err) {}
 
@@ -110,16 +101,16 @@ function _ensureConditionAEChanges(data, key) {
 /* -------------------------------------------- */
 
 function _findConditionEffect(actor, key) {
-  const k = _normKey(key);
+  const k = normalizeKey(key);
   for (const ef of (actor?.effects ?? [])) {
     if (!ef) continue;
     if (ef?.disabled) continue;
 
     const fk = ef?.flags?.[FLAG_SCOPE]?.condition?.key;
-    if (_normKey(fk) === k) return ef;
+    if (normalizeKey(fk) === k) return ef;
 
     const coreId = ef?.flags?.core?.statusId;
-    if (_normKey(coreId) === k) return ef;
+    if (normalizeKey(coreId) === k) return ef;
 
     // fallback: statuses contains key
     try {
@@ -131,13 +122,13 @@ function _findConditionEffect(actor, key) {
 
 function _getConditionValue(effect, key) {
   if (!effect) return 0;
-  const v = _asNumber(effect?.flags?.[FLAG_SCOPE]?.condition?.value);
+  const v = _num(effect?.flags?.[FLAG_SCOPE]?.condition?.value, 0);
   if (v) return v;
 
   // Fallback: parse "(X)" from name
   const name = String(effect?.name ?? "");
   const m = name.match(/\((\d+)\)/);
-  if (m) return _asNumber(m[1]);
+  if (m) return _num(m[1], 0);
 
   return _defaultConditionValue(key);
 }

@@ -5,6 +5,7 @@
  */
 
 import { itemHasToken } from "../tokens.js";
+export { getRuntimeSystemId as getSystemId } from "../../../system/namespace.js";
 
 /**
  * Check if an item is a natural weapon source (hand-to-hand).
@@ -34,12 +35,4 @@ export function isSilverSource(item) {
 export function isSunlightSource(item) {
   if (!item) return false;
   return itemHasToken(item, "sunlight");
-}
-
-/**
- * Get the system ID.
- * @returns {string}
- */
-export function getSystemId() {
-  return String(game?.system?.id ?? "uesrpg-3ev4");
 }

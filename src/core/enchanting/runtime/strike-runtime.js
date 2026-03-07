@@ -18,6 +18,38 @@
 
 import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-catalog.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { SYSTEM_ID } from "../../constants.js";
+import { isDebugEnabled } from "../../../utils/debug.js";
+
+// ---------------------------------------------------------------------------
+// O(1) catalog lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-built Map for O(1) strike enchantment lookup by key.
+ * Built once at module init; never mutated.
+ * @type {Map<string, object>}
+ */
+const STRIKE_ENCHANTMENTS_BY_KEY = new Map(
+  STRIKE_ENCHANTMENTS_CATALOG.map(e => [e.key, e])
+);
+
+/**
+ * Resolve a stored effect key to its canonical catalog key.
+ *
+ * Handles the historical naming inconsistency between the catalog key
+ * ("absorpHealth", original) and any world data that may use the correctly
+ * spelled variant ("absorbHealth"). Does NOT migrate stored data — only
+ * applied during lookup.
+ *
+ * @param {string} key
+ * @returns {string}
+ */
+function _resolveStrikeKey(key) {
+  // "absorbHealth" (correctly spelled) → "absorpHealth" (catalog's historical key).
+  if (key === "absorbHealth") return "absorpHealth";
+  return key;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -30,7 +62,7 @@ import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
  */
 function _getStrikeEnc(weapon) {
   if (!weapon || weapon.documentName !== "Item") return null;
-  const enc = weapon.flags?.["uesrpg-3ev4"]?.enchanting ?? null;
+  const enc = weapon.flags?.[SYSTEM_ID]?.enchanting ?? null;
   if (!enc || enc.version !== 2 || enc.enchantType !== "strike") return null;
   if (!Array.isArray(enc.strike?.effects) || enc.strike.effects.length === 0) return null;
   return enc;
@@ -74,7 +106,7 @@ export function collectStrikeEnchantmentEffects(weapon, attackerActor) {
   if (!enc) return empty;
 
   if (!_hasCharge(weapon, enc)) {
-    if (game.settings.get("uesrpg-3ev4", "debugMode")) {
+    if (isDebugEnabled()) {
       console.debug("UESRPG | Strike enchantment skipped — no charge remaining on", weapon.name);
     }
     return empty;
@@ -87,7 +119,7 @@ export function collectStrikeEnchantmentEffects(weapon, attackerActor) {
   const attackerActorUuid = attackerActor?.uuid ?? null;
 
   for (const effect of enc.strike.effects) {
-    const catalogEntry = STRIKE_ENCHANTMENTS_CATALOG.find(e => e.key === effect.key);
+    const catalogEntry = STRIKE_ENCHANTMENTS_BY_KEY.get(_resolveStrikeKey(effect.key));
     if (!catalogEntry) {
       console.warn(`UESRPG | Strike enchantment key "${effect.key}" not found in catalog — skipping.`);
       continue;
@@ -148,7 +180,7 @@ export async function consumeStrikeCharge(weapon) {
   const newCharge = Math.max(0, currentCharge - 1);
   await requestUpdateDocument(weapon, { "system.charge.value": newCharge });
 
-  if (game.settings.get("uesrpg-3ev4", "debugMode")) {
+  if (isDebugEnabled()) {
     console.debug(`UESRPG | Strike enchantment charge consumed on "${weapon.name}": ${currentCharge} → ${newCharge}`);
   }
 }

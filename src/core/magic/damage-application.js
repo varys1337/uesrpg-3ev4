@@ -10,7 +10,7 @@
  */
 
 import { applyDamage, applyHealing, DAMAGE_TYPES, getDamageReduction } from "../combat/damage-automation.js";
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { doesUserOwnActor, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { getActorTraitValue } from "../traits/trait-registry.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 import { _str, createDebugLogger } from "./_primitives.js";
@@ -63,10 +63,7 @@ function _getWhisperRecipients(actor) {
       out.add(user.id);
       continue;
     }
-    const hasOwner = typeof actor?.testUserPermission === "function"
-      ? actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)
-      : Number(actor?.ownership?.[user.id] ?? 0) >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
-    if (hasOwner) out.add(user.id);
+    if (doesUserOwnActor(user, actor)) out.add(user.id);
   }
   return Array.from(out);
 }

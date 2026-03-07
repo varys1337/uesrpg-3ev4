@@ -7,6 +7,7 @@
 import { buildBaseRollOptions } from "./roll-options.js";
 
 const ROLL_CONTEXT_VERSION = 1;
+const STABLE_ROLL_OPTION_ORDER = true;
 
 function _safeUuid(doc) {
   if (!doc) return null;
@@ -66,6 +67,8 @@ export function buildRollContext({
     attackVariant,
     defenseType
   });
+  const rollOptions = Array.from(rollOptionSet.values());
+  if (STABLE_ROLL_OPTION_ORDER) rollOptions.sort();
 
   return {
     version: ROLL_CONTEXT_VERSION,
@@ -82,7 +85,7 @@ export function buildRollContext({
     defenseType: _safeSlug(defenseType),
     damageStage: _safeSlug(damageStage),
     damageType: _safeSlug(damageType),
-    rollOptions: Array.from(rollOptionSet.values()),
+    rollOptions,
     extra: _cloneExtra(extra)
   };
 }

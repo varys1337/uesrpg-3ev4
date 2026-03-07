@@ -21,6 +21,8 @@ import { hasGrandmasterForSkill } from "../traits/general-talents.js";
 import { computeSpellRestraintReduction, getActorWillpowerBonus } from "./magic-modifiers.js";
 import { _num, _strTrim as _str, isDebugEnabled } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
+import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../system/flags.js";
 
 // Re-export for backward compatibility — canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
@@ -567,7 +569,7 @@ export async function consumeSpellMagicka(actor, spell, options = {}) {
     const actors = MagicTimekeeping.relevantActorsArray?.() ?? Array.from(MagicTimekeeping.collectRelevantActors?.() ?? []);
     for (const a of actors) {
       for (const ef of (a?.effects ?? [])) {
-        const f = ef?.flags?.["uesrpg-3ev4"];
+        const f = getSystemFlagsWithFallback(ef);
         if (!f?.spellEffect) continue;
         if (!f?.hasUpkeep || !f?.noListedDuration) continue;
         if (ef?.disabled) continue;
@@ -622,8 +624,8 @@ if (activeNoDuration) {
   // the "no other spell since" rule for spells with no listed duration.
   try {
     await requestUpdateDocument(actor, {
-      "flags.uesrpg-3ev4.lastSpellCastWorldTime": Number(MagicTimekeeping.nowWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0,
-      "flags.uesrpg-3ev4.lastSpellCastSpellUuid": String(spell?.uuid ?? "")
+      [`flags.${FLAG_SCOPE}.lastSpellCastWorldTime`]: Number(MagicTimekeeping.nowWorldTimeSeconds?.() ?? game.time?.worldTime ?? 0) || 0,
+      [`flags.${FLAG_SCOPE}.lastSpellCastSpellUuid`]: String(spell?.uuid ?? "")
     });
   } catch (_e) {
     // no-op
@@ -806,7 +808,7 @@ export function getMagicSkillLevel(actor, school) {
   if (actor?.type === "NPC") {
     const schoolKey = schoolNormalized || "unknown";
     const label = _str(
-      actor?.flags?.["uesrpg-3ev4"]?.npcMagicSchoolRanks?.[schoolKey]
+      getFlagValueWithFallback(actor, `npcMagicSchoolRanks.${schoolKey}`)
     ).toLowerCase() || "untrained";
     const rankNumeric = RANK_TO_NUMERIC[label] ?? -1;
     return Math.max(0, rankNumeric + 1);
@@ -880,7 +882,7 @@ function _hasTwoFreeHandsForCasting(actor) {
       const hands = Number(it.system?.hands ?? 0);
       return Number.isFinite(hands) && hands > 0;
     }
-    if (itemType === "armor" || itemType === "item") {
+    if (itemType === "armor" || itemType === "equipment") {
       const isShield = Boolean(it.system?.isShieldEffective ?? it.system?.isShield);
       if (!isShield) return false;
       // Chapter 7: Targe counts as functionally free for hand-use checks.
@@ -909,6 +911,7 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   const difficultyKeyRaw = _str(options?.difficultyKey ?? options?.difficulty ?? "average");
   const diff = getDifficultyByKey(difficultyKeyRaw.trim().toLowerCase());
   const difficultyMod = _num(diff?.mod, 0);
+  const circumstanceMod = _num(options?.circumstanceMod ?? options?.circumstanceModifier, 0);
 
   // Resolve the embedded magic skill for this school (PCs). We also use the
   // resolved skill name as a fallback key for AE authoring, in case the school
@@ -994,9 +997,10 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     if (silencePenalty !== 0) modifiers.push({ label: "Silenced (no verbal)", value: silencePenalty });
     if (noFreeHandsPenalty !== 0) modifiers.push({ label: "No free hands (somatic)", value: noFreeHandsPenalty });
     if (aeModifier !== 0) modifiers.push({ label: "Active Effects", value: aeModifier });
+    if (circumstanceMod !== 0) modifiers.push({ label: "Circumstance Modifier", value: circumstanceMod });
     if (manualMod !== 0) modifiers.push({ label: "Manual Modifier", value: manualMod });
 
-    const finalTN = Math.max(0, baseTN + difficultyMod + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + noFreeHandsPenalty + aeModifier + manualMod);
+    const finalTN = Math.max(0, baseTN + difficultyMod + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + noFreeHandsPenalty + aeModifier + circumstanceMod + manualMod);
     return {
       baseTN,
       spellcastingLevel,
@@ -1054,11 +1058,15 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     modifiers.push({ label: "Active Effects", value: aeModifier });
   }
 
+  if (circumstanceMod !== 0) {
+    modifiers.push({ label: "Circumstance Modifier", value: circumstanceMod });
+  }
+
   if (manualMod !== 0) {
     modifiers.push({ label: "Manual Modifier", value: manualMod });
   }
 
-  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + noFreeHandsPenalty + aeModifier + manualMod;
+  const finalTN = baseTN + difficultyMod + levelPenalty + fatiguePenalty + carryPenalty + woundPenalty + silencePenalty + noFreeHandsPenalty + aeModifier + circumstanceMod + manualMod;
 
   return {
     baseTN,
@@ -1069,3 +1077,4 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     finalTN: Math.max(0, finalTN)
   };
 }
+

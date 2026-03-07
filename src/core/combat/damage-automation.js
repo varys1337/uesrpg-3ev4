@@ -9,7 +9,7 @@
  *  - DAMAGE_TYPES
  *  - collectItemTokens, itemHasToken, isItemMagicSource
  *  - getDamageReduction, calculateDamage
- *  - applyDamage, applyForcefulImpact, ensureUnconsciousEffect, applyHealing
+ *  - applyDamage, applyForcefulImpact, applyArmorLocationDamage, ensureUnconsciousEffect, applyHealing
  *
  * Internal modules:
  *  - damage/types.js - Damage type constants
@@ -27,6 +27,7 @@ export { calculateDamage } from "./damage/calc.js";
 export { 
   applyDamage, 
   applyForcefulImpact, 
+  applyArmorLocationDamage,
   ensureUnconsciousEffect, 
   applyHealing 
 } from "./damage/apply.js";

@@ -1,4 +1,4 @@
-import coreRaces from "../../sheets/racemenu/data/core-races.js";
+﻿import coreRaces from "../../sheets/racemenu/data/core-races.js";
 import coreVariants from "../../sheets/racemenu/data/core-variants.js";
 import khajiitFurstocks from "../../sheets/racemenu/data/khajiit-furstocks.js";
 import expandedRaces from "../../sheets/racemenu/data/expanded-races.js";
@@ -7,6 +7,7 @@ import { renderRaceCards } from "../../sheets/racemenu/render-race-cards.js";
 import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { promptDialog } from "../../../utils/dialog-v2-helper.js";
 import { appendChargenAudit } from "./char-gen/audit-log.js";
+import { SYSTEM_ID, templatePath } from "../../constants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -176,7 +177,7 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static PARTS = {
     main: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/race-menu.hbs",
+      template: templatePath("v2/apps/race-menu.hbs"),
       scrollable: [".menu-cards"],
     },
   };
@@ -317,7 +318,7 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
   static PARTS = {
     main: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/birthsign-menu.hbs",
+      template: templatePath("v2/apps/birthsign-menu.hbs"),
       scrollable: [".menu-cards"],
     },
   };
@@ -430,3 +431,4 @@ function toSlug(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+

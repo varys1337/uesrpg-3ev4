@@ -3,15 +3,12 @@ import {
   requestDeleteEmbeddedDocuments,
   requestUpdateDocument,
 } from "../../utils/authority-proxy.js";
+import { _num, _num as asNumber } from "../../utils/coerce.js";
 import { getMagicSkillLevel, isActorTrainedInMagicSchool } from "../magic/magicka-utils.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
-const CHARGEN_NS = "uesrpg-3ev4";
+const CHARGEN_NS = FLAG_SCOPE;
 const CHARGEN_PATH = "chargen";
-
-function asNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 function asString(value) {
   return String(value ?? "").trim();
@@ -22,7 +19,7 @@ function normalizeSchool(value) {
 }
 
 function getSpellLevel(spell) {
-  return Math.max(1, Math.min(7, asNumber(spell?.system?.level, 1)));
+  return Math.max(1, Math.min(7, _num(spell?.system?.level, 1)));
 }
 
 function getConfiguredPurchaseMode() {
@@ -59,7 +56,7 @@ function extractSourceUuid(spellLike) {
   return "";
 }
 
-function spellSignature(spellLike) {
+export function spellSignature(spellLike) {
   const school = normalizeSchool(spellLike?.system?.school);
   const level = getSpellLevel(spellLike);
   const type = normalizeSpellLearningType(spellLike);
@@ -67,19 +64,49 @@ function spellSignature(spellLike) {
   return `${name}|${school}|${level}|${type}`;
 }
 
-function hasDuplicateKnownSpell(actor, spellLike) {
+function getActorItemsArray(actorLike) {
+  const items = actorLike?.items;
+  if (!items) return [];
+  if (Array.isArray(items)) return items;
+  if (typeof items?.[Symbol.iterator] === "function") return Array.from(items);
+  if (Array.isArray(items?.contents)) return items.contents;
+  return [];
+}
+
+function getOwnedSpellSourceUuid(itemLike) {
+  return (
+    asString(itemLike?.getFlag?.(CHARGEN_NS, "spellSourceUuid")) ||
+    asString(itemLike?.flags?.[CHARGEN_NS]?.spellSourceUuid) ||
+    asString(itemLike?.flags?.core?.sourceId)
+  );
+}
+
+export function buildKnownSpellIndex(actorLike, _options = {}) {
+  const bySourceUuid = new Set();
+  const bySignature = new Set();
+  const items = getActorItemsArray(actorLike);
+  for (const it of items) {
+    if (it?.type !== "spell") continue;
+    const sourceUuid = getOwnedSpellSourceUuid(it);
+    if (sourceUuid) bySourceUuid.add(sourceUuid);
+    bySignature.add(spellSignature(it));
+  }
+  return { bySourceUuid, bySignature };
+}
+
+function hasDuplicateKnownSpell(actor, spellLike, knownSpellIndex = null) {
   if (!actor) return false;
   const sourceUuid = extractSourceUuid(spellLike);
   const signature = spellSignature(spellLike);
 
-  return actor.items.some((it) => {
-    if (it.type !== "spell") return false;
-    const ownedSource =
-      asString(it.getFlag?.(CHARGEN_NS, "spellSourceUuid")) ||
-      asString(it.flags?.core?.sourceId);
-    if (sourceUuid && ownedSource && sourceUuid === ownedSource) return true;
-    return spellSignature(it) === signature;
-  });
+  if (knownSpellIndex) {
+    if (sourceUuid && knownSpellIndex.bySourceUuid?.has?.(sourceUuid)) return true;
+    return Boolean(knownSpellIndex.bySignature?.has?.(signature));
+  }
+
+  const index = buildKnownSpellIndex(actor);
+  if (sourceUuid && index.bySourceUuid.has(sourceUuid)) return true;
+  return index.bySignature.has(signature);
 }
 
 function canLearnRitual(actor) {
@@ -87,7 +114,7 @@ function canLearnRitual(actor) {
   return Boolean(actor?.getFlag?.(CHARGEN_NS, "chargen")?.allowRitualLearning);
 }
 
-function computeLastSummaryFromLog(logEntries) {
+export function computeSpellLearningSummary(logEntries) {
   const rows = Array.isArray(logEntries) ? logEntries : [];
   const learned = rows.filter((r) => r?.outcome === "learned");
   const blocked = rows.filter((r) => r?.outcome === "blocked");
@@ -116,17 +143,30 @@ function computeLastSummaryFromLog(logEntries) {
   };
 }
 
-async function appendSpellLearningLog(actor, row) {
+function getSpellLearningLogCap() {
+  try {
+    const n = Number(game.settings.get(CHARGEN_NS, "chargenSpellLearningLogCap") ?? 0);
+    return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+  } catch (_err) {
+    return 0;
+  }
+}
+
+export async function appendSpellLearningLog(actor, row, options = {}) {
   const chargen = actor.getFlag(CHARGEN_NS, CHARGEN_PATH) ?? {};
   const container = chargen.spellLearning ?? {};
   const log = Array.isArray(container.log) ? [...container.log] : [];
   log.push(row);
+  const cap = Number.isFinite(Number(options?.logCap))
+    ? Math.max(0, Math.trunc(Number(options.logCap)))
+    : getSpellLearningLogCap();
+  const nextLog = (cap > 0 && log.length > cap) ? log.slice(-cap) : log;
 
   await requestUpdateDocument(actor, {
-    "flags.uesrpg-3ev4.chargen.spellLearning.log": log,
-    "flags.uesrpg-3ev4.chargen.spellLearning.lastSummary": computeLastSummaryFromLog(log),
+    [`flags.${CHARGEN_NS}.chargen.spellLearning.log`]: nextLog,
+    [`flags.${CHARGEN_NS}.chargen.spellLearning.lastSummary`]: computeSpellLearningSummary(nextLog),
   });
-  return log;
+  return nextLog;
 }
 
 export function normalizeSpellLearningType(spell) {
@@ -180,7 +220,7 @@ export function validateSpellLearningPurchase(actor, spell, paymentMode = "xp", 
   const spellcastingLevel = getSpellcastingLevelForSpell(actor, spell);
   const trained = isActorTrainedInMagicSchool(actor, school);
   const withinSpellcastingLevel = costs.level <= spellcastingLevel;
-  const duplicate = hasDuplicateKnownSpell(actor, spell);
+  const duplicate = hasDuplicateKnownSpell(actor, spell, options?.knownSpellIndex ?? null);
   const ritualAllowed = costs.type !== "ritual" || canLearnRitual(actor);
   const paymentAllowed = costs.allowedPayments.includes(paymentMode);
   const xp = asNumber(actor.system?.xp, 0);

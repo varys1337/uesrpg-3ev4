@@ -30,7 +30,6 @@ import { activateTalentFromItemSheet, activatePowerFromItemSheet, activateTraitF
 import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../item/spell-scaling-helpers.js";
 import { validateSpellConfig, formatSpellValidationMessage } from "../../../core/magic/spell-config.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
-import { hasTalent } from "../../../core/traits/talents-api.js";
 import { activateEditorButtons } from "../shared/editor-activation.js";
 import { DEFAULTS } from "../../../core/migrations/item-defaults.generated.js";
 import { traceSheetPerf } from "../../../core/debug/perf.js";
@@ -40,23 +39,22 @@ import { alertDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
 import { resolveDroppedItem } from "../../../utils/drop-data.js";
 import { castScrollFromItem } from "../../../core/magic/scroll-casting.js";
 import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
-import {
-  buildSkillAdvancementPlan,
-  normalizeRank as normalizeAdvancementRank,
-  parseSpecializations as parseAdvancementSpecializations,
-} from "../../../core/advancement/skill-advancement.js";
+import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
+import { applySheetDensityClass } from "./shared/sheet-density.js";
+import { buildAdvancementPlan } from "../item/advancement-plan.js";
+import { SYSTEM_ID, templatePath } from "../../constants.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
-const ITEM_SHEET_TEMPLATE_BASE = "systems/uesrpg-3ev4/templates/v2/sheets";
-const _FLAG_NS = "uesrpg-3ev4";
-const _EQUIPMENT_ITEM_TYPES = new Set(["weapon", "armor", "ammunition", "item", "container", "scroll"]);
+const ITEM_SHEET_TEMPLATE_BASE = templatePath("v2/sheets");
+const _FLAG_NS = SYSTEM_ID;
+const _EQUIPMENT_ITEM_TYPES = new Set(["weapon", "armor", "ammunition", "equipment", "container", "scroll"]);
 const SUPPORTED_ITEM_SHEET_TYPES = new Set([
   "ammunition",
   "armor",
   "combatStyle",
   "container",
-  "item",
+  "equipment",
   "magicSkill",
   "power",
   "scroll",
@@ -336,7 +334,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   static PARTS = {
     sheet: {
       // Fallback path — _renderHTML() selects the per-type template dynamically.
-      template: "systems/uesrpg-3ev4/templates/v2/sheets/item-sheet.hbs",
+      template: templatePath("v2/sheets/equipment-sheet.hbs"),
       scrollable: [".sheet-body"],
     },
   };
@@ -375,7 +373,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   _configureRenderParts(options) {
     const parts = super._configureRenderParts(options);
     const type = this.document.type;
-    const resolvedType = SUPPORTED_ITEM_SHEET_TYPES.has(type) ? type : "item";
+    if (type === "item") {
+      console.error("UESRPG | Legacy item type detected after strict equipment cutover", {
+        id: this.document.id,
+        name: this.document.name,
+      });
+    }
+    const resolvedType = SUPPORTED_ITEM_SHEET_TYPES.has(type) ? type : "equipment";
     parts.sheet = {
       ...parts.sheet,
       template: `${ITEM_SHEET_TEMPLATE_BASE}/${resolvedType}-sheet.hbs`,
@@ -395,7 +399,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   async _renderHTML(context, options) {
     // Get the dynamically configured parts
     const parts = this._configureRenderParts(options);
-    const templatePath = parts.sheet?.template ?? `${ITEM_SHEET_TEMPLATE_BASE}/item-sheet.hbs`;
+    const templatePath = parts.sheet?.template ?? `${ITEM_SHEET_TEMPLATE_BASE}/equipment-sheet.hbs`;
 
     // Use per-part context preparation (preserves mixin lifecycle)
     const partContext = await this._preparePartContext("sheet", context, options);
@@ -403,7 +407,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     try {
       htmlString = await foundry.applications.handlebars.renderTemplate(templatePath, partContext);
     } catch (err) {
-      const fallback = `${ITEM_SHEET_TEMPLATE_BASE}/item-sheet.hbs`;
+      const fallback = `${ITEM_SHEET_TEMPLATE_BASE}/equipment-sheet.hbs`;
       console.warn("UESRPG | Item sheet template missing, using fallback", {
         type: this.document.type,
         templatePath,
@@ -454,10 +458,10 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     context.data = context.item.system; // legacy alias
     context.editable = this.isEditable;
     context.isGM = game.user.isGM;
-    context.owner = this.document.isOwner;
-    context.limited = this.document.limited;
-    context.cssClass = this.isEditable ? "editable" : "locked";
-    context.options = { editable: this.isEditable };
+      context.owner = this.document.isOwner;
+      context.limited = this.document.limited;
+      context.cssClass = this.isEditable ? "editable" : "locked";
+      context.options = { editable: this.isEditable };
 
       // Shared data preparation (enriches description, derives computed values, etc.)
       const prepared = await prepareItemSheetData(this, context);
@@ -512,7 +516,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         }
       }
 
-      prepared.enableRuleElements = Boolean(game.settings.get("uesrpg-3ev4", "enableRuleElementsRuntime"));
+      prepared.enableRuleElements = Boolean(game.settings.get(SYSTEM_ID, "enableRuleElementsRuntime"));
 
       return prepared;
     } finally {
@@ -528,88 +532,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         warnThresholdMs: 40,
       });
     }
-  }
-
-  _buildAdvancementPlan(flatData) {
-    const item = this.document;
-    const actor = item?.actor;
-    if (!actor || actor.type !== "Player Character") return { ok: true, xpCost: 0, actor };
-    if (!["skill", "magicSkill", "combatStyle"].includes(String(item.type ?? ""))) {
-      return { ok: true, xpCost: 0, actor };
-    }
-
-    const oldRank = normalizeAdvancementRank(item.system?.rank);
-    const newRank = normalizeAdvancementRank(foundry.utils.getProperty(flatData, "system.rank") ?? oldRank);
-    const isLoreSkill = item.type === "skill" && String(item.name ?? "").trim().toLowerCase() === "lore";
-    const hasScholarTalent = isLoreSkill && hasTalent(actor, "scholar");
-    const rawSpecs = String(foundry.utils.getProperty(flatData, "system.trainedItems") ?? item.system?.trainedItems ?? "");
-    const specCount = parseAdvancementSpecializations(rawSpecs).length;
-    const rankValues = { untrained: -1, novice: 0, apprentice: 1, journeyman: 2, adept: 3, expert: 4, master: 5 };
-    const rankValue = Number(rankValues[newRank] ?? -1);
-    if (String(item.name ?? "").trim().toLowerCase() === "evade" && specCount > 0) {
-      return { ok: false, reason: "Evade cannot have specializations (Chapter 3)." };
-    }
-    const baseSpecializationCap = Math.max(0, rankValue);
-    const specializationCap = hasScholarTalent ? (baseSpecializationCap * 2) : baseSpecializationCap;
-    const specializationUnitCost = hasScholarTalent ? 50 : 100;
-
-    const plan = buildSkillAdvancementPlan({
-      actor,
-      item,
-      flatData,
-      options: {
-        specializationCapOverride: specializationCap,
-        specializationUnitCostOverride: specializationUnitCost,
-      },
-    });
-    if (!plan.ok) {
-      if (hasScholarTalent && specCount > specializationCap) {
-        return { ok: false, reason: `Lore specializations exceed Scholar cap (${specializationCap}).` };
-      }
-      return plan;
-    }
-
-    let xpCost = Number(plan.xpCost ?? 0);
-
-    if (item.type === "combatStyle") {
-      const oldTE = Array.isArray(item.system?.trainedEquipment) ? item.system.trainedEquipment : [];
-      const nextTE = Array.isArray(foundry.utils.getProperty(flatData, "system.trainedEquipment"))
-        ? foundry.utils.getProperty(flatData, "system.trainedEquipment")
-        : oldTE;
-      const oldCount = oldTE.map(v => String(v ?? "").trim()).filter(Boolean).length;
-      const newCount = nextTE.map(v => String(v ?? "").trim()).filter(Boolean).length;
-      if (newCount > 10) {
-        return { ok: false, reason: "Combat Style trained equipment is capped at 10 entries (Chapter 3)." };
-      }
-      const oldExpanded = Math.max(0, oldCount - 5);
-      const newExpanded = Math.max(0, newCount - 5);
-      if (newExpanded > oldExpanded) xpCost += (newExpanded - oldExpanded) * 25;
-
-      const oldSA = item.system?.specialAdvantages ?? {};
-      let oldEnabled = 0;
-      let newEnabled = 0;
-      const nextSAObj = foundry.utils.getProperty(flatData, "system.specialAdvantages") ?? {};
-      const keys = new Set([...Object.keys(oldSA), ...Object.keys(nextSAObj)]);
-      for (const k of keys) {
-        const oldVal = Boolean(oldSA[k]);
-        if (oldVal) oldEnabled += 1;
-        const override = foundry.utils.getProperty(flatData, `system.specialAdvantages.${k}`);
-        if ((override === undefined) ? oldVal : Boolean(override)) newEnabled += 1;
-      }
-      if (newEnabled > oldEnabled) {
-        let added = newEnabled - oldEnabled;
-        const rankChanged = oldRank !== newRank;
-        if (oldEnabled === 0 && rankChanged && added > 0) added -= 1;
-        if (added > 0) xpCost += added * 25;
-      }
-    }
-
-    const currentXp = Number(actor?.system?.xp ?? 0);
-    if (xpCost > currentXp) {
-      return { ok: false, reason: `Not enough XP. Required: ${xpCost}, Available: ${currentXp}.` };
-    }
-
-    return { ok: true, actor, xpCost, nextXp: Math.max(0, currentXp - xpCost) };
   }
 
   /* ═══════════════════════ Form Submission ═══════════════════════════ */
@@ -636,7 +558,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       const blocked = await validateSpellScaling(this.document, flatData, scalingLevels);
       if (blocked) return;
     }
-    const advancement = this._buildAdvancementPlan(flatData);
+    const advancement = buildAdvancementPlan(this.document, flatData);
     if (!advancement.ok) {
       ui.notifications?.warn?.(advancement.reason || "Unable to apply advancement changes.");
       return;
@@ -678,7 +600,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       const blocked = await validateSpellScaling(this.document, flatData, scalingLevels);
       if (blocked) return;
     }
-    const advancement = this._buildAdvancementPlan(flatData);
+    const advancement = buildAdvancementPlan(this.document, flatData);
     if (!advancement.ok) {
       ui.notifications?.warn?.(advancement.reason || "Unable to apply advancement changes.");
       return;
@@ -806,7 +728,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const actor = this.document.actor;
     if (!this.document.isOwned || !actor) return;
     try {
-      await requestUpdateDocument(actor, { "flags.uesrpg-3ev4.activeCombatStyleId": this.document.id });
+      await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.activeCombatStyleId`]: this.document.id });
       ui.notifications?.info?.(`Active combat style set to: ${this.document.name}`);
       actor.sheet?.render?.(false);
       this.render(false);
@@ -826,7 +748,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const actor = this.document.actor;
     if (!this.document.isOwned || !actor) return;
     try {
-      await requestUpdateDocument(actor, { "flags.uesrpg-3ev4.-=activeCombatStyleId": null });
+      await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.-=activeCombatStyleId`]: null });
       ui.notifications?.info?.("Combat style deactivated.");
       actor.sheet?.render?.(false);
       this.render(false);
@@ -1073,16 +995,17 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  /* ═══════════════════ Damage Instance Actions ═════════════════════ */
+  /* ═══════════════════ Damage Instance Actions (Spell Only) ═════════════════════ */
 
   /**
-   * Add a blank damage instance (shared: spell + weapon).
+   * Add a blank spell damage instance.
    * @param {Event} event
    * @param {HTMLElement} target
    */
   async _onAddDamageInstance(event, target) {
     event.preventDefault();
     if (!this.isEditable) return;
+    if (this.document?.type !== "spell") return;
 
     return this._withArrayMutationLock("_dmgInstanceMutLock", async () => {
       const instances = foundry.utils.deepClone(this.document.system?.damageInstances ?? []);
@@ -1092,13 +1015,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   }
 
   /**
-   * Remove a damage instance by index (shared: spell + weapon).
+   * Remove a spell damage instance by index.
    * @param {Event} event
    * @param {HTMLElement} target
    */
   async _onRemoveDamageInstance(event, target) {
     event.preventDefault();
     if (!this.isEditable) return;
+    if (this.document?.type !== "spell") return;
 
     const index = parseInt(target.dataset.index, 10);
     if (isNaN(index)) return;
@@ -1185,7 +1109,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   async _onEnableAlchemyIngredient(event) {
     event.preventDefault();
     await requestUpdateDocument(this.document, {
-      "flags.uesrpg-3ev4.alchemy": {
+      [`flags.${SYSTEM_ID}.alchemy`]: {
         kind: "ingredient",
         school: "destruction",
         strengthBase: 5,
@@ -1200,7 +1124,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   async _onClearAlchemyIngredient(event) {
     event.preventDefault();
     await requestUpdateDocument(this.document, {
-      "flags.uesrpg-3ev4.-=alchemy": null,
+      [`flags.${SYSTEM_ID}.-=alchemy`]: null,
     });
   }
 
@@ -1238,7 +1162,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       "system.consumable": true,
       "system.wearable": false,
       "system.equipped": false,
-      "flags.uesrpg-3ev4.alchemy": { ...baseFlags, ...kindFlags },
+      [`flags.${SYSTEM_ID}.alchemy`]: { ...baseFlags, ...kindFlags },
     });
   }
 
@@ -1246,7 +1170,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   async _onClearAlchemyProduct(event) {
     event.preventDefault();
     await requestUpdateDocument(this.document, {
-      "flags.uesrpg-3ev4.-=alchemy": null,
+      [`flags.${SYSTEM_ID}.-=alchemy`]: null,
     });
   }
 
@@ -1260,7 +1184,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       return;
     }
 
-    const kind = this.document?.flags?.["uesrpg-3ev4"]?.alchemy?.kind;
+    const kind = this.document?.flags?.[SYSTEM_ID]?.alchemy?.kind;
     if (kind !== "potion") {
       ui.notifications.warn("Only potions can be drunk.");
       return;
@@ -1279,7 +1203,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       return;
     }
 
-    const kind = String(this.document?.flags?.["uesrpg-3ev4"]?.alchemy?.kind ?? "");
+    const kind = String(this.document?.flags?.[SYSTEM_ID]?.alchemy?.kind ?? "");
     if (!(kind === "poison" || kind === "toxin")) {
       ui.notifications.warn("Only poisons and toxins can be applied to weapons.");
       return;
@@ -1564,26 +1488,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   /* ═══════════════════════ Native Non-Click Listeners ═══════════════ */
 
   /**
-   * Ammunition: live-update derived Price/Shot display when Price/10 changes.
-   * Pure DOM math — no document mutation.
-   * @param {HTMLElement} el
-   */
-  _registerAmmunitionListeners(el) {
-    const p10Input = el.querySelector('input[name="system.pricePer10"]');
-    const pShotDisplay = el.querySelector('[data-uesrpg="pricePerShot"]');
-    if (!p10Input || !pShotDisplay) return;
-
-    const refresh = () => {
-      const v = Number(p10Input.value || 0);
-      const ps = Math.round((v / 10) * 100) / 100;
-      pShotDisplay.value = String(ps);
-    };
-
-    p10Input.addEventListener("input", refresh);
-    p10Input.addEventListener("change", refresh);
-  }
-
-  /**
    * Combat Style: auto-save trained equipment (debounced) and special
    * advantages (immediate) without full-form rerender.
    * @param {HTMLElement} el
@@ -1680,7 +1584,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
     // ── Recipe input auto-save (guarded by enableSpellRecipes) ──────────
     let recipesEnabled = false;
-    try { recipesEnabled = game.settings.get("uesrpg-3ev4", "enableSpellRecipes") === true; } catch (_e) { /* noop */ }
+    try { recipesEnabled = game.settings.get(SYSTEM_ID, "enableSpellRecipes") === true; } catch (_e) { /* noop */ }
 
     if (recipesEnabled) {
       const debouncedRecipeUpdate = foundry.utils.debounce(async (recipes) => {
@@ -2093,6 +1997,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
       el = this.element;
       if (!el) return;
+      applySheetDensityClass(el);
+      clearItemDescriptionTooltip(this);
 
       // ── Restore saved UI state ─────────────────────────────────────────
       const state = this._savedState;
@@ -2131,7 +2037,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       el.classList.add(this.document.type);
 
     // Spell template originally also carried class="spell-sheet" on the
-    // <form>; used by spell-sheet-compact.css with a different selector.
+    // <form>; retained for legacy selector compatibility.
       if (this.document.type === "spell") {
         el.classList.add("spell-sheet");
       }
@@ -2147,7 +2053,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
       // ── Type-specific native listeners ───────────────────────────────
       const type = this.document.type;
-      if (type === "ammunition") this._registerAmmunitionListeners(el);
       if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
       if (type === "spell") this._registerSpellListeners(el);
       if (type === "scroll") this._registerScrollListeners(el);
@@ -2166,6 +2071,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
       // ── Re-wire editor buttons (bypasses core activation when _renderHTML is custom) ───
       activateEditorButtons(this, el);
+      bindItemDescriptionTooltips(this, el);
 
     } finally {
       traceSheetPerf({
@@ -2184,6 +2090,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   }
 
   _onClose(options) {
+    clearItemDescriptionTooltip(this);
     return super._onClose(options);
   }
 
@@ -2268,3 +2175,4 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return onDropItemIntoContainer(this, data);
   }
 }
+

@@ -5,11 +5,10 @@
  */
 import { isAnyDebugEnabled, isDebugEnabled } from "../../utils/debug.js";
 
-const FLAG_SCOPE = "uesrpg-3ev4";
-
 export const WOUND_SOCKET_VERSION = 1;
 export const WOUND_SOCKET_TYPES = Object.freeze(["damageApplied", "healingApplied", "resolveShock"]);
 
+// Keep for internal/reference parity with historical wound kind lanes.
 const WOUND_KINDS = Object.freeze([
   "wound",
   "bloodLoss",
@@ -17,6 +16,7 @@ const WOUND_KINDS = Object.freeze([
   "firstAid",
   "shockCard",
   "shockCripple",
+  "shockCrippledLimb",
   "shockCrippleBody",
   "shockStunned",
   "shockLostLimb",
@@ -27,6 +27,7 @@ const WOUND_KINDS = Object.freeze([
 export const SHOCK_KINDS = Object.freeze([
   "shockCard",
   "shockCripple",
+  "shockCrippledLimb",
   "shockCrippleBody",
   "shockStunned",
   "shockLostLimb",
@@ -34,7 +35,28 @@ export const SHOCK_KINDS = Object.freeze([
   "shockLostEye"
 ]);
 
+export const SHOCK_KIND_ALIASES = Object.freeze(new Map([
+  ["shockCrippledLimb", "shockCripple"]
+]));
+
 export const SHOCK_MAGIC_TYPES = Object.freeze(["fire", "frost", "shock", "poison", "magic"]);
+
+export function canonicalizeShockKind(kind) {
+  const raw = String(kind ?? "").trim();
+  if (!raw) return "";
+  return SHOCK_KIND_ALIASES.get(raw) ?? raw;
+}
+
+export function isShockKind(kind) {
+  const canonical = canonicalizeShockKind(kind);
+  return SHOCK_KINDS.includes(canonical);
+}
+
+export function shockKindMatches(candidate, expectedCanonical) {
+  const a = canonicalizeShockKind(candidate);
+  const b = canonicalizeShockKind(expectedCanonical);
+  return Boolean(a) && Boolean(b) && a === b;
+}
 
 export function normalizeDamageTypeKey(dt) {
   const k = String(dt ?? "").trim().toLowerCase();
@@ -135,6 +157,7 @@ export function isActiveGMUser(user) {
   return active.id === user.id;
 }
 
+// Retained for local wounds debug gating compatibility.
 function isWoundsDebugEnabled() {
   if (isDebugEnabled("woundsDebug")) return true;
   return isAnyDebugEnabled(["opposedDebug", "debugSkillTN", "skillRollDebug"]);

@@ -9,46 +9,16 @@
                 <span class="item-stat-label">Quantity</span>
             </div>
             <div class="item-stat">
-                {{#if item.system.encEffective}}
-                    <input type="text" value="{{item.system.encEffective}}" readonly/>
-                    <input type="number" name="system.enc" value="{{item.system.enc}}" data-dtype="Number" class="u-hidden"/>
-                {{else}}
-                    <input type="number" name="system.enc" value="{{item.system.enc}}" data-dtype="Number"/>
-                {{/if}}
+                <input type="number" name="system.enc" value="{{item.system.enc}}" data-dtype="Number"/>
                 <span class="item-stat-label">ENC</span>
             </div>
             <div class="item-stat">
-                {{#if item.system.priceEffective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.priceEffective}}" readonly/>
-                        <input type="number" name="system.price" value="{{item.system.price}}" data-dtype="Number" class="u-hidden"/>
-                    {{else}}
-                        <input type="number" name="system.price" value="{{item.system.price}}" data-dtype="Number"/>
-                    {{/unless}}
-                {{else}}
-                    <input type="number" name="system.price" value="{{item.system.price}}" data-dtype="Number"/>
-                {{/if}}
+                <input type="number" name="system.price" value="{{item.system.price}}" data-dtype="Number"/>
                 <span class="item-stat-label">Price</span>
             </div>
             <div class="item-stat">
-                {{#if item.system.damageEffective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.damageEffective}}" readonly/>
-                        <input type="number" name="system.damage" value="{{item.system.damage}}" data-dtype="Number" class="u-hidden"/>
-                    {{else}}
-                        <input type="number" name="system.damage" value="{{item.system.damage}}" data-dtype="Number"/>
-                    {{/unless}}
-                {{else}}
-                    <input type="number" name="system.damage" value="{{item.system.damage}}" data-dtype="Number"/>
-                {{/if}}
+                <input type="number" name="system.damage" value="{{item.system.damage}}" data-dtype="Number"/>
                 <span class="item-stat-label">Damage</span>
-            </div>
-            <div class="item-stat">
-                <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}" data-dtype="Number"/>
-                {{#if item.system.enchant_levelEffective}}
-                    <div class="effective-hint"><span class="label">Eff</span>{{item.system.enchant_levelEffective}}</div>
-                {{/if}}
-                <span class="item-stat-label">Enchant Lv.</span>
             </div>
         </div>
     </div>
@@ -81,35 +51,27 @@
                         <h2>Attributes</h2>
                         <div class="selection-container">
                             <div class="grid-container">
-                                <div>Price / 10</div>
-                                <div class="right-align-content">
-                                    <input type="number" name="system.pricePer10" value="{{item.system.pricePer10}}" data-dtype="Number"/>
-                                    {{#if item.system.pricePer10Effective}}
-                                        <div class="effective-hint"><span class="label">Eff</span>{{item.system.pricePer10Effective}}</div>
-                                    {{/if}}
-                                </div>
-
-                                <div>Price / Shot</div>
-                                <div class="right-align-content">
-                                    <input type="text" value="{{item.system.pricePerShot}}" data-uesrpg="pricePerShot" readonly/>
-                                    {{#if item.system.pricePerShotEffective}}
-                                        <div class="effective-hint"><span class="label">Eff</span>{{item.system.pricePerShotEffective}}</div>
-                                    {{/if}}
-                                </div>
-<div>Ammo Material</div>
+                                <div>Ammo Material</div>
                                 <div class="right-align-content">
                                     <select name="system.ammoMaterial">
                                         {{selectOptions ammoMaterialOptions selected=item.system.ammoMaterial}}
                                     </select>
                                 </div>
-                                <div>Manual Base Stats</div>
+                                <div>Enchant Level</div>
                                 <div class="right-align-content">
-                                    <input class="checkbox" type="checkbox" name="system.gmOverride.useBaseStats" {{checked item.system.gmOverride.useBaseStats}}>
+                                    <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}" data-dtype="Number"/>
                                 </div>
-
-                                <div>Ignore ENC</div>
-                                <div class="right-align-content">
-                                    <input class="checkbox" type="checkbox" name="system.excludeENC" {{checked item.system.excludeENC}}>
+                                <div>Charge</div>
+                                <div class="right-align-content enchant-inline enchant-charge-inline">
+                                    <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="Decrease current charge">
+                                        <i class="fas fa-minus"></i>
+                                    </button>
+                                    <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input">
+                                    <span class="enchant-charge-sep">/</span>
+                                    <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input">
+                                    <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="Increase current charge">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
                                 </div>
                             </div>
                         </div>

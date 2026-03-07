@@ -30,8 +30,9 @@
  */
 
 import { _num, _str, createDebugLogger } from "../_primitives.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 
 const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][Disintegrate]");
 

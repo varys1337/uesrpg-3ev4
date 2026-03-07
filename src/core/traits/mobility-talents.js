@@ -13,6 +13,7 @@ import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
 import { _lower } from "./_primitives.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { FLAG_SCOPE } from "../system/namespace.js";
 
 function _asInt(v, d = 0) {
   const n = Number(v);
@@ -186,7 +187,7 @@ export function isActorBlockedFromAoOAgainstTarget(actor, target) {
     for (const ef of (actor.effects ?? [])) {
       if (!ef || ef.disabled) continue;
       const changes = Array.isArray(ef.changes) ? ef.changes : [];
-      if (changes.some(ch => String(ch?.key ?? "") === "flags.uesrpg.combat.noAoO" && (String(ch?.value ?? "true") === "true"))) {
+      if (changes.some(ch => String(ch?.key ?? "") === `flags.${FLAG_SCOPE}.combat.noAoO` && (String(ch?.value ?? "true") === "true"))) {
         return true;
       }
     }

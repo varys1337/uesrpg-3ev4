@@ -1,13 +1,14 @@
-/**
+﻿/**
  * src/ui/apps/v2/homebrew-settings.js
  *
  * ApplicationV2 Homebrew settings panel.
  */
 
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
+import { SYSTEM_ID, templatePath } from "../../constants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-const NAMESPACE = "uesrpg-3ev4";
+const NAMESPACE = SYSTEM_ID;
 
 export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
@@ -19,7 +20,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG — Homebrew",
+      title: "UESRPG вЂ” Homebrew",
     },
     position: {
       width: 520,
@@ -29,7 +30,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
 
   static PARTS = {
     form: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/homebrew-settings.hbs",
+      template: templatePath("v2/apps/homebrew-settings.hbs"),
     },
   };
 
@@ -39,6 +40,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
       homebrew: {
         reachLengthEnabled: game.settings.get(NAMESPACE, "homebrew.reachLength.enabled"),
         reachLengthModel:   game.settings.get(NAMESPACE, "homebrew.reachLength.reachModel"),
+        reachLengthAttackerAdvantageOnly: game.settings.get(NAMESPACE, "homebrew.reachLength.attackerAdvantageOnly"),
         engagementFlankingEnabled: game.settings.get(NAMESPACE, "homebrew.engagementFlanking.enabled"),
         engagementFlankingOnlyInCombat: game.settings.get(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat"),
       },
@@ -49,7 +51,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
     const data = formData.object;
     let needsReload = false;
 
-    // ── Speed Formula ──────────────────────────────────────────────────────────
+    // в”Ђв”Ђ Speed Formula в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     if ("homebrew.speedFormulaSBAB" in data) {
       const prev = game.settings.get(NAMESPACE, "homebrew.speedFormulaSBAB");
       const next = Boolean(data["homebrew.speedFormulaSBAB"]);
@@ -57,7 +59,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
       if (prev !== next) needsReload = true;
     }
 
-    // ── Reach & Length Overhaul ────────────────────────────────────────────────
+    // в”Ђв”Ђ Reach & Length Overhaul в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     if ("homebrew.reachLength.enabled" in data) {
       const prev = game.settings.get(NAMESPACE, "homebrew.reachLength.enabled");
       const next = Boolean(data["homebrew.reachLength.enabled"]);
@@ -67,15 +69,18 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
     if ("homebrew.reachLength.reachModel" in data) {
       await game.settings.set(NAMESPACE, "homebrew.reachLength.reachModel", String(data["homebrew.reachLength.reachModel"] ?? "classic"));
     }
+    if ("homebrew.reachLength.attackerAdvantageOnly" in data) {
+      await game.settings.set(NAMESPACE, "homebrew.reachLength.attackerAdvantageOnly", Boolean(data["homebrew.reachLength.attackerAdvantageOnly"]));
+    }
 
-    // ── Engagement & Flanking ───────────────────────────────────────────────
+    // в”Ђв”Ђ Engagement & Flanking в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     if ("homebrew.engagementFlanking.enabled" in data) {
       await game.settings.set(NAMESPACE, "homebrew.engagementFlanking.enabled", Boolean(data["homebrew.engagementFlanking.enabled"]));
     }
     if ("homebrew.engagementFlanking.onlyInCombat" in data) {
       await game.settings.set(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat", Boolean(data["homebrew.engagementFlanking.onlyInCombat"]));
     }
-    // ── Reload prompt ──────────────────────────────────────────────────────────
+    // в”Ђв”Ђ Reload prompt в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     if (needsReload) {
       const reload = await confirmDialog({
         title: "Reload Required",
@@ -89,3 +94,4 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
     }
   }
 }
+

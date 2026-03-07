@@ -2,8 +2,9 @@
  * src/utils/debug.js
  * Centralized debug-gating helpers for UESRPG.
  */
+import { SYSTEM_ID } from "../core/constants.js";
 
-const DEBUG_NAMESPACE = "uesrpg-3ev4";
+const DEBUG_NAMESPACE = SYSTEM_ID;
 const DEBUG_MASTER_SETTING = "debugEnabled";
 
 function _settingExists(key) {
@@ -60,6 +61,26 @@ export function isAnyDebugEnabled(laneSettingKeys = []) {
   return false;
 }
 
+function _resolveConsoleMethod(method = "log") {
+  const resolved = console?.[method];
+  if (typeof resolved === "function") return resolved.bind(console);
+  return console.log.bind(console);
+}
+
+function _createDebugLogger(settingKey, prefix = "", method = "log") {
+  const write = _resolveConsoleMethod(method);
+  if (prefix) {
+    return function _debug(...args) {
+      if (!isDebugEnabled(settingKey)) return;
+      try { write(prefix, ...args); } catch (_e) { /* no-op */ }
+    };
+  }
+  return function _debug(...args) {
+    if (!isDebugEnabled(settingKey)) return;
+    try { write(...args); } catch (_e) { /* no-op */ }
+  };
+}
+
 /**
  * Create a debug-log function gated by a Foundry world setting.
  *
@@ -75,16 +96,20 @@ export function isAnyDebugEnabled(laneSettingKeys = []) {
  * @returns {function(...*): void} A `_debug(...)` function
  */
 export function createDebugLogger(settingKey, prefix = "") {
-  if (prefix) {
-    return function _debug(...args) {
-      if (!isDebugEnabled(settingKey)) return;
-      try { console.log(prefix, ...args); } catch (_e) { /* no-op */ }
-    };
-  }
-  return function _debug(...args) {
-    if (!isDebugEnabled(settingKey)) return;
-    try { console.log(...args); } catch (_e) { /* no-op */ }
-  };
+  return _createDebugLogger(settingKey, prefix, "log");
+}
+
+/**
+ * Create a debug logger gated by a Foundry setting that preserves the chosen
+ * console severity for existing module-local wrappers.
+ *
+ * @param {string} settingKey
+ * @param {string} [prefix=""]
+ * @param {"log"|"debug"|"warn"} [method="log"]
+ * @returns {function(...*): void}
+ */
+export function createSeverityDebugLogger(settingKey, prefix = "", method = "log") {
+  return _createDebugLogger(settingKey, prefix, method);
 }
 
 // ─── Performance profiling helpers ───────────────────────────────────

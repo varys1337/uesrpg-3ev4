@@ -1,0 +1,193 @@
+﻿<fieldset class="attr-fieldset uesrpg-feature-section">
+  <legend>Activation</legend>
+  <div class="uesrpg-feature-activation">
+    <div class="uesrpg-feature-row">
+      <label title="If enabled, using this {{itemKind}} posts an activation card and spends costs">
+        <input class="checkbox" type="checkbox" name="system.activation.enabled" {{checked item.system.activation.enabled}}>
+        Activated
+      </label>
+      <label>
+        Action
+        <select name="system.activation.actionType" data-type="String">
+          {{selectOptions actionTypeOptions selected=item.system.activation.actionType localize=false}}
+        </select>
+      </label>
+      <label title="Deduct configured costs on use">
+        <input class="checkbox" type="checkbox" name="system.activation.spendCosts" {{checked item.system.activation.spendCosts}}>
+        Spend Costs
+      </label>
+      <label title="Consume one use from Usage tracker">
+        <input class="checkbox" type="checkbox" name="system.activation.consumeUse" {{checked item.system.activation.consumeUse}}>
+        Consume Use
+      </label>
+    </div>
+
+    <div class="uesrpg-feature-subheading">Requirements</div>
+    <div class="uesrpg-feature-row">
+      <label><input class="checkbox" type="checkbox" name="system.activation.requirements.requiresTarget" {{checked item.system.activation.requirements.requiresTarget}}> Target</label>
+      <label><input class="checkbox" type="checkbox" name="system.activation.requirements.requiresEquippedWeapon" {{checked item.system.activation.requirements.requiresEquippedWeapon}}> Equipped Weapon</label>
+      <label><input class="checkbox" type="checkbox" name="system.activation.requirements.requiresMelee" {{checked item.system.activation.requirements.requiresMelee}}> Melee</label>
+      <label><input class="checkbox" type="checkbox" name="system.activation.requirements.requiresRanged" {{checked item.system.activation.requirements.requiresRanged}}> Ranged</label>
+      <label><input class="checkbox" type="checkbox" name="system.activation.requirements.requiresHitLocation" {{checked item.system.activation.requirements.requiresHitLocation}}> Hit Location</label>
+    </div>
+
+    {{#if includeNpcFlags}}
+    <div class="uesrpg-feature-subheading">NPC Flags</div>
+    <div class="uesrpg-feature-row">
+      <label><input class="checkbox" type="checkbox" name="system.activation.flags.npcLuckAllowed" {{checked item.system.activation.flags.npcLuckAllowed}}> Allow NPC Luck</label>
+      <label><input class="checkbox" type="checkbox" name="system.activation.flags.npcEliteAllowed" {{checked item.system.activation.flags.npcEliteAllowed}}> Allow NPC Heroic</label>
+    </div>
+    {{/if}}
+
+    {{#if includeRangeAoe}}
+    <div class="uesrpg-feature-subheading">Range &amp; AoE</div>
+    <div class="uesrpg-feature-row">
+      <label>
+        Range
+        <select name="system.rangeType" data-type="String">
+          <option value="none" {{#if (eq item.system.rangeType "none")}}selected{{/if}}>None</option>
+          <option value="ranged" {{#if (eq item.system.rangeType "ranged")}}selected{{/if}}>Ranged</option>
+          <option value="melee" {{#if (eq item.system.rangeType "melee")}}selected{{/if}}>Melee</option>
+          <option value="aoe" {{#if (eq item.system.rangeType "aoe")}}selected{{/if}}>AoE</option>
+        </select>
+      </label>
+      <label>
+        Range Value
+        <input type="text" name="system.range" value="{{item.system.range}}" placeholder="e.g. 100m" />
+      </label>
+    </div>
+    {{#if (eq item.system.rangeType "aoe")}}
+    <div class="uesrpg-feature-row">
+      <label>
+        Shape
+        <select name="system.aoeShape" data-type="String">
+          <option value="circle" {{#if (eq item.system.aoeShape "circle")}}selected{{/if}}>Circle</option>
+          <option value="cone" {{#if (eq item.system.aoeShape "cone")}}selected{{/if}}>Cone</option>
+          <option value="ray" {{#if (eq item.system.aoeShape "ray")}}selected{{/if}}>Ray</option>
+          <option value="rect" {{#if (eq item.system.aoeShape "rect")}}selected{{/if}}>Rect</option>
+          <option value="pulse" {{#if (eq item.system.aoeShape "pulse")}}selected{{/if}}>Pulse</option>
+        </select>
+      </label>
+      <label>Size (m) <input type="number" name="system.aoeSize" value="{{item.system.aoeSize}}" min="0" step="0.5" /></label>
+      <label>Width (m) <input type="number" name="system.aoeWidth" value="{{item.system.aoeWidth}}" min="0" step="0.5" /></label>
+      <label><input class="checkbox" type="checkbox" name="system.aoeIncludeCaster" {{checked item.system.aoeIncludeCaster}}> Affect Caster</label>
+    </div>
+    {{/if}}
+    {{/if}}
+
+    <div class="uesrpg-feature-subheading">Attack</div>
+    <div class="uesrpg-feature-row">
+      <label>
+        Is Attack?
+        <select name="system.activation.roll.mode" data-type="String">
+          <option value="none" {{#if (eq item.system.activation.roll.mode "none")}}selected{{/if}}>No</option>
+          <option value="attack" {{#if (eq item.system.activation.roll.mode "attack")}}selected{{/if}}>Yes</option>
+        </select>
+      </label>
+      {{#if (eq item.system.activation.roll.mode "attack")}}
+      <label>
+        Hit Loc Mode
+        <select name="system.activation.roll.hitLocationMode" data-type="String">
+          {{selectOptions activationHitLocationModeOptions selected=item.system.activation.roll.hitLocationMode localize=false}}
+        </select>
+      </label>
+      {{/if}}
+    </div>
+
+    <div class="uesrpg-feature-subheading">Damage / Healing</div>
+    <div class="uesrpg-feature-row">
+      <label>
+        Mode
+        <select name="system.activation.damage.mode" data-type="String">
+          {{selectOptions activationDamageModeOptions selected=item.system.activation.damage.mode localize=false}}
+        </select>
+      </label>
+      {{#if (eq item.system.activation.damage.mode "manual")}}
+      <label>
+        Formula
+        <input type="text" name="system.activation.damage.formula" value="{{item.system.activation.damage.formula}}" placeholder="e.g., 1d8+2" />
+      </label>
+      <label>
+        Type
+        <select name="system.activation.damage.type" data-type="String">
+          {{selectOptions activationDamageTypeOptions selected=item.system.activation.damage.type localize=false}}
+        </select>
+      </label>
+      {{/if}}
+      {{#if (eq item.system.activation.damage.mode "healing")}}
+      <label>
+        Formula
+        <input type="text" name="system.activation.damage.formula" value="{{item.system.activation.damage.formula}}" placeholder="e.g., 1d8+2" />
+      </label>
+      {{/if}}
+      {{#if (eq item.system.activation.damage.mode "temporary")}}
+      <label>
+        Formula
+        <input type="text" name="system.activation.damage.formula" value="{{item.system.activation.damage.formula}}" placeholder="e.g., 1d6+1" />
+      </label>
+      {{/if}}
+    </div>
+
+    {{#if (eq item.system.activation.damage.mode "manual")}}
+    <div class="u-mt-xs">
+      <div class="u-text-bold u-mb-sm u-text-xs">Damage Qualities</div>
+      <input type="hidden" name="activationDamageQualities.present" value="1" />
+      <div class="structured-qualities-grid">
+        {{#each activationDamageQualitiesCatalog}}
+          <div class="structured-qualities-cell">
+            <div>{{this.label}}</div>
+            <div class="right-align-content">
+              {{#if this.optionalValue}}
+                <div class="structured-optional-value">
+                  <input class="checkbox" type="checkbox" name="activationDamageQualitiesStructured.toggle.{{this.key}}" {{checked (lookup ../activationDamageSelectedToggle this.key)}} />
+                  <input class="structured-value structured-value--opt" type="number" name="activationDamageQualitiesStructured.value.{{this.key}}" value="{{lookup ../activationDamageSelectedValue this.key}}" min="0" step="1" placeholder="X" />
+                </div>
+              {{else}}
+                {{#if this.hasValue}}
+                  <input class="structured-value" type="number" name="activationDamageQualitiesStructured.value.{{this.key}}" value="{{lookup ../activationDamageSelectedValue this.key}}" min="0" step="1" />
+                {{else}}
+                  <input class="checkbox" type="checkbox" name="activationDamageQualitiesStructured.toggle.{{this.key}}" {{checked (lookup ../activationDamageSelectedToggle this.key)}} />
+                {{/if}}
+              {{/if}}
+            </div>
+          </div>
+        {{/each}}
+      </div>
+      <div class="structured-traits-block u-mt-sm">
+        <div class="structured-traits-label">Other Traits</div>
+        <div class="structured-traits-pills">
+          {{#each activationDamageTraitsCatalog}}
+            <label class="uesrpg-pill {{#if this.selected}}is-selected{{/if}}">
+              <input type="checkbox" name="activationDamageQualitiesTraits.toggle.{{this.key}}" {{checked this.selected}} />
+              <span>{{this.label}}</span>
+            </label>
+          {{/each}}
+        </div>
+      </div>
+    </div>
+    {{/if}}
+
+    <div class="uesrpg-feature-subheading">Costs &amp; Usage</div>
+    <div class="uesrpg-feature-costs">
+      <label>AP <input type="number" name="system.activation.costs.action_points" value="{{item.system.activation.costs.action_points}}" min="0" step="1" /></label>
+      <label>SP <input type="number" name="system.activation.costs.stamina" value="{{item.system.activation.costs.stamina}}" min="0" step="1" /></label>
+      <label>MP <input type="number" name="system.activation.costs.magicka" value="{{item.system.activation.costs.magicka}}" min="0" step="1" /></label>
+      <label>LP <input type="number" name="system.activation.costs.luck_points" value="{{item.system.activation.costs.luck_points}}" min="0" step="1" /></label>
+      {{#if includeHealthCost}}
+      <label>HP <input type="number" name="system.activation.costs.health" value="{{item.system.activation.costs.health}}" min="0" step="1" /></label>
+      {{/if}}
+    </div>
+    <div class="uesrpg-feature-costs u-mt-xs">
+      <label>Current <input type="number" name="system.activation.usage.current" value="{{item.system.activation.usage.current}}" min="0" step="1" /></label>
+      <label>Max <input type="number" name="system.activation.usage.max" value="{{item.system.activation.usage.max}}" min="0" step="1" /></label>
+      <label>Reset
+        <select name="system.activation.usage.period" data-type="String">
+          {{selectOptions activationUsagePeriodOptions selected=item.system.activation.usage.period localize=false}}
+        </select>
+      </label>
+      <div class="activation-use-btn-wrap">
+        <button type="button" class="{{useButtonClass}}" data-action="{{useAction}}"><i class="fas fa-bolt"></i> Use</button>
+      </div>
+    </div>
+  </div>
+</fieldset>

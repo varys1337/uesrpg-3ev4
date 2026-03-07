@@ -1,3 +1,4 @@
+﻿import { SYSTEM_ID, templatePath } from "../../constants.js";
 /**
  * src/ui/apps/v2/talents-settings.js
  *
@@ -5,7 +6,7 @@
  */
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-const NAMESPACE = "uesrpg-3ev4";
+const NAMESPACE = SYSTEM_ID;
 
 export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
@@ -17,7 +18,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG — Talents",
+      title: "UESRPG вЂ” Talents",
     },
     position: {
       width: 520,
@@ -27,7 +28,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
 
   static PARTS = {
     form: {
-      template: "systems/uesrpg-3ev4/templates/v2/apps/talents-settings.hbs",
+      template: templatePath("v2/apps/talents-settings.hbs"),
     },
   };
 
@@ -67,3 +68,4 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
     if ("passiveTransferItemTypes" in data) await game.settings.set(NAMESPACE, "passiveTransferItemTypes", String(data.passiveTransferItemTypes ?? "talent,trait,power,skill").trim());
   }
 }
+

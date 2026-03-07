@@ -9,7 +9,7 @@
  */
 
 // ── Debug helpers (canonical source: src/utils/debug.js) ─────────────────────
-export { isDebugEnabled, createDebugLogger } from "../../utils/debug.js";
+export { isDebugEnabled, createDebugLogger, createSeverityDebugLogger } from "../../utils/debug.js";
 
 // ── Coercion helpers (canonical source: src/utils/coerce.js) ─────────────────
 export { _num, _numOrNull, _str, _strTrim } from "../../utils/coerce.js";

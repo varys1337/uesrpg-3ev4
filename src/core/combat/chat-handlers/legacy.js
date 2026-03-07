@@ -2,9 +2,8 @@
  * src/core/combat/chat-handlers/legacy.js
  * Foundry VTT v13-compatible chat card handlers for UESRPG 3ev4.
  *
- * Exports expected by init.js:
+ * Export expected by init.js:
  *  - initializeChatHandlers()
- *  - registerCombatChatHooks()
  *
  * Notes:
  *  - Uses Hooks.on("renderChatMessageHTML") (v13) instead of deprecated renderChatMessage
@@ -14,11 +13,11 @@
 import { applyHealing, DAMAGE_TYPES } from "../damage-automation.js";
 import { applyDamageResolved } from "../damage-resolver.js";
 import { OpposedWorkflow } from "../opposed-workflow.js";
-import { SkillOpposedWorkflow } from "../../skills/opposed-workflow.js";
+import { SkillOpposedWorkflow } from "../../skills/opposed-workflow/index.js";
 import { CharOpposedWorkflow } from "../../characteristics/opposed-workflow.js";
 import { canUserRollActor } from "../../../utils/permissions.js";
 import { resolveShockTestFromChat } from "../../wounds/wound-engine.js";
-import { requestUpdateChatMessage, requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { doesUserOwnActor, requestUpdateChatMessage, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { getDiseaseResistancePercent, isActorImmuneToDamageType } from "../../traits/trait-registry.js";
 import { cloneFlagState } from "../../../utils/clone.js";
 import { getGeneralTalentRerollEligibility, rerollSkillTestFromChatMessage } from "../../traits/general-talents.js";
@@ -52,12 +51,21 @@ import { pushContextOptionOnce } from "./actions/handle-contextmenu.js";
 import { getChatMessageRoot } from "./render/render-chat-message.js";
 import { isApplyDamageButton } from "./cards/attack-card.js";
 import { isApplyHealingButton } from "./cards/damage-card.js";
+import { getMessageIdFromContextLi } from "../../../utils/chat/contextmenu.js";
+import { resolveActorFromUuidSync, resolveUuidSync } from "../../../utils/uuid-cache.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
+import { getFlagValueWithFallback } from "../../system/flags.js";
+
+const _FLAG_NS = FLAG_SCOPE;
 
 let _chatHooksRegistered = false;
 let _chatContextHooksRegistered = false;
 let _ctxMenuDebugHelperRegistered = false;
 let _chatLogContextProbeRegistered = false;
 let _magicOpposedWorkflowModulePromise = null;
+let _createHookRegistered = false;
+let _updateHookRegistered = false;
+let _renderHookRegistered = false;
 
 async function _getMagicOpposedWorkflow() {
   if (!_magicOpposedWorkflowModulePromise) {
@@ -82,6 +90,7 @@ function _ctxMenuDebug(event, payload = {}) {
     // no-op
   }
 }
+
 
 function _registerChatLogContextProbe() {
   if (_chatLogContextProbeRegistered) return;
@@ -115,70 +124,74 @@ let _delegatedChatClickRegistered = false;
 
 function _registerDelegatedChatLogClickHandler() {
   if (_delegatedChatClickRegistered) return;
-  _delegatedChatClickRegistered = true;
-
-  const SELECTOR = [
-    ".apply-damage-btn",
-    ".apply-healing-btn",
-    "[data-ues-opposed-action]",
-    "[data-ues-skill-opposed-action]",
-    "[data-ues-char-opposed-action]",
-    "[data-ues-magic-opposed-action]",
-    "[data-ues-shock-action]",
-    "[data-ues-disease-action]",
-    "[data-ues-regeneration-action]",
-    "[data-ues-special-action]",
-    "[data-ues-action-card-toggle]",
-  ].join(", ");
-  registerDelegatedChatLogClickHandler({
-    selector: SELECTOR,
-    isBound: (chatLog) => chatLog.dataset.uesrpgDelegatedClick === "1",
-    markBound: (chatLog) => {
-      chatLog.dataset.uesrpgDelegatedClick = "1";
-    },
-    resolveMessageFromButton: (btn) => {
-      const li = btn.closest("li.chat-message, .chat-message, .message, [data-message-id]");
-      const messageId = _getMessageIdFromContextLi(li);
-      return messageId ? game.messages?.get?.(messageId) : null;
-    },
-    dispatch: async (delegatedEv, btn, message) => {
-      try {
-        if (isApplyDamageButton(btn)) return _onApplyDamage(delegatedEv, message);
-        if (isApplyHealingButton(btn)) return _onApplyHealing(delegatedEv, message);
-        if (btn.hasAttribute("data-ues-opposed-action")) return _onOpposedAction(delegatedEv, message);
-        if (btn.hasAttribute("data-ues-skill-opposed-action")) return _onSkillOpposedAction(delegatedEv, message);
-        if (btn.hasAttribute("data-ues-char-opposed-action")) return _onCharOpposedAction(delegatedEv, message);
-        if (btn.hasAttribute("data-ues-magic-opposed-action")) {
-          delegatedEv.stopImmediatePropagation?.();
-          return _onMagicOpposedAction(delegatedEv, message);
+  try {
+    const SELECTOR = [
+      ".apply-damage-btn",
+      ".apply-healing-btn",
+      "[data-ues-opposed-action]",
+      "[data-ues-skill-opposed-action]",
+      "[data-ues-char-opposed-action]",
+      "[data-ues-magic-opposed-action]",
+      "[data-ues-shock-action]",
+      "[data-ues-disease-action]",
+      "[data-ues-regeneration-action]",
+      "[data-ues-special-action]",
+      "[data-ues-action-card-toggle]",
+    ].join(", ");
+    registerDelegatedChatLogClickHandler({
+      selector: SELECTOR,
+      isBound: (chatLog) => chatLog.dataset.uesrpgDelegatedClick === "1",
+      markBound: (chatLog) => {
+        chatLog.dataset.uesrpgDelegatedClick = "1";
+      },
+      resolveMessageFromButton: (btn) => {
+        const li = btn.closest("li.chat-message, .chat-message, .message, [data-message-id]");
+        const messageId = _getMessageIdFromContextLi(li);
+        return messageId ? game.messages?.get?.(messageId) : null;
+      },
+      dispatch: async (delegatedEv, btn, message) => {
+        try {
+          if (isApplyDamageButton(btn)) return _onApplyDamage(delegatedEv, message);
+          if (isApplyHealingButton(btn)) return _onApplyHealing(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-opposed-action")) return _onOpposedAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-skill-opposed-action")) return _onSkillOpposedAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-char-opposed-action")) return _onCharOpposedAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-magic-opposed-action")) {
+            delegatedEv.stopImmediatePropagation?.();
+            return _onMagicOpposedAction(delegatedEv, message);
+          }
+          if (btn.hasAttribute("data-ues-shock-action")) return _onShockAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-disease-action")) return _onDiseaseAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-regeneration-action")) return _onRegenerationAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-special-action")) {
+            delegatedEv.preventDefault?.();
+            const action = btn.dataset.uesSpecialAction;
+            const { handleSpecialActionCardAction } = await import("../special-actions-helper.js");
+            return handleSpecialActionCardAction(message, action);
+          }
+          if (btn.hasAttribute("data-ues-action-card-toggle")) {
+            delegatedEv.preventDefault?.();
+            const card = btn.closest(".uesrpg-action-card[data-ues-action-card]");
+            if (!card) return;
+            const body = card.querySelector("[data-ues-action-card-body]");
+            if (!body) return;
+            const nextExpanded = body.style.display === "none";
+            body.style.display = nextExpanded ? "" : "none";
+            body.setAttribute("aria-hidden", nextExpanded ? "false" : "true");
+            card.dataset.uesActionCardExpanded = nextExpanded ? "1" : "0";
+            btn.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
+            btn.textContent = nextExpanded ? "Collapse" : "Expand";
+          }
+        } catch (err) {
+          console.error("UESRPG | Delegated chat handler failed", err);
         }
-        if (btn.hasAttribute("data-ues-shock-action")) return _onShockAction(delegatedEv, message);
-        if (btn.hasAttribute("data-ues-disease-action")) return _onDiseaseAction(delegatedEv, message);
-        if (btn.hasAttribute("data-ues-regeneration-action")) return _onRegenerationAction(delegatedEv, message);
-        if (btn.hasAttribute("data-ues-special-action")) {
-          delegatedEv.preventDefault?.();
-          const action = btn.dataset.uesSpecialAction;
-          const { handleSpecialActionCardAction } = await import("../special-actions-helper.js");
-          return handleSpecialActionCardAction(message, action);
-        }
-        if (btn.hasAttribute("data-ues-action-card-toggle")) {
-          delegatedEv.preventDefault?.();
-          const card = btn.closest(".uesrpg-action-card[data-ues-action-card]");
-          if (!card) return;
-          const body = card.querySelector("[data-ues-action-card-body]");
-          if (!body) return;
-          const nextExpanded = body.style.display === "none";
-          body.style.display = nextExpanded ? "" : "none";
-          body.setAttribute("aria-hidden", nextExpanded ? "false" : "true");
-          card.dataset.uesActionCardExpanded = nextExpanded ? "1" : "0";
-          btn.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
-          btn.textContent = nextExpanded ? "Collapse" : "Expand";
-        }
-      } catch (err) {
-        console.error("UESRPG | Delegated chat handler failed", err);
-      }
-    },
-  });
+      },
+    });
+    _delegatedChatClickRegistered = true;
+  } catch (err) {
+    _delegatedChatClickRegistered = false;
+    console.error("UESRPG | Failed to register delegated chat click handler", err);
+  }
 }
 
 /**
@@ -188,7 +201,7 @@ function _registerDelegatedChatLogClickHandler() {
  * @returns {Actor|null}
  */
 async function _maybeConsumeAmmoFromMessage(message) {
-  const opposed = message?.flags?.["uesrpg-3ev4"]?.opposed;
+  const opposed = message?.flags?.[_FLAG_NS]?.opposed;
   const pendingAmmo = opposed?.pendingAmmo ?? null;
   if (!pendingAmmo) return;
   if (opposed?.ammoConsumed) return;
@@ -200,17 +213,16 @@ async function _maybeConsumeAmmoFromMessage(message) {
 
   const ok = await OpposedWorkflow.consumePendingAmmo(pendingAmmo);
   await requestUpdateChatMessage(message, {
-    "flags.uesrpg-3ev4.opposed.ammoConsumed": true,
-    "flags.uesrpg-3ev4.opposed.ammoConsumedOk": !!ok,
-    "flags.uesrpg-3ev4.opposed.ammoConsumedAt": Date.now(),
+    [`flags.${_FLAG_NS}.opposed.ammoConsumed`]: true,
+    [`flags.${_FLAG_NS}.opposed.ammoConsumedOk`]: !!ok,
+    [`flags.${_FLAG_NS}.opposed.ammoConsumedAt`]: Date.now(),
   });
 }
 
 function _resolveActor(message, uuid) {
   if (uuid) {
-    const doc = fromUuidSync(uuid);
-    if (doc?.actor) return doc.actor;
-    if (doc?.documentName === "Actor") return doc;
+    const actor = resolveActorFromUuidSync(uuid);
+    if (actor) return actor;
   }
   const sp = message?.speaker;
   if (sp?.token) return canvas?.tokens?.get(sp.token)?.actor ?? null;
@@ -227,23 +239,18 @@ function _getWhisperRecipients(actor) {
       out.add(user.id);
       continue;
     }
-    const hasOwner = typeof actor?.testUserPermission === "function"
-      ? actor.testUserPermission(user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER)
-      : Number(actor?.ownership?.[user.id] ?? 0) >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
-    if (hasOwner) out.add(user.id);
+    if (doesUserOwnActor(user, actor)) out.add(user.id);
   }
   return Array.from(out);
 }
 
 function _getSkillTestFlags(message) {
-  const st = message?.flags?.uesrpg?.skillTest ?? null;
-  if (st && typeof st === "object") return st;
-  const st2 = message?.flags?.["uesrpg-3ev4"]?.skillTest ?? null;
-  return (st2 && typeof st2 === "object") ? st2 : null;
+  const st = getFlagValueWithFallback(message, "skillTest");
+  return (st && typeof st === "object") ? st : null;
 }
 
 function _isTalentRerollUsed(message) {
-  const r = message?.flags?.uesrpg?.reroll ?? null;
+  const r = getFlagValueWithFallback(message, "reroll");
   return Boolean(r?.used === true || r?.isReroll === true);
 }
 
@@ -327,9 +334,7 @@ function _injectTalentRerollButton(message, root) {
 }
 
 function _getImperialLuckSpentLp(message) {
-  const a = Number(message?.flags?.uesrpg?.imperialLuck?.lpSpent ?? 0) || 0;
-  const b = Number(message?.flags?.["uesrpg-3ev4"]?.imperialLuck?.lpSpent ?? 0) || 0;
-  return Math.max(0, Math.max(a, b));
+  return Number(getFlagValueWithFallback(message, "imperialLuck.lpSpent") ?? 0) || 0;
 }
 
 function _canUserSpendLuckForActor(actor) {
@@ -406,18 +411,14 @@ function _injectImperialLuckDoSButton(message, root) {
 
         const stNow = _getSkillTestFlags(freshMsg) ?? st;
         const currentDegree = Number(stNow?.degree ?? 0) || 0;
-        const alreadyAdded = Number(freshMsg?.flags?.uesrpg?.imperialLuck?.dosAdded ?? freshMsg?.flags?.["uesrpg-3ev4"]?.imperialLuck?.dosAdded ?? 0) || 0;
+        const alreadyAdded = Number(getFlagValueWithFallback(freshMsg, "imperialLuck.dosAdded") ?? 0) || 0;
         const nextDegree = Math.max(0, currentDegree + add);
 
         await requestUpdateChatMessage(message, {
-          "flags.uesrpg.imperialLuck.lpSpent": spent + 1,
-          "flags.uesrpg.imperialLuck.dosAdded": alreadyAdded + add,
-          "flags.uesrpg.skillTest.degree": nextDegree,
-          "flags.uesrpg.skillTest.textual": `${nextDegree} DoS`,
-          "flags.uesrpg-3ev4.imperialLuck.lpSpent": spent + 1,
-          "flags.uesrpg-3ev4.imperialLuck.dosAdded": alreadyAdded + add,
-          "flags.uesrpg-3ev4.skillTest.degree": nextDegree,
-          "flags.uesrpg-3ev4.skillTest.textual": `${nextDegree} DoS`,
+          [`flags.${_FLAG_NS}.imperialLuck.lpSpent`]: spent + 1,
+          [`flags.${_FLAG_NS}.imperialLuck.dosAdded`]: alreadyAdded + add,
+          [`flags.${_FLAG_NS}.skillTest.degree`]: nextDegree,
+          [`flags.${_FLAG_NS}.skillTest.textual`]: `${nextDegree} DoS`,
         });
 
         await ChatMessage.create({
@@ -454,7 +455,7 @@ function _injectImperialLuckDoSButton(message, root) {
  * No-ops silently if the message is not an opposed card.
  */
 async function _markInlineDamageApplied(message, targetUuid) {
-  const raw = message?.flags?.["uesrpg-3ev4"]?.opposed;
+  const raw = message?.flags?.[_FLAG_NS]?.opposed;
   if (!raw) return;
   const data = foundry.utils.deepClone(raw);
 
@@ -521,7 +522,6 @@ async function _markMagicInlineDamageApplied(message, targetUuid) {
   setMagicDefenderDamage(data, defender, dmg);
 
   // Re-render the magic opposed card
-  const _FLAG_NS = "uesrpg-3ev4";
   const _FLAG_KEY = "magicOpposed";
   const version = Number(raw.version ?? 2);
   const content = renderMagicCard(data, message.id);
@@ -577,15 +577,8 @@ async function _onApplyMagicDamage(ev, message, btn) {
   }
 
   // Resolve spell and caster from UUIDs
-  let spell = null;
-  let casterActor = null;
-  try { spell = mp.spellUuid ? fromUuidSync(mp.spellUuid) : null; } catch (_e) { /* no-op */ }
-  try {
-    if (mp.casterUuid) {
-      const c = fromUuidSync(mp.casterUuid);
-      casterActor = c?.documentName === "Actor" ? c : (c?.actor ?? null);
-    }
-  } catch (_e) { /* no-op */ }
+  const spell = mp.spellUuid ? resolveUuidSync(mp.spellUuid) : null;
+  const casterActor = mp.casterUuid ? resolveActorFromUuidSync(mp.casterUuid) : null;
 
   // Handle effects-only spells (non-damaging hits)
   if (mp.isDamaging === false && !mp.isHealing) {
@@ -711,15 +704,8 @@ async function _onApplyMagicHealing(ev, message, btn) {
   }
 
   // Resolve spell and caster from UUIDs
-  let spell = null;
-  let casterActor = null;
-  try { spell = mp.spellUuid ? fromUuidSync(mp.spellUuid) : null; } catch (_e) { /* no-op */ }
-  try {
-    if (mp.casterUuid) {
-      const c = fromUuidSync(mp.casterUuid);
-      casterActor = c?.documentName === "Actor" ? c : (c?.actor ?? null);
-    }
-  } catch (_e) { /* no-op */ }
+  const spell = mp.spellUuid ? resolveUuidSync(mp.spellUuid) : null;
+  const casterActor = mp.casterUuid ? resolveActorFromUuidSync(mp.casterUuid) : null;
 
   // Apply magic healing
   const healResult = await applyMagicHealing(targetActor, Number(mp.damage ?? 0), spell, {
@@ -769,6 +755,7 @@ async function _onApplyDamage(ev, message) {
   const dosBonus = Number(btn.dataset.dosBonus || 0);
   const penetration = Number(btn.dataset.penetration || 0);
   const hitLocation = btn.dataset.hitLocation || "Body";
+  const damagedValue = Number(btn.dataset.damagedValue || 0);
   const source = btn.dataset.source || (message?.speaker?.alias ?? "Unknown");
   const penetrateArmorForTriggers = String(btn.dataset.penetrateArmor ?? "0") === "1";
 	const forcefulImpact = String(btn.dataset.forcefulImpact ?? "0") === "1";
@@ -793,25 +780,8 @@ async function _onApplyDamage(ev, message) {
     return;
   }
 
-  let attackerActor = null;
-  let weapon = null;
-
-  try {
-    if (attackerActorUuid) {
-      const a = fromUuidSync(attackerActorUuid);
-      attackerActor = (a?.documentName === "Actor") ? a : (a?.actor ?? null);
-    }
-  } catch (_e) {
-    attackerActor = null;
-  }
-
-  try {
-    if (weaponUuid) {
-      weapon = fromUuidSync(weaponUuid) ?? null;
-    }
-  } catch (_e) {
-    weapon = null;
-  }
+  const attackerActor = attackerActorUuid ? resolveActorFromUuidSync(attackerActorUuid) : null;
+  const weapon = weaponUuid ? resolveUuidSync(weaponUuid) : null;
 
   await applyDamageResolved(targetActor, {
     rawDamage,
@@ -819,6 +789,7 @@ async function _onApplyDamage(ev, message) {
     dosBonus,
     penetration,
     hitLocation,
+    damagedValue,
     source,
     ignoreReduction,
     penetrateArmorForTriggers,
@@ -890,6 +861,7 @@ async function _onMagicOpposedAction(ev, message) {
   await MagicOpposedWorkflow.handleAction(message, action, { defenderIndex, event: ev });
 }
 
+
 function _getSkillOpposedState(message) {
   const raw = message?.flags?.["uesrpg-3ev4"]?.skillOpposed;
   if (!raw) return null;
@@ -907,55 +879,18 @@ function _getCharOpposedState(message) {
 }
 
 function _getMessageIdFromContextLi(li) {
-  if (!li) return null;
-  const el = li instanceof HTMLElement ? li : li?.[0];
-  if (el?.dataset?.messageId) {
-    const out = String(el.dataset.messageId);
-    _ctxMenuDebug("resolveMessageId.dataset", { out });
-    return out;
+  const out = getMessageIdFromContextLi(li);
+  if (out) {
+    _ctxMenuDebug("resolveMessageId.shared", { out });
+  } else {
+    const el = li instanceof HTMLElement ? li : li?.[0];
+    _ctxMenuDebug("resolveMessageId.failed", {
+      hasElement: Boolean(el),
+      elementId: String(el?.id ?? ""),
+      dataMessageId: String(el?.dataset?.messageId ?? "")
+    });
   }
-  if (el?.getAttribute) {
-    const attrId = String(el.getAttribute("data-message-id") ?? "").trim();
-    if (attrId) {
-      _ctxMenuDebug("resolveMessageId.data-message-id", { out: attrId });
-      return attrId;
-    }
-    const elId = String(el.id ?? "").trim();
-    const m = /^chat-message-(.+)$/.exec(elId);
-    if (m?.[1]) {
-      const out = String(m[1]);
-      _ctxMenuDebug("resolveMessageId.element-id", { elementId: elId, out });
-      return out;
-    }
-  }
-  if (typeof li?.data === "function") {
-    const id = li.data("messageId");
-    if (id != null) {
-      const out = String(id);
-      _ctxMenuDebug("resolveMessageId.jquery-data", { out });
-      return out;
-    }
-  }
-  if (typeof li?.attr === "function") {
-    const attrId = String(li.attr("data-message-id") ?? "").trim();
-    if (attrId) {
-      _ctxMenuDebug("resolveMessageId.jquery-attr-data-message-id", { out: attrId });
-      return attrId;
-    }
-    const elId = String(li.attr("id") ?? "").trim();
-    const m = /^chat-message-(.+)$/.exec(elId);
-    if (m?.[1]) {
-      const out = String(m[1]);
-      _ctxMenuDebug("resolveMessageId.jquery-id", { elementId: elId, out });
-      return out;
-    }
-  }
-  _ctxMenuDebug("resolveMessageId.failed", {
-    hasElement: Boolean(el),
-    elementId: String(el?.id ?? ""),
-    dataMessageId: String(el?.dataset?.messageId ?? "")
-  });
-  return null;
+  return out;
 }
 
 function _getSingleUserSelectedToken() {
@@ -1030,12 +965,7 @@ async function _onShockAction(event, message) {
     return;
   }
 
-  let actor = null;
-  try {
-    actor = fromUuidSync(actorUuid);
-  } catch (_e) {
-    actor = null;
-  }
+  const actor = resolveActorFromUuidSync(actorUuid) ?? resolveUuidSync(actorUuid);
 
   if (!actor) {
     ui.notifications?.warn?.("Shock: actor not found.");
@@ -1081,9 +1011,9 @@ async function _onDiseaseAction(event, message) {
 
   if (isActorImmuneToDamageType(actor, "disease")) {
     await requestUpdateChatMessage(message, {
-      "flags.uesrpg-3ev4.diseaseCheck.resolved": true,
-      "flags.uesrpg-3ev4.diseaseCheck.resolvedAt": Date.now(),
-      "flags.uesrpg-3ev4.diseaseCheck.result": { passed: true, resisted: true, immune: true }
+      [`flags.${_FLAG_NS}.diseaseCheck.resolved`]: true,
+      [`flags.${_FLAG_NS}.diseaseCheck.resolvedAt`]: Date.now(),
+      [`flags.${_FLAG_NS}.diseaseCheck.result`]: { passed: true, resisted: true, immune: true }
     });
 
     await ChatMessage.create({
@@ -1117,9 +1047,9 @@ async function _onDiseaseAction(event, message) {
   }
 
   await requestUpdateChatMessage(message, {
-    "flags.uesrpg-3ev4.diseaseCheck.resolved": true,
-    "flags.uesrpg-3ev4.diseaseCheck.resolvedAt": Date.now(),
-    "flags.uesrpg-3ev4.diseaseCheck.result": { passed, resisted }
+    [`flags.${_FLAG_NS}.diseaseCheck.resolved`]: true,
+    [`flags.${_FLAG_NS}.diseaseCheck.resolvedAt`]: Date.now(),
+    [`flags.${_FLAG_NS}.diseaseCheck.result`]: { passed, resisted }
   });
 
   const outcome = passed
@@ -1180,9 +1110,9 @@ async function _onRegenerationAction(event, message) {
   const passed = Number(roll.total ?? 0) <= tn;
 
   await requestUpdateChatMessage(message, {
-    "flags.uesrpg-3ev4.regenerationPrompt.resolved": true,
-    "flags.uesrpg-3ev4.regenerationPrompt.resolvedAt": Date.now(),
-    "flags.uesrpg-3ev4.regenerationPrompt.result": { passed }
+    [`flags.${_FLAG_NS}.regenerationPrompt.resolved`]: true,
+    [`flags.${_FLAG_NS}.regenerationPrompt.resolvedAt`]: Date.now(),
+    [`flags.${_FLAG_NS}.regenerationPrompt.result`]: { passed }
   });
 
   if (passed) {
@@ -1232,16 +1162,16 @@ function _isRelevantOpposedUpdate(changes) {
   // Dot-path style updates (defensive; some update payloads may include these).
   for (const k of Object.keys(changes)) {
     if (k === "content") return true;
-    if (typeof k === "string" && k.startsWith("flags.uesrpg-3ev4.opposed")) return true;
-    if (typeof k === "string" && k.startsWith("flags.uesrpg-3ev4.skillOpposed")) return true;
-    if (typeof k === "string" && k.startsWith("flags.uesrpg-3ev4.charOpposed")) return true;
-    if (typeof k === "string" && k.startsWith("flags.uesrpg-3ev4.magicOpposed")) return true;
+    if (typeof k === "string" && k.startsWith(`flags.${_FLAG_NS}.opposed`)) return true;
+    if (typeof k === "string" && k.startsWith(`flags.${_FLAG_NS}.skillOpposed`)) return true;
+    if (typeof k === "string" && k.startsWith(`flags.${_FLAG_NS}.charOpposed`)) return true;
+    if (typeof k === "string" && k.startsWith(`flags.${_FLAG_NS}.magicOpposed`)) return true;
   }
 
   // Nested flags update payloads.
   const flags = changes.flags;
   if (flags && typeof flags === "object") {
-    const ns = flags["uesrpg-3ev4"];
+    const ns = flags[_FLAG_NS];
     if (ns && typeof ns === "object") {
       if (Object.prototype.hasOwnProperty.call(ns, "opposed")) return true;
       if (Object.prototype.hasOwnProperty.call(ns, "skillOpposed")) return true;
@@ -1264,19 +1194,20 @@ function _isContentOnlyUpdate(changes) {
  * Register chat handlers (v13).
  */
 export function initializeChatHandlers() {
-  if (_chatHooksRegistered) {
-    _ctxMenuDebug("initializeChatHandlers.skipAlreadyRegistered", {
-      chatHooksRegistered: _chatHooksRegistered,
-      contextHooksRegistered: _chatContextHooksRegistered
-    });
+  if (_chatHooksRegistered && _createHookRegistered && _updateHookRegistered && _renderHookRegistered) {
     return;
   }
-  _chatHooksRegistered = true;
-  _ctxMenuDebug("initializeChatHandlers.start", { chatHooksRegistered: _chatHooksRegistered });
-  _registerChatLogContextProbe();
+
+  try {
+    _registerChatLogContextProbe();
+  } catch (err) {
+    console.error("UESRPG | Failed to register chat context probe", err);
+  }
+
   _registerDelegatedChatLogClickHandler();
 
-  Hooks.on("createChatMessage", (message) => {
+  if (!_createHookRegistered) {
+    Hooks.on("createChatMessage", (message) => {
     _maybeConsumeAmmoFromMessage(message).catch((err) => console.error("UESRPG | Ammo consumption hook failed", err));
 
     // Opposed workflows: bank attacker/defender roll results into the parent opposed card.
@@ -1337,11 +1268,12 @@ export function initializeChatHandlers() {
     } catch (err) {
       console.error("UESRPG | Char opposed external roll banking hook failed", err);
     }
-  });
+    });
+    _createHookRegistered = true;
+  }
 
-
-
-  Hooks.on("updateChatMessage", (message, changes, _options, _userId) => {
+  if (!_updateHookRegistered) {
+    Hooks.on("updateChatMessage", (message, changes, _options, _userId) => {
     // Banked-choice opposed workflows: once both sides have committed, rolling proceeds automatically.
     // Guard against unrelated message updates to minimize hook overhead.
     try {
@@ -1410,10 +1342,13 @@ export function initializeChatHandlers() {
     } catch (err) {
       console.error("UESRPG | Opposed banked auto-roll update hook failed", err);
     }
-  });
+    });
+    _updateHookRegistered = true;
+  }
 
 
-  Hooks.on("renderChatMessageHTML", (message, html) => {
+  if (!_renderHookRegistered) {
+    Hooks.on("renderChatMessageHTML", (message, html) => {
     // html is an HTMLElement in v13, but some modules provide a jQuery wrapper.
     const root = getChatMessageRoot(html);
     if (!root) return;
@@ -1425,15 +1360,30 @@ export function initializeChatHandlers() {
     root.querySelectorAll("[data-ues-skill-opposed-action]").forEach((el) => {
       const action = el.dataset.uesSkillOpposedAction;
       const data = _getSkillOpposedState(message);
-      let actor = null;
-      try {
-        const actorUuid = (action === "attacker-roll") ? data?.attacker?.actorUuid : (action === "defender-roll") ? data?.defender?.actorUuid : null;
-        actor = actorUuid ? fromUuidSync(actorUuid) : null;
-      } catch (_e) {
-        actor = null;
-      }
+      const actorUuid = (action === "attacker-roll") ? data?.attacker?.actorUuid : (action === "defender-roll") ? data?.defender?.actorUuid : null;
+      const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
 
       // Permission-aware button state
+      if (actor && !canUserRollActor(game.user, actor)) {
+        el.setAttribute("disabled", "disabled");
+        el.setAttribute("title", "You do not have permission to roll for this actor.");
+      }
+    });
+
+    // Magic opposed-roll chat card buttons (permission gate + direct fallback binding).
+    root.querySelectorAll("[data-ues-magic-opposed-action]").forEach((el) => {
+      const action = el.dataset.uesMagicOpposedAction;
+      const raw = getMagicMessageState(message);
+      const data = raw?.state ?? raw ?? null;
+      const defenderIndexRaw = el.dataset?.defenderIndex;
+      const defenderIndex = Number.isFinite(Number(defenderIndexRaw)) ? Number(defenderIndexRaw) : null;
+      const defenders = getMagicDefenderEntries(data);
+      const defender = (defenderIndex != null && Array.isArray(defenders)) ? defenders[defenderIndex] : (data?.defender ?? null);
+      const actorUuid = (action === "attacker-roll" || action === "attacker-commit")
+        ? data?.attacker?.actorUuid
+        : (action?.startsWith?.("defender-") ? defender?.actorUuid : null);
+      const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
+
       if (actor && !canUserRollActor(game.user, actor)) {
         el.setAttribute("disabled", "disabled");
         el.setAttribute("title", "You do not have permission to roll for this actor.");
@@ -1451,13 +1401,8 @@ export function initializeChatHandlers() {
     root.querySelectorAll("[data-ues-char-opposed-action]").forEach((el) => {
       const action = el.dataset.uesCharOpposedAction;
       const data = _getCharOpposedState(message);
-      let actor = null;
-      try {
-        const actorUuid = (action === "attacker-roll") ? data?.attacker?.actorUuid : (action === "defender-roll") ? data?.defender?.actorUuid : null;
-        actor = actorUuid ? fromUuidSync(actorUuid) : null;
-      } catch (_e) {
-        actor = null;
-      }
+      const actorUuid = (action === "attacker-roll") ? data?.attacker?.actorUuid : (action === "defender-roll") ? data?.defender?.actorUuid : null;
+      const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
 
       // Permission-aware button state
       if (actor && !canUserRollActor(game.user, actor)) {
@@ -1469,12 +1414,7 @@ export function initializeChatHandlers() {
     // Shock Test chat card buttons (Wounds).
     root.querySelectorAll("[data-ues-shock-action]").forEach((el) => {
       const actorUuid = el.dataset.actorUuid;
-      let actor = null;
-      try {
-        actor = actorUuid ? fromUuidSync(actorUuid) : null;
-      } catch (_e) {
-        actor = null;
-      }
+      const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
 
       if (actor && !canUserRollActor(game.user, actor)) {
         el.setAttribute("disabled", "disabled");
@@ -1485,12 +1425,7 @@ export function initializeChatHandlers() {
     // Disease check buttons
     root.querySelectorAll("[data-ues-disease-action]").forEach((el) => {
       const actorUuid = el.dataset.actorUuid;
-      let actor = null;
-      try {
-        actor = actorUuid ? fromUuidSync(actorUuid) : null;
-      } catch (_e) {
-        actor = null;
-      }
+      const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
 
       if (actor && !canUserRollActor(game.user, actor)) {
         el.setAttribute("disabled", "disabled");
@@ -1501,12 +1436,7 @@ export function initializeChatHandlers() {
     // Regeneration check buttons
     root.querySelectorAll("[data-ues-regeneration-action]").forEach((el) => {
       const actorUuid = el.dataset.actorUuid;
-      let actor = null;
-      try {
-        actor = actorUuid ? fromUuidSync(actorUuid) : null;
-      } catch (_e) {
-        actor = null;
-      }
+      const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
 
       if (actor && !canUserRollActor(game.user, actor)) {
         el.setAttribute("disabled", "disabled");
@@ -1518,18 +1448,13 @@ export function initializeChatHandlers() {
     root.querySelectorAll("[data-ues-special-action]").forEach((el) => {
       const action = el.dataset.uesSpecialAction;
 
-      let actor = null;
-      try {
-        const state = message.flags?.["uesrpg-3ev4"]?.specialActionOpposed?.state;
-        const actorUuid = (action === "attacker-roll")
-          ? state?.attacker?.actorUuid
-          : (action === "defender-roll")
-            ? state?.defender?.actorUuid
-            : null;
-        actor = actorUuid ? fromUuidSync(actorUuid) : null;
-      } catch (_e) {
-        actor = null;
-      }
+      const state = message.flags?.["uesrpg-3ev4"]?.specialActionOpposed?.state;
+      const actorUuid = (action === "attacker-roll")
+        ? state?.attacker?.actorUuid
+        : (action === "defender-roll")
+          ? state?.defender?.actorUuid
+          : null;
+      const actor = actorUuid ? resolveActorFromUuidSync(actorUuid) : null;
 
       if (actor && !canUserRollActor(game.user, actor)) {
         el.setAttribute("disabled", "disabled");
@@ -1570,7 +1495,28 @@ export function initializeChatHandlers() {
 
     // Imperial racial talent: Imperial Luck (Chapter 4) spend LP for extra DoS on successful tests.
     _injectImperialLuckDoSButton(message, root);
-  });
+
+    // Scroll chat to bottom when the last message renders (new card or card update).
+    // Uses requestAnimationFrame so scrollHeight reflects the final post-render layout.
+    // This covers all clients — both the authority machine (render: false + render(true) path)
+    // and player machines that receive updates via Foundry's normal document sync.
+    const _lastMsg = game.messages?.contents?.at(-1);
+    if (_lastMsg && message.id === _lastMsg.id) {
+      requestAnimationFrame(() => ui.chat?.scrollBottom?.());
+    }
+
+    // Scroll to bottom when a <details> TN breakdown is expanded on the last message.
+    // Only scoped to the last message to avoid yanking the view when expanding old cards.
+    if (_lastMsg && message.id === _lastMsg.id) {
+      root.querySelectorAll("details").forEach((el) => {
+        el.addEventListener("toggle", () => {
+          if (el.open) requestAnimationFrame(() => ui.chat?.scrollBottom?.());
+        });
+      });
+    }
+    });
+    _renderHookRegistered = true;
+  }
 
   if (!_chatContextHooksRegistered) {
     _chatContextHooksRegistered = true;
@@ -1711,11 +1657,5 @@ export function initializeChatHandlers() {
       registerLuckContextMenuOptions("getChatLogEntryContext", options);
     });
   }
-	}
-
-/**
- * Backwards-compatible export expected by some init scripts.
- */
-export function registerCombatChatHooks() {
-  initializeChatHandlers();
+  _chatHooksRegistered = _createHookRegistered && _updateHookRegistered && _renderHookRegistered;
 }

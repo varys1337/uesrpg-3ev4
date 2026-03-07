@@ -3,79 +3,36 @@
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
     <div class="item-header-fields">
         <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
-        <div class="item-stats-row">
-            <div class="item-stat">
-                <input type="number" name="system.quantity" value="{{item.system.quantity}}"/>
-                <span class="item-stat-label">Quantity</span>
-            </div>
-            <div class="item-stat">
-                {{#if item.system.encEffective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.encEffective}}" readonly/>
-                        <input type="number" name="system.enc" value="{{item.system.enc}}" class="u-hidden"/>
-                    {{else}}
-                        <input type="number" name="system.enc" value="{{item.system.enc}}"/>
-                    {{/unless}}
-                {{else}}
+        <div class="item-stats-row item-stats-row--weapon-armor">
+            <div class="item-stats-grid item-stats-grid--two-rows">
+                <div class="item-stat">
+                    <input type="number" name="system.quantity" value="{{item.system.quantity}}"/>
+                    <span class="item-stat-label">Quantity</span>
+                </div>
+                <div class="item-stat">
                     <input type="number" name="system.enc" value="{{item.system.enc}}"/>
-                {{/if}}
-                <span class="item-stat-label">ENC</span>
-            </div>
-            <div class="item-stat">
-                {{#if item.system.priceEffective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.priceEffective}}" readonly/>
-                        <input type="number" name="system.price" value="{{item.system.price}}" class="u-hidden"/>
-                    {{else}}
-                        <input type="number" name="system.price" value="{{item.system.price}}"/>
-                    {{/unless}}
-                {{else}}
+                    <span class="item-stat-label">ENC</span>
+                </div>
+                <div class="item-stat">
                     <input type="number" name="system.price" value="{{item.system.price}}"/>
-                {{/if}}
-                <span class="item-stat-label">Price</span>
+                    <span class="item-stat-label">Price</span>
+                </div>
+                <div class="item-stat">
+                    <input type="number" name="system.armor" value="{{item.system.armor}}"/>
+                    <span class="item-stat-label">Armor</span>
+                </div>
+                <div class="item-stat">
+                    <input type="number" name="system.magic_ar" value="{{item.system.magic_ar}}"/>
+                    <span class="item-stat-label">Magic AR</span>
+                </div>
+                <div class="item-stat">
+                    <input type="number" name="system.blockRating" value="{{item.system.blockRating}}"/>
+                    <span class="item-stat-label">Block</span>
+                </div>
             </div>
-            <div class="item-stat">
+            <div class="item-stat item-stat--equipped-side">
                 <input class="checkbox" type="checkbox" name="system.equipped" {{checked item.system.equipped}}>
                 <span class="item-stat-label">Equipped</span>
-            </div>
-            <div class="item-stat">
-                {{#if item.system.armorEffective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.armorEffective}}" readonly/>
-                        <input type="number" name="system.armor" value="{{item.system.armor}}" class="u-hidden"/>
-                    {{else}}
-                        <input type="number" name="system.armor" value="{{item.system.armor}}"/>
-                    {{/unless}}
-                {{else}}
-                    <input type="number" name="system.armor" value="{{item.system.armor}}"/>
-                {{/if}}
-                <span class="item-stat-label">Armor</span>
-            </div>
-            <div class="item-stat">
-                {{#if item.system.magic_arEffective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}" readonly/>
-                        <input type="number" name="system.magic_ar" value="{{item.system.magic_ar}}" class="u-hidden"/>
-                    {{else}}
-                        <input type="number" name="system.magic_ar" value="{{item.system.magic_ar}}"/>
-                    {{/unless}}
-                {{else}}
-                    <input type="number" name="system.magic_ar" value="{{item.system.magic_ar}}"/>
-                {{/if}}
-                <span class="item-stat-label">Magic AR</span>
-            </div>
-            <div class="item-stat">
-                {{#if item.system.blockRatingEffective}}
-                    {{#unless item.system.gmOverride.useBaseStats}}
-                        <input type="text" value="{{item.system.blockRatingEffective}}" readonly/>
-                        <input type="number" name="system.blockRating" value="{{item.system.blockRating}}" class="u-hidden"/>
-                    {{else}}
-                        <input type="number" name="system.blockRating" value="{{item.system.blockRating}}"/>
-                    {{/unless}}
-                {{else}}
-                    <input type="number" name="system.blockRating" value="{{item.system.blockRating}}"/>
-                {{/if}}
-                <span class="item-stat-label">Block</span>
             </div>
         </div>
     </div>
@@ -105,143 +62,110 @@
                 <div class="attribute-tab-container">
                     <div class="item-selection-container">
                         <h2>Attributes</h2>
-
-                            <h3>Quality</h3>
-                            <div class="grid-container">
-                                <div>Quality</div>
-                                <div class="right-align-content">
-                                    <select name="system.qualityLevel">
-  {{selectOptions weaponQualityOptions selected=item.system.qualityLevel}}
-</select>
-                                </div>
-                            </div>
-                            <div class="grid-container">
-                                <div>Runed</div>
-                                <div class="right-align-content">
-                                    <input class="checkbox" type="checkbox" name="system.runed" {{checked item.system.runed}}>
-                                </div>
-                            </div>
-
-                            <h3>Type</h3>
-                            <div class="grid-container">
-                                <div>Armor Class</div>
-                                <div class="right-align-content">
-                                    <select name="system.armorClass">
-                                      {{selectOptions armorClassOptions selected=item.system.armorClass}}
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="grid-container">
-                                <div>Material</div>
-                                <div class="right-align-content">
-                                    <select name="system.material">
-                                      {{selectOptions armorMaterialOptions selected=item.system.material}}
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="grid-container">
-                                <div>Manual Base Stats</div>
-                                <div class="right-align-content">
-                                    <input class="checkbox" type="checkbox" name="system.gmOverride.useBaseStats" {{checked item.system.gmOverride.useBaseStats}}>
-                                </div>
-                            </div>
-                            <div class="grid-container">
-                                <div>Is Shield</div>
-                                <div class="right-align-content">
-                                    <input class="checkbox" type="checkbox" name="system.isShield" {{checked item.system.isShield}}>
-                                </div>
-                            </div>
-                            {{#if item.system.isShieldEffective}}
-                            <div class="grid-container">
-                                <div>Shield Type</div>
-                                <div class="right-align-content">
-                                    <select name="system.shieldType">
-                                      {{selectOptions shieldTypeOptions selected=item.system.shieldType}}
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="grid-container">
-                                <div>Magic BR</div>
-                                <div class="right-align-content">
-                                    <input type="text" value="{{item.system.magic_brEffective}}" disabled>
-                                </div>
-                            </div>
-                            {{#if item.system.magic_brSpecial}}
-                            <div class="grid-container">
-                                <div>Magic BR (Special)</div>
-                                <div class="right-align-content">
-                                    <input type="text" value="{{item.system.magic_brSpecial.value}} vs {{item.system.magic_brSpecial.type}}" disabled>
-                                </div>
-                            </div>
-                            {{/if}}
-                            {{/if}}
-
-                            <h3>Weight</h3>
-                            <div class="grid-container">
-                                <div>Weight Class</div>
-                                <div class="right-align-content">
-                                    <select name="system.weightClass">
-  {{selectOptions armorWeightClassOptions selected=item.system.weightClass}}
-</select>
-                                </div>
-                            </div>
-                            <div class="grid-container">
-                                <div>Effective Weight Class</div>
-                                <div class="right-align-content">
-                                    <input type="text" value="{{#if item.system.weightClassEffective}}{{item.system.weightClassEffective}}{{else}}{{item.system.effectiveWeightClass}}{{/if}}" disabled>
-                                </div>
-                            </div>
-
-                        <div class="selection-container">
-                            <div class="grid-container">
-                                <div>Ignore ENC</div>
-                                <div class="right-align-content">
-                                    <input class="checkbox" type="checkbox" name="system.excludeENC" {{checked item.system.excludeENC}}>
-                                </div>
-                            </div>
-</div>
-                    </div>
-
-                    {{! -- ENCHANTING SECTION --}}
-                    <div class="item-selection-container">
-                        <h2>Enchanting</h2>
                         <div class="selection-container enchanting-compact-grid">
-                            <div class="grid-container">
-                                <div>Enchant Level</div>
-                                <div class="right-align-content enchant-inline">
-                                    <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}"/>
+                            <div class="armor-attributes-container">
+                                <div class="armor-attributes-section">
+                                    <h3>Quality</h3>
+                                    <div class="weapon-field-row">
+                                        <label>Quality</label>
+                                        <select name="system.qualityLevel">
+                                            {{selectOptions weaponQualityOptions selected=item.system.qualityLevel}}
+                                        </select>
+                                    </div>
+                                    <div class="weapon-field-row">
+                                        <label>Runed</label>
+                                        <input class="checkbox" type="checkbox" name="system.runed" {{checked item.system.runed}}>
+                                    </div>
+                                </div>
+
+                                <div class="armor-attributes-section">
+                                    <h3>Type</h3>
+                                    <div class="weapon-field-row">
+                                        <label>Armor Class</label>
+                                        <select name="system.armorClass">
+                                            {{selectOptions armorClassOptions selected=item.system.armorClass}}
+                                        </select>
+                                    </div>
+                                    <div class="weapon-field-row">
+                                        <label>Material</label>
+                                        <select name="system.material">
+                                            {{selectOptions armorMaterialOptions selected=item.system.material}}
+                                        </select>
+                                    </div>
+                                    <div class="weapon-field-row">
+                                        <label>Is Shield</label>
+                                        <input class="checkbox" type="checkbox" name="system.isShield" {{checked item.system.isShield}}>
+                                    </div>
+                                    {{#if item.system.isShieldEffective}}
+                                    <div class="weapon-field-row">
+                                        <label>Shield Type</label>
+                                        <select name="system.shieldType">
+                                            {{selectOptions shieldTypeOptions selected=item.system.shieldType}}
+                                        </select>
+                                    </div>
+                                    <div class="weapon-field-row">
+                                        <label>Magic BR</label>
+                                        <input type="text" value="{{item.system.magic_brEffective}}" disabled>
+                                    </div>
+                                    {{#if item.system.magic_brSpecial}}
+                                    <div class="weapon-field-row">
+                                        <label>Magic BR (Special)</label>
+                                        <input type="text" value="{{item.system.magic_brSpecial.value}} vs {{item.system.magic_brSpecial.type}}" disabled>
+                                    </div>
+                                    {{/if}}
+                                    {{/if}}
+                                </div>
+
+                                <div class="armor-attributes-section">
+                                    <h3>Weight</h3>
+                                    <div class="weapon-field-row">
+                                        <label>Weight Class</label>
+                                        <select name="system.weightClass">
+                                            {{selectOptions armorWeightClassOptions selected=item.system.weightClass}}
+                                        </select>
+                                    </div>
+                                    <div class="weapon-field-row">
+                                        <label>Effective Weight Class</label>
+                                        <input type="text" value="{{#if item.system.weightClassEffective}}{{item.system.weightClassEffective}}{{else}}{{item.system.effectiveWeightClass}}{{/if}}" disabled>
+                                    </div>
+                                </div>
+
+                                <div class="armor-attributes-section enchanting-compact-grid">
+                                    <h3>Enchanting</h3>
+                                    <div class="weapon-field-row">
+                                        <label>Enchant Level</label>
+                                        <div class="enchant-inline">
+                                            <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}"/>
+                                        </div>
+                                    </div>
+                                    <div class="weapon-field-row">
+                                        <label>Charge</label>
+                                        <div class="enchant-inline enchant-charge-inline">
+                                            <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="Decrease current charge">
+                                                <i class="fas fa-minus"></i>
+                                            </button>
+                                            <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input">
+                                            <span class="enchant-charge-sep">/</span>
+                                            <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input">
+                                            <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="Increase current charge">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {{#if enchantmentDisplay}}
+                                    <div class="weapon-field-row">
+                                        <label>Active Enchantment</label>
+                                        <span class="styled-font-gold">{{enchantmentDisplay.typeLabel}}</span>
+                                    </div>
+                                    {{#if (eq enchantmentDisplay.typeLabel "Cast")}}
+                                    <div class="weapon-field-row">
+                                        <label>Cast</label>
+                                        <button type="button" data-action="castEnchantment">Cast Enchantment</button>
+                                    </div>
+                                    {{/if}}
+                                    {{/if}}
                                 </div>
                             </div>
-                            <div class="grid-container">
-                                <div>Charge</div>
-                                <div class="right-align-content enchant-inline enchant-charge-inline">
-                                    <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="Decrease current charge">
-                                        <i class="fas fa-minus"></i>
-                                    </button>
-                                    <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input">
-                                    <span class="enchant-charge-sep">/</span>
-                                    <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input">
-                                    <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="Increase current charge">
-                                        <i class="fas fa-plus"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            {{#if enchantmentDisplay}}
-                            <div class="grid-container">
-                                <div>Active Enchantment</div>
-                                <div class="right-align-content">
-                                    <span class="styled-font-gold">{{enchantmentDisplay.typeLabel}}</span>
-                                </div>
-                            </div>
-                            {{#if (eq enchantmentDisplay.typeLabel "Cast")}}
-                            <div class="grid-container">
-                                <div>Cast</div>
-                                <div class="right-align-content">
-                                    <button type="button" data-action="castEnchantment">Cast Enchantment</button>
-                                </div>
-                            </div>
-                            {{/if}}
-                            {{/if}}
                         </div>
                     </div>
 
@@ -250,41 +174,65 @@
                     <div class="item-selection-container">
                         <h2>Hit Locations Covered</h2>
                         <div class="selection-container">
-                            <div class="grid-container">
-                                <div>Head</div>
-                                <div class="right-align-content">
-                                    <input class="checkbox" type="checkbox" name="system.hitLocations.Head" {{checked item.system.hitLocations.Head}}>
-                                </div>
+                            <div class="armor-hitloc-row">
+                                <div class="armor-hitloc-row__name">Head</div>
+                                <select name="system.hitLocationStates.Head.coverageOverride">
+                                    <option value="" {{#if (eq item.system.hitLocationStates.Head.coverageOverride "")}}selected{{/if}}>Use Global</option>
+                                    <option value="full" {{#if (eq item.system.hitLocationStates.Head.coverageOverride "full")}}selected{{/if}}>Full</option>
+                                    <option value="partial" {{#if (eq item.system.hitLocationStates.Head.coverageOverride "partial")}}selected{{/if}}>Partial</option>
+                                    <option value="none" {{#if (eq item.system.hitLocationStates.Head.coverageOverride "none")}}selected{{/if}}>No Armor</option>
+                                </select>
+                                <label class="armor-hitloc-row__damaged"><span>Damaged</span><input type="number" name="system.hitLocationStates.Head.damaged" value="{{item.system.hitLocationStates.Head.damaged}}" min="0" step="1"></label>
                             </div>
-                            <div class="grid-container">
-                                <div>Body</div>
-                                <div class="right-align-content">
-                                    <input class="checkbox" type="checkbox" name="system.hitLocations.Body" {{checked item.system.hitLocations.Body}}>
-                                </div>
+                            <div class="armor-hitloc-row">
+                                <div class="armor-hitloc-row__name">Body</div>
+                                <select name="system.hitLocationStates.Body.coverageOverride">
+                                    <option value="" {{#if (eq item.system.hitLocationStates.Body.coverageOverride "")}}selected{{/if}}>Use Global</option>
+                                    <option value="full" {{#if (eq item.system.hitLocationStates.Body.coverageOverride "full")}}selected{{/if}}>Full</option>
+                                    <option value="partial" {{#if (eq item.system.hitLocationStates.Body.coverageOverride "partial")}}selected{{/if}}>Partial</option>
+                                    <option value="none" {{#if (eq item.system.hitLocationStates.Body.coverageOverride "none")}}selected{{/if}}>No Armor</option>
+                                </select>
+                                <label class="armor-hitloc-row__damaged"><span>Damaged</span><input type="number" name="system.hitLocationStates.Body.damaged" value="{{item.system.hitLocationStates.Body.damaged}}" min="0" step="1"></label>
                             </div>
-                            <div class="grid-container">
-                                <div>Right Arm</div>
-                                <div class="right-align-content">
-                                   <input class="checkbox" type="checkbox" name="system.hitLocations.RightArm" {{checked item.system.hitLocations.RightArm}}>
-                                </div>
+                            <div class="armor-hitloc-row">
+                                <div class="armor-hitloc-row__name">Right Arm</div>
+                                <select name="system.hitLocationStates.RightArm.coverageOverride">
+                                    <option value="" {{#if (eq item.system.hitLocationStates.RightArm.coverageOverride "")}}selected{{/if}}>Use Global</option>
+                                    <option value="full" {{#if (eq item.system.hitLocationStates.RightArm.coverageOverride "full")}}selected{{/if}}>Full</option>
+                                    <option value="partial" {{#if (eq item.system.hitLocationStates.RightArm.coverageOverride "partial")}}selected{{/if}}>Partial</option>
+                                    <option value="none" {{#if (eq item.system.hitLocationStates.RightArm.coverageOverride "none")}}selected{{/if}}>No Armor</option>
+                                </select>
+                                <label class="armor-hitloc-row__damaged"><span>Damaged</span><input type="number" name="system.hitLocationStates.RightArm.damaged" value="{{item.system.hitLocationStates.RightArm.damaged}}" min="0" step="1"></label>
                             </div>
-                            <div class="grid-container">
-                                <div>Left Arm</div>
-                                <div class="right-align-content">
-                                   <input class="checkbox" type="checkbox" name="system.hitLocations.LeftArm" {{checked item.system.hitLocations.LeftArm}}>
-                                </div>
+                            <div class="armor-hitloc-row">
+                                <div class="armor-hitloc-row__name">Left Arm</div>
+                                <select name="system.hitLocationStates.LeftArm.coverageOverride">
+                                    <option value="" {{#if (eq item.system.hitLocationStates.LeftArm.coverageOverride "")}}selected{{/if}}>Use Global</option>
+                                    <option value="full" {{#if (eq item.system.hitLocationStates.LeftArm.coverageOverride "full")}}selected{{/if}}>Full</option>
+                                    <option value="partial" {{#if (eq item.system.hitLocationStates.LeftArm.coverageOverride "partial")}}selected{{/if}}>Partial</option>
+                                    <option value="none" {{#if (eq item.system.hitLocationStates.LeftArm.coverageOverride "none")}}selected{{/if}}>No Armor</option>
+                                </select>
+                                <label class="armor-hitloc-row__damaged"><span>Damaged</span><input type="number" name="system.hitLocationStates.LeftArm.damaged" value="{{item.system.hitLocationStates.LeftArm.damaged}}" min="0" step="1"></label>
                             </div>
-                            <div class="grid-container">
-                                <div>Right Leg</div>
-                                <div class="right-align-content">
-                                  <input class="checkbox" type="checkbox" name="system.hitLocations.RightLeg" {{checked item.system.hitLocations.RightLeg}}>
-                                </div>
+                            <div class="armor-hitloc-row">
+                                <div class="armor-hitloc-row__name">Right Leg</div>
+                                <select name="system.hitLocationStates.RightLeg.coverageOverride">
+                                    <option value="" {{#if (eq item.system.hitLocationStates.RightLeg.coverageOverride "")}}selected{{/if}}>Use Global</option>
+                                    <option value="full" {{#if (eq item.system.hitLocationStates.RightLeg.coverageOverride "full")}}selected{{/if}}>Full</option>
+                                    <option value="partial" {{#if (eq item.system.hitLocationStates.RightLeg.coverageOverride "partial")}}selected{{/if}}>Partial</option>
+                                    <option value="none" {{#if (eq item.system.hitLocationStates.RightLeg.coverageOverride "none")}}selected{{/if}}>No Armor</option>
+                                </select>
+                                <label class="armor-hitloc-row__damaged"><span>Damaged</span><input type="number" name="system.hitLocationStates.RightLeg.damaged" value="{{item.system.hitLocationStates.RightLeg.damaged}}" min="0" step="1"></label>
                             </div>
-                            <div class="grid-container">
-                                <div>Left Leg</div>
-                                <div class="right-align-content">
-                                   <input class="checkbox" type="checkbox" name="system.hitLocations.LeftLeg" {{checked item.system.hitLocations.LeftLeg}}>
-                                </div>
+                            <div class="armor-hitloc-row">
+                                <div class="armor-hitloc-row__name">Left Leg</div>
+                                <select name="system.hitLocationStates.LeftLeg.coverageOverride">
+                                    <option value="" {{#if (eq item.system.hitLocationStates.LeftLeg.coverageOverride "")}}selected{{/if}}>Use Global</option>
+                                    <option value="full" {{#if (eq item.system.hitLocationStates.LeftLeg.coverageOverride "full")}}selected{{/if}}>Full</option>
+                                    <option value="partial" {{#if (eq item.system.hitLocationStates.LeftLeg.coverageOverride "partial")}}selected{{/if}}>Partial</option>
+                                    <option value="none" {{#if (eq item.system.hitLocationStates.LeftLeg.coverageOverride "none")}}selected{{/if}}>No Armor</option>
+                                </select>
+                                <label class="armor-hitloc-row__damaged"><span>Damaged</span><input type="number" name="system.hitLocationStates.LeftLeg.damaged" value="{{item.system.hitLocationStates.LeftLeg.damaged}}" min="0" step="1"></label>
                             </div>
                         </div>
                     </div>

@@ -23,8 +23,9 @@
 import { getOriginAEs } from "../effects/origin-effect.js";
 import { getActiveSpellZones, getTokensInTemplate } from "../spell-runtime.js";
 import { createDebugLogger } from "../_primitives.js";
+import { FLAG_SCOPE } from "../../system/namespace.js";
 
-const _FLAG_NS = "uesrpg-3ev4";
+const _FLAG_NS = FLAG_SCOPE;
 
 let _registered = false;
 

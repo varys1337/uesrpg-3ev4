@@ -10,7 +10,10 @@
  *   system payload (e.g. an empty string), which would otherwise crash data prep.
  */
 
-const MODULE_ID = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../constants.js";
+import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
+
+const MODULE_ID = SYSTEM_ID;
 
 function _isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -53,13 +56,8 @@ function _ensureResistanceDefaults(sys) {
 export async function migrateActorsIfNeeded() {
   if (!game.user.isGM) return;
 
-  const currentVersion = String(game.system?.version ?? "").trim() || "0";
-  let state = {};
-  try {
-    state = JSON.parse(String(game.settings.get(MODULE_ID, "migrationState") ?? "{}")) ?? {};
-  } catch (_e) {
-    state = {};
-  }
+  const currentVersion = getSystemVersionString();
+  const state = getMigrationState();
   if (state?.actors === currentVersion) return;
 
   try {
@@ -104,7 +102,7 @@ export async function migrateActorsIfNeeded() {
 
     // Record migration version after a successful pass (even if no updates were needed).
     state.actors = currentVersion;
-    await game.settings.set(MODULE_ID, "migrationState", JSON.stringify(state));
+    await setMigrationState(state);
   } catch (err) {
     console.error(`${MODULE_ID} | Actor migration failed`, err);
     ui.notifications?.error?.("UESRPG actor migration failed; check console for details.");
