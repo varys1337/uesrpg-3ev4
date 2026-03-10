@@ -780,18 +780,6 @@ export function applyTalentSummaryToProfile(profile, summary) {
     applied: true
   };
 
-  // Apply restraint WB delta to cost profile
-  if (summary.restraintWpBonusDelta !== 0 && profile.cost) {
-    profile.cost.wpBonus = _num(profile.cost.wpBonus) + summary.restraintWpBonusDelta;
-    // Recalculate the restrained reduction with adjusted WB
-    if (profile.cost.restrained?.enabled) {
-      const adjustedWb = profile.cost.wpBonus;
-      const restrainedReduction = Math.min(Math.max(0, _num(profile.cost.base) - 1), Math.max(0, adjustedWb));
-      profile.cost.restrained.reduction = restrainedReduction;
-      profile.cost.final = Math.max(1, _num(profile.cost.attempt) - restrainedReduction);
-    }
-  }
-
   // Apply cost multiplier (Overcharge: double cost after restraint)
   if (summary.costMultiplier > 1 && profile.cost) {
     if (summary.costMultiplierAfterRestraint) {

@@ -18,11 +18,12 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { getDifficultyByKey } from "../skills/skill-tn.js";
 import { evaluateAEModifierKeysDetailed } from "../active-effects/modifier-evaluator.js";
 import { hasGrandmasterForSkill } from "../traits/general-talents.js";
-import { computeSpellRestraintReduction, getActorWillpowerBonus } from "./magic-modifiers.js";
+import { computeSpellRestraintReduction, getActorWillpowerBonus, getSpellRestraintReduction } from "./magic-modifiers.js";
 import { _num, _strTrim as _str, isDebugEnabled } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../system/flags.js";
+import { isShieldItem } from "../items/shield-utils.js";
 
 // Re-export for backward compatibility — canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
@@ -429,7 +430,7 @@ export function getActorMagicka(actor) {
  * @param {Item} spell - The spell being cast
  * @param {object} options - { isRestrained, isOverloaded, isOvercharged, level }
  * @param {number|null} options.level - Optional casting level (defaults to spell.system.level)
- * @returns {{ cost:number, baseCost:number, wpBonus:number, isRestrained:boolean, isOverloaded:boolean, isOvercharged:boolean }}
+ * @returns {{ cost:number, baseCost:number, wpBonus:number, restraintReduction:number, isRestrained:boolean, isOverloaded:boolean, isOvercharged:boolean }}
  */
 export function computeSpellMagickaCost(actor, spell, options = {}) {
   const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, options);
@@ -440,12 +441,20 @@ export function computeSpellMagickaCost(actor, spell, options = {}) {
 
   let cost = baseCost;
   let wpBonus = 0;
+  let restraintReduction = 0;
 
   // NOTE: This helper assumes the cast succeeded. If you need the cost to *attempt* a cast,
   // use computeSpellAttemptMagickaCost().
   if (isRestrained && baseCost > 0) {
     wpBonus = getActorWillpowerBonus(actor);
-    cost = Math.max(1, baseCost - wpBonus);
+    const restraintInfo = getSpellRestraintReduction(actor, spell, {
+      ...options,
+      baseCost,
+      baseWB: wpBonus,
+      minCost: 1
+    });
+    restraintReduction = Number(restraintInfo?.reduction ?? 0) || 0;
+    cost = Math.max(1, baseCost - restraintReduction);
   }
 
   cost = Math.max(0, Math.floor(cost));
@@ -456,6 +465,7 @@ export function computeSpellMagickaCost(actor, spell, options = {}) {
     aeModifier,
     aeBreakdown,
     wpBonus,
+    restraintReduction,
     isRestrained,
     isOverloaded,
     isOvercharged
@@ -529,9 +539,11 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
   // Use talent-aware restraint reduction (Creative, Methodical, Magicka Cycling, Stunted Magicka)
   const restraintInfo = computeSpellRestraintReduction(actor, spell, {
     isCritical: isCriticalSuccess,
-    isDamaging
+    isDamaging,
+    baseCost,
+    minCost: 1
   });
-  const reduction = Math.min(Math.max(0, baseCost - 1), Math.max(0, restraintInfo.reduction));
+  const reduction = Math.max(0, Number(restraintInfo?.reduction ?? 0));
 
   if (reduction <= 0) return { refund: 0, finalCost: baseCost, breakdown: "" };
 
@@ -882,8 +894,8 @@ function _hasTwoFreeHandsForCasting(actor) {
       const hands = Number(it.system?.hands ?? 0);
       return Number.isFinite(hands) && hands > 0;
     }
-    if (itemType === "armor" || itemType === "equipment") {
-      const isShield = Boolean(it.system?.isShieldEffective ?? it.system?.isShield);
+    if (itemType === "armor" || itemType === "shield" || itemType === "equipment") {
+      const isShield = isShieldItem(it, { allowLegacy: true });
       if (!isShield) return false;
       // Chapter 7: Targe counts as functionally free for hand-use checks.
       const shieldType = String(it.system?.shieldType ?? "").toLowerCase();

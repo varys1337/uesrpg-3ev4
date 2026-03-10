@@ -17,6 +17,8 @@ import { _str, createDebugLogger } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
 import { RULE_PHASES } from "../rules/phases.js";
 import { evaluateRuleElementsRuntime } from "../traits/features/rule-element-runtime.js";
+import { isShieldItem } from "../items/shield-utils.js";
+import { getResolvedArmorValues } from "../combat/armor-state.js";
 
 const _spellDebug = createDebugLogger("spellCastingDebug");
 
@@ -66,6 +68,103 @@ function _getWhisperRecipients(actor) {
     if (doesUserOwnActor(user, actor)) out.add(user.id);
   }
   return Array.from(out);
+}
+
+function _normalizeHitLocationKey(hitLocation = "Body") {
+  const locationMap = {
+    Head: "Head",
+    Body: "Body",
+    "Right Arm": "RightArm",
+    "Left Arm": "LeftArm",
+    "Right Leg": "RightLeg",
+    "Left Leg": "LeftLeg",
+    RightArm: "RightArm",
+    LeftArm: "LeftArm",
+    RightLeg: "RightLeg",
+    LeftLeg: "LeftLeg",
+  };
+  return locationMap[hitLocation] ?? hitLocation;
+}
+
+function _listMagicArmorSources(actor, hitLocation, damageType) {
+  const targetType = _str(damageType).toLowerCase();
+  const locationKey = _normalizeHitLocationKey(hitLocation);
+  const items = actor?.items?.filter((item) => (item?.type === "armor" || item?.type === "shield") && item?.system?.equipped === true) ?? [];
+  const out = [];
+  for (const item of items) {
+    if (isShieldItem(item, { allowLegacy: true })) continue;
+    if (item?.system?.hitLocations?.[locationKey] !== true) continue;
+    const resolved = getResolvedArmorValues(item.system ?? {}, { isProneForArmor: false });
+    let ar = 0;
+    if (targetType === DAMAGE_TYPES.MAGIC) ar = Number(resolved?.magic_ar ?? 0) || 0;
+    else if (_str(resolved?.special_ar_type).toLowerCase() === targetType) ar = Number(resolved?.special_ar ?? 0) || 0;
+    if (ar <= 0) continue;
+    out.push({ name: String(item.name ?? "Armor"), ar });
+  }
+  return out;
+}
+
+function _splitMagicBreakdownLines(lines = []) {
+  const sourceNotes = [];
+  const reductionNotes = [];
+  for (const rawLine of lines) {
+    const line = String(rawLine ?? "").trim();
+    if (!line) continue;
+    if (/(^|\s)(AR:|Magic AR:|[A-Za-z]+ AR:|Resistance:|Magic Resistance:|Natural Toughness:|R \(base\):|T \(base)/i.test(line)) {
+      reductionNotes.push(line);
+      continue;
+    }
+    sourceNotes.push(line);
+  }
+  return { sourceNotes, reductionNotes };
+}
+
+function _buildMagicGmDamageReport({
+  targetActor,
+  source,
+  hitLocation,
+  damageType,
+  rawDamage,
+  totalApplied,
+  result,
+  sourceNotes = [],
+  reductionNotes = [],
+  reductionTotal = 0,
+} = {}) {
+  const hpDelta = Math.max(0, (Number(result?.oldHP ?? 0) || 0) - (Number(result?.newHP ?? 0) || 0));
+  return {
+    panelKey: `gm-damage:${String(targetActor?.uuid ?? targetActor?.id ?? "target")}:${Date.now()}`,
+    title: String(targetActor?.name ?? "Target"),
+    source: String(source ?? "Spell"),
+    hitLocation: String(hitLocation ?? "Body"),
+    totalDamage: Math.max(0, Number(totalApplied ?? 0) || 0),
+    hp: {
+      value: Number(result?.newHP ?? 0) || 0,
+      max: Number(targetActor?.system?.hp?.max ?? 0) || 0,
+      delta: hpDelta
+    },
+    tempHp: ((Number(result?.tempHPAbsorbed ?? 0) || 0) > 0 || (Number(result?.oldTempHP ?? 0) || 0) > 0)
+      ? {
+          value: Number(result?.newTempHP ?? 0) || 0,
+          absorbed: Number(result?.tempHPAbsorbed ?? 0) || 0
+        }
+      : null,
+    buffers: [],
+    traitNotes: [],
+    woundTriggered: String(result?.woundStatus ?? "") === "wounded",
+    woundThreshold: 0,
+    defeated: Number(result?.newHP ?? 0) === 0,
+    segments: [
+      {
+        damageType: String(damageType ?? DAMAGE_TYPES.MAGIC),
+        rawDamage: Math.max(0, Number(rawDamage ?? 0) || 0),
+        reductionTotal: Math.max(0, Number(reductionTotal ?? 0) || 0),
+        applied: Math.max(0, Number(totalApplied ?? 0) || 0),
+        sourceNotes: [String(source ?? "Spell"), ...sourceNotes].filter(Boolean),
+        reductionNotes: reductionNotes.filter(Boolean),
+      }
+    ]
+  };
 }
 
 async function _applySpellAbsorption(targetActor, { casterActor = null, magicCost = 0, allowSelfAbsorption = false, sourceLabel = "Spell" } = {}) {
@@ -163,6 +262,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   const casterActor = options.casterActor ?? null;
   const magicCost = Number(options.magicCost ?? 0) || 0;
   const allowSelfAbsorption = options.allowSelfAbsorption === true;
+  const skipChatMessage = options.skipChatMessage === true;
 
   const absorption = await _applySpellAbsorption(targetActor, {
     casterActor,
@@ -268,28 +368,94 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     }
     
     // Apply the layered damage with ignoreReduction=true since we calculated it manually
-    return applyDamage(targetActor, Math.max(0, finalDamage), dt, {
+    const result = await applyDamage(targetActor, Math.max(0, finalDamage), dt, {
       source,
       hitLocation,
       rollHTML,
       ignoreReduction: true,
       magicSource: true,
+      skipChatMessage,
       extraBreakdownLines,
       woundThresholdDelta: runtimeWtDelta,
       damageAppliedByType,
     });
+    if (!result) return result;
+    const split = _splitMagicBreakdownLines(extraBreakdownLines);
+    const reductionNotes = [];
+    const elementalArmorSources = _listMagicArmorSources(targetActor, hitLocation, dt);
+    const magicArmorSources = _listMagicArmorSources(targetActor, hitLocation, DAMAGE_TYPES.MAGIC);
+    if (elementalArmorSources.length) {
+      reductionNotes.push(`${dtLabel} AR: ${elementalArmorSources.map((entry) => `${entry.name} (${entry.ar})`).join(", ")}`);
+    }
+    if (elementalRes !== 0) {
+      reductionNotes.push(`${dtLabel} Resistance: ${elementalRes >= 0 ? "-" : "+"}${Math.abs(elementalRes)}`);
+    }
+    if (magicArmorSources.length) {
+      reductionNotes.push(`Magic AR: ${magicArmorSources.map((entry) => `${entry.name} (${entry.ar})`).join(", ")}`);
+    }
+    if (magicRes !== 0) {
+      reductionNotes.push(`Magic Resistance: ${magicRes >= 0 ? "-" : "+"}${Math.abs(magicRes)}`);
+    }
+    if (toughness !== 0) {
+      reductionNotes.push(`Natural Toughness: -${toughness}`);
+    }
+    result.gmDamageReport = _buildMagicGmDamageReport({
+      targetActor,
+      source,
+      hitLocation,
+      damageType: dt,
+      rawDamage: adjustedDamage,
+      totalApplied: result.damage,
+      result,
+      sourceNotes: split.sourceNotes,
+      reductionNotes: reductionNotes.length ? reductionNotes : split.reductionNotes,
+      reductionTotal: elementalMitigation + magicMitigation + toughness,
+    });
+    return result;
   }
   
   // Non-elemental spells (pure magic, physical, etc.) use normal damage pipeline
-  return applyDamage(targetActor, adjustedDamage, dt, {
+  const result = await applyDamage(targetActor, adjustedDamage, dt, {
     source,
     hitLocation,
     rollHTML,
     magicSource: true,
+    skipChatMessage,
     extraBreakdownLines,
     woundThresholdDelta: runtimeWtDelta,
     damageAppliedByType: dt && dt !== "none" && dt !== DAMAGE_TYPES.PHYSICAL ? damageAppliedByType : null,
   });
+  if (!result) return result;
+  const split = _splitMagicBreakdownLines(extraBreakdownLines);
+  const reductionNotes = [...split.reductionNotes];
+  const armorValue = Number(result?.reductions?.armor ?? 0) || 0;
+  const resistanceValue = Number(result?.reductions?.resistance ?? 0) || 0;
+  const toughnessValue = Number(result?.reductions?.toughness ?? 0) || 0;
+  if (armorValue > 0) {
+    const armorSources = _listMagicArmorSources(targetActor, hitLocation, dt);
+    reductionNotes.push(armorSources.length
+      ? `AR: ${armorSources.map((entry) => `${entry.name} (${entry.ar})`).join(", ")}`
+      : `AR: ${armorValue}`);
+  }
+  if (resistanceValue > 0 && dt !== DAMAGE_TYPES.PHYSICAL) {
+    reductionNotes.push(`R (base): ${resistanceValue}`);
+  }
+  if (toughnessValue > 0) {
+    reductionNotes.push(`T (base natToughness): ${toughnessValue}`);
+  }
+  result.gmDamageReport = _buildMagicGmDamageReport({
+    targetActor,
+    source,
+    hitLocation,
+    damageType: dt,
+    rawDamage: adjustedDamage,
+    totalApplied: result.damage,
+    result,
+    sourceNotes: split.sourceNotes,
+    reductionNotes,
+    reductionTotal: Number(result?.reductions?.total ?? 0) || 0,
+  });
+  return result;
 }
 
 /**

@@ -4,29 +4,54 @@ import {
   roundPriceUp,
   safeNumber,
 } from "../item-utils.js";
+import { isLegacyShieldSystemData } from "../../items/shield-utils.js";
+import { prepareShieldItem } from "./shield.js";
+
+/**
+ * Resolve the native coverage lane key from armorClass.
+ * @param {string} armorClass
+ * @returns {"full"|"partial"}
+ */
+function _nativeLane(armorClass) {
+  return String(armorClass || "partial").toLowerCase() === "full" ? "full" : "partial";
+}
+
+/**
+ * Read one manual armor lane from armorValues, falling back to legacy root fields.
+ * Returns a safe numeric object; never throws.
+ *
+ * @param {object} itemData
+ * @param {"full"|"partial"} lane
+ * @returns {{ armor:number, magic_ar:number, special_ar:number, special_ar_type:string }}
+ */
+function _getManualLane(itemData, lane) {
+  const src = itemData?.armorValues?.[lane] ?? {};
+  return {
+    armor:          Number(src.armor    ?? 0) || 0,
+    magic_ar:       Number(src.magic_ar ?? 0) || 0,
+    special_ar:     Number(src.special_ar ?? 0) || 0,
+    special_ar_type: String(src.special_ar_type ?? "").trim().toLowerCase(),
+  };
+}
 
 export function prepareArmorItem(actorData, itemData) {
-  const baseEnc = safeNumber(itemData.enc, 0);
+  if (isLegacyShieldSystemData(itemData)) {
+    prepareShieldItem(actorData, itemData);
+    return;
+  }
+
+  const baseEnc   = safeNumber(itemData.enc, 0);
   const basePrice = safeNumber(itemData.price, 0);
 
-  const qualityKey = String(itemData.qualityLevel || "common").toLowerCase();
-  const qRule = UESRPG.ARMOR_QUALITY_RULES?.[qualityKey] ?? UESRPG.ARMOR_QUALITY_RULES.common;
+  const qualityKey     = String(itemData.qualityLevel || "common").toLowerCase();
+  const qRule          = UESRPG.ARMOR_QUALITY_RULES?.[qualityKey] ?? UESRPG.ARMOR_QUALITY_RULES.common;
   const qualityPriceMult = safeNumber(qRule?.priceMult, 1.0);
-  const weightDelta = safeNumber(qRule?.weightClassDelta, 0);
+  const weightDelta    = safeNumber(qRule?.weightClassDelta, 0);
 
-  const isShield = Boolean(itemData.isShield) || String(itemData.category || "").toLowerCase() === "shield";
-  itemData.isShieldEffective = isShield;
-
-  let derivedEnc = baseEnc;
-  let derivedPrice = roundPriceUp(basePrice * qualityPriceMult);
-  let derivedWeightClass = itemData.weightClass ?? "none";
-
+  itemData.isShieldEffective = false;
   itemData.autoQualitiesStructured = [];
 
-  const injected = itemData.qualitiesStructuredInjected ?? itemData.qualitiesStructured ?? [];
-  const damagedQ = injected.find(q => q?.key === "damaged");
-  const damagedValue = safeNumber(damagedQ?.value, 0);
-
+  // Weight class: authored base + quality step (material no longer contributes).
   const stepWeightClass = (base, delta) => {
     const order = ["none", "light", "medium", "heavy", "superheavy", "crippling"];
     let i = order.indexOf(String(base || "none").toLowerCase());
@@ -35,59 +60,35 @@ export function prepareArmorItem(actorData, itemData) {
     return order[i];
   };
 
-  const materialKey = String(itemData.material || "").trim();
+  const derivedWeightClass = stepWeightClass(itemData.weightClass ?? "none", weightDelta);
 
-  if (isShield) {
-    const shieldProfile = UESRPG.SHIELD_PROFILES?.[materialKey] ?? null;
-    const typeKey = String(itemData.shieldType || "normal").toLowerCase();
-    const typeRule = UESRPG.SHIELD_TYPE_RULES?.[typeKey] ?? UESRPG.SHIELD_TYPE_RULES.normal;
-    itemData.treatAsFreeHandForSmallOrGrapple = (typeKey === "targe");
+  // Damaged quality value: applied after selecting the native lane.
+  const injected = itemData.qualitiesStructuredInjected ?? itemData.qualitiesStructured ?? [];
+  const damagedQ = injected.find(q => q?.key === "damaged");
+  const damagedValue = safeNumber(damagedQ?.value, 0);
 
-    if (shieldProfile) {
-      derivedEnc = safeNumber(shieldProfile.enc, derivedEnc) + safeNumber(typeRule.encDelta, 0);
-      derivedWeightClass = stepWeightClass(shieldProfile.weightClass, weightDelta + safeNumber(typeRule.weightClassDelta, 0));
-      derivedPrice = roundPriceUp(safeNumber(shieldProfile.price, basePrice) * qualityPriceMult * safeNumber(typeRule.priceMult, 1.0));
-      itemData.enchant_levelEffective = safeNumber(shieldProfile.enchantLevel, itemData.enchant_level);
+  // Select the native lane and compute prepared effective values.
+  // These fields are native-lane prep/display data only; combat runtime resolution lives in src/core/combat/armor-state.js.
+  const nativeLane = _nativeLane(itemData.armorClass);
+  const laneValues = _getManualLane(itemData, nativeLane);
 
-      const brBase = safeNumber(shieldProfile.br, itemData.blockRating);
-      const brMult = safeNumber(typeRule.brMult, 1.0);
-      const br = (typeKey === "targe")
-        ? Math.ceil(brBase * brMult)
-        : Math.round(brBase * brMult);
-      itemData.blockRatingEffective = Math.max(0, br - damagedValue);
+  itemData.armorEffective       = Math.max(0, laneValues.armor    - damagedValue);
+  itemData.magic_arEffective    = Math.max(0, laneValues.magic_ar - damagedValue);
+  itemData.special_arEffective  = Math.max(0, laneValues.special_ar - damagedValue);
+  itemData.special_ar_typeEffective = laneValues.special_ar_type;
 
-      const magicBR = (shieldProfile.magicBR != null)
-        ? safeNumber(shieldProfile.magicBR, 0)
-        : safeNumber(shieldProfile.magicBRHalf, 0);
-      itemData.magic_brEffective = Math.max(0, magicBR - damagedValue);
-      itemData.magic_brSpecial = shieldProfile.magicBRSpecial ?? null;
-    }
-  } else {
-    const armorClass = String(itemData.armorClass || "partial").toLowerCase();
-    const profile = UESRPG.ARMOR_PROFILES?.[armorClass]?.[materialKey] ?? null;
+  // ENC, price, and enchant level are fully manual — no material table derivation.
+  const derivedPrice = roundPriceUp(basePrice * qualityPriceMult);
+  const derivedEnc   = baseEnc;
+  itemData.enchant_levelEffective = safeNumber(itemData.enchant_level, 0);
 
-    if (profile) {
-      derivedEnc = safeNumber(profile.enc, derivedEnc);
-      derivedWeightClass = stepWeightClass(profile.weightClass, weightDelta);
-      derivedPrice = roundPriceUp(safeNumber(profile.priceBody, basePrice) * qualityPriceMult);
-      itemData.enchant_levelEffective = safeNumber(profile.enchantLevel, itemData.enchant_level);
-
-      const ar = safeNumber(profile.ar, itemData.armor);
-      const magicAR = safeNumber(profile.magicAR, 0);
-      itemData.armorEffective = Math.max(0, ar - damagedValue);
-      itemData.magic_arEffective = Math.max(0, magicAR - damagedValue);
-      itemData.special_ar_typeEffective = profile.magicARType || "";
-    }
-  }
-
+  // Runed price multiplier (quality flag, not AR mutation).
   const hasRuned = itemData.runed === true
     || injected.some(q => String(q?.key ?? "").toLowerCase() === "runed")
     || hasLegacyQuality(itemData.qualities, "runed");
-  if (hasRuned) {
-    derivedPrice = roundPriceUp(Number(derivedPrice ?? 0) * 1.25);
-  }
+  const finalPrice = hasRuned ? roundPriceUp(derivedPrice * 1.25) : derivedPrice;
 
-  itemData.encEffective = derivedEnc;
-  itemData.priceEffective = derivedPrice;
+  itemData.encEffective        = derivedEnc;
+  itemData.priceEffective      = finalPrice;
   itemData.weightClassEffective = derivedWeightClass;
 }

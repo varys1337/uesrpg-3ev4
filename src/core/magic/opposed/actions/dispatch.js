@@ -11,14 +11,12 @@ import {
   getMessageState,
   selectDefenderEntry,
   isBankChoicesEnabledForData,
-  allDefendersCommitted,
   resolveActor,
   requireUserCanRollActor
 } from "../schema.js";
 import { updateCard } from "../updater.js";
 import { createUuidResolver } from "../../../../utils/uuid-cache.js";
 import { handleAttackerCommit, handleAttackerRoll } from "./attacker.js";
-import { autoRollBanked } from "./banked-roll.js";
 import { handleDefenderCommit } from "./defender-commit.js";
 import { handleDefenderRoll, handleDefenderNoDefense, handleDefenderCharacteristicTest } from "./defender-roll.js";
 import { handleBlockResolve, handleWardResolve } from "./resolve.js";
@@ -70,8 +68,7 @@ export async function dispatchAction(message, action, opts, workflow, renderCard
     // Helper functions
     resolveActor,
     _updateCard: (msg, d) => updateCard(msg, d, renderCard),
-    _markResolutionPhase: (d, phase) => { d.context = d.context ?? {}; d.context.phase = phase; },
-    _allDefendersCommitted: allDefendersCommitted
+    _markResolutionPhase: (d, phase) => { d.context = d.context ?? {}; d.context.phase = phase; }
   };
 
   // Resolve spell if needed
@@ -93,20 +90,6 @@ export async function dispatchAction(message, action, opts, workflow, renderCard
 
   // Dispatch to appropriate handler
   switch (action) {
-    case "begin-banked-roll": {
-      const activeGM = game.users.activeGM ?? null;
-      if (activeGM) {
-        if (!game.user?.isGM || game.user.id !== activeGM.id) {
-          ui.notifications.info("Requested GM to begin the opposed roll.");
-          return;
-        }
-      } else if (!message.isAuthor && !game.user?.isGM) {
-        ui.notifications.warn("Only the message author may begin the opposed roll (no GM active).");
-        return;
-      }
-      return await autoRollBanked(message, workflow, ctx._updateCard, { reason: "manual" });
-    }
-
     case "attacker-commit":
       return await handleAttackerCommit(ctx);
 

@@ -20,7 +20,7 @@
  */
 
 import { applyDamage, DAMAGE_TYPES } from "../../combat/damage-automation.js";
-import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isActorSkeletal, isActorUndead, isActorUndeadBloodless, isActorImmuneToCondition as isActorImmuneToConditionProfile } from "../../traits/trait-registry.js";
 import { CONDITION_DESCRIPTIONS } from "../../../data/conditions/conditions-data.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
@@ -639,7 +639,7 @@ export async function upgradeTokenHudStatusEffects(actor) {
 
       if (Object.keys(updates).length) {
         try {
-          await requestUpdateDocument(effect, updates);
+          await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", [{ _id: effect.id, ...updates }]);
         } catch (_e) {}
       }
       continue;
@@ -668,7 +668,7 @@ export async function upgradeTokenHudStatusEffects(actor) {
     }
 
     try {
-      await requestUpdateDocument(effect, updates);
+      await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", [{ _id: effect.id, ...updates }]);
     } catch (_e) {}
   }
 
@@ -1047,11 +1047,13 @@ async function _dedupeConditionEffects(actor, key) {
   const flagged = all.filter(e => _normalizeConditionKey(e?.getFlag?.(FLAG_SCOPE, "condition")?.key) === k);
   const keep = (flagged.length ? flagged[flagged.length - 1] : all[all.length - 1]) ?? null;
 
-  for (const ef of all) {
-    if (!ef || !keep) continue;
-    if (ef.id === keep.id) continue;
+  const duplicateIds = all
+    .filter((ef) => ef && keep && ef.id !== keep.id)
+    .map((ef) => ef.id)
+    .filter(Boolean);
+  if (duplicateIds.length) {
     try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
+      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", duplicateIds);
     } catch (_e) {}
   }
 
@@ -1384,11 +1386,11 @@ export async function removeCondition(actor, key) {
   if (!actor) return;
   const k = _normalizeConditionKey(key);
   const all = _findAllConditionEffects(actor, k);
-  for (const ef of all) {
-    try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
-    } catch (_e) {}
-  }
+  const ids = all.map((ef) => ef?.id).filter(Boolean);
+  if (!ids.length) return;
+  try {
+    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
+  } catch (_e) {}
 }
 
 export function getConditionValue(actor, key) {

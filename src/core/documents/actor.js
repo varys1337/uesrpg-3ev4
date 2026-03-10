@@ -15,6 +15,7 @@ import { prepareNPCData } from "../actors/prepare/npc.js";
 import { prepareGroupData } from "../actors/prepare/group.js";
 import { aggregateItemStats } from "../actors/rules/item-aggregation.js";
 import { getArmorMobilityPenalties, flyCalc } from "../actors/rules/armor-mobility.js";
+import { isShieldItem } from "../items/shield-utils.js";
 import {
   hasVampireLordForm,
   hasWereWolfForm,
@@ -413,11 +414,9 @@ export class SimpleActor extends Actor {
     let ignoreArmorSpeedPenalty = false;
     try { ignoreArmorSpeedPenalty = this._hasTalentCached("wallofsteel"); } catch (_e) { ignoreArmorSpeedPenalty = false; }
     const hasTowerShield = items.some(item => {
-      if (!item || item.type !== "armor") return false;
+      if (!item || !isShieldItem(item, { allowLegacy: true })) return false;
       const sys = item.system ?? {};
       if (sys.equipped !== true) return false;
-      const isShield = Boolean(sys.isShieldEffective ?? sys.isShield);
-      if (!isShield && String(sys.item_cat ?? "").toLowerCase() !== "shield") return false;
       return String(sys.shieldType ?? "normal").toLowerCase() === "tower";
     });
     if (!ignoreArmorSpeedPenalty && hasTowerShield) speed = Math.max(0, speed - 1);

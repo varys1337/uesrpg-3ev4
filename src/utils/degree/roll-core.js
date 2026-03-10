@@ -101,6 +101,46 @@ export function formatDegree(result) {
 }
 
 /**
+ * Format the visible outcome label for a result, preferring critical flags.
+ *
+ * @param {object} result
+ * @param {object} [options]
+ * @param {boolean} [options.uppercase]
+ * @returns {string}
+ */
+export function formatResultOutcomeLabel(result, { uppercase = false } = {}) {
+  if (!result) return uppercase ? "UNKNOWN" : "Unknown";
+
+  let label = "Failure";
+  if (result.isCriticalSuccess === true) label = "Critical Success";
+  else if (result.isCriticalFailure === true) label = "Critical Failure";
+  else if (result.isSuccess === true) label = "Success";
+
+  return uppercase ? label.toUpperCase() : label;
+}
+
+/**
+ * Format an outcome label with optional DoS/DoF text.
+ *
+ * @param {object} result
+ * @param {object} [options]
+ * @param {boolean} [options.uppercase]
+ * @param {boolean} [options.includeDegree]
+ * @param {"paren"|"dash"} [options.degreeStyle]
+ * @returns {string}
+ */
+export function formatResultSummary(result, { uppercase = false, includeDegree = true, degreeStyle = "paren" } = {}) {
+  const label = formatResultOutcomeLabel(result, { uppercase });
+  if (!includeDegree || !result) return label;
+
+  const degreeText = formatDegree(result);
+  if (!degreeText || degreeText === "-") return label;
+
+  if (degreeStyle === "dash") return `${label} — ${degreeText}`;
+  return `${label} (${degreeText})`;
+}
+
+/**
  * Resolve an opposed test between attacker and defender results.
  */
 export function resolveOpposed(aResult, dResult) {

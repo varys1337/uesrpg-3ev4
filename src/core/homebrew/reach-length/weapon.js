@@ -73,9 +73,41 @@ export function getWeaponLength(weapon) {
  */
 export function getWeaponReachBoundsEffective(weapon) {
   const sys = weapon?.system ?? {};
-  const sysMin = Number.isFinite(Number(sys.reachMin)) ? Number(sys.reachMin) : 0;
-  const sysMax = Number.isFinite(Number(sys.reach)) ? Number(sys.reach) : 0;
-  const systemResult = { min: sysMin, max: sysMax, source: "system" };
+
+  const _parseHeaderReachMin = (raw) => {
+    const n = Number(raw);
+    return (Number.isFinite(n) && n >= 0) ? n : 0;
+  };
+
+  const _parseReachMaxOrMissing = (raw) => {
+    const s = String(raw ?? "").trim().toLowerCase();
+    if (!s || s === "x") return null;
+    const n = Number(raw);
+    // Header max reach: treat 0 and non-numeric as missing so melee fallback can apply.
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n;
+  };
+
+  const _getStructuredReachFallbackMax = (item) => {
+    const source = Array.isArray(item?.system?.qualitiesStructuredInjected)
+      ? item.system.qualitiesStructuredInjected
+      : (Array.isArray(item?.system?.qualitiesStructured) ? item.system.qualitiesStructured : []);
+    let best = null;
+    for (const q of source) {
+      const key = String(q?.key ?? q ?? "").trim().toLowerCase();
+      if (key !== "reach") continue;
+      const n = Number(q?.value);
+      if (!Number.isFinite(n) || n <= 0) continue;
+      best = best == null ? n : Math.max(best, n);
+    }
+    return best;
+  };
+
+  const sysMin = _parseHeaderReachMin(sys.reachMin);
+  const headerMax = _parseReachMaxOrMissing(sys.reach);
+  const meleeStructuredFallbackMax = _isMeleeWeapon(weapon) ? _getStructuredReachFallbackMax(weapon) : null;
+  const systemMax = (headerMax ?? meleeStructuredFallbackMax ?? 0);
+  const systemResult = { min: sysMin, max: systemMax, source: "system" };
 
   if (!isReachLengthHomebrewEnabled()) return systemResult;
 
@@ -85,19 +117,19 @@ export function getWeaponReachBoundsEffective(weapon) {
   if (model === "classic") {
     const classicFlags = flags?.classic ?? {};
     const hbMin = Number(classicFlags?.min);
-    const hbMax = Number(classicFlags?.max);
+    const hbMax = _parseReachMaxOrMissing(classicFlags?.max);
     const min = Number.isFinite(hbMin) ? hbMin : sysMin;
-    const max = Number.isFinite(hbMax) ? hbMax : sysMax;
+    const max = hbMax ?? systemMax;
     return { min, max, source: "homebrew-classic" };
   }
 
   if (model === "simplified") {
     const simpFlags = flags?.simplified ?? {};
     const hbMin = Number(simpFlags?.min);
-    const hbMax = Number(simpFlags?.max);
+    const hbMax = _parseReachMaxOrMissing(simpFlags?.max);
     // Simplified default: min = 0 (no too-close gating), max falls back to system reach
     const min = Number.isFinite(hbMin) ? hbMin : 0;
-    const max = Number.isFinite(hbMax) ? hbMax : sysMax;
+    const max = hbMax ?? systemMax;
     return { min, max, source: "homebrew-simplified" };
   }
 
@@ -117,6 +149,7 @@ export function getWeaponReachBoundsEffective(weapon) {
  *  - In Close: shorter weapon = +deltaL*5 bonus; longer weapon = -deltaL*5 penalty.
  *  - The signed modifier is applied from the caller's own-side perspective.
  *  - Called separately for attacker and defender; each receives their correct sign.
+ *  - When attacker-only mode is enabled, defender-side Length modifiers are fully suppressed.
  *
  * In Close detection:
  *  - Primary: pairwise `inCloseWith` token flags.
@@ -180,19 +213,19 @@ export function applyLengthPenaltyToTN({
     let modifier = ownAdvantaged ? +LP : -LP;
 
     if (
-      modifier > 0
-      && isReachLengthAttackerAdvantageOnlyEnabled()
+      isReachLengthAttackerAdvantageOnlyEnabled()
       && String(ownRole ?? "").toLowerCase() === "defender"
     ) {
       _debugLengthTN({
         applied: false,
-        reason: "attackerOnlyAdvantageSuppressed",
+        reason: "attackerOnlyDefenderSuppressed",
         ownLength: Lown,
         opponentLength: Lopp,
         lengthDelta: delta,
         inClose,
         inCloseSource: source,
-        ownRole
+        ownRole,
+        modifier
       });
       return false;
     }

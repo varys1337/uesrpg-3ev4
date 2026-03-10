@@ -53,6 +53,7 @@ export function getAETwitterMods(attackerActor, defenderActor) {
           key: `ae-${target}-${e.effectId ?? foundry.utils.randomID()}`,
           label: e.label,
           value: e.value,
+          effectId: e.effectId ?? null,
           target,
           mode: e.mode,
           priority: e.priority,

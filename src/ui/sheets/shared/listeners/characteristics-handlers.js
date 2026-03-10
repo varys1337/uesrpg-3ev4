@@ -8,7 +8,7 @@
 import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
 import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
-import { doTestRoll, formatDegree } from "../../../../utils/degree-roll-helper.js";
+import { doTestRoll, formatDegree, formatResultSummary } from "../../../../utils/degree-roll-helper.js";
 import { requireUserCanRollActor } from "../../../../utils/permissions.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../../../../core/traits/trait-resistance-ui.js";
 import { _buildCharacteristicPseudoItem } from "../../../../core/skills/opposed-workflow/core/skills.js";
@@ -19,6 +19,15 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
+import {
+  LUCKY_SLOT_KEYS,
+  UNLUCKY_SLOT_KEYS,
+  resolveLuckyUnluckyAllocation,
+  extractConfiguredLuckyNumbers,
+  extractConfiguredUnluckyNumbers,
+  readLuckySlotMap,
+  readUnluckySlotMap,
+} from "../../../../core/luck/lucky-numbers.js";
 
 const CHA_KEYS = ["str", "end", "agi", "int", "wp", "prc", "prs"];
 
@@ -567,8 +576,8 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
 
   // Format result
   const degreeLine = res.isSuccess
-    ? `<b style="color:green;">SUCCESS — ${formatDegree(res)}</b>`
-    : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(res)}</b>`;
+    ? `<b style="color:green;">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
+    : `<b style="color:rgb(168, 5, 5);">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`;
 
   const breakdownRows = (tn.breakdown ?? []).map(b => {
     const v = Number(b.value ?? 0);
@@ -587,7 +596,7 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
       <h2 style="margin:0 0 6px 0;">${chaLabel} (Characteristic)</h2>
       <div><b>Target Number:</b> ${tn.finalTN}</div>
       ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
-      <div style="margin-top:4px;">${degreeLine}${res.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ''}${res.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ''}</div>
+      <div style="margin-top:4px;">${degreeLine}</div>
       <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
       <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
     </div>`;
@@ -638,17 +647,16 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
   event.preventDefault();
 
   const actor = this.actor;
-  const hasThiefBirthsign = actor.items.some(
-    (item) => item.type === "trait" && (item.name === "The Thief" || item.name === "The Star-Cursed Thief")
-  );
-
-  function getLuckBonus() {
-    return Math.max(0, _num(actor.system?.characteristics?.lck?.bonus, Math.floor(_num(actor.system?.characteristics?.lck?.total, 0) / 10)));
-  }
+  const luckyInputKeys = LUCKY_SLOT_KEYS.slice(0, 6);
+  const unluckyInputKeys = UNLUCKY_SLOT_KEYS;
+  const allocation = resolveLuckyUnluckyAllocation(actor, { clampNonNegativeBonus: true });
+  const initialLuckyMap = readLuckySlotMap(actor, { keys: luckyInputKeys });
+  const initialUnluckyMap = readUnluckySlotMap(actor, { keys: unluckyInputKeys });
+  const state = { mode: "manual", rollTrace: null };
 
   function rollNumbers() {
-    const luckyCount = Math.max(0, getLuckBonus()) + (hasThiefBirthsign ? 1 : 0);
-    const unluckyCount = Math.max(0, 5 - getLuckBonus());
+    const luckyCount = allocation.luckyCount;
+    const unluckyCount = allocation.unluckyCount;
     const taken = new Set();
     const lucky = [];
     const unlucky = [];
@@ -665,20 +673,12 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
     return { lucky, unlucky, luckyCount, unluckyCount };
   }
 
-  const initialCounts = {
-    luckyCount: Math.max(0, getLuckBonus()) + (hasThiefBirthsign ? 1 : 0),
-    unluckyCount: Math.max(0, 5 - getLuckBonus()),
-  };
-  const state = { mode: "manual", rollTrace: null };
-
   function applySet(root, data) {
-    const luckyInputs = ["ln1", "ln2", "ln3", "ln4", "ln5", "ln6"];
-    const unluckyInputs = ["ul1", "ul2", "ul3", "ul4", "ul5"];
-    luckyInputs.forEach((id, idx) => {
+    luckyInputKeys.forEach((id, idx) => {
       const input = root.querySelector(`#${id}`);
       if (input) input.value = String(data.lucky[idx] ?? 0);
     });
-    unluckyInputs.forEach((id, idx) => {
+    unluckyInputKeys.forEach((id, idx) => {
       const input = root.querySelector(`#${id}`);
       if (input) input.value = String(data.unlucky[idx] ?? 0);
     });
@@ -687,38 +687,39 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
     state.rollTrace = data;
   }
 
-  await customDialog({
+  const result = await customDialog({
     title: "Lucky & Unlucky Numbers",
     width: 800,
     classes: ["uesrpg-cg-compact-dialog"],
     content: `<div class="uesrpg-cg-dialog">
       <div class="uesrpg-cg-dialog__note">
-        RAW default: Lucky count = Luck bonus${hasThiefBirthsign ? " (+1 for Thief sign)" : ""}; Unlucky count = 5 - Luck bonus.
+        RAW default: Lucky count = Luck bonus${allocation.thiefBonus ? " (+1 for Thief sign)" : ""}; Unlucky count = 5 - Luck bonus.
       </div>
       <div class="uesrpg-cg-dialog__tools">
         <button type="button" id="cgRollLucky">Roll RAW</button>
         <button type="button" id="cgManualLucky">Manual Edit</button>
-        <span class="uesrpg-cg-dialog__small" id="cgLuckCounts">Lucky ${initialCounts.luckyCount} | Unlucky ${initialCounts.unluckyCount}</span>
+        <span class="uesrpg-cg-dialog__small" id="cgLuckCounts">Lucky ${allocation.luckyCount} | Unlucky ${allocation.unluckyCount}</span>
       </div>
       <table class="uesrpg-cg-dialog__table">
-        <tr><th colspan="${hasThiefBirthsign ? 6 : 5}">Lucky Numbers</th></tr>
+        <tr><th colspan="6">Lucky Numbers</th></tr>
         <tr>
-          <td><input class="luckyNum" id="ln1" type="number" min="1" max="100" value=""></td>
-          <td><input class="luckyNum" id="ln2" type="number" min="1" max="100" value=""></td>
-          <td><input class="luckyNum" id="ln3" type="number" min="1" max="100" value=""></td>
-          <td><input class="luckyNum" id="ln4" type="number" min="1" max="100" value=""></td>
-          <td><input class="luckyNum" id="ln5" type="number" min="1" max="100" value=""></td>
-          ${hasThiefBirthsign ? `<td><input class="luckyNum" id="ln6" type="number" min="1" max="100" value=""></td>` : ""}
+          <td><input class="luckyNum" id="ln1" type="number" min="1" max="100" value="${initialLuckyMap.ln1 || ""}"></td>
+          <td><input class="luckyNum" id="ln2" type="number" min="1" max="100" value="${initialLuckyMap.ln2 || ""}"></td>
+          <td><input class="luckyNum" id="ln3" type="number" min="1" max="100" value="${initialLuckyMap.ln3 || ""}"></td>
+          <td><input class="luckyNum" id="ln4" type="number" min="1" max="100" value="${initialLuckyMap.ln4 || ""}"></td>
+          <td><input class="luckyNum" id="ln5" type="number" min="1" max="100" value="${initialLuckyMap.ln5 || ""}"></td>
+          <td><input class="luckyNum" id="ln6" type="number" min="1" max="100" value="${initialLuckyMap.ln6 || ""}"></td>
         </tr>
       </table>
       <table class="uesrpg-cg-dialog__table">
-        <tr><th colspan="5">Unlucky Numbers</th></tr>
+        <tr><th colspan="6">Unlucky Numbers</th></tr>
         <tr>
-          <td><input class="unluckyNum" id="ul1" type="number" min="1" max="100" value=""></td>
-          <td><input class="unluckyNum" id="ul2" type="number" min="1" max="100" value=""></td>
-          <td><input class="unluckyNum" id="ul3" type="number" min="1" max="100" value=""></td>
-          <td><input class="unluckyNum" id="ul4" type="number" min="1" max="100" value=""></td>
-          <td><input class="unluckyNum" id="ul5" type="number" min="1" max="100" value=""></td>
+          <td><input class="unluckyNum" id="ul1" type="number" min="1" max="100" value="${initialUnluckyMap.ul1 || ""}"></td>
+          <td><input class="unluckyNum" id="ul2" type="number" min="1" max="100" value="${initialUnluckyMap.ul2 || ""}"></td>
+          <td><input class="unluckyNum" id="ul3" type="number" min="1" max="100" value="${initialUnluckyMap.ul3 || ""}"></td>
+          <td><input class="unluckyNum" id="ul4" type="number" min="1" max="100" value="${initialUnluckyMap.ul4 || ""}"></td>
+          <td><input class="unluckyNum" id="ul5" type="number" min="1" max="100" value="${initialUnluckyMap.ul5 || ""}"></td>
+          <td><input class="unluckyNum" id="ul6" type="number" min="1" max="100" value="${initialUnluckyMap.ul6 || ""}"></td>
         </tr>
       </table>
     </div>`,
@@ -726,7 +727,7 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
       label: "Submit",
       callback: async (html) => {
         const root = _resolveDialogRoot(html);
-        if (!root) return;
+        if (!root) return null;
         const luckyNums = [...root.querySelectorAll(".luckyNum")].map((input) => _num(input.value, 0)).filter((n) => n > 0);
         const unluckyNums = [...root.querySelectorAll(".unluckyNum")].map((input) => _num(input.value, 0)).filter((n) => n > 0);
 
@@ -734,39 +735,37 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
         const uniqueUnlucky = new Set(unluckyNums);
         if (uniqueLucky.size !== luckyNums.length || uniqueUnlucky.size !== unluckyNums.length) {
           ui.notifications?.warn?.("Lucky/Unlucky numbers cannot contain duplicates.");
-          return;
+          return null;
         }
         for (const n of uniqueLucky) {
           if (uniqueUnlucky.has(n)) {
             ui.notifications?.warn?.("Lucky and Unlucky numbers cannot overlap.");
-            return;
+            return null;
           }
         }
         if ([...uniqueLucky, ...uniqueUnlucky].some((n) => n < 1 || n > 100)) {
           ui.notifications?.warn?.("Numbers must be between 1 and 100.");
-          return;
+          return null;
         }
 
-        const luckyIds = ["ln1", "ln2", "ln3", "ln4", "ln5", "ln6"];
-        const unluckyIds = ["ul1", "ul2", "ul3", "ul4", "ul5"];
         const updates = {};
-        luckyIds.forEach((id, idx) => { updates[`system.lucky_numbers.${id}`] = luckyNums[idx] ?? 0; });
-        unluckyIds.forEach((id, idx) => { updates[`system.unlucky_numbers.${id}`] = unluckyNums[idx] ?? 0; });
+        luckyInputKeys.forEach((id, idx) => { updates[`system.lucky_numbers.${id}`] = luckyNums[idx] ?? 0; });
+        unluckyInputKeys.forEach((id, idx) => { updates[`system.unlucky_numbers.${id}`] = unluckyNums[idx] ?? 0; });
         await requestUpdateDocument(actor, updates);
-
-        await appendChargenAudit(actor, {
-          step: "luck",
-          action: "submit",
-          payload: {
-            mode: state.mode,
-            lucky: luckyNums,
-            unlucky: unluckyNums,
-            rollTrace: state.rollTrace,
-          },
-        });
+        const savedActor = (await fromUuid(actor.uuid)) ?? actor;
+        const resolvedAllocation = resolveLuckyUnluckyAllocation(savedActor, { clampNonNegativeBonus: true });
+        return {
+          ok: true,
+          mode: state.mode,
+          luckyNumbers: extractConfiguredLuckyNumbers(savedActor),
+          unluckyNumbers: extractConfiguredUnluckyNumbers(savedActor),
+          luckyCount: resolvedAllocation.luckyCount,
+          unluckyCount: resolvedAllocation.unluckyCount,
+          rollTrace: state.rollTrace,
+        };
       },
     },
-    no: { label: "Cancel" },
+    no: { label: "Cancel", callback: () => null },
     defaultButton: "yes",
     render: (_event, html) => {
       const root = _resolveDialogRoot(html);
@@ -780,4 +779,6 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
       });
     },
   });
+
+  return result?.ok ? result : null;
 });

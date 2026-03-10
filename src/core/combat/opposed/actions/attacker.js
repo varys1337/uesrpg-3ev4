@@ -51,6 +51,14 @@ import { markWeaponNeedsReload as _markWeaponNeedsReload } from "../damage/ammun
 import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
+import { cloneFlagState } from "../../../../utils/clone.js";
+import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
+
+/** @private — Clone current opposed flag state from a live message for lane-commit merging. */
+function _readCombatOpposedFlagState(fm) {
+  const raw = fm?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
+  return raw ? cloneFlagState(raw) : null;
+}
 
 /**
  * Handle attacker actions: roll, commit, or roll-committed
@@ -145,6 +153,28 @@ export async function handleAttackerAction(action, ctx) {
   let decl = null;
   let pendingApCost = Number(data.attacker?.pendingApCost ?? 0) || 0;
 
+  const ensureCommittedAttackerState = () => {
+    data.attacker = data.attacker ?? {};
+    const tn = (data.attacker?.tn && typeof data.attacker.tn === "object") ? data.attacker.tn : null;
+    const target = Number(tn?.finalTN ?? data.attacker?.target ?? NaN);
+    if (!Number.isFinite(target)) return false;
+
+    data.attacker.hasDeclared = true;
+    data.attacker.variant = String(data.attacker?.variant ?? "normal");
+    data.attacker.variantLabel = data.attacker.variantLabel ?? _variantLabel(data.attacker.variant);
+    data.attacker.variantMod = Number(data.attacker?.variantMod ?? computeVariantMod(data.attacker.variant) ?? 0) || 0;
+    data.attacker.baseTarget = Number(tn?.baseTN ?? data.attacker?.baseTarget ?? 0) || 0;
+    data.attacker.totalMod = Number(tn?.totalMod ?? data.attacker?.totalMod ?? (target - data.attacker.baseTarget)) || 0;
+    data.attacker.target = target;
+    data.attacker.tn = tn ?? {
+      finalTN: target,
+      baseTN: data.attacker.baseTarget,
+      totalMod: data.attacker.totalMod,
+      breakdown: []
+    };
+    return true;
+  };
+
   if (!isRollCommitted) {
     // One dialog only: (optional) combat style selector + attack variant + manual modifier.
     const styles = listCombatStyles(attacker);
@@ -172,11 +202,18 @@ export async function handleAttackerAction(action, ctx) {
     // Persist the declared weapon selection into the opposed context for downstream automation
     // (range, traits, damage previews, etc.). This is a non-schema-breaking addition.
     data.context.weaponUuid = decl.weaponUuid || data.context.weaponUuid || null;
+    if (data.context.weaponUuid) {
+      data.context.lastWeaponUuid = data.context.weaponUuid;
+    }
     const isAoEAttack = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
     if (String(decl.variant ?? "") === "precision") {
       data.context.forcedHitLocation = String(decl.precisionLocation ?? "Body");
     } else if (!isAoEAttack) {
       data.context.forcedHitLocation = null;
+    }
+
+    if (String(decl.variant ?? "") === "coup") {
+      data.context.coupMode = String(decl.coupMode ?? "lethal").toLowerCase();
     }
 
     // Normalize attackMode from the explicitly selected weapon.
@@ -300,19 +337,20 @@ export async function handleAttackerAction(action, ctx) {
       if (String(data.context?.attackMode ?? "melee") === "ranged") {
         const rangeCtx = _computeRangedRangeContext({ attackerToken: aToken, defenderToken: dToken, weapon });
         if (rangeCtx) {
-          data.context.range = rangeCtx;
+          data.context.range = {
+            ...rangeCtx,
+            weaponUuid: weapon?.uuid ?? data.context?.weaponUuid ?? null
+          };
+          data.context.rangeTnMod = Number(rangeCtx.tnMod ?? 0) || 0;
           if (rangeCtx.outOfRange) {
             const wName = weapon?.name ? ` (${weapon.name})` : "";
-            ui.notifications.warn(`Target is out of range${wName}. Distance ${Math.round(rangeCtx.distance)} > Long ${rangeCtx.long}.`);
+            const rangeDetail = rangeCtx.long > 0
+              ? `Distance ${Math.round(rangeCtx.distance)} > Long ${rangeCtx.long}.`
+              : `Distance ${Math.round(rangeCtx.distance)} > Medium ${rangeCtx.medium} (no long range).`;
+            ui.notifications.warn(`Target is out of range${wName}. ${rangeDetail}`);
             return;
           }
-          if (rangeCtx.band) {
-            const bandLabel = rangeCtx.band === "close" ? "Close" : rangeCtx.band === "medium" ? "Medium" : "Long";
-            // Only add when it actually modifies TN (Close/Long). Medium has no modifier.
-            if (Number(rangeCtx.tnMod) !== 0) {
-              situationalMods.push({ key: "range", label: `Range (${bandLabel})`, value: Number(rangeCtx.tnMod) });
-            }
-          }
+          // Range TN mod is applied inside computeTN() via context.rangeContext — no situationalMods push needed.
         }
       }
 
@@ -368,7 +406,9 @@ export async function handleAttackerAction(action, ctx) {
         attackMode: data.context?.attackMode ?? "melee",
         itemUuid: data.context?.weaponUuid ?? null,
         selfSize: attacker?.system?.size ?? null,
-        movementAction: attackerMovementAction
+        movementAction: attackerMovementAction,
+        // Range band context — consumed inside computeTN() to add the range TN entry to breakdown.
+        rangeContext: data.context?.range ?? null
       }
     });
 
@@ -456,13 +496,36 @@ export async function handleAttackerAction(action, ctx) {
         }
       }
 
-      await _updateCard(message, data);
+      // Fresh-state re-read: apply only attacker lane + context onto live state to preserve
+      // any defender-side commit that arrived while the dialog was open.
+      await commitLaneToFreshCardState({
+        message,
+        readState: _readCombatOpposedFlagState,
+        mutate: (_t) => {
+          _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
+          _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
+          if (data.context?.attackFromHidden === true && Array.isArray(data.defenders) && Array.isArray(_t.defenders)) {
+            for (let _di = 0; _di < data.defenders.length; _di++) {
+              if (_t.defenders[_di] && data.defenders[_di]) {
+                _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
+              }
+            }
+          }
+        },
+        updateCard: _updateCard,
+        fallbackData: data,
+      });
 
       // Auto-roll is triggered by the updateChatMessage hook → maybeAutoRollBanked.
       // No direct _autoRollBanked call needed here.
 
       return;
     }
+  }
+
+  if (isRollCommitted && !ensureCommittedAttackerState()) {
+    ui.notifications.warn("Attacker has not committed an attack declaration yet.");
+    return;
   }
 
   // At this point we are rolling (either standard workflow or banked roll).
@@ -763,6 +826,24 @@ export async function handleAttackerAction(action, ctx) {
   await applyPostAttackState(attacker, data.context, data);
 
   if (batchedUpdate && isRollCommitted) return data;
-  await _updateCard(message, data);
+  // Fresh-state re-read: apply attacker result + context onto live state to preserve
+  // any defender-side commit that arrived during the roll phase.
+  await commitLaneToFreshCardState({
+    message,
+    readState: _readCombatOpposedFlagState,
+    mutate: (_t) => {
+      _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
+      _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
+      if (Array.isArray(data.defenders) && Array.isArray(_t.defenders)) {
+        for (let _di = 0; _di < data.defenders.length; _di++) {
+          if (_t.defenders[_di] && data.defenders[_di]) {
+            _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
+          }
+        }
+      }
+    },
+    updateCard: _updateCard,
+    fallbackData: data,
+  });
   return data;
 }

@@ -15,6 +15,7 @@
 
 import { consumeSoulGem } from "../soul-gems.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { formatResultOutcomeLabel } from "../../../utils/degree-roll-helper.js";
 import { SYSTEM_ID } from "../../constants.js";
 
 const _NS = SYSTEM_ID;
@@ -100,8 +101,8 @@ async function _postEnchantmentCard(actor, targetItem, flagsPayload, buildResult
       const spells = buildResult?.spellResults ?? [];
       effectSummary = spells.map(s => {
         const outcome = s.testResult?.success
-          ? `Success (${s.testResult?.degrees} DoS, Binding Str. ${s.bindingStrength})`
-          : `Failed (${s.testResult?.degrees} DoF)`;
+          ? `${formatResultOutcomeLabel({ isSuccess: s.testResult?.success, isCriticalSuccess: s.testResult?.isCritSuccess, isCriticalFailure: s.testResult?.isCritFailure })} (${s.testResult?.degrees} DoS, Binding Str. ${s.bindingStrength})`
+          : `${formatResultOutcomeLabel({ isSuccess: s.testResult?.success, isCriticalSuccess: s.testResult?.isCritSuccess, isCriticalFailure: s.testResult?.isCritFailure })} (${s.testResult?.degrees} DoF)`;
         const procNote = s.hasProcedural && s.testResult?.success
           ? ` [Procedural: may choose rank ${s.effectiveEnchantRank}]`
           : "";
@@ -110,17 +111,13 @@ async function _postEnchantmentCard(actor, targetItem, flagsPayload, buildResult
     } else if (enchantType === "strike") {
       const effects = flagsPayload?.strike?.effects ?? [];
       const testR = buildResult?.testResult;
-      const outcome = testR?.success
-        ? `Success (${testR.degrees} DoS, BS ${testR.bindingStrength ?? "-"})`
-        : `Failed (${testR?.degrees ?? "?"} DoF)`;
+      const outcome = `${formatResultOutcomeLabel({ isSuccess: testR?.success, isCriticalSuccess: testR?.isCritSuccess, isCriticalFailure: testR?.isCritFailure })} (${testR?.degrees ?? "?"} ${testR?.success ? "DoS" : "DoF"}${testR?.success ? `, BS ${testR.bindingStrength ?? "-"}` : ""})`;
       effectSummary = effects.map(e => `${e.key} SL ${e.sl}`).join(", ") +
         `<br>TN ${testR?.tn}, Roll ${testR?.roll}: ${outcome}`;
     } else if (enchantType === "constant") {
       const effects = flagsPayload?.constant?.effects ?? [];
       const testR = buildResult?.testResult;
-      const outcome = testR?.success
-        ? `Success (${testR.degrees} DoS)`
-        : `Failed (${testR?.degrees ?? "?"} DoF)`;
+      const outcome = `${formatResultOutcomeLabel({ isSuccess: testR?.success, isCriticalSuccess: testR?.isCritSuccess, isCriticalFailure: testR?.isCritFailure })} (${testR?.degrees ?? "?"} ${testR?.success ? "DoS" : "DoF"})`;
       effectSummary = effects.map(e => `${e.effectKey} SL ${e.sl}`).join(", ") +
         `<br>TN ${testR?.tn}, Roll ${testR?.roll}: ${outcome}`;
     }

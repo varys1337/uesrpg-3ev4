@@ -13,7 +13,7 @@ import { _canPromptForActor } from "./_primitives.js";
 import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
-import { doTestRoll, formatDegree } from "../../utils/degree-roll-helper.js";
+import { doTestRoll, formatResultSummary } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ROLL_FORMULA } from "../constants.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
@@ -172,9 +172,10 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
   });
 
   // --- Post result to chat ---
+  const summaryText = formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" });
   const degreeLine = res.isSuccess
-    ? `<b style="color:green;">SUCCESS — ${formatDegree(res)}</b>`
-    : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(res)}</b>`;
+    ? `<b style="color:green;">${summaryText}</b>`
+    : `<b style="color:rgb(168, 5, 5);">${summaryText}</b>`;
 
   const targetName = foundry.utils.escapeHTML(targetActor.name);
   const successNote = res.isSuccess
@@ -185,7 +186,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
     <div>
       <h2 style="margin:0 0 6px 0;">Inspire Heroism — Command Test</h2>
       <div><b>Target Number:</b> ${tn.finalTN}</div>
-      <div style="margin-top:4px;">${degreeLine}${res.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ""}${res.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ""}</div>
+      <div style="margin-top:4px;">${degreeLine}</div>
       ${successNote}
     </div>`;
 
@@ -236,3 +237,6 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
 
   return res.isSuccess;
 }
+
+
+

@@ -22,6 +22,7 @@ import { anyOtherTokensInMeleeOfEither, getMeleeReachMeters } from "../../../tra
 import { canTokenEscapeTemplate } from "../../../../utils/aoe-utils.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands, getTokenDashContext } from "../../combat-utils.js";
 import { isActorUndead } from "../../../traits/trait-registry.js";
+import { getWeaponReachBoundsEffective } from "../../../homebrew/reach-length/weapon.js";
 import { normalizeDiceExpression } from "../rolls.js";
 import { doesUserOwnActor, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { gateRangedAttackAmmoAndLoad } from "../damage/ranged-ammo-gate.js";
@@ -139,9 +140,11 @@ export function weaponHasQuality(weapon, qualityKey, { allowLegacy = true } = {}
 export function parseRangeTriplet(text) {
   const raw = String(text ?? "").trim();
   if (!raw) return null;
-  const m = raw.match(/^(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)$/);
+  // Third slot may be "x", "-", "–", or "*" to indicate no long range (long = 0).
+  const m = raw.match(/^(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+|[xX\-\u2013*]+)$/);
   if (!m) return null;
-  return { close: Number(m[1]), effective: Number(m[2]), long: Number(m[3]) };
+  const long = /^\d+$/.test(m[3]) ? Number(m[3]) : 0;
+  return { close: Number(m[1]), effective: Number(m[2]), long };
 }
 
 /**
@@ -657,7 +660,7 @@ export function getTokenMovementAction(token) {
  * Get weapon reach in meters.
  */
 export function getWeaponReachMeters(weapon, actor) {
-  const reach = Number(weapon?.system?.reach ?? weapon?.system?.reachMax ?? weapon?.system?.reachMeters ?? NaN);
+  const reach = Number(getWeaponReachBoundsEffective(weapon)?.max ?? NaN);
   if (Number.isFinite(reach) && reach > 0) return reach;
   return getMeleeReachMeters(actor);
 }

@@ -11,6 +11,7 @@ import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../../
 import { safeGetEffect, safeGetEffectByUuidSync, isMissingDocError as _isMissingDocError } from "../../../utils/ae-helpers.js";
 import { _num } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _deleteInFlight = new Map();
@@ -401,6 +402,13 @@ function _registerTrackingHooks() {
   });
 }
 
+async function _handleCombatBoundaryExpiration(payload) {
+  if (!game.user?.isGM) return;
+  if (payload?.source !== "combat") return;
+  if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+  await _expireSpellEffects({ nowTime: _num(payload?.worldTime, MagicTimekeeping.nowWorldTimeSeconds()) });
+}
+
 export function initializeSpellEffectExpirationSystem() {
   if (initializeSpellEffectExpirationSystem._initialized) return;
   initializeSpellEffectExpirationSystem._initialized = true;
@@ -413,11 +421,15 @@ export function initializeSpellEffectExpirationSystem() {
     await _expireSpellEffects({ nowTime: worldTime });
   });
 
+  registerCombatBoundaryConsumer({
+    id: "spell-effect-expiration",
+    order: 200,
+    handle: _handleCombatBoundaryExpiration
+  });
+
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (!game.user?.isGM) return;
-    if (payload?.source !== "combat") return;
-    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-    await _expireSpellEffects({ nowTime: _num(payload?.worldTime, MagicTimekeeping.nowWorldTimeSeconds()) });
+    if (noteCombatBoundaryLegacyFallbackSkip("spell-effect-expiration", payload)) return;
+    await _handleCombatBoundaryExpiration(payload);
   });
 
   Hooks.on("createCombat", async () => {

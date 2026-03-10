@@ -1,4 +1,4 @@
-import { measureTokenDistance } from "../../combat/opposed/range.js";
+import { measureTokenDistance, measureTokenDistanceChebyshev, measureTokenDistanceGridSpaces } from "../../combat/opposed/range.js";
 import { getLongestEquippedMeleeWeapon } from "./equipped-weapons.js";
 import {
   hasCondition,
@@ -11,6 +11,7 @@ import {
   isEngagementFlankingOnlyInCombat,
 } from "../../system/homebrew.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
+import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
 
 const NAMESPACE = "uesrpg-3ev4";
 const FLAG_HOOKS = "_engagementFlankingHooks";
@@ -19,17 +20,15 @@ const DISP_HOSTILE = Number(CONST?.TOKEN_DISPOSITIONS?.HOSTILE ?? -1);
 const DISP_NEUTRAL = Number(CONST?.TOKEN_DISPOSITIONS?.NEUTRAL ?? 0);
 const DISP_FRIENDLY = Number(CONST?.TOKEN_DISPOSITIONS?.FRIENDLY ?? 1);
 const DISP_SECRET = Number(CONST?.TOKEN_DISPOSITIONS?.SECRET ?? -2);
-const COMBAT_STYLE_RANK_TO_NUMBER = Object.freeze({
-  untrained: 0,
-  novice: 0,
+const COMBAT_STYLE_RANK_TO_ENGAGEMENT = Object.freeze({
+  untrained: 1,
+  novice: 1,
   apprentice: 1,
   journeyman: 2,
-  adept: 3,
-  expert: 4,
-  master: 5,
+  adept: 2,
+  expert: 3,
+  master: 4,
 });
-
-// Numeric size categories for NPC Engagement Score: max(1, Size − 2)
 const SIZE_NUMERIC = Object.freeze({
   puny: 1,
   tiny: 2,
@@ -41,12 +40,36 @@ const SIZE_NUMERIC = Object.freeze({
 });
 
 let _debouncedRefresh = null;
-const _tokenPositionCache = new Map(); // tokenId → {x: number, y: number}
-const _flankedTouchedActorIds = new Set(); // actor ids touched by flanked writes
+let _pendingRefreshContext = _createRefreshContext();
+const _tokenPositionCache = new Map();
+const _flankedTouchedTokenIds = new Set();
 let _flankedTouchedSeeded = false;
+
+function _createRefreshContext() {
+  return {
+    fullScene: false,
+    reasons: new Set(),
+    dirtyTokenIds: new Set(),
+    dirtyActorIds: new Set(),
+    dirtyPoints: [],
+  };
+}
+
+function _resetPendingRefreshContext() {
+  _pendingRefreshContext = _createRefreshContext();
+}
 
 function _isEFDebugEnabled() {
   return isDebugEnabled("homebrewEngagementFlanking") || isDebugEnabled("effectsProxyDebug");
+}
+
+function _isPerfOn() {
+  return isPerfEnabled();
+}
+
+function _recordPerf(record) {
+  if (!_isPerfOn()) return;
+  perfRecord(record);
 }
 
 function _asFiniteNumber(value, fallback = 0) {
@@ -60,6 +83,115 @@ function _isCombatActive() {
 
 function _isEnabledNow() {
   return isEngagementFlankingHomebrewEnabled();
+}
+
+function _getPxPerUnit() {
+  const grid = canvas?.grid;
+  const size = Number(grid?.size ?? canvas?.scene?.grid?.size);
+  const dist = Number(grid?.distance ?? canvas?.scene?.grid?.distance);
+  if (!size || !dist) return 1;
+  return size / dist;
+}
+
+/**
+ * Returns true when the reach visualizer is configured to use Chebyshev (equal-cost diagonal)
+ * distance for grid reach checks. Reads directly from game settings to avoid a UI-layer import.
+ * Defaults to true (Chebyshev) when the setting is absent or unreadable.
+ */
+function _reachUsesChebyshev() {
+  try {
+    const s = game?.settings?.get("uesrpg-3ev4", "reachVisualizer");
+    return String(s?.gridDiagonalMode ?? "chebyshev") !== "scene";
+  } catch (_e) {
+    return true;
+  }
+}
+
+function _normalizeStringId(value) {
+  const out = String(value ?? "").trim();
+  return out || null;
+}
+
+function _mergeIds(target, values) {
+  if (!target || !values) return;
+  for (const value of values) {
+    const id = _normalizeStringId(value);
+    if (id) target.add(id);
+  }
+}
+
+function _mergeDirtyPoints(target, points) {
+  if (!Array.isArray(points)) return;
+  for (const point of points) {
+    const x = Number(point?.x ?? NaN);
+    const y = Number(point?.y ?? NaN);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    target.push({ x, y });
+  }
+}
+
+function _snapshotRefreshContext(context = {}) {
+  const reasons = new Set();
+  if (context?.reasons instanceof Set) {
+    for (const reason of context.reasons) reasons.add(String(reason ?? "").trim() || "manual");
+  } else {
+    reasons.add(String(context?.reason ?? "manual").trim() || "manual");
+  }
+
+  const dirtyTokenIds = new Set();
+  const dirtyActorIds = new Set();
+  _mergeIds(dirtyTokenIds, context?.dirtyTokenIds ?? []);
+  _mergeIds(dirtyActorIds, context?.dirtyActorIds ?? []);
+
+  const dirtyPoints = [];
+  _mergeDirtyPoints(dirtyPoints, context?.dirtyPoints ?? []);
+
+  const hasDirty = dirtyTokenIds.size > 0 || dirtyActorIds.size > 0 || dirtyPoints.length > 0;
+  return {
+    fullScene: context?.fullScene === true || !hasDirty,
+    reasons,
+    dirtyTokenIds,
+    dirtyActorIds,
+    dirtyPoints,
+  };
+}
+
+function _queueRefreshContext(context = {}) {
+  const reason = String(context?.reason ?? "hook").trim() || "hook";
+  const hadPending = _pendingRefreshContext.fullScene
+    || _pendingRefreshContext.dirtyTokenIds.size > 0
+    || _pendingRefreshContext.dirtyActorIds.size > 0
+    || _pendingRefreshContext.dirtyPoints.length > 0;
+
+  _pendingRefreshContext.reasons.add(reason);
+  if (context?.fullScene === true) _pendingRefreshContext.fullScene = true;
+  _mergeIds(_pendingRefreshContext.dirtyTokenIds, context?.dirtyTokenIds ?? []);
+  _mergeIds(_pendingRefreshContext.dirtyActorIds, context?.dirtyActorIds ?? []);
+  _mergeDirtyPoints(_pendingRefreshContext.dirtyPoints, context?.dirtyPoints ?? []);
+
+  if (hadPending) {
+    _recordPerf({
+      event: "engagementFlanking.coalesced",
+      reason,
+      fullScene: _pendingRefreshContext.fullScene,
+      dirtyTokenCount: _pendingRefreshContext.dirtyTokenIds.size,
+      dirtyActorCount: _pendingRefreshContext.dirtyActorIds.size,
+      dirtyPointCount: _pendingRefreshContext.dirtyPoints.length,
+      mergedReasonCount: _pendingRefreshContext.reasons.size,
+    });
+  }
+}
+
+function _consumePendingRefreshContext() {
+  const out = {
+    fullScene: _pendingRefreshContext.fullScene,
+    reasons: new Set(_pendingRefreshContext.reasons),
+    dirtyTokenIds: new Set(_pendingRefreshContext.dirtyTokenIds),
+    dirtyActorIds: new Set(_pendingRefreshContext.dirtyActorIds),
+    dirtyPoints: _pendingRefreshContext.dirtyPoints.map((point) => ({ x: point.x, y: point.y })),
+  };
+  _resetPendingRefreshContext();
+  return out;
 }
 
 function _getDispositionClass(tokenDoc) {
@@ -77,10 +209,6 @@ function _isEnemyByDisposition(aDoc, bDoc) {
   const aClass = _getDispositionClass(aDoc);
   const bClass = _getDispositionClass(bDoc);
   if (aClass === "secret" || bClass === "secret" || aClass === "none" || bClass === "none") return false;
-
-  // Locked behavior:
-  // - Hostile is enemy to Friendly and Neutral
-  // - Friendly/Neutral are enemy to Hostile
   if (aClass === "hostile") return bClass === "friendly" || bClass === "neutral";
   if (aClass === "friendly" || aClass === "neutral") return bClass === "hostile";
   return false;
@@ -91,46 +219,39 @@ function _isAllyByDisposition(aDoc, bDoc) {
   const aClass = _getDispositionClass(aDoc);
   const bClass = _getDispositionClass(bDoc);
   if (aClass === "secret" || bClass === "secret" || aClass === "none" || bClass === "none") return false;
-
-  // Locked behavior:
-  // - Hostile allies with Hostile only
-  // - Friendly allies with Friendly + Neutral
-  // - Neutral allies with Friendly + Neutral
   if (aClass === "hostile") return bClass === "hostile";
   if (aClass === "friendly" || aClass === "neutral") return bClass === "friendly" || bClass === "neutral";
   return false;
 }
 
-function _getBestCombatStyleRank(actor) {
+function _getBestCombatStyleEngagement(actor) {
   if (!actor) return 0;
   let best = 0;
   for (const item of (actor.items ?? [])) {
     if (!item || item.type !== "combatStyle") continue;
     const rankKey = String(item.system?.rank ?? item.system?.level ?? "").toLowerCase().trim();
-    const rank = Number(COMBAT_STYLE_RANK_TO_NUMBER[rankKey] ?? 0);
-    if (rank > best) best = rank;
+    const score = Number(COMBAT_STYLE_RANK_TO_ENGAGEMENT[rankKey] ?? 0);
+    if (score > best) best = score;
   }
   return best;
 }
 
 function _getNpcEngagementScore(actor) {
   try {
-    const customES = actor?.flags?.["uesrpg-3ev4"]?.homebrew?.maxEngagementScore;
+    const customES = actor?.flags?.[NAMESPACE]?.homebrew?.maxEngagementScore;
     if (typeof customES === "number" && Number.isFinite(customES) && customES >= 0) {
       return Math.max(0, Math.round(customES));
     }
   } catch (_e) {}
   const sizeStr = String(actor?.system?.size ?? "standard").toLowerCase().trim();
-  const sizeNum = SIZE_NUMERIC[sizeStr] ?? 4; // default: standard
+  const sizeNum = SIZE_NUMERIC[sizeStr] ?? 4;
   return Math.max(1, sizeNum - 2);
 }
 
 function _getEngagementScore(actor) {
   if (!actor) return 0;
   if (String(actor.type ?? "").trim() === "NPC") return _getNpcEngagementScore(actor);
-  // Player Character (and Group fallback): ceil(best CS rank / 2)
-  const styleRank = _getBestCombatStyleRank(actor);
-  return Math.ceil(styleRank / 2);
+  return _getBestCombatStyleEngagement(actor);
 }
 
 function _getLongestEquippedMeleeReach(actor) {
@@ -144,38 +265,38 @@ function _getLongestEquippedMeleeReach(actor) {
   }
   return { ...DEFAULT_UNARMED_REACH };
 }
-
 function _isActorFlankedPresent(actor) {
   if (!actor) return false;
   if (!hasCondition(actor, "flanked")) return false;
   return Number(getConditionValue(actor, "flanked") ?? 0) > 0;
 }
 
-function _trackActorForFlankedCleanup(actor) {
-  const actorId = String(actor?.id ?? "").trim();
-  if (!actorId) return;
-  _flankedTouchedActorIds.add(actorId);
+function _trackTokenForFlankedCleanup(tokenId) {
+  const id = _normalizeStringId(tokenId);
+  if (!id) return;
+  _flankedTouchedTokenIds.add(id);
 }
 
-function _untrackActorIfNoFlanked(actor) {
-  const actorId = String(actor?.id ?? "").trim();
-  if (!actorId) return;
-  if (!_isActorFlankedPresent(actor)) _flankedTouchedActorIds.delete(actorId);
+function _untrackTokenIfNoFlanked(tokenId, actor) {
+  const id = _normalizeStringId(tokenId);
+  if (!id) return;
+  if (!_isActorFlankedPresent(actor)) _flankedTouchedTokenIds.delete(id);
 }
 
-function _seedTouchedFlankedActorsIfNeeded() {
+function _seedTouchedFlankedTokensIfNeeded() {
   if (_flankedTouchedSeeded) return;
   _flankedTouchedSeeded = true;
   if (!game.user?.isGM) return;
-  for (const actor of (game.actors ?? [])) {
+  for (const token of (canvas?.tokens?.placeables ?? [])) {
+    const actor = token?.actor;
     if (!actor?.id) continue;
     if (!_isActorFlankedPresent(actor)) continue;
-    _flankedTouchedActorIds.add(actor.id);
+    _flankedTouchedTokenIds.add(token.id);
   }
 }
 
 function _resetTouchedFlankedState() {
-  _flankedTouchedActorIds.clear();
+  _flankedTouchedTokenIds.clear();
   _flankedTouchedSeeded = false;
 }
 
@@ -186,17 +307,25 @@ function _distanceKey(aToken, bToken) {
   return aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
 }
 
-function _measureTokenDistanceCached(aToken, bToken, distanceCache) {
+function _measureTokenDistanceCached(aToken, bToken, distanceCache, useChebyshev) {
   const key = _distanceKey(aToken, bToken);
-  if (!key) return measureTokenDistance(aToken, bToken);
+  const _measure = () => {
+    if (useChebyshev) {
+      // Equal-cost diagonals — ignore the scene's diagonal movement rule.
+      return measureTokenDistanceChebyshev(aToken, bToken) ?? measureTokenDistance(aToken, bToken);
+    }
+    // Scene-diagonal mode: use measurePath({ gridSpaces: true }) so 1/2/1 alternating etc. applies.
+    return measureTokenDistanceGridSpaces(aToken, bToken) ?? measureTokenDistance(aToken, bToken);
+  };
+  if (!key) return _measure();
   if (distanceCache.has(key)) return distanceCache.get(key);
-  const value = measureTokenDistance(aToken, bToken);
+  const value = _measure();
   distanceCache.set(key, value);
   return value;
 }
 
 function _getEngagementScoreCached(actor, engagementScoreCache) {
-  const actorId = String(actor?.id ?? "").trim();
+  const actorId = _normalizeStringId(actor?.id);
   if (!actorId) return _getEngagementScore(actor);
   if (engagementScoreCache.has(actorId)) return engagementScoreCache.get(actorId);
   const score = _getEngagementScore(actor);
@@ -205,7 +334,7 @@ function _getEngagementScoreCached(actor, engagementScoreCache) {
 }
 
 function _getLongestEquippedMeleeReachCached(actor, reachCache) {
-  const actorId = String(actor?.id ?? "").trim();
+  const actorId = _normalizeStringId(actor?.id);
   if (!actorId) {
     return { reach: _getLongestEquippedMeleeReach(actor), weaponUuid: null };
   }
@@ -221,7 +350,7 @@ function _getLongestEquippedMeleeReachCached(actor, reachCache) {
     : { ...DEFAULT_UNARMED_REACH };
   const data = {
     reach,
-    weaponUuid: String(longest?.weapon?.uuid ?? "") || null,
+    weaponUuid: _normalizeStringId(longest?.weapon?.uuid),
   };
   reachCache.set(actorId, data);
   return data;
@@ -240,7 +369,7 @@ function _isThreatDistance(distance, bounds) {
 
 function _actorTokensOnCanvas() {
   const placeables = canvas?.tokens?.placeables ?? [];
-  return placeables.filter(t => t?.actor && t?.document);
+  return placeables.filter((token) => token?.actor && token?.document);
 }
 
 function _isDefeatedToken(token) {
@@ -251,7 +380,6 @@ function _isDefeatedToken(token) {
     return false;
   }
 }
-
 
 function _getActiveCombatantTokenIdSet() {
   const out = new Set();
@@ -267,27 +395,13 @@ function _getActiveCombatantTokenIdSet() {
 
 function _collectEvaluableTokens() {
   const tokens = _actorTokensOnCanvas();
-  const excludeDefeated = tokens.filter(t => !_isDefeatedToken(t));
+  const excludeDefeated = tokens.filter((token) => !_isDefeatedToken(token));
 
   if (isEngagementFlankingOnlyInCombat() && _isCombatActive()) {
     const combatantTokenIds = _getActiveCombatantTokenIdSet();
-    return excludeDefeated.filter(t => combatantTokenIds.has(String(t.id)));
+    return excludeDefeated.filter((token) => combatantTokenIds.has(String(token.id)));
   }
   return excludeDefeated;
-}
-
-function _allSceneActors() {
-  const out = new Map();
-  for (const token of _actorTokensOnCanvas()) {
-    const actor = token?.actor;
-    if (!actor?.id) continue;
-    out.set(actor.id, actor);
-  }
-  return out;
-}
-
-function _tokenSortKey(token) {
-  return String(token?.id ?? token?.document?.id ?? "");
 }
 
 function _sortedTokenIds(setLike) {
@@ -297,9 +411,7 @@ function _sortedTokenIds(setLike) {
 function _drawDebugError(err) {
   try {
     console.warn("UESRPG | Engagement & Flanking refresh failed", err);
-  } catch (_e) {
-    // no-op
-  }
+  } catch (_e) {}
 }
 
 function _computeThreatMaps(tokens, caches) {
@@ -315,7 +427,7 @@ function _computeThreatMaps(tokens, caches) {
       if (!defender || defender.id === aId) continue;
       if (!_isEnemyByDisposition(attacker.document, defender.document)) continue;
 
-      const distance = _measureTokenDistanceCached(attacker, defender, caches.distanceCache);
+      const distance = _measureTokenDistanceCached(attacker, defender, caches.distanceCache, caches.useChebyshev);
       if (!_isThreatDistance(distance, aBounds)) continue;
 
       aThreatens.add(defender.id);
@@ -345,30 +457,22 @@ function _computeSupportCoverage({ defender, threats, threatens, tokens, caches 
 
   const allyRows = allies.map((ally) => {
     const allyThreatens = threatens.get(ally.id) ?? new Set();
-    const coverable = new Set(Array.from(threats).filter(enemyId => allyThreatens.has(enemyId)));
+    const coverable = new Set(Array.from(threats).filter((enemyId) => allyThreatens.has(enemyId)));
     const capacity = Math.max(0, _asFiniteNumber(_getEngagementScoreCached(ally.actor, caches.engagementScoreCache), 0));
     const effectiveCapacity = Math.min(capacity, coverable.size);
-    return {
-      ally,
-      effectiveCapacity,
-      coverable,
-    };
-  }).filter(row => row.effectiveCapacity > 0 && row.coverable.size > 0);
+    return { ally, effectiveCapacity, coverable };
+  }).filter((row) => row.effectiveCapacity > 0 && row.coverable.size > 0);
 
   if (!allyRows.length) return 0;
 
-  allyRows.sort((a, b) => _tokenSortKey(a.ally).localeCompare(_tokenSortKey(b.ally)));
-
+  allyRows.sort((a, b) => String(a.ally?.id ?? "").localeCompare(String(b.ally?.id ?? "")));
   const enemyIds = _sortedTokenIds(threats);
-  const enemyToSlots = new Map(enemyIds.map(enemyId => [enemyId, []]));
+  const enemyToSlots = new Map(enemyIds.map((enemyId) => [enemyId, []]));
 
   for (const row of allyRows) {
     const coverableEnemyIds = _sortedTokenIds(row.coverable);
     const slotIds = [];
-    for (let i = 0; i < row.effectiveCapacity; i += 1) {
-      slotIds.push(`${row.ally.id}::${i}`);
-    }
-
+    for (let i = 0; i < row.effectiveCapacity; i += 1) slotIds.push(`${row.ally.id}::${i}`);
     for (const enemyId of coverableEnemyIds) {
       const bucket = enemyToSlots.get(enemyId);
       if (!bucket) continue;
@@ -397,94 +501,218 @@ function _computeSupportCoverage({ defender, threats, threatens, tokens, caches 
   }
   return matched;
 }
+function _tokenCenterPx(tokenLike) {
+  if (tokenLike?.center?.x != null && tokenLike?.center?.y != null) {
+    return { x: Number(tokenLike.center.x), y: Number(tokenLike.center.y) };
+  }
+  const doc = tokenLike?.document ?? tokenLike;
+  const x = Number(doc?.x ?? NaN);
+  const y = Number(doc?.y ?? NaN);
+  const width = Number(doc?.width ?? 1);
+  const height = Number(doc?.height ?? 1);
+  const gridSize = Number(canvas?.grid?.size ?? canvas?.scene?.grid?.size ?? 100);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return {
+    x: x + ((Number.isFinite(width) ? width : 1) * gridSize) / 2,
+    y: y + ((Number.isFinite(height) ? height : 1) * gridSize) / 2,
+  };
+}
 
-function _computeFlankedByActor(tokens, caches) {
-  const { threatenedBy, threatens } = _computeThreatMaps(tokens, caches);
-  const perToken = new Map();
-  const perTokenDiagnostics = new Map();
+function _bucketKey(ix, iy) {
+  return `${ix}:${iy}`;
+}
 
-  for (const defender of tokens) {
-    const threats = threatenedBy.get(defender.id) ?? new Set();
-    const score = _getEngagementScoreCached(defender.actor, caches.engagementScoreCache);
-    const allySupport = _computeSupportCoverage({
-      defender,
-      threats,
-      threatens,
-      tokens,
-      caches,
-    });
+function _buildSpatialIndex(tokens, caches) {
+  const tokenById = new Map();
+  const buckets = new Map();
+  let globalMaxReach = 1;
 
-    const x = Math.max(0, threats.size - score - allySupport);
-    perToken.set(defender.id, x);
-    perTokenDiagnostics.set(defender.id, {
+  for (const token of tokens) {
+    if (!token?.id) continue;
+    tokenById.set(String(token.id), token);
+    const reach = _getLongestEquippedMeleeReachCached(token.actor, caches.reachCache).reach;
+    globalMaxReach = Math.max(globalMaxReach, Math.max(1, Number(reach?.max ?? 1) || 1));
+  }
+
+  const cellSizeUnits = Math.max(1, Math.ceil(globalMaxReach) + 1);
+  const cellSizePx = Math.max(1, cellSizeUnits * _getPxPerUnit());
+
+  for (const token of tokens) {
+    const center = _tokenCenterPx(token);
+    if (!center) continue;
+    const ix = Math.floor(center.x / cellSizePx);
+    const iy = Math.floor(center.y / cellSizePx);
+    const key = _bucketKey(ix, iy);
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(token);
+    buckets.set(key, bucket);
+  }
+
+  return { tokenById, buckets, globalMaxReach, cellSizePx };
+}
+
+function _querySpatialIndex(index, center, radiusUnits) {
+  const out = new Map();
+  if (!index || !center) return out;
+  const radiusPx = Math.max(0, Number(radiusUnits ?? 0) || 0) * _getPxPerUnit();
+  const cellRadius = Math.max(0, Math.ceil(radiusPx / Math.max(1, index.cellSizePx)));
+  const ix = Math.floor(center.x / index.cellSizePx);
+  const iy = Math.floor(center.y / index.cellSizePx);
+
+  for (let dx = -cellRadius; dx <= cellRadius; dx += 1) {
+    for (let dy = -cellRadius; dy <= cellRadius; dy += 1) {
+      const bucket = index.buckets.get(_bucketKey(ix + dx, iy + dy));
+      if (!bucket) continue;
+      for (const token of bucket) out.set(String(token.id), token);
+    }
+  }
+  return out;
+}
+
+function _actorSceneTokenIds(actorId, tokens) {
+  const out = new Set();
+  const wanted = _normalizeStringId(actorId);
+  if (!wanted) return out;
+  for (const token of tokens) {
+    if (_normalizeStringId(token?.actor?.id) === wanted) out.add(String(token.id));
+  }
+  return out;
+}
+
+function _resolveDirtyCenters(context, tokens, index) {
+  const points = [];
+  _mergeDirtyPoints(points, context?.dirtyPoints ?? []);
+
+  for (const tokenId of (context?.dirtyTokenIds ?? [])) {
+    const token = index.tokenById.get(String(tokenId)) ?? null;
+    const center = token ? _tokenCenterPx(token) : null;
+    if (center) points.push(center);
+  }
+
+  for (const actorId of (context?.dirtyActorIds ?? [])) {
+    const actorTokenIds = _actorSceneTokenIds(actorId, tokens);
+    for (const tokenId of actorTokenIds) {
+      const token = index.tokenById.get(String(tokenId)) ?? null;
+      const center = token ? _tokenCenterPx(token) : null;
+      if (center) points.push(center);
+    }
+  }
+
+  return points;
+}
+
+function _collectAffectedDefenderIds(tokens, index, context) {
+  if (context.fullScene) return new Set(tokens.map((token) => String(token.id)));
+
+  const affected = new Set();
+  _mergeIds(affected, context.dirtyTokenIds);
+  for (const actorId of context.dirtyActorIds) _mergeIds(affected, _actorSceneTokenIds(actorId, tokens));
+
+  const influenceRadius = Math.max(1, (index.globalMaxReach * 2) + 1);
+  const dirtyCenters = _resolveDirtyCenters(context, tokens, index);
+  if (!dirtyCenters.length && !affected.size) {
+    return new Set(tokens.map((token) => String(token.id)));
+  }
+
+  for (const point of dirtyCenters) {
+    const nearby = _querySpatialIndex(index, point, influenceRadius);
+    _mergeIds(affected, nearby.keys());
+    for (const touchedId of _flankedTouchedTokenIds) {
+      const touchedToken = index.tokenById.get(String(touchedId)) ?? null;
+      if (!touchedToken) continue;
+      const touchedCenter = _tokenCenterPx(touchedToken);
+      if (!touchedCenter) continue;
+      const dx = touchedCenter.x - point.x;
+      const dy = touchedCenter.y - point.y;
+      if (Math.hypot(dx, dy) <= (influenceRadius * _getPxPerUnit())) affected.add(String(touchedId));
+    }
+  }
+
+  return affected;
+}
+
+function _collectLocalTokensForDefender(defender, index) {
+  const center = _tokenCenterPx(defender);
+  const radiusUnits = Math.max(1, (index.globalMaxReach * 2) + 1);
+  return Array.from(_querySpatialIndex(index, center, radiusUnits).values());
+}
+
+function _computeFlankedForDefender(defender, index, caches) {
+  const localTokens = _collectLocalTokensForDefender(defender, index);
+  const { threatenedBy, threatens } = _computeThreatMaps(localTokens, caches);
+  const threats = threatenedBy.get(defender.id) ?? new Set();
+  const score = _getEngagementScoreCached(defender.actor, caches.engagementScoreCache);
+  const allySupport = _computeSupportCoverage({
+    defender,
+    threats,
+    threatens,
+    tokens: localTokens,
+    caches,
+  });
+
+  return {
+    next: Math.max(0, threats.size - score - allySupport),
+    diagnostics: {
       tokenId: defender.id,
       actorId: defender.actor?.id ?? null,
       threats: threats.size,
       score,
       allySupport,
-      flanked: x,
-    });
-  }
-
-  const byActorId = new Map();
-  const byActorDiagnostics = new Map();
-  for (const token of tokens) {
-    const actor = token?.actor;
-    if (!actor?.id) continue;
-    const x = Number(perToken.get(token.id) ?? 0);
-    const prev = Number(byActorId.get(actor.id) ?? 0);
-    if (x > prev) {
-      byActorId.set(actor.id, x);
-      byActorDiagnostics.set(actor.id, perTokenDiagnostics.get(token.id) ?? null);
-    }
-  }
-
-  return { byActorId, byActorDiagnostics };
-}
-
-function _sceneActors(tokens) {
-  const out = new Map();
-  for (const t of tokens) {
-    const actor = t?.actor;
-    if (!actor?.id) continue;
-    out.set(actor.id, actor);
-  }
-  return out;
+    },
+    candidateTokenIds: localTokens.map((token) => String(token.id)),
+  };
 }
 
 export async function clearFlankedConditions({ activeSceneOnly = false } = {}) {
   if (!game.user?.isGM) return;
 
+  const seen = new Set();
   const actors = [];
-  if (activeSceneOnly) {
-    for (const actor of _allSceneActors().values()) actors.push(actor);
-  } else {
-    for (const actor of (game.actors ?? [])) actors.push(actor);
+
+  for (const token of (canvas?.tokens?.placeables ?? [])) {
+    const actor = token?.actor;
+    if (!actor?.id) continue;
+    const key = `${token.id}::${actor.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    actors.push(actor);
+  }
+
+  if (!activeSceneOnly) {
+    for (const actor of (game.actors ?? [])) {
+      if (!actor?.id) continue;
+      const key = `world::${actor.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      actors.push(actor);
+    }
   }
 
   for (const actor of actors) {
     if (!actor) continue;
     if (!hasCondition(actor, "flanked")) continue;
     await removeCondition(actor, "flanked");
-    _untrackActorIfNoFlanked(actor);
   }
+
+  _resetTouchedFlankedState();
 }
 
-async function _syncActorFlankedValue(actor, next, { diagnostics = null } = {}) {
+async function _syncTokenFlankedValue(tokenId, actor, next, { diagnostics = null } = {}) {
   const current = Number(getConditionValue(actor, "flanked") ?? 0);
   if (next === current) {
-    if (next > 0) _trackActorForFlankedCleanup(actor);
-    else _untrackActorIfNoFlanked(actor);
-    return;
+    if (next > 0) _trackTokenForFlankedCleanup(tokenId);
+    else _untrackTokenIfNoFlanked(tokenId, actor);
+    return false;
   }
 
   await setConditionValue(actor, "flanked", next);
   const readback = Number(getConditionValue(actor, "flanked") ?? 0);
-  if (readback > 0) _trackActorForFlankedCleanup(actor);
-  else _untrackActorIfNoFlanked(actor);
+  if (readback > 0) _trackTokenForFlankedCleanup(tokenId);
+  else _untrackTokenIfNoFlanked(tokenId, actor);
 
   if (_isEFDebugEnabled()) {
-    console.log("UESRPG | Engagement & Flanking | actor write", {
+    console.log("UESRPG | Engagement & Flanking | token write", {
+      tokenId,
       actor: actor?.name ?? null,
       actorId: actor?.id ?? null,
       requested: next,
@@ -494,29 +722,39 @@ async function _syncActorFlankedValue(actor, next, { diagnostics = null } = {}) 
       allySupport: diagnostics?.allySupport ?? null,
     });
   }
+  return true;
 }
 
-async function _clearStaleTouchedFlankedActors(computedByActorId) {
-  const touchedIds = Array.from(_flankedTouchedActorIds);
-  for (const actorId of touchedIds) {
-    const actor = game.actors?.get?.(actorId) ?? null;
-    if (!actor) {
-      _flankedTouchedActorIds.delete(actorId);
+async function _clearStaleTouchedTokenFlankedConditions(affectedTokenIds, computedByTokenId) {
+  for (const tokenId of Array.from(_flankedTouchedTokenIds)) {
+    if (affectedTokenIds && affectedTokenIds.size && !affectedTokenIds.has(String(tokenId))) continue;
+
+    const token = canvas?.tokens?.get?.(tokenId) ?? null;
+    if (!token) {
+      _flankedTouchedTokenIds.delete(tokenId);
       continue;
     }
-    const next = Number(computedByActorId.get(actorId) ?? 0);
+    const actor = token.actor;
+    if (!actor) {
+      _flankedTouchedTokenIds.delete(tokenId);
+      continue;
+    }
+    const next = Number(computedByTokenId.get(tokenId) ?? 0);
     if (next > 0) continue;
     if (!hasCondition(actor, "flanked")) {
-      _flankedTouchedActorIds.delete(actorId);
+      _flankedTouchedTokenIds.delete(tokenId);
       continue;
     }
     await removeCondition(actor, "flanked");
-    _untrackActorIfNoFlanked(actor);
+    _untrackTokenIfNoFlanked(tokenId, actor);
   }
 }
-
-export async function refreshEngagementFlanking() {
+export async function refreshEngagementFlanking(options = {}) {
   if (!game.user?.isGM) return;
+
+  const context = _snapshotRefreshContext(options);
+  const _perf = _isPerfOn();
+  const _t0 = _perf ? monoMs() : 0;
 
   if (!_isEnabledNow()) {
     await clearFlankedConditions();
@@ -530,60 +768,112 @@ export async function refreshEngagementFlanking() {
   }
 
   if (!canvas?.ready) return;
-  _seedTouchedFlankedActorsIfNeeded();
+  _seedTouchedFlankedTokensIfNeeded();
+
   const caches = {
     distanceCache: new Map(),
     engagementScoreCache: new Map(),
     reachCache: new Map(),
+    // Computed once per refresh so repeated settings reads are avoided during the hot loop.
+    useChebyshev: _reachUsesChebyshev(),
   };
   const tokens = _collectEvaluableTokens();
-  const { byActorId, byActorDiagnostics } = _computeFlankedByActor(tokens, caches);
-  const sceneActorMap = _sceneActors(tokens);
+  const index = _buildSpatialIndex(tokens, caches);
+  const affectedTokenIds = _collectAffectedDefenderIds(tokens, index, context);
+  const computedByTokenId = new Map();
+  const candidateTokenIds = new Set();
+  let writeCount = 0;
 
   if (_isEFDebugEnabled()) {
     console.log("UESRPG | Engagement & Flanking | refresh start", {
       tokenCount: tokens.length,
-      actorCount: sceneActorMap.size,
-      homebrewEnabled: _isEnabledNow(),
-      onlyInCombat: isEngagementFlankingOnlyInCombat(),
-      combatActive: _isCombatActive(),
+      fullScene: context.fullScene,
+      reasons: Array.from(context.reasons),
+      dirtyTokenIds: Array.from(context.dirtyTokenIds),
+      dirtyActorIds: Array.from(context.dirtyActorIds),
+      dirtyPointCount: context.dirtyPoints.length,
     });
   }
 
-  for (const actor of sceneActorMap.values()) {
-    const next = Number(byActorId.get(actor.id) ?? 0);
-    const current = Number(getConditionValue(actor, "flanked") ?? 0);
-    const diag = byActorDiagnostics.get(actor.id) ?? null;
+  for (const tokenId of affectedTokenIds) {
+    const token = index.tokenById.get(String(tokenId)) ?? null;
+    const actor = token?.actor ?? null;
+    if (!token || !actor) continue;
+
+    const result = _computeFlankedForDefender(token, index, caches);
+    computedByTokenId.set(String(token.id), Number(result.next ?? 0));
+    for (const candidateId of result.candidateTokenIds) candidateTokenIds.add(String(candidateId));
+
+    const diagnostics = result.diagnostics ?? null;
     if (_isEFDebugEnabled()) {
-      console.log("UESRPG | Engagement & Flanking | actor eval", {
+      console.log("UESRPG | Engagement & Flanking | token eval", {
+        tokenId: token.id,
         actor: actor?.name ?? null,
         actorId: actor?.id ?? null,
-        current,
-        next,
-        threats: diag?.threats ?? null,
-        score: diag?.score ?? null,
-        allySupport: diag?.allySupport ?? null,
+        current: Number(getConditionValue(actor, "flanked") ?? 0),
+        next: result.next,
+        threats: diagnostics?.threats ?? null,
+        score: diagnostics?.score ?? null,
+        allySupport: diagnostics?.allySupport ?? null,
       });
     }
-    await _syncActorFlankedValue(actor, next, { diagnostics: diag });
+
+    const wrote = await _syncTokenFlankedValue(token.id, actor, result.next, { diagnostics });
+    if (wrote) writeCount += 1;
   }
 
-  await _clearStaleTouchedFlankedActors(byActorId);
+  await _clearStaleTouchedTokenFlankedConditions(affectedTokenIds, computedByTokenId);
+
+  _recordPerf({
+    event: "engagementFlanking.refresh",
+    reason: Array.from(context.reasons).join(","),
+    fullScene: context.fullScene,
+    dirtyTokenCount: context.dirtyTokenIds.size,
+    dirtyActorCount: context.dirtyActorIds.size,
+    dirtyPointCount: context.dirtyPoints.length,
+    affectedTokenCount: affectedTokenIds.size,
+    candidateTokenCount: candidateTokenIds.size,
+    writeCount,
+    durationMs: _perf ? (monoMs() - _t0) : null,
+  });
 }
 
-export function scheduleEngagementFlankingRefresh() {
+export function scheduleEngagementFlankingRefresh(options = {}) {
+  _queueRefreshContext(options);
   if (!_debouncedRefresh) {
     const debounce = foundry?.utils?.debounce;
     _debouncedRefresh = (typeof debounce === "function")
-      ? debounce(() => void refreshEngagementFlanking().catch(_drawDebugError), 80)
-      : (() => void refreshEngagementFlanking().catch(_drawDebugError));
+      ? debounce(() => {
+          const context = _consumePendingRefreshContext();
+          void refreshEngagementFlanking(context).catch(_drawDebugError);
+        }, 80)
+      : (() => {
+          const context = _consumePendingRefreshContext();
+          void refreshEngagementFlanking(context).catch(_drawDebugError);
+        });
   }
   _debouncedRefresh();
 }
 
+function _actorTokenIdsFromParent(parent) {
+  const actorId = _normalizeStringId(parent?.id);
+  if (!actorId) return [];
+  return _actorTokensOnCanvas()
+    .filter((token) => _normalizeStringId(token?.actor?.id) === actorId)
+    .map((token) => String(token.id));
+}
+
+function _tokenCenterFromDoc(doc) {
+  return _tokenCenterPx(doc);
+}
+
 function _shouldRefreshForItem(item, changed) {
   if (!item?.parent || item.parent.documentName !== "Actor") return false;
-  if (!["weapon", "skill", "combatStyle"].includes(String(item.type ?? "").toLowerCase())) return false;
+  if (![
+    "weapon",
+    "skill",
+    "combatStyle",
+  ].includes(String(item.type ?? "").toLowerCase())) return false;
   if (!changed || typeof changed !== "object" || !Object.keys(changed).length) return true;
 
   if (item.type === "weapon") {
@@ -620,115 +910,134 @@ function _shouldRefreshForToken(changed) {
   return false;
 }
 
+function _queueActorRefresh(actorOrParent, reason) {
+  const tokenIds = _actorTokenIdsFromParent(actorOrParent);
+  if (!tokenIds.length) return;
+  scheduleEngagementFlankingRefresh({ reason, dirtyTokenIds: tokenIds });
+}
+
 export function registerEngagementFlanking() {
   game.uesrpg = game.uesrpg ?? {};
   if (game.uesrpg[FLAG_HOOKS]) return;
   game.uesrpg[FLAG_HOOKS] = true;
 
   Hooks.on("canvasReady", () => {
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({ reason: "canvasReady", fullScene: true });
   });
 
   Hooks.on("canvasTearDown", () => {
     _tokenPositionCache.clear();
+    _resetPendingRefreshContext();
+    _resetTouchedFlankedState();
   });
 
-  Hooks.on("updateToken", (_tokenDoc, changed) => {
+  Hooks.on("updateToken", (tokenDoc, changed) => {
     if (!_isEnabledNow()) return;
     if (!_shouldRefreshForToken(changed)) return;
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({ reason: "updateToken", dirtyTokenIds: [tokenDoc?.id] });
   });
 
-  // Supplementary movement detector: catches position changes that may not
-  // produce an x/y diff in updateToken (e.g. drag-back-to-origin in v13.351).
-  // token.document.x/y reflects the committed DB position, so the cache check
-  // fires once per position commit and is silent for all animation frames.
   Hooks.on("refreshToken", (token) => {
     if (!_isEnabledNow()) return;
-    const id = token.id ?? token.document?.id;
+    const id = _normalizeStringId(token?.id ?? token?.document?.id);
     if (!id) return;
-    const x = token.document?.x;
-    const y = token.document?.y;
+    const x = token?.document?.x;
+    const y = token?.document?.y;
     if (x == null || y == null) return;
     const last = _tokenPositionCache.get(id);
     if (!last || last.x !== x || last.y !== y) {
       _tokenPositionCache.set(id, { x, y });
-      scheduleEngagementFlankingRefresh();
+      scheduleEngagementFlankingRefresh({ reason: "refreshToken", dirtyTokenIds: [id] });
     }
   });
-
   Hooks.on("createToken", (tokenDoc) => {
     if (!_isEnabledNow()) return;
-    const id = String(tokenDoc?.id ?? tokenDoc?._id ?? "").trim();
+    const id = _normalizeStringId(tokenDoc?.id ?? tokenDoc?._id);
     if (id) {
       const x = _asFiniteNumber(tokenDoc?.x, NaN);
       const y = _asFiniteNumber(tokenDoc?.y, NaN);
       if (Number.isFinite(x) && Number.isFinite(y)) _tokenPositionCache.set(id, { x, y });
     }
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({
+      reason: "createToken",
+      dirtyTokenIds: id ? [id] : [],
+      dirtyPoints: [_tokenCenterFromDoc(tokenDoc)].filter(Boolean),
+    });
   });
 
   Hooks.on("deleteToken", (tokenDoc) => {
     if (!_isEnabledNow()) return;
-    const id = String(tokenDoc?.id ?? tokenDoc?._id ?? "").trim();
+    const id = _normalizeStringId(tokenDoc?.id ?? tokenDoc?._id);
     if (id) _tokenPositionCache.delete(id);
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({
+      reason: "deleteToken",
+      dirtyPoints: [_tokenCenterFromDoc(tokenDoc)].filter(Boolean),
+    });
   });
 
   Hooks.on("updateItem", (item, changed) => {
     if (!_isEnabledNow()) return;
     if (!_shouldRefreshForItem(item, changed)) return;
-    scheduleEngagementFlankingRefresh();
+    _queueActorRefresh(item.parent, "updateItem");
   });
 
   Hooks.on("createItem", (item) => {
     if (!_isEnabledNow()) return;
     if (!item?.parent || item.parent.documentName !== "Actor") return;
-    if (item.type !== "weapon" && item.type !== "combatStyle" && item.type !== "skill") return;
-    scheduleEngagementFlankingRefresh();
+    if (!["weapon", "combatStyle", "skill"].includes(String(item.type ?? ""))) return;
+    _queueActorRefresh(item.parent, "createItem");
   });
 
   Hooks.on("deleteItem", (item) => {
     if (!_isEnabledNow()) return;
     if (!item?.parent || item.parent.documentName !== "Actor") return;
-    if (item.type !== "weapon" && item.type !== "combatStyle" && item.type !== "skill") return;
-    scheduleEngagementFlankingRefresh();
+    if (!["weapon", "combatStyle", "skill"].includes(String(item.type ?? ""))) return;
+    _queueActorRefresh(item.parent, "deleteItem");
   });
 
   Hooks.on("updateCombat", () => {
     if (!_isEnabledNow()) return;
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({ reason: "updateCombat", fullScene: true });
   });
 
   Hooks.on("createCombat", () => {
     if (!_isEnabledNow()) return;
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({ reason: "createCombat", fullScene: true });
   });
 
   Hooks.on("deleteCombat", () => {
     if (!_isEnabledNow()) return;
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({ reason: "deleteCombat", fullScene: true });
   });
 
-  Hooks.on("updateCombatant", () => {
+  Hooks.on("updateCombatant", (combatant) => {
     if (!_isEnabledNow()) return;
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({
+      reason: "updateCombatant",
+      dirtyTokenIds: [combatant?.tokenId].filter(Boolean),
+    });
   });
 
-  Hooks.on("createCombatant", () => {
+  Hooks.on("createCombatant", (combatant) => {
     if (!_isEnabledNow()) return;
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({
+      reason: "createCombatant",
+      dirtyTokenIds: [combatant?.tokenId].filter(Boolean),
+    });
   });
 
-  Hooks.on("deleteCombatant", () => {
+  Hooks.on("deleteCombatant", (combatant) => {
     if (!_isEnabledNow()) return;
-    scheduleEngagementFlankingRefresh();
+    scheduleEngagementFlankingRefresh({
+      reason: "deleteCombatant",
+      dirtyTokenIds: [combatant?.tokenId].filter(Boolean),
+    });
   });
 
-  Hooks.on("updateActor", (_actor, changed) => {
+  Hooks.on("updateActor", (actor, changed) => {
     if (!_isEnabledNow()) return;
-    if (foundry.utils.hasProperty(changed, "flags.uesrpg-3ev4.homebrew.maxEngagementScore")) {
-      scheduleEngagementFlankingRefresh();
+    if (foundry.utils.hasProperty(changed, `flags.${NAMESPACE}.homebrew.maxEngagementScore`)) {
+      _queueActorRefresh(actor, "updateActor.engagementScore");
     }
   });
 }

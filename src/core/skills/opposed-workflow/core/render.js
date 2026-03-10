@@ -24,7 +24,8 @@ export function _btn(label, action, extraDataset = {}) {
   const ds = Object.entries(extraDataset)
     .map(([k, v]) => `data-${k}="${String(v).replace(/"/g, "&quot;")}"`)
     .join(" ");
-  return `<button type="button" data-ues-skill-opposed-action="${action}" ${ds}>${label}</button>`;
+  return `<button type="button" data-ues-skill-opposed-action="${action}" ${ds}
+    style="width:100%; box-sizing:border-box; white-space:normal; line-height:1.15; text-align:center;">${label}</button>`;
 }
 
 function _buildBreakdownRows(tnObj) {
@@ -135,27 +136,23 @@ export function _renderCard(data, messageId) {
       })();
 
   return `
-  <div class="ues-skill-opposed-card" data-message-id="${messageId}" style="padding:6px 6px;">
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start;">
-      <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12);">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
-          <div style="font-size:16px; font-weight:700; flex-shrink:0;">Actor</div>
-          <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${aName}</b></div>
-        </div>
+  <div class="ues-skill-opposed-card" data-message-id="${messageId}" style="padding:6px 6px; max-width:100%; overflow:hidden;">
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; align-items:start;">
+      <div style="min-width:0; padding-right:10px; border-right:1px solid rgba(0,0,0,0.12);">
+        <div style="font-size:16px; font-weight:700; line-height:1.1;">Actor</div>
+        <div style="margin-top:2px; font-size:13px; font-weight:700; line-height:1.2; overflow-wrap:anywhere; word-break:break-word;">${aName}</div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Skill:</b> ${aSkillLabel}</div>
+          <div style="overflow-wrap:anywhere; word-break:break-word;"><b>Skill:</b> ${aSkillLabel}</div>
           ${_renderTNLine(aTNLabel, revealDetails ? a.tn : null)}
           ${_renderRollLine(a.result)}
         </div>
         ${attackerActions}
       </div>
-      <div style="padding-left:2px;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
-          <div style="font-size:16px; font-weight:700; flex-shrink:0;">Target</div>
-          <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${dName}</b></div>
-        </div>
+      <div style="min-width:0; padding-left:2px;">
+        <div style="font-size:16px; font-weight:700; line-height:1.1;">Target</div>
+        <div style="margin-top:2px; font-size:13px; font-weight:700; line-height:1.2; overflow-wrap:anywhere; word-break:break-word;">${dName}</div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Skill:</b> ${dSkillLabel}</div>
+          <div style="overflow-wrap:anywhere; word-break:break-word;"><b>Skill:</b> ${dSkillLabel}</div>
           ${_renderTNLine(dTNLabel, revealDetails ? d.tn : null)}
           ${_renderRollLine(d.result)}
         </div>

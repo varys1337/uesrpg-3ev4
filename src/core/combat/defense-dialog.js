@@ -8,7 +8,7 @@ import { computeTN, listCombatStyles, hasEquippedShield } from "./tn.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "./defense-options.js";
 import { applySenseLossPenaltyAdjustments } from "../traits/awareness-talents.js";
-import { hasActiveWard } from "./ward-defense.js";
+import { canUseWardDefense, getPreferredWardDefenseSpell } from "./ward-defense.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../opposed/circumstance.js";
 
@@ -19,7 +19,7 @@ function asNumber(v) {
   return m ? Number(m[0]) : 0;
 }
 
-function _renderDefenseChoice({ value, title, checked, disabled, tnKey, desc = "", fullWidth = false } = {}) {
+function _renderDefenseChoice({ value, title, checked, disabled, tnKey, desc = "", fullWidth = false, extraHtml = "" } = {}) {
   return `
     <label class="uesrpg-adv-choice def-opt ${disabled ? "is-disabled" : ""} ${fullWidth ? "uesrpg-defense-grid__full" : ""}">
       <input type="radio" name="defenseType" value="${value}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}/>
@@ -29,16 +29,45 @@ function _renderDefenseChoice({ value, title, checked, disabled, tnKey, desc = "
           <span class="tn-pill">TN: <span data-tn-for="${tnKey}">\u2014</span></span>
         </span>
         ${desc ? `<span class="uesrpg-adv-choice__desc">${Handlebars.escapeExpression(String(desc))}</span>` : ``}
+        ${extraHtml || ""}
       </span>
     </label>
   `;
 }
 
+function _renderBlockSourceSelect({ show, shieldOk, wardOk, defaultBlockSource = "shield", disabled = false } = {}) {
+  if (!show) return "";
+  const selected = (defaultBlockSource === "ward" && wardOk) ? "ward" : "shield";
+  return `
+    <span class="uesrpg-adv-choice__desc" style="display:block; margin-top:6px;">
+      <label style="display:flex; align-items:center; gap:8px;">
+        <span>Source</span>
+        <select name="blockSource" ${disabled ? "disabled" : ""} style="min-width:120px;">
+          ${shieldOk ? `<option value="shield" ${selected === "shield" ? "selected" : ""}>Shield</option>` : ""}
+          ${wardOk ? `<option value="ward" ${selected === "ward" ? "selected" : ""}>Ward</option>` : ""}
+        </select>
+      </label>
+    </span>
+  `;
+}
+
+function _normalizeBlockSource(raw, availability) {
+  const requested = String(raw ?? "").trim().toLowerCase();
+  const shield = Boolean(availability?.gates?.blockSources?.shield);
+  const ward = Boolean(availability?.gates?.blockSources?.ward);
+  if (requested === "ward" && ward) return "ward";
+  if (requested === "shield" && shield) return "shield";
+  if (ward && !shield) return "ward";
+  if (shield) return "shield";
+  if (ward) return "ward";
+  return "shield";
+}
+
 function _renderContent({
   defaultDefenseType,
+  defaultBlockSource,
   defaultManualMod,
   defaultCircMod,
-  shieldOk,
   availability,
   hasBlinded,
   hasDeafened,
@@ -46,16 +75,19 @@ function _renderContent({
   defaultApplyDeafened,
   gladiator
 }) {
-  const allowed = availability?.allowed ?? { evade: true, parry: true, block: Boolean(shieldOk), counter: true, ward: false };
-  const reasons = availability?.reasons ?? { evade: [], parry: [], block: [], counter: [], ward: [] };
+  const allowed = availability?.allowed ?? { evade: true, parry: true, block: false, counter: true };
+  const reasons = availability?.reasons ?? { evade: [], parry: [], block: [], counter: [] };
   const gates = availability?.gates ?? {
     isRangedAttack: false,
     attackerHasFlail: false,
     attackerHasEntangling: false,
     smallVsTwoHandedGate: false,
-    shieldOk: Boolean(shieldOk),
-    wardOk: false
+    blockSources: { shield: false, ward: false }
   };
+
+  const blockSourceShield = Boolean(gates?.blockSources?.shield);
+  const blockSourceWard = Boolean(gates?.blockSources?.ward);
+  const showBlockSourceSelect = blockSourceShield && blockSourceWard;
 
   const notes = [];
   if (gates.isRangedAttack) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Ranged:</b> Ranged attacks cannot be parried or counter-attacked.</p>`);
@@ -122,7 +154,14 @@ function _renderContent({
       checked: defaultDefenseType === "block",
       disabled: !allowed.block,
       tnKey: "block",
-      desc: allowed.block ? "" : (reasons?.block?.[0] ?? "Not available for this attack.")
+      desc: allowed.block ? "" : (reasons?.block?.[0] ?? "Not available for this attack."),
+      extraHtml: _renderBlockSourceSelect({
+        show: showBlockSourceSelect,
+        shieldOk: blockSourceShield,
+        wardOk: blockSourceWard,
+        defaultBlockSource,
+        disabled: !allowed.block
+      })
     })}
     ${_renderDefenseChoice({
       value: "counter",
@@ -132,15 +171,6 @@ function _renderContent({
       tnKey: "counter",
       desc: allowed.counter ? "" : (reasons?.counter?.[0] ?? "Not available for this attack.")
     })}
-    ${allowed.ward ? _renderDefenseChoice({
-      value: "ward",
-      title: "Ward",
-      checked: defaultDefenseType === "ward",
-      disabled: false,
-      tnKey: "ward",
-      desc: "Spell acts as shield. BR = Spell Strength. Power Block incompatible.",
-      fullWidth: true
-    }) : ``}
   </div>
 
   <div class="form-group">
@@ -164,12 +194,13 @@ function _renderContent({
 export async function showDefenseDialog(defender, options = {}) {
   const styles = listCombatStyles(defender);
   const resolvedStyleUuid = options.defaultStyleUuid ?? styles?.[0]?.uuid ?? null;
-  const requestedDefaultDefenseType = options.defaultDefenseType ?? "evade";
+  const requestedDefaultDefenseType = String(options.defaultDefenseType ?? "evade").toLowerCase();
+  const requestedDefaultBlockSource = String(options.defaultBlockSource ?? "").toLowerCase();
   const defaultManualMod = Number(options.defaultManualMod ?? 0) || 0;
   const defaultCircMod = Number(options.defaultCircumstanceMod ?? 0) || 0;
 
   const shieldOk = hasEquippedShield(defender);
-  const wardOk = hasActiveWard(defender);
+  const wardOk = canUseWardDefense(defender);
   const hasBlinded = hasCondition(defender, "blinded");
   const hasDeafened = hasCondition(defender, "deafened");
   const defaultApplyBlinded = (options.defaultApplyBlinded ?? true);
@@ -191,15 +222,17 @@ export async function showDefenseDialog(defender, options = {}) {
     allowParryRanged
   });
 
-  const defaultDefenseType = normalizeDefenseType(requestedDefaultDefenseType, availability, "evade");
+  let defaultDefenseType = normalizeDefenseType(requestedDefaultDefenseType, availability, "evade");
+  if (requestedDefaultDefenseType === "ward" && availability?.allowed?.block) defaultDefenseType = "block";
+  const defaultBlockSource = _normalizeBlockSource(requestedDefaultBlockSource, availability);
   const gladiator = options.gladiator ?? null;
   const context = options.context ?? undefined;
 
   const content = _renderContent({
     defaultDefenseType,
+    defaultBlockSource,
     defaultManualMod,
     defaultCircMod,
-    shieldOk,
     availability,
     hasBlinded,
     hasDeafened,
@@ -218,15 +251,24 @@ export async function showDefenseDialog(defender, options = {}) {
       attackerWeaponTraits,
       defenderHasSmallWeapon,
       defenderHasShield: hasEquippedShield(defender),
-      defenderHasWard: hasActiveWard(defender),
+      defenderHasWard: canUseWardDefense(defender),
+      allowedDefenseTypes,
       allowParryRanged
     });
 
-    for (const name of ["block", "parry", "counter", "ward"]) {
+    for (const name of ["block", "parry", "counter"]) {
       const radio = root.querySelector(`input[name="defenseType"][value="${name}"]`);
       if (radio) radio.disabled = !currentAvailability.allowed[name];
       const opt = radio?.closest(".def-opt");
       if (opt) opt.classList.toggle("is-disabled", Boolean(radio?.disabled));
+    }
+
+    const blockSourceSelect = root.querySelector('select[name="blockSource"]');
+    if (blockSourceSelect) {
+      const nextBlockSource = _normalizeBlockSource(blockSourceSelect.value, currentAvailability);
+      blockSourceSelect.value = nextBlockSource;
+      const blockRadioChecked = Boolean(root.querySelector('input[name="defenseType"][value="block"]')?.checked);
+      blockSourceSelect.disabled = !currentAvailability.allowed.block || !blockRadioChecked;
     }
 
     const checked = root.querySelector('input[name="defenseType"]:checked');
@@ -247,11 +289,27 @@ export async function showDefenseDialog(defender, options = {}) {
     applySenseLossPenaltyAdjustments(situationalMods, defender);
 
     const styleUuid = getSelectedStyleUuid();
+    const blockSource = _normalizeBlockSource(blockSourceSelect?.value, currentAvailability);
+    const wardSpell = (blockSource === "ward") ? getPreferredWardDefenseSpell(defender) : null;
     const evadeTN = computeTN({ actor: defender, role: "defender", defenseType: "evade", manualMod, circumstanceMod, situationalMods, context }).finalTN;
     const parryTN = computeTN({ actor: defender, role: "defender", defenseType: "parry", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN;
     const counterTN = computeTN({ actor: defender, role: "defender", defenseType: "counter", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN;
-    const blockTN = currentAvailability.allowed.block ? computeTN({ actor: defender, role: "defender", defenseType: "block", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN : 0;
-    const wardTN = currentAvailability.allowed.ward ? computeTN({ actor: defender, role: "defender", defenseType: "block", styleUuid, manualMod, circumstanceMod, situationalMods, context }).finalTN : 0;
+    const blockTN = currentAvailability.allowed.block
+      ? computeTN({
+        actor: defender,
+        role: "defender",
+        defenseType: "block",
+        styleUuid,
+        manualMod,
+        circumstanceMod,
+        situationalMods,
+        context: {
+          ...(context ?? {}),
+          blockSource,
+          wardSpell
+        }
+      }).finalTN
+      : 0;
 
     const setTN = (k, val) => {
       const el = root.querySelector(`[data-tn-for="${k}"]`);
@@ -261,7 +319,6 @@ export async function showDefenseDialog(defender, options = {}) {
     setTN("parry", parryTN);
     setTN("counter", counterTN);
     setTN("block", blockTN);
-    setTN("ward", wardTN);
   }
 
   function readSelection(root) {
@@ -276,15 +333,20 @@ export async function showDefenseDialog(defender, options = {}) {
       attackerWeaponTraits,
       defenderHasSmallWeapon,
       defenderHasShield: hasEquippedShield(defender),
-      defenderHasWard: hasActiveWard(defender),
+      defenderHasWard: canUseWardDefense(defender),
+      allowedDefenseTypes,
       allowParryRanged
     });
     const defenseType = normalizeDefenseType(rawDefenseType, currentAvailability, "evade");
     const styleUuid = getSelectedStyleUuid();
 
     if (defenseType === "evade") return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
-    if (defenseType === "block") return { defenseType: "block", label: "Block", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
-    if (defenseType === "ward") return { defenseType: "ward", label: "Ward", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "block") {
+      const blockSourceRaw = root.querySelector('select[name="blockSource"]')?.value ?? "shield";
+      const blockSource = _normalizeBlockSource(blockSourceRaw, currentAvailability);
+      const label = blockSource === "ward" ? "Ward" : "Block";
+      return { defenseType: "block", blockSource, label, manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
+    }
     if (defenseType === "parry") return { defenseType: "parry", label: "Parry", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
     if (defenseType === "counter") return { defenseType: "counter", label: "Counter", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
     return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
@@ -294,6 +356,7 @@ export async function showDefenseDialog(defender, options = {}) {
     title: "Defender Response",
     content,
     classes: ["uesrpg-attack-declare"],
+    width: 460,
     buttons: {
       confirm: {
         icon: '<i class="fas fa-check"></i>',
@@ -324,6 +387,7 @@ export async function showDefenseDialog(defender, options = {}) {
       root.querySelector('select[name="circMod"]')?.addEventListener("change", () => refreshTN(root));
       root.querySelector('input[name="applyBlinded"]')?.addEventListener("change", () => refreshTN(root));
       root.querySelector('input[name="applyDeafened"]')?.addEventListener("change", () => refreshTN(root));
+      root.querySelector('select[name="blockSource"]')?.addEventListener("change", () => refreshTN(root));
       for (const radio of root.querySelectorAll('input[name="defenseType"]')) {
         radio.addEventListener("change", () => refreshTN(root));
       }

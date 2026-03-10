@@ -12,7 +12,7 @@ import { isLucky, isUnlucky } from "../../../../utils/skillCalcHelper.js";
 import { getDamageTypeFromWeapon, getHitLocationFromRoll } from "../../../../core/combat/combat-utils.js";
 import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
-import { doTestRoll, formatDegree, computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
+import { doTestRoll, formatDegree, formatResultOutcomeLabel, formatResultSummary, computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
 import { requireUserCanRollActor } from "../../../../utils/permissions.js";
 import { getPhysicalExertionSkillBonus, consumePhysicalExertionForSkill } from "../../../../core/stamina/stamina-integration-hooks.js";
 import { isItemEffectActive } from "../../../../core/active-effects/transfer.js";
@@ -383,8 +383,8 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   skillRollDebug("untargeted result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 
   const degreeLine = res.isSuccess
-    ? `<b style="color:green;">SUCCESS — ${formatDegree(res)}</b>`
-    : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(res)}</b>`;
+    ? `<b style="color:green;">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
+    : `<b style="color:rgb(168, 5, 5);">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`;
 
   const breakdownRows = (tn.breakdown ?? []).map(b => {
     const v = Number(b.value ?? 0);
@@ -408,7 +408,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
       <h2 style="margin:0 0 6px 0;"><img src="${skillItem.img}" style="height:24px; vertical-align:middle; margin-right:6px;"/>${skillItem.name}</h2>
       <div><b>Target Number:</b> ${tn.finalTN}</div>
       ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
-      <div style="margin-top:4px;">${degreeLine}${res.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ''}${res.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ''}</div>
+      <div style="margin-top:4px;">${degreeLine}</div>
       <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
       <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
     </div>`;
@@ -679,8 +679,8 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
           });
 
           const degreeLine = res.isSuccess
-            ? `<b style="color:green;">SUCCESS — ${formatDegree(res)}</b>`
-            : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(res)}</b>`;
+            ? `<b style="color:green;">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
+            : `<b style="color:rgb(168, 5, 5);">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`;
 
           const breakdownRows = breakdown.map(b => {
             const v = Number(b.value ?? 0);
@@ -703,7 +703,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
               </h2>
               <div><b>Target Number:</b> ${tn}</div>
               <div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>
-              <div style="margin-top:4px;">${degreeLine}${res.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ''}${res.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ''}</div>
+              <div style="margin-top:4px;">${degreeLine}</div>
               <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
               <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
             </div>`;
@@ -748,6 +748,7 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
           const tn = this.actor.system.resistance[element.id] + playerInput;
           const res = computeResultFromRollTotal(this.actor, { rollTotal: Number(roll.total), target: tn, allowLucky: true, allowUnlucky: true });
           const degreesLine = `<br><b>${res.isSuccess ? "Degrees of Success" : "Degrees of Failure"}: ${res.degree}</b>`;
+          const resultLabel = formatResultOutcomeLabel(res, { uppercase: true });
           let contentString = "";
           if (isLucky(this.actor, roll.result)) {
             contentString = `<h2>${element.getAttribute("name")}</h2>
@@ -765,10 +766,9 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
             contentString = `<h2>${element.getAttribute("name")}</h2>
           <p></p><b>Target Number: [[${this.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
           <b>Result: [[${roll.total}]]</b><p></p>
-          <b>${
-            res.isSuccess
-              ? " <span style='color:green; font-size: 120%;'> <b>SUCCESS!</b></span>"
-              : " <span style='color: rgb(168, 5, 5); font-size: 120%;'> <b>FAILURE!</b></span>"
+          <b>${res.isSuccess
+              ? ` <span style='color:green; font-size: 120%;'> <b>${resultLabel}!</b></span>`
+              : ` <span style='color: rgb(168, 5, 5); font-size: 120%;'> <b>${resultLabel}!</b></span>`
           }</b>
           ${degreesLine}`;
           }

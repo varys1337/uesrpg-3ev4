@@ -39,12 +39,43 @@ import { ActionEconomy } from "../../action-economy.js";
 import { hasEquippedShield, listCombatStyles } from "../../tn.js";
 import { breakAimChainIfPresent as _breakAimChainIfPresent } from "../effects.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
-import { hasActiveWard } from "../../ward-defense.js";
+import { canUseWardDefense, getPreferredWardDefenseSpell } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
+import { listEquippedShields, hasEquippedShieldType } from "../../../items/shield-utils.js";
+
+function _resolveRuntimeDefenseItem(defender, choice = null, defenseType = null) {
+  try {
+    const resolvedDefenseType = String(defenseType ?? choice?.defenseType ?? "").trim().toLowerCase();
+    const blockSource = String(choice?.blockSource ?? "").trim().toLowerCase();
+    if (resolvedDefenseType === "block" && blockSource === "ward") {
+      return getPreferredWardDefenseSpell(defender);
+    }
+    if (resolvedDefenseType === "block" && hasEquippedShield(defender)) {
+      const shield = listEquippedShields(defender, { includeBuckler: false, allowLegacy: true })[0] ?? null;
+      if (shield) return shield;
+    }
+
+    if (resolvedDefenseType === "parry" || resolvedDefenseType === "counter") {
+      const choiceUuid = String(choice?.weaponUuid ?? "").trim();
+      if (choiceUuid) {
+        const chosen = _resolveItemViaActor(choiceUuid, defender);
+        if (chosen?.type === "weapon" && chosen?.parent?.id === defender?.id) return chosen;
+      }
+      const preferredUuid = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
+      if (preferredUuid) {
+        const preferred = _resolveItemViaActor(preferredUuid, defender);
+        if (preferred?.type === "weapon" && preferred?.parent?.id === defender?.id) return preferred;
+      }
+    }
+  } catch (_e) {
+    return null;
+  }
+  return null;
+}
 
 async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
   try {
@@ -250,7 +281,7 @@ export async function handleDefenderRoll(ctx) {
   const interceptAllowed = Array.isArray(defenderData?.defenderIntercept?.allowedDefenseTypes)
     ? defenderData.defenderIntercept.allowedDefenseTypes
     : null;
-  let allowedDefenseTypes = ctx.isAoE ? ["block", "evade", "ward"] : null;
+  let allowedDefenseTypes = ctx.isAoE ? ["block", "evade"] : null;
   if (interceptAllowed) {
     allowedDefenseTypes = allowedDefenseTypes
       ? allowedDefenseTypes.filter((t) => interceptAllowed.includes(t))
@@ -291,6 +322,11 @@ export async function handleDefenderRoll(ctx) {
     }
   });
   if (!choice) return;
+  if (String(choice?.defenseType ?? "").toLowerCase() === "ward") {
+    choice.defenseType = "block";
+    choice.blockSource = "ward";
+    choice.label = "Ward";
+  }
 
   // Fearsome (OPTIONAL): if Evade was selected and Fearsome is available, prompt for which test to roll.
   let fearsomeTNOverride = null;
@@ -327,7 +363,7 @@ export async function handleDefenderRoll(ctx) {
       attackerWeaponTraits,
       defenderHasSmallWeapon,
       defenderHasShield: hasEquippedShield(defender),
-      defenderHasWard: hasActiveWard(defender),
+      defenderHasWard: canUseWardDefense(defender),
       allowedDefenseTypes,
       allowParryRanged: defenseTalentOverrides.allowParryRanged
     });
@@ -413,7 +449,14 @@ export async function handleDefenderRoll(ctx) {
 
   }
   data.defender.defenseType = choice.defenseType;
-  data.defender.styleUuid = (choice.defenseType === "evade" || choice.defenseType === "none" || choice.defenseType === "ward")
+  data.defender.blockSource = (choice.defenseType === "block")
+    ? String(choice?.blockSource ?? "shield").toLowerCase()
+    : null;
+  data.defender.styleUuid = (
+    choice.defenseType === "evade"
+    || choice.defenseType === "none"
+    || (choice.defenseType === "block" && data.defender.blockSource === "ward")
+  )
     ? null
     : (choice.styleUuid ?? choice.styleId ?? null);
   // label is used for roll flavor (e.g. "Parry — Defender Roll")
@@ -425,6 +468,8 @@ export async function handleDefenderRoll(ctx) {
   //  - Parry/Block/Counter: the chosen Combat Style/Profession item name
   if (choice.defenseType === "evade") {
     data.defender.testLabel = "Evade";
+  } else if (choice.defenseType === "block" && data.defender.blockSource === "ward") {
+    data.defender.testLabel = "Ward";
   } else if (choice.styleUuid || choice.styleId) {
     const styleUuid = choice.styleUuid ?? choice.styleId;
     const styles = listCombatStyles(defender);
@@ -450,6 +495,12 @@ export async function handleDefenderRoll(ctx) {
       opponentUuid: attacker?.uuid ?? null,
       attackMode: data.context?.attackMode ?? "melee",
       movementAction: defenderMovementAction,
+      ...(choice.defenseType === "block"
+        ? {
+          blockSource: data.defender.blockSource ?? "shield",
+          wardSpell: data.defender.blockSource === "ward" ? getPreferredWardDefenseSpell(defender) : null
+        }
+        : {}),
       ...(fearsomeTNOverride ? { tnOverride: fearsomeTNOverride } : {})
     }
   });
@@ -464,24 +515,7 @@ export async function handleDefenderRoll(ctx) {
     attackerWeaponTraits
   });
 
-  const runtimeDefenseItem = (() => {
-    try {
-      if (choice.defenseType === "block" && hasEquippedShield(defender)) {
-        const shield = [...(defender.itemTypes?.armor ?? []), ...(defender.itemTypes?.item ?? [])].find((i) =>
-          i?.system?.equipped === true
-          && Boolean(i?.system?.isShieldEffective ?? i?.system?.isShield)
-        );
-        if (shield) return shield;
-      }
-
-      const weaponUuid = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
-      if (!weaponUuid) return null;
-      const doc = _resolveItemViaActor(weaponUuid, defender);
-      return doc?.documentName === "Item" ? doc : null;
-    } catch (_e) {
-      return null;
-    }
-  })();
+  const runtimeDefenseItem = _resolveRuntimeDefenseItem(defender, choice, choice.defenseType);
 
   applyRuntimePreRollToTN({
     actor: defender,
@@ -630,6 +664,7 @@ export async function handleDefenderRoll(ctx) {
           commit: {
             defender: {
               defenseType: data.defender.defenseType,
+              blockSource: data.defender.blockSource ?? null,
               styleUuid: data.defender.styleUuid ?? null,
               label: data.defender.label,
               defenseLabel: data.defender.defenseLabel,
@@ -664,12 +699,7 @@ export async function handleDefenderRoll(ctx) {
     // Dueling Weapon: grants +1 Degree of Success on successful Parry or Counter-Attack.
     if (res.isSuccess && (choice.defenseType === "parry" || choice.defenseType === "counter")) {
       try {
-        const hasBuckler = (defender?.items ?? []).some(i =>
-          i?.type === "armor"
-          && i?.system?.equipped === true
-          && Boolean(i?.system?.isShieldEffective ?? i?.system?.isShield)
-          && String(i?.system?.shieldType ?? "").toLowerCase() === "buckler"
-        );
+        const hasBuckler = hasEquippedShieldType(defender, "buckler", { allowLegacy: true });
         if (hasBuckler && choice.defenseType === "parry") {
           data.defender.result.degree = Math.max(1, (Number(data.defender.result.degree) || 1) + 1);
           data.defender.result.bucklerBonus = 1;

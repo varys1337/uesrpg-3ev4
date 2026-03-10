@@ -30,6 +30,30 @@ export function buildDamageContext(payload = {}) {
   const attackFromHidden = (typeof payload.attackFromHidden === "boolean")
     ? payload.attackFromHidden
     : (String(payload.attackFromHidden ?? "").trim() === "1" ? true : (String(payload.attackFromHidden ?? "").trim() === "0" ? false : null));
+  const parsedComponents = (() => {
+    const raw = payload?.damageComponents;
+    const source = typeof raw === "string"
+      ? (() => {
+        try { return JSON.parse(raw); } catch (_e) { return null; }
+      })()
+      : raw;
+    if (!Array.isArray(source)) return null;
+    const out = source
+      .map((c) => {
+        const amount = asNumber(c?.amount ?? 0);
+        if (!(amount > 0)) return null;
+        return {
+          amount,
+          damageType: normalizeDamageType(c?.damageType ?? damageType),
+          hitLocation: normalizeHitLocation(c?.hitLocation ?? hitLocation),
+          source: String(c?.source ?? "").trim() || null,
+          sourceLabel: String(c?.sourceLabel ?? "").trim() || "Attack",
+          sourceItemUuid: String(c?.sourceItemUuid ?? "").trim() || null,
+        };
+      })
+      .filter(Boolean);
+    return out.length ? out : null;
+  })();
 
   let weapon = payload.weapon ?? null;
   const fallbackActor = payload.attackerActor ?? null;
@@ -85,12 +109,15 @@ export function buildDamageContext(payload = {}) {
     attackMode: attackModeRaw || null,
     attackFromHidden,
     magicSource: payload.magicSource === true,
+    chatContext: (payload.chatContext && typeof payload.chatContext === "object")
+      ? foundry.utils.deepClone(payload.chatContext)
+      : null,
   };
 
   _toggleKnownOption(payload, options, "ignoreArmor");
   _toggleKnownOption(payload, options, "ignoreResistance");
 
-  return { rawDamage, damageType, options };
+  return { rawDamage, damageType, options, components: parsedComponents };
 }
 
 /**

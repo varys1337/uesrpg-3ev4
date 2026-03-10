@@ -28,12 +28,38 @@ import { applyHyperAwarenessToResult } from "../../../traits/awareness-talents.j
 import { applyCombatTalentDoSAdjustments } from "../../../traits/combat-talents.js";
 import { shouldDeferEvadeApForStepAside } from "../../../traits/mobility-talents.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
-import { hasActiveWard } from "../../ward-defense.js";
+import { canUseWardDefense, getPreferredWardDefenseSpell } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
+import { cloneFlagState } from "../../../../utils/clone.js";
+import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
+import { listEquippedShields, hasEquippedShieldType } from "../../../items/shield-utils.js";
+
+/** @private — Clone current opposed flag state from a live message for lane-commit merging. */
+function _readCombatOpposedFlagState(fm) {
+  const raw = fm?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
+  return raw ? cloneFlagState(raw) : null;
+}
+
+/**
+ * @private — Apply defender-lane and context mutations onto a fresh flag state.
+ * Preserves the attacker lane and other defenders from live state.
+ */
+function _applyDefenderLaneToFresh(freshData, data, defenderIndex) {
+  const t = freshData ?? data;
+  t.defender = foundry.utils.mergeObject(t.defender ?? {}, data.defender ?? {}, { overwrite: true, insertKeys: true });
+  t.context = foundry.utils.mergeObject(t.context ?? {}, data.context ?? {}, { overwrite: true, insertKeys: true });
+  if (data.status) t.status = data.status;
+  if (data.outcome != null) t.outcome = data.outcome;
+  const di = Number(defenderIndex ?? 0);
+  if (Number.isFinite(di) && di >= 0 && Array.isArray(data.defenders) && Array.isArray(t.defenders) && t.defenders[di] && data.defenders[di]) {
+    t.defenders[di] = foundry.utils.mergeObject(t.defenders[di], data.defenders[di], { overwrite: true, insertKeys: true });
+  }
+  return t;
+}
 
 // ── Homebrew: Reach & Length Overhaul helpers ─────────────────────────────
 
@@ -62,6 +88,27 @@ function _resolveDefenderWeapon(defender, choice) {
   } catch {
     return null;
   }
+}
+
+function _resolveRuntimeDefenseItem(defender, choice = null, defenseType = null) {
+  try {
+    const resolvedDefenseType = String(defenseType ?? choice?.defenseType ?? "").trim().toLowerCase();
+    const blockSource = String(choice?.blockSource ?? "").trim().toLowerCase();
+    if (resolvedDefenseType === "block" && blockSource === "ward") {
+      return getPreferredWardDefenseSpell(defender);
+    }
+    if (resolvedDefenseType === "block" && hasEquippedShield(defender)) {
+      const shield = listEquippedShields(defender, { includeBuckler: false, allowLegacy: true })[0] ?? null;
+      if (shield) return shield;
+    }
+
+    if (resolvedDefenseType === "parry" || resolvedDefenseType === "counter") {
+      return _resolveDefenderWeapon(defender, choice);
+    }
+  } catch (_e) {
+    return null;
+  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +208,15 @@ export async function handleDefenderCommitNoDefense(ctx) {
     }
   }
 
-  await _updateCard(message, data);
+  // Fresh-state re-read: apply only defender lane + context onto live state to preserve
+  // any attacker-side commit that arrived while this handler was running.
+  await commitLaneToFreshCardState({
+    message,
+    readState: _readCombatOpposedFlagState,
+    mutate: (s) => _applyDefenderLaneToFresh(s, data, ctx.defenderIndex),
+    updateCard: _updateCard,
+    fallbackData: data,
+  });
 
   // Auto-roll is triggered by the updateChatMessage hook → maybeAutoRollBanked.
   // No direct _autoRollBanked call needed here.
@@ -211,7 +266,13 @@ export async function handleDefenderCommit(ctx) {
       };
       data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
 
-      await _updateCard(message, data);
+      await commitLaneToFreshCardState({
+        message,
+        readState: _readCombatOpposedFlagState,
+        mutate: (s) => _applyDefenderLaneToFresh(s, data, defenderIndex),
+        updateCard: _updateCard,
+        fallbackData: data,
+      });
 
       // Remove Feinted after it's been used
       await removeCondition(defender, "feinted");
@@ -282,7 +343,14 @@ export async function handleDefenderCommit(ctx) {
       }
     }
 
-    await _updateCard(message, data);
+    // Fresh-state re-read: apply only defender lane + context onto live state.
+    await commitLaneToFreshCardState({
+      message,
+      readState: _readCombatOpposedFlagState,
+      mutate: (s) => _applyDefenderLaneToFresh(s, data, defenderIndex),
+      updateCard: _updateCard,
+      fallbackData: data,
+    });
 
     // Auto-roll is triggered by the updateChatMessage hook → maybeAutoRollBanked.
 
@@ -326,7 +394,7 @@ export async function handleDefenderCommit(ctx) {
   const interceptAllowed = Array.isArray(defenderData?.defenderIntercept?.allowedDefenseTypes)
     ? defenderData.defenderIntercept.allowedDefenseTypes
     : null;
-  let allowedDefenseTypes = isAoE ? ["block", "evade", "ward"] : null;
+  let allowedDefenseTypes = isAoE ? ["block", "evade"] : null;
   if (interceptAllowed) {
     allowedDefenseTypes = allowedDefenseTypes
       ? allowedDefenseTypes.filter((t) => interceptAllowed.includes(t))
@@ -367,6 +435,11 @@ export async function handleDefenderCommit(ctx) {
     }
   });
   if (!choice) return;
+  if (String(choice?.defenseType ?? "").toLowerCase() === "ward") {
+    choice.defenseType = "block";
+    choice.blockSource = "ward";
+    choice.label = "Ward";
+  }
 
   // Fearsome (OPTIONAL): if Evade was selected and Fearsome is available, prompt for which test to roll.
   let fearsomeTNOverride = null;
@@ -403,7 +476,7 @@ export async function handleDefenderCommit(ctx) {
       attackerWeaponTraits,
       defenderHasSmallWeapon,
       defenderHasShield: hasEquippedShield(defender),
-      defenderHasWard: hasActiveWard(defender),
+      defenderHasWard: canUseWardDefense(defender),
       allowedDefenseTypes,
       allowParryRanged: defenseTalentOverrides.allowParryRanged
     });
@@ -489,7 +562,14 @@ export async function handleDefenderCommit(ctx) {
 
   }
   data.defender.defenseType = choice.defenseType;
-  data.defender.styleUuid = (choice.defenseType === "evade" || choice.defenseType === "none" || choice.defenseType === "ward")
+  data.defender.blockSource = (choice.defenseType === "block")
+    ? String(choice?.blockSource ?? "shield").toLowerCase()
+    : null;
+  data.defender.styleUuid = (
+    choice.defenseType === "evade"
+    || choice.defenseType === "none"
+    || (choice.defenseType === "block" && data.defender.blockSource === "ward")
+  )
     ? null
     : (choice.styleUuid ?? choice.styleId ?? null);
   data.defender.label = choice.label;
@@ -497,6 +577,8 @@ export async function handleDefenderCommit(ctx) {
 
   if (choice.defenseType === "evade") {
     data.defender.testLabel = "Evade";
+  } else if (choice.defenseType === "block" && data.defender.blockSource === "ward") {
+    data.defender.testLabel = "Ward";
   } else if (choice.styleUuid || choice.styleId) {
     const styleUuid = choice.styleUuid ?? choice.styleId;
     const styles = listCombatStyles(defender);
@@ -521,6 +603,12 @@ export async function handleDefenderCommit(ctx) {
       opponentUuid: attacker?.uuid ?? null,
       attackMode: data.context?.attackMode ?? "melee",
       movementAction: defenderMovementAction,
+    ...(choice.defenseType === "block"
+      ? {
+        blockSource: data.defender.blockSource ?? "shield",
+        wardSpell: data.defender.blockSource === "ward" ? getPreferredWardDefenseSpell(defender) : null
+      }
+      : {}),
     ...(fearsomeTNOverride ? { tnOverride: fearsomeTNOverride } : {})
     }
   });
@@ -534,31 +622,7 @@ export async function handleDefenderCommit(ctx) {
     attackerWeaponTraits
   });
 
-  const runtimeDefenseItem = (() => {
-    try {
-      if (choice.defenseType === "block" && hasEquippedShield(defender)) {
-        const shield = [...(defender.itemTypes?.armor ?? []), ...(defender.itemTypes?.item ?? [])].find((i) =>
-          i?.system?.equipped === true
-          && Boolean(i?.system?.isShieldEffective ?? i?.system?.isShield)
-        );
-        if (shield) return shield;
-      }
-
-      const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
-      if (weaponUuid) {
-        const doc = _resolveItemViaActor(weaponUuid, defender);
-        if (doc?.documentName === "Item" && doc?.parent?.id === defender?.id) return doc;
-      }
-      const preferred = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
-      if (preferred) {
-        const doc = _resolveItemViaActor(preferred, defender);
-        if (doc?.documentName === "Item" && doc?.parent?.id === defender?.id) return doc;
-      }
-      return null;
-    } catch (_e) {
-      return null;
-    }
-  })();
+  const runtimeDefenseItem = _resolveRuntimeDefenseItem(defender, choice, choice.defenseType);
 
   applyRuntimePreRollToTN({
     actor: defender,
@@ -643,7 +707,15 @@ export async function handleDefenderCommit(ctx) {
     }
   }
 
-  await _updateCard(message, data);
+  // Fresh-state re-read: apply only defender lane + context onto live state to preserve
+  // any attacker-side commit that arrived while the defense dialog was open.
+  await commitLaneToFreshCardState({
+    message,
+    readState: _readCombatOpposedFlagState,
+    mutate: (s) => _applyDefenderLaneToFresh(s, data, defenderIndex),
+    updateCard: _updateCard,
+    fallbackData: data,
+  });
 
   // Auto-roll is triggered by the updateChatMessage hook → maybeAutoRollBanked.
 
@@ -691,31 +763,15 @@ export async function handleDefenderRollCommitted(ctx) {
     return;
   }
 
-  const runtimeDefenseItem = (() => {
-    try {
-      if (String(data.defender?.defenseType ?? "") === "block" && hasEquippedShield(defender)) {
-        const shield = [...(defender.itemTypes?.armor ?? []), ...(defender.itemTypes?.item ?? [])].find((i) =>
-          i?.system?.equipped === true
-          && Boolean(i?.system?.isShieldEffective ?? i?.system?.isShield)
-        );
-        if (shield) return shield;
-      }
-
-      const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
-      if (weaponUuid) {
-        const doc = _resolveItemViaActor(weaponUuid, defender);
-        if (doc?.documentName === "Item" && doc?.parent?.id === defender?.id) return doc;
-      }
-      const preferred = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
-      if (preferred) {
-        const doc = _resolveItemViaActor(preferred, defender);
-        if (doc?.documentName === "Item" && doc?.parent?.id === defender?.id) return doc;
-      }
-      return null;
-    } catch (_e) {
-      return null;
-    }
-  })();
+  const runtimeDefenseItem = _resolveRuntimeDefenseItem(
+    defender,
+    {
+      weaponUuid: data.defender?.weaponUuid ?? null,
+      defenseType: data.defender?.defenseType ?? null,
+      blockSource: data.defender?.blockSource ?? null
+    },
+    data.defender?.defenseType ?? null
+  );
 
   const committedTn = (data.defender?.tn && typeof data.defender.tn === "object")
     ? data.defender.tn
@@ -804,6 +860,7 @@ export async function handleDefenderRollCommitted(ctx) {
         commit: {
           defender: {
             defenseType: data.defender.defenseType,
+            blockSource: data.defender.blockSource ?? null,
             styleUuid: data.defender.styleUuid ?? null,
             label: data.defender.label,
             defenseLabel: data.defender.defenseLabel,
@@ -846,12 +903,7 @@ export async function handleDefenderRollCommitted(ctx) {
   };
   if (data.defender.result.isSuccess && String(data.defender?.defenseType ?? "").toLowerCase() === "parry") {
     try {
-      const hasBuckler = (defender?.items ?? []).some(i =>
-        i?.type === "armor"
-        && i?.system?.equipped === true
-        && Boolean(i?.system?.isShieldEffective ?? i?.system?.isShield)
-        && String(i?.system?.shieldType ?? "").toLowerCase() === "buckler"
-      );
+      const hasBuckler = hasEquippedShieldType(defender, "buckler", { allowLegacy: true });
       if (hasBuckler) {
         data.defender.result.degree = Math.max(1, (Number(data.defender.result.degree) || 1) + 1);
         data.defender.result.bucklerBonus = 1;
@@ -865,6 +917,14 @@ export async function handleDefenderRollCommitted(ctx) {
   if (rollMessage?.id) data.defender.rollMessageId = rollMessage.id;
 
   if (batchedUpdate) return data;
-  await _updateCard(message, data);
+  // Fresh-state re-read: apply defender result + context onto live state to preserve
+  // any attacker-side state that committed during the roll phase.
+  await commitLaneToFreshCardState({
+    message,
+    readState: _readCombatOpposedFlagState,
+    mutate: (s) => _applyDefenderLaneToFresh(s, data, defenderIndex),
+    updateCard: _updateCard,
+    fallbackData: data,
+  });
   return data;
 }

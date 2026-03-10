@@ -6,10 +6,11 @@
  */
 
 import { evaluateAEModifierKeys, evaluateAEModifierKeysDetailed } from "../../active-effects/modifier-evaluator.js";
-import { UESRPG } from "../../constants.js";
 import { collectItemTokens } from "./tokens.js";
 import { DAMAGE_TYPES } from "./types.js";
 import { getWallOfSteelArmorItemBonus } from "../../traits/resilience-talents.js";
+import { isShieldItem } from "../../items/shield-utils.js";
+import { getResolvedArmorValues, isArmorCoveringLocation } from "../armor-state.js";
 
 /**
  * Best-effort condition check without importing the condition engine.
@@ -70,10 +71,13 @@ export function isItemMagicSource(item) {
   const hasCharge = (Number.isFinite(chargeValue) && chargeValue > 0)
     || (Number.isFinite(chargeMax) && chargeMax > 0);
 
-  if (String(item.type ?? "") === "armor") {
-    const magicAR = Number(sys.magic_arEffective ?? sys.magic_ar ?? 0);
+  if (String(item.type ?? "") === "armor" || String(item.type ?? "") === "shield") {
+    // For armor: check both the prepared effective value AND the authored armorValues lanes.
+    const magicAR = Number(sys.magic_arEffective ?? sys.armorValues?.full?.magic_ar ?? sys.armorValues?.partial?.magic_ar ?? sys.magic_ar ?? 0);
+    const magicBR = Number(sys.magic_brEffective ?? sys.magic_br ?? 0);
     const hasMagicAR = Number.isFinite(magicAR) && magicAR > 0;
-    return hasMagicAR || hasMagicToken || legacyMagic || runed || hasCharge;
+    const hasMagicBR = Number.isFinite(magicBR) && magicBR > 0;
+    return hasMagicAR || hasMagicBR || hasMagicToken || legacyMagic || runed || hasCharge;
   }
 
   return hasMagicToken || hasSilverToken || legacyMagic || legacySilver || runed || hasCharge;
@@ -117,67 +121,6 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
   // This is implemented as a coverage-class downgrade only (does not mutate item data).
   const isProneForArmor = actorHasConditionKey(actor, "prone");
 
-  // --- Armor coverage normalization ---
-  // Legacy data (and the base template) can create armor items where all hitLocations are set to true.
-  // This causes unrelated pieces (e.g. body armor) to incorrectly contribute AR to other locations.
-  // We normalize coverage deterministically using the armor item's "category" when possible.
-  //
-  // Rules:
-  // - For FULL armor pieces, category is authoritative.
-  // - For PARTIAL armor pieces, if hitLocations are "all true" (legacy default), fall back to category.
-  // - Otherwise, only explicit true values count as covered (undefined does not).
-  const ARMOR_CATEGORY_TO_LOCATIONS = {
-    head: ["Head"],
-    body: ["Body"],
-    l_arm: ["LeftArm"],
-    r_arm: ["RightArm"],
-    l_leg: ["LeftLeg"],
-    r_leg: ["RightLeg"],
-  };
-
-  const ARMOR_LOCATION_KEYS = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
-
-  const normalizeCoverageOverride = (value) => {
-    const raw = String(value ?? "").trim().toLowerCase();
-    if (!raw) return "";
-    if (raw === "full" || raw === "partial" || raw === "none") return raw;
-    if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
-      return "none";
-    }
-    return "";
-  };
-
-  const resolveArmorClass = (sys, locationKey = null, { applyProne = true } = {}) => {
-    let armorClass = String(sys?.armorClass || "partial").toLowerCase();
-    if (armorClass !== "full" && armorClass !== "partial" && armorClass !== "none") armorClass = "partial";
-    const override = normalizeCoverageOverride(sys?.hitLocationStates?.[locationKey]?.coverageOverride);
-    if (override) armorClass = override;
-    if (applyProne && isProneForArmor && armorClass === "full") armorClass = "partial";
-    return armorClass;
-  };
-
-  const getLocationDamagedValue = (sys, locationKey) => {
-    const raw = sys?.hitLocationStates?.[locationKey]?.damaged;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return Math.max(0, Math.floor(n));
-  };
-
-  const getCoveredLocations = (item, locationKey = null) => {
-    const sys = item?.system ?? {};
-    const armorClass = resolveArmorClass(sys, locationKey);
-    const category = String(sys.category || "").toLowerCase();
-    const hitLocs = sys.hitLocations ?? {};
-
-    if (armorClass === "none") return new Set();
-
-    const catLocs = ARMOR_CATEGORY_TO_LOCATIONS[category] ?? null;
-    if (catLocs) return new Set(catLocs);
-
-    // Legacy compatibility fallback for uncategorized pieces.
-    return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
-  };
-
   const actorData = actor.system;
 
   // Track base vs AE modifier contributions so the chat report can attribute reductions to effects.
@@ -199,52 +142,26 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
 
   // PHYSICAL: armor by hitLocation + natToughness
   if (damageType === DAMAGE_TYPES.PHYSICAL) {
-    const equippedArmor = actor.items?.filter((i) => i.type === "armor" && i.system?.equipped === true) ?? [];
+    const equippedArmor = actor.items?.filter((i) => (i.type === "armor" || i.type === "shield") && i.system?.equipped === true) ?? [];
     const wallBonus = getWallOfSteelArmorItemBonus(actor);
 
     for (const item of equippedArmor) {
       // Shields do not contribute AR; they are handled via Block in later steps.
-      if (item.system?.isShield) continue;
+      if (isShieldItem(item, { allowLegacy: true })) continue;
       if (ignoreNonMagicArmor && !isItemMagicSource(item)) continue;
 
-      const covered = getCoveredLocations(item, propertyName);
-      if (!covered.has(propertyName)) continue;
-      
-      const resolvedArmorClass = resolveArmorClass(item.system, propertyName);
-      if (resolvedArmorClass === "none") continue;
-      
-      if (resolvedArmorClass === "full") {
+      if (!isArmorCoveringLocation(item, propertyName)) continue;
+
+      const resolved = getResolvedArmorValues(item.system ?? {}, { isProneForArmor });
+      if (resolved.effectiveLane === "none") continue;
+
+      if (resolved.effectiveLane === "full") {
         coverageClass = "full";
       } else if (coverageClass !== "full") {
         coverageClass = "partial";
       }
 
-      // Automation should always prefer derived effective values.
-      let ar = (item.system?.armorEffective != null)
-        ? Number(item.system.armorEffective)
-        : Number(item.system?.armor ?? 0);
-
-      // RAW: While Prone, treat FULL armor as PARTIAL.
-      // Implement as a derived-value override at damage time (no item mutation).
-      // This ensures AR follows the partial profile even if armorEffective was derived as full.
-      if (isProneForArmor) {
-        const sys = item.system ?? {};
-        const armorClassBeforeProne = resolveArmorClass(sys, propertyName, { applyProne: false });
-        if (armorClassBeforeProne === "full") {
-          const materialKey = String(sys.material || "").trim();
-          const partialProfile = UESRPG?.ARMOR_PROFILES?.partial?.[materialKey] ?? null;
-
-          if (partialProfile && partialProfile.ar != null) {
-            const qs = Array.isArray(sys.qualitiesStructured) ? sys.qualitiesStructured : [];
-            const damagedQ = qs.find(q => String(q?.key ?? "").toLowerCase() === "damaged");
-            const damagedValue = Number(damagedQ?.value ?? 0) || 0;
-            ar = Math.max(0, Number(partialProfile.ar) - damagedValue);
-          }
-        }
-      }
-
-      const locDamaged = getLocationDamagedValue(item.system, propertyName);
-      if (locDamaged > 0) ar = Math.max(0, ar - locDamaged);
+      let ar = resolved.armor;
 
       // Wall of Steel (Chapter 4): +1 AR to any worn armor.
       if (wallBonus) ar += wallBonus;
@@ -268,32 +185,26 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
     //      - system.special_ar_type + system.special_ar (typed mitigation; e.g. fire/frost/shock)
     //    These reductions are location-based and use the same deterministic coverage resolver.
 
-    const equippedArmor = actor.items?.filter((i) => i.type === "armor" && i.system?.equipped === true) ?? [];
+    const equippedArmor = actor.items?.filter((i) => (i.type === "armor" || i.type === "shield") && i.system?.equipped === true) ?? [];
     const dtLower = String(damageType ?? "").toLowerCase();
 
     for (const item of equippedArmor) {
       // Shields do not contribute AR; they are handled via Block in later steps.
-      if (item.system?.isShield) continue;
+      if (isShieldItem(item, { allowLegacy: true })) continue;
+      if (!isArmorCoveringLocation(item, propertyName)) continue;
 
-      const covered = getCoveredLocations(item, propertyName);
-      if (!covered.has(propertyName)) continue;
-
-      const sys = item.system ?? {};
+      // Non-physical mitigation: read from the resolved manual lane (prone-aware).
+      const resolvedNonPhys = getResolvedArmorValues(item.system ?? {}, { isProneForArmor });
+      if (resolvedNonPhys.effectiveLane === "none") continue;
 
       // Typed mitigation (elemental, poison, etc.)
-      const specialType = String(sys.special_ar_type ?? "").toLowerCase();
-      let specialAR = Number(sys.special_arEffective ?? sys.special_ar ?? 0);
-      const locDamaged = getLocationDamagedValue(sys, propertyName);
-      if (locDamaged > 0) specialAR = Math.max(0, specialAR - locDamaged);
-      if (specialType && specialType === dtLower && Number.isFinite(specialAR) && specialAR) {
-        armor += Math.max(0, specialAR);
+      if (resolvedNonPhys.special_ar_type && resolvedNonPhys.special_ar_type === dtLower && resolvedNonPhys.special_ar) {
+        armor += Math.max(0, resolvedNonPhys.special_ar);
       }
 
       // Generic magic mitigation lane
-      if (dtLower === DAMAGE_TYPES.MAGIC) {
-        let magicAR = Number(sys.magic_arEffective ?? sys.magic_ar ?? 0);
-        if (locDamaged > 0) magicAR = Math.max(0, magicAR - locDamaged);
-        if (Number.isFinite(magicAR) && magicAR) armor += Math.max(0, magicAR);
+      if (dtLower === DAMAGE_TYPES.MAGIC && resolvedNonPhys.magic_ar) {
+        armor += Math.max(0, resolvedNonPhys.magic_ar);
       }
     }
 

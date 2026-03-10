@@ -1,5 +1,9 @@
 ﻿import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { SYSTEM_ID, templatePath } from "../../../constants.js";
+import {
+  extractConfiguredLuckyNumbers,
+  extractConfiguredUnluckyNumbers,
+} from "../../../../core/luck/lucky-numbers.js";
 
 function asNumber(value, fallback = 0) {
   const n = Number(value);
@@ -39,12 +43,8 @@ function collectFavoriteCharacteristics(characteristics = {}) {
 export function buildChargenSummary(actor, auditLog = []) {
   const system = actor?.system ?? {};
   const characteristics = system.characteristics ?? {};
-  const luckyNumbers = Object.values(system.lucky_numbers ?? {})
-    .map((v) => asNumber(v, 0))
-    .filter((v) => v > 0);
-  const unluckyNumbers = Object.values(system.unlucky_numbers ?? {})
-    .map((v) => asNumber(v, 0))
-    .filter((v) => v > 0);
+  const luckyNumbers = extractConfiguredLuckyNumbers(actor);
+  const unluckyNumbers = extractConfiguredUnluckyNumbers(actor);
   const spendLog = Array.isArray(actor?.getFlag(SYSTEM_ID, "chargen")?.spendLog)
     ? actor.getFlag(SYSTEM_ID, "chargen").spendLog
     : [];

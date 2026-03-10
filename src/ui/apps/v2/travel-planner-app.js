@@ -28,6 +28,7 @@ import { TRAVEL_TERRAINS } from "../../../core/travel/data/terrain-modifiers.js"
 import { TRAVEL_ENDEAVOURS, getTravelEndeavour } from "../../../core/travel/data/travel-endeavours.js";
 import { CAMP_ENDEAVOURS, getCampEndeavour } from "../../../core/travel/data/camp-endeavours.js";
 import { PLANNING_BENEFITS, PLANNING_IMPAIRMENTS } from "../../../core/travel/data/planning-effects.js";
+import { formatResultSummary } from "../../../utils/degree-roll-helper.js";
 import { SKILL_DIFFICULTIES } from "../../../core/skills/skill-tn.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "../../sheets/rest-workflow.js";
 import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding.js";
@@ -1221,7 +1222,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
               <h3>${esc(rowLabel)}</h3>
               <p><b>Actor:</b> ${esc(actor.name)}</p>
               <p><b>Test:</b> ${esc(rolled.label)} | <b>TN:</b> ${Number(rolled.target)} | <b>Roll:</b> ${Number(rolled.result.rollTotal)}</p>
-              <p><b>Result:</b> ${esc(rolled.result.textual)}${rolled.result.isCriticalSuccess ? " (Critical Success)" : ""}${rolled.result.isCriticalFailure ? " (Critical Failure)" : ""}</p>
+              <p><b>Result:</b> ${esc(formatResultSummary(rolled.result, { includeDegree: true, degreeStyle: "paren" }))}</p>
               <details>
                 <summary>TN Breakdown</summary>
                 <ul>${breakdownRows}</ul>
@@ -1244,7 +1245,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           <h3>${esc(rowLabel)}</h3>
           <p><b>Actor:</b> ${esc(actor.name)}</p>
           <p><b>Test:</b> ${esc(rolled.label)} | <b>TN:</b> ${Number(rolled.target)} | <b>Roll:</b> ${Number(rolled.result.rollTotal)}</p>
-          <p><b>Result:</b> ${esc(rolled.result.textual)}${rolled.result.isCriticalSuccess ? " (Critical Success)" : ""}${rolled.result.isCriticalFailure ? " (Critical Failure)" : ""}</p>
+          <p><b>Result:</b> ${esc(formatResultSummary(rolled.result, { includeDegree: true, degreeStyle: "paren" }))}</p>
           <details>
             <summary>TN Breakdown</summary>
             <ul>${breakdownRows}</ul>

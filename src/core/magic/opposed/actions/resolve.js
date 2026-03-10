@@ -10,6 +10,40 @@ import { getSpellDamageType } from "../../magicka-utils.js";
 import { getBlockValue } from "../../../combat/mitigation.js";
 import { resolveHitLocationForTarget } from "../../../combat/combat-utils.js";
 import { getActiveWardSpell, getWardBlockRating } from "../../../combat/ward-defense.js";
+import { listEquippedShields } from "../../../items/shield-utils.js";
+
+function buildMagicDamageComponents(spell, damageType, damageInfo = null) {
+  const components = [];
+  const normalizedType = String(damageType ?? "magic").trim().toLowerCase() || "magic";
+  const baseDamage = Number(damageInfo?.baseDamage ?? damageInfo?.damageValue ?? 0) || 0;
+  if (baseDamage > 0) {
+    components.push({
+      source: "spell",
+      sourceLabel: String(spell?.name ?? "Spell"),
+      damageType: normalizedType,
+      amount: baseDamage,
+    });
+  }
+  const overloadBonus = Number(damageInfo?.overloadBonus ?? 0) || 0;
+  if (overloadBonus > 0) {
+    components.push({
+      source: "overload",
+      sourceLabel: "Overload Bonus",
+      damageType: normalizedType,
+      amount: overloadBonus,
+    });
+  }
+  const elementalBonus = Number(damageInfo?.elementalBonus ?? 0) || 0;
+  if (elementalBonus > 0) {
+    components.push({
+      source: "elemental-bonus",
+      sourceLabel: String(damageInfo?.elementalBonusLabel ?? "Elemental Bonus"),
+      damageType: normalizedType,
+      amount: elementalBonus,
+    });
+  }
+  return components;
+}
 
 /**
  * Handle block resolve action.
@@ -26,14 +60,7 @@ export async function handleBlockResolve(ctx) {
   }
 
   // Get equipped shield
-  const shields = defenderActor.items?.filter(i => {
-    if (!(i.type === "armor" || i.type === "item")) return false;
-    if (i.system?.equipped !== true) return false;
-    if (!Boolean(i.system?.isShieldEffective ?? i.system?.isShield)) return false;
-    const shieldType = String(i.system?.shieldType || "normal").toLowerCase();
-    if (shieldType === "buckler") return false;
-    return true;
-  }) ?? [];
+  const shields = listEquippedShields(defenderActor, { includeBuckler: false, allowLegacy: true });
   const shield = shields[0] ?? null;
   if (!shield) {
     ui.notifications.warn("No equipped shield found on the defender.");
@@ -68,6 +95,7 @@ export async function handleBlockResolve(ctx) {
     weaponName: spell.name,
     weaponImg: spell.img ?? "",
     qualityPillsHtml: "",
+    damageComponents: buildMagicDamageComponents(spell, damageType, damageInfo),
     applied: blocked ? true : false,
     blockResult,
     applyPayload: {
@@ -156,6 +184,7 @@ export async function handleWardResolve(ctx) {
     weaponName: spell.name,
     weaponImg: spell.img ?? "",
     qualityPillsHtml: "",
+    damageComponents: buildMagicDamageComponents(spell, damageType, damageInfo),
     applied: blocked ? true : false,
     wardResult,
     applyPayload: {

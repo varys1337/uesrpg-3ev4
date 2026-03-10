@@ -72,6 +72,20 @@ const RESIST_FIELDS = Object.freeze([
 function _emitItemBonusMods(item, source) {
   const sys = item?.system ?? {};
   const mods = [];
+  const itemNameKey = normalizeFeatureKey(item.name ?? "");
+  const keyFlat = _normFlat(traitKey);
+  const paramFlat = _normFlat(traitParam);
+
+  if (itemNameKey === "stunted-magicka" || keyFlat.includes("stuntedmagicka") || paramFlat === "stuntedmagicka") {
+    mods.push(makeFeatureMod({
+      domain: FEATURE_DOMAINS.FLAG,
+      path: "flag.stuntedMagicka",
+      mode: "boolean",
+      value: true,
+      source,
+      rule: { chapter: 4, name: "Stunted Magicka", stacking: STACKING_MODES.ANY },
+    }));
+  }
 
   for (const { field, domain, path, stacking } of ITEM_BONUS_FIELDS) {
     const val = Number(sys[field] ?? 0);
@@ -250,6 +264,7 @@ export const TRAIT_STACKING_META = Object.freeze({
   "flag.skeletal":         { stacking: STACKING_MODES.ANY, label: "Skeletal" },
   "flag.incorporeal":      { stacking: STACKING_MODES.ANY, label: "Incorporeal" },
   "flag.undeadBloodless":  { stacking: STACKING_MODES.ANY, label: "Undead (Bloodless)" },
+  "flag.stuntedMagicka":   { stacking: STACKING_MODES.ANY, label: "Stunted Magicka" },
 });
 
 // ─── Trait damage type maps ──────────────────────────────────────────
@@ -349,9 +364,6 @@ export function contributeTraitMods(actor, item) {
   }
 
   // ── Undead / Skeletal / Bloodless flags ──
-  const keyFlat = _normFlat(traitKey);
-  const paramFlat = _normFlat(traitParam);
-
   if (keyFlat === "undead" || keyFlat.includes("undead")) {
     mods.push(makeFeatureMod({
       domain: FEATURE_DOMAINS.FLAG,

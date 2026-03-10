@@ -21,6 +21,7 @@ import { applyDamageResolved } from "../combat/damage-resolver.js";
 import { hasCondition, isImmuneToCondition } from "./condition-engine.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { _num, _num as _asNumber, normalizeKey } from "../../utils/coerce.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 const MODE_ADD = (globalThis.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2);
 
 /* -------------------------------------------- */
@@ -189,6 +190,31 @@ function _snapshotCombat(combat) {
   };
 }
 
+async function _handleCombatBoundaryConditionAutomation(payload) {
+  if (game?.user?.isGM !== true) return;
+  if (payload?.source !== "combat") return;
+  if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+  const combat = game?.combat ?? null;
+  if (!combat?.id) return;
+  if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
+
+  const prev = _getState(combat);
+  if (!prev) {
+    _setState(combat);
+    return;
+  }
+
+  const prevCombatantId = prev.combatantId;
+  const next = _snapshotCombat(combat);
+  const advanced = (next.round !== prev.round) || (next.turn !== prev.turn) || (next.combatantId !== prevCombatantId);
+  if (!advanced) return;
+
+  await _tickEndOfTurn(combat, prevCombatantId);
+  _setState(combat);
+  await _promptStartOfTurn(combat);
+}
+
 /**
  * Tick end-of-turn effects for the combatant who just finished their turn.
  */
@@ -342,36 +368,16 @@ export function registerConditionAutomationHooks() {
     _combatState.delete(String(combat.id));
   });
 
+  registerCombatBoundaryConsumer({
+    id: "condition-automation",
+    // Runs after turn-ticker so core boundary state is settled before condition automation.
+    order: 150,
+    handle: _handleCombatBoundaryConditionAutomation
+  });
+
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (game?.user?.isGM !== true) return;
-    if (payload?.source !== "combat") return;
-    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-
-    const combat = game?.combat ?? null;
-    if (!combat?.id) return;
-    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
-
-    const prev = _getState(combat);
-    if (!prev) {
-      _setState(combat);
-      return;
-    }
-
-    // Determine if a turn ended
-    const prevCombatantId = prev.combatantId;
-    const next = _snapshotCombat(combat);
-
-    const advanced = (next.round !== prev.round) || (next.turn !== prev.turn) || (next.combatantId !== prevCombatantId);
-    if (!advanced) return;
-
-    // Tick the combatant who just finished
-    await _tickEndOfTurn(combat, prevCombatantId);
-
-    // Update state
-    _setState(combat);
-
-    // Prompt start-of-turn reminder for burning (prompt sufficient)
-    await _promptStartOfTurn(combat);
+    if (noteCombatBoundaryLegacyFallbackSkip("condition-automation", payload)) return;
+    await _handleCombatBoundaryConditionAutomation(payload);
   });
 
   // Healing hook: reduce Bleeding X by total healing attempted (including overheal)

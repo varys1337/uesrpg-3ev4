@@ -28,14 +28,151 @@ import { requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.j
 import { getTokensInTemplate } from "../spell-runtime.js";
 import { registerSpellTickHandler } from "../ticks/spell-tick-engine.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
-import { FLAG_SCOPE } from "../../system/namespace.js";
+import { FLAG_SCOPE, SYSTEM_ID } from "../../system/namespace.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const RUNE_DETONATION_RADIUS_M = 3; // RAW: 3m burst
 
 let _hooksInstalled = false;
+let _runeRegistryHooksInstalled = false;
 
 const _debug = createDebugLogger("aeLifecycleDebug", "[UESRPG][Rune]");
+
+// ─── Rune Registry (Milestone D) ─────────────────────────────────────────────
+//
+// Indexed alternative to getActiveRunes()'s full actor scan.
+// Enabled by the `useRuneRegistry` world setting (default: false).
+//
+// Format: Map<aeUuid, RuneEntry>
+//
+// Lifecycle:
+//  - Seeded once at system ready via seedRuneRegistry()
+//  - Maintained incrementally via createActiveEffect / updateActiveEffect /
+//    deleteActiveEffect hooks installed by seedRuneRegistry()
+//  - rebuildRuneRegistry() exposed as a GM debug utility
+
+/**
+ * @typedef {object} RuneEntry
+ * @property {string} aeUuid - UUID of the rune Origin AE
+ * @property {string} actorId - Foundry id of the owning actor
+ * @property {object} runeData - Snapshot of flags.rune metadata
+ * @property {string[]} templateUuids - UUIDs of linked template documents
+ */
+
+/** @type {Map<string, RuneEntry>} */
+const _runeRegistry = new Map();
+
+function _isRuneRegistryEnabled() {
+  try {
+    return Boolean(game?.settings?.get?.(SYSTEM_ID, "useRuneRegistry"));
+  } catch (_e) {
+    return false;
+  }
+}
+
+/**
+ * Build a RuneEntry from an Origin AE. Returns null if AE is not a rune.
+ * @param {ActiveEffect} originAE
+ * @returns {RuneEntry|null}
+ */
+function _makeRuneEntry(originAE) {
+  const flags = originAE?.flags?.[_FLAG_NS];
+  if (!flags?.isOriginAE || !flags?.rune?.isRune) return null;
+  const aeUuid = originAE.uuid;
+  if (!aeUuid) return null;
+  const actor = originAE.parent;
+  const linked = flags.linkedEntities ?? [];
+  const tplLinks = linked.filter(l => l.type === "template");
+  return {
+    aeUuid: String(aeUuid),
+    actorId: String(actor?.id ?? ""),
+    runeData: { ...(flags.rune ?? {}) },
+    templateUuids: tplLinks.map(l => String(l.uuid))
+  };
+}
+
+function _addToRuneRegistry(originAE) {
+  const entry = _makeRuneEntry(originAE);
+  if (!entry) return;
+  _runeRegistry.set(entry.aeUuid, entry);
+}
+
+function _removeFromRuneRegistry(aeUuid) {
+  if (aeUuid) _runeRegistry.delete(String(aeUuid));
+}
+
+function _rebuildRuneRegistryFull() {
+  _runeRegistry.clear();
+  for (const actor of (game?.actors?.contents ?? [])) {
+    for (const ae of getOriginAEs(actor)) {
+      _addToRuneRegistry(ae);
+    }
+  }
+}
+
+/**
+ * Read active runes from the registry. Cleans stale entries on the fly.
+ * @returns {ActiveEffect[]}
+ */
+function _getActiveRunesFromRegistry() {
+  const runes = [];
+  for (const [aeUuid] of _runeRegistry) {
+    const ae = fromUuidSync(aeUuid);
+    if (!ae) {
+      _runeRegistry.delete(aeUuid);
+      continue;
+    }
+    runes.push(ae);
+  }
+  return runes;
+}
+
+/**
+ * Cheap predicate: returns true if any active rune exists.
+ * When registry is enabled, O(1). Otherwise conservatively returns true.
+ * Used as `hasWork` predicate in the rune-time-trigger spell tick handler.
+ *
+ * @returns {boolean}
+ */
+export function hasActiveRunes() {
+  if (_isRuneRegistryEnabled()) return _runeRegistry.size > 0;
+  return true;
+}
+
+/**
+ * Seed the rune registry and install AE lifecycle hooks for incremental maintenance.
+ * Idempotent — safe to call multiple times.
+ */
+export function seedRuneRegistry() {
+  _rebuildRuneRegistryFull();
+
+  if (_runeRegistryHooksInstalled) return;
+  _runeRegistryHooksInstalled = true;
+
+  Hooks.on("createActiveEffect", (effect, _options, _userId) => {
+    if (effect.parent?.documentName !== "Actor") return;
+    _addToRuneRegistry(effect);
+  });
+
+  Hooks.on("updateActiveEffect", (effect, changed, _options, _userId) => {
+    if (!changed.flags) return;
+    if (effect.parent?.documentName !== "Actor") return;
+    _removeFromRuneRegistry(effect.uuid);
+    _addToRuneRegistry(effect);
+  });
+
+  Hooks.on("deleteActiveEffect", (effect, _options, _userId) => {
+    _removeFromRuneRegistry(effect.uuid);
+  });
+}
+
+/**
+ * Force a full rebuild of the rune registry from live actor data.
+ * Exposed as a GM debug utility.
+ */
+export function rebuildRuneRegistry() {
+  _rebuildRuneRegistryFull();
+}
 
 // ─── Query ───────────────────────────────────────────────────────────────────
 
@@ -57,10 +194,20 @@ export function isRuneOriginAE(originAE) {
 /**
  * Get all active rune Origin AEs across all actors (or for a specific caster).
  *
- * @param {Actor} [casterActor] - Optional: filter to this caster
+ * When `useRuneRegistry` is enabled and no casterActor filter is provided,
+ * reads from the in-memory rune registry (O(runes)) instead of scanning all
+ * actors (O(all_actors × all_effects)).
+ *
+ * @param {Actor} [casterActor] - Optional: filter to this caster (legacy scan)
  * @returns {ActiveEffect[]}
  */
 export function getActiveRunes(casterActor = null) {
+  // Registry fast-path: only for full scans (no caster filter).
+  if (!casterActor && _isRuneRegistryEnabled()) {
+    return _getActiveRunesFromRegistry();
+  }
+
+  // Legacy path.
   const actors = casterActor ? [casterActor] : (game.actors?.contents ?? []);
   const runes = [];
   for (const actor of actors) {
@@ -172,6 +319,9 @@ export function initializeRuneTriggerService() {
     // Only trigger on position changes
     if (!("x" in changed) && !("y" in changed)) return;
 
+    // Fast-path: skip if no runes exist (O(1) when registry enabled, else O(1) array length check)
+    if (!hasActiveRunes()) return;
+
     const runes = getActiveRunes();
     if (!runes.length) return;
 
@@ -225,6 +375,8 @@ export function initializeRuneTriggerService() {
   registerSpellTickHandler({
     id: "rune-time-trigger",
     label: "Rune Time Trigger",
+    // hasWork: skip on irrelevant triggers or when no runes exist.
+    hasWork: (ctx) => (ctx.trigger === "turnEnd" || ctx.trigger === "worldTime") && hasActiveRunes(),
     fn: async (ctx) => {
       if (ctx.trigger !== "turnEnd" && ctx.trigger !== "worldTime") return;
 

@@ -104,7 +104,9 @@ export function hasStructuredQuality(qualitiesStructured, key) {
 export function parseRangeTriplet(text) {
   const raw = String(text ?? "").trim();
   if (!raw) return null;
-  const m = raw.match(/^(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)$/);
+  // Third slot may be "x", "-", "–", or "*" to indicate no long range (long = 0).
+  const m = raw.match(/^(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+|[xX\-\u2013*]+)$/);
   if (!m) return null;
-  return { close: Number(m[1]), effective: Number(m[2]), long: Number(m[3]) };
+  const long = /^\d+$/.test(m[3]) ? Number(m[3]) : 0;
+  return { close: Number(m[1]), effective: Number(m[2]), long };
 }

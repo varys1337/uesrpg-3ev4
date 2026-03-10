@@ -23,6 +23,7 @@ import { shouldYieldToRE } from "./features/rule-elements.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { itemHasToken } from "../combat/damage-automation.js";
 import { getEffectiveWeaponHands } from "../combat/combat-utils.js";
+import { getWeaponReachBoundsEffective } from "../homebrew/reach-length/weapon.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 
 import {
@@ -38,15 +39,14 @@ function _isSuccess(result) {
   return Boolean(result?.isSuccess);
 }
 
-function _getWeaponReachMetersFromUuid(actor, weaponUuid) {
+function _getWeaponReachMetersFromUuid(weaponUuid) {
   const uuid = String(weaponUuid ?? "").trim();
   if (!uuid) return null;
   try {
     const doc = fromUuidSync(uuid);
     const item = (doc?.documentName === "Item") ? doc : null;
     if (!item) return null;
-    // Reach is a dedicated Basic Property (system.reach) per system migrations.
-    const reach = Number(item.system?.reach ?? item.system?.reachMax ?? item.system?.reachMeters ?? NaN);
+    const reach = Number(getWeaponReachBoundsEffective(item)?.max ?? NaN);
     if (Number.isFinite(reach) && reach > 0) return reach;
   } catch (_e) {
     return null;
@@ -55,7 +55,7 @@ function _getWeaponReachMetersFromUuid(actor, weaponUuid) {
 }
 
 function _getReachMetersForTest({ actor, weaponUuid } = {}) {
-  const fromWeapon = _getWeaponReachMetersFromUuid(actor, weaponUuid);
+  const fromWeapon = _getWeaponReachMetersFromUuid(weaponUuid);
   if (Number.isFinite(fromWeapon) && fromWeapon > 0) return fromWeapon;
   return getMeleeReachMeters(actor);
 }

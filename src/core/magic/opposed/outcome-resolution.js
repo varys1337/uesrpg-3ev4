@@ -22,6 +22,39 @@ import { FLAG_SCOPE } from "../../system/namespace.js";
 const _spellDebug = createDebugLogger("spellCastingDebug");
 const NAMESPACE = "uesrpg-3ev4";
 
+function _buildMagicDamageComponents(spell, damageType, damageInfo = null) {
+  const components = [];
+  const normalizedType = String(damageType ?? "magic").trim().toLowerCase() || "magic";
+  const baseDamage = Number(damageInfo?.baseDamage ?? damageInfo?.damageValue ?? 0) || 0;
+  if (baseDamage > 0) {
+    components.push({
+      source: "spell",
+      sourceLabel: String(spell?.name ?? "Spell"),
+      damageType: normalizedType,
+      amount: baseDamage,
+    });
+  }
+  const overloadBonus = Number(damageInfo?.overloadBonus ?? 0) || 0;
+  if (overloadBonus > 0) {
+    components.push({
+      source: "overload",
+      sourceLabel: "Overload Bonus",
+      damageType: normalizedType,
+      amount: overloadBonus,
+    });
+  }
+  const elementalBonus = Number(damageInfo?.elementalBonus ?? 0) || 0;
+  if (elementalBonus > 0) {
+    components.push({
+      source: "elemental-bonus",
+      sourceLabel: String(damageInfo?.elementalBonusLabel ?? "Elemental Bonus"),
+      damageType: normalizedType,
+      amount: elementalBonus,
+    });
+  }
+  return components;
+}
+
 /**
  * Build a damage data object suitable for `_buildDamagePanel()`.
  * All complex data for deferred application is stored in `_magicPayload`.
@@ -60,6 +93,7 @@ function _buildMagicDamageData({
     weaponName: spell?.name ?? "Spell",
     weaponImg: spell?.img ?? "",
     qualityPillsHtml: "",
+    damageComponents: _buildMagicDamageComponents(spell, damageType, damageInfo),
     applied: false,
     blockResult: blockResult ?? null,
     wardResult: wardResult ?? null,
@@ -867,11 +901,11 @@ async function _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, o
  * @returns {Promise<void>}
  */
 export async function resolveOutcome(ctx) {
-  const { data, attacker, spell } = ctx;
+  const { data, attacker, spell, skipAttackerSideEffects = false } = ctx;
 
   // Track last spell cast time/uuid for RAW upkeep restriction (no-duration spells).
   const aResult = data.attacker.result;
-  if (aResult?.success) {
+  if (!skipAttackerSideEffects && aResult?.success) {
     try {
       await requestUpdateDocument(attacker, {
         [`flags.${FLAG_SCOPE}.lastSpellCastWorldTime`]: game.time.worldTime,

@@ -4,10 +4,6 @@ import { PCActorSheetV2 } from "../../ui/sheets/v2/actor-sheet.js";
 import { NpcSheetV2 } from "../../ui/sheets/v2/npc-sheet.js";
 
 export async function registerSheets() {
-  // Unregister Foundry's built-in core sheets so they don't appear in the sheet picker.
-  foundry.documents.collections.Actors.unregisterSheet("core", foundry.appv1.sheets.ActorSheet);
-  foundry.documents.collections.Items.unregisterSheet("core", foundry.appv1.sheets.ItemSheet);
-
   foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", PCActorSheetV2, {
     types: ["Player Character"],
     makeDefault: true,

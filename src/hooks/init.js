@@ -8,6 +8,7 @@ import { registerSettings } from "./init/register-settings.js";
 import { registerSheets } from "./init/register-sheets.js";
 import { registerHandlebarsHelpers } from "./init/register-handlebars.js";
 import { registerApi } from "./init/register-api.js";
+import { createTokenActionHudApi } from "../integrations/token-action-hud/api.js";
 import { registerChat, registerSpecialActionOutcomeHook } from "./init/register-chat.js";
 import { registerChatCommands } from "./init/register-chat-commands.js";
 import { registerMigrations } from "./init/register-migrations.js";
@@ -57,6 +58,7 @@ import { isReachLengthHomebrewEnabled } from "../core/homebrew/reach-length/weap
 import { measureTokenDistance } from "../core/combat/opposed/range.js";
 import { registerEngagementFlanking } from "../core/homebrew/engagement-flanking/index.js";
 import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
+import { registerShieldDebugObservers } from "../utils/dev/shield-debug.js";
 
 function applyCustomCursorConfig() {
   try {
@@ -106,7 +108,8 @@ function retireLegacySocialItemCreateTypesInMemory() {
 }
 
 function pruneRetiredSocialItemTypesFromCreateDialogs(root) {
-  const targetRoot = root instanceof HTMLElement ? root : document;
+  const targetRoot = root instanceof HTMLElement ? root : null;
+  if (!targetRoot) return;
   const selects = targetRoot.querySelectorAll?.("select[name='type']");
   if (!selects?.length) return;
 
@@ -128,26 +131,23 @@ function pruneRetiredSocialItemTypesFromCreateDialogs(root) {
   }
 }
 
+function resolveRenderedUiRoot(html) {
+  const root = html?.[0] ?? html;
+  return root instanceof HTMLElement ? root : null;
+}
+
 function registerRetiredSocialCreateTypeUiGuard() {
   const guard = (_app, html) => {
-    const root = html?.[0] ?? html ?? document;
+    const root = resolveRenderedUiRoot(html);
+    if (!root) return;
     pruneRetiredSocialItemTypesFromCreateDialogs(root);
   };
 
   Hooks.on("renderDocumentDirectory", guard);
-  Hooks.on("renderDialog", guard);
+  // renderDialogV2: catches DialogV2 renders (all system dialogs use DialogV2 via dialog-v2-helper.js).
+  // renderDialog (AppV1) intentionally removed: supported create flows are hook-covered and
+  // retired item types are already pruned from in-memory item type catalogs.
   Hooks.on("renderDialogV2", guard);
-  Hooks.once("ready", () => {
-    const observer = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const node of m.addedNodes ?? []) {
-          if (!(node instanceof HTMLElement)) continue;
-          pruneRetiredSocialItemTypesFromCreateDialogs(node);
-        }
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  });
 }
 
 export default async function initHandler() {
@@ -174,6 +174,7 @@ export default async function initHandler() {
     getActionEligibility,
     CharOpposedWorkflow,
     runCombatLegacyReadinessScan,
+    tokenActionHudApi: createTokenActionHudApi(),
   });
 
   void registerDevTools();
@@ -182,6 +183,12 @@ export default async function initHandler() {
     registerDndDebugObservers();
   } catch (err) {
     console.warn("UESRPG | Failed to register DnD diagnostics observers", err);
+  }
+
+  try {
+    registerShieldDebugObservers();
+  } catch (err) {
+    console.warn("UESRPG | Failed to register shield debug observers", err);
   }
 
   try {
@@ -204,6 +211,7 @@ export default async function initHandler() {
   };
 
   CONFIG.Combat.documentClass = SystemCombat;
+  SystemCombat.registerAPHooks();
   CONFIG.UESRPG = UESRPG;
 
   registerPolyglotLanguages();
@@ -331,3 +339,4 @@ export default async function initHandler() {
 
   registerSpecialActionOutcomeHook({ executeSpecialAction });
 }
+

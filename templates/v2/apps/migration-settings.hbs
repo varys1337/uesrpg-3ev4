@@ -1,0 +1,39 @@
+{{!-- templates/v2/apps/migration-settings.hbs --}}
+<section class="uesrpg-settings">
+<fieldset>
+  <legend>Startup</legend>
+
+  <div class="form-group">
+    <label>Auto-Run Migrations on Startup</label>
+    <input type="checkbox" name="autoRunMigrationsOnStartup" {{checked autoRunMigrationsOnStartup}}>
+    <p class="notes">When enabled, migrations run automatically when a GM enters the world. Default is off for manual-first performance.</p>
+  </div>
+</fieldset>
+
+<fieldset>
+  <legend>Manual Run</legend>
+
+  <div class="form-group">
+    <label>Migration Status (Current System Version: {{currentVersion}})</label>
+    <p class="notes">Actors: {{status.actors.version}} {{#if status.actors.upToDate}}(up to date){{else}}(outdated){{/if}}</p>
+    <p class="notes">Items: {{status.items.version}} {{#if status.items.upToDate}}(up to date){{else}}(outdated){{/if}}</p>
+    <p class="notes">Combat Legacy: {{status.combatLegacy.version}} {{#if status.combatLegacy.upToDate}}(up to date){{else}}(outdated){{/if}}</p>
+  </div>
+
+  <div class="form-group">
+    <button
+      type="button"
+      data-action="runMigrations"
+      class="save"
+      {{#if isRunning}}disabled{{/if}}>
+      <i class="fas fa-play"></i>
+      {{#if isRunning}}Migration Running...{{else}}Run Migrations Now{{/if}}
+    </button>
+    <p class="notes">Runs version-gated actor, item, and combat legacy migrations using the same logic as startup auto-run.</p>
+  </div>
+</fieldset>
+
+<footer class="sheet-footer flexrow">
+  <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+</footer>
+</section>

@@ -42,6 +42,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
       talentLearningNoticeMode: game.settings.get(NAMESPACE, "talentLearningNoticeMode"),
       chapter4AuditStartupMode: game.settings.get(NAMESPACE, "chapter4AuditStartupMode"),
       enforceCharGenMilestones: game.settings.get(NAMESPACE, "enforceCharGenMilestones"),
+      chargenSpellLearningLogCap: game.settings.get(NAMESPACE, "chargenSpellLearningLogCap"),
       passiveTransferItemTypes: game.settings.get(NAMESPACE, "passiveTransferItemTypes"),
     };
   }
@@ -65,6 +66,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
     if ("talentLearningNoticeMode" in data) await game.settings.set(NAMESPACE, "talentLearningNoticeMode", String(data.talentLearningNoticeMode ?? "problems"));
     if ("chapter4AuditStartupMode" in data) await game.settings.set(NAMESPACE, "chapter4AuditStartupMode", String(data.chapter4AuditStartupMode ?? "off"));
     if ("enforceCharGenMilestones" in data) await game.settings.set(NAMESPACE, "enforceCharGenMilestones", toBool(data.enforceCharGenMilestones));
+    if ("chargenSpellLearningLogCap" in data) await game.settings.set(NAMESPACE, "chargenSpellLearningLogCap", Math.max(0, Math.trunc(Number(data.chargenSpellLearningLogCap) || 0)));
     if ("passiveTransferItemTypes" in data) await game.settings.set(NAMESPACE, "passiveTransferItemTypes", String(data.passiveTransferItemTypes ?? "talent,trait,power,skill").trim());
   }
 }

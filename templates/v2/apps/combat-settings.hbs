@@ -26,7 +26,12 @@
     </select>
     <p class="notes">How to measure distance between tokens. 'Center Point': Always measure center-to-center (legacy, treats all tokens as 1×1). 'Edge to Edge': Measure from nearest edges for tokens larger than 1×1 (D&amp;D/PF2e standard).</p>
   </div>
-</fieldset>
+
+  <div class="form-group">
+    <label>Dynamic Initiative</label>
+    <input type="checkbox" name="dynamicInitiativeEnabled" {{checked dynamicInitiativeEnabled}}>
+    <p class="notes">When enabled, initiative rerolls each new round and commits atomically with round advance. This changes round-order behavior for upkeep and timing effects.</p>
+  </div></fieldset>
 
 <fieldset>
   <legend>Area of Effect</legend>
@@ -55,3 +60,4 @@
   <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
 </footer>
 </section>
+

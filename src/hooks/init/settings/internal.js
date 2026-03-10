@@ -38,4 +38,14 @@ export function registerInternalSettings() {
     default: false,
     type: Boolean,
   });
+
+  // Startup migration gate (manual-first default).
+  _reg("autoRunMigrationsOnStartup", {
+    name: "Auto-Run Migrations on Startup",
+    hint: "When enabled, migrations run automatically on GM world startup.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
 }

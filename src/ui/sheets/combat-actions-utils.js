@@ -27,6 +27,7 @@
  * }}
  */
 import { ActionEconomy } from "../../core/combat/action-economy.js";
+import { isShieldItem } from "../../core/items/shield-utils.js";
 export function buildCombatQuickContext(actorData) {
   const combatStyleName = (actorData?.combatStyle?.[0]?.name) ?? null;
 
@@ -49,17 +50,18 @@ export function buildCombatQuickContext(actorData) {
     qty: Number.isFinite(Number(a?.system?.quantity)) ? Number(a.system.quantity) : null,
   })).filter(a => !!a._id);
 
-  const equippedArmorDocs = Array.isArray(actorData?.armor?.equipped)
-    ? actorData.armor.equipped
-    : [];
+  const equippedArmorDocs = [
+    ...(Array.isArray(actorData?.armor?.equipped) ? actorData.armor.equipped : []),
+    ...(Array.isArray(actorData?.shield?.equipped) ? actorData.shield.equipped : []),
+  ];
 
   const equippedShields = equippedArmorDocs
-    .filter(a => Boolean(a?.system?.isShield))
+    .filter(a => isShieldItem(a, { allowLegacy: true }))
     .map(a => ({ _id: a?._id, name: a?.name ?? "(Unnamed)" }))
     .filter(a => !!a._id);
 
   const equippedArmor = equippedArmorDocs
-    .filter(a => !Boolean(a?.system?.isShield))
+    .filter(a => !isShieldItem(a, { allowLegacy: true }))
     .map(a => ({ _id: a?._id, name: a?.name ?? "(Unnamed)" }))
     .filter(a => !!a._id);
 

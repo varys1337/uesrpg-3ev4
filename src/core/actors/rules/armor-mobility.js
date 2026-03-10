@@ -4,6 +4,7 @@
  * Determine the heaviest *effective* armor weight class currently worn.
  * Computes mobility penalties for encumbrance and skill tests.
  */
+import { isShieldItem } from "../../items/shield-utils.js";
 
 /**
  * Determine the heaviest *effective* armor weight class currently worn.
@@ -42,12 +43,12 @@ export function getArmorMobilityPenalties(actorData) {
   let sources = [];
 
   for (const it of items) {
-    if (!it || it.type !== "armor") continue;
+    if (!it || (it.type !== "armor" && it.type !== "shield")) continue;
     const sys = it.system ?? {};
     const isEquipped = Object.prototype.hasOwnProperty.call(sys, "equipped") ? !!sys.equipped : true;
     if (!isEquipped) continue;
 
-    const isShield = Boolean(sys?.isShieldEffective ?? sys?.isShield);
+    const isShield = isShieldItem(it, { allowLegacy: true });
     if (isShield) continue;
 
     // Weight class can exist in a few places depending on item version and sheet usage.

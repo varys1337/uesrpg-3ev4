@@ -4,6 +4,17 @@
  */
 
 import { UESRPG } from "../../../core/constants.js";
+import {
+  WEAPON_QUALITY_LABELS,
+  WEAPON_MATERIAL_LABELS,
+  AMMO_ARROW_TYPE_LABELS,
+  ARMOR_WEIGHT_CLASS_LABELS,
+  ARMOR_CLASS_LABELS,
+  ARMOR_MATERIAL_LABELS,
+  SHIELD_TYPE_LABELS,
+  ITEM_QUALITY_LABELS,
+  resolveQualityCatalog
+} from "../../../core/config/label-catalog.js";
 import { SPECIAL_ACTIONS } from "../../../core/combat/combat-style-utils.js";
 import {
   normalizeSpellConfig,
@@ -58,6 +69,8 @@ export async function prepareItemSheetData(sheet, data) {
   data.isGM = game.user.isGM;
   // Fall back to sheet.isEditable if a caller didn't provide it.
   if (typeof data.editable !== "boolean") data.editable = Boolean(sheet.isEditable);
+  const itemDoc = sheet.document;
+  const actorDoc = itemDoc?.actor ?? null;
   const itemData = data.item;
   const itemType = data.item ? data.item.type : null;
 
@@ -119,7 +132,7 @@ export async function prepareItemSheetData(sheet, data) {
     }
 
     try {
-      data.spellEngine = normalizeSpellConfig(sheet.item);
+      data.spellEngine = normalizeSpellConfig(itemDoc);
     } catch (err) {
       console.warn("prepareItemSheetData: normalizeSpellConfig failed", err);
       // Provide safe fallback so the template doesn't crash
@@ -163,7 +176,7 @@ export async function prepareItemSheetData(sheet, data) {
 
     // Coverage report for QA tab
     try {
-      data.coverageReport = getSpellCoverageReport(sheet.item);
+      data.coverageReport = getSpellCoverageReport(itemDoc);
     } catch (err) {
       console.warn("prepareItemSheetData: getSpellCoverageReport failed", err);
       data.coverageReport = [];
@@ -196,7 +209,7 @@ export async function prepareItemSheetData(sheet, data) {
   // --------------------------------------------
   // Armor: Effective Weight Class (derived)
   // --------------------------------------------
-  if (data.item && data.item.type === "armor") {
+  if (data.item && (data.item.type === "armor" || data.item.type === "shield")) {
     const base = (data.item.system && data.item.system.weightClass != null) ? data.item.system.weightClass : "none";
     const quality = (data.item.system && data.item.system.qualityLevel != null) ? data.item.system.qualityLevel : "common";
     const order = ["none", "light", "medium", "heavy", "superheavy", "crippling"];
@@ -211,8 +224,8 @@ export async function prepareItemSheetData(sheet, data) {
   // --------------------------------------------
   // Item option lists for selects (v13-safe)
   // --------------------------------------------
-  data.weaponQualityOptions = UESRPG.WEAPON_QUALITY_LEVELS;
-  data.weaponMaterialOptions = UESRPG.WEAPON_MATERIALS;
+  data.weaponQualityOptions = WEAPON_QUALITY_LABELS;
+  data.weaponMaterialOptions = WEAPON_MATERIAL_LABELS;
   // Weapon handedness (RAW support). Stored in system.hands.
   // NOTE: selectOptions serializes option keys as strings; downstream usage should cast via Number().
   data.weaponHandednessOptions = {
@@ -248,12 +261,11 @@ export async function prepareItemSheetData(sheet, data) {
         }))
       : [];
   }
-  data.armorWeightClassOptions = UESRPG.ARMOR_WEIGHT_CLASSES;
-  data.ammoArrowTypeOptions = UESRPG.AMMO_ARROW_TYPES;
-  data.ammoMaterialOptions = UESRPG.AMMO_MATERIALS;
-  data.armorMaterialOptions = UESRPG.ARMOR_MATERIALS;
-  data.armorClassOptions = UESRPG.ARMOR_CLASSES;
-  data.shieldTypeOptions = UESRPG.SHIELD_TYPES;
+  data.armorWeightClassOptions = ARMOR_WEIGHT_CLASS_LABELS;
+  data.ammoArrowTypeOptions = AMMO_ARROW_TYPE_LABELS;
+  data.armorMaterialOptions = ARMOR_MATERIAL_LABELS;
+  data.armorClassOptions = ARMOR_CLASS_LABELS;
+  data.shieldTypeOptions = SHIELD_TYPE_LABELS;
   
   // Activation options for traits/talents/powers
   data.talentActionTypeOptions = {
@@ -318,13 +330,16 @@ export async function prepareItemSheetData(sheet, data) {
     (UESRPG.CONSTANTS && UESRPG.CONSTANTS.QUALITIES_TRAITS_BY_TYPE) ||
     UESRPG.QUALITIES_TRAITS_BY_TYPE;
 
-  data.qualitiesCatalog = (coreByType && itemType) ? (coreByType[itemType] || UESRPG.QUALITIES_CATALOG) : UESRPG.QUALITIES_CATALOG;
+  const rawCatalog = (coreByType && itemType)
+    ? (coreByType[itemType] || (itemType === "shield" ? coreByType.armor : null) || UESRPG.QUALITIES_CATALOG)
+    : UESRPG.QUALITIES_CATALOG;
+  data.qualitiesCatalog = resolveQualityCatalog(rawCatalog, ITEM_QUALITY_LABELS);
   // Template compatibility: newer sheets reference `coreQualitiesCatalog`.
   data.coreQualitiesCatalog = data.qualitiesCatalog;
 
   // Armor cleanup: ensure weapon-only "Silver" never appears in armor qualities UI, regardless of
   // which catalog export a world is using.
-  if (itemType === "armor" && Array.isArray(data.coreQualitiesCatalog)) {
+  if ((itemType === "armor" || itemType === "shield") && Array.isArray(data.coreQualitiesCatalog)) {
     data.coreQualitiesCatalog = data.coreQualitiesCatalog.filter(q => q && q.key !== "silver");
     data.qualitiesCatalog = data.coreQualitiesCatalog;
   }
@@ -332,7 +347,8 @@ export async function prepareItemSheetData(sheet, data) {
   // Trait catalog (type-specific) with selected flags.
   const traitsSrc = (data.item && data.item.system) ? data.item.system.qualitiesTraits : null;
   const traits = Array.isArray(traitsSrc) ? traitsSrc : [];
-  const traitCatalog = (traitsByType && itemType) ? (traitsByType[itemType] || []) : [];
+  const rawTraitCatalog = (traitsByType && itemType) ? (traitsByType[itemType] || []) : [];
+  const traitCatalog = resolveQualityCatalog(rawTraitCatalog, ITEM_QUALITY_LABELS);
   data.traitsCatalog = traitCatalog.map(t => ({ ...t, selected: traits.includes(t.key) }));
   data.traitsSelected = traits.reduce((acc, k) => {
     acc[k] = true;
@@ -373,12 +389,16 @@ export async function prepareItemSheetData(sheet, data) {
       if (typeof q.value === "number") activationSelectedValue[q.key] = q.value;
     }
 
-    data.activationDamageQualitiesCatalog = Array.isArray(weaponCoreCatalog) ? weaponCoreCatalog : [];
+    data.activationDamageQualitiesCatalog = resolveQualityCatalog(
+      Array.isArray(weaponCoreCatalog) ? weaponCoreCatalog : [], ITEM_QUALITY_LABELS
+    );
     data.activationDamageSelectedToggle = activationSelectedToggle;
     data.activationDamageSelectedValue = activationSelectedValue;
 
     const activationTraitKeys = activationTraits.map(t => String(t ?? "")).filter(Boolean);
-    data.activationDamageTraitsCatalog = (Array.isArray(weaponTraitCatalog) ? weaponTraitCatalog : []).map(t => ({
+    data.activationDamageTraitsCatalog = resolveQualityCatalog(
+      Array.isArray(weaponTraitCatalog) ? weaponTraitCatalog : [], ITEM_QUALITY_LABELS
+    ).map(t => ({
       ...t,
       selected: activationTraitKeys.includes(t.key)
     }));
@@ -392,7 +412,7 @@ export async function prepareItemSheetData(sheet, data) {
   // Feature Config + Rule Elements (Traits/Talents/Powers)
   // --------------------------------------------
   if (itemType && ["trait", "talent", "power"].includes(itemType)) {
-    data.featureConfig = getFeatureConfig(sheet.item);
+    data.featureConfig = getFeatureConfig(itemDoc);
     data.featureOptions = getFeatureConfigOptions();
     data.featureCapabilities = getFeatureConfigCapabilities(itemType);
 
@@ -401,7 +421,7 @@ export async function prepareItemSheetData(sheet, data) {
     const runtimeSettings = getRuleElementRuntimeSettingsState();
     const workflowEnabled = runtimeSettings?.enabled ?? {};
 
-    data.ruleElements = getRuleElements(sheet.item).map((element) => {
+    data.ruleElements = getRuleElements(itemDoc).map((element) => {
       const support = runtimeSupport?.[element.type] ?? { status: "planned", workflows: ["all"], phases: [] };
       const elementWorkflows = Array.isArray(element?.workflows) && element.workflows.length ? element.workflows : ["all"];
       const scopedWorkflows = elementWorkflows.includes("all")
@@ -473,7 +493,7 @@ export async function prepareItemSheetData(sheet, data) {
   }
 
   // Active Effects list for templates (plain objects)
-  data.effects = (sheet.item && sheet.item.effects) ? sheet.item.effects.contents.map(e => e.toObject()) : [];
+  data.effects = itemDoc?.effects ? itemDoc.effects.contents.map(e => e.toObject()) : [];
 
   // --------------------------------------------
   // Combat Style: Active status + Special Actions registry
@@ -483,17 +503,17 @@ export async function prepareItemSheetData(sheet, data) {
     data.item.system.trainedEquipment = Array.from({ length: 10 }, (_, i) => String(te[i] ?? "").trim());
   }
 
-  if (itemType === "combatStyle" && sheet.item?.isOwned && sheet.actor) {
-    const activeStyleId = sheet.actor.getFlag("uesrpg-3ev4", "activeCombatStyleId");
-    data.isActiveCombatStyle = (activeStyleId === sheet.item.id);
+  if (itemType === "combatStyle" && itemDoc?.isOwned && actorDoc) {
+    const activeStyleId = actorDoc.getFlag("uesrpg-3ev4", "activeCombatStyleId");
+    data.isActiveCombatStyle = (activeStyleId === itemDoc.id);
     data.specialActionsRegistry = SPECIAL_ACTIONS;
   }
 
   // --------------------------------------------
   // Weapon: Ammunition selection options
   // --------------------------------------------
-  if (itemType === "weapon" && sheet.item?.isOwned && sheet.actor) {
-    const ammoItems = sheet.actor.itemTypes?.ammunition ?? [];
+  if (itemType === "weapon" && itemDoc?.isOwned && actorDoc) {
+    const ammoItems = actorDoc.itemTypes?.ammunition ?? [];
     data.ammoOptions = ammoItems.map(ammo => ({
       value: ammo.id,
       label: `${ammo.name}${ammo.system.quantity ? ` (${ammo.system.quantity})` : ''}`
@@ -515,16 +535,16 @@ export async function prepareItemSheetData(sheet, data) {
   // Weapon / Armor: Enchantment display (read-only)
   // Written by the Enchanting Workshop; surfaced here for the item sheet Attributes tab.
   // --------------------------------------------
-  if (itemType === "weapon" || itemType === "armor" || itemType === "ammunition" || itemType === "equipment") {
-    const enc = sheet.item?.flags?.["uesrpg-3ev4"]?.enchanting ?? null;
-    data.uiSpellcastingConfig = _buildSpellcastingUiConfig(sheet.item);
+  if (itemType === "weapon" || itemType === "armor" || itemType === "shield" || itemType === "ammunition" || itemType === "equipment") {
+    const enc = itemDoc?.flags?.["uesrpg-3ev4"]?.enchanting ?? null;
+    data.uiSpellcastingConfig = _buildSpellcastingUiConfig(itemDoc);
     if (enc?.version === 2 && enc.enchantType) {
-      data.enchantmentDisplay = _buildEnchantmentDisplay(enc, sheet.item);
+      data.enchantmentDisplay = _buildEnchantmentDisplay(enc, itemDoc);
     } else {
       data.enchantmentDisplay = null;
     }
   } else if (itemType === "container" || itemType === "scroll") {
-    data.uiSpellcastingConfig = _buildSpellcastingUiConfig(sheet.item);
+    data.uiSpellcastingConfig = _buildSpellcastingUiConfig(itemDoc);
   }
 
   // --------------------------------------------
@@ -532,7 +552,7 @@ export async function prepareItemSheetData(sheet, data) {
   // Identifies items that serve as alchemy ingredients via flags["uesrpg-3ev4"].alchemy.
   // --------------------------------------------
   if (itemType === "equipment") {
-    const alchemyFlags = sheet.item?.flags?.["uesrpg-3ev4"]?.alchemy ?? null;
+    const alchemyFlags = itemDoc?.flags?.["uesrpg-3ev4"]?.alchemy ?? null;
     data.isAlchemyIngredient = alchemyFlags?.kind === "ingredient";
     data.isAlchemyProduct = ["potion", "poison", "toxin"].includes(String(alchemyFlags?.kind ?? ""));
 

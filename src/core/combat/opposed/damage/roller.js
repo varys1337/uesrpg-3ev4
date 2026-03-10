@@ -10,7 +10,7 @@
  */
 
 import { hasTalent } from "../../../traits/talents-api.js";
-import { getEffectiveWeaponHands } from "../../combat-utils.js";
+import { getEffectiveWeaponHands, getDamageTypeFromWeapon } from "../../combat-utils.js";
 import { normalizeDiceExpression, safeEvaluateRoll } from "../rolls.js";
 import { itemHasToken } from "../../damage/tokens.js";
 
@@ -91,6 +91,10 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
 
   /** @type {{ammoUuid:string, qtyAfter:number, ammoName:string}|null} */
   let pendingAmmo = null;
+  let ammoBonusApplied = 0;
+  let ammoTypeApplied = "physical";
+  let ammoUuidApplied = null;
+  let ammoNameApplied = null;
 
   // Ranged: add ammunition contribution (damage bonus) from the selected ammunition item.
   // Ammunition quantity is consumed at ATTACK TIME (before the attack roll), not here.
@@ -151,6 +155,10 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
         } catch (err) {
           console.warn("UESRPG | Failed to evaluate ammunition damage expression", { ammoId, ammoExpr, err });
         }
+        ammoBonusApplied = ammoBonus;
+        ammoTypeApplied = String(ammo.system?.damageTypeEffective ?? ammo.system?.damageType ?? "physical").trim().toLowerCase() || "physical";
+        ammoUuidApplied = String(ammo.uuid ?? "") || null;
+        ammoNameApplied = String(ammo.name ?? "") || null;
         damageString = addFlatBonus(damageString, ammoBonus);
       }
 
@@ -168,6 +176,10 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
         } catch (err) {
           console.warn("UESRPG | Failed to evaluate ammunition damage expression", { ammoId, ammoExpr, err });
         }
+        ammoBonusApplied = ammoBonus;
+        ammoTypeApplied = String(ammo.system?.damageTypeEffective ?? ammo.system?.damageType ?? "physical").trim().toLowerCase() || "physical";
+        ammoUuidApplied = String(ammo.uuid ?? "") || null;
+        ammoNameApplied = String(ammo.name ?? "") || null;
         damageString = addFlatBonus(damageString, ammoBonus);
       }
     }
@@ -213,7 +225,39 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
     }
   }
 
-  return { damageString, rollA: a, rollB: b, finalDamage: total, pendingAmmo, rerollMode, damagedValue };
+  let ammoComponentAmount = Math.max(0, Number(ammoBonusApplied || 0));
+  if (ammoComponentAmount > total) ammoComponentAmount = Math.max(0, total);
+  const weaponComponentAmount = Math.max(0, total - ammoComponentAmount);
+  const weaponDamageType = String(getDamageTypeFromWeapon(weapon) ?? "physical").toLowerCase() || "physical";
+
+  const weaponComponent = {
+    source: "weapon",
+    sourceLabel: String(weapon?.name ?? "Weapon"),
+    sourceItemUuid: String(weapon?.uuid ?? "") || null,
+    damageType: weaponDamageType,
+    amount: weaponComponentAmount,
+  };
+  const ammoComponent = ammoComponentAmount > 0
+    ? {
+        source: "ammo",
+        sourceLabel: String(ammoNameApplied ?? "Ammunition"),
+        sourceItemUuid: ammoUuidApplied,
+        damageType: ammoTypeApplied,
+        amount: ammoComponentAmount,
+      }
+    : null;
+
+  return {
+    damageString,
+    rollA: a,
+    rollB: b,
+    finalDamage: total,
+    pendingAmmo,
+    rerollMode,
+    damagedValue,
+    weaponComponent,
+    ammoComponent,
+  };
 }
 
 /**

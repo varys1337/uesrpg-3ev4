@@ -57,8 +57,8 @@ export function getReachLengthModel() {
 }
 
 /**
- * Returns true when Length Advantage bonuses are attacker-only.
- * When enabled, defender-side positive Length modifiers are suppressed.
+ * Returns true when Length TN modifiers are attacker-only.
+ * When enabled, defender-side Length modifiers are suppressed entirely.
  * @returns {boolean}
  */
 export function isReachLengthAttackerAdvantageOnlyEnabled() {

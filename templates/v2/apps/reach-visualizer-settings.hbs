@@ -67,6 +67,18 @@
   </div>
 
   <div class="form-group">
+    <label title="Controls how diagonal distance is counted on square grids.">Grid diagonals</label>
+    <select name="gridDiagonalMode">
+      {{selectOptions gridDiagonalChoices selected=settings.gridDiagonalMode}}
+    </select>
+    <p class="hint">
+      <strong>Ignore diagonal rule</strong> uses equal-cost diagonals (Chebyshev distance) regardless of the scene's movement setting — reach is not governed by movement.
+      <strong>Respect scene rule</strong> matches Foundry's configured diagonal movement rule (e.g. 1/2/1 alternating).
+      Only applies to Grid-aware shape on square grids. Flanking range checks follow this same setting.
+    </p>
+  </div>
+
+  <div class="form-group">
     <label title="Color scheme for multi-token readability.">Color mode</label>
     <select name="colorMode">
       {{selectOptions colorModeChoices selected=settings.colorMode}}

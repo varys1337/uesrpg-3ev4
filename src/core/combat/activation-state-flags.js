@@ -10,6 +10,7 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { _num } from "../../utils/coerce.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 
 const FLAG_FREE_DEFENSE = `flags.${FLAG_SCOPE}.combat.freeNextDefenseCommit`;
 const FLAG_THUNDER_CHARGE = `flags.${FLAG_SCOPE}.talents.thunderCharge`;
@@ -195,6 +196,26 @@ async function _cleanupActorActivationFlags(actor, { combat = null, worldTime = 
   }
 }
 
+async function _handleCombatBoundaryActivationCleanup(payload) {
+  if (!game.user?.isGM) return;
+  if (payload?.source !== "combat") return;
+  if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+  const combat = game?.combat ?? null;
+  if (!combat?.id) return;
+  if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
+  if (!_activationFlagActors.size) return;
+
+  const wt = _num(payload?.worldTime, _worldTimeSeconds());
+  for (const combatant of combat.combatants ?? []) {
+    const actor = combatant?.actor ?? null;
+    if (!actor?.id) continue;
+    if (!_activationFlagActors.has(String(actor.id))) continue;
+    await _cleanupActorActivationFlags(actor, { combat, worldTime: wt });
+    _untrackActorIfNoActivationFlags(actor);
+  }
+}
+
 export function registerActivationStateHooks() {
   if (_activationStateHooksRegistered) return;
   _activationStateHooksRegistered = true;
@@ -209,21 +230,16 @@ export function registerActivationStateHooks() {
       if (hasFree || hasThunder) _trackActorForActivationCleanup(actor);
     }
   }
+  registerCombatBoundaryConsumer({
+    id: "activation-state-flags",
+    // Cleanup runs after core rules/effect consumers so transient combat flags settle last.
+    order: 300,
+    handle: _handleCombatBoundaryActivationCleanup
+  });
 
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (!game.user?.isGM) return;
-    if (payload?.source !== "combat") return;
-    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-
-    const combat = game?.combat ?? null;
-    if (!combat?.id) return;
-    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
-
-    const wt = _num(payload?.worldTime, _worldTimeSeconds());
-    for (const combatant of combat.combatants ?? []) {
-      await _cleanupActorActivationFlags(combatant?.actor ?? null, { combat, worldTime: wt });
-      _untrackActorIfNoActivationFlags(combatant?.actor ?? null);
-    }
+    if (noteCombatBoundaryLegacyFallbackSkip("activation-state-flags", payload)) return;
+    await _handleCombatBoundaryActivationCleanup(payload);
   });
 
   Hooks.on("deleteCombat", async (combat) => {
@@ -251,3 +267,4 @@ export function registerActivationStateHooks() {
     }
   });
 }
+

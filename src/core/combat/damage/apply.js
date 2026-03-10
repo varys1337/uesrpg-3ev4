@@ -13,6 +13,9 @@ import { isActorImmuneToDamageType, isActorIncorporeal } from "../../traits/trai
 import { requestUpdateDocument, requestCreateActiveEffect, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isAnyDebugEnabled } from "../../../utils/debug.js";
 import { shouldTriggerWound } from "../../wounds/wound-rules.js";
+import { isShieldItem } from "../../items/shield-utils.js";
+import { syncNpcDeathState } from "../../wounds/death-tests.js";
+import { getResolvedArmorValues, isArmorCoveringLocation } from "../armor-state.js";
 
 function _healingDebug(...args) {
   if (!isAnyDebugEnabled(["woundsDebug", "spellCastingDebug"])) return;
@@ -39,47 +42,89 @@ function _normalizeLocationKey(hitLocation = "Body") {
   return locationMap[hitLocation] ?? hitLocation;
 }
 
-function _normalizeCoverageOverride(value) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw) return "";
-  if (raw === "full" || raw === "partial" || raw === "none") return raw;
-  if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
-    return "none";
-  }
-  return "";
+function _isShieldItem(item) {
+  return isShieldItem(item, { allowLegacy: true });
 }
 
-function _getCoveredLocations(item, locationKey = null) {
-  const ARMOR_CATEGORY_TO_LOCATIONS = {
-    head: ["Head"],
-    body: ["Body"],
-    l_arm: ["LeftArm"],
-    r_arm: ["RightArm"],
-    l_leg: ["LeftLeg"],
-    r_leg: ["RightLeg"],
-  };
-  const ARMOR_LOCATION_KEYS = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
+function _isNpcActor(actor) {
+  return String(actor?.type ?? "").trim().toLowerCase() === "npc";
+}
 
-  const sys = item?.system ?? {};
-  const category = String(sys.category || "").toLowerCase();
-  let armorClass = String(sys.armorClass || "partial").toLowerCase();
-  if (armorClass !== "full" && armorClass !== "partial" && armorClass !== "none") armorClass = "partial";
-  const override = _normalizeCoverageOverride(sys?.hitLocationStates?.[locationKey]?.coverageOverride);
-  if (override) armorClass = override;
-  if (armorClass === "none") return new Set();
+function _actorHasConditionKey(actor, key) {
+  const k = String(key || "").trim().toLowerCase();
+  if (!actor || !k) return false;
 
-  const hitLocs = sys.hitLocations ?? {};
-  const isShield = Boolean(sys.isShieldEffective ?? sys.isShield) || category === "shield" || category.startsWith("shield");
-  const anyExplicit = ARMOR_LOCATION_KEYS.some(k => hitLocs?.[k] === true);
+  for (const ef of (actor.effects ?? [])) {
+    try {
+      if (ef?.disabled) continue;
+      if (ef?.statuses?.has?.(k)) return true;
+      if (String(ef?.flags?.core?.statusId ?? "").toLowerCase() === k) return true;
+      if (String(ef?.flags?.["uesrpg-3ev4"]?.condition?.key ?? "").toLowerCase() === k) return true;
+      if (String(ef?.name ?? "").toLowerCase() === k) return true;
+    } catch (_e) {
+      continue;
+    }
+  }
 
-  if (isShield && anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
-  if (isShield) return new Set(["LeftArm", "RightArm"]);
+  return false;
+}
 
-  const catLocs = ARMOR_CATEGORY_TO_LOCATIONS[category] ?? null;
-  if (catLocs) return new Set(catLocs);
+function _getArmorRuntimeOptions(actor) {
+  return { isProneForArmor: _actorHasConditionKey(actor, "prone") };
+}
 
-  if (anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
-  return new Set();
+function _getItemLocationProtectionScore(item, { actor = null } = {}) {
+  if (!item) return 0;
+  const sys = item.system ?? {};
+  const rawProtection = _isShieldItem(item)
+    ? Number(sys.blockRatingEffective ?? sys.blockRating ?? sys.blockEffective ?? sys.block ?? 0)
+    : Number(getResolvedArmorValues(sys, _getArmorRuntimeOptions(actor)).armor ?? 0);
+  return Number.isFinite(rawProtection) ? Math.max(0, rawProtection) : 0;
+}
+
+function _getStructuredDamagedValue(item) {
+  const structured = Array.isArray(item?.system?.qualitiesStructured)
+    ? item.system.qualitiesStructured
+    : [];
+  const damaged = structured.find((q) => String(q?.key ?? "").toLowerCase() === "damaged");
+  const n = Number(damaged?.value ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+async function _applyDamagedQualityToItem(item, amount, { destroyWhenDepleted = false, actor = null } = {}) {
+  if (!item) return false;
+  const step = Math.max(0, Math.floor(Number(amount) || 0));
+  if (!step) return false;
+
+  const currentProtection = _getItemLocationProtectionScore(item, { actor });
+  const structured = foundry.utils.deepClone(item.system?.qualitiesStructured ?? []);
+  const existingIdx = structured.findIndex((q) => String(q?.key ?? "").toLowerCase() === "damaged");
+  const oldDamaged = _getStructuredDamagedValue(item);
+  const nextDamaged = oldDamaged + step;
+
+  if (existingIdx >= 0) {
+    structured[existingIdx] = { ...(structured[existingIdx] ?? {}), key: "damaged", value: nextDamaged };
+  } else {
+    structured.push({ key: "damaged", value: nextDamaged });
+  }
+
+  const nextProtection = Math.max(0, currentProtection - step);
+  if (destroyWhenDepleted && nextProtection <= 0) {
+    const parentActor = item.parent;
+    if (parentActor?.documentName === "Actor" && item?.id) {
+      await requestDeleteEmbeddedDocuments(parentActor, "Item", [item.id]);
+      await ChatMessage.create({
+        user: game.user.id,
+        speaker: ChatMessage.getSpeaker({ actor: parentActor }),
+        content: `<div class="uesrpg"><b>${item.name}</b> is destroyed.</div>`,
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER
+      });
+      return true;
+    }
+  }
+
+  await requestUpdateDocument(item, { "system.qualitiesStructured": structured });
+  return true;
 }
 
 export async function applyArmorLocationDamage(targetActor, hitLocation, damagedValue = 0) {
@@ -92,16 +137,11 @@ export async function applyArmorLocationDamage(targetActor, hitLocation, damaged
   let updatedCount = 0;
 
   for (const item of equippedArmor) {
-    const covered = _getCoveredLocations(item, propertyName);
-    if (!covered.has(propertyName)) continue;
+    if (!isArmorCoveringLocation(item, propertyName)) continue;
+    if (_getItemLocationProtectionScore(item, { actor: targetActor }) <= 0) continue;
 
-    const hitLocationStates = foundry.utils.deepClone(item.system?.hitLocationStates ?? {});
-    const stateForLocation = { ...(hitLocationStates[propertyName] ?? {}) };
-    const current = Number.isFinite(Number(stateForLocation.damaged)) ? Math.max(0, Math.floor(Number(stateForLocation.damaged))) : 0;
-    stateForLocation.damaged = current + amount;
-    hitLocationStates[propertyName] = stateForLocation;
-    await requestUpdateDocument(item, { "system.hitLocationStates": hitLocationStates });
-    updatedCount += 1;
+    const applied = await _applyDamagedQualityToItem(item, amount, { destroyWhenDepleted: true, actor: targetActor });
+    if (applied) updatedCount += 1;
   }
 
   return updatedCount;
@@ -130,7 +170,6 @@ export async function applyArmorLocationDamage(targetActor, hitLocation, damaged
  * @param {string} options.hitLocation - Hit location (Head, Body, RightArm, etc.)
  * @param {boolean} options.penetrateArmorForTriggers - For weapon qualities
  * @param {boolean} options.forcefulImpact - Apply Forceful Impact (Damaged +1 to armor)
- * @param {number} options.damagedValue - Apply per-location armor damage value to all covering armor pieces
  * @param {boolean} options.pressAdvantage - Informational flag for Press Advantage
  * @param {Item} options.weapon - Weapon item (for quality bonuses)
  * @param {Actor} options.attackerActor - Attacker (for AE modifiers)
@@ -158,7 +197,6 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     // Advantage: Forceful Impact — applies/advances Damaged (1) on the armor piece protecting the hit location.
     // Current implementation: increments the Damaged quality on ONE equipped armor piece covering the location.
     forcefulImpact = false,
-    damagedValue = 0,
     // Advantage: Press Advantage — currently informational only (advantage economy is handled in opposed workflow).
     pressAdvantage = false,
     // Optional: enable RAW weapon-quality bonuses.
@@ -297,7 +335,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   const isWounded = woundEval.triggered === true;
 
   let woundStatus = "uninjured";
-  if (newHP === 0) woundStatus = "unconscious";
+  if (newHP === 0) woundStatus = _isNpcActor(updateTarget) ? "dead" : "unconscious";
   else if (isWounded) woundStatus = "wounded";
 
   // Keep this path free of direct wounded-flag writes.
@@ -308,6 +346,9 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   };
 
   await requestUpdateDocument(updateTarget, updateData);
+  if (_isNpcActor(updateTarget)) {
+    await syncNpcDeathState(updateTarget);
+  }
 
   // Emit damage-applied hook for downstream automation (wounds, conditions, etc.)
   try {
@@ -331,16 +372,6 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   }
 
 
-  // Optional: Forceful Impact may damage the armor protecting the hit location.
-  // This is intentionally best-effort and should never block damage resolution.
-  if (Number(damagedValue || 0) > 0) {
-    try {
-      await applyArmorLocationDamage(updateTarget, hitLocation, damagedValue);
-    } catch (err) {
-      console.warn("UESRPG | Armor location damage update failed", err);
-    }
-  }
-
   if (forcefulImpact && String(damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL) {
     try {
       await _applyForcefulImpact(updateTarget, hitLocation);
@@ -350,7 +381,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   }
 
   // Optional: apply unconscious effect (safe + idempotent)
-  if (woundStatus === "unconscious") {
+  if (woundStatus === "unconscious" && !_isNpcActor(updateTarget)) {
     try {
       const targetActor = updateTarget;
 
@@ -565,6 +596,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
         ${currentTempHP > 0 || newTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed})</span>` : ""}</span></div>` : ""}
         ${woundStatus === "wounded" ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}
         ${woundStatus === "unconscious" ? `<div class="status unconscious">\u{1F480} UNCONSCIOUS</div>` : ""}
+        ${woundStatus === "dead" ? `<div class="status unconscious">\u{1F480} DEAD</div>` : ""}
         <details>
           <summary>Damage Breakdown</summary>
           <div style="font-size:12px; opacity:0.95;">${parts.join("\n")}${reductionAEBreakdown}${aeSummary}</div>
@@ -598,6 +630,9 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     incorporealAttack: damageCalc.incorporealAttack ?? null,
     oldHP: currentHP,
     newHP,
+    oldTempHP: currentTempHP,
+    newTempHP,
+    tempHPAbsorbed,
     woundStatus,
     prevented,
   };
@@ -670,84 +705,18 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
     RightLeg: "RightLeg",
     LeftLeg: "LeftLeg",
   };
-  const propertyName = locationMap[hitLocation] ?? hitLocation;
-
-  // Coverage normalization rules (mirrors getDamageReduction):
-  // - For FULL armor pieces, category is authoritative.
-  // - For PARTIAL armor pieces, if hitLocations are "all true" (legacy default), fall back to category.
-  // - Otherwise, only explicit true values count as covered.
-  //
-  // Shields:
-  // - If a shield defines explicit hitLocations, respect them.
-  // - Otherwise, treat shields as protecting the arm locations (LeftArm/RightArm) for Forceful Impact only.
-  const ARMOR_CATEGORY_TO_LOCATIONS = {
-    head: ["Head"],
-    body: ["Body"],
-    l_arm: ["LeftArm"],
-    r_arm: ["RightArm"],
-    l_leg: ["LeftLeg"],
-    r_leg: ["RightLeg"],
-  };
-  const ARMOR_LOCATION_KEYS = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
-  const normalizeCoverageOverride = (value) => {
-    const raw = String(value ?? "").trim().toLowerCase();
-    if (!raw) return "";
-    if (raw === "full" || raw === "partial" || raw === "none") return raw;
-    if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
-      return "none";
-    }
-    return "";
-  };
-
-  const getCoveredLocations = (item, locationKey = null) => {
-    const sys = item?.system ?? {};
-    const category = String(sys.category || "").toLowerCase();
-    let armorClass = String(sys.armorClass || "partial").toLowerCase();
-    if (armorClass !== "full" && armorClass !== "partial" && armorClass !== "none") armorClass = "partial";
-    const override = normalizeCoverageOverride(sys?.hitLocationStates?.[locationKey]?.coverageOverride);
-    if (override) armorClass = override;
-    const hitLocs = sys.hitLocations ?? {};
-    const isShield = Boolean(sys.isShieldEffective ?? sys.isShield) || category === "shield" || category.startsWith("shield");
-    if (armorClass === "none") return new Set();
-
-    // If explicit coverage exists, use it (works for both armor and shields).
-    const anyExplicit = ARMOR_LOCATION_KEYS.some(k => hitLocs?.[k] === true);
-    if (isShield && anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
-
-    // Shields without explicit coverage: treat as arm-protection for Forceful Impact.
-    if (isShield) return new Set(["LeftArm", "RightArm"]);
-
-    // Armor pieces: category is authoritative for active behavior.
-    const catLocs = ARMOR_CATEGORY_TO_LOCATIONS[category] ?? null;
-    if (catLocs) return new Set(catLocs);
-
-    // Legacy compatibility fallback for uncategorized data.
-    if (anyExplicit) return new Set(ARMOR_LOCATION_KEYS.filter(k => hitLocs?.[k] === true));
-    return new Set();
-  };
+  const propertyName = _normalizeLocationKey(hitLocation);
 
   const equippedArmor = targetActor.items?.filter((i) => i.type === "armor" && i.system?.equipped === true) ?? [];
   const candidates = [];
 
   for (const item of equippedArmor) {
-    const sys = item.system ?? {};
-    const category = String(sys.category || "").toLowerCase();
-    const isShield = Boolean(sys.isShieldEffective ?? sys.isShield) || category === "shield" || category.startsWith("shield");
+    if (!isArmorCoveringLocation(item, propertyName)) continue;
 
-    const covered = getCoveredLocations(item, propertyName);
-    if (!covered.has(propertyName)) continue;
-
-    // Forceful Impact selects one piece/shield. Prefer the piece that is currently most protective:
-    // - Armor uses AR (effective if available)
-    // - Shields use Block Rating (effective if available)
-    const score = (() => {
-      if (isShield) {
-        const br = (sys.blockEffective != null) ? Number(sys.blockEffective) : Number(sys.block ?? 0);
-        return Number.isFinite(br) ? br : 0;
-      }
-      const ar = (sys.armorEffective != null) ? Number(sys.armorEffective) : Number(sys.armor ?? 0);
-      return Number.isFinite(ar) ? ar : 0;
-    })();
+    // Forceful Impact selects one piece/shield. Prefer the item that is currently most protective
+    // at the struck location.
+    const score = _getItemLocationProtectionScore(item, { actor: targetActor });
+    if (score <= 0) continue;
 
     candidates.push({ item, score });
   }
@@ -757,37 +726,7 @@ async function _applyForcefulImpact(targetActor, hitLocation) {
   // Choose the single most protective item on that location (deterministic).
   candidates.sort((a, b) => (b.score - a.score));
   const targetItem = candidates[0].item;
-  const targetSys = targetItem.system ?? {};
-  const targetCategory = String(targetSys.category || "").toLowerCase();
-  const isShieldTarget = Boolean(targetSys.isShieldEffective ?? targetSys.isShield) || targetCategory === "shield" || targetCategory.startsWith("shield");
-
-  const hitLocationStates = foundry.utils.deepClone(targetItem.system?.hitLocationStates ?? {});
-  const stateForLocation = { ...(hitLocationStates[propertyName] ?? {}) };
-  const oldDamagedRaw = stateForLocation.damaged;
-  const oldDamaged = Number.isFinite(Number(oldDamagedRaw)) ? Math.max(0, Math.floor(Number(oldDamagedRaw))) : (oldDamagedRaw === true ? 1 : 0);
-  stateForLocation.damaged = oldDamaged + 1;
-  hitLocationStates[propertyName] = stateForLocation;
-  const oldEffective = isShieldTarget
-    ? (Number(targetSys.blockEffective ?? targetSys.block ?? 0) || 0)
-    : (Number(targetSys.armorEffective ?? targetSys.armor ?? 0) || 0);
-  const baseProtective = Math.max(0, oldEffective + oldDamaged);
-  const nextEffective = Math.max(0, baseProtective - (oldDamaged + 1));
-
-  if (nextEffective <= 0) {
-    const parentActor = targetItem.parent;
-    if (parentActor?.documentName === "Actor" && targetItem?.id) {
-      await requestDeleteEmbeddedDocuments(parentActor, "Item", [targetItem.id]);
-      await ChatMessage.create({
-        user: game.user.id,
-        speaker: ChatMessage.getSpeaker({ actor: parentActor }),
-        content: `<div class="uesrpg"><b>${targetItem.name}</b> is destroyed.</div>`,
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
-      return;
-    }
-  }
-
-  await requestUpdateDocument(targetItem, { "system.hitLocationStates": hitLocationStates });
+  await _applyDamagedQualityToItem(targetItem, 1, { destroyWhenDepleted: true, actor: targetActor });
 }
 
 /**

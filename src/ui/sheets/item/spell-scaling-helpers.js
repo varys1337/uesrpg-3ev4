@@ -1,9 +1,8 @@
 /**
  * src/ui/sheets/item/spell-scaling-helpers.js
  *
- * Pure utility helpers for spell scaling level management.
- * Extracted from the closured helpers in item/listeners/index.js
- * so that SimpleItemSheetV2 action handlers can reuse them.
+ * Pure utility helpers for spell scaling level management used by
+ * SimpleItemSheetV2 action handlers.
  */
 import { isDebugEnabled } from "../../../utils/debug.js";
 

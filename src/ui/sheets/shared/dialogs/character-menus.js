@@ -8,6 +8,13 @@ import { SpendXpMenuAppV2 } from "../../../apps/v2/char-gen/spend-xp-menu.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { customDialog, alertDialog } from "../../../../utils/dialog-v2-helper.js";
 import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
+import {
+  resolveLuckBonus,
+  resolveLuckyUnluckyAllocation,
+  extractConfiguredLuckyNumbers,
+  extractConfiguredUnluckyNumbers,
+  hasThiefBirthsign,
+} from "../../../../core/luck/lucky-numbers.js";
 
 const RANK_THRESHOLDS = Object.freeze([
   { minXp: 7000, rank: "Master" },
@@ -51,6 +58,7 @@ export async function onBirthSignMenu(event, target) {
  */
 export async function onXPMenu(event, target) {
   event.preventDefault();
+  const isGM = Boolean(game.user?.isGM);
 
   // Rank Objects
   const ranks = {
@@ -79,11 +87,15 @@ export async function onXPMenu(event, target) {
                           <div style="display: flex; flex-direction: row; justify-content: space-around; background: rgba(180, 180, 180, 0.562); padding: 10px; text-align: center; border: 1px solid;">
                               <div style="width: 33.33%">
                                   <div>Current XP</div>
-                                  <input type="number" id="xp" value="${this.actor.system.xp}">
+                                  ${isGM
+      ? `<input type="number" id="xp" value="${this.actor.system.xp}">`
+      : `<div style="padding: 6px 0;">${this.actor.system.xp}</div>`}
                               </div>
                               <div style="width: 33.33%">
                                   <div>Total XP</div>
-                                  <input type="number" id="xpTotal" value="${this.actor.system.xpTotal}">
+                                  ${isGM
+      ? `<input type="number" id="xpTotal" value="${this.actor.system.xpTotal}">`
+      : `<div style="padding: 6px 0;">${this.actor.system.xpTotal}</div>`}
                               </div>
                               <div style="width: 33.33%">
                                   <div>Campaign Rank</div>
@@ -110,8 +122,9 @@ export async function onXPMenu(event, target) {
                   </div>
               </div>`,
     yes: {
-      label: "Submit",
+      label: isGM ? "Submit" : "Close",
       callback: async (html) => {
+        if (!isGM) return;
         const root = html instanceof HTMLElement ? html : html?.[0];
         const xp = Number(root.querySelector("#xp").value);
         const xpTotal = Number(root.querySelector("#xpTotal").value);
@@ -132,21 +145,11 @@ export async function onXPMenu(event, target) {
 
 async function _showLuckyInfo(actor) {
   const lck = actor.system.characteristics.lck.total ?? 50;
-  const luckBonus = Math.floor((lck - 50) / 10);
-  const hasThief = actor.items.some(
-    (i) => i.type === "trait" && (i.name === "The Thief" || i.name === "The Star-Cursed Thief"),
-  );
-  // Slots allocated by current Luck (for context label)
-  const allocLucky = Math.max(0, luckBonus) + (hasThief ? 1 : 0);
-  const allocUnlucky = Math.max(0, 5 - luckBonus);
-
-  // Read all stored values regardless of current allocation
-  const luckyNums = ["ln1", "ln2", "ln3", "ln4", "ln5", "ln6"]
-    .map((k) => actor.system.lucky_numbers[k])
-    .filter((n) => n > 0);
-  const unluckyNums = ["ul1", "ul2", "ul3", "ul4", "ul5"]
-    .map((k) => actor.system.unlucky_numbers[k])
-    .filter((n) => n > 0);
+  const luckBonus = resolveLuckBonus(actor, { clampNonNegative: false });
+  const { luckyCount: allocLucky, unluckyCount: allocUnlucky } = resolveLuckyUnluckyAllocation(actor, { clampNonNegativeBonus: true });
+  const hasThief = hasThiefBirthsign(actor);
+  const luckyNums = extractConfiguredLuckyNumbers(actor);
+  const unluckyNums = extractConfiguredUnluckyNumbers(actor);
 
   const luckyStr = luckyNums.length ? luckyNums.join(", ") : "None set";
   const unluckyStr = unluckyNums.length ? unluckyNums.join(", ") : "None set";
@@ -190,6 +193,14 @@ async function _showXpDialog(actor) {
   const xpAvail = Number(actor.system.xp ?? 0);
   const xpSpent = Math.max(0, xpTotal - xpAvail);
   const rank = campaignRankFromXpTotal(xpTotal);
+  const isGM = Boolean(game.user?.isGM);
+
+  const xpTotalField = isGM
+    ? `<input type="number" id="adv-xp-total" value="${xpTotal}" min="0" style="width:90px;text-align:right;">`
+    : `<span id="adv-xp-total" style="text-align:right;padding-right:4px;">${xpTotal}</span>`;
+  const xpAvailField = isGM
+    ? `<input type="number" id="adv-xp-avail" value="${xpAvail}" min="0" style="width:90px;text-align:right;">`
+    : `<span id="adv-xp-avail" style="text-align:right;padding-right:4px;">${xpAvail}</span>`;
 
   const choice = await customDialog({
     title: "Experience & Advancement",
@@ -197,42 +208,52 @@ async function _showXpDialog(actor) {
     content: `<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0;">
       <div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px;">
         <label for="adv-xp-total">Total XP Received</label>
-        <input type="number" id="adv-xp-total" value="${xpTotal}" min="0" style="width:90px;text-align:right;">
+        ${xpTotalField}
         <label>XP Spent</label>
         <span id="adv-xp-spent" style="text-align:right;padding-right:4px;">${xpSpent}</span>
         <label for="adv-xp-avail">XP Available</label>
-        <input type="number" id="adv-xp-avail" value="${xpAvail}" min="0" style="width:90px;text-align:right;">
+        ${xpAvailField}
         <label>Campaign Rank</label>
         <span id="adv-xp-rank" style="text-align:right;padding-right:4px;">${rank}</span>
       </div>
     </div>`,
-    buttons: {
-      wizard: {
-        label: "Advancement Wizard",
-        icon: "fas fa-scroll",
-        callback: () => "wizard",
-      },
-      save: {
-        label: "Save",
-        icon: "fas fa-check",
-        callback: async (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          const newTotal = Number(root?.querySelector("#adv-xp-total")?.value ?? xpTotal);
-          const newAvail = Number(root?.querySelector("#adv-xp-avail")?.value ?? xpAvail);
-          const newRank = campaignRankFromXpTotal(newTotal);
-          await requestUpdateDocument(actor, {
-            "system.xpTotal": Number.isFinite(newTotal) ? newTotal : xpTotal,
-            "system.xp": Number.isFinite(newAvail) ? newAvail : xpAvail,
-            "system.campaignRank": newRank,
-          });
-          return "saved";
+    buttons: isGM
+      ? {
+        wizard: {
+          label: "Advancement Wizard",
+          icon: "fas fa-scroll",
+          callback: () => "wizard",
         },
+        save: {
+          label: "Save",
+          icon: "fas fa-check",
+          callback: async (html) => {
+            const root = html instanceof HTMLElement ? html : html?.[0];
+            const newTotal = Number(root?.querySelector("#adv-xp-total")?.value ?? xpTotal);
+            const newAvail = Number(root?.querySelector("#adv-xp-avail")?.value ?? xpAvail);
+            const newRank = campaignRankFromXpTotal(newTotal);
+            await requestUpdateDocument(actor, {
+              "system.xpTotal": Number.isFinite(newTotal) ? newTotal : xpTotal,
+              "system.xp": Number.isFinite(newAvail) ? newAvail : xpAvail,
+              "system.campaignRank": newRank,
+            });
+            return "saved";
+          },
+        },
+        cancel: { label: "Cancel" },
+      }
+      : {
+        wizard: {
+          label: "Advancement Wizard",
+          icon: "fas fa-scroll",
+          callback: () => "wizard",
+        },
+        close: { label: "Close" },
       },
-      cancel: { label: "Cancel" },
-    },
-    defaultButton: "save",
+    defaultButton: isGM ? "save" : "close",
     rejectClose: false,
     render: (_evt, dialogApp) => {
+      if (!isGM) return;
       const root = dialogApp?.element ?? dialogApp;
       const totalInput = root?.querySelector("#adv-xp-total");
       const availInput = root?.querySelector("#adv-xp-avail");
@@ -263,6 +284,7 @@ async function _showXpDialog(actor) {
  * @param {Event} event - The triggering event
  */
 export async function onAdvancementMenu(event, _target) {
+  event?.preventDefault?.();
   const actor = this.actor;
   let _choice = null;
 
@@ -279,14 +301,14 @@ export async function onAdvancementMenu(event, _target) {
         <i class="fas fa-star"></i>
         <span>Experience &mdash; ${actor.system.xp} XP available</span>
       </button>
-      <button type="button" class="adv-btn" data-choice="race">
-        <i class="fas fa-users"></i>
-        <span>Race &mdash; ${actor.system.race || "None"}</span>
-      </button>
-      <button type="button" class="adv-btn" data-choice="sign">
-        <i class="fas fa-moon"></i>
-        <span>Sign &mdash; ${actor.system.birthSign || "None"}</span>
-      </button>
+      <div class="adv-ref" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
+        <i class="fas fa-users" aria-hidden="true"></i>
+        <span><strong>Race:</strong> ${actor.system.race || "None"}</span>
+      </div>
+      <div class="adv-ref" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
+        <i class="fas fa-moon" aria-hidden="true"></i>
+        <span><strong>Sign:</strong> ${actor.system.birthSign || "None"}</span>
+      </div>
     </div>`,
     no: { label: "Cancel" },
     rejectClose: false,
@@ -303,8 +325,6 @@ export async function onAdvancementMenu(event, _target) {
 
   if (_choice === "lucky") return _showLuckyInfo(actor);
   if (_choice === "xp") return _showXpDialog(actor);
-  if (_choice === "race") return _showRaceInfo(actor);
-  if (_choice === "sign") return _showSignInfo(actor);
 }
 
 /**

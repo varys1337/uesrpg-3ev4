@@ -1,6 +1,7 @@
 .application.uesrpg-resource-dialog .window-content,
 .worldbuilding.uesrpg-resource-dialog .window-content {
   overflow: hidden;
+  color: #2a1d11;
 }
 
 .uesrpg-resource-dialog__body,
@@ -18,6 +19,8 @@
   display: block;
   margin-bottom: 3px;
   font-weight: 700;
+  color: #2a1d11;
+  text-shadow: none;
 }
 
 .uesrpg-resource-dialog__group input[type="number"],
@@ -26,13 +29,19 @@
   width: 100%;
   min-height: var(--uesrpg-control-h-md, 30px);
   padding: 2px 8px;
+  color: #24190f;
+  background: rgba(255, 246, 224, 0.96);
+  border: 1px solid rgba(106, 76, 38, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .uesrpg-resource-dialog__hint {
   display: block;
   margin-top: 4px;
   font-size: var(--uesrpg-font-sm, 12px);
-  opacity: 0.82;
+  opacity: 1;
+  color: #4b3722;
+  text-shadow: none;
 }
 
 .uesrpg-resource-dialog__hint--copy {
@@ -40,6 +49,7 @@
   padding: 6px 0;
   border-top: 1px solid rgba(0, 0, 0, 0.14);
   border-bottom: 1px solid rgba(0, 0, 0, 0.14);
+  color: #3a2b1b;
 }
 
 .uesrpg-magicka-barrier-dialog .buffer-source-indicator {
@@ -115,11 +125,15 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--uesrpg-dialog-gap, 8px);
+  width: 100%;
+  justify-content: center;
+  align-items: stretch;
 }
 
 .application.uesrpg-resource-dialog .dialog-buttons > button,
 .worldbuilding.uesrpg-resource-dialog .dialog-buttons > button {
-  flex: 1 1 160px;
+  flex: 1 1 0;
+  width: 100%;
   min-height: var(--uesrpg-control-h-md, 30px);
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -145,6 +159,23 @@
   background: linear-gradient(180deg, rgba(93, 82, 64, 0.95) 0%, rgba(72, 62, 48, 0.96) 100%);
 }
 
+.application.uesrpg-resource-dialog :is(.form-footer, .dialog-buttons),
+.worldbuilding.uesrpg-resource-dialog :is(.form-footer, .dialog-buttons) {
+  display: flex;
+  flex-wrap: nowrap;
+  width: 100%;
+  justify-content: center;
+  align-items: stretch;
+  gap: var(--uesrpg-dialog-gap, 8px);
+}
+
+.application.uesrpg-resource-dialog :is(.form-footer, .dialog-buttons) > button,
+.worldbuilding.uesrpg-resource-dialog :is(.form-footer, .dialog-buttons) > button {
+  flex: 1 1 0;
+  width: 100%;
+  max-width: none;
+}
+
 /* Wood frame + header for resource/stamina dialogs*/
 .application.uesrpg-resource-dialog,
 .worldbuilding.uesrpg-resource-dialog {
@@ -156,7 +187,7 @@
 
 .application.uesrpg-resource-dialog .window-header,
 .worldbuilding.uesrpg-resource-dialog .window-header {
-  background-image: url("../images/elements/backgrounds/brown_leather.webp");
+  background-image: url("../images/elements/backgrounds/wood-background.webp");
   background-size: cover;
   background-position: center;
   color: #e8dcc8;
@@ -171,10 +202,35 @@
 
 .application.uesrpg-resource-dialog .window-content,
 .worldbuilding.uesrpg-resource-dialog .window-content {
+  background-image: url("../images/elements/backgrounds/pale_parchment.webp") !important;
+  background-repeat: repeat !important;
+  background-size: auto !important;
+  background-color: transparent !important;
   border-left: none;
   border-right: none;
   border-bottom: none;
 }
 
+/* Dark theme: force strong readability in resource dialogs on parchment. */
+body.theme-dark :is(.application.uesrpg-resource-dialog, .worldbuilding.uesrpg-resource-dialog) .window-content,
+body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .worldbuilding.uesrpg-resource-dialog) .window-content {
+  color: #24190f;
+}
 
+body.theme-dark :is(.application.uesrpg-resource-dialog, .worldbuilding.uesrpg-resource-dialog) .uesrpg-resource-dialog__label,
+body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .worldbuilding.uesrpg-resource-dialog) .uesrpg-resource-dialog__label {
+  color: #24190f;
+}
+
+body.theme-dark :is(.application.uesrpg-resource-dialog, .worldbuilding.uesrpg-resource-dialog) .uesrpg-resource-dialog__hint,
+body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .worldbuilding.uesrpg-resource-dialog) .uesrpg-resource-dialog__hint {
+  color: #4a3823;
+}
+
+body.theme-dark :is(.application.uesrpg-resource-dialog, .worldbuilding.uesrpg-resource-dialog) :is(input[type="number"], select, textarea),
+body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .worldbuilding.uesrpg-resource-dialog) :is(input[type="number"], select, textarea) {
+  color: #24190f;
+  background: rgba(255, 246, 224, 0.97);
+  border-color: rgba(112, 82, 43, 0.55);
+}
 

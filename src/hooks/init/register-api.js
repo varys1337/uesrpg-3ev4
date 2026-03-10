@@ -25,8 +25,10 @@ export function registerApi({
   getActionEligibility,
   CharOpposedWorkflow,
   runCombatLegacyReadinessScan,
+  tokenActionHudApi,
 } = {}) {
   if (!game.uesrpg) game.uesrpg = {};
+  if (!game.uesrpg.api) game.uesrpg.api = {};
   if (!game.uesrpg.rules) game.uesrpg.rules = {};
 
   game.uesrpg.rules.predicate = {
@@ -68,4 +70,8 @@ export function registerApi({
 
   if (!game.uesrpg.characteristics) game.uesrpg.characteristics = {};
   game.uesrpg.characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
+
+  if (tokenActionHudApi) {
+    game.uesrpg.api.tokenActionHud = tokenActionHudApi;
+  }
 }

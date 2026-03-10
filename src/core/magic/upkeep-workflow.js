@@ -49,7 +49,7 @@
  */
 
 import { getSpellMaxRangeMeters, getSpellRangeType } from "./spell-range.js";
-import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestBatchUpdateDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { MagicTimekeeping } from "./timekeeping-helper.js";
 import { classifySpellForRouting } from "./spell-runtime.js";
 import { AttackTracker } from "../combat/attack-tracker.js";
@@ -58,6 +58,8 @@ import { findOriginAEByGroupKey, refreshOriginAEUpkeep, cancelOriginAEUpkeep } f
 import { hasTalent } from "../traits/talents-api.js";
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
+import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -69,6 +71,48 @@ const _recentPromptCache = new Map();
 
 /** @type {boolean} Guard against overlapping realtime scans. */
 let _realtimeScanInFlight = false;
+
+/** @type {Map<string, string>} per-combat dedupe key "{round}:{turn}" for post-commit upkeep cadence. */
+const _lastCombatUpkeepBoundaryKey = new Map();
+
+async function _handleCombatBoundaryUpkeep(payload) {
+  const p = payload ?? {};
+  const combat = p.combat ?? null;
+  if (String(p.source ?? "") !== "combat") return;
+  if (String(combat?.phase ?? "") !== "post") return;
+  if (!game.user?.isGM) return;
+
+  const activeCombat = game.combat ?? null;
+  if (!activeCombat?.id) return;
+  if (combat?.id && String(combat.id) !== String(activeCombat.id)) return;
+  if (!activeCombat.started) return;
+
+  const nextRound = _num(combat?.round, _num(activeCombat.round, _currentRound()));
+  const nextTurn = _num(combat?.turn, _num(activeCombat.turn, _currentTurn()));
+  const combatId = String(activeCombat.id ?? "");
+  const dedupeKey = `${nextRound}:${nextTurn}`;
+  if (_lastCombatUpkeepBoundaryKey.get(combatId) === dedupeKey) return;
+  _lastCombatUpkeepBoundaryKey.set(combatId, dedupeKey);
+
+  const _perf = isPerfEnabled();
+  const _t0 = _perf ? monoMs() : 0;
+  const targetCombatantId = String(activeCombat.combatant?.id ?? activeCombat.combatantId ?? "");
+  await _checkUpkeepCombatTurnStart(nextRound, nextTurn);
+  if (_perf) {
+    perfRecord({
+      event: "dynamicInitiative.upkeepTarget",
+      combatId,
+      round: nextRound,
+      turn: nextTurn,
+      targetCombatantId: targetCombatantId || null,
+      enabled: (() => {
+        try { return Boolean(game.settings.get("uesrpg-3ev4", "dynamicInitiativeEnabled")); }
+        catch (_e) { return false; }
+      })(),
+      durationMs: monoMs() - _t0,
+    });
+  }
+}
 
 // ─── Utility Helpers ─────────────────────────────────────────────────────────
 
@@ -594,41 +638,17 @@ export function initializeUpkeepSystem() {
   if (globalThis.__UESRPG_UPKEEP_SYSTEM_HOOKS_INSTALLED__) return;
   globalThis.__UESRPG_UPKEEP_SYSTEM_HOOKS_INSTALLED__ = true;
 
-  // Combat cadence: prompt at the beginning of the relevant combat turn (not at round start).
-  Hooks.on("preUpdateCombat", async (combat, changed) => {
-    if (!combat) return;
-    if (!game.user?.isGM) return; // single authoritative prompt source
-
-    const hasTurn = Object.prototype.hasOwnProperty.call(changed ?? {}, "turn");
-    const hasRound = Object.prototype.hasOwnProperty.call(changed ?? {}, "round");
-    if (!hasTurn && !hasRound) return;
-
-    const nextRound = hasRound ? _num(changed.round, _num(combat.round, 0)) : _num(combat.round, 0);
-    const nextTurn = hasTurn ? _num(changed.turn, _num(combat.turn, 0)) : _num(combat.turn, 0);
-
-    // Only prompt when the combat actually advances.
-    if (nextRound === _num(combat.round, 0) && nextTurn === _num(combat.turn, 0)) return;
-
-    await _checkUpkeepCombatTurnStart(nextRound, nextTurn);
+  // Combat cadence (time service): authoritative post-commit ingress only.
+  registerCombatBoundaryConsumer({
+    id: "upkeep-workflow",
+    // Upkeep prompting runs after core expiry/reset lanes have finalized boundary state.
+    order: 400,
+    handle: _handleCombatBoundaryUpkeep
   });
 
-  // Combat cadence (time service): respond to centralized combat time ingress.
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    const p = payload ?? {};
-    const source = String(p.source ?? "");
-    const combat = p.combat ?? null;
-
-    // Only react to the pre-advance intent payloads to match existing "start of turn" behavior.
-    if (source !== "combatTurn" && source !== "combatRound") return;
-    if (String(combat?.phase ?? "") !== "pre") return;
-    if (!game.user?.isGM) return;
-
-    // Only handle when combat is started (ignore idle combat documents).
-    if (!(game.combat?.started || combat?.started)) return;
-
-    const nextRound = _num(combat?.round, _currentRound());
-    const nextTurn = _num(combat?.turn, _currentTurn());
-    await _checkUpkeepCombatTurnStart(nextRound, nextTurn);
+    if (noteCombatBoundaryLegacyFallbackSkip("upkeep-workflow", payload)) return;
+    await _handleCombatBoundaryUpkeep(payload);
   });
 
   // Out of combat cadence: listen to the system-normalized time dispatcher.
@@ -720,11 +740,17 @@ export function initializeUpkeepSystem() {
   };
 
   Hooks.on("renderChatMessageHTML", bindListeners);
+
+  Hooks.on("deleteCombat", (combat) => {
+    const combatId = String(combat?.id ?? "");
+    if (!combatId) return;
+    _lastCombatUpkeepBoundaryKey.delete(combatId);
+  });
 }
 
 /**
- * Entry point for combat-cadence upkeep checks. Called on preUpdateCombat and
- * uesrpg.combatTimeChanged hooks.
+ * Entry point for combat-cadence upkeep checks. Called on post-commit
+ * uesrpg.combatTimeChanged hook.
  *
  * @param {number} nextRound
  * @param {number} nextTurn
@@ -1013,21 +1039,20 @@ export async function handleUpkeepGroupConfirm(message) {
 
     const nextPool = Math.max(0, poolValue - upkeepCost);
     try {
-      const ok = await requestUpdateDocument(enchantedItem, {
+      const upkeepItemUpdate = {
         [enchantmentSourceLane === "extension"
           ? `flags.${_FLAG_NS}.itemSpellcasting.pool.value`
           : `flags.${_FLAG_NS}.enchanting.cast.pool.value`]: nextPool,
         "system.charge.value": nextPool
-      });
+      };
+      if (slotId) {
+        upkeepItemUpdate[enchantmentSourceLane === "extension"
+          ? `flags.${_FLAG_NS}.itemSpellcasting.activeUpkeepSlotId`
+          : `flags.${_FLAG_NS}.enchanting.cast.activeUpkeepSpellId`] = slotId;
+      }
+      const ok = await requestUpdateDocument(enchantedItem, upkeepItemUpdate);
       if (!ok) throw new Error("authority update rejected");
       ui.notifications?.info?.(`Upkeep paid from ${enchantedItem.name}: Soul Energy ${nextPool}/${poolMax}.`);
-      if (slotId) {
-        await requestUpdateDocument(enchantedItem, {
-          [enchantmentSourceLane === "extension"
-            ? `flags.${_FLAG_NS}.itemSpellcasting.activeUpkeepSlotId`
-            : `flags.${_FLAG_NS}.enchanting.cast.activeUpkeepSpellId`]: slotId
-        });
-      }
     } catch (err) {
       console.error("UESRPG | upkeep-workflow | Failed to deduct Soul Energy upkeep", err);
       ui.notifications?.warn?.("Upkeep failed to spend Soul Energy. Spell ends.");
@@ -1143,6 +1168,8 @@ export async function handleUpkeepGroupConfirm(message) {
   const rt = _roundTimeSeconds();
   const inCombat = Boolean(game.combat);
 
+  const effectUpdatesByActor = new Map();
+  const actorBufferUpdates = new Map();
   for (const m of matches) {
     const live = _getActorEffect(m.targetActor, m.effect?.id);
     if (!live) continue;
@@ -1181,7 +1208,9 @@ export async function handleUpkeepGroupConfirm(message) {
     updates[`flags.${_FLAG_NS}.expiredAtCombatRound`] = null;
     updates[`flags.${_FLAG_NS}.upkeepAwaiting`] = null;
 
-    await _safeUpdateEffect(live, updates);
+    const actorUpdates = effectUpdatesByActor.get(m.targetActor) ?? [];
+    actorUpdates.push({ _id: live.id, ...updates });
+    effectUpdatesByActor.set(m.targetActor, actorUpdates);
 
     // ── Buffer / Barrier restoration ─────────────────────────────────────
     // If this effect applied a buffer, restore it to the original cast-time value.
@@ -1192,11 +1221,48 @@ export async function handleUpkeepGroupConfirm(message) {
       if (bufferType && originalValue > 0) {
         const currentBuffer = _num(m.targetActor.system?.buffers?.[bufferType], 0);
         if (currentBuffer < originalValue) {
-          try {
-            await requestUpdateDocument(m.targetActor, { [`system.buffers.${bufferType}`]: originalValue });
-          } catch (err) {
-            console.warn("UESRPG | upkeep-workflow | Failed to restore buffer on upkeep", err);
-          }
+          const pendingActorUpdate = actorBufferUpdates.get(m.targetActor) ?? {};
+          pendingActorUpdate[`system.buffers.${bufferType}`] = Math.max(
+            _num(pendingActorUpdate[`system.buffers.${bufferType}`], currentBuffer),
+            originalValue
+          );
+          actorBufferUpdates.set(m.targetActor, pendingActorUpdate);
+        }
+      }
+    }
+  }
+
+  for (const [actor, updates] of effectUpdatesByActor.entries()) {
+    if (!updates.length) continue;
+    const ok = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", updates);
+    if (!ok) {
+      for (const update of updates) {
+        const live = _getActorEffect(actor, update._id);
+        if (!live) continue;
+        const fallbackUpdate = { ...update };
+        delete fallbackUpdate._id;
+        await _safeUpdateEffect(live, fallbackUpdate);
+      }
+    }
+  }
+
+  const actorBatchRows = [];
+  for (const [actor, updateData] of actorBufferUpdates.entries()) {
+    if (!actor || !Object.keys(updateData).length) continue;
+    actorBatchRows.push({ docOrUuid: actor, updateData });
+  }
+  if (actorBatchRows.length) {
+    const batchResult = await requestBatchUpdateDocuments(actorBatchRows);
+    if (batchResult?.ok !== true) {
+      const failedUuidSet = new Set((batchResult?.failures ?? []).map((f) => String(f?.uuid ?? "")).filter(Boolean));
+      for (const row of actorBatchRows) {
+        const actor = row.docOrUuid;
+        const uuid = String(actor?.uuid ?? "");
+        if (failedUuidSet.size && !failedUuidSet.has(uuid)) continue;
+        try {
+          await requestUpdateDocument(actor, row.updateData);
+        } catch (err) {
+          console.warn("UESRPG | upkeep-workflow | Failed to restore buffer on upkeep", err);
         }
       }
     }

@@ -43,7 +43,10 @@ export function resolveOutcomeRAW(data, defender = null) {
   const D = d.result;
   if (!A || !D) return null;
 
-  const defenseType = d.defenseType ?? "none";
+  const defenseType = String(d.defenseType ?? "none").toLowerCase();
+  const blockSource = String(d?.blockSource ?? "").toLowerCase();
+  const isWardDefense = defenseType === "ward" || (defenseType === "block" && blockSource === "ward");
+  const effectiveDefenseType = isWardDefense ? "ward" : defenseType;
 
   // RAW (Critical outcomes):
   // If both sides roll any critical (success or failure), neither attack nor defense resolves.
@@ -77,21 +80,21 @@ export function resolveOutcomeRAW(data, defender = null) {
   const bothFail = (!A.isSuccess && !D.isSuccess);
 
   // No defense: attacker wins if they succeeded; otherwise nothing resolves.
-  if (defenseType === "none") {
+  if (effectiveDefenseType === "none") {
     if (A.isSuccess) return { winner: "attacker", text: `${a.name} wins — attack hits.` };
     return { winner: "tie", text: `Both fail — neither resolves.` };
   }
 
   // Attack vs Block: successful block wins regardless of attacker DoS.
-  if (defenseType === "block" || defenseType === "ward") {
-    const defLabel = defenseType === "ward" ? "wards" : "blocks";
+  if (effectiveDefenseType === "block" || effectiveDefenseType === "ward") {
+    const defLabel = effectiveDefenseType === "ward" ? "wards" : "blocks";
     const attackerHasFlail = Boolean(data?.context?.attackerWeaponTraits?.flail);
     // Critical success: treat as higher DoS than the other side if they also succeeded.
     if (A.isSuccess && D.isSuccess) {
       if (aEff._effectiveCriticalSuccess && !dEff._effectiveCriticalSuccess) return { winner: "attacker", text: `${a.name} wins — critical success overwhelms the ${defenseType}.` };
       if (dEff._effectiveCriticalSuccess && !aEff._effectiveCriticalSuccess) return { winner: "defender", text: `${d.name} wins — critical ${defenseType} holds.` };
       // Flail exception: a successful block still loses if attacker DoS exceeds defender DoS.
-      if (defenseType === "block" && attackerHasFlail && aDoSEff > dDoSEff) {
+      if (effectiveDefenseType === "block" && attackerHasFlail && aDoSEff > dDoSEff) {
         return { winner: "attacker", text: `${a.name} wins — flail overpowers the block.` };
       }
       // No critical edge: block/ward wins (RAW).
@@ -107,7 +110,7 @@ export function resolveOutcomeRAW(data, defender = null) {
   // - Both fail: neither resolves.
   // - Higher DoS hits the other.
   // - Equal DoS: neither resolves.
-  if (defenseType === "counter") {
+  if (effectiveDefenseType === "counter") {
     if (bothFail) return { winner: "tie", text: `Both fail — neither resolves.` };
     if (A.isSuccess && !D.isSuccess) return { winner: "attacker", text: `${a.name} wins — counter fails; attack hits.` };
     if (D.isSuccess && !A.isSuccess) return { winner: "defender", text: `${d.name} wins — counter-attack hits ${a.name}.` };

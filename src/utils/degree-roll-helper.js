@@ -2,6 +2,8 @@ import {
   doTestRoll,
   computeResultFromRollTotal,
   formatDegree,
+  formatResultOutcomeLabel,
+  formatResultSummary,
   resolveOpposed
 } from "./degree/roll-core.js";
 
@@ -9,6 +11,8 @@ export {
   doTestRoll,
   computeResultFromRollTotal,
   formatDegree,
+  formatResultOutcomeLabel,
+  formatResultSummary,
   resolveOpposed
 } from "./degree/roll-core.js";
 
@@ -28,4 +32,6 @@ window.Uesrpg3e.roll.doTestRoll = window.Uesrpg3e.roll.doTestRoll || doTestRoll;
 window.Uesrpg3e.roll.computeResultFromRollTotal = window.Uesrpg3e.roll.computeResultFromRollTotal || computeResultFromRollTotal;
 window.Uesrpg3e.roll.resolveOpposed = window.Uesrpg3e.roll.resolveOpposed || resolveOpposed;
 window.Uesrpg3e.roll.formatDegree = window.Uesrpg3e.roll.formatDegree || formatDegree;
+window.Uesrpg3e.roll.formatResultOutcomeLabel = window.Uesrpg3e.roll.formatResultOutcomeLabel || formatResultOutcomeLabel;
+window.Uesrpg3e.roll.formatResultSummary = window.Uesrpg3e.roll.formatResultSummary || formatResultSummary;
 window.Uesrpg3e.roll.maybeApplyDefenderIntercept = window.Uesrpg3e.roll.maybeApplyDefenderIntercept || maybeApplyDefenderIntercept;

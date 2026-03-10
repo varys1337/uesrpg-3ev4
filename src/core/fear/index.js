@@ -11,6 +11,7 @@ import { requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmb
 import { isActiveGMUser } from "../wounds/wound-schema.js";
 import { SYSTEM_ID } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 const FEAR_FLAG = "fear";
 const FEAR_GROUP_PREFIX = "fear.";
 const SNAP_PROMPT_DEDUPE_MAX = 5000;
@@ -789,30 +790,42 @@ export async function promptFearTestForSelection({ type = null, modifier = null,
   return { ok: true, count: actors.length, results };
 }
 
+async function _handleCombatBoundaryFear(payload) {
+  try {
+    if (!isActiveGMUser(game.user)) return;
+    if (payload?.source !== "combat") return;
+    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+    const combat = game.combat ?? null;
+    if (!combat?.id) return;
+    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
+
+    const changed = payload?.changed ?? {};
+    const changedTurn = Object.prototype.hasOwnProperty.call(changed, "turn") || Object.prototype.hasOwnProperty.call(changed, "round");
+    if (!changedTurn) return;
+
+    await _expireStartOfTurnFearEffects(combat);
+    await _tickFixedRoundFearEffects(combat, changed);
+    await _maybePromptSnapOutOnTurnStart(combat);
+  } catch (err) {
+    console.warn("UESRPG | Fear turn hook failed", err);
+  }
+}
+
 export function registerFearSystem() {
   if (_fearRegistered) return;
   _fearRegistered = true;
 
+  registerCombatBoundaryConsumer({
+    id: "fear",
+    // Fear start-of-turn expiry and prompts run after core condition/effect lanes are current.
+    order: 225,
+    handle: _handleCombatBoundaryFear
+  });
+
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    try {
-      if (!isActiveGMUser(game.user)) return;
-      if (payload?.source !== "combat") return;
-      if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-
-      const combat = game.combat ?? null;
-      if (!combat?.id) return;
-      if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
-
-      const changed = payload?.changed ?? {};
-      const changedTurn = Object.prototype.hasOwnProperty.call(changed, "turn") || Object.prototype.hasOwnProperty.call(changed, "round");
-      if (!changedTurn) return;
-
-      await _expireStartOfTurnFearEffects(combat);
-      await _tickFixedRoundFearEffects(combat, changed);
-      await _maybePromptSnapOutOnTurnStart(combat);
-    } catch (err) {
-      console.warn("UESRPG | Fear turn hook failed", err);
-    }
+    if (noteCombatBoundaryLegacyFallbackSkip("fear", payload)) return;
+    await _handleCombatBoundaryFear(payload);
   });
 
   Hooks.on("deleteCombat", async (combat) => {

@@ -12,7 +12,7 @@
 
 import { applyDefaults } from "./apply-defaults.js";
 import { DEFAULTS } from "./item-defaults.generated.js";
-import { SYSTEM_ID } from "../constants.js";
+import { SYSTEM_ID, UESRPG } from "../constants.js";
 import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
 
 const MODULE_ID = SYSTEM_ID;
@@ -27,6 +27,7 @@ const _combatLegacyItemStats = {
 const _NON_NUMERIC_ALLOWLIST = {
   weapon: ["damage", "damage2", "damage3"],
   armor: [],
+  shield: [],
   ammunition: []
 };
 
@@ -74,7 +75,7 @@ function _parseLegacyTypedNumeric(value) {
 function _applyLegacyArmorTypedFields(system) {
   if (!system || typeof system !== "object") return false;
   let changed = false;
-  const numericArmorFields = ["magic_ar", "special_ar", "armor", "blockRating"];
+  const numericArmorFields = ["magic_ar", "special_ar", "armor", "blockRating", "magic_br"];
 
   for (const key of numericArmorFields) {
     const raw = system[key];
@@ -460,6 +461,76 @@ function _normalizeWeaponSystem(item, sys = {}) {
   return update;
 }
 
+/**
+ * Backfill armorValues.{full,partial} from legacy single-lane fields.
+ * Called during migration only. Uses ARMOR_PROFILES to infer the alternate lane where possible.
+ * After migration, runtime never reads ARMOR_PROFILES for armor items.
+ *
+ * @param {object} sys - armor item system data (cloned)
+ * @param {object} update - update object to append to
+ */
+function _backfillArmorValues(sys, update) {
+  // If already migrated, skip.
+  const existing = sys.armorValues;
+  const hasFullLane    = existing?.full    && typeof existing.full    === "object";
+  const hasPartialLane = existing?.partial && typeof existing.partial === "object";
+  if (hasFullLane && hasPartialLane) return;
+
+  const nativeClass = String(sys.armorClass || "partial").toLowerCase() === "full" ? "full" : "partial";
+  const altClass    = nativeClass === "full" ? "partial" : "full";
+
+  // Authored lane: read from legacy root fields.
+  const authoredArmor    = Number(sys.armor     ?? 0) || 0;
+  const authoredMagicAR  = Number(sys.magic_ar  ?? 0) || 0;
+  const authoredSpecialAR = Number(sys.special_ar ?? 0) || 0;
+  const authoredSpecialType = String(sys.special_ar_type ?? "").trim().toLowerCase();
+
+  const authoredLane = {
+    armor:           authoredArmor,
+    magic_ar:        authoredMagicAR,
+    special_ar:      authoredSpecialAR,
+    special_ar_type: authoredSpecialType,
+  };
+
+  // Alternate lane: try legacy ARMOR_PROFILES for a best-effort seed.
+  // Falls back to cloning the authored lane and logging a note.
+  const materialKey = String(sys.material || "").trim();
+  const altProfile  = UESRPG?.ARMOR_PROFILES?.[altClass]?.[materialKey] ?? null;
+  let altLane;
+
+  if (altProfile && altProfile.ar != null) {
+    altLane = {
+      armor:           Number(altProfile.ar      ?? 0) || 0,
+      magic_ar:        Number(altProfile.magicAR ?? 0) || 0,
+      special_ar:      0,
+      special_ar_type: String(altProfile.magicARType ?? "").trim().toLowerCase(),
+    };
+  } else {
+    // Inference not possible — clone authored lane and note.
+    altLane = { ...authoredLane };
+    if (_debugEnabled()) {
+      console.log(
+        `${MODULE_ID} | armorValues migration: no profile for ${altClass}/${materialKey} on "${sys.name ?? "?"}", cloned ${nativeClass} lane as fallback.`
+      );
+    }
+  }
+
+  const newArmorValues = {
+    [nativeClass]: hasFullLane && nativeClass === "full"
+      ? existing.full
+      : hasPartialLane && nativeClass === "partial"
+        ? existing.partial
+        : authoredLane,
+    [altClass]: hasFullLane && altClass === "full"
+      ? existing.full
+      : hasPartialLane && altClass === "partial"
+        ? existing.partial
+        : altLane,
+  };
+
+  update["system.armorValues"] = newArmorValues;
+}
+
 function _normalizeArmorSystem(item, sys = {}) {
   const update = {};
 
@@ -469,51 +540,68 @@ function _normalizeArmorSystem(item, sys = {}) {
 
   if (!Array.isArray(sys.qualitiesStructured)) update["system.qualitiesStructured"] = [];
 
+  // Backfill armorValues lanes from legacy root fields.
+  _backfillArmorValues(sys, update);
+
   const locationKeys = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
-  const normalizeCoverageOverride = (value) => {
-    const raw = String(value ?? "").trim().toLowerCase();
-    if (!raw) return "";
-    if (raw === "full" || raw === "partial" || raw === "none") return raw;
-    if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
-      return "none";
-    }
-    return null;
+  const categoryToCoverage = {
+    head: { Head: true },
+    body: { Body: true },
+    l_arm: { LeftArm: true },
+    r_arm: { RightArm: true },
+    l_leg: { LeftLeg: true },
+    r_leg: { RightLeg: true },
+    shield: { LeftArm: true, RightArm: true },
   };
-  const normalizeDamagedValue = (value) => {
-    if (value === true) return 1;
-    if (value === false || value === null || value === undefined || value === "") return 0;
-    const n = Number(value);
-    if (!Number.isFinite(n) || n < 0) return 0;
-    return Math.floor(n);
+  const normalizeHitLocations = (raw) => {
+    const out = Object.fromEntries(locationKeys.map((k) => [k, false]));
+    const source = (raw && typeof raw === "object") ? raw : {};
+    let hasAnyBoolean = false;
+
+    for (const key of locationKeys) {
+      if (typeof source[key] === "boolean") {
+        out[key] = source[key] === true;
+        hasAnyBoolean = true;
+      }
+    }
+    return { out, hasAnyBoolean };
   };
 
-  let nextHitLocationStates = null;
-  let malformedCoverage = false;
-  for (const key of locationKeys) {
-    const rawState = sys?.hitLocationStates?.[key] ?? {};
-    const normalizedCoverage = normalizeCoverageOverride(rawState.coverageOverride);
-    const normalizedDamaged = normalizeDamagedValue(rawState?.damaged);
-    const currentCoverage = String(rawState?.coverageOverride ?? "");
-    if (normalizedCoverage === null || currentCoverage !== normalizedCoverage || rawState?.damaged !== normalizedDamaged) {
-      if (!nextHitLocationStates) nextHitLocationStates = foundry.utils.deepClone(sys?.hitLocationStates ?? {});
-      const nextLoc = { ...(nextHitLocationStates[key] ?? {}) };
-      if (normalizedCoverage === null) {
-        nextLoc.coverageOverride = "";
-        malformedCoverage = true;
-      } else {
-        nextLoc.coverageOverride = normalizedCoverage;
-      }
-      nextLoc.damaged = normalizedDamaged;
-      nextHitLocationStates[key] = nextLoc;
+  const current = normalizeHitLocations(sys?.hitLocations);
+  const isLegacyAllTrue = locationKeys.every((k) => current.out[k] === true);
+  if (!current.hasAnyBoolean || isLegacyAllTrue) {
+    const category = String(sys?.category ?? "").trim().toLowerCase();
+    const seeded = categoryToCoverage[category];
+    if (seeded) {
+      current.out = Object.fromEntries(locationKeys.map((k) => [k, seeded[k] === true]));
     }
   }
-  if (nextHitLocationStates) update["system.hitLocationStates"] = nextHitLocationStates;
-  if (malformedCoverage) {
-    console.warn(`${MODULE_ID} | Normalized malformed armor hit-location coverage override on item ${item?.name ?? "<unknown>"} (${item?.id ?? "no-id"})`);
+
+  const existing = sys?.hitLocations ?? {};
+  const needsHitLocationUpdate = locationKeys.some((k) => existing[k] !== current.out[k]);
+  if (needsHitLocationUpdate) {
+    update["system.hitLocations"] = current.out;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(sys, "hitLocationStates")) {
+    update["system.-=hitLocationStates"] = null;
   }
 
   Object.assign(update, _normalizeEnchantLevel(item, sys));
 
+  return update;
+}
+
+function _normalizeShieldSystem(item, sys = {}) {
+  const update = {};
+
+  if (!sys.qualityLevel) update["system.qualityLevel"] = "common";
+  if (!sys.material) update["system.material"] = "standard";
+  if (!sys.weightClass) update["system.weightClass"] = "none";
+  if (!sys.shieldType) update["system.shieldType"] = "normal";
+  if (!Array.isArray(sys.qualitiesStructured)) update["system.qualitiesStructured"] = [];
+
+  Object.assign(update, _normalizeEnchantLevel(item, sys));
   return update;
 }
 
@@ -523,7 +611,7 @@ function _normalizeAmmoSystem(item, sys = {}) {
   if (Object.prototype.hasOwnProperty.call(sys, "pricePerShot")) update["system.-=pricePerShot"] = null;
 
   if (!sys.arrowType) update["system.arrowType"] = "none";
-  if (!sys.ammoMaterial) update["system.ammoMaterial"] = "standard";
+  if (sys.damageType == null) update["system.damageType"] = "";
 
   if (!Array.isArray(sys.qualitiesStructured)) update["system.qualitiesStructured"] = [];
 
@@ -937,14 +1025,23 @@ function _applySystemUpdateObject(system, updateObject = {}) {
 
 function _normalizeItemSystem(item) {
   const sourceType = item?.type;
-  const type = sourceType === "item" ? "equipment" : sourceType;
+  let type = sourceType === "item" ? "equipment" : sourceType;
   if (!type) return null;
+  const sourceSystem = _deepCloneSystem(item.system);
+  const isLegacyArmorShield = (
+    sourceType === "armor" && (
+      sourceSystem?.isShield === true ||
+      String(sourceSystem?.item_cat ?? "").trim().toLowerCase() === "shield" ||
+      String(sourceSystem?.category ?? "").trim().toLowerCase() === "shield"
+    )
+  );
+  if (isLegacyArmorShield) type = "shield";
   const hasDefaults = Object.prototype.hasOwnProperty.call(DEFAULTS?.itemSystem ?? {}, type);
   if (!hasDefaults && type !== "equipment") return null;
 
-  const currentSystem = _deepCloneSystem(item.system);
+  const currentSystem = sourceSystem;
   let preChanged = false;
-  if (type === "armor") {
+  if (sourceType === "armor" || type === "armor") {
     preChanged = _applyLegacyArmorTypedFields(currentSystem) || preChanged;
   }
   let system = currentSystem;
@@ -983,6 +1080,14 @@ function _normalizeItemSystem(item) {
       changed = true;
     }
     if (_ensureArmorItemCatNonBreaking(system)) changed = true;
+  }
+
+  if (type === "shield") {
+    const sUpdate = _normalizeShieldSystem(item, system);
+    if (Object.keys(sUpdate).length) {
+      _applySystemUpdateObject(system, sUpdate);
+      changed = true;
+    }
   }
 
   if (type === "ammunition") {

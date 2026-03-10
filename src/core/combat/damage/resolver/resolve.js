@@ -20,12 +20,12 @@
 import { buildDamageContext } from "./context.js";
 import { getAETwitterMods, collectTypedBonusDamage } from "./ae-mods.js";
 import { asNumber } from "./normalize.js";
+import { listArmorSourcesForLocation } from "./armor.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
 import {
   applyDamage,
   calculateDamage,
   DAMAGE_TYPES,
-  applyArmorLocationDamage,
   applyForcefulImpact,
   ensureUnconsciousEffect,
   isItemMagicSource,
@@ -50,9 +50,11 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { collectStrikeEnchantmentEffects, consumeStrikeCharge } from "../../../enchanting/runtime/strike-runtime.js";
 import { shouldTriggerWound } from "../../../wounds/wound-rules.js";
+import { syncNpcDeathState } from "../../../wounds/death-tests.js";
 import { getRuntimeSystemId as _getSystemId } from "../../../system/namespace.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
+const _isNpcActor = (actor) => String(actor?.type ?? "").trim().toLowerCase() === "npc";
 
 async function _runEntanglingEscapeCheck({ attacker, defender } = {}) {
   if (!defender) return;
@@ -170,37 +172,6 @@ function _consumePendingSneakAttack(attackerActor, { weapon = null, attackMode =
   }
 }
 
-/**
- * Best-effort reporting helper: list equipped armor items that explicitly cover a location.
- * This mirrors the simplest branch of getDamageReduction() coverage checks.
- * It is used for chat-card attribution only and MUST NOT affect mechanics.
- *
- * @param {Actor} actor
- * @param {string} locKey - normalized location key (e.g. "Head", "Body", "LeftLeg")
- * @returns {{name:string, ar:number}[]}
- */
-function listArmorSourcesForLocation(actor, locKey) {
-  try {
-    const items = actor?.items?.filter((i) => i?.type === "armor" && i?.system?.equipped === true && !i?.system?.isShield) ?? [];
-    const out = [];
-    for (const item of items) {
-      const hitLocs = item?.system?.hitLocations ?? {};
-      // Only explicit true counts (same rule as getDamageReduction for explicit locations)
-      const covered = hitLocs?.[locKey] === true;
-      if (!covered) continue;
-
-      const ar = (item.system?.armorEffective != null)
-        ? Number(item.system.armorEffective)
-        : Number(item.system?.armor ?? 0);
-
-      out.push({ name: String(item.name ?? "Armor"), ar: Number.isFinite(ar) ? ar : 0 });
-    }
-    return out;
-  } catch (_err) {
-    return [];
-  }
-}
-
 function _asInt(v) {
   const n = Number(v);
   if (Number.isFinite(n)) return Math.floor(n);
@@ -239,6 +210,128 @@ function _isSilverSource(item) {
 function _isSunlightSource(item) {
   if (!item) return false;
   return itemHasToken(item, "sunlight");
+}
+
+function _buildGmDamageReportPayload({
+  targetActor,
+  source,
+  hitLocation,
+  totalApplied,
+  newHP,
+  maxHP,
+  currentHP,
+  currentTempHP,
+  newTempHP,
+  tempHPAbsorbed,
+  bufferAbsorbedDetail,
+  traitNotes,
+  woundTriggered,
+  woundThreshold,
+  results,
+  attackerDealtEntries,
+  attackerPenEntries,
+  defenderTakenEntries,
+  defenderMitEntries
+} = {}) {
+  const fmt = (n) => {
+    const v = Number(n ?? 0) || 0;
+    return v >= 0 ? `+${v}` : `${v}`;
+  };
+  const hpDelta = Math.max(0, (Number(currentHP ?? 0) || 0) - (Number(newHP ?? 0) || 0));
+  const renderEntries = (entries, formatter = fmt) =>
+    Array.isArray(entries)
+      ? entries.map((entry) => ({
+          label: String(entry?.label ?? "Effect"),
+          value: formatter(Number(entry?.value ?? 0) || 0)
+        }))
+      : [];
+
+  const segments = (Array.isArray(results) ? results : []).map((r) => {
+    const reductionNotes = [];
+    const red = r?.reductions ?? {};
+    const ae = red?.ae ?? null;
+    const armorBase = Number(red?.armor ?? 0) || 0;
+    if (armorBase) {
+      const armorSources = listArmorSourcesForLocation(targetActor, hitLocation);
+      reductionNotes.push(armorSources.length
+        ? `AR: ${armorSources.map((a) => `${a.name} (${a.ar})`).join(", ")}`
+        : `AR: ${armorBase}`);
+    }
+    if (ae?.armorRating && ((ae.armorRating.global?.total ?? 0) || (ae.armorRating.location?.total ?? 0))) {
+      const bits = [];
+      if (ae.armorRating.global?.total) bits.push(`Global ${fmt(ae.armorRating.global.total)}`);
+      if (ae.armorRating.location?.total) bits.push(`${ae.armorRating.location.key} ${fmt(ae.armorRating.location.total)}`);
+      reductionNotes.push(`AR AE: ${bits.join(" | ")}`);
+    }
+    const resistanceBase = Number(red?.resistance ?? 0) || 0;
+    if (r?.damageType && String(r.damageType) !== "physical" && resistanceBase) {
+      reductionNotes.push(`R (base): ${resistanceBase}`);
+    }
+    if (ae?.resistance?.key && ae?.resistance?.total) {
+      reductionNotes.push(`R AE (${ae.resistance.key}): ${fmt(ae.resistance.total)}`);
+    }
+    const toughnessBase = Number(targetActor?.system?.resistance?.natToughness ?? 0) || 0;
+    if (toughnessBase) reductionNotes.push(`T (base natToughness): ${toughnessBase}`);
+    if (ae?.natToughness?.total) reductionNotes.push(`T AE (natToughness): ${fmt(ae.natToughness.total)}`);
+
+    const sourceNotes = [];
+    if (r.kind === "primary") {
+      const weaponName = String(source ?? "Weapon");
+      sourceNotes.push(`Weapon: ${weaponName}`);
+      if (r.dosBonus) sourceNotes.push(`DoS bonus: ${fmt(r.dosBonus)}`);
+      if (r.weaponBonus) sourceNotes.push(`Weapon bonus: ${fmt(r.weaponBonus)} (${weaponName})`);
+      sourceNotes.push(...renderEntries(attackerDealtEntries).map((e) => `AE dealt: ${e.label} ${e.value}`));
+      sourceNotes.push(...renderEntries(attackerPenEntries).map((e) => `AE penetration: ${e.label} ${e.value}`));
+      sourceNotes.push(...renderEntries(defenderTakenEntries).map((e) => `AE taken: ${e.label} ${e.value}`));
+      sourceNotes.push(...renderEntries(defenderMitEntries, (n) => `${Math.min(0, -Math.abs(n))}`).map((e) => `AE mitigation: ${e.label} ${e.value}`));
+    } else if (r.kind === "sneak") {
+      sourceNotes.push("Talent: Sneak Attack");
+      for (const note of (Array.isArray(r.breakdown?.talentNotes) ? r.breakdown.talentNotes : [])) sourceNotes.push(String(note));
+      if (r.ignoreArmorOnly) sourceNotes.push("Assassinate: AR ignored for bonus");
+    } else if (r.kind === "external") {
+      sourceNotes.push(`Source: ${String(r.sourceLabel ?? "Attack")}`);
+    } else {
+      const typedEntries = Array.isArray(r.breakdown?.entries)
+        ? r.breakdown.entries
+        : (Array.isArray(r.breakdown?.attackerTyped) ? r.breakdown.attackerTyped : []);
+      sourceNotes.push(...renderEntries(typedEntries).map((e) => `AE bonus [${String(r.damageType ?? "physical")}]: ${e.label} ${e.value}`));
+    }
+    if (r.incorporealBlock?.isBlocked) sourceNotes.push("Trait: Incorporeal (non-magic source)");
+    if (r.incorporealAttack?.ignoreNonMagicArmor) sourceNotes.push("Trait: Incorporeal Attack (non-magic AR ignored)");
+
+    return {
+      damageType: String(r?.damageType ?? "physical"),
+      rawDamage: Number(r?.rawDamage ?? 0) || 0,
+      reductionTotal: Number(r?.reductions?.total ?? 0) || 0,
+      applied: Number(r?.finalApplied ?? 0) || 0,
+      sourceNotes,
+      reductionNotes
+    };
+  });
+
+  return {
+    panelKey: `gm-damage:${String(targetActor?.uuid ?? targetActor?.id ?? "target")}:${Date.now()}`,
+    title: String(targetActor?.name ?? "Target"),
+    source: String(source ?? "Attack"),
+    hitLocation: String(hitLocation ?? "Body"),
+    totalDamage: Math.max(0, Number(totalApplied ?? 0) || 0),
+    hp: { value: Number(newHP ?? 0) || 0, max: Number(maxHP ?? 0) || 0, delta: hpDelta },
+    tempHp: (tempHPAbsorbed > 0 || currentTempHP > 0)
+      ? { value: Number(newTempHP ?? 0) || 0, absorbed: Number(tempHPAbsorbed ?? 0) || 0 }
+      : null,
+    buffers: Array.isArray(bufferAbsorbedDetail)
+      ? bufferAbsorbedDetail.map((b) => ({
+          pool: String(b?.pool ?? ""),
+          remaining: Number(b?.remaining ?? 0) || 0,
+          absorbed: Number(b?.absorbed ?? 0) || 0
+        }))
+      : [],
+    traitNotes: Array.isArray(traitNotes) ? traitNotes.map((note) => String(note ?? "")) : [],
+    woundTriggered: woundTriggered === true,
+    woundThreshold: Number(woundThreshold ?? 0) || 0,
+    defeated: Number(newHP ?? 0) === 0,
+    segments
+  };
 }
 
 /**
@@ -411,19 +504,38 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   //  - All instances are applied in one HP update and reported in one chat card.
 
   const components = [];
-
-  // Primary component
-  components.push({
-    kind: "primary",
-    amount: Math.max(0, ctx.rawDamage),
-    damageType: ctx.damageType,
-    applyDefenderAdjust: true,
-    sourceLabel: ctx.options.source ?? "Attack",
-    breakdown: {
-      attacker: ctx.options?.aeBreakdown?.attacker ?? [],
-      defender: ctx.options?.aeBreakdown?.defender ?? [],
-    },
-  });
+  const explicitComponents = Array.isArray(ctx.components) ? ctx.components : [];
+  if (explicitComponents.length) {
+    for (let i = 0; i < explicitComponents.length; i++) {
+      const c = explicitComponents[i];
+      components.push({
+        kind: i === 0 ? "primary" : "external",
+        amount: Math.max(0, Number(c.amount ?? 0) || 0),
+        damageType: String(c.damageType ?? ctx.damageType ?? DAMAGE_TYPES.PHYSICAL).toLowerCase(),
+        applyDefenderAdjust: i === 0,
+        sourceLabel: c.sourceLabel ?? c.source ?? ctx.options.source ?? "Attack",
+        breakdown: (i === 0)
+          ? {
+              attacker: ctx.options?.aeBreakdown?.attacker ?? [],
+              defender: ctx.options?.aeBreakdown?.defender ?? [],
+            }
+          : {},
+      });
+    }
+  } else {
+    // Primary component
+    components.push({
+      kind: "primary",
+      amount: Math.max(0, ctx.rawDamage),
+      damageType: ctx.damageType,
+      applyDefenderAdjust: true,
+      sourceLabel: ctx.options.source ?? "Attack",
+      breakdown: {
+        attacker: ctx.options?.aeBreakdown?.attacker ?? [],
+        defender: ctx.options?.aeBreakdown?.defender ?? [],
+      },
+    });
+  }
 
   // Talent bonus damage component (Sneak Attack, Weapon Expertise, etc.)
   const talentBonus = Math.max(0, Number(talentContext?.talentDamageBonus ?? 0));
@@ -889,16 +1001,6 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     console.warn("UESRPG | Diseased trait automation failed", err);
   }
 
-  // Forceful Impact: only meaningful for primary physical hits.
-  const locationDamagedValue = Math.max(0, Math.floor(Number(ctx.options?.damagedValue ?? 0) || 0));
-  if (locationDamagedValue > 0) {
-    try {
-      await applyArmorLocationDamage(updateTarget, hitLocation, locationDamagedValue);
-    } catch (err) {
-      console.warn("UESRPG | Armor location damage update failed", err);
-    }
-  }
-
   if (ctx.options?.forcefulImpact && String(ctx.damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL) {
     const primaryApplied = results.find(r => r.kind === "primary")?.finalApplied ?? 0;
     if (primaryApplied > 0) {
@@ -931,8 +1033,11 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   }
 
-  if (newHP === 0) {
+  if (newHP === 0 && !_isNpcActor(updateTarget)) {
     await ensureUnconsciousEffect(updateTarget);
+  }
+  if (_isNpcActor(updateTarget)) {
+    await syncNpcDeathState(updateTarget);
   }
 
   // Entangling (Chapter 7): on hit, target makes STR or AGI test; failure applies Entangled.
@@ -988,9 +1093,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       const armorSources = listArmorSourcesForLocation(updateTarget, hitLocation);
       if (armorSources.length) {
         const src = armorSources.map(a => `${a.name} (${a.ar})`).join(", ");
-        lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">AR (armor): ${src}</span></div>`);
+        lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">AR: ${src}</span></div>`);
       } else {
-        lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">AR (armor): ${armorBase}</span></div>`);
+        lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">AR: ${armorBase}</span></div>`);
       }
     }
 
@@ -1064,15 +1169,19 @@ export async function applyDamageResolved(targetActor, payload = {}) {
           rawLines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">Assassinate: AR ignored for bonus</span></div>`);
         }
       } else {
-        // Typed bonus
-        const typedEntries = Array.isArray(r.breakdown?.entries)
-          ? r.breakdown.entries
-          : (Array.isArray(r.breakdown?.attackerTyped) ? r.breakdown.attackerTyped : []);
-        if (typedEntries.length) {
-          const formatted = typedEntries
-            .map(e => ({ label: String(e.label ?? "Effect"), value: Number(e.value ?? 0) || 0 }))
-            .filter(e => e.value);
-          rawLines.push(renderEntryLines(`AE bonus [${dtype}]`, formatted));
+        if (r.kind === "external") {
+          rawLines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">Source: ${String(r.sourceLabel ?? "Attack")}</span></div>`);
+        } else {
+          // Typed bonus
+          const typedEntries = Array.isArray(r.breakdown?.entries)
+            ? r.breakdown.entries
+            : (Array.isArray(r.breakdown?.attackerTyped) ? r.breakdown.attackerTyped : []);
+          if (typedEntries.length) {
+            const formatted = typedEntries
+              .map(e => ({ label: String(e.label ?? "Effect"), value: Number(e.value ?? 0) || 0 }))
+              .filter(e => e.value);
+            rawLines.push(renderEntryLines(`AE bonus [${dtype}]`, formatted));
+          }
         }
       }
 
@@ -1102,9 +1211,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
           <div class="uesrpg-da-row"><span class="k"><strong>${dtype}</strong></span><span class="v"></span></div>
           <div class="uesrpg-da-row"><span class="k">Raw</span><span class="v">${rawBase}</span></div>
           ${rawLines.join("")}
-          <div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${reductionTotal}</span></div>
           ${renderReductionProvenance(r)}
           ${defLines.join("")}
+          <div class="uesrpg-da-row"><span class="k">Total Reduction</span><span class="v">-${reductionTotal}</span></div>
           <div class="uesrpg-da-row"><span class="k">Applied</span><span class="v final">${applied}</span></div>
         </div>
       `);
@@ -1134,7 +1243,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
         ${bufferAbsorbedDetail.map(b => `<div class="uesrpg-da-row"><span class="k">${b.pool.charAt(0).toUpperCase() + b.pool.slice(1)} Buffer</span><span class="v">${b.remaining} <span class="muted">(\u2212${b.absorbed} absorbed)</span></span></div>`).join("")}
         ${traitNotesHtml}
         ${woundTriggered ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}
-        ${newHP === 0 ? `<div class="status unconscious">\u{1F480} UNCONSCIOUS</div>` : ""}
+        ${newHP === 0 ? `<div class="status unconscious">\u{1F480} ${_isNpcActor(updateTarget) ? "DEAD" : "UNCONSCIOUS"}</div>` : ""}
         <details>
           <summary>Damage Breakdown</summary>
           <div style="font-size:12px; opacity:0.95;">${renderDamageSegments()}</div>
@@ -1142,15 +1251,39 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       </div>
     </div>
   `;
-
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
-    content: messageContent,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-    whisper: gmIds,
-    blind: true,
+  const gmDamageReport = _buildGmDamageReportPayload({
+    targetActor: updateTarget,
+    source: ctx.options.source ?? "Attack",
+    hitLocation,
+    totalApplied,
+    newHP,
+    maxHP,
+    currentHP,
+    currentTempHP,
+    newTempHP,
+    tempHPAbsorbed,
+    bufferAbsorbedDetail,
+    traitNotes,
+    woundTriggered,
+    woundThreshold,
+    results,
+    attackerDealtEntries,
+    attackerPenEntries,
+    defenderTakenEntries,
+    defenderMitEntries
   });
+
+  const suppressStandaloneSummary = ctx.options?.chatContext?.suppressStandaloneSummary === true;
+  if (!suppressStandaloneSummary) {
+    await ChatMessage.create({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
+      content: messageContent,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+      whisper: gmIds,
+      blind: true,
+    });
+  }
 
   // Preserve expected return shape for callers.
   return {
@@ -1166,6 +1299,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     bufferAbsorbedDetail,
     oldBuffers: buffers,
     newBuffers,
-    woundStatus: (newHP === 0) ? "unconscious" : (woundTriggered ? "wounded" : "uninjured"),
+    woundStatus: (newHP === 0) ? (_isNpcActor(updateTarget) ? "dead" : "unconscious") : (woundTriggered ? "wounded" : "uninjured"),
+    gmDamageReport,
   };
 }

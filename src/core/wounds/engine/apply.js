@@ -5,8 +5,8 @@
  * All functions that update actors, create/delete effects, etc.
  */
 
-import { doTestRoll } from "../../../utils/degree-roll-helper.js";
-import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { doTestRoll, formatResultOutcomeLabel } from "../../../utils/degree-roll-helper.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateChatMessage, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isActorUndead, isActorUndeadBloodless } from "../../traits/trait-registry.js";
 import { hasTalent } from "../../traits/talents-api.js";
 import { applyGroupedEffect, getEffectGroup } from "../../../utils/ae-helpers.js";
@@ -26,7 +26,7 @@ import {
   computeDominantMagicType
 } from "./calc.js";
 import { makeEffect, getWhisperRecipientsForActor } from "./format.js";
-import { getWoundState, isDerivedWounded, isWoundPenaltySuppressed, WOUND_STATES } from "./state.js";
+import { getWoundState, isDerivedWounded, getBloodLossStatus, WOUND_STATES } from "./state.js";
 
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const _SHOCK_IN_FLIGHT = new Set();
@@ -476,20 +476,12 @@ export async function postShockTestChatCard({ actor, woundEffect, hitLocation, d
   const actorUuid = esc(actor.uuid);
   const woundEffectId = esc(woundEffect.id);
 
-  const cardHtml = `
-  <div class="uesrpg-chat-card" data-card="shock">
-    <header class="card-header">
-      <h3>Shock Test</h3>
-    </header>
-    <div class="card-content">
-      <p><strong>Target:</strong> ${actorName}</p>
-      <p><strong>Wound Location:</strong> ${safeHitLocationLabel}</p>
-      <p><strong>Endurance TN:</strong> ${endTN}</p>
-    </div>
-    <footer class="card-footer">
-      <button type="button" data-ues-shock-action="shock-roll" data-actor-uuid="${actorUuid}" data-wound-effect-id="${woundEffectId}">Roll Shock (END)</button>
-    </footer>
-  </div>`;
+  const cardHtml = _renderShockTestCard({
+    actor,
+    woundEffectId: woundEffect.id,
+    hitLocationLabel,
+    endTN
+  });
 
   const msgFlags = {
     [FLAG_SCOPE]: {
@@ -499,7 +491,16 @@ export async function postShockTestChatCard({ actor, woundEffect, hitLocation, d
         woundEffectId: woundEffect.id,
         applicationId: String(applicationId ?? ""),
         hitLocation: hitLocationLabel ?? null,
-        damageAppliedByType: damageAppliedByType ?? null
+        damageAppliedByType: damageAppliedByType ?? null,
+        resolved: false,
+        resolving: false,
+        endTN,
+        finalTN: null,
+        rollTotal: null,
+        passed: null,
+        dieHardRerolled: false,
+        failNote: null,
+        magicNote: null
       }
     }
   };
@@ -514,6 +515,74 @@ export async function postShockTestChatCard({ actor, woundEffect, hitLocation, d
     blind: false,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER
   });
+}
+
+async function _showShockRoll3d(roll) {
+  if (!roll) return;
+  const dsn = game?.dice3d;
+  if (!dsn || typeof dsn.showForRoll !== "function") return;
+  try {
+    await dsn.showForRoll(roll, game.user, true);
+  } catch (_err) {
+    try {
+      await dsn.showForRoll(roll);
+    } catch (_err2) {
+      // no-op
+    }
+  }
+}
+
+function _renderShockTestCard({
+  actor,
+  woundEffectId,
+  hitLocationLabel,
+  endTN,
+  finalTN = null,
+  rollTotal = null,
+  passed = null,
+  dieHardRerolled = false,
+  failNote = null,
+  magicNote = null,
+  resolving = false,
+  resolved = false
+} = {}) {
+  const actorName = esc(actor?.name ?? "Actor");
+  const safeHitLocationLabel = esc(hitLocationLabel || "(unknown)");
+  const actorUuid = esc(actor?.uuid ?? "");
+  const safeWoundEffectId = esc(woundEffectId ?? "");
+  const hasFinalTn = finalTN !== null && finalTN !== undefined && String(finalTN) !== "";
+  const hasRollTotal = rollTotal !== null && rollTotal !== undefined && String(rollTotal) !== "";
+  const pendingRows = `
+    <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 10px; align-items:start;">
+      <div><strong>Target:</strong></div><div>${actorName}</div>
+      <div><strong>Location:</strong></div><div>${safeHitLocationLabel}</div>
+      ${resolving ? `<div><strong>Status:</strong></div><div>Resolving...</div>` : ``}
+    </div>`;
+
+  const resolvedRows = `
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px 12px; align-items:start;">
+      <div><strong>Target:</strong> ${actorName}</div>
+      <div><strong>Location:</strong> ${safeHitLocationLabel}</div>
+      ${hasFinalTn ? `<div><strong>TN:</strong> ${Number(finalTN)}</div>` : ``}
+      ${hasRollTotal ? `<div><strong>Roll:</strong> ${Number(rollTotal)}</div>` : ``}
+      <div><strong>Result:</strong> ${formatResultOutcomeLabel({ isSuccess: passed, isCriticalSuccess: result?.isCriticalSuccess, isCriticalFailure: result?.isCriticalFailure })}</div>
+      ${dieHardRerolled ? `<div><strong>Die-Hard:</strong> Reroll used</div>` : ``}
+      ${failNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>Consequence:</strong><span style="overflow-wrap:anywhere;">${esc(failNote)}</span></div>` : ``}
+      ${magicNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>Magic:</strong><span style="overflow-wrap:anywhere;">${esc(magicNote)}</span></div>` : ``}
+    </div>`;
+
+  return `
+  <div class="uesrpg-chat-card" data-card="shock">
+    <header class="card-header">
+      <h3>${resolved ? "Shock Result" : "Shock Test"}</h3>
+    </header>
+    <div class="card-content">
+      ${resolved ? resolvedRows : pendingRows}
+    </div>
+    ${resolved ? "" : `<footer class="card-footer">
+      <button type="button" data-ues-shock-action="shock-roll" data-actor-uuid="${actorUuid}" data-wound-effect-id="${safeWoundEffectId}" ${resolving ? "disabled" : ""}>${resolving ? "Resolving..." : "Roll Shock (END)"}</button>
+    </footer>`}
+  </div>`;
 }
 
 /**
@@ -826,7 +895,18 @@ export async function activateWoundPassiveState(actor, { resetBloodLoss = true }
   // Mirror flag sync is handled by enforceWoundInvariants().
 
   // Blood Loss countdown begins at the same moment.
-  if (resetBloodLoss && !isActorUndeadBloodless(actor)) {
+  // Skip if the actor carries the "dead" status condition (token status palette) or is marked
+  // Defeated in the combat tracker — starting blood loss on a dead actor produces spurious logs.
+  const _deadStatusId = String(CONFIG?.specialStatusEffects?.dead ?? "dead");
+  const _defeatedStatusId = String(CONFIG?.specialStatusEffects?.defeated ?? "defeated");
+  const _actorStatuses = actor.statuses instanceof Set ? actor.statuses : new Set();
+  const _alreadyDead =
+    actor.combatant?.defeated === true ||
+    _actorStatuses.has(_deadStatusId) ||
+    _actorStatuses.has(_defeatedStatusId) ||
+    _actorStatuses.has("dead") ||
+    _actorStatuses.has("defeated");
+  if (resetBloodLoss && !isActorUndeadBloodless(actor) && !_alreadyDead) {
     try {
       const existing = findFirstEffectByKind(actor, "bloodLoss");
       const next = 5;
@@ -843,11 +923,17 @@ export async function activateWoundPassiveState(actor, { resetBloodLoss = true }
           }
         });
         await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effect]);
+        if (game.user?.isGM) {
+          console.debug("UESRPG | Wounds | Blood loss started", { actor: actor.uuid, remainingRounds: next });
+        }
       } else {
         await requestUpdateDocument(existing, {
           name: `Blood Loss (${next})`,
           [`${FLAG_PATH}.wounds.remainingRounds`]: next
         });
+        if (game.user?.isGM) {
+          console.debug("UESRPG | Wounds | Blood loss reset", { actor: actor.uuid, remainingRounds: next });
+        }
       }
     } catch (err) {
       console.warn("UESRPG | Failed to start/reset Blood Loss after shock resolution", err);
@@ -907,8 +993,9 @@ export async function tickBloodLoss(actor) {
     return;
   }
 
-  // Blood loss countdown pauses while wound penalties are suppressed via forestall/first aid.
-  if (isWoundPenaltySuppressed(actor)) return;
+  // Blood loss countdown pauses while wound penalties are suppressed via forestall/first aid/immunity.
+  const bloodLossStatus = getBloodLossStatus(actor);
+  if (bloodLossStatus.paused) return;
 
   const cur = Math.max(0, toNumber(ef.getFlag(FLAG_SCOPE, "wounds")?.remainingRounds ?? 0, 0));
   if (cur <= 1) {
@@ -933,6 +1020,9 @@ export async function tickBloodLoss(actor) {
         content: `<div class="uesrpg-chat-card"><div class="header"><b>${esc(actor.name)}</b></div><div>Blood loss: HP dropped to 0.</div></div>`,
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
+      if (game.user?.isGM) {
+        console.debug("UESRPG | Wounds | Blood loss expired, actor dropped to 0 HP", { actor: actor.uuid });
+      }
     } catch (_e) {
       // Non-blocking.
     }
@@ -961,22 +1051,54 @@ export async function tickShockMarkers(actor) {
   if (!actor) return;
 
   // Only the 1-round Stun marker has a deterministic countdown.
+  const toDelete = [];
+  const updates = [];
   for (const ef of findEffectsByKind(actor, "shockStunned")) {
     const data = ef.getFlag(FLAG_SCOPE, "wounds") ?? {};
     const cur = Math.max(0, toNumber(data.remainingTurns ?? 0, 0));
     if (cur <= 1) {
-      try {
-        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
-      } catch (err) {
-        console.warn("UESRPG | Failed to delete expired shockStunned marker", err);
-      }
+      toDelete.push(ef.id);
       continue;
     }
     const next = cur - 1;
+    updates.push({ _id: ef.id, [`${FLAG_PATH}.wounds.remainingTurns`]: next, name: "Stunned (Shock)" });
+  }
+
+  if (toDelete.length) {
     try {
-      await requestUpdateDocument(ef, { [`${FLAG_PATH}.wounds.remainingTurns`]: next, name: "Stunned (Shock)" });
+      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", toDelete);
     } catch (err) {
-      console.warn("UESRPG | Failed to tick shockStunned marker", err);
+      console.warn("UESRPG | Failed to delete expired shockStunned markers", err);
+      for (const id of toDelete) {
+        try {
+          await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [id]);
+        } catch (_fallbackErr) {}
+      }
+    }
+  }
+  if (updates.length) {
+    try {
+      const ok = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", updates);
+      if (!ok) {
+        for (const update of updates) {
+          const live = actor.effects?.get?.(String(update._id)) ?? null;
+          if (!live) continue;
+          const fallback = { ...update };
+          delete fallback._id;
+          await requestUpdateDocument(live, fallback);
+        }
+      }
+    } catch (err) {
+      console.warn("UESRPG | Failed to tick shockStunned markers", err);
+      for (const update of updates) {
+        const live = actor.effects?.get?.(String(update._id)) ?? null;
+        if (!live) continue;
+        const fallback = { ...update };
+        delete fallback._id;
+        try {
+          await requestUpdateDocument(live, fallback);
+        } catch (_fallbackErr) {}
+      }
     }
   }
 }
@@ -1021,6 +1143,9 @@ export async function advanceTreatedWoundHealing(actor, effectiveHealed) {
   if (heal <= 0) return;
 
   const wounds = findEffectsByKind(actor, "wound");
+  const woundIdsToDelete = [];
+  const woundUpdates = [];
+  const shockApplicationIds = [];
   for (const ef of wounds) {
     const w = ef.getFlag(FLAG_SCOPE, "wounds") ?? {};
     if (w.treated !== true) continue;
@@ -1033,16 +1158,57 @@ export async function advanceTreatedWoundHealing(actor, effectiveHealed) {
 
     if (next >= damage) {
       const appId = String(w.applicationId ?? "").trim();
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [ef.id]);
+      woundIdsToDelete.push(ef.id);
 
       // Chapter 5: once the wound is cured, remove wound-related Shock markers (except lost limbs/eyes/ears).
       if (appId) {
-        await removeShockMarkersForApplication(actor, appId, { removeLost: false });
+        shockApplicationIds.push(appId);
       }
       continue;
     }
 
-    await requestUpdateDocument(ef, { [`${FLAG_PATH}.wounds.progress`]: next });
+    woundUpdates.push({ _id: ef.id, [`${FLAG_PATH}.wounds.progress`]: next });
+  }
+
+  if (woundIdsToDelete.length) {
+    try {
+      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", woundIdsToDelete);
+    } catch (err) {
+      console.warn("UESRPG | Failed to batch delete healed wound effects", err);
+      for (const id of woundIdsToDelete) {
+        try {
+          await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [id]);
+        } catch (_fallbackErr) {}
+      }
+    }
+  }
+  if (woundUpdates.length) {
+    try {
+      const ok = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", woundUpdates);
+      if (!ok) {
+        for (const update of woundUpdates) {
+          const live = actor.effects?.get?.(String(update._id)) ?? null;
+          if (!live) continue;
+          const fallback = { ...update };
+          delete fallback._id;
+          await requestUpdateDocument(live, fallback);
+        }
+      }
+    } catch (err) {
+      console.warn("UESRPG | Failed to batch update treated wound healing", err);
+      for (const update of woundUpdates) {
+        const live = actor.effects?.get?.(String(update._id)) ?? null;
+        if (!live) continue;
+        const fallback = { ...update };
+        delete fallback._id;
+        try {
+          await requestUpdateDocument(live, fallback);
+        } catch (_fallbackErr) {}
+      }
+    }
+  }
+  for (const appId of shockApplicationIds) {
+    await removeShockMarkersForApplication(actor, appId, { removeLost: false });
   }
 
   // Defensive invariant: when wounds are fully healed, remove any lingering blood loss / forestall.
@@ -1061,7 +1227,7 @@ export async function resolveShockTestFromChat(...args) {
     ? args[1]
     : (args[0] && typeof args[0] === "object" ? args[0] : {});
 
-  const { actorUuid, woundEffectId, action } = params;
+  const { actorUuid, woundEffectId, action, messageId } = params;
   if (String(action ?? "") !== "shock-roll") return;
   if (!actorUuid || !woundEffectId) return;
 
@@ -1079,6 +1245,7 @@ export async function resolveShockTestFromChat(...args) {
 
   let woundEf = null;
   let resolvingSet = false;
+  let shockCardState = { resolving: false, resolved: false };
 
   try {
     const actor = await fromUuid(String(actorUuid));
@@ -1111,6 +1278,39 @@ export async function resolveShockTestFromChat(...args) {
       return;
     }
 
+    const shockMessageId = String(messageId ?? "").trim();
+    const shockMessage = shockMessageId ? (game.messages?.get(shockMessageId) ?? null) : null;
+    const updateShockCard = async (patch = {}) => {
+      if (!shockMessage) return;
+      const nextState = {
+        actor,
+        woundEffectId,
+        hitLocationLabel: w.hitLocation ?? "Body",
+        endTN,
+        finalTN: patch.finalTN ?? null,
+        rollTotal: patch.rollTotal ?? null,
+        passed: Object.prototype.hasOwnProperty.call(patch, "passed") ? patch.passed : null,
+        dieHardRerolled: patch.dieHardRerolled === true,
+        failNote: patch.failNote ?? null,
+        magicNote: patch.magicNote ?? null,
+        resolving: patch.resolving === true,
+        resolved: patch.resolved === true
+      };
+      await requestUpdateChatMessage(shockMessage, {
+        content: _renderShockTestCard(nextState),
+        [`flags.${FLAG_SCOPE}.wounds.resolving`]: nextState.resolving,
+        [`flags.${FLAG_SCOPE}.wounds.resolved`]: nextState.resolved,
+        [`flags.${FLAG_SCOPE}.wounds.endTN`]: endTN,
+        [`flags.${FLAG_SCOPE}.wounds.finalTN`]: nextState.finalTN,
+        [`flags.${FLAG_SCOPE}.wounds.rollTotal`]: nextState.rollTotal,
+        [`flags.${FLAG_SCOPE}.wounds.passed`]: nextState.passed,
+        [`flags.${FLAG_SCOPE}.wounds.dieHardRerolled`]: nextState.dieHardRerolled,
+        [`flags.${FLAG_SCOPE}.wounds.failNote`]: nextState.failNote,
+        [`flags.${FLAG_SCOPE}.wounds.magicNote`]: nextState.magicNote,
+      });
+      shockCardState = { resolving: nextState.resolving, resolved: nextState.resolved };
+    };
+
     try {
       await requestUpdateDocument(woundEf, {
         [`${FLAG_PATH}.wounds.shockResolving`]: true,
@@ -1120,12 +1320,17 @@ export async function resolveShockTestFromChat(...args) {
     } catch (_e) {
       // Non-blocking.
     }
+    await updateShockCard({ resolving: true });
 
     const rollOptions = await _promptShockRollOptions(actor, endTN);
-    if (!rollOptions) return;
+    if (!rollOptions) {
+      await updateShockCard({ resolving: false, resolved: false });
+      return;
+    }
     const rollTn = Math.max(0, Number(rollOptions?.target ?? endTN) || endTN);
 
     let test = await doTestRoll(actor, { target: rollTn, rollFormula: "1d100" });
+    await _showShockRoll3d(test?.roll ?? null);
     let passed = !!test?.isSuccess;
     let dieHardRerolled = false;
 
@@ -1156,21 +1361,10 @@ export async function resolveShockTestFromChat(...args) {
             // Non-blocking.
           }
           test = await doTestRoll(actor, { target: rollTn, rollFormula: "1d100" });
+          await _showShockRoll3d(test?.roll ?? null);
           passed = !!test?.isSuccess;
         }
       }
-    } catch (_e) {
-      // Non-blocking.
-    }
-
-    // Post a real roll message for Dice So Nice (blind GM).
-    try {
-      await test.roll.toMessage({
-        speaker: ChatMessage.getSpeaker({ actor }),
-        flavor: `Shock Test - ${actor.name} (END, TN ${rollTn})`,
-        rollMode: "roll",
-        whisper: getWhisperRecipientsForActor(actor)
-      });
     } catch (_e) {
       // Non-blocking.
     }
@@ -1221,27 +1415,16 @@ export async function resolveShockTestFromChat(...args) {
       // Non-blocking.
     }
 
-    // Post a deterministic result summary.
-    try {
-      const parts = [];
-      parts.push(`<p><strong>Target:</strong> ${esc(actor.name)}</p>`);
-      parts.push(`<p><strong>Wound Location:</strong> ${esc(hitLocation?.label ?? "Body")}</p>`);
-      parts.push(`<p><strong>Shock Test (END):</strong> ${esc(passed ? "Success" : "Failure")}</p>`);
-      if (failNote) parts.push(`<p><strong>Failure Consequence:</strong> ${esc(failNote)}</p>`);
-      if (magicNote) parts.push(`<p><strong>Magic Side Effect:</strong> ${esc(magicNote)}</p>`);
-
-      const whisper = getWhisperRecipientsForActor(actor);
-      await ChatMessage.create({
-        user: game.user.id,
-        speaker: ChatMessage.getSpeaker({ actor }),
-        content: `<div class="uesrpg-chat-card" data-card="shock-result"><header class="card-header"><h3>Shock Result</h3></header><div class="card-content">${parts.join("\n")}</div></div>`,
-        whisper: whisper,
-        blind: false,
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER
-      });
-    } catch (_e) {
-      // Non-blocking.
-    }
+    await updateShockCard({
+      finalTN: rollTn,
+      rollTotal: Number(test?.roll?.total ?? test?.total ?? 0) || 0,
+      passed,
+      dieHardRerolled,
+      failNote,
+      magicNote,
+      resolving: false,
+      resolved: true
+    });
   } finally {
     _SHOCK_IN_FLIGHT.delete(inflightKey);
     if (resolvingSet && woundEf) {
@@ -1249,6 +1432,32 @@ export async function resolveShockTestFromChat(...args) {
         await requestUpdateDocument(woundEf, {
           [`${FLAG_PATH}.wounds.shockResolving`]: false
         });
+      } catch (_e) {
+        // Non-blocking.
+      }
+    }
+    if (shockCardState.resolving && !shockCardState.resolved) {
+      try {
+        const actor = actorUuid ? await fromUuid(String(actorUuid)) : null;
+        if (actor) {
+          const wound = actor.effects?.get?.(String(woundEffectId)) ?? null;
+          const woundFlags = wound?.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
+          const baseEndTn = Number(actor.system?.characteristics?.end?.total ?? 0) || 0;
+          const shockMessage = messageId ? (game.messages?.get(String(messageId)) ?? null) : null;
+          if (shockMessage) {
+            await requestUpdateChatMessage(shockMessage, {
+              content: _renderShockTestCard({
+                actor,
+                woundEffectId,
+                hitLocationLabel: woundFlags.hitLocation ?? "Body",
+                endTN: baseEndTn,
+                resolving: false,
+                resolved: false
+              }),
+              [`flags.${FLAG_SCOPE}.wounds.resolving`]: false,
+            });
+          }
+        }
       } catch (_e) {
         // Non-blocking.
       }

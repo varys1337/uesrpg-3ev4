@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/ui/sheets/v2/item-sheet.js
  *
  * ApplicationV2 Item Sheet.
@@ -6,8 +6,7 @@
  * Key improvements:
  * - Uses HandlebarsApplicationMixin(ItemSheetV2) base
  * - Dynamic per-type template selection via _renderHTML override
- * - Deterministic form handler → normalizer → document.update pipeline
- * - V1-compat shims (get item, _onSubmit) allow reuse of existing listener modules
+ * - Deterministic form handler в†’ normalizer в†’ document.update pipeline
  * - _preRender / _onRender lifecycle for cross-render UI state preservation
  */
 
@@ -34,24 +33,33 @@ import { activateEditorButtons } from "../shared/editor-activation.js";
 import { DEFAULTS } from "../../../core/migrations/item-defaults.generated.js";
 import { traceSheetPerf } from "../../../core/debug/perf.js";
 import { bindDelegated } from "./_delegated-bindings.js";
-import { drinkPotion, applyAlchemyToWeapon } from "../../../core/alchemy/runtime.js";
-import { alertDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
-import { resolveDroppedItem } from "../../../utils/drop-data.js";
-import { castScrollFromItem } from "../../../core/magic/scroll-casting.js";
+import { readDropData, resolveDroppedItem } from "../../../utils/drop-data.js";
 import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
+import {
+  onEnableAlchemyIngredient, onClearAlchemyIngredient,
+  onEnableAlchemyProduct, onClearAlchemyProduct,
+  onDrinkAlchemyProduct, onApplyAlchemyProductToWeapon,
+} from "../item/item-sheet-alchemy.js";
+import {
+  onCastScroll, onToggleSpellcastingEnable,
+  onAddSpellcastingSlot, onRemoveSpellcastingSlot,
+  onEditSpellcastingSlot, onPickSpellcastingSlotSpell,
+  registerScrollListeners,
+  resolveAndValidateScrollSpell, applyScrollSpellLink,
+} from "../item/item-sheet-spellcasting.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { buildAdvancementPlan } from "../item/advancement-plan.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { createDebugLogger } from "../../../utils/debug.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
 const ITEM_SHEET_TEMPLATE_BASE = templatePath("v2/sheets");
-const _FLAG_NS = SYSTEM_ID;
-const _EQUIPMENT_ITEM_TYPES = new Set(["weapon", "armor", "ammunition", "equipment", "container", "scroll"]);
 const SUPPORTED_ITEM_SHEET_TYPES = new Set([
   "ammunition",
   "armor",
+  "shield",
   "combatStyle",
   "container",
   "equipment",
@@ -66,6 +74,10 @@ const SUPPORTED_ITEM_SHEET_TYPES = new Set([
 ]);
 
 const _ARMOR_TYPED_NUMERIC_FIELDS = new Set(["magic_ar", "special_ar", "armor", "blockRating"]);
+const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][ItemSheet]");
+
+// AppV1 deprecation warnings seen in recent logs are emitted by external modules
+// (e.g. chat-pruner and SimpleQuest), not by this item sheet implementation.
 
 function _isPlainObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -163,78 +175,6 @@ function _buildSanitizedRenderSystem(itemType, systemData) {
   return cloned;
 }
 
-function _normalizeSpellcastingCostMode(value) {
-  const mode = String(value ?? "soul").trim().toLowerCase();
-  if (mode === "magicka" || mode === "none") return mode;
-  return "soul";
-}
-
-function _isSpellcastingEligibleItem(item) {
-  return _EQUIPMENT_ITEM_TYPES.has(String(item?.type ?? "").toLowerCase());
-}
-
-function _buildSpellSnapshot(spell) {
-  if (!spell || spell.type !== "spell") return null;
-  const src = spell.toObject(false);
-  return {
-    name: src.name,
-    type: "spell",
-    img: src.img,
-    system: {
-      school: src.system?.school ?? "",
-      level: Number(src.system?.level ?? 1),
-      cost: Number(src.system?.cost ?? 0),
-      hasUpkeep: src.system?.hasUpkeep === true,
-      isDirect: src.system?.isDirect === true,
-      hasBuffer: src.system?.hasBuffer === true,
-      hasOverTime: src.system?.hasOverTime === true,
-      hasOverload: src.system?.hasOverload === true,
-      isRuneSpell: src.system?.isRuneSpell === true,
-      isZonePersistent: src.system?.isZonePersistent === true,
-      isSummonSpell: src.system?.isSummonSpell === true,
-      rangeType: src.system?.rangeType ?? src.system?.range ?? "",
-      aoeIncludeCaster: src.system?.aoeIncludeCaster === true,
-      duration: src.system?.duration ?? {},
-      damageInstances: Array.isArray(src.system?.damageInstances) ? src.system.damageInstances : [],
-      targeting: src.system?.targeting ?? null,
-      engine: src.system?.engine ?? null,
-      defenseModel: src.system?.defenseModel ?? null,
-      characteristicDefense: src.system?.characteristicDefense ?? null,
-      overTimeEntries: Array.isArray(src.system?.overTimeEntries) ? src.system.overTimeEntries : []
-    }
-  };
-}
-
-function _buildLegacyExtensionSeed(item) {
-  const enchanting = item?.flags?.[_FLAG_NS]?.enchanting ?? {};
-  const cast = enchanting?.cast ?? {};
-  // Do not mirror true workshop cast enchantments into the extension lane.
-  if (String(enchanting?.enchantType ?? "").trim().toLowerCase() === "cast") return null;
-  const hasSlots = Array.isArray(cast?.spells) && cast.spells.length > 0;
-  const hasToggle = Object.prototype.hasOwnProperty.call(cast, "isSpellcastingEnabled");
-  if (!hasSlots && !hasToggle) return null;
-  return cast;
-}
-
-function _ensureItemSpellcastingFlags(item) {
-  const existing = foundry.utils.deepClone(item?.flags?.[_FLAG_NS]?.itemSpellcasting ?? {});
-  const legacySeed = _buildLegacyExtensionSeed(item);
-  const source = Object.keys(existing).length ? existing : (legacySeed ?? {});
-  const sourcePool = source?.pool ?? {};
-  const currentPoolValue = Number(sourcePool?.value ?? item?.system?.charge?.value ?? 0);
-  const currentPoolMax = Number(sourcePool?.max ?? item?.system?.charge?.max ?? currentPoolValue);
-  return {
-    ...source,
-    version: 2,
-    enabled: source?.enabled === true,
-    slots: Array.isArray(source?.slots) ? source.slots : [],
-    pool: {
-      value: Number.isFinite(currentPoolValue) ? currentPoolValue : 0,
-      max: Number.isFinite(currentPoolMax) ? currentPoolMax : 0
-    },
-    activeUpkeepSlotId: source?.activeUpkeepSlotId ?? null
-  };
-}
 
 export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Base) {
 
@@ -263,7 +203,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     },
   };
 
-  /* ═══════════════════════ Static Configuration ═══════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Static Configuration в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "item", "uesrpg-sheet-root"],
@@ -276,7 +216,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     },
     dragDrop: [{
       dragSelector: ".item",
-      dropSelector: ".window-content, .sheet-body, .tab, .container-drop-zone, .container-drop-body, .itemListContainer",
+      dropSelector: ".window-content, .sheet-body, .tab, .itemListContainer",
     }],
     actions: {
       editPortrait: SimpleItemSheetV2.prototype._onEditPortrait,
@@ -299,28 +239,28 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       previewProfile: SimpleItemSheetV2.prototype._onPreviewProfile,
       addDamageInstance: SimpleItemSheetV2.prototype._onAddDamageInstance,
       removeDamageInstance: SimpleItemSheetV2.prototype._onRemoveDamageInstance,
-      // ── Containment actions ──────────────────────────────────────────
+      // в”Ђв”Ђ Containment actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
       addToContainer: SimpleItemSheetV2.prototype._onAddToContainer,
       bulkRemoveAll: SimpleItemSheetV2.prototype._onBulkRemoveAll,
       bulkDeleteAll: SimpleItemSheetV2.prototype._onBulkDeleteAll,
       removeContainedItem: SimpleItemSheetV2.prototype._onRemoveContainedItem,
       deleteContainedItem: SimpleItemSheetV2.prototype._onDeleteContainedItem,
       openContainedItem: SimpleItemSheetV2.prototype._onOpenContainedItem,
-      // ── Rule Element actions ─────────────────────────────────────────
+      // в”Ђв”Ђ Rule Element actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
       reAdd: SimpleItemSheetV2.prototype._onReAdd,
       reDelete: SimpleItemSheetV2.prototype._onReDelete,
       reExpand: SimpleItemSheetV2.prototype._onReExpand,
       reAddCondition: SimpleItemSheetV2.prototype._onReAddCondition,
       reConditionDelete: SimpleItemSheetV2.prototype._onReConditionDelete,
-      // ── Alchemy ingredient actions ───────────────────────────────────
+      // в”Ђв”Ђ Alchemy ingredient actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
       enableAlchemyIngredient: SimpleItemSheetV2.prototype._onEnableAlchemyIngredient,
       clearAlchemyIngredient: SimpleItemSheetV2.prototype._onClearAlchemyIngredient,
-      // ── Alchemy product actions ──────────────────────────────────────
+      // в”Ђв”Ђ Alchemy product actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
       enableAlchemyProduct: SimpleItemSheetV2.prototype._onEnableAlchemyProduct,
       clearAlchemyProduct: SimpleItemSheetV2.prototype._onClearAlchemyProduct,
       drinkAlchemyProduct: SimpleItemSheetV2.prototype._onDrinkAlchemyProduct,
       applyAlchemyProductToWeapon: SimpleItemSheetV2.prototype._onApplyAlchemyProductToWeapon,
-      // ── Scroll actions ───────────────────────────────────────────────
+      // в”Ђв”Ђ Scroll actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
       castScroll: SimpleItemSheetV2.prototype._onCastScroll,
       castEnchantment: SimpleItemSheetV2.prototype._onCastEnchantment,
       toggleSpellcastingEnable: SimpleItemSheetV2.prototype._onToggleSpellcastingEnable,
@@ -332,36 +272,24 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   };
 
   static PARTS = {
-    sheet: {
-      // Fallback path — _renderHTML() selects the per-type template dynamically.
+    header: {
+      template: templatePath("v2/sheets/equipment-sheet.hbs"),
+    },
+    tabs: {
+      template: templatePath("v2/sheets/equipment-sheet.hbs"),
+    },
+    body: {
       template: templatePath("v2/sheets/equipment-sheet.hbs"),
       scrollable: [".sheet-body"],
     },
   };
-
-  /* ═══════════════════════ V1 Compatibility Getters ═══════════════════ */
-
-  /**
-   * V1 compat: listener modules and prepareItemSheetData access `sheet.item`
-   * to reach the live Item document.
-   */
-  get item() {
-    return this.document;
-  }
-
-  /**
-   * V1 compat: listener modules access `sheet.actor` for owned-item operations.
-   */
-  get actor() {
-    return this.document?.actor ?? null;
-  }
 
   /** Keep item window title to the document name only (no localized type prefix). */
   get title() {
     return this.document?.name ?? "";
   }
 
-  /* ═══════════════════════ Rendering ═════════════════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Rendering в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * @override
@@ -380,29 +308,62 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       });
     }
     const resolvedType = SUPPORTED_ITEM_SHEET_TYPES.has(type) ? type : "equipment";
-    parts.sheet = {
-      ...parts.sheet,
-      template: `${ITEM_SHEET_TEMPLATE_BASE}/${resolvedType}-sheet.hbs`,
-    };
+    const template = `${ITEM_SHEET_TEMPLATE_BASE}/${resolvedType}-sheet.hbs`;
+    this._uesrpgResolvedItemSheetTemplate = template;
+    parts.header = { ...(parts.header ?? {}), template };
+    parts.tabs = { ...(parts.tabs ?? {}), template };
+    parts.body = { ...(parts.body ?? {}), template };
     return parts;
+  }
+
+  _createItemSheetPartElement(partId, sourceEl) {
+    const wrapper = document.createElement("div");
+    wrapper.dataset.applicationPart = partId;
+    if (sourceEl) {
+      wrapper.appendChild(sourceEl);
+      return wrapper;
+    }
+
+    // Keep per-part DOM contracts stable even when the source template is missing
+    // a region, so AppV2 scroll targets and tab chrome never bind to null roots.
+    if (partId === "header") {
+      wrapper.appendChild(document.createElement("header"));
+    } else if (partId === "tabs") {
+      const nav = document.createElement("nav");
+      nav.className = "sheet-tabs tabs";
+      nav.dataset.group = "primary";
+      wrapper.appendChild(nav);
+    } else if (partId === "body") {
+      const body = document.createElement("section");
+      body.className = "sheet-body";
+      wrapper.appendChild(body);
+    }
+
+    return wrapper;
+  }
+
+  _warnMissingItemSheetPart(partId, templatePath) {
+    console.warn("UESRPG | Item sheet render part missing; using empty fallback", {
+      itemType: this.document?.type ?? null,
+      itemId: this.document?.id ?? null,
+      partId,
+      templatePath,
+    });
   }
 
   /**
    * @override
    * Custom _renderHTML to handle multi-root element templates.
    *
-   * Item templates have two root siblings (<div class="stickyHeader"> +
-   * <section class="sheet-body">).  HandlebarsApplicationMixin expects each
-   * part to be a single HTMLElement, so we render via the standard pipeline
-   * then wrap multi-root output in a single container.
+   * Item templates have two root siblings (<header> + <section class="sheet-body">).
+   * We render once and split stable regions into AppV2 render parts.
    */
   async _renderHTML(context, options) {
-    // Get the dynamically configured parts
-    const parts = this._configureRenderParts(options);
-    const templatePath = parts.sheet?.template ?? `${ITEM_SHEET_TEMPLATE_BASE}/equipment-sheet.hbs`;
+    this._configureRenderParts(options);
+    const templatePath = this._uesrpgResolvedItemSheetTemplate ?? `${ITEM_SHEET_TEMPLATE_BASE}/equipment-sheet.hbs`;
 
     // Use per-part context preparation (preserves mixin lifecycle)
-    const partContext = await this._preparePartContext("sheet", context, options);
+    const partContext = await this._preparePartContext("body", context, options);
     let htmlString;
     try {
       htmlString = await foundry.applications.handlebars.renderTemplate(templatePath, partContext);
@@ -417,29 +378,49 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       htmlString = await foundry.applications.handlebars.renderTemplate(fallback, partContext);
     }
 
-    // Wrap multi-root templates into a single container element
+    // Split single-template output into stable AppV2 parts.
     const tmp = document.createElement("div");
     tmp.innerHTML = htmlString;
-    const wrapper = document.createElement("div");
-    wrapper.dataset.applicationPart = "sheet";
-    while (tmp.firstChild) wrapper.appendChild(tmp.firstChild);
-    return { sheet: wrapper };
+    const headerEl = tmp.querySelector("header");
+    const tabsEl = tmp.querySelector("nav.sheet-tabs.tabs");
+    const bodyEl = tmp.querySelector("section.sheet-body");
+
+    if (!headerEl) this._warnMissingItemSheetPart("header", templatePath);
+    if (!tabsEl) this._warnMissingItemSheetPart("tabs", templatePath);
+    if (!bodyEl) this._warnMissingItemSheetPart("body", templatePath);
+
+    const allParts = {
+      header: this._createItemSheetPartElement("header", headerEl),
+      tabs: this._createItemSheetPartElement("tabs", tabsEl),
+      body: this._createItemSheetPartElement("body", bodyEl),
+    };
+
+    const requested = Array.isArray(options?.parts) && options.parts.length
+      ? new Set(options.parts)
+      : null;
+    if (!requested) return allParts;
+
+    const out = {};
+    for (const partId of requested) {
+      if (allParts[partId]) out[partId] = allParts[partId];
+    }
+    return out;
   }
 
   /**
    * @override
    * Prepare render context for templates.
-   * Builds a V1-compatible data structure then delegates to the shared
-   * `prepareItemSheetData()` helper used by both V1 and V2.
+   * Builds the item context object and delegates to shared
+   * `prepareItemSheetData()` helpers.
    */
   async _prepareContext(options) {
     const perfStart = performance.now();
     try {
       const context = await super._prepareContext(options);
 
-    // V1-compatible fields expected by templates + prepareItemSheetData
+    // Item fields expected by templates + prepareItemSheetData
     // Overlay live system data so derived fields (value, *Effective, etc.)
-    // survive into templates — same pattern as actor sheets.
+    // survive into templates вЂ” same pattern as actor sheets.
     context.item = this.document.toObject();
     // Cache sanitized render system per (docId, modifiedTime) to avoid repeated
     // deep-clone + coercion on every render when the document hasn't changed.
@@ -534,7 +515,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  /* ═══════════════════════ Form Submission ═══════════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Form Submission в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Form submit handler for AppV2.
@@ -548,6 +529,28 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    */
   async _onFormSubmit(event, form, formData) {
     let flatData = foundry.utils.flattenObject(formData.object);
+    const docType = String(this.document?.type ?? "").toLowerCase();
+    const isShieldLaneDoc = docType === "shield" || (docType === "armor" && (
+      this.document?.system?.isShield === true
+      || String(this.document?.system?.item_cat ?? "").toLowerCase() === "shield"
+      || String(this.document?.system?.category ?? "").toLowerCase() === "shield"
+    ));
+    if (isShieldLaneDoc) {
+      _shieldDebug("form submit raw", {
+        id: this.document?.id ?? null,
+        name: this.document?.name ?? null,
+        type: this.document?.type ?? null,
+        keys: Object.keys(flatData ?? {}).sort(),
+        headerProbe: {
+          quantity: flatData["system.quantity"],
+          enc: flatData["system.enc"],
+          blockRating: flatData["system.blockRating"],
+          magicBR: flatData["system.magic_br"],
+          contained: flatData["system.containerStats.contained"],
+          containerId: flatData["system.containerStats.container_id"],
+        },
+      });
+    }
     const { scalingLevels } = normalizeItemFormData(this.document, flatData);
 
     if (
@@ -564,10 +567,19 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       return;
     }
 
-    // Diff against current document state — only send changed fields
+    // Diff against current document state вЂ” only send changed fields
     const current = foundry.utils.flattenObject(this.document.toObject(false));
     flatData = foundry.utils.diffObject(current, flatData);
     if (foundry.utils.isEmpty(flatData)) return;
+
+    if (isShieldLaneDoc) {
+      _shieldDebug("form submit diff", {
+        id: this.document?.id ?? null,
+        name: this.document?.name ?? null,
+        type: this.document?.type ?? null,
+        diff: flatData,
+      });
+    }
 
     await requestUpdateDocument(this.document, flatData);
     if (advancement.xpCost > 0 && advancement.actor) {
@@ -576,46 +588,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  /**
-   * V1 compatibility shim: existing listener modules call
-   * `sheet._onSubmit(ev, opts)` for programmatic form submission
-   * (e.g., scaling-input auto-save, module-checkbox persistence).
-   *
-   * Collects all form data from the live DOM, normalizes, validates,
-   * then updates the document.  The `preventRender` option is accepted
-   * for API compat but is effectively a no-op — V2's _preRender/_onRender
-   * state preservation makes re-renders safe.
-   */
-  async _onSubmit(event, { preventRender = false, preventClose = false } = {}) {
-    const fd = new foundry.applications.ux.FormDataExtended(this.element);
-    let flatData = foundry.utils.flattenObject(fd.object);
-    const { scalingLevels } = normalizeItemFormData(this.document, flatData);
-
-    const skipValidation = Boolean(event?.uesrpgSkipScalingValidation);
-    if (
-      !skipValidation &&
-      this.document.type === "spell" &&
-      scalingLevels.length > 0
-    ) {
-      const blocked = await validateSpellScaling(this.document, flatData, scalingLevels);
-      if (blocked) return;
-    }
-    const advancement = buildAdvancementPlan(this.document, flatData);
-    if (!advancement.ok) {
-      ui.notifications?.warn?.(advancement.reason || "Unable to apply advancement changes.");
-      return;
-    }
-
-    // Diff against current document state — only send changed fields
-    const current = foundry.utils.flattenObject(this.document.toObject(false));
-    flatData = foundry.utils.diffObject(current, flatData);
-    if (foundry.utils.isEmpty(flatData)) return;
-
-    await requestUpdateDocument(this.document, flatData);
-    if (advancement.xpCost > 0 && advancement.actor) {
-      await requestUpdateDocument(advancement.actor, { "system.xp": advancement.nextXp });
-      ui.notifications?.info?.(`Spent ${advancement.xpCost} XP.`);
-    }
+  async _submitCurrentForm(event = null) {
+    const formEl = this.element;
+    if (!formEl?.isConnected) return;
+    const fd = new foundry.applications.ux.FormDataExtended(formEl);
+    await this._onFormSubmit(event, formEl, fd);
   }
 
   /**
@@ -625,20 +602,16 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    */
   async close(options = {}) {
     if (this.isEditable) {
-      const formEl = this.element;
-      if (formEl?.isConnected) {
-        try {
-          const fd = new foundry.applications.ux.FormDataExtended(formEl);
-          await this._onFormSubmit(null, formEl, fd);
-        } catch (err) {
-          console.warn("UESRPG | Item sheet V2 submit-on-close failed", err);
-        }
+      try {
+        await this._submitCurrentForm(null);
+      } catch (err) {
+        console.warn("UESRPG | Item sheet V2 submit-on-close failed", err);
       }
     }
     return super.close(options);
   }
 
-  /* ═══════════════════════ Actions Map Handlers ═════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Actions Map Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Handle Active Effect controls (create / edit / delete / toggle).
@@ -716,7 +689,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return activateTraitFromItemSheet({ item: this.document, event });
   }
 
-  /* ═══════════════════ Combat Style Actions ═════════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Combat Style Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Set this combat style as the active style on the owning actor.
@@ -731,7 +704,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.activeCombatStyleId`]: this.document.id });
       ui.notifications?.info?.(`Active combat style set to: ${this.document.name}`);
       actor.sheet?.render?.(false);
-      this.render(false);
+      this.render({ parts: ["body"] });
     } catch (err) {
       console.error("UESRPG | Failed to set active combat style", { actor: actor?.uuid, item: this.document?.uuid, err });
       ui.notifications?.error?.("Failed to set active combat style.");
@@ -751,14 +724,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       await requestUpdateDocument(actor, { [`flags.${SYSTEM_ID}.-=activeCombatStyleId`]: null });
       ui.notifications?.info?.("Combat style deactivated.");
       actor.sheet?.render?.(false);
-      this.render(false);
+      this.render({ parts: ["body"] });
     } catch (err) {
       console.error("UESRPG | Failed to deactivate combat style", { actor: actor?.uuid, item: this.document?.uuid, err });
       ui.notifications?.error?.("Failed to deactivate combat style.");
     }
   }
 
-  /* ═══════════════════ Array Mutation Lock ══════════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Array Mutation Lock в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Per-array in-flight lock to prevent concurrent read-modify-write races.
@@ -782,7 +755,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  /* ═══════════════════ Spell Scaling Actions ════════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Spell Scaling Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Add a new scaling level to the spell.
@@ -843,7 +816,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* ═══════════════════ OverTime Entry Actions ═══════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ OverTime Entry Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Add a blank OverTime entry.
@@ -885,7 +858,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* ═══════════════════ Effect Recipe Actions ════════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Effect Recipe Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Add a blank effect recipe entry. Guarded by enableSpellRecipes setting.
@@ -926,7 +899,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* ═══════════════════ Conjure Actions ══════════════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Conjure Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Clear a conjure UUID/label pair (item or actor).
@@ -953,7 +926,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     await requestUpdateDocument(this.document, updateData);
   }
 
-  /* ═══════════════════ QA / Validation Actions ═════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ QA / Validation Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Run spell configuration validation and display results.
@@ -995,7 +968,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  /* ═══════════════════ Damage Instance Actions (Spell Only) ═════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Damage Instance Actions (Spell Only) в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Add a blank spell damage instance.
@@ -1034,7 +1007,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* ═══════════════════ Containment Action Handlers ═══════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Containment Action Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /** Open the container item-selection dialog. */
   _onAddToContainer(event, target) { onAddToContainer(this); }
@@ -1054,7 +1027,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   /** Open a contained item's sheet. */
   async _onOpenContainedItem(event, target) { await onOpenContainedItem(this, target); }
 
-  /* ═══════════════════ Rule Element Action Handlers ══════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Rule Element Action Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /** Create a new rule element from the type-select dropdown. */
   async _onReAdd(event, target) { await onReAdd(this.document, this.element); }
@@ -1100,158 +1073,19 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     await onReConditionDelete(this.document, reId, condIdx);
   }
 
-  /* ═══════════════════════ Alchemy Ingredient Handlers ══════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Alchemy Ingredient Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
-  /**
-   * Enable this generic item as an alchemy ingredient by writing the alchemy flags.
-   * Sets default values for school, strengthBase, and depthBase.
-   */
-  async _onEnableAlchemyIngredient(event) {
-    event.preventDefault();
-    await requestUpdateDocument(this.document, {
-      [`flags.${SYSTEM_ID}.alchemy`]: {
-        kind: "ingredient",
-        school: "destruction",
-        strengthBase: 5,
-        depthBase: 2,
-      },
-    });
-  }
+  async _onEnableAlchemyIngredient(event) { return onEnableAlchemyIngredient(this, event); }
+  async _onClearAlchemyIngredient(event) { return onClearAlchemyIngredient(this, event); }
 
-  /**
-   * Remove alchemy ingredient status from this item by deleting the alchemy flags.
-   */
-  async _onClearAlchemyIngredient(event) {
-    event.preventDefault();
-    await requestUpdateDocument(this.document, {
-      [`flags.${SYSTEM_ID}.-=alchemy`]: null,
-    });
-  }
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Alchemy Product Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
-  /* ═══════════════════════ Alchemy Product Handlers ═════════════════ */
+  async _onEnableAlchemyProduct(event, target) { return onEnableAlchemyProduct(this, event, target); }
+  async _onClearAlchemyProduct(event) { return onClearAlchemyProduct(this, event); }
+  async _onDrinkAlchemyProduct(event) { return onDrinkAlchemyProduct(this, event); }
+  async _onApplyAlchemyProductToWeapon(event) { return onApplyAlchemyProductToWeapon(this, event); }
 
-  /**
-   * Enable this generic item as an alchemy product (potion / poison / toxin).
-   * Writes minimal alchemy flags and marks the item as consumable.
-   */
-  async _onEnableAlchemyProduct(event, target) {
-    event.preventDefault();
-    const kind = String(target?.dataset?.kind ?? "potion");
-    if (!(["potion", "poison", "toxin"].includes(kind))) {
-      ui.notifications.warn("Unknown alchemy product type.");
-      return;
-    }
-
-    const baseFlags = {
-      kind,
-      backfired: false,
-      brew: {
-        alchemistActorUuid: this.actor?.uuid ?? null,
-        alchemyRank: null,
-        brewedAt: Date.now(),
-      },
-    };
-
-    const kindFlags = kind === "poison"
-      ? { poisonLevel: 1, damageFormula: "1d4" }
-      : kind === "toxin"
-      ? { effects: [], durationRounds: 10, maxHits: 3 }
-      : { effects: [] };
-
-    await requestUpdateDocument(this.document, {
-      "system.consumable": true,
-      "system.wearable": false,
-      "system.equipped": false,
-      [`flags.${SYSTEM_ID}.alchemy`]: { ...baseFlags, ...kindFlags },
-    });
-  }
-
-  /** Remove alchemy product flags from this item. */
-  async _onClearAlchemyProduct(event) {
-    event.preventDefault();
-    await requestUpdateDocument(this.document, {
-      [`flags.${SYSTEM_ID}.-=alchemy`]: null,
-    });
-  }
-
-  /** Drink a potion directly from the item sheet (owned items only). */
-  async _onDrinkAlchemyProduct(event) {
-    event.preventDefault();
-
-    const actor = this.actor;
-    if (!actor) {
-      ui.notifications.warn("This item is not owned by an actor.");
-      return;
-    }
-
-    const kind = this.document?.flags?.[SYSTEM_ID]?.alchemy?.kind;
-    if (kind !== "potion") {
-      ui.notifications.warn("Only potions can be drunk.");
-      return;
-    }
-
-    await drinkPotion(actor, this.document);
-  }
-
-  /** Apply a poison/toxin to an equipped weapon (owned items only). */
-  async _onApplyAlchemyProductToWeapon(event) {
-    event.preventDefault();
-
-    const actor = this.actor;
-    if (!actor) {
-      ui.notifications.warn("This item is not owned by an actor.");
-      return;
-    }
-
-    const kind = String(this.document?.flags?.[SYSTEM_ID]?.alchemy?.kind ?? "");
-    if (!(kind === "poison" || kind === "toxin")) {
-      ui.notifications.warn("Only poisons and toxins can be applied to weapons.");
-      return;
-    }
-
-    const weapons = actor.items.filter((i) => i.type === "weapon" && i.system?.equipped === true);
-    if (!weapons.length) {
-      await alertDialog({
-        title: "Apply to Weapon",
-        content: "<p>No equipped weapons were found on this actor.</p>",
-      });
-      return;
-    }
-
-    const options = weapons.map((w) => `<option value="${w.id}">${w.name}</option>`).join("");
-    const content = `
-      <div class="uesrpg-apply-alchemy-form">
-        <div class="form-group">
-          <label>Weapon</label>
-          <select name="weaponId">${options}</select>
-        </div>
-      </div>
-    `;
-
-    const weaponId = await customDialog({
-      title: "Apply to Weapon",
-      content,
-      yes: {
-        label: "Apply",
-        icon: "fas fa-check",
-        callback: (html) => html?.querySelector?.("select[name='weaponId']")?.value,
-      },
-      no: { label: "Cancel", icon: "fas fa-times" },
-      defaultButton: "yes",
-    });
-
-    if (!weaponId || typeof weaponId !== "string") return;
-
-    const weapon = actor.items.get(weaponId);
-    if (!weapon) {
-      ui.notifications.warn("Selected weapon could not be found.");
-      return;
-    }
-
-    await applyAlchemyToWeapon(actor, this.document, weapon);
-  }
-
-  /* ═══════════════════════ Scroll Actions ════════════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Scroll Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Cast the spell referenced by this scroll.
@@ -1261,231 +1095,18 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * @param {Event} event
    * @param {HTMLElement} target
    */
-  async _onCastScroll(event, target) {
-    event.preventDefault();
-
-    const scroll = this.document;
-
-    const result = await castScrollFromItem({
-      scrollItem: scroll,
-      casterActor: this.actor,
-      castActionType: "primary",
-    });
-
-    if (result?.error) {
-      ui.notifications.warn(result.error);
-      return;
-    }
-
-    if (result?.consumed === true && Number(result.newQty ?? 1) === 0) {
-      ui.notifications.info(`${scroll.name} has been used up.`);
-    }
-  }
-
-  async _onToggleSpellcastingEnable(event, target) {
-    event?.preventDefault?.();
-    if (!this.isEditable) return;
-    if (!_isSpellcastingEligibleItem(this.document)) {
-      ui.notifications?.warn?.("Spellcasting configuration is available only for equipment items.");
-      return;
-    }
-
-    const spellcasting = _ensureItemSpellcastingFlags(this.document);
-    const nextEnabled = spellcasting.enabled !== true;
-    spellcasting.enabled = nextEnabled;
-    await requestUpdateDocument(this.document, {
-      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting
-    });
-  }
-
-  async _onAddSpellcastingSlot(event, target) {
-    event?.preventDefault?.();
-    if (!this.isEditable) return;
-    if (!_isSpellcastingEligibleItem(this.document)) return;
-
-    const spellcasting = _ensureItemSpellcastingFlags(this.document);
-    const slots = Array.isArray(spellcasting.slots) ? spellcasting.slots : [];
-    const nextIndex = slots.length + 1;
-    slots.push({
-      id: foundry.utils.randomID(12),
-      source: "conventional",
-      label: `Stored Spell ${nextIndex}`,
-      level: 1,
-      cost: 0,
-      attributes: [],
-      spellUuid: "",
-      snapshot: null,
-      bindingStrength: 1,
-      enabled: true,
-      costMode: "soul"
-    });
-    spellcasting.slots = slots;
-
-    await requestUpdateDocument(this.document, {
-      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting
-    });
-  }
-
-  async _onRemoveSpellcastingSlot(event, target) {
-    event?.preventDefault?.();
-    if (!this.isEditable) return;
-    const slotId = String(target?.dataset?.slotId ?? "").trim();
-    if (!slotId) return;
-
-    const spellcasting = _ensureItemSpellcastingFlags(this.document);
-    spellcasting.slots = (Array.isArray(spellcasting.slots) ? spellcasting.slots : [])
-      .filter((s) => String(s?.id ?? "") !== slotId);
-
-    await requestUpdateDocument(this.document, {
-      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting
-    });
-  }
-
-  async _onEditSpellcastingSlot(event, target) {
-    event?.preventDefault?.();
-    if (!this.isEditable) return;
-
-    const spellcasting = _ensureItemSpellcastingFlags(this.document);
-    const rows = Array.from(this.element?.querySelectorAll?.("[data-spellcasting-slot-id]") ?? []);
-    const byId = new Map((Array.isArray(spellcasting.slots) ? spellcasting.slots : []).map((s) => [String(s?.id ?? ""), s]));
-    const nextSlots = [];
-
-    for (const row of rows) {
-      const slotId = String(row?.dataset?.spellcastingSlotId ?? "").trim();
-      if (!slotId) continue;
-      const prev = byId.get(slotId) ?? { id: slotId };
-      const labelInput = row.querySelector("[data-spellcasting-field='label']");
-      const costInput = row.querySelector("[data-spellcasting-field='cost']");
-      const bsInput = row.querySelector("[data-spellcasting-field='bindingStrength']");
-      const modeInput = row.querySelector("[data-spellcasting-field='costMode']");
-      const enabledInput = row.querySelector("[data-spellcasting-field='enabled']");
-
-      const label = String(labelInput?.value ?? prev?.label ?? "Stored Spell").trim() || "Stored Spell";
-      const cost = Math.max(0, Number(costInput?.value ?? prev?.cost ?? 0) || 0);
-      const bindingStrength = Math.max(0, Math.min(10, Number(bsInput?.value ?? prev?.bindingStrength ?? 0) || 0));
-      const costMode = _normalizeSpellcastingCostMode(modeInput?.value ?? prev?.costMode);
-      const enabled = enabledInput ? enabledInput.checked === true : prev?.enabled !== false;
-      const hasSpellRef = String(prev?.spellUuid ?? "").trim().length > 0 || !!prev?.snapshot;
-      if (enabled && !hasSpellRef) {
-        ui.notifications?.warn?.(`Slot "${label}" must have a selected spell before enabling.`);
-        return;
-      }
-
-      nextSlots.push({
-        ...prev,
-        id: slotId,
-        label,
-        cost,
-        bindingStrength,
-        costMode,
-        enabled
-      });
-    }
-
-    spellcasting.slots = nextSlots;
-
-    const chargeValueInput = this.element?.querySelector?.("[data-spellcasting-charge='value']");
-    const chargeMaxInput = this.element?.querySelector?.("[data-spellcasting-charge='max']");
-    const nextChargeValue = Math.max(0, Number(chargeValueInput?.value ?? this.document?.system?.charge?.value ?? 0) || 0);
-    const nextChargeMaxRaw = Math.max(0, Number(chargeMaxInput?.value ?? this.document?.system?.charge?.max ?? 0) || 0);
-    const nextChargeMax = Math.max(nextChargeValue, nextChargeMaxRaw);
-
-    await requestUpdateDocument(this.document, {
-      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting,
-      "system.charge.value": nextChargeValue,
-      "system.charge.max": nextChargeMax
-    });
-  }
-
-  async _onPickSpellcastingSlotSpell(event, target) {
-    event?.preventDefault?.();
-    if (!this.isEditable) return;
-    const slotId = String(target?.dataset?.slotId ?? "").trim();
-    if (!slotId) return;
-
-    const actorSpells = Array.from(this.actor?.items ?? []).filter((i) => i?.type === "spell");
-    const spellOptions = actorSpells
-      .map((s) => `<option value="${String(s.id)}">${s.name} (${String(s.system?.school ?? "")} L${Number(s.system?.level ?? 1)})</option>`)
-      .join("");
-
-    const content = `
-      <div class="uesrpg-cast-slot-picker">
-        <div class="form-group">
-          <label><b>Actor Spell</b></label>
-          <select name="knownSpellId" style="width:100%;">
-            <option value="">-- Use UUID below --</option>
-            ${spellOptions}
-          </select>
-        </div>
-        <div class="form-group">
-          <label><b>Spell UUID (fallback)</b></label>
-          <input type="text" name="spellUuid" style="width:100%;" placeholder="Compendium.x.y or Actor.x.Item.y" />
-        </div>
-      </div>
-    `;
-
-    const pick = await customDialog({
-      title: "Select Stored Spell",
-      content,
-      yes: {
-        label: "Set Spell",
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          return {
-            knownSpellId: String(root?.querySelector?.("select[name='knownSpellId']")?.value ?? "").trim(),
-            spellUuid: String(root?.querySelector?.("input[name='spellUuid']")?.value ?? "").trim()
-          };
-        }
-      },
-      no: { label: "Cancel" },
-      defaultButton: "yes"
-    });
-    if (!pick) return;
-
-    const spellcasting = _ensureItemSpellcastingFlags(this.document);
-    const slots = Array.isArray(spellcasting.slots) ? spellcasting.slots : [];
-    const idx = slots.findIndex((s) => String(s?.id ?? "") === slotId);
-    if (idx < 0) return;
-
-    const next = foundry.utils.deepClone(slots[idx]);
-    let spellDoc = null;
-    if (pick.knownSpellId && this.actor) {
-      spellDoc = this.actor.items.get(pick.knownSpellId) ?? null;
-      next.spellUuid = String(spellDoc?.uuid ?? "");
-    } else if (pick.spellUuid) {
-      next.spellUuid = pick.spellUuid;
-      try {
-        const doc = await fromUuid(pick.spellUuid);
-        if (doc?.documentName === "Item" && doc.type === "spell") spellDoc = doc;
-      } catch (_err) {
-        spellDoc = null;
-      }
-    } else {
-      ui.notifications?.warn?.("Select a known spell or provide a spell UUID.");
-      return;
-    }
-
-    if (spellDoc?.type === "spell") {
-      next.label = String(spellDoc.name ?? next.label ?? "Stored Spell");
-      next.level = Number(spellDoc.system?.level ?? next.level ?? 1);
-      next.snapshot = _buildSpellSnapshot(spellDoc);
-      if (!(Number(next.cost) > 0)) {
-        next.cost = Number(spellDoc.system?.cost ?? 0);
-      }
-    }
-
-    slots[idx] = next;
-    spellcasting.slots = slots;
-    await requestUpdateDocument(this.document, {
-      [`flags.${_FLAG_NS}.itemSpellcasting`]: spellcasting
-    });
-  }
+  async _onCastScroll(event, target) { return onCastScroll(this, event, target); }
+  async _onToggleSpellcastingEnable(event, target) { return onToggleSpellcastingEnable(this, event, target); }
+  async _onAddSpellcastingSlot(event, target) { return onAddSpellcastingSlot(this, event, target); }
+  async _onRemoveSpellcastingSlot(event, target) { return onRemoveSpellcastingSlot(this, event, target); }
+  async _onEditSpellcastingSlot(event, target) { return onEditSpellcastingSlot(this, event, target); }
+  async _onPickSpellcastingSlotSpell(event, target) { return onPickSpellcastingSlotSpell(this, event, target); }
 
   async _onCastEnchantment(event, target) {
     return onCastEnchantmentAction.call(this, event, target, this.document);
   }
 
-  /* ═══════════════════════ Native Non-Click Listeners ═══════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Native Non-Click Listeners в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * Combat Style: auto-save trained equipment (debounced) and special
@@ -1541,7 +1162,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * @param {HTMLElement} el
    */
   _registerSpellListeners(el) {
-    // ── Scaling input change (delegated) ────────────────────────────────
+    // в”Ђв”Ђ Scaling input change (delegated) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     // Auto-save scaling field changes without rerender.
     el.addEventListener("change", async (ev) => {
       if (!ev.target.closest("[data-scaling-input]")) return;
@@ -1551,13 +1172,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       logSpellDebug("Scaling input change", { name: ev.target?.name, value: ev.target?.value });
 
       try {
-        await this._onSubmit(ev, { preventRender: true, preventClose: true });
+        await this._submitCurrentForm(ev);
       } catch (err) {
         console.warn("UESRPG | Failed to auto-save scaling input change", err);
       }
     });
 
-    // ── Automation module inputs (data-spell-module) ────────────────────
+    // в”Ђв”Ђ Automation module inputs (data-spell-module) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     // Auto-save module checkbox/input changes without rerender to
     // prevent the Advanced Options <details> from collapsing.
     const moduleInputs = el.querySelectorAll("[data-spell-module]");
@@ -1567,7 +1188,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         logSpellDebug("Automation module input change", { name: ev.target?.name, value: ev.target?.value, checked: ev.target?.checked });
 
         try {
-          await this._onSubmit(ev, { preventRender: true, preventClose: true });
+          await this._submitCurrentForm(ev);
         } catch (err) {
           console.warn("UESRPG | Failed to auto-save automation module change", err);
         }
@@ -1582,7 +1203,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       node.addEventListener("click", (ev) => ev.stopPropagation());
     });
 
-    // ── Recipe input auto-save (guarded by enableSpellRecipes) ──────────
+    // в”Ђв”Ђ Recipe input auto-save (guarded by enableSpellRecipes) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     let recipesEnabled = false;
     try { recipesEnabled = game.settings.get(SYSTEM_ID, "enableSpellRecipes") === true; } catch (_e) { /* noop */ }
 
@@ -1620,7 +1241,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       });
     }
 
-    // ── Conjure: Drag-drop support for item/actor UUID fields ───────────
+    // в”Ђв”Ђ Conjure: Drag-drop support for item/actor UUID fields в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
     el.querySelectorAll(".conjure-drop-target").forEach(input => {
       const dropType = input.dataset.conjureDrop; // "item" or "actor"
       if (!dropType) return;
@@ -1675,7 +1296,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   }
 
   /**
-   * Container sheets: contextmenu bulk-add + drag visual feedback.
+   * Container sheets: contextmenu bulk-add support.
    * @param {HTMLElement} el
    */
   _registerContainmentListeners(el) {
@@ -1687,40 +1308,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         onBulkAddToContainer(this);
       });
     }
-
-    // Drag visual feedback on the drop zone
-    const dropZone = el.querySelector(".container-drop-zone");
-    if (dropZone) {
-      dropZone.addEventListener("dragover", (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        dropZone.classList.add("drag-over");
-      });
-
-      dropZone.addEventListener("dragleave", (ev) => {
-        const rect = ev.currentTarget.getBoundingClientRect();
-        const x = ev.clientX;
-        const y = ev.clientY;
-        if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
-          dropZone.classList.remove("drag-over");
-        }
-      });
-
-      dropZone.addEventListener("drop", () => {
-        dropZone.classList.remove("drag-over");
-      });
-    }
-
-    // Drag visual feedback on contained item rows
-    for (const row of el.querySelectorAll("[draggable='true']")) {
-      row.addEventListener("dragstart", () => {
-        row.classList.add("dragging");
-      });
-      row.addEventListener("dragend", () => {
-        row.classList.remove("dragging");
-        if (dropZone) dropZone.classList.remove("drag-over");
-      });
-    }
   }
 
   /**
@@ -1728,158 +1315,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * @param {HTMLElement} el
    */
   _registerScrollListeners(el) {
-    const uuidInput = el.querySelector('input[name="system.spellUuid"]');
-    const dropZone = el.querySelector('[data-scroll-spell-drop-zone="true"]');
-
-    const commitInputValue = async () => {
-      if (!this.isEditable) return;
-      if (!uuidInput) return;
-
-      const result = await this._resolveAndValidateScrollSpell(uuidInput.value);
-      if (!result.ok) {
-        ui.notifications?.warn?.(result.error ?? "Invalid spell UUID.");
-        uuidInput.value = String(this.document.system?.spellUuid ?? "");
-        return;
-      }
-
-      await this._applyScrollSpellLink(result.spellDoc);
-      uuidInput.value = String(result.canonicalUuid ?? "");
-    };
-
-    if (uuidInput) {
-      uuidInput.addEventListener("change", async () => {
-        await commitInputValue();
-      });
-
-      uuidInput.addEventListener("keydown", async (ev) => {
-        if (ev.key !== "Enter") return;
-        ev.preventDefault();
-        await commitInputValue();
-      });
-    }
-
-    if (!dropZone) return;
-
-    dropZone.addEventListener("dragover", (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (ev.dataTransfer) ev.dataTransfer.dropEffect = "link";
-      dropZone.classList.add("drag-over");
-    });
-
-    dropZone.addEventListener("dragleave", (ev) => {
-      const rect = dropZone.getBoundingClientRect();
-      const x = ev.clientX;
-      const y = ev.clientY;
-      if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
-        dropZone.classList.remove("drag-over");
-      }
-    });
-
-    dropZone.addEventListener("drop", async (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      dropZone.classList.remove("drag-over");
-      if (!this.isEditable) return;
-
-      const dragData = foundry.applications.ux.TextEditor.implementation.getDragEventData(ev);
-      const dropped = await resolveDroppedItem(dragData);
-      if (!dropped) {
-        ui.notifications?.warn?.("Unable to resolve dropped item payload.");
-        return;
-      }
-
-      const result = await this._resolveAndValidateScrollSpell(dropped);
-      if (!result.ok) {
-        ui.notifications?.warn?.(result.error ?? "Unable to resolve dropped item payload.");
-        return;
-      }
-
-      await this._applyScrollSpellLink(result.spellDoc);
-      if (uuidInput) uuidInput.value = String(result.canonicalUuid ?? "");
-    });
-  }
-
-  /**
-   * Normalize manually entered spell references into a canonical UUID if possible.
-   * Accepts full UUIDs and world item ids.
-   * @param {string} raw
-   * @returns {Promise<string>}
-   */
-  async _normalizeScrollSpellUuid(raw) {
-    const value = String(raw ?? "").trim();
-    if (!value) return "";
-
-    // UUID-like text; resolve if possible.
-    if (value.includes(".")) {
-      try {
-        const doc = await fromUuid(value);
-        if (doc?.documentName === "Item") return String(doc.uuid ?? value);
-      } catch (_err) {
-        // Fall through to id lookup.
-      }
-    }
-
-    // World item id fallback.
-    const worldItem = game.items?.get?.(value) ?? null;
-    if (worldItem?.documentName === "Item") return String(worldItem.uuid ?? value);
-
-    return value;
-  }
-
-  /**
-   * Resolve and validate a scroll spell reference.
-   * @param {string|Item|null} rawOrDoc
-   * @returns {Promise<{ok: boolean, spellDoc: Item|null, canonicalUuid: string, error?: string}>}
-   */
-  async _resolveAndValidateScrollSpell(rawOrDoc) {
-    if (!rawOrDoc) {
-      return { ok: true, spellDoc: null, canonicalUuid: "" };
-    }
-
-    let doc = rawOrDoc;
-
-    if (typeof rawOrDoc === "string") {
-      const normalized = await this._normalizeScrollSpellUuid(rawOrDoc);
-      if (!normalized) return { ok: true, spellDoc: null, canonicalUuid: "" };
-      try {
-        doc = await fromUuid(normalized);
-      } catch (_err) {
-        doc = null;
-      }
-      if (!doc) {
-        return { ok: false, spellDoc: null, canonicalUuid: "", error: "Could not resolve spell UUID." };
-      }
-    }
-
-    if (doc?.documentName !== "Item") {
-      return { ok: false, spellDoc: null, canonicalUuid: "", error: "Dropped or referenced document is not an Item." };
-    }
-
-    if (String(doc.type ?? "") !== "spell") {
-      return { ok: false, spellDoc: null, canonicalUuid: "", error: "Only spell items can be linked to a scroll." };
-    }
-
-    return { ok: true, spellDoc: doc, canonicalUuid: String(doc.uuid ?? "") };
-  }
-
-  /**
-   * Persist scroll spell link (or clear it).
-   * @param {Item|null} spellDocOrNull
-   */
-  async _applyScrollSpellLink(spellDocOrNull) {
-    const nextUuid = String(spellDocOrNull?.uuid ?? "");
-    const ok = await requestUpdateDocument(this.document, { "system.spellUuid": nextUuid });
-    if (!ok) {
-      ui.notifications?.warn?.("Failed to update scroll spell reference.");
-      return;
-    }
-
-    if (spellDocOrNull) {
-      ui.notifications?.info?.(`Scroll linked to "${spellDocOrNull.name}".`);
-    } else {
-      ui.notifications?.info?.("Scroll spell reference cleared.");
-    }
+    registerScrollListeners(this, el);
   }
 
   /**
@@ -1946,7 +1382,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* ═══════════════════════ UI State Preservation ═════════════════════ */
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ UI State Preservation в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * @override
@@ -1992,6 +1428,10 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const perfStart = performance.now();
     /** @type {HTMLElement|null} */
     let el = null;
+    const renderedParts = Array.isArray(options?.parts) && options.parts.length
+      ? new Set(options.parts)
+      : null;
+    const bodyRendered = !renderedParts || renderedParts.has("body");
     try {
       super._onRender(context, options);
 
@@ -2000,78 +1440,43 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       applySheetDensityClass(el);
       clearItemDescriptionTooltip(this);
 
-      // ── Restore saved UI state ─────────────────────────────────────────
+      // Restore saved UI state only when the body part is present.
       const state = this._savedState;
-      if (state) {
-      // Expanded Rule Elements
-      state.expandedREIds?.forEach(reId => {
-        const li = el.querySelector(`.re-item[data-re-id="${reId}"]`);
-        if (!li) return;
-        const body = li.querySelector(".re-item-body");
-        const icon = li.querySelector(".re-item-expand i");
-        if (body) body.style.display = "";
-        if (icon) {
-          icon.classList.remove("fa-chevron-down");
-          icon.classList.add("fa-chevron-up");
-        }
-        // Re-inflate dynamically rendered type-specific fields
-        renderFieldsForElement(li, this.document);
-        renderConditionFieldsForElement(li, this.document);
-      });
+      if (state && bodyRendered) {
+        state.expandedREIds?.forEach(reId => {
+          const li = el.querySelector(`.re-item[data-re-id="${reId}"]`);
+          if (!li) return;
+          const body = li.querySelector(".re-item-body");
+          const icon = li.querySelector(".re-item-expand i");
+          if (body) body.style.display = "";
+          if (icon) {
+            icon.classList.remove("fa-chevron-down");
+            icon.classList.add("fa-chevron-up");
+          }
+          renderFieldsForElement(li, this.document);
+          renderConditionFieldsForElement(li, this.document);
+        });
 
-      // <details> open state
-      state.openDetails?.forEach(key => {
-        const d =
-          el.querySelector(`details[data-uesrpg="${key}"]`) ||
-          el.querySelector(`details.${CSS.escape(key)}`);
-        if (d) d.open = true;
-      });
+        state.openDetails?.forEach(key => {
+          const d =
+            el.querySelector(`details[data-uesrpg="${key}"]`) ||
+            el.querySelector(`details.${CSS.escape(key)}`);
+          if (d) d.open = true;
+        });
 
         this._savedState = null;
       }
 
-    // ── Type-specific CSS classes ──────────────────────────────────────
-    // V1 passed the document type as a CSS class on the <form> element
-    // (via {{cssClass}}).  In V2 we add it to the application wrapper so
-    // selectors like `.worldbuilding.sheet.item.spell` continue to match.
+      // Type-specific wrapper classes for legacy selectors.
       el.classList.add(this.document.type);
+      if (this.document.type === "spell") el.classList.add("spell-sheet");
 
-    // Spell template originally also carried class="spell-sheet" on the
-    // <form>; retained for legacy selector compatibility.
-      if (this.document.type === "spell") {
-        el.classList.add("spell-sheet");
-      }
-
-    // ── Tab handling (native AppV2) ─────────────────────────────────────
-    // Different item types render different tab subsets; fall back to the
-    // first nav anchor present if the remembered tab is absent.
+      // Tab handling: fallback to first visible tab when remembered tab is absent.
       const desiredTab = this.tabGroups.primary ?? "description";
       const hasTab = el.querySelector(`.tabs [data-group="primary"][data-tab="${desiredTab}"]`);
       const targetTab = hasTab ? desiredTab
         : (el.querySelector('.tabs [data-group="primary"]')?.dataset?.tab ?? "description");
       this.changeTab(targetTab, "primary", { force: true });
-
-      // ── Type-specific native listeners ───────────────────────────────
-      const type = this.document.type;
-      if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
-      if (type === "spell") this._registerSpellListeners(el);
-      if (type === "scroll") this._registerScrollListeners(el);
-      if (type === "container") this._registerContainmentListeners(el);
-
-      const _featureTypes = new Set(["trait", "talent", "power"]);
-      if (_featureTypes.has(type)) this._registerRuleElementListeners(el);
-
-      // ── Containment side-effect calls (keep snapshot data in sync) ───
-      if (type === "container" && this.document.isOwned) {
-        void updateContainedItemsList(this);
-      }
-      if (this.document.system?.containerStats && type !== "container") {
-        void pushContainedItemData(this);
-      }
-
-      // ── Re-wire editor buttons (bypasses core activation when _renderHTML is custom) ───
-      activateEditorButtons(this, el);
-      bindItemDescriptionTooltips(this, el);
 
     } finally {
       traceSheetPerf({
@@ -2089,39 +1494,56 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   }
 
+  /**
+   * Per-part listener registration.
+   * Body listeners are attached only when the body part renders.
+   * @override
+   */
+  _attachPartListeners(partId, htmlElement, options) {
+    super._attachPartListeners(partId, htmlElement, options);
+    if (partId !== "body") return;
+
+    const el = htmlElement;
+    if (!el) return;
+
+    const type = this.document.type;
+    if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
+    if (type === "spell") this._registerSpellListeners(el);
+    if (type === "scroll") this._registerScrollListeners(el);
+    if (type === "container") this._registerContainmentListeners(el);
+
+    const featureTypes = new Set(["trait", "talent", "power"]);
+    if (featureTypes.has(type)) this._registerRuleElementListeners(el);
+
+    if (type === "container" && this.document.isOwned) {
+      void updateContainedItemsList(this);
+    }
+    if (this.document.system?.containerStats && type !== "container") {
+      void pushContainedItemData(this);
+    }
+
+    // Legacy class-based modifier controls used by some item templates.
+    if (Object.prototype.hasOwnProperty.call(this.document.system ?? {}, "skillArray")) {
+      bindDelegated(el, "click", ".modifier-create", (ev) => onModifierCreate(this, ev));
+      bindDelegated(el, "click", "#item-modifiers .item-delete", (ev) => onDeleteModifier(this, ev));
+    }
+
+    activateEditorButtons(this, el);
+    bindItemDescriptionTooltips(this, el);
+  }
+
   _onClose(options) {
     clearItemDescriptionTooltip(this);
     return super._onClose(options);
   }
 
-  /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */
-
-  /**
-   * @override
-   * Handle drag-start for contained items in container sheets.
-   * Creates drag data for the actor-owned contained item (not the container).
-   */
-  _onDragStart(event) {
-    if (this.document.type !== "container" || !this.document.actor) {
-      return super._onDragStart(event);
-    }
-
-    const row = event.target?.closest?.("[data-item-id]");
-    const itemId = row?.dataset?.itemId;
-    if (!itemId) return super._onDragStart(event);
-
-    const actorItem = this.document.actor.items.get(itemId);
-    if (!actorItem) return super._onDragStart(event);
-
-    const dragData = { type: "Item", uuid: actorItem.uuid };
-    event.dataTransfer.setData("text/plain", JSON.stringify(dragData));
-  }
+  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Drag & Drop в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
 
   /**
    * @override
    * Handle item drops. Scroll sheets accept spell drops to fill spellUuid;
-   * container sheets delegate to their containment module; all others forward
-   * to the parent class.
+   * container sheets do not accept drag/drop insertion; all others forward to
+   * the parent class.
    */
   async _onDrop(event) {
     event.preventDefault();
@@ -2131,7 +1553,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       // Dedicated drop-zone listener handles this path already.
       if (event?.target?.closest?.('[data-scroll-spell-drop-zone="true"]')) return;
 
-      const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
+      const data = readDropData(event);
       if (data?.type !== "Item") {
         return super._onDrop?.(event);
       }
@@ -2142,37 +1564,23 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         return;
       }
 
-      const result = await this._resolveAndValidateScrollSpell(dropped);
+      const result = await resolveAndValidateScrollSpell(dropped);
       if (!result.ok) {
         ui.notifications?.warn?.(result.error ?? "Only spell items can be linked to a scroll.");
         return;
       }
 
-      await this._applyScrollSpellLink(result.spellDoc);
+      await applyScrollSpellLink(this, result.spellDoc);
       return;
     }
 
     if (this.document.type !== "container") {
       return super._onDrop?.(event);
     }
-
-    if (!this.document.isOwned || !this.document.actor) {
-      ui.notifications?.warn("Containers must be owned by an Actor to accept dropped items.");
-      return;
-    }
-
-    if (!this.isEditable || !this.document.actor.isOwner) {
-      ui.notifications?.warn("You do not have permission to modify this container.");
-      return;
-    }
-
-    const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
-    if (data?.type !== "Item") {
-      return super._onDrop?.(event);
-    }
-
-    const { onDropItemIntoContainer } = await import("../item/listeners/containment.js");
-    return onDropItemIntoContainer(this, data);
+    ui.notifications?.info("Container drag-and-drop is disabled. Use + Item to add contents.");
+    return;
   }
 }
+
+
 

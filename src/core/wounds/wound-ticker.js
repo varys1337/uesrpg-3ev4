@@ -11,6 +11,7 @@
  */
 
 import { isActiveGMUser } from "./wound-schema.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 
 let _registered = false;
 
@@ -58,7 +59,7 @@ export function registerWoundCombatTicker({ tickActorEndTurn } = {}) {
     _combatState.delete(String(combat.id));
   });
 
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
+  const _handleCombatBoundaryWounds = async (payload) => {
     // Avoid double-ticks from multiple connected clients: only the GM runs deterministic ticking.
     if (!isActiveGMUser(game.user)) return;
     if (payload?.source !== "combat") return;
@@ -91,5 +92,17 @@ export function registerWoundCombatTicker({ tickActorEndTurn } = {}) {
     } catch (err) {
       console.warn("UESRPG | Wounds | combat ticker failed", err);
     }
+  };
+
+  registerCombatBoundaryConsumer({
+    id: "wound-ticker",
+    // Wound ticking runs after fear/effect expiry and before late cleanup/reset lanes.
+    order: 250,
+    handle: _handleCombatBoundaryWounds
+  });
+
+  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
+    if (noteCombatBoundaryLegacyFallbackSkip("wound-ticker", payload)) return;
+    await _handleCombatBoundaryWounds(payload);
   });
 }

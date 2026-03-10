@@ -13,7 +13,7 @@
  * Supported operations:
  *  - ChatMessage updates (sanitized): content + flags[systemId].opposed / skillOpposed
  *  - Actor embedded ActiveEffect creation
- *  - Generic document updates (Actor / Item / ActiveEffect / TokenDocument)
+ *  - Generic document updates (Actor / Item / ActiveEffect / TokenDocument / Combatant)
  *  - Actor embedded document create/update/delete (ActiveEffect / Item)
  *
  * Concurrency hardening:
@@ -23,12 +23,14 @@
 
 import { isDebugEnabled } from "./debug.js";
 import { SYSTEM_ID } from "../core/constants.js";
+import { isPerfEnabled, monoMs, perfRecord } from "./perf-tracker.js";
 
 const NAMESPACE = SYSTEM_ID;
 
 const QUERY_UPDATE_CHAT_MESSAGE_V1 = `${NAMESPACE}.authority.updateChatMessage.v1`;
 const QUERY_CREATE_ACTIVE_EFFECT_V1 = `${NAMESPACE}.authority.createActiveEffect.v1`;
 const QUERY_UPDATE_DOCUMENT_V1 = `${NAMESPACE}.authority.updateDocument.v1`;
+const QUERY_BATCH_UPDATE_DOCUMENTS_V1 = `${NAMESPACE}.authority.batchUpdateDocuments.v1`;
 const QUERY_CREATE_ACTOR_V1 = `${NAMESPACE}.authority.createActor.v1`;
 const QUERY_CREATE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.createEmbeddedDocuments.v1`;
 const QUERY_UPDATE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.updateEmbeddedDocuments.v1`;
@@ -375,11 +377,13 @@ function _sanitizeGenericUpdatePayload(doc, payload) {
   // IMPORTANT: We also allow dot-path updates within these subtrees (e.g. "system.hp.value").
   const allowTopLevel = new Set(["system", "flags", "name", "img", "icon"]);
 
-  // TokenDocument: extremely conservative.
+  // TokenDocument: conservative allowlist. Includes dead-status sync lanes
+  // required by NPC 0 HP handling (overlay/statuses/effects).
   if (docName === "Token") {
-    // Allow only the minimal fields we need for safe, deterministic position swaps
-    // (e.g., Defender combat talent). Keep this intentionally narrow.
-    const allowedTokenKeys = new Set(["x", "y"]);
+    // Keep this intentionally narrow; these keys are used by:
+    // - deterministic position swaps (x/y)
+    // - dead overlay/status reconciliation (overlayEffect/statuses/effects)
+    const allowedTokenKeys = new Set(["x", "y", "overlayEffect", "statuses", "effects"]);
     for (const [k, v] of Object.entries(payload)) {
       if (allowedTokenKeys.has(k)) {
         out[k] = _deepClonePlain(v);
@@ -391,6 +395,21 @@ function _sanitizeGenericUpdatePayload(doc, payload) {
       }
       if (k.startsWith("flags.")) out[k] = _deepClonePlain(v);
     }
+    return out;
+  }
+
+  // Combatant: support deterministic combat state toggles only.
+  if (docName === "Combatant") {
+    const allowedCombatantKeys = new Set(["defeated", "hidden", "initiative", "flags", "name", "img", "icon"]);
+    for (const [k, v] of Object.entries(payload)) {
+      if (allowedCombatantKeys.has(k)) {
+        if (k === "icon" && payload.img === undefined) out.img = _deepClonePlain(v);
+        else out[k] = _deepClonePlain(v);
+        continue;
+      }
+      if (k.startsWith("flags.")) out[k] = _deepClonePlain(v);
+    }
+    if (out.icon !== undefined) delete out.icon;
     return out;
   }
 
@@ -441,7 +460,7 @@ function _sanitizeEmbeddedDocData(embeddedName, data) {
     const allowed = new Set(["name", "img", "icon", "origin", "disabled", "duration", "changes", "flags", "statuses", "tint", "transfer"]);
     const out = {};
     for (const [k, v] of Object.entries(data)) {
-      if (!allowed.has(k)) continue;
+      if (!allowed.has(k) && !k.startsWith("flags.") && !k.startsWith("duration.")) continue;
       if (k === "icon") {
         if (out.img === undefined && data.img === undefined) out.img = _deepClonePlain(v);
         continue;
@@ -456,7 +475,7 @@ function _sanitizeEmbeddedDocData(embeddedName, data) {
     const allowed = new Set(["name", "img", "type", "system", "flags"]);
     const out = {};
     for (const [k, v] of Object.entries(data)) {
-      if (!allowed.has(k)) continue;
+      if (!allowed.has(k) && !k.startsWith("system.") && !k.startsWith("flags.")) continue;
       out[k] = _deepClonePlain(v);
     }
     return out;
@@ -497,6 +516,11 @@ function _lockKeyForDoc(doc) {
   } catch (_e) {
     return "Document:unknown";
   }
+}
+
+function _isAllowedGenericDocument(doc) {
+  const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant"]);
+  return !!doc && doc.documentName !== "ChatMessage" && allowedDocs.has(doc.documentName);
 }
 
 export function registerAuthorityProxy() {
@@ -603,7 +627,7 @@ export function registerAuthorityProxy() {
         if (doc.documentName === "ChatMessage") return { ok: false, error: "Use updateChatMessage proxy for ChatMessage" };
 
         // Supported docs only.
-        const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token"]);
+        const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant"]);
         if (!allowedDocs.has(doc.documentName)) {
           return { ok: false, error: `Unsupported document type: ${doc.documentName}` };
         }
@@ -628,6 +652,115 @@ export function registerAuthorityProxy() {
       } catch (err) {
         console.error("UESRPG | authority-proxy | updateDocument query handler failed", err);
         return { ok: false, error: err?.message ?? String(err) };
+      }
+    };
+  }
+
+  if (!CONFIG.queries[QUERY_BATCH_UPDATE_DOCUMENTS_V1]) {
+    CONFIG.queries[QUERY_BATCH_UPDATE_DOCUMENTS_V1] = async function batchUpdateDocumentsHandler(queryData) {
+      const started = isPerfEnabled() ? monoMs() : 0;
+      try {
+        const updates = Array.isArray(queryData?.updates) ? queryData.updates : [];
+        if (!updates.length) {
+          return { ok: false, totalCount: 0, updatedCount: 0, failureCount: 0, failures: [{ uuid: "", error: "No updates provided" }] };
+        }
+
+        const resolved = [];
+        const failures = [];
+        for (const row of updates) {
+          const uuid = String(row?.uuid ?? "").trim();
+          if (!uuid) {
+            failures.push({ uuid: "", error: "Missing uuid" });
+            continue;
+          }
+          const doc = await fromUuid(uuid);
+          if (!doc) {
+            failures.push({ uuid, error: `Document not found for uuid=${uuid}` });
+            continue;
+          }
+          if (!_isAllowedGenericDocument(doc)) {
+            failures.push({ uuid, error: `Unsupported document type: ${doc.documentName}` });
+            continue;
+          }
+          if (!(game.user?.isGM || doc.isOwner)) {
+            failures.push({ uuid, error: "Not authorized to update target document" });
+            continue;
+          }
+
+          const cleaned = _sanitizeGenericUpdatePayload(doc, row?.updateData ?? {});
+          if (!cleaned || Object.keys(cleaned).length === 0) {
+            failures.push({ uuid, error: "Empty/invalid update payload" });
+            continue;
+          }
+
+          resolved.push({ uuid, doc, cleaned, lockKey: _lockKeyForDoc(doc) });
+        }
+
+        const uniqueLockKeys = Array.from(new Set(resolved.map((r) => r.lockKey))).sort((a, b) => a.localeCompare(b));
+        const acquiredKeys = [];
+        for (const key of uniqueLockKeys) {
+          try {
+            await _acquireLock(key);
+            acquiredKeys.push(key);
+          } catch (err) {
+            failures.push({ uuid: "", error: err?.message ?? String(err) });
+            break;
+          }
+        }
+
+        let updatedCount = 0;
+        try {
+          const canApply = acquiredKeys.length === uniqueLockKeys.length;
+          for (const row of resolved) {
+            if (!canApply) {
+              failures.push({ uuid: row.uuid, error: "Batch lock acquisition failed" });
+              continue;
+            }
+            try {
+              await row.doc.update(row.cleaned);
+              updatedCount += 1;
+            } catch (err) {
+              failures.push({ uuid: row.uuid, error: err?.message ?? String(err) });
+            }
+          }
+        } finally {
+          for (let i = acquiredKeys.length - 1; i >= 0; i--) {
+            _releaseLock(acquiredKeys[i]);
+          }
+        }
+
+        const totalCount = updates.length;
+        const failureCount = failures.length;
+        const ok = failureCount === 0;
+
+        if (isPerfEnabled()) {
+          perfRecord({
+            event: "authorityProxy.batchUpdate",
+            totalCount,
+            updatedCount,
+            failureCount,
+            durationMs: monoMs() - started,
+          });
+        }
+
+        return { ok, totalCount, updatedCount, failureCount, failures };
+      } catch (err) {
+        if (isPerfEnabled()) {
+          perfRecord({
+            event: "authorityProxy.batchUpdate",
+            totalCount: 0,
+            updatedCount: 0,
+            failureCount: 1,
+            durationMs: monoMs() - started,
+          });
+        }
+        return {
+          ok: false,
+          totalCount: 0,
+          updatedCount: 0,
+          failureCount: 1,
+          failures: [{ uuid: "", error: err?.message ?? String(err) }]
+        };
       }
     };
   }
@@ -904,10 +1037,78 @@ export async function requestCreateActiveEffect(actor, effectData, { timeout = 5
 }
 
 /**
+ * Freshness-aware, permission-safe document update.
+ *
+ * On the **direct path** (current user is GM or owner): acquires the per-document
+ * lock, re-reads the document fresh via fromUuid(), calls `mutator(freshDoc)` to
+ * produce the update payload, sanitizes it, and writes — all inside the lock.
+ * This prevents stale-snapshot writes in read-wait-write workflows (e.g. rest
+ * dialogs, stamina spend dialogs) where another client may have updated the
+ * document between the original read and the eventual write.
+ *
+ * On the **proxy path** (non-authorized user): calls `mutator(doc)` with the
+ * caller's current document reference to produce a static payload, then
+ * delegates to requestUpdateDocument. The proxy handler re-reads the document
+ * server-side, but cannot re-apply the mutator logic. Freshness is best-effort
+ * on this path; document the known limitation at the call site.
+ *
+ * The mutator receives the fresh document and must return an update-data object
+ * (or null / empty object to skip the write). Side-effects inside the mutator
+ * (e.g. capturing computed values for chat lines) are valid because the mutator
+ * is called exactly once per invocation.
+ *
+ * Supported document types: Actor / Item / ActiveEffect / TokenDocument / Combatant
+ *
+ * @param {Document|string} docOrUuid
+ * @param {function(Document): object|null} mutator - Returns updateData or null to skip
+ * @param {object} [options]
+ * @param {number} [options.timeout=5000]
+ * @returns {Promise<boolean>}
+ */
+export async function requestAtomicUpdateDocument(docOrUuid, mutator, { timeout = 5000 } = {}) {
+  if (!docOrUuid || typeof mutator !== "function") return false;
+
+  const doc = (typeof docOrUuid === "string") ? await fromUuid(docOrUuid) : docOrUuid;
+  if (!doc) return false;
+  if (doc.documentName === "ChatMessage") return false;
+
+  const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant"]);
+  if (!allowedDocs.has(doc.documentName)) return false;
+
+  // Direct path: authorized user — re-read fresh inside lock for atomicity.
+  if (game.user?.isGM || doc.isOwner) {
+    const lockKey = _lockKeyForDoc(doc);
+    await _acquireLock(lockKey);
+    try {
+      const freshDoc = (doc.uuid ? (await fromUuid(doc.uuid)) : null) ?? doc;
+      const updateData = mutator(freshDoc);
+      if (!updateData || typeof updateData !== "object" || !Object.keys(updateData).length) return false;
+      const cleaned = _sanitizeGenericUpdatePayload(freshDoc, updateData);
+      if (!cleaned || !Object.keys(cleaned).length) return false;
+      await freshDoc.update(cleaned);
+      return true;
+    } catch (err) {
+      console.error("UESRPG | authority-proxy | requestAtomicUpdateDocument direct path failed", { uuid: doc.uuid, err });
+      return false;
+    } finally {
+      _releaseLock(lockKey);
+    }
+  }
+
+  // Proxy path: non-authorized user — compute static payload from caller's doc.
+  // Freshness is best-effort; the proxy handler re-reads server-side but applies
+  // the static payload rather than the mutator logic.
+  _dlog("requestAtomicUpdateDocument proxy path (freshness best-effort)", { uuid: doc.uuid, docName: doc.documentName });
+  const updateData = mutator(doc);
+  if (!updateData || typeof updateData !== "object" || !Object.keys(updateData).length) return false;
+  return requestUpdateDocument(doc, updateData, { timeout });
+}
+
+/**
  * Permission-safe generic document update.
  *
  * Supported:
- *  - Actor / Item / ActiveEffect / TokenDocument
+ *  - Actor / Item / ActiveEffect / TokenDocument / Combatant
  *
  * The payload is sanitized to conservative lanes.
  */
@@ -920,6 +1121,16 @@ export async function requestUpdateDocument(docOrUuid, updateData, { timeout = 5
 
   const cleaned = _sanitizeGenericUpdatePayload(doc, updateData);
   if (!cleaned || Object.keys(cleaned).length === 0) return false;
+
+  if (isPerfEnabled()) {
+    perfRecord({
+      event: "authorityProxy.updateDocument",
+      docType: doc.documentName ?? null,
+      docId: doc.id ?? null,
+      keyCount: Object.keys(cleaned).length,
+      isDirectPath: !!(game.user?.isGM || doc.isOwner),
+    });
+  }
 
   // Direct path.
   if (game.user?.isGM || doc.isOwner) {
@@ -951,6 +1162,192 @@ export async function requestUpdateDocument(docOrUuid, updateData, { timeout = 5
   } catch (err) {
     console.error("UESRPG | authority-proxy | proxy updateDocument failed", { uuid: doc.uuid, err });
     return false;
+  }
+}
+
+/**
+ * Permission-safe grouped generic document updates.
+ *
+ * Input rows:
+ *  - { docOrUuid: Document|string, updateData: object }
+ *
+ * Returns:
+ *  - { ok, totalCount, updatedCount, failureCount, failures[] }
+ */
+export async function requestBatchUpdateDocuments(updates, { timeout = 5000 } = {}) {
+  const rows = Array.isArray(updates) ? updates : [];
+  const started = isPerfEnabled() ? monoMs() : 0;
+
+  /** @type {Array<{uuid: string, updateData: object}>} */
+  const prepared = [];
+  const failures = [];
+
+  for (const row of rows) {
+    try {
+      const candidate = row?.docOrUuid ?? null;
+      const doc = (typeof candidate === "string") ? await fromUuid(candidate) : candidate;
+      const updateData = row?.updateData ?? null;
+      if (!doc || !updateData) {
+        failures.push({ uuid: "", error: "Missing/invalid docOrUuid or updateData" });
+        continue;
+      }
+      if (!_isAllowedGenericDocument(doc)) {
+        failures.push({ uuid: String(doc?.uuid ?? ""), error: `Unsupported document type: ${doc?.documentName ?? "unknown"}` });
+        continue;
+      }
+      const cleaned = _sanitizeGenericUpdatePayload(doc, updateData);
+      if (!cleaned || Object.keys(cleaned).length === 0) {
+        failures.push({ uuid: String(doc?.uuid ?? ""), error: "Empty/invalid update payload" });
+        continue;
+      }
+      prepared.push({ uuid: String(doc.uuid), updateData: cleaned });
+    } catch (err) {
+      failures.push({ uuid: "", error: err?.message ?? String(err) });
+    }
+  }
+
+  if (isPerfEnabled()) {
+    perfRecord({
+      event: "authorityProxy.batchUpdate",
+      totalCount: rows.length,
+      preparedCount: prepared.length,
+      preflightFailureCount: failures.length,
+      durationMs: monoMs() - started,
+    });
+  }
+
+  // Direct path: current user can update each document.
+  if (prepared.length && prepared.every((r) => {
+    const doc = fromUuidSync(r.uuid);
+    return !!doc && (game.user?.isGM || doc.isOwner);
+  })) {
+    const lockKeys = [];
+    for (const row of prepared) {
+      const doc = fromUuidSync(row.uuid);
+      if (!doc) {
+        failures.push({ uuid: row.uuid, error: "Document not found during direct update" });
+        continue;
+      }
+      lockKeys.push(_lockKeyForDoc(doc));
+    }
+
+    const uniqueLockKeys = Array.from(new Set(lockKeys)).sort((a, b) => a.localeCompare(b));
+    for (const key of uniqueLockKeys) {
+      try {
+        await _acquireLock(key);
+      } catch (err) {
+        failures.push({ uuid: "", error: err?.message ?? String(err) });
+      }
+    }
+
+    let updatedCount = 0;
+    try {
+      for (const row of prepared) {
+        const doc = fromUuidSync(row.uuid);
+        if (!doc) {
+          failures.push({ uuid: row.uuid, error: "Document not found during apply" });
+          continue;
+        }
+        try {
+          await doc.update(row.updateData);
+          updatedCount += 1;
+        } catch (err) {
+          failures.push({ uuid: row.uuid, error: err?.message ?? String(err) });
+        }
+      }
+    } finally {
+      for (let i = uniqueLockKeys.length - 1; i >= 0; i--) {
+        _releaseLock(uniqueLockKeys[i]);
+      }
+    }
+
+    const totalCount = rows.length;
+    const failureCount = failures.length;
+    const out = { ok: failureCount === 0, totalCount, updatedCount, failureCount, failures };
+    if (isPerfEnabled()) {
+      perfRecord({
+        event: "authorityProxy.batchUpdate",
+        totalCount,
+        updatedCount,
+        failureCount,
+        isDirectPath: true,
+        durationMs: monoMs() - started,
+      });
+    }
+    return out;
+  }
+
+  // Proxy path.
+  const applier = _selectActiveGM();
+  if (!applier) {
+    const totalCount = rows.length;
+    const failureCount = failures.length + prepared.length;
+    const out = {
+      ok: false,
+      totalCount,
+      updatedCount: 0,
+      failureCount,
+      failures: failures.concat(prepared.map((r) => ({ uuid: r.uuid, error: "A GM must be online to apply this change." })))
+    };
+    if (isPerfEnabled()) {
+      perfRecord({
+        event: "authorityProxy.batchUpdate",
+        totalCount,
+        updatedCount: 0,
+        failureCount,
+        isDirectPath: false,
+        durationMs: monoMs() - started,
+      });
+    }
+    return out;
+  }
+
+  try {
+    const resp = await applier.query(QUERY_BATCH_UPDATE_DOCUMENTS_V1, { updates: prepared }, { timeout });
+    const proxyFailures = Array.isArray(resp?.failures) ? resp.failures : [];
+    const mergedFailures = failures.concat(proxyFailures);
+    const totalCount = rows.length;
+    const updatedCount = Number(resp?.updatedCount ?? 0) || 0;
+    const failureCount = mergedFailures.length;
+    const out = {
+      ok: failureCount === 0 && resp?.ok === true,
+      totalCount,
+      updatedCount,
+      failureCount,
+      failures: mergedFailures
+    };
+    if (isPerfEnabled()) {
+      perfRecord({
+        event: "authorityProxy.batchUpdate",
+        totalCount,
+        updatedCount,
+        failureCount,
+        isDirectPath: false,
+        durationMs: monoMs() - started,
+      });
+    }
+    return out;
+  } catch (err) {
+    const mergedFailures = failures.concat([{ uuid: "", error: err?.message ?? String(err) }]);
+    const totalCount = rows.length;
+    const out = {
+      ok: false,
+      totalCount,
+      updatedCount: 0,
+      failureCount: mergedFailures.length,
+      failures: mergedFailures
+    };
+    if (isPerfEnabled()) {
+      perfRecord({
+        event: "authorityProxy.batchUpdate",
+        totalCount,
+        updatedCount: 0,
+        failureCount: mergedFailures.length,
+        isDirectPath: false,
+        durationMs: monoMs() - started,
+      });
+    }
+    return out;
   }
 }
 
@@ -1104,6 +1501,17 @@ export async function requestUpdateEmbeddedDocuments(actor, embeddedName, update
 export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, { timeout = 5000 } = {}) {
   if (!actor || !embeddedName || !Array.isArray(ids) || !ids.length) return false;
   if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return false;
+
+  if (isPerfEnabled()) {
+    perfRecord({
+      event: "authorityProxy.deleteEmbedded",
+      docType: actor.documentName ?? "Actor",
+      embeddedName,
+      count: ids.length,
+      actorId: actor.id ?? null,
+      isDirectPath: !!(game.user?.isGM || actor.isOwner),
+    });
+  }
 
   // Direct path.
   if (game.user?.isGM || actor.isOwner) {

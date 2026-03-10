@@ -21,14 +21,6 @@ import {
 } from "../../../../core/traits/features/rule-elements.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 
-/**
- * Legacy sheet-listener registrar kept for compatibility with index.js.
- * AppV2 sheet classes register rule-element listeners natively.
- */
-export function registerRuleElementListeners(_sheet, _html) {
-  // no-op by design
-}
-
 // ─── Click-action handlers (called from SimpleItemSheetV2 actions map) ───
 
 /**
@@ -401,3 +393,4 @@ function _parsePredicateInput(value) {
   }
   return text;
 }
+

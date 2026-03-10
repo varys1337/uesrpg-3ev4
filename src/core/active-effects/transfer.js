@@ -17,7 +17,7 @@
  *
  * Current v1 rules:
  *  - talent / trait / power: always active (passive features)
- *  - weapon / armor: active only when item.system.equipped === true
+ *  - weapon / armor / shield: active only when item.system.equipped === true
  *  - spell: inactive unless the item is explicitly marked active via one of:
  *      item.system.active, item.system.isActive, item.flags.uesrpg?.activeSpell
  *    (these fields can be introduced later without rewriting this function)
@@ -81,7 +81,7 @@ export function isTransferEffectActive(actor, item, effect) {
   const equipped = item?.system?.equipped;
 
   if (type === "weapon") return _isWeaponEquippedForActor(actor, item);
-  if (type === "armor") return equipped === true;
+  if (type === "armor" || type === "shield") return equipped === true;
   
   // SPELL EFFECTS: EXPLICIT ACTIVATION ONLY
   // Spells may carry Item Active Effects, but they should not be implicitly "always on".

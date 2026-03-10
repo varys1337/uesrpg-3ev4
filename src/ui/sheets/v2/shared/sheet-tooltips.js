@@ -1,4 +1,5 @@
 import UESRPG from "../../../../core/constants.js";
+import { ITEM_QUALITY_LABELS } from "../../../../core/config/label-catalog.js";
 import { SPECIAL_ACTIONS_BY_ID, getSpecialActionById } from "../../../../core/config/special-actions.js";
 import { alertDialog } from "../../../../utils/dialog-v2-helper.js";
 import {
@@ -54,13 +55,15 @@ function _humanizeIdentifier(value) {
 }
 
 function _getQualityLabelMap(itemType) {
-  const map = new Map();
+  // Primary source: centralized label catalog (covers all quality + trait keys).
+  const map = new Map(Object.entries(ITEM_QUALITY_LABELS));
+  // Supplement with any catalog keys the label map might not cover (forward-compat).
   const core = UESRPG?.QUALITIES_CORE_BY_TYPE?.[itemType] ?? [];
   const traits = UESRPG?.TRAITS_BY_TYPE?.[itemType] ?? [];
   for (const entry of [...core, ...traits]) {
     const key = String(entry?.key ?? "").trim();
-    if (!key) continue;
-    map.set(key, String(entry?.label ?? key));
+    if (!key || map.has(key)) continue;
+    map.set(key, key);
   }
   return map;
 }

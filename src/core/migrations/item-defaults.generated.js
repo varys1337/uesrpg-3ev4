@@ -87,6 +87,7 @@ export const DEFAULTS = deepFreeze(
       "totalENC": 0,
       "reach": 0,
       "reachMin": 0,
+      "range": "",
       "damage": "",
       "damage2": "",
       "damage3": "",
@@ -116,7 +117,8 @@ export const DEFAULTS = deepFreeze(
       "reloadState": {
         "isLoaded": true,
         "reloadAPCost": 0,
-        "requiresReload": false
+        "requiresReload": false,
+        "reloadProgress": 0
       }
     },
     "armor": {
@@ -217,38 +219,12 @@ export const DEFAULTS = deepFreeze(
         "shield": "Shield"
       },
       "hitLocations": {
-        "Head": true,
-        "Body": true,
-        "RightArm": true,
-        "LeftArm": true,
-        "RightLeg": true,
-        "LeftLeg": true
-      },
-      "hitLocationStates": {
-        "Head": {
-          "coverageOverride": "",
-          "damaged": 0
-        },
-        "Body": {
-          "coverageOverride": "",
-          "damaged": 0
-        },
-        "RightArm": {
-          "coverageOverride": "",
-          "damaged": 0
-        },
-        "LeftArm": {
-          "coverageOverride": "",
-          "damaged": 0
-        },
-        "RightLeg": {
-          "coverageOverride": "",
-          "damaged": 0
-        },
-        "LeftLeg": {
-          "coverageOverride": "",
-          "damaged": 0
-        }
+        "Head": false,
+        "Body": false,
+        "RightArm": false,
+        "LeftArm": false,
+        "RightLeg": false,
+        "LeftLeg": false
       },
       "charge": {
         "value": 0,
@@ -259,7 +235,115 @@ export const DEFAULTS = deepFreeze(
       "material": "standard",
       "qualitiesStructured": [],
       "qualitiesTraits": [],
-      "effectiveWeightClass": "none"
+      "effectiveWeightClass": "none",
+      "armorValues": {
+        "full": {
+          "armor": 0,
+          "magic_ar": 0,
+          "special_ar": 0,
+          "special_ar_type": ""
+        },
+        "partial": {
+          "armor": 0,
+          "magic_ar": 0,
+          "special_ar": 0,
+          "special_ar_type": ""
+        }
+      }
+    },
+    "shield": {
+      "mpBonus": 0,
+      "hpBonus": 0,
+      "spBonus": 0,
+      "lpBonus": 0,
+      "wtBonus": 0,
+      "iniBonus": 0,
+      "speedBonus": 0,
+      "flyBonus": 0,
+      "swimBonus": 0,
+      "diseaseR": 0,
+      "fireR": 0,
+      "frostR": 0,
+      "shockR": 0,
+      "poisonR": 0,
+      "magicR": 0,
+      "natToughnessR": 0,
+      "silverR": 0,
+      "sunlightR": 0,
+      "characteristics": {
+        "none": "None",
+        "str": "STR",
+        "end": "END",
+        "agi": "AGI",
+        "int": "INT",
+        "wp": "WP",
+        "prc": "PRC",
+        "prs": "PRS",
+        "lck": "LCK"
+      },
+      "characteristicBonus": {
+        "strChaBonus": 0,
+        "endChaBonus": 0,
+        "agiChaBonus": 0,
+        "intChaBonus": 0,
+        "wpChaBonus": 0,
+        "prcChaBonus": 0,
+        "prsChaBonus": 0,
+        "lckChaBonus": 0
+      },
+      "replace": {
+        "ini": {
+          "iniToggle": false,
+          "value": 0,
+          "characteristic": ""
+        },
+        "wt": {
+          "wtToggle": false,
+          "value": 0,
+          "characteristic": ""
+        }
+      },
+      "skillArray": [],
+      "isPhysicalObject": true,
+      "containerStats": {
+        "contained": false,
+        "container_id": "",
+        "container_name": ""
+      },
+      "gmOverride": {
+        "enabled": false
+      },
+      "description": "",
+      "quantity": 1,
+      "enc": 0,
+      "totalENC": 0,
+      "equipped": false,
+      "carried": false,
+      "qualityLevel": "common",
+      "runed": false,
+      "runedBonusApplied": false,
+      "shieldType": "normal",
+      "magic_br": 0,
+      "hands": 0,
+      "price": 0,
+      "blockRating": 0,
+      "enchant_level": 0,
+      "qualities": "",
+      "charge": {
+        "value": 0,
+        "max": 0,
+        "reduction": 1
+      },
+      "weightClass": "none",
+      "material": "standard",
+      "qualitiesStructured": [],
+      "qualitiesTraits": [],
+      "effectiveWeightClass": "none",
+      "blockRatingEffective": 0,
+      "magic_brEffective": 0,
+      "magic_brSpecial": null,
+      "enchant_levelEffective": 0,
+      "treatAsFreeHandForSmallOrGrapple": false
     },
     "ammunition": {
       "mpBonus": 0,
@@ -340,7 +424,7 @@ export const DEFAULTS = deepFreeze(
         "max": 0
       },
       "arrowType": "none",
-      "ammoMaterial": "standard",
+      "damageType": "",
       "qualitiesStructured": [],
       "qualitiesTraits": []
     }

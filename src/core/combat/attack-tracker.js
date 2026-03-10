@@ -9,6 +9,8 @@ import { hasTalent } from "../traits/talents-api.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands } from "./combat-utils.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { requestBatchUpdateDocuments } from "../../utils/authority-proxy.js";
 
 const ATTACK_OVERRIDE_MAX_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.max`;
 const ATTACK_OVERRIDE_CURRENT_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.current`;
@@ -222,10 +224,13 @@ export class AttackTracker {
     if (!actor) return;
 
     const { requestUpdateDocument } = await import("../../utils/authority-proxy.js");
-    
+    const updates = this._buildResetUpdateData(actor);
+    await requestUpdateDocument(actor, updates);
+  }
+
+  static _buildResetUpdateData(actor) {
     const currentRound = this._getCombatRound();
     const currentTurn = this._getCombatTurn();
-    
     const updates = {
       "system.combat_tracking.attacks_this_round": 0,
       "system.combat_tracking.attacks_this_turn": 0,
@@ -236,7 +241,7 @@ export class AttackTracker {
     if (this.getOverrides(actor).current != null) {
       updates[ATTACK_OVERRIDE_CURRENT_PATH] = 0;
     }
-    await requestUpdateDocument(actor, updates);
+    return updates;
   }
 
   /**
@@ -337,6 +342,50 @@ function _getCombatRoundState(combat) {
   return _combatRoundState.get(String(combat.id)) ?? null;
 }
 
+async function _handleCombatBoundaryAttackReset(payload) {
+  if (!game.user?.isGM) return;
+  if (payload?.source !== "combat") return;
+  if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+  const combat = game?.combat ?? null;
+  if (!combat?.id) return;
+  if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
+
+  const prevRound = _getCombatRoundState(combat);
+  const nextRound = Number(combat.round ?? 0);
+  if (prevRound !== null && prevRound === nextRound) return;
+
+  _setCombatRoundState(combat);
+
+  let skipEager = false;
+  try { skipEager = Boolean(game?.settings?.get?.("uesrpg-3ev4", "skipAttackTrackerEagerReset")); }
+  catch (_e) { /* not yet registered - treat as false */ }
+
+  if (skipEager) return;
+
+  const batchRows = [];
+  for (const combatant of combat.combatants) {
+    if (combatant.actor) {
+      batchRows.push({
+        docOrUuid: combatant.actor,
+        updateData: AttackTracker._buildResetUpdateData(combatant.actor)
+      });
+    }
+  }
+  if (!batchRows.length) return;
+
+  const result = await requestBatchUpdateDocuments(batchRows);
+  if (result?.ok === true) return;
+
+  const failedUuidSet = new Set((result?.failures ?? []).map((f) => String(f?.uuid ?? "")).filter(Boolean));
+  for (const row of batchRows) {
+    const actor = row.docOrUuid;
+    const uuid = String(actor?.uuid ?? "");
+    if (failedUuidSet.size && !failedUuidSet.has(uuid)) continue;
+    await AttackTracker.resetAttacks(actor);
+  }
+}
+
 if (!_combatHooksRegistered) {
   _combatHooksRegistered = true;
 
@@ -350,29 +399,16 @@ if (!_combatHooksRegistered) {
     if (!combat?.id) return;
     _combatRoundState.delete(String(combat.id));
   });
+  registerCombatBoundaryConsumer({
+    id: "attack-tracker",
+    // Attack reset is a late round-boundary cleanup and can no-op under lazy reset mode.
+    order: 350,
+    handle: _handleCombatBoundaryAttackReset
+  });
 
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (!game.user?.isGM) return;
-    if (payload?.source !== "combat") return;
-    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-
-    const combat = game?.combat ?? null;
-    if (!combat?.id) return;
-    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
-
-    const prevRound = _getCombatRoundState(combat);
-    const nextRound = Number(combat.round ?? 0);
-    if (prevRound !== null && prevRound === nextRound) return;
-
-    _setCombatRoundState(combat);
-
-    // Reset attack counters for all combatants in parallel
-    const resetPromises = [];
-    for (const combatant of combat.combatants) {
-      if (combatant.actor) {
-        resetPromises.push(AttackTracker.resetAttacks(combatant.actor));
-      }
-    }
-    await Promise.all(resetPromises);
+    if (noteCombatBoundaryLegacyFallbackSkip("attack-tracker", payload)) return;
+    await _handleCombatBoundaryAttackReset(payload);
   });
 }
+

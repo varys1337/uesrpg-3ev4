@@ -53,7 +53,7 @@ export function registerHomebrewSettings() {
 
   _reg("homebrew.reachLength.attackerAdvantageOnly", {
     name: "Homebrew: Length Advantage (Attacker Only)",
-    hint: "When enabled, positive Length Advantage TN bonuses apply only to the attacker side. Defender-side Length bonuses are suppressed; penalties still apply normally.",
+    hint: "When enabled, Length TN modifiers apply only to the attacker side. Defender-side Length bonuses and penalties are both suppressed.",
     scope: "world",
     config: false,
     requiresReload: false,

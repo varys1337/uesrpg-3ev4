@@ -34,7 +34,7 @@
  * @property {string}  img   - Spell icon path
  * @property {{school: string, form: string, type: string, level: number}} metadata
  * @property {{isAttack: boolean, isDamaging: boolean, isHealing: boolean, isDirect: boolean, isInstant: boolean, hasUpkeep: boolean, hasOverload: boolean, hasReinforce: boolean}} classification
- * @property {{base: number, baseRaw: number, aeModifier: number, aeBreakdown: Array, wpBonus: number, restrained: {enabled: boolean, reduction: number, appliesOnSuccess: boolean}, overload: {enabled: boolean, multiplier: number}, overcharge: {enabled: boolean}, final: number, attempt: number}} cost
+ * @property {{base: number, baseRaw: number, aeModifier: number, aeBreakdown: Array, wpBonus: number, restraintWbDelta: number, effectiveRestraintReduction: number, restrained: {enabled: boolean, reduction: number, appliesOnSuccess: boolean}, overload: {enabled: boolean, multiplier: number}, overcharge: {enabled: boolean}, final: number, attempt: number}} cost
  * @property {{formula: string, type: string, isHealing: boolean, overloadBonusFormula: string, criticalBehavior: string}} damage
  * @property {{value: number, unit: string, isInstant: boolean, isPermanent: boolean, isFinite: boolean}} duration
  * @property {{type: string, maxMeters: number|null, requiresTarget: boolean, requiresLineOfSight: boolean}} range
@@ -52,9 +52,9 @@ import {
   getSpellDamageFormula,
   getSpellDamageType,
   isHealingSpell as _isHealingSpell,
-  getSpellScalingEntry,
-  getActorWillpowerBonus
+  getSpellScalingEntry
 } from "./magicka-utils.js";
+import { getSpellRestraintReduction } from "./magic-modifiers.js";
 import {
   getSpellRangeType,
   getSpellMaxRangeMeters,
@@ -184,8 +184,37 @@ function _resolveClassification(spell) {
  * @param {Actor} actor
  * @param {Item} spell
  * @param {object} options - { level, isRestrained, isOverloaded, isOvercharged }
- * @returns {{base: number, baseRaw: number, aeModifier: number, aeBreakdown: Array, wpBonus: number, restrained: {enabled: boolean, reduction: number, appliesOnSuccess: boolean}, overload: {enabled: boolean, multiplier: number}, final: number, attempt: number}}
+ * @returns {{base: number, baseRaw: number, aeModifier: number, aeBreakdown: Array, wpBonus: number, restraintWbDelta: number, effectiveRestraintReduction: number, restrained: {enabled: boolean, reduction: number, appliesOnSuccess: boolean}, overload: {enabled: boolean, multiplier: number}, final: number, attempt: number}}
  */
+function _recomputeRestrainedReduction(profile, actor, spell, options = {}) {
+  if (!profile?.cost) return profile;
+
+  const baseCost = Math.max(0, _num(profile.cost.base, 0));
+  const baseWB = Math.max(0, _num(profile.cost.wpBonus, 0));
+  const restraintWbDelta = _num(profile.cost.restraintWbDelta, 0);
+  const isRestrained = Boolean(profile.cost.restrained?.enabled);
+
+  if (!isRestrained || baseCost <= 0) {
+    profile.cost.effectiveRestraintReduction = 0;
+    if (profile.cost.restrained) profile.cost.restrained.reduction = 0;
+    profile.cost.final = Math.max(1, _num(profile.cost.attempt, 0));
+    return profile;
+  }
+
+  const restraintInfo = getSpellRestraintReduction(actor, spell, {
+    ...options,
+    baseCost,
+    baseWB,
+    restraintWbDelta,
+    minCost: 1
+  });
+  const restrainedReduction = Math.max(0, _num(restraintInfo?.reduction, 0));
+  profile.cost.effectiveRestraintReduction = restrainedReduction;
+  if (profile.cost.restrained) profile.cost.restrained.reduction = restrainedReduction;
+  profile.cost.final = Math.max(1, _num(profile.cost.attempt, 0) - restrainedReduction);
+  return profile;
+}
+
 function _resolveCostProfile(actor, spell, options = {}) {
   const baseCostRaw = getSpellCost(spell, options.level ?? null);
   const { total: aeModifierRaw, breakdown: aeBreakdown } = _evaluateSpellCostAEModifier(actor, spell);
@@ -194,13 +223,16 @@ function _resolveCostProfile(actor, spell, options = {}) {
   // Base cost after AE modifiers (before restrain/overload)
   const baseCost = Math.max(0, Math.floor(baseCostRaw + aeModifier));
   
-  const wpBonus = getActorWillpowerBonus(actor);
+  const restraintInfo = getSpellRestraintReduction(actor, spell, {
+    ...options,
+    baseCost,
+    minCost: 1
+  });
+  const wpBonus = Math.max(0, _num(restraintInfo?.baseWB, 0));
   const isRestrained = _bool(options.isRestrained);
   const isOverloaded = _bool(options.isOverloaded);
   const isOvercharged = _bool(options.isOvercharged);
-  
-  // Restrain: RAW reduces cost only on successful cast (refunded after roll)
-  const restrainedReduction = isRestrained ? Math.min(Math.max(0, baseCost - 1), wpBonus) : 0;
+  const restrainedReduction = isRestrained ? Math.max(0, _num(restraintInfo?.reduction, 0)) : 0;
   
   // Overload: RAW doubles cost
   const overloadMultiplier = isOverloaded ? 2 : 1;
@@ -217,6 +249,8 @@ function _resolveCostProfile(actor, spell, options = {}) {
     aeModifier,
     aeBreakdown,
     wpBonus,
+    restraintWbDelta: 0,
+    effectiveRestraintReduction: restrainedReduction,
     restrained: {
       enabled: isRestrained,
       reduction: restrainedReduction,
@@ -498,16 +532,8 @@ export function resolveSpellProfile(spell, actor, options = {}) {
 
         // Apply restraint WB delta (same path as talent summary)
         if (wbDelta !== 0 && profile.cost) {
-          profile.cost.wpBonus = _num(profile.cost.wpBonus) + wbDelta;
-          if (profile.cost.restrained?.enabled) {
-            const adjustedWb = profile.cost.wpBonus;
-            const restrainedReduction = Math.min(
-              Math.max(0, _num(profile.cost.base) - 1),
-              Math.max(0, adjustedWb)
-            );
-            profile.cost.restrained.reduction = restrainedReduction;
-            profile.cost.final = Math.max(1, _num(profile.cost.attempt) - restrainedReduction);
-          }
+          profile.cost.restraintWbDelta = _num(profile.cost.restraintWbDelta) + wbDelta;
+          _recomputeRestrainedReduction(profile, actor, spell, options);
         }
 
         // Apply effect delta (Reinforce bonus)
@@ -519,7 +545,7 @@ export function resolveSpellProfile(spell, actor, options = {}) {
         // Apply cost delta
         if (costDelta !== 0 && profile.cost) {
           profile.cost.attempt = Math.max(0, _num(profile.cost.attempt) + costDelta);
-          profile.cost.final = Math.max(1, _num(profile.cost.final) + costDelta);
+          _recomputeRestrainedReduction(profile, actor, spell, options);
         }
 
         // Stamp RE modifiers on profile for downstream inspection

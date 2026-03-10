@@ -3,12 +3,12 @@
  * Chat card rendering helpers extracted from opposed-workflow.js monolith
  */
 
-import { fmtDegree as _fmtDegree } from "./outcome-resolution.js";
 import { renderMultiDefenderCard, renderSingleDefenderCard } from "./cards/renderers.js";
 import { _getDefenderEntries, _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _allDefendersCommitted, _isMultiDefender } from "./schema.js";
 import { _isBankChoicesEnabledForData, _getBankCommitState } from "./banking/state.js";
 import { _anyActiveGMOnline, _safeGetSetting } from "./helpers/util.js";
 import { circumstanceLabel } from "../../opposed/circumstance.js";
+import { formatResultSummary } from "../../../utils/degree-roll-helper.js";
 
 /**
  * Render an opposed card's HTML content.
@@ -113,14 +113,14 @@ export function _extractRollTotal(res) {
 export function _renderRollLine({ result = null, noDefense = false } = {}) {
   if (noDefense) {
     const stub = { rollTotal: 100, isSuccess: false, degree: 1 };
-    return `<div><b>Roll:</b> 100 (${_fmtDegree(stub)})</div>`;
+    return `<div><b>Roll:</b> 100 (${formatResultSummary(stub, { includeDegree: true, degreeStyle: "paren" })})</div>`;
   }
   if (!result) return `<div><b>Roll:</b> -</div>`;
   if (result.noRoll) {
     const outcome = result.isSuccess ? "Automatic Success" : "Automatic Failure";
-    return `<div><b>Roll:</b> ${outcome} (${_fmtDegree(result)})</div>`;
+    return `<div><b>Roll:</b> ${outcome} (${formatResultSummary(result, { includeDegree: true, degreeStyle: "paren" })})</div>`;
   }
   const total = _extractRollTotal(result);
   if (total == null) return `<div><b>Roll:</b> -</div>`;
-  return `<div><b>Roll:</b> ${total} (${_fmtDegree(result)})</div>`;
+  return `<div><b>Roll:</b> ${total} (${formatResultSummary(result, { includeDegree: true, degreeStyle: "paren" })})</div>`;
 }

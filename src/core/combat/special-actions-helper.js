@@ -9,7 +9,7 @@
  */
 
 import { hasCondition, applyCondition, removeCondition } from "../conditions/condition-engine.js";
-import { toggleInCloseForActor } from "../conditions/status-hud.js";
+import { toggleInCloseBetweenActors } from "../conditions/in-close.js";
 import {
   getSpecialActionById,
   buildSpecialActionTestChoicesForActor,
@@ -26,6 +26,88 @@ import { SYSTEM_ID } from "../system/namespace.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 const HOOKED_ACTION_IDS = new Set(["disarm", "trip", "takeWeapon", "take-weapon"]);
+const _GRAPPLE_ACTION_LOCKS = new Set();
+const _GRAPPLE_OWNER_PREFIX = "grappleOwner:";
+const _SIZE_INDEX = Object.freeze({
+  puny: 0,
+  tiny: 1,
+  small: 2,
+  standard: 3,
+  large: 4,
+  huge: 5,
+  enormous: 6,
+});
+
+function _normalizeSizeKey(size) {
+  const raw = String(size ?? "standard").trim().toLowerCase();
+  if (raw === "punity") return "puny";
+  return Object.prototype.hasOwnProperty.call(_SIZE_INDEX, raw) ? raw : "standard";
+}
+
+function _sizeIndex(size) {
+  return _SIZE_INDEX[_normalizeSizeKey(size)] ?? _SIZE_INDEX.standard;
+}
+
+function _getGrappleSizeResult(attacker, defender) {
+  const attackerSize = _sizeIndex(attacker?.system?.size);
+  const defenderSize = _sizeIndex(defender?.system?.size);
+  const delta = attackerSize - defenderSize;
+  if (delta <= -2) {
+    return { blocked: true, modifier: 0, reason: "Target is two or more size categories larger." };
+  }
+  if (delta < 0) {
+    return { blocked: false, modifier: -30, reason: "Target is larger." };
+  }
+  return { blocked: false, modifier: 0, reason: "" };
+}
+
+function _grappleOwnerTag(actor) {
+  return `${_GRAPPLE_OWNER_PREFIX}${String(actor?.uuid ?? actor?.id ?? "").trim()}`;
+}
+
+async function _stampConditionSource(actor, conditionKey, sourceTag) {
+  if (!actor || !conditionKey || !sourceTag) return;
+  const effect = (actor.effects ?? []).find((e) => {
+    if (e?.disabled) return false;
+    return getFlagValueWithFallback(e, "condition.key") === conditionKey;
+  });
+  if (!effect) return;
+  const existing = String(getFlagValueWithFallback(effect, "condition.source") ?? "").trim();
+  if (existing === sourceTag) return;
+  await requestUpdateDocument(effect, {
+    [`flags.${FLAG_SCOPE}.condition.source`]: sourceTag,
+  });
+}
+
+function _isTargetGrappledByActor(target, actor) {
+  if (!target || !actor) return false;
+  const ownerTag = _grappleOwnerTag(actor);
+  return (target.effects ?? []).some((effect) => {
+    if (effect?.disabled) return false;
+    const key = String(getFlagValueWithFallback(effect, "condition.key") ?? "").trim().toLowerCase();
+    if (key !== "restrained" && key !== "grappled") return false;
+    const source = String(getFlagValueWithFallback(effect, "condition.source") ?? "").trim();
+    return source === ownerTag;
+  });
+}
+
+async function _showGrappleFollowUpChoice() {
+  const choice = await customDialog({
+    title: "Grapple Follow-Up",
+    content: `<div style="display:flex;flex-direction:column;gap:8px;">
+      <p style="margin:0;">Target is already grappled by you. Choose a follow-up action:</p>
+    </div>`,
+    buttons: {
+      takedown: { label: "Takedown", callback: () => "takedown" },
+      move: { label: "Move", callback: () => "move" },
+      attack: { label: "Attack", callback: () => "attack" },
+      cancel: { label: "Cancel", callback: () => null },
+    },
+    defaultButton: "takedown",
+    rejectClose: false,
+  });
+  return String(choice ?? "");
+}
 
 function _itemHasQualityToken(item, key) {
   const wanted = String(key ?? "").trim().toLowerCase();
@@ -268,6 +350,12 @@ function _renderSpecialActionCard(data, messageId) {
       </div>
     `;
   }
+  const notes = Array.isArray(data.notes) ? data.notes.map((note) => String(note ?? "").trim()).filter(Boolean) : [];
+  const notesSection = notes.length
+    ? `<div style="margin-top: 8px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 4px;">
+        ${notes.map((note) => `<div style="font-size:12px; line-height:1.35;">${_escapeHtml(note)}</div>`).join("")}
+      </div>`
+    : "";
 
   const freeText = isFreeAction ? '<div style="font-style: italic; font-size: 12px; opacity: 0.8;">(Special Advantage: Free Action)</div>' : '';
 
@@ -282,6 +370,7 @@ function _renderSpecialActionCard(data, messageId) {
         ${defenderSection}
       </div>
       ${outcomeSection}
+      ${notesSection}
     </div>
   `;
 }
@@ -405,6 +494,15 @@ export async function handleSpecialActionCardAction(message, action) {
         consumeConcussiveAfterRoll = true;
       }
     }
+    if (isAttacker && specialActionId === "grapple") {
+      const defenderActor = _resolveActorViaToken(defender.actorUuid, defender.tokenUuid);
+      const sizeRule = _getGrappleSizeResult(actor, defenderActor);
+      if (sizeRule.blocked) {
+        ui.notifications?.warn?.("Grapple failed: target is two or more size categories larger.");
+        return;
+      }
+      specialActionTNMod += Number(sizeRule.modifier ?? 0) || 0;
+    }
     if (!isAttacker && HOOKED_ACTION_IDS.has(specialActionId)) {
       const atkWeapon = _getPreferredWeapon(attackerActor);
       if (atkWeapon && _itemHasQualityToken(atkWeapon, "hooked")) {
@@ -438,7 +536,7 @@ export async function handleSpecialActionCardAction(message, action) {
           opponentActor: isAttacker ? (opponentActor ?? null) : null,
           opponentUuid: isAttacker ? (opponentActor?.uuid ?? null) : null,
           selfSize: actor?.system?.size,
-          opponentSize: isAttacker ? (opponentActor?.system?.size ?? null) : null
+          opponentSize: (isAttacker && specialActionId !== "grapple") ? (opponentActor?.system?.size ?? null) : null
         }
       });
       tn.finalTN = Math.max(0, Number(tn.finalTN ?? 0) + specialActionTNMod);
@@ -599,12 +697,14 @@ export async function executeSpecialAction({
       return await _executeFeint({ actor, target, winner, actorName, targetName, isAutoWin });
     case "forceMovement":
       return await _executeForceMovement({ actor, target, winner, actorName, targetName, isAutoWin });
+    case "grapple":
+      return await _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin });
     case "resist":
       return await _executeResist({ actor, target, winner, actorName, targetName, isAutoWin });
     case "trip":
       return await _executeTrip({ actor, target, winner, actorName, targetName, isAutoWin });
     case "inClose":
-      return await _executeInClose({ actor, actorName, isAutoWin });
+      return await _executeInClose({ actor, target, actorName, targetName, isAutoWin });
     default:
       return { success: false, message: `No automation for ${def.name}.` };
   }
@@ -631,12 +731,6 @@ export async function initiateSpecialActionFromSheet({
   if (!def) {
     ui.notifications.warn("Unknown Special Action.");
     return null;
-  }
-
-  // In Close: no opposed test, direct state toggle (Homebrew — Reach & Length Overhaul)
-  if (specialActionId === "inClose") {
-    await toggleInCloseForActor(actor);
-    return { success: true, message: "In Close toggled." };
   }
 
   // Arise doesn't need a target
@@ -691,7 +785,7 @@ async function _createBashAcrobaticsTest(target) {
 
   if (!acrobatics) {
     ui.notifications.warn(`${target.name} has no Acrobatics skill. Apply Prone manually if they fail.`);
-    return;
+    return `${target.name} has no Acrobatics skill. Apply Prone manually if they fail.`;
   }
 
   // Find target's token
@@ -727,20 +821,9 @@ async function _createBashAcrobaticsTest(target) {
   // Apply Prone if they failed
   if (!result.isSuccess) {
     await applyCondition(target, "prone", { source: "bash-failed-acrobatics" });
-    await ChatMessage.create({
-      user: game.user.id,
-      speaker: ChatMessage.getSpeaker({ actor: target }),
-      content: `<div class="uesrpg-bash-outcome"><b>Bash Follow-Up:</b><p>${target.name} fails the Acrobatics test and falls Prone!</p></div>`,
-      style: CONST.CHAT_MESSAGE_STYLES.OTHER
-    });
-  } else {
-    await ChatMessage.create({
-      user: game.user.id,
-      speaker: ChatMessage.getSpeaker({ actor: target }),
-      content: `<div class="uesrpg-bash-outcome"><b>Bash Follow-Up:</b><p>${target.name} passes the Acrobatics test and avoids falling Prone.</p></div>`,
-      style: CONST.CHAT_MESSAGE_STYLES.OTHER
-    });
+    return `${target.name} fails the Acrobatics test and falls Prone.`;
   }
+  return `${target.name} passes the Acrobatics test and avoids falling Prone.`;
 }
 
 // ============================================================================
@@ -764,11 +847,11 @@ async function _executeBash({ actor, target, winner, actorName, targetName, isAu
     await ActionEconomy.spendAP(target, 1, { reason: "bashed", silent: true });
 
     // Create Acrobatics test card for target (RAW: must pass to avoid Prone)
-    await _createBashAcrobaticsTest(target);
+    const bashFollowUp = await _createBashAcrobaticsTest(target);
 
     return {
       success: true,
-      message: `${actorName} bashes ${targetName}! Knocked back 1m, loses 1 AP. ${targetName} must pass Acrobatics test to avoid Prone. (Manual: move token back 1m)`
+      message: `${actorName} bashes ${targetName}! Knocked back 1m, loses 1 AP. ${bashFollowUp} (Manual: move token back 1m)`
     };
   }
   return { success: false, message: `${actorName}'s bash fails.` };
@@ -861,6 +944,64 @@ async function _executeForceMovement({ actor, target, winner, actorName, targetN
   return { success: false, message: `${actorName} fails to force movement.` };
 }
 
+async function _executeGrapple({ actor, target, winner, actorName, targetName, isAutoWin }) {
+  if (!(winner === "attacker" || isAutoWin)) {
+    return { success: false, message: `${actorName} fails to grapple ${targetName}.` };
+  }
+
+  const sizeRule = _getGrappleSizeResult(actor, target);
+  if (sizeRule.blocked) {
+    return { success: false, message: `${actorName} cannot grapple ${targetName}: target is too large.` };
+  }
+
+  const lockKey = `${String(actor?.uuid ?? actor?.id ?? "")}|${String(target?.uuid ?? target?.id ?? "")}|grapple`;
+  if (_GRAPPLE_ACTION_LOCKS.has(lockKey)) {
+    return { success: false, message: "Grapple is already resolving for this pair." };
+  }
+  _GRAPPLE_ACTION_LOCKS.add(lockKey);
+
+  try {
+    const alreadyControlled = _isTargetGrappledByActor(target, actor);
+    const ownerTag = _grappleOwnerTag(actor);
+
+    if (alreadyControlled) {
+      const followUp = await _showGrappleFollowUpChoice();
+      if (followUp === "takedown") {
+        await applyCondition(target, "prone", { source: "Grapple: Takedown" });
+        return {
+          success: true,
+          message: `${actorName} performs Takedown on ${targetName}. ${targetName} is now Prone.`,
+        };
+      }
+      if (followUp === "move") {
+        return {
+          success: true,
+          message: `${actorName} uses Grapple (Move). Move both tokens together as appropriate.`,
+        };
+      }
+      if (followUp === "attack") {
+        return {
+          success: true,
+          message: `${actorName} uses Grapple (Attack) against ${targetName}. Resolve the attack in the normal attack workflow.`,
+        };
+      }
+      return { success: false, message: `${actorName} cancels the grapple follow-up action.` };
+    }
+
+    await applyCondition(target, "restrained", { source: ownerTag });
+    await applyCondition(target, "grappled", { source: ownerTag });
+    await _stampConditionSource(target, "restrained", ownerTag);
+    await _stampConditionSource(target, "grappled", ownerTag);
+
+    return {
+      success: true,
+      message: `${actorName} grapples ${targetName}. ${targetName} is Restrained.`,
+    };
+  } finally {
+    _GRAPPLE_ACTION_LOCKS.delete(lockKey);
+  }
+}
+
 async function _executeResist({ actor, target, winner, actorName, targetName, isAutoWin }) {
   if (winner === "attacker" || isAutoWin) {
     await removeCondition(actor, "restrained");
@@ -886,11 +1027,22 @@ async function _executeTrip({ actor, target, winner, actorName, targetName, isAu
   return { success: false, message: `${actorName} fails to trip ${targetName}.` };
 }
 
-async function _executeInClose({ actor, actorName, isAutoWin }) {
-  // toggleInCloseForActor already guards against homebrew being disabled.
-  await toggleInCloseForActor(actor);
+async function _executeInClose({ actor, target, actorName, targetName, isAutoWin }) {
+  if (!actor || !target) {
+    return { success: false, message: "In Close requires both attacker and defender actors." };
+  }
+
+  const result = await toggleInCloseBetweenActors(actor, target, { requireOneMeterForEntry: true });
+  if (!result.success) {
+    return { success: false, message: result.message };
+  }
+
+  if (result.left) {
+    return { success: true, message: `${actorName} leaves In Close with ${targetName}.` };
+  }
+
   return {
     success: true,
-    message: `${actorName} ${isAutoWin ? "automatically enters" : "enters"} In Close.`
+    message: `${actorName} ${isAutoWin ? "automatically enters" : "enters"} In Close with ${targetName}.`
   };
 }

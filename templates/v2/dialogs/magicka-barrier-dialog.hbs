@@ -1,0 +1,75 @@
+<div class="uesrpg-resource-dialog__layout">
+  <div class="uesrpg-resource-dialog__body uesrpg-magicka-barrier-dialog">
+    <div class="uesrpg-resource-dialog__group form-group">
+      <label class="uesrpg-resource-dialog__label">Magicka</label>
+      <input type="number" name="magicka" value="{{currentMP}}" min="0" max="{{maxMP}}" />
+      <span class="uesrpg-resource-dialog__hint hint">Max: {{maxMP}}</span>
+    </div>
+
+    <p class="uesrpg-resource-dialog__hint uesrpg-resource-dialog__hint--copy">
+      Barrier buffers absorb damage before Temp HP and HP. Physical blocks physical/silver/sunlight,
+      Magical blocks magic damage, Elemental blocks fire/frost/shock/poison.
+    </p>
+
+    {{#if hasBarrierEffects}}
+    <div class="uesrpg-resource-dialog__group form-group">
+      <label class="uesrpg-resource-dialog__label">Active Barrier Sources</label>
+      <ul class="uesrpg-magicka-barrier-dialog__sources">
+        {{#each barrierEffects}}
+        <li>
+          <strong>{{this.name}}</strong> - {{this.typeLabel}} {{this.originalValue}}{{#if this.hasUpkeep}} <span class="hint">(upkeep)</span>{{/if}}
+        </li>
+        {{/each}}
+      </ul>
+    </div>
+    {{/if}}
+
+    <div class="uesrpg-resource-dialog__group form-group">
+      <label class="uesrpg-resource-dialog__label">
+        Physical Buffer
+        {{#if physicalSourceCount}}
+        <span class="buffer-source-indicator" title="{{physicalSourceCount}} source(s): {{physicalSourceTitle}}">({{physicalSourceCount}})</span>
+        {{/if}}
+      </label>
+      <input type="number" name="bufferPhysical" value="{{physBuf}}" min="0" />
+      <span class="uesrpg-resource-dialog__hint hint">Physical / Silver / Sunlight</span>
+    </div>
+
+    <div class="uesrpg-resource-dialog__group form-group">
+      <label class="uesrpg-resource-dialog__label">
+        Magical Buffer
+        {{#if magicalSourceCount}}
+        <span class="buffer-source-indicator" title="{{magicalSourceCount}} source(s): {{magicalSourceTitle}}">({{magicalSourceCount}})</span>
+        {{/if}}
+      </label>
+      <input type="number" name="bufferMagical" value="{{magBuf}}" min="0" />
+      <span class="uesrpg-resource-dialog__hint hint">Magic damage</span>
+    </div>
+
+    <div class="uesrpg-resource-dialog__group form-group">
+      <label class="uesrpg-resource-dialog__label">
+        Elemental Buffer
+        {{#if elementalSourceCount}}
+        <span class="buffer-source-indicator" title="{{elementalSourceCount}} source(s): {{elementalSourceTitle}}">({{elementalSourceCount}})</span>
+        {{/if}}
+      </label>
+      <input type="number" name="bufferElemental" value="{{elemBuf}}" min="0" />
+      <span class="uesrpg-resource-dialog__hint hint">Fire / Frost / Shock / Poison</span>
+    </div>
+  </div>
+
+  <footer class="form-footer">
+    <button type="submit">
+      <i class="fas fa-check"></i>
+      Apply
+    </button>
+    <button type="button" data-action="clearAll">
+      <i class="fas fa-eraser"></i>
+      Clear Buffers
+    </button>
+    <button type="button" data-action="cancel">
+      <i class="fas fa-times"></i>
+      Cancel
+    </button>
+  </footer>
+</div>

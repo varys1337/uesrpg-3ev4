@@ -12,6 +12,7 @@
 import { FoundryCoreProvider } from "./providers/foundry-core-provider.js";
 import { CalendariaProvider } from "./providers/calendaria-provider.js";
 import { _num } from "../../utils/coerce.js";
+import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
 
 // Reserved for future use (settings, flags, etc).
 const NAMESPACE = "uesrpg-3ev4";
@@ -367,6 +368,7 @@ class TimeServiceImpl {
 
   _emit(payload) {
     const p = payload ?? {};
+    const _t0 = isPerfEnabled() ? monoMs() : 0;
 
     // Fire system-level hook first for interop.
     _safeCallAll("uesrpg.timeChanged", p);
@@ -381,6 +383,21 @@ class TimeServiceImpl {
       } catch (err) {
         console.error("UESRPG | time-service | Listener threw", err);
       }
+    }
+
+    if (isPerfEnabled()) {
+      perfRecord({
+        event: "timeService.emit",
+        source: p?.source ?? null,
+        combatId: p?.combat?.id ?? null,
+        round: p?.combat?.round ?? null,
+        turn: p?.combat?.turn ?? null,
+        phase: p?.combat?.phase ?? null,
+        worldTime: p?.worldTime ?? null,
+        dtSeconds: p?.dtSeconds ?? null,
+        listenerCount: this._listeners.size,
+        durationMs: monoMs() - _t0,
+      });
     }
   }
 
@@ -410,6 +427,8 @@ class TimeServiceImpl {
   }
 
   _handleWorldTimeUpdate(worldTime, dtSeconds, options, userId) {
+    const _perf = isPerfEnabled();
+    const _t0 = _perf ? monoMs() : 0;
     const wt = _num(worldTime, this.getWorldTimeSeconds());
     const dt = _num(dtSeconds, 0);
 
@@ -427,6 +446,18 @@ class TimeServiceImpl {
 
     this._noteEmit(wt, "worldTime");
     this._emit(payload);
+
+    if (_perf) {
+      perfRecord({
+        event: "timeService.worldTimeUpdate",
+        source: "worldTime",
+        worldTime: wt,
+        dtSeconds: dt,
+        combatId: payload.combat?.id ?? null,
+        round: payload.combat?.round ?? null,
+        durationMs: monoMs() - _t0,
+      });
+    }
   }
 
   _handleCalendariaDateTimeChange(data) {
@@ -461,6 +492,8 @@ class TimeServiceImpl {
   }
 
   _handleCombatIntent(combat, updateData, updateOptions, kind) {
+    const _perf = isPerfEnabled();
+    const _t0 = _perf ? monoMs() : 0;
     const c = combat ?? null;
     if (!c) return;
 
@@ -496,6 +529,7 @@ class TimeServiceImpl {
         id: c.id ?? null,
         started: Boolean(c.started),
         phase: "pre",
+        initiativeProvisional: true,
         round: nextRound,
         turn: nextTurn,
         priorRound: _num(c.round, 0),
@@ -508,9 +542,26 @@ class TimeServiceImpl {
 
     // Combat intent should not be deduped against worldTime; it is semantically distinct.
     this._emit(payload);
+
+    if (_perf) {
+      perfRecord({
+        event: "timeService.combatIntent",
+        source: src,
+        combatId: c.id ?? null,
+        round: nextRound,
+        turn: nextTurn,
+        priorRound: _num(c.round, 0),
+        priorTurn: _num(c.turn, 0),
+        kind: String(kind ?? "") || null,
+        dtSeconds: _num(advanceTime, 0),
+        durationMs: monoMs() - _t0,
+      });
+    }
   }
 
   _handleCombatTurnChange(combat, prior, current) {
+    const _perf = isPerfEnabled();
+    const _t0 = _perf ? monoMs() : 0;
     const c = combat ?? null;
     if (!c) return;
 
@@ -539,6 +590,22 @@ class TimeServiceImpl {
     };
 
     this._emit(payload);
+
+    if (_perf) {
+      perfRecord({
+        event: "timeService.combatTurnChange",
+        source: "combat",
+        combatId: c.id ?? null,
+        round: _num(current?.round, _num(c.round, 0)),
+        turn: _num(current?.turn, _num(c.turn, 0)),
+        priorRound: _num(prior?.round, null),
+        priorTurn: _num(prior?.turn, null),
+        worldTime,
+        dtSeconds: _num(dt, 0),
+        listenerCount: this._listeners.size,
+        durationMs: monoMs() - _t0,
+      });
+    }
   }
 }
 

@@ -51,11 +51,9 @@
                         <h2>Attributes</h2>
                         <div class="selection-container">
                             <div class="grid-container">
-                                <div>Ammo Material</div>
+                                <div>Damage Type</div>
                                 <div class="right-align-content">
-                                    <select name="system.ammoMaterial">
-                                        {{selectOptions ammoMaterialOptions selected=item.system.ammoMaterial}}
-                                    </select>
+                                    <input type="text" name="system.damageType" value="{{item.system.damageType}}" placeholder="fire / frost / shock …"/>
                                 </div>
                                 <div>Enchant Level</div>
                                 <div class="right-align-content">

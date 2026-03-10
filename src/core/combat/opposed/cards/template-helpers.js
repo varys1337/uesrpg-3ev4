@@ -4,6 +4,8 @@
  * Extracted from opposed-workflow.js for maintainability.
  */
 
+import { formatResultSummary } from "../../../../utils/degree-roll-helper.js";
+
 /**
  * Format degree of success/failure for display.
  * 
@@ -13,7 +15,7 @@
 export function _fmtDegree(res) {
   if (!res) return "-";
   const cls = res.isSuccess ? "green" : "red";
-  const text = res.isSuccess ? `${res.degree} DoS` : `${res.degree} DoF`;
+  const text = formatResultSummary(res, { includeDegree: true, degreeStyle: "paren" });
   return `<span style="color: ${cls};">${text}</span>`;
 }
 
@@ -391,17 +393,22 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
     `;
   }
 
-  if (outcome.winner === "defender" && (defender.defenseType ?? "none") === "block") {
+  const defenseType = String(defender?.defenseType ?? "none").toLowerCase();
+  const blockSource = String(defender?.blockSource ?? "").toLowerCase();
+  const isWardDefense = defenseType === "ward" || (defenseType === "block" && blockSource === "ward");
+  const isShieldBlockDefense = defenseType === "block" && !isWardDefense;
+
+  if (outcome.winner === "defender" && isShieldBlockDefense) {
     const blockLabel = isAoE ? "Resolve Block (Half Damage)" : "Resolve Block";
     return `
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        ${_btn(blockLabel, "block-resolve", { "defender-index": idx })}
+        ${_btn(blockLabel, "block-resolve", { "defender-index": idx, "ues-gm-only": "true" })}
         ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>` : ``}
       </div>
     `;
   }
 
-  if (outcome.winner === "defender" && (defender.defenseType ?? "none") === "ward") {
+  if (outcome.winner === "defender" && isWardDefense) {
     const wardLabel = isAoE ? "Resolve Ward (Half Damage)" : "Resolve Ward";
     return `
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -413,7 +420,9 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
 
   const defenderCanUseAdvantage = (outcome.winner === "defender")
     && (defender.noDefense !== true)
-    && !["block", "counter", "none", "ward"].includes(String(defender.defenseType ?? "none"))
+    && !["counter", "none"].includes(defenseType)
+    && !isWardDefense
+    && !isShieldBlockDefense
     && (advD > 0)
     && (resolutionState.defenderAdvantage?.resolved !== true);
 
@@ -437,12 +446,13 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
  * @param {Object|null} damageData - Damage state from flags.
  * @returns {string} - HTML string for the damage panel, or empty string.
  */
-export function _buildDamagePanel(damageData) {
+export function _buildDamagePanel(damageData, { markers = [] } = {}) {
   if (!damageData || damageData.rolled !== true) return "";
 
   const mode = String(damageData.mode ?? "weapon");
   const isHealing = mode === "healing";
   const p = damageData.applyPayload ?? {};
+  const gmReportKey = String(damageData?.gmDamageReport?.panelKey ?? "").trim();
 
   // ── Compact header: small icon + name ──
   const headerImg = damageData.weaponImg
@@ -477,53 +487,40 @@ export function _buildDamagePanel(damageData) {
     || (mode === "ward" && damageData.wardResult?.blocked && !damageData.wardResult?.isAoE);
 
   // ── Roll detail (collapsible for A/B rolls) ──
-  const rollATotal = damageData.rollATotal;
-  const rollBTotal = damageData.rollBTotal;
-  const extraNotes = damageData.extraNotes ?? "";
-  let rollDetail = "";
-  if (rollBTotal != null) {
-    rollDetail = `<div class="dmg-roll-breakdown">Roll A: ${rollATotal ?? "?"} \u2502 Roll B: ${rollBTotal}${extraNotes ? ` \u2502 ${extraNotes}` : ""}</div>`;
-  } else if (extraNotes) {
-    rollDetail = `<div class="dmg-roll-breakdown">${extraNotes}</div>`;
-  }
-
-  // ── Compact key-value grid (replaces 3-column table) ──
   const damageLabel = isHealing ? "Healing" : "Damage";
-  const rawDamageString = String(damageData.damageString ?? "");
-  const looksLikeRollHtml = /class=["']dice-roll["']/i.test(rawDamageString);
-  const formula = looksLikeRollHtml ? "" : rawDamageString;
   const pills = damageData.qualityPillsHtml ?? "";
-  const rollHtml = damageData.rollHtml ?? (looksLikeRollHtml ? rawDamageString : "");
-  const rollBHtml = damageData.rollBHtml ?? "";
+  const damageComponents = Array.isArray(damageData.damageComponents) ? damageData.damageComponents : [];
+  const componentsHtml = damageComponents.length
+    ? `<div class="dmg-components">${damageComponents.map((c) => {
+      const label = String(c?.sourceLabel ?? c?.source ?? "Source");
+      const amount = Number(c?.amount ?? 0) || 0;
+      const dtype = String(c?.damageType ?? "").trim();
+      return `<div class="dmg-component-line"><span class="dmg-component-source">${label}</span><span class="dmg-component-value"><b>${amount}</b>${dtype ? ` <span class="type-tag">${dtype}</span>` : ""}</span></div>`;
+    }).join("")}</div>`
+    : "";
 
-  const rollHtmlBlock = rollHtml
-    ? `<div class="dmg-roll-html">${rollBHtml ? `<div class="dmg-roll-label">Roll A</div>` : ""}${rollHtml}</div>`
-    : "";
-  const rollBHtmlBlock = rollBHtml
-    ? `<div class="dmg-roll-html"><div class="dmg-roll-label">Roll B</div>${rollBHtml}</div>`
-    : "";
-  
-  // Main damage display (always visible) - 4 column grid
+  // ── Combined header row: icon + name + hit location on one line ──
+  const hdrRowHtml = fullyBlocked
+    ? `<div class="dmg-hdr">${headerImg}</div>`
+    : `<div class="dmg-hdr" style="display:grid; grid-template-columns:${headerImg ? "auto " : ""}minmax(0,1fr) auto; gap:6px 16px; align-items:center;">${headerImg}<div class="dmg-title" style="font-weight:700;">${headerLabel}</div><div class="dmg-hitloc"><b>Hit Loc.</b> ${damageData.hitLocation ?? "Body"}</div></div>`;
+  const pillsHtml = pills ? `<div class="val-pills">${pills}</div>` : "";
   const damageDisplayHtml = fullyBlocked ? "" : `
     <div class="dmg-kv">
-      <span class="lbl">${damageLabel}</span>
-      <span class="val"><b>${damageData.finalDamage}</b>${formula ? ` <span class="dmg-formula">${formula}</span>` : ""}</span>
-      <span class="lbl">Hit Loc.</span>
-      <span class="val">${damageData.hitLocation ?? "Body"}</span>
-      ${pills ? `<span class="val-pills">${pills}</span>` : ""}
+      ${pillsHtml}
+      ${componentsHtml}
     </div>`;
-  
-  // Collapsible detailed roll breakdown (dice HTML + text notes)
-  const damageDetailsHtml = (!fullyBlocked && (rollHtmlBlock || rollBHtmlBlock || rollDetail)) ? `
+
+  const gmDetailsAnchor = (gmReportKey || p.targetUuid)
+    ? `<div class="dmg-gm-breakdown-anchor" data-ues-gm-damage-report-key="${gmReportKey}" data-ues-gm-damage-target="${String(p.targetUuid ?? "").trim()}"></div>`
+    : "";
+
+  const damageDetailsHtml = (!fullyBlocked && gmDetailsAnchor) ? `
     <details class="dmg-details">
-      <summary class="dmg-details-summary">Roll</summary>
+      <summary class="dmg-details-summary">Details</summary>
       <div class="dmg-details-content">
-        ${rollHtmlBlock}
-        ${rollBHtmlBlock}
-        ${rollDetail}
+        ${gmDetailsAnchor}
       </div>
     </details>` : "";
-  
   const kvGrid = damageDisplayHtml + damageDetailsHtml;
 
 
@@ -533,11 +530,20 @@ export function _buildDamagePanel(damageData) {
     : "";
 
   // ── Action: apply button or applied state ──
+  const visibleMarkers = Array.isArray(markers)
+    ? markers.filter((marker) => marker && typeof marker === "object")
+    : [];
+  const markerHtml = visibleMarkers.length
+    ? visibleMarkers.map((marker) => `<span class="damage-applied-label">${String.raw`\u2713`} ${foundry.utils.escapeHTML(String(marker.label ?? "Advantage Resolved"))}</span>`).join("")
+    : "";
+
   let actionSection = "";
   if (fullyBlocked) {
-    actionSection = "";
+    actionSection = markerHtml
+      ? `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">${markerHtml}</div>`
+      : "";
   } else if (damageData.applied) {
-    actionSection = `<div class="dmg-action"><span class="damage-applied-label">\u2713 ${damageLabel} Applied</span></div>`;
+    actionSection = `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;"><span class="damage-applied-label">\u2713 ${damageLabel} Applied</span>${markerHtml}</div>`;
   } else {
     const btnClass = isHealing ? "apply-healing-btn" : "apply-damage-btn";
     const btnLabel = `Apply \u2192 ${p.targetName ?? "Target"}`;
@@ -545,12 +551,12 @@ export function _buildDamagePanel(damageData) {
       .filter(([k]) => k !== "buttonLabel" && k !== "targetName")
       .map(([k, v]) => `data-${_camelToKebab(k)}="${String(v ?? "").replace(/"/g, "&quot;")}"`) 
       .join(" ");
-    actionSection = `<div class="dmg-action"><button type="button" class="${btnClass}" ${dataAttrs}>${btnLabel}</button></div>`;
+    actionSection = `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;"><button type="button" class="${btnClass}" ${dataAttrs}>${btnLabel}</button>${markerHtml}</div>`;
   }
 
   return `
     <div class="uesrpg-damage-panel">
-      <div class="dmg-hdr">${headerImg}<span class="dmg-title">${headerLabel}</span></div>
+      ${hdrRowHtml}
       ${statusBadge}
       ${kvGrid}
       ${extraNoteHtml}

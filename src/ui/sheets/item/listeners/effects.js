@@ -5,14 +5,6 @@
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 
 /**
- * Legacy sheet-listener registrar kept for compatibility with index.js.
- * AppV2 sheet classes route effect actions via data-action handlers.
- */
-export function registerEffectListeners(_sheet, _html) {
-  // no-op by design
-}
-
-/**
  * Handle Active Effect controls from the Effects tab.
  *
  * @param {ItemSheet} sheet
@@ -31,7 +23,8 @@ export async function onEffectControl(sheet, event, actionEl = null) {
   const effectId = el.dataset?.effectId ?? el.closest?.("[data-effect-id]")?.dataset?.effectId;
 
   if (!action) return;
-  if (!sheet.item || !sheet.item.effects) return;
+  const itemDoc = sheet.document;
+  if (!itemDoc?.effects) return;
 
   if (action === "create") {
     const effectData = {
@@ -42,14 +35,14 @@ export async function onEffectControl(sheet, event, actionEl = null) {
       transfer: false,
       duration: {}
     };
-    const created = await requestCreateEmbeddedDocuments(sheet.item, "ActiveEffect", [effectData]);
+    const created = await requestCreateEmbeddedDocuments(itemDoc, "ActiveEffect", [effectData]);
     const eff = created && created.length ? created[0] : null;
     if (eff && eff.sheet) eff.sheet.render(true);
     return;
   }
 
   if (!effectId) return;
-  const effect = sheet.item.effects.get(effectId);
+  const effect = itemDoc.effects.get(effectId);
   if (!effect) return;
 
   switch (action) {
@@ -58,10 +51,10 @@ export async function onEffectControl(sheet, event, actionEl = null) {
       break;
     case "delete":
       // Use embedded document API explicitly; this is more reliable for Item-embedded effects.
-      await requestDeleteEmbeddedDocuments(sheet.item, "ActiveEffect", [effectId]);
+      await requestDeleteEmbeddedDocuments(itemDoc, "ActiveEffect", [effectId]);
       break;
     case "toggle":
-      await requestUpdateEmbeddedDocuments(sheet.item, "ActiveEffect", [{ _id: effectId, disabled: !effect.disabled }]);
+      await requestUpdateEmbeddedDocuments(itemDoc, "ActiveEffect", [{ _id: effectId, disabled: !effect.disabled }]);
       break;
     default:
       break;

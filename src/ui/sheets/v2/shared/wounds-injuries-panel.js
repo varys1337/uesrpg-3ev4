@@ -1,5 +1,6 @@
 import { requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { canonicalizeShockKind, isShockKind } from "../../../../core/wounds/wound-schema.js";
+import { getBloodLossStatus } from "../../../../core/wounds/engine/state.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 
@@ -174,7 +175,14 @@ export function buildWoundsInjuriesPanelContext(actor, { enabled } = {}) {
     }
 
     if (rawKind === "bloodLoss") {
-      _pushGlobalChip(rowsByApp, "blood-loss", "Blood Loss", "danger");
+      const status = getBloodLossStatus(actor);
+      const rounds = Math.max(0, Number(status?.remainingRounds ?? 0) || 0);
+      if (status?.paused) {
+        const reason = String(status?.pauseLabel ?? "").trim() || "Suppressed";
+        _pushGlobalChip(rowsByApp, "blood-loss", `Blood Loss Paused (${reason}, ${rounds} rounds left)`, "warn");
+      } else {
+        _pushGlobalChip(rowsByApp, "blood-loss", `Blood Loss (${rounds} rounds)`, "danger");
+      }
       continue;
     }
     if (rawKind === "forestall") {
@@ -183,6 +191,10 @@ export function buildWoundsInjuriesPanelContext(actor, { enabled } = {}) {
     }
     if (rawKind === "firstAid") {
       _pushGlobalChip(rowsByApp, "first-aid", "First Aid", "ok");
+      const status = getBloodLossStatus(actor);
+      if (!status?.hasEffect) {
+        _pushGlobalChip(rowsByApp, "blood-loss", "Blood Loss Stopped (First Aid)", "ok");
+      }
       continue;
     }
 

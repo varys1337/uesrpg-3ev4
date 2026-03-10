@@ -884,6 +884,30 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   margin-top: 2px;
   grid-column: 1 / -1;
 }
+.ues-opposed-card .uesrpg-damage-panel .dmg-components {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+}
+.ues-opposed-card .uesrpg-damage-panel .dmg-component-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+}
+.ues-opposed-card .uesrpg-damage-panel .dmg-component-source {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.ues-opposed-card .uesrpg-damage-panel .dmg-component-value {
+  white-space: nowrap;
+  text-align: right;
+}
+.ues-opposed-card .uesrpg-damage-panel .dmg-component-value .type-tag {
+  margin-left: 4px;
+}
 .ues-opposed-card .uesrpg-damage-panel .dmg-formula {
   opacity: 0.7;
   font-size: 11px;
@@ -2846,6 +2870,22 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
   background: rgba(183, 162, 124, 0.95);
 }
 
+.worldbuilding .uesrpg-actions-card .quickbar-buttons.quickbar-buttons--compact {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--uesrpg-space-xs);
+}
+
+.worldbuilding .uesrpg-actions-card .quickbar-buttons.quickbar-buttons--compact .quickbar-empty {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .worldbuilding .uesrpg-actions-card .quickbar-buttons.quickbar-buttons--compact {
+    grid-template-columns: 1fr;
+  }
+}
+
 .worldbuilding .uesrpg-actions-card .quickbar-empty {
   font-family: var(--uesrpg-font-family);
   font-size: var(--uesrpg-font-xs);
@@ -4314,9 +4354,28 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
 
 /* AppV2 wraps sheet HTML in a part container; make it the flex owner so
    header + tabs + body can allocate height and scroll correctly.*/
-.worldbuilding.sheet.item .window-content > [data-application-part="sheet"] {
+.worldbuilding.sheet.item .window-content > form {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.worldbuilding.sheet.item :is(
+  .window-content > [data-application-part="header"],
+  .window-content > [data-application-part="tabs"],
+  .window-content > form > [data-application-part="header"],
+  .window-content > form > [data-application-part="tabs"]
+) {
+  flex: 0 0 auto;
+}
+
+.worldbuilding.sheet.item :is(
+  .window-content > [data-application-part="body"],
+  .window-content > form > [data-application-part="body"]
+) {
+  display: flex;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
@@ -4328,7 +4387,7 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
 /* .worldbuilding.sheet.item .stickyHeader { ... }*/
 
 /* Sheet body is the canonical scroll owner for item sheets.*/
-.worldbuilding.sheet.item .sheet-body {
+.worldbuilding.sheet.item [data-application-part="body"] > .sheet-body {
   flex: 1 1 auto;
   padding: 6px;
   min-height: 0;

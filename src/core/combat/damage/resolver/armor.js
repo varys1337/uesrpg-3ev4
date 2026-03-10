@@ -3,6 +3,43 @@
  *
  * Armor source reporting utilities for damage resolution.
  */
+import { isShieldItem } from "../../../items/shield-utils.js";
+import { getResolvedArmorValues, isArmorCoveringLocation } from "../../armor-state.js";
+
+function normalizeLocationKey(hitLocation = "Body") {
+  const locationMap = {
+    Head: "Head",
+    Body: "Body",
+    "Right Arm": "RightArm",
+    "Left Arm": "LeftArm",
+    "Right Leg": "RightLeg",
+    "Left Leg": "LeftLeg",
+    RightArm: "RightArm",
+    LeftArm: "LeftArm",
+    RightLeg: "RightLeg",
+    LeftLeg: "LeftLeg",
+  };
+  return locationMap[hitLocation] ?? hitLocation;
+}
+
+function actorHasConditionKey(actor, key) {
+  const k = String(key || "").trim().toLowerCase();
+  if (!actor || !k) return false;
+
+  for (const ef of (actor.effects ?? [])) {
+    try {
+      if (ef?.disabled) continue;
+      if (ef?.statuses?.has?.(k)) return true;
+      if (String(ef?.flags?.core?.statusId ?? "").toLowerCase() === k) return true;
+      if (String(ef?.flags?.["uesrpg-3ev4"]?.condition?.key ?? "").toLowerCase() === k) return true;
+      if (String(ef?.name ?? "").toLowerCase() === k) return true;
+    } catch (_e) {
+      continue;
+    }
+  }
+
+  return false;
+}
 
 /**
  * Best-effort reporting helper: list equipped armor items that explicitly cover a location.
@@ -15,46 +52,18 @@
  */
 export function listArmorSourcesForLocation(actor, locKey) {
   try {
-    const items = actor?.items?.filter((i) => i?.type === "armor" && i?.system?.equipped === true && !i?.system?.isShield) ?? [];
-    const ARMOR_CATEGORY_TO_LOCATIONS = {
-      head: ["Head"],
-      body: ["Body"],
-      l_arm: ["LeftArm"],
-      r_arm: ["RightArm"],
-      l_leg: ["LeftLeg"],
-      r_leg: ["RightLeg"],
-    };
-    const ARMOR_LOCATION_KEYS = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
-    const normalizeCoverageOverride = (value) => {
-      const raw = String(value ?? "").trim().toLowerCase();
-      if (!raw) return "";
-      if (raw === "full" || raw === "partial" || raw === "none") return raw;
-      if (raw === "no armor" || raw === "noarmour" || raw === "no armour" || raw === "no_armor" || raw === "no-armour") {
-        return "none";
-      }
-      return "";
-    };
+    const locationKey = normalizeLocationKey(locKey);
+    const items = actor?.items?.filter((i) => (i?.type === "armor" || i?.type === "shield") && i?.system?.equipped === true && !isShieldItem(i, { allowLegacy: true })) ?? [];
+    const isProneForArmor = actorHasConditionKey(actor, "prone");
     const out = [];
     for (const item of items) {
-      const sys = item?.system ?? {};
-      const hitLocs = sys.hitLocations ?? {};
-      const category = String(sys.category ?? "").toLowerCase();
-      const catLocs = ARMOR_CATEGORY_TO_LOCATIONS[category] ?? null;
-      let armorClass = String(sys.armorClass || "partial").toLowerCase();
-      if (armorClass !== "full" && armorClass !== "partial" && armorClass !== "none") armorClass = "partial";
-      const override = normalizeCoverageOverride(sys?.hitLocationStates?.[locKey]?.coverageOverride);
-      if (override) armorClass = override;
-      if (armorClass === "none") continue;
+      if (!isArmorCoveringLocation(item, locationKey)) continue;
 
-      const covered = catLocs ? catLocs.includes(locKey) : (hitLocs?.[locKey] === true);
-      if (!covered) continue;
+      const ar = Number(getResolvedArmorValues(item?.system ?? {}, { isProneForArmor }).armor ?? 0);
 
-      let ar = (sys?.armorEffective != null) ? Number(sys.armorEffective) : Number(sys?.armor ?? 0);
-      const locDamagedRaw = sys?.hitLocationStates?.[locKey]?.damaged;
-      const locDamaged = Number.isFinite(Number(locDamagedRaw)) ? Math.max(0, Math.floor(Number(locDamagedRaw))) : 0;
-      if (locDamaged > 0) ar = Math.max(0, ar - locDamaged);
-
-      out.push({ name: String(item.name ?? "Armor"), ar: Number.isFinite(ar) ? ar : 0 });
+      if (Number.isFinite(ar) && ar > 0) {
+        out.push({ name: String(item.name ?? "Armor"), ar });
+      }
     }
     return out;
   } catch (_err) {

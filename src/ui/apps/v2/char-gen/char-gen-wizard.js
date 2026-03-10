@@ -15,6 +15,10 @@ import {
   discountCostIfFavored,
   isFavoredSkillForActor,
 } from "../../../../core/advancement/skill-advancement.js";
+import {
+  extractConfiguredLuckyNumbers,
+  extractConfiguredUnluckyNumbers,
+} from "../../../../core/luck/lucky-numbers.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -645,14 +649,23 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
-    await onLuckyMenu.call({ actor }, _eventStub(), target);
+    const luckResult = await onLuckyMenu.call({ actor }, _eventStub(), target);
+    if (!luckResult?.ok) {
+      await this.render();
+      return;
+    }
+    const refreshedActor = (await fromUuid(actor.uuid)) ?? actor;
     this._ws.completion.luck = true;
     await appendChargenAudit(actor, {
       step: "luck",
       action: "apply",
       payload: {
-        luckyNumbers: Object.values(actor.system?.lucky_numbers ?? {}).filter((v) => Number(v) > 0),
-        unluckyNumbers: Object.values(actor.system?.unlucky_numbers ?? {}).filter((v) => Number(v) > 0),
+        mode: luckResult.mode ?? "manual",
+        luckyCount: Number(luckResult.luckyCount ?? 0),
+        unluckyCount: Number(luckResult.unluckyCount ?? 0),
+        luckyNumbers: extractConfiguredLuckyNumbers(refreshedActor),
+        unluckyNumbers: extractConfiguredUnluckyNumbers(refreshedActor),
+        rollTrace: luckResult.rollTrace ?? null,
       },
     });
     this.#persistState();

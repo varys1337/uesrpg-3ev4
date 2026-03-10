@@ -23,9 +23,19 @@ import { emitSuppressedOpposedSubRollDice } from "../spell-helpers.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
+import { cloneFlagState } from "../../../../utils/clone.js";
+import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
+import { resolveSpellProfile } from "../../spell-profile.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const NAMESPACE = FLAG_SCOPE;
+
+/** @private — Clone current magic opposed state from a live message for lane-commit merging. */
+function _readMagicOpposedFlagState(fm) {
+  const raw = fm?.flags?.[_FLAG_NS]?.magicOpposed ?? null;
+  const state = (raw?.state && typeof raw.state === "object") ? raw.state : null;
+  return state ? cloneFlagState(state) : null;
+}
 
 function _normalizeCastSourceCostMode(castSource = null) {
   const mode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
@@ -161,7 +171,11 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
   const hasOverchargeTalent = Array.from(attacker?.items ?? []).some((i) => i?.type === "talent" && i?.name === "Overcharge");
   const hasMagickaCyclingTalent = Array.from(attacker?.items ?? []).some((i) => i?.type === "talent" && i?.name === "Magicka Cycling");
   const hasMasterOfMagickaTalent = Array.from(attacker?.items ?? []).some((i) => i?.type === "talent" && i?.name === "Master of Magicka");
-  const wpBonus = Math.floor(Number(attacker?.system?.characteristics?.wp?.total ?? 0) / 10);
+  const preferredRestraintProfile = resolveSpellProfile(preferredSpell, attacker, {
+    isRestrained: true,
+    isOverloaded: false
+  });
+  const preferredRestraintReduction = Number(preferredRestraintProfile?.cost?.effectiveRestraintReduction ?? preferredRestraintProfile?.cost?.restrained?.reduction ?? 0) || 0;
 
   const spellOptions = spells.map((s) => {
     const school = String(s?.system?.school ?? "");
@@ -200,7 +214,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
             <div class="uesrpg-defense-flags__items">
               <label class="uesrpg-inline-check" id="ues-restrain-group">
                 <input type="checkbox" name="restrain" />
-                <span><b>Spell Restraint</b> (reduce cost by ${wpBonus} to min 1)</span>
+                <span><b>Spell Restraint</b> (reduce cost by ${preferredRestraintReduction} to min 1)</span>
               </label>
               <label class="uesrpg-inline-check" id="ues-overload-group" style="display:none;">
                 <input type="checkbox" name="overload" />
@@ -249,7 +263,14 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
                 useOvercharge: Boolean(root?.querySelector('input[name="overcharge"]')?.checked),
                 useMagickaCycling: Boolean(root?.querySelector('input[name="magickaCycling"]')?.checked),
                 castLevel,
-                level: castLevel // Alias for compatibility with existing resolvers
+                level: castLevel, // Alias for compatibility with existing resolvers
+                restraintValue: Boolean(root?.querySelector('input[name="restrain"]')?.checked)
+                  ? (Number(resolveSpellProfile(selectedSpell, attacker, {
+                      level: castLevel,
+                      isRestrained: true,
+                      isOverloaded: false
+                    })?.cost?.effectiveRestraintReduction ?? 0) || 0)
+                  : 0
               }
             };
           }
@@ -278,6 +299,15 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
           const baseCost = Number(selectedSpell.system?.cost ?? 0) || 0;
           const baseLevel = Number(selectedSpell.system?.level ?? 1) || 1;
           const rawScalingLevels = getSpellScalingLevels(selectedSpell);
+          const restraintLabel = root?.querySelector('#ues-restrain-group span');
+          const restraintProfile = resolveSpellProfile(selectedSpell, attacker, {
+            isRestrained: true,
+            isOverloaded: false
+          });
+          const restraintReduction = Number(restraintProfile?.cost?.effectiveRestraintReduction ?? restraintProfile?.cost?.restrained?.reduction ?? 0) || 0;
+          if (restraintLabel) {
+            restraintLabel.innerHTML = `<b>Spell Restraint</b> (reduce cost by ${restraintReduction} to min 1)`;
+          }
           
           // Filter and validate scaling levels
           const validScalingLevels = [];
@@ -499,7 +529,25 @@ export async function handleAttackerCommit(ctx) {
   data.attacker.banked.committedAt = Date.now();
   data.attacker.banked.committedBy = game.user.id;
 
-  await _updateCard(message, data);
+  // Fresh-state re-read: apply only attacker lane + context onto live state to preserve
+  // any defender-side commit that arrived while the spell-selection dialog was open.
+  await commitLaneToFreshCardState({
+    message,
+    readState: _readMagicOpposedFlagState,
+    mutate: (_t) => {
+      _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
+      _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
+      if (Array.isArray(data.defenders) && Array.isArray(_t.defenders)) {
+        for (let _di = 0; _di < data.defenders.length; _di++) {
+          if (_t.defenders[_di] && data.defenders[_di]) {
+            _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
+          }
+        }
+      }
+    },
+    updateCard: _updateCard,
+    fallbackData: data,
+  });
 
   // Auto-roll is triggered solely via the updateChatMessage hook path
   // (maybeAutoRollBanked) to prevent duplicate runs.
@@ -760,6 +808,24 @@ export async function handleAttackerRoll(ctx) {
   data.context.phase = "awaiting-defense";
   ctx._markResolutionPhase(data);
   if (batchedUpdate) return data;
-  await _updateCard(message, data);
+  // Fresh-state re-read: apply attacker result + context onto live state to preserve
+  // any defender-side commit that arrived during the roll phase.
+  await commitLaneToFreshCardState({
+    message,
+    readState: _readMagicOpposedFlagState,
+    mutate: (_t) => {
+      _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
+      _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
+      if (Array.isArray(data.defenders) && Array.isArray(_t.defenders)) {
+        for (let _di = 0; _di < data.defenders.length; _di++) {
+          if (_t.defenders[_di] && data.defenders[_di]) {
+            _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
+          }
+        }
+      }
+    },
+    updateCard: _updateCard,
+    fallbackData: data,
+  });
   return data;
 }

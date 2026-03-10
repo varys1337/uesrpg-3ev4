@@ -11,6 +11,8 @@ import { prepareAmmunitionItem } from "./item-prepare/ammunition.js";
 import { prepareModSkillItems } from "./item-prepare/mod-skill-items.js";
 import { prepareCombatStyleData } from "./item-prepare/combat-style.js";
 import { prepareContainerItem } from "./item-prepare/container.js";
+import { prepareShieldItem } from "./item-prepare/shield.js";
+import { isLegacyShieldSystemData } from "../items/shield-utils.js";
 
 export class SimpleItem extends Item {
   async _preCreate(data, options, user) {
@@ -48,7 +50,7 @@ export class SimpleItem extends Item {
     // STEP 1: Pre-inject manual qualities so they're available during prepare methods.
     // This preliminary injection allows type-specific prepare methods (like _prepareWeaponItem) 
     // to access qualitiesStructuredInjected for features that depend on manual qualities (like Reload).
-    if (['weapon','armor','ammunition'].includes(this.type)) {
+    if (['weapon','armor','shield','ammunition'].includes(this.type)) {
       itemData.gmOverride = itemData.gmOverride ?? {};
       this._injectAutoQualities(itemData);
     }
@@ -58,6 +60,7 @@ export class SimpleItem extends Item {
     // They also create autoQualitiesStructured for material/quality-derived qualities.
     const hasActor = this.isEmbedded && this.actor?.system != null;
     if (this.type === 'armor') { this._prepareArmorItem(actorData, itemData) }
+    if (this.type === 'shield') { this._prepareShieldItem(actorData, itemData) }
     if (this.type === 'equipment') { this._prepareNormalItem(actorData, itemData) }
     if (this.type === 'weapon') { this._prepareWeaponItem(actorData, itemData) }
     if (this.type === 'ammunition') { this._prepareAmmunitionItem(actorData, itemData) }
@@ -68,7 +71,7 @@ export class SimpleItem extends Item {
     // STEP 3: Final injection of auto-granted qualities into the computed structured list.
     // This re-runs after prepare methods to include autoQualitiesStructured (material/quality-derived).
     // This must run for world items as well as embedded items so automation helpers can rely on it.
-    if (['weapon','armor','ammunition'].includes(this.type)) {
+    if (['weapon','armor','shield','ammunition'].includes(this.type)) {
       this._injectAutoQualities(itemData);
     }
 
@@ -158,7 +161,12 @@ export class SimpleItem extends Item {
   }
 
   _prepareArmorItem(actorData, itemData) {
+    if (isLegacyShieldSystemData(itemData)) return prepareShieldItem(actorData, itemData);
     return prepareArmorItem(actorData, itemData);
+  }
+
+  _prepareShieldItem(actorData, itemData) {
+    return prepareShieldItem(actorData, itemData);
   }
 
   _prepareNormalItem(actorData, itemData) {

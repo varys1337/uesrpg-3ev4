@@ -22,10 +22,26 @@
 }
 
 /* --- Application-Part Wrapper ---*/
-.worldbuilding.sheet.item:not(.spell) [data-application-part="sheet"] {
+.worldbuilding.sheet.item {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  min-height: 0;
+}
+
+.worldbuilding.sheet.item > [data-application-part="header"],
+.worldbuilding.sheet.item > [data-application-part="tabs"] {
+  flex: 0 0 auto;
+}
+
+.worldbuilding.sheet.item > [data-application-part="body"] {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.worldbuilding.sheet.item > [data-application-part="body"] > .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* ---
@@ -325,23 +341,32 @@
   padding-bottom: 3px;
 }
 
-.worldbuilding.sheet.item.armor .armor-hitloc-row {
+.worldbuilding.sheet.item.armor .armor-hitloc-table {
   display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(120px, 1.4fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 4px 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.worldbuilding.sheet.item.armor .armor-hitloc-row + .armor-hitloc-row {
-  border-top: var(--uesrpg-border-faint);
+.worldbuilding.sheet.item.armor .armor-hitloc-pair {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  padding: 0;
+}
+
+.worldbuilding.sheet.item.armor .armor-hitloc-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 0;
 }
 
 .worldbuilding.sheet.item.armor .armor-hitloc-row__name {
   font-weight: 600;
 }
 
-.worldbuilding.sheet.item.armor .armor-hitloc-row__damaged {
+.worldbuilding.sheet.item.armor .armor-hitloc-row__toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -349,10 +374,9 @@
   white-space: nowrap;
 }
 
-.worldbuilding.sheet.item.armor .armor-hitloc-row__damaged input[type="number"] {
-  width: 56px;
-  min-width: 56px;
-  text-align: center;
+.worldbuilding.sheet.item.armor .armor-hitloc-row__toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
 }
 
 @media (max-width: 820px) {
@@ -363,6 +387,16 @@
   .worldbuilding.sheet.item.armor .armor-hitloc-row {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .worldbuilding.sheet.item.armor .armor-hitloc-table {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .worldbuilding.sheet.item.armor .armor-hitloc-pair {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 }
 
@@ -698,6 +732,30 @@
   .worldbuilding.sheet.item.trait .uesrpg-feature-sheet .attr-struct-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* ---
+   CONTAINER ITEM SHEET — table header
+   Override _chrome.scss's .worldbuilding table thead { background: rgba(0,0,0,0.705) }
+   by targeting thead directly with higher specificity and an opaque warm-brown background.
+   ---*/
+
+/* Override dark thead background on the row-group element itself. */
+.worldbuilding.sheet.item.container table thead {
+  background: rgba(180, 145, 80, 0.82);
+}
+
+/* Style individual header cells — transparent so thead bg shows through. */
+.worldbuilding.sheet.item.container table thead th {
+  background: transparent;
+  color: #2a1800;
+  font-size: var(--uesrpg-font-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(102, 76, 28, 0.4);
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.3);
 }
 
 /* Scroll Spell Reference drop target*/

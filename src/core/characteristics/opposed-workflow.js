@@ -112,7 +112,7 @@ function getTokenDocumentUuid(tokenLike) {
 
 // ── Roll-off for both critical successes ──
 
-async function _maybeResolveBothCritSuccessRollOff({ message, data, attacker, defender } = {}) {
+export async function _maybeResolveBothCritSuccessRollOff({ message, data, attacker, defender } = {}) {
   if (!message || !data || !attacker || !defender) return;
   if (data?.outcome?.winner && data.outcome.winner !== "tie") return;
   if (data?.context?.rollOff?.resolved) return;

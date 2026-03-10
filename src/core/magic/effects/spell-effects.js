@@ -14,7 +14,7 @@ import { spellRequiresOriginAE, createOriginAE, registerTargetAEs, findOriginAE 
 import { emitEffectApplied } from "../spell-runtime.js";
 import { validateAEChanges } from "../../active-effects/modifier-registry.js";
 import { buildOverTimeChange } from "../ticks/overtime-engine.js";
-import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../system/flags.js";
 
@@ -401,7 +401,6 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
         const bufferValue = Math.max(0, Math.floor(roll.total));
 
         if (bufferValue > 0) {
-          const { requestUpdateDocument } = await import("../../../utils/authority-proxy.js");
           const bufferPath = `system.buffers.${bufferType}`;
           const currentBuffer = Number(targetActor.system?.buffers?.[bufferType] ?? 0);
           // Buffer does not stack — set to the higher of current or new value
@@ -414,7 +413,6 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
             const firstEffect = createdEffects[0];
             if (firstEffect) {
               try {
-                const { requestUpdateEmbeddedDocuments } = await import("../../../utils/authority-proxy.js");
                 const live = targetActor.effects.get(firstEffect.id ?? firstEffect._id);
                 if (live) {
                   await requestUpdateEmbeddedDocuments(targetActor, "ActiveEffect", [{
@@ -518,3 +516,4 @@ async function removeOpposingSpellEffects(targetActor, spell) {
     ui.notifications.info(`${opposing} was overridden by ${spell.name}.`);
   }
 }
+

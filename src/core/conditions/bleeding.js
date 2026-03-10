@@ -21,6 +21,7 @@ import { applyDamage } from "../combat/damage-automation.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { normalizeKey } from "../../utils/coerce.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const CONDITION_KEY = "bleeding";
 
@@ -28,6 +29,45 @@ let _registered = false;
 
 /** @type {Map<string, {round: number, turn: number, combatantId: string|null}>} */
 const _combatState = new Map();
+
+async function _handleCombatBoundaryBleeding(payload) {
+  if (game?.user?.isGM !== true) return;
+  if (payload?.source !== "combat") return;
+  if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+  const combat = game?.combat ?? null;
+  if (!combat?.id) return;
+  if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
+
+  const prev = _getState(combat);
+  const next = {
+    round: Number(combat.round ?? 0),
+    turn: Number(combat.turn ?? 0),
+    combatantId: String(combat.combatantId ?? "") || null
+  };
+
+  const changed =
+    !prev ||
+    prev.round !== next.round ||
+    prev.turn !== next.turn ||
+    prev.combatantId !== next.combatantId;
+
+  _combatState.set(String(combat.id), next);
+  if (!changed) return;
+
+  const cId = next.combatantId;
+  if (!cId) return;
+
+  const combatant = combat.combatants?.get?.(cId) ?? null;
+  const actor = combatant?.actor ?? null;
+  if (!actor) return;
+
+  try {
+    await tickBleedingStartTurn(actor);
+  } catch (err) {
+    console.warn("UESRPG | Bleeding | tick failed", err);
+  }
+}
 
 function _getState(combat) {
   if (!combat?.id) return null;
@@ -245,44 +285,16 @@ export function registerBleeding() {
     _combatState.delete(String(combat.id));
   });
 
+  registerCombatBoundaryConsumer({
+    id: "bleeding",
+    // Start-of-turn bleeding follows broader condition automation but precedes later cleanup.
+    order: 175,
+    handle: _handleCombatBoundaryBleeding
+  });
+
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    // Deterministic ticking: GM only.
-    if (game?.user?.isGM !== true) return;
-    if (payload?.source !== "combat") return;
-    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-
-    const combat = game?.combat ?? null;
-    if (!combat?.id) return;
-    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
-
-    const prev = _getState(combat);
-    const next = {
-      round: Number(combat.round ?? 0),
-      turn: Number(combat.turn ?? 0),
-      combatantId: String(combat.combatantId ?? "") || null
-    };
-
-    const changed =
-      !prev ||
-      prev.round !== next.round ||
-      prev.turn !== next.turn ||
-      prev.combatantId !== next.combatantId;
-
-    _combatState.set(String(combat.id), next);
-    if (!changed) return;
-
-    const cId = next.combatantId;
-    if (!cId) return;
-
-    const combatant = combat.combatants?.get?.(cId) ?? null;
-    const actor = combatant?.actor ?? null;
-    if (!actor) return;
-
-    try {
-      await tickBleedingStartTurn(actor);
-    } catch (err) {
-      console.warn("UESRPG | Bleeding | tick failed", err);
-    }
+    if (noteCombatBoundaryLegacyFallbackSkip("bleeding", payload)) return;
+    await _handleCombatBoundaryBleeding(payload);
   });
 
   // Healing reduction (GM only).

@@ -4,7 +4,7 @@
  */
 
 import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
-import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestDeleteEmbeddedDocuments, requestAtomicUpdateDocument } from "../../utils/authority-proxy.js";
 import { canUseHeroicActions } from "../rules/npc-rules.js";
 import { isActorUndead } from "../traits/trait-registry.js";
 import { hasTalent } from "../traits/talents-api.js";
@@ -209,83 +209,125 @@ export async function openStaminaDialog(actor) {
  */
 async function spendStamina(actor, option, spAmount = 1) {
   const cost = option.allowAmount ? spAmount : option.cost;
-  const currentSP = actor.system?.stamina?.value ?? 0;
-  const currentTemp = actor.system?.stamina?.temp ?? 0;
-  const effectiveSP = currentSP + currentTemp;
-  
-  if (isActorUndead(actor) && (effectiveSP - cost) < 0) {
-    ui.notifications?.warn?.("Undead cannot spend Stamina below 0.");
-    return;
-  }
 
-  // Handle Heroic Action immediately
+  // ── Heroic Action path ────────────────────────────────────────────────────
+  // Read-compute-write inside requestAtomicUpdateDocument so that AP and SP
+  // values are fresh at write time even if the stamina dialog was open for
+  // an extended period while other effects acted on the actor.
   if (option.immediate) {
     if (!canUseHeroicActions(actor)) {
       ui.notifications.warn("Heroic Actions require the Elite trait for NPCs.");
       return;
     }
-    const currentAP = Number(actor.system?.action_points?.value ?? 0);
-    const maxAP = Number(actor.system?.action_points?.max ?? 0);
-    
-    // Check if in active combat
+
     const combat = game.combat;
-    const isInCombat = combat && combat.started;
-    
-    const updates = {};
-    
-    if (isInCombat) {
-      // Check for heroic action flag this round
-      const currentRound = Number(combat.round ?? 0);
-      const lastUsedRound = actor.getFlag(SYSTEM_ID, "heroicActionLastRound");
-      
-      if (lastUsedRound === currentRound) {
-        ui.notifications.warn("Heroic Action can only be used once per round.");
-        return;
+    const isInCombat = Boolean(combat?.started);
+    const currentRound = isInCombat ? Number(combat.round ?? 0) : null;
+
+    // Capture values needed for the chat message after the atomic write.
+    const chatMeta = { currentAP: 0, newAP: 0, newSP: 0, newTemp: 0, maxSP: 0 };
+    let heroicBlocked = false;
+
+    const ok = await requestAtomicUpdateDocument(actor.uuid ?? actor, (freshActor) => {
+      const freshSP = Number(freshActor.system?.stamina?.value ?? 0);
+      const freshTemp = Number(freshActor.system?.stamina?.temp ?? 0);
+      const freshAP = Number(freshActor.system?.action_points?.value ?? 0);
+      const freshMaxAP = Number(freshActor.system?.action_points?.max ?? 0);
+
+      if (isActorUndead(freshActor) && (freshSP + freshTemp - cost) < 0) {
+        heroicBlocked = true;
+        return null;
       }
-      
-      updates[`flags.${SYSTEM_ID}.heroicActionLastRound`] = currentRound;
+
+      const updates = {};
+
+      if (isInCombat && currentRound !== null) {
+        const lastUsedRound = freshActor.getFlag(SYSTEM_ID, "heroicActionLastRound");
+        if (lastUsedRound === currentRound) {
+          heroicBlocked = true;
+          return null;
+        }
+        updates[`flags.${SYSTEM_ID}.heroicActionLastRound`] = currentRound;
+      }
+
+      const { newSp, newTemp } = _spendFromPools({ sp: freshSP, temp: freshTemp, cost });
+
+      chatMeta.currentAP = freshAP;
+      chatMeta.newAP = Math.min(freshAP + 1, freshMaxAP);
+      chatMeta.newSP = newSp;
+      chatMeta.newTemp = newTemp;
+      chatMeta.maxSP = Number(freshActor.system?.stamina?.max ?? 0);
+
+      updates["system.stamina.temp"] = newTemp;
+      updates["system.stamina.value"] = newSp;
+      updates["system.action_points.value"] = chatMeta.newAP;
+      return updates;
+    });
+
+    if (heroicBlocked) {
+      // Specific reason already set; emit the right warning.
+      if (isActorUndead(actor) && (Number(actor.system?.stamina?.value ?? 0) + Number(actor.system?.stamina?.temp ?? 0) - cost) < 0) {
+        ui.notifications?.warn?.("Undead cannot spend Stamina below 0.");
+      } else {
+        ui.notifications.warn("Heroic Action can only be used once per round.");
+      }
+      return;
     }
-    
-    const newAP = Math.min(currentAP + 1, maxAP);
-    
-    const { newSp: newSP, newTemp } = _spendFromPools({ sp: currentSP, temp: currentTemp, cost });
-    
-    updates["system.stamina.temp"] = newTemp;
-    updates["system.stamina.value"] = newSP;
-    updates["system.action_points.value"] = newAP;
-    
-    await requestUpdateDocument(actor, updates);
-    
-    const tempConsumedTotal = currentTemp - newTemp;
-    const regularConsumedTotal = currentSP - newSP;
-    const remainingSPDisplay = newSP + (newTemp > 0 ? ` (+${newTemp} temp)` : '');
-    const maxSP = actor.system?.stamina?.max ?? 0;
-    
-    // Post chat message
+    if (!ok) return;
+
+    const { currentAP, newAP, newSP, newTemp, maxSP } = chatMeta;
+    const tempConsumedTotal = Number(actor.system?.stamina?.temp ?? 0) - newTemp;
+    const regularConsumedTotal = Number(actor.system?.stamina?.value ?? 0) - newSP;
+    const remainingSPDisplay = newSP + (newTemp > 0 ? ` (+${newTemp} temp)` : "");
+
     await ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
       content: `<div class="uesrpg-stamina-card">
         <h3>Stamina: ${_esc(option.name)}</h3>
-        <p><b>Cost:</b> ${cost} SP ${tempConsumedTotal > 0 ? `(${tempConsumedTotal} temp, ${regularConsumedTotal} regular)` : ''}</p>
+        <p><b>Cost:</b> ${cost} SP ${tempConsumedTotal > 0 ? `(${tempConsumedTotal} temp, ${regularConsumedTotal} regular)` : ""}</p>
         <p><b>Effect:</b> Regained 1 Action Point (${currentAP} -> ${newAP})</p>
         <p><b>Remaining SP:</b> ${remainingSPDisplay} / ${maxSP}</p>
-        ${isInCombat ? '<p class="uesrpg-stamina-note">Can only be used once per round in combat.</p>' : ''}
+        ${isInCombat ? '<p class="uesrpg-stamina-note">Can only be used once per round in combat.</p>' : ""}
       </div>`,
-      style: CONST.CHAT_MESSAGE_STYLES.OTHER
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
-    
+
     ui.notifications.info(`${option.name}: Regained 1 AP`);
     return;
   }
 
-  const { newSp: newSP, newTemp } = _spendFromPools({ sp: currentSP, temp: currentTemp, cost });
-  
-  // Update stamina
-  await requestUpdateDocument(actor, {
-    "system.stamina.temp": newTemp,
-    "system.stamina.value": newSP
+  // ── Standard spend path ───────────────────────────────────────────────────
+  // Read-compute-write inside requestAtomicUpdateDocument so current SP / temp
+  // values are fresh at write time rather than captured when the dialog opened.
+
+  const chatMeta = { newSP: 0, newTemp: 0, currentSP: 0, currentTemp: 0 };
+  let spendBlocked = false;
+
+  const ok = await requestAtomicUpdateDocument(actor.uuid ?? actor, (freshActor) => {
+    const freshSP = Number(freshActor.system?.stamina?.value ?? 0);
+    const freshTemp = Number(freshActor.system?.stamina?.temp ?? 0);
+
+    if (isActorUndead(freshActor) && (freshSP + freshTemp - cost) < 0) {
+      spendBlocked = true;
+      return null;
+    }
+
+    const { newSp, newTemp } = _spendFromPools({ sp: freshSP, temp: freshTemp, cost });
+    chatMeta.currentSP = freshSP;
+    chatMeta.currentTemp = freshTemp;
+    chatMeta.newSP = newSp;
+    chatMeta.newTemp = newTemp;
+    return { "system.stamina.temp": newTemp, "system.stamina.value": newSp };
   });
+
+  if (spendBlocked) {
+    ui.notifications?.warn?.("Undead cannot spend Stamina below 0.");
+    return;
+  }
+  if (!ok) return;
+
+  const { newSP, newTemp, currentSP, currentTemp } = chatMeta;
 
   // Remove any existing effect of the same type (replacing)
   const existing = actor.effects.find(e => 

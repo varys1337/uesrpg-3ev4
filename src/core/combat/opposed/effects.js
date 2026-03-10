@@ -17,6 +17,7 @@ import { _resolveDoc } from "./helpers/docs.js";
 import { _getSystemId, _findEnabledEffectByUesrpgKey } from "./helpers/util.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../../system/flags.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
 
 // ====== ACTIVE EFFECT CREATION ======
 
@@ -107,6 +108,13 @@ export async function expireAdvantageEffects({ worldTime = null, combat = null }
   }
 }
 
+async function _handleCombatBoundaryOpposedEffects(payload) {
+  if (!game.user?.isGM) return;
+  if (payload?.source !== "combat") return;
+  if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+  await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });
+}
+
 export function registerAdvantageExpirationHooks() {
   if (_advantageExpiryRegistered) return;
   _advantageExpiryRegistered = true;
@@ -121,11 +129,16 @@ export function registerAdvantageExpirationHooks() {
     await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });
   });
 
+  registerCombatBoundaryConsumer({
+    id: "combat-opposed-effects",
+    // Expire transient opposed/advantage effects after earlier boundary state consumers settle.
+    order: 450,
+    handle: _handleCombatBoundaryOpposedEffects
+  });
+
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (!game.user?.isGM) return;
-    if (payload?.source !== "combat") return;
-    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-    await expireAdvantageEffects({ worldTime: payload?.worldTime ?? null, combat: game?.combat ?? null });
+    if (noteCombatBoundaryLegacyFallbackSkip("combat-opposed-effects", payload)) return;
+    await _handleCombatBoundaryOpposedEffects(payload);
   });
 }
 

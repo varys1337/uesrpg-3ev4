@@ -23,19 +23,15 @@
 import { doesUserOwnActor, requestUpdateDocument, requestUpdateChatMessage } from "../../utils/authority-proxy.js";
 import { canUserRollActor } from "../../utils/permissions.js";
 import { customDialog, confirmDialog } from "../../utils/dialog-v2-helper.js";
-import { doTestRoll, formatDegree, resolveOpposed } from "../../utils/degree-roll-helper.js";
-import { cloneFlagState } from "../../utils/clone.js";
+import { doTestRoll, formatDegree, formatResultOutcomeLabel, formatResultSummary } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ID } from "../constants.js";
 import { getMessageIdFromContextLi } from "../../utils/chat/contextmenu.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { applyLuckResultMutation, canMutateLuckResult } from "./result-reresolution.js";
 
 // ── Constants ───────────────────────────────────────────────────────────
 
 const ROLL_FORMULA = "1d100";
-let _combatOpposedLuckDepsP = null;
-let _magicOpposedLuckDepsP = null;
-let _skillOpposedUpdaterP = null;
-let _charOpposedUpdaterP = null;
 
 // ══════════════════════════════════════════════════════════════════════════
 //  Utility helpers
@@ -340,6 +336,11 @@ async function _pickSide(info, opts = {}) {
     if (opts.requireResult && !s.result) return false;
     if (opts.requireFailure && (s.result?.isSuccess !== false || !s.result)) return false;
     if (opts.requireSuccess && (s.result?.isSuccess !== true || !s.result)) return false;
+    const liveMessage = opts.message ?? null;
+    if (liveMessage) {
+      const mutable = canMutateLuckResult(liveMessage, info, s, { classifyMessage: _classifyMessage });
+      if (!mutable.ok) return false;
+    }
     return true;
   });
   if (eligible.length === 0) return null;
@@ -405,38 +406,6 @@ function _mapExtraFlagsToContext(extraFlags = {}) {
   return ctx;
 }
 
-function _isResultMatch(actual, expected) {
-  if (!actual || !expected) return false;
-  return (
-    Boolean(actual.isSuccess) === Boolean(expected.isSuccess) &&
-    (Number(actual.degree ?? 0) || 0) === (Number(expected.degree ?? 0) || 0) &&
-    Boolean(actual.isCriticalSuccess) === Boolean(expected.isCriticalSuccess) &&
-    Boolean(actual.isCriticalFailure) === Boolean(expected.isCriticalFailure) &&
-    String(actual.textual ?? "") === String(expected.textual ?? "")
-  );
-}
-
-function _selectSideByRef(info, sideRef) {
-  if (!info || !sideRef) return null;
-  if (sideRef.role === "defender") {
-    const defenders = info.sides.filter((s) => s.role === "defender");
-    if (Number.isInteger(sideRef.defenderIndex) && sideRef.defenderIndex >= 0) {
-      return defenders[sideRef.defenderIndex] ?? null;
-    }
-    return defenders[0] ?? null;
-  }
-  return info.sides.find((s) => s.role === sideRef.role) ?? null;
-}
-
-function _didPersistResult(messageId, infoType, sideRef, expectedResult) {
-  const live = game.messages?.get?.(messageId) ?? null;
-  if (!live) return false;
-  const updated = _classifyMessage(live);
-  if (!updated || updated.type !== infoType) return false;
-  const side = _selectSideByRef(updated, sideRef);
-  return _isResultMatch(side?.result, expectedResult);
-}
-
 function _getBurnBaseLuck(actor) {
   return Number(actor?.system?.characteristics?.lck?.base ?? actor?.system?.characteristics?.lck?.value ?? 0) || 0;
 }
@@ -463,261 +432,6 @@ async function _applyLuckBurnCost(actor, burnAmount) {
   return { ok, currentBase, nextBase };
 }
 
-function _getCombatOpposedLuckDeps() {
-  if (!_combatOpposedLuckDepsP) {
-    _combatOpposedLuckDepsP = Promise.all([
-      import("../combat/opposed/cards/updater.js"),
-      import("../combat/opposed/render.js"),
-      import("../combat/opposed/outcome-resolution.js"),
-    ]);
-  }
-  return _combatOpposedLuckDepsP;
-}
-
-function _getMagicOpposedLuckDeps() {
-  if (!_magicOpposedLuckDepsP) {
-    _magicOpposedLuckDepsP = Promise.all([
-      import("../magic/opposed/updater.js"),
-      import("../magic/opposed/render.js"),
-    ]);
-  }
-  return _magicOpposedLuckDepsP;
-}
-
-function _getSkillOpposedUpdater() {
-  if (!_skillOpposedUpdaterP) {
-    _skillOpposedUpdaterP = import("../skills/opposed-workflow/core/card-updater.js");
-  }
-  return _skillOpposedUpdaterP;
-}
-
-function _getCharOpposedUpdater() {
-  if (!_charOpposedUpdaterP) {
-    _charOpposedUpdaterP = import("../characteristics/opposed/card-updater.js");
-  }
-  return _charOpposedUpdaterP;
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-//  Per-card-type update adapters
-// ══════════════════════════════════════════════════════════════════════════
-
-/**
- * Write a mutated result back into the correct place in the chat message
- * flags and re-render the card.  For standalone skill tests, updates the
- * simple flag payload.  For opposed cards, uses each type's card updater
- * to atomically persist flags + re-rendered HTML.
- *
- * @param {ChatMessage} message
- * @param {object} info           Output of _classifyMessage (from *before* mutation)
- * @param {object} side           The side being modified (ref into info.sides)
- * @param {object} newResult      The new result object to write
- * @param {object} [extraFlags]   Additional flags to merge (e.g. luckUsedOnTest)
- * @returns {Promise<void>}
- */
-async function _persistResult(message, info, side, newResult, extraFlags = {}) {
-  switch (info.type) {
-    case "skillTest":
-      return _persistSkillTestResult(message, newResult, extraFlags);
-    case "combatOpposed":
-      return _persistCombatOpposedResult(message, side, newResult, _mapExtraFlagsToContext(extraFlags));
-    case "skillOpposed":
-      return _persistSkillOpposedResult(message, side, newResult, _mapExtraFlagsToContext(extraFlags));
-    case "charOpposed":
-      return _persistCharOpposedResult(message, side, newResult, _mapExtraFlagsToContext(extraFlags));
-    case "magicOpposed":
-      return _persistMagicOpposedResult(message, side, newResult, _mapExtraFlagsToContext(extraFlags));
-    default:
-      console.warn(`UESRPG | Luck: unknown card type "${info.type}"`);
-      return false;
-  }
-}
-
-// ── Standalone skill test ───────────────────────────────────────────────
-
-async function _persistSkillTestResult(message, newResult, extraFlags) {
-  const update = {
-    [`flags.${SYSTEM_ID}.skillTest.isSuccess`]: newResult.isSuccess,
-    [`flags.${SYSTEM_ID}.skillTest.degree`]: newResult.degree,
-    [`flags.${SYSTEM_ID}.skillTest.textual`]: newResult.textual ?? `${newResult.degree} ${newResult.isSuccess ? "DoS" : "DoF"}`,
-    ...extraFlags,
-  };
-  return await requestUpdateChatMessage(message, update);
-}
-
-// ── Combat opposed ──────────────────────────────────────────────────────
-
-async function _persistCombatOpposedResult(message, side, newResult, extraContext = {}) {
-  // Lazy-load the combat card updater + render + outcome resolver
-  const [
-    { updateCard },
-    { _renderCard },
-    { resolveOutcomeRAW },
-  ] = await _getCombatOpposedLuckDeps();
-
-  // Re-read live flags to avoid stale writes
-  const live = game.messages?.get?.(message.id) ?? message;
-  const raw = live.flags?.[SYSTEM_ID]?.opposed;
-  if (!raw) return false;
-  const data = foundry.utils.deepClone(raw);
-
-  // Write the new result into the correct side
-  if (side.role === "attacker") {
-    data.attacker.result = newResult;
-  } else {
-    const defenders = Array.isArray(data.defenders) ? data.defenders : (data.defender ? [data.defender] : []);
-    const idx = side.defenderIndex ?? 0;
-    const d = defenders[idx] ?? data.defender;
-    if (d) d.result = newResult;
-  }
-
-  // Re-resolve outcome per defender
-  const defenders = Array.isArray(data.defenders) ? data.defenders : (data.defender ? [data.defender] : []);
-  for (const d of defenders) {
-    if (!d?.result || !data.attacker?.result) continue;
-    const outcome = resolveOutcomeRAW(data, d);
-    if (outcome) {
-      if (data.defenders) {
-        d.outcome = outcome;
-      } else {
-        data.outcome = outcome;
-      }
-    }
-  }
-
-  // Mark luck used in context
-  data.context = data.context ?? {};
-  data.context.luckUsed = (extraContext.luckUsed ?? true) === true;
-  if (extraContext.luckBurned !== undefined) data.context.luckBurned = Boolean(extraContext.luckBurned);
-  if (extraContext.rerollUsed !== undefined) data.context.rerollUsed = Boolean(extraContext.rerollUsed);
-  if (extraContext.rerollSource !== undefined) data.context.rerollSource = String(extraContext.rerollSource);
-
-  await updateCard(live, data, _renderCard);
-  return _didPersistResult(message.id, "combatOpposed", side, newResult);
-}
-
-// ── Skill opposed ───────────────────────────────────────────────────────
-
-async function _persistSkillOpposedResult(message, side, newResult, extraContext = {}) {
-  const { _updateCard } = await _getSkillOpposedUpdater();
-
-  const live = game.messages?.get?.(message.id) ?? message;
-  const raw = live.flags?.[SYSTEM_ID]?.skillOpposed;
-  if (!raw) return false;
-  const data = cloneFlagState(raw.state ?? raw);
-
-  if (side.role === "attacker") {
-    data.attacker.result = newResult;
-  } else if (data.defender) {
-    data.defender.result = newResult;
-  }
-
-  // Re-resolve outcome using generic resolver
-  if (data.attacker?.result && data.defender?.result) {
-    data.outcome = resolveOpposed(data.attacker.result, data.defender.result);
-  }
-
-  data.context = data.context ?? {};
-  data.context.luckUsed = (extraContext.luckUsed ?? true) === true;
-  if (extraContext.luckBurned !== undefined) data.context.luckBurned = Boolean(extraContext.luckBurned);
-  if (extraContext.rerollUsed !== undefined) data.context.rerollUsed = Boolean(extraContext.rerollUsed);
-  if (extraContext.rerollSource !== undefined) data.context.rerollSource = String(extraContext.rerollSource);
-
-  await _updateCard(live, data);
-  return _didPersistResult(message.id, "skillOpposed", side, newResult);
-}
-
-// ── Characteristic opposed ──────────────────────────────────────────────
-
-async function _persistCharOpposedResult(message, side, newResult, extraContext = {}) {
-  const { _updateCard } = await _getCharOpposedUpdater();
-
-  const live = game.messages?.get?.(message.id) ?? message;
-  const raw = live.flags?.[SYSTEM_ID]?.charOpposed;
-  if (!raw) return false;
-  const data = cloneFlagState(raw.state ?? raw);
-
-  if (side.role === "attacker") {
-    data.attacker.result = newResult;
-  } else if (data.defender) {
-    data.defender.result = newResult;
-  }
-
-  if (data.attacker?.result && data.defender?.result) {
-    data.outcome = resolveOpposed(data.attacker.result, data.defender.result);
-  }
-
-  data.context = data.context ?? {};
-  data.context.luckUsed = (extraContext.luckUsed ?? true) === true;
-  if (extraContext.luckBurned !== undefined) data.context.luckBurned = Boolean(extraContext.luckBurned);
-  if (extraContext.rerollUsed !== undefined) data.context.rerollUsed = Boolean(extraContext.rerollUsed);
-  if (extraContext.rerollSource !== undefined) data.context.rerollSource = String(extraContext.rerollSource);
-
-  await _updateCard(live, data);
-  return _didPersistResult(message.id, "charOpposed", side, newResult);
-}
-
-// ── Magic opposed ───────────────────────────────────────────────────────
-
-async function _persistMagicOpposedResult(message, side, newResult, extraContext = {}) {
-  const [
-    { updateCard },
-    { renderCard },
-  ] = await _getMagicOpposedLuckDeps();
-
-  const live = game.messages?.get?.(message.id) ?? message;
-  const raw = live.flags?.[SYSTEM_ID]?.magicOpposed;
-  if (!raw) return false;
-  const data = cloneFlagState(raw.state ?? raw);
-
-  if (side.role === "attacker") {
-    data.attacker.result = newResult;
-  } else {
-    const defenders = Array.isArray(data.defenders) ? data.defenders : (data.defender ? [data.defender] : []);
-    const idx = side.defenderIndex ?? 0;
-    const d = defenders[idx] ?? data.defender;
-    if (d) d.result = newResult;
-  }
-
-  // Re-resolve per-defender outcomes
-  const defenders = Array.isArray(data.defenders) ? data.defenders : (data.defender ? [data.defender] : []);
-  for (const d of defenders) {
-    if (!d?.result || !data.attacker?.result) continue;
-    const outcome = resolveOpposed(data.attacker.result, d.result);
-    if (outcome) {
-      if (data.defenders) {
-        d.outcome = d.outcome ?? {};
-        d.outcome.winner = outcome.winner;
-        d.outcome.reason = outcome.reason;
-      } else {
-        data.outcome = data.outcome ?? {};
-        data.outcome.winner = outcome.winner;
-        data.outcome.reason = outcome.reason;
-      }
-    }
-  }
-
-  data.context = data.context ?? {};
-  data.context.luckUsed = (extraContext.luckUsed ?? true) === true;
-  if (extraContext.luckBurned !== undefined) data.context.luckBurned = Boolean(extraContext.luckBurned);
-  if (extraContext.rerollUsed !== undefined) data.context.rerollUsed = Boolean(extraContext.rerollUsed);
-  if (extraContext.rerollSource !== undefined) data.context.rerollSource = String(extraContext.rerollSource);
-
-  await updateCard(live, data, renderCard);
-  return _didPersistResult(message.id, "magicOpposed", side, newResult);
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-//  Luck Point: Reroll a failed test
-// ══════════════════════════════════════════════════════════════════════════
-
-/**
- * RAW: Characters may spend a Luck Point whenever they fail a test.
- * The character may immediately reroll that failed test.
- * - Once per test
- * - Cannot reroll Critical Failures
- * - Cannot be combined with Stamina on the same test
- */
 async function spendLPReroll(message) {
   if (!message) return false;
   const info = _classifyMessage(message);
@@ -726,7 +440,7 @@ async function spendLPReroll(message) {
   if (info.rerolled) { ui.notifications?.warn?.("This test has already been rerolled."); return false; }
 
   // Pick the side (auto for standalone, dialog for opposed)
-  const side = await _pickSide(info, { requireResult: true, requireFailure: true });
+  const side = await _pickSide(info, { requireResult: true, requireFailure: true, message });
   if (!side) { ui.notifications?.info?.("No failed result eligible for Luck reroll."); return false; }
 
   const { result } = side;
@@ -770,10 +484,13 @@ async function spendLPReroll(message) {
 
   if (info.type === "skillTest") {
     // Update the original card's stored result so it reflects the reroll
-    const persisted = await _persistResult(message, info, side, newResult, {
-      [`flags.${SYSTEM_ID}.reroll.used`]: true,
-      [`flags.${SYSTEM_ID}.reroll.source`]: "luck-point",
-      [`flags.${SYSTEM_ID}.luckUsedOnTest`]: true,
+    const persisted = await applyLuckResultMutation(message, info, side, newResult, {
+      extraContext: _mapExtraFlagsToContext({
+        [`flags.${SYSTEM_ID}.reroll.used`]: true,
+        [`flags.${SYSTEM_ID}.reroll.source`]: "luck-point",
+        [`flags.${SYSTEM_ID}.luckUsedOnTest`]: true,
+      }),
+      classifyMessage: _classifyMessage,
     });
     if (!persisted) {
       ui.notifications?.warn?.("Could not persist reroll result. Luck Point was not spent.");
@@ -786,10 +503,8 @@ async function spendLPReroll(message) {
         <div style="opacity:0.85; font-size:12px;"><b>Target Number:</b> ${target}</div>
         <div style="margin-top:4px;">
           ${res.isSuccess
-            ? `<b style="color:green;">SUCCESS \u2014 ${formatDegree(res)}</b>`
-            : `<b style="color:rgb(168,5,5);">FAILURE \u2014 ${formatDegree(res)}</b>`}
-          ${res.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ''}
-          ${res.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ''}
+            ? `<b style="color:green;">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
+            : `<b style="color:rgb(168,5,5);">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`}
         </div>
       </div>`;
 
@@ -809,10 +524,13 @@ async function spendLPReroll(message) {
     });
   } else {
     // For opposed cards: replace the result in-place and re-render the card
-    const persisted = await _persistResult(message, info, side, newResult, {
-      [`flags.${SYSTEM_ID}.luckUsedOnTest`]: true,
-      [`flags.${SYSTEM_ID}.reroll.used`]: true,
-      [`flags.${SYSTEM_ID}.reroll.source`]: "luck-point",
+    const persisted = await applyLuckResultMutation(message, info, side, newResult, {
+      extraContext: _mapExtraFlagsToContext({
+        [`flags.${SYSTEM_ID}.luckUsedOnTest`]: true,
+        [`flags.${SYSTEM_ID}.reroll.used`]: true,
+        [`flags.${SYSTEM_ID}.reroll.source`]: "luck-point",
+      }),
+      classifyMessage: _classifyMessage,
     });
     if (!persisted) {
       ui.notifications?.warn?.("Could not persist reroll result. Luck Point was not spent.");
@@ -825,10 +543,8 @@ async function spendLPReroll(message) {
       <div style="opacity:0.85; font-size:12px;"><b>Target Number:</b> ${target}</div>
       <div style="margin-top:4px;">
         ${res.isSuccess
-          ? `<b style="color:green;">SUCCESS \u2014 ${formatDegree(res)}</b>`
-          : `<b style="color:rgb(168,5,5);">FAILURE \u2014 ${formatDegree(res)}</b>`}
-        ${res.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ''}
-        ${res.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ''}
+          ? `<b style="color:green;">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
+          : `<b style="color:rgb(168,5,5);">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`}
       </div>
       <div style="opacity:0.7; font-size:11px;">LP remaining: ${Math.max(0, currentLp - 1)}</div>
     </div>`;
@@ -864,7 +580,7 @@ async function spendLPAddDoS(message) {
   if (!info) { ui.notifications?.warn?.("This message does not contain a test result."); return false; }
   if (info.staminaUsed) { ui.notifications?.warn?.("Cannot use both Luck and Stamina on the same test (RAW)."); return false; }
 
-  const side = await _pickSide(info, { requireResult: true, requireSuccess: true });
+  const side = await _pickSide(info, { requireResult: true, requireSuccess: true, message });
   if (!side) { ui.notifications?.info?.("No successful result eligible for +1 DoS."); return false; }
 
   const actor = _resolveActor(message, side.actorUuid);
@@ -892,8 +608,11 @@ async function spendLPAddDoS(message) {
     textual: `${nextDegree} DoS`,
   };
 
-  const persisted = await _persistResult(message, info, side, newResult, {
-    [`flags.${SYSTEM_ID}.luckUsedOnTest`]: true,
+  const persisted = await applyLuckResultMutation(message, info, side, newResult, {
+    extraContext: _mapExtraFlagsToContext({
+      [`flags.${SYSTEM_ID}.luckUsedOnTest`]: true,
+    }),
+    classifyMessage: _classifyMessage,
   });
   if (!persisted) {
     ui.notifications?.warn?.("Could not persist +1 DoS. Luck Point was not spent.");
@@ -1027,7 +746,7 @@ async function _executeBurn(actor, message, info, opt) {
         return false;
       }
 
-      const side = await _pickSide(info, { requireResult: true, requireSuccess: true });
+      const side = await _pickSide(info, { requireResult: true, requireSuccess: true, message });
       if (!side) {
         ui.notifications?.warn?.("No successful result eligible for Burn 1.");
         return false;
@@ -1035,8 +754,11 @@ async function _executeBurn(actor, message, info, opt) {
 
       const nextDegree = (side.result.degree ?? 0) + 1;
       const newResult = { ...side.result, degree: nextDegree, textual: `${nextDegree} DoS` };
-      const persisted = await _persistResult(message, info, side, newResult, {
-        [`flags.${SYSTEM_ID}.luckBurned`]: true,
+      const persisted = await applyLuckResultMutation(message, info, side, newResult, {
+        extraContext: _mapExtraFlagsToContext({
+          [`flags.${SYSTEM_ID}.luckBurned`]: true,
+        }),
+        classifyMessage: _classifyMessage,
       });
       if (!persisted) {
         ui.notifications?.warn?.("Could not apply Burn 1 effect. Luck was not burned.");
@@ -1054,7 +776,7 @@ async function _executeBurn(actor, message, info, opt) {
         return false;
       }
 
-      const side = await _pickSide(info, { requireResult: true, requireFailure: true });
+      const side = await _pickSide(info, { requireResult: true, requireFailure: true, message });
       if (!side) {
         ui.notifications?.warn?.("No failed result eligible for Burn 3 reroll.");
         return false;
@@ -1082,10 +804,13 @@ async function _executeBurn(actor, message, info, opt) {
         textual: String(res.textual ?? ""),
       };
 
-      const persisted = await _persistResult(message, info, side, newResult, {
-        [`flags.${SYSTEM_ID}.reroll.used`]: true,
-        [`flags.${SYSTEM_ID}.reroll.source`]: "luck-burn",
-        [`flags.${SYSTEM_ID}.luckBurned`]: true,
+      const persisted = await applyLuckResultMutation(message, info, side, newResult, {
+        extraContext: _mapExtraFlagsToContext({
+          [`flags.${SYSTEM_ID}.reroll.used`]: true,
+          [`flags.${SYSTEM_ID}.reroll.source`]: "luck-burn",
+          [`flags.${SYSTEM_ID}.luckBurned`]: true,
+        }),
+        classifyMessage: _classifyMessage,
       });
       if (!persisted) {
         ui.notifications?.warn?.("Could not apply Burn 3 reroll. Luck was not burned.");
@@ -1095,8 +820,8 @@ async function _executeBurn(actor, message, info, opt) {
       const flavor = `<div class="uesrpg"><div><b>${_esc(side.label)}</b> \u2014 Reroll (Burned ${burnAmount} Luck)</div>
         <div style="opacity:0.85; font-size:12px;"><b>Target Number:</b> ${target}</div>
         <div style="margin-top:4px;">${res.isSuccess
-          ? `<b style="color:green;">SUCCESS \u2014 ${formatDegree(res)}</b>`
-          : `<b style="color:rgb(168,5,5);">FAILURE \u2014 ${formatDegree(res)}</b>`}</div></div>`;
+          ? `<b style="color:green;">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
+          : `<b style="color:rgb(168,5,5);">${formatResultSummary(res, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`}</div></div>`;
       const rollMode = String(info.raw?.rollMode ?? (game.settings.get("core", "rollMode") ?? "")).trim();
       await res.roll.toMessage({
         user: game.user.id,
@@ -1108,7 +833,7 @@ async function _executeBurn(actor, message, info, opt) {
         rollMode,
       });
 
-      effectText = `Rerolled ${side.label}: ${res.isSuccess ? `SUCCESS (${formatDegree(res)})` : `FAILURE (${formatDegree(res)})`}`;
+      effectText = `Rerolled ${side.label}: ${formatResultOutcomeLabel(res)} (${formatDegree(res)})`;
       break;
     }
 
@@ -1188,7 +913,8 @@ export function registerLuckContextMenuOptions(hookName, options) {
           const actor = _resolveActor(null, s.actorUuid);
           if (!_canUserActOnActor(actor)) return false;
           const lp = Number(actor?.system?.luck_points?.value ?? 0);
-          return lp > 0;
+          if (lp <= 0) return false;
+          return canMutateLuckResult(message, info, s, { classifyMessage: _classifyMessage }).ok;
         });
         if (!hasEligibleSide) return false;
         if (info.staminaUsed) return false;
@@ -1203,10 +929,14 @@ export function registerLuckContextMenuOptions(hookName, options) {
 
         // Determine whether to offer reroll or DoS based on available sides
         const hasFailure = info.sides.some(s =>
-          s.result?.isSuccess === false && _canUserActOnActor(_resolveActor(null, s.actorUuid))
+          s.result?.isSuccess === false &&
+          _canUserActOnActor(_resolveActor(null, s.actorUuid)) &&
+          canMutateLuckResult(message, info, s, { classifyMessage: _classifyMessage }).ok
         );
         const hasSuccess = info.sides.some(s =>
-          s.result?.isSuccess === true && _canUserActOnActor(_resolveActor(null, s.actorUuid))
+          s.result?.isSuccess === true &&
+          _canUserActOnActor(_resolveActor(null, s.actorUuid)) &&
+          canMutateLuckResult(message, info, s, { classifyMessage: _classifyMessage }).ok
         );
 
         if (hasFailure && hasSuccess) {
@@ -1238,7 +968,8 @@ export function registerLuckContextMenuOptions(hookName, options) {
           const actor = _resolveActor(null, s.actorUuid);
           if (!_canUserActOnActor(actor)) return false;
           const luck = _getBurnBaseLuck(actor);
-          return luck > 0;
+          if (luck <= 0) return false;
+          return canMutateLuckResult(message, info, s, { classifyMessage: _classifyMessage }).ok;
         });
       },
       callback: async (li) => {
@@ -1316,4 +1047,3 @@ export const LuckAPI = {
   registerLuckContextMenuOptions,
   markStaminaUsedOnTest,
 };
-

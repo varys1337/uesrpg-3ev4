@@ -1,4 +1,4 @@
-/**
+﻿/**
  * src/core/combat/tn.js
  *
  * Deterministic TN computation pipeline for opposed workflow.
@@ -19,6 +19,12 @@ import { getConditionValue } from "../conditions/condition-engine.js";
 import { isEngagementFlankingHomebrewEnabled } from "../system/homebrew.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
+import { computeMagicCastingTN } from "../magic/magicka-utils.js";
+import { getPreferredWardDefenseSpell } from "./ward-defense.js";
+import {
+  hasEquippedShield as hasEquippedShieldCanonical,
+  hasEquippedShieldType as hasEquippedShieldTypeCanonical,
+} from "../items/shield-utils.js";
 
 /**
  * Read combat TN modifiers from actor.system.modifiers.combat.*.
@@ -310,32 +316,11 @@ if (typeof styleUuidOrId === "string" && styleUuidOrId.startsWith("prof:")) {
  *  - system.item_cat: "shield"
  */
 export function hasEquippedShield(actor) {
-  return (actor?.items ?? []).some(i => {
-    if (i.type !== "armor") return false;
-    if (!i.system?.equipped) return false;
-    const isShield = Boolean(i.system?.isShieldEffective ?? i.system?.isShield);
-    const itemCat = String(i.system?.item_cat ?? "").toLowerCase();
-    if (!isShield && itemCat !== "shield" && !String(i.name ?? "").toLowerCase().includes("shield")) return false;
-
-    // RAW: bucklers cannot be used to Block.
-    const shieldType = String(i.system?.shieldType ?? "normal").toLowerCase();
-    if (shieldType === "buckler") return false;
-    return true;
-  });
+  return hasEquippedShieldCanonical(actor, { includeBuckler: false, allowLegacy: true });
 }
 
 function _hasEquippedShieldType(actor, typeKey) {
-  const target = String(typeKey ?? "").toLowerCase();
-  if (!target) return false;
-  return (actor?.items ?? []).some(i => {
-    if (i.type !== "armor") return false;
-    if (!i.system?.equipped) return false;
-    const isShield = Boolean(i.system?.isShieldEffective ?? i.system?.isShield);
-    const itemCat = String(i.system?.item_cat ?? "").toLowerCase();
-    if (!isShield && itemCat !== "shield" && !String(i.name ?? "").toLowerCase().includes("shield")) return false;
-    const shieldType = String(i.system?.shieldType ?? "normal").toLowerCase();
-    return shieldType === target;
-  });
+  return hasEquippedShieldTypeCanonical(actor, typeKey, { allowLegacy: true });
 }
 
 function _weaponHasToken(weapon, token) {
@@ -405,6 +390,27 @@ function computeBlockTN(defender, styleItem) {
   if (_hasEquippedShieldType(defender, "tower")) tn += 10;
 
   return tn;
+}
+
+export function computeWardDefenseTN({
+  actor,
+  wardSpell = null,
+  context = {}
+} = {}) {
+  const spell = wardSpell ?? getPreferredWardDefenseSpell(actor);
+  if (!actor || !spell) return { finalTN: 0, breakdown: [] };
+
+  // Ward defense TN follows spellcasting lanes; combat modifiers are applied by computeTN().
+  const tn = computeMagicCastingTN(actor, spell, {
+    difficultyKey: "average",
+    manualModifier: 0,
+    circumstanceMod: 0
+  });
+
+  return {
+    finalTN: Math.max(0, Number(tn?.finalTN ?? 0) || 0),
+    breakdown: Array.isArray(tn?.breakdown) ? tn.breakdown : []
+  };
 }
 
 /**
@@ -590,18 +596,26 @@ export function computeTN({
           };
         }
       }
-    } else if (defenseType === "block") {
-      const shieldOk = hasEquippedShield(actor);
-      if (!shieldOk) {
-        baseTN = 0;
-      } else if (typeof styleUuid === "string" && styleUuid.startsWith("prof:")) {
-        const styleItem = getCombatStyleItem(actor, styleUuid);
-        baseTN = Number(styleItem?.system?.value ?? 0);
+    } else if (defenseType === "block" || defenseType === "ward") {
+      const blockSource = String(context?.blockSource ?? "").trim().toLowerCase();
+      const isWardBlock = (defenseType === "ward") || (blockSource === "ward");
+      if (isWardBlock) {
+        const wardSpell = context?.wardSpell ?? null;
+        baseTN = Number(computeWardDefenseTN({ actor, wardSpell, context })?.finalTN ?? 0) || 0;
+        baseLabel = "Ward TN";
       } else {
-        const styleItem = getCombatStyleItem(actor, styleUuid);
-        baseTN = styleItem ? computeBlockTN(actor, styleItem) : 0;
+        const shieldOk = hasEquippedShield(actor);
+        if (!shieldOk) {
+          baseTN = 0;
+        } else if (typeof styleUuid === "string" && styleUuid.startsWith("prof:")) {
+          const styleItem = getCombatStyleItem(actor, styleUuid);
+          baseTN = Number(styleItem?.system?.value ?? 0);
+        } else {
+          const styleItem = getCombatStyleItem(actor, styleUuid);
+          baseTN = styleItem ? computeBlockTN(actor, styleItem) : 0;
+        }
+        baseLabel = "Base TN";
       }
-      baseLabel = "Base TN";
     } else if (defenseType === "parry" || defenseType === "counter") {
       const styleItem = getCombatStyleItem(actor, styleUuid);
       baseTN = computeCombatStyleTN(styleItem);
@@ -621,7 +635,7 @@ export function computeTN({
         ? "Block"
         : (defenseType === "parry" || defenseType === "counter")
           ? "Combat Style"
-          : "—";
+          : "вЂ”";
 
   breakdown.push({ key: "base", label: baseLabel, value: asNumber(baseTN), source: "base", detail: baseDetail });
   if (observantEntry) breakdown.push(observantEntry);
@@ -650,7 +664,25 @@ export function computeTN({
   const cMod = asNumber(circumstanceMod);
   if (cMod) breakdown.push({ key: "circumstance", label: "Circumstance", value: cMod, source: "circumstance" });
 
-  // --- Situational modifiers (e.g. sensory impairment toggles, range bands, etc.)
+  // --- Range band (attacker, ranged mode only)
+  // context.rangeContext is populated by the attacker workflow before calling computeTN().
+  // Centralising range TN here prevents it from being double-counted via situationalMods.
+  if (role === "attacker" && attackMode === "ranged" && context?.rangeContext) {
+    const rc = context.rangeContext;
+    const tnMod = Number(rc?.tnMod ?? 0);
+    if (tnMod !== 0) {
+      const band = String(rc?.band ?? "");
+      const bandLabel = band === "close" ? "Close" : band === "long" ? "Long" : "Range";
+      breakdown.push({
+        key: "range",
+        label: `Range (${bandLabel})`,
+        value: tnMod,
+        source: "range"
+      });
+    }
+  }
+
+  // --- Situational modifiers (e.g. sensory impairment toggles, etc.)
   // These are passed in explicitly by callers and must always be reflected in TN and breakdown.
   if (Array.isArray(situationalMods) && situationalMods.length) {
     let i = 0;

@@ -2,6 +2,17 @@
  * src/ui/sheets/shared/editor-activation.js
  *
  * AppV2 bridge for legacy {{editor}} helper markup (.editor > .editor-content[data-edit]).
+ *
+ * Retained bridge rationale (v13.351):
+ *   Foundry v13 still ships the {{editor}} Handlebars helper which emits
+ *   .editor > .editor-content[data-edit] markup. No fully-documented AppV2-native
+ *   replacement path (e.g. <prose-mirror> as a form field) is confirmed in v13.351,
+ *   so this bridge activates ProseMirror on click and saves directly via
+ *   document.update() to avoid relying on FormDataExtended (which cannot read
+ *   ProseMirror custom-element content reliably).
+ *
+ * Editor save path: direct document.update({[target]: html}) — deterministic, no form submit.
+ *
  * Debug: set window.UESRPG_EDITOR_DEBUG = true in browser console.
  */
 
@@ -14,21 +25,6 @@ function editorKey(app, target) {
 
 function escapeAttr(value) {
   return String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
-}
-
-function getSubmitForm(app, element) {
-  if (app?.form?.nodeName === "FORM") return app.form;
-  if (element?.nodeName === "FORM") return element;
-  return element?.querySelector?.("form") ?? null;
-}
-
-function requestSubmitForm(form) {
-  if (!form) return;
-  if (typeof form.requestSubmit === "function") {
-    form.requestSubmit();
-    return;
-  }
-  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
 function buildProseMirrorPlugins(onSave) {
@@ -94,64 +90,45 @@ function cleanupEditor(key, { destroy = false } = {}) {
   ACTIVE_EDITORS.delete(key);
 }
 
-function scheduleCloseEditor(key, { submit = false } = {}) {
+function scheduleCloseEditor(key) {
   const entry = ACTIVE_EDITORS.get(key);
   if (!entry || entry.closing) return;
   entry.closing = true;
 
   void (async () => {
     // Let menu actions/focus handlers finish before tearing down PM internals.
-    await waitFrames(2);
-    if (submit) requestSubmitForm(entry.form);
-    await waitFrames(1);
+    await waitFrames(3);
     cleanupEditor(key, { destroy: true });
   })().catch(() => {
     cleanupEditor(key, { destroy: true });
   });
 }
 
-function resolveTarget(doc, clicked) {
-  const editor = clicked?.closest?.(".editor");
-  const pm = clicked?.closest?.("prose-mirror");
-  const withEdit = clicked?.closest?.("[data-edit]");
+/**
+ * Resolve the target field path and content element from a click origin inside an .editor container.
+ * Derives target directly from .editor-content[data-edit] — no proximity heuristics.
+ *
+ * @param {HTMLElement} clickOrigin
+ * @returns {{ target: string, content: HTMLElement } | null}
+ */
+function resolveEditorTarget(clickOrigin) {
+  const editorContainer = clickOrigin?.closest?.(".editor");
+  if (!editorContainer) return null;
 
-  let target = editor?.dataset?.edit
-    || pm?.getAttribute?.("name")
-    || withEdit?.dataset?.edit
-    || editor?.querySelector?.("[name]")?.getAttribute?.("name")
-    || pm?.querySelector?.("[name]")?.getAttribute?.("name");
+  const content = editorContainer.querySelector(".editor-content[data-edit]");
+  const target = content?.dataset?.edit;
+  if (!target || target === "undefined") return null;
 
-  if (!target || target === "undefined") {
-    const root = editor || pm || withEdit || clicked;
-    if (root?.closest?.(".bioPage .contentContainer") || root?.closest?.(".biography-container")) target = "system.bio";
-    else if (root?.closest?.(".editor-section.notes")) target = "system.notes";
-    else if (root?.closest?.(".editor-section.description") || root?.closest?.(".tab[data-tab='description']") || root?.closest?.("[data-tab='description']")) target = "system.description";
-    else if (doc?.documentName === "Item") target = "system.description";
-    else if (doc?.documentName === "Actor") target = "system.bio";
-  }
-
-  return target || null;
+  return { target, content };
 }
 
-function locateEditorContent(root, target, clickOrigin) {
-  const selector = `.editor .editor-content[data-edit="${escapeAttr(target)}"]`;
-  let content = root.querySelector?.(selector) ?? null;
-
-  if (!content) {
-    const editor = clickOrigin?.closest?.(".editor");
-    content = editor?.querySelector?.(".editor-content[data-edit]")
-      || clickOrigin?.closest?.(".editor-content[data-edit]")
-      || null;
-  }
-
-  if (content && (!content.dataset.edit || content.dataset.edit === "undefined")) {
-    content.dataset.edit = target;
-  }
-
-  return content;
-}
-
-async function activateLegacyEditor(app, root, target, clickOrigin) {
+/**
+ * @param {ApplicationV2} app
+ * @param {HTMLElement} root     - Sheet root element (used as fallback querySelector scope)
+ * @param {string}      target   - Document field path (e.g. "system.description")
+ * @param {HTMLElement} content  - The .editor-content[data-edit] element (pre-resolved)
+ */
+async function activateLegacyEditor(app, root, target, content) {
   const key = editorKey(app, target);
   const existing = ACTIVE_EDITORS.get(key);
   if (existing) {
@@ -162,7 +139,12 @@ async function activateLegacyEditor(app, root, target, clickOrigin) {
     cleanupEditor(key, { destroy: true });
   }
 
-  const content = locateEditorContent(root, target, clickOrigin);
+  if (!content) {
+    // Fallback: locate by data-edit attribute within root scope.
+    const selector = `.editor .editor-content[data-edit="${escapeAttr(target)}"]`;
+    content = root.querySelector?.(selector) ?? null;
+  }
+
   if (!content) {
     if (DEBUG()) console.warn("UESRPG | editor content not found", { target });
     return false;
@@ -180,25 +162,24 @@ async function activateLegacyEditor(app, root, target, clickOrigin) {
   const collaborate = String(content.dataset.collaborate ?? "false") === "true";
   const height = content.offsetHeight || container?.offsetHeight || 300;
   const initial = foundry.utils.getProperty(app.document, target) ?? "";
-  const form = getSubmitForm(app, root);
 
   const save = async () => {
-    if (DEBUG()) console.log("UESRPG | editor save callback (direct update)", { target });
-    // Direct document update bypasses FormDataExtended, which cannot reliably read
-    // ProseMirror custom element content. submitOnChange: true on item sheets already
-    // persists all non-editor form fields on every keystroke, so no form submit is needed.
+    if (DEBUG()) console.log("UESRPG | editor save (direct update)", { target });
+    // Direct document.update bypasses FormDataExtended, which cannot reliably read
+    // ProseMirror custom element content. submitOnChange on item/actor sheets already
+    // persists all non-editor form fields on every keystroke.
     const entry = ACTIVE_EDITORS.get(key);
     if (!entry?.instance) {
-      scheduleCloseEditor(key, { submit: false });
+      scheduleCloseEditor(key);
       return;
     }
     const html = getEditorHTML(entry.instance);
     try {
       if (app.document) await app.document.update({ [target]: html });
     } catch (err) {
-      if (DEBUG()) console.warn("UESRPG | editor direct save failed", { target, err });
+      if (DEBUG()) console.warn("UESRPG | editor save failed", { target, err });
     }
-    scheduleCloseEditor(key, { submit: false });
+    scheduleCloseEditor(key);
   };
 
   const options = {
@@ -220,7 +201,7 @@ async function activateLegacyEditor(app, root, target, clickOrigin) {
     if (container) container.classList.add(engine);
 
     const instance = await TextEditorImpl.create(options, initial);
-    ACTIVE_EDITORS.set(key, { instance, targetEl: content, button, container, engine, form, closing: false });
+    ACTIVE_EDITORS.set(key, { instance, targetEl: content, button, container, engine, closing: false });
 
     // Defer focus until editor DOM is fully connected/painted.
     await waitFrames(1);
@@ -231,12 +212,7 @@ async function activateLegacyEditor(app, root, target, clickOrigin) {
     }
 
     if (DEBUG()) {
-      console.log("UESRPG | editor activated", {
-        target,
-        engine,
-        collaborate,
-        hasButton: !!button,
-      });
+      console.log("UESRPG | editor activated", { target, engine, collaborate, hasButton: !!button });
     }
     return true;
   } catch (err) {
@@ -246,6 +222,13 @@ async function activateLegacyEditor(app, root, target, clickOrigin) {
   }
 }
 
+/**
+ * Wire delegated click handling for all .editor-edit buttons within the given element.
+ * Called once from _onRender of each AppV2 sheet that contains {{editor}} markup.
+ *
+ * @param {ApplicationV2} app     - The sheet application instance
+ * @param {HTMLElement}   element - The sheet root element
+ */
 export function activateEditorButtons(app, element) {
   if (!element?.isConnected || !app?.document) return;
 
@@ -253,12 +236,10 @@ export function activateEditorButtons(app, element) {
   if (element.hasAttribute?.(DELEGATION_KEY)) return;
   element.setAttribute(DELEGATION_KEY, "1");
 
-  const doc = app.document;
-
   element.addEventListener("click", (ev) => {
     const btn = ev.target?.closest?.(".editor-edit");
 
-    // Optional support for no-button editors: click content when no edit button exists.
+    // Optional: support no-button editors where content is clicked directly.
     let noButtonContentClick = null;
     if (!btn) {
       const content = ev.target?.closest?.(".editor-content[data-edit]");
@@ -270,17 +251,33 @@ export function activateEditorButtons(app, element) {
       noButtonContentClick = content;
     }
 
-    const clickOrigin = btn || noButtonContentClick || ev.target;
-    const target = resolveTarget(doc, clickOrigin);
+    const clickOrigin = btn || noButtonContentClick;
+    if (!clickOrigin) return;
+
+    // Derive target directly from the .editor-content[data-edit] element.
+    // Avoids brittle DOM proximity heuristics — the {{editor}} helper always
+    // sets data-edit to the explicit target= parameter.
+    let target, content;
+    if (noButtonContentClick) {
+      target = noButtonContentClick.dataset?.edit;
+      content = noButtonContentClick;
+    } else {
+      const resolved = resolveEditorTarget(clickOrigin);
+      if (!resolved) {
+        if (DEBUG()) console.warn("UESRPG | editor target not resolvable from clicked element");
+        return;
+      }
+      ({ target, content } = resolved);
+    }
+
     if (!target) {
-      if (DEBUG()) console.warn("UESRPG | target resolve failed");
+      if (DEBUG()) console.warn("UESRPG | no data-edit target found");
       return;
     }
 
-    if (DEBUG()) console.log("UESRPG | target resolved", { target });
+    if (DEBUG()) console.log("UESRPG | editor target resolved", { target });
     ev.preventDefault();
     ev.stopPropagation();
-    void activateLegacyEditor(app, element, target, clickOrigin);
+    void activateLegacyEditor(app, element, target, content);
   }, true);
 }
-

@@ -39,6 +39,7 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
       tokenRangeMeasurement: game.settings.get(NAMESPACE, "tokenRangeMeasurement"),
       aoeContainmentMode: game.settings.get(NAMESPACE, "aoeContainmentMode"),
       aoeOriginMeasurement: game.settings.get(NAMESPACE, "aoeOriginMeasurement"),
+      dynamicInitiativeEnabled: game.settings.get(NAMESPACE, "dynamicInitiativeEnabled"),
     };
   }
 
@@ -50,6 +51,7 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
     if ("tokenRangeMeasurement" in data) await game.settings.set(NAMESPACE, "tokenRangeMeasurement", data.tokenRangeMeasurement);
     if ("aoeContainmentMode" in data) await game.settings.set(NAMESPACE, "aoeContainmentMode", data.aoeContainmentMode);
     if ("aoeOriginMeasurement" in data) await game.settings.set(NAMESPACE, "aoeOriginMeasurement", data.aoeOriginMeasurement);
+    if ("dynamicInitiativeEnabled" in data) await game.settings.set(NAMESPACE, "dynamicInitiativeEnabled", toBool(data.dynamicInitiativeEnabled));
   }
 }
 

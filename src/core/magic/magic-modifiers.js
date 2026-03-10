@@ -54,6 +54,36 @@ export function getActorWillpowerBonus(actor) {
 }
 
 /**
+ * Canonical Stunted Magicka resolver.
+ *
+ * Supported sources:
+ * - Trait item fallback: owned trait named "Stunted Magicka" (case-insensitive)
+ * - Runtime feature flag: actor.system._reFlags.stuntedMagicka === true
+ * - Canonical Active Effect flag: flags.uesrpg-3ev4.magic.stuntedMagicka === true
+ * - Legacy Active Effect flag fallback: flags.uesrpg.magic.stuntedMagicka === true
+ *
+ * The canonical AE flag path for authoring is:
+ * `flags.uesrpg-3ev4.magic.stuntedMagicka = true`
+ *
+ * @param {Actor} actor
+ * @returns {boolean}
+ */
+export function hasStuntedMagicka(actor) {
+  if (!actor) return false;
+
+  if (actor?.system?._reFlags?.stuntedMagicka === true || actor?.system?._reFlags?.stuntedmagicka === true) return true;
+  if (actorHasTrait(actor, "Stunted Magicka")) return true;
+
+  const effects = Array.from(actor?.effects ?? []);
+  return effects.some((effect) => {
+    if (!effect || effect.disabled === true) return false;
+    const flags = effect.flags ?? {};
+    return flags?.["uesrpg-3ev4"]?.magic?.stuntedMagicka === true
+      || flags?.uesrpg?.magic?.stuntedMagicka === true;
+  });
+}
+
+/**
  * Whether the spell is of the "conventional" casting type.
  *
  * @param {Item} spell - The spell item to check
@@ -86,7 +116,7 @@ export function isElementalDamageType(damageType) {
 }
 
 /**
- * Compute the effective WP bonus used for Spell Restraint benefit.
+ * Compute the effective Spell Restraint reduction.
  *
  * RAW (Chapter 6 + Chapter 4):
  * - Spell Restraint reduces cost by WP Bonus (WB), minimum 1.
@@ -99,14 +129,22 @@ export function isElementalDamageType(damageType) {
  * @param {Actor} actor
  * @param {Item} spell
  * @param {object} options
- * @param {boolean} options.isCritical
- * @param {boolean} options.isDamaging
- * @returns {{reduction:number, baseWB:number, adjustedWB:number, breakdown:string[]}}
+ * @param {number}  [options.baseCost]
+ * @param {number}  [options.baseWB]
+ * @param {number}  [options.restraintWbDelta]
+ * @param {boolean} [options.isCritical]
+ * @param {boolean} [options.isDamaging]
+ * @param {number}  [options.minCost]
+ * @returns {{reduction:number, baseWB:number, adjustedWB:number, minCost:number, stunted:boolean, breakdown:string[]}}
  */
-export function computeSpellRestraintReduction(actor, spell, options = {}) {
+export function getSpellRestraintReduction(actor, spell, options = {}) {
   const breakdown = [];
-  const baseWB = getActorWillpowerBonus(actor);
+  const baseWB = Number.isFinite(Number(options.baseWB))
+    ? Math.max(0, Math.floor(Number(options.baseWB)))
+    : getActorWillpowerBonus(actor);
   let wb = baseWB;
+  const baseCost = Number.isFinite(Number(options.baseCost)) ? Math.max(0, Math.floor(Number(options.baseCost))) : null;
+  const minCost = Number.isFinite(Number(options.minCost)) ? Math.max(0, Math.floor(Number(options.minCost))) : 1;
 
   // Talent: Magicka Cycling (+2 WB for restraint).
   if (actorHasTalent(actor, "Magicka Cycling")) {
@@ -126,6 +164,12 @@ export function computeSpellRestraintReduction(actor, spell, options = {}) {
     breakdown.push("Methodical: +1 WB (conventional restraint)");
   }
 
+  const extraDelta = Number(options.restraintWbDelta ?? 0) || 0;
+  if (extraDelta !== 0) {
+    wb += extraDelta;
+    breakdown.push(`${extraDelta > 0 ? "+" : ""}${extraDelta} WB (runtime modifiers)`);
+  }
+
   // Critical success, non-damaging spells: double restraint reduction.
   const isCritical = options.isCritical === true;
   const isDamaging = options.isDamaging === true;
@@ -137,17 +181,36 @@ export function computeSpellRestraintReduction(actor, spell, options = {}) {
   }
 
   // Trait: Stunted Magicka halves restraint benefit (round down).
-  if (actorHasTrait(actor, "Stunted Magicka")) {
+  const stunted = hasStuntedMagicka(actor);
+  if (stunted) {
     reduction = Math.floor(reduction / 2);
     breakdown.push("Stunted Magicka: halve restraint benefit (round down)");
+  }
+
+  if (baseCost != null) {
+    reduction = Math.min(Math.max(0, baseCost - minCost), reduction);
   }
 
   return {
     reduction,
     baseWB,
     adjustedWB: wb,
+    minCost,
+    stunted,
     breakdown
   };
+}
+
+/**
+ * Backward-compatible alias for existing callers.
+ *
+ * @param {Actor} actor
+ * @param {Item} spell
+ * @param {object} options
+ * @returns {{reduction:number, baseWB:number, adjustedWB:number, minCost:number, stunted:boolean, breakdown:string[]}}
+ */
+export function computeSpellRestraintReduction(actor, spell, options = {}) {
+  return getSpellRestraintReduction(actor, spell, options);
 }
 
 /**

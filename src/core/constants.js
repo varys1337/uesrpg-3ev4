@@ -1,10 +1,15 @@
 /**
  * UESRPG 3ev4 system constants (items-focused).
  * Keep this file free of Foundry runtime dependencies so it can be imported safely anywhere.
+ *
+ * NOTE: English display labels for the option catalogs below live in
+ * src/core/config/label-catalog.js. This file stores only stable internal keys.
+ * Presentation-layer code (prepare.js, display utils) resolves labels at render time.
  */
 
 export { SYSTEM_ID, FLAG_SCOPE } from "./system/namespace.js";
 import { SYSTEM_ID } from "./system/namespace.js";
+import { SPELL_RANK_LABELS } from "./config/label-catalog.js";
 
 /**
  * Root path for this system's static assets and templates.
@@ -18,77 +23,35 @@ export const SYSTEM_ROLL_FORMULA = "1d100";
 /** Central constants object (extend as needed). */
 export const UESRPG = {
   // Weapon quality levels (Chapter 7 scaffold)
-  WEAPON_QUALITY_LEVELS: [
-    { value: "inferior", label: "Inferior" },
-    { value: "common", label: "Common" },
-    { value: "superior", label: "Superior" }
-  ],
+  // Stable key ordering; labels resolved via WEAPON_QUALITY_LABELS in label-catalog.js.
+  WEAPON_QUALITY_LEVELS: Object.freeze(["inferior", "common", "superior"]),
 
   // Weapon materials (Chapter 7)
   // NOTE: These are keys used in dropdowns. The derived rules below (WEAPON_MATERIAL_RULES*)
-  // implement the RAW modifiers.
-  WEAPON_MATERIALS: [
+  // implement the RAW modifiers. Labels resolved via WEAPON_MATERIAL_LABELS in label-catalog.js.
+  WEAPON_MATERIALS: Object.freeze([
     // Legacy/compat
-    { value: "standard", label: "Standard" },
-    { value: "chitin", label: "Chitin" },
-    { value: "iron", label: "Iron" },
-    { value: "silver", label: "Silver" },
-    { value: "steel", label: "Steel" },
-    { value: "dwemer", label: "Dwemer" },
-    { value: "moonstone", label: "Moonstone" },
-    { value: "orichalcum", label: "Orichalcum" },
-    { value: "adamantium", label: "Adamantium" },
-    { value: "malachite", label: "Malachite" },
-    { value: "stalhrim", label: "Stalhrim" },
-    { value: "daedric", label: "Daedric" },
-    { value: "ebony", label: "Ebony" },
-    { value: "dragonbone", label: "Dragonbone" },
+    "standard", "chitin", "iron", "silver", "steel", "dwemer", "moonstone",
+    "orichalcum", "adamantium", "malachite", "stalhrim", "daedric", "ebony", "dragonbone",
     // Ranged-only
-    { value: "bonemold", label: "Bonemold" },
+    "bonemold",
     // Sling-only
-    { value: "cloth", label: "Cloth" },
-    { value: "hemp", label: "Hemp" },
-    { value: "leatherStraps", label: "Leather Straps" },
-    { value: "netchLeatherStraps", label: "Netch Leather Straps" },
-    { value: "silk", label: "Silk" },
-    { value: "dreughHide", label: "Dreugh Hide" },
-    // Special melee-only materials
-    { value: "wood", label: "Wood" },
-    { value: "bone", label: "Bone" }
-  ],
+    "cloth", "hemp", "leatherStraps", "netchLeatherStraps", "silk", "dreughHide",
+    // Special melee-only
+    "wood", "bone"
+  ]),
 
-  ARMOR_WEIGHT_CLASSES: [
-    { value: "none", label: "None" },
-    { value: "light", label: "Light" },
-    { value: "medium", label: "Medium" },
-    { value: "heavy", label: "Heavy" },
-    { value: "superheavy", label: "Super Heavy" },
-    { value: "crippling", label: "Crippling" }
-  ],
+  // Labels resolved via ARMOR_WEIGHT_CLASS_LABELS in label-catalog.js.
+  ARMOR_WEIGHT_CLASSES: Object.freeze(["none", "light", "medium", "heavy", "superheavy", "crippling"]),
 
-  AMMO_ARROW_TYPES: [
-    { value: "none", label: "None" },
-    { value: "slashing", label: "Slashing" },
-    { value: "splitting", label: "Splitting" }
-  ],
+  // Labels resolved via AMMO_ARROW_TYPE_LABELS in label-catalog.js.
+  AMMO_ARROW_TYPES: Object.freeze(["none", "slashing", "splitting"]),
 
-  AMMO_MATERIALS: [
-    // Legacy/compat
-    { value: "standard", label: "Standard" },
-    { value: "chitin", label: "Chitin" },
-    { value: "iron", label: "Iron" },
-    { value: "silver", label: "Silver" },
-    { value: "steel", label: "Steel" },
-    { value: "dwemer", label: "Dwemer" },
-    { value: "moonstone", label: "Moonstone" },
-    { value: "orichalcum", label: "Orichalcum" },
-    { value: "adamantium", label: "Adamantium" },
-    { value: "malachite", label: "Malachite" },
-    { value: "stalhrim", label: "Stalhrim" },
-    { value: "daedric", label: "Daedric" },
-    { value: "ebony", label: "Ebony" },
-    { value: "dragonbone", label: "Dragonbone" }
-  ],
+  // Labels resolved via AMMO_MATERIAL_LABELS in label-catalog.js.
+  AMMO_MATERIALS: Object.freeze([
+    "standard", "chitin", "iron", "silver", "steel", "dwemer", "moonstone",
+    "orichalcum", "adamantium", "malachite", "stalhrim", "daedric", "ebony", "dragonbone"
+  ]),
 
   // --- RAW rule tables (Chapter 7) ---
   // Values here are used for derived, non-persisted "effective" stats.
@@ -173,43 +136,19 @@ export const UESRPG = {
     superior: { priceMult: 2.0, weightClassDelta: -1 }
   },
 
-  ARMOR_CLASSES: [
-    { value: "partial", label: "Partial" },
-    { value: "full", label: "Full" }
-  ],
+  // Labels resolved via ARMOR_CLASS_LABELS in label-catalog.js.
+  ARMOR_CLASSES: Object.freeze(["partial", "full"]),
 
-  SHIELD_TYPES: [
-    { value: "normal", label: "Normal" },
-    { value: "tower", label: "Tower" },
-    { value: "targe", label: "Targe" },
-    { value: "buckler", label: "Buckler" }
-  ],
+  // Labels resolved via SHIELD_TYPE_LABELS in label-catalog.js.
+  SHIELD_TYPES: Object.freeze(["normal", "tower", "targe", "buckler"]),
 
   // Armor materials (worn armor profiles) (Chapter 7)
-  ARMOR_MATERIALS: [
-    { value: "padded", label: "Padded" },
-    { value: "hide", label: "Hide" },
-    { value: "chitin", label: "Chitin" },
-    { value: "leather", label: "Leather" },
-    { value: "netchLeather", label: "Netch Leather" },
-    { value: "fur", label: "Fur" },
-    { value: "bone", label: "Bone" },
-    { value: "bonemold", label: "Bonemold" },
-    { value: "iron", label: "Iron" },
-    { value: "moonstone", label: "Moonstone" },
-    { value: "dreughHide", label: "Dreugh Hide" },
-    { value: "steel", label: "Steel" },
-    { value: "mithril", label: "Mithril" },
-    { value: "dwemer", label: "Dwemer" },
-    { value: "orichalcum", label: "Orichalcum" },
-    { value: "adamantium", label: "Adamantium" },
-    { value: "malachite", label: "Malachite" },
-    { value: "dragonscale", label: "Dragonscale" },
-    { value: "ebony", label: "Ebony" },
-    { value: "stalhrim", label: "Stalhrim" },
-    { value: "daedric", label: "Daedric" },
-    { value: "dragonbone", label: "Dragonbone" }
-  ],
+  // Labels resolved via ARMOR_MATERIAL_LABELS in label-catalog.js.
+  ARMOR_MATERIALS: Object.freeze([
+    "padded", "hide", "chitin", "leather", "netchLeather", "fur", "bone", "bonemold",
+    "iron", "moonstone", "dreughHide", "steel", "mithril", "dwemer", "orichalcum",
+    "adamantium", "malachite", "dragonscale", "ebony", "stalhrim", "daedric", "dragonbone"
+  ]),
 
   // Derived profiles for worn armor. Values are *base* and are further modified by quality.
   // magicARType is "magic" by default, but some entries are elemental ("fire"/"frost"/"shock").
@@ -297,21 +236,21 @@ export const UESRPG = {
   /**
    * Structured qualities v1
    * - key: canonical identifier stored in system.qualitiesStructured
-   * - label: display name
    * - hasValue: whether this quality takes a numeric parameter (e.g., Reload (2))
+   * Labels resolved via ITEM_QUALITY_LABELS in label-catalog.js at the presentation layer.
    */
-  QUALITIES_CATALOG: [
-    { key: "slashing", label: "Slashing", hasValue: false },
-    { key: "splitting", label: "Splitting", hasValue: false },
-    { key: "crushing", label: "Crushing", hasValue: false },
-    { key: "piercing", label: "Piercing", hasValue: false },
-    { key: "magic", label: "Magic", hasValue: false },
-    { key: "silver", label: "Silver", hasValue: false },
-    { key: "primitive", label: "Primitive", hasValue: false },
-    { key: "proven", label: "Proven", hasValue: false },
-    { key: "reload", label: "Reload", hasValue: true },
-    { key: "damaged", label: "Damaged", hasValue: true }
-  ],
+  QUALITIES_CATALOG: Object.freeze([
+    { key: "slashing", hasValue: false },
+    { key: "splitting", hasValue: false },
+    { key: "crushing", hasValue: false },
+    { key: "piercing", hasValue: false },
+    { key: "magic", hasValue: false },
+    { key: "silver", hasValue: false },
+    { key: "primitive", hasValue: false },
+    { key: "proven", hasValue: false },
+    { key: "reload", hasValue: true },
+    { key: "damaged", hasValue: true }
+  ]),
 
   /**
    * Structured Qualities (core grid) and extended Traits (multi-select) catalogs.
@@ -322,70 +261,73 @@ export const UESRPG = {
    * Notes:
    * - These are *additive* to existing schema. They do not remove or rename fields.
    * - Not all traits have automation yet; storing them now unblocks future roll logic.
+   * - Labels are NOT stored here. Resolve via resolveQualityCatalog(entries, ITEM_QUALITY_LABELS)
+   *   from label-catalog.js at the presentation layer.
    */
-  QUALITIES_CORE_BY_TYPE: {
-    weapon: [
+  QUALITIES_CORE_BY_TYPE: Object.freeze({
+    weapon: Object.freeze([
       // Damage-type qualities may optionally carry an (X) value.
-      { key: "slashing", label: "Slashing", hasValue: false, optionalValue: true },
-      { key: "splitting", label: "Splitting", hasValue: false, optionalValue: true },
-      { key: "crushing", label: "Crushing", hasValue: false, optionalValue: true },
-      { key: "piercing", label: "Piercing", hasValue: false },
-      { key: "magic", label: "Magic", hasValue: false },
-      { key: "silver", label: "Silver", hasValue: false },
-      { key: "primitive", label: "Primitive", hasValue: false },
-      { key: "proven", label: "Proven", hasValue: false },
-      { key: "reload", label: "Reload", hasValue: true },
-      { key: "damaged", label: "Damaged", hasValue: true }
-    ],
-    armor: [
+      { key: "slashing", hasValue: false, optionalValue: true },
+      { key: "splitting", hasValue: false, optionalValue: true },
+      { key: "crushing", hasValue: false, optionalValue: true },
+      { key: "piercing", hasValue: false },
+      { key: "magic", hasValue: false },
+      { key: "silver", hasValue: false },
+      { key: "primitive", hasValue: false },
+      { key: "proven", hasValue: false },
+      { key: "reload", hasValue: true },
+      { key: "damaged", hasValue: true }
+    ]),
+    armor: Object.freeze([
       // Armor/Shield: do not include weapon-only damage-type toggles.
-      { key: "magic", label: "Magic", hasValue: false },
-      { key: "silver", label: "Silver", hasValue: false },
-      { key: "damaged", label: "Damaged", hasValue: true }
-    ],
-    ammunition: [
+      { key: "magic", hasValue: false },
+      { key: "silver", hasValue: false },
+      { key: "damaged", hasValue: true }
+    ]),
+    ammunition: Object.freeze([
       // Ammunition can contribute damage-type and special flags.
-      { key: "slashing", label: "Slashing", hasValue: false, optionalValue: true },
-      { key: "splitting", label: "Splitting", hasValue: false, optionalValue: true },
-      { key: "magic", label: "Magic", hasValue: false },
-      { key: "silver", label: "Silver", hasValue: false },
-      { key: "damaged", label: "Damaged", hasValue: true }
-    ]
-  },
+      { key: "slashing", hasValue: false, optionalValue: true },
+      { key: "splitting", hasValue: false, optionalValue: true },
+      { key: "magic", hasValue: false },
+      { key: "silver", hasValue: false },
+      { key: "damaged", hasValue: true }
+    ])
+  }),
 
   /**
    * Extended trait tags (multi-select). These are *stored* on the item, but many
    * are not yet used by automation.
+   * Labels resolved via resolveQualityCatalog(entries, ITEM_QUALITY_LABELS) in label-catalog.js.
    */
-  TRAITS_BY_TYPE: {
-    weapon: [
-      { key: "concealable", label: "Concealable" },
-      { key: "concussive", label: "Concussive" },
-      { key: "complex", label: "Complex" },
-      { key: "dueling", label: "Dueling Weapon" },
-      { key: "entangling", label: "Entangling" },
-      { key: "exploitWeakness", label: "Exploit Weakness" },
-      { key: "flail", label: "Flail" },
-      { key: "focus", label: "Focus" },
-      { key: "handToHand", label: "Hand-to-Hand" },
-      { key: "hooked", label: "Hooked" },
-      { key: "impaling", label: "Impaling" },
-      { key: "mounted", label: "Mounted" },
-      { key: "shieldSplitter", label: "Shield Splitter" },
-      { key: "sling", label: "Sling" },
-      { key: "small", label: "Small" },
-      { key: "snare", label: "Snare" },
-      { key: "thrown", label: "Thrown" },
-      { key: "twoHanded", label: "Two-Handed" },
-      { key: "unwieldy", label: "Unwieldy" }
-    ],
-    armor: [
+  TRAITS_BY_TYPE: Object.freeze({
+    weapon: Object.freeze([
+      { key: "concealable" },
+      { key: "concussive" },
+      { key: "complex" },
+      { key: "dueling" },
+      { key: "entangling" },
+      { key: "exploitWeakness" },
+      { key: "flail" },
+      { key: "focus" },
+      { key: "handToHand" },
+      { key: "hooked" },
+      { key: "impaling" },
+      { key: "mounted" },
+      { key: "shieldSplitter" },
+      { key: "sling" },
+      { key: "small" },
+      { key: "snare" },
+      { key: "thrown" },
+      { key: "twoHanded" },
+      { key: "unwieldy" }
+    ]),
+    armor: Object.freeze([
       // Armor-specific tags. Weight-class logic remains driven by weightClass/effectiveWeightClass.
-      { key: "shield", label: "Shield" },
-      { key: "helmet", label: "Helmet" }
-    ],
-    ammunition: []
-  },
+      { key: "shield" },
+      { key: "helmet" }
+    ]),
+    ammunition: Object.freeze([])
+  }),
 
   /**
    * Aliases used by migration parsing of legacy rich-text qualities into structured form.
@@ -430,32 +372,20 @@ export const UESRPG = {
   },
 
   /**
-   * Spell rank labels by level (1-7).
-   * Used for display in school-based spell categorization.
+   * Spell rank label map by level (1-7).
+   * Sourced from SPELL_RANK_LABELS in label-catalog.js — the canonical label store.
+   * Kept here for convenient access via UESRPG.SPELL_RANKS[rank].
    */
-  SPELL_RANKS: {
-    1: "Novice",
-    2: "Apprentice",
-    3: "Adept",
-    4: "Expert",
-    5: "Master",
-    6: "Grandmaster",
-    7: "Legendary"
-  },
+  SPELL_RANKS: SPELL_RANK_LABELS,
 
   /**
-   * Magic school categories.
-   * Maps to spell.system.school field values.
+   * Magic school categories (stable key ordering).
+   * Labels resolved via SPELL_SCHOOL_LABELS in label-catalog.js.
    */
-  SPELL_SCHOOLS: [
-    { value: "alteration", label: "Alteration" },
-    { value: "conjuration", label: "Conjuration" },
-    { value: "destruction", label: "Destruction" },
-    { value: "illusion", label: "Illusion" },
-    { value: "mysticism", label: "Mysticism" },
-    { value: "necromancy", label: "Necromancy" },
-    { value: "restoration", label: "Restoration" }
-  ]
+  SPELL_SCHOOLS: Object.freeze([
+    "alteration", "conjuration", "destruction", "illusion",
+    "mysticism", "necromancy", "restoration"
+  ])
 };
 
 export default UESRPG;

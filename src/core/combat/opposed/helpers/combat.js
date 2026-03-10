@@ -113,12 +113,14 @@ export function weaponHasTraitText(weapon, traitKey) {
  */
 function _parseRangeTriplet(text) {
   if (!text) return null;
-  const m = String(text).match(/(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/);
+  // Third slot may be "x", "-", "–", or "*" to indicate no long range (long = 0).
+  const m = String(text).match(/(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+|[xX\-\u2013*]+)/);
   if (!m) return null;
+  const long = /^\d+$/.test(m[3]) ? Number(m[3]) : 0;
   return {
     close: Number(m[1]) || 0,
     effective: Number(m[2]) || 0,
-    long: Number(m[3]) || 0
+    long
   };
 }
 
@@ -239,7 +241,11 @@ export function computeRangedRangeContext({ attackerToken, defenderToken, weapon
   if (medium > 0 && distance <= medium) {
     return { distance, band: "medium", tnMod: 0, close, medium, long, outOfRange: false };
   }
-  // Long band includes any distance up to (and including) long.
+  // No long range (long = 0): target is beyond medium range and out of range.
+  if (long === 0) {
+    return { distance, band: "out", tnMod: 0, close, medium, long, outOfRange: true, reason: "out-of-range" };
+  }
+  // Long band: distance between medium and long.
   return { distance, band: "long", tnMod: -20, close, medium, long, outOfRange: false };
 }
 

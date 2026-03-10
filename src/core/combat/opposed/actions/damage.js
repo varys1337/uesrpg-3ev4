@@ -5,7 +5,6 @@
 
 import { _resolveDoc, _resolveActorViaToken, _resolveItemViaActor } from "../helpers/docs.js";
 import { _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _getDefenderDamage, _setDefenderDamage } from "../schema.js";
-import { _opposedFlags } from "../helpers/util.js";
 import { getHitLocationFromRoll, resolveHitLocationForTarget, getDamageTypeFromWeapon, getAttackModeFromWeapon } from "../../combat-utils.js";
 import { rollWeaponDamage as _rollWeaponDamage, rollManualDamage as _rollManualDamage } from "../damage/roller.js";
 import { postWeaponDamageChatCard as _postWeaponDamageChatCard, postManualEffectChatCard as _postManualEffectChatCard } from "../damage/chat-cards.js";
@@ -23,6 +22,7 @@ import {
   collectActivationDamageQualities,
 } from "../helpers/weapon-quality-display.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 
 const DAMAGE_TYPES = {
   PHYSICAL: "physical",
@@ -30,6 +30,24 @@ const DAMAGE_TYPES = {
   SILVER: "silver",
   SUNLIGHT: "sunlight",
 };
+
+function _pushAdvantageMarker(data, { actor = null, actorUuid = null, tokenUuid = null, kind = "advantage" } = {}) {
+  data.context = data.context ?? {};
+  const resolvedActorUuid = String(actorUuid ?? actor?.uuid ?? "").trim();
+  const resolvedTokenUuid = String(tokenUuid ?? "").trim();
+  const actorName = String(actor?.name ?? "Actor").trim() || "Actor";
+  const markerKey = [kind, resolvedActorUuid || actorName, resolvedTokenUuid].filter(Boolean).join(":");
+  const current = Array.isArray(data.context.advantageMarkers) ? data.context.advantageMarkers.slice() : [];
+  if (current.some((marker) => String(marker?.key ?? "").trim() === markerKey)) return;
+  current.push({
+    key: markerKey,
+    kind,
+    actorUuid: resolvedActorUuid || null,
+    tokenUuid: resolvedTokenUuid || null,
+    label: "Advantage Resolved"
+  });
+  data.context.advantageMarkers = current.slice(-8);
+}
 
 
 
@@ -48,6 +66,20 @@ async function _resolveInlineRollHtml(dmg, sharedDamage) {
     : (typeof dmg.rollB?.render === "function" ? await dmg.rollB.render() : String(sharedDamage?.rollBHtml ?? ""));
 
   return { rollHtml, rollBHtml };
+}
+
+function _buildDamageComponentsFromRoll(dmg, { fallbackType = DAMAGE_TYPES.PHYSICAL, hitLocation = "Body" } = {}) {
+  const list = [dmg?.weaponComponent, dmg?.ammoComponent]
+    .filter((c) => c && Number(c.amount ?? 0) > 0)
+    .map((c) => ({
+      source: c.source ?? null,
+      sourceLabel: c.sourceLabel ?? null,
+      sourceItemUuid: c.sourceItemUuid ?? null,
+      damageType: String(c.damageType ?? fallbackType ?? DAMAGE_TYPES.PHYSICAL).toLowerCase(),
+      amount: Number(c.amount ?? 0) || 0,
+      hitLocation,
+    }));
+  return list;
 }
 
 /**
@@ -103,6 +135,7 @@ export function _buildApplyPayload({
   damagedValue = 0,
   pressAdvantage = false, attackMode, attackHidden = false,
   magicSource = false, source, buttonLabel, healing, tempHp,
+  damageComponents = null,
   ignoreReduction = false,
 } = {}) {
   const p = {};
@@ -124,12 +157,61 @@ export function _buildApplyPayload({
   p.damagedValue = String(Number(damagedValue || 0));
   p.pressAdvantage = pressAdvantage ? "1" : "0";
   p.ignoreReduction = ignoreReduction ? "1" : "0";
+  if (Array.isArray(damageComponents) && damageComponents.length) {
+    p.damageComponents = JSON.stringify(damageComponents);
+  }
   if (attackMode != null) p.attackMode = attackMode;
   p.attackHidden = attackHidden ? "1" : "0";
   p.magicSource = magicSource ? "1" : "0";
   if (source != null) p.source = source;
   if (buttonLabel != null) p.buttonLabel = buttonLabel;
   return p;
+}
+
+/**
+ * Apply Coup de Grâce special resolution instead of a normal damage roll.
+ * Lethal: sets defender HP to 0. Non-lethal: -1 Stamina (min 0) and +1 Fatigue.
+ */
+async function _applyCoupDeGrace({ ctx, coupMode, defenderActor, data, message, _updateCard }) {
+  if (!defenderActor) {
+    ui.notifications.warn("Coup de Grâce: defender actor could not be resolved.");
+    return false;
+  }
+
+  const isLethal = String(coupMode ?? "lethal").toLowerCase() !== "nonlethal";
+  let effectSummary = "";
+
+  try {
+    if (isLethal) {
+      await requestUpdateDocument(defenderActor, { "system.hp.value": 0 });
+      effectSummary = "HP set to 0.";
+    } else {
+      const curStamina = Number(defenderActor.system?.stamina?.value ?? 0);
+      const newStamina = Math.max(0, curStamina - 1);
+      const curFatigue = Number(defenderActor.system?.fatigue?.bonus ?? 0);
+      await requestUpdateDocument(defenderActor, {
+        "system.stamina.value": newStamina,
+        "system.fatigue.bonus": curFatigue + 1,
+      });
+      effectSummary = `Stamina −1 (${curStamina} → ${newStamina}), Fatigue +1 (now ${curFatigue + 1}).`;
+    }
+  } catch (err) {
+    console.error("UESRPG | Coup de Grâce application failed", err);
+    ui.notifications.warn("Coup de Grâce: failed to apply effects — see console.");
+    return false;
+  }
+
+  const damageObj = {
+    rolled: true,
+    mode: "coup",
+    coupMode: isLethal ? "lethal" : "nonlethal",
+    effectSummary,
+    extraNoteHtml: `<b>Coup de Grace:</b> ${isLethal ? "Lethal" : "Non-Lethal"}<br>${effectSummary}`,
+    applied: true,
+  };
+  _setDefenderDamage(data, data.defender, damageObj);
+  await _updateCard(message, data);
+  return true;
 }
 
 /**
@@ -157,6 +239,20 @@ export async function handleDamageRoll(ctx) {
   const existingDamage = _getDefenderDamage(data, data.defender);
   if (existingDamage?.rolled === true) {
     ui.notifications.warn("Damage has already been rolled for this target.");
+    return;
+  }
+
+  // Coup de Grâce: bypass standard damage roll with special resolution (lethal or non-lethal).
+  if (String(data.attacker?.variant ?? "").toLowerCase() === "coup") {
+    const defenderActor = _resolveActorViaToken(data?.defender?.actorUuid, data?.defender?.tokenUuid);
+    await _applyCoupDeGrace({
+      ctx,
+      coupMode: data.context?.coupMode ?? "lethal",
+      defenderActor,
+      data,
+      message,
+      _updateCard
+    });
     return;
   }
 
@@ -312,11 +408,11 @@ export async function handleDamageRoll(ctx) {
           });
 
           if (result.success) {
-            await ChatMessage.create({
-              user: game.user.id,
-              speaker: ChatMessage.getSpeaker({ actor: attacker }),
-              content: `<div class="uesrpg-special-action-advantage"><b>Special Advantage (Auto-Win):</b><p>${result.message}</p></div>`,
-              style: CONST.CHAT_MESSAGE_STYLES.OTHER
+            _pushAdvantageMarker(data, {
+              actor: attacker,
+              actorUuid: data.attacker?.actorUuid ?? null,
+              tokenUuid: data.attacker?.tokenUuid ?? null,
+              kind: "attacker-special-advantage"
             });
           }
         } else if (choice.mode === "free") {
@@ -369,6 +465,7 @@ export async function handleDamageRoll(ctx) {
     } catch (err) {
       console.error("UESRPG | Failed to execute Special Advantage automation", err);
     }
+    await _updateCard(message, data);
   }
 
   // Hit location RAW: ones digit of attack roll, unless Precision Strike is used.
@@ -611,6 +708,7 @@ export async function handleDamageRoll(ctx) {
     else if (dmg?.rerollMode === "proven") n.push("Proven: take higher");
     return n.join(", ");
   })();
+  const damageComponents = _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation });
 
   const damageObj = {
     rolled: true,
@@ -629,6 +727,7 @@ export async function handleDamageRoll(ctx) {
     qualityPillsHtml: pillsInline,
     extraNoteHtml: "",
     extraNotes: extraNotesText,
+    damageComponents,
     applyPayload: _buildApplyPayload({
       targetUuid: defender.uuid,
       targetName: dToken?.name ?? defender.name,
@@ -645,6 +744,7 @@ export async function handleDamageRoll(ctx) {
       attackMode,
       attackHidden,
       source: weapon.name,
+      damageComponents,
       buttonLabel: `Apply Damage → ${dToken?.name ?? defender.name}`,
     }),
     applied: false,
@@ -787,6 +887,7 @@ export async function handleCounterDamageRoll(ctx) {
   });
 
   const { rollHtml, rollBHtml } = await _resolveInlineRollHtml(dmg, null);
+  const damageComponents = _buildDamageComponentsFromRoll(dmg, { fallbackType: damageType, hitLocation });
 
   const damageObj = {
     rolled: true,
@@ -805,6 +906,7 @@ export async function handleCounterDamageRoll(ctx) {
     qualityPillsHtml: buildInlineQualityTags(collectWeaponInlineQualities(weapon)),
     extraNoteHtml: `<b>Strike:</b> Counter-Attack against ${aToken?.name ?? attacker.name}`,
     extraNotes: "",
+    damageComponents,
     applyPayload: _buildApplyPayload({
       targetUuid: attacker.uuid,
       targetName: aToken?.name ?? attacker.name,
@@ -821,6 +923,7 @@ export async function handleCounterDamageRoll(ctx) {
       attackMode: counterAttackMode,
       attackHidden: counterHidden,
       source: weapon.name,
+      damageComponents,
       buttonLabel: `Apply Damage → ${aToken?.name ?? attacker.name}`,
     }),
     applied: false,
@@ -863,6 +966,3 @@ export function buildSharedDamagePayload({ mode, dmg, weaponUuid = null, damageT
 // Internal aliases for backward compatibility within this file
 const _inflateSharedDamage = inflateSharedDamage;
 const _buildSharedDamagePayload = buildSharedDamagePayload;
-
-
-

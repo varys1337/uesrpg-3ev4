@@ -1,6 +1,6 @@
-﻿    <section class="sheet-body">
+    <section class="sheet-body">
 
-      {{!-- в”Ђв”Ђв”Ђ Members Tab в”Ђв”Ђв”Ђ --}}
+      {{!-- ─── Members Tab ─── --}}
       <div class="tab members" data-group="primary" data-tab="members">
         <!-- Drop zone -->
         <div class="member-drop-zone">
@@ -69,7 +69,7 @@
         {{/if}}
       </div>
 
-      {{!-- в”Ђв”Ђв”Ђ Inventory Tab в”Ђв”Ђв”Ђ --}}
+      {{!-- ─── Inventory Tab ─── --}}
       <div class="tab inventory" data-group="primary" data-tab="inventory" data-ues-section="group-inventory">
         <div class="inventory-header">
           <h3>Group Inventory</h3>
@@ -93,7 +93,7 @@
                   <td class="item-name-cell">
                     <div class="flex-container">
                       <img class="item-img" src="{{item.img}}" data-action="itemShow">
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td>{{item.system.capacity}}</td>
@@ -118,12 +118,12 @@
                 <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                   <td class="item-name-cell">
                     <div class="flex-container">
-                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
                       <img class="item-img" src="{{item.img}}" data-action="itemShow">
                       {{#if item.system.containerStats.contained}}
                         <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
                       {{/if}}
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td>{{item.system.damage}}</td>
@@ -135,12 +135,12 @@
                 <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                   <td class="item-name-cell">
                     <div class="flex-container">
-                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
                       <img class="item-img" src="{{item.img}}" data-action="itemShow">
                       {{#if item.system.containerStats.contained}}
                         <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
                       {{/if}}
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td>{{item.system.damage}}</td>
@@ -165,16 +165,16 @@
                 <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                   <td class="item-name-cell">
                     <div class="flex-container">
-                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
                       <img class="item-img" src="{{item.img}}" data-action="itemShow">
                       {{#if item.system.containerStats.contained}}
                         <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
                       {{/if}}
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td>
-                    <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
+                    <button type="button" class="minusQty plusQty" data-action="plusQty" title="Click to Increase, right-click to decrease">
                       <div>{{item.system.quantity}}</div>
                     </button>
                   </td>
@@ -185,16 +185,16 @@
                 <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                   <td class="item-name-cell">
                     <div class="flex-container">
-                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
                       <img class="item-img" src="{{item.img}}" data-action="itemShow">
                       {{#if item.system.containerStats.contained}}
                         <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
                       {{/if}}
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td>
-                    <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
+                    <button type="button" class="minusQty plusQty" data-action="plusQty" title="Click to Increase, right-click to decrease">
                       <div>{{item.system.quantity}}</div>
                     </button>
                   </td>
@@ -220,12 +220,12 @@
                 <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                   <td class="item-name-cell">
                     <div class="flex-container">
-                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
                       <img class="item-img" src="{{item.img}}" data-action="itemShow">
                       {{#if item.system.containerStats.contained}}
                         <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
                       {{/if}}
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
@@ -238,17 +238,68 @@
                 <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                   <td class="item-name-cell">
                     <div class="flex-container">
-                      <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                      <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
                       <img class="item-img" src="{{item.img}}" data-action="itemShow">
                       {{#if item.system.containerStats.contained}}
                         <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
                       {{/if}}
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
                   <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
                   <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+
+          {{!-- Shields --}}
+          <table>
+            <thead>
+              <tr>
+                <th class="item-name-cell">Shields</th>
+                <th>BR</th>
+                <th>MBR</th>
+                <th>Type</th>
+                <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+              </tr>
+            </thead>
+            <tbody>
+              {{#each shield.equipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                  <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
+                  <td>{{#if item.system.shieldType}}{{item.system.shieldType}}{{else}}normal{{/if}}</td>
+                  <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                </tr>
+              {{/each}}
+              {{#each shield.unequipped as |item id|}}
+                <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                  <td class="item-name-cell">
+                    <div class="flex-container">
+                      <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
+                      <img class="item-img" src="{{item.img}}" data-action="itemShow">
+                      {{#if item.system.containerStats.contained}}
+                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                      {{/if}}
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
+                    </div>
+                  </td>
+                  <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                  <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
+                  <td>{{#if item.system.shieldType}}{{item.system.shieldType}}{{else}}normal{{/if}}</td>
                   <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
                 </tr>
               {{/each}}
@@ -270,17 +321,17 @@
                   <td class="ues-col-name">
                     <div class="tableItemNameCell">
                       <div class="qty-controls">
-                        <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                        <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
                       </div>
                       <img class="item-img" src="{{item.img}}" title="{{item.name}}" data-action="itemShow"/>
                       {{#if item.system.containerStats.contained}}
                         <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
                       {{/if}}
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td class="ues-col-stat">
-                    <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
+                    <button type="button" class="minusQty plusQty" data-action="plusQty" title="Click to Increase, right-click to decrease">
                       <div>{{item.system.quantity}}</div>
                     </button>
                   </td>
@@ -294,17 +345,17 @@
                   <td class="ues-col-name">
                     <div class="tableItemNameCell">
                       <div class="qty-controls">
-                        <input type="checkbox" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                        <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
                       </div>
                       <img class="item-img" src="{{item.img}}" title="{{item.name}}" data-action="itemShow"/>
                       {{#if item.system.containerStats.contained}}
                         <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
                       {{/if}}
-                      <div class="item-name" data-action="itemShow">{{item.name}}</div>
+                      <div class="item-name" data-action="duplicateItem">{{item.name}}</div>
                     </div>
                   </td>
                   <td class="ues-col-stat">
-                    <button type="button" class="minusQty plusQty" title="Click to Increase, right-click to decrease">
+                    <button type="button" class="minusQty plusQty" data-action="plusQty" title="Click to Increase, right-click to decrease">
                       <div>{{item.system.quantity}}</div>
                     </button>
                   </td>
@@ -318,7 +369,7 @@
         </div>
       </div>
 
-      {{!-- в”Ђв”Ђв”Ђ Travel Tab в”Ђв”Ђв”Ђ --}}
+      {{!-- ─── Travel Tab ─── --}}
       <div class="tab travel" data-group="primary" data-tab="travel">
         <h3>Travel &amp; Movement</h3>
 
@@ -378,7 +429,7 @@
         </div>
       </div>
 
-      {{!-- в”Ђв”Ђв”Ђ Details Tab в”Ђв”Ђв”Ђ --}}
+      {{!-- ─── Details Tab ─── --}}
       <div class="tab details" data-group="primary" data-tab="details">
         <div class="editor-section description">
           <h3>
@@ -402,3 +453,4 @@
       </div>
 
     </section>
+

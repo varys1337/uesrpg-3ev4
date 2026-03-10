@@ -9,6 +9,16 @@ import { hasEquippedShield } from "../../../combat/tn.js";
 import { hasActiveWard } from "../../../combat/ward-defense.js";
 import { ensureBankedScaffold } from "../schema.js";
 import { resolveToken } from "../schema.js";
+import { cloneFlagState } from "../../../../utils/clone.js";
+import { FLAG_SCOPE } from "../../../system/namespace.js";
+import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
+
+/** @private — Clone current magic opposed state from a live message for lane-commit merging. */
+function _readMagicOpposedFlagState(fm) {
+  const raw = fm?.flags?.[FLAG_SCOPE]?.magicOpposed ?? null;
+  const state = (raw?.state && typeof raw.state === "object") ? raw.state : null;
+  return state ? cloneFlagState(state) : null;
+}
 import { computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
 import { applyRuntimePreRollToTN } from "../../../traits/features/rule-element-runtime.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
@@ -190,5 +200,21 @@ export async function handleDefenderCommit(ctx, action) {
   defender.banked.committedBy = game.user.id;
 
   syncDefenderToData(data, defender, defenderIndex);
-  await _updateCard(message, data);
+
+  // Fresh-state re-read: apply only defender lane + context onto live state to preserve
+  // any attacker-side commit that arrived while the defense dialog was open.
+  await commitLaneToFreshCardState({
+    message,
+    readState: _readMagicOpposedFlagState,
+    mutate: (_t) => {
+      _t.defender = foundry.utils.mergeObject(_t.defender ?? {}, data.defender ?? {}, { overwrite: true, insertKeys: true });
+      _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context ?? {}, { overwrite: true, insertKeys: true });
+      const _di = Number(defenderIndex ?? 0);
+      if (Number.isFinite(_di) && _di >= 0 && Array.isArray(data.defenders) && Array.isArray(_t.defenders) && _t.defenders[_di] && data.defenders[_di]) {
+        _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
+      }
+    },
+    updateCard: _updateCard,
+    fallbackData: data,
+  });
 }

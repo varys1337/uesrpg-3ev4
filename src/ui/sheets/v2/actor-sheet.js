@@ -7,7 +7,7 @@
  * - Uses HandlebarsApplicationMixin(ActorSheetV2) base
  * - Native AppV2 lifecycle (_preRender / _onRender) for UI state preservation
  * - Delegates to existing shared handler modules for all roll, combat, magic, & inventory logic
- * - All form submission uses submitOnChange: true (no custom normalization needed)
+ * - Explicit AppV2 form pipeline for deterministic minimal actor updates
  */
 
 import { prepareCharacterItems } from "../sheet-prepare-items.js";
@@ -21,7 +21,6 @@ import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-da
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
-import { onDropItemIntoContainer } from "../item/listeners/containment.js";
 import { AttackTracker } from "../../../core/combat/attack-tracker.js";
 import { cancelOriginAEUpkeep } from "../../../core/magic/effects/origin-effect.js";
 import { buildEncumbranceBreakdown } from "../../../core/actors/rules/item-aggregation.js";
@@ -85,10 +84,44 @@ import {
   buildSheetUiSignature,
 } from "./shared/sheet-signatures.js";
 import { bindWindowRestoreGuard, warnIfDuplicateSidebar } from "./shared/window-restore-guard.js";
+import { createPartContextScope } from "./shared/part-context.js";
 import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/settings.js";
+import {
+  buildAllowedChangePatch,
+  buildAllowedSubmitPatch,
+  createFormPathMatcher,
+} from "./shared/form-pipeline.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2Base = foundry.applications.sheets.ActorSheetV2;
+const MAX_ENGAGEMENT_SCORE_PATH = `flags.${SYSTEM_ID}.homebrew.maxEngagementScore`;
+const ATTACK_TRACKER_CURRENT_PATH = `flags.${SYSTEM_ID}.combat.attackTrackerOverrides.current`;
+const ATTACK_TRACKER_MAX_PATH = `flags.${SYSTEM_ID}.combat.attackTrackerOverrides.max`;
+const ALLOWED_PC_FORM_PATH = createFormPathMatcher({
+  exact: [
+    "name",
+    "system.hp.value",
+    "system.stamina.value",
+    "system.magicka.value",
+    "system.luck_points.value",
+    "system.action_points.value",
+    "system.action_points.max",
+    "system.size",
+    "system.armor_class",
+    "system.wealth",
+    MAX_ENGAGEMENT_SCORE_PATH,
+  ],
+});
+
+function normalizePcFormValue({ path, value, currentValue, rawValue }) {
+  if (path !== MAX_ENGAGEMENT_SCORE_PATH) return value;
+
+  const raw = String(rawValue ?? value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return currentValue;
+  return Math.max(0, Math.round(n));
+}
 
 function resolveWeaponDistanceHeaderLabel(weaponBuckets) {
   const equipped = Array.isArray(weaponBuckets?.equipped) ? weaponBuckets.equipped : [];
@@ -150,10 +183,12 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
     for (const i of actor?.items?.contents ?? []) {
       const cs = i?.system?.containerStats;
+      const itemModifiedTime = i?._stats?.modifiedTime ?? i?.updatedTime ?? "";
       parts.push([
         i?.id ?? "",
         i?.type ?? "",
         i?.name ?? "",
+        String(itemModifiedTime),
         i?.system?.equipped ? "1" : "0",
         String(i?.system?.quantity ?? ""),
         String(i?.system?.value ?? ""),
@@ -272,7 +307,11 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     classes: ["worldbuilding", "sheet", "actor", "player-character", "uesrpg-sheet-root"],
     position: { width: 910, height: 960 },
     window: { resizable: true },
-    form: { submitOnChange: true },
+    form: {
+      handler: PCActorSheetV2.prototype._onFormSubmit,
+      submitOnChange: false,
+      closeOnSubmit: false,
+    },
     actions: {
       raceMenu: PCActorSheetV2.prototype._onRaceMenu,
       birthSignMenu: PCActorSheetV2.prototype._onBirthSignMenu,
@@ -331,7 +370,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     dragDrop: [
       {
         dragSelector: ".item, .npc-item, .spell-row",
-        dropSelector: ".window-content, .sheet-body, .tab, .tabContainer, .itemListContainer, [data-item-type='container']",
+        dropSelector: ".window-content, .sheet-body, .tab, .tabContainer, .itemListContainer",
       },
     ],
   };
@@ -373,6 +412,59 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     return this.element;
   }
 
+  async _onChangeForm(formConfig, event) {
+    if (typeof super._onChangeForm === "function") super._onChangeForm(formConfig, event);
+    if (!this.isEditable || !this.document?.isOwner) return;
+    const target = event?.target;
+    const path = String(target?.getAttribute?.("name") ?? "").trim();
+    if (path === ATTACK_TRACKER_CURRENT_PATH || path === ATTACK_TRACKER_MAX_PATH) {
+      const raw = Number(target?.value ?? NaN);
+      if (!Number.isFinite(raw)) return;
+      if (path === ATTACK_TRACKER_MAX_PATH) await AttackTracker.setAttackLimitOverride(this.document, raw);
+      else await AttackTracker.setCurrentAttacks(this.document, raw);
+      return;
+    }
+
+    const patch = buildAllowedChangePatch({
+      document: this.document,
+      target,
+      allowPath: ALLOWED_PC_FORM_PATH,
+      normalizeValue: normalizePcFormValue,
+    });
+    if (!patch) return;
+    const isMaxEngagementPatch = Object.keys(patch).length === 1
+      && Object.prototype.hasOwnProperty.call(patch, MAX_ENGAGEMENT_SCORE_PATH);
+    try {
+      await requestUpdateDocument(this.document, patch);
+    } catch (err) {
+      if (!isMaxEngagementPatch) throw err;
+      console.error("UESRPG | Failed to update max engagement score", { actor: this.document?.uuid, err });
+      ui.notifications?.error?.("Failed to update max engagement score.");
+    }
+  }
+
+  async _onFormSubmit(_event, _form, formData) {
+    if (!this.isEditable || !this.document?.isOwner) return;
+    const flat = foundry.utils.flattenObject(formData?.object ?? {});
+    if (Object.prototype.hasOwnProperty.call(flat, ATTACK_TRACKER_MAX_PATH)) {
+      const raw = Number(flat[ATTACK_TRACKER_MAX_PATH] ?? NaN);
+      if (Number.isFinite(raw)) await AttackTracker.setAttackLimitOverride(this.document, raw);
+    }
+    if (Object.prototype.hasOwnProperty.call(flat, ATTACK_TRACKER_CURRENT_PATH)) {
+      const raw = Number(flat[ATTACK_TRACKER_CURRENT_PATH] ?? NaN);
+      if (Number.isFinite(raw)) await AttackTracker.setCurrentAttacks(this.document, raw);
+    }
+
+    const patch = buildAllowedSubmitPatch({
+      document: this.document,
+      formDataObject: formData?.object,
+      allowPath: ALLOWED_PC_FORM_PATH,
+      normalizeValue: normalizePcFormValue,
+    });
+    if (!patch) return;
+    await requestUpdateDocument(this.document, patch);
+  }
+
   _configureRenderOptions(options) {
     super._configureRenderOptions(options);
     if (Array.isArray(options?.parts) && options.parts.length) return;
@@ -404,22 +496,50 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       context.options = { editable: this.isEditable };
 
       // Part-gating: skip expensive builders when AppV2 requests only specific parts.
-      // Safe default: if options.parts is absent or covers all parts, build full context.
-      const _totalParts = Object.keys(this.constructor.PARTS ?? {}).length || 5;
-      const _requestedParts = new Set(options?.parts ?? []);
-      const _partialRender = _requestedParts.size > 0 && _requestedParts.size < _totalParts;
-      const _needs = (part) => !_partialRender || _requestedParts.has(part);
+      const partScope = createPartContextScope({
+        options,
+        partDefinitions: this.constructor.PARTS,
+        fallbackTotal: 5,
+      });
+      const _needs = partScope.needs;
 
       const perfItemsStart = performance.now();
-      const itemsSignature = this._buildItemsSignature(actor);
-      const effectsSignature = buildEffectsSignature(actor);
-      const woundsSignature = buildWoundsSignature(actor);
-      const combatSignature = buildCombatSignature(actor, itemsSignature, effectsSignature);
+      const getItemsSignature = (() => {
+        let signature = null;
+        return () => {
+          if (signature === null) signature = this._buildItemsSignature(actor);
+          return signature;
+        };
+      })();
+      const getEffectsSignature = (() => {
+        let signature = null;
+        return () => {
+          if (signature === null) signature = buildEffectsSignature(actor);
+          return signature;
+        };
+      })();
+      const getWoundsSignature = (() => {
+        let signature = null;
+        return () => {
+          if (signature === null) signature = buildWoundsSignature(actor);
+          return signature;
+        };
+      })();
+      const getCombatSignature = (() => {
+        let signature = null;
+        return () => {
+          if (signature === null) {
+            signature = buildCombatSignature(actor, getItemsSignature(), getEffectsSignature());
+          }
+          return signature;
+        };
+      })();
 
       // Item categorization - needed by core/combat/magic/equipment tabs.
       // V2 does not auto-populate context.items like V1 getData() - overlay live system data
       // so derived fields (value, *Effective, damage3, etc.) survive into templates.
       if (_needs("core") || _needs("combat") || _needs("magic") || _needs("equipment")) {
+        const itemsSignature = getItemsSignature();
         if (this._uesrpgItemsCache && this._uesrpgItemsCache.signature === itemsSignature) {
           context.items = this._uesrpgItemsCache.items;
           if (this._uesrpgItemsCache.actorPatch) Object.assign(context.actor, this._uesrpgItemsCache.actorPatch);
@@ -452,6 +572,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
             gear: context.actor.gear,
             weapon: context.actor.weapon,
             armor: context.actor.armor,
+            shield: context.actor.shield,
             power: context.actor.power,
             trait: context.actor.trait,
             talent: context.actor.talent,
@@ -479,12 +600,13 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         }
       } else {
         context.items = [];
-        this._traceSheetPerfPhase("items:skipped", perfItemsStart, { requested: Array.from(_requestedParts) });
+        this._traceSheetPerfPhase("items:skipped", perfItemsStart, { requested: partScope.requestedList });
       }
 
       // Combat tab contexts
       const perfCombatStart = performance.now();
       if (_needs("combat")) {
+        const combatSignature = getCombatSignature();
         if (this._uesrpgCombatCache && this._uesrpgCombatCache.signature === combatSignature) {
           context.actor.sheetCombatQuick = foundry.utils.deepClone(this._uesrpgCombatCache.sheetCombatQuick);
           context.actor.sheetCombatActions = this._uesrpgCombatCache.sheetCombatActions;
@@ -520,6 +642,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
       const perfWoundsStart = performance.now();
       if (_needs("combat")) {
+        const woundsSignature = getWoundsSignature();
         if (this._uesrpgWoundsUiCache && this._uesrpgWoundsUiCache.signature === woundsSignature) {
           context.woundsInjuriesUi = this._uesrpgWoundsUiCache.value;
           this._traceSheetPerfPhase("wounds:cache-hit", perfWoundsStart, {});
@@ -557,6 +680,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       context.sheetUi.encBreakdownEnabled = encumbranceUiEnhanced;
       if (encumbranceUiEnhanced && _needs("equipment")) {
         const perfEncStart = performance.now();
+        const itemsSignature = getItemsSignature();
         if (this._uesrpgEncumbranceCache && this._uesrpgEncumbranceCache.signature === itemsSignature) {
           annotateEncumbranceHighlights(context.actor, this._uesrpgEncumbranceCache.breakdown, { topN: 5 });
           this._traceSheetPerfPhase("encumbrance:cache-hit", perfEncStart, {});
@@ -608,6 +732,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       // Effects are rendered on Equipment tab and may also be needed by Magic flows.
       if (_needs("equipment") || _needs("magic")) {
         const perfEffectsStart = performance.now();
+        const effectsSignature = getEffectsSignature();
         if (this._uesrpgEffectsCache && this._uesrpgEffectsCache.signature === effectsSignature) {
           context.effects = this._uesrpgEffectsCache.effects;
           this._traceSheetPerfPhase("effects:cache-hit", perfEffectsStart, { count: context.effects.length });
@@ -734,14 +859,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         return;
       }
 
-      if (partId === "combat") {
-        htmlElement.addEventListener("change", (ev) => {
-          const target = ev.target.closest?.(".uesrpg-max-engagement-score");
-          if (target) this._onMaxEngagementScoreChange(ev, target).catch(err =>
-            console.error("UESRPG | Max Engagement Score change failed", err));
-        });
-      }
-
       // All tab parts share the same listener registration.
       // querySelectorAll returns empty NodeLists for selectors absent in a
       // given tab, so every listener category can run against every tab safely.
@@ -793,12 +910,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     }
 
     if (!this._uesrpgTabChangeHandler) {
-      this._uesrpgTabChangeHandler = (ev) => {
-        const root = ev.currentTarget;
-        const input = ev.target?.closest?.(".uesrpg-attack-input");
-        if (!input || !root?.contains?.(input)) return;
-        this._onAttackTrackerInputChange(ev, input);
-      };
+      this._uesrpgTabChangeHandler = () => {};
     }
 
     if (!this._uesrpgTabInputHandler) {
@@ -841,24 +953,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     el.addEventListener("input", this._uesrpgTabInputHandler);
     el.addEventListener("keydown", this._uesrpgTabKeydownHandler);
 
-    // Container row: visual drag-over highlight.
-    // Native dragenter/dragleave are used for the CSS class; the actual drop is
-    // handled by the DragDrop-bound _onDrop via the updated dropSelector.
-    for (const containerRow of el.querySelectorAll("[data-item-type='container']")) {
-      containerRow.addEventListener("dragenter", (ev) => {
-        ev.preventDefault();
-        ev.currentTarget.classList.add("uesrpg-drag-over");
-      });
-      containerRow.addEventListener("dragleave", (ev) => {
-        // Only remove when the pointer truly leaves the row, not when entering a child.
-        if (!ev.currentTarget.contains(ev.relatedTarget)) {
-          ev.currentTarget.classList.remove("uesrpg-drag-over");
-        }
-      });
-      containerRow.addEventListener("drop", (ev) => {
-        ev.currentTarget.classList.remove("uesrpg-drag-over");
-      });
-    }
   }
 
   /* ═══════════════════════ Collapsible Groups ════════════════════════ */
@@ -875,20 +969,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     const fn = game?.uesrpg?.wounds?.removeFirstAid;
     if (typeof fn === "function") await fn(this.document);
     await this._queueRenderParts(["combat"]);
-  }
-  async _onMaxEngagementScoreChange(event, target) {
-    if (!this.isEditable) return;
-    const raw = String(target?.value ?? "").trim();
-    const val = raw === "" ? null : Math.max(0, Math.round(Number(raw) || 0));
-    try {
-      await requestUpdateDocument(this.document, {
-        [`flags.${SYSTEM_ID}.homebrew.maxEngagementScore`]: val,
-      });
-      this.render(false);
-    } catch (err) {
-      console.error("UESRPG | Failed to update max engagement score", { actor: this.document?.uuid, err });
-      ui.notifications?.error?.("Failed to update max engagement score.");
-    }
   }
   async _onWoundTreat(_event, target) {
     const id = String(target?.dataset?.woundId ?? "").trim();
@@ -1084,23 +1164,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onItemEquip(event, target) { return onItemEquip.call(this, event, target); }
   async _onItemCreate(event, target) { return onItemCreate(this, event, { target }); }
 
-  async _onAttackTrackerInputChange(event, target) {
-    event.preventDefault();
-    if (!game.user?.isGM) {
-      ui.notifications?.warn?.("Only the GM can adjust attack tracker values.");
-      return;
-    }
-    const el = target ?? event.target?.closest?.(".uesrpg-attack-input") ?? event.currentTarget;
-    const kind = String(el?.dataset?.kind ?? "").trim().toLowerCase();
-    const value = Number(el?.value ?? NaN);
-    if (!Number.isFinite(value)) return;
-    if (kind === "max") {
-      await AttackTracker.setAttackLimitOverride(this.document, value);
-      return;
-    }
-    await AttackTracker.setCurrentAttacks(this.document, value);
-  }
-
   async _duplicateItem(item) {
     if (item?.type === "talent" && this.document?.type === "Player Character") {
       const validation = validateTalentLearning(this.document, item.toObject(), { source: "duplicate" });
@@ -1226,36 +1289,9 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       type: data?.type ?? null,
       uuid: data?.uuid ?? null,
       itemId: data?.itemId ?? null,
-      targetContainer: event.target?.closest?.("[data-item-type='container']")?.dataset?.itemId ?? null,
     }, { traceId });
 
     if (data.type === "Item") {
-      // Route to container containment logic when the drop lands on a container row.
-      // event.currentTarget is the matched dropSelector element (container <tr> row
-      // when dropSelector includes [data-item-type='container']).
-      // Also check event.target.closest() as a belt-and-suspenders for child targets.
-      const containerRow =
-        event.currentTarget?.dataset?.itemType === "container"
-          ? event.currentTarget
-          : event.target.closest?.("[data-item-type='container']");
-
-      if (containerRow?.dataset?.itemId) {
-        const containerItem = this.document.items.get(containerRow.dataset.itemId);
-        if (containerItem?.type === "container") {
-          containerRow.classList.remove("uesrpg-drag-over");
-          dndDebug("sheet.drop.route.container", {
-            sheet: "PCActorSheetV2",
-            actor: this.document?.uuid ?? null,
-            container: containerItem?.uuid ?? null,
-            data,
-          }, { traceId });
-          return onDropItemIntoContainer(
-            { item: containerItem, actor: this.document, isEditable: this.isEditable },
-            data
-          );
-        }
-      }
-
       const resolved = await resolveDroppedItemDetailed(data, { traceId });
       const item = resolved.item;
       if (!item) {
@@ -1445,6 +1481,3 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     }
   }
 }
-
-
-

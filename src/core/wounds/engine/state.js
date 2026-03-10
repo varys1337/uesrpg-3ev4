@@ -41,6 +41,26 @@ function _isSuppressedByMarkers(actor) {
   return false;
 }
 
+function _readForestallInfo(actor) {
+  const forestall = findFirstEffectByKind(actor, "forestall");
+  if (!forestall) return { present: false, rounds: 0 };
+  const rounds = Math.max(0, toNumber(forestall?.getFlag?.(FLAG_SCOPE, "wounds")?.remainingRounds ?? 0, 0));
+  return { present: true, rounds };
+}
+
+function _readFirstAidInfo(actor) {
+  const firstAid = findFirstEffectByKind(actor, "firstAid");
+  return { present: Boolean(firstAid) };
+}
+
+function _reasonLabel(reason) {
+  if (reason === "firstAid") return "First Aid";
+  if (reason === "forestall") return "Forestall";
+  if (reason === "trait-immunity") return "Trait Immunity";
+  if (reason === "undead") return "Undead";
+  return "Unknown";
+}
+
 export function getWoundState(actor) {
   if (!actor) return WOUND_STATES.NONE;
   const wounds = findEffectsByKind(actor, "wound");
@@ -74,6 +94,43 @@ export function isDerivedWounded(actor) {
 export function isWoundPenaltySuppressed(actor) {
   if (isActorUndead(actor)) return true;
   return _isSuppressedByImmunity(actor) || _isSuppressedByMarkers(actor);
+}
+
+export function getWoundSuppressionInfo(actor) {
+  const reasons = [];
+  const forestall = _readForestallInfo(actor);
+  const firstAid = _readFirstAidInfo(actor);
+
+  if (isActorUndead(actor)) reasons.push("undead");
+  if (_isSuppressedByImmunity(actor)) reasons.push("trait-immunity");
+  if (firstAid.present) reasons.push("firstAid");
+  if (forestall.present && forestall.rounds > 0) reasons.push("forestall");
+
+  const unique = Array.from(new Set(reasons));
+  const primaryReason = unique[0] ?? null;
+  return {
+    suppressed: unique.length > 0,
+    reasons: unique,
+    primaryReason,
+    primaryLabel: primaryReason ? _reasonLabel(primaryReason) : "",
+    forestallRounds: forestall.rounds,
+    hasFirstAid: firstAid.present,
+  };
+}
+
+export function getBloodLossStatus(actor) {
+  const bloodLoss = findFirstEffectByKind(actor, "bloodLoss");
+  const remainingRounds = Math.max(0, toNumber(bloodLoss?.getFlag?.(FLAG_SCOPE, "wounds")?.remainingRounds ?? 0, 0));
+  const suppression = getWoundSuppressionInfo(actor);
+
+  return {
+    hasEffect: Boolean(bloodLoss),
+    remainingRounds,
+    paused: Boolean(bloodLoss) && suppression.suppressed,
+    pauseReason: suppression.primaryReason,
+    pauseLabel: suppression.primaryLabel,
+    suppression,
+  };
 }
 
 /**

@@ -10,6 +10,7 @@ import { itemHasToken } from "./tokens.js";
 import { isActorIncorporeal, getActorTraitValue } from "../../traits/trait-registry.js";
 import { hasTalent } from "../../traits/talents-api.js";
 import { DAMAGE_TYPES } from "./types.js";
+import { downgradeArmorCoverage } from "../armor-state.js";
 
 /**
  * Compute the RAW weapon-quality bonus damage for "The Big Three":
@@ -25,7 +26,7 @@ import { DAMAGE_TYPES } from "./types.js";
  * @param {object} params
  * @returns {number}
  */
-export function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, originalArmor, triggerArmor, triggerArmorClass, baseTotalDamage, reductionsTotal }) {
+export function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, originalArmor, triggerArmor, triggerArmorClass, triggerCoverageDowngradeSteps = 0, baseTotalDamage, reductionsTotal }) {
   if (String(damageType ?? "").toLowerCase() !== "physical") return 0;
   if (!weapon || !attackerActor) return 0;
 
@@ -171,10 +172,9 @@ export function computeBigThreeBonus({ damageType, weapon, ammo, attackerActor, 
   if (!effectiveArmorClass) {
     effectiveArmorClass = (Number(triggerArmor ?? 0) > 0) ? "full" : "none";
   }
-  if (hasExploitWeakness) {
-    if (effectiveArmorClass === "full") effectiveArmorClass = "partial";
-    else if (effectiveArmorClass === "partial") effectiveArmorClass = "none";
-  }
+  const triggerDowngradeSteps = Math.max(0, Number(triggerCoverageDowngradeSteps ?? 0) || 0)
+    + (hasExploitWeakness ? 1 : 0);
+  effectiveArmorClass = downgradeArmorCoverage(effectiveArmorClass || "none", triggerDowngradeSteps);
 
   // Slashing (X)
   if (hasQuality("slashing")) {
@@ -274,8 +274,9 @@ export function calculateDamage(rawDamage, damageType, targetActor, options = {}
     ammo,
     attackerActor,
     originalArmor,
-    triggerArmor: (ignoreArmorOnly || penetrateArmorForTriggers) ? 0 : originalArmor,
-    triggerArmorClass: (ignoreArmorOnly || penetrateArmorForTriggers) ? "none" : (reductions.coverage?.class ?? "none"),
+    triggerArmor: originalArmor,
+    triggerArmorClass: reductions.coverage?.class ?? "none",
+    triggerCoverageDowngradeSteps: (ignoreArmorOnly ? 999 : 0) + (penetrateArmorForTriggers ? 1 : 0),
     baseTotalDamage,
     reductionsTotal: reductions.total,
   });

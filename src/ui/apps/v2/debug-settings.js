@@ -68,7 +68,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         "opposedDebugFormula", "opposedShowResolutionDetails", "opposedShowStatusLine",
         "skillRollDebug", "spellCastingDebug", "activationDebug",
         "woundsDebug", "spellTickDebug", "overTimeDebug",
-        "ruleElementDebug", "showFeatureInspector",
+        "ruleElementDebug", "showFeatureInspector", "shieldDebug",
       ];
       for (const key of worldKeys) {
         if (!_settingExists(key)) continue;

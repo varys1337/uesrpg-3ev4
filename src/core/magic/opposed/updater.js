@@ -26,6 +26,99 @@ const _CARD_VERSION = 2;
 const _enqueueCardUpdate = createMessageQueue();
 
 /**
+ * Prune stale null/false values from a handler's lane data that would incorrectly
+ * overwrite already-committed state in the current live state.
+ *
+ * Stale-write hazard: a handler clones flags at dispatch time (before an async
+ * dialog/roll). Another lane commits during that window. The handler's stale clone
+ * still carries null/false for fields the live state has since committed.
+ * mergeObject(freshState, staleData, {overwrite:true}) would clobber them.
+ * This guard covers declaration, banked commit markers, TN, identity, and result
+ * fields — not just result (the previous narrow protection).
+ *
+ * Strategy: for each protected field, if freshLane has a meaningful value and
+ * dataLane has an explicit null sentinel (carried from initial clone), delete the
+ * field from dataLane before the merge so mergeObject skips the overwrite.
+ *
+ * @param {Object} freshLane - Live lane state (attacker or a defender entry).
+ * @param {Object} dataLane  - Handler's stale lane data (mutated in place).
+ */
+function _pruneStaleOverwritesForLane(freshLane, dataLane) {
+  if (!freshLane || !dataLane) return;
+
+  // Object fields: live non-null → data null → prune.
+  for (const f of ["result", "tn", "declaration", "banked", "request", "castSource"]) {
+    if (freshLane[f] != null && dataLane[f] === null) delete dataLane[f];
+  }
+
+  // Boolean commit markers: live true → data falsy → prune (don't revert committed state).
+  for (const f of ["hasDeclared", "declared"]) {
+    if (freshLane[f] === true && dataLane[f] != null && !dataLane[f]) delete dataLane[f];
+  }
+
+  // Nested banked sub-fields: protect individual commit markers inside the banked object.
+  if (freshLane.banked && dataLane.banked && typeof dataLane.banked === "object") {
+    if (freshLane.banked.committed === true && dataLane.banked.committed === false) {
+      delete dataLane.banked.committed;
+    }
+    if (freshLane.banked.committedAt != null && dataLane.banked.committedAt === null) {
+      delete dataLane.banked.committedAt;
+    }
+    if (freshLane.banked.committedBy != null && dataLane.banked.committedBy === null) {
+      delete dataLane.banked.committedBy;
+    }
+  }
+
+  // String identity fields: live non-null → data null → prune.
+  for (const f of [
+    "itemUuid", "spellUuid", "defenseType", "styleUuid", "skillUuid",
+    "label", "defenseLabel", "testLabel", "variantLabel", "circumstanceLabel", "targetLabel",
+    "variant", "rollMessageId"
+  ]) {
+    if (freshLane[f] != null && dataLane[f] === null) delete dataLane[f];
+  }
+
+  // Numeric committed fields: live finite → data null → prune.
+  for (const f of ["target", "baseTarget", "totalMod", "variantMod", "manualMod", "circumstanceMod"]) {
+    if (Number.isFinite(freshLane[f]) && dataLane[f] === null) delete dataLane[f];
+  }
+}
+
+/**
+ * Apply lane-aware stale-overwrite pruning to all lanes in the handler's payload.
+ * Covers attacker, defender alias, and each defenders[] entry.
+ * Modifies data in place before mergeObject.
+ * @param {Object} freshState - Current live full state.
+ * @param {Object} data       - Handler's payload (mutated in place).
+ */
+function _pruneStaleOverwrites(freshState, data) {
+  if (freshState.attacker && data.attacker) {
+    _pruneStaleOverwritesForLane(freshState.attacker, data.attacker);
+  }
+  if (freshState.defender && data.defender) {
+    _pruneStaleOverwritesForLane(freshState.defender, data.defender);
+  }
+  if (Array.isArray(freshState.defenders) && Array.isArray(data.defenders)) {
+    for (let i = 0; i < data.defenders.length; i++) {
+      if (freshState.defenders[i] && data.defenders[i]) {
+        _pruneStaleOverwritesForLane(freshState.defenders[i], data.defenders[i]);
+      }
+    }
+  }
+  // Shared context: protect auto-resolution markers from stale erasure.
+  if (freshState.context && data.context) {
+    const fc = freshState.context;
+    const dc = data.context;
+    for (const f of ["autoRollRequested", "noDefense"]) {
+      if (fc[f] === true && (dc[f] === false || dc[f] === null)) delete dc[f];
+    }
+    for (const f of ["autoRollRequestedAt", "autoRollRequestedBy"]) {
+      if (fc[f] != null && dc[f] === null) delete dc[f];
+    }
+  }
+}
+
+/**
  * Update magic opposed card with new data.
  *
  * This is the primary card update function. It:
@@ -66,24 +159,11 @@ async function _updateCardCore(message, data, _renderCard) {
   if (liveState && typeof liveState === "object") {
     const freshState = cloneFlagState(liveState);
 
-    // Defense-in-depth: prevent handler's stale clone from overwriting results
-    // that another handler has already written to the live state.
-    // When a handler clones flags early and doesn't touch `result`, its clone
-    // still contains `result: null` which mergeObject would apply on top of the
-    // live state's non-null result. Prune these stale nulls before merging.
-    if (freshState.attacker?.result && data.attacker?.result === null) {
-      delete data.attacker.result;
-    }
-    if (Array.isArray(freshState.defenders) && Array.isArray(data.defenders)) {
-      for (let i = 0; i < data.defenders.length; i++) {
-        if (freshState.defenders[i]?.result && data.defenders?.[i]?.result === null) {
-          delete data.defenders[i].result;
-        }
-      }
-    }
-    if (freshState.defender?.result && data.defender?.result === null) {
-      delete data.defender.result;
-    }
+    // Lane-aware stale-overwrite protection: prevent a handler's stale null/false
+    // clone from clobbering already-committed live state. Covers declaration, banked
+    // commit markers, TN, identity, result, and shared context markers — not just
+    // result (the former narrow guard). See _pruneStaleOverwritesForLane for details.
+    _pruneStaleOverwrites(freshState, data);
 
     // Merge handler's mutations on top of live state (additive).
     merged = foundry.utils.mergeObject(freshState, data, { overwrite: true, insertKeys: true, insertValues: true });

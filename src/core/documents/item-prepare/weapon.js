@@ -97,8 +97,14 @@ export function prepareWeaponItem(itemDoc, actorData, itemData) {
   if (itemData.reloadState.isLoaded === undefined) {
     itemData.reloadState.isLoaded = true;
   }
+  if (itemData.reloadState.reloadProgress === undefined) {
+    itemData.reloadState.reloadProgress = 0;
+  }
 
-  if (attackMode === "ranged") {
+  // Compute range bands for ranged weapons and thrown weapons (melee attackMode + thrown quality)
+  // when system.range is a valid triplet. Thrown weapons that have their range stored only in
+  // the qualities free-text fall through to the legacy parser in getWeaponRangeBands.
+  if (attackMode === "ranged" || isThrown) {
     const parsed = parseRangeTriplet(itemData.range);
     if (parsed && Number.isFinite(parsed.long)) {
       const rangeMod = (mRule?.rangeMod != null) ? safeNumber(mRule.rangeMod, 0) : 0;

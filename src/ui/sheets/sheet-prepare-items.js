@@ -1,4 +1,8 @@
 import { shouldHideFromMainInventory } from "./sheet-inventory.js";
+import { isShieldItem } from "../../core/items/shield-utils.js";
+import { createDebugLogger } from "../../utils/debug.js";
+
+const _debug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][PrepareItems]");
 
 function _resolveWeaponDistanceDisplay(system = {}) {
   const mode = String(system?.attackMode ?? "").toLowerCase();
@@ -67,6 +71,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   const gear = { equipped: [], unequipped: [] };
   const weapon = { equipped: [], unequipped: [] };
   const armor = { equipped: [], unequipped: [] };
+  const shield = { equipped: [], unequipped: [] };
   const power = [];
   const trait = [];
   const talent = [];
@@ -102,7 +107,24 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
 
     // If an item is inside a container, hide it from the main inventory lists.
     // Contained items remain owned by the Actor and are surfaced through the container sheet UI.
-    if (shouldHideFromMainInventory(i)) continue;
+    if (shouldHideFromMainInventory(i)) {
+      if (String(i?.type ?? "").toLowerCase() === "shield" || isShieldItem(i, { allowLegacy: true })) {
+        const cs = i?.system?.containerStats ?? {};
+        _debug("shield filtered from main inventory", {
+          actorId: actorData?._id ?? actorData?.id ?? null,
+          actorName: actorData?.name ?? null,
+          itemId: i?._id ?? i?.id ?? null,
+          itemName: i?.name ?? null,
+          itemType: i?.type ?? null,
+          containerStats: {
+            contained: cs?.contained === true,
+            container_id: String(cs?.container_id ?? ""),
+            container_name: String(cs?.container_name ?? ""),
+          },
+        });
+      }
+      continue;
+    }
 
     if (i.type === "equipment" || i.type === "scroll") {
       i.system?.equipped ? gear.equipped.push(i) : gear.unequipped.push(i);
@@ -110,7 +132,13 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
       i.system.resolvedDistanceDisplay = _resolveWeaponDistanceDisplay(i.system);
       i.system?.equipped ? weapon.equipped.push(i) : weapon.unequipped.push(i);
     } else if (i.type === "armor") {
-      i.system?.equipped ? armor.equipped.push(i) : armor.unequipped.push(i);
+      if (isShieldItem(i, { allowLegacy: true })) {
+        i.system?.equipped ? shield.equipped.push(i) : shield.unequipped.push(i);
+      } else {
+        i.system?.equipped ? armor.equipped.push(i) : armor.unequipped.push(i);
+      }
+    } else if (i.type === "shield") {
+      i.system?.equipped ? shield.equipped.push(i) : shield.unequipped.push(i);
     } else if (i.type === "power") {
       power.push(i);
     } else if (i.type === "trait") {
@@ -147,6 +175,8 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
       weapon.unequipped,
       armor.equipped,
       armor.unequipped,
+      shield.equipped,
+      shield.unequipped,
       power,
       trait,
       talent,
@@ -245,6 +275,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   actorData.gear = gear;
   actorData.weapon = weapon;
   actorData.armor = armor;
+  actorData.shield = shield;
   actorData.power = power;
   actorData.trait = trait;
   actorData.talent = talent;

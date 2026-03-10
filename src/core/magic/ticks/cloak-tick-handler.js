@@ -28,10 +28,92 @@ import { getOriginAEs } from "../effects/origin-effect.js";
 import { normalizeSpellConfig } from "../spell-config.js";
 import { rollSpellDamage, getSpellDamageType, getSpellDamageFormula } from "../magicka-utils.js";
 import { _num, _strTrim as _str, createDebugLogger } from "../_primitives.js";
+import { FLAG_SCOPE, SYSTEM_ID } from "../../system/namespace.js";
 
 const _debug = createDebugLogger("spellTickDebug", "[UESRPG][CloakTick]");
 
 let _registered = false;
+let _cloakRegistryHooksInstalled = false;
+
+// ─── Cloak Actor Registry (Milestone D) ──────────────────────────────────────
+//
+// Tracks actors that have at least one Origin AE so the cloak tick handler
+// can skip actors that are definitely not cloak casters without calling
+// getOriginAEs() (which iterates all actor effects).
+//
+// Enabled by `useCloakRegistry` world setting (default: false).
+//
+// We track Origin AE presence (not cloak-specific) because checking whether
+// an Origin AE is a cloak spell requires async spell UUID resolution, which is
+// not viable in a synchronous predicate. Actors with Origin AEs are already a
+// small set; the inner cloak check in _processCloakOriginAE filters further.
+
+/** @type {Set<string>} actorIds with at least one Origin AE */
+const _cloakActorSet = new Set();
+
+function _isCloakRegistryEnabled() {
+  try {
+    return Boolean(game?.settings?.get?.(SYSTEM_ID, "useCloakRegistry"));
+  } catch (_e) {
+    return false;
+  }
+}
+
+function _isOriginAE(effect) {
+  return Boolean(effect?.flags?.[FLAG_SCOPE]?.isOriginAE);
+}
+
+function _rebuildCloakActorSet() {
+  _cloakActorSet.clear();
+  for (const actor of (game?.actors?.contents ?? [])) {
+    for (const ae of (actor?.effects?.contents ?? [])) {
+      if (_isOriginAE(ae)) {
+        _cloakActorSet.add(String(actor.id));
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * Returns true if the given actorId is a known cloak caster candidate.
+ * When registry is disabled, always returns true (conservatively).
+ * @param {string|null|undefined} actorId
+ * @returns {boolean}
+ */
+function _hasCloakCaster(actorId) {
+  if (!_isCloakRegistryEnabled()) return true;
+  if (!actorId) return false;
+  return _cloakActorSet.has(String(actorId));
+}
+
+/**
+ * Seed the cloak actor set and install AE lifecycle hooks for incremental maintenance.
+ * Idempotent — safe to call multiple times.
+ */
+export function seedCloakRegistry() {
+  _rebuildCloakActorSet();
+
+  if (_cloakRegistryHooksInstalled) return;
+  _cloakRegistryHooksInstalled = true;
+
+  Hooks.on("createActiveEffect", (effect, _options, _userId) => {
+    const actor = effect.parent;
+    if (!actor || actor.documentName !== "Actor") return;
+    if (_isOriginAE(effect)) _cloakActorSet.add(String(actor.id));
+  });
+
+  Hooks.on("deleteActiveEffect", (effect, _options, _userId) => {
+    const actor = effect.parent;
+    if (!actor || actor.documentName !== "Actor") return;
+    // Remove actor from set only if they have no remaining Origin AEs after this deletion.
+    // The effect is still present in actor.effects during this hook (Foundry fires before removal),
+    // so we check all effects excluding the deleted one.
+    const deletedId = String(effect.id ?? "");
+    const hasRemaining = (actor?.effects?.contents ?? []).some(ae => ae.id !== deletedId && _isOriginAE(ae));
+    if (!hasRemaining) _cloakActorSet.delete(String(actor.id));
+  });
+}
 
 /**
  * Initialize the cloak tick handler.
@@ -45,6 +127,8 @@ export function initializeCloakTickHandler() {
   registerSpellTickHandler({
     id: "cloak-aura",
     label: "Cloak Aura Tick",
+    // hasWork: skip actors that have no Origin AEs (not potential cloak casters).
+    hasWork: (ctx) => ctx.trigger === "turnEnd" && _hasCloakCaster(ctx.actor?.id),
     fn: _onTick
   });
 

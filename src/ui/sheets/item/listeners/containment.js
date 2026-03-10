@@ -12,14 +12,9 @@
 import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestUpdateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { resolveDroppedItem } from "../../../../utils/drop-data.js";
+import { createDebugLogger } from "../../../../utils/debug.js";
 
-/**
- * Legacy sheet-listener registrar kept for compatibility with index.js.
- * AppV2 sheet classes register containment listeners natively.
- */
-export function registerContainmentListeners(_sheet, _html) {
-  // no-op by design
-}
+const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][Containment]");
 
 /**
  * Return the set of item types that are allowed to be placed into containers.
@@ -28,7 +23,16 @@ export function registerContainmentListeners(_sheet, _html) {
  * @returns {Set<string>}
  */
 export function getContainerAllowedTypes() {
-  return new Set(["equipment", "scroll", "weapon", "armor", "ammunition"]);
+  return new Set(["equipment", "scroll", "weapon", "armor", "shield", "ammunition"]);
+}
+
+function _resolveContainmentContext(sheetLike) {
+  if (!sheetLike) return null;
+  const document = sheetLike.document ?? sheetLike.item ?? null;
+  const actor = sheetLike.actor ?? document?.actor ?? null;
+  const isEditable = sheetLike.isEditable ?? false;
+  if (!document || document.type !== "container" || !actor) return null;
+  return { document, actor, isEditable };
 }
 
 /**
@@ -36,7 +40,8 @@ export function getContainerAllowedTypes() {
  * Containers are only meaningful when embedded on an Actor.
  */
 export function canModifyContainment(sheet) {
-  return !!(sheet.isEditable && sheet.item?.isOwned && sheet.actor && sheet.actor.isOwner);
+  const ctx = _resolveContainmentContext(sheet);
+  return !!(ctx?.isEditable && ctx.document?.isOwned && ctx.actor?.isOwner);
 }
 
 /**
@@ -50,11 +55,11 @@ export function canModifyContainment(sheet) {
  * @returns {Promise<boolean>} whether an update was applied
  */
 export async function repairContainerContainedItems(sheet) {
-  if (!sheet.item || sheet.item.type !== "container") return false;
-  if (!sheet.actor) return false;
+  if (!sheet.document || sheet.document.type !== "container") return false;
+  if (!sheet.document.actor) return false;
 
-  const containerId = sheet.item.id;
-  const current = Array.isArray(sheet.item.system?.contained_items) ? sheet.item.system.contained_items : [];
+  const containerId = sheet.document.id;
+  const current = Array.isArray(sheet.document.system?.contained_items) ? sheet.document.system.contained_items : [];
 
   // Phase 1: collect valid sources (Item documents) without serializing yet.
   const byId = new Map(); // id → Item document
@@ -65,7 +70,7 @@ export async function repairContainerContainedItems(sheet) {
     if (!id) continue;
     if (byId.has(id)) continue;
 
-    const source = sheet.actor.items.get(id);
+    const source = sheet.document.actor.items.get(id);
     if (!source) continue;
 
     const cs = source.system?.containerStats;
@@ -76,7 +81,7 @@ export async function repairContainerContainedItems(sheet) {
   }
 
   // Add actor items that claim they are in this container but are missing from list
-  for (const source of sheet.actor.items) {
+  for (const source of sheet.document.actor.items) {
     if (!source) continue;
     if (source.type === "container") continue;
     const cs = source.system?.containerStats;
@@ -107,7 +112,7 @@ export async function repairContainerContainedItems(sheet) {
 
   // Phase 3: serialize only when an update is confirmed necessary.
   const next = nextIds.map(id => ({ _id: id, item: byId.get(id).toObject() }));
-  await requestUpdateDocument(sheet.item, { "system.contained_items": next });
+  await requestUpdateDocument(sheet.document, { "system.contained_items": next });
   return true;
 }
 
@@ -118,14 +123,14 @@ export async function repairContainerContainedItems(sheet) {
  * @param {ItemSheet} sheet
  */
 export async function updateContainedItemsList(sheet) {
-  if (!sheet.item || sheet.item.type !== "container") return;
-  if (!sheet.actor) return;
+  if (!sheet.document || sheet.document.type !== "container") return;
+  if (!sheet.document.actor) return;
 
   // Repair first (removes ghost ids / dedupes / adds missing)
   const repaired = await repairContainerContainedItems(sheet);
   if (repaired) return;
 
-  const current = Array.isArray(sheet.item.system?.contained_items) ? sheet.item.system.contained_items : [];
+  const current = Array.isArray(sheet.document.system?.contained_items) ? sheet.document.system.contained_items : [];
 
   // Phase 1: change detection using lightweight _stats access — no toObject() yet.
   let changed = false;
@@ -134,7 +139,7 @@ export async function updateContainedItemsList(sheet) {
   for (const entry of current) {
     const id = entry?._id;
     if (!id) { changed = true; continue; }
-    const source = sheet.actor.items.get(id);
+    const source = sheet.document.actor.items.get(id);
     if (!source) { changed = true; continue; }
 
     // _stats.modifiedTime is readable without serialization
@@ -149,7 +154,7 @@ export async function updateContainedItemsList(sheet) {
 
   // Phase 2: serialize only when we know an update is needed.
   const next = valid.map(({ id, source }) => ({ _id: id, item: source.toObject() }));
-  await requestUpdateDocument(sheet.item, { "system.contained_items": next });
+  await requestUpdateDocument(sheet.document, { "system.contained_items": next });
 }
 
 /**
@@ -158,22 +163,32 @@ export async function updateContainedItemsList(sheet) {
  * @param {ItemSheet} sheet
  */
 export async function pushContainedItemData(sheet) {
-  if (!sheet.actor) return;
-  if (!sheet.item?.system?.containerStats) return;
-  if (sheet.item.type === "container") return;
+  if (!sheet.document.actor) return;
+  if (!sheet.document?.system?.containerStats) return;
+  if (sheet.document.type === "container") return;
 
-  const containerId = sheet.item.system.containerStats.container_id;
+  const containerId = sheet.document.system.containerStats.container_id;
   if (!containerId) return;
 
-  const containerItem = sheet.actor.items.get(containerId);
+  const containerItem = sheet.document.actor.items.get(containerId);
   if (!containerItem) return;
 
   const current = Array.isArray(containerItem.system?.contained_items) ? containerItem.system.contained_items : [];
-  const itemId = sheet.item.id;
+  const itemId = sheet.document.id;
 
-  const nextEntry = { _id: itemId, item: sheet.item.toObject() };
+  const nextEntry = { _id: itemId, item: sheet.document.toObject() };
 
   const next = current.filter(ci => ci?._id !== itemId).concat([nextEntry]);
+  if (String(sheet?.document?.type ?? "").toLowerCase() === "shield") {
+    _shieldDebug("pushContainedItemData", {
+      itemId,
+      itemName: sheet?.document?.name ?? null,
+      actorId: sheet?.document?.actor?.id ?? null,
+      containerId,
+      nextCount: next.length,
+      containerName: containerItem?.name ?? null,
+    });
+  }
   await requestUpdateDocument(containerItem, { "system.contained_items": next });
 }
 
@@ -184,7 +199,9 @@ export async function pushContainedItemData(sheet) {
  * @param {object} dropData - The dropped item data (type: "Item", uuid: ...)
  */
 export async function onDropItemIntoContainer(sheet, dropData) {
-  if (!canModifyContainment(sheet)) {
+  const ctx = _resolveContainmentContext(sheet);
+  if (!ctx) return;
+  if (!canModifyContainment(ctx)) {
     ui.notifications?.warn("You do not have permission to modify this container.");
     return;
   }
@@ -198,10 +215,10 @@ export async function onDropItemIntoContainer(sheet, dropData) {
   }
 
   // If item is from a different actor, create a copy on this actor first
-  if (droppedItem.actor?.id !== sheet.actor.id) {
+  if (droppedItem.actor?.id !== ctx.actor.id) {
     const itemData = droppedItem.toObject();
     delete itemData._id;
-    const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [itemData]);
+    const created = await requestCreateEmbeddedDocuments(ctx.actor, "Item", [itemData]);
     droppedItem = created?.[0];
     if (!droppedItem) {
       ui.notifications?.error("Failed to create item copy.");
@@ -210,7 +227,7 @@ export async function onDropItemIntoContainer(sheet, dropData) {
   }
 
   // Prevent self-containment (container cannot contain itself)
-  if (droppedItem.id === sheet.item.id) {
+  if (droppedItem.id === ctx.document.id) {
     ui.notifications?.warn("A container cannot contain itself.");
     return;
   }
@@ -228,8 +245,8 @@ export async function onDropItemIntoContainer(sheet, dropData) {
     return;
   }
 
-  const containerId = sheet.item.id;
-  const containerMaxEnc = Number(sheet.item.system?.container_enc?.max ?? 0);
+  const containerId = ctx.document.id;
+  const containerMaxEnc = Number(ctx.document.system?.container_enc?.max ?? 0);
   const itemEnc = Number(droppedItem.system?.enc ?? 0);
 
   // Check capacity (warn but allow if already in this container)
@@ -247,7 +264,7 @@ export async function onDropItemIntoContainer(sheet, dropData) {
   // If item belongs to another container, remove it from that container's list first
   const currentContainerId = cs?.container_id || "";
   if (currentContainerId && currentContainerId !== containerId) {
-    const oldContainer = sheet.actor.items.get(currentContainerId);
+    const oldContainer = ctx.actor.items.get(currentContainerId);
     if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
       const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== droppedItem.id);
       await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
@@ -258,7 +275,7 @@ export async function onDropItemIntoContainer(sheet, dropData) {
   const updateData = {
     "system.containerStats.contained": true,
     "system.containerStats.container_id": containerId,
-    "system.containerStats.container_name": sheet.item.name
+    "system.containerStats.container_name": ctx.document.name
   };
 
   // Force unequip if equipped
@@ -267,11 +284,41 @@ export async function onDropItemIntoContainer(sheet, dropData) {
   }
 
   await requestUpdateDocument(droppedItem, updateData);
+  if (String(droppedItem?.type ?? "").toLowerCase() === "shield") {
+    _shieldDebug("onDropItemIntoContainer applied", {
+      itemId: droppedItem?.id ?? null,
+      itemName: droppedItem?.name ?? null,
+      actorId: ctx.actor?.id ?? null,
+      containerId,
+      updateData,
+    });
+  }
 
   // Rebuild container list
-  await repairContainerContainedItems(sheet);
+  await repairContainerContainedItems(ctx);
 
-  ui.notifications?.info(`${droppedItem.name} added to ${sheet.item.name}.`);
+  ui.notifications?.info(`${droppedItem.name} added to ${ctx.document.name}.`);
+}
+
+export async function removeItemFromContainer(actor, item) {
+  if (!actor || !item) return false;
+  const cs = item.system?.containerStats ?? {};
+  const currentContainerId = String(cs?.container_id ?? "").trim();
+  const isContained = cs?.contained === true && currentContainerId.length > 0;
+  if (!isContained) return false;
+
+  const oldContainer = actor.items.get(currentContainerId);
+  if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
+    const nextOld = oldContainer.system.contained_items.filter((ci) => ci?._id !== item.id);
+    await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
+  }
+
+  await requestUpdateDocument(item, {
+    "system.containerStats.contained": false,
+    "system.containerStats.container_id": "",
+    "system.containerStats.container_name": ""
+  });
+  return true;
 }
 
 /**
@@ -285,11 +332,11 @@ export async function onBulkAddToContainer(sheet) {
   }
 
   const allowedTypes = getContainerAllowedTypes();
-  const containerId = sheet.item.id;
-  const containerMaxEnc = Number(sheet.item.system?.container_enc?.max ?? 0);
+  const containerId = sheet.document.id;
+  const containerMaxEnc = Number(sheet.document.system?.container_enc?.max ?? 0);
 
   const eligible = [];
-  for (const item of sheet.actor.items) {
+  for (const item of sheet.document.actor.items) {
     if (!item) continue;
     if (item.id === containerId) continue;
     if (item.type === "container") continue;
@@ -310,7 +357,7 @@ export async function onBulkAddToContainer(sheet) {
   }
 
   const confirmed = await confirmDialog({
-    title: `Add All Items to ${sheet.item.name}`,
+    title: `Add All Items to ${sheet.document.name}`,
     content: `<p>Add <strong>${eligible.length}</strong> eligible items to this container?</p>`,
   });
 
@@ -323,7 +370,7 @@ export async function onBulkAddToContainer(sheet) {
 
     // Remove from old container if needed
     if (currentContainerId) {
-      const oldContainer = sheet.actor.items.get(currentContainerId);
+      const oldContainer = sheet.document.actor.items.get(currentContainerId);
       if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
         const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== item.id);
         await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
@@ -333,7 +380,7 @@ export async function onBulkAddToContainer(sheet) {
     const updateData = {
       "system.containerStats.contained": true,
       "system.containerStats.container_id": containerId,
-      "system.containerStats.container_name": sheet.item.name
+      "system.containerStats.container_name": sheet.document.name
     };
 
     if (typeof item.system?.equipped === "boolean") {
@@ -344,7 +391,7 @@ export async function onBulkAddToContainer(sheet) {
   }
 
   await repairContainerContainedItems(sheet);
-  ui.notifications?.info(`Added ${eligible.length} items to ${sheet.item.name}.`);
+  ui.notifications?.info(`Added ${eligible.length} items to ${sheet.document.name}.`);
 }
 
 /**
@@ -357,8 +404,8 @@ export async function onBulkRemoveFromContainer(sheet) {
     return ui.notifications?.warn("You do not have permission to modify this container.");
   }
 
-  const contained = Array.isArray(sheet.item.system?.contained_items)
-    ? sheet.item.system.contained_items
+  const contained = Array.isArray(sheet.document.system?.contained_items)
+    ? sheet.document.system.contained_items
     : [];
 
   if (!contained.length) {
@@ -366,7 +413,7 @@ export async function onBulkRemoveFromContainer(sheet) {
   }
 
   const confirmed = await confirmDialog({
-    title: `Remove All Items from ${sheet.item.name}`,
+    title: `Remove All Items from ${sheet.document.name}`,
     content: `<p>Remove <strong>${contained.length}</strong> items from this container? Items will not be deleted.</p>`,
   });
 
@@ -376,7 +423,7 @@ export async function onBulkRemoveFromContainer(sheet) {
   for (const entry of contained) {
     const itemId = entry?._id;
     if (!itemId) continue;
-    const item = sheet.actor.items.get(itemId);
+    const item = sheet.document.actor.items.get(itemId);
     if (!item) continue;
 
     updates.push({
@@ -388,11 +435,11 @@ export async function onBulkRemoveFromContainer(sheet) {
   }
 
   if (updates.length) {
-    await requestUpdateEmbeddedDocuments(sheet.actor, "Item", updates);
+    await requestUpdateEmbeddedDocuments(sheet.document.actor, "Item", updates);
   }
 
   await repairContainerContainedItems(sheet);
-  ui.notifications?.info(`Removed ${updates.length} items from ${sheet.item.name}.`);
+  ui.notifications?.info(`Removed ${updates.length} items from ${sheet.document.name}.`);
 }
 
 /**
@@ -405,8 +452,8 @@ export async function onBulkDeleteContained(sheet) {
     return ui.notifications?.warn("You do not have permission to modify this container.");
   }
 
-  const contained = Array.isArray(sheet.item.system?.contained_items)
-    ? sheet.item.system.contained_items
+  const contained = Array.isArray(sheet.document.system?.contained_items)
+    ? sheet.document.system.contained_items
     : [];
 
   if (!contained.length) {
@@ -414,7 +461,7 @@ export async function onBulkDeleteContained(sheet) {
   }
 
   const confirmed = await confirmDialog({
-    title: `Delete All Items in ${sheet.item.name}`,
+    title: `Delete All Items in ${sheet.document.name}`,
     content: `<p><strong>WARNING:</strong> Permanently delete <strong>${contained.length}</strong> items? This cannot be undone.</p>`,
   });
 
@@ -422,11 +469,11 @@ export async function onBulkDeleteContained(sheet) {
 
   const ids = contained.map(e => e?._id).filter(Boolean);
   if (ids.length) {
-    await requestDeleteEmbeddedDocuments(sheet.actor, "Item", ids);
+    await requestDeleteEmbeddedDocuments(sheet.document.actor, "Item", ids);
   }
 
   await repairContainerContainedItems(sheet);
-  ui.notifications?.info(`Deleted ${ids.length} items from ${sheet.item.name}.`);
+  ui.notifications?.info(`Deleted ${ids.length} items from ${sheet.document.name}.`);
 }
 
 /**
@@ -441,7 +488,7 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
   for (const bagItem of bagListItems) {
     const cs = bagItem?.system?.containerStats ?? { contained: false, container_id: "" };
     const isContained = !!cs.contained;
-    const isInThisContainer = isContained && (cs.container_id === sheet.item._id);
+    const isInThisContainer = isContained && (cs.container_id === sheet.document._id);
 
     const img = bagItem?.img || CONST.DEFAULT_TOKEN;
     const qty = bagItem?.system?.quantity ?? 0;
@@ -467,7 +514,7 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
 
   const content = `<div>
       <div style="padding: 5px 0;">
-        <label>Select Items to add to your ${sheet.item.name}.</label>
+        <label>Select Items to add to your ${sheet.document.name}.</label>
         ${tooLarge ? "<div>Some items do not appear on this list because their ENC is greater than the capacity in the container.</div>" : ""}
       </div>
       <div>
@@ -487,7 +534,7 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
     </div>`;
 
   await customDialog({
-    title: `Add Items to ${sheet.item.name}`,
+    title: `Add Items to ${sheet.document.name}`,
     content,
     yes: {
       label: "Apply",
@@ -501,7 +548,7 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
           const selectedInputs = [...root.querySelectorAll(".itemSelect")];
 
           const allowedTypes = getContainerAllowedTypes();
-          const containerId = sheet.item.id;
+          const containerId = sheet.document.id;
 
           // Apply changes per checkbox:
           // - checked: set this container as owner; unlink from any previous container list
@@ -510,7 +557,7 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
             const itemId = input?.dataset?.itemId;
             if (!itemId) continue;
 
-            const thisItem = sheet.actor.items.get(itemId);
+            const thisItem = sheet.document.actor.items.get(itemId);
             if (!thisItem) continue;
 
             // Defensive: never allow containers to be contained (prevents cycles)
@@ -527,7 +574,7 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
               if (!isInThis) {
                 // If the item belongs to another container, remove it from that container's list first
                 if (currentContainerId) {
-                  const oldContainer = sheet.actor.items.get(currentContainerId);
+                  const oldContainer = sheet.document.actor.items.get(currentContainerId);
                   if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
                     const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== thisItem.id);
                     await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
@@ -543,13 +590,13 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
               if (csValid) {
                 updateData["system.containerStats.contained"] = true;
                 updateData["system.containerStats.container_id"] = containerId;
-                updateData["system.containerStats.container_name"] = sheet.item.name;
+                updateData["system.containerStats.container_name"] = sheet.document.name;
               } else {
                 // Backfill full object if legacy items lack containerStats
                 updateData["system.containerStats"] = {
                   contained: true,
                   container_id: containerId,
-                  container_name: sheet.item.name
+                  container_name: sheet.document.name
                 };
               }
 
@@ -592,16 +639,16 @@ export function onAddToContainer(sheet) {
   let tooLarge = false;
 
   const allowedTypes = getContainerAllowedTypes();
-  const itemList = sheet.actor.items;
+  const itemList = sheet.document.actor.items;
 
   const containerMaxEnc =
-    (sheet.item.system?.container_enc?.max != null)
-      ? Number(sheet.item.system.container_enc.max)
+    (sheet.document.system?.container_enc?.max != null)
+      ? Number(sheet.document.system.container_enc.max)
       : 0;
 
   for (const i of itemList) {
     if (!i) continue;
-    if (i.id === sheet.item.id) continue;
+    if (i.id === sheet.document.id) continue;
 
     // Never allow containers inside containers (prevents cycles)
     if (i.type === "container") continue;
@@ -610,7 +657,7 @@ export function onAddToContainer(sheet) {
     if (!allowedTypes.has(i.type)) continue;
     const itemEnc = Number(i.system?.enc ?? 0);
     const cs = i.system?.containerStats ?? {};
-    const isInThis = !!cs?.contained && (cs?.container_id === sheet.item.id);
+    const isInThis = !!cs?.contained && (cs?.container_id === sheet.document.id);
 
     // Always show items already in this container (even if over capacity) so the user can remove them.
     if (isInThis) {
@@ -636,13 +683,13 @@ export function onAddToContainer(sheet) {
  * @param {HTMLElement} target  The clicked element (from AppV2 action dispatch)
  */
 export async function onOpenContainedItem(sheet, target) {
-  if (!sheet.actor) {
+  if (!sheet.document.actor) {
     ui.notifications.info("Containers must be on Actor Sheets in order to open the contents.");
     return;
   }
   const row = target.closest(".item");
   if (!row) return;
-  const item = sheet.actor.items.get(row.dataset.itemId);
+  const item = sheet.document.actor.items.get(row.dataset.itemId);
   if (!item) return;
   item.sheet.render(true);
   await requestUpdateDocument(item, { "system.value": item.system.value });
@@ -663,10 +710,18 @@ export async function onRemoveContainedItem(sheet, target) {
   const row = target.closest(".item");
   const removedItemId = row?.dataset?.itemId;
   if (!removedItemId) return;
-  if (!sheet.actor) return;
+  if (!sheet.document.actor) return;
 
-  const itemToUpdate = sheet.actor.items.get(removedItemId);
+  const itemToUpdate = sheet.document.actor.items.get(removedItemId);
   if (itemToUpdate) {
+    if (String(itemToUpdate?.type ?? "").toLowerCase() === "shield") {
+      _shieldDebug("onRemoveContainedItem", {
+        itemId: itemToUpdate?.id ?? null,
+        itemName: itemToUpdate?.name ?? null,
+        actorId: sheet?.document?.actor?.id ?? null,
+        containerId: sheet?.document?.id ?? null,
+      });
+    }
     await requestUpdateDocument(itemToUpdate, {
       "system.containerStats.contained": false,
       "system.containerStats.container_id": "",
@@ -692,9 +747,9 @@ export async function onDeleteContainedItem(sheet, target) {
   const row = target.closest(".item");
   const deletedItemId = row?.dataset?.itemId;
   if (!deletedItemId) return;
-  if (!sheet.actor) return;
+  if (!sheet.document.actor) return;
 
-  const itemDoc = sheet.actor.items.get(deletedItemId);
+  const itemDoc = sheet.document.actor.items.get(deletedItemId);
   const itemName = itemDoc?.name || "this item";
 
   const confirmed = await confirmDialog({
@@ -703,7 +758,8 @@ export async function onDeleteContainedItem(sheet, target) {
   });
 
   if (confirmed) {
-    await requestDeleteEmbeddedDocuments(sheet.actor, "Item", [deletedItemId]);
+    await requestDeleteEmbeddedDocuments(sheet.document.actor, "Item", [deletedItemId]);
     await repairContainerContainedItems(sheet);
   }
 }
+

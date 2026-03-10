@@ -132,11 +132,19 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
           </div>
         </span>
       </label>
-      <label class="uesrpg-adv-choice">
+      <label class="uesrpg-adv-choice uesrpg-coup-option">
         <input type="radio" name="attackVariant" value="coup" ${defaultVariant === "coup" ? "checked" : ""} />
         <span class="uesrpg-adv-choice__label">
           <span class="uesrpg-adv-choice__title">Coup de Grace</span>
           <span class="uesrpg-adv-choice__desc">Helpless target only</span>
+          <div class="uesrpg-adv-inline coup-mode ${defaultVariant === "coup" ? "" : "disabled"}">
+            <label class="uesrpg-inline-check">
+              <input type="radio" name="coupMode" value="lethal" ${defaultVariant === "coup" ? "checked" : ""} ${defaultVariant === "coup" ? "" : "disabled"} /> Lethal (HP → 0)
+            </label>
+            <label class="uesrpg-inline-check">
+              <input type="radio" name="coupMode" value="nonlethal" ${defaultVariant === "coup" ? "" : "disabled"} /> Non-Lethal (−1 Stamina, +1 Fatigue)
+            </label>
+          </div>
         </span>
       </label>
     </div>
@@ -193,6 +201,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
             const applyDeafened = Boolean(root.querySelector('input[name="applyDeafened"]')?.checked);
             const eyeOfNight = Boolean(root.querySelector('input[name="eyeOfNight"]')?.checked);
             const thunderChargeToggle = Boolean(root.querySelector('input[name="thunderChargeToggle"]')?.checked);
+            const coupMode = root.querySelector('input[name="coupMode"]:checked')?.value ?? "lethal";
 
             // AP calculation - will be validated and Thunder Charge applied in workflow
             const baseApCost = 1;
@@ -205,19 +214,20 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
               return null;
             }
 
-            return { 
-              styleUuid, 
-              weaponUuid, 
-              variant, 
-              manualMod, 
-              circumstanceMod, 
-              precisionLocation, 
-              apCost, 
-              applyBlinded, 
+            return {
+              styleUuid,
+              weaponUuid,
+              variant,
+              manualMod,
+              circumstanceMod,
+              precisionLocation,
+              apCost,
+              applyBlinded,
               applyDeafened,
               eyeOfNight,
               thunderChargeToggle,
-              thunderChargeApplied: false  // Will be computed in workflow
+              thunderChargeApplied: false,  // Will be computed in workflow
+              coupMode
             };
           }
         },
@@ -239,11 +249,14 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
       const eon = form.querySelector('input[name="eyeOfNight"]');
       const thunderToggle = form.querySelector('input[name="thunderChargeToggle"]');
       const thunderWrap = thunderToggle?.closest(".ps-location");
+      const coupWrap = form.querySelector('.uesrpg-coup-option .coup-mode');
+      const coupModeRadios = form.querySelectorAll('input[name="coupMode"]');
 
       const sync = () => {
         const variant = form.querySelector('input[name="attackVariant"]:checked')?.value ?? "normal";
         const precisionOn = variant === "precision";
         const allOutOn = variant === "allOut";
+        const coupOn = variant === "coup";
         if (psSelect) psSelect.disabled = !precisionOn;
         if (eon) {
           eon.disabled = !precisionOn;
@@ -258,6 +271,21 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
         }
         if (thunderWrap) {
           thunderWrap.classList.toggle("disabled", !allOutOn);
+        }
+        if (coupWrap) {
+          coupWrap.classList.toggle("disabled", !coupOn);
+        }
+        for (const r of coupModeRadios) {
+          r.disabled = !coupOn;
+          if (!coupOn) r.checked = false;
+        }
+        // Default lethal when coup is first selected
+        if (coupOn) {
+          const anyChecked = Array.from(coupModeRadios).some(r => r.checked);
+          if (!anyChecked) {
+            const lethalRadio = form.querySelector('input[name="coupMode"][value="lethal"]');
+            if (lethalRadio) lethalRadio.checked = true;
+          }
         }
       };
 

@@ -18,13 +18,11 @@ import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
-import { customDialog } from "../../../utils/dialog-v2-helper.js";
-import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
+import { customDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
-import { onDropItemIntoContainer } from "../item/listeners/containment.js";
 import { AttackTracker } from "../../../core/combat/attack-tracker.js";
 import { buildEncumbranceBreakdown } from "../../../core/actors/rules/item-aggregation.js";
 
@@ -79,6 +77,12 @@ import {
   buildSheetUiSignature,
 } from "./shared/sheet-signatures.js";
 import { bindWindowRestoreGuard, warnIfDuplicateSidebar } from "./shared/window-restore-guard.js";
+import { createPartContextScope } from "./shared/part-context.js";
+import {
+  buildAllowedChangePatch,
+  buildAllowedSubmitPatch,
+  createFormPathMatcher,
+} from "./shared/form-pipeline.js";
 
 
 
@@ -94,7 +98,7 @@ import {
 
 // NPC professions-roll dependencies
 import { requireUserCanRollActor } from "../../../utils/permissions.js";
-import { doTestRoll, formatDegree } from "../../../utils/degree-roll-helper.js";
+import { doTestRoll, formatResultSummary } from "../../../utils/degree-roll-helper.js";
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../core/traits/awareness-talents.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../core/skills/skill-tn.js";
 import { SkillOpposedWorkflow } from "../../../core/skills/opposed-workflow/index.js";
@@ -106,6 +110,55 @@ import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpe
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2Base = foundry.applications.sheets.ActorSheetV2;
+const MAX_ENGAGEMENT_SCORE_PATH = `flags.${SYSTEM_ID}.homebrew.maxEngagementScore`;
+const ATTACK_TRACKER_CURRENT_PATH = `flags.${SYSTEM_ID}.combat.attackTrackerOverrides.current`;
+const ATTACK_TRACKER_MAX_PATH = `flags.${SYSTEM_ID}.combat.attackTrackerOverrides.max`;
+const ALLOWED_NPC_FORM_PATH = createFormPathMatcher({
+  exact: [
+    "name",
+    "system.hp.value",
+    "system.stamina.value",
+    "system.magicka.value",
+    "system.luck_points.value",
+    "system.action_points.value",
+    "system.action_points.max",
+    "system.size",
+    "system.armor_class",
+    "system.wealth",
+    "system.soul_energy",
+    "system.race",
+    "system.threat",
+    "system.professions.combat",
+    "system.professions.evade",
+    "system.professions.knowledge",
+    "system.professions.magic",
+    "system.professions.observe",
+    "system.professions.physical",
+    "system.professions.social",
+    "system.professions.stealth",
+    "system.skills.commerce.tn",
+    "system.skills.profession1.specialization",
+    "system.skills.profession1.tn",
+    "system.skills.profession2.specialization",
+    "system.skills.profession2.tn",
+    "system.skills.profession3.specialization",
+    "system.skills.profession3.tn",
+    MAX_ENGAGEMENT_SCORE_PATH,
+  ],
+  prefixes: [
+    "flags.uesrpg-3ev4.npcMagicSchoolRanks.",
+  ],
+});
+
+function normalizeNpcFormValue({ path, value, currentValue, rawValue }) {
+  if (path !== MAX_ENGAGEMENT_SCORE_PATH) return value;
+
+  const raw = String(rawValue ?? value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return currentValue;
+  return Math.max(0, Math.round(n));
+}
 
 function resolveWeaponDistanceHeaderLabel(weaponBuckets) {
   const equipped = Array.isArray(weaponBuckets?.equipped) ? weaponBuckets.equipped : [];
@@ -190,10 +243,12 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
     for (const i of actor?.items?.contents ?? []) {
       const cs = i?.system?.containerStats;
+      const itemModifiedTime = i?._stats?.modifiedTime ?? i?.updatedTime ?? "";
       parts.push([
         i?.id ?? "",
         i?.type ?? "",
         i?.name ?? "",
+        String(itemModifiedTime),
         i?.system?.equipped ? "1" : "0",
         String(i?.system?.quantity ?? ""),
         cs?.contained ? "1" : "0",
@@ -327,7 +382,11 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     classes: ["worldbuilding", "sheet", "actor", "npc", "uesrpg-sheet-root"],
     position: { width: 910, height: 960 },
     window: { resizable: true },
-    form: { submitOnChange: true },
+    form: {
+      handler: NpcSheetV2.prototype._onFormSubmit,
+      submitOnChange: false,
+      closeOnSubmit: false,
+    },
     actions: {
       // NPC-specific rolls
       professionsRoll: NpcSheetV2.prototype._onProfessionsRoll,
@@ -397,7 +456,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     dragDrop: [
       {
         dragSelector: ".item, .npc-item, .spell-row",
-        dropSelector: ".window-content, .sheet-body, .tab, .tabContainer, .itemListContainer, [data-item-type='container']",
+        dropSelector: ".window-content, .sheet-body, .tab, .tabContainer, .itemListContainer",
       },
     ],
   };
@@ -450,6 +509,59 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
    */
   get form() {
     return this.element;
+  }
+
+  async _onChangeForm(formConfig, event) {
+    if (typeof super._onChangeForm === "function") super._onChangeForm(formConfig, event);
+    if (!this.isEditable || !this.document?.isOwner) return;
+    const target = event?.target;
+    const path = String(target?.getAttribute?.("name") ?? "").trim();
+    if (path === ATTACK_TRACKER_CURRENT_PATH || path === ATTACK_TRACKER_MAX_PATH) {
+      const raw = Number(target?.value ?? NaN);
+      if (!Number.isFinite(raw)) return;
+      if (path === ATTACK_TRACKER_MAX_PATH) await AttackTracker.setAttackLimitOverride(this.document, raw);
+      else await AttackTracker.setCurrentAttacks(this.document, raw);
+      return;
+    }
+
+    const patch = buildAllowedChangePatch({
+      document: this.document,
+      target,
+      allowPath: ALLOWED_NPC_FORM_PATH,
+      normalizeValue: normalizeNpcFormValue,
+    });
+    if (!patch) return;
+    const isMaxEngagementPatch = Object.keys(patch).length === 1
+      && Object.prototype.hasOwnProperty.call(patch, MAX_ENGAGEMENT_SCORE_PATH);
+    try {
+      await requestUpdateDocument(this.document, patch);
+    } catch (err) {
+      if (!isMaxEngagementPatch) throw err;
+      console.error("UESRPG | Failed to update max engagement score", { actor: this.document?.uuid, err });
+      ui.notifications?.error?.("Failed to update max engagement score.");
+    }
+  }
+
+  async _onFormSubmit(_event, _form, formData) {
+    if (!this.isEditable || !this.document?.isOwner) return;
+    const flat = foundry.utils.flattenObject(formData?.object ?? {});
+    if (Object.prototype.hasOwnProperty.call(flat, ATTACK_TRACKER_MAX_PATH)) {
+      const raw = Number(flat[ATTACK_TRACKER_MAX_PATH] ?? NaN);
+      if (Number.isFinite(raw)) await AttackTracker.setAttackLimitOverride(this.document, raw);
+    }
+    if (Object.prototype.hasOwnProperty.call(flat, ATTACK_TRACKER_CURRENT_PATH)) {
+      const raw = Number(flat[ATTACK_TRACKER_CURRENT_PATH] ?? NaN);
+      if (Number.isFinite(raw)) await AttackTracker.setCurrentAttacks(this.document, raw);
+    }
+
+    const patch = buildAllowedSubmitPatch({
+      document: this.document,
+      formDataObject: formData?.object,
+      allowPath: ALLOWED_NPC_FORM_PATH,
+      normalizeValue: normalizeNpcFormValue,
+    });
+    if (!patch) return;
+    await requestUpdateDocument(this.document, patch);
   }
 
 
@@ -533,11 +645,12 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       context.options = { editable: this.isEditable };
 
       // Part-gating: skip expensive builders when AppV2 requests only specific parts.
-      // Safe default: if options.parts is absent or covers all parts, build full context.
-      const _totalParts = Object.keys(this.constructor.PARTS ?? {}).length || 6;
-      const _requestedParts = new Set(options?.parts ?? []);
-      const _partialRender = _requestedParts.size > 0 && _requestedParts.size < _totalParts;
-      const _needs = (part) => !_partialRender || _requestedParts.has(part);
+      const partScope = createPartContextScope({
+        options,
+        partDefinitions: this.constructor.PARTS,
+        fallbackTotal: 6,
+      });
+      const _needs = partScope.needs;
 
       if (actor.limited) {
         context.actor.system.enrichedBio = await this._getEnrichedBio(
@@ -550,12 +663,39 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       const perfItemsStart = performance.now();
       // Items + derived inventory buckets are the most expensive part of context prep.
       // Cache them per-sheet instance and only rebuild when the items signature changes.
-      const sig = this._buildItemsSignature(actor);
-      const effectsSignature = buildEffectsSignature(actor);
-      const woundsSignature = buildWoundsSignature(actor);
-      const combatSignature = buildCombatSignature(actor, sig, effectsSignature);
+      const getItemsSignature = (() => {
+        let signature = null;
+        return () => {
+          if (signature === null) signature = this._buildItemsSignature(actor);
+          return signature;
+        };
+      })();
+      const getEffectsSignature = (() => {
+        let signature = null;
+        return () => {
+          if (signature === null) signature = buildEffectsSignature(actor);
+          return signature;
+        };
+      })();
+      const getWoundsSignature = (() => {
+        let signature = null;
+        return () => {
+          if (signature === null) signature = buildWoundsSignature(actor);
+          return signature;
+        };
+      })();
+      const getCombatSignature = (() => {
+        let signature = null;
+        return () => {
+          if (signature === null) {
+            signature = buildCombatSignature(actor, getItemsSignature(), getEffectsSignature());
+          }
+          return signature;
+        };
+      })();
 
       if (_needs("core") || _needs("combat") || _needs("magic") || _needs("equipment")) {
+        const sig = getItemsSignature();
         if (this._uesrpgItemsCache && this._uesrpgItemsCache.signature === sig) {
           context.items = this._uesrpgItemsCache.items;
           if (this._uesrpgItemsCache.actorPatch) {
@@ -578,6 +718,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
             gear: context.actor.gear,
             weapon: context.actor.weapon,
             armor: context.actor.armor,
+            shield: context.actor.shield,
             power: context.actor.power,
             trait: context.actor.trait,
             talent: context.actor.talent,
@@ -603,11 +744,12 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         }
       } else {
         context.items = [];
-        this._traceSheetPerfPhase("items:skipped", perfItemsStart, { requested: Array.from(_requestedParts) });
+        this._traceSheetPerfPhase("items:skipped", perfItemsStart, { requested: partScope.requestedList });
       }
 
       const perfCombatStart = performance.now();
       if (_needs("combat")) {
+        const combatSignature = getCombatSignature();
         if (this._uesrpgCombatCache && this._uesrpgCombatCache.signature === combatSignature) {
           context.actor.sheetCombatQuick = foundry.utils.deepClone(this._uesrpgCombatCache.sheetCombatQuick);
           context.actor.sheetCombatActions = this._uesrpgCombatCache.sheetCombatActions;
@@ -643,6 +785,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       const perfWoundsStart = performance.now();
       if (_needs("combat")) {
+        const woundsSignature = getWoundsSignature();
         if (this._uesrpgWoundsUiCache && this._uesrpgWoundsUiCache.signature === woundsSignature) {
           context.woundsInjuriesUi = this._uesrpgWoundsUiCache.value;
           this._traceSheetPerfPhase("wounds:cache-hit", perfWoundsStart, {});
@@ -679,6 +822,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       context.sheetUi.encBreakdownEnabled = encumbranceUiEnhanced;
       if (encumbranceUiEnhanced && _needs("equipment")) {
         const perfEncStart = performance.now();
+        const sig = getItemsSignature();
         if (this._uesrpgEncumbranceCache && this._uesrpgEncumbranceCache.signature === sig) {
           annotateEncumbranceHighlights(context.actor, this._uesrpgEncumbranceCache.breakdown, { topN: 5 });
           this._traceSheetPerfPhase("encumbrance:cache-hit", perfEncStart, {});
@@ -698,6 +842,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       if (_needs("equipment") || _needs("magic")) {
         const perfEffectsStart = performance.now();
+        const effectsSignature = getEffectsSignature();
         if (this._uesrpgEffectsCache && this._uesrpgEffectsCache.signature === effectsSignature) {
           context.effects = this._uesrpgEffectsCache.effects;
           this._traceSheetPerfPhase("effects:cache-hit", perfEffectsStart, { count: context.effects.length });
@@ -835,14 +980,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         return;
       }
 
-      if (partId === "combat") {
-        htmlElement.addEventListener("change", (ev) => {
-          const target = ev.target.closest?.(".uesrpg-max-engagement-score");
-          if (target) this._onMaxEngagementScoreChange(ev, target).catch(err =>
-            console.error("UESRPG | Max Engagement Score change failed", err));
-        });
-      }
-
       this._attachTabListeners(htmlElement);
     } finally {
       this._traceSheetPerf("_attachPartListeners", perfStart, { partId });
@@ -903,11 +1040,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (!this._uesrpgTabChangeHandler) {
       this._uesrpgTabChangeHandler = (ev) => {
         const root = ev.currentTarget;
-        const attackInput = ev.target?.closest?.(".uesrpg-attack-input");
-        if (attackInput && root?.contains?.(attackInput)) {
-          this._onAttackTrackerInputChange(ev, attackInput);
-          return;
-        }
         const styleSelect = ev.target?.closest?.(".uesrpg-active-combat-style");
         if (styleSelect && root?.contains?.(styleSelect)) {
           this._onActiveCombatStyleChange(ev, styleSelect);
@@ -955,21 +1087,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     el.addEventListener("input", this._uesrpgTabInputHandler);
     el.addEventListener("keydown", this._uesrpgTabKeydownHandler);
 
-    // Container row: visual drag-over highlight.
-    for (const containerRow of el.querySelectorAll("[data-item-type='container']")) {
-      containerRow.addEventListener("dragenter", (ev) => {
-        ev.preventDefault();
-        ev.currentTarget.classList.add("uesrpg-drag-over");
-      });
-      containerRow.addEventListener("dragleave", (ev) => {
-        if (!ev.currentTarget.contains(ev.relatedTarget)) {
-          ev.currentTarget.classList.remove("uesrpg-drag-over");
-        }
-      });
-      containerRow.addEventListener("drop", (ev) => {
-        ev.currentTarget.classList.remove("uesrpg-drag-over");
-      });
-    }
   }
 
   /* ═══════════════════════ Delegated Handlers ════════════════════════ */
@@ -1182,22 +1299,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       ui.notifications?.error?.("Failed to update active combat style");
     }
   }
-
-  async _onMaxEngagementScoreChange(event, target) {
-    if (!this.isEditable) return;
-    const raw = String(target?.value ?? "").trim();
-    const val = raw === "" ? null : Math.max(0, Math.round(Number(raw) || 0));
-    try {
-      await requestUpdateDocument(this.document, {
-        [`flags.${SYSTEM_ID}.homebrew.maxEngagementScore`]: val,
-      });
-      this.render(false);
-    } catch (err) {
-      console.error("UESRPG | Failed to update max engagement score", { actor: this.document?.uuid, err });
-      ui.notifications?.error?.("Failed to update max engagement score.");
-    }
-  }
-
   // Resources — routed through shared module (authority-proxy safe)
   async _onIncrementResource(event, target) { return onIncrementResource.call(this, event, target); }
   async _onResetResource(event, target) { return onResetResource.call(this, event, target); }
@@ -1593,8 +1694,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     await applyHyperAwarenessToResult(this.document, profLabel, result, { allowPrompt: true });
 
     const degreeLine = result.isSuccess
-      ? `<b style="color:green;">SUCCESS — ${formatDegree(result)}</b>`
-      : `<b style="color:rgb(168, 5, 5);">FAILURE — ${formatDegree(result)}</b>`;
+      ? `<b style="color:green;">${formatResultSummary(result, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`
+      : `<b style="color:rgb(168, 5, 5);">${formatResultSummary(result, { uppercase: true, includeDegree: true, degreeStyle: "dash" })}</b>`;
 
     const breakdownRows = (tn.breakdown ?? []).map(b => {
       const v = Number(b.value ?? 0);
@@ -1611,7 +1712,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         <h2 style="margin:0 0 6px 0;">${profLabel}</h2>
         <div><b>Target Number:</b> ${tn.finalTN}</div>
         ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
-        <div style="margin-top:4px;">${degreeLine}${result.isCriticalSuccess ? ' <span style="color:green;">(CRITICAL)</span>' : ''}${result.isCriticalFailure ? ' <span style="color:red;">(CRITICAL FAIL)</span>' : ''}</div>
+        <div style="margin-top:4px;">${degreeLine}</div>
         <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
         <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
       </div>`;
@@ -1703,26 +1804,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     await requestUpdateDocument(item, { "system.quantity": newQty });
   }
 
-  /**
-   * Attack tracker input change (GM only).
-   */
-  async _onAttackTrackerInputChange(event, target) {
-    event.preventDefault();
-    if (!game.user?.isGM) {
-      ui.notifications?.warn?.("Only the GM can adjust attack tracker values.");
-      return;
-    }
-    const el = target ?? event.target?.closest?.(".uesrpg-attack-input") ?? event.currentTarget;
-    const kind = String(el?.dataset?.kind ?? "").trim().toLowerCase();
-    const value = Number(el?.value ?? NaN);
-    if (!Number.isFinite(value)) return;
-    if (kind === "max") {
-      await AttackTracker.setAttackLimitOverride(this.document, value);
-      return;
-    }
-    await AttackTracker.setCurrentAttacks(this.document, value);
-  }
-
   /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */
 
   /**
@@ -1773,33 +1854,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       type: data?.type ?? null,
       uuid: data?.uuid ?? null,
       itemId: data?.itemId ?? null,
-      targetContainer: event.target?.closest?.("[data-item-type='container']")?.dataset?.itemId ?? null,
     }, { traceId });
 
     if (data.type === "Item") {
-      // Route to container containment logic when the drop lands on a container row.
-      const containerRow =
-        event.currentTarget?.dataset?.itemType === "container"
-          ? event.currentTarget
-          : event.target.closest?.("[data-item-type='container']");
-
-      if (containerRow?.dataset?.itemId) {
-        const containerItem = this.document.items.get(containerRow.dataset.itemId);
-        if (containerItem?.type === "container") {
-          containerRow.classList.remove("uesrpg-drag-over");
-          dndDebug("sheet.drop.route.container", {
-            sheet: "NpcSheetV2",
-            actor: this.document?.uuid ?? null,
-            container: containerItem?.uuid ?? null,
-            data,
-          }, { traceId });
-          return onDropItemIntoContainer(
-            { item: containerItem, actor: this.document, isEditable: this.isEditable },
-            data
-          );
-        }
-      }
-
       // Resolve for debug logging; base sheet still performs create/move behavior.
       const resolved = await resolveDroppedItemDetailed(data, { traceId });
       if (!resolved.item) {
@@ -1821,7 +1878,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         return super._onDrop(event);
       }
 
-      if (resolved.item.actor?.id === this.document.id) {
+      const isExternalItem = resolved.item.actor?.id !== this.document.id;
+      if (!isExternalItem) {
         dndDebug("sheet.drop.sameActor", {
           sheet: "NpcSheetV2",
           actor: this.document?.uuid ?? null,
@@ -1972,4 +2030,3 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     }
   }
 }
-

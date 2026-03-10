@@ -77,6 +77,31 @@ function getOverflowPx(el) {
   return Math.max(0, scroll - client);
 }
 
+function getMeasureElementKey(el) {
+  if (!(el instanceof HTMLElement)) return "";
+  const cls = typeof el.className === "string" ? el.className : "";
+  return [el.tagName, el.id || "", cls, el.dataset?.tab || "", el.dataset?.group || ""].join("|");
+}
+
+function disconnectObservers(state) {
+  try {
+    state.ro?.disconnect?.();
+    state.mo?.disconnect?.();
+  } catch (_e) {
+    // ignore
+  }
+  state.ro = null;
+  state.mo = null;
+}
+
+function resetMeasureTracking(state, { keepHeight = true } = {}) {
+  state.lastObservedOverflow = 0;
+  state.hasLockedScrollableState = false;
+  state.normalizedNoOverflowOnce = false;
+  state.lastProcessedOverflow = null;
+  state.lastMeasuredHeight = keepHeight ? state.lastMeasuredHeight : null;
+}
+
 function teardownAutoResize(state) {
   if (!state || state.destroyed) return;
   state.destroyed = true;
@@ -85,13 +110,10 @@ function teardownAutoResize(state) {
     if (Number.isInteger(state.rafId)) cancelAnimationFrame(state.rafId);
   } catch (_e) { /* ignore */ }
   state.rafId = null;
-  try {
-    state.ro?.disconnect?.();
-    state.mo?.disconnect?.();
-  } catch (_e) { /* ignore */ }
-  state.ro = null;
-  state.mo = null;
+  disconnectObservers(state);
   state.observedEl = null;
+  state.observedKey = "";
+  state.lastScheduleReason = null;
 }
 
 export function uesrpgDisableAutoResize(app) {
@@ -133,36 +155,25 @@ export function uesrpgEnableAutoResize(app, opts = {}) {
     ro: null,
     mo: null,
     observedEl: null,
+    observedKey: "",
     lastAppliedHeight: Number(app.position?.height ?? 0),
     lastObservedOverflow: 0,
+    lastProcessedOverflow: null,
+    lastMeasuredHeight: null,
+    lastScheduleReason: null,
     hasLockedScrollableState: false,
     normalizedNoOverflowOnce: false,
     teardown: () => teardownAutoResize(state),
   };
 
-  const observeTarget = (el) => {
-    if (!el || state.destroyed) return;
-    if (state.observedEl === el) return;
-    try {
-      state.ro?.disconnect?.();
-      state.mo?.disconnect?.();
-    } catch (_e) { /* ignore */ }
-    state.observedEl = el;
-    if (typeof ResizeObserver !== "undefined") {
-      state.ro = new ResizeObserver(() => schedule());
-      state.ro.observe(el);
+  const schedule = (reason = "unknown") => {
+    if (state.destroyed || state.isClosing || !appRoot?.isConnected || !app?.element?.isConnected) return;
+    if (state.scheduled) {
+      state.lastScheduleReason = reason;
       return;
     }
-    if (typeof MutationObserver !== "undefined") {
-      state.mo = new MutationObserver(() => schedule());
-      state.mo.observe(el, { childList: true, subtree: true, attributes: true, characterData: true });
-    }
-  };
-
-  const schedule = () => {
-    if (state.destroyed || state.isClosing || !appRoot?.isConnected || !app?.element?.isConnected) return;
-    if (state.scheduled) return;
     state.scheduled = true;
+    state.lastScheduleReason = reason;
 
     state.rafId = requestAnimationFrame(() => {
       state.rafId = null;
@@ -172,9 +183,18 @@ export function uesrpgEnableAutoResize(app, opts = {}) {
         const currentH = app.position?.height ?? appRoot.offsetHeight ?? 0;
         const maxH = getViewportMaxHeight(cfg.maxViewportRatio);
         const measureEl = getMeasureElement(appRoot, app);
-        if (measureEl) observeTarget(measureEl);
+        observeTarget(measureEl);
         const overflowPx = getOverflowPx(measureEl);
         const manualResizeDelta = currentH - (state.lastAppliedHeight || 0);
+
+        if (
+          state.lastProcessedOverflow !== null
+          && Math.abs(overflowPx - state.lastProcessedOverflow) < cfg.minDeltaPx
+          && state.lastMeasuredHeight !== null
+          && Math.abs(currentH - state.lastMeasuredHeight) < cfg.minDeltaPx
+        ) {
+          return;
+        }
 
         // Respect manual user resize gestures: if the app is larger than the last
         // auto-applied height and there is no structural overflow, do not force
@@ -207,6 +227,8 @@ export function uesrpgEnableAutoResize(app, opts = {}) {
         }
 
         desiredH = clamp(desiredH, cfg.minHeight, maxH);
+        state.lastMeasuredHeight = currentH;
+        state.lastProcessedOverflow = overflowPx;
 
         if (cfg.onlyGrow && desiredH <= currentH) {
           state.lastObservedOverflow = overflowPx;
@@ -234,8 +256,29 @@ export function uesrpgEnableAutoResize(app, opts = {}) {
     });
   };
 
+  const observeTarget = (el) => {
+    if (!(el instanceof HTMLElement) || state.destroyed) return;
+    const nextKey = getMeasureElementKey(el);
+    if (state.observedEl === el && state.observedKey === nextKey) return;
+
+    disconnectObservers(state);
+    state.observedEl = el;
+    state.observedKey = nextKey;
+    resetMeasureTracking(state, { keepHeight: false });
+
+    if (typeof ResizeObserver !== "undefined") {
+      state.ro = new ResizeObserver(() => schedule("resize-observer"));
+      state.ro.observe(el);
+      return;
+    }
+    if (typeof MutationObserver !== "undefined") {
+      state.mo = new MutationObserver(() => schedule("mutation-observer"));
+      state.mo.observe(el, { childList: true, subtree: true });
+    }
+  };
+
   // Initial resize after render
-  schedule();
+  schedule("initial");
   const initialMeasureEl = getMeasureElement(appRoot, app);
   if (initialMeasureEl) observeTarget(initialMeasureEl);
 

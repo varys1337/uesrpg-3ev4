@@ -89,6 +89,15 @@ export function registerDebugSettings() {
     default: false,
   });
 
+  _reg("timePerformanceDebug", {
+    name: "Time/Combat: Round-Boundary Performance Recording",
+    hint: "Record structured timing events for round-boundary phases: TimeService fan-out, spell tick dispatch, OverTime collect/process, turn-ticker sub-phases, and authority-proxy write counts. Access results via game.uesrpg.perf. Independent of the debug master gate.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
   // ── Spell / magic diagnostics ─────────────────────────────────────────────
 
   _reg("spellTickDebug", {
@@ -106,6 +115,102 @@ export function registerDebugSettings() {
     scope: "world",
     config: false,
     default: false,
+    type: Boolean,
+  });
+
+  _reg("compositeBoundaryTickEnabled", {
+    name: "Spell Tick: Composite Round-Boundary Dispatch",
+    hint: "When enabled, the spell tick engine collapses the four sequential round-boundary dispatches (turnStart, turnEnd, roundStart, roundEnd) into a single composite pass. Handlers that register fnBoundary receive one call with the full boundary context instead of four separate calls. The OverTime engine uses this to call _ensureIndex() once per boundary instead of four times. Default: true.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  // ── Round-start storm reduction (Milestone C) ─────────────────────────────
+
+  _reg("aggregateRegenPrompts", {
+    name: "Round Start: Aggregate Regeneration Prompts",
+    hint: "When enabled, all regeneration prompts for a round are batched into one chat message (one per owning-player group) instead of one message per actor. Eliminates the chat storm when multiple combatants have Regeneration. Default: false (legacy one-message-per-actor path).",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  _reg("aggregateSilencedChecks", {
+    name: "Round Start: Parallelise Silenced Realization Checks",
+    hint: "When enabled, silenced realization checks for all affected combatants run concurrently instead of sequentially. Messages are unchanged (one roll message per actor). Reduces total round-start latency when multiple actors are Silenced. Default: false (sequential legacy path).",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  _reg("useRoundStartCandidateRegistry", {
+    name: "Round Start: Candidate Registry",
+    hint: "When enabled, round-start Regeneration and Silenced candidate discovery uses an indexed registry (actorsWithRegeneration / actorsSilencedInCombat) maintained from actor and ActiveEffect lifecycle hooks, instead of broad combatant scans each round boundary. Includes automatic one-boundary fallback scan when registry data cannot be trusted. Default: true.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
+
+  _reg("skipAttackTrackerEagerReset", {
+    name: "Round Start: Skip Eager Attack Tracker Reset",
+    hint: "When enabled, the attack tracker skips per-actor document writes at round start. Attack counts are still correctly reset lazily on first read/use in the new round (the existing last_reset_round guard handles this). Eliminates N actor writes per round at the cost of briefly stale displayed values. Default: false.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  // ── Indexed timed magic (Milestone D) ─────────────────────────────────────
+
+  _reg("useZoneRegistry", {
+    name: "Timed Magic: Zone Registry",
+    hint: "When enabled, active spell zones are tracked in an indexed registry (Map<aeUuid, ZoneEntry>) instead of scanning all actors on every turnEnd tick. Seeded at system ready; maintained incrementally via AE lifecycle hooks. Eliminates O(all_actors × all_effects) scans in getActiveSpellZones(). Default: false.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  _reg("useRuneRegistry", {
+    name: "Timed Magic: Rune Registry",
+    hint: "When enabled, active rune Origin AEs are tracked in an indexed registry instead of scanning all actors on every turnEnd, worldTime tick, and token move. Seeded at system ready; maintained incrementally via AE lifecycle hooks. Default: false.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  _reg("useCloakRegistry", {
+    name: "Timed Magic: Cloak Actor Registry",
+    hint: "When enabled, actors with active Origin AEs are tracked in a Set so the cloak tick handler can skip actors that are not known cloak casters without calling getOriginAEs(). Seeded at system ready; maintained via AE lifecycle hooks. Default: false.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  // ── Post-visual boundary scheduling (Milestone E) ─────────────────────────
+
+  _reg("deferNonCriticalRoundBoundaryWork", {
+    name: "Round Boundary: Defer Non-Critical Presentation Work",
+    hint: "When enabled, non-rules-critical round-boundary work (regeneration prompts, silenced realization checks) is deferred to run after the combat tracker UI has visibly updated (double-requestAnimationFrame yield). Rules-critical phases (condition ticking, effect expiry) remain synchronous. Default: false.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  _reg("useCombatBoundaryOrchestrator", {
+    name: "Round Boundary: Use Internal Orchestrator (Optional)",
+    hint: "When enabled, selected internal post-boundary consumers run through one ordered orchestrator lane instead of separate direct uesrpg.combatTimeChanged listeners. Default: true.",
+    scope: "world",
+    config: false,
+    default: true,
     type: Boolean,
   });
 
@@ -242,6 +347,15 @@ export function registerDebugSettings() {
   _reg("woundsDebug", {
     name: "Wounds: Debug Logging",
     hint: "When enabled, wound automation logs structured diagnostic information to the browser console.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean
+  });
+
+  _reg("shieldDebug", {
+    name: "Shield: Visibility Debug Logging",
+    hint: "When enabled, logs shield lifecycle, updates, containment, and inventory visibility decisions to the browser console.",
     scope: "world",
     config: false,
     default: false,

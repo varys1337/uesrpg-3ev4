@@ -166,6 +166,7 @@ export const FLAG_TARGET_OPTIONS = Object.freeze({
   "system.mechanical":          "Define as Mechanical",
   "system.painIntolerant":      "Wound Penalty to -30 (Pain Intolerant)",
   "system.addIBToMP":           "Add IB to Magicka",
+  "system.stuntedMagicka":      "Stunted Magicka",
 });
 
 /** Override target paths. */

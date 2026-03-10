@@ -18,6 +18,9 @@
 import { SPECIAL_ACTIONS } from "../../../core/combat/combat-style-utils.js";
 import { validateScalingLevels, formatValidationMessage } from "../../../core/magic/spell-config.js";
 import { alertDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
+import { createDebugLogger } from "../../../utils/debug.js";
+
+const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][NormalizeItemForm]");
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * normalizeItemFormData — PURE normalization, no I/O
@@ -37,6 +40,31 @@ import { alertDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
  */
 export function normalizeItemFormData(item, formData) {
   const itemType = item?.type;
+  const isShieldLaneDoc = String(itemType ?? "").toLowerCase() === "shield"
+    || (String(itemType ?? "").toLowerCase() === "armor" && (
+      item?.system?.isShield === true
+      || String(item?.system?.item_cat ?? "").toLowerCase() === "shield"
+      || String(item?.system?.category ?? "").toLowerCase() === "shield"
+    ));
+  if (isShieldLaneDoc) {
+    _shieldDebug("normalize start", {
+      id: item?.id ?? item?._id ?? null,
+      name: item?.name ?? null,
+      type: itemType ?? null,
+      submittedHeader: {
+        quantity: formData["system.quantity"],
+        enc: formData["system.enc"],
+        price: formData["system.price"],
+        blockRating: formData["system.blockRating"],
+        magicBR: formData["system.magic_br"],
+      },
+      submittedContainer: {
+        contained: formData["system.containerStats.contained"],
+        containerId: formData["system.containerStats.container_id"],
+      },
+      submittedKeys: Object.keys(formData ?? {}).sort(),
+    });
+  }
 
   // ──────────────────────────────────────────────────────────────
   // 1 & 2. Qualities (qualitiesTraits + qualitiesStructured)
@@ -45,7 +73,7 @@ export function normalizeItemFormData(item, formData) {
   //   trait, power, combatStyle, container, spell) are skipped to
   //   prevent injecting unknown fields into their DataModel updates.
   // ──────────────────────────────────────────────────────────────
-  const QUALITIES_TYPES = new Set(["equipment", "scroll", "armor", "weapon", "ammunition"]);
+  const QUALITIES_TYPES = new Set(["equipment", "scroll", "armor", "shield", "weapon", "ammunition"]);
   if (QUALITIES_TYPES.has(itemType)) {
 
   // 1. Other Traits selection (checkbox pill UI)
@@ -79,10 +107,19 @@ export function normalizeItemFormData(item, formData) {
   const togglePrefix = "qualitiesStructured.toggle.";
   const valuePrefix = "qualitiesStructured.value.";
 
-  let reachFromStructured = null;
+  let legacyStructuredReach = null;
   let reachFromSystem = null;
   if (Object.prototype.hasOwnProperty.call(formData, "system.reach")) {
     reachFromSystem = formData["system.reach"];
+  }
+  const existingStructured = Array.isArray(item?.system?.qualitiesStructured)
+    ? item.system.qualitiesStructured
+    : [];
+  for (const q of existingStructured) {
+    if (String(q?.key ?? "").toLowerCase() !== "reach") continue;
+    const n = Number(q?.value);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    legacyStructuredReach = legacyStructuredReach == null ? n : Math.max(legacyStructuredReach, n);
   }
 
   for (const [k, v] of Object.entries(formData)) {
@@ -95,8 +132,15 @@ export function normalizeItemFormData(item, formData) {
     if (k.startsWith(valuePrefix)) {
       const key = k.slice(valuePrefix.length);
       const num = Number(v);
+      if (key === "reach") {
+        if (Number.isFinite(num) && num > 0) {
+          legacyStructuredReach = legacyStructuredReach == null ? num : Math.max(legacyStructuredReach, num);
+          structuredMap.set(key, { key, value: num });
+        }
+        delete formData[k];
+        continue;
+      }
       if (!Number.isNaN(num) && num !== 0) {
-        if (key === "reach") reachFromStructured = num;
         structuredMap.set(key, { key, value: num });
       }
       delete formData[k];
@@ -104,6 +148,9 @@ export function normalizeItemFormData(item, formData) {
   }
 
   const structured = Array.from(structuredMap.values());
+  if (legacyStructuredReach != null && !structured.some((q) => String(q?.key ?? "").toLowerCase() === "reach")) {
+    structured.push({ key: "reach", value: legacyStructuredReach });
+  }
 
   // Bridge legacy Runed checkbox to canonical structured qualities.
   if (Object.prototype.hasOwnProperty.call(formData, "system.runed")) {
@@ -115,40 +162,46 @@ export function normalizeItemFormData(item, formData) {
     if (runedChecked) structured.push({ key: "runed" });
   }
 
-  // Runed quality enforcement (RAW): ensures Magic quality + minimum Magic AR for armor
+  // Runed quality: bridge to magic quality flag. Armor AR is now manual — no silent magic_ar mutation.
   const hasRuned = structured.some(q => q && q.key === "runed");
   formData["system.runed"] = hasRuned;
   if (hasRuned) {
     if (!structured.some(q => q && q.key === "magic")) {
       structured.push({ key: "magic" });
     }
-    if (itemType === "armor") {
-      const currentMagicAR = Number(
-        formData["system.magic_ar"] ?? item.system?.magic_ar ?? 0
-      );
-      if (!Number.isNaN(currentMagicAR) && currentMagicAR < 1) {
-        formData["system.magic_ar"] = 1;
-      }
-    }
+    // NOTE: magic_ar enforcement removed — armor values are now authored manually via armorValues lanes.
   }
 
-  // Reconcile Reach between header field and structured list
-  const reachValue =
-    reachFromStructured != null
-      ? reachFromStructured
-      : (() => {
-          const n = Number(reachFromSystem);
-          return !Number.isNaN(n) && n !== 0 ? n : null;
-        })();
+  if (itemType === "weapon") {
+    // Reconcile Reach with header-first precedence:
+    // header system.reach -> (melee only) legacy structured reach fallback.
+    const parseHeaderReach = (raw) => {
+      const s = String(raw ?? "").trim().toLowerCase();
+      if (!s || s === "x") return null;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      return n;
+    };
+    const headerReach = parseHeaderReach(reachFromSystem);
+    const attackMode = String(
+      formData["system.attackMode"] ?? item?.system?.attackMode ?? "melee"
+    ).toLowerCase();
+    const isMeleeWeapon = attackMode === "melee";
+    const fallbackStructuredReach = isMeleeWeapon
+      ? (() => {
+          let best = null;
+          for (const q of structured) {
+            if (String(q?.key ?? "").toLowerCase() !== "reach") continue;
+            const n = Number(q?.value);
+            if (!Number.isFinite(n) || n <= 0) continue;
+            best = best == null ? n : Math.max(best, n);
+          }
+          return best;
+        })()
+      : null;
+    const reachValue = headerReach ?? fallbackStructuredReach;
 
-  for (let i = structured.length - 1; i >= 0; i--) {
-    if (structured[i] && structured[i].key === "reach") structured.splice(i, 1);
-  }
-  if (reachValue != null) {
-    structured.push({ key: "reach", value: reachValue });
-    formData["system.reach"] = reachValue;
-  } else {
-    formData["system.reach"] = "";
+    formData["system.reach"] = (reachValue != null) ? reachValue : "";
   }
 
   // Weapon Reload mirroring
@@ -171,6 +224,29 @@ export function normalizeItemFormData(item, formData) {
   formData["system.qualitiesStructured"] = structured;
 
   } // end QUALITIES_TYPES guard
+
+  // ──────────────────────────────────────────────────────────────
+  // 2b. Armor: armorValues lane sanitization
+  // Numeric fields → 0 if blank/invalid; special_ar_type → lowercase trimmed string.
+  // ──────────────────────────────────────────────────────────────
+  if (itemType === "armor") {
+    const LANES = ["full", "partial"];
+    const NUMERIC_FIELDS = ["armor", "magic_ar", "special_ar"];
+    for (const lane of LANES) {
+      for (const field of NUMERIC_FIELDS) {
+        const key = `system.armorValues.${lane}.${field}`;
+        if (Object.prototype.hasOwnProperty.call(formData, key)) {
+          const raw = formData[key];
+          const n = Number(raw);
+          formData[key] = Number.isFinite(n) ? n : 0;
+        }
+      }
+      const typeKey = `system.armorValues.${lane}.special_ar_type`;
+      if (Object.prototype.hasOwnProperty.call(formData, typeKey)) {
+        formData[typeKey] = String(formData[typeKey] ?? "").trim().toLowerCase();
+      }
+    }
+  }
 
   // ──────────────────────────────────────────────────────────────
   // 3. Activation Damage Qualities (Talents / Traits / Powers)
@@ -407,6 +483,26 @@ export function normalizeItemFormData(item, formData) {
           };
         });
     }
+  }
+
+  if (isShieldLaneDoc) {
+    _shieldDebug("normalize end", {
+      id: item?.id ?? item?._id ?? null,
+      name: item?.name ?? null,
+      type: itemType ?? null,
+      normalizedHeader: {
+        quantity: formData["system.quantity"],
+        enc: formData["system.enc"],
+        price: formData["system.price"],
+        blockRating: formData["system.blockRating"],
+        magicBR: formData["system.magic_br"],
+      },
+      normalizedContainer: {
+        contained: formData["system.containerStats.contained"],
+        containerId: formData["system.containerStats.container_id"],
+      },
+      normalizedKeys: Object.keys(formData ?? {}).sort(),
+    });
   }
 
   return { scalingLevels };

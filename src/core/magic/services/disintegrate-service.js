@@ -31,6 +31,7 @@
 
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { listEquippedShields, isShieldItem } from "../../items/shield-utils.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -120,7 +121,7 @@ function _findEquippedArmor(actor, hitLocation) {
 
   // Get all equipped armor items
   const equippedArmor = actor.items.filter(i =>
-    i.type === "armor" && i.system?.equipped === true
+    i.type === "armor" && i.system?.equipped === true && !isShieldItem(i, { allowLegacy: true })
   );
 
   if (!equippedArmor.length) return null;
@@ -154,14 +155,7 @@ function _findEquippedArmor(actor, hitLocation) {
  * @returns {Item|null}
  */
 function _findEquippedShield(actor) {
-  if (!actor?.items) return null;
-  return actor.items.find(i =>
-    i.type === "armor" &&
-    i.system?.equipped === true &&
-    (i.system?.isShield === true ||
-     (i.system?.traitsStructured ?? []).some(t => (t?.key ?? t) === "shield") ||
-     i.name.toLowerCase().includes("shield"))
-  ) ?? null;
+  return listEquippedShields(actor, { includeBuckler: false, allowLegacy: true })[0] ?? null;
 }
 
 /**

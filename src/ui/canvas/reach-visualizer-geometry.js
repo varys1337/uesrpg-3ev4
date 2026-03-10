@@ -285,6 +285,28 @@ export function getPxPerUnit() {
   return size / dist;
 }
 
+/**
+ * Compute reach distance (in scene units) from a token footprint to a candidate cell using
+ * Chebyshev (equal-cost diagonal) distance. This intentionally ignores the scene's diagonal
+ * movement rule (e.g. 1/2/1 alternating) because reach is not governed by movement.
+ *
+ * @param {number} r - Candidate cell row
+ * @param {number} c - Candidate cell column
+ * @param {Set<string>} footprint - rcKey strings for the token's occupied cells
+ * @param {number} sceneDist - Scene distance per grid step
+ * @returns {number} Distance in scene units (0 if the cell is inside the footprint)
+ */
+function chebyshevReachDistance(r, c, footprint, sceneDist) {
+  let minSteps = Infinity;
+  for (const k of footprint) {
+    const { r: fr, c: fc } = parseRcKey(k);
+    const steps = Math.max(Math.abs(r - fr), Math.abs(c - fc));
+    if (steps < minSteps) minSteps = steps;
+    if (minSteps === 0) break;
+  }
+  return (Number.isFinite(minSteps) ? minSteps : 0) * sceneDist;
+}
+
 /* -------------------------------------------- */
 /* Square Grid Boundary Computation              */
 /* -------------------------------------------- */
@@ -298,9 +320,13 @@ export function getPxPerUnit() {
  * @param {Token} token
  * @param {number} radiusUnits
  * @param {number} lineWidthPx
+ * @param {object} [options]
+ * @param {boolean} [options.ignoreSceneDiagonals=true]
+ *   When true (default), uses Chebyshev (equal-cost diagonal) distance, ignoring the scene's
+ *   diagonal movement rule. When false, uses Foundry's measurePath which respects 1/2/1 etc.
  * @returns {{key: string, segments: Array<[number,number,number,number]>}}
  */
-export function computeSquareGridOutline(token, radiusUnits, lineWidthPx) {
+export function computeSquareGridOutline(token, radiusUnits, lineWidthPx, { ignoreSceneDiagonals = true } = {}) {
   const grid = canvas?.grid;
   if (!grid) return { key: "nogrid", segments: [] };
 
@@ -314,16 +340,18 @@ export function computeSquareGridOutline(token, radiusUnits, lineWidthPx) {
   const axes = getGridAxes(grid, origin);
   const shift = getGridOriginShift(grid, origin, axes);
 
-  // Attempt to include diagonal rule / scene grid config in the key.
-  let diag = "";
-  try { diag = String(canvas?.scene?.grid?.diagonals ?? canvas?.scene?.grid?.diagonalRule ?? grid?.diagonalRule ?? ""); } catch (_e) { diag = ""; }
-
   const tokenW = Math.max(1, Math.round(Number(token?.document?.width ?? 1)));
   const tokenH = Math.max(1, Math.round(Number(token?.document?.height ?? 1)));
   const wPx = Math.max(1, Math.round(Number(lineWidthPx) || 1));
 
+  // "diag=reach" for Chebyshev mode (scene rule ignored); real diag value for scene mode.
+  let diagKey = "reach";
+  if (!ignoreSceneDiagonals) {
+    try { diagKey = String(canvas?.scene?.grid?.diagonals ?? canvas?.scene?.grid?.diagonalRule ?? grid?.diagonalRule ?? ""); } catch (_e) { diagKey = ""; }
+  }
+
   const maxSteps = Math.max(0, Math.ceil(radiusUnits / sceneDist)) + Math.ceil(Math.max(tokenW, tokenH) / 2) + 1;
-  const key = `sq|u=${radiusUnits}|steps=${maxSteps}|d=${sceneDist}|s=${size}|w=${wPx}|tw=${tokenW},th=${tokenH}|dx=${shift.dx},dy=${shift.dy}|diag=${diag}|axes=iIsRow:${Boolean(axes?.iIsRow)}`;
+  const key = `sq|u=${radiusUnits}|steps=${maxSteps}|d=${sceneDist}|s=${size}|w=${wPx}|tw=${tokenW},th=${tokenH}|dx=${shift.dx},dy=${shift.dy}|diag=${diagKey}|axes=iIsRow:${Boolean(axes?.iIsRow)}`;
 
   let o0;
   try {
@@ -333,30 +361,40 @@ export function computeSquareGridOutline(token, radiusUnits, lineWidthPx) {
   }
   const rc0 = gridOffToRC(o0, axes);
 
-  const included = getTokenFootprintCellsRC(token, grid, axes);
+  // Capture the token footprint as a stable reference; `included` grows during the loop.
+  const footprint = getTokenFootprintCellsRC(token, grid, axes);
+  const included = new Set(footprint);
 
-  // Bounding box search in grid space (deterministic; respects diagonal rules via measurePath).
-  // Use a quick euclidean px gate to avoid unnecessary measurePath calls.
-  const pxPerUnit = getPxPerUnit();
-  const maxPx = (Number(radiusUnits) || 0) * pxPerUnit + size;
-  const maxPx2 = maxPx * maxPx;
-
-  for (let r = rc0.r - maxSteps; r <= rc0.r + maxSteps; r++) {
-    for (let c = rc0.c - maxSteps; c <= rc0.c + maxSteps; c++) {
-      const rc = { r, c };
-      let center;
-      try {
-        center = getCellCenterWorld(grid, rc, axes);
-      } catch (_e) {
-        continue;
+  if (ignoreSceneDiagonals) {
+    // Chebyshev (equal-cost diagonals) — scene diagonal movement rule is intentionally ignored.
+    for (let r = rc0.r - maxSteps; r <= rc0.r + maxSteps; r++) {
+      for (let c = rc0.c - maxSteps; c <= rc0.c + maxSteps; c++) {
+        if (included.has(rcKey(r, c))) continue;
+        const d = chebyshevReachDistance(r, c, footprint, sceneDist);
+        if (d <= (radiusUnits + 1e-6)) included.add(rcKey(r, c));
       }
+    }
+  } else {
+    // Scene-diagonal mode: use Foundry's measurePath which respects the configured diagonal rule.
+    const pxPerUnit = getPxPerUnit();
+    const maxPx = (Number(radiusUnits) || 0) * pxPerUnit + size;
+    const maxPx2 = maxPx * maxPx;
 
-      const dx = (center?.x ?? 0) - origin.x;
-      const dy = (center?.y ?? 0) - origin.y;
-      if ((dx * dx + dy * dy) > maxPx2) continue;
-
-      const d = measureGridDistanceUnits(origin, center);
-      if (d <= (radiusUnits + 1e-6)) included.add(rcKey(r, c));
+    for (let r = rc0.r - maxSteps; r <= rc0.r + maxSteps; r++) {
+      for (let c = rc0.c - maxSteps; c <= rc0.c + maxSteps; c++) {
+        if (included.has(rcKey(r, c))) continue;
+        let center;
+        try {
+          center = getCellCenterWorld(grid, { r, c }, axes);
+        } catch (_e) {
+          continue;
+        }
+        const dx = (center?.x ?? 0) - origin.x;
+        const dy = (center?.y ?? 0) - origin.y;
+        if ((dx * dx + dy * dy) > maxPx2) continue;
+        const d = measureGridDistanceUnits(origin, center);
+        if (d <= (radiusUnits + 1e-6)) included.add(rcKey(r, c));
+      }
     }
   }
 

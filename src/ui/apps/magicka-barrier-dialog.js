@@ -6,155 +6,200 @@
  * Opened by clicking the Magicka label button on the actor sheet.
  */
 
-import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { templatePath } from "../constants.js";
+import { clampNumber, toFiniteNumber } from "./resource-dialog-utils.js";
 
-export class MagickaBarrierDialog {
-  /**
-   * Show the Magicka / Barrier management dialog for an actor.
-   *
-   * @param {Actor} actor - The actor to manage
-   * @returns {Promise<boolean>} - True if changes were applied, false if cancelled
-   */
+const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+
+const BUFFER_TYPE_LABELS = {
+  physical: "Physical",
+  magical: "Magical",
+  elemental: "Elemental",
+};
+
+class MagickaBarrierDialogAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
+  #actor;
+  #resolver = null;
+  #resolved = false;
+  #isSubmitting = false;
+
+  constructor(actor, options = {}) {
+    const id = `uesrpg-magicka-barrier-dialog-${actor?.id ?? "unknown"}`;
+    super({ ...options, id });
+    this.#actor = actor;
+  }
+
+  static DEFAULT_OPTIONS = {
+    tag: "form",
+    classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--magicka"],
+    position: { width: 540 },
+    window: { title: "Magicka & Barriers" },
+    form: {
+      handler: MagickaBarrierDialogAppV2.prototype._onSubmitForm,
+      closeOnSubmit: true,
+      submitOnChange: false,
+    },
+    actions: {
+      clearAll: MagickaBarrierDialogAppV2.prototype._onClearAll,
+      cancel: MagickaBarrierDialogAppV2.prototype._onCancel,
+    },
+  };
+
+  static PARTS = {
+    // AppV2 requires each PART template to render exactly one root element.
+    main: {
+      template: templatePath("v2/dialogs/magicka-barrier-dialog.hbs"),
+    },
+  };
+
   static async show(actor) {
     if (!actor?.system) {
       ui.notifications.error("Invalid actor for barrier management");
       return false;
     }
 
-    const currentMP = Number(actor.system?.magicka?.value ?? 0);
-    const maxMP = Number(actor.system?.magicka?.max ?? 0);
-    const physBuf = Number(actor.system?.buffers?.physical ?? 0);
-    const magBuf = Number(actor.system?.buffers?.magical ?? 0);
-    const elemBuf = Number(actor.system?.buffers?.elemental ?? 0);
+    const app = new MagickaBarrierDialogAppV2(actor);
+    return new Promise((resolve) => {
+      app.#resolver = resolve;
+      app.render(true);
+    });
+  }
 
-    // Collect active barrier spell effects for informational display.
+  get title() {
+    return `Magicka & Barriers - ${this.#actor?.name ?? "Actor"}`;
+  }
+
+  async _prepareContext(options) {
+    const currentMP = toFiniteNumber(this.#actor.system?.magicka?.value, 0);
+    const maxMP = toFiniteNumber(this.#actor.system?.magicka?.max, 0);
+    const physBuf = toFiniteNumber(this.#actor.system?.buffers?.physical, 0);
+    const magBuf = toFiniteNumber(this.#actor.system?.buffers?.magical, 0);
+    const elemBuf = toFiniteNumber(this.#actor.system?.buffers?.elemental, 0);
+
+    const barriersByType = {
+      physical: [],
+      magical: [],
+      elemental: [],
+    };
     const barrierEffects = [];
-    const barriersByType = { physical: [], magical: [], elemental: [] };
-    for (const ef of (actor.effects ?? [])) {
+    for (const ef of (this.#actor.effects ?? [])) {
       const flags = ef.flags?.["uesrpg-3ev4"];
       if (!flags?.bufferApplied) continue;
-      const effectData = {
+      const data = {
         id: ef.id,
         name: flags.spellName || ef.name || "Unknown",
-        type: flags.bufferType || "?",
-        originalValue: Number(flags.bufferOriginalValue ?? 0),
+        type: String(flags.bufferType || "?"),
+        typeLabel: BUFFER_TYPE_LABELS[flags.bufferType] ?? String(flags.bufferType || "?"),
+        originalValue: toFiniteNumber(flags.bufferOriginalValue, 0),
         hasUpkeep: Boolean(flags.hasUpkeep),
       };
-      barrierEffects.push(effectData);
-      if (barriersByType[effectData.type]) {
-        barriersByType[effectData.type].push(effectData);
-      }
+      barrierEffects.push(data);
+      if (barriersByType[data.type]) barriersByType[data.type].push(data);
     }
 
-    let barriersInfo = "";
-    if (barrierEffects.length) {
-      const rows = barrierEffects.map((b) => {
-        const typeLabel = { physical: "Physical", magical: "Magical", elemental: "Elemental" }[b.type] ?? b.type;
-        const upkeepTag = b.hasUpkeep ? ' <span class="hint">(upkeep)</span>' : "";
-        return `<li><strong>${b.name}</strong> - ${typeLabel} ${b.originalValue}${upkeepTag}</li>`;
-      }).join("");
-      barriersInfo = `
-        <div class="uesrpg-resource-dialog__group form-group">
-          <label class="uesrpg-resource-dialog__label">Active Barrier Sources</label>
-          <ul class="uesrpg-magicka-barrier-dialog__sources">${rows}</ul>
-        </div>
-      `;
-    }
-
-    const buildSourceIndicator = (type) => {
-      const sources = barriersByType[type];
-      if (!sources?.length) return "";
-      const count = sources.length;
-      const names = sources.map((s) => s.name).join(", ");
-      return `<span class="buffer-source-indicator" title="${count} source(s): ${names}">(${count})</span>`;
+    return {
+      currentMP,
+      maxMP,
+      physBuf,
+      magBuf,
+      elemBuf,
+      barrierEffects,
+      hasBarrierEffects: barrierEffects.length > 0,
+      physicalSourceCount: barriersByType.physical.length,
+      magicalSourceCount: barriersByType.magical.length,
+      elementalSourceCount: barriersByType.elemental.length,
+      physicalSourceTitle: barriersByType.physical.map((s) => s.name).join(", "),
+      magicalSourceTitle: barriersByType.magical.map((s) => s.name).join(", "),
+      elementalSourceTitle: barriersByType.elemental.map((s) => s.name).join(", "),
     };
+  }
 
-    const content = `
-      <div class="uesrpg-resource-dialog__body uesrpg-magicka-barrier-dialog">
-        <div class="uesrpg-resource-dialog__group form-group">
-          <label class="uesrpg-resource-dialog__label">Magicka</label>
-          <input type="number" name="magicka" value="${currentMP}" min="0" max="${maxMP}" />
-          <span class="uesrpg-resource-dialog__hint hint">Max: ${maxMP}</span>
-        </div>
-        <p class="uesrpg-resource-dialog__hint uesrpg-resource-dialog__hint--copy">
-          Barrier buffers absorb damage before Temp HP and HP. Physical blocks physical/silver/sunlight,
-          Magical blocks magic damage, Elemental blocks fire/frost/shock/poison.
-        </p>
-        ${barriersInfo}
-        <div class="uesrpg-resource-dialog__group form-group">
-          <label class="uesrpg-resource-dialog__label">Physical Buffer ${buildSourceIndicator("physical")}</label>
-          <input type="number" name="bufferPhysical" value="${physBuf}" min="0" />
-          <span class="uesrpg-resource-dialog__hint hint">Physical / Silver / Sunlight</span>
-        </div>
-        <div class="uesrpg-resource-dialog__group form-group">
-          <label class="uesrpg-resource-dialog__label">Magical Buffer ${buildSourceIndicator("magical")}</label>
-          <input type="number" name="bufferMagical" value="${magBuf}" min="0" />
-          <span class="uesrpg-resource-dialog__hint hint">Magic damage</span>
-        </div>
-        <div class="uesrpg-resource-dialog__group form-group">
-          <label class="uesrpg-resource-dialog__label">Elemental Buffer ${buildSourceIndicator("elemental")}</label>
-          <input type="number" name="bufferElemental" value="${elemBuf}" min="0" />
-          <span class="uesrpg-resource-dialog__hint hint">Fire / Frost / Shock / Poison</span>
-        </div>
-      </div>
-    `;
+  async _onSubmitForm(event, form, formData) {
+    if (this.#isSubmitting) return;
+    this.#isSubmitting = true;
 
-    return customDialog({
-      title: `Magicka & Barriers - ${actor.name}`,
-      content,
-      classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--magicka"],
-      buttons: {
-        apply: {
-          icon: '<i class="fas fa-check"></i>',
-          label: "Apply",
-          callback: async (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const newMP = Number(root?.querySelector('[name="magicka"]')?.value);
-            const newPhys = Math.max(0, Number(root?.querySelector('[name="bufferPhysical"]')?.value));
-            const newMag = Math.max(0, Number(root?.querySelector('[name="bufferMagical"]')?.value));
-            const newElem = Math.max(0, Number(root?.querySelector('[name="bufferElemental"]')?.value));
+    try {
+      const patch = this.#buildPatchFromFormObject(formData.object);
+      if (Object.keys(patch).length) {
+        await requestUpdateDocument(this.#actor, patch);
+        ui.notifications.info(`Magicka & barriers updated for ${this.#actor.name}`);
+      }
+      this.#resolve(true);
+    } finally {
+      this.#isSubmitting = false;
+    }
+  }
 
-            const updateData = {};
-            if (newMP !== currentMP) updateData["system.magicka.value"] = Math.max(0, Math.min(maxMP, newMP));
-            if (newPhys !== physBuf) updateData["system.buffers.physical"] = newPhys;
-            if (newMag !== magBuf) updateData["system.buffers.magical"] = newMag;
-            if (newElem !== elemBuf) updateData["system.buffers.elemental"] = newElem;
+  async _onClearAll(event, target) {
+    event?.preventDefault?.();
+    if (this.#isSubmitting) return;
+    this.#isSubmitting = true;
 
-            if (Object.keys(updateData).length) {
-              await requestUpdateDocument(actor, updateData);
-              ui.notifications.info(`Magicka & barriers updated for ${actor.name}`);
-            }
+    try {
+      const formEl = this.element;
+      const fd = formEl?.isConnected ? new foundry.applications.ux.FormDataExtended(formEl) : { object: {} };
+      const maxMP = toFiniteNumber(this.#actor.system?.magicka?.max, 0);
+      const currentMP = toFiniteNumber(this.#actor.system?.magicka?.value, 0);
+      const newMP = clampNumber(fd.object?.magicka, 0, maxMP);
 
-            return true;
-          }
-        },
-        clearAll: {
-          icon: '<i class="fas fa-eraser"></i>',
-          label: "Clear Buffers",
-          callback: async (html) => {
-            const root = html instanceof HTMLElement ? html : html?.[0];
-            const newMP = Number(root?.querySelector('[name="magicka"]')?.value);
-            const updateData = {
-              "system.buffers.physical": 0,
-              "system.buffers.magical": 0,
-              "system.buffers.elemental": 0,
-            };
-            if (newMP !== currentMP) updateData["system.magicka.value"] = Math.max(0, Math.min(maxMP, newMP));
+      const updateData = {
+        "system.buffers.physical": 0,
+        "system.buffers.magical": 0,
+        "system.buffers.elemental": 0,
+      };
+      if (newMP !== currentMP) updateData["system.magicka.value"] = newMP;
 
-            await requestUpdateDocument(actor, updateData);
-            ui.notifications.info(`All barriers cleared for ${actor.name}`);
-            return true;
-          }
-        },
-        cancel: {
-          icon: '<i class="fas fa-times"></i>',
-          label: "Cancel",
-          callback: () => false
-        }
-      },
-      defaultButton: "apply",
-      width: 540,
-    });
+      await requestUpdateDocument(this.#actor, updateData);
+      ui.notifications.info(`All barriers cleared for ${this.#actor.name}`);
+      this.#resolve(true);
+      await this.close();
+    } finally {
+      this.#isSubmitting = false;
+    }
+  }
+
+  _onCancel(event, target) {
+    event?.preventDefault?.();
+    if (this.#isSubmitting) return;
+    this.#resolve(false);
+    this.close();
+  }
+
+  #buildPatchFromFormObject(objectData = {}) {
+    const maxMP = toFiniteNumber(this.#actor.system?.magicka?.max, 0);
+    const currentMP = toFiniteNumber(this.#actor.system?.magicka?.value, 0);
+    const currentPhys = toFiniteNumber(this.#actor.system?.buffers?.physical, 0);
+    const currentMag = toFiniteNumber(this.#actor.system?.buffers?.magical, 0);
+    const currentElem = toFiniteNumber(this.#actor.system?.buffers?.elemental, 0);
+
+    const newMP = clampNumber(objectData?.magicka, 0, maxMP);
+    const newPhys = clampNumber(objectData?.bufferPhysical, 0);
+    const newMag = clampNumber(objectData?.bufferMagical, 0);
+    const newElem = clampNumber(objectData?.bufferElemental, 0);
+
+    const updateData = {};
+    if (newMP !== currentMP) updateData["system.magicka.value"] = newMP;
+    if (newPhys !== currentPhys) updateData["system.buffers.physical"] = newPhys;
+    if (newMag !== currentMag) updateData["system.buffers.magical"] = newMag;
+    if (newElem !== currentElem) updateData["system.buffers.elemental"] = newElem;
+    return updateData;
+  }
+
+  async close(options = {}) {
+    if (!this.#resolved) this.#resolve(false);
+    return super.close(options);
+  }
+
+  #resolve(value) {
+    if (this.#resolved) return;
+    this.#resolved = true;
+    this.#resolver?.(value);
+  }
+}
+
+export class MagickaBarrierDialog {
+  static async show(actor) {
+    return MagickaBarrierDialogAppV2.show(actor);
   }
 }

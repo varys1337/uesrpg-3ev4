@@ -15,12 +15,13 @@ import { buildCircumstanceOptionsHtml } from "../../opposed/circumstance.js";
  * @returns {Promise<object|null>}
  */
 export async function showSpellOptionsDialog(actor, spell) {
-  const wpBonus = Math.floor(Number(actor.system?.characteristics?.wp?.total ?? 0) / 10);
   const hasOverload = Boolean(spell.system?.hasOverload);
   const hasOverchargeTalent = actor.items?.some(i => i.type === "talent" && i.name === "Overcharge") ?? false;
   const hasMagickaCyclingTalent = actor.items?.some(i => i.type === "talent" && i.name === "Magicka Cycling") ?? false;
   const baseCost = Number(spell.system?.cost ?? 0);
   const baseLevel = spell.system?.level ?? 1;
+  const baseProfile = resolveSpellProfile(spell, actor, { isRestrained: true, isOverloaded: false });
+  const baseRestraintReduction = Number(baseProfile?.cost?.effectiveRestraintReduction ?? baseProfile?.cost?.restrained?.reduction ?? 0) || 0;
 
   const allScalingLevels = getSpellScalingLevels(spell);
   const scalingLevels = (Array.isArray(allScalingLevels) ? allScalingLevels : [])
@@ -82,7 +83,7 @@ export async function showSpellOptionsDialog(actor, spell) {
       <div class="form-group" id="restrainGroup" style="margin-top: 8px;">
         <label style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" name="restrain" id="restrainCheckbox" ${!hasOverload ? "checked" : ""} />
-          <span><b>Spell Restraint</b> (reduce cost by ${wpBonus} to min 1)</span>
+          <span><b>Spell Restraint</b> (reduce cost by ${baseRestraintReduction} to min 1)</span>
         </label>
       </div>
       ${hasOverload ? `
@@ -133,7 +134,13 @@ export async function showSpellOptionsDialog(actor, spell) {
             difficultyKey,
             circumstanceMod,
             manualModifier,
-            restraintValue: wpBonus,
+            restraintValue: Number(root?.querySelector('[name="restrain"]')?.checked ?? false)
+              ? (Number(resolveSpellProfile(spell, actor, {
+                  level: castLevel,
+                  isRestrained: true,
+                  isOverloaded: false
+                })?.cost?.effectiveRestraintReduction ?? 0) || 0)
+              : 0,
             baseCost,
             castLevel
           };
@@ -194,7 +201,8 @@ export async function showSpellOptionsDialog(actor, spell) {
               isOverloaded
             });
 
-            if (previewCost) previewCost.textContent = `Cost: ${profile.cost.final} MP${isRestrained ? ` (refund on success: ${wpBonus} MP)` : ""}${isOverloaded ? " (2x overload)" : ""}`;
+            const refundValue = Number(profile?.cost?.effectiveRestraintReduction ?? profile?.cost?.restrained?.reduction ?? 0) || 0;
+            if (previewCost) previewCost.textContent = `Cost: ${profile.cost.final} MP${isRestrained ? ` (refund on success: ${refundValue} MP)` : ""}${isOverloaded ? " (2x overload)" : ""}`;
             if (previewDamage) previewDamage.textContent = `Damage: ${profile.damage.formula || "N/A"}`;
             if (previewDuration) previewDuration.textContent = `Duration: ${profile.duration.value || 0} ${profile.duration.unit || "instant"}`;
           } catch (err) {

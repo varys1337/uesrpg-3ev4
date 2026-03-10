@@ -9,6 +9,7 @@ import { templatePath } from "../../constants.js";
 import {
   DEFAULT_REACH_VISUALIZER_SETTINGS,
   REACH_BEHAVIOUR,
+  REACH_GRID_DIAGONAL,
   REACH_VISIBILITY,
   REACH_SHAPE,
   REACH_SOURCE,
@@ -17,6 +18,8 @@ import {
   setReachVisualizerSettings,
   normalizeReachVisualizerSettings,
 } from "../../canvas/reach-visualizer-config.js";
+import { scheduleEngagementFlankingRefresh } from "../../../core/homebrew/engagement-flanking/index.js";
+import { isEngagementFlankingHomebrewEnabled } from "../../../core/system/homebrew.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -68,6 +71,10 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
       colorModeChoices: {
         [REACH_COLOR_MODE.DISPOSITION]: "Color by token disposition",
         [REACH_COLOR_MODE.UNIFORM]: "Uniform color",
+      },
+      gridDiagonalChoices: {
+        [REACH_GRID_DIAGONAL.CHEBYSHEV]: "Ignore diagonal rule (equal-cost)",
+        [REACH_GRID_DIAGONAL.SCENE]: "Respect scene diagonal rule",
       },
     };
   }
@@ -124,6 +131,7 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
       shape: String(data.shape ?? DEFAULT_REACH_VISUALIZER_SETTINGS.shape),
       colorMode: String(data.colorMode ?? DEFAULT_REACH_VISUALIZER_SETTINGS.colorMode),
       uniformColor: String(data.uniformColor ?? DEFAULT_REACH_VISUALIZER_SETTINGS.uniformColor),
+      gridDiagonalMode: String(data.gridDiagonalMode ?? DEFAULT_REACH_VISUALIZER_SETTINGS.gridDiagonalMode),
       opacity,
       passiveOpacity,
       activeOpacity,
@@ -138,6 +146,15 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     // Apply immediately if the overlay controller is present.
     try {
       game?.uesrpg?.reachVisualizer?.applySettings?.(partial);
+    } catch (_e) {
+      // no-op
+    }
+
+    // If diagonal mode changed, flanking reach checks use the same setting — refresh immediately.
+    try {
+      if (isEngagementFlankingHomebrewEnabled()) {
+        scheduleEngagementFlankingRefresh({ reason: "reachDiagonalModeChange", fullScene: true });
+      }
     } catch (_e) {
       // no-op
     }

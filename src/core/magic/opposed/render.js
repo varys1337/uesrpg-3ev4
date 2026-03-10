@@ -6,13 +6,14 @@
  * Chat card rendering for magic opposed workflow.
  */
 
-import { getDefenderEntries, isMultiDefender, isBankChoicesEnabledForData, getBankCommitState, getDefenderOutcome, getMagicDefenderDamage, allDefendersCommitted } from "./schema.js";
+import { getDefenderEntries, isMultiDefender, isBankChoicesEnabledForData, getBankCommitState, getDefenderOutcome, getMagicDefenderDamage } from "./schema.js";
 import { hasActiveWard } from "../../combat/ward-defense.js";
 import { AttackTracker } from "../../combat/attack-tracker.js";
 import { computeSpellAttemptMagickaCost } from "../magicka-utils.js";
 import { classifySpellForRouting } from "../spell-runtime.js";
 import { _buildDamagePanel } from "../../combat/opposed/cards/template-helpers.js";
 import { createUuidResolver, getActorFromResolvedDocument, resolveUuidSync } from "../../../utils/uuid-cache.js";
+import { formatResultSummary } from "../../../utils/degree-roll-helper.js";
 
 /**
  * Format signed number (+/-).
@@ -28,8 +29,9 @@ function fmtSigned(n) {
 function fmtDegree(result) {
   if (!result) return "";
   const deg = Number(result.degree ?? 0);
-  if (result.isSuccess) return `<span style="color: green;">${deg} DoS</span>`;
-  return `<span style="color: red;">${deg} DoF</span>`;
+  const text = formatResultSummary(result, { includeDegree: true, degreeStyle: "paren" });
+  if (result.isSuccess) return `<span style="color: green;">${text}</span>`;
+  return `<span style="color: red;">${text}</span>`;
 }
 
 /**
@@ -334,7 +336,6 @@ function renderMultiDefenderCard(data, messageId, ctx) {
   const bankMode = isBankChoicesEnabledForData(data);
   const anyOutcome = defenders.some(d => getDefenderOutcome(data, d));
   const { aCommitted } = getBankCommitState(data, defenders[0] ?? null);
-  const readyToBegin = bankMode && allDefendersCommitted(data) && !anyOutcome && !a?.result;
   const revealAttacker = !bankMode || aCommitted || anyOutcome;
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
   const isMultiCharSave = defenders.some(d => d.defenseType === "characteristic-save");
@@ -506,10 +507,6 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     `;
   }).join("");
 
-  const beginRollActions = readyToBegin
-    ? `<div style="margin-top:8px;" data-ues-gm-only="true" class="${actionRowClass(1)}">${btn({ label: "Begin Opposed Roll", action: "begin-banked-roll" })}</div>`
-    : "";
-
   return `
     <div class="ues-opposed-card ues-magic-opposed-card" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1" style="padding:6px 6px;">
       <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
@@ -531,7 +528,6 @@ function renderMultiDefenderCard(data, messageId, ctx) {
         <div style="display:grid; grid-template-columns: 1fr; gap:10px;">
           ${defenderBlocks}
         </div>
-        ${beginRollActions}
       </div>
     </div>
   `;
@@ -548,7 +544,6 @@ function renderSingleDefenderCard(data, messageId, ctx) {
 
   const bankMode = isBankChoicesEnabledForData(data);
   const { aCommitted, dCommitted, bothCommitted } = getBankCommitState(data);
-  const readyToBegin = bankMode && allDefendersCommitted(data) && !data?.outcome && !a?.result;
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
   const isCharSave = d.defenseType === "characteristic-save";
   const defenseNote = isAoE
@@ -705,10 +700,6 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   }
 
   const singleDamagePanel = _buildDamagePanel(getMagicDefenderDamage(data, d));
-  const beginRollActions = readyToBegin
-    ? `<div style="margin-top:8px;" data-ues-gm-only="true" class="${actionRowClass(1)}">${btn({ label: "Begin Opposed Roll", action: "begin-banked-roll" })}</div>`
-    : "";
-
   return `
     <div class="ues-opposed-card ues-magic-opposed-card" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1" style="padding:6px 6px;">
       <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:stretch;">
@@ -743,7 +734,6 @@ function renderSingleDefenderCard(data, messageId, ctx) {
           <div style="margin-top:auto;">${defenderControls}</div>
         </div>
       </div>
-      ${beginRollActions}
       ${outcomeLine}
       ${singleDamagePanel}
     </div>
@@ -787,7 +777,7 @@ export function renderUnopposedCard(data, messageId) {
   const aRollLine = a.result
     ? (a.result.noRoll
       ? `<div><b>Roll:</b> Automatic</div>`
-      : `<div><b>Roll:</b> ${a.result.rollTotal} - ${fmtDegree(a.result)}${a.result.isCriticalSuccess ? ' <span style="color:green; font-weight:700;">CRITICAL</span>' : ''}${a.result.isCriticalFailure ? ' <span style="color:red; font-weight:700;">CRITICAL FAIL</span>' : ''}</div>`)
+      : `<div><b>Roll:</b> ${a.result.rollTotal} - ${fmtDegree(a.result)}</div>`)
     : "";
 
   const aBreakdown = renderBreakdownDetails("TN breakdown", a.tn?.breakdown ?? a.tn?.modifiers);

@@ -147,7 +147,7 @@ export function registerTalentsSettings() {
     name: "Character Generation: Spell Learning Log Cap",
     hint: "0 = unlimited. Otherwise, keep only the most recent N spell learning log entries.",
     scope: "world",
-    config: true,
+    config: false,
     type: Number,
     default: 0,
     range: {

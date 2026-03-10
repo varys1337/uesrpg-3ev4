@@ -17,6 +17,7 @@ import { resolveToken } from "../schema.js";
 import { executeCharacteristicDefense, computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
 import { emitSuppressedOpposedSubRollDice } from "../spell-helpers.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
+import { listEquippedShields } from "../../../items/shield-utils.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const NAMESPACE = FLAG_SCOPE;
@@ -144,11 +145,7 @@ export async function handleDefenderRoll(ctx, action) {
   const runtimeDefenseItem = (() => {
     if (defenseType === "ward") return getActiveWardSpell(defenderActor);
     if (defenseType !== "block") return null;
-    return Array.from(defenderActor?.items ?? []).find((i) =>
-      (i?.type === "armor" || i?.type === "item")
-      && i?.system?.equipped === true
-      && Boolean(i?.system?.isShieldEffective ?? i?.system?.isShield)
-    ) ?? null;
+    return listEquippedShields(defenderActor, { includeBuckler: false, allowLegacy: true })[0] ?? null;
   })();
   applyRuntimePreRollToTN({
     actor: defenderActor,

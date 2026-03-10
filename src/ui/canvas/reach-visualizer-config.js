@@ -36,6 +36,13 @@ export const REACH_COLOR_MODE = Object.freeze({
   UNIFORM: "uniform",
 });
 
+export const REACH_GRID_DIAGONAL = Object.freeze({
+  /** Equal-cost diagonals — ignores the scene's diagonal movement rule (1/2/1, etc.). */
+  CHEBYSHEV: "chebyshev",
+  /** Respects the scene's configured diagonal movement rule. */
+  SCENE: "scene",
+});
+
 export const DEFAULT_REACH_VISUALIZER_SETTINGS = Object.freeze({
   // Behaviour
   enabled: false,
@@ -59,6 +66,11 @@ export const DEFAULT_REACH_VISUALIZER_SETTINGS = Object.freeze({
   // Color
   colorMode: REACH_COLOR_MODE.DISPOSITION,
   uniformColor: "#33ff66",
+
+  // Grid diagonal handling (square grids only)
+  // "chebyshev" — ignore diagonal movement rule, equal-cost diagonals (default)
+  // "scene"     — respect the scene's configured diagonal movement rule
+  gridDiagonalMode: REACH_GRID_DIAGONAL.CHEBYSHEV,
 
   // Labels
   showLabel: true,
@@ -130,6 +142,9 @@ export function normalizeReachVisualizerSettings(raw) {
 
   const colorMode = String(merged.colorMode ?? "");
   if (!Object.values(REACH_COLOR_MODE).includes(colorMode)) merged.colorMode = DEFAULT_REACH_VISUALIZER_SETTINGS.colorMode;
+
+  const gridDiagonalMode = String(merged.gridDiagonalMode ?? "");
+  if (!Object.values(REACH_GRID_DIAGONAL).includes(gridDiagonalMode)) merged.gridDiagonalMode = DEFAULT_REACH_VISUALIZER_SETTINGS.gridDiagonalMode;
 
   merged.uniformColor = _normalizeHexColor(merged.uniformColor);
 

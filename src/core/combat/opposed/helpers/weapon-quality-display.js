@@ -12,6 +12,7 @@
  */
 
 import { UESRPG } from "../../../constants.js";
+import { ITEM_QUALITY_LABELS } from "../../../config/label-catalog.js";
 import { buildQualityTooltipText } from "../../../../data/tooltips/index.js";
 
 let _qualityLabelIndexCache = null;
@@ -45,16 +46,22 @@ function _buildQualityTagHtml({ label, key, value = null, className = "tag" } = 
  */
 export function getQualityLabelIndex() {
   if (_qualityLabelIndexCache) return _qualityLabelIndexCache;
-  
+
+  // Build index from the centralized label catalog.
+  // Catalog keys already cover all quality + trait keys (QUALITIES_CORE_BY_TYPE + TRAITS_BY_TYPE).
+  const idx = new Map();
+  for (const [key, label] of Object.entries(ITEM_QUALITY_LABELS)) {
+    idx.set(String(key).toLowerCase(), String(label));
+  }
+
+  // Supplement with any catalog entries the label map might have missed (forward-compat).
   const core = UESRPG?.QUALITIES_CORE_BY_TYPE?.weapon ?? UESRPG?.QUALITIES_CATALOG ?? [];
   const traits = UESRPG?.TRAITS_BY_TYPE?.weapon ?? [];
-  const idx = new Map();
-  
   for (const q of [...core, ...traits, ...(UESRPG?.QUALITIES_CATALOG ?? [])]) {
-    if (!q?.key) continue;
-    idx.set(String(q.key).toLowerCase(), String(q.label ?? q.key));
+    const k = String(q?.key ?? "").toLowerCase();
+    if (k && !idx.has(k)) idx.set(k, k);
   }
-  
+
   _qualityLabelIndexCache = idx;
   return idx;
 }

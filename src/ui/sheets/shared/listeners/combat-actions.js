@@ -40,7 +40,8 @@ import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js"
 import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { getMovementActionLegality } from "../../../../core/combat/movement-rules.js";
 import { drinkPotion, applyAlchemyToWeapon } from "../../../../core/alchemy/runtime.js";
-import { toggleInCloseForActor } from "../../../../core/conditions/status-hud.js";
+
+const _specialActionLaunchLocks = new Set();
 
 /**
  * Handle Combat tab quick-action buttons.
@@ -159,6 +160,185 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     };
   };
 
+  const launchGrappleAction = async () => {
+    const specialId = "grapple";
+    const at = String(btn?.dataset?.actionType ?? "primary").toLowerCase();
+
+    if (at === "primary" && !isSpecialActionUsableNow(actor, "primary")) {
+      ui.notifications?.warn?.("Grapple is only available on your Turn when used as a Primary action.");
+      return;
+    }
+
+    if (at === "reaction") {
+      if (!ensureReactionAllowed()) return;
+    } else if (!(await ensureTurnActionAllowed("grapple"))) {
+      return;
+    }
+
+    const targets = Array.from(game.user.targets ?? []);
+    const targetToken = targets[0] ?? null;
+    if (!targetToken) {
+      ui.notifications?.warn?.("Grapple requires a targeted token.");
+      return;
+    }
+
+    const lockKey = [
+      String(actor?.uuid ?? actor?.id ?? ""),
+      specialId,
+      String(at || "primary"),
+      String(targetToken?.document?.uuid ?? targetToken?.uuid ?? "none"),
+    ].join("|");
+    if (_specialActionLaunchLocks.has(lockKey)) {
+      ui.notifications?.warn?.("Grapple is already being started.");
+      return;
+    }
+    _specialActionLaunchLocks.add(lockKey);
+
+    try {
+      const activation = buildSpecialActionActivation({
+        actionType: at === "reaction" ? "reaction" : "action",
+        apCost: 1,
+        requiresTarget: true
+      });
+
+      const activationResult = await executeActivation({
+        actor,
+        activation,
+        label: "Grapple",
+        renderChat: false,
+        context: { targets: game.user?.targets }
+      });
+      if (!activationResult.ok) return;
+
+      let actorToken = canvas.tokens?.controlled?.[0] ?? null;
+      if (!actorToken) {
+        actorToken = canvas.tokens?.placeables?.find(t => t.actor?.id === actor.id) ?? null;
+      }
+
+      const attackerStyleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
+      const defenderStyleCtx = resolveStyleForCombatTest(targetToken?.actor ?? null, { actorTypeFallback: true });
+
+      const message = await SkillOpposedWorkflow.createPending({
+        attackerTokenUuid: actorToken?.document?.uuid ?? actorToken?.uuid,
+        defenderTokenUuid: targetToken?.document?.uuid ?? targetToken?.uuid,
+        attackerSkillUuid: attackerStyleCtx?.styleUuid ?? null,
+        attackerSkillLabel: "Grapple"
+      });
+
+      const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
+      if (!state) return;
+
+      state.specialActionId = specialId;
+      state.allowCombatStyle = true;
+      state.specialActionContext = {
+        id: specialId,
+        source: "grapple-action",
+        attackerStyleUuid: attackerStyleCtx?.styleUuid ?? null,
+        defenderStyleUuid: defenderStyleCtx?.styleUuid ?? null
+      };
+
+      await safeUpdateChatMessage(message, {
+        flags: {
+          "uesrpg-3ev4": {
+            skillOpposed: {
+              version: state.version ?? 1,
+              state
+            }
+          }
+        }
+      });
+    } finally {
+      _specialActionLaunchLocks.delete(lockKey);
+    }
+  };
+
+  const launchInCloseAction = async () => {
+    const specialId = "inClose";
+    const at = String(btn?.dataset?.actionType ?? "secondary").toLowerCase();
+
+    if (at === "reaction") {
+      if (!ensureReactionAllowed()) return;
+    } else if (!(await ensureTurnActionAllowed("inClose"))) {
+      return;
+    }
+
+    const targets = Array.from(game.user.targets ?? []);
+    const targetToken = targets[0] ?? null;
+    if (!targetToken) {
+      ui.notifications?.warn?.("In Close requires a targeted token.");
+      return;
+    }
+
+    const lockKey = [
+      String(actor?.uuid ?? actor?.id ?? ""),
+      specialId,
+      String(at || "secondary"),
+      String(targetToken?.document?.uuid ?? targetToken?.uuid ?? "none"),
+    ].join("|");
+    if (_specialActionLaunchLocks.has(lockKey)) {
+      ui.notifications?.warn?.("In Close is already being started.");
+      return;
+    }
+    _specialActionLaunchLocks.add(lockKey);
+
+    try {
+      const activation = buildSpecialActionActivation({
+        actionType: at === "reaction" ? "reaction" : "secondary",
+        apCost: 1,
+        requiresTarget: true
+      });
+
+      const activationResult = await executeActivation({
+        actor,
+        activation,
+        label: "In Close",
+        renderChat: false,
+        context: { targets: game.user?.targets }
+      });
+      if (!activationResult.ok) return;
+
+      let actorToken = canvas.tokens?.controlled?.[0] ?? null;
+      if (!actorToken) {
+        actorToken = canvas.tokens?.placeables?.find(t => t.actor?.id === actor.id) ?? null;
+      }
+
+      const attackerStyleCtx = resolveStyleForCombatTest(actor, { actorTypeFallback: true });
+      const defenderStyleCtx = resolveStyleForCombatTest(targetToken?.actor ?? null, { actorTypeFallback: true });
+
+      const message = await SkillOpposedWorkflow.createPending({
+        attackerTokenUuid: actorToken?.document?.uuid ?? actorToken?.uuid,
+        defenderTokenUuid: targetToken?.document?.uuid ?? targetToken?.uuid,
+        attackerSkillUuid: attackerStyleCtx?.styleUuid ?? null,
+        attackerSkillLabel: "In Close"
+      });
+
+      const state = message?.flags?.["uesrpg-3ev4"]?.skillOpposed?.state;
+      if (!state) return;
+
+      state.specialActionId = specialId;
+      state.allowCombatStyle = true;
+      state.specialActionContext = {
+        id: specialId,
+        source: "in-close-action",
+        attackerStyleUuid: attackerStyleCtx?.styleUuid ?? null,
+        defenderStyleUuid: defenderStyleCtx?.styleUuid ?? null
+      };
+
+      await safeUpdateChatMessage(message, {
+        flags: {
+          "uesrpg-3ev4": {
+            skillOpposed: {
+              version: state.version ?? 1,
+              state
+            }
+          }
+        }
+      });
+    } finally {
+      _specialActionLaunchLocks.delete(lockKey);
+    }
+  };
+
   switch (action) {
     case "specialAction": {
       const specialId = btn?.dataset?.specialId;
@@ -176,11 +356,35 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         return;
       }
 
-      if (!(await ensureTurnActionAllowed(`special:${specialId ?? "unknown"}`))) return;
+      if (at === "reaction") {
+        if (!ensureReactionAllowed()) return;
+      } else if (!(await ensureTurnActionAllowed(`special:${specialId ?? "unknown"}`))) {
+        return;
+      }
 
       const requiresTarget = specialId !== "arise";
+      const targets = Array.from(game.user.targets ?? []);
+      const targetToken = targets[0] ?? null;
+      if (!targetToken && requiresTarget) return;
+
+      const lockKey = [
+        String(actor?.uuid ?? actor?.id ?? ""),
+        String(specialId ?? ""),
+        String(at || "primary"),
+        String(targetToken?.document?.uuid ?? targetToken?.uuid ?? "none"),
+      ].join("|");
+      if (_specialActionLaunchLocks.has(lockKey)) {
+        ui.notifications?.warn?.("This special action is already being started.");
+        return;
+      }
+      _specialActionLaunchLocks.add(lockKey);
+
+      try {
+        const activationType = (at === "secondary" || at === "reaction" || at === "free")
+          ? at
+          : "action";
       const activation = buildSpecialActionActivation({
-        actionType: at === "secondary" ? "secondary" : "action",
+        actionType: activationType,
         apCost: 1,
         requiresTarget
       });
@@ -198,11 +402,6 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       if (!actorToken) {
         actorToken = canvas.tokens?.placeables?.find(t => t.actor?.id === actor.id) ?? null;
       }
-
-      const targets = Array.from(game.user.targets ?? []);
-      const targetToken = targets[0] ?? null;
-
-      if (!targetToken && requiresTarget) return;
 
       if (specialId === "arise") {
         const result = await executeSpecialAction({
@@ -258,6 +457,14 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         });
       }
 
+      } finally {
+        _specialActionLaunchLocks.delete(lockKey);
+      }
+      return;
+    }
+
+    case "grapple": {
+      await launchGrappleAction();
       return;
     }
 
@@ -728,58 +935,128 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     case "reload-weapon": {
       event.preventDefault();
       if (!(await ensureTurnActionAllowed("reload-weapon"))) return;
-      
-      const rangedWeapon = actor.items.find(i => 
-        i.type === "weapon" && 
-        i.system?.equipped === true && 
+
+      const rangedWeapon = actor.items.find(i =>
+        i.type === "weapon" &&
+        i.system?.equipped === true &&
         String(i.system?.attackMode ?? "").toLowerCase() === "ranged"
       );
-      
+
       if (!rangedWeapon) {
         ui.notifications.warn("No equipped ranged weapon to reload.");
         return;
       }
-      
+
       const reloadState = rangedWeapon.system?.reloadState ?? {};
       const reloadCost = Number(reloadState.reloadAPCost ?? 0);
-      
+
       if (!reloadState.requiresReload || reloadCost === 0) {
         ui.notifications.info(`${rangedWeapon.name} does not require reloading.`);
         return;
       }
-      
+
       if (reloadState.isLoaded) {
         ui.notifications.info(`${rangedWeapon.name} is already loaded.`);
         return;
       }
-      
+
       const powerDrawReduction = await applyPowerDrawBonus(actor, rangedWeapon);
       const hasRapidReload = hasTalent(actor, "rapidreload") || hasTalent(actor, "dualrapidreloadfighter");
       const talentReloadReduction = hasRapidReload ? 1 : 0;
-      // Reload actions always cost at least 1 AP when a weapon requires reloading.
-      let effectiveReloadCost = Math.max(1, reloadCost - powerDrawReduction - talentReloadReduction);
-      
+      // Reload 0 = free (RAW: Power Draw reduces by 1; reaching 0 means the reload is free).
+      const effectiveReloadCost = Math.max(0, reloadCost - powerDrawReduction - talentReloadReduction);
+      const isFreeReload = effectiveReloadCost === 0;
+
       const currentAP = Number(actor.system?.action_points?.value ?? 0);
-      if (currentAP < effectiveReloadCost) {
-        ui.notifications.warn(`Reload requires ${effectiveReloadCost} AP, but you only have ${currentAP} AP remaining.`);
+      const currentProgress = Number(reloadState.reloadProgress ?? 0);
+      const remaining = Math.max(0, effectiveReloadCost - currentProgress);
+
+      if (!isFreeReload && currentAP < 1) {
+        ui.notifications.warn(`You have no AP remaining to spend on reloading ${rangedWeapon.name}.`);
         return;
       }
-      
-      const newAP = currentAP - effectiveReloadCost;
-      await requestUpdateDocument(actor, {
-        "system.action_points.value": newAP
-      });
-      
-      await requestUpdateDocument(rangedWeapon, {
-        "system.reloadState.isLoaded": true
-      });
-      
-      const powerDrawNote = powerDrawReduction > 0 
-        ? `<p><em>Power Draw bonus: -${powerDrawReduction} AP</em></p>` 
-        : "";
-      const talentNote = talentReloadReduction > 0
-        ? `<p><em>Rapid Reload: -${talentReloadReduction} AP</em></p>`
-        : "";
+
+      // Determine how many AP to spend this action.
+      let apToSpend;
+      if (isFreeReload) {
+        apToSpend = 0;
+      } else if (effectiveReloadCost <= 1 && remaining <= 1) {
+        // Single-AP reload — no dialog needed.
+        apToSpend = 1;
+      } else {
+        // Multi-AP reload: ask the actor how many AP to spend this turn.
+        const maxSpendable = Math.min(currentAP, remaining);
+        const progressLabel = currentProgress > 0
+          ? ` (${currentProgress}/${effectiveReloadCost} AP already spent)`
+          : "";
+
+        const reductionParts = [];
+        if (powerDrawReduction > 0) reductionParts.push(`Power Draw -${powerDrawReduction}`);
+        if (talentReloadReduction > 0) reductionParts.push(`Rapid Reload -${talentReloadReduction}`);
+        const reductionNote = reductionParts.length ? `<p class="u-text-muted u-text-sm">${reductionParts.join(", ")} applied to base cost ${reloadCost}</p>` : "";
+
+        const options = Array.from({ length: maxSpendable }, (_, i) => i + 1)
+          .map(n => `<option value="${n}"${n === maxSpendable ? " selected" : ""}>${n} AP${n >= remaining ? " (completes reload)" : ""}</option>`)
+          .join("");
+
+        apToSpend = await customDialog({
+          title: `Reload — ${rangedWeapon.name}`,
+          content: `
+            <div class="uesrpg-dialog-form">
+              <p>Total reload cost: <strong>${effectiveReloadCost} AP</strong>${progressLabel}</p>
+              ${reductionNote}
+              <p>Remaining to complete: <strong>${remaining} AP</strong></p>
+              <div class="form-group">
+                <label>AP to spend this action</label>
+                <select name="apSpend">${options}</select>
+              </div>
+            </div>`,
+          buttons: {
+            confirm: {
+              label: "Spend AP",
+              callback: (html) => {
+                const root = html instanceof HTMLElement ? html : html?.[0];
+                const raw = Number(root?.querySelector?.("[name=apSpend]")?.value ?? 0);
+                const spend = Number.isFinite(raw) ? Math.trunc(raw) : 0;
+                return Math.max(1, spend);
+              }
+            },
+            cancel: { label: "Cancel", callback: () => null },
+          },
+          defaultButton: "confirm",
+        });
+
+        if (apToSpend == null) return; // Cancelled
+      }
+
+      const numericSpend = isFreeReload
+        ? 0
+        : Math.max(0, Math.min(Number.isFinite(Number(apToSpend)) ? Math.trunc(Number(apToSpend)) : 0, currentAP, remaining));
+      const newAP = isFreeReload ? currentAP : Math.max(0, currentAP - numericSpend);
+      const newProgress = isFreeReload ? 0 : Math.max(0, currentProgress + numericSpend);
+      const reloadComplete = isFreeReload || newProgress >= effectiveReloadCost;
+
+      if (!isFreeReload) {
+        await requestUpdateDocument(actor, { "system.action_points.value": newAP });
+      }
+
+      if (reloadComplete) {
+        await requestUpdateDocument(rangedWeapon, {
+          "system.reloadState.isLoaded": true,
+          "system.reloadState.reloadProgress": 0,
+        });
+      } else {
+        await requestUpdateDocument(rangedWeapon, {
+          "system.reloadState.reloadProgress": newProgress,
+        });
+      }
+
+      const powerDrawNote = powerDrawReduction > 0 ? `<p><em>Power Draw bonus: -${powerDrawReduction} AP</em></p>` : "";
+      const talentNote = talentReloadReduction > 0 ? `<p><em>Rapid Reload: -${talentReloadReduction} AP</em></p>` : "";
+      const remainingNeeded = Math.max(0, remaining - numericSpend);
+      const statusLine = reloadComplete
+        ? `<p><strong>${rangedWeapon.name} is now loaded!</strong></p>`
+        : `<p>Reload progress: <strong>${newProgress} / ${effectiveReloadCost} AP</strong> spent. ${remainingNeeded} AP still needed.</p>`;
 
       await ChatMessage.create({
         user: game.user.id,
@@ -788,21 +1065,24 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
           <div class="uesrpg-chat-card">
             <header class="card-header">
               <img src="${rangedWeapon.img}" width="36" height="36"/>
-              <h3>Reload Weapon</h3>
+              <h3>${reloadComplete ? "Reload Complete" : "Reloading…"}</h3>
             </header>
             <div class="card-content">
-              <p><strong>${actor.name}</strong> reloads <strong>${rangedWeapon.name}</strong>.</p>
-              <p><em>AP Cost: ${effectiveReloadCost}${(powerDrawReduction > 0 || talentReloadReduction > 0) ? ` (${reloadCost}${powerDrawReduction > 0 ? ` - ${powerDrawReduction}` : ""}${talentReloadReduction > 0 ? ` - ${talentReloadReduction}` : ""})` : ""}</em></p>
-              ${powerDrawNote}
-              ${talentNote}
+              <p><strong>${actor.name}</strong> ${reloadComplete ? "reloads" : "continues reloading"} <strong>${rangedWeapon.name}</strong>.</p>
+              <p><em>AP Spent: ${isFreeReload ? "Free" : numericSpend}</em></p>
+              ${powerDrawNote}${talentNote}
+              ${statusLine}
               <p>Remaining AP: ${newAP}</p>
             </div>
           </div>
         `,
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
-      
-      ui.notifications.info(`${rangedWeapon.name} reloaded for ${effectiveReloadCost} AP.`);
+
+      ui.notifications.info(reloadComplete
+        ? `${rangedWeapon.name} fully reloaded.`
+        : `Spent ${numericSpend} AP toward reloading ${rangedWeapon.name} (${newProgress}/${effectiveReloadCost}).`
+      );
       return;
     }
 
@@ -906,10 +1186,8 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     }
 
     case "inClose": {
-      // Homebrew — Reach & Length Overhaul: Enter or Leave In Close with a target token.
-      // Delegates to status-hud.js which handles token resolution, partner selection,
-      // pairwise flag management, and condition toggling.
-      await toggleInCloseForActor(actor);
+      // Homebrew Reach & Length Overhaul: run as a skill-opposed special action.
+      await launchInCloseAction();
       return;
     }
 
@@ -917,4 +1195,3 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       return;
   }
 });
-

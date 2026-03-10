@@ -69,6 +69,12 @@ function _safeSlug(value) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9:_-]/g, "-");
 }
 
+function _flagKeyFromTarget(target) {
+  const raw = String(target ?? "").trim().replace(/^system\./, "");
+  if (!raw) return "";
+  return raw.replace(/[^A-Za-z0-9_]/g, "");
+}
+
 function _resolveStacking(mode) {
   const m = _safeSlug(mode);
   if (m === "highest") return STACKING_MODES.HIGHEST;
@@ -112,7 +118,7 @@ function _collectPassiveRuleElementMods(item) {
     }
 
     if (type === "booleanFlag") {
-      const target = _safeSlug(String(element?.target ?? "").replace(/^system\./, "").replace(/\./g, "_"));
+      const target = _flagKeyFromTarget(element?.target ?? "");
       if (!target) continue;
       out.push(makeFeatureMod({
         domain: FEATURE_DOMAINS.FLAG,

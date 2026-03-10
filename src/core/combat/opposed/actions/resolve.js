@@ -4,7 +4,7 @@
  */
 
 import { _resolveDoc, _resolveActorViaToken, _resolveItemViaActor } from "../helpers/docs.js";
-import { _canControlActor, _opposedFlags } from "../helpers/util.js";
+import { _canControlActor } from "../helpers/util.js";
 import { _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState, _getDefenderDamage, _setDefenderDamage } from "../schema.js";
 import { applyOverextendEffect as _applyOverextendEffect, applyOverwhelmEffect as _applyOverwhelmEffect } from "../effects.js";
 import { promptDefenderAdvantage as _promptDefenderAdvantage } from "../dialogs/defender.js";
@@ -26,6 +26,62 @@ import { _buildApplyPayload, _emitInlineDamageRollMessage } from "./damage.js";
 import { getWardBlockRating, getActiveWardSpell } from "../../ward-defense.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { ActionEconomy } from "../../action-economy.js";
+
+function _pushAdvantageMarker(data, { actor = null, actorUuid = null, tokenUuid = null, kind = "advantage" } = {}) {
+  data.context = data.context ?? {};
+  const resolvedActorUuid = String(actorUuid ?? actor?.uuid ?? "").trim();
+  const resolvedTokenUuid = String(tokenUuid ?? "").trim();
+  const actorName = String(actor?.name ?? "Actor").trim() || "Actor";
+  const markerKey = [kind, resolvedActorUuid || actorName, resolvedTokenUuid].filter(Boolean).join(":");
+  const current = Array.isArray(data.context.advantageMarkers) ? data.context.advantageMarkers.slice() : [];
+  if (current.some((marker) => String(marker?.key ?? "").trim() === markerKey)) return;
+  current.push({
+    key: markerKey,
+    kind,
+    actorUuid: resolvedActorUuid || null,
+    tokenUuid: resolvedTokenUuid || null,
+    label: "Advantage Resolved"
+  });
+  data.context.advantageMarkers = current.slice(-8);
+}
+
+function _resolveAttackerDeclaredWeapon(attacker, data) {
+  const candidates = [
+    String(data?.context?.weaponUuid ?? "").trim(),
+    String(data?.context?.lastWeaponUuid ?? "").trim(),
+    String(data?.attacker?.preConsumedAmmo?.weaponUuid ?? "").trim(),
+  ].filter(Boolean);
+
+  for (const uuid of candidates) {
+    try {
+      const weapon = _resolveItemViaActor(uuid, attacker);
+      if (weapon?.type === "weapon") return weapon;
+    } catch (_e) {
+      // Continue through fallbacks.
+    }
+  }
+
+  return null;
+}
+
+function _resolveIncomingAttackWeapon(attacker, data, { isRanged = false } = {}) {
+  const declared = _resolveAttackerDeclaredWeapon(attacker, data);
+  if (declared) return declared;
+
+  if (isRanged) {
+    const ranged = selectEquippedRangedWeapon(attacker) ?? null;
+    if (ranged?.type === "weapon") return ranged;
+  }
+
+  const preferredUuid = String(_getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? "").trim();
+  if (!preferredUuid) return null;
+  try {
+    const preferred = _resolveItemViaActor(preferredUuid, attacker);
+    return preferred?.type === "weapon" ? preferred : null;
+  } catch (_e) {
+    return null;
+  }
+}
 
 /**
  * Handle defender advantage resolution
@@ -154,11 +210,11 @@ export async function handleDefenderAdvantage(ctx) {
           });
 
           if (result.success) {
-            await ChatMessage.create({
-              user: game.user.id,
-              speaker: ChatMessage.getSpeaker({ actor: defender }),
-              content: `<div class="uesrpg-special-action-advantage"><b>Special Advantage (Auto-Win):</b><p>${result.message}</p></div>`,
-              style: CONST.CHAT_MESSAGE_STYLES.OTHER
+            _pushAdvantageMarker(data, {
+              actor: defender,
+              actorUuid: data.defender?.actorUuid ?? null,
+              tokenUuid: data.defender?.tokenUuid ?? null,
+              kind: "defender-special-advantage"
             });
           }
         } else if (advChoice.mode === "free") {
@@ -225,17 +281,13 @@ export async function handleDefenderAdvantage(ctx) {
       console.error("UESRPG | Failed to execute Special Advantage automation", err);
     }
   }
-
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
-    content: `<div class="ues-opposed-card" style="padding:6px;">
-      <b>Defender Advantage Resolved.</b>
-    </div>`,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-    rollMode: game.settings.get("core", "rollMode"),
-    flags: _opposedFlags(message.id, "defender-advantage"),
+  _pushAdvantageMarker(data, {
+    actor: defender,
+    actorUuid: data.defender?.actorUuid ?? null,
+    tokenUuid: data.defender?.tokenUuid ?? null,
+    kind: "defender-advantage"
   });
+  await _updateCard(message, data);
 }
 
 /**
@@ -251,14 +303,22 @@ export async function handleBlockResolve(ctx) {
     return;
   }
 
+  if (!game.user.isGM) {
+    ui.notifications.warn("Block resolution requires GM permissions.");
+    return;
+  }
+
   const outcome = _getDefenderOutcome(data, data.defender);
-  if (!outcome || outcome.winner !== "defender" || (data.defender.defenseType ?? "none") !== "block") {
+  const defType = String(data.defender?.defenseType ?? "none").toLowerCase();
+  const blockSource = String(data.defender?.blockSource ?? "").toLowerCase();
+  const isWardBlock = (defType === "ward") || (defType === "block" && blockSource === "ward");
+
+  if (!outcome || outcome.winner !== "defender" || (defType !== "block" && defType !== "ward")) {
     ui.notifications.warn("Block resolution is only available when the defender wins by blocking.");
     return;
   }
-  if (!_canControlActor(defender) && !game.user.isGM) {
-    ui.notifications.warn("You do not have permission to resolve this block.");
-    return;
+  if (isWardBlock) {
+    return await handleWardResolve(ctx);
   }
 
   // Idempotency guard
@@ -300,13 +360,8 @@ export async function handleBlockResolve(ctx) {
   const isRanged = hasExplicitContextMode
     ? String(attackMode ?? "").toLowerCase() === "ranged"
     : String(ctxWeaponMode ?? "").toLowerCase() === "ranged";
-  const rangedWeapon = isRanged ? (selectEquippedRangedWeapon(attacker) ?? null) : null;
-  const rangedWeaponUuid = isRanged
-    ? (String(data.context?.weaponUuid ?? "").trim()
-      || String(data.context?.lastWeaponUuid ?? "").trim()
-      || String(rangedWeapon?.uuid ?? "")
-      || String(_getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? "").trim())
-    : "";
+  const rangedWeapon = isRanged ? _resolveIncomingAttackWeapon(attacker, data, { isRanged: true }) : null;
+  const rangedWeaponUuid = isRanged ? String(rangedWeapon?.uuid ?? "").trim() : "";
 
   if (isRanged && !rangedWeaponUuid) {
     ui.notifications.warn("No equipped ranged weapon could be resolved for this attack.");
@@ -322,7 +377,10 @@ export async function handleBlockResolve(ctx) {
       advantageCount: 0,
       attackerTokenUuid: data.attacker?.tokenUuid ?? null,
       opponentTokenUuid: data.defender?.tokenUuid ?? null,
-      defaultWeaponUuid: data.context?.lastWeaponUuid ?? _getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? null,
+      defaultWeaponUuid: _resolveIncomingAttackWeapon(attacker, data, { isRanged })?.uuid
+        ?? data.context?.lastWeaponUuid
+        ?? _getPreferredWeaponUuid(attacker, { meleeOnly: false })
+        ?? null,
       styleUuidForKnown: data.attacker?.itemUuid ?? null,
     });
   if (!selection) return;
@@ -343,9 +401,7 @@ export async function handleBlockResolve(ctx) {
   // Resolve weapon: prefer dialog selection, fall back to context/preferred weapon.
   let blockWeaponUuid = selection.weaponUuid || "";
   if (!blockWeaponUuid) {
-    blockWeaponUuid = String(data.context?.weaponUuid ?? "").trim()
-      || String(data.context?.lastWeaponUuid ?? "").trim()
-      || String(_getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? "").trim();
+    blockWeaponUuid = String(_resolveIncomingAttackWeapon(attacker, data, { isRanged })?.uuid ?? "").trim();
     if (blockWeaponUuid) {
       console.debug("UESRPG | block-resolve: selection.weaponUuid was empty, using fallback:", blockWeaponUuid);
     }
@@ -405,6 +461,16 @@ export async function handleBlockResolve(ctx) {
         reducedDamage,
         shieldName: shield?.name ?? "Shield",
       },
+      damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
+        .filter((c) => c && Number(c.amount ?? 0) > 0)
+        .map((c) => ({
+          source: c.source ?? null,
+          sourceLabel: c.sourceLabel ?? null,
+          sourceItemUuid: c.sourceItemUuid ?? null,
+          damageType: c.damageType ?? damageType,
+          amount: Number(c.amount ?? 0) || 0,
+          hitLocation: hitLocationAoE,
+        })),
       applyPayload: _buildApplyPayload({
         targetUuid: defender.uuid,
         targetName: dToken?.name ?? defender.name,
@@ -418,6 +484,16 @@ export async function handleBlockResolve(ctx) {
         attackMode,
         attackHidden,
         source: weapon.name,
+        damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
+          .filter((c) => c && Number(c.amount ?? 0) > 0)
+          .map((c) => ({
+            source: c.source ?? null,
+            sourceLabel: c.sourceLabel ?? null,
+            sourceItemUuid: c.sourceItemUuid ?? null,
+            damageType: c.damageType ?? damageType,
+            amount: Number(c.amount ?? 0) || 0,
+            hitLocation: hitLocationAoE,
+          })),
         buttonLabel: `Apply Block Damage → ${dToken?.name ?? defender.name}`,
       }),
       applied: false,
@@ -498,6 +574,16 @@ export async function handleBlockResolve(ctx) {
       shieldSplitter: Boolean(shieldSplitter),
       shieldName: shield?.name ?? "No Shield",
     },
+    damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
+      .filter((c) => c && Number(c.amount ?? 0) > 0)
+      .map((c) => ({
+        source: c.source ?? null,
+        sourceLabel: c.sourceLabel ?? null,
+        sourceItemUuid: c.sourceItemUuid ?? null,
+        damageType: c.damageType ?? damageType,
+        amount: Number(c.amount ?? 0) || 0,
+        hitLocation: resolvedShieldArm,
+      })),
     applyPayload: _buildApplyPayload({
       targetUuid: defender.uuid,
       targetName: dToken?.name ?? defender.name,
@@ -511,6 +597,16 @@ export async function handleBlockResolve(ctx) {
       attackMode,
       attackHidden: data.context?.attackFromHidden === true,
       source: weapon.name,
+      damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
+        .filter((c) => c && Number(c.amount ?? 0) > 0)
+        .map((c) => ({
+          source: c.source ?? null,
+          sourceLabel: c.sourceLabel ?? null,
+          sourceItemUuid: c.sourceItemUuid ?? null,
+          damageType: c.damageType ?? damageType,
+          amount: Number(c.amount ?? 0) || 0,
+          hitLocation: resolvedShieldArm,
+        })),
       buttonLabel: `Apply Block Damage → ${dToken?.name ?? defender.name}`,
     }),
     applied: false,
@@ -536,7 +632,10 @@ export async function handleWardResolve(ctx) {
   }
 
   const outcome = _getDefenderOutcome(data, data.defender);
-  if (!outcome || outcome.winner !== "defender" || (data.defender.defenseType ?? "none") !== "ward") {
+  const defType = String(data.defender?.defenseType ?? "none").toLowerCase();
+  const blockSource = String(data.defender?.blockSource ?? "").toLowerCase();
+  const isWardDefense = (defType === "ward") || (defType === "block" && blockSource === "ward");
+  if (!outcome || outcome.winner !== "defender" || !isWardDefense) {
     ui.notifications.warn("Ward resolution is only available when the defender wins by warding.");
     return;
   }
@@ -584,13 +683,8 @@ export async function handleWardResolve(ctx) {
   const isRanged = hasExplicitContextMode
     ? String(attackMode ?? "").toLowerCase() === "ranged"
     : String(ctxWeaponMode ?? "").toLowerCase() === "ranged";
-  const rangedWeapon = isRanged ? (selectEquippedRangedWeapon(attacker) ?? null) : null;
-  const rangedWeaponUuid = isRanged
-    ? (String(data.context?.weaponUuid ?? "").trim()
-      || String(data.context?.lastWeaponUuid ?? "").trim()
-      || String(rangedWeapon?.uuid ?? "")
-      || String(_getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? "").trim())
-    : "";
+  const rangedWeapon = isRanged ? _resolveIncomingAttackWeapon(attacker, data, { isRanged: true }) : null;
+  const rangedWeaponUuid = isRanged ? String(rangedWeapon?.uuid ?? "").trim() : "";
 
   if (isRanged && !rangedWeaponUuid) {
     ui.notifications.warn("No equipped ranged weapon could be resolved for this attack.");
@@ -606,7 +700,10 @@ export async function handleWardResolve(ctx) {
       advantageCount: 0,
       attackerTokenUuid: data.attacker?.tokenUuid ?? null,
       opponentTokenUuid: data.defender?.tokenUuid ?? null,
-      defaultWeaponUuid: data.context?.lastWeaponUuid ?? _getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? null,
+      defaultWeaponUuid: _resolveIncomingAttackWeapon(attacker, data, { isRanged })?.uuid
+        ?? data.context?.lastWeaponUuid
+        ?? _getPreferredWeaponUuid(attacker, { meleeOnly: false })
+        ?? null,
       styleUuidForKnown: data.attacker?.itemUuid ?? null,
     });
   if (!selection) return;
@@ -627,9 +724,7 @@ export async function handleWardResolve(ctx) {
   // Resolve weapon: prefer dialog selection, fall back to context/preferred weapon.
   let wardWeaponUuid = selection.weaponUuid || "";
   if (!wardWeaponUuid) {
-    wardWeaponUuid = String(data.context?.weaponUuid ?? "").trim()
-      || String(data.context?.lastWeaponUuid ?? "").trim()
-      || String(_getPreferredWeaponUuid(attacker, { meleeOnly: false }) ?? "").trim();
+    wardWeaponUuid = String(_resolveIncomingAttackWeapon(attacker, data, { isRanged })?.uuid ?? "").trim();
     if (wardWeaponUuid) {
       console.debug("UESRPG | ward-resolve: selection.weaponUuid was empty, using fallback:", wardWeaponUuid);
     }
@@ -697,6 +792,16 @@ export async function handleWardResolve(ctx) {
         wardBR,
         wardName,
       },
+      damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
+        .filter((c) => c && Number(c.amount ?? 0) > 0)
+        .map((c) => ({
+          source: c.source ?? null,
+          sourceLabel: c.sourceLabel ?? null,
+          sourceItemUuid: c.sourceItemUuid ?? null,
+          damageType: c.damageType ?? damageType,
+          amount: Number(c.amount ?? 0) || 0,
+          hitLocation: hitLocationAoE,
+        })),
       applyPayload: _buildApplyPayload({
         targetUuid: defender.uuid,
         targetName: dToken?.name ?? defender.name,
@@ -710,6 +815,16 @@ export async function handleWardResolve(ctx) {
         attackMode,
         attackHidden,
         source: weapon.name,
+        damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
+          .filter((c) => c && Number(c.amount ?? 0) > 0)
+          .map((c) => ({
+            source: c.source ?? null,
+            sourceLabel: c.sourceLabel ?? null,
+            sourceItemUuid: c.sourceItemUuid ?? null,
+            damageType: c.damageType ?? damageType,
+            amount: Number(c.amount ?? 0) || 0,
+            hitLocation: hitLocationAoE,
+          })),
         buttonLabel: `Apply Ward Damage → ${dToken?.name ?? defender.name}`,
       }),
       applied: false,
@@ -772,6 +887,16 @@ export async function handleWardResolve(ctx) {
       wardBR,
       wardName,
     },
+    damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
+      .filter((c) => c && Number(c.amount ?? 0) > 0)
+      .map((c) => ({
+        source: c.source ?? null,
+        sourceLabel: c.sourceLabel ?? null,
+        sourceItemUuid: c.sourceItemUuid ?? null,
+        damageType: c.damageType ?? damageType,
+        amount: Number(c.amount ?? 0) || 0,
+        hitLocation: resolvedWardArm,
+      })),
     applyPayload: _buildApplyPayload({
       targetUuid: defender.uuid,
       targetName: dToken?.name ?? defender.name,
@@ -785,6 +910,16 @@ export async function handleWardResolve(ctx) {
       attackMode,
       attackHidden: data.context?.attackFromHidden === true,
       source: weapon.name,
+      damageComponents: [dmg.weaponComponent, dmg.ammoComponent]
+        .filter((c) => c && Number(c.amount ?? 0) > 0)
+        .map((c) => ({
+          source: c.source ?? null,
+          sourceLabel: c.sourceLabel ?? null,
+          sourceItemUuid: c.sourceItemUuid ?? null,
+          damageType: c.damageType ?? damageType,
+          amount: Number(c.amount ?? 0) || 0,
+          hitLocation: resolvedWardArm,
+        })),
       buttonLabel: `Apply Ward Damage → ${dToken?.name ?? defender.name}`,
     }),
     applied: false,

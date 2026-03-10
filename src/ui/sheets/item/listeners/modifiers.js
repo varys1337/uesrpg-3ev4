@@ -13,22 +13,24 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
  */
 export function onModifierCreate(sheet, event) {
   event.preventDefault();
+  const itemDoc = sheet.document;
+  const actorDoc = itemDoc?.actor ?? null;
   // Return if not embedded onto Actor
-  if (!sheet.document.isEmbedded) return;
+  if (!itemDoc?.isEmbedded) return;
 
   // Create Options for Dropdown
   const modifierOptions = [];
-  if (sheet.actor && sheet.actor.type === "Player Character") {
+  if (actorDoc && actorDoc.type === "Player Character") {
     const skills = [
-      ...(sheet.actor.itemTypes?.skill ?? []),
-      ...(sheet.actor.itemTypes?.magicSkill ?? []),
-      ...(sheet.actor.itemTypes?.combatStyle ?? [])
+      ...(actorDoc.itemTypes?.skill ?? []),
+      ...(actorDoc.itemTypes?.magicSkill ?? []),
+      ...(actorDoc.itemTypes?.combatStyle ?? [])
     ];
     for (const skill of skills) modifierOptions.push(`<option value="${skill.name}">${skill.name}</option>`);
   }
 
-  if (sheet.actor && sheet.actor.type === "NPC") {
-    for (const profession in sheet.actor.system.professions) {
+  if (actorDoc && actorDoc.type === "NPC") {
+    for (const profession in actorDoc.system.professions) {
       modifierOptions.push(`<option value="${profession}">${profession}</option>`);
     }
   }
@@ -38,7 +40,7 @@ export function onModifierCreate(sheet, event) {
     title: "Create Modifier",
     content: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
       <div style="background: rgba(180, 180, 180, 0.562); border: solid 1px; padding: 10px; font-style: italic;">
-        ${sheet.item.name} can apply a bonus or penalty to various skills of the character that has possession of it.
+        ${itemDoc.name} can apply a bonus or penalty to various skills of the character that has possession of it.
         Select a skill, then apply the modifier.
       </div>
       <div style="padding: 5px; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 5px; text-align: center;">
@@ -57,9 +59,9 @@ export function onModifierCreate(sheet, event) {
           const val = html.querySelector("#modifier-value");
           if (!sel || !val) return;
 
-          const current = Array.isArray(sheet.item?.system?.skillArray) ? foundry.utils.deepClone(sheet.item.system.skillArray) : [];
+          const current = Array.isArray(itemDoc?.system?.skillArray) ? foundry.utils.deepClone(itemDoc.system.skillArray) : [];
           const next = current.concat([{ name: sel.value, value: Number(val.value || 0) }]);
-          sheet.item.update({ "system.skillArray": next });
+          itemDoc.update({ "system.skillArray": next });
         }
       }
     },
@@ -68,15 +70,19 @@ export function onModifierCreate(sheet, event) {
 }
 
 /**
- * Create modifier entry DOM elements in the sheet
+ * @deprecated V1 DOM-injection pattern — superseded by Handlebars template rendering.
+ * In AppV2 sheets, `item.system.skillArray` entries are rendered by the item template;
+ * this function is retained only for legacy callers and must NOT be called from V2 sheets.
  *
  * @param {ItemSheet} sheet
  */
 export function createModifierEntries(sheet) {
-  if (!sheet.item || !sheet.item.system || !Array.isArray(sheet.item.system.skillArray)) return;
+  const itemDoc = sheet.document;
+  const actorDoc = itemDoc?.actor ?? null;
+  if (!itemDoc?.system || !Array.isArray(itemDoc.system.skillArray)) return;
 
-  for (const entry of sheet.item.system.skillArray) {
-    let modItem = sheet.actor ? sheet.actor.items.getName(entry.name) : null;
+  for (const entry of itemDoc.system.skillArray) {
+    let modItem = actorDoc ? actorDoc.items.getName(entry.name) : null;
     modItem = modItem || entry.name;
 
     const entryElement = document.createElement("div");
@@ -104,30 +110,16 @@ export function createModifierEntries(sheet) {
  */
 export async function onDeleteModifier(sheet, event) {
   event.preventDefault();
+  const itemDoc = sheet.document;
   const element = event.currentTarget;
   const modEntry = element.closest(".grid-container");
-  if (!modEntry || !sheet.item || !sheet.item.system || !Array.isArray(sheet.item.system.skillArray)) return;
+  if (!modEntry || !itemDoc?.system || !Array.isArray(itemDoc.system.skillArray)) return;
 
   const id = modEntry.getAttribute("id");
   if (!id) return;
 
-  const current = foundry.utils.deepClone(sheet.item.system.skillArray);
+  const current = foundry.utils.deepClone(itemDoc.system.skillArray);
   const next = current.filter(e => e?.name !== id);
   if (next.length === current.length) return;
-  await sheet.item.update({ "system.skillArray": next });
-}
-
-/**
- * Register modifier-related listeners
- *
- * @param {ItemSheet} sheet
- * @param {jQuery} html
- */
-export function registerModifierListeners(sheet, html) {
-  // Register listeners for items that have modifier arrays
-  if (sheet.item && sheet.item.system && Object.prototype.hasOwnProperty.call(sheet.item.system, "skillArray")) {
-    html.find(".modifier-create").click((ev) => onModifierCreate(sheet, ev));
-    createModifierEntries(sheet);
-    html.find(".item-delete").click((ev) => onDeleteModifier(sheet, ev));
-  }
+  await itemDoc.update({ "system.skillArray": next });
 }

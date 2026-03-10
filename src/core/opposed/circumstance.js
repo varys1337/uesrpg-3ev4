@@ -1,32 +1,32 @@
 /**
  * Shared circumstance modifier helpers for opposed and casting dialogs.
+ * Labels are resolved from CIRCUMSTANCE_MOD_LABELS in label-catalog.js.
  */
 
-export const CIRCUMSTANCE_OPTIONS = Object.freeze([
-  { value: 30, label: "Major Advantage (+30)" },
-  { value: 20, label: "Advantage (+20)" },
-  { value: 10, label: "Minor Advantage (+10)" },
-  { value: 0, label: "\u2014" },
-  { value: -10, label: "Minor Disadvantage (-10)" },
-  { value: -20, label: "Disadvantage (-20)" },
-  { value: -30, label: "Major Disadvantage (-30)" }
-]);
+import { CIRCUMSTANCE_MOD_LABELS } from "../config/label-catalog.js";
+
+/**
+ * Valid circumstance modifier values (ordered for dropdown rendering).
+ * Labels for each value live in CIRCUMSTANCE_MOD_LABELS.
+ */
+export const CIRCUMSTANCE_OPTIONS = Object.freeze([30, 20, 10, 0, -10, -20, -30]);
 
 export function normalizeCircumstanceMod(value, fallback = 0) {
   const n = Number(value);
   if (!Number.isFinite(n)) return Number(fallback) || 0;
-  return CIRCUMSTANCE_OPTIONS.some((opt) => opt.value === n) ? n : (Number(fallback) || 0);
+  return CIRCUMSTANCE_OPTIONS.includes(n) ? n : (Number(fallback) || 0);
 }
 
 export function circumstanceLabel(value) {
   const normalized = normalizeCircumstanceMod(value, 0);
-  return CIRCUMSTANCE_OPTIONS.find((opt) => opt.value === normalized)?.label ?? "\u2014";
+  return CIRCUMSTANCE_MOD_LABELS[normalized] ?? "\u2014";
 }
 
 export function buildCircumstanceOptionsHtml(selectedValue = 0) {
   const normalized = normalizeCircumstanceMod(selectedValue, 0);
-  return CIRCUMSTANCE_OPTIONS.map((opt) => {
-    const selected = opt.value === normalized ? "selected" : "";
-    return `<option value="${opt.value}" ${selected}>${opt.label}</option>`;
+  return CIRCUMSTANCE_OPTIONS.map((value) => {
+    const selected = value === normalized ? "selected" : "";
+    const label = CIRCUMSTANCE_MOD_LABELS[value] ?? String(value);
+    return `<option value="${value}" ${selected}>${label}</option>`;
   }).join("\n");
 }

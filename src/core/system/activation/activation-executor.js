@@ -14,6 +14,7 @@ import { findLatestOpposedMessageByDefender, retargetOpposedMessage } from "../.
 import { grantFreeNextDefenseCommit, registerActivationStateHooks } from "../../combat/activation-state-flags.js";
 import { createSeverityDebugLogger } from "../../../utils/debug.js";
 import { _num } from "../../../utils/coerce.js";
+import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
 import { runFeatureAutomation } from "../../traits/features/feature-dispatcher.js";
 import { featureNeedsEffectTransfer, applyFeatureEffectsToTargets } from "./feature-effects.js";
@@ -683,9 +684,29 @@ async function consumeActivationUsage({ item, activation } = {}) {
   return { ok: true, consumed: true, previous: current, current: nextValue, source: usage.source, rollback: rollbackData };
 }
 
-function renderActivationCard({ item = null, actor = null, activation = {}, label = "", includeImage = false, usageOverride = null, textOverride = null } = {}) {
+function renderActivationCard({
+  item = null,
+  actor = null,
+  activation = {},
+  label = "",
+  includeImage = false,
+  usageOverride = null,
+  textOverride = null,
+  resultNotes = []
+} = {}) {
   const renderSimple = Boolean(item && activation?.renderFullCard !== true);
-  if (renderSimple) return _buildItemDescriptionHtml({ item, includeImage });
+  if (renderSimple) {
+    const baseHtml = _buildItemDescriptionHtml({ item, includeImage });
+    const notes = Array.isArray(resultNotes)
+      ? resultNotes.map((note) => String(note ?? "").trim()).filter(Boolean)
+      : [];
+    if (!notes.length) return baseHtml;
+    return `${baseHtml}
+    <div class="uesrpg-activation-results" style="margin-top:8px;padding:8px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;background:rgba(0,0,0,0.03);">
+      <div><b>Result</b></div>
+      <ul style="margin:6px 0 0 18px;">${notes.map((note) => `<li>${foundry.utils.escapeHTML(note)}</li>`).join("")}</ul>
+    </div>`;
+  }
 
   const actionType = getActivationActionTypeLabel(activation?.actionType ?? "action");
   const header = _buildActivationHeader({
@@ -721,9 +742,18 @@ function renderActivationCard({ item = null, actor = null, activation = {}, labe
   const textBlock = textOverride ?? {};
   const shortText = _firstNonEmptyString(textBlock.short, activation?.text?.short);
   const fullText = _firstNonEmptyString(textBlock.full, activation?.text?.full, item?.system?.description);
+  const notes = Array.isArray(resultNotes)
+    ? resultNotes.map((note) => String(note ?? "").trim()).filter(Boolean)
+    : [];
 
   const shortHtml = shortText ? `<div class="uesrpg-activation-summary"><i>${shortText}</i></div>` : "";
   const fullHtml = fullText ? `<div class="uesrpg-activation-desc"><i>${fullText}</i></div>` : "";
+  const notesHtml = notes.length
+    ? `<div class="uesrpg-activation-results" style="margin-top:8px;padding:8px;border:1px solid rgba(0,0,0,0.15);border-radius:6px;background:rgba(0,0,0,0.03);">
+      <div><b>Result</b></div>
+      <ul style="margin:6px 0 0 18px;">${notes.map((note) => `<li>${foundry.utils.escapeHTML(note)}</li>`).join("")}</ul>
+    </div>`
+    : "";
 
   return `${header}
   ${typeLine}
@@ -733,7 +763,39 @@ function renderActivationCard({ item = null, actor = null, activation = {}, labe
   ${resetHtml}
   ${shortHtml}
   <hr />
-  ${fullHtml}`;
+  ${fullHtml}
+  ${notesHtml}`;
+}
+
+async function _appendActivationResultToMessage(message, {
+  item = null,
+  actor = null,
+  activation = {},
+  label = "",
+  includeImage = false,
+  usageOverride = null,
+  note = ""
+} = {}) {
+  const text = String(note ?? "").trim();
+  if (!message || !text) return false;
+  const existingNotes = foundry.utils.getProperty(message, `flags.${SYSTEM_ID}.activationCard.resultNotes`);
+  const notes = Array.isArray(existingNotes)
+    ? existingNotes.map((entry) => String(entry ?? "").trim()).filter(Boolean)
+    : [];
+  notes.push(text);
+  const resultNotes = notes.slice(-8);
+  return safeUpdateChatMessage(message, {
+    content: renderActivationCard({
+      item,
+      actor,
+      activation,
+      label,
+      includeImage,
+      usageOverride,
+      resultNotes
+    }),
+    [`flags.${SYSTEM_ID}.activationCard.resultNotes`]: resultNotes
+  });
 }
 
 export async function executeActivation({
@@ -1063,6 +1125,7 @@ export async function executeItemActivation({
   let attackContext = null;
   let mergedContext = context;
   let usageResult = { ok: true };
+  let activationMessage = null;
 
   // ── Activation mechanics (costs, validation, attack workflow) ──
   // Only run when activation.enabled is true; non-activated features skip
@@ -1126,7 +1189,7 @@ export async function executeItemActivation({
     const whisper = (featureConfig?.visibility === "gmOnly")
       ? (game.users?.filter((u) => u?.isGM).map((u) => u.id) ?? [])
       : [];
-    await ChatMessage.create({
+    activationMessage = await ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
       content,
@@ -1158,12 +1221,26 @@ export async function executeItemActivation({
           const result = await applyFeatureEffectsToTargets(actor, item, targetActors, { featureConfig: fcfg });
           if (result.targets.length) {
             const names = result.targets.join(", ");
-            await ChatMessage.create({
-              user: game.user.id,
-              speaker: ChatMessage.getSpeaker({ actor }),
-              content: `<div class="uesrpg"><b>${item.name}</b>: Applied ${result.applied} effect(s) to ${names}.</div>`,
-              style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-            });
+            const note = `Applied ${result.applied} effect(s) to ${names}.`;
+            const updated = activationMessage
+              ? await _appendActivationResultToMessage(activationMessage, {
+                  item,
+                  actor,
+                  activation,
+                  label,
+                  includeImage,
+                  usageOverride: usageResult,
+                  note
+                })
+              : false;
+            if (!updated) {
+              await ChatMessage.create({
+                user: game.user.id,
+                speaker: ChatMessage.getSpeaker({ actor }),
+                content: `<div class="uesrpg"><b>${item.name}</b>: ${note}</div>`,
+                style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+              });
+            }
           }
         } catch (err) {
           console.warn(`${SYSTEM_ID} | Feature effect transfer failed`, { item: item?.name, err });

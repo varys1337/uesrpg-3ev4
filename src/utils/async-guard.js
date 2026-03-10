@@ -57,7 +57,7 @@ export function asyncGuard(handler, { busyClass = "uesrpg-busy" } = {}) {
     if (busyClass && target.classList) target.classList.add(busyClass);
 
     try {
-      await handler.call(this, event, ...args);
+      return await handler.call(this, event, ...args);
     } catch (err) {
       console.error("UESRPG | Async handler error:", err);
     } finally {
@@ -90,7 +90,7 @@ export function asyncGuardSheet(handler, { busyClass = "uesrpg-busy" } = {}) {
     if (busyClass && el.classList) el.classList.add(busyClass);
 
     try {
-      await handler.call(this, event, target, ...rest);
+      return await handler.call(this, event, target, ...rest);
     } catch (err) {
       console.error("UESRPG | Async handler error:", err);
     } finally {

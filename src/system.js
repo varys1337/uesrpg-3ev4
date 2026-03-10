@@ -12,9 +12,60 @@ import {
   hasStaminaEffect
 } from "./core/stamina/stamina-integration-hooks.js";
 import { AttackTracker } from "./core/combat/attack-tracker.js";
-import { initializeTimeService } from "./core/time/index.js";
+import { initializeTimeService, initializeCombatBoundaryOrchestrator } from "./core/time/index.js";
 import { isDebugEnabled } from "./utils/debug.js";
 import { initSettingsCache } from "./core/config/settings-cache.js";
+import { SYSTEM_ID } from "./core/system/namespace.js";
+
+const _TIME_SETTINGS_MIGRATION_KEY = "timeDefaultsCompositeOrchestratorV1";
+
+function _hasStoredWorldSetting(key) {
+  try {
+    const storage = game?.settings?.storage?.get?.("world");
+    if (!storage || typeof storage.has !== "function") return false;
+    return storage.has(`${SYSTEM_ID}.${String(key ?? "").trim()}`);
+  } catch (_e) {
+    return false;
+  }
+}
+
+async function _migrateTimeDefaultsSafely() {
+  if (!game.user?.isGM) return;
+
+  let state = {};
+  try {
+    const raw = String(game.settings.get(SYSTEM_ID, "migrationState") ?? "{}");
+    const parsed = JSON.parse(raw);
+    state = (parsed && typeof parsed === "object") ? parsed : {};
+  } catch (_e) {
+    state = {};
+  }
+
+  if (state?.[_TIME_SETTINGS_MIGRATION_KEY]) return;
+
+  const changed = [];
+  const targets = ["compositeBoundaryTickEnabled", "useCombatBoundaryOrchestrator"];
+  for (const key of targets) {
+    if (_hasStoredWorldSetting(key)) continue; // Respect explicit world choices.
+    try {
+      await game.settings.set(SYSTEM_ID, key, true);
+      changed.push(key);
+    } catch (err) {
+      console.warn(`UESRPG | Failed setting migration for "${key}"`, err);
+    }
+  }
+
+  state[_TIME_SETTINGS_MIGRATION_KEY] = {
+    appliedAt: Date.now(),
+    changedKeys: changed
+  };
+
+  try {
+    await game.settings.set(SYSTEM_ID, "migrationState", JSON.stringify(state));
+  } catch (err) {
+    console.warn("UESRPG | Failed to persist time settings migration state", err);
+  }
+}
 
 Hooks.once('ready', async function () {
   console.log(`UESRPG | Ready`);
@@ -62,11 +113,24 @@ Hooks.once('ready', async function () {
     }
   }
 
+  // Safe default migration for boundary-time optimizations.
+  // Enables new defaults only when a world has not explicitly stored those keys.
+  await _migrateTimeDefaultsSafely();
+
   await startupHandler();
 
   // Populate the hot-settings cache (showFeatureInspector, useRawChargenWizard).
   // Must run after startupHandler so all settings are guaranteed registered.
   initSettingsCache();
+
+  // Initialize the round-boundary perf API (game.uesrpg.perf).
+  // Only allocates the API surface; no overhead when timePerformanceDebug is off.
+  try {
+    const { initializePerfApi } = await import("./utils/perf-tracker.js");
+    initializePerfApi();
+  } catch (err) {
+    console.warn("UESRPG | Failed to initialize perf API", err);
+  }
 
   // Optional Chapter 4 compliance audit on startup (GM only).
   try {
@@ -104,7 +168,7 @@ Hooks.once('ready', async function () {
     { initializeOriginAELifecycle },
     { initializeSpellTickEngine, registerZoneTickHandler },
     { initializeOverTimeEngine },
-    { initializeRuneTriggerService },
+    { initializeRuneTriggerService, seedRuneRegistry },
     { initializeConditionTriggers },
     { initializeSummonBinding },
     { initializeMindlockHook },
@@ -115,10 +179,11 @@ Hooks.once('ready', async function () {
     { initializeDrainService },
     { initializeUtilitySpellsService },
     { initializeCharacteristicDefenseService },
-    { initializeCloakTickHandler },
-    // Magic opposed workflow has no initialize() export вЂ” importing it eagerly
+    { initializeCloakTickHandler, seedCloakRegistry },
+    // Magic opposed workflow has no initialize() export вЂ" importing it eagerly
     // registers its renderChatMessageHTML hook so existing chat cards survive reload.
-    _magicOpposed
+    _magicOpposed,
+    { seedZoneRegistry }
   ] = await Promise.all([
     import("./core/magic/upkeep-workflow.js"),
     import("./core/magic/effects/spell-effect-expiration.js"),
@@ -137,7 +202,8 @@ Hooks.once('ready', async function () {
     import("./core/magic/services/utility-spells-service.js"),
     import("./core/magic/characteristic-defense-service.js"),
     import("./core/magic/ticks/cloak-tick-handler.js"),
-    import("./core/magic/opposed-workflow.js")
+    import("./core/magic/opposed-workflow.js"),
+    import("./core/magic/spell-runtime.js")
   ]);
 
   // Initialize spell upkeep system
@@ -166,7 +232,7 @@ Hooks.once('ready', async function () {
   // Initialize generic Mindlock hook (non-summon spells with mindlockValue)
   initializeMindlockHook();
 
-  // Initialize bound item service (Conjure [Weapon/Armor] lifecycle вЂ” legacy flag-based)
+  // Initialize bound item service (Conjure [Weapon/Armor] lifecycle вЂ" legacy flag-based)
   initializeBoundItemService();
 
   // Initialize conjuration runtime (engine.conjure-based item conjuring & creature summoning)
@@ -189,6 +255,38 @@ Hooks.once('ready', async function () {
 
   // Initialize cloak tick handler (AoE aura tick damage at end of turn)
   initializeCloakTickHandler();
+
+  // Seed indexed runtime registries (Milestone D).
+  // Each call: rebuilds its registry from live actor data, then installs AE
+  // lifecycle hooks for incremental maintenance. All three are idempotent.
+  // Registry use is gated per-setting (useZoneRegistry / useRuneRegistry /
+  // useCloakRegistry); seeding always runs so data is ready if a setting is
+  // toggled mid-session.
+  seedZoneRegistry();
+  seedRuneRegistry();
+  seedCloakRegistry();
+
+  // Expose GM debug rebuild utilities on game.uesrpg.magic.
+  if (game.user?.isGM) {
+    if (!game.uesrpg) game.uesrpg = {};
+    if (!game.uesrpg.magic) game.uesrpg.magic = {};
+    try {
+      const { rebuildZoneRegistry } = await import("./core/magic/spell-runtime.js");
+      const { rebuildRuneRegistry } = await import("./core/magic/services/rune-trigger-service.js");
+      game.uesrpg.magic.rebuildZoneRegistry = rebuildZoneRegistry;
+      game.uesrpg.magic.rebuildRuneRegistry = rebuildRuneRegistry;
+    } catch (_e) { /* non-blocking */ }
+
+    // Expose boundary scheduler utilities for GM console access.
+    try {
+      const { flushBoundaryWorkQueue, getBoundaryWorkQueueSize } = await import("./core/time/boundary-work-scheduler.js");
+      const { rebuildRoundStartCandidateRegistry } = await import("./core/conditions/round-start-candidate-registry.js");
+      if (!game.uesrpg.combat) game.uesrpg.combat = {};
+      game.uesrpg.combat.flushBoundaryQueue = flushBoundaryWorkQueue;
+      game.uesrpg.combat.getBoundaryQueueSize = getBoundaryWorkQueueSize;
+      game.uesrpg.combat.rebuildRoundStartCandidateRegistry = rebuildRoundStartCandidateRegistry;
+    } catch (_e) { /* non-blocking */ }
+  }
 
   // Initialize alchemy runtime (drink/apply/on-hit/round-tick hooks).
   // Alchemy is a core mechanic: runtime automation is always active.
@@ -236,6 +334,7 @@ Hooks.once("init", async function() {
 
   // Initialize system-wide time API
   initializeTimeService();
+  initializeCombatBoundaryOrchestrator();
 
   // Expose AoE service (universal template placement)
   const { AoEService } = await import("./core/aoe/index.js");
@@ -345,6 +444,10 @@ Hooks.once("init", async function() {
   // Expose Treat Wounds macro API (game.uesrpg.wounds.openTreatWoundsMacro)
   const { registerTreatWoundsMacroApi } = await import("./macros/treat-wounds.js");
   registerTreatWoundsMacroApi();
+
+  // Expose XP macro API (game.uesrpg.xp.awardToSelectedPcs)
+  const { registerAwardXpMacroApi } = await import("./macros/award-xp.js");
+  registerAwardXpMacroApi();
 
   // Expose Alchemy Workshop API (game.uesrpg.alchemy.openWorkshop + drinkPotion + applyToWeapon + effects)
   // ⚠️ Import from core/alchemy/index.js — the authoritative registration point that exposes

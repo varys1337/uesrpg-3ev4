@@ -1,0 +1,67 @@
+{{!-- Shield Sheet --}}
+<header class="item-compact-header">
+    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
+    <div class="item-header-fields">
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+        <div class="item-stats-row item-stats-row--weapon-armor">
+            <div class="item-stats-grid item-stats-grid--two-rows">
+                <div class="item-stat"><input type="number" name="system.quantity" value="{{item.system.quantity}}"/><span class="item-stat-label">Quantity</span></div>
+                <div class="item-stat"><input type="number" name="system.enc" value="{{item.system.enc}}"/><span class="item-stat-label">ENC</span></div>
+                <div class="item-stat"><input type="number" name="system.price" value="{{item.system.price}}"/><span class="item-stat-label">Price</span></div>
+                <div class="item-stat"><input type="number" name="system.blockRating" value="{{item.system.blockRating}}"/><span class="item-stat-label">Block</span></div>
+                <div class="item-stat"><input type="number" name="system.magic_br" value="{{item.system.magic_br}}"/><span class="item-stat-label">Magic BR</span></div>
+            </div>
+            <div class="item-stat item-stat--equipped-side">
+                <input class="checkbox" type="checkbox" name="system.equipped" {{checked item.system.equipped}}>
+                <span class="item-stat-label">Equipped</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+<nav class="sheet-tabs tabs" data-group="primary">
+    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+</nav>
+
+<section class="sheet-body">
+    <div class="tab" data-group="primary" data-tab="description">
+        <div class="item-description-container">
+            <div class="basic-padding">
+                {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+            </div>
+        </div>
+    </div>
+
+    <div class="tab" data-group="primary" data-tab="attributes">
+        <div class="attribute-tab-container">
+            <div class="item-selection-container">
+                <h2>Attributes</h2>
+                <div class="selection-container enchanting-compact-grid">
+                    <div class="armor-attributes-container">
+                        <div class="armor-attributes-section">
+                            <h3>Quality</h3>
+                            <div class="weapon-field-row"><label>Quality</label><select name="system.qualityLevel">{{selectOptions weaponQualityOptions selected=item.system.qualityLevel}}</select></div>
+                            <div class="weapon-field-row"><label>Runed</label><input class="checkbox" type="checkbox" name="system.runed" {{checked item.system.runed}}></div>
+                        </div>
+                        <div class="armor-attributes-section">
+                            <h3>Type</h3>
+                            <div class="weapon-field-row"><label>Shield Type</label><select name="system.shieldType">{{selectOptions shieldTypeOptions selected=item.system.shieldType}}</select></div>
+                        </div>
+                        <div class="armor-attributes-section">
+                            <h3>Weight</h3>
+                            <div class="weapon-field-row"><label>Weight Class</label><select name="system.weightClass">{{selectOptions armorWeightClassOptions selected=item.system.weightClass}}</select></div>
+                            <div class="weapon-field-row"><label>Effective Weight Class</label><input type="text" value="{{#if item.system.weightClassEffective}}{{item.system.weightClassEffective}}{{else}}{{item.system.effectiveWeightClass}}{{/if}}" disabled></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="tab effects" data-group="primary" data-tab="effects">
+        {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+    </div>
+</section>

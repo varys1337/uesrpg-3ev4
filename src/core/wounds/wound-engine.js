@@ -12,7 +12,7 @@
  * All behavior is unchanged; this refactor improves modularity and testability.
  */
 
-import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { registerWoundSocket, requestWoundsGM } from "./wound-socket.js";
 import { registerWoundCombatTicker } from "./wound-ticker.js";
 import { normalizeHitLocation, isActiveGMUser } from "./wound-schema.js";
@@ -31,7 +31,7 @@ import {
 } from "./engine/calc.js";
 
 import { makeEffect } from "./engine/format.js";
-import { getWoundState, isDerivedWounded, resolveActorLike, WOUND_STATES } from "./engine/state.js";
+import { getWoundState, isDerivedWounded, resolveActorLike, getBloodLossStatus, WOUND_STATES } from "./engine/state.js";
 
 import {
   applyShockUnconditional,
@@ -468,11 +468,45 @@ export async function treatWound(actorLike, effectId, meta = {}) {
 export async function treatAllWounds(actorLike) {
   const actor = await resolveActorLike(actorLike);
   if (!actor) return;
+  const treatedAt = Date.now();
+  const updates = [];
   for (const ef of findEffectsByKind(actor, "wound")) {
     const data = ef.getFlag(FLAG_SCOPE, "wounds") ?? {};
     if (data.treated === true) continue;
-    await treatWound(actor, ef.id, {});
+    updates.push({
+      _id: ef.id,
+      [`${FLAG_PATH}.wounds.treated`]: true,
+      [`${FLAG_PATH}.wounds.treatedAt`]: treatedAt,
+      [`${FLAG_PATH}.wounds.progress`]: 0,
+      [`${FLAG_PATH}.wounds.treatedBy`]: "",
+      [`${FLAG_PATH}.wounds.treatmentMethod`]: "medicine",
+      [`${FLAG_PATH}.wounds.gmOverride`]: false,
+      [`${FLAG_PATH}.wounds.treatmentDurationHours`]: 1
+    });
   }
+  if (!updates.length) return;
+  try {
+    const ok = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", updates);
+    if (!ok) {
+      for (const update of updates) {
+        const live = actor.effects?.get?.(String(update._id)) ?? null;
+        if (!live) continue;
+        const fallback = { ...update };
+        delete fallback._id;
+        await requestUpdateDocument(live, fallback);
+      }
+    }
+  } catch (err) {
+    console.warn("UESRPG | Failed to batch treat wounds", err);
+    for (const update of updates) {
+      const live = actor.effects?.get?.(String(update._id)) ?? null;
+      if (!live) continue;
+      const fallback = { ...update };
+      delete fallback._id;
+      await requestUpdateDocument(live, fallback);
+    }
+  }
+  await enforceWoundInvariants(actor, { context: "treatAllWounds" });
 }
 
 export async function attemptFirstAid(actorLike, { healerActor = null, skill = null, hasKit = null, bypass = false } = {}) {
@@ -832,15 +866,43 @@ export async function attemptTreatAllWounds(actorLike, { healerActor = null, has
   }
   if (!passed) return { ok: false, reason: "failedTest", tn };
 
-  let treated = 0;
-  for (const ef of wounds) {
-    await treatWound(actor, ef.id, {
-      treatedBy: healer?.id ?? healer?.name ?? "",
-      method: "profession-medicine",
-      gmOverride: bypass === true
-    });
-    treated++;
+  const treatedAt = Date.now();
+  const updates = wounds.map((ef) => ({
+    _id: ef.id,
+    [`${FLAG_PATH}.wounds.treated`]: true,
+    [`${FLAG_PATH}.wounds.treatedAt`]: treatedAt,
+    [`${FLAG_PATH}.wounds.progress`]: 0,
+    [`${FLAG_PATH}.wounds.treatedBy`]: String(healer?.id ?? healer?.name ?? ""),
+    [`${FLAG_PATH}.wounds.treatmentMethod`]: "profession-medicine",
+    [`${FLAG_PATH}.wounds.gmOverride`]: bypass === true,
+    [`${FLAG_PATH}.wounds.treatmentDurationHours`]: 1
+  }));
+
+  if (updates.length) {
+    try {
+      const ok = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", updates);
+      if (!ok) {
+        for (const update of updates) {
+          const live = actor.effects?.get?.(String(update._id)) ?? null;
+          if (!live) continue;
+          const fallback = { ...update };
+          delete fallback._id;
+          await requestUpdateDocument(live, fallback);
+        }
+      }
+    } catch (err) {
+      console.warn("UESRPG | Failed to batch attemptTreatAllWounds updates", err);
+      for (const update of updates) {
+        const live = actor.effects?.get?.(String(update._id)) ?? null;
+        if (!live) continue;
+        const fallback = { ...update };
+        delete fallback._id;
+        await requestUpdateDocument(live, fallback);
+      }
+    }
   }
+  const treated = updates.length;
+  await enforceWoundInvariants(actor, { context: "attemptTreatAllWounds" });
   await _postWoundWorkflowCard({
     title: "Treat Wounds",
     actor,
@@ -895,9 +957,9 @@ export function getWoundManagerData(actorLike) {
   const actor = (actorLike?.documentName === "Actor") ? actorLike : null;
   if (!actor) return null;
   const wounds = findEffectsByKind(actor, "wound");
-  const bloodLoss = findFirstEffectByKind(actor, "bloodLoss");
   const forestall = findFirstEffectByKind(actor, "forestall");
   const firstAidMarker = findFirstEffectByKind(actor, "firstAid");
+  const bloodLossStatus = getBloodLossStatus(actor);
   const state = getWoundState(actor);
   const rows = wounds.map((ef) => {
     const w = ef.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
@@ -918,7 +980,10 @@ export function getWoundManagerData(actorLike) {
     state,
     label: _buildWoundStatusLabel(state),
     hasWounds: rows.length > 0,
-    bloodLossRounds: Math.max(0, Number(bloodLoss?.getFlag?.(FLAG_SCOPE, "wounds")?.remainingRounds ?? 0) || 0),
+    bloodLossRounds: bloodLossStatus.remainingRounds,
+    bloodLossPaused: bloodLossStatus.paused,
+    bloodLossPauseReason: bloodLossStatus.pauseReason,
+    bloodLossPauseLabel: bloodLossStatus.pauseLabel,
     forestallRounds: Math.max(0, Number(forestall?.getFlag?.(FLAG_SCOPE, "wounds")?.remainingRounds ?? 0) || 0),
     hasFirstAid: Boolean(firstAidMarker),
     wounds: rows
@@ -937,15 +1002,42 @@ export async function stabilize(actorLike) {
   const now = Date.now();
   let stabilizedWounds = 0;
 
+  const woundUpdates = [];
   for (const ef of findEffectsByKind(actor, "wound")) {
+    woundUpdates.push({
+      _id: ef.id,
+      [`${FLAG_PATH}.wounds.stabilized`]: true,
+      [`${FLAG_PATH}.wounds.stabilizedAt`]: now
+    });
+  }
+
+  if (woundUpdates.length) {
     try {
-      await requestUpdateDocument(ef, {
-        [`${FLAG_PATH}.wounds.stabilized`]: true,
-        [`${FLAG_PATH}.wounds.stabilizedAt`]: now
-      });
-      stabilizedWounds++;
+      const ok = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", woundUpdates);
+      if (ok) {
+        stabilizedWounds = woundUpdates.length;
+      } else {
+        for (const update of woundUpdates) {
+          const live = actor.effects?.get?.(String(update._id)) ?? null;
+          if (!live) continue;
+          const fallback = { ...update };
+          delete fallback._id;
+          await requestUpdateDocument(live, fallback);
+          stabilizedWounds += 1;
+        }
+      }
     } catch (err) {
-      console.warn("UESRPG | Failed to mark wound stabilized", err);
+      console.warn("UESRPG | Failed to mark wounds stabilized", err);
+      for (const update of woundUpdates) {
+        const live = actor.effects?.get?.(String(update._id)) ?? null;
+        if (!live) continue;
+        const fallback = { ...update };
+        delete fallback._id;
+        try {
+          await requestUpdateDocument(live, fallback);
+          stabilizedWounds += 1;
+        } catch (_fallbackErr) {}
+      }
     }
   }
 

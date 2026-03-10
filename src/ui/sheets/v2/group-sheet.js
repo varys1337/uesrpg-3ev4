@@ -23,7 +23,6 @@ import {
 } from "../../../utils/authority-proxy.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
 import { onDropItemIntoContainer } from "../item/listeners/containment.js";
-import { asyncGuard } from "../../../utils/async-guard.js";
 import { activateEditorButtons } from "../shared/editor-activation.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
@@ -32,14 +31,23 @@ import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
 import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
+import {
+  buildAllowedChangePatch,
+  buildAllowedSubmitPatch,
+  createFormPathMatcher,
+} from "./shared/form-pipeline.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
+const ALLOWED_GROUP_FORM_PATH = createFormPathMatcher({
+  exact: ["name"],
+});
 
 export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   /** @type {number|null} Hooks.on("updateActor") handle for member refresh */
   #memberUpdateHook = null;
+  _uesrpgContextMenuHandler = null;
   _uesrpgRestoreDblClickHandler = null;
   _uesrpgRestoreDblClickEl = null;
 
@@ -97,7 +105,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     classes: ["worldbuilding", "sheet", "actor", "group", "uesrpg-sheet-root"],
     position: { width: 780, height: 900 },
     window: { resizable: true },
-    form: { submitOnChange: true },
+    form: {
+      handler: GroupSheetV2.prototype._onFormSubmit,
+      submitOnChange: false,
+      closeOnSubmit: false,
+    },
     dragDrop: [{
       dragSelector: ".member-item, .item, .npc-item",
       dropSelector: ".window-content, .sheet-body, .tab, .itemListContainer, [data-item-type='container']",
@@ -113,6 +125,10 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       itemCreate: GroupSheetV2.prototype._onItemCreate,
       itemDelete: GroupSheetV2.prototype._onItemDelete,
       itemShow: GroupSheetV2.prototype._onItemShow,
+      itemEquip: GroupSheetV2.prototype._onItemEquip,
+      plusQty: GroupSheetV2.prototype._onPlusQty,
+      minusQty: GroupSheetV2.prototype._onMinusQty,
+      duplicateItem: GroupSheetV2.prototype._onDuplicateItem,
       openContainer: GroupSheetV2.prototype._onOpenContainer,
       openDescriptionEditor: GroupSheetV2.prototype._onOpenDescriptionEditor,
       openNotesEditor: GroupSheetV2.prototype._onOpenNotesEditor,
@@ -135,6 +151,31 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /** @override */
   get title() {
     return this.document.name;
+  }
+
+  async _onChangeForm(formConfig, event) {
+    if (typeof super._onChangeForm === "function") super._onChangeForm(formConfig, event);
+    if (!this.isEditable || !this.document?.isOwner) return;
+
+    const patch = buildAllowedChangePatch({
+      document: this.document,
+      target: event?.target,
+      allowPath: ALLOWED_GROUP_FORM_PATH,
+    });
+    if (!patch) return;
+    await requestUpdateDocument(this.document, patch);
+  }
+
+  async _onFormSubmit(_event, _form, formData) {
+    if (!this.isEditable || !this.document?.isOwner) return;
+
+    const patch = buildAllowedSubmitPatch({
+      document: this.document,
+      formDataObject: formData?.object,
+      allowPath: ALLOWED_GROUP_FORM_PATH,
+    });
+    if (!patch) return;
+    await requestUpdateDocument(this.document, patch);
   }
 
   /* ────────────────────────── Render Options ─────────────────────────── */
@@ -189,6 +230,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       context.gear = sheetData.actor.gear ?? { equipped: [], unequipped: [] };
       context.weapon = sheetData.actor.weapon ?? { equipped: [], unequipped: [] };
       context.armor = sheetData.actor.armor ?? { equipped: [], unequipped: [] };
+      context.shield = sheetData.actor.shield ?? { equipped: [], unequipped: [] };
       context.ammunition = sheetData.actor.ammunition ?? { equipped: [], unequipped: [] };
       context.container = sheetData.actor.container ?? [];
 
@@ -271,48 +313,20 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       if (partId === "body") {
         bindItemDescriptionTooltips(this, htmlElement);
         enableItemRowDragSources(htmlElement, { actor: this.document });
-        htmlElement.querySelectorAll(".itemEquip").forEach(el => {
-          el.addEventListener("change", asyncGuard(async (_ev) => {
-            const itemId = el.closest(".item")?.dataset?.itemId;
-            if (!itemId) return;
-            const item = this.document.items.get(itemId);
-            if (item) await requestUpdateDocument(item, { "system.equipped": el.checked });
-          }));
-        });
 
-        htmlElement.querySelectorAll(".plusQty").forEach(el => {
-          el.addEventListener("click", asyncGuard(async (ev) => {
-            ev.preventDefault();
-            const itemId = el.closest(".item")?.dataset?.itemId;
-            if (!itemId) return;
-            const item = this.document.items.get(itemId);
-            if (!item) return;
-            await requestUpdateDocument(item, { "system.quantity": Number(item.system.quantity ?? 0) + 1 });
-          }));
-          el.addEventListener("contextmenu", asyncGuard(async (ev) => {
-            ev.preventDefault();
-            const itemId = el.closest(".item")?.dataset?.itemId;
-            if (!itemId) return;
-            const item = this.document.items.get(itemId);
-            if (!item) return;
-            const qty = Number(item.system.quantity ?? 0);
-            const next = Math.max(qty - 1, 0);
-            if (next === 0 && qty > 0) {
-              ui.notifications.info(`You have used your last ${item.name}!`);
-            }
-            await requestUpdateDocument(item, { "system.quantity": next });
-          }));
-        });
-
-        htmlElement.querySelectorAll(".item-name").forEach(el => {
-          el.addEventListener("contextmenu", async (ev) => {
-            ev.preventDefault();
-            const itemId = el.closest(".item")?.dataset?.itemId;
-            if (!itemId) return;
-            const item = this.document.items.get(itemId);
-            if (item) this.#duplicateItem(item);
-          });
-        });
+        // Contextmenu: right-click plusQty → minusQty; right-click duplicateItem suppresses
+        // browser context menu and re-fires the action. Handler memoized on this (not the
+        // element) so function identity is stable across re-renders.
+        if (!this._uesrpgContextMenuHandler) {
+          this._uesrpgContextMenuHandler = async (ev) => {
+            const root = ev.currentTarget;
+            const plus = ev.target?.closest?.("[data-action='plusQty']");
+            if (plus && root.contains(plus)) return this._onMinusQty(ev, plus);
+            const dup = ev.target?.closest?.("[data-action='duplicateItem']");
+            if (dup && root.contains(dup)) return this._onDuplicateItem(ev, dup);
+          };
+        }
+        htmlElement.addEventListener("contextmenu", this._uesrpgContextMenuHandler);
 
         // Container row: visual drag-over highlight.
         for (const containerRow of htmlElement.querySelectorAll("[data-item-type='container']")) {
@@ -348,6 +362,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       if (this._uesrpgRestoreDblClickEl && this._uesrpgRestoreDblClickHandler) {
         this._uesrpgRestoreDblClickEl.removeEventListener("dblclick", this._uesrpgRestoreDblClickHandler, true);
       }
+      this._uesrpgContextMenuHandler = null;
       this._uesrpgRestoreDblClickHandler = null;
       this._uesrpgRestoreDblClickEl = null;
       return super._onClose(options);
@@ -505,7 +520,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   /** Handle Item drag-drop (add to group inventory, route into container, or reorder) */
   async #onDropItem(event, data) {
-    const ALLOWED_ITEM_TYPES = ["weapon", "armor", "ammunition", "item", "scroll"];
+    const ALLOWED_ITEM_TYPES = ["weapon", "armor", "shield", "ammunition", "equipment", "item", "container", "scroll"];
     const traceId = makeDndTraceId("group-itemdrop");
 
     if (!this.document.isOwner) {
@@ -881,15 +896,51 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       buttons: {
         weapon: { label: "Weapon" },
         armor: { label: "Armor" },
+        shield: { label: "Shield" },
         ammunition: { label: "Ammunition" },
         container: { label: "Container" },
-        item: { label: "Item" },
+        equipment: { label: "Equipment" },
       },
     });
     if (!type) return;
 
     const name = `New ${type.charAt(0).toUpperCase() + type.slice(1)}`;
     await requestCreateEmbeddedDocuments(this.document, "Item", [{ name, type }]);
+  }
+
+  async _onItemEquip(event, target) {
+    event?.preventDefault?.();
+    if (!this.document.isOwner) return;
+    const itemId = target?.closest?.(".item")?.dataset?.itemId;
+    if (!itemId) return;
+    const item = this.document.items.get(itemId);
+    if (!item) return;
+    const next = target instanceof HTMLInputElement ? Boolean(target.checked) : !Boolean(item.system?.equipped);
+    await requestUpdateDocument(item, { "system.equipped": next });
+  }
+
+  async _onPlusQty(event, target) {
+    event?.preventDefault?.();
+    if (!this.document.isOwner) return;
+    const itemId = target?.closest?.(".item")?.dataset?.itemId;
+    if (!itemId) return;
+    const item = this.document.items.get(itemId);
+    if (!item) return;
+    const qty = Number(item.system.quantity ?? 0);
+    await requestUpdateDocument(item, { "system.quantity": qty + 1 });
+  }
+
+  async _onMinusQty(event, target) {
+    event?.preventDefault?.();
+    if (!this.document.isOwner) return;
+    const itemId = target?.closest?.(".item")?.dataset?.itemId;
+    if (!itemId) return;
+    const item = this.document.items.get(itemId);
+    if (!item) return;
+    const qty = Number(item.system.quantity ?? 0);
+    const next = Math.max(qty - 1, 0);
+    if (next === 0 && qty > 0) ui.notifications.info(`You have used your last ${item.name}!`);
+    await requestUpdateDocument(item, { "system.quantity": next });
   }
 
   /** Delete an item with confirmation and container safety */
@@ -931,6 +982,16 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (!itemId) return;
     const item = this.document.items.get(itemId);
     if (item) item.sheet.render(true);
+  }
+
+  async _onDuplicateItem(event, target) {
+    if (event?.type !== "contextmenu") return this._onItemShow(event, target);
+    event.preventDefault();
+    if (!this.document.isOwner) return;
+    const itemId = target?.closest?.(".item")?.dataset?.itemId;
+    if (!itemId) return;
+    const item = this.document.items.get(itemId);
+    if (item) await this.#duplicateItem(item);
   }
 
   /** Open a container item's sheet from the backpack icon */

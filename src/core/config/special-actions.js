@@ -25,6 +25,7 @@ export const SPECIAL_ACTIONS = Object.freeze([
   Object.freeze({ id: "disarm", name: "Disarm", actionType: "primary" }),
   Object.freeze({ id: "feint", name: "Feint", actionType: "primary" }),
   Object.freeze({ id: "forceMovement", name: "Force Movement", actionType: "primary" }),
+  Object.freeze({ id: "grapple", name: "Grapple", actionType: "primary" }),
   Object.freeze({ id: "resist", name: "Resist", actionType: "secondary" }),
   Object.freeze({ id: "trip", name: "Trip", actionType: "secondary" }),
   // Homebrew — Reach & Length Overhaul

@@ -24,9 +24,9 @@
                                 <div class="stat-value-label {{#if (gte actor.attackTrackerUi.current actor.attackTrackerUi.max)}}attack-limit-warning{{/if}}">
                                     {{#if isGM}}
                                     <div class="flex-container-input">
-                                        <input type="number" class="uesrpg-attack-input" data-kind="current" value="{{actor.attackTrackerUi.current}}" min="0" step="1">
+                                        <input type="number" class="uesrpg-attack-input" name="flags.uesrpg-3ev4.combat.attackTrackerOverrides.current" data-kind="current" value="{{actor.attackTrackerUi.current}}" min="0" step="1">
                                         /
-                                        <input type="number" class="uesrpg-attack-input" data-kind="max" value="{{actor.attackTrackerUi.max}}" min="1" step="1">
+                                        <input type="number" class="uesrpg-attack-input" name="flags.uesrpg-3ev4.combat.attackTrackerOverrides.max" data-kind="max" value="{{actor.attackTrackerUi.max}}" min="1" step="1">
                                     </div>
                                     {{else}}
                                     {{actor.attackTrackerUi.current}}/{{actor.attackTrackerUi.max}}
@@ -141,7 +141,7 @@
                                     <div>Engagement Score</div>
                                     <div class="uesrpg-status-inline-control">
                                         <label class="uesrpg-status-inline-label" for="npc-max-engagement-score">Override</label>
-                                        <input id="npc-max-engagement-score" type="number" class="uesrpg-max-engagement-score" min="0" step="1" placeholder="Auto" value="{{engagementFlankingMaxES}}">
+                                        <input id="npc-max-engagement-score" name="flags.uesrpg-3ev4.homebrew.maxEngagementScore" type="number" class="uesrpg-max-engagement-score" min="0" step="1" placeholder="Auto" value="{{engagementFlankingMaxES}}">
                                     </div>
                                 </div>
                                 {{/if}}
@@ -192,7 +192,7 @@
         <div class="tab uesrpg-actions-panel" data-group="actions" data-tab="primary">
             <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">
                 <div class="quickbar-title">Primary</div>
-                <div class="quickbar-buttons">
+                <div class="quickbar-buttons quickbar-buttons--compact">
                     {{#if actor.sheetCombatQuick.meleeWeaponId}}
                         <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.meleeWeaponId}}" data-attack-mode="melee" data-label="Attack (Melee)" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" title="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}}>Attack (Melee)</button>
                     {{/if}}
@@ -205,6 +205,7 @@
                     <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="disengage" data-label="Disengage">Disengage</button>
                     <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="delay" data-label="Delay Turn">Delay</button>
                     <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="defensive-stance" data-label="Defensive Stance">Defensive Stance</button>
+                    <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="grapple" data-action-type="primary" data-label="Grapple">Grapple</button>
 {{#unless actor.sheetCombatQuick.meleeWeaponId}}{{#unless actor.sheetCombatQuick.rangedWeaponId}}
                         <div class="quickbar-empty">Equip a weapon to enable quick actions.</div>
                     {{/unless}}{{/unless}}
@@ -215,7 +216,7 @@
         <div class="tab uesrpg-actions-panel" data-group="actions" data-tab="secondary">
             <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">
                 <div class="quickbar-title">Secondary</div>
-                <div class="quickbar-buttons">
+                <div class="quickbar-buttons quickbar-buttons--compact">
                     <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="aim" data-label="Aim">Aim</button>
                     <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="dash" data-label="Dash">Dash</button>
                     <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="hide" data-label="Hide">Hide</button>
@@ -241,6 +242,9 @@
                     <div class="quickbar-buttons">
                         <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="attack-of-opportunity" data-label="Attack of Opportunity">
                             <i class="fas fa-crosshairs"></i> Attack of Opportunity
+                        </button>
+                        <button type="button" class="uesrpg-quick-action" data-action="combatQuickAction" data-combat-action="grapple" data-action-type="reaction" data-label="Grapple (Reaction)">
+                            Grapple (Reaction)
                         </button>
                     </div>
                     <p class="actions-help-small">Use when an enemy leaves your engagement range (requires equipped weapon and targeted token).</p>

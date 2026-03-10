@@ -9,6 +9,8 @@ import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { resolveSurpriseState } from "../combat/surprise-state.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
+import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
+import { prepareDynamicRoundInitiativeUpdate, resolveCombatantInitiative } from "../combat/dynamic-initiative.js";
 
 const _initiativeDebug = createDebugLogger("skillRollDebug", "[UESRPG][Initiative]");
 
@@ -60,6 +62,95 @@ export class SystemCombat extends Combat {
    */
   static _initiativeChoiceCache = new Map();
 
+  /**
+   * Deduplication map for round-based AP restoration.
+   * Prevents double-processing when both the nextRound() override and the
+   * updateCombat hook fire for the same round advancement.
+   * Key: combatId, Value: last round number for which AP was restored.
+   */
+  static _apLastProcessedRound = new Map();
+  static _dynamicInitiativeExpectedFirstByBoundary = new Map();
+  static _dynamicInitiativePendingSummaryByBoundary = new Map();
+
+  static _resolveRollModeMessageOptions() {
+    let rollMode = "roll";
+    try { rollMode = String(game.settings.get("core", "rollMode") ?? "roll").toLowerCase(); }
+    catch (_e) { rollMode = "roll"; }
+
+    if (rollMode === "gmroll") {
+      return { rollMode, whisper: ChatMessage.getWhisperRecipients("GM") };
+    }
+    if (rollMode === "blindroll") {
+      return { rollMode, whisper: ChatMessage.getWhisperRecipients("GM"), blind: true };
+    }
+    if (rollMode === "selfroll") {
+      return { rollMode, whisper: [game.user.id] };
+    }
+    return { rollMode };
+  }
+
+  static async _emitDynamicInitiativeRoundSummary(summary, { combatId = null, round = null } = {}) {
+    const rows = Array.isArray(summary?.rows) ? summary.rows : [];
+    if (!rows.length) return;
+
+    const esc = (v) => foundry.utils.escapeHTML(String(v ?? ""));
+    const sorted = rows.slice().sort((a, b) => {
+      const ai = Number(a?.initiative ?? Number.NEGATIVE_INFINITY);
+      const bi = Number(b?.initiative ?? Number.NEGATIVE_INFINITY);
+      if (ai !== bi) return bi - ai;
+      return String(a?.combatantName ?? "").localeCompare(String(b?.combatantName ?? ""));
+    });
+    const choiceLabel = (row) => {
+      const choice = String(row?.choice ?? "normal");
+      if (choice === "combatSenses") return "Combat Senses";
+      if (choice === "tactician") {
+        const tacticianName = String(row?.tacticianName ?? "").trim();
+        return tacticianName ? `Tactician (${tacticianName})` : "Tactician";
+      }
+      return "Normal";
+    };
+
+    const content = `
+      <div class="uesrpg-damage-applied-card">
+        <div class="hdr">
+          <div class="hdr-text">
+            <div class="title">Initiative - Round ${Number(round ?? summary?.round ?? 0)}</div>
+          </div>
+        </div>
+        <div class="body">
+          ${sorted.map((row, idx) => `
+            <div class="uesrpg-da-row">
+              <span class="k">${idx + 1}. ${esc(row?.combatantName ?? "Combatant")}</span>
+              <span class="v"><b>${Number(row?.initiative ?? 0)}</b> <span class="muted">(${esc(choiceLabel(row))}, ${esc(row?.formula ?? "0")})</span></span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+
+    const modeOpts = SystemCombat._resolveRollModeMessageOptions();
+    await ChatMessage.create({
+      user: game.user.id,
+      speaker: ChatMessage.getSpeaker({ alias: "Initiative" }),
+      content,
+      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+      ...modeOpts,
+    });
+
+    const dsn = game?.dice3d;
+    if (!dsn || typeof dsn.showForRoll !== "function") return;
+    const isPublic = modeOpts.rollMode === "roll" || modeOpts.rollMode === "publicroll";
+    const sync = Boolean(isPublic);
+    const rolls = sorted.map((r) => r?.roll).filter(Boolean);
+    await Promise.allSettled(rolls.map(async (roll) => {
+      try {
+        await dsn.showForRoll(roll, game.user, sync);
+      } catch (_err) {
+        try { await dsn.showForRoll(roll); } catch (_err2) {}
+      }
+    }));
+  }
+
   static _initiativeCacheKey(combat, user) {
     const uid = user?.id ?? "";
     const cid = combat?.id ?? "";
@@ -85,6 +176,14 @@ export class SystemCombat extends Combat {
       return game.settings.get("uesrpg-3ev4", "actionPointAutomation");
     } catch (_e) {
       return "off";
+    }
+  }
+
+  get dynamicInitiativeEnabled() {
+    try {
+      return Boolean(game.settings.get("uesrpg-3ev4", "dynamicInitiativeEnabled"));
+    } catch (_e) {
+      return false;
     }
   }
 
@@ -117,6 +216,8 @@ export class SystemCombat extends Combat {
 
     // Chapter 5: Stunned -> do not regain AP at the start of rounds/turns.
     if (this._actorHasCondition(actor, "stunned")) {
+      const currentAP = Number(actor?.system?.action_points?.value ?? -1);
+      if (currentAP === 0) return; // Already suppressed — skip the write.
       await requestUpdateDocument(actor, {
         "system.action_points.value": 0
       }).catch(err => {
@@ -144,28 +245,67 @@ export class SystemCombat extends Combat {
       updateData[`flags.${FLAG_SCOPE}.wounds.-=apDebtNextRefresh`] = null;
     }
 
+    // Skip the write entirely if AP is already at the target value and there is no debt
+    // to clear. This avoids a document update for actors that started the round at max AP
+    // with no conditions or debt — the common case in a healthy party.
+    if (!debt) {
+      const currentAP = Number(actor?.system?.action_points?.value ?? -1);
+      if (currentAP === next) return;
+    }
+
     await requestUpdateDocument(actor, updateData).catch(err => {
       console.warn("UESRPG | Failed to refresh action points for", actor?.name, err);
     });
   }
 
   async resetAllActionPoints() {
+    const _perf = isPerfEnabled();
+    const _t0 = _perf ? monoMs() : 0;
     const BATCH_SIZE = 25;
     const turns = Array.from(this.turns ?? []);
+    let _updatesAttempted = 0;
     for (let i = 0; i < turns.length; i += BATCH_SIZE) {
       const slice = turns.slice(i, i + BATCH_SIZE);
+      _updatesAttempted += slice.filter(c => c?.actor).length;
       const promises = slice.map(combatant => this._refreshActionPoints(combatant?.actor));
       await Promise.allSettled(promises);
+    }
+    if (_perf) {
+      perfRecord({
+        event: "combat.resetAllAP",
+        combatId: this.id,
+        round: this.round,
+        combatantsTotal: turns.length,
+        documentUpdatesAttempted: _updatesAttempted,
+        durationMs: monoMs() - _t0,
+      });
     }
   }
 
   /** @override */
   async startCombat() {
+    const _perf = isPerfEnabled();
+    const _t0 = _perf ? monoMs() : 0;
+    const _combatantsTotal = Array.from(this.turns ?? []).length;
+
     if (["round", "turn"].includes(this.apAutomationType)) {
+      // Stamp round 1 so the updateCombat hook (which fires when super.startCombat()
+      // broadcasts { started: true, round: 1 }) knows this round was already handled.
+      SystemCombat._apLastProcessedRound.set(this.id, 1);
       await this.resetAllActionPoints();
     }
 
-    return await super.startCombat();
+    const result = await super.startCombat();
+    if (_perf) {
+      perfRecord({
+        event: "combat.startCombat",
+        combatId: this.id,
+        combatantsTotal: _combatantsTotal,
+        apAutomationType: this.apAutomationType,
+        durationMs: monoMs() - _t0,
+      });
+    }
+    return result;
   }
 
   /** @override */
@@ -181,11 +321,72 @@ export class SystemCombat extends Combat {
 
   /** @override */
   async nextRound() {
+    const _perf = isPerfEnabled();
+    const _t0 = _perf ? monoMs() : 0;
+    const _combatantsTotal = Array.from(this.turns ?? []).length;
+    const _nextRound = this.round + 1;
+
     if (this.apAutomationType === "round") {
+      // Stamp the NEW round BEFORE restoring so the updateCombat hook (which fires
+      // when super.nextRound() broadcasts the round increment) recognises this round
+      // was already handled and skips the supplementary hook path.
+      SystemCombat._apLastProcessedRound.set(this.id, this.round + 1);
       await this.resetAllActionPoints();
     }
 
-    return await super.nextRound();
+    const result = await super.nextRound();
+    if (_perf) {
+      perfRecord({
+        event: "combat.nextRound",
+        combatId: this.id,
+        round: _nextRound,
+        combatantsTotal: _combatantsTotal,
+        apAutomationType: this.apAutomationType,
+        durationMs: monoMs() - _t0,
+      });
+    }
+    return result;
+  }
+
+  /** @override */
+  async _preUpdate(data, options, user) {
+    await super._preUpdate(data, options, user);
+
+    if (!game.user?.isGM) return;
+    if (!this.dynamicInitiativeEnabled) return;
+    if (!this.started) return;
+
+    const nextRound = Number(data?.round ?? NaN);
+    if (!Number.isFinite(nextRound)) return;
+    if (nextRound <= Number(this.round ?? 0)) return;
+    if (Array.isArray(data?.combatants) && data.combatants.length > 0) return;
+
+    const _perf = isPerfEnabled();
+    const _t0 = _perf ? monoMs() : 0;
+
+    const prepared = await prepareDynamicRoundInitiativeUpdate(this, {
+      interactive: false,
+      suppressChat: true
+    });
+
+    data.combatants = prepared.combatantUpdates;
+    data.turn = Number(prepared.startingTurn ?? 0);
+
+    const boundaryKey = `${String(this.id)}:${nextRound}`;
+    SystemCombat._dynamicInitiativeExpectedFirstByBoundary.set(boundaryKey, String(prepared.projectedFirstCombatantId ?? ""));
+    SystemCombat._dynamicInitiativePendingSummaryByBoundary.set(boundaryKey, prepared.summary);
+
+    if (_perf) {
+      perfRecord({
+        event: "dynamicInitiative.prepare",
+        combatId: this.id,
+        round: nextRound,
+        enabled: true,
+        combatantCount: prepared.combatantUpdates.length,
+        projectedFirstCombatantId: prepared.projectedFirstCombatantId ?? null,
+        durationMs: monoMs() - _t0,
+      });
+    }
   }
 
   /** @override */
@@ -196,7 +397,96 @@ export class SystemCombat extends Combat {
         SystemCombat._initiativeChoiceCache.delete(key);
       }
     }
+    // Clean up AP dedup map for this combat.
+    SystemCombat._apLastProcessedRound.delete(this.id);
+    for (const key of SystemCombat._dynamicInitiativeExpectedFirstByBoundary.keys()) {
+      if (key.startsWith(`${this.id}:`)) SystemCombat._dynamicInitiativeExpectedFirstByBoundary.delete(key);
+    }
+    for (const key of SystemCombat._dynamicInitiativePendingSummaryByBoundary.keys()) {
+      if (key.startsWith(`${this.id}:`)) SystemCombat._dynamicInitiativePendingSummaryByBoundary.delete(key);
+    }
     super._onDelete(options, userId);
+  }
+
+  /**
+   * Registers global Foundry hooks for AP automation.
+   * Must be called once during system init (after SystemCombat is set as CONFIG.Combat.documentClass).
+   *
+   * Handles two supplementary cases:
+   *  - Round-based AP restore triggered by any path that changes combat.round
+   *    (macros, modules, socket events) — not only the nextRound() method override.
+   *  - Cleanup of the dedup map when a combat document is deleted.
+   */
+  static registerAPHooks() {
+    Hooks.on("updateCombat", (combat, changed, _options, _userId) => {
+      if (!game.user?.isGM) return;
+      if (!("round" in changed)) return;
+
+      let apType;
+      try { apType = game.settings.get("uesrpg-3ev4", "actionPointAutomation"); }
+      catch (_e) { return; }
+      if (apType !== "round") return;
+
+      const newRound = Number(combat.round ?? 0);
+      const lastRound = SystemCombat._apLastProcessedRound.get(combat.id) ?? -1;
+      // Already handled by nextRound() override or an earlier hook call for this round.
+      if (newRound <= lastRound) return;
+
+      SystemCombat._apLastProcessedRound.set(combat.id, newRound);
+      combat.resetAllActionPoints?.().catch(err =>
+        console.warn("UESRPG | AP round-restore hook failed", err)
+      );
+    });
+
+    Hooks.on("deleteCombat", (combat) => {
+      SystemCombat._apLastProcessedRound.delete(String(combat.id ?? ""));
+    });
+
+    // Keep direct ingress for now: this observes committed dynamic-initiative results and
+    // emits validation/perf summaries rather than acting as a subsystem boundary consumer.
+    Hooks.on("uesrpg.combatTimeChanged", (payload) => {
+      if (!game.user?.isGM) return;
+      if (payload?.source !== "combat") return;
+      if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+      const combat = game?.combat ?? null;
+      if (!combat?.id) return;
+      if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
+
+      const round = Number(payload?.combat?.round ?? combat.round ?? 0);
+      const boundaryKey = `${String(combat.id)}:${round}`;
+      const expectedFirstCombatantId = String(SystemCombat._dynamicInitiativeExpectedFirstByBoundary.get(boundaryKey) ?? "");
+      if (!expectedFirstCombatantId) return;
+      const pendingSummary = SystemCombat._dynamicInitiativePendingSummaryByBoundary.get(boundaryKey) ?? null;
+
+      const committedCombatantId = String(combat.combatant?.id ?? combat.combatantId ?? "");
+      const match = committedCombatantId === expectedFirstCombatantId;
+
+      if (isPerfEnabled()) {
+        perfRecord({
+          event: "dynamicInitiative.commitObserved",
+          combatId: combat.id,
+          round,
+          enabled: (() => {
+            try { return Boolean(game.settings.get("uesrpg-3ev4", "dynamicInitiativeEnabled")); }
+            catch (_e) { return false; }
+          })(),
+          expectedFirstCombatantId,
+          committedFirstCombatantId: committedCombatantId || null,
+          match,
+        });
+      }
+
+      if (pendingSummary) {
+        SystemCombat._emitDynamicInitiativeRoundSummary(pendingSummary, {
+          combatId: combat.id,
+          round,
+        }).catch((err) => console.warn("UESRPG | Dynamic initiative summary chat failed", err));
+      }
+
+      SystemCombat._dynamicInitiativeExpectedFirstByBoundary.delete(boundaryKey);
+      SystemCombat._dynamicInitiativePendingSummaryByBoundary.delete(boundaryKey);
+    });
   }
 
   nextCombatant() {
@@ -333,17 +623,13 @@ export class SystemCombat extends Combat {
 
 	      const normalIR = Number(actor?.system?.initiative?.value ?? 0) || 0;
 	      const combatSensesIR = this._combatSensesInitiativeRating(actor);
-	      const ir = useCombatSenses ? combatSensesIR : normalIR;
-
-	      // Lightning Reflexes: roll initiative twice and take the higher.
-	      // Combat Senses: use the custom Initiative Rating only (no die).
-	      const dice = hasTalent(actor, "lightningreflexes") ? "2d6kh" : "1d6";
-	      const initiativeFormula = tacticianChoice?.mode === "provider"
-	        ? `${Number(tacticianChoice.initiative)}`
-	        : (isSurprised ? `${normalIR}` : (useCombatSenses ? `${ir}` : `${dice} + ${ir}`));
-	
-	      const finalRoll = combatant.getInitiativeRoll(initiativeFormula);
-	      await finalRoll.evaluate();
+	      const resolved = await resolveCombatantInitiative(this, combatant, {
+	        useCombatSenses,
+	        tacticianChoice,
+	        deterministicTactician: false
+	      });
+	      const initiativeFormula = resolved.formula;
+	      const finalRoll = resolved.roll;
 	
 	      _initiativeDebug("initiative roll", {
 	        actor: actor?.name,
@@ -359,11 +645,11 @@ export class SystemCombat extends Combat {
 	        combatSensesIR,
 	        isSurprised,
 	        formula: initiativeFormula,
-	        rollTotal: finalRoll?.total
+	        rollTotal: resolved.initiative
 	      });
 	
 	      // Update initiative.
-	      updateBucket.push({ _id: combatant.id, initiative: Number(finalRoll.total) });
+	      updateBucket.push({ _id: combatant.id, initiative: Number(resolved.initiative) });
 	      rolls.push(finalRoll);
 	
 	      // Chat message.

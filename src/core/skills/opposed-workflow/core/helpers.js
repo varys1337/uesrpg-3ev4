@@ -60,41 +60,125 @@ export function _resolveOutcome(data) {
   return { ...out, text };
 }
 
+function _resolveTokenForActor(actor) {
+  if (!actor) return null;
+  const controlled = canvas?.tokens?.controlled ?? [];
+  const controlledMatch = controlled.find((t) => t?.actor?.id === actor.id);
+  if (controlledMatch) return controlledMatch;
+  return canvas?.tokens?.placeables?.find((t) => t?.actor?.id === actor.id) ?? null;
+}
+
+function _findEquippedMeleeWeapon(actor) {
+  if (!actor) return null;
+  const weapons = actor?.itemTypes?.weapon ?? actor?.items?.filter?.((i) => i?.type === "weapon") ?? [];
+  return weapons.find((w) => {
+    if (w?.system?.equipped !== true) return false;
+    const mode = String(w?.system?.attackMode ?? "melee").trim().toLowerCase();
+    return mode !== "ranged";
+  }) ?? null;
+}
+
+async function _triggerInCloseFailureAoO(attackerActor, defenderActor) {
+  if (!attackerActor || !defenderActor) return;
+
+  try {
+    const { isActorBlockedFromAoOAgainstTarget } = await import("../../../traits/mobility-talents.js");
+    if (isActorBlockedFromAoOAgainstTarget(defenderActor, attackerActor)) {
+      ui.notifications?.warn?.(`${defenderActor.name} cannot make an Attack of Opportunity against ${attackerActor.name} right now.`);
+      return;
+    }
+
+    const aooWeapon = _findEquippedMeleeWeapon(defenderActor);
+    if (!aooWeapon) {
+      ui.notifications?.warn?.(`${defenderActor.name} has no equipped melee weapon for Attack of Opportunity.`);
+      return;
+    }
+
+    const defenderAp = Number(defenderActor?.system?.action_points?.value ?? 0);
+    if (defenderAp < 1) {
+      ui.notifications?.warn?.(`${defenderActor.name} does not have enough Action Points for Attack of Opportunity.`);
+      return;
+    }
+
+    const aooAttackerToken = _resolveTokenForActor(defenderActor);
+    const aooDefenderToken = _resolveTokenForActor(attackerActor);
+    if (!aooAttackerToken || !aooDefenderToken) {
+      ui.notifications?.warn?.("Attack of Opportunity could not start: required tokens are missing from the canvas.");
+      return;
+    }
+
+    const { resolveStyleForCombatTest } = await import("../../../combat/combat-style-utils.js");
+    const styleCtx = resolveStyleForCombatTest(defenderActor, { actorTypeFallback: true });
+    if (!styleCtx) {
+      ui.notifications?.warn?.(`${defenderActor.name} has no Combat Style available for Attack of Opportunity.`);
+      return;
+    }
+
+    const base = Number(styleCtx.base ?? 0) || 0;
+    const fatiguePenalty = Number(defenderActor?.system?.fatigue?.penalty ?? 0) || 0;
+    const carryPenalty = Number(defenderActor?.system?.carry_rating?.penalty ?? 0) || 0;
+    const woundPenalty = Number(defenderActor?.system?.woundPenalty ?? 0) || 0;
+    const tn = base + fatiguePenalty + carryPenalty + woundPenalty;
+
+    const { OpposedWorkflow } = await import("../../../combat/opposed-workflow.js");
+    await OpposedWorkflow.createPending({
+      attackerTokenUuid: aooAttackerToken?.document?.uuid ?? aooAttackerToken?.uuid,
+      defenderTokenUuids: [aooDefenderToken?.document?.uuid ?? aooDefenderToken?.uuid].filter(Boolean),
+      attackerActorUuid: defenderActor.uuid,
+      attackerItemUuid: styleCtx.styleUuid,
+      attackerLabel: `Attack of Opportunity - ${styleCtx.styleName}`,
+      attackerTarget: tn,
+      mode: "attack",
+      attackMode: "melee",
+      weaponUuid: aooWeapon.uuid,
+      isReactionAttack: true,
+      skipAttackerAPDeduction: false
+    });
+  } catch (err) {
+    console.error("UESRPG | Failed to trigger In Close failure Attack of Opportunity", err);
+  }
+}
+
 export async function _executeSpecialActionIfWinner(data) {
-  // Issue 2: Special Action automation on opposed test win
   const specialActionId = String(data?.specialActionContext?.id ?? data?.specialActionId ?? "").trim();
-  if (data.outcome?.winner === "attacker" && specialActionId) {
+  const winner = String(data?.outcome?.winner ?? "").trim().toLowerCase();
+  if (!specialActionId || !winner) return;
+
+  const attackerActor = _resolveActor(data.attacker.actorUuid);
+  const defenderActor = _resolveActor(data.defender.actorUuid);
+  if (!attackerActor || !defenderActor) return;
+
+  if (winner === "attacker") {
     try {
-      const { executeSpecialAction } = await import("../../combat/special-actions-helper.js");
-      const attackerActor = _resolveActor(data.attacker.actorUuid);
-      const defenderActor = _resolveActor(data.defender.actorUuid);
-      
-      if (attackerActor && defenderActor) {
-        const result = await executeSpecialAction({
-          specialActionId,
-          actor: attackerActor,
-          target: defenderActor,
-          isAutoWin: false, // Was opposed test, not auto-win
-          opposedResult: { 
-            winner: "attacker", 
-            degrees: data.outcome?.degrees ?? 0 
-          }
-        });
-        
-        if (result.success) {
-          // Post automation result to chat
-          await ChatMessage.create({
-            user: game.user.id,
-            speaker: ChatMessage.getSpeaker({ actor: attackerActor }),
-            content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${_esc(result.message)}</p></div>`,
-            style: CONST.CHAT_MESSAGE_STYLES.OTHER
-          });
+      const { executeSpecialAction } = await import("../../../combat/special-actions-helper.js");
+
+      const result = await executeSpecialAction({
+        specialActionId,
+        actor: attackerActor,
+        target: defenderActor,
+        isAutoWin: false,
+        opposedResult: {
+          winner: "attacker",
+          degrees: data.outcome?.degrees ?? 0
         }
+      });
+
+      if (result.success) {
+        await ChatMessage.create({
+          user: game.user.id,
+          speaker: ChatMessage.getSpeaker({ actor: attackerActor }),
+          content: `<div class="uesrpg-special-action-outcome"><b>Special Action:</b><p>${_esc(result.message)}</p></div>`,
+          style: CONST.CHAT_MESSAGE_STYLES.OTHER
+        });
       }
     } catch (err) {
       console.error("UESRPG | Failed to execute Special Action automation", err);
     }
+    return;
+  }
+
+  if (winner === "defender" && specialActionId === "inClose") {
+    await _triggerInCloseFailureAoO(attackerActor, defenderActor);
   }
 }
-
 

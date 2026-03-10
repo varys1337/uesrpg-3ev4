@@ -3,7 +3,8 @@ import { clearRacialTalentUsageOnRest } from "../../core/traits/racial-talents.j
 import { _num } from "../../utils/coerce.js";
 import { _canPromptForActor } from "../../core/traits/index.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument } from "../../utils/authority-proxy.js";
+import { hasStuntedMagicka } from "../../core/magic/magic-modifiers.js";
 
 // Chapter 5: Untreated wounds block natural HP regeneration.
 // Reuse the authoritative helper from the wounds subsystem when available.
@@ -58,18 +59,13 @@ async function _promptMeditationChoice(actor) {
 export async function applyShortRest(actor, opts = {}) {
   if (!actor) return { line: "", updatesApplied: false };
 
-  // Fatigue level is derived; the persistable control is fatigue.bonus (see Actor prepare).
-  const fatigueBonus = _num(actor.system?.fatigue?.bonus ?? 0);
-  const currentSP = _num(actor.system?.stamina?.value ?? 0);
-  const maxSP = _num(actor.system?.stamina?.max ?? 0);
-  const currentMP = _num(actor.system?.magicka?.value ?? 0);
-  const maxMP = _num(actor.system?.magicka?.max ?? 0);
-  const currentHP = _num(actor.system?.hp?.value ?? 0);
-  const maxHP = _num(actor.system?.hp?.max ?? 0);
+  // ── Phase 1: async operations that do NOT need current resource values ──────
+  // Run these before re-reading the actor, so the re-read is as fresh as possible
+  // at write time. The only state needed at this stage is talent presence (stable).
 
-  const updateData = {};
-  let hpHealed = 0;
-  let line = `<li><b>${actor.name}</b>: `;
+  const actorName = actor.name;
+  const actorUuid = actor.uuid;
+  const stuntedMagicka = hasStuntedMagicka(actor);
 
   // Meditation (Chapter 4): optional short rest mode that doubles MP/SP regeneration.
   const allowPrompt = opts?.allowPrompt !== false;
@@ -86,55 +82,83 @@ export async function applyShortRest(actor, opts = {}) {
     }
   }
 
-  // RAW: Remove 1 fatigue OR recover 1 SP
-  if (fatigueBonus > 0) {
-    updateData["system.fatigue.bonus"] = Math.max(0, fatigueBonus - 1);
-    line += `Removed 1 fatigue (now ${Math.max(0, fatigueBonus - 1)})`;
-  } else if (currentSP < maxSP) {
-    const deltaSP = useMeditation ? 2 : 1;
-    const newSP = Math.min(currentSP + deltaSP, maxSP);
-    updateData["system.stamina.value"] = newSP;
-    line += `Recovered ${Math.min(deltaSP, Math.max(0, maxSP - currentSP))} SP (now ${newSP}/${maxSP})`;
-  } else {
-    line += "No recovery needed";
-  }
-
-  // RAW: Recover MP = floor(maxMP / 10)
-  const mpRecoverBase = Math.floor(maxMP / 10);
-  const mpRecover = useMeditation ? (mpRecoverBase * 2) : mpRecoverBase;
-  if (mpRecover > 0 && currentMP < maxMP) {
-    const newMP = Math.min(currentMP + mpRecover, maxMP);
-    updateData["system.magicka.value"] = newMP;
-    line += ` (+${mpRecover} MP)`;
-  }
-
-  // Rapid Recovery (Chapter 4): heal 1d4 HP on a short rest.
-  if (hasTalent(actor, "rapidrecovery") && currentHP < maxHP) {
+  // Rapid Recovery (Chapter 4): roll 1d4 HP. Independent of current HP value.
+  const canRapidRecover = hasTalent(actor, "rapidrecovery");
+  let rapidRecoveryRoll = 0;
+  if (canRapidRecover) {
     try {
       const roll = await new Roll("1d4").evaluate();
-      const heal = Math.max(0, Number(roll.total ?? 0) || 0);
-      if (heal > 0) {
-        hpHealed = Math.min(heal, Math.max(0, maxHP - currentHP));
-        const newHP = Math.min(maxHP, currentHP + heal);
-        updateData["system.hp.value"] = newHP;
-        line += ` (+${heal} HP)`;
-      }
+      rapidRecoveryRoll = Math.max(0, Number(roll.total ?? 0) || 0);
     } catch (_e) {
       // Non-blocking.
     }
   }
 
-  if (useMeditation) line += " (Meditation)";
+  // ── Phase 2: atomic read-compute-write ───────────────────────────────────
+  // requestAtomicUpdateDocument re-reads the actor fresh inside a per-document
+  // lock before calling this mutator. Current resource values read here are
+  // therefore the latest server state, not the snapshot from Phase 1.
+  //
+  // Side-effects (writing to `meta`) inside the mutator are safe because the
+  // mutator is called exactly once per invocation.
 
-  line += "</li>";
+  const meta = { hpHealed: 0, line: `<li><b>${actorName}</b>: `, hasUpdates: false, hadUntreatedWounds: false };
 
-  const hasUpdates = Object.keys(updateData).length > 0;
-  if (hasUpdates) await requestUpdateDocument(actor, updateData);
-  if (hpHealed > 0) {
+  await requestAtomicUpdateDocument(actorUuid, (freshActor) => {
+    const fatigueBonus = _num(freshActor.system?.fatigue?.bonus ?? 0);
+    const currentSP = _num(freshActor.system?.stamina?.value ?? 0);
+    const maxSP = _num(freshActor.system?.stamina?.max ?? 0);
+    const currentMP = _num(freshActor.system?.magicka?.value ?? 0);
+    const maxMP = _num(freshActor.system?.magicka?.max ?? 0);
+    const currentHP = _num(freshActor.system?.hp?.value ?? 0);
+    const maxHP = _num(freshActor.system?.hp?.max ?? 0);
+
+    const updateData = {};
+
+    // RAW: Remove 1 fatigue OR recover 1 SP.
+    if (fatigueBonus > 0) {
+      updateData["system.fatigue.bonus"] = Math.max(0, fatigueBonus - 1);
+      meta.line += `Removed 1 fatigue (now ${Math.max(0, fatigueBonus - 1)})`;
+    } else if (currentSP < maxSP) {
+      const deltaSP = useMeditation ? 2 : 1;
+      const newSP = Math.min(currentSP + deltaSP, maxSP);
+      updateData["system.stamina.value"] = newSP;
+      meta.line += `Recovered ${newSP - currentSP} SP (now ${newSP}/${maxSP})`;
+    } else {
+      meta.line += "No recovery needed";
+    }
+
+    // RAW: Recover MP = floor(maxMP / 10).
+    const mpRecoverBase = Math.floor(maxMP / 10);
+    const mpRecover = stuntedMagicka ? 0 : (useMeditation ? (mpRecoverBase * 2) : mpRecoverBase);
+    if (stuntedMagicka) {
+      meta.line += " (MP recovery skipped due to Stunted Magicka)";
+    } else if (mpRecover > 0 && currentMP < maxMP) {
+      const newMP = Math.min(currentMP + mpRecover, maxMP);
+      updateData["system.magicka.value"] = newMP;
+      meta.line += ` (+${mpRecover} MP)`;
+    }
+
+    // Rapid Recovery HP heal applied to fresh current HP.
+    if (rapidRecoveryRoll > 0 && currentHP < maxHP) {
+      meta.hpHealed = Math.min(rapidRecoveryRoll, maxHP - currentHP);
+      const newHP = Math.min(maxHP, currentHP + rapidRecoveryRoll);
+      updateData["system.hp.value"] = newHP;
+      meta.line += ` (+${rapidRecoveryRoll} HP)`;
+    }
+
+    meta.hasUpdates = Object.keys(updateData).length > 0;
+    return meta.hasUpdates ? updateData : null;
+  });
+
+  if (useMeditation) meta.line += " (Meditation)";
+  meta.line += "</li>";
+
+  if (meta.hpHealed > 0) {
     try {
       const applyNatural = game?.uesrpg?.wounds?.applyNaturalHealingToWounds;
       if (typeof applyNatural === "function") {
-        await applyNatural(actor, hpHealed, { source: "shortRest" });
+        await applyNatural(actor, meta.hpHealed, { source: "shortRest" });
       }
     } catch (_e) {
       // Non-blocking.
@@ -142,77 +166,96 @@ export async function applyShortRest(actor, opts = {}) {
   }
   try { await clearRacialTalentUsageOnRest(actor, { restType: "short" }); } catch (_e) { /* ignore */ }
 
-  return { line, updatesApplied: hasUpdates };
+  return { line: meta.line, updatesApplied: meta.hasUpdates };
 }
 
 export async function applyLongRest(actor) {
   if (!actor) return { line: "", updatesApplied: false };
 
+  // ── Phase 1: resolve stable derived values and async side-reads ─────────
+  // These are characteristics and talent checks that do not change mid-rest.
+  // Run them before re-reading, so the re-read is as fresh as possible at write time.
+
+  const actorName = actor.name;
+  const actorUuid = actor.uuid;
+  // END bonus is stable over the course of a rest (no equipment swaps expected mid-rest).
   const endBonus = Math.floor(_num(actor.system?.characteristics?.end?.total ?? 0) / 10);
-  // Fatigue level is derived; the persistable control is fatigue.bonus (see Actor prepare).
-  const fatigueBonus = _num(actor.system?.fatigue?.bonus ?? 0);
-  const currentHP = _num(actor.system?.hp?.value ?? 0);
-  const maxHP = _num(actor.system?.hp?.max ?? 0);
-  const currentSP = _num(actor.system?.stamina?.value ?? 0);
-  const maxSP = _num(actor.system?.stamina?.max ?? 0);
-  const currentMP = _num(actor.system?.magicka?.value ?? 0);
-  const maxMP = _num(actor.system?.magicka?.max ?? 0);
-  const untreatedWounds = hasUntreatedWounds(actor);
-  const longRestCounter = Number(actor?.getFlag?.("uesrpg-3ev4", "wounds.longRestCounter") ?? 0) || 0;
+  const hasRapidRecovery = hasTalent(actor, "rapidrecovery");
+  const stuntedMagicka = hasStuntedMagicka(actor);
 
-  const updateData = {};
-  let hpHealed = 0;
-  const recoveryParts = [];
+  // ── Phase 2: atomic read-compute-write ───────────────────────────────────
+  // requestAtomicUpdateDocument re-reads the actor fresh inside a per-document
+  // lock before calling this mutator, ensuring current resource values are the
+  // latest server state.
 
-  // RAW: Remove fatigue levels first; remaining recovery applies to SP.
-  let recoveryPool = Math.max(0, endBonus);
+  const meta = { hpHealed: 0, line: "", hasUpdates: false, untreatedWoundsNoHeal: false };
 
-  if (fatigueBonus > 0 && recoveryPool > 0) {
-    const fatigueRemoved = Math.min(fatigueBonus, recoveryPool);
-    const newFatigue = Math.max(0, fatigueBonus - fatigueRemoved);
-    updateData["system.fatigue.bonus"] = newFatigue;
-    recoveryParts.push(`Removed ${fatigueRemoved} fatigue`);
-    recoveryPool -= fatigueRemoved;
-  }
+  await requestAtomicUpdateDocument(actorUuid, (freshActor) => {
+    const fatigueBonus = _num(freshActor.system?.fatigue?.bonus ?? 0);
+    const currentHP = _num(freshActor.system?.hp?.value ?? 0);
+    const maxHP = _num(freshActor.system?.hp?.max ?? 0);
+    const currentSP = _num(freshActor.system?.stamina?.value ?? 0);
+    const maxSP = _num(freshActor.system?.stamina?.max ?? 0);
+    const currentMP = _num(freshActor.system?.magicka?.value ?? 0);
+    const maxMP = _num(freshActor.system?.magicka?.max ?? 0);
+    const untreatedWounds = hasUntreatedWounds(freshActor);
+    const longRestCounter = Number(freshActor?.getFlag?.("uesrpg-3ev4", "wounds.longRestCounter") ?? 0) || 0;
 
-  if (recoveryPool > 0 && currentSP < maxSP) {
-    const spRecovered = Math.min(recoveryPool, Math.max(0, maxSP - currentSP));
-    const newSP = Math.min(maxSP, currentSP + spRecovered);
-    updateData["system.stamina.value"] = newSP;
-    recoveryParts.push(`Recovered ${spRecovered} SP (${newSP}/${maxSP})`);
-    recoveryPool -= spRecovered;
-  }
+    const updateData = {};
+    const recoveryParts = [];
 
-  // RAW: Heal END bonus HP on long rest only if there are no untreated wounds.
-  if (!untreatedWounds && currentHP < maxHP && endBonus > 0) {
-    // Rapid Recovery (Chapter 4): double natural healing rate.
-    const healBase = hasTalent(actor, "rapidrecovery") ? (endBonus * 2) : endBonus;
-    hpHealed = Math.min(healBase, maxHP - currentHP);
-    updateData["system.hp.value"] = currentHP + hpHealed;
-    recoveryParts.push(`Healed ${hpHealed} HP`);
-  } else if (untreatedWounds && currentHP < maxHP) {
-    recoveryParts.push("HP not healed (untreated wounds)");
-  }
+    // RAW: Remove fatigue levels first; remaining recovery applies to SP.
+    let recoveryPool = Math.max(0, endBonus);
 
-  // RAW: Regenerate all missing MP.
-  if (currentMP < maxMP) {
-    updateData["system.magicka.value"] = maxMP;
-    recoveryParts.push("Recovered all MP");
-  }
+    if (fatigueBonus > 0 && recoveryPool > 0) {
+      const fatigueRemoved = Math.min(fatigueBonus, recoveryPool);
+      const newFatigue = Math.max(0, fatigueBonus - fatigueRemoved);
+      updateData["system.fatigue.bonus"] = newFatigue;
+      recoveryParts.push(`Removed ${fatigueRemoved} fatigue`);
+      recoveryPool -= fatigueRemoved;
+    }
 
-  updateData["flags.uesrpg-3ev4.wounds.longRestCounter"] = longRestCounter + 1;
+    if (recoveryPool > 0 && currentSP < maxSP) {
+      const spRecovered = Math.min(recoveryPool, Math.max(0, maxSP - currentSP));
+      const newSP = Math.min(maxSP, currentSP + spRecovered);
+      updateData["system.stamina.value"] = newSP;
+      recoveryParts.push(`Recovered ${spRecovered} SP (${newSP}/${maxSP})`);
+    }
 
-  if (!recoveryParts.length) recoveryParts.push("No recovery needed");
+    // RAW: Heal END bonus HP on long rest only if there are no untreated wounds.
+    if (!untreatedWounds && currentHP < maxHP && endBonus > 0) {
+      // Rapid Recovery (Chapter 4): double natural healing rate.
+      const healBase = hasRapidRecovery ? (endBonus * 2) : endBonus;
+      meta.hpHealed = Math.min(healBase, maxHP - currentHP);
+      updateData["system.hp.value"] = currentHP + meta.hpHealed;
+      recoveryParts.push(`Healed ${meta.hpHealed} HP`);
+    } else if (untreatedWounds && currentHP < maxHP) {
+      recoveryParts.push("HP not healed (untreated wounds)");
+      meta.untreatedWoundsNoHeal = true;
+    }
 
-  const line = `<li><b>${actor.name}</b>: ${recoveryParts.join("; ")}</li>`;
+    // RAW: Regenerate all missing MP.
+    if (stuntedMagicka) {
+      recoveryParts.push("MP recovery skipped due to Stunted Magicka");
+    } else if (currentMP < maxMP) {
+      updateData["system.magicka.value"] = maxMP;
+      recoveryParts.push("Recovered all MP");
+    }
 
-  const hasUpdates = Object.keys(updateData).length > 0;
-  if (hasUpdates) await requestUpdateDocument(actor, updateData);
-  if (hpHealed > 0) {
+    updateData["flags.uesrpg-3ev4.wounds.longRestCounter"] = longRestCounter + 1;
+
+    if (!recoveryParts.length) recoveryParts.push("No recovery needed");
+
+    meta.line = `<li><b>${actorName}</b>: ${recoveryParts.join("; ")}</li>`;
+    meta.hasUpdates = Object.keys(updateData).length > 0;
+    return meta.hasUpdates ? updateData : null;
+  });
+
+  if (meta.hpHealed > 0) {
     try {
       const applyNatural = game?.uesrpg?.wounds?.applyNaturalHealingToWounds;
       if (typeof applyNatural === "function") {
-        await applyNatural(actor, hpHealed, { source: "longRest" });
+        await applyNatural(actor, meta.hpHealed, { source: "longRest" });
       }
     } catch (_e) {
       // Non-blocking.
@@ -228,7 +271,7 @@ export async function applyLongRest(actor) {
   }
   try { await clearRacialTalentUsageOnRest(actor, { restType: "long" }); } catch (_e) { /* ignore */ }
 
-  if (untreatedWounds && currentHP < maxHP) _notifyHpHealingSkipped(actor);
+  if (meta.untreatedWoundsNoHeal) _notifyHpHealingSkipped(actor);
 
-  return { line, updatesApplied: hasUpdates };
+  return { line: meta.line, updatesApplied: meta.hasUpdates };
 }

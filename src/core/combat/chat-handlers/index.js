@@ -3,7 +3,7 @@
  *
  * Public registration surface for combat chat handlers.
  */
-import { initializeChatHandlers } from "./legacy.js";
+import { initializeChatHandlers } from "./combat-chat-register.js";
 
 export function registerCombatChatHandlers() {
   try {

@@ -47,6 +47,7 @@
 import { registerSpellTickHandler } from "./spell-tick-engine.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { _num, _numOrNull, _str, createDebugLogger, isDebugEnabled } from "../_primitives.js";
+import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
 import { applyDamage, applyHealing } from "../../combat/damage/apply.js";
 import { DAMAGE_TYPES } from "../../combat/damage/types.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
@@ -180,7 +181,17 @@ function _rebuildIndex() {
  * Ensure the index is current.  No-op if already clean.
  */
 function _ensureIndex() {
-  if (_indexDirty) _rebuildIndex();
+  if (!_indexDirty) return;
+  const _t0 = isPerfEnabled() ? monoMs() : 0;
+  _rebuildIndex();
+  if (isPerfEnabled()) {
+    perfRecord({
+      event: "overtime.ensureIndex",
+      wasRebuild: true,
+      indexedActors: _effectIndex.size,
+      durationMs: monoMs() - _t0,
+    });
+  }
 }
 
 // ─── Schema Helpers ──────────────────────────────────────────────────────────
@@ -364,7 +375,8 @@ export function initializeOverTimeEngine() {
   registerSpellTickHandler({
     id: "overtime-engine",
     label: "OverTime Effects Engine",
-    fn: _onTick
+    fn: _onTick,
+    fnBoundary: _onBoundaryTick
   });
 
   _debug("OverTime engine initialized (changes-key approach, indexed collection)");
@@ -384,6 +396,9 @@ async function _onTick(ctx) {
   if (!VALID_TRIGGERS.has(trigger)) return;
 
   const debug = isDebugEnabled("overTimeDebug");
+  const _perf = isPerfEnabled();
+  const _t0 = _perf ? monoMs() : 0;
+  const _combatId = ctx.combat?.id ?? null;
 
   if (debug) _debug("═══ OverTime Tick START ═══", { trigger, actor: ctx.actor?.name, round: ctx.round, turn: ctx.turn });
 
@@ -396,7 +411,22 @@ async function _onTick(ctx) {
     return;
   }
 
+  const _tCollect = _perf ? monoMs() : 0;
   const candidates = _collectOverTimeEffects(trigger, ctx, debug);
+  const _collectMs = _perf ? (monoMs() - _tCollect) : 0;
+
+  if (_perf) {
+    perfRecord({
+      event: "overtime.collect",
+      trigger,
+      combatId: _combatId,
+      round: ctx.round,
+      turn: ctx.turn,
+      actorsScanned: _effectIndex.size,
+      candidateCount: candidates.length,
+      durationMs: _collectMs,
+    });
+  }
 
   if (!candidates.length) {
     if (debug) _debug("Collection Phase: No matching effects found");
@@ -405,7 +435,9 @@ async function _onTick(ctx) {
 
   if (debug) _debug(`Processing ${candidates.length} OverTime effect(s) for trigger "${trigger}"`);
 
+  let _processedCount = 0;
   for (const { actor, effect, config, tickState } of candidates) {
+    const _tp = _perf ? monoMs() : 0;
     try {
       // Guard: if a prior candidate's payload deleted this effect, skip it
       if (!_isEffectAlive(actor, effect)) {
@@ -414,12 +446,168 @@ async function _onTick(ctx) {
       }
       if (debug) _debug(`├─ Processing: "${effect.name}" on ${actor.name}`);
       await _processEffect(actor, effect, config, tickState, ctx, debug);
+      _processedCount++;
     } catch (err) {
       _error(`Failed to process effect "${effect.name}" on ${actor.name}`, err);
+    }
+    if (_perf) {
+      perfRecord({
+        event: "overtime.process",
+        trigger,
+        combatId: _combatId,
+        round: ctx.round,
+        actorId: actor?.id ?? null,
+        effectName: effect?.name ?? null,
+        payloadType: config?.payloadType ?? null,
+        durationMs: monoMs() - _tp,
+      });
     }
   }
 
   if (debug) _debug("═══ OverTime Tick END ═══");
+
+  if (_perf) {
+    perfRecord({
+      event: "overtime.tick",
+      trigger,
+      combatId: _combatId,
+      round: ctx.round,
+      turn: ctx.turn,
+      candidateCount: candidates.length,
+      processedCount: _processedCount,
+      durationMs: monoMs() - _t0,
+    });
+  }
+}
+
+// ─── Composite Boundary Handler ──────────────────────────────────────────────
+
+/**
+ * Composite boundary tick handler — called once per round-boundary event when
+ * `compositeBoundaryTickEnabled` is true.
+ *
+ * Calls `_ensureIndex()` exactly once for all phases and reuses one
+ * boundary-level candidate precompute pass across phases. Phase processing
+ * still runs in order and with unchanged trigger semantics.
+ *
+ * @param {import("./spell-tick-engine.js").SpellTickBoundaryContext} boundaryCtx
+ */
+async function _onBoundaryTick(boundaryCtx) {
+  if (!game.user?.isGM) return;
+
+  const debug = isDebugEnabled("overTimeDebug");
+  const _perf = isPerfEnabled();
+  const _t0 = _perf ? monoMs() : 0;
+  const _combatId = boundaryCtx.combatId ?? null;
+  let _boundaryEnsureIndexMs = 0;
+  let _boundaryCollectMs = 0;
+  let _boundaryCandidateCount = 0;
+  let _boundaryPhaseProcessMs = 0;
+  const _boundaryUsedSharedCandidates = true;
+
+  if (debug) _debug("═══ OverTime Boundary Tick START ═══", {
+    phases: boundaryCtx.phases,
+    round: boundaryCtx.currentRound,
+    roundChanged: boundaryCtx.roundChanged
+  });
+
+  // Ensure index is current — called ONCE for all phases
+  const _tEnsure = _perf ? monoMs() : 0;
+  _ensureIndex();
+  _boundaryEnsureIndexMs = _perf ? (monoMs() - _tEnsure) : 0;
+
+  if (!_effectIndex.size) {
+    if (debug) _debug("Boundary: No indexed OverTime effects, skipping all phases");
+    return;
+  }
+
+  const _tSharedCollect = _perf ? monoMs() : 0;
+  const candidateBuckets = _buildBoundaryCandidateBuckets(boundaryCtx, debug);
+  _boundaryCollectMs += _perf ? (monoMs() - _tSharedCollect) : 0;
+
+  for (const phase of boundaryCtx.phases) {
+    const phaseCtx = boundaryCtx.phaseContexts?.get?.(phase) ?? null;
+    if (!phaseCtx) continue;
+
+    const trigger = phaseCtx.trigger;
+    if (!VALID_TRIGGERS.has(trigger)) continue;
+
+    const bucketRefs = candidateBuckets.get(trigger) ?? [];
+    const _tCollectPhase = _perf ? monoMs() : 0;
+    const candidates = _resolveBoundaryCandidates(trigger, phaseCtx, bucketRefs, debug);
+    const _collectMs = _perf ? (monoMs() - _tCollectPhase) : 0;
+    _boundaryCollectMs += _collectMs;
+    _boundaryCandidateCount += candidates.length;
+
+    if (_perf) {
+      perfRecord({
+        event: "overtime.collect",
+        trigger,
+        combatId: _combatId,
+        round: phaseCtx.round,
+        turn: phaseCtx.turn,
+        actorsScanned: _effectIndex.size,
+        candidateCount: candidates.length,
+        durationMs: _collectMs,
+        composite: true,
+      });
+    }
+
+    if (!candidates.length) {
+      if (debug) _debug(`Boundary [${phase}]: No matching effects`);
+      continue;
+    }
+
+    if (debug) _debug(`Boundary [${phase}]: Processing ${candidates.length} effect(s)`);
+    const _tPhaseProcess = _perf ? monoMs() : 0;
+
+    for (const { actor, effect, config, tickState } of candidates) {
+      const _tp = _perf ? monoMs() : 0;
+      try {
+        if (!_isEffectAlive(actor, effect)) {
+          if (debug) _debug(`├─ Skipping: "${effect.name}" on ${actor.name} — deleted by prior payload`);
+          continue;
+        }
+        if (debug) _debug(`├─ Processing: "${effect.name}" on ${actor.name}`);
+        await _processEffect(actor, effect, config, tickState, phaseCtx, debug);
+      } catch (err) {
+        _error(`Failed to process effect "${effect.name}" on ${actor.name}`, err);
+      }
+      if (_perf) {
+        perfRecord({
+          event: "overtime.process",
+          trigger,
+          combatId: _combatId,
+          round: phaseCtx.round,
+          actorId: actor?.id ?? null,
+          effectName: effect?.name ?? null,
+          payloadType: config?.payloadType ?? null,
+          durationMs: monoMs() - _tp,
+          composite: true,
+        });
+      }
+    }
+    _boundaryPhaseProcessMs += _perf ? (monoMs() - _tPhaseProcess) : 0;
+  }
+
+  if (debug) _debug("═══ OverTime Boundary Tick END ═══");
+
+  if (_perf) {
+    perfRecord({
+      event: "overtime.boundaryTick",
+      combatId: _combatId,
+      round: boundaryCtx.currentRound,
+      phases: boundaryCtx.phases.join(","),
+      roundChanged: boundaryCtx.roundChanged,
+      indexedActors: _effectIndex.size,
+      boundaryEnsureIndexMs: _boundaryEnsureIndexMs,
+      boundaryCollectMs: _boundaryCollectMs,
+      boundaryCandidateCount: _boundaryCandidateCount,
+      boundaryPhaseProcessMs: _boundaryPhaseProcessMs,
+      boundaryUsedSharedCandidates: _boundaryUsedSharedCandidates,
+      durationMs: monoMs() - _t0,
+    });
+  }
 }
 
 // ─── Effect Collection (Index-Accelerated) ───────────────────────────────────
@@ -542,6 +730,162 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
   if (debug) {
     _debug(`  Collection Summary: ${results.length} eligible | scanned ${totalEffects} effects on ${totalActors} actors`);
     _debug(`    Skipped: disabled=${skippedDisabled}, upkeepAwaiting=${skippedUpkeep}, stale=${skippedNoEffect}, wrongTrigger=${skippedWrongTrigger}, wrongActor=${skippedWrongActor}, cadence=${skippedCadence}, maxTicks=${skippedMaxTicks}`);
+  }
+
+  return results;
+}
+
+/**
+ * @typedef {object} OverTimeCandidateRef
+ * @property {string} actorUuid
+ * @property {string} effectId
+ * @property {object} config
+ */
+
+/**
+ * Build per-trigger candidate reference buckets once for a boundary tick.
+ *
+ * This is a static-safe prefilter only. Runtime/mutable checks (disabled,
+ * upkeepAwaiting, cadence, maxTicks, stale effect deletion) are deferred to
+ * phase-time candidate materialization.
+ *
+ * @param {import("./spell-tick-engine.js").SpellTickBoundaryContext} boundaryCtx
+ * @param {boolean} debug
+ * @returns {Map<string, OverTimeCandidateRef[]>}
+ */
+function _buildBoundaryCandidateBuckets(boundaryCtx, debug) {
+  /** @type {Map<string, OverTimeCandidateRef[]>} */
+  const buckets = new Map();
+  const activeTriggers = new Set(boundaryCtx.phases ?? []);
+
+  // Optional static narrowing for turn-boundary phases.
+  const turnActorByTrigger = new Map();
+  const turnStartCtx = boundaryCtx.phaseContexts?.get?.("turnStart") ?? null;
+  const turnEndCtx = boundaryCtx.phaseContexts?.get?.("turnEnd") ?? null;
+  if (turnStartCtx?.actor?.uuid) turnActorByTrigger.set("turnStart", String(turnStartCtx.actor.uuid));
+  if (turnEndCtx?.actor?.uuid) turnActorByTrigger.set("turnEnd", String(turnEndCtx.actor.uuid));
+
+  for (const [actorUuid, effectMap] of _effectIndex) {
+    for (const [effectId, cachedConfigs] of effectMap) {
+      for (const config of cachedConfigs) {
+        const trigger = _str(config?.trigger);
+        if (!activeTriggers.has(trigger)) continue;
+
+        // Static-safe actor narrowing for turn phases only when actor is known.
+        const narrowedActorUuid = turnActorByTrigger.get(trigger);
+        if (narrowedActorUuid && narrowedActorUuid !== actorUuid) continue;
+
+        let triggerBucket = buckets.get(trigger);
+        if (!triggerBucket) {
+          triggerBucket = [];
+          buckets.set(trigger, triggerBucket);
+        }
+        triggerBucket.push({ actorUuid, effectId, config });
+      }
+    }
+  }
+
+  if (debug) {
+    const summary = {};
+    for (const [trigger, refs] of buckets) summary[trigger] = refs.length;
+    _debug("Boundary shared candidate precompute complete", summary);
+  }
+
+  return buckets;
+}
+
+/**
+ * Materialize live OverTime candidates for one boundary phase from precomputed
+ * lightweight references.
+ *
+ * Applies mutable/runtime gates in the same order as `_collectOverTimeEffects`.
+ *
+ * @param {string} trigger
+ * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
+ * @param {OverTimeCandidateRef[]} refs
+ * @param {boolean} debug
+ * @returns {OverTimeCandidate[]}
+ */
+function _resolveBoundaryCandidates(trigger, ctx, refs, debug) {
+  /** @type {OverTimeCandidate[]} */
+  const results = [];
+  const uuidCache = new Map();
+
+  // Diagnostic counters (only tracked when debug is on)
+  let totalRefs = 0;
+  let skippedNoActor = 0, skippedNoEffect = 0;
+  let skippedDisabled = 0, skippedUpkeep = 0;
+  let skippedWrongTrigger = 0, skippedWrongActor = 0;
+  let skippedCadence = 0, skippedMaxTicks = 0;
+
+  for (const ref of refs) {
+    totalRefs++;
+    const actor = resolveActorFromUuidSync(ref.actorUuid, { cache: uuidCache });
+    if (!actor?.effects) {
+      skippedNoActor++;
+      continue;
+    }
+
+    const ef = actor.effects.get(ref.effectId);
+    if (!ef) {
+      skippedNoEffect++;
+      continue;
+    }
+
+    if (ef.disabled) {
+      skippedDisabled++;
+      continue;
+    }
+
+    if (ef.flags?.[_FLAG_NS]?.upkeepAwaiting) {
+      skippedUpkeep++;
+      continue;
+    }
+
+    // Defensive check: should be guaranteed by bucket build.
+    const config = ref.config;
+    if (_str(config?.trigger) !== trigger) {
+      skippedWrongTrigger++;
+      continue;
+    }
+
+    if ((trigger === "turnStart" || trigger === "turnEnd") && ctx.actor) {
+      if (actor.uuid !== ctx.actor.uuid) {
+        skippedWrongActor++;
+        continue;
+      }
+    }
+
+    const tickState = _getTickState(ef);
+
+    if (!_isCadenceMet(config, tickState, ctx)) {
+      skippedCadence++;
+      continue;
+    }
+
+    const maxTicks = _numOrNull(config.maxTicks, null);
+    const currentTicks = _num(tickState.tickCount, 0);
+    if (maxTicks !== null && currentTicks >= maxTicks) {
+      skippedMaxTicks++;
+      continue;
+    }
+
+    if (debug) {
+      _debug(`     ✓ [${actor.name}] "${ef.name}" - ELIGIBLE`, {
+        trigger: config.trigger,
+        cadence: `${config.cadenceEvery ?? 1} ${config.cadenceUnit ?? "rounds"}`,
+        payload: config.payloadType,
+        tickCount: currentTicks,
+        maxTicks
+      });
+    }
+
+    results.push({ actor, effect: ef, config, tickState });
+  }
+
+  if (debug) {
+    _debug(`  Boundary Materialize Summary (${trigger}): ${results.length} eligible | scanned ${totalRefs} refs`);
+    _debug(`    Skipped: noActor=${skippedNoActor}, stale=${skippedNoEffect}, disabled=${skippedDisabled}, upkeepAwaiting=${skippedUpkeep}, wrongTrigger=${skippedWrongTrigger}, wrongActor=${skippedWrongActor}, cadence=${skippedCadence}, maxTicks=${skippedMaxTicks}`);
   }
 
   return results;

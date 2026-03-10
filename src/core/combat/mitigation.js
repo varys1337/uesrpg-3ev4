@@ -10,6 +10,7 @@
  */
 
 import { getWallOfSteelShieldBlockBonus } from "../traits/resilience-talents.js";
+import { getShieldBlockProfile } from "../items/shield-utils.js";
 
 const LOCATION_MAP = {
   Head: { key: "Head", label: "Head" },
@@ -34,32 +35,14 @@ export function normalizeHitLocation(hitLocation) {
  * Prefers derived fields computed in Item#prepareData when present.
  */
 export function getBlockValue(shield, damageType = "physical") {
-  if (!shield) return 0;
-
-  const sys = shield.system ?? {};
-  const dt = String(damageType || "physical").toLowerCase();
-
-  const rawBR = Number(sys.blockRatingEffective ?? sys.blockRating ?? 0);
-  if (!Number.isFinite(rawBR)) return 0;
+  const profile = getShieldBlockProfile(shield, damageType);
+  if (!profile?.isShield) return 0;
 
   // Wall of Steel (Chapter 4): +1 BR for worn shields.
   const parentActor = shield?.actor ?? shield?.parent ?? null;
   const wallBonus = parentActor ? Number(getWallOfSteelShieldBlockBonus(parentActor) || 0) : 0;
-  const baseBR = rawBR + wallBonus;
-
-  // Physical: base BR.
-  if (dt === "physical") return Math.max(0, baseBR);
-
-  // Magic/Elemental: prefer special vs an element.
-  const special = sys.magic_brSpecial;
-  if (special && String(special.type || "").toLowerCase() === dt) {
-    const v = Number(special.value ?? 0);
-    return Math.max(0, Number.isFinite(v) ? v : 0);
-  }
-
-  const magicBR = Number(sys.magic_brEffective ?? sys.magic_br ?? 0);
-  if (Number.isFinite(magicBR) && magicBR > 0) return Math.max(0, magicBR);
-
-  // RAW: Magic damage treats Block Rating as half (round up) unless there is a magic BR.
-  return Math.max(0, Math.ceil(baseBR / 2));
+  const dt = String(damageType || "physical").toLowerCase();
+  if (dt === "physical") return Math.max(0, profile.baseBR + wallBonus);
+  if (profile.magicBR > 0) return Math.max(0, profile.magicBR);
+  return Math.max(0, Math.ceil((profile.baseBR + wallBonus) / 2));
 }

@@ -1,5 +1,6 @@
 import { SYSTEM_ID } from "../../core/constants.js";
 import { isDebugEnabled } from "../../utils/debug.js";
+import { runSystemMigrations } from "../../core/migrations/runner.js";
 
 /**
  * Register startup-ready hooks for font application, migration pass,
@@ -22,9 +23,19 @@ export function registerMigrations({
         // but do not auto-run them on startup to avoid duplicate traversal work.
         void normalizeActors;
         void normalizeItems;
-        if (typeof migrateActorsIfNeeded === "function") await migrateActorsIfNeeded();
-        if (typeof migrateItemsIfNeeded === "function") await migrateItemsIfNeeded();
-        if (typeof migrateCombatLegacyIfNeeded === "function") await migrateCombatLegacyIfNeeded();
+        void migrateActorsIfNeeded;
+        void migrateItemsIfNeeded;
+        void migrateCombatLegacyIfNeeded;
+
+        const autoRun = game.settings.get(SYSTEM_ID, "autoRunMigrationsOnStartup") === true;
+        if (autoRun) {
+          await runSystemMigrations({
+            origin: "startup",
+            notifyStart: false,
+            notifySuccess: false,
+            notifyFailure: true,
+          });
+        }
       } catch (err) {
         console.error("UESRPG | Actor/item/combat migration startup pass failed", err);
         ui.notifications?.warn?.("UESRPG startup migration pass failed; check console for details.");

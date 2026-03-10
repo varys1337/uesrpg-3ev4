@@ -21,15 +21,16 @@ function _makeSpecialActionEntry(id) {
 }
 
 export const SPECIAL_ACTION_TOOLTIP_ENTRIES = Object.freeze({
-  arise: _makeSpecialActionEntry("Allows the character to use a momentary opening to roll back up to their feet, removing the prone condition without granting opponents the ability to make an attack of opportunity."),
-  bash: _makeSpecialActionEntry("Character makes an Athletics or unarmed Combat Style test which their opponent may oppose with their Athletics, unarmed Combat Style, or Evade skill. If they win, their opponent is knocked back 1 meter, loses an AP, and must make an Acrobatics test to avoid falling prone. Target character cannot be of larger size and must be within 2 meters. "),
-  blindOpponent: _makeSpecialActionEntry("Character makes a Combat Style test which their opponent may oppose with their Evade or Combat Style (if wielding a shield). If the target loses, they become blinded for 1 round. The character must reasonably have access to some way to blind their opponent (thrown sand or rocks, for example)."),
-  disarm: _makeSpecialActionEntry("Character makes an Athletics or unarmed Combat Style test which their opponent may oppose with their unarmed Combat Style or Athletics skill. If the target of the disarm attempt loses,  the character may choose to either take the target’s weapon if they have a free hand or ﬂing the target’s weapon 1d4 meters in a random direction. Target cannot be of larger size and must be within 2 meters. Cannot disarm natural weapons."),
-  feint: _makeSpecialActionEntry("Character attempts a Combat Style or Deceive test against an opponent’s Observe or Combat Style within a 2m range. If successful, they treat their next melee attack against the target as if they were Hidden. This eﬀect only applies if the attack occurs before the end of the character’s current Turn."),
-  forceMovement: _makeSpecialActionEntry("Character makes a Combat Style test which their opponent may oppose with their Combat Style or Athletics skill. If they win, they may move themself and their opponent up to three meters in any direction (they must both move in the same direction and the same amount) as the character shifts the location of the ﬁght. Target character must be within melee range."),
-  resist: _makeSpecialActionEntry("Character makes an Athletics or unarmed Combat Style test which their opponent may oppose with their Athletics or unarmed Combat Style skill. If they win, they may escape being restrained, grappled, or blinded."),
-  trip: _makeSpecialActionEntry("Character makes an Athletics or unarmed Combat Style test which their opponent may oppose with their Athletics, unarmed Combat Style, or Evade skill. If they win, their opponent falls prone. Target character cannot be of larger size and must be within 2 meters. "),
-  inClose: _makeSpecialActionEntry("Character makes an Athletics or unarmed Combat Style test which their opponent may oppose with their Athletics, unarmed Combat Style, or Evade skill. If they win then can either enter In Close (provided you are within 1m at the end of the exchange) range or leave it. If they fail - this action triggers an Attack of Opportunity."),
+  arise: _makeSpecialActionEntry("Allows the character to stand up safely, removing Prone without provoking an attack of opportunity."),
+  bash: _makeSpecialActionEntry("Athletics or unarmed Combat Style opposed by Athletics, unarmed Combat Style, or Evade. On success: knockback 1m, target loses 1 AP, then Acrobatics to avoid Prone."),
+  blindOpponent: _makeSpecialActionEntry("Combat Style opposed by Evade or shield-enabled Combat Style. On success, target is Blinded for 1 round."),
+  disarm: _makeSpecialActionEntry("Athletics or unarmed Combat Style opposed by unarmed Combat Style or Athletics. On success, take or fling the target weapon."),
+  feint: _makeSpecialActionEntry("Combat Style or Deceive opposed by Observe or Combat Style. On success, next melee attack against that target is treated as Hidden."),
+  forceMovement: _makeSpecialActionEntry("Combat Style opposed by Combat Style or Athletics. On success, attacker and target move up to 3m in the same direction."),
+  grapple: _makeSpecialActionEntry("Combat Style (unarmed) opposed by Combat Style (unarmed), Athletics, or Evade. On success, target is Restrained; larger targets impose -30 and 2+ sizes larger are invalid."),
+  resist: _makeSpecialActionEntry("Athletics or unarmed Combat Style opposed by Athletics or unarmed Combat Style. On success, escape Restrained, Grappled, or Blinded."),
+  trip: _makeSpecialActionEntry("Athletics or unarmed Combat Style opposed by Athletics, unarmed Combat Style, or Evade. On success, target becomes Prone."),
+  inClose: _makeSpecialActionEntry("Athletics or unarmed Combat Style opposed by Athletics, unarmed Combat Style, or Evade. On success, enter or leave In Close range."),
 });
 
 export function getSpecialActionTooltipEntry(id) {

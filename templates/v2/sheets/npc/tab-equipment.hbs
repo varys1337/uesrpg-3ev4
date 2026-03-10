@@ -191,6 +191,56 @@
                                 </tbody>
                             </table>
 
+                            <table class="shield-table">
+                                <thead>
+                                    <tr>
+                                        <th class="item-name-cell item-create" data-action="itemCreate" id="shield"><div class="ues-th-content"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="shield" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Shields</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                        <th>BR</th>
+                                        <th>MBR</th>
+                                        <th>Type</th>
+                                        <th class="right-align-cell"><i class="fas fa-trash"></i></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {{#each actor.shield.equipped as |item id|}}
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="flex-container">
+                                                    <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
+                                                    <img class="item-img" src="{{item.img}}" data-action="itemOpen">
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div class="item-name" data-action="itemOpen">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                                            <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
+                                            <td>{{item.system.shieldType}}</td>
+                                            <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                        </tr>
+                                    {{/each}}
+                                    {{#each actor.shield.unequipped as |item id|}}
+                                        <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
+                                            <td class="item-name-cell">
+                                                <div class="flex-container">
+                                                    <input type="checkbox" class="itemEquip checkbox" data-action="itemEquip" {{checked item.system.equipped}} title="Equip">
+                                                    <img class="item-img" src="{{item.img}}" data-action="itemOpen">
+                                                    {{#if item.system.containerStats.contained}}
+                                                        <i title="Open Container" class="fa-solid fa-backpack" data-action="openContainer" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                    {{/if}}
+                                                    <div class="item-name" data-action="itemOpen">{{item.name}}</div>
+                                                </div>
+                                            </td>
+                                            <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
+                                            <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
+                                            <td>{{item.system.shieldType}}</td>
+                                            <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                        </tr>
+                                    {{/each}}
+                                </tbody>
+                            </table>
+
                             <table class="armor-table">
                                 <thead>
                                     <tr>

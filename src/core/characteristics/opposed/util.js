@@ -4,6 +4,7 @@
  */
 
 import { doesUserOwnActor } from "../../../utils/authority-proxy.js";
+import { formatResultSummary } from "../../../utils/degree-roll-helper.js";
 
 export function _esc(value) {
   const raw = String(value ?? "");
@@ -27,6 +28,6 @@ export function _userHasActorOwnership(user, actor) {
 export function _fmtDegree(res) {
   if (!res) return "-";
   const cls = res.isSuccess ? "green" : "red";
-  const textual = `${Number(res.degree ?? 0)} ${res.isSuccess ? "DoS" : "DoF"}`;
+  const textual = formatResultSummary(res, { includeDegree: true, degreeStyle: "paren" });
   return `<span style="color: ${cls};">${textual}</span>`;
 }

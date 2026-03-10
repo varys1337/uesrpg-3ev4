@@ -7,6 +7,7 @@ import {
   registerReachVisualizerSettingsStorage
 } from "../../ui/apps/reach-visualizer-settings.js";
 import { registerHomebrewSettingsMenu } from "../../ui/apps/homebrew-settings.js";
+import { registerMigrationSettingsMenu } from "../../ui/apps/migration-settings.js";
 
 import { registerUiSettings } from "./settings/ui.js";
 import { registerCombatSettings } from "./settings/combat.js";
@@ -39,4 +40,7 @@ export async function registerSettings() {
 
   // Homebrew submenu (GM-restricted, world-scoped house rules)
   registerHomebrewSettingsMenu();
+
+  // Migration submenu (GM-restricted, manual migration controls)
+  registerMigrationSettingsMenu();
 }

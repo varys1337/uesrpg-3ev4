@@ -79,6 +79,13 @@ export async function onItemCreate(sheet, event, {
             await created?.[0]?.sheet?.render?.(true);
           },
         },
+        shield: {
+          label: "Shield",
+          callback: async () => {
+            const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "shield", type: "shield" }]);
+            await created?.[0]?.sheet?.render?.(true);
+          },
+        },
         weapon: {
           label: "Weapon",
           callback: async () => {
@@ -222,6 +229,23 @@ export async function onEquipItems(sheet, event) {
 
   for (const item of itemList) {
     switch (item.type) {
+      case "shield":
+        tableEntry = `<tr>
+                            <td data-item-id="${item._id}">
+                                <div style="display: flex; flex-direction: row; align-items: center; gap: 5px;">
+                                  <img class="item-img" src="${item.img}" height="24" width="24">
+                                  ${item.name}
+                                </div>
+                            </td>
+                            <td style="text-align: center;">${item.system.blockRatingEffective ?? item.system.blockRating ?? 0}</td>
+                            <td style="text-align: center;">${item.system.magic_brEffective ?? item.system.magic_br ?? 0}</td>
+                            <td style="text-align: center;">${item.system.shieldType ?? "normal"}</td>
+                            <td style="text-align: center;">
+                                <input type="checkbox" class="itemSelect" data-item-id="${item._id}" ${item.system.equipped ? "checked" : ""}>
+                            </td>
+                        </tr>`;
+        break;
+
       case "armor":
       case "equipment":
         tableEntry = `<tr>
@@ -282,6 +306,31 @@ export async function onEquipItems(sheet, event) {
   }
 
   switch (itemList[0].type) {
+    case "shield":
+      tableHeader = `<div>
+                          <div style="padding: 5px 0;">
+                              <label>Selecting nothing will unequip all items</label>
+                          </div>
+
+                          <div>
+                              <table>
+                                  <thead>
+                                      <tr>
+                                          <th>Name</th>
+                                          <th>BR</th>
+                                          <th>MBR</th>
+                                          <th>Type</th>
+                                          <th>Equipped</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      ${itemEntries.join("")}
+                                  </tbody>
+                              </table>
+                          </div>
+                      </div>`;
+      break;
+
     case "armor":
     case "equipment":
       tableHeader = `<div>

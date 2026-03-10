@@ -88,6 +88,14 @@ export const SPECIAL_ACTION_TEST_OPTIONS = Object.freeze({
     attacker: ["combatStyle"],
     defender: ["combatStyle", "athletics"]
   },
+  grapple: {
+    attacker: ["combatStyle", "athletics"],
+    defender: ["combatStyle", "athletics", "evade"]
+  },
+  inClose: {
+    attacker: ["athletics", "combatStyle"],
+    defender: ["athletics", "combatStyle", "evade"]
+  },
   resist: {
     attacker: ["combatStyleUnarmed", "athletics"],
     defender: ["combatStyleUnarmed", "athletics"]
@@ -291,7 +299,9 @@ export function buildSpecialActionsForActor(actor, { styleUuidOrId = null, legac
     ? getKnownSpecialActionIdsForStyle(actor, styleUuidOrId, { legacyNpcFallback })
     : getKnownSpecialActionIds(actor);
 
-  return SPECIAL_ACTIONS.map((sa) => ({
+  return SPECIAL_ACTIONS
+    .filter((sa) => sa?.id !== "grapple")
+    .map((sa) => ({
     id: sa.id,
     name: sa.name,
     actionType: sa.actionType,
@@ -417,12 +427,23 @@ export function isSpecialActionUsableNow(actor, actionType) {
 export function isUnarmedCombatStyleItem(combatStyleItem) {
   if (!combatStyleItem) return false;
   const name = String(combatStyleItem.name ?? "").trim().toLowerCase();
+  const trainedEquipment = Array.isArray(combatStyleItem?.system?.trainedEquipment)
+    ? combatStyleItem.system.trainedEquipment
+    : [];
+  const trainedText = trainedEquipment
+    .map((entry) => String(entry ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" | ");
+  const haystack = `${name} | ${trainedText}`;
   return (
-    name.includes("unarmed")
-    || name.includes("hand to hand")
-    || name.includes("hand-to-hand")
-    || name.includes("brawling")
-    || name.includes("martial arts")
+    haystack.includes("unarmed")
+    || haystack.includes("hand to hand")
+    || haystack.includes("hand-to-hand")
+    || haystack.includes("brawling")
+    || haystack.includes("martial arts")
+    || haystack.includes("fist")
+    || haystack.includes("punch")
+    || haystack.includes("kick")
   );
 }
 

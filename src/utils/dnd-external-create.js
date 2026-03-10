@@ -6,7 +6,7 @@ import { requestCreateEmbeddedDocuments } from "./authority-proxy.js";
 import { dndDebug } from "./dnd-debugger.js";
 
 const STACKABLE_DEFAULT = new Set(["ammunition"]);
-const PHYSICAL_TYPES = new Set(["equipment", "scroll", "weapon", "armor", "ammunition", "container"]);
+const PHYSICAL_TYPES = new Set(["equipment", "scroll", "weapon", "armor", "shield", "ammunition", "container"]);
 
 function _str(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -37,6 +37,7 @@ export function inferDroppedItemType(item) {
     "armor", "armour", "helmet", "gauntlet", "greave", "shield", "chest", "chestplate",
     "head", "body", "arm", "leg", "cuirass", "pauldron",
   ];
+  const shieldKeys = ["shield", "buckler", "targe", "tower shield"];
   const ammoKeys = ["ammunition", "ammo", "arrow", "bolt", "dart", "sling", "stone", "quiver"];
   const weaponKeys = [
     "weapon", "sword", "axe", "mace", "dagger", "spear", "staff",
@@ -51,8 +52,15 @@ export function inferDroppedItemType(item) {
     sys.magic_ar != null;
 
   const isAmmoByFields =
-    sys.arrowType != null ||
-    sys.ammoMaterial != null;
+    sys.arrowType != null;
+
+  const isShieldByFields =
+    sourceType === "shield" ||
+    _str(sys.item_cat) === "shield" ||
+    _str(sys.category) === "shield" ||
+    sys.shieldType != null ||
+    sys.magic_br != null ||
+    (sys.isShield === true);
 
   const isWeaponByFields =
     sys.attackMode != null ||
@@ -62,6 +70,7 @@ export function inferDroppedItemType(item) {
     sys.consumeAmmo != null ||
     sys.reloadState != null;
 
+  if (_hasAny(combined, shieldKeys) || isShieldByFields) return "shield";
   if (_hasAny(combined, armorKeys) || isArmorByFields) return "armor";
   if (_hasAny(combined, ammoKeys) || isAmmoByFields) return "ammunition";
   if (_hasAny(combined, weaponKeys) || isWeaponByFields) return "weapon";

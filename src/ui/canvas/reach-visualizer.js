@@ -16,6 +16,7 @@
 import {
   REACH_BEHAVIOUR,
   REACH_COLOR_MODE,
+  REACH_GRID_DIAGONAL,
   REACH_SHAPE,
   REACH_SOURCE,
   REACH_VISIBILITY,
@@ -46,9 +47,22 @@ let _labelContainer = null;
 let _hoveredToken = null;
 let _debouncedRedraw = null;
 let _hooksRegistered = false;
+let _pendingOverlayWork = null;
+let _lastControlledTokenIds = new Set();
+let _lastTargetedTokenIds = new Set();
 
 /** @type {Map<string, {container: PIXI.Container, maxG: PIXI.Graphics, minG: PIXI.Graphics, label?: PIXI.Text, distLabel?: PIXI.Text, lastKey?: string, gridCache?: {max?: any, min?: any}}>} */
 const _tokenOverlays = new Map();
+
+function _createOverlayWork() {
+  return {
+    full: false,
+    geometry: new Set(),
+    labels: new Set(),
+    alpha: new Set(),
+    reasons: new Set(),
+  };
+}
 
 /* -------------------------------------------- */
 /* Utilities                                    */
@@ -300,6 +314,37 @@ function _shouldShowEngagementLabel(token) {
   return allowedDispositions.has(disp);
 }
 
+function _currentControlledTokenIds() {
+  return new Set((canvas?.tokens?.controlled ?? []).map((token) => String(token?.id ?? "")).filter(Boolean));
+}
+
+function _currentTargetedTokenIds() {
+  return new Set(Array.from(game.user?.targets ?? []).map((token) => String(token?.id ?? "")).filter(Boolean));
+}
+
+function _mergeTokenIdSet(target, values) {
+  if (!target || !values) return;
+  for (const value of values) {
+    const id = String(value ?? "").trim();
+    if (id) target.add(id);
+  }
+}
+
+function _queueReachOverlayWork({ full = false, geometryTokenIds = [], labelTokenIds = [], alphaTokenIds = [], reason = "hook" } = {}) {
+  _pendingOverlayWork = _pendingOverlayWork ?? _createOverlayWork();
+  if (full) _pendingOverlayWork.full = true;
+  _pendingOverlayWork.reasons.add(String(reason ?? "hook") || "hook");
+  _mergeTokenIdSet(_pendingOverlayWork.geometry, geometryTokenIds);
+  _mergeTokenIdSet(_pendingOverlayWork.labels, labelTokenIds);
+  _mergeTokenIdSet(_pendingOverlayWork.alpha, alphaTokenIds);
+}
+
+function _consumeReachOverlayWork() {
+  const work = _pendingOverlayWork ?? _createOverlayWork();
+  _pendingOverlayWork = _createOverlayWork();
+  return work;
+}
+
 /* -------------------------------------------- */
 /* Overlay Container Management                 */
 /* -------------------------------------------- */
@@ -440,7 +485,11 @@ function _renderKeyForToken(token, bounds) {
     Number(grid?.size ?? 0),
     Number(scene?.grid?.distance ?? 0),
     String(scene?.grid?.type ?? ""),
-    String(scene?.grid?.diagonals ?? scene?.grid?.diagonalRule ?? grid?.diagonalRule ?? ""),
+    String(_settings.gridDiagonalMode ?? REACH_GRID_DIAGONAL.CHEBYSHEV),
+    // In scene-diagonal mode, the actual diag rule also affects geometry.
+    _settings.gridDiagonalMode === REACH_GRID_DIAGONAL.SCENE
+      ? String(scene?.grid?.diagonals ?? scene?.grid?.diagonalRule ?? grid?.diagonalRule ?? "")
+      : "",
     Number(pxPerUnit),
   ].join("|");
 
@@ -531,11 +580,13 @@ function _redrawTokenOverlay(token) {
 
   const doGrid = (_settings.shape === REACH_SHAPE.GRID) && !_isGridlessScene() && (_isSquareGrid() || _isHexGrid());
 
+  const ignoreSceneDiagonals = _settings.gridDiagonalMode !== REACH_GRID_DIAGONAL.SCENE;
+
   // MAX boundary (solid)
   if (doGrid) {
     if (_isSquareGrid()) {
       const cached = entry.gridCache?.max;
-      const outline = computeSquareGridOutline(token, maxU, lineWidth);
+      const outline = computeSquareGridOutline(token, maxU, lineWidth, { ignoreSceneDiagonals });
       if (!cached || cached.key !== outline.key) entry.gridCache.max = outline;
       const segs = (entry.gridCache.max?.segments ?? outline.segments);
       drawSolidGridSegments(entry.maxG, segs, lineWidth, color);
@@ -557,7 +608,7 @@ function _redrawTokenOverlay(token) {
 
     if (doGrid) {
       if (_isSquareGrid()) {
-        const outline = computeSquareGridOutline(token, minU, minLineWidth);
+        const outline = computeSquareGridOutline(token, minU, minLineWidth, { ignoreSceneDiagonals });
         const cached = entry.gridCache?.min;
         if (!cached || cached.key !== outline.key) entry.gridCache.min = outline;
         const segs = (entry.gridCache.min?.segments ?? outline.segments);
@@ -582,7 +633,7 @@ function _redrawTokenOverlay(token) {
   _updateLabels(token, entry, bounds);
 }
 
-function redrawReachOverlays() {
+function _redrawReachOverlaysFull() {
   if (!_enabled || !_settings.enabled) return;
 
   const overlay = _getOverlayContainer();
@@ -596,6 +647,45 @@ function redrawReachOverlays() {
   _syncOverlays(display);
 
   for (const t of display) _redrawTokenOverlay(t);
+}
+
+function redrawReachOverlays(options = null) {
+  if (!_enabled || !_settings.enabled) return;
+
+  const work = options && typeof options === "object" ? options : { full: true };
+  if (work.full) {
+    _redrawReachOverlaysFull();
+    return;
+  }
+
+  const overlay = _getOverlayContainer();
+  if (!overlay) return;
+  overlay.visible = true;
+
+  const candidates = _getCandidateTokens();
+  const display = _getDisplayTokens(candidates);
+  _syncOverlays(display);
+  const displayMap = new Map(display.map((token) => [String(token.id), token]));
+
+  for (const tokenId of (work.geometry ?? [])) {
+    const token = displayMap.get(String(tokenId)) ?? null;
+    if (token) _redrawTokenOverlay(token);
+  }
+
+  for (const tokenId of (work.labels ?? [])) {
+    const token = displayMap.get(String(tokenId)) ?? null;
+    const entry = token ? _tokenOverlays.get(String(token.id)) : null;
+    if (!token || !entry) continue;
+    const active = getActiveMeleeWeapon(token.actor, _settings.reachSource);
+    const bounds = active?.bounds ?? { max: 0, min: 0 };
+    _positionOverlay(token, entry);
+    _updateLabels(token, entry, bounds);
+  }
+
+  for (const tokenId of (work.alpha ?? [])) {
+    const token = displayMap.get(String(tokenId)) ?? null;
+    if (token) _applyOverlayAlpha(token);
+  }
 }
 
 /* -------------------------------------------- */
@@ -622,8 +712,12 @@ export function applySettings(partial = null) {
   _setEnabled(_settings.enabled);
 
   // Immediate redraw (debounced where possible).
-  if (_debouncedRedraw) _debouncedRedraw();
-  else redrawReachOverlays();
+  if (_debouncedRedraw) {
+    _queueReachOverlayWork({ full: true, reason: "applySettings" });
+    _debouncedRedraw();
+  } else {
+    redrawReachOverlays({ full: true });
+  }
 }
 
 /* -------------------------------------------- */
@@ -635,18 +729,25 @@ function _registerHooks() {
   _hooksRegistered = true;
 
   const debounce = foundry?.utils?.debounce;
+  _pendingOverlayWork = _createOverlayWork();
+  _lastControlledTokenIds = _currentControlledTokenIds();
+  _lastTargetedTokenIds = _currentTargetedTokenIds();
   _debouncedRedraw = (typeof debounce === "function")
-    ? debounce(() => redrawReachOverlays(), 25)
-    : (() => redrawReachOverlays());
+    ? debounce(() => redrawReachOverlays(_consumeReachOverlayWork()), 25)
+    : (() => redrawReachOverlays(_consumeReachOverlayWork()));
 
   Hooks.once("canvasReady", () => {
     // Ensure overlay exists and reflects settings.
     try { _getOverlayContainer(); } catch (_e) { /* no-op */ }
+    _queueReachOverlayWork({ full: true, reason: "canvasReady" });
     _debouncedRedraw();
   });
 
   Hooks.on("canvasTearDown", () => {
     _destroyOverlayContainer();
+    _pendingOverlayWork = _createOverlayWork();
+    _lastControlledTokenIds = new Set();
+    _lastTargetedTokenIds = new Set();
   });
 
   Hooks.on("hoverToken", (token, hovered) => {
@@ -662,17 +763,42 @@ function _registerHooks() {
     }
 
     if (_settings.visibility === REACH_VISIBILITY.HOVER) {
+      _queueReachOverlayWork({ full: true, reason: "hoverToken" });
       _debouncedRedraw();
     }
   });
 
   Hooks.on("sightRefresh", () => {
     if (!_enabled || !_settings.enabled) return;
+    _queueReachOverlayWork({ full: true, reason: "sightRefresh" });
     _debouncedRedraw();
   });
 
-  Hooks.on("updateToken", (_doc, _changes, _opts, _userId) => {
+  Hooks.on("updateToken", (doc, _changes, _opts, _userId) => {
     if (!_enabled || !_settings.enabled) return;
+    const tokenId = String(doc?.id ?? "").trim();
+    const related = new Set([tokenId]);
+    if (_settings.showTargetDistance) {
+      _mergeTokenIdSet(related, _currentControlledTokenIds());
+      _mergeTokenIdSet(related, _currentTargetedTokenIds());
+    }
+    _queueReachOverlayWork({
+      reason: "updateToken",
+      geometryTokenIds: [tokenId],
+      labelTokenIds: Array.from(related),
+    });
+    _debouncedRedraw();
+  });
+
+  Hooks.on("createToken", () => {
+    if (!_enabled || !_settings.enabled) return;
+    _queueReachOverlayWork({ full: true, reason: "createToken" });
+    _debouncedRedraw();
+  });
+
+  Hooks.on("deleteToken", () => {
+    if (!_enabled || !_settings.enabled) return;
+    _queueReachOverlayWork({ full: true, reason: "deleteToken" });
     _debouncedRedraw();
   });
 
@@ -700,12 +826,53 @@ function _registerHooks() {
 
   Hooks.on("controlToken", () => {
     if (!_enabled || !_settings.enabled) return;
-    if (_settings.showTargetDistance) _debouncedRedraw();
+    const nextControlled = _currentControlledTokenIds();
+    const changed = new Set([..._lastControlledTokenIds, ...nextControlled, ..._currentTargetedTokenIds()]);
+    _lastControlledTokenIds = nextControlled;
+    if (_settings.showTargetDistance) {
+      _queueReachOverlayWork({ reason: "controlToken", labelTokenIds: Array.from(changed) });
+      _debouncedRedraw();
+    }
   });
 
   Hooks.on("targetToken", () => {
     if (!_enabled || !_settings.enabled) return;
-    if (_settings.showTargetDistance) _debouncedRedraw();
+    const nextTargets = _currentTargetedTokenIds();
+    const changed = new Set([..._lastTargetedTokenIds, ...nextTargets, ..._currentControlledTokenIds()]);
+    _lastTargetedTokenIds = nextTargets;
+    if (_settings.showTargetDistance) {
+      _queueReachOverlayWork({ reason: "targetToken", labelTokenIds: Array.from(changed) });
+      _debouncedRedraw();
+    }
+  });
+
+  Hooks.on("updateItem", (item, changed) => {
+    if (!_enabled || !_settings.enabled) return;
+    if (String(item?.type ?? "") !== "weapon") return;
+    if (!item?.parent || item.parent.documentName !== "Actor") return;
+    const relevant = !changed || Object.keys(changed ?? {}).length === 0
+      || foundry.utils.hasProperty(changed, "system.equipped")
+      || foundry.utils.hasProperty(changed, "system.attackMode")
+      || foundry.utils.hasProperty(changed, "system.reach")
+      || foundry.utils.hasProperty(changed, "system.reachMin")
+      || foundry.utils.hasProperty(changed, "flags.uesrpg-3ev4.homebrew.reachLength");
+    if (!relevant) return;
+    const tokenIds = (canvas?.tokens?.placeables ?? [])
+      .filter((token) => String(token?.actor?.id ?? "") === String(item.parent?.id ?? ""))
+      .map((token) => String(token.id));
+    _queueReachOverlayWork({ reason: "updateItem", geometryTokenIds: tokenIds, labelTokenIds: tokenIds });
+    _debouncedRedraw();
+  });
+
+  Hooks.on("updateActor", (actor, changed) => {
+    if (!_enabled || !_settings.enabled) return;
+    const updatesEngagementLabel = foundry.utils.hasProperty(changed, "flags.uesrpg-3ev4.homebrew.maxEngagementScore");
+    if (!updatesEngagementLabel) return;
+    const tokenIds = (canvas?.tokens?.placeables ?? [])
+      .filter((token) => String(token?.actor?.id ?? "") === String(actor?.id ?? ""))
+      .map((token) => String(token.id));
+    _queueReachOverlayWork({ reason: "updateActor", labelTokenIds: tokenIds });
+    _debouncedRedraw();
   });
 
   // Track last used melee weapon when system emits a hint (optional integration point).
@@ -714,7 +881,13 @@ function _registerHooks() {
     try {
       if (!actorId || !weaponId) return;
       void setLastMeleeWeaponForActor(actorId, weaponId);
-      if (_settings.reachSource === REACH_SOURCE.LAST_USED) _debouncedRedraw();
+      if (_settings.reachSource === REACH_SOURCE.LAST_USED) {
+        const tokenIds = (canvas?.tokens?.placeables ?? [])
+          .filter((token) => String(token?.actor?.id ?? "") === String(actorId))
+          .map((token) => String(token.id));
+        _queueReachOverlayWork({ reason: "lastUsedMeleeWeapon", geometryTokenIds: tokenIds, labelTokenIds: tokenIds });
+        _debouncedRedraw();
+      }
     } catch (_e) {
       // no-op
     }

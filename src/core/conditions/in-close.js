@@ -190,6 +190,78 @@ export async function toggleInCloseForActor(actor) {
   }
 }
 
+function _resolveTokenPlaceableForActor(actor) {
+  if (!actor) return null;
+  const controlled = canvas?.tokens?.controlled ?? [];
+  const controlledMatch = controlled.find((t) => t?.actor?.id === actor.id);
+  if (controlledMatch) return controlledMatch;
+  return canvas?.tokens?.placeables?.find((t) => t?.actor?.id === actor.id) ?? null;
+}
+
+function _isInCloseLinked(docA, docB) {
+  if (!docA || !docB) return false;
+  const mapA = docA.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {};
+  const mapB = docB.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {};
+  return Boolean(mapA?.[docB.uuid] || mapB?.[docA.uuid]);
+}
+
+/**
+ * Deterministic pair toggle used by opposed-action automation.
+ * If the pair already exists it is removed; otherwise it is added (distance <= 1m required).
+ *
+ * @param {Actor} actorA
+ * @param {Actor} actorB
+ * @param {object} [opts]
+ * @param {boolean} [opts.requireOneMeterForEntry=true]
+ * @returns {Promise<{success:boolean,entered?:boolean,left?:boolean,message:string}>}
+ */
+export async function toggleInCloseBetweenActors(actorA, actorB, { requireOneMeterForEntry = true } = {}) {
+  if (!isReachLengthHomebrewEnabled()) {
+    return { success: false, message: "Reach & Length Overhaul is disabled." };
+  }
+  if (!actorA || !actorB) {
+    return { success: false, message: "Could not resolve both actors for In Close." };
+  }
+
+  const tokenA = _resolveTokenPlaceableForActor(actorA);
+  const tokenB = _resolveTokenPlaceableForActor(actorB);
+  const docA = tokenA?.document ?? null;
+  const docB = tokenB?.document ?? null;
+
+  if (!tokenA || !tokenB || !docA || !docB) {
+    return { success: false, message: "Both actors must have tokens on the canvas." };
+  }
+
+  if (_isInCloseLinked(docA, docB)) {
+    await _pruneInClosePair(docA, docB);
+    return { success: true, left: true, message: `${actorA.name} leaves In Close with ${actorB.name}.` };
+  }
+
+  if (requireOneMeterForEntry) {
+    const dist = measureTokenDistance(tokenA, tokenB);
+    if (!Number.isFinite(Number(dist)) || Number(dist) > 1) {
+      return { success: false, message: "Must be within 1 m to enter In Close." };
+    }
+  }
+
+  const mapA = docA.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {};
+  await docA.setFlag(FLAG_SCOPE, "reachLength.inCloseWith", { ...mapA, [docB.uuid]: true });
+
+  const mapB = docB.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {};
+  await requestUpdateDocument(docB, {
+    [`flags.${FLAG_SCOPE}.reachLength.inCloseWith`]: { ...mapB, [docA.uuid]: true }
+  });
+
+  if (!hasCondition(actorA, "inclose")) {
+    await toggleCondition(actorA, "inclose", { origin: null, source: "In Close" });
+  }
+  if (!hasCondition(actorB, "inclose")) {
+    await toggleCondition(actorB, "inclose", { origin: null, source: "In Close" });
+  }
+
+  return { success: true, entered: true, message: `${actorA.name} enters In Close with ${actorB.name}.` };
+}
+
 async function _pruneInClosePair(docA, docB) {
   // Remove docB from docA's map
   const mapA = foundry.utils.deepClone(docA.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {});

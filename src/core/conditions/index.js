@@ -8,6 +8,7 @@
 import { registerConditionHooks, ConditionsAPI, auditConditionRegistry } from "./condition-engine.js";
 export { CONDITION_KEYS } from "./condition-engine.js";
 import { registerConditionTurnTicker } from "./turn-ticker.js";
+import { initializeRoundStartCandidateRegistry } from "./round-start-candidate-registry.js";
 import { registerSystemStatusEffects, registerStatusHudInterop } from "./status-hud.js";
 import { isAnyDebugEnabled } from "../../utils/debug.js";
 import { getSystemId } from "./constants.js";
@@ -61,6 +62,7 @@ export function registerConditions() {
   });
 
   registerConditionHooks();
+  initializeRoundStartCandidateRegistry();
   registerConditionTurnTicker();
 
   game.uesrpg = game.uesrpg || {};

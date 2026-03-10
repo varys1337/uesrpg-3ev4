@@ -4,6 +4,7 @@
  * This module is intentionally items-focused and does not depend on the opposed workflow.
  * Combat code (when resumed) should consume ONLY this context object.
  */
+import { isShieldItem } from "../items/shield-utils.js";
 
 /**
  * @typedef {Object} AttackContext
@@ -26,11 +27,7 @@ export function getAttackContext(item, actor = null) {
   const sys = item?.system ?? {};
 
   const isWeapon = item?.type === "weapon";
-  const isShield = item?.type === "armor" && (
-    sys.isShield === true ||
-    sys.item_cat === "shield" ||
-    sys.category === "shield"
-  );
+  const isShield = isShieldItem(item, { allowLegacy: true });
 
   /** @type {"melee"|"ranged"} */
   const rawMode = String(sys.attackMode ?? "").toLowerCase();

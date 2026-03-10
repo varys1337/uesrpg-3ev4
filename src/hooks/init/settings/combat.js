@@ -85,4 +85,13 @@ export function registerCombatSettings() {
       alternate: "Alternate (Critical / 0 HP)"
     }
   });
+
+  _reg("dynamicInitiativeEnabled", {
+    name: "Dynamic Initiative",
+    hint: "When enabled, initiative is rerolled at each new round and committed atomically with the round advance so timing effects resolve against the new order.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
 }

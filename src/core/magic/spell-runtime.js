@@ -19,7 +19,7 @@ import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js"
 import { registerLinkedEntity, getOriginAEs } from "./effects/origin-effect.js";
 import { _str, createDebugLogger, isDebugEnabled } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
-import { FLAG_SCOPE } from "../system/namespace.js";
+import { FLAG_SCOPE, SYSTEM_ID } from "../system/namespace.js";
 
 // ── Shared Private Helpers ───────────────────────────────────────────────────
 
@@ -362,10 +362,20 @@ export function getTokensInTemplate(templateDocOrUuid) {
 /**
  * Get all active spell zones (Origin AEs that have linked templates).
  *
- * @param {Actor} [casterActor] - If provided, only returns zones for this caster
- * @returns {Array<{originAE: ActiveEffect, templateUuids: string[], spellName: string, casterUuid: string}>}
+ * When `useZoneRegistry` is enabled and no casterActor filter is provided,
+ * reads from the in-memory zone registry (O(zones)) instead of scanning all
+ * actors (O(all_actors × all_effects)).
+ *
+ * @param {Actor} [casterActor] - If provided, only returns zones for this caster (legacy scan, already cheap)
+ * @returns {Array<{originAE: ActiveEffect, templateUuids: string[], spellName: string, casterUuid: string, spellUuid: string}>}
  */
 export function getActiveSpellZones(casterActor = null) {
+  // Registry fast-path: only for full scans (no caster filter).
+  if (!casterActor && _isZoneRegistryEnabled()) {
+    return _getActiveSpellZonesFromRegistry();
+  }
+
+  // Legacy path: scan actors directly (also always used when casterActor is provided).
   const results = [];
   const actors = casterActor ? [casterActor] : (game.actors?.contents ?? []);
 
@@ -456,4 +466,169 @@ function _getTokenSamplePoints(token) {
   }
 
   return points;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SECTION 5: Zone Registry (Milestone D)
+//
+// Indexed alternative to getActiveSpellZones()'s full actor scan.
+// Enabled by the `useZoneRegistry` world setting (default: false).
+//
+// Registry lifecycle:
+//  - Seeded once at system ready via seedZoneRegistry()
+//  - Maintained incrementally via createActiveEffect / updateActiveEffect /
+//    deleteActiveEffect hooks (installed by seedZoneRegistry)
+//  - Rebuilt on canvasReady as a safety net (templates are scene-embedded docs)
+//  - rebuildZoneRegistry() exposed as a GM debug utility
+//
+// Format: Map<aeUuid, ZoneEntry>
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * @typedef {object} ZoneEntry
+ * @property {string} aeUuid - UUID of the Origin AE (e.g. "Actor.abc.ActiveEffect.def")
+ * @property {string} actorId - Foundry id of the owning actor
+ * @property {string[]} templateUuids - UUIDs of linked MeasuredTemplateDocuments
+ * @property {string} spellName
+ * @property {string} casterUuid
+ * @property {string} spellUuid
+ */
+
+/** @type {Map<string, ZoneEntry>} */
+const _zoneRegistry = new Map();
+
+let _zoneRegistryHooksInstalled = false;
+
+function _isZoneRegistryEnabled() {
+  try {
+    return Boolean(game?.settings?.get?.(SYSTEM_ID, "useZoneRegistry"));
+  } catch (_e) {
+    return false;
+  }
+}
+
+/**
+ * Build a ZoneEntry from an actor + Origin AE. Returns null if AE has no template links.
+ * @param {Actor} actor
+ * @param {ActiveEffect} originAE
+ * @returns {ZoneEntry|null}
+ */
+function _makeZoneEntry(actor, originAE) {
+  const flags = originAE?.flags?.[_FLAG_NS];
+  if (!flags?.isOriginAE) return null;
+  const linked = flags.linkedEntities ?? [];
+  const tplLinks = linked.filter(l => l.type === "template");
+  if (!tplLinks.length) return null;
+  const aeUuid = originAE.uuid;
+  if (!aeUuid) return null;
+  return {
+    aeUuid: String(aeUuid),
+    actorId: String(actor.id),
+    templateUuids: tplLinks.map(l => String(l.uuid)),
+    spellName: String(flags.spellName ?? originAE.name ?? ""),
+    casterUuid: String(flags.casterUuid ?? actor.uuid ?? ""),
+    spellUuid: String(flags.spellUuid ?? "")
+  };
+}
+
+function _addToZoneRegistry(actor, originAE) {
+  const entry = _makeZoneEntry(actor, originAE);
+  if (!entry) return;
+  _zoneRegistry.set(entry.aeUuid, entry);
+}
+
+function _removeFromZoneRegistry(aeUuid) {
+  if (aeUuid) _zoneRegistry.delete(String(aeUuid));
+}
+
+function _rebuildZoneRegistryFull() {
+  _zoneRegistry.clear();
+  for (const actor of (game?.actors?.contents ?? [])) {
+    for (const ae of getOriginAEs(actor)) {
+      _addToZoneRegistry(actor, ae);
+    }
+  }
+}
+
+/**
+ * Read active zones from the registry. Cleans stale entries on the fly.
+ * @returns {Array<{originAE: ActiveEffect, templateUuids: string[], spellName: string, casterUuid: string, spellUuid: string}>}
+ */
+function _getActiveSpellZonesFromRegistry() {
+  const results = [];
+  for (const [aeUuid, entry] of _zoneRegistry) {
+    const ae = fromUuidSync(aeUuid);
+    if (!ae) {
+      // Stale entry — AE was removed without the deleteActiveEffect hook firing
+      _zoneRegistry.delete(aeUuid);
+      continue;
+    }
+    results.push({
+      originAE: ae,
+      templateUuids: entry.templateUuids,
+      spellName: entry.spellName,
+      casterUuid: entry.casterUuid,
+      spellUuid: entry.spellUuid
+    });
+  }
+  return results;
+}
+
+/**
+ * Cheap predicate: returns true if there are any active zones.
+ * When registry is enabled, O(1). Otherwise conservatively returns true.
+ * Used as the `hasWork` predicate in the zone-tick spell tick handler.
+ *
+ * @returns {boolean}
+ */
+export function hasActiveZones() {
+  if (_isZoneRegistryEnabled()) return _zoneRegistry.size > 0;
+  return true;
+}
+
+/**
+ * Seed the zone registry and install AE lifecycle hooks for incremental maintenance.
+ * Idempotent — safe to call multiple times.
+ *
+ * Call once at system ready (after initializeSpellTickEngine).
+ */
+export function seedZoneRegistry() {
+  _rebuildZoneRegistryFull();
+
+  if (_zoneRegistryHooksInstalled) return;
+  _zoneRegistryHooksInstalled = true;
+
+  // Incremental: add when a new Origin AE is created
+  Hooks.on("createActiveEffect", (effect, _options, _userId) => {
+    const actor = effect.parent;
+    if (!actor || actor.documentName !== "Actor") return;
+    _addToZoneRegistry(actor, effect);
+  });
+
+  // Incremental: re-index when AE flags change (e.g. template UUID added)
+  Hooks.on("updateActiveEffect", (effect, changed, _options, _userId) => {
+    if (!changed.flags) return;
+    const actor = effect.parent;
+    if (!actor || actor.documentName !== "Actor") return;
+    _removeFromZoneRegistry(effect.uuid);
+    _addToZoneRegistry(actor, effect);
+  });
+
+  // Incremental: remove when AE is deleted
+  Hooks.on("deleteActiveEffect", (effect, _options, _userId) => {
+    _removeFromZoneRegistry(effect.uuid);
+  });
+
+  // Safety rebuild when the canvas loads a new scene
+  Hooks.on("canvasReady", () => {
+    _rebuildZoneRegistryFull();
+  });
+}
+
+/**
+ * Force a full rebuild of the zone registry from live actor data.
+ * Exposed as a GM debug utility (game.uesrpg.rebuildZoneRegistry()).
+ */
+export function rebuildZoneRegistry() {
+  _rebuildZoneRegistryFull();
 }

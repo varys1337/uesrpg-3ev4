@@ -1,109 +1,168 @@
 /**
  * src/ui/apps/hp-temp-hp-dialog.js
- * 
+ *
  * Dialog for managing HP and Temporary HP for actors.
  * Temporary HP acts as a damage buffer and does not stack.
  */
 
-import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { templatePath } from "../constants.js";
+import { clampNumber, toFiniteNumber } from "./resource-dialog-utils.js";
 
-export class HPTempHPDialog {
-  /**
-   * Show the HP/Temp HP management dialog for an actor.
-   * 
-   * @param {Actor} actor - The actor to manage HP for
-   * @returns {Promise<boolean>} - True if changes were applied, false if cancelled
-   */
+const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+
+class HPTempHPDialogAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
+  #actor;
+  #resolver = null;
+  #resolved = false;
+  #isSubmitting = false;
+
+  constructor(actor, options = {}) {
+    const id = `uesrpg-hp-temp-hp-dialog-${actor?.id ?? "unknown"}`;
+    super({ ...options, id });
+    this.#actor = actor;
+  }
+
+  static DEFAULT_OPTIONS = {
+    tag: "form",
+    classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--hp"],
+    position: { width: 540 },
+    window: { title: "Manage HP" },
+    form: {
+      handler: HPTempHPDialogAppV2.prototype._onSubmitForm,
+      closeOnSubmit: true,
+      submitOnChange: false,
+    },
+    actions: {
+      firstAid: HPTempHPDialogAppV2.prototype._onFirstAid,
+      cancel: HPTempHPDialogAppV2.prototype._onCancel,
+    },
+  };
+
+  static PARTS = {
+    // AppV2 requires each PART template to render exactly one root element.
+    main: {
+      template: templatePath("v2/dialogs/hp-temp-hp-dialog.hbs"),
+    },
+  };
+
   static async show(actor) {
     if (!actor?.system) {
       ui.notifications.error("Invalid actor for HP management");
       return false;
     }
 
-    const currentHP = Number(actor.system?.hp?.value ?? 0);
-    const maxHP = Number(actor.system?.hp?.max ?? 0);
-    const currentTempHP = Number(actor.system?.tempHP ?? 0);
-    const woundState = game?.uesrpg?.wounds?.getWoundState?.(actor) ?? (actor.system?.wounded ? "active" : "none");
-    const isWounded = woundState !== "none";
-    
-    const content = `
-      <div class="uesrpg-resource-dialog__body uesrpg-hp-dialog">
-        <div class="uesrpg-resource-dialog__group form-group">
-          <label class="uesrpg-resource-dialog__label">Current HP</label>
-          <input type="number" name="hp" value="${currentHP}" min="0" max="${maxHP}" />
-          <span class="uesrpg-resource-dialog__hint hint">Max: ${maxHP}</span>
-        </div>
-        <div class="uesrpg-resource-dialog__group form-group">
-          <label class="uesrpg-resource-dialog__label">Temporary HP</label>
-          <input type="number" name="tempHP" value="${currentTempHP}" min="0" />
-          <span class="uesrpg-resource-dialog__hint hint">Extra HP buffer, does not stack</span>
-        </div>
-      </div>
-    `;
-    
-    const buttons = {
-      firstAid: {
-        icon: '<i class="fas fa-medkit"></i>',
-        label: "First Aid",
-        callback: async (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          const newHP = Number(root?.querySelector('[name="hp"]')?.value);
-          const newTempHP = Number(root?.querySelector('[name="tempHP"]')?.value);
-          
-          if (newHP !== currentHP || newTempHP !== currentTempHP) {
-            await requestUpdateDocument(actor, {
-              "system.hp.value": Math.max(0, Math.min(maxHP, newHP)),
-              "system.tempHP": Math.max(0, newTempHP)
-            });
-          }
-          
-          if (game.uesrpg?.wounds?.firstAid) {
-            await game.uesrpg.wounds.firstAid(actor);
-            ui.notifications.info(`First Aid applied to ${actor.name}`);
-          } else {
-            ui.notifications.error("First Aid system not available");
-          }
-          
-          return true;
-        }
-      },
-      apply: {
-        icon: '<i class="fas fa-check"></i>',
-        label: "Apply",
-        callback: async (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          const newHP = Number(root?.querySelector('[name="hp"]')?.value);
-          const newTempHP = Number(root?.querySelector('[name="tempHP"]')?.value);
-          
-          await requestUpdateDocument(actor, {
-            "system.hp.value": Math.max(0, Math.min(maxHP, newHP)),
-            "system.tempHP": Math.max(0, newTempHP)
-          });
-          
-          ui.notifications.info(`HP updated for ${actor.name}`);
-          return true;
-        }
-      },
-      cancel: {
-        icon: '<i class="fas fa-times"></i>',
-        label: "Cancel",
-        callback: () => false
-      }
-    };
-    
-    // Remove firstAid button if actor is not wounded
-    if (!isWounded) {
-      delete buttons.firstAid;
-    }
-    
-    return customDialog({
-      title: `Manage HP - ${actor.name}`,
-      content,
-      buttons,
-      defaultButton: "apply",
-      classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--hp"],
-      width: 540,
+    const app = new HPTempHPDialogAppV2(actor);
+    return new Promise((resolve) => {
+      app.#resolver = resolve;
+      app.render(true);
     });
+  }
+
+  get title() {
+    return `Manage HP - ${this.#actor?.name ?? "Actor"}`;
+  }
+
+  async _prepareContext(options) {
+    const currentHP = toFiniteNumber(this.#actor.system?.hp?.value, 0);
+    const maxHP = toFiniteNumber(this.#actor.system?.hp?.max, 0);
+    const currentTempHP = toFiniteNumber(this.#actor.system?.tempHP, 0);
+    const woundState = game?.uesrpg?.wounds?.getWoundState?.(this.#actor)
+      ?? (this.#actor.system?.wounded ? "active" : "none");
+    const isWounded = woundState !== "none";
+
+    return {
+      currentHP,
+      maxHP,
+      currentTempHP,
+      isWounded,
+    };
+  }
+
+  async _onSubmitForm(event, form, formData) {
+    if (this.#isSubmitting) return;
+    this.#isSubmitting = true;
+
+    try {
+      const maxHP = toFiniteNumber(this.#actor.system?.hp?.max, 0);
+
+      const newHP = clampNumber(formData.object?.hp, 0, maxHP);
+      const newTempHP = clampNumber(formData.object?.tempHP, 0);
+
+      await requestUpdateDocument(this.#actor, {
+        "system.hp.value": newHP,
+        "system.tempHP": newTempHP,
+      });
+
+      ui.notifications.info(`HP updated for ${this.#actor.name}`);
+      this.#resolve(true);
+    } finally {
+      this.#isSubmitting = false;
+    }
+  }
+
+  async _onFirstAid(event, target) {
+    event?.preventDefault?.();
+    if (this.#isSubmitting) return;
+    this.#isSubmitting = true;
+
+    try {
+      await this.#persistCurrentFormValues();
+
+      if (game.uesrpg?.wounds?.firstAid) {
+        await game.uesrpg.wounds.firstAid(this.#actor);
+        ui.notifications.info(`First Aid applied to ${this.#actor.name}`);
+      } else {
+        ui.notifications.error("First Aid system not available");
+      }
+
+      this.#resolve(true);
+      await this.close();
+    } finally {
+      this.#isSubmitting = false;
+    }
+  }
+
+  _onCancel(event, target) {
+    event?.preventDefault?.();
+    if (this.#isSubmitting) return;
+    this.#resolve(false);
+    this.close();
+  }
+
+  async #persistCurrentFormValues() {
+    const formEl = this.element;
+    if (!formEl?.isConnected) return;
+    const fd = new foundry.applications.ux.FormDataExtended(formEl);
+
+    const maxHP = toFiniteNumber(this.#actor.system?.hp?.max, 0);
+    const newHP = clampNumber(fd.object?.hp, 0, maxHP);
+    const newTempHP = clampNumber(fd.object?.tempHP, 0);
+
+    const currentHP = toFiniteNumber(this.#actor.system?.hp?.value, 0);
+    const currentTempHP = toFiniteNumber(this.#actor.system?.tempHP, 0);
+    if (newHP === currentHP && newTempHP === currentTempHP) return;
+
+    await requestUpdateDocument(this.#actor, {
+      "system.hp.value": newHP,
+      "system.tempHP": newTempHP,
+    });
+  }
+
+  async close(options = {}) {
+    if (!this.#resolved) this.#resolve(false);
+    return super.close(options);
+  }
+
+  #resolve(value) {
+    if (this.#resolved) return;
+    this.#resolved = true;
+    this.#resolver?.(value);
+  }
+}
+
+export class HPTempHPDialog {
+  static async show(actor) {
+    return HPTempHPDialogAppV2.show(actor);
   }
 }

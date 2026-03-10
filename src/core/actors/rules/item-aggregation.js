@@ -7,6 +7,7 @@
 
 import { collectTraitDamageModifiers, getResistanceKeyForTraitType } from "../../traits/trait-registry.js";
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
+import { isShieldItem } from "../../items/shield-utils.js";
 
 /**
  * Check whether a passive feature item (trait/talent/power) is currently
@@ -120,7 +121,7 @@ export function aggregateItemStats(actor, actorData) {
     // - "Shields do not benefit from this effect" (never halved)
     // - "Containers halve the total effective value of the ENC contained within them"
     
-    const isShield = (item?.type === 'armor') && Boolean(sys?.isShieldEffective ?? sys?.isShield);
+    const isShield = isShieldItem(item, { allowLegacy: true });
     const isWornArmor = (item?.type === 'armor' && isEquipped && !isShield);
     const isContained = (sys?.containerStats?.contained === true);
 
@@ -236,7 +237,7 @@ export function aggregateItemStats(actor, actorData) {
 
     // Track heaviest effective equipped non-shield armor in the same pass.
     if (item?.type === "armor" && isEquipped) {
-      const isShield = Boolean(sys?.isShieldEffective ?? sys?.isShield);
+      const isShield = isShieldItem(item, { allowLegacy: true });
       if (!isShield) {
         const baseWC = normWeightClass(
           sys.weightClass ??
@@ -343,7 +344,7 @@ export function aggregateItemStats(actor, actorData) {
  * @returns {{rows: Array<object>, totals: object}}
  */
 export function buildEncumbranceBreakdown(actor) {
-  const trackedTypes = new Set(["armor", "ammunition", "weapon", "equipment", "container", "scroll"]);
+  const trackedTypes = new Set(["armor", "shield", "ammunition", "weapon", "equipment", "container", "scroll"]);
   const rows = [];
   const totals = {
     totalEnc: 0,
@@ -364,7 +365,7 @@ export function buildEncumbranceBreakdown(actor) {
     const itemWeight = enc * qty;
     const isEquipped = Object.prototype.hasOwnProperty.call(sys, "equipped") ? sys.equipped : true;
 
-    const isShield = (itemType === "armor") && Boolean(sys?.isShieldEffective ?? sys?.isShield);
+    const isShield = isShieldItem(item, { allowLegacy: true });
     const isWornArmor = (itemType === "armor" && isEquipped && !isShield);
     const isContained = (sys?.containerStats?.contained === true);
     let contributedEnc = itemWeight;

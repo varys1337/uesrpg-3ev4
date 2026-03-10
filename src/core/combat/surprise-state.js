@@ -6,6 +6,7 @@
 
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../system/namespace.js";
+import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 const SURPRISE_FLAG_PATH = "chapter5.surpriseState";
 
 let _hooksRegistered = false;
@@ -97,50 +98,60 @@ export async function markSurprisedFirstTurnPassed(actor, { combat = game.combat
   return true;
 }
 
+async function _handleCombatBoundarySurprise(payload) {
+  try {
+    if (!game.user?.isGM) return;
+    if (payload?.source !== "combat") return;
+    if (payload?.combat?.phase && payload.combat.phase !== "post") return;
+
+    const combat = game.combat ?? null;
+    if (!combat?.id) return;
+    if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
+
+    const changed = payload?.changed ?? {};
+    const changedTurn = Object.prototype.hasOwnProperty.call(changed, "turn");
+    const changedRound = Object.prototype.hasOwnProperty.call(changed, "round");
+    if (!changedTurn && !changedRound) return;
+
+    const currentRound = Number(combat.round ?? 0);
+    const currentTurn = Number(combat.turn ?? 0);
+    const changedRoundValue = Number(changed?.round ?? NaN);
+    const changedTurnValue = Number(changed?.turn ?? NaN);
+    const isInitialStart =
+      currentRound === 1
+      && currentTurn === 0
+      && ((changedRound && changedRoundValue === 1) || (changedTurn && changedTurnValue === 0));
+    if (isInitialStart) return;
+
+    const turns = Array.isArray(combat.turns) ? combat.turns : [];
+    if (!turns.length) return;
+
+    const idx = Number(combat.turn ?? 0);
+    const prevIdx = idx <= 0 ? turns.length - 1 : idx - 1;
+    const prevCombatant = turns[prevIdx] ?? null;
+    const prevActor = prevCombatant?.actor ?? null;
+    if (!prevActor) return;
+
+    await markSurprisedFirstTurnPassed(prevActor, { combat });
+  } catch (err) {
+    console.warn("UESRPG | Surprise ticker failed", err);
+  }
+}
+
 export function registerSurpriseHooks() {
   if (_hooksRegistered) return;
   _hooksRegistered = true;
 
+  registerCombatBoundaryConsumer({
+    id: "surprise-state",
+    // Surprise state clears after turn advancement is committed and other state lanes are stable.
+    order: 325,
+    handle: _handleCombatBoundarySurprise
+  });
+
   Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    try {
-      if (!game.user?.isGM) return;
-      if (payload?.source !== "combat") return;
-      if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-
-      const combat = game.combat ?? null;
-      if (!combat?.id) return;
-      if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
-
-      const changed = payload?.changed ?? {};
-      const changedTurn = Object.prototype.hasOwnProperty.call(changed, "turn");
-      const changedRound = Object.prototype.hasOwnProperty.call(changed, "round");
-      if (!changedTurn && !changedRound) return;
-
-      // Ignore initial "combat started" transition (round 1, turn 0).
-      // There is no previous completed turn yet, so no surprised actor should be cleared.
-      const currentRound = Number(combat.round ?? 0);
-      const currentTurn = Number(combat.turn ?? 0);
-      const changedRoundValue = Number(changed?.round ?? NaN);
-      const changedTurnValue = Number(changed?.turn ?? NaN);
-      const isInitialStart =
-        currentRound === 1
-        && currentTurn === 0
-        && ((changedRound && changedRoundValue === 1) || (changedTurn && changedTurnValue === 0));
-      if (isInitialStart) return;
-
-      const turns = Array.isArray(combat.turns) ? combat.turns : [];
-      if (!turns.length) return;
-
-      const idx = Number(combat.turn ?? 0);
-      const prevIdx = idx <= 0 ? turns.length - 1 : idx - 1;
-      const prevCombatant = turns[prevIdx] ?? null;
-      const prevActor = prevCombatant?.actor ?? null;
-      if (!prevActor) return;
-
-      await markSurprisedFirstTurnPassed(prevActor, { combat });
-    } catch (err) {
-      console.warn("UESRPG | Surprise ticker failed", err);
-    }
+    if (noteCombatBoundaryLegacyFallbackSkip("surprise-state", payload)) return;
+    await _handleCombatBoundarySurprise(payload);
   });
 
   Hooks.on("deleteCombat", async (combat) => {

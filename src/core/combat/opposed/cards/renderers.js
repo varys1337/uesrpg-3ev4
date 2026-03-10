@@ -80,6 +80,15 @@ function _getDefenderCommitGate(defenderData) {
   return { allowed: true };
 }
 
+function _renderAdvantageMarkers(data) {
+  const markers = Array.isArray(data?.context?.advantageMarkers) ? data.context.advantageMarkers : [];
+  const visible = markers.filter((marker) => marker && typeof marker === "object");
+  if (!visible.length) return "";
+  return `<div style="margin-top:8px; display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
+    ${visible.map((marker) => `<div style="color:#1c8f45; font-size:12px; line-height:1.2;"><b>&#10003;</b> ${foundry.utils.escapeHTML(String(marker.label ?? "Advantage Resolved"))}</div>`).join("")}
+  </div>`;
+}
+
 /**
  * Render multi-defender opposed combat card.
  * 
@@ -234,7 +243,6 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
     });
 
     const damagePanel = _buildDamagePanel(damageData);
-
     return `
       <div style="padding:6px; border:1px solid rgba(0,0,0,0.12); border-radius:6px; max-width:100%; overflow:hidden; box-sizing:border-box;">
         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
@@ -256,6 +264,7 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
       </div>
     `;
   }).join("");
+  const advantageMarkers = _renderAdvantageMarkers(data);
 
   return `
     <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px 0;">
@@ -274,10 +283,11 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
           </div>
           ${attackerActions}
         </div>
-        <div style="display:grid; grid-template-columns: 1fr; gap:10px; max-width:100%; overflow:hidden;">
+      <div style="display:grid; grid-template-columns: 1fr; gap:10px; max-width:100%; overflow:hidden;">
           ${defenderBlocks}
         </div>
       </div>
+      ${advantageMarkers}
     </div>
   `;
 }
@@ -420,7 +430,9 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
     damageData
   });
 
-  const damagePanel = _buildDamagePanel(damageData);
+  const damagePanel = _buildDamagePanel(damageData, {
+    markers: Array.isArray(data?.context?.advantageMarkers) ? data.context.advantageMarkers : []
+  });
 
   return `
   <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px 0;">
