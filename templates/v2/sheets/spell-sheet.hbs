@@ -1,5 +1,5 @@
-﻿
-  {{!-- в•ђв•ђв•ђ HEADER в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
+
+  {{!-- Header --}}
   <header class="sheet-header spell-header">
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" height="50" width="50"/>
     <div class="spell-header-fields">
@@ -17,7 +17,7 @@
         </div>
         <div class="spell-stat spell-stat-wide">
           <label>School</label>
-          <select name="system.school" data-dtype="String">
+          <select name="system.school" data-dtype="String" data-spell-structure>
             {{selectOptions item.system.school_cat selected=item.system.school localize=true}}
           </select>
         </div>
@@ -37,65 +37,48 @@
     </div>
   </header>
 
-  {{!-- в•ђв•ђв•ђ TABS в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-  <nav class="sheet-tabs tabs" data-group="primary">
-    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
+  {{!-- Tabs --}}
+  <nav class="sheet-tabs tabs spell-tabs" data-group="primary">
+    <a class="item" data-action="tab" data-group="primary" data-tab="description">Overview</a>
     <a class="item" data-action="tab" data-group="primary" data-tab="casting">Casting</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="information">Information</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="automation">Automation</a>
   </nav>
 
   <section class="sheet-body">
 
-    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-    {{!--  TAB 1 вЂ” DESCRIPTION                                             --}}
-    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
+    {{!-- Tab 1 - Overview --}}
     <div class="tab" data-group="primary" data-tab="description">
-      {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+      <div class="spell-casting-body spell-casting-body--overview">
+        <section class="spell-section spell-section--editor">
+          {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+        </section>
+      </div>
     </div>
 
-    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-    {{!--  TAB 2 вЂ” CASTING (compact configurator layout)                    --}}
-    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
+    {{!-- Tab 2 - Casting --}}
     <div class="tab" data-group="primary" data-tab="casting">
       <div class="spell-casting-body">
 
-        {{!-- в”Ђв”Ђ AT A GLANCE в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
-        <div class="spell-glance-row">
-          <span class="spell-glance-tag" title="Defense Model">
-            <i class="fas fa-shield-alt"></i>
-            {{#if (eq spellEngine.defenseModel "characteristic")}}CHA Save{{else}}Opposed{{/if}}
-          </span>
-          <span class="spell-glance-tag" title="Target Mode">
-            <i class="fas fa-bullseye"></i>
-            {{spellEngine.targeting.mode}}
-          </span>
-          <span class="spell-glance-tag" title="Range">
-            <i class="fas fa-arrows-alt-h"></i>
-            {{item.system.rangeType}}{{#if item.system.range}} {{item.system.range}}{{/if}}
-          </span>
-          <span class="spell-glance-tag" title="Duration">
-            <i class="fas fa-clock"></i>
-            {{#if (eq item.system.duration.unit "instant")}}Instant{{else if (eq item.system.duration.unit "permanent")}}Permanent{{else}}{{item.system.duration.value}} {{item.system.duration.unit}}{{/if}}
-          </span>
-          {{#if item.system.hasUpkeep}}
-          <span class="spell-glance-tag spell-glance-tag--active" title="Upkeep enabled">
-            <i class="fas fa-sync-alt"></i> Upkeep
-          </span>
-          {{/if}}
-        </div>
-
-        {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
         {{!--  SECTION: Casting Attributes (merged Classification + old     --}}
         {{!--  Casting Attributes + Defense Model)                          --}}
-        {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
         <section class="spell-section">
           <h4 class="spell-section-title">Casting Attributes</h4>
 
           {{!-- Identity toggles --}}
           <div class="spell-row spell-row-checks">
             <label class="spell-check"><input type="checkbox" name="system.isAttackSpell" {{checked item.system.isAttackSpell}} /> Attack Spell</label>
-            <label class="spell-check"><input type="checkbox" name="system.isDirect" {{checked item.system.isDirect}} /> Direct (no defense)</label>
             <label class="spell-check"><input type="checkbox" name="system.isInstant" {{checked item.system.isInstant}} /> Instant</label>
+          </div>
+
+          <div class="spell-toggle-stack">
+            <div class="spell-subsection spell-subsection--inline">
+              <h5 class="spell-subsection-title">Casting Modifiers</h5>
+              <div class="spell-row spell-row-checks spell-row-checks--tight">
+                <label class="spell-check"><input type="checkbox" name="system.hasUpkeep" {{checked item.system.hasUpkeep}} data-spell-structure /> Upkeep</label>
+                <label class="spell-check"><input type="checkbox" name="system.hasOverload" {{checked item.system.hasOverload}} data-spell-structure /> Overload</label>
+                <label class="spell-check"><input type="checkbox" name="system.hasReinforce" {{checked item.system.hasReinforce}} data-spell-structure /> Reinforce</label>
+              </div>
+            </div>
           </div>
 
           {{!-- Effect Type / Strength / Defense (single-row 3-column layout) --}}
@@ -112,8 +95,8 @@
             </div>
             <div>
               <label class="spell-label">Defense</label>
-              <select name="system.engine.defenseModel" class="spell-input spell-input-fill">
-                {{selectOptions defenseModelOptions selected=spellEngine.defenseModel}}
+              <select name="system.engine.defenseModel" class="spell-input spell-input-fill" data-spell-structure>
+                {{selectOptions defenseModelOptions selected=selectedDefenseModel}}
               </select>
             </div>
           </div>
@@ -145,7 +128,7 @@
           {{/if}}
 
           {{!-- Characteristic Defense sub-config (full-width below the 2-col grid) --}}
-          {{#if (eq spellEngine.defenseModel "characteristic")}}
+          {{#if (eq selectedDefenseModel "characteristic")}}
           <fieldset class="spell-fieldset">
             <legend>Characteristic Defense</legend>
             <div class="spell-row">
@@ -156,7 +139,7 @@
             </div>
             <div class="spell-row">
               <label class="spell-label">TN Modifier</label>
-              <select name="system.engine.characteristicDefense.modifierMode" class="spell-input spell-input-sm">
+              <select name="system.engine.characteristicDefense.modifierMode" class="spell-input spell-input-sm" data-spell-structure>
                 {{selectOptions charDefModifierModeOptions selected=spellEngine.characteristicDefense.modifierMode}}
               </select>
               {{#if (eq spellEngine.characteristicDefense.modifierMode "formula")}}
@@ -173,11 +156,11 @@
             </div>
             <div class="spell-row">
               <label class="spell-label">On Failure</label>
-              <select name="system.engine.characteristicDefense.onFailure" class="spell-input spell-input-med">
+              <select name="system.engine.characteristicDefense.onFailure" class="spell-input spell-input-med" data-spell-structure>
                 {{selectOptions charDefFailureOptions selected=spellEngine.characteristicDefense.onFailure}}
               </select>
             </div>
-            <p class="spell-hint">TN = Defender's characteristic в€’ modifier. "Spell Strength" uses the spell's SS value as the modifier.</p>
+            <p class="spell-hint">TN = Defender's characteristic - modifier. "Spell Strength" uses the spell's SS value as the modifier.</p>
           </fieldset>
 
           {{!-- Consequences (inline when defense=characteristic & failure=consequences) --}}
@@ -185,15 +168,15 @@
           <fieldset class="spell-fieldset">
             <legend>Consequences (on failed save)</legend>
             <div class="spell-row">
-              <label class="spell-label">Stamina О”</label>
+              <label class="spell-label">Stamina Delta</label>
               <input type="number" name="system.engine.consequences.staminaDelta"
                      value="{{spellEngine.consequences.staminaDelta}}"
                      class="spell-input spell-input-xs" />
-              <label class="spell-label spell-label--offset">Health О”</label>
+              <label class="spell-label spell-label--offset">Health Delta</label>
               <input type="number" name="system.engine.consequences.healthDelta"
                      value="{{spellEngine.consequences.healthDelta}}"
                      class="spell-input spell-input-xs" />
-              <label class="spell-label spell-label--offset">Magicka О”</label>
+              <label class="spell-label spell-label--offset">Magicka Delta</label>
               <input type="number" name="system.engine.consequences.magickaDelta"
                      value="{{spellEngine.consequences.magickaDelta}}"
                      class="spell-input spell-input-xs" />
@@ -210,17 +193,10 @@
                      value="{{spellEngine.consequences.description}}"
                      class="spell-input" placeholder="Flavour text for chat" />
             </div>
-            <p class="spell-hint">Use negative values for drains (e.g., в€’10 SP). Applied when the defender fails the characteristic save.</p>
+            <p class="spell-hint">Use negative values for drains (e.g., -10 SP). Applied when the defender fails the characteristic save.</p>
           </fieldset>
           {{/if}}
           {{/if}}
-
-          {{!-- Upkeep / Overload / Reinforce --}}
-          <div class="spell-row spell-row-checks spell-row-checks--spaced">
-            <label class="spell-check"><input type="checkbox" name="system.hasUpkeep" {{checked item.system.hasUpkeep}} /> Upkeep</label>
-            <label class="spell-check"><input type="checkbox" name="system.hasOverload" {{checked item.system.hasOverload}} /> Overload</label>
-            <label class="spell-check"><input type="checkbox" name="system.hasReinforce" {{checked item.system.hasReinforce}} /> Reinforce</label>
-          </div>
 
           {{#if item.system.hasOverload}}
           <fieldset class="spell-fieldset">
@@ -246,15 +222,15 @@
           {{/if}}
         </section>
 
-        {{!-- в”Ђв”Ђ SECTIONS: Targeting & Range + Duration (side by side) в”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+        {{!-- Targeting & range + duration --}}
         <div class="spell-2col-grid">
 
-        {{!-- в”Ђв”Ђ Targeting & Range (left column) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+        {{!-- Targeting & range --}}
         <section class="spell-section">
           <h4 class="spell-section-title">Targeting & Range</h4>
           <div class="spell-row">
             <label class="spell-label">Target Mode</label>
-            <select name="system.engine.targeting.mode" class="spell-input spell-input-med">
+            <select name="system.engine.targeting.mode" class="spell-input spell-input-med" data-spell-structure>
               {{selectOptions targetingModeOptions selected=spellEngine.targeting.mode}}
             </select>
             {{#if (eq spellEngine.targeting.mode "multi")}}
@@ -264,7 +240,7 @@
           </div>
           <div class="spell-row">
             <label class="spell-label">Range Type</label>
-            <select name="system.rangeType" class="spell-input spell-input-med">
+            <select name="system.rangeType" class="spell-input spell-input-med" data-spell-structure>
               <option value="none" {{#if (eq item.system.rangeType "none")}}selected{{/if}}>None</option>
               <option value="ranged" {{#if (eq item.system.rangeType "ranged")}}selected{{/if}}>Ranged</option>
               <option value="melee" {{#if (eq item.system.rangeType "melee")}}selected{{/if}}>Melee</option>
@@ -301,7 +277,7 @@
           {{/if}}
         </section>
 
-        {{!-- в”Ђв”Ђ Duration & Persistence (right column) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+        {{!-- Duration & persistence --}}
         <section class="spell-section">
           <h4 class="spell-section-title">Duration & Persistence</h4>
           <div class="spell-row">
@@ -309,7 +285,7 @@
             {{#unless (or (eq item.system.duration.unit "instant") (eq item.system.duration.unit "permanent"))}}
               <input type="number" name="system.duration.value" value="{{item.system.duration.value}}" min="0" class="spell-input spell-input-xs" />
             {{/unless}}
-            <select name="system.duration.unit" class="spell-input spell-input-med">
+            <select name="system.duration.unit" class="spell-input spell-input-med" data-spell-structure>
               {{selectOptions item.system.duration.units selected=item.system.duration.unit}}
             </select>
           </div>
@@ -319,7 +295,7 @@
           </div>
           <div class="spell-row">
             <label class="spell-label">Dispel Str.</label>
-            <select name="system.engine.persistence.dispelStrength" class="spell-input spell-input-med">
+            <select name="system.engine.persistence.dispelStrength" class="spell-input spell-input-med" data-spell-structure>
               {{selectOptions dispelStrengthOptions selected=spellEngine.persistence.dispelStrength}}
             </select>
             {{#if (eq spellEngine.persistence.dispelStrength "fixed")}}
@@ -338,9 +314,10 @@
 
         </div>{{!-- /.spell-2col-grid --}}
 
-        {{!-- в”Ђв”Ђ SECTION: Scaling Levels в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+        {{!-- Scaling levels --}}
         <details class="spell-details-section" data-uesrpg="scaling-levels">
           <summary class="spell-details-summary">
+            <i class="fas fa-chevron-right spell-details-caret" aria-hidden="true"></i>
             Scaling Levels
             <span class="spell-details-badge">{{item.system.scaling.levels.length}}</span>
             <button class="spell-btn-inline add-scaling-level" type="button" data-action="addScalingLevel" title="Add Scaling Level" {{#unless @root.editable}}disabled{{/unless}}>
@@ -394,7 +371,12 @@
           </div>
         </details>
 
-        {{!-- в”Ђв”Ђ SECTION: Active Effects (compact grid rows) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+      </div>
+    </div>
+
+    {{!-- Tab 3 - Automation --}}
+    <div class="tab" data-group="primary" data-tab="automation">
+      <div class="spell-casting-body">
         <section class="spell-section">
           <h4 class="spell-section-title">
             Active Effects
@@ -417,47 +399,32 @@
           </div>
         </section>
 
-        {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-        {{!--  ADVANCED OPTIONS (collapsible)                               --}}
-        {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-        <details class="spell-advanced">
-          <summary class="spell-advanced-summary">
-            <i class="fas fa-cogs"></i>
-            Advanced Options
-            <span class="spell-advanced-badge">{{advancedModulesCount}} modules enabled</span>
-          </summary>
+        <section class="spell-section spell-section--diagnostic">
+          <h4 class="spell-section-title">Effect Policies</h4>
+          <div class="spell-row">
+            <label class="spell-label">Stacking</label>
+            <select name="system.engine.effects.stackingPolicy" class="spell-input spell-input-fill">
+              {{selectOptions stackingPolicyOptions selected=spellEngine.effects.stackingPolicy}}
+            </select>
+          </div>
+          <div class="spell-row">
+            <label class="spell-label">Ownership</label>
+            <select name="system.engine.effects.ownershipPolicy" class="spell-input spell-input-fill">
+              {{selectOptions ownershipPolicyOptions selected=spellEngine.effects.ownershipPolicy}}
+            </select>
+          </div>
+          <p class="spell-hint">Stacking controls repeated casts. Ownership decides who receives the Active Effect.</p>
+        </section>
 
-          <div class="spell-advanced-body">
-
-            {{!-- в”Ђв”Ђ Effect Policies (always expanded, like a category header) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
-            <section class="spell-module-panel spell-module-panel--expanded">
-              <h4 class="spell-module-title"><i class="fas fa-layer-group"></i> Effect Policies</h4>
-              <div class="spell-row">
-                <label class="spell-label">Stacking</label>
-                <select name="system.engine.effects.stackingPolicy" class="spell-input spell-input-fill">
-                  {{selectOptions stackingPolicyOptions selected=spellEngine.effects.stackingPolicy}}
-                </select>
-              </div>
-              <div class="spell-row">
-                <label class="spell-label">Ownership</label>
-                <select name="system.engine.effects.ownershipPolicy" class="spell-input spell-input-fill">
-                  {{selectOptions ownershipPolicyOptions selected=spellEngine.effects.ownershipPolicy}}
-                </select>
-              </div>
-              <p class="spell-hint">Stacking: how repeated casts interact. Ownership: who receives the AE.</p>
-            </section>
-
-            {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-            {{!--  AUTOMATION MODULES (4Г—2 grid with Buffer/Barrier moved here) --}}
-            {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-            <h4 class="spell-section-title">Automation Modules</h4>
+        <section class="spell-section">
+          <div class="spell-automation-stack">
             <div class="spell-modules-grid">
 
-            {{!-- Buffer / Barrier (moved from above) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Buffer / Barrier (moved from above) --}}
             <section class="spell-module-panel {{#if item.system.hasBuffer}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-shield-alt"></i> Buffer / Barrier</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.hasBuffer" {{checked item.system.hasBuffer}} data-spell-module /> Grants Buffer</label>
+                <label class="spell-check"><input type="checkbox" name="system.hasBuffer" {{checked item.system.hasBuffer}} data-spell-structure /> Grants Buffer</label>
               </div>
               {{#if item.system.hasBuffer}}
               <div class="spell-row">
@@ -469,23 +436,23 @@
                   <option value="elemental" {{#if (eq item.system.buffer.type "elemental")}}selected{{/if}}>Elemental</option>
                 </select>
                 <label class="spell-label spell-label-sm">Strength</label>
-                <input type="text" name="system.buffer.formula" value="{{item.system.buffer.formula}}" placeholder="e.g. SS or 2d6" class="spell-input spell-input-sm" data-spell-module />
+                <input type="text" name="system.buffer.formula" value="{{item.system.buffer.formula}}" placeholder="e.g. SS or 2d6" class="spell-input spell-input-sm" data-spell-autosave />
               </div>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.buffer.freeUpkeepIfRemains" {{checked item.system.buffer.freeUpkeepIfRemains}} data-spell-module /> Free Upkeep if Buffer Remains</label>
+                <label class="spell-check"><input type="checkbox" name="system.buffer.freeUpkeepIfRemains" {{checked item.system.buffer.freeUpkeepIfRemains}} data-spell-autosave /> Free Upkeep if Buffer Remains</label>
               </div>
               <p class="spell-hint">Buffer absorbs incoming damage of the matching type before Temp HP and HP.</p>
               {{/if}}
             </section>
 
 
-            {{!-- в”Ђв”Ђ Module: Conjuration (school-gated) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: Conjuration (school-gated) --}}
             {{#if (eq item.system.school "conjuration")}}
             <section class="spell-module-panel spell-module-panel--expanded">
               <h4 class="spell-module-title"><i class="fas fa-hat-wizard"></i> Conjuration</h4>
               <div class="spell-row">
                 <label class="spell-label">Mode</label>
-                <select name="system.engine.conjure.mode" class="spell-input spell-input-med">
+                <select name="system.engine.conjure.mode" class="spell-input spell-input-med" data-spell-structure>
                   {{selectOptions conjureModeOptions selected=spellEngine.conjure.mode}}
                 </select>
               </div>
@@ -501,7 +468,7 @@
                            value="{{spellEngine.conjure.itemUuid}}"
                            placeholder="Drop an Item here or paste UUID"
                            class="spell-input spell-input-fill conjure-drop-target"
-                           data-conjure-drop="item" data-spell-module />
+                           data-conjure-drop="item" data-spell-autosave />
                     {{#if spellEngine.conjure.itemLabel}}
                     <span class="spell-hint spell-hint--nowrap">{{spellEngine.conjure.itemLabel}}</span>
                     {{/if}}
@@ -525,7 +492,7 @@
                            value="{{spellEngine.conjure.actorUuid}}"
                            placeholder="Drop an Actor here or paste UUID"
                            class="spell-input spell-input-fill conjure-drop-target"
-                           data-conjure-drop="actor" data-spell-module />
+                           data-conjure-drop="actor" data-spell-autosave />
                     {{#if spellEngine.conjure.actorLabel}}
                     <span class="spell-hint spell-hint--nowrap">{{spellEngine.conjure.actorLabel}}</span>
                     {{/if}}
@@ -542,7 +509,7 @@
                   <label class="spell-label spell-label-sm">Modifier</label>
                   <input type="number" name="system.engine.conjure.bindingModifier"
                          value="{{spellEngine.conjure.bindingModifier}}"
-                         class="spell-input spell-input-xs" data-spell-module />
+                         class="spell-input spell-input-xs" data-spell-autosave />
                 </div>
                 <p class="spell-hint">Opposed Characteristic test determines binding. SS modifies creature's TN.</p>
               </fieldset>
@@ -559,7 +526,7 @@
                            value="{{spellEngine.conjure.actorUuid}}"
                            placeholder="Drop a summoned Actor or paste UUID"
                            class="spell-input spell-input-fill conjure-drop-target"
-                           data-conjure-drop="actor" data-spell-module />
+                           data-conjure-drop="actor" data-spell-autosave />
                     {{#if spellEngine.conjure.actorLabel}}
                     <span class="spell-hint spell-hint--nowrap">{{spellEngine.conjure.actorLabel}}</span>
                     {{/if}}
@@ -576,7 +543,7 @@
                   <label class="spell-label spell-label-sm">SS Modifier</label>
                   <input type="number" name="system.engine.conjure.bindingModifier"
                          value="{{spellEngine.conjure.bindingModifier}}"
-                         class="spell-input spell-input-xs" data-spell-module />
+                         class="spell-input spell-input-xs" data-spell-autosave />
                 </div>
                 <p class="spell-hint">Opposed Characteristic test to sunder a conjured creature's binding.</p>
               </fieldset>
@@ -584,11 +551,11 @@
             </section>
             {{/if}}
 
-            {{!-- в”Ђв”Ђ Module: Disintegrate в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: Disintegrate --}}
             <section class="spell-module-panel {{#if spellEngine.disintegrate.enabled}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-atom"></i> Disintegrate</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.engine.disintegrate.enabled" {{checked spellEngine.disintegrate.enabled}} /> Apply Damaged quality instead of dealing damage</label>
+                <label class="spell-check"><input type="checkbox" name="system.engine.disintegrate.enabled" {{checked spellEngine.disintegrate.enabled}} data-spell-structure /> Apply Damaged quality instead of dealing damage</label>
               </div>
               {{#if spellEngine.disintegrate.enabled}}
               <div class="spell-row">
@@ -601,11 +568,11 @@
               {{/if}}
             </section>
 
-            {{!-- в”Ђв”Ђ Module: Drain в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: Drain --}}
             <section class="spell-module-panel {{#if spellEngine.drain.enabled}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-tint"></i> Drain</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.engine.drain.enabled" {{checked spellEngine.drain.enabled}} /> Drain current resource pool</label>
+                <label class="spell-check"><input type="checkbox" name="system.engine.drain.enabled" {{checked spellEngine.drain.enabled}} data-spell-structure /> Drain current resource pool</label>
               </div>
               {{#if spellEngine.drain.enabled}}
               <div class="spell-row">
@@ -619,11 +586,11 @@
               {{/if}}
             </section>
 
-            {{!-- в”Ђв”Ђ Module: Cloak (Aura) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: Cloak (Aura) --}}
             <section class="spell-module-panel {{#if spellEngine.cloak.enabled}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-spinner"></i> Cloak (Aura)</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.engine.cloak.enabled" {{checked spellEngine.cloak.enabled}} /> Apply effects to nearby targets each turn</label>
+                <label class="spell-check"><input type="checkbox" name="system.engine.cloak.enabled" {{checked spellEngine.cloak.enabled}} data-spell-structure /> Apply effects to nearby targets each turn</label>
               </div>
               {{#if spellEngine.cloak.enabled}}
               <div class="spell-row">
@@ -640,11 +607,11 @@
               {{/if}}
             </section>
 
-            {{!-- в”Ђв”Ђ Module: Rune / Trap в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: Rune / Trap --}}
             <section class="spell-module-panel {{#if item.system.isRuneSpell}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-crosshairs"></i> Rune / Trap</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.isRuneSpell" {{checked item.system.isRuneSpell}} /> Rune / Trap</label>
+                <label class="spell-check"><input type="checkbox" name="system.isRuneSpell" {{checked item.system.isRuneSpell}} data-spell-structure /> Rune / Trap</label>
               </div>
               {{#if item.system.isRuneSpell}}
               <div class="spell-row">
@@ -663,22 +630,22 @@
               {{/if}}
             </section>
 
-            {{!-- в”Ђв”Ђ Module: Persistent Zone в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: Persistent Zone --}}
             <section class="spell-module-panel {{#if item.system.isZonePersistent}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-globe"></i> Persistent Zone</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.isZonePersistent" {{checked item.system.isZonePersistent}} /> Persistent Zone</label>
+                <label class="spell-check"><input type="checkbox" name="system.isZonePersistent" {{checked item.system.isZonePersistent}} data-spell-structure /> Persistent Zone</label>
               </div>
               {{#if item.system.isZonePersistent}}
               <p class="spell-hint">Creates a persistent AoE zone linked to a MeasuredTemplate. Requires AoE range type.</p>
               {{/if}}
             </section>
 
-            {{!-- в”Ђв”Ђ Module: Spell Defense (Absorption/Reflect) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: Spell Defense (Absorption/Reflect) --}}
             <section class="spell-module-panel {{#if item.system.isSpellDefense}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-user-shield"></i> Spell Defense</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.isSpellDefense" {{checked item.system.isSpellDefense}} /> Spell Defense (Absorption/Reflect)</label>
+                <label class="spell-check"><input type="checkbox" name="system.isSpellDefense" {{checked item.system.isSpellDefense}} data-spell-structure /> Spell Defense (Absorption/Reflect)</label>
               </div>
               {{#if item.system.isSpellDefense}}
               <div class="spell-row">
@@ -687,15 +654,15 @@
                   {{selectOptions item.system.spellDefenseTypes selected=item.system.spellDefenseType}}
                 </select>
               </div>
-              <p class="spell-hint">Grants 1-round defensive buff. Threshold determined by the <strong>Strength</strong> field (Casting Attributes section). When a spell targets this actor, roll 1d10 вЂ” if roll в‰¤ threshold, the spell is absorbed (no effect) or reflected (redirected to caster).</p>
+              <p class="spell-hint">Grants 1-round defensive buff. Threshold determined by the <strong>Strength</strong> field (Casting Attributes section). When a spell targets this actor, roll 1d10 - if roll <= threshold, the spell is absorbed (no effect) or reflected (redirected to caster).</p>
               {{/if}}
             </section>
 
-            {{!-- в”Ђв”Ђ Module: OverTime в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: OverTime --}}
             <section class="spell-module-panel {{#if item.system.hasOverTime}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-redo"></i> OverTime</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.hasOverTime" {{checked item.system.hasOverTime}} data-spell-module /> OverTime</label>
+                <label class="spell-check"><input type="checkbox" name="system.hasOverTime" {{checked item.system.hasOverTime}} data-spell-structure /> OverTime</label>
               </div>
               {{#if item.system.hasOverTime}}
 
@@ -724,11 +691,11 @@
                     <option value="seconds" {{#if (eq ot.cadenceUnit "seconds")}}selected{{/if}}>Seconds</option>
                   </select>
                   <label class="spell-label spell-label-sm">Max</label>
-                  <input type="number" name="system.overTimeEntries.{{idx}}.maxTicks" value="{{ot.maxTicks}}" min="0" placeholder="в€ћ" class="spell-input spell-input-xs" />
+                  <input type="number" name="system.overTimeEntries.{{idx}}.maxTicks" value="{{ot.maxTicks}}" min="0" placeholder="∞" class="spell-input spell-input-xs" />
                 </div>
                 <div class="spell-row">
                   <label class="spell-label">Payload</label>
-                  <select name="system.overTimeEntries.{{idx}}.payloadType" class="spell-input spell-input-med">
+                  <select name="system.overTimeEntries.{{idx}}.payloadType" class="spell-input spell-input-med" data-spell-structure>
                     <option value="damage" {{#if (eq ot.payloadType "damage")}}selected{{/if}}>Damage</option>
                     <option value="heal" {{#if (or (eq ot.payloadType "heal") (eq ot.payloadType "healing"))}}selected{{/if}}>Heal</option>
                     <option value="endEffect" {{#if (eq ot.payloadType "endEffect")}}selected{{/if}}>End Effect</option>
@@ -788,11 +755,11 @@
               {{/if}}
             </section>
 
-            {{!-- в”Ђв”Ђ Module: Summon в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Module: Summon --}}
             <section class="spell-module-panel {{#if item.system.isSummonSpell}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-dragon"></i> Summon</h4>
               <div class="spell-row spell-row-checks">
-                <label class="spell-check"><input type="checkbox" name="system.isSummonSpell" {{checked item.system.isSummonSpell}} /> Summon</label>
+                <label class="spell-check"><input type="checkbox" name="system.isSummonSpell" {{checked item.system.isSummonSpell}} data-spell-structure /> Summon</label>
               </div>
               {{#if item.system.isSummonSpell}}
               <div class="spell-row">
@@ -809,7 +776,7 @@
 
             </div>{{!-- /.spell-modules-grid --}}
 
-            {{!-- в”Ђв”Ђ Effect Recipes (Experimental вЂ” hidden by default) в”Ђв”Ђв”Ђв”Ђ --}}
+            {{!-- Effect Recipes (Experimental - hidden by default) --}}
             {{#if enableSpellRecipes}}
             <section class="spell-module-panel">
               <h4 class="spell-module-title">
@@ -825,7 +792,7 @@
                 {{#each spellEngine.effects.recipes as |recipe idx|}}
                 <div class="spell-recipe-row" data-recipe-index="{{idx}}">
                   <select name="system.engine.effects.recipes.{{idx}}.key" class="spell-recipe-key" data-recipe-input="true">
-                    <option value="">вЂ” Key вЂ”</option>
+                    <option value="">- Key -</option>
                     {{#each @root.modifierKeyOptions as |label key|}}
                     <option value="{{key}}" {{#if (eq key ../recipe.key)}}selected{{/if}}>{{label}}</option>
                     {{/each}}
@@ -852,62 +819,8 @@
             {{/if}}
 
           </div>
-        </details>
-
-      </div>
-    </div>
-
-    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-    {{!--  TAB 3 вЂ” INFORMATION (validation, coverage, profile preview)      --}}
-    {{!-- в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ --}}
-    <div class="tab" data-group="primary" data-tab="information">
-      <div class="spell-casting-body">
-
-        {{!-- Validation --}}
-        <section class="spell-section">
-          <h4 class="spell-section-title">
-            Validation
-            <button type="button" class="spell-btn-inline spell-validate-btn" data-action="validateSpell">
-              <i class="fas fa-check-circle"></i> Validate
-            </button>
-          </h4>
-          <div class="spell-validation-output">
-            <p class="spell-hint">Click "Validate" to check configuration for errors and warnings.</p>
-          </div>
-        </section>
-
-        {{!-- Coverage Checklist --}}
-        <section class="spell-section">
-          <h4 class="spell-section-title">Automation Coverage</h4>
-          <div class="spell-coverage-list">
-            {{#each coverageReport as |entry|}}
-            <div class="spell-coverage-item">
-              {{#if entry.configured}}
-              <i class="fas fa-check-circle spell-coverage-yes"></i>
-              {{else}}
-              <i class="fas fa-minus-circle spell-coverage-no"></i>
-              {{/if}}
-              <span class="spell-coverage-name">{{entry.capability}}</span>
-              <span class="spell-coverage-detail">{{entry.details}}</span>
-            </div>
-            {{/each}}
-          </div>
-        </section>
-
-        {{!-- Resolved Profile Preview --}}
-        <section class="spell-section">
-          <h4 class="spell-section-title">
-            Resolved Profile
-            <button type="button" class="spell-btn-inline spell-preview-btn" data-action="previewProfile">
-              <i class="fas fa-eye"></i> Preview
-            </button>
-          </h4>
-          <div class="spell-profile-preview">
-            <span class="spell-hint">Click "Preview" to see the resolved spell profile (requires an owning actor).</span>
-          </div>
         </section>
       </div>
     </div>
 
   </section>
-

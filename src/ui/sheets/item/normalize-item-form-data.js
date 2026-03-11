@@ -298,6 +298,18 @@ export function normalizeItemFormData(item, formData) {
   // 4. Damage Instances normalization (spells)
   // ──────────────────────────────────────────────────────────────
   if (itemType === "spell") {
+    const defenseModelKey = "system.engine.defenseModel";
+    if (Object.prototype.hasOwnProperty.call(formData, defenseModelKey)) {
+      const rawDefenseModel = String(formData[defenseModelKey] ?? "").trim();
+      if (rawDefenseModel === "direct") {
+        formData[defenseModelKey] = "opposed";
+        formData["system.isDirect"] = true;
+      } else {
+        formData[defenseModelKey] = rawDefenseModel || "opposed";
+        formData["system.isDirect"] = false;
+      }
+    }
+
     const diPrefix = "system.damageInstances.";
     const diIndices = new Set();
     const diEntries = new Map();

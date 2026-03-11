@@ -53,15 +53,17 @@ import { requestBatchUpdateDocuments, requestDeleteEmbeddedDocuments, requestUpd
 import { MagicTimekeeping } from "./timekeeping-helper.js";
 import { classifySpellForRouting } from "./spell-runtime.js";
 import { AttackTracker } from "../combat/attack-tracker.js";
-import { safeGetEffect } from "../../utils/ae-helpers.js";
+import { safeDeleteEmbeddedDocuments, safeGetEffect } from "../../utils/ae-helpers.js";
 import { findOriginAEByGroupKey, refreshOriginAEUpkeep, cancelOriginAEUpkeep } from "./effects/origin-effect.js";
 import { hasTalent } from "../traits/talents-api.js";
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { buildSpellExpirationAnchor, normalizeSpellExpirationAnchor, explainSpellAnchorResolution } from "../../utils/document-resolution.js";
 
 const _FLAG_NS = FLAG_SCOPE;
+const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][Upkeep]");
 
 /** @type {Set<string>} Serialization locks to prevent concurrent prompts for the same group+boundary. */
 const _promptLocks = new Set();
@@ -141,48 +143,14 @@ function _nowWorldTime() {
  * @param {*} v
  * @returns {string}
  */
-import { _num, _str } from "./_primitives.js";
+import { _num, _str, createDebugLogger } from "./_primitives.js";
 
-/**
- * Synchronously resolve a UUID to any document type (Actor, Token, Item, etc.).
- * Unlike `safeGetEffectByUuidSync` (which is AE-only), this accepts arbitrary UUIDs.
- *
- * @param {string} uuid
- * @returns {foundry.abstract.Document|null}
- */
 function _fromUuidSync(uuid) {
   return resolveUuidSync(uuid);
 }
 
-/**
- * Synchronously resolve a UUID to an Actor. Handles Token/TokenDocument intermediaries.
- *
- * @param {string} uuid
- * @returns {Actor|null}
- */
 function _resolveActorSync(uuid) {
   return resolveActorFromUuidSync(uuid);
-}
-
-/**
- * Find the turn index for a caster actor in the current combat.
- *
- * @param {string} casterUuid — UUID of the caster actor.
- * @returns {number|null} Turn index or null if not in combat.
- */
-function _getCasterCombatTurnIndex(casterUuid) {
-  const combat = game.combat;
-  if (!combat || !casterUuid) return null;
-  const actor = _resolveActorSync(casterUuid);
-  if (!actor) return null;
-  const combatants = typeof combat.getCombatantsByActor === "function"
-    ? combat.getCombatantsByActor(actor)
-    : [];
-  const combatant = Array.isArray(combatants) ? combatants[0] : null;
-  if (!combatant) return null;
-  const turns = Array.isArray(combat.turns) ? combat.turns : Array.from(combat.combatants ?? []);
-  const idx = turns.findIndex(c => c?.id === combatant.id);
-  return idx >= 0 ? idx : null;
 }
 
 /**
@@ -457,7 +425,18 @@ function _getEffectCombatBoundary(effect, flags) {
   const roundsForUpkeep = Boolean(flags?.noListedDuration) ? 1 : roundsRaw;
   if (!(roundsForUpkeep > 0)) return null;
 
-  const casterTurnIndex = _getCasterCombatTurnIndex(_str(flags?.casterUuid));
+  const anchor = normalizeSpellExpirationAnchor(flags, { combat: game.combat ?? null });
+  const explanation = explainSpellAnchorResolution(game.combat ?? null, anchor);
+  _anchorDebug("Computed upkeep combat boundary", {
+    effect: effect?.name ?? null,
+    targetActor: effect?.parent?.name ?? null,
+    source: explanation?.source ?? "unresolved",
+    reason: explanation?.reason ?? "",
+    combatantId: explanation?.combatantId ?? null,
+    round: game?.combat?.round ?? null,
+    turn: game?.combat?.turn ?? null
+  });
+  const casterTurnIndex = explanation?.turnIndex ?? null;
   const endTurn = Number.isFinite(Number(casterTurnIndex)) ? _num(casterTurnIndex, startTurn) : startTurn;
 
   return {
@@ -1170,6 +1149,20 @@ export async function handleUpkeepGroupConfirm(message) {
 
   const effectUpdatesByActor = new Map();
   const actorBufferUpdates = new Map();
+  const refreshedAnchor = buildSpellExpirationAnchor({
+    casterActor,
+    casterTokenUuid: originCastSource?.casterTokenUuid ?? matches[0]?.flags?.expirationAnchor?.casterTokenUuid ?? null,
+    combat: game?.combat ?? null,
+    existing: matches[0]?.flags?.expirationAnchor ?? null
+  });
+  _anchorDebug("Normalized upkeep refresh anchor", {
+    groupKey: data.groupKey,
+    spell: data.spellName,
+    caster: casterActor?.name ?? null,
+    round: game?.combat?.round ?? null,
+    turn: game?.combat?.turn ?? null,
+    anchor: refreshedAnchor
+  });
   for (const m of matches) {
     const live = _getActorEffect(m.targetActor, m.effect?.id);
     if (!live) continue;
@@ -1207,6 +1200,12 @@ export async function handleUpkeepGroupConfirm(message) {
     updates[`flags.${_FLAG_NS}.expiredAtWorldTime`] = null;
     updates[`flags.${_FLAG_NS}.expiredAtCombatRound`] = null;
     updates[`flags.${_FLAG_NS}.upkeepAwaiting`] = null;
+    updates[`flags.${_FLAG_NS}.expirationAnchor`] = buildSpellExpirationAnchor({
+      casterActor,
+      casterTokenUuid: m.flags?.expirationAnchor?.casterTokenUuid ?? refreshedAnchor?.casterTokenUuid ?? null,
+      combat: game?.combat ?? null,
+      existing: m.flags?.expirationAnchor ?? refreshedAnchor
+    });
 
     const actorUpdates = effectUpdatesByActor.get(m.targetActor) ?? [];
     actorUpdates.push({ _id: live.id, ...updates });
@@ -1307,11 +1306,15 @@ export async function handleUpkeepGroupCancel(message) {
     if (!liveIds.length) continue;
 
     // Skip individual flag-clears — the effects are about to be deleted.
-    try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", liveIds);
-    } catch (err) {
-      if (_isMissingDocError(err)) continue;
-      console.error("UESRPG | upkeep-workflow | Failed to delete upkeep effects", { actor: actor?.uuid, ids: liveIds, err });
+    const deleted = await safeDeleteEmbeddedDocuments(actor, "ActiveEffect", liveIds, {
+      context: "UESRPG | upkeep-workflow",
+      logUnexpected: true
+    });
+    if (!deleted && liveIds.some((id) => _getActorEffect(actor, id))) {
+      console.error("UESRPG | upkeep-workflow | Failed to delete upkeep effects", {
+        actor: actor?.uuid ?? null,
+        ids: liveIds
+      });
     }
   }
 

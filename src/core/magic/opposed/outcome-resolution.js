@@ -18,6 +18,7 @@ import { isCharacteristicDefense, executeCharacteristicDefense, processCharacter
 import { createDebugLogger } from "../_primitives.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { buildMagicCastContextRows } from "./cast-context.js";
 
 const _spellDebug = createDebugLogger("spellCastingDebug");
 const NAMESPACE = "uesrpg-3ev4";
@@ -83,6 +84,7 @@ function _buildMagicDamageData({
   const isHealing = mode === "healing";
   const actualCost = Number(data?.attacker?.mpSpent ?? data?.context?.mpSpent ?? spell?.system?.cost ?? 0);
   const originalCastWorldTime = Number(data?.context?.originalCastWorldTime ?? game?.time?.worldTime ?? 0) || 0;
+  const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell);
 
   return {
     rolled: true,
@@ -93,6 +95,7 @@ function _buildMagicDamageData({
     weaponName: spell?.name ?? "Spell",
     weaponImg: spell?.img ?? "",
     qualityPillsHtml: "",
+    panelMetadata: castContext.rows,
     damageComponents: _buildMagicDamageComponents(spell, damageType, damageInfo),
     applied: false,
     blockResult: blockResult ?? null,
@@ -107,6 +110,7 @@ function _buildMagicDamageData({
       damageType: damageType || "",
       spellUuid: spell?.uuid ?? "",
       casterUuid: attacker?.uuid ?? "",
+      casterTokenUuid: data?.attacker?.tokenUuid ?? "",
       hitLocation,
       isCritical,
       source: spell?.name ?? "Spell",
@@ -125,6 +129,7 @@ function _buildMagicDamageData({
       isHealing,
       isTemporary,
       needsEffects: Boolean(spell && spellNeedsEffectApplication(spell)),
+      castContext,
     },
   };
 }

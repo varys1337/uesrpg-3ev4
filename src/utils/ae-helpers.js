@@ -15,6 +15,7 @@ import {
   requestUpdateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments
 } from "./authority-proxy.js";
+import { claimRecentEmbeddedDeletes, settleRecentEmbeddedDeletes } from "./embedded-delete-guard.js";
 
 /**
  * Safely retrieve an Active Effect by ID from an actor, returning null if not found.
@@ -126,6 +127,81 @@ export function isMissingDocError(err) {
          msg.includes("No Document") || 
          msg.includes("not found") ||
          msg.includes("Invalid document");
+}
+
+function _getEmbeddedCollection(parent, embeddedName) {
+  if (!parent || !embeddedName) return null;
+  if (embeddedName === "ActiveEffect") return parent.effects ?? null;
+  if (embeddedName === "Item") return parent.items ?? null;
+  if (embeddedName === "Token") return parent.tokens ?? null;
+  if (embeddedName === "MeasuredTemplate") return parent.templates ?? parent.measuredTemplates ?? null;
+  return null;
+}
+
+export function hasEmbeddedDocument(parent, embeddedName, docId) {
+  if (!parent || !docId) return false;
+  const collection = _getEmbeddedCollection(parent, embeddedName);
+  if (!collection?.get && !collection?.has) return true;
+  if (typeof collection.has === "function") return collection.has(docId);
+  return Boolean(collection.get(docId));
+}
+
+function _normalizeEmbeddedDeleteIds(docIds) {
+  const out = [];
+  const seen = new Set();
+  for (const rawId of Array.isArray(docIds) ? docIds : []) {
+    const id = String(rawId ?? "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+export async function safeDeleteEmbeddedDocuments(parent, embeddedName, docIds, { context = "AE Lifecycle", logUnexpected = true } = {}) {
+  if (!parent || !embeddedName) return false;
+  const normalizedIds = _normalizeEmbeddedDeleteIds(docIds);
+  if (!normalizedIds.length) return false;
+
+  const liveIds = normalizedIds.filter((docId) => hasEmbeddedDocument(parent, embeddedName, docId));
+  if (!liveIds.length) return false;
+  const claimedIds = claimRecentEmbeddedDeletes(parent, embeddedName, liveIds, { source: context });
+  if (!claimedIds.length) return false;
+
+  try {
+    const deleted = await requestDeleteEmbeddedDocuments(parent, embeddedName, claimedIds);
+    if (deleted) return true;
+  } catch (err) {
+    if (isMissingDocError(err)) return false;
+    if (claimedIds.every((docId) => !hasEmbeddedDocument(parent, embeddedName, docId))) return true;
+    if (!logUnexpected) return false;
+    console.error(`${context} | Failed to delete embedded documents`, {
+      parentUuid: parent?.uuid ?? null,
+      embeddedName,
+      docIds: claimedIds,
+      err
+    });
+    return false;
+  } finally {
+    settleRecentEmbeddedDeletes(parent, embeddedName, claimedIds, { source: context });
+  }
+
+  const survivingIds = claimedIds.filter((docId) => hasEmbeddedDocument(parent, embeddedName, docId));
+  if (!survivingIds.length) return true;
+  if (logUnexpected) {
+    console.error(`${context} | Failed to delete embedded documents`, {
+      parentUuid: parent?.uuid ?? null,
+      embeddedName,
+      docIds: claimedIds,
+      survivingIds
+    });
+  }
+  return false;
+}
+
+export async function safeDeleteEmbeddedDocument(parent, embeddedName, docId, { context = "AE Lifecycle", logUnexpected = true } = {}) {
+  if (!parent || !embeddedName || !docId) return false;
+  return safeDeleteEmbeddedDocuments(parent, embeddedName, [docId], { context, logUnexpected });
 }
 
 // ── Effect Grouping & Stacking (merged from ae-grouping.js) ─────────────────

@@ -18,7 +18,7 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG вЂ” Interface",
+      title: "UESRPG - Interface",
     },
     position: {
       width: 520,

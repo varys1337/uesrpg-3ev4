@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/ui/sheets/v2/item-sheet.js
  *
  * ApplicationV2 Item Sheet.
@@ -6,7 +6,7 @@
  * Key improvements:
  * - Uses HandlebarsApplicationMixin(ItemSheetV2) base
  * - Dynamic per-type template selection via _renderHTML override
- * - Deterministic form handler в†’ normalizer в†’ document.update pipeline
+ * - Deterministic form handler -> normalizer -> document.update pipeline
  * - _preRender / _onRender lifecycle for cross-render UI state preservation
  */
 
@@ -27,7 +27,6 @@ import { onEffectControl } from "../item/listeners/effects.js";
 import { onChargePlus, onChargeMinus } from "../item/listeners/usage.js";
 import { activateTalentFromItemSheet, activatePowerFromItemSheet, activateTraitFromItemSheet } from "../shared-handlers.js";
 import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../item/spell-scaling-helpers.js";
-import { validateSpellConfig, formatSpellValidationMessage } from "../../../core/magic/spell-config.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { activateEditorButtons } from "../shared/editor-activation.js";
 import { DEFAULTS } from "../../../core/migrations/item-defaults.generated.js";
@@ -203,7 +202,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     },
   };
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Static Configuration в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Static Configuration */
 
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "item", "uesrpg-sheet-root"],
@@ -235,32 +234,30 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       addEffectRecipe: SimpleItemSheetV2.prototype._onAddEffectRecipe,
       removeEffectRecipe: SimpleItemSheetV2.prototype._onRemoveEffectRecipe,
       conjureClear: SimpleItemSheetV2.prototype._onConjureClear,
-      validateSpell: SimpleItemSheetV2.prototype._onValidateSpell,
-      previewProfile: SimpleItemSheetV2.prototype._onPreviewProfile,
       addDamageInstance: SimpleItemSheetV2.prototype._onAddDamageInstance,
       removeDamageInstance: SimpleItemSheetV2.prototype._onRemoveDamageInstance,
-      // в”Ђв”Ђ Containment actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+      // Containment actions
       addToContainer: SimpleItemSheetV2.prototype._onAddToContainer,
       bulkRemoveAll: SimpleItemSheetV2.prototype._onBulkRemoveAll,
       bulkDeleteAll: SimpleItemSheetV2.prototype._onBulkDeleteAll,
       removeContainedItem: SimpleItemSheetV2.prototype._onRemoveContainedItem,
       deleteContainedItem: SimpleItemSheetV2.prototype._onDeleteContainedItem,
       openContainedItem: SimpleItemSheetV2.prototype._onOpenContainedItem,
-      // в”Ђв”Ђ Rule Element actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+      // Rule Element actions
       reAdd: SimpleItemSheetV2.prototype._onReAdd,
       reDelete: SimpleItemSheetV2.prototype._onReDelete,
       reExpand: SimpleItemSheetV2.prototype._onReExpand,
       reAddCondition: SimpleItemSheetV2.prototype._onReAddCondition,
       reConditionDelete: SimpleItemSheetV2.prototype._onReConditionDelete,
-      // в”Ђв”Ђ Alchemy ingredient actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+      // Alchemy ingredient actions
       enableAlchemyIngredient: SimpleItemSheetV2.prototype._onEnableAlchemyIngredient,
       clearAlchemyIngredient: SimpleItemSheetV2.prototype._onClearAlchemyIngredient,
-      // в”Ђв”Ђ Alchemy product actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+      // Alchemy product actions
       enableAlchemyProduct: SimpleItemSheetV2.prototype._onEnableAlchemyProduct,
       clearAlchemyProduct: SimpleItemSheetV2.prototype._onClearAlchemyProduct,
       drinkAlchemyProduct: SimpleItemSheetV2.prototype._onDrinkAlchemyProduct,
       applyAlchemyProductToWeapon: SimpleItemSheetV2.prototype._onApplyAlchemyProductToWeapon,
-      // в”Ђв”Ђ Scroll actions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+      // Scroll actions
       castScroll: SimpleItemSheetV2.prototype._onCastScroll,
       castEnchantment: SimpleItemSheetV2.prototype._onCastEnchantment,
       toggleSpellcastingEnable: SimpleItemSheetV2.prototype._onToggleSpellcastingEnable,
@@ -289,7 +286,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return this.document?.name ?? "";
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Rendering в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Rendering */
 
   /**
    * @override
@@ -420,7 +417,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
     // Item fields expected by templates + prepareItemSheetData
     // Overlay live system data so derived fields (value, *Effective, etc.)
-    // survive into templates вЂ” same pattern as actor sheets.
+    // survive into templates - same pattern as actor sheets.
     context.item = this.document.toObject();
     // Cache sanitized render system per (docId, modifiedTime) to avoid repeated
     // deep-clone + coercion on every render when the document hasn't changed.
@@ -515,7 +512,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Form Submission в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Form Submission */
 
   /**
    * Form submit handler for AppV2.
@@ -567,7 +564,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       return;
     }
 
-    // Diff against current document state вЂ” only send changed fields
+    // Diff against current document state - only send changed fields
     const current = foundry.utils.flattenObject(this.document.toObject(false));
     flatData = foundry.utils.diffObject(current, flatData);
     if (foundry.utils.isEmpty(flatData)) return;
@@ -611,7 +608,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return super.close(options);
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Actions Map Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Actions Map Handlers */
 
   /**
    * Handle Active Effect controls (create / edit / delete / toggle).
@@ -689,7 +686,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return activateTraitFromItemSheet({ item: this.document, event });
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Combat Style Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Combat Style Actions */
 
   /**
    * Set this combat style as the active style on the owning actor.
@@ -731,7 +728,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Array Mutation Lock в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Array Mutation Lock */
 
   /**
    * Per-array in-flight lock to prevent concurrent read-modify-write races.
@@ -755,7 +752,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Spell Scaling Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Spell Scaling Actions */
 
   /**
    * Add a new scaling level to the spell.
@@ -816,7 +813,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ OverTime Entry Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* OverTime Entry Actions */
 
   /**
    * Add a blank OverTime entry.
@@ -858,7 +855,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Effect Recipe Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Effect Recipe Actions */
 
   /**
    * Add a blank effect recipe entry. Guarded by enableSpellRecipes setting.
@@ -899,7 +896,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Conjure Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Conjure Actions */
 
   /**
    * Clear a conjure UUID/label pair (item or actor).
@@ -926,49 +923,9 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     await requestUpdateDocument(this.document, updateData);
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ QA / Validation Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* QA / Validation Actions */
 
-  /**
-   * Run spell configuration validation and display results.
-   * @param {Event} event
-   * @param {HTMLElement} target
-   */
-  _onValidateSpell(event, target) {
-    event.preventDefault();
-    const result = validateSpellConfig(this.document);
-    const htmlOutput = formatSpellValidationMessage(result);
-    const container = this.element.querySelector(".spell-validation-output");
-    if (container) container.innerHTML = htmlOutput;
-  }
-
-  /**
-   * Preview the resolved spell profile (requires actor ownership).
-   * Uses dynamic import to avoid circular deps in non-spell contexts.
-   * @param {Event} event
-   * @param {HTMLElement} target
-   */
-  async _onPreviewProfile(event, target) {
-    event.preventDefault();
-    const container = this.element.querySelector(".spell-profile-preview");
-    if (!container) return;
-
-    const actor = this.document?.parent;
-    if (!actor || actor.documentName !== "Actor") {
-      container.innerHTML = '<span style="color: #c33;">Spell must be owned by an actor to preview the resolved profile.</span>';
-      return;
-    }
-
-    try {
-      const { resolveSpellProfile } = await import("../../../core/magic/spell-profile.js");
-      const profile = resolveSpellProfile(this.document, actor);
-      container.textContent = JSON.stringify(profile, null, 2);
-    } catch (err) {
-      container.innerHTML = `<span style="color: #c33;">Error resolving profile: ${err.message}</span>`;
-      console.error("UESRPG | Spell profile preview error", err);
-    }
-  }
-
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Damage Instance Actions (Spell Only) в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Damage Instance Actions (Spell Only) */
 
   /**
    * Add a blank spell damage instance.
@@ -1007,7 +964,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Containment Action Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Containment Action Handlers */
 
   /** Open the container item-selection dialog. */
   _onAddToContainer(event, target) { onAddToContainer(this); }
@@ -1027,7 +984,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   /** Open a contained item's sheet. */
   async _onOpenContainedItem(event, target) { await onOpenContainedItem(this, target); }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Rule Element Action Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Rule Element Action Handlers */
 
   /** Create a new rule element from the type-select dropdown. */
   async _onReAdd(event, target) { await onReAdd(this.document, this.element); }
@@ -1073,19 +1030,19 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     await onReConditionDelete(this.document, reId, condIdx);
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Alchemy Ingredient Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Alchemy Ingredient Handlers */
 
   async _onEnableAlchemyIngredient(event) { return onEnableAlchemyIngredient(this, event); }
   async _onClearAlchemyIngredient(event) { return onClearAlchemyIngredient(this, event); }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Alchemy Product Handlers в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Alchemy Product Handlers */
 
   async _onEnableAlchemyProduct(event, target) { return onEnableAlchemyProduct(this, event, target); }
   async _onClearAlchemyProduct(event) { return onClearAlchemyProduct(this, event); }
   async _onDrinkAlchemyProduct(event) { return onDrinkAlchemyProduct(this, event); }
   async _onApplyAlchemyProductToWeapon(event) { return onApplyAlchemyProductToWeapon(this, event); }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Scroll Actions в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Scroll Actions */
 
   /**
    * Cast the spell referenced by this scroll.
@@ -1106,7 +1063,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return onCastEnchantmentAction.call(this, event, target, this.document);
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Native Non-Click Listeners в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Native Non-Click Listeners */
 
   /**
    * Combat Style: auto-save trained equipment (debounced) and special
@@ -1162,48 +1119,49 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * @param {HTMLElement} el
    */
   _registerSpellListeners(el) {
-    // в”Ђв”Ђ Scaling input change (delegated) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-    // Auto-save scaling field changes without rerender.
-    el.addEventListener("change", async (ev) => {
-      if (!ev.target.closest("[data-scaling-input]")) return;
+    const autosaveSpellField = async (ev, { rerender = false, skipScalingValidation = false } = {}) => {
       if (!this.isEditable) return;
-
-      ev.uesrpgSkipScalingValidation = true;
-      logSpellDebug("Scaling input change", { name: ev.target?.name, value: ev.target?.value });
+      if (skipScalingValidation) ev.uesrpgSkipScalingValidation = true;
 
       try {
         await this._submitCurrentForm(ev);
+        if (rerender) await this.render({ parts: ["body"] });
       } catch (err) {
-        console.warn("UESRPG | Failed to auto-save scaling input change", err);
+        console.warn(`UESRPG | Failed to auto-save spell ${rerender ? "structural" : "field"} change`, err);
       }
+    };
+
+    // Scaling input change (delegated)
+    // Auto-save scaling field changes without rerender.
+    el.addEventListener("change", async (ev) => {
+      const target = ev.target;
+      if (!(target instanceof Element) || !target.closest("[data-scaling-input]")) return;
+
+      ev.uesrpgSkipScalingValidation = true;
+      logSpellDebug("Scaling input change", { name: ev.target?.name, value: ev.target?.value });
+      await autosaveSpellField(ev, { skipScalingValidation: true });
     });
 
-    // в”Ђв”Ђ Automation module inputs (data-spell-module) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-    // Auto-save module checkbox/input changes without rerender to
-    // prevent the Advanced Options <details> from collapsing.
-    const moduleInputs = el.querySelectorAll("[data-spell-module]");
-    moduleInputs.forEach(input => {
-      input.addEventListener("change", async (ev) => {
-        if (!this.isEditable) return;
-        logSpellDebug("Automation module input change", { name: ev.target?.name, value: ev.target?.value, checked: ev.target?.checked });
-
-        try {
-          await this._submitCurrentForm(ev);
-        } catch (err) {
-          console.warn("UESRPG | Failed to auto-save automation module change", err);
-        }
-      });
-
-      // Prevent clicks on module inputs from toggling parent <details>.
-      input.addEventListener("click", (ev) => ev.stopPropagation());
+    el.addEventListener("change", async (ev) => {
+      const target = ev.target;
+      if (!(target instanceof Element) || !target.closest("[data-spell-structure]")) return;
+      logSpellDebug("Spell structural change", { name: ev.target?.name, value: ev.target?.value, checked: ev.target?.checked });
+      await autosaveSpellField(ev, { rerender: true });
     });
 
-    // Also prevent label/title clicks from toggling <details>.
-    el.querySelectorAll(".spell-advanced-body label.spell-check, .spell-module-title").forEach(node => {
+    el.addEventListener("change", async (ev) => {
+      const target = ev.target;
+      if (!(target instanceof Element) || !target.closest("[data-spell-autosave]")) return;
+      logSpellDebug("Spell field autosave", { name: ev.target?.name, value: ev.target?.value, checked: ev.target?.checked });
+      await autosaveSpellField(ev);
+    });
+
+    // Prevent module label/title clicks from leaking into unrelated containers.
+    el.querySelectorAll("[data-spell-structure], [data-spell-autosave], .spell-module-panel label.spell-check, .spell-module-title").forEach(node => {
       node.addEventListener("click", (ev) => ev.stopPropagation());
     });
 
-    // в”Ђв”Ђ Recipe input auto-save (guarded by enableSpellRecipes) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Recipe input auto-save (guarded by enableSpellRecipes)
     let recipesEnabled = false;
     try { recipesEnabled = game.settings.get(SYSTEM_ID, "enableSpellRecipes") === true; } catch (_e) { /* noop */ }
 
@@ -1241,7 +1199,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       });
     }
 
-    // в”Ђв”Ђ Conjure: Drag-drop support for item/actor UUID fields в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Conjure: drag-drop support for item/actor UUID fields
     el.querySelectorAll(".conjure-drop-target").forEach(input => {
       const dropType = input.dataset.conjureDrop; // "item" or "actor"
       if (!dropType) return;
@@ -1382,7 +1340,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ UI State Preservation в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* UI State Preservation */
 
   /**
    * @override
@@ -1398,6 +1356,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     const state = {
       expandedREIds: new Set(),
       openDetails: new Set(),
+      sheetBodyScrollTop: 0,
     };
 
     // Expanded Rule Element items
@@ -1416,6 +1375,9 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         if (key) state.openDetails.add(key);
       }
     });
+
+    const sheetBody = el.querySelector(".sheet-body");
+    if (sheetBody) state.sheetBodyScrollTop = sheetBody.scrollTop;
 
     this._savedState = state;
   }
@@ -1464,7 +1426,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
           if (d) d.open = true;
         });
 
-        this._savedState = null;
       }
 
       // Type-specific wrapper classes for legacy selectors.
@@ -1477,6 +1438,15 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       const targetTab = hasTab ? desiredTab
         : (el.querySelector('.tabs [data-group="primary"]')?.dataset?.tab ?? "description");
       this.changeTab(targetTab, "primary", { force: true });
+
+      if (state && bodyRendered) {
+        const restoreScrollTop = Number(state.sheetBodyScrollTop) || 0;
+        requestAnimationFrame(() => {
+          const currentBody = this.element?.querySelector(".sheet-body");
+          if (currentBody) currentBody.scrollTop = restoreScrollTop;
+        });
+        this._savedState = null;
+      }
 
     } finally {
       traceSheetPerf({
@@ -1501,14 +1471,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    */
   _attachPartListeners(partId, htmlElement, options) {
     super._attachPartListeners(partId, htmlElement, options);
-    if (partId !== "body") return;
-
     const el = htmlElement;
     if (!el) return;
 
     const type = this.document.type;
+    if (type === "spell" && (partId === "header" || partId === "body")) this._registerSpellListeners(el);
+    if (partId !== "body") return;
+
     if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
-    if (type === "spell") this._registerSpellListeners(el);
     if (type === "scroll") this._registerScrollListeners(el);
     if (type === "container") this._registerContainmentListeners(el);
 
@@ -1537,7 +1507,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return super._onClose(options);
   }
 
-  /* в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ Drag & Drop в•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђв•ђ */
+  /* Drag & Drop */
 
   /**
    * @override
@@ -1581,6 +1551,3 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return;
   }
 }
-
-
-

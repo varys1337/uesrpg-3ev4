@@ -3,21 +3,21 @@
  *
  * src/ui/apps/v2/enchanting-workshop-app.js
  *
- * Enchanting Workshop вЂ” ApplicationV2 wizard UI.
+ * Enchanting Workshop - ApplicationV2 wizard UI.
  *
  * Launched via macro: `new EnchantingWorkshopAppV2({ actorUuid }).render(true)`
  *
  * Modes:
- *  1. cast     вЂ” Create Cast Enchantment
- *  2. strike   вЂ” Create Strike Enchantment
- *  3. constant вЂ” Create Constant Enchantment
- *  4. recharge вЂ” Recharge Cast Enchantment
- *  5. toggle   вЂ” Toggle Constant Enchantment
+ *  1. cast     - Create Cast Enchantment
+ *  2. strike   - Create Strike Enchantment
+ *  3. constant - Create Constant Enchantment
+ *  4. recharge - Recharge Cast Enchantment
+ *  5. toggle   - Toggle Constant Enchantment
  *
  * AppV2 patterns:
  *  - HandlebarsApplicationMixin + ApplicationV2
- *  - All state derived from flagsPayload / build results вЂ” no phantom state
- *  - Form submitted via static _onSubmit вЂ” buildCast/buildStrike/buildConstant
+ *  - All state derived from flagsPayload / build results - no phantom state
+ *  - Form submitted via static _onSubmit - buildCast/buildStrike/buildConstant
  *    are called there, then finalizeEnchantment.
  *
  * Target: Foundry VTT v13.351
@@ -35,7 +35,7 @@ import { buildConstant, buildConstantFlagsPayload } from "../../../core/enchanti
 import { finalizeEnchantment, rechargeEnchantment, toggleConstantEnchantment } from "../../../core/enchanting/builders/finalize.js";
 import { hasTalent } from "../../../core/traits/talents-api.js";
 
-// Catalog data (JS modules вЂ” avoids import assertion browser compatibility issues)
+// Catalog data (JS modules - avoids import assertion browser compatibility issues)
 import { SPELL_EFFECTS_CATALOG as spellEffectsCatalog } from "../../../data/spell-effects-catalog.js";
 import { STRIKE_ENCHANTMENTS_CATALOG as strikeEnchantmentsCatalog } from "../../../data/strike-enchantments-catalog.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
@@ -69,7 +69,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       modeChange: EnchantingWorkshopAppV2.prototype._onModeChange,
     },
     window: {
-      title: "UESRPG вЂ” Enchanting Workshop",
+      title: "UESRPG - Enchanting Workshop",
       resizable: true,
     },
     position: {
@@ -101,14 +101,14 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
   async _prepareContext(options) {
     const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
 
-    // в”Ђв”Ђ Actor data в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Actor data
     const enchantTN = actor ? getEnchantTN(actor) : 0;
     const enchantRank = actor ? getEnchantRank(actor) : 0;
     const hasManifold = actor ? hasTalent(actor, "manifoldenchanter") : false;
     const hasProcedural = actor ? hasTalent(actor, "proceduralenchanting") : false;
     const hasSalvage = actor ? hasTalent(actor, "salvageenergy") : false;
 
-    // в”Ђв”Ђ Soul Gems в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Soul Gems
     const filledGems = actor ? getFilledSoulGems(actor) : [];
     const gemOptions = filledGems.map(gem => {
       const d = resolveSoulGemData(gem);
@@ -123,7 +123,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       };
     });
 
-    // в”Ђв”Ђ Enchantable items (all items with EL > 0 or no EL) в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Enchantable items (all items with EL > 0 or no EL)
     const enchantableItems = actor
       ? (actor.items ?? []).filter(i => {
           if (!["weapon", "armor", "item"].includes(i.type)) return false;
@@ -139,12 +139,12 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
         })
       : [];
 
-    // в”Ђв”Ђ Already-enchanted items в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Already-enchanted items
     const enchantedItems = actor
       ? (actor.items ?? []).filter(i => isItemEnchanted(i))
       : [];
 
-    // в”Ђв”Ђ Spell effects catalog в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Spell effects catalog
     const spellfxOptions = spellEffectsCatalog.map(e => ({
       key: e.key,
       label: e.label,
@@ -157,7 +157,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
 
     const spellfxConstantOptions = spellfxOptions.filter(e => e.allowConstant);
 
-    // в”Ђв”Ђ Strike enchantments catalog в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Strike enchantments catalog
     const strikeOptions = strikeEnchantmentsCatalog.map(e => ({
       key: e.key,
       label: e.label,
@@ -166,11 +166,11 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       description: e.description ?? "",
     }));
 
-    // в”Ђв”Ђ Settings в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Settings
     const enableCursed = game.settings.get(NAMESPACE, "enchanting.enableCursedConstant") ?? false;
     const enableChargedStrike = game.settings.get(NAMESPACE, "enchanting.enableChargedStrikeVariant") ?? false;
 
-    // в”Ђв”Ђ Mode availability в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Mode availability
     const modeOptions = [
       { key: "cast",     label: "Create Cast Enchantment",     available: true },
       { key: "strike",   label: "Create Strike Enchantment",   available: true },
@@ -301,7 +301,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
         }
 
         if (!result.anySuccess) {
-          ui.notifications?.warn("Enchanting test failed вЂ” enchantment not applied.");
+          ui.notifications?.warn("Enchanting test failed - enchantment not applied.");
           if (!result.gemPreserved && soulGemItem) {
             const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
             await consumeSoulGem(actor, soulGemItem);
@@ -339,7 +339,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
         }
 
         if (!result.anySuccess) {
-          ui.notifications?.warn("Enchanting test failed вЂ” enchantment not applied.");
+          ui.notifications?.warn("Enchanting test failed - enchantment not applied.");
           if (!result.gemPreserved && soulGemItem) {
             const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
             await consumeSoulGem(actor, soulGemItem);
@@ -378,7 +378,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
         }
 
         if (!result.anySuccess) {
-          ui.notifications?.warn("Enchanting test failed вЂ” enchantment not applied.");
+          ui.notifications?.warn("Enchanting test failed - enchantment not applied.");
           if (!result.gemPreserved && soulGemItem) {
             const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
             await consumeSoulGem(actor, soulGemItem);
@@ -565,7 +565,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
   }
 
   /**
-   * @deprecated No longer wired вЂ” mode changes handled in _onChangeForm.
+   * @deprecated No longer wired - mode changes handled in _onChangeForm.
    * Kept as a no-op so any lingering data-action="modeChange" bindings
    * don't throw "unknown action" errors.
    */

@@ -7,19 +7,17 @@
  */
 
 import { MagicTimekeeping } from "../timekeeping-helper.js";
-import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../../utils/authority-proxy.js";
-import { safeGetEffect, safeGetEffectByUuidSync, isMissingDocError as _isMissingDocError } from "../../../utils/ae-helpers.js";
-import { _num } from "../_primitives.js";
+import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
+import { safeGetEffect, isMissingDocError as _isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
+import { _num, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
+import { normalizeSpellExpirationAnchor, explainSpellAnchorResolution } from "../../../utils/document-resolution.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _deleteInFlight = new Map();
 const _trackedSpellEffects = new Map(); // Map<actorId, Set<effectId>>
-
-function _fromUuidSync(uuid) {
-  return safeGetEffectByUuidSync(uuid);
-}
+const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellExpiration]");
 
 function _actorId(actor) {
   return String(actor?.id ?? "").trim();
@@ -113,23 +111,19 @@ function _getTrackedActors() {
 function _getCasterCombatTurnIndex(combat, effect) {
   if (!combat || !effect) return null;
   const flags = effect.flags?.[_FLAG_NS] ?? {};
-  const casterUuid = String(flags?.casterUuid ?? "");
-  if (!casterUuid) return null;
-
-  const doc = _fromUuidSync(casterUuid);
-  const actor = doc?.documentName === "Actor" ? doc : doc?.actor;
-  if (!actor) return null;
-
-  const combatants = typeof combat.getCombatantsByActor === "function"
-    ? combat.getCombatantsByActor(actor)
-    : [];
-  const combatant = Array.isArray(combatants) ? combatants[0] : null;
-  if (!combatant) return null;
-
-  const turns = Array.isArray(combat.turns) ? combat.turns : Array.from(combat.combatants ?? []);
-  const idx = turns.findIndex(c => c?.id === combatant.id);
-  if (idx < 0) return null;
-  return idx;
+  const anchor = normalizeSpellExpirationAnchor(flags, { combat });
+  const explanation = explainSpellAnchorResolution(combat, anchor);
+  _anchorDebug("Resolved expiry anchor", {
+    effect: effect?.name ?? null,
+    targetActor: effect?.parent?.name ?? null,
+    casterUuid: explanation?.actorUuid ?? anchor?.casterUuid ?? null,
+    source: explanation?.source ?? "unresolved",
+    reason: explanation?.reason ?? "",
+    combatantId: explanation?.combatantId ?? null,
+    round: combat?.round ?? null,
+    turn: combat?.turn ?? null
+  });
+  return explanation?.turnIndex ?? null;
 }
 
 function _deleteKey(actor, effect) {
@@ -213,9 +207,11 @@ async function _deleteEffectOnActor(actor, effect, nowTime) {
       return false;
     }
 
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+    const deleted = await safeDeleteEmbeddedDocument(actor, "ActiveEffect", effect.id, {
+      context: "UESRPG | spell-effect-expiration | delete expired effect"
+    });
     _untrackActorEffect(actor?.id, effect?.id);
-    return true;
+    return deleted;
   } catch (err) {
     if (_isMissingDocError(err)) {
       _untrackActorEffect(actor?.id, effect?.id);
@@ -288,6 +284,13 @@ async function _expireSpellEffects({ nowTime } = {}) {
       const upkeepGraceWindow = rt;
 
       if (!effect.disabled) {
+        _anchorDebug("Marking upkeep effect as awaiting", {
+          effect: effect?.name ?? null,
+          actor: actor?.name ?? null,
+          round: combat?.round ?? null,
+          turn: combat?.turn ?? null,
+          casterTurnIndex
+        });
         await _updateEffect(effect, {
           disabled: true,
           [`flags.${_FLAG_NS}.expiredAtWorldTime`]: worldTime,

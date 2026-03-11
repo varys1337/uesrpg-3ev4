@@ -14,6 +14,7 @@ import { classifySpellForRouting } from "../spell-runtime.js";
 import { _buildDamagePanel } from "../../combat/opposed/cards/template-helpers.js";
 import { createUuidResolver, getActorFromResolvedDocument, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { formatResultSummary } from "../../../utils/degree-roll-helper.js";
+import { buildMagicCastContextRows } from "./cast-context.js";
 
 /**
  * Format signed number (+/-).
@@ -66,6 +67,12 @@ function extractRollTotal(result) {
 function renderRow(label, value, { nowrapValue = false } = {}) {
   const valueStyle = nowrapValue ? "white-space:nowrap;" : "";
   return `<div><b>${label}</b> <span style="${valueStyle}">${value}</span></div>`;
+}
+
+function renderMagicCastContextRows(attacker, spell = null) {
+  const castContext = buildMagicCastContextRows(attacker, spell);
+  if (!castContext.rows.length) return "";
+  return castContext.rows.map((row) => renderRow(`${row.label}:`, row.value)).join("");
 }
 
 function getMagicTestLabel(a, revealed) {
@@ -346,6 +353,8 @@ function renderMultiDefenderCard(data, messageId, ctx) {
   const aTestLabel = getMagicTestLabel(a, revealAttacker);
   const aAttackLabel = getMagicAttackLabel(a, revealAttacker);
   const showAttackRow = shouldShowAttackRow(data, a, revealAttacker);
+  const attackerSpell = revealAttacker ? resolveSpellFromUuid(a.spellUuid, ctx) : null;
+  const attackerCastContextRows = revealAttacker ? renderMagicCastContextRows(a, attackerSpell) : "";
 
   const aTN = revealAttacker ? String(extractTN(a.tn)) : "-";
   const aRollLine = renderRollLine(a.result);
@@ -512,12 +521,13 @@ function renderMultiDefenderCard(data, messageId, ctx) {
       <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
         <div style="padding-bottom:8px; border-bottom:1px solid rgba(0,0,0,0.12);">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">✨</div>
+            <div style="font-size:14px; font-weight:700;">Caster</div>
             <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
           </div>
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
             ${renderRow("Test:", aTestLabel)}
             ${showAttackRow ? renderRow("Attack:", aAttackLabel) : ""}
+            ${attackerCastContextRows}
             ${attackerCostLine}
             ${renderTNLine(aTN, revealAttacker ? (a.tn?.breakdown ?? a.tn?.modifiers) : null)}
             ${aRollLine}
@@ -559,6 +569,8 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   const aTestLabel = getMagicTestLabel(a, revealChoices);
   const aAttackLabel = getMagicAttackLabel(a, revealChoices);
   const showAttackRow = shouldShowAttackRow(data, a, revealChoices);
+  const attackerSpell = revealChoices ? resolveSpellFromUuid(a.spellUuid, ctx) : null;
+  const attackerCastContextRows = revealChoices ? renderMagicCastContextRows(a, attackerSpell) : "";
 
   const aTN = revealChoices ? String(extractTN(a.tn)) : "-";
   const dTN = revealChoices ? String(extractTN(d.tn)) : "-";
@@ -705,12 +717,13 @@ function renderSingleDefenderCard(data, messageId, ctx) {
       <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:stretch;">
         <div style="min-width:0; padding-right:8px; border-right:1px solid rgba(0,0,0,0.12); box-sizing:border-box; display:flex; flex-direction:column;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">✨</div>
+            <div style="font-size:14px; font-weight:700;">Caster</div>
             <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
           </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
           ${renderRow("Test:", aTestLabel)}
           ${showAttackRow ? renderRow("Attack:", aAttackLabel) : ""}
+          ${attackerCastContextRows}
           ${attackerCostLine}
           ${renderTNLine(aTN, aBreakdownEntries)}
           ${aRollLine}
@@ -721,7 +734,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
 
         <div style="min-width:0; padding-left:8px; box-sizing:border-box; display:flex; flex-direction:column;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">🛡️</div>
+            <div style="font-size:14px; font-weight:700;">Target</div>
             <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
           </div>
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
@@ -743,7 +756,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
 /**
  * Render an unopposed casting card (no defender / targets).
  *
- * Builds the full HTML string for a spell cast without opposition — used for
+ * Builds the full HTML string for a spell cast without opposition - used for
  * self-buffs, ground-targeted AoE, and utility spells.
  *
  * @param {object} data - Opposed card data with `attacker` and optional `context`
@@ -757,10 +770,7 @@ export function renderUnopposedCard(data, messageId) {
   const spellSchool = a.spellSchool ?? "";
   const spellLevel = Number(a.spellLevel ?? 1);
   const spellCost = Number(a.spellCost ?? 0);
-  const castLevel = a.spellOptions?.castLevel;
-  const castLevelLine = (castLevel != null && castLevel !== spellLevel)
-    ? `<div style="color:#8a2be2; font-weight:bold;">Cast at Level ${castLevel}</div>`
-    : "";
+  const castContextRows = renderMagicCastContextRows(a);
 
   const spellMpSpent = Number(a.mpSpent ?? a.spellCost ?? 0) || 0;
   const spellMpRefund = Number(a.mpRefund ?? 0) || 0;
@@ -795,7 +805,8 @@ export function renderUnopposedCard(data, messageId) {
         <div>
           <div style="font-size:18px; font-weight:800; margin-bottom:6px;">${spellName}</div>
           <div><b>School:</b> ${spellSchool || "-"}</div>
-          <div><b>Level:</b> ${spellLevel}</div>${castLevelLine}
+          <div><b>Level:</b> ${spellLevel}</div>
+          ${castContextRows}
           <div><b>${costLabel}:</b> ${costDetail}</div>
           <div style="margin-top:6px;"><b>TN:</b> ${aTN}</div>
           ${aRollLine}
@@ -808,7 +819,7 @@ export function renderUnopposedCard(data, messageId) {
 }
 
 /**
- * Main render function — routes to the appropriate card renderer
+ * Main render function - routes to the appropriate card renderer
  * (single-defender or multi-defender) based on the data shape.
  *
  * @param {object} data - Opposed card data containing attacker, defender(s), and context

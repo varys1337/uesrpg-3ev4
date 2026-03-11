@@ -59,6 +59,7 @@ import { measureTokenDistance } from "../core/combat/opposed/range.js";
 import { registerEngagementFlanking } from "../core/homebrew/engagement-flanking/index.js";
 import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
 import { registerShieldDebugObservers } from "../utils/dev/shield-debug.js";
+import { registerStaleEmbeddedDeleteSuppression } from "../utils/embedded-delete-guard.js";
 
 function applyCustomCursorConfig() {
   try {
@@ -227,6 +228,7 @@ export default async function initHandler() {
   Hooks.once("setup", preloadHandlebarsTemplates);
 
   await registerSettings();
+  registerStaleEmbeddedDeleteSuppression();
   applyCustomCursorConfig();
 
   await registerSheets();

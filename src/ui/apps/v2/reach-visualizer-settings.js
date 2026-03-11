@@ -79,7 +79,7 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     };
   }
 
-  /** @override вЂ” replaces jQuery activateListeners with native DOM */
+  /** @override - replaces jQuery activateListeners with native DOM */
   _onRender(context, options) {
     super._onRender(context, options);
 
@@ -173,4 +173,3 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     }
   }
 }
-

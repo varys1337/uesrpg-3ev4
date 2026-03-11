@@ -20,7 +20,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG вЂ” Homebrew",
+      title: "UESRPG - Homebrew",
     },
     position: {
       width: 520,
@@ -51,7 +51,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
     const data = formData.object;
     let needsReload = false;
 
-    // в”Ђв”Ђ Speed Formula в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Speed Formula
     if ("homebrew.speedFormulaSBAB" in data) {
       const prev = game.settings.get(NAMESPACE, "homebrew.speedFormulaSBAB");
       const next = Boolean(data["homebrew.speedFormulaSBAB"]);
@@ -59,7 +59,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
       if (prev !== next) needsReload = true;
     }
 
-    // в”Ђв”Ђ Reach & Length Overhaul в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Reach & Length Overhaul
     if ("homebrew.reachLength.enabled" in data) {
       const prev = game.settings.get(NAMESPACE, "homebrew.reachLength.enabled");
       const next = Boolean(data["homebrew.reachLength.enabled"]);
@@ -73,14 +73,14 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
       await game.settings.set(NAMESPACE, "homebrew.reachLength.attackerAdvantageOnly", Boolean(data["homebrew.reachLength.attackerAdvantageOnly"]));
     }
 
-    // в”Ђв”Ђ Engagement & Flanking в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Engagement & Flanking
     if ("homebrew.engagementFlanking.enabled" in data) {
       await game.settings.set(NAMESPACE, "homebrew.engagementFlanking.enabled", Boolean(data["homebrew.engagementFlanking.enabled"]));
     }
     if ("homebrew.engagementFlanking.onlyInCombat" in data) {
       await game.settings.set(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat", Boolean(data["homebrew.engagementFlanking.onlyInCombat"]));
     }
-    // в”Ђв”Ђ Reload prompt в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+    // Reload prompt
     if (needsReload) {
       const reload = await confirmDialog({
         title: "Reload Required",

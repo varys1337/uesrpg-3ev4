@@ -18,7 +18,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG вЂ” Talents",
+      title: "UESRPG - Talents",
     },
     position: {
       width: 520,
@@ -70,4 +70,3 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
     if ("passiveTransferItemTypes" in data) await game.settings.set(NAMESPACE, "passiveTransferItemTypes", String(data.passiveTransferItemTypes ?? "talent,trait,power,skill").trim());
   }
 }
-

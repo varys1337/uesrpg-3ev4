@@ -192,6 +192,7 @@ async function _onApplyMagicDamage(ev, message, btn) {
         await applySpellEffectsToTarget(casterActor, targetActor, spell, {
           actualCost: Number(mp.actualCost ?? 0),
           originalCastWorldTime: Number(mp.originalCastWorldTime ?? 0),
+          casterTokenUuid: mp.casterTokenUuid ?? null,
         });
       } catch (err) {
         console.error("UESRPG | Failed to apply spell effects (effects-only):", err);
@@ -239,6 +240,7 @@ async function _onApplyMagicDamage(ev, message, btn) {
       await applySpellEffectsToTarget(casterActor, targetActor, spell, {
         actualCost: Number(mp.actualCost ?? 0),
         originalCastWorldTime: Number(mp.originalCastWorldTime ?? 0),
+        casterTokenUuid: mp.casterTokenUuid ?? null,
       });
     } catch (err) {
       console.error("UESRPG | Failed to apply deferred spell effects:", err);
@@ -318,6 +320,7 @@ async function _onApplyMagicHealing(ev, message, btn) {
       await applySpellEffectsToTarget(casterActor, targetActor, spell, {
         actualCost: Number(mp.actualCost ?? 0),
         originalCastWorldTime: Number(mp.originalCastWorldTime ?? 0),
+        casterTokenUuid: mp.casterTokenUuid ?? null,
       });
     } catch (err) {
       console.error("UESRPG | Failed to apply deferred spell effects after healing:", err);

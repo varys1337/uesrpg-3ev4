@@ -755,7 +755,8 @@ export async function handleAttackerRoll(ctx) {
         spellOptions: data.attacker.spellOptions ?? {},
         targetUuids: defUuids,
         castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
-        castSource: data.attacker.castSource ?? null
+        castSource: data.attacker.castSource ?? null,
+        casterTokenUuid: data.attacker.tokenUuid ?? null
       });
 
       // Link AoE template to Origin AE if present

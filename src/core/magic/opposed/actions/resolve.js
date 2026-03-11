@@ -11,6 +11,7 @@ import { getBlockValue } from "../../../combat/mitigation.js";
 import { resolveHitLocationForTarget } from "../../../combat/combat-utils.js";
 import { getActiveWardSpell, getWardBlockRating } from "../../../combat/ward-defense.js";
 import { listEquippedShields } from "../../../items/shield-utils.js";
+import { buildMagicCastContextRows } from "../cast-context.js";
 
 function buildMagicDamageComponents(spell, damageType, damageInfo = null) {
   const components = [];
@@ -75,6 +76,7 @@ export async function handleBlockResolve(ctx) {
   const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
   const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
   const rollHTML = damageInfo?.rollHTML ?? "";
+  const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell);
 
   // Get Block Rating (magic damage treats BR as half, round up, unless magic BR exists)
   const br = getBlockValue(shield, damageType);
@@ -95,6 +97,7 @@ export async function handleBlockResolve(ctx) {
     weaponName: spell.name,
     weaponImg: spell.img ?? "",
     qualityPillsHtml: "",
+    panelMetadata: castContext.rows,
     damageComponents: buildMagicDamageComponents(spell, damageType, damageInfo),
     applied: blocked ? true : false,
     blockResult,
@@ -108,6 +111,7 @@ export async function handleBlockResolve(ctx) {
       damageType,
       spellUuid: spell.uuid ?? "",
       casterUuid: attacker.uuid ?? "",
+      casterTokenUuid: data.attacker?.tokenUuid ?? "",
       hitLocation: resolvedShieldArm,
       isCritical,
       source: spell.name,
@@ -124,6 +128,7 @@ export async function handleBlockResolve(ctx) {
       defenseType: "block",
       isDamaging: !blocked,
       needsEffects: !blocked && Boolean(spellNeedsEffectApplication(spell)),
+      castContext,
     },
   };
   setMagicDefenderDamage(data, defender, dmgData);
@@ -164,6 +169,7 @@ export async function handleWardResolve(ctx) {
   const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
   const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
   const rollHTML = damageInfo?.rollHTML ?? "";
+  const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell);
 
   // Ward BR applies equally to ALL damage types (no halving)
   const br = wardBR;
@@ -184,6 +190,7 @@ export async function handleWardResolve(ctx) {
     weaponName: spell.name,
     weaponImg: spell.img ?? "",
     qualityPillsHtml: "",
+    panelMetadata: castContext.rows,
     damageComponents: buildMagicDamageComponents(spell, damageType, damageInfo),
     applied: blocked ? true : false,
     wardResult,
@@ -197,6 +204,7 @@ export async function handleWardResolve(ctx) {
       damageType,
       spellUuid: spell.uuid ?? "",
       casterUuid: attacker.uuid ?? "",
+      casterTokenUuid: data.attacker?.tokenUuid ?? "",
       hitLocation: resolvedWardArm,
       isCritical,
       source: spell.name,
@@ -213,6 +221,7 @@ export async function handleWardResolve(ctx) {
       defenseType: "ward",
       isDamaging: !blocked,
       needsEffects: !blocked && Boolean(spellNeedsEffectApplication(spell)),
+      castContext,
     },
   };
   setMagicDefenderDamage(data, defender, dmgData);

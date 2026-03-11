@@ -484,7 +484,8 @@ export const MagicOpposedWorkflow = {
           spellOptions,
           targetUuids: defender ? [defender.uuid] : [],
           castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
-          castSource: castSource ?? null
+          castSource: castSource ?? null,
+          casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? cfg.attackerTokenUuid ?? null
         });
       } catch (_e) {
         console.warn("UESRPG | Failed to create Origin AE for direct spell", _e);
@@ -754,7 +755,8 @@ export const MagicOpposedWorkflow = {
           spellOptions,
           targetUuids: [],
           castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
-          castSource: castSource ?? null
+          castSource: castSource ?? null,
+          casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null
         });
       } catch (_e) {
         console.warn("UESRPG | Failed to create Origin AE for unopposed spell", _e);
@@ -787,7 +789,8 @@ export const MagicOpposedWorkflow = {
           try {
             await applySpellEffectsToTarget(attacker, effectTarget, spell, {
               actualCost: Number(magickaSpend?.consumed ?? 0) || 0,
-              originalCastTime: Number(game.time?.worldTime ?? 0) || 0
+              originalCastTime: Number(game.time?.worldTime ?? 0) || 0,
+              casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null
             });
           } catch (err) {
             console.error("UESRPG | Failed to apply spell effects to", effectTarget?.name ?? "unknown", err);

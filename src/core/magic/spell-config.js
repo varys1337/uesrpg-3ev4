@@ -798,6 +798,7 @@ export function getBindingCharacteristicOptions() {
  */
 export function getDefenseModelOptions() {
   return {
+    direct: "Direct (No Defense)",
     opposed: "Opposed (Block / Evade / Ward)",
     characteristic: "Characteristic Defense Test"
   };

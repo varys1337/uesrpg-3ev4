@@ -1,4 +1,4 @@
-﻿{{!-- Weapon Sheet вЂ” Compact Layout --}}
+{{!-- Weapon Sheet - Compact Layout --}}
 <header class="item-compact-header">
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
     <div class="item-header-fields">
@@ -162,7 +162,7 @@
                                 <div class="weapon-field-row">
                                     <label>Ammunition</label>
                                     <select name="system.ammoId">
-                                        <option value="">вЂ”</option>
+                                        <option value="">-</option>
                                         {{#each ammoOptions}}
                                             <option value="{{this.value}}" {{#if (eq ../item.system.ammoId this.value)}}selected{{/if}}>{{this.label}}</option>
                                         {{/each}}

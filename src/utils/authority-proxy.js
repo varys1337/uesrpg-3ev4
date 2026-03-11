@@ -61,6 +61,98 @@ function _dwarn(msg, data) {
   }
 }
 
+function _isMissingEmbeddedDeleteError(err) {
+  const msg = String(err?.message ?? err ?? "");
+  return msg.includes("does not exist")
+    || msg.includes("No Document")
+    || msg.includes("not found")
+    || msg.includes("Invalid document");
+}
+
+function _getEmbeddedCollection(parent, embeddedName) {
+  if (!parent || !embeddedName) return null;
+  if (embeddedName === "ActiveEffect") return parent.effects ?? null;
+  if (embeddedName === "Item") return parent.items ?? null;
+  return null;
+}
+
+function _normalizeEmbeddedIds(ids) {
+  const out = [];
+  const seen = new Set();
+  for (const rawId of Array.isArray(ids) ? ids : []) {
+    const id = String(rawId ?? "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function _hasEmbeddedDocument(parent, embeddedName, docId) {
+  if (!parent || !embeddedName || !docId) return false;
+  const collection = _getEmbeddedCollection(parent, embeddedName);
+  if (!collection?.get && !collection?.has) return true;
+  if (typeof collection.has === "function") return collection.has(docId);
+  return Boolean(collection.get(docId));
+}
+
+async function _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids) {
+  const requestedIds = _normalizeEmbeddedIds(ids);
+  if (!requestedIds.length) return { ok: false, error: "No valid ids" };
+
+  const liveIds = requestedIds.filter((id) => _hasEmbeddedDocument(actor, embeddedName, id));
+  const skippedIds = requestedIds.filter((id) => !liveIds.includes(id));
+  const debugData = {
+    actorUuid: actor?.uuid ?? null,
+    embeddedName,
+    requestedIds,
+    liveIds,
+    skippedIds
+  };
+
+  if (skippedIds.length && liveIds.length) {
+    _dlog("deleteEmbeddedDocuments reduced stale ids", debugData);
+  }
+
+  if (!liveIds.length) {
+    _dlog("deleteEmbeddedDocuments already gone", debugData);
+    return { ok: true, requestedIds, deletedIds: [], skippedIds, allAlreadyGone: true };
+  }
+
+  try {
+    await actor.deleteEmbeddedDocuments(embeddedName, liveIds);
+    return { ok: true, requestedIds, deletedIds: liveIds, skippedIds };
+  } catch (err) {
+    const survivingIds = liveIds.filter((id) => _hasEmbeddedDocument(actor, embeddedName, id));
+    if (_isMissingEmbeddedDeleteError(err) || !survivingIds.length) {
+      _dlog("deleteEmbeddedDocuments soft-suppressed race", {
+        ...debugData,
+        survivingIds,
+        error: String(err?.message ?? err ?? "")
+      });
+      return {
+        ok: true,
+        requestedIds,
+        deletedIds: liveIds.filter((id) => !survivingIds.includes(id)),
+        skippedIds,
+        survivingIds,
+        softSuppressed: true
+      };
+    }
+
+    console.error("UESRPG | authority-proxy | deleteEmbeddedDocuments failed", {
+      actorUuid: actor?.uuid ?? null,
+      embeddedName,
+      requestedIds,
+      liveIds,
+      skippedIds,
+      survivingIds,
+      err
+    });
+    return { ok: false, error: err?.message ?? String(err), requestedIds, liveIds, skippedIds, survivingIds };
+  }
+}
+
 function _channelSystemId() {
   return game.system?.id ?? NAMESPACE;
 }
@@ -906,11 +998,7 @@ export function registerAuthorityProxy() {
         if (!actor || actor.documentName !== "Actor") return { ok: false, error: `Actor not found for uuid=${actorUuid}` };
         if (!(game.user?.isGM || actor.isOwner)) return { ok: false, error: "Not authorized to delete embedded documents on target Actor" };
 
-        const cleanedIds = ids.map((x) => String(x)).filter((x) => x.length > 0);
-        if (!cleanedIds.length) return { ok: false, error: "No valid ids" };
-
-        await actor.deleteEmbeddedDocuments(embeddedName, cleanedIds);
-        return { ok: true };
+        return await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids);
       } catch (err) {
         console.error("UESRPG | authority-proxy | deleteEmbeddedDocuments query handler failed", err);
         return { ok: false, error: err?.message ?? String(err) };
@@ -1515,8 +1603,8 @@ export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, {
 
   // Direct path.
   if (game.user?.isGM || actor.isOwner) {
-    await actor.deleteEmbeddedDocuments(embeddedName, ids);
-    return true;
+    const result = await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids);
+    return !!result?.ok;
   }
 
   const applier = _selectActiveGM() ?? _selectActorOwner(actor);

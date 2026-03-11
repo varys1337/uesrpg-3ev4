@@ -25,7 +25,7 @@ import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../system/flags.js";
 import { isShieldItem } from "../items/shield-utils.js";
 
-// Re-export for backward compatibility — canonical definition lives in magic-modifiers.js
+// Re-export for backward compatibility - canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
 
 /**
@@ -402,7 +402,7 @@ export function getActorMagicka(actor) {
   return _num(actor?.system?.magicka?.value, 0);
 }
 
-// getActorWillpowerBonus — imported from magic-modifiers.js and re-exported above
+// getActorWillpowerBonus - imported from magic-modifiers.js and re-exported above
 
 /**
  * Consume magicka from actor for casting a spell.

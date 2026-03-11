@@ -30,7 +30,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG вЂ” Debugging",
+      title: "UESRPG - Debugging",
     },
     position: {
       width: 520,

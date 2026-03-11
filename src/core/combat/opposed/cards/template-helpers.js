@@ -489,6 +489,9 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
   // ── Roll detail (collapsible for A/B rolls) ──
   const damageLabel = isHealing ? "Healing" : "Damage";
   const pills = damageData.qualityPillsHtml ?? "";
+  const metadataRows = Array.isArray(damageData.panelMetadata)
+    ? damageData.panelMetadata.filter((row) => row && typeof row === "object" && row.value != null && String(row.value).trim() !== "")
+    : [];
   const damageComponents = Array.isArray(damageData.damageComponents) ? damageData.damageComponents : [];
   const componentsHtml = damageComponents.length
     ? `<div class="dmg-components">${damageComponents.map((c) => {
@@ -504,8 +507,12 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
     ? `<div class="dmg-hdr">${headerImg}</div>`
     : `<div class="dmg-hdr" style="display:grid; grid-template-columns:${headerImg ? "auto " : ""}minmax(0,1fr) auto; gap:6px 16px; align-items:center;">${headerImg}<div class="dmg-title" style="font-weight:700;">${headerLabel}</div><div class="dmg-hitloc"><b>Hit Loc.</b> ${damageData.hitLocation ?? "Body"}</div></div>`;
   const pillsHtml = pills ? `<div class="val-pills">${pills}</div>` : "";
+  const metadataHtml = metadataRows.length
+    ? `<div class="dmg-meta" style="display:grid; gap:2px; margin:6px 0 2px 0;">${metadataRows.map((row) => `<div><b>${foundry.utils.escapeHTML(String(row.label ?? "Info"))}:</b> ${foundry.utils.escapeHTML(String(row.value ?? ""))}</div>`).join("")}</div>`
+    : "";
   const damageDisplayHtml = fullyBlocked ? "" : `
     <div class="dmg-kv">
+      ${metadataHtml}
       ${pillsHtml}
       ${componentsHtml}
     </div>`;

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/core/combat/opposed/dialogs/attacker.js
  *
  * Attacker-side dialog functions for opposed combat workflow.
@@ -572,7 +572,7 @@ export async function promptWeaponAndAdvantages({
   }
 }
 
-// в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ Helper Functions в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// ------------ Helper Functions ------------
 
 /**
  * List equipped weapons for an actor.
@@ -581,10 +581,10 @@ export async function promptWeaponAndAdvantages({
 function _listEquippedWeapons(actor) {
   const equipped = actor?.itemTypes?.weapon?.filter(w => w.system?.equipped === true) ?? [];
   if (equipped.length) return equipped.map(w => ({ uuid: w.uuid, name: w.name ?? "Weapon", img: w.img ?? "" }));
-  // Fallback: NPCs often lack explicit equipped flags вЂ” return all weapons
+  // Fallback: NPCs often lack explicit equipped flags - return all weapons
   const all = actor?.itemTypes?.weapon ?? [];
   if (all.length) {
-    console.debug("UESRPG | _listEquippedWeapons: no weapons with equipped=true for", actor?.name, "вЂ” falling back to all weapons");
+    console.debug("UESRPG | _listEquippedWeapons: no weapons with equipped=true for", actor?.name, "- falling back to all weapons");
   }
   return all.map(w => ({ uuid: w.uuid, name: w.name ?? "Weapon", img: w.img ?? "" }));
 }

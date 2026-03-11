@@ -192,6 +192,8 @@ export {
 // ──────────────────────────────────────────────
 //  Effects
 // ──────────────────────────────────────────────
+// Authoritative spell lifecycle modules live under ./effects/*.
+// Import and patch those files first when working on spell timing/upkeep/Origin AE behavior.
 export {
   spellRequiresOriginAE,
   createOriginAE,

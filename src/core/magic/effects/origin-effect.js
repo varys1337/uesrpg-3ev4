@@ -16,9 +16,11 @@
  * Target: Foundry VTT v13.351
  */
 
-import { requestDeleteEmbeddedDocuments, requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
+import { isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -79,6 +81,7 @@ export function spellRequiresOriginAE(spell) {
  * @param {number} [options.castWorldTime] - World time at cast
  * @param {object} [options.durationOverride] - Override Duration object for the AE
  * @param {object|null} [options.castSource] - Optional cast-source metadata
+ * @param {string|null} [options.casterTokenUuid] - Token UUID for precise combat anchoring
  * @returns {Promise<ActiveEffect|null>} The created Origin AE, or null on failure
  */
 export async function createOriginAE(casterActor, spell, options = {}) {
@@ -86,6 +89,18 @@ export async function createOriginAE(casterActor, spell, options = {}) {
   if (!spellRequiresOriginAE(spell)) return null;
 
   const castWorldTime = _num(options.castWorldTime, _num(game.time?.worldTime, 0));
+  const expirationAnchor = buildSpellExpirationAnchor({
+    casterActor,
+    casterTokenUuid: options.casterTokenUuid ?? null,
+    combat: game?.combat ?? null
+  });
+  _originDebug("Created origin expiration anchor", {
+    spell: spell?.name ?? null,
+    caster: casterActor?.name ?? null,
+    round: game?.combat?.round ?? null,
+    turn: game?.combat?.turn ?? null,
+    anchor: expirationAnchor
+  });
 
   // Build duration for the Origin AE (mirrors what spell-effects.js does for target AEs)
   const duration = options.durationOverride ?? _buildOriginDuration(spell);
@@ -106,6 +121,7 @@ export async function createOriginAE(casterActor, spell, options = {}) {
         spellSchool: _str(spell.system?.school),
         spellLevel: _num(spell.system?.level, 1),
         casterUuid: casterActor.uuid,
+        expirationAnchor,
         originalCastWorldTime: castWorldTime,
         costPaid: _num(options.costPaid, 0),
         scalingChoices: options.scalingChoices ?? null,
@@ -312,7 +328,7 @@ export async function teardownOriginAE(originEffect, options = {}) {
     }
   }
 
-  if (!options.silent && deletedCount > 0) {
+  if (false && !options.silent && deletedCount > 0) {
     try {
       ui.notifications.info(`${spellName} ended — ${deletedCount} linked effect${deletedCount > 1 ? "s" : ""} removed.`);
     } catch (_e) { /* no-op */ }
@@ -387,8 +403,22 @@ export async function refreshOriginAEUpkeep(originEffect, opts = {}) {
   const updates = {
     [`flags.${_FLAG_NS}.upkeep.refreshCount`]: refreshCount,
     [`flags.${_FLAG_NS}.upkeep.lastRefreshWorldTime`]: nowTime,
-    [`flags.${_FLAG_NS}.upkeep.lastRefreshRound`]: nowRound
+    [`flags.${_FLAG_NS}.upkeep.lastRefreshRound`]: nowRound,
+    [`flags.${_FLAG_NS}.expirationAnchor`]: buildSpellExpirationAnchor({
+      casterActor: originEffect.parent,
+      casterTokenUuid: flags?.expirationAnchor?.casterTokenUuid ?? null,
+      combat: game?.combat ?? null,
+      existing: flags?.expirationAnchor ?? null
+    })
   };
+  _originDebug("Normalized origin upkeep anchor", {
+    originId: originEffect?.id ?? null,
+    spellName: _str(flags?.spellName),
+    casterUuid: _str(flags?.casterUuid),
+    round: game?.combat?.round ?? null,
+    turn: game?.combat?.turn ?? null,
+    anchor: updates[`flags.${_FLAG_NS}.expirationAnchor`]
+  });
 
   // Reset Origin AE duration markers so it mirrors the refreshed target AEs
   if (game?.combat?.id) {
@@ -447,9 +477,11 @@ export async function cancelOriginAEUpkeep(originEffect) {
     const existing = parent.effects?.get?.(originEffect.id);
     if (!existing) return false;
 
-    await requestDeleteEmbeddedDocuments(parent, "ActiveEffect", [originEffect.id]);
-    return true;
+    return await safeDeleteEmbeddedDocument(parent, "ActiveEffect", originEffect.id, {
+      context: "UESRPG | origin-effect | cancel upkeep"
+    });
   } catch (err) {
+    if (isMissingDocError(err)) return false;
     console.error("UESRPG | origin-effect | Failed to cancel upkeep", err);
     return false;
   }
@@ -725,16 +757,18 @@ async function _deleteLinkedEntity(link) {
         // Verify the effect still exists on the parent
         const existing = parent.effects?.get?.(doc.id);
         if (!existing) return false;
-        await requestDeleteEmbeddedDocuments(parent, "ActiveEffect", [doc.id]);
-        return true;
+        return await safeDeleteEmbeddedDocument(parent, "ActiveEffect", doc.id, {
+          context: "UESRPG | origin-effect | delete linked targetAE"
+        });
       }
       case "template": {
         // MeasuredTemplate deletion
         if (doc.documentName === "MeasuredTemplate") {
           const scene = doc.parent;
           if (scene) {
-            await requestDeleteEmbeddedDocuments(scene, "MeasuredTemplate", [doc.id]);
-            return true;
+            return await safeDeleteEmbeddedDocument(scene, "MeasuredTemplate", doc.id, {
+              context: "UESRPG | origin-effect | delete linked template"
+            });
           }
         }
         return false;
@@ -744,8 +778,9 @@ async function _deleteLinkedEntity(link) {
         if (doc.documentName === "Token" || doc.documentName === "TokenDocument") {
           const scene = doc.parent;
           if (scene) {
-            await requestDeleteEmbeddedDocuments(scene, "Token", [doc.id]);
-            return true;
+            return await safeDeleteEmbeddedDocument(scene, "Token", doc.id, {
+              context: "UESRPG | origin-effect | delete linked summon"
+            });
           }
         }
         return false;
@@ -756,8 +791,9 @@ async function _deleteLinkedEntity(link) {
         if (!buffParent) return false;
         const existingBuff = buffParent.effects?.get?.(doc.id);
         if (!existingBuff) return false;
-        await requestDeleteEmbeddedDocuments(buffParent, "ActiveEffect", [doc.id]);
-        return true;
+        return await safeDeleteEmbeddedDocument(buffParent, "ActiveEffect", doc.id, {
+          context: "UESRPG | origin-effect | delete linked casterBuff"
+        });
       }
       case "boundItem": {
         // Temporary item on the caster (e.g. Conjure [Weapon/Armor])
@@ -765,16 +801,15 @@ async function _deleteLinkedEntity(link) {
         if (!itemParent) return false;
         const existingItem = itemParent.items?.get?.(doc.id);
         if (!existingItem) return false;
-        await requestDeleteEmbeddedDocuments(itemParent, "Item", [doc.id]);
-        return true;
+        return await safeDeleteEmbeddedDocument(itemParent, "Item", doc.id, {
+          context: "UESRPG | origin-effect | delete linked boundItem"
+        });
       }
       default:
         return false;
     }
   } catch (err) {
-    const msg = _str(err?.message);
-    // "does not exist" errors mean entity was already cleaned up
-    if (msg.includes("does not exist") || msg.includes("No Document")) return false;
+    if (isMissingDocError(err)) return false;
     throw err;
   }
 }
@@ -833,10 +868,19 @@ async function _cleanOrphanTargetAEs(originEffect) {
     }
     if (toDelete.length) {
       try {
-        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", toDelete);
-        count += toDelete.length;
-      } catch (_e) {
-        // best-effort
+        let deleted = 0;
+        for (const effectId of toDelete) {
+          const ok = await safeDeleteEmbeddedDocument(actor, "ActiveEffect", effectId, {
+            context: "UESRPG | origin-effect | orphan target cleanup",
+            logUnexpected: false
+          });
+          if (ok) deleted += 1;
+        }
+        count += deleted;
+      } catch (err) {
+        if (!isMissingDocError(err)) {
+          console.warn("UESRPG | origin-effect | Orphan cleanup failed", { actor: actor?.uuid, err });
+        }
       }
     }
   }
@@ -861,6 +905,7 @@ async function _updateOriginEffect(effect, updates) {
     await requestUpdateDocument(existing, updates);
     return true;
   } catch (err) {
+    if (isMissingDocError(err)) return false;
     console.error("UESRPG | origin-effect | Failed to update Origin AE", err);
     return false;
   }

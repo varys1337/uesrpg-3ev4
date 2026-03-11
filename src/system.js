@@ -1,4 +1,4 @@
-﻿import startupHandler from './hooks/startup.js';
+import startupHandler from './hooks/startup.js';
 import initHandler from './hooks/init.js';
 import { alertDialog } from "./utils/dialog-v2-helper.js";
 import { openStaminaDialog, getActiveStaminaEffect, consumeStaminaEffect } from "./core/stamina/stamina-dialog.js";
@@ -180,7 +180,7 @@ Hooks.once('ready', async function () {
     { initializeUtilitySpellsService },
     { initializeCharacteristicDefenseService },
     { initializeCloakTickHandler, seedCloakRegistry },
-    // Magic opposed workflow has no initialize() export вЂ" importing it eagerly
+    // Magic opposed workflow has no initialize() export - importing it eagerly
     // registers its renderChatMessageHTML hook so existing chat cards survive reload.
     _magicOpposed,
     { seedZoneRegistry }
@@ -232,7 +232,7 @@ Hooks.once('ready', async function () {
   // Initialize generic Mindlock hook (non-summon spells with mindlockValue)
   initializeMindlockHook();
 
-  // Initialize bound item service (Conjure [Weapon/Armor] lifecycle вЂ" legacy flag-based)
+  // Initialize bound item service (Conjure [Weapon/Armor] lifecycle - legacy flag-based)
   initializeBoundItemService();
 
   // Initialize conjuration runtime (engine.conjure-based item conjuring & creature summoning)

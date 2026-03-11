@@ -9,7 +9,7 @@
  */
 
 import { MagicTimekeeping } from "../timekeeping-helper.js";
-import { isDebugEnabled } from "../_primitives.js";
+import { isDebugEnabled, createDebugLogger } from "../_primitives.js";
 import { spellRequiresOriginAE, createOriginAE, registerTargetAEs, findOriginAE } from "./origin-effect.js";
 import { emitEffectApplied } from "../spell-runtime.js";
 import { validateAEChanges } from "../../active-effects/modifier-registry.js";
@@ -17,6 +17,9 @@ import { buildOverTimeChange } from "../ticks/overtime-engine.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../system/flags.js";
+import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
+
+const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellEffects]");
 
 /* ── OverTime entry resolution (private) ────────────────────────────────── */
 
@@ -128,6 +131,19 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
   const nowTime = MagicTimekeeping.nowWorldTimeSeconds();
   const nowRound = MagicTimekeeping.combatRound();
   const nowTurn = MagicTimekeeping.combatTurn();
+  const expirationAnchor = buildSpellExpirationAnchor({
+    casterActor,
+    casterTokenUuid: options.casterTokenUuid ?? null,
+    combat: game?.combat ?? null
+  });
+  _anchorDebug("Created spell expiration anchor", {
+    spell: spell?.name ?? null,
+    caster: casterActor?.name ?? null,
+    target: targetActor?.name ?? null,
+    round: game?.combat?.round ?? null,
+    turn: game?.combat?.turn ?? null,
+    anchor: expirationAnchor
+  });
 
   // Build an ActiveEffect duration object with correct start markers.
   // IMPORTANT: Foundry only updates combat-based durations when combat advances.
@@ -207,6 +223,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
           spellSchool: spell.system.school,
           spellLevel: spell.system.level,
           casterUuid: casterActor.uuid,
+          expirationAnchor,
           originalCastWorldTime: nowTime,
           noListedDuration,
           hasUpkeep: Boolean(spell.system?.hasUpkeep),
@@ -270,6 +287,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
         spellSchool: spell.system.school,
         spellLevel: spell.system.level,
         casterUuid: casterActor.uuid,
+        expirationAnchor,
         originalCastWorldTime: nowTime,
         noListedDuration,
         hasUpkeep,

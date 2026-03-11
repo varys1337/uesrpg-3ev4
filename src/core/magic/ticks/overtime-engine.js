@@ -45,13 +45,14 @@
  */
 
 import { registerSpellTickHandler } from "./spell-tick-engine.js";
-import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { _num, _numOrNull, _str, createDebugLogger, isDebugEnabled } from "../_primitives.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
 import { applyDamage, applyHealing } from "../../combat/damage/apply.js";
 import { DAMAGE_TYPES } from "../../combat/damage/types.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
+import { isMissingDocError as _isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -91,6 +92,47 @@ function _error(/** @type {...any} */ ...args) {
 function _isEffectAlive(parent, effect) {
   if (!parent?.effects || !effect?.id) return false;
   return parent.effects.has(effect.id);
+}
+
+async function _deleteEffectIfAlive(parent, effect, { context = "delete" } = {}) {
+  if (!parent || !effect?.id) return false;
+  if (!_isEffectAlive(parent, effect)) {
+    _debug(`${context}: already gone`, {
+      effect: effect?.name ?? null,
+      parent: parent?.name ?? null
+    });
+    return false;
+  }
+
+  try {
+    const deleted = await safeDeleteEmbeddedDocument(parent, "ActiveEffect", effect.id, {
+      context: `UESRPG | OverTime | ${context}`,
+      logUnexpected: false
+    });
+    if (deleted) {
+      _indexDirty = true;
+      return true;
+    }
+  } catch (err) {
+    if (!_isMissingDocError(err) && _isEffectAlive(parent, effect)) {
+      _error(`${context}: Failed to delete effect "${effect?.name}"`, err);
+      return false;
+    }
+  }
+
+  if (!_isEffectAlive(parent, effect)) {
+    _debug(`${context}: soft-suppressed missing document`, {
+      effect: effect?.name ?? null,
+      parent: parent?.name ?? null
+    });
+    return false;
+  }
+
+  _error(`${context}: Failed to delete effect "${effect?.name}"`, {
+    effectId: effect?.id ?? null,
+    parentUuid: parent?.uuid ?? null
+  });
+  return false;
 }
 
 // ─── Effect Index (Cached Actor → Effect Lookup) ─────────────────────────────
@@ -1207,13 +1249,7 @@ async function _executeEndEffectPayload(actor, effect, config, ctx) {
     return `<p><strong>${effect.name}</strong> ends on <strong>${actor.name}</strong>.</p>`;
   }
 
-  try {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
-    // Mark index dirty immediately for consistency
-    _indexDirty = true;
-  } catch (err) {
-    _error(`Failed to end effect on ${actor.name}`, err);
-  }
+  await _deleteEffectIfAlive(actor, effect, { context: `EndEffect on ${actor.name}` });
 
   return `<p><strong>${effect.name}</strong> ends on <strong>${actor.name}</strong>.</p>`;
 }
@@ -1352,9 +1388,7 @@ async function _updateTickState(effect, config, tickState, ctx) {
   if (shouldAutoEnd) {
     // Max ticks reached — delete effect directly, no need to update state first
     _debug(`Max ticks reached for "${effect.name}" (${newTickCount}/${maxTicks}), auto-ending`);
-    try {
-      await requestDeleteEmbeddedDocuments(parent, "ActiveEffect", [effect.id]);
-    } catch (_e) { /* no-op — effect may already be gone */ }
+    await _deleteEffectIfAlive(parent, effect, { context: `MaxTicks auto-end on ${parent?.name ?? "actor"}` });
     return;
   }
 
@@ -1369,10 +1403,14 @@ async function _updateTickState(effect, config, tickState, ctx) {
   try {
     await requestUpdateDocument(effect, updates);
   } catch (err) {
+    if (_isMissingDocError(err) || !_isEffectAlive(parent, effect)) return;
     // Fallback: direct update (if authority proxy fails for owned effects)
     if (_isEffectAlive(parent, effect)) {
       try { await effect.update(updates); }
-      catch (_e) { _warn(`Failed to update tick state for "${effect.name}"`, _e); }
+      catch (_e) {
+        if (_isMissingDocError(_e) || !_isEffectAlive(parent, effect)) return;
+        _warn(`Failed to update tick state for "${effect.name}"`, _e);
+      }
     }
   }
 }

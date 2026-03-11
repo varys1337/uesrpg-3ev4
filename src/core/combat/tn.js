@@ -1,4 +1,4 @@
-﻿/**
+/**
  * src/core/combat/tn.js
  *
  * Deterministic TN computation pipeline for opposed workflow.
@@ -635,7 +635,7 @@ export function computeTN({
         ? "Block"
         : (defenseType === "parry" || defenseType === "counter")
           ? "Combat Style"
-          : "вЂ”";
+          : "-";
 
   breakdown.push({ key: "base", label: baseLabel, value: asNumber(baseTN), source: "base", detail: baseDetail });
   if (observantEntry) breakdown.push(observantEntry);

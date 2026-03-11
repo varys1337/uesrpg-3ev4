@@ -1,21 +1,21 @@
 ﻿/**
- * Alchemy Workshop вЂ” AppV2
+ * Alchemy Workshop - AppV2
  *
  * A HandlebarsApplicationMixin(ApplicationV2) wizard for brewing potions,
  * poisons, and toxins.  Modelled after EnchantingWorkshopAppV2 in structure
  * but entirely independent of it.
  *
  * Supported modes:
- *   potion  вЂ” 1вЂ“3 ingredient slots, each with a school-matched effect + SL
- *   poison  вЂ” single Destruction ingredient, poison level derived from depth
- *   toxin   вЂ” 1вЂ“3 ingredient slots with Toxin-attribute effects + SL
- *   gather  вЂ” ingredient gathering helper (rolls vs. Alchemy; optional gate)
+ *   potion  - 1-3 ingredient slots, each with a school-matched effect + SL
+ *   poison  - single Destruction ingredient, poison level derived from depth
+ *   toxin   - 1-3 ingredient slots with Toxin-attribute effects + SL
+ *   gather  - ingredient gathering helper (rolls vs. Alchemy; optional gate)
  *
  * Instance state (this._ws) is intentionally ephemeral (not persisted to any
- * document) вЂ” it represents pending UI selections before the Commit action
+ * document) - it represents pending UI selections before the Commit action
  * dispatches a chat-card brew message.
  *
- * вљ пёЏ Architect Note: AppV2 anti-pattern guard вЂ” this app NEVER reads the DOM
+ * Warning: Architect Note: AppV2 anti-pattern guard - this app NEVER reads the DOM
  * to collect form values.  All state lives in this._ws; _prepareContext() derives
  * template data from it; form actions mutate this._ws then call render().
  */
@@ -44,12 +44,12 @@ import {
   createPendingBrewMessage,
 } from "../../../core/alchemy/workflow.js";
 
-// в”Ђв”Ђ Constants в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// Constants
 
 const MAX_SLOTS = 3;
 const TEMPLATE_PATH = templatePath("v2/apps/alchemy-workshop.hbs");
 
-// в”Ђв”Ђ Workshop state factory в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// Workshop state factory
 
 function _defaultSlot() {
   return { ingredientId: null, effectKey: null, spellLevel: 1, params: {} };
@@ -67,11 +67,11 @@ function _defaultState(mode = "potion") {
   };
 }
 
-// в”Ђв”Ђ App class в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// App class
 
 export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
 
-  // в”Ђв”Ђ Static configuration в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // Static configuration
 
   static DEFAULT_OPTIONS = {
     id: "alchemy-workshop",
@@ -83,7 +83,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
       title: "Alchemy Workshop",
     },
     form: {
-      // submitOnChange is intentionally FALSE вЂ” we manage state imperatively.
+      // submitOnChange is intentionally FALSE - we manage state imperatively.
       submitOnChange: false,
       closeOnSubmit: false,
     },
@@ -100,7 +100,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     workshop: { template: TEMPLATE_PATH },
   };
 
-  // в”Ђв”Ђ Constructor в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // Constructor
 
   constructor(options = {}) {
     super(options);
@@ -110,7 +110,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     this._ws = _defaultState(options.mode ?? "potion");
   }
 
-  // в”Ђв”Ђ Context preparation в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // Context preparation
 
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
@@ -121,7 +121,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     const ws = this._ws;
     const skill = getAlchemySkill(actor);
     const talents = getAlchemyTalents(actor);
-    // Alchemy is a core mechanic вЂ” gather helper is always available.
+    // Alchemy is a core mechanic - gather helper is always available.
     const enableGather = true;
     const requireLab = game.settings.get(SYSTEM_ID, "alchemy.requireLab");
 
@@ -260,7 +260,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     };
   }
 
-  // в”Ђв”Ђ Form change handling в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // Form change handling
 
   /**
    * Handle changes to form inputs.
@@ -360,15 +360,15 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     const validation = validateBrewRecipe(actor, recipe);
 
     if (!validation.ok) {
-      const msg = validation.errors.join("\nвЂў ");
-      ui.notifications.warn(`Cannot brew:\nвЂў ${msg}`);
+      const msg = validation.errors.join("\n- ");
+      ui.notifications.warn(`Cannot brew:\n- ${msg}`);
       return;
     }
 
     // Post pending brew message to chat.
     await createPendingBrewMessage(actor, recipe, { nothingVentured: this._ws.nothingVentured });
 
-    ui.notifications.info(`${actor.name}: Brew pending вЂ” roll Alchemy in chat.`);
+    ui.notifications.info(`${actor.name}: Brew pending - roll Alchemy in chat.`);
     await this.close();
   }
 
@@ -404,7 +404,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
           <div class="hdr">
             <img class="actor-thumb" src="${actor.img ?? "icons/svg/mystery-man.svg"}" alt="">
             <div class="hdr-text">
-              <div class="title">${actor.name} вЂ” Gather Ingredients</div>
+              <div class="title">${actor.name} - Gather Ingredients</div>
               <div class="sub" style="color:${success ? "#388e3c" : "#c62828"};">${success ? "Success" : "Failure"} (${roll.total} vs TN ${tn})</div>
             </div>
           </div>
@@ -425,17 +425,17 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     if (!success) await this.close();
   }
 
-  // в”Ђв”Ђ Window title в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // Window title
 
   get title() {
     const actor = this._actorUuid
       ? game.actors?.find((a) => a.uuid === this._actorUuid)
       : null;
-    return actor ? `Alchemy Workshop вЂ” ${actor.name}` : "Alchemy Workshop";
+    return actor ? `Alchemy Workshop - ${actor.name}` : "Alchemy Workshop";
   }
 }
 
-// в”Ђв”Ђ Private helpers в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+// Private helpers
 
 /** Build a recipe object from workshop state (used by validation + modifiers). */
 function _buildRecipeFromState(ws) {
@@ -477,7 +477,7 @@ function _getStoredTrialBonus(actor, recipe) {
 function _randomQualityOnGather(roll, tn) {
   const margin = tn - roll; // 0..tn
   const tiers = Object.values(QUALITY_TIERS);
-  // Map margin (0 = barely made it в†’ ubiquitous; tn-1 = near perfect в†’ rare).
+  // Map margin (0 = barely made it -> ubiquitous; tn-1 = near perfect -> rare).
   const ratio = Math.min(1, margin / Math.max(1, tn));
   const idx = Math.floor(ratio * Math.min(5, tiers.length - 1));
   return tiers[idx]?.label ?? "Common";

@@ -162,6 +162,7 @@ export async function prepareItemSheetData(sheet, data) {
     data.disintegrateTargetOptions = getDisintegrateTargetOptions();
     data.drainTypeOptions = getDrainTypeOptions();
     data.defenseModelOptions = getDefenseModelOptions();
+    data.selectedDefenseModel = itemDoc?.system?.isDirect ? "direct" : data.spellEngine.defenseModel;
     data.charDefModifierModeOptions = { spellStrength: "Spell Strength (SS)", formula: "Custom Formula" };
     data.charDefSuccessOptions = getCharacteristicDefenseSuccessOptions();
     data.charDefFailureOptions = getCharacteristicDefenseFailureOptions();

@@ -18,7 +18,7 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
       submitOnChange: false,
     },
     window: {
-      title: "UESRPG вЂ” Combat",
+      title: "UESRPG - Combat",
     },
     position: {
       width: 520,

@@ -1,6 +1,6 @@
 /* ---
    merged into styles/uesrpg.css
-   Spell Item Sheet --- 3-tab layout (Description, Casting, Information)
+   Spell Item Sheet --- 3-tab layout (Overview, Casting, Automation)
    Design tokens + normalised component library
    ---*/
 
@@ -55,9 +55,29 @@
   flex-wrap: nowrap;
 }
 
+.spell-sheet .spell-tabs {
+  gap: var(--spell-gap-xs);
+  padding: 6px 8px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
 .spell-sheet .sheet-tabs .item {
   font-size: var(--spell-font-sm);
-  padding: 5px 12px;
+  padding: 7px 12px;
+  border-radius: 8px 8px 0 0;
+  background: rgba(255, 255, 255, 0.24);
+  border: 1px solid transparent;
+  min-width: 0;
+  flex: 1 1 0;
+  text-align: center;
+}
+
+.spell-sheet .sheet-tabs .item.active {
+  background: rgba(255, 255, 255, 0.68);
+  border-color: rgba(0, 0, 0, 0.14);
+  border-bottom-color: rgba(255, 255, 255, 0.68);
+  color: #231a0f;
+  font-weight: 700;
 }
 
 .spell-sheet .tab {
@@ -67,23 +87,30 @@
 /* --- Header ---*/
 .spell-sheet .spell-header {
   display: flex;
-  gap: 12px;
-  padding: 6px 8px;
-  background: var(--spell-bg-inset);
-  border-bottom: 2px solid rgba(0, 0, 0, 0.15);
-  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 12px 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(0, 0, 0, 0.02));
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  align-items: stretch;
 }
 
 .spell-sheet .spell-header .profile-img {
   flex-shrink: 0;
-  border: 2px solid rgba(0, 0, 0, 0.2);
-  border-radius: var(--spell-radius);
+  width: 60px;
+  height: 60px;
+  border: 2px solid rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
   cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  object-fit: cover;
 }
 
 .spell-sheet .spell-header-fields {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .spell-sheet .spell-name {
@@ -102,19 +129,22 @@
 }
 
 .spell-sheet .spell-stats-row {
-  display: flex;
-  gap: 10px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
 }
 
 /* --- Header Stats ---*/
 .spell-sheet .spell-stat {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-width: 50px;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
 }
 
 .spell-sheet .spell-stat > label {
@@ -129,26 +159,27 @@
 .spell-sheet .spell-stat input,
 .spell-sheet .spell-stat select {
   height: var(--spell-input-h);
-  padding: 2px 4px;
+  width: 100%;
+  padding: 2px 6px;
   font-size: var(--spell-font-md);
   border: var(--spell-border);
   border-radius: 3px;
 }
 
 .spell-sheet .spell-stat input[type="number"] {
-  width: var(--spell-input-xs);
+  width: 100%;
 }
 
 .spell-sheet .spell-stat-wide {
-  min-width: 100px;
+  min-width: 0;
 }
 
 .spell-sheet .spell-stat-wide select {
-  width: var(--spell-input-med);
+  width: 100%;
 }
 
 .spell-sheet .spell-stat-check {
-  justify-content: flex-end;
+  justify-content: center;
 }
 
 .spell-sheet .spell-stat-check label {
@@ -160,7 +191,7 @@
   text-transform: none;
   opacity: 1;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .spell-sheet .spell-stat-check input[type="checkbox"] {
@@ -171,10 +202,10 @@
 
 /* --- Casting Body (scrollable content area) ---*/
 .spell-sheet .spell-casting-body {
-  padding: 5px 8px 10px;
+  padding: 10px 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: var(--spell-gap-md);
+  gap: 10px;
 }
 
 /* Prevent children from growing vertically and creating gaps*/
@@ -184,22 +215,46 @@
 
 /* --- Section ---*/
 .spell-sheet .spell-section {
-  padding: 5px 8px;
-  background: var(--spell-bg-section);
-  border: var(--spell-border);
-  border-radius: var(--spell-radius);
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.26);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.spell-sheet .spell-section--hero {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(0, 0, 0, 0.02));
+  border-color: rgba(93, 69, 27, 0.18);
+}
+
+.spell-sheet .spell-section--diagnostic {
+  background: rgba(250, 248, 239, 0.55);
+}
+
+.spell-sheet .spell-section--editor .editor {
+  min-height: 260px;
 }
 
 .spell-sheet .spell-section-title {
   margin: 0 0 var(--spell-gap-sm) 0;
-  padding-bottom: 3px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
-  font-size: var(--spell-font-md);
-  font-weight: 600;
-  color: #333;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  font-size: 15px;
+  font-weight: 700;
+  color: #2a2014;
   display: flex;
   align-items: center;
   gap: var(--spell-gap-sm);
+}
+
+.spell-sheet .spell-section-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--spell-font-xs);
+  font-weight: 700;
+  color: #fff;
+  background: rgba(62, 46, 23, 0.84);
 }
 
 /* --- Row (flex row of label + inputs) ---*/
@@ -221,6 +276,17 @@
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: var(--spell-gap-xs);
+}
+
+.spell-sheet .spell-toggle-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spell-gap-xs);
+  margin-bottom: var(--spell-gap-sm);
+}
+
+.spell-sheet .spell-row-checks--tight {
+  margin-bottom: 0;
 }
 
 /* --- Labels ---*/
@@ -257,6 +323,24 @@
   height: auto;
 }
 
+.spell-sheet .spell-flag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: var(--spell-font-xs);
+  font-weight: 700;
+  color: #6a6257;
+  background: rgba(255, 255, 255, 0.44);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.spell-sheet .spell-flag-chip--active {
+  color: #1f5a2b;
+  background: rgba(40, 167, 69, 0.14);
+  border-color: rgba(40, 167, 69, 0.28);
+}
+
 /* --- Inputs (normalised sizing) ---*/
 .spell-sheet .spell-input {
   height: var(--spell-input-h);
@@ -280,11 +364,11 @@
 
 /* --- Fieldset (conditional sub-sections) ---*/
 .spell-sheet .spell-fieldset {
-  border: var(--spell-border);
-  border-radius: var(--spell-radius);
-  padding: var(--spell-gap-xs) var(--spell-gap-md);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
   margin: var(--spell-gap-xs) 0 0 0;
-  background: rgba(0, 0, 0, 0.015);
+  background: rgba(255, 255, 255, 0.34);
 }
 
 .spell-sheet .spell-fieldset legend {
@@ -294,11 +378,31 @@
   color: #555;
 }
 
+.spell-sheet .spell-subsection {
+  margin-top: var(--spell-gap-md);
+  padding-top: var(--spell-gap-sm);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.spell-sheet .spell-subsection--inline {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.spell-sheet .spell-subsection-title {
+  margin: 0 0 var(--spell-gap-xs) 0;
+  font-size: var(--spell-font-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #4a3825;
+}
+
 /* --- Hint text ---*/
 .spell-sheet .spell-hint {
   font-size: var(--spell-font-xs);
   font-style: italic;
-  opacity: 0.65;
+  opacity: 0.78;
   margin: var(--spell-gap-xs) 0 0 0;
   line-height: 1.35;
 }
@@ -775,35 +879,34 @@
   flex-direction: column;
 }
 
-.spell-sheet .tab[data-tab="description"] .editor {
-  flex: 1;
-  min-height: 200px;
+.spell-sheet .spell-casting-body--overview {
+  gap: 0;
 }
 
 /* --- At-a-Glance Status Row ---*/
 .spell-sheet .spell-glance-row {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spell-gap-xs);
-  padding: 4px 6px;
-  background: var(--spell-bg-header);
-  border: var(--spell-border);
-  border-radius: var(--spell-radius);
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(79, 58, 23, 0.08);
+  border: 1px solid rgba(93, 69, 27, 0.14);
+  border-radius: 10px;
   align-items: center;
 }
 
 .spell-sheet .spell-glance-tag {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 6px;
-  font-size: 10px;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.6);
-  border: var(--spell-border-light);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
   white-space: nowrap;
-  color: #444;
+  color: #3d3120;
 }
 
 .spell-sheet .spell-glance-tag i {
@@ -835,65 +938,10 @@
 }
 
 /* --- Advanced Options Collapsible ---*/
-.spell-sheet .spell-advanced {
-  border: var(--spell-border);
-  border-radius: var(--spell-radius);
-  background: var(--spell-bg-section);
-}
-
-.spell-sheet .spell-advanced-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--spell-gap-sm);
-  padding: 5px 8px;
-  font-size: var(--spell-font-md);
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
-  color: #333;
-  transition: background 0.15s;
-}
-
-.spell-sheet .spell-advanced-summary::-webkit-details-marker {
-  display: none;
-}
-
-.spell-sheet .spell-advanced-summary::before {
-  content: "\f054";
-  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free";
-  font-weight: 900;
-  font-size: 10px;
-  transition: transform 0.2s;
-  flex-shrink: 0;
-}
-
-.spell-sheet .spell-advanced[open] > .spell-advanced-summary::before {
-  transform: rotate(90deg);
-}
-
-.spell-sheet .spell-advanced-summary:hover {
-  background: var(--spell-bg-hover);
-}
-
-.spell-sheet .spell-advanced-summary i.fa-cogs {
-  font-size: var(--spell-font-md);
-  opacity: 0.6;
-}
-
-.spell-sheet .spell-advanced-badge {
-  font-size: var(--spell-font-xs);
-  font-weight: 500;
-  font-style: italic;
-  opacity: 0.55;
-  margin-left: auto;
-}
-
-.spell-sheet .spell-advanced-body {
-  padding: 4px 8px 8px;
+.spell-sheet .spell-automation-stack {
   display: flex;
   flex-direction: column;
-  gap: var(--spell-gap-sm);
+  gap: 10px;
 }
 
 /* --- Automation Modules Grid (2-col when collapsed) ---*/
@@ -909,19 +957,19 @@
 
 /* --- Automation Module Panels ---*/
 .spell-sheet .spell-module-panel {
-  padding: var(--spell-gap-xs) var(--spell-gap-md);
-  background: rgba(0, 0, 0, 0.015);
-  border: var(--spell-border-light);
-  border-radius: var(--spell-radius);
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
 }
 
 .spell-sheet .spell-module-title {
   margin: 0 0 var(--spell-gap-xs) 0;
-  padding-bottom: 2px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  font-size: var(--spell-font-xs);
-  font-weight: 600;
-  color: #444;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: var(--spell-font-sm);
+  font-weight: 700;
+  color: #3b2b1a;
   display: flex;
   align-items: center;
   gap: var(--spell-gap-xs);
@@ -960,20 +1008,22 @@
 }
 
 .spell-sheet .spell-details-summary::before {
-  content: "\f054";
-  font-family: "Font Awesome 6 Free", "Font Awesome 5 Free";
-  font-weight: 900;
-  font-size: 10px;
-  transition: transform 0.2s;
-  flex-shrink: 0;
-}
-
-.spell-sheet .spell-details-section[open] > .spell-details-summary::before {
-  transform: rotate(90deg);
+  content: none;
 }
 
 .spell-sheet .spell-details-summary:hover {
   background: var(--spell-bg-hover);
+}
+
+.spell-sheet .spell-details-caret {
+  font-size: 11px;
+  opacity: 0.72;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.spell-sheet .spell-details-section[open] > .spell-details-summary .spell-details-caret {
+  transform: rotate(90deg);
 }
 
 .spell-sheet .spell-details-badge {
@@ -988,7 +1038,7 @@
 }
 
 .spell-sheet .spell-details-body {
-  padding: 4px 8px 8px;
+  padding: 8px 10px 10px;
 }
 
 
@@ -1212,7 +1262,7 @@
   margin-left: 12px;
 }
 
-/* Row-checks with extra top margin (e.g. Upkeep / Overload row)*/
+/* Row-checks with extra top margin*/
 .spell-sheet .spell-row-checks--spaced {
   margin-top: var(--spell-gap-md);
 }
@@ -1238,4 +1288,40 @@
 .spell-sheet .spell-btn-delete--legend {
   margin-left: var(--spell-gap-sm);
   font-size: 0.75em;
+}
+
+@media (max-width: 900px) {
+  .spell-sheet .spell-stats-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .spell-sheet .spell-2col-grid,
+  .spell-sheet .spell-modules-grid,
+  .spell-sheet .spell-row--grid-3col,
+  .spell-sheet .spell-row--grid-3col-auto {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .spell-sheet .spell-header {
+    flex-direction: column;
+  }
+
+  .spell-sheet .spell-header .profile-img {
+    width: 52px;
+    height: 52px;
+  }
+
+  .spell-sheet .spell-stats-row {
+    grid-template-columns: 1fr;
+  }
+
+  .spell-sheet .spell-tabs {
+    flex-wrap: wrap;
+  }
+
+  .spell-sheet .sheet-tabs .item {
+    flex: 1 1 calc(50% - 6px);
+  }
 }
