@@ -12,3 +12,6 @@ Thumbs.db
 packs/**/LOCK
 packs/**/LOG
 packs/**/LOG.*
+
+# Keep numbered pack data/WAL files tracked
+!packs/**/*.log
