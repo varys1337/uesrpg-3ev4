@@ -15,7 +15,7 @@ function _reg(key, config) {
 }
 
 export function registerTalentsSettings() {
-  // Talents automation: optional enforcement toggles (Chapter 4)
+  // Hidden GM rules/system policy: talent automation and enforcement semantics.
   _reg("enableMightyCleave", {
     name: "Talents: Enable Mighty Cleave automation",
     hint: "When enabled, Mighty Cleave can create a follow-up attack button on opposed cards (requires the talent). Disabled by default to avoid changing table enforcement assumptions.",

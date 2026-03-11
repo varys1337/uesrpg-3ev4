@@ -8,7 +8,8 @@
  * - Ensure toggling from the Token HUD produces the same deterministic ActiveEffect-backed
  *   conditions as the rest of the system (i.e., correct AE changes + system flags).
  * Constraints:
- * - No ApplicationV2.
+ * - Interoperate with the Token HUD and document update APIs without depending on
+ *   any particular app framework.
  * - No direct document mutation; use document update APIs.
  * - Avoid regressions: preserve CONFIG.specialStatusEffects entries (dead/defeated, etc.).
  *

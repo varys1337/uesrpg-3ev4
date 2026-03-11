@@ -6,26 +6,23 @@ import {
 
 function _reg(key, config) {
   if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
-    console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
+    console.warn(`UESRPG | Settings: duplicate key "${key}" вЂ” skipping.`);
     return;
   }
   game.settings.register(SYSTEM_ID, key, config);
 }
 
 export function registerHomebrewSettings() {
-  // ── Homebrew ──────────────────────────────────────────────────────────────────
-
+  // Hidden GM rules/system policy: long-term table rules that intentionally branch runtime behavior.
   _reg("homebrew.speedFormulaSBAB", {
     name: "Homebrew: Speed Formula (SB + AB)",
-    hint: "When enabled, base Speed is computed as SB + AB (instead of SB + 2×AB). Requires a reload to apply consistently.",
+    hint: "When enabled, base Speed is computed as SB + AB (instead of SB + 2Г—AB). Requires a reload to apply consistently.",
     scope: "world",
     config: false,
     requiresReload: true,
     default: false,
     type: Boolean,
   });
-
-  // ── Homebrew: Reach & Length Overhaul ─────────────────────────────────────
 
   _reg("homebrew.reachLength.enabled", {
     name: "Homebrew: Reach & Length Overhaul (Harnmaster-inspired)",

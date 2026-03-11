@@ -9,6 +9,7 @@ function _reg(key, config) {
 }
 
 export function registerInternalSettings() {
+  // Hidden rollback/internal state: preserve migration and compatibility bookkeeping.
   // World data version stamp for the new-world-only compatibility gate.
   _reg("worldDataVersion", {
     name: "World Data Version",

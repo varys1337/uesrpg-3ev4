@@ -30,7 +30,7 @@ import {
   formatCreationBackfire,
 } from "./backfire.js";
 
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 import {
   renderBrewPendingCard,
@@ -784,7 +784,7 @@ async function _createAlchemyItem(actor, recipe, { backfired = false, backfireRe
     flags: { [FLAG_NS]: { alchemy: alchemyFlags } },
   };
 
-  const [created] = await actor.createEmbeddedDocuments("Item", [itemData]);
+  const [created] = await requestCreateEmbeddedDocuments(actor, "Item", [itemData]);
   return created ?? null;
 }
 
@@ -811,7 +811,7 @@ async function _consumeIngredients(actor, recipe) {
     if (!item) continue;
     const qty = Number(item.system?.quantity ?? 1);
     if (qty <= 1) {
-      await item.delete();
+      await requestDeleteEmbeddedDocuments(actor, "Item", [item.id]);
     } else {
       await requestUpdateDocument(item, { "system.quantity": qty - 1 });
     }

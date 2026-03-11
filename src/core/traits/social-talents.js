@@ -2,16 +2,15 @@
  * @module traits/social-talents
  * @description Automation helpers for Social talents (Chapter 4):
  *  - Inspire Heroism: once per round as Free Action, Command test to inspire
- *    an ally → target gains +10 to next combat test (1-round AE).
+ *    an ally; target gains +10 to their next combat test.
  *
  * This module is intentionally hook-free; the activation executor dispatches
  * here via `runTalentActivationAutomation()`.
  */
 
-import { hasTalent } from "./talents-api.js";
-import { _canPromptForActor } from "./_primitives.js";
 import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
+import { getActorCanvasToken } from "./combat-proximity.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { doTestRoll, formatResultSummary } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ROLL_FORMULA } from "../constants.js";
@@ -57,12 +56,12 @@ export function validateInspireHeroismAvailability({ actor } = {}) {
  * ally gains +10 to their next combat test."
  *
  * Implementation notes:
- *  - Requires exactly 1 targeted token (not self)
+ *  - Requires exactly 1 targeted allied token (not self)
  *  - Requires active combat
  *  - Once per round (tracked via actor flag)
  *  - Command skill test with configurable difficulty
- *  - On success: creates "Inspired (Heroism)" AE on target with 1-round
- *    combat duration, granting +10 to attack TN and defense TN
+ *  - On success: creates "Inspired (Heroism)" AE on target granting +10 to
+ *    the next combat test; combat duration acts only as fallback expiry
  *
  * @param {object} params
  * @param {Actor} params.actor - The inspiring actor
@@ -96,8 +95,19 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
     ui.notifications?.warn?.("Inspire Heroism: selected target has no actor.");
     return false;
   }
+  const activatorToken = getActorCanvasToken(actor);
+  if (!activatorToken) {
+    ui.notifications?.warn?.("Inspire Heroism: the inspiring actor must have a token on the canvas.");
+    return false;
+  }
   if (targetActor.uuid === actor.uuid) {
     ui.notifications?.warn?.("Inspire Heroism: you cannot inspire yourself.");
+    return false;
+  }
+  const activatorDisposition = Number(activatorToken?.document?.disposition ?? NaN);
+  const targetDisposition = Number(targetToken?.document?.disposition ?? NaN);
+  if (!Number.isFinite(activatorDisposition) || !Number.isFinite(targetDisposition) || activatorDisposition === 0 || activatorDisposition !== targetDisposition) {
+    ui.notifications?.warn?.("Inspire Heroism: target must be an allied token.");
     return false;
   }
 
@@ -179,7 +189,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
 
   const targetName = foundry.utils.escapeHTML(targetActor.name);
   const successNote = res.isSuccess
-    ? `<div style="margin-top:4px;"><b>${targetName}</b> is <b>Inspired</b> — +10 to next combat test this round.</div>`
+    ? `<div style="margin-top:4px;"><b>${targetName}</b> is <b>Inspired</b>: +10 to their next combat test.</div>`
     : "";
 
   const flavor = `
@@ -215,6 +225,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
 
   // --- On success: apply AE to target ---
   if (res.isSuccess) {
+    // Fallback expiry only: the effect is primarily consumed on the target's next combat test.
     const duration = buildEffectDuration({ actor: targetActor, rounds: 1, seconds: 6, preferCombat: true });
 
     await createOrUpdateStatusEffect(targetActor, {
@@ -225,7 +236,8 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
         uesrpg: {
           key: EFFECT_KEY_INSPIRE_HEROISM,
           source: "talent",
-          inspirerUuid: actor.uuid
+          inspirerUuid: actor.uuid,
+          consumeOnNextCombatTest: true
         }
       },
       changes: [

@@ -1,20 +1,45 @@
-/**
- * Register a delegated click listener on the chat log host.
- * Keeps per-message render hooks free from click handler churn.
- */
-export function registerDelegatedChatLogClickHandler({
-  selector,
-  isBound,
-  markBound,
-  resolveMessageFromButton,
-  dispatch,
-} = {}) {
+const _chatLogMountHandlers = new Map();
+let _chatLogHookRegistered = false;
+
+function _registerChatLogHook() {
+  if (_chatLogHookRegistered) return;
   Hooks.on("renderChatLog", (_app, html) => {
     const host = html instanceof HTMLElement ? html : html?.[0];
     if (!(host instanceof HTMLElement)) return;
 
     const chatLog = host.querySelector?.("#chat-log") ?? host;
     if (!(chatLog instanceof HTMLElement)) return;
+
+    for (const mount of _chatLogMountHandlers.values()) {
+      try {
+        mount({ host, chatLog });
+      } catch (err) {
+        console.error("UESRPG | Chat log mount failed", err);
+      }
+    }
+  });
+  _chatLogHookRegistered = true;
+}
+
+export function registerChatLogHostMount(id, mount) {
+  if (!id || typeof mount !== "function") return;
+  _chatLogMountHandlers.set(String(id), mount);
+  _registerChatLogHook();
+}
+
+/**
+ * Register a delegated click listener on the chat log host.
+ * Keeps per-message render hooks free from click handler churn.
+ */
+export function registerDelegatedChatLogClickHandler({
+  id = "default",
+  selector,
+  isBound,
+  markBound,
+  resolveMessageFromButton,
+  dispatch,
+} = {}) {
+  registerChatLogHostMount(`click:${id}`, ({ chatLog }) => {
     if (isBound?.(chatLog)) return;
     markBound?.(chatLog);
 

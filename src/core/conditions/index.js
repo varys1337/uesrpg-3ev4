@@ -19,7 +19,7 @@ export function registerConditions() {
   if (_conditionsRegistered) return;
   _conditionsRegistered = true;
 
-  // Register world setting that gates the Token HUD status-effect upgrade sweep.
+  // Hidden rollback/internal flag: gates the one-time Token HUD status-effect upgrade sweep.
   // Must be registered before ready so game.settings.get/set works in the ready hook.
   try {
     game.settings.register(getSystemId(), "conditionsHudUpgradeV2Done", {

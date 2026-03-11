@@ -9,7 +9,8 @@
  *  - Manual modifier
  *  - Placeholders for later pipeline stages (difficulty, wounds, situational, effects)
  *
- * NOTE: This system is not on ApplicationV2.
+ * NOTE: TN computation is UI-layer independent and is consumed by both ApplicationV2
+ * surfaces and non-app workflow code.
  */
 
 import { skillHelper, skillModHelper } from "../../utils/skillCalcHelper.js";

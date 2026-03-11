@@ -3,14 +3,15 @@ import { invalidateCachedSetting } from "../../../core/config/settings-cache.js"
 
 function _reg(key, config) {
   if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
-    console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
+    console.warn(`UESRPG | Settings: duplicate key "${key}" вЂ” skipping.`);
     return;
   }
   game.settings.register(SYSTEM_ID, key, config);
 }
 
 export function registerDebugSettings() {
-  // ── Drag-and-Drop diagnostics ─────────────────────────────────────────────
+  // Hidden diagnostics: developer-only logging and tracing lanes.
+  // в”Ђв”Ђ Drag-and-Drop diagnostics в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   _reg("dndDebugEnabled", {
     name: "DnD Debug Logging",
@@ -66,19 +67,18 @@ export function registerDebugSettings() {
     default: true,
   });
 
-  // ── Active Effect diagnostics ──────────────────────────────────────────────
+  // в”Ђв”Ђ Active Effect diagnostics в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   _reg("aeLifecycleDebug", {
     name: "Active Effect Lifecycle Debug",
     hint: "Log all AE fetch/delete operations (for troubleshooting only). Helps diagnose 'does not exist' errors.",
     scope: "client",
-    // Keep this out of the main System Settings list; expose it via the Debugging submenu.
     config: false,
     type: Boolean,
     default: false,
   });
 
-  // ── Performance ──────────────────────────────────────────────────────────────
+  // в”Ђв”Ђ Performance в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   _reg("perfDebug", {
     name: "Performance Profiling",
@@ -98,7 +98,7 @@ export function registerDebugSettings() {
     default: false,
   });
 
-  // ── Spell / magic diagnostics ─────────────────────────────────────────────
+  // в”Ђв”Ђ Spell / magic diagnostics в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
   _reg("spellTickDebug", {
     name: "Spell Tick Engine: Debug Logging",
@@ -118,6 +118,7 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
+  // Hidden rollout/performance flags: live runtime branches retained for rollback and validation.
   _reg("compositeBoundaryTickEnabled", {
     name: "Spell Tick: Composite Round-Boundary Dispatch",
     hint: "When enabled, the spell tick engine collapses the four sequential round-boundary dispatches (turnStart, turnEnd, roundStart, roundEnd) into a single composite pass. Handlers that register fnBoundary receive one call with the full boundary context instead of four separate calls. The OverTime engine uses this to call _ensureIndex() once per boundary instead of four times. Default: true.",
@@ -126,8 +127,6 @@ export function registerDebugSettings() {
     default: true,
     type: Boolean,
   });
-
-  // ── Round-start storm reduction (Milestone C) ─────────────────────────────
 
   _reg("aggregateRegenPrompts", {
     name: "Round Start: Aggregate Regeneration Prompts",
@@ -165,11 +164,9 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // ── Indexed timed magic (Milestone D) ─────────────────────────────────────
-
   _reg("useZoneRegistry", {
     name: "Timed Magic: Zone Registry",
-    hint: "When enabled, active spell zones are tracked in an indexed registry (Map<aeUuid, ZoneEntry>) instead of scanning all actors on every turnEnd tick. Seeded at system ready; maintained incrementally via AE lifecycle hooks. Eliminates O(all_actors × all_effects) scans in getActiveSpellZones(). Default: false.",
+    hint: "When enabled, active spell zones are tracked in an indexed registry (Map<aeUuid, ZoneEntry>) instead of scanning all actors on every turnEnd tick. Seeded at system ready; maintained incrementally via AE lifecycle hooks. Eliminates O(all_actors Г— all_effects) scans in getActiveSpellZones(). Default: false.",
     scope: "world",
     config: false,
     default: false,
@@ -194,8 +191,6 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // ── Post-visual boundary scheduling (Milestone E) ─────────────────────────
-
   _reg("deferNonCriticalRoundBoundaryWork", {
     name: "Round Boundary: Defer Non-Critical Presentation Work",
     hint: "When enabled, non-rules-critical round-boundary work (regeneration prompts, silenced realization checks) is deferred to run after the combat tracker UI has visibly updated (double-requestAnimationFrame yield). Rules-critical phases (condition ticking, effect expiry) remain synchronous. Default: false.",
@@ -214,9 +209,7 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // ── Master debug gates ────────────────────────────────────────────────────
-
-  // Global master gate for all world-scope debug lanes.
+  // Hidden diagnostics: master gates and subsystem-specific debug lanes.
   _reg("debugEnabled", {
     name: "Enable World Debug Logging",
     hint: "Enables all UESRPG world-level debug logging. Covers opposed workflows, spell casting, talents, wounds, and more.",
@@ -226,7 +219,6 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // Client-scope master gate for all client debug lanes.
   _reg("debugClientEnabled", {
     name: "Enable Client Debug Logging",
     hint: "Enables all UESRPG client-level debug logging for this user. Covers AE lifecycle, aim, sheet diagnostics, performance traces, and more.",
@@ -236,10 +228,9 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // Feature Inspector visibility toggle (debug/provenance panel on actor sheets)
   _reg("showFeatureInspector", {
     name: "Show Feature Inspector",
-    hint: "When enabled, shows the Feature Inspector provenance panel on PC and NPC actor sheets. Debug tool — hidden by default.",
+    hint: "When enabled, shows the Feature Inspector provenance panel on PC and NPC actor sheets. Debug tool вЂ” hidden by default.",
     scope: "world",
     config: false,
     default: false,
@@ -247,9 +238,6 @@ export function registerDebugSettings() {
     onChange: () => invalidateCachedSetting("showFeatureInspector"),
   });
 
-  // ── Opposed workflow diagnostics ──────────────────────────────────────────
-
-  // Opposed workflow diagnostics
   _reg("opposedDebug", {
     name: "Opposed Debug Logging",
     hint: "When enabled, the opposed-roll workflow logs detailed diagnostic information to the browser console.",
@@ -259,7 +247,6 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // Authority proxy diagnostics (GM/owner proxy mutations)
   _reg("effectsProxyDebug", {
     name: "Effects/Proxy Debug Logging",
     hint: "When enabled, the authority proxy (ChatMessage updates + target-side ActiveEffect application) logs concise diagnostics to the browser console.",
@@ -269,7 +256,6 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // Magic workflow routing diagnostics
   _reg("debugMagicRouting", {
     name: "Magic: Routing Debug Logging",
     hint: "When enabled, spell routing decisions (targeted vs unopposed vs legacy) are logged to the browser console. Recommended only for testing.",
@@ -306,7 +292,6 @@ export function registerDebugSettings() {
     type: Boolean,
   });
 
-  // Skill roll diagnostics
   _reg("skillRollDebug", {
     name: "Skill Roll Debug Logging",
     hint: "When enabled, skill rolls and skill-opposed workflows log structured diagnostic information to the browser console.",

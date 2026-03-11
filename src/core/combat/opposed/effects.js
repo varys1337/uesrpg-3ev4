@@ -224,6 +224,20 @@ export async function consumeOrBreakAimAfterAttack(actor, { attackMode, itemUuid
   await deleteActorEffectSafe(actor, ef);
 }
 
+export async function consumeInspireHeroismEffect(actor) {
+  if (!actor) return;
+  try {
+    const effect = (actor.effects ?? []).find((ef) => {
+      if (!ef || ef.disabled) return false;
+      return getFlagValueWithFallback(ef, "key") === "talent:inspireHeroism";
+    }) ?? null;
+    if (!effect?.id) return;
+    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+  } catch (err) {
+    console.warn("UESRPG | Failed to consume Inspire Heroism effect.", { actorUuid: actor?.uuid, err });
+  }
+}
+
 // ====== ADVANTAGE EFFECTS (Press Advantage, Overextend, Overwhelm) ======
 
 /**

@@ -20,7 +20,7 @@ import { getDefenseGatingContext as _getDefenseGatingContext } from "../helpers/
 import { hasEquippedShield } from "../../tn.js";
 import { computeDefenseAvailability, normalizeDefenseType } from "../../defense-options.js";
 import { ActionEconomy } from "../../action-economy.js";
-import { breakAimChainIfPresent as _breakAimChainIfPresent } from "../effects.js";
+import { breakAimChainIfPresent as _breakAimChainIfPresent, consumeInspireHeroismEffect as _consumeInspireHeroismEffect } from "../effects.js";
 import { listCombatStyles, computeTN } from "../../tn.js";
 import { collectDefenseSensorySituationalMods as _collectDefenseSensorySituationalMods, asNumber as _asNumber, getPreferredWeaponUuid as _getPreferredWeaponUuid, weaponHasQuality as _weaponHasQuality } from "../helpers/workflow.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
@@ -901,6 +901,7 @@ export async function handleDefenderRollCommitted(ctx) {
     ...(res?.hyperAwarenessChoice != null ? { hyperAwarenessChoice: res.hyperAwarenessChoice } : {}),
     ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
   };
+  await _consumeInspireHeroismEffect(defender);
   if (data.defender.result.isSuccess && String(data.defender?.defenseType ?? "").toLowerCase() === "parry") {
     try {
       const hasBuckler = hasEquippedShieldType(defender, "buckler", { allowLegacy: true });

@@ -20,9 +20,8 @@
 
 import { getEffectByKey, computeEffectCost, computeUpkeepDuration, effectHasUpkeep } from "./effects.js";
 import { rollPotionBackfire } from "./backfire.js";
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { applyDamage, applyHealing } from "../combat/damage/apply.js";
-import { getChatMessageRoot } from "../combat/chat-handlers/render/render-chat-message.js";
 import { renderApplyToWeaponCard, renderAlchemyUseCard } from "./render.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 
@@ -198,7 +197,7 @@ async function _applyPotionEffect(actor, effectDef, sl, potency, finalDuration, 
       : finalDuration.value;
 
     const aeData = _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, params);
-    await actor.createEmbeddedDocuments("ActiveEffect", [aeData]);
+    await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [aeData]);
 
     return `<div class="uesrpg-da-row"><span class="k">${label}</span><span class="v">SL ${sl} — ${finalDuration.value} ${finalDuration.unit}</span></div>`;
   }
@@ -470,7 +469,7 @@ async function _resolveToxinOnHit(targetActor, weaponItem, applied) {
 
   // Apply all AE creations in one batch.
   if (aeCreates.length) {
-    await targetActor.createEmbeddedDocuments("ActiveEffect", aeCreates);
+    await requestCreateEmbeddedDocuments(targetActor, "ActiveEffect", aeCreates);
   }
 
   // Decrement hits (on the weapon document — cannot be merged with actor update).
@@ -511,63 +510,11 @@ function _onUpdateCombat(combat, updateData) {
 // ── §7.5 Chat button handler ──────────────────────────────────────────────────
 
 /**
- * Listen for clicks on alchemy action buttons embedded in chat cards.
- * Actions: alchemyRoll, alchemyDrink, alchemyApplyToWeapon.
- *
- * Wired to `renderChatMessageHTML` via initializeAlchemyRuntime().
- */
-function _onRenderChatMessage(message, html) {
-  const root = getChatMessageRoot(html);
-  if (!root) return;
-
-  root.querySelectorAll("[data-action='alchemyRoll']").forEach((btn) => {
-    btn.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const msgId = message.id;
-      const { handleBrewChatAction } = await import("./workflow.js");
-      await handleBrewChatAction(msgId);
-    });
-  });
-
-  root.querySelectorAll("[data-action='alchemyDrink']").forEach((btn) => {
-    btn.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const actorUuid = btn.dataset.actorUuid;
-      const itemUuid  = btn.dataset.itemUuid;
-      if (!actorUuid || !itemUuid) return;
-      const actor = await fromUuid(actorUuid);
-      const item  = await fromUuid(itemUuid);
-      if (!actor || !item) return;
-      await drinkPotion(actor, item);
-    });
-  });
-
-  root.querySelectorAll("[data-action='alchemyApplyToWeapon']").forEach((btn) => {
-    btn.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const actorUuid = btn.dataset.actorUuid;
-      const itemUuid  = btn.dataset.itemUuid;
-      if (!actorUuid || !itemUuid) return;
-      const actor      = await fromUuid(actorUuid);
-      const alchyItem  = await fromUuid(itemUuid);
-      if (!actor || !alchyItem) return;
-
-      const weapon = await _pickWeapon(actor);
-      if (!weapon) return;
-      await applyAlchemyToWeapon(actor, alchyItem, weapon);
-    });
-  });
-}
-
-/**
  * Prompt the actor's owner to pick an equipped weapon from a simple dialog.
  * @param {Actor} actor
  * @returns {Promise<Item|null>}
  */
-async function _pickWeapon(actor) {
+export async function pickAlchemyWeapon(actor) {
   const weapons = actor.items.filter((i) => i.type === "weapon" && i.system?.equipped);
   if (weapons.length === 0) {
     ui.notifications.warn("No equipped weapons found.");
@@ -603,6 +550,10 @@ async function _pickWeapon(actor) {
 async function _consumeAlchemyItem(actor, item) {
   const qty = Number(item.system?.quantity ?? 1);
   if (qty <= 1) {
+    if (item.parent?.documentName === "Actor") {
+      await requestDeleteEmbeddedDocuments(item.parent, "Item", [item.id]);
+      return;
+    }
     await item.delete();
   } else {
     await requestUpdateDocument(item, { "system.quantity": qty - 1 });
@@ -651,15 +602,6 @@ export function initializeAlchemyRuntime() {
       _onUpdateCombat(combat, updateData);
     } catch (err) {
       console.warn("UESRPG | Alchemy round tick failed", err);
-    }
-  });
-
-  // Chat button handler: always registered so historical cards remain interactive.
-  Hooks.on("renderChatMessageHTML", (message, html) => {
-    try {
-      _onRenderChatMessage(message, html);
-    } catch (err) {
-      console.warn("UESRPG | Alchemy chat button handler failed", err);
     }
   });
 

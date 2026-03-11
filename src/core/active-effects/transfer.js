@@ -9,7 +9,7 @@
  *  - Backward compatible with existing item data (no schema migrations required)
  *  - Forward compatible for spells: spell effects may be enabled later via an explicit "active" flag
  *
- * NOTE: This system is not on ApplicationV2.
+ * NOTE: This module is UI-layer agnostic and does not depend on sheet or app classes.
  */
 
 /**

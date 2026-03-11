@@ -158,6 +158,7 @@ export function registerUiSettings() {
     onChange: _reRenderAllSheets,
   });
 
+  // Hidden diagnostics: client-only tracing for AppV2 sheet lifecycle timings.
   _reg("sheetPerfTrace", {
     name: "Sheet Performance Trace",
     hint: "Log AppV2 sheet timing traces for _prepareContext, _onRender, _attachPartListeners, and _onClose.",
@@ -185,20 +186,10 @@ export function registerUiSettings() {
     type: Boolean,
   });
 
+  // Hidden GM policy: controls chat verbosity for live opposed workflow sub-rolls.
   _reg("opposedPostSubRollMessages", {
     name: "Opposed Rolls: Post Sub-Roll Chat Messages",
     hint: "When enabled, opposed workflows also post separate chat roll cards for attacker/defender sub-rolls. Disable to keep only the parent opposed card in chat.",
-    scope: "world",
-    config: false,
-    default: true,
-    type: Boolean,
-  });
-
-  // Opposed workflow: banking choices before rolling is now core system behavior.
-  // Keep the setting registered (backward compatible for any stored world value), but hide it from the UI.
-  _reg("opposedBankChoices", {
-    name: "Opposed: Bank Choices Before Rolling",
-    hint: "Bank attacker/defender choices before rolling.",
     scope: "world",
     config: false,
     default: true,
@@ -225,7 +216,7 @@ export function registerUiSettings() {
     requiresReload: true,
   });
 
-  // Client-only diagnostics panel on actor sheets (used for testing)
+  // Hidden diagnostics: client-only actor sheet inspection lane.
   _reg("sheetDiagnostics", {
     name: "Debug: Sheet Diagnostics Panel",
     hint: "When enabled, actor sheets show a small diagnostics panel (client only).",

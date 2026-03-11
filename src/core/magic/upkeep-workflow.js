@@ -647,79 +647,6 @@ export function initializeUpkeepSystem() {
     await _checkUpkeepRealtime(nowTime);
   });
 
-  // Bind chat message listeners for upkeep buttons (group-based)
-  const bindListeners = (message, html) => {
-    const data = message?.flags?.[_FLAG_NS]?.upkeepGroup;
-    if (!data) return;
-
-    let root = null;
-    if (html instanceof HTMLElement) {
-      root = html;
-    } else if (html?.[0] instanceof HTMLElement) {
-      root = html[0];
-    } else if (html?.jquery && html.length > 0) {
-      root = html.get(0);
-    }
-
-    if (!root) {
-      console.warn("UESRPG | upkeep-workflow | Could not normalize HTML element for upkeep card");
-      return;
-    }
-
-    const confirmBtn = root.querySelector(".uesrpg-upkeep-confirm");
-    const cancelBtn = root.querySelector(".uesrpg-upkeep-cancel");
-
-    if (!confirmBtn && !cancelBtn) {
-      console.warn("UESRPG | upkeep-workflow | Upkeep buttons not found in card", { hasData: !!data });
-      return;
-    }
-
-    const disableBoth = () => {
-      if (confirmBtn) confirmBtn.disabled = true;
-      if (cancelBtn) cancelBtn.disabled = true;
-    };
-
-    if (confirmBtn && !confirmBtn.dataset.uesrpgUpkeepBound) {
-      confirmBtn.dataset.uesrpgUpkeepBound = "1";
-      confirmBtn.addEventListener(
-        "click",
-        async (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          disableBoth();
-          try {
-            await handleUpkeepGroupConfirm(message);
-          } catch (err) {
-            console.error("UESRPG | upkeep-workflow | confirm failed", err);
-            ui.notifications?.error?.("Upkeep failed. See console for details.");
-          }
-        },
-        { once: true }
-      );
-    }
-
-    if (cancelBtn && !cancelBtn.dataset.uesrpgUpkeepBound) {
-      cancelBtn.dataset.uesrpgUpkeepBound = "1";
-      cancelBtn.addEventListener(
-        "click",
-        async (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-          disableBoth();
-          try {
-            await handleUpkeepGroupCancel(message);
-          } catch (err) {
-            console.error("UESRPG | upkeep-workflow | cancel failed", err);
-            ui.notifications?.error?.("Failed to end spell. See console for details.");
-          }
-        },
-        { once: true }
-      );
-    }
-  };
-
-  Hooks.on("renderChatMessageHTML", bindListeners);
-
   Hooks.on("deleteCombat", (combat) => {
     const combatId = String(combat?.id ?? "");
     if (!combatId) return;
@@ -832,8 +759,8 @@ async function _createUpkeepPrompt(group, casterActor) {
     <p>Pay <strong>${upkeepCost}</strong> Magicka to refresh the effect?</p>
     ${livingArmoryNote}
     <div class="uesrpg-upkeep-buttons">
-      <button type="button" class="uesrpg-upkeep-confirm"><i class="fas fa-sync-alt"></i> Upkeep</button>
-      <button type="button" class="uesrpg-upkeep-cancel"><i class="fas fa-times"></i> End</button>
+      <button type="button" class="uesrpg-upkeep-confirm" data-ues-upkeep-action="confirm"><i class="fas fa-sync-alt"></i> Upkeep</button>
+      <button type="button" class="uesrpg-upkeep-cancel" data-ues-upkeep-action="cancel"><i class="fas fa-times"></i> End</button>
     </div>
   </div>`;
 

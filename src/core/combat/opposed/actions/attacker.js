@@ -44,6 +44,7 @@ import {
 } from "../helpers/combat.js";
 import {
   consumeOneShotAdvantageEffects as _consumeOneShotAdvantageEffects,
+  consumeInspireHeroismEffect as _consumeInspireHeroismEffect,
   consumeOrBreakAimAfterAttack as _consumeOrBreakAimAfterAttack,
   consumeHiddenAfterAttack as _consumeHiddenAfterAttack
 } from "../effects.js";
@@ -747,6 +748,8 @@ export async function handleAttackerAction(action, ctx) {
     opponentUuid: defender?.uuid ?? null,
     attackMode: String(data?.context?.attackMode ?? "melee")
   });
+
+  await _consumeInspireHeroismEffect(attacker);
 
   // RAW: Aim bonus applies to the next ranged attack with the aimed weapon/spell.
   // Taking any other action breaks the chain; firing the aimed item consumes it.

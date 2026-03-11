@@ -37,7 +37,7 @@ import { hasTalent } from "../../../traits/talents-api.js";
 import { shouldDeferEvadeApForStepAside } from "../../../traits/mobility-talents.js";
 import { ActionEconomy } from "../../action-economy.js";
 import { hasEquippedShield, listCombatStyles } from "../../tn.js";
-import { breakAimChainIfPresent as _breakAimChainIfPresent } from "../effects.js";
+import { breakAimChainIfPresent as _breakAimChainIfPresent, consumeInspireHeroismEffect as _consumeInspireHeroismEffect } from "../effects.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { canUseWardDefense, getPreferredWardDefenseSpell } from "../../ward-defense.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
@@ -695,6 +695,8 @@ export async function handleDefenderRoll(ctx) {
       talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
       ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
     };
+
+    await _consumeInspireHeroismEffect(defender);
 
     // Dueling Weapon: grants +1 Degree of Success on successful Parry or Counter-Attack.
     if (res.isSuccess && (choice.defenseType === "parry" || choice.defenseType === "counter")) {

@@ -27,6 +27,7 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { MagicOpposedWorkflow } from "../../../../core/magic/opposed-workflow.js";
+import { consumeInspireHeroismEffect } from "../../../../core/combat/opposed/effects.js";
 import {
   buildInlineQualityTags,
   collectWeaponInlineQualities,
@@ -714,6 +715,8 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
             flavor,
             rollMode: game.settings.get("core", "rollMode")
           });
+
+          await consumeInspireHeroismEffect(this.actor);
         }
     },
     no: { label: "Cancel" },

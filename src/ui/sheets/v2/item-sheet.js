@@ -51,6 +51,7 @@ import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { buildAdvancementPlan } from "../item/advancement-plan.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { createDebugLogger } from "../../../utils/debug.js";
+import { resolveUuidSync } from "../../../utils/uuid-cache.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
@@ -145,6 +146,39 @@ function _coerceNumericValue(raw, defaultValue, path, rootSystem) {
   return Number(defaultValue ?? 0) || 0;
 }
 
+function _buildLinkedSpellSummary(linked) {
+  return {
+    uuid: String(linked?.uuid ?? ""),
+    name: String(linked?.name ?? ""),
+    school: String(linked?.system?.school ?? ""),
+    level: Number(linked?.system?.level ?? 1),
+    cost: Number(linked?.system?.cost ?? 0),
+    form: String(linked?.system?.form ?? ""),
+    range: String(linked?.system?.rangeType ?? linked?.system?.range ?? ""),
+    duration: {
+      value: Number(linked?.system?.duration?.value ?? 0),
+      unit: String(linked?.system?.duration?.unit ?? "instant"),
+    },
+    isInstant: linked?.system?.isInstant === true,
+    isDirect: linked?.system?.isDirect === true,
+    isZonePersistent: linked?.system?.isZonePersistent === true,
+    isRuneSpell: linked?.system?.isRuneSpell === true,
+    hasOverTime: linked?.system?.hasOverTime === true,
+    hasOverload: linked?.system?.hasOverload === true,
+    isSummonSpell: linked?.system?.isSummonSpell === true,
+    hasBuffer: linked?.system?.hasBuffer === true,
+    damageInstances: Array.isArray(linked?.system?.damageInstances)
+      ? linked.system.damageInstances
+          .filter((di) => di && typeof di === "object")
+          .map((di) => ({
+            formula: String(di.formula ?? ""),
+            type: String(di.type ?? "none"),
+            label: String(di.label ?? ""),
+          }))
+      : [],
+  };
+}
+
 function _sanitizeNumericBySchema(node, schema, rootSystem, path = []) {
   if (!_isPlainObject(schema)) return;
   if (!_isPlainObject(node)) return;
@@ -179,6 +213,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   /** @type {object|null} Snapshot of DOM-only UI state saved before re-render */
   _savedState = null;
+  _scrollLinkedSpellCache = null;
 
   /**
    * Native AppV2 tab configuration.
@@ -452,38 +487,29 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         const spellUuid = String(this.document.system?.spellUuid ?? "").trim();
         if (spellUuid) {
           try {
-            const linked = await fromUuid(spellUuid);
+            const cachedSpell = this._scrollLinkedSpellCache;
+            let linked = null;
+            const liveSync = resolveUuidSync(spellUuid);
+            const linkedModifiedTime = liveSync?._stats?.modifiedTime ?? null;
+            if (
+              cachedSpell
+              && cachedSpell.spellUuid === spellUuid
+              && cachedSpell.modifiedTime === linkedModifiedTime
+            ) {
+              prepared.scrollLinkedSpell = cachedSpell.summary;
+              linked = liveSync;
+            } else {
+              linked = liveSync ?? await fromUuid(spellUuid);
+            }
             if (linked?.documentName === "Item" && String(linked?.type ?? "") === "spell") {
-              prepared.scrollLinkedSpell = {
-                uuid: String(linked.uuid ?? ""),
-                name: String(linked.name ?? ""),
-                school: String(linked.system?.school ?? ""),
-                level: Number(linked.system?.level ?? 1),
-                cost: Number(linked.system?.cost ?? 0),
-                form: String(linked.system?.form ?? ""),
-                range: String(linked.system?.rangeType ?? linked.system?.range ?? ""),
-                duration: {
-                  value: Number(linked.system?.duration?.value ?? 0),
-                  unit: String(linked.system?.duration?.unit ?? "instant"),
-                },
-                isInstant: linked.system?.isInstant === true,
-                isDirect: linked.system?.isDirect === true,
-                isZonePersistent: linked.system?.isZonePersistent === true,
-                isRuneSpell: linked.system?.isRuneSpell === true,
-                hasOverTime: linked.system?.hasOverTime === true,
-                hasOverload: linked.system?.hasOverload === true,
-                isSummonSpell: linked.system?.isSummonSpell === true,
-                hasBuffer: linked.system?.hasBuffer === true,
-                damageInstances: Array.isArray(linked.system?.damageInstances)
-                  ? linked.system.damageInstances
-                      .filter((di) => di && typeof di === "object")
-                      .map((di) => ({
-                        formula: String(di.formula ?? ""),
-                        type: String(di.type ?? "none"),
-                        label: String(di.label ?? ""),
-                      }))
-                  : [],
-              };
+              if (!prepared.scrollLinkedSpell) {
+                prepared.scrollLinkedSpell = _buildLinkedSpellSummary(linked);
+                this._scrollLinkedSpellCache = {
+                  spellUuid,
+                  modifiedTime: linked?._stats?.modifiedTime ?? null,
+                  summary: prepared.scrollLinkedSpell,
+                };
+              }
               prepared.hasLinkedSpell = true;
             } else {
               prepared.linkedSpellUnresolved = true;

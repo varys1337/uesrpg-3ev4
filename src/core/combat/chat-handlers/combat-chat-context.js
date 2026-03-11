@@ -9,6 +9,7 @@ import { canRetargetOpposedMessage, retargetOpposedMessage } from "../opposed/re
 import { registerLuckContextMenuOptions } from "../../luck/luck-workflow.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
 import { pushContextOptionOnce } from "./actions/handle-contextmenu.js";
+import { registerChatLogHostMount } from "./actions/handle-click.js";
 import { getMessageIdFromContextLi } from "../../../utils/chat/contextmenu.js";
 
 let _chatContextHooksRegistered = false;
@@ -109,9 +110,7 @@ function _registerChatLogContextProbe() {
   if (_chatLogContextProbeRegistered) return;
   _chatLogContextProbeRegistered = true;
 
-  Hooks.on("renderChatLog", (_app, html) => {
-    const host = html?.[0] ?? html;
-    if (!(host instanceof HTMLElement)) return;
+  registerChatLogHostMount("context-probe", ({ host }) => {
     if (host.dataset.uesrpgCtxProbe === "1") return;
     host.dataset.uesrpgCtxProbe = "1";
 

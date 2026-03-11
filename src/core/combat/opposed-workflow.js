@@ -1,7 +1,7 @@
 /**
  * src/core/combat/opposed-workflow.js
  *
- * Canonical opposed/contested workflow for UESRPG 3ev4 (Foundry v13, non-ApplicationV2).
+ * Canonical opposed/contested workflow for UESRPG 3ev4 (Foundry v13 runtime).
  *
  * Design goals (per project decisions):
  *  - Clicking the combat style dice icon with a target selected ONLY creates a pending chat card.

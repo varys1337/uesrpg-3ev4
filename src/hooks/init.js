@@ -42,7 +42,7 @@ import { registerRacialTalentsAutomation } from "../core/traits/racial-talents.j
 import { registerSpellcastingTalentHooks } from "../core/traits/spellcasting-talents.js";
 import { registerActivationStateHooks } from "../core/combat/activation-state-flags.js";
 import { CharOpposedWorkflow } from "../core/characteristics/opposed-workflow.js";
-import { isDebugEnabled } from "../utils/debug.js";
+import { isAnyDebugEnabled, isDebugEnabled } from "../utils/debug.js";
 import { evaluatePredicate, isPredicate, selfTestPredicate } from "../core/rules/predicate.js";
 import { normalizeRollOption, buildBaseRollOptions } from "../core/rules/roll-options.js";
 import { buildRollContext } from "../core/rules/roll-context.js";
@@ -178,20 +178,6 @@ export default async function initHandler() {
     tokenActionHudApi: createTokenActionHudApi(),
   });
 
-  void registerDevTools();
-
-  try {
-    registerDndDebugObservers();
-  } catch (err) {
-    console.warn("UESRPG | Failed to register DnD diagnostics observers", err);
-  }
-
-  try {
-    registerShieldDebugObservers();
-  } catch (err) {
-    console.warn("UESRPG | Failed to register shield debug observers", err);
-  }
-
   try {
     registerRacialTalentsAutomation();
   } catch (err) {
@@ -230,6 +216,26 @@ export default async function initHandler() {
   await registerSettings();
   registerStaleEmbeddedDeleteSuppression();
   applyCustomCursorConfig();
+
+  if (isAnyDebugEnabled(["opposedDebug", "perfDebug"])) {
+    void registerDevTools();
+  }
+
+  if (isAnyDebugEnabled(["dndDebugEnabled"])) {
+    try {
+      registerDndDebugObservers();
+    } catch (err) {
+      console.warn("UESRPG | Failed to register DnD diagnostics observers", err);
+    }
+  }
+
+  if (isAnyDebugEnabled(["shieldDebug"])) {
+    try {
+      registerShieldDebugObservers();
+    } catch (err) {
+      console.warn("UESRPG | Failed to register shield debug observers", err);
+    }
+  }
 
   await registerSheets();
   registerKeybindings();

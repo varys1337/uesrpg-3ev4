@@ -77,12 +77,18 @@ import {
 } from "../shared/prepare.js";
 import { getCachedSetting } from "../../../core/config/settings-cache.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { isPerfEnabled, perfRecord } from "../../../utils/perf-tracker.js";
 import {
   buildEffectsSignature,
   buildWoundsSignature,
   buildCombatSignature,
   buildSheetUiSignature,
 } from "./shared/sheet-signatures.js";
+import {
+  buildActorSheetActorView,
+  buildActorSheetEffects,
+  buildActorSheetItems,
+} from "./shared/sheet-context.js";
 import { bindWindowRestoreGuard, warnIfDuplicateSidebar } from "./shared/window-restore-guard.js";
 import { createPartContextScope } from "./shared/part-context.js";
 import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/settings.js";
@@ -254,7 +260,9 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   }
 
   _traceSheetPerf(stage, startedAtMs, details = {}) {
-    if (!this._isSheetPerfTraceEnabled()) return;
+    const traceEnabled = this._isSheetPerfTraceEnabled();
+    const perfEnabled = isPerfEnabled();
+    if (!traceEnabled && !perfEnabled) return;
     const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
     const payload = {
       sheet: "PCActorSheetV2",
@@ -265,6 +273,14 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       elapsedMs,
       ...details,
     };
+    if (perfEnabled) {
+      perfRecord({
+        event: "sheet.render",
+        ...payload,
+        durationMs: elapsedMs,
+      });
+    }
+    if (!traceEnabled) return;
     const warnThresholdMs = stage === "_onClose"
       ? 24
       : stage === "_onRender"
@@ -480,12 +496,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       const context = await super._prepareContext(options);
       const actor = this.document;
 
-      // V1-compatible fields expected by templates + shared helpers
-      // Use toObject() as a base, then overlay live system data from prepareData()
-      // so that derived values (hp.max, stamina.max, magicka.max, etc.) are current.
-      const actorObj = actor.toObject();
-      actorObj.system = actor.system;
-      context.actor = actorObj;
+      // V1-compatible actor shape, but without cloning embedded documents.
+      context.actor = buildActorSheetActorView(actor);
       context.data = context.actor.system;
       context.dtypes = ["String", "Number", "Boolean"];
       context.isGM = game.user.isGM;
@@ -545,11 +557,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
           if (this._uesrpgItemsCache.actorPatch) Object.assign(context.actor, this._uesrpgItemsCache.actorPatch);
           this._traceSheetPerfPhase("items:cache-hit", perfItemsStart, { size: context.items.length });
         } else {
-          context.items = actor.items.map((i) => {
-            const obj = i.toObject();
-            obj.system = i.system;
-            return obj;
-          });
+          context.items = buildActorSheetItems(actor);
           prepareCharacterItems(context, { includeSkills: true, includeMagicSkills: true });
           normalizeItemRanks(context.items);
 
@@ -737,9 +745,9 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
           context.effects = this._uesrpgEffectsCache.effects;
           this._traceSheetPerfPhase("effects:cache-hit", perfEffectsStart, { count: context.effects.length });
         } else {
-          context.effects = actor.effects
-            ? actor.effects.contents.filter((e) => !isWoundsOrShockEffect(e)).map((e) => e.toObject())
-            : [];
+          context.effects = buildActorSheetEffects(actor, {
+            filter: (effect) => !isWoundsOrShockEffect(effect),
+          });
           this._uesrpgEffectsCache = { signature: effectsSignature, effects: context.effects };
           this._traceSheetPerfPhase("effects:cache-miss", perfEffectsStart, { count: context.effects.length });
         }

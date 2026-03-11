@@ -9,6 +9,7 @@ function _reg(key, config) {
 }
 
 export function registerCombatSettings() {
+  // Hidden GM rules/system policy: combat automation and measurement semantics.
   _reg("actionPointAutomation", {
     name: "Action Point Automation",
     hint: "Round-Based: AP is set to max at the start of each round. Turn-Based: Ap is set to max at the start of each turn, except the first round in which all combatants start with max AP. None: No automation.",

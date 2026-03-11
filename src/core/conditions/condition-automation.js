@@ -21,6 +21,7 @@ import { applyDamageResolved } from "../combat/damage-resolver.js";
 import { hasCondition, isImmuneToCondition } from "./condition-engine.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { _num, _num as _asNumber, normalizeKey } from "../../utils/coerce.js";
+import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 const MODE_ADD = (globalThis.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2);
 
@@ -139,7 +140,11 @@ async function _setConditionValue(actor, effect, key, nextValue) {
   const v = Math.max(0, Math.floor(_asNumber(nextValue)));
 
   if (v <= 0) {
-    try { await effect.delete(); } catch (_err) {}
+    try {
+      if (actor?.documentName === "Actor" && effect?.id) {
+        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+      }
+    } catch (_err) {}
     return;
   }
 
@@ -158,7 +163,7 @@ async function _setConditionValue(actor, effect, key, nextValue) {
   };
 
   try {
-    await effect.update(updates);
+    await requestUpdateDocument(effect, updates);
   } catch (_err) {
     // If effect update fails, do not hard-fail combat progression.
   }

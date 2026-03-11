@@ -76,6 +76,11 @@ import {
   buildCombatSignature,
   buildSheetUiSignature,
 } from "./shared/sheet-signatures.js";
+import {
+  buildActorSheetActorView,
+  buildActorSheetEffects,
+  buildActorSheetItems,
+} from "./shared/sheet-context.js";
 import { bindWindowRestoreGuard, warnIfDuplicateSidebar } from "./shared/window-restore-guard.js";
 import { createPartContextScope } from "./shared/part-context.js";
 import {
@@ -104,6 +109,7 @@ import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../core/skills/skill-t
 import { SkillOpposedWorkflow } from "../../../core/skills/opposed-workflow/index.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../../../core/traits/trait-resistance-ui.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { isPerfEnabled, perfRecord } from "../../../utils/perf-tracker.js";
 
 // Spell routing
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog } from "../../../core/magic/spell-runtime.js";
@@ -327,7 +333,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   }
 
   _traceSheetPerf(stage, startedAtMs, details = {}) {
-    if (!this._isSheetPerfTraceEnabled()) return;
+    const traceEnabled = this._isSheetPerfTraceEnabled();
+    const perfEnabled = isPerfEnabled();
+    if (!traceEnabled && !perfEnabled) return;
     const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
     const payload = {
       sheet: "NpcSheetV2",
@@ -338,6 +346,14 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       elapsedMs,
       ...details,
     };
+    if (perfEnabled) {
+      perfRecord({
+        event: "sheet.render",
+        ...payload,
+        durationMs: elapsedMs,
+      });
+    }
+    if (!traceEnabled) return;
     const warnThresholdMs = stage === "_onClose"
       ? 24
       : stage === "_onRender"
@@ -631,10 +647,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       const context = await super._prepareContext(options);
       const actor = this.document;
 
-      // V1-compatible fields expected by templates + shared helpers
-      const actorObj = actor.toObject();
-      actorObj.system = actor.system;
-      context.actor = actorObj;
+      // V1-compatible actor shape, but without cloning embedded documents.
+      context.actor = buildActorSheetActorView(actor);
       context.data = context.actor.system;
       context.dtypes = ["String", "Number", "Boolean"];
       context.isGM = game.user.isGM;
@@ -703,11 +717,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           }
           this._traceSheetPerfPhase("items:cache-hit", perfItemsStart, { size: context.items.length });
         } else {
-          context.items = actor.items.map(i => {
-            const obj = i.toObject();
-            obj.system = i.system;
-            return obj;
-          });
+          context.items = buildActorSheetItems(actor);
 
           // This mutates `context.actor` with categorized buckets used by templates.
           prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: false });
@@ -847,9 +857,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           context.effects = this._uesrpgEffectsCache.effects;
           this._traceSheetPerfPhase("effects:cache-hit", perfEffectsStart, { count: context.effects.length });
         } else {
-          context.effects = actor.effects
-            ? actor.effects.contents.filter((e) => !isWoundsOrShockEffect(e)).map((e) => e.toObject())
-            : [];
+          context.effects = buildActorSheetEffects(actor, {
+            filter: (effect) => !isWoundsOrShockEffect(effect),
+          });
           this._uesrpgEffectsCache = { signature: effectsSignature, effects: context.effects };
           this._traceSheetPerfPhase("effects:cache-miss", perfEffectsStart, { count: context.effects.length });
         }

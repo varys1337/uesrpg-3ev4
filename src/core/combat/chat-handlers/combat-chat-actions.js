@@ -243,6 +243,57 @@ async function _onRegenerationAction(event, message) {
   });
 }
 
+async function _onAlchemyAction(event, message) {
+  event.preventDefault();
+  const el = event.currentTarget;
+  if (el instanceof HTMLButtonElement) el.disabled = true;
+  const action = String(el?.dataset?.action ?? "").trim();
+  if (!action) return;
+
+  if (action === "alchemyRoll") {
+    const { handleBrewChatAction } = await import("../../alchemy/workflow.js");
+    await handleBrewChatAction(message?.id ?? "");
+    return;
+  }
+
+  const actorUuid = String(el?.dataset?.actorUuid ?? "").trim();
+  const itemUuid = String(el?.dataset?.itemUuid ?? "").trim();
+  if (!actorUuid || !itemUuid) return;
+
+  const actor = await fromUuid(actorUuid).catch(() => null);
+  const item = await fromUuid(itemUuid).catch(() => null);
+  if (!actor || !item) return;
+
+  if (action === "alchemyDrink") {
+    const { drinkPotion } = await import("../../alchemy/runtime.js");
+    await drinkPotion(actor, item);
+    return;
+  }
+
+  if (action === "alchemyApplyToWeapon") {
+    const { applyAlchemyToWeapon, pickAlchemyWeapon } = await import("../../alchemy/runtime.js");
+    const weapon = await pickAlchemyWeapon(actor);
+    if (!weapon) return;
+    await applyAlchemyToWeapon(actor, item, weapon);
+  }
+}
+
+async function _onUpkeepAction(event, message) {
+  event.preventDefault();
+  const el = event.currentTarget;
+  if (el instanceof HTMLButtonElement) el.disabled = true;
+  const action = String(el?.dataset?.uesUpkeepAction ?? "").trim().toLowerCase();
+  if (!action) return;
+  const upkeep = await import("../../magic/upkeep-workflow.js");
+  if (action === "confirm") {
+    await upkeep.handleUpkeepGroupConfirm(message);
+    return;
+  }
+  if (action === "cancel") {
+    await upkeep.handleUpkeepGroupCancel(message);
+  }
+}
+
 // ── Public registration ───────────────────────────────────────────────────────
 
 export function registerCombatChatClickHandler() {
@@ -259,11 +310,16 @@ export function registerCombatChatClickHandler() {
       "[data-ues-death-action]",
       "[data-ues-disease-action]",
       "[data-ues-regeneration-action]",
+      "[data-ues-upkeep-action]",
       "[data-ues-special-action]",
       "[data-ues-action-card-toggle]",
+      "[data-action='alchemyRoll']",
+      "[data-action='alchemyDrink']",
+      "[data-action='alchemyApplyToWeapon']",
     ].join(", ");
 
     registerDelegatedChatLogClickHandler({
+      id: "combat-actions",
       selector: SELECTOR,
       isBound: (chatLog) => chatLog.dataset.uesrpgDelegatedClick === "1",
       markBound: (chatLog) => {
@@ -289,6 +345,10 @@ export function registerCombatChatClickHandler() {
           if (btn.hasAttribute("data-ues-death-action")) return _onDeathAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-disease-action")) return _onDiseaseAction(delegatedEv, message);
           if (btn.hasAttribute("data-ues-regeneration-action")) return _onRegenerationAction(delegatedEv, message);
+          if (btn.hasAttribute("data-ues-upkeep-action")) return _onUpkeepAction(delegatedEv, message);
+          if (btn.matches("[data-action='alchemyRoll'], [data-action='alchemyDrink'], [data-action='alchemyApplyToWeapon']")) {
+            return _onAlchemyAction(delegatedEv, message);
+          }
           if (btn.hasAttribute("data-ues-special-action")) {
             delegatedEv.preventDefault?.();
             const action = btn.dataset.uesSpecialAction;

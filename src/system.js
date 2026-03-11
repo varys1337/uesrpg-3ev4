@@ -16,6 +16,7 @@ import { initializeTimeService, initializeCombatBoundaryOrchestrator } from "./c
 import { isDebugEnabled } from "./utils/debug.js";
 import { initSettingsCache } from "./core/config/settings-cache.js";
 import { SYSTEM_ID } from "./core/system/namespace.js";
+import { isPerfEnabled, monoMs, perfRecord } from "./utils/perf-tracker.js";
 
 const _TIME_SETTINGS_MIGRATION_KEY = "timeDefaultsCompositeOrchestratorV1";
 
@@ -67,7 +68,36 @@ async function _migrateTimeDefaultsSafely() {
   }
 }
 
+function _lazyModuleCall(importer, exportName, { bindTo = null } = {}) {
+  return async (...args) => {
+    const mod = await importer();
+    const fn = mod?.[exportName];
+    if (typeof fn !== "function") {
+      throw new Error(`UESRPG | Lazy export '${exportName}' not available`);
+    }
+    return bindTo ? fn.bind(bindTo)(...args) : fn(...args);
+  };
+}
+
+function _scheduleDeferredReadyTask(label, task) {
+  setTimeout(async () => {
+    const startedAt = isPerfEnabled() ? monoMs() : 0;
+    try {
+      await task();
+      if (isPerfEnabled()) {
+        perfRecord({ event: `system.ready.deferred.${label}`, ok: true, durationMs: monoMs() - startedAt });
+      }
+    } catch (err) {
+      console.warn(`UESRPG | Deferred ready task failed: ${label}`, err);
+      if (isPerfEnabled()) {
+        perfRecord({ event: `system.ready.deferred.${label}`, ok: false, durationMs: monoMs() - startedAt });
+      }
+    }
+  }, 0);
+}
+
 Hooks.once('ready', async function () {
+  const readyStartedAt = isPerfEnabled() ? monoMs() : 0;
   console.log(`UESRPG | Ready`);
 
   // World compatibility and migration runner.
@@ -136,9 +166,10 @@ Hooks.once('ready', async function () {
   try {
     if (game.user?.isGM) {
       const auditMode = String(game.settings.get("uesrpg-3ev4", "chapter4AuditStartupMode") ?? "off");
-      if (auditMode !== "off" && typeof game.uesrpg?.auditChapter4 === "function") {
+      if (auditMode !== "off") {
+        const { auditChapter4 } = await import("./utils/dev/chapter4-audit.js");
         const includeEntries = auditMode === "full";
-        const report = game.uesrpg.auditChapter4({ includeEntries, log: includeEntries });
+        const report = auditChapter4({ includeEntries, log: includeEntries });
         const gaps = report?.gaps ?? {};
         const gapCount =
           (Array.isArray(gaps.missingFromCatalog) ? gaps.missingFromCatalog.length : 0) +
@@ -247,12 +278,6 @@ Hooks.once('ready', async function () {
   // Initialize Drain automation (current pool drains without max reduction)
   initializeDrainService();
 
-  // Initialize utility singleton spell handlers (Recall/Detect/Telepathy/Open/Cure Disease/Stabilize)
-  initializeUtilitySpellsService();
-
-  // Initialize characteristic defense (save-like defense model for spells)
-  initializeCharacteristicDefenseService();
-
   // Initialize cloak tick handler (AoE aura tick damage at end of turn)
   initializeCloakTickHandler();
 
@@ -270,43 +295,46 @@ Hooks.once('ready', async function () {
   if (game.user?.isGM) {
     if (!game.uesrpg) game.uesrpg = {};
     if (!game.uesrpg.magic) game.uesrpg.magic = {};
-    try {
-      const { rebuildZoneRegistry } = await import("./core/magic/spell-runtime.js");
-      const { rebuildRuneRegistry } = await import("./core/magic/services/rune-trigger-service.js");
-      game.uesrpg.magic.rebuildZoneRegistry = rebuildZoneRegistry;
-      game.uesrpg.magic.rebuildRuneRegistry = rebuildRuneRegistry;
-    } catch (_e) { /* non-blocking */ }
+    game.uesrpg.magic.rebuildZoneRegistry = _lazyModuleCall(() => import("./core/magic/spell-runtime.js"), "rebuildZoneRegistry");
+    game.uesrpg.magic.rebuildRuneRegistry = _lazyModuleCall(() => import("./core/magic/services/rune-trigger-service.js"), "rebuildRuneRegistry");
 
-    // Expose boundary scheduler utilities for GM console access.
-    try {
-      const { flushBoundaryWorkQueue, getBoundaryWorkQueueSize } = await import("./core/time/boundary-work-scheduler.js");
-      const { rebuildRoundStartCandidateRegistry } = await import("./core/conditions/round-start-candidate-registry.js");
-      if (!game.uesrpg.combat) game.uesrpg.combat = {};
-      game.uesrpg.combat.flushBoundaryQueue = flushBoundaryWorkQueue;
-      game.uesrpg.combat.getBoundaryQueueSize = getBoundaryWorkQueueSize;
-      game.uesrpg.combat.rebuildRoundStartCandidateRegistry = rebuildRoundStartCandidateRegistry;
-    } catch (_e) { /* non-blocking */ }
+    if (!game.uesrpg.combat) game.uesrpg.combat = {};
+    game.uesrpg.combat.flushBoundaryQueue = _lazyModuleCall(() => import("./core/time/boundary-work-scheduler.js"), "flushBoundaryWorkQueue");
+    game.uesrpg.combat.getBoundaryQueueSize = _lazyModuleCall(() => import("./core/time/boundary-work-scheduler.js"), "getBoundaryWorkQueueSize");
+    game.uesrpg.combat.rebuildRoundStartCandidateRegistry = _lazyModuleCall(() => import("./core/conditions/round-start-candidate-registry.js"), "rebuildRoundStartCandidateRegistry");
   }
 
   // Initialize alchemy runtime (drink/apply/on-hit/round-tick hooks).
   // Alchemy is a core mechanic: runtime automation is always active.
-  try {
+  _scheduleDeferredReadyTask("utility-spells", async () => {
+    initializeUtilitySpellsService();
+  });
+
+  _scheduleDeferredReadyTask("characteristic-defense", async () => {
+    initializeCharacteristicDefenseService();
+  });
+
+  _scheduleDeferredReadyTask("alchemy-runtime", async () => {
     const { initializeAlchemyRuntime } = await import("./core/alchemy/runtime.js");
     initializeAlchemyRuntime();
-  } catch (err) {
-    console.warn("UESRPG | Failed to initialize alchemy runtime", err);
-  }
+  });
 
   // Initialize strike enchantment on-hit runtime (uesrpgDamageApplied → side effects).
-  try {
+  _scheduleDeferredReadyTask("strike-runtime", async () => {
     const { initializeStrikeOnHitRuntime } = await import("./core/enchanting/runtime/strike-on-hit.js");
     initializeStrikeOnHitRuntime();
-  } catch (err) {
-    console.warn("UESRPG | Failed to initialize strike enchantment on-hit runtime", err);
+  });
+
+  if (isPerfEnabled()) {
+    perfRecord({
+      event: "system.ready",
+      durationMs: monoMs() - readyStartedAt,
+    });
   }
 });
 
 Hooks.once("init", async function() {
+  const initStartedAt = isPerfEnabled() ? monoMs() : 0;
   console.log(`UESRPG | Initializing`);
   await initHandler();
 
@@ -323,6 +351,13 @@ Hooks.once("init", async function() {
     Handlebars.registerHelper('inc', function(n) { return Number(n ?? 0) + 1; });
   }
   game.uesrpg = game.uesrpg || {};
+
+  if (isPerfEnabled()) {
+    perfRecord({
+      event: "system.init.initHandler",
+      durationMs: monoMs() - initStartedAt,
+    });
+  }
 
   // Expose AE key inspection helper (lazy-loaded; GM + debug flag required)
   if (game.user?.isGM && isDebugEnabled(null)) {
@@ -408,29 +443,16 @@ Hooks.once("init", async function() {
 
   // Expose audit, remediation, and acquisition-check utilities (GM-only)
   if (game.user?.isGM) {
-    // Spell audit utility (GM debugging/quality assurance)
-    const { auditSpellPack, showSpellAuditReport } = await import("./utils/dev/spell-audit.js");
-    game.uesrpg.auditSpellPack = auditSpellPack;
-    game.uesrpg.showSpellAuditReport = showSpellAuditReport;
+    game.uesrpg.auditSpellPack = _lazyModuleCall(() => import("./utils/dev/spell-audit.js"), "auditSpellPack");
+    game.uesrpg.showSpellAuditReport = _lazyModuleCall(() => import("./utils/dev/spell-audit.js"), "showSpellAuditReport");
+    game.uesrpg.auditChapter4 = _lazyModuleCall(() => import("./utils/dev/chapter4-audit.js"), "auditChapter4");
+    game.uesrpg.auditChapter6 = _lazyModuleCall(() => import("./utils/dev/chapter6-audit.js"), "auditChapter6");
+    game.uesrpg.auditChapter6Spells = _lazyModuleCall(() => import("./utils/dev/chapter6-audit.js"), "auditChapter6Spells");
+    game.uesrpg.planChapter6SpellRemediation = _lazyModuleCall(() => import("./utils/dev/chapter6-spell-remediation.js"), "planChapter6SpellRemediation");
+    game.uesrpg.applyChapter6SpellRemediation = _lazyModuleCall(() => import("./utils/dev/chapter6-spell-remediation.js"), "applyChapter6SpellRemediation");
 
-    // Chapter 4 audit utility (catalog-based compliance gaps)
-    const { auditChapter4 } = await import("./utils/dev/chapter4-audit.js");
-    game.uesrpg.auditChapter4 = auditChapter4;
-
-    // Chapter 6 audit utilities (summary + spell matrix)
-    const { auditChapter6, auditChapter6Spells } = await import("./utils/dev/chapter6-audit.js");
-    game.uesrpg.auditChapter6 = auditChapter6;
-    game.uesrpg.auditChapter6Spells = auditChapter6Spells;
-
-    // Chapter 6 spell remediation utilities (dry-run + apply)
-    const { planChapter6SpellRemediation, applyChapter6SpellRemediation } = await import("./utils/dev/chapter6-spell-remediation.js");
-    game.uesrpg.planChapter6SpellRemediation = planChapter6SpellRemediation;
-    game.uesrpg.applyChapter6SpellRemediation = applyChapter6SpellRemediation;
-
-    // Talent learning validator API (Chapter 4 acquisition checks)
-    const { validateTalentLearning } = await import("./core/traits/talent-learning.js");
     game.uesrpg.talents = game.uesrpg.talents || {};
-    game.uesrpg.talents.validateLearning = validateTalentLearning;
+    game.uesrpg.talents.validateLearning = _lazyModuleCall(() => import("./core/traits/talent-learning.js"), "validateTalentLearning");
   }
 
   // Expose Enchanting Workshop API (game.uesrpg.enchanting.openWorkshop)
