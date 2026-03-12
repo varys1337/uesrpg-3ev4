@@ -18,6 +18,8 @@ import { executeCharacteristicDefense, computeCharacteristicDefenseTN } from "..
 import { emitSuppressedOpposedSubRollDice } from "../spell-helpers.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { listEquippedShields } from "../../../items/shield-utils.js";
+import { hasCondition } from "../../../conditions/condition-engine.js";
+import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const NAMESPACE = FLAG_SCOPE;
@@ -109,6 +111,12 @@ export async function handleDefenderRoll(ctx, action) {
   const { message, data, attacker, defender, defenderActor, defenderIndex, workflow, batchedUpdate } = ctx;
 
   if (defender?.result || defender?.noDefense) return;
+
+  if (hasCondition(defenderActor, "helpless")) {
+    markDefenderNoDefense(defender, "Helpless");
+    await workflow._resolveOutcome(message, data, attacker, defenderActor, { defenderIndex, batchedUpdate, spell: ctx.spell ?? null });
+    return data;
+  }
 
   const apCost = Number(defender?.apCost ?? 1) || 1;
   const currentAP = Number(defenderActor?.system?.action_points?.value ?? 0) || 0;
@@ -220,7 +228,7 @@ export async function handleDefenderNoDefense(ctx) {
   // No defense does not cost AP.
   if (defender?.result || defender?.noDefense) return;
 
-  defender.noDefense = true;
+  markDefenderNoDefense(defender, "No Defense");
   defender.defenseType = "-";
   defender.tn = null;
   defender.result = { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };

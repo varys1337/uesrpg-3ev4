@@ -46,6 +46,7 @@ import { isActorIncorporeal, getActorTraitValue, hasActorTrait, isActorUndead } 
 import { postDiseasedCheckCard } from "../../../traits/trait-automation.js";
 import { applyBleeding, applyCondition, hasCondition } from "../../../conditions/condition-engine.js";
 import { getAttackModeFromWeapon } from "../../combat-utils.js";
+import { getUnusualCombatDamageAdjustment } from "../../unusual-combat.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { collectStrikeEnchantmentEffects, consumeStrikeCharge } from "../../../enchanting/runtime/strike-runtime.js";
@@ -586,6 +587,17 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     : { damageComponents: [], sideEffects: [], chargeConsumptionNeeded: false };
   for (const sc of strikeEnchantComponents.damageComponents) {
     components.push(sc);
+  }
+
+  const unusualDamageAdjustment = getUnusualCombatDamageAdjustment({
+    attacker: attackerActor,
+    movementAction: ctx.options?.movementAction ?? null,
+  });
+  if (unusualDamageAdjustment) {
+    for (const component of components) {
+      component.amount = unusualDamageAdjustment.apply(component.amount);
+    }
+    traitNotes.push(unusualDamageAdjustment.label);
   }
 
   // Compute per-component results and apply once.

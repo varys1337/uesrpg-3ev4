@@ -12,11 +12,14 @@
  * semantics:
  *  - Ranged attacks cannot be Parried or Counter-Attacked.
  *  - Magic attacks cannot be Parried or Counter-Attacked.
+ *  - Mounted defenders cannot Evade melee attacks from unmounted attackers.
  *  - Flail attacks cannot be Parried or Counter-Attacked.
  *  - Entangling attacks cannot be Parried or Blocked.
  *  - A Small weapon cannot Parry/Counter against a Two-Handed weapon.
  *  - Block requires either an equipped shield or an eligible Ward spell.
  */
+
+import { getMountedEvadeRestriction } from "./unusual-combat.js";
 
 /**
  * @typedef {object} DefenseAvailability
@@ -41,6 +44,8 @@ function _lower(v) {
  * @param {{flail?: boolean, entangling?: boolean, isTwoHanded?: boolean}|null} params.attackerWeaponTraits
  * @param {boolean} params.defenderHasSmallWeapon
  * @param {boolean} params.defenderHasShield
+ * @param {Actor|null} [params.attackerActor]
+ * @param {Actor|null} [params.defenderActor]
  * @param {string[]|null} params.allowedDefenseTypes
  * @returns {DefenseAvailability}
  */
@@ -50,6 +55,8 @@ export function computeDefenseAvailability({
   defenderHasSmallWeapon,
   defenderHasShield,
   defenderHasWard = false,
+  attackerActor = null,
+  defenderActor = null,
   allowedDefenseTypes,
   // Talent / feature overrides (schema-safe; optional)
   allowParryRanged = false
@@ -83,6 +90,16 @@ export function computeDefenseAvailability({
 
   if (!allowed.block) {
     reasons.block.push("Requires an equipped shield or eligible Ward spell.");
+  }
+
+  const mountedEvadeRestriction = getMountedEvadeRestriction({
+    defender: defenderActor,
+    attacker: attackerActor,
+    attackMode: mode,
+  });
+  if (mountedEvadeRestriction) {
+    allowed.evade = false;
+    reasons.evade.push(mountedEvadeRestriction.reason);
   }
 
   // Entangling (RAW): cannot be parried or blocked.

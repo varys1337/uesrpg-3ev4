@@ -50,7 +50,7 @@
     <div class="tab" data-group="primary" data-tab="description">
       <div class="spell-casting-body spell-casting-body--overview">
         <section class="spell-section spell-section--editor">
-          {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+          <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
         </section>
       </div>
     </div>

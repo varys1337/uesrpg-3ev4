@@ -39,9 +39,9 @@ export function registerReachVisualizerSettingsStorage() {
  */
 export function registerReachVisualizerSettingsMenu() {
   game.settings.registerMenu(REACH_VISUALIZER_NAMESPACE, "reachVisualizerMenu", {
-    name: "Reach Visualizer",
-    label: "Configure",
-    hint: "Configure the Reach Visualizer overlay.",
+    name: "Visualiser",
+    label: "Configure Visualiser",
+    hint: "Configure the visualiser overlay.",
     icon: "fas fa-bullseye",
     type: ReachVisualizerSettingsAppV2,
     restricted: false,

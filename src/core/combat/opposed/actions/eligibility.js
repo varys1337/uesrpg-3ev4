@@ -52,6 +52,11 @@ export function getActionEligibility(actor, context = {}) {
     restrictions.push("cannot-defend-hidden-attack");
   }
 
+  if (actionFamily === "defense" && hasCondition(actor, "helpless")) {
+    reasons.push("Helpless");
+    restrictions.push("helpless");
+  }
+
   if ((actionFamily === "attack" || actionFamily === "defense") && hasCondition(actor, "restrained")) {
     reasons.push("Restrained");
     restrictions.push("restrained");
@@ -172,4 +177,25 @@ export function markDefenderIneligibleForHidden(defenderData) {
     degrees: 0,
     breakdown: [{ key: "base", label: "No Defense (Hidden)", value: 0, source: "base" }]
   };
+}
+
+export function markDefenderNoDefense(defenderData, reason = "Unavailable") {
+  if (!defenderData) return;
+
+  const safeReason = String(reason ?? "Unavailable").trim() || "Unavailable";
+  const plainNoDefense = safeReason.toLowerCase() === "no defense";
+  const label = plainNoDefense ? "No Defense" : `No Defense (${safeReason})`;
+  defenderData.noDefense = true;
+  defenderData.defenseType = "none";
+  defenderData.label = label;
+  defenderData.testLabel = "No Defense";
+  defenderData.defenseLabel = "No Defense";
+  defenderData.target = 0;
+  defenderData.tn = {
+    finalTN: 0,
+    baseTN: 0,
+    totalMod: 0,
+    breakdown: [{ key: "base", label, value: 0, source: "base" }]
+  };
+  defenderData.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
 }

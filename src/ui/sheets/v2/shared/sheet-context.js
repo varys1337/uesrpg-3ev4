@@ -10,6 +10,7 @@ export function buildActorSheetActorView(actor) {
   return {
     _id: actor?.id ?? null,
     id: actor?.id ?? null,
+    uuid: actor?.uuid ?? null,
     name: actor?.name ?? "",
     img: actor?.img ?? CONST.DEFAULT_TOKEN,
     type: actor?.type ?? "",

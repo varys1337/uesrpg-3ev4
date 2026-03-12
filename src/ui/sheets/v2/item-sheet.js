@@ -28,7 +28,7 @@ import { onChargePlus, onChargeMinus } from "../item/listeners/usage.js";
 import { activateTalentFromItemSheet, activatePowerFromItemSheet, activateTraitFromItemSheet } from "../shared-handlers.js";
 import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../item/spell-scaling-helpers.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
-import { activateEditorButtons } from "../shared/editor-activation.js";
+import { activateProseMirrorEditors } from "../shared/editor-activation.js";
 import { DEFAULTS } from "../../../core/migrations/item-defaults.generated.js";
 import { traceSheetPerf } from "../../../core/debug/perf.js";
 import { bindDelegated } from "./_delegated-bindings.js";
@@ -321,6 +321,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return this.document?.name ?? "";
   }
 
+  /** V1 compat: inherited editor submit/save paths access `sheet.form`. */
+  get form() {
+    return this.element;
+  }
+
   /* Rendering */
 
   /**
@@ -454,6 +459,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     // Overlay live system data so derived fields (value, *Effective, etc.)
     // survive into templates - same pattern as actor sheets.
     context.item = this.document.toObject();
+    context.item.uuid = this.document.uuid;
     // Cache sanitized render system per (docId, modifiedTime) to avoid repeated
     // deep-clone + coercion on every render when the document hasn't changed.
     {
@@ -1474,6 +1480,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         this._savedState = null;
       }
 
+      activateProseMirrorEditors(this, el);
+
     } finally {
       traceSheetPerf({
         sheet: "SimpleItemSheetV2",
@@ -1524,7 +1532,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       bindDelegated(el, "click", "#item-modifiers .item-delete", (ev) => onDeleteModifier(this, ev));
     }
 
-    activateEditorButtons(this, el);
     bindItemDescriptionTooltips(this, el);
   }
 

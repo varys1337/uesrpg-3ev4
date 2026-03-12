@@ -438,7 +438,7 @@
               <i class="fas fa-pen"></i>
             </button>
           </h3>
-          {{editor system.description target="system.description" engine="prosemirror" button=editable owner=owner editable=editable}}
+          <prose-mirror name="system.description" value="{{system.description}}" data-document-uuid="{{actor.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{enrichedDescription}}}</prose-mirror>
         </div>
 
         <div class="editor-section notes">
@@ -448,7 +448,7 @@
               <i class="fas fa-pen"></i>
             </button>
           </h3>
-          {{editor system.notes target="system.notes" engine="prosemirror" button=editable owner=owner editable=editable}}
+          <prose-mirror name="system.notes" value="{{system.notes}}" data-document-uuid="{{actor.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{enrichedNotes}}}</prose-mirror>
         </div>
       </div>
 

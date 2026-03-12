@@ -356,6 +356,7 @@ export async function onApplyDamage(ev, message) {
   const magicSource = String(btn.dataset.magicSource ?? "0") === "1";
   const sourceItemUuid = btn.dataset.sourceItemUuid || null;
   const attackMode = String(btn.dataset.attackMode ?? "").trim() || null;
+  const movementAction = String(btn.dataset.movementAction ?? "").trim() || null;
   const attackFromHidden = (String(btn.dataset.attackHidden ?? "").trim() === "1")
     ? true
     : (String(btn.dataset.attackHidden ?? "").trim() === "0" ? false : null);
@@ -402,6 +403,7 @@ export async function onApplyDamage(ev, message) {
     magicSource,
     sourceItemUuid,
     attackMode,
+    movementAction,
     attackFromHidden,
     ammoUuid,
     damageComponents,

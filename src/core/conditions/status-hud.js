@@ -36,12 +36,58 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { FLAG_SCOPE, getSystemId } from "./constants.js";
 import { activateInClose, deactivateInClose } from "./in-close.js";
+import { clearActorSurpriseState, resolveSurpriseState, setActorSurprised } from "../combat/surprise-state.js";
 
 // Backward-compat re-exports: external importers continue to resolve from this module.
 export { pruneInClosePair, toggleInCloseForActor } from "./in-close.js";
 
 let _systemStatusEffectsRegistered = false;
 let _statusHudInteropRegistered = false;
+
+function _specialStatusIsActive(actor, statusId) {
+  if (!actor) return false;
+  if (statusId === "surprised") {
+    return resolveSurpriseState(actor, { combatContext: game.combat }).isSurprised === true;
+  }
+  return false;
+}
+
+function _syncSpecialStatusVisuals(root, actor) {
+  if (!root || !actor) return;
+
+  const applyState = (el, active) => {
+    if (!el) return;
+    el.classList.toggle("active", active);
+    el.dataset.uesrpgActive = active ? "1" : "0";
+    el.setAttribute("aria-pressed", active ? "true" : "false");
+  };
+
+  for (const statusId of ["surprised"]) {
+    const active = _specialStatusIsActive(actor, statusId);
+    const byStatusId = root.querySelector?.(`[data-status-id="${statusId}"]`) ?? null;
+    applyState(byStatusId, active);
+    const byEffectIds = root.querySelectorAll?.(`[data-effect-id]`) ?? [];
+    for (const el of byEffectIds) {
+      const effectId = String(el?.dataset?.effectId ?? "").trim();
+      if (!effectId) continue;
+      const effect = safeGetEffect(actor, effectId);
+      const coreId = _normalizeHudStatusId(effect?.flags?.core?.statusId ?? null);
+      if (coreId === statusId) applyState(el, active);
+    }
+  }
+}
+
+function _rerenderOpenTokenHudForActor(actor) {
+  try {
+    const hud = canvas?.hud?.token ?? null;
+    const tokenActor = hud?.object?.actor ?? null;
+    if (!hud?.rendered || !tokenActor || !actor) return;
+    if (String(tokenActor.id ?? "") !== String(actor.id ?? "")) return;
+    hud.render();
+  } catch (_e) {
+    // Non-blocking.
+  }
+}
 
 /**
  * Replace CONFIG.statusEffects to show system conditions on the Token HUD.
@@ -122,6 +168,34 @@ export function registerStatusHudInterop() {
     }
   });
 
+  Hooks.on("updateActor", (actor, changed) => {
+    try {
+      const surpriseChanged = foundry.utils.hasProperty(changed, `flags.${getSystemId()}.chapter5.surpriseState`);
+      if (!surpriseChanged) return;
+      _rerenderOpenTokenHudForActor(actor);
+    } catch (_e) {
+      // Non-blocking.
+    }
+  });
+
+  Hooks.on("updateCombat", () => {
+    try {
+      const actor = canvas?.hud?.token?.object?.actor ?? null;
+      if (actor) _rerenderOpenTokenHudForActor(actor);
+    } catch (_e) {
+      // Non-blocking.
+    }
+  });
+
+  Hooks.on("deleteCombat", () => {
+    try {
+      const actor = canvas?.hud?.token?.object?.actor ?? null;
+      if (actor) _rerenderOpenTokenHudForActor(actor);
+    } catch (_e) {
+      // Non-blocking.
+    }
+  });
+
   Hooks.on("renderTokenHUD", (app, html) => {
     try {
       const token = _getTokenFromHud(app);
@@ -133,6 +207,8 @@ export function registerStatusHudInterop() {
 
       const container = root.querySelector?.(".status-effects") ?? null;
       if (!container) return;
+
+      _syncSpecialStatusVisuals(root, actor);
 
       // Avoid rebinding across HUD rerenders.
       if (container.dataset?.uesrpgStatusDelegated === "1") return;
@@ -346,6 +422,28 @@ async function _handleHudToggle(app, actor, statusId) {
 
   if (statusId === "flanked") {
     ui.notifications?.warn?.("Flanked is automated by Engagement & Flanking homebrew.");
+    return;
+  }
+
+  if (statusId === "surprised") {
+    const combat = game.combat ?? null;
+    if (!combat?.started) {
+      ui.notifications?.warn?.("Surprised can only be toggled during an active encounter.");
+      return;
+    }
+
+    const active = resolveSurpriseState(actor, { combatContext: combat }).isSurprised === true;
+    if (active) {
+      await clearActorSurpriseState(actor);
+    } else {
+      await setActorSurprised(actor, { combat, surprised: true });
+    }
+
+    try {
+      app.render();
+    } catch (_err) {
+      // ignore
+    }
     return;
   }
 

@@ -15,6 +15,7 @@ import {
   _getDefenderEntries,
   _isMultiDefender,
   _getDefenderOutcome,
+  _getDefenderDamage,
   _getDefenderAdvantage,
   _getDefenderResolutionState,
   _allDefendersCommitted,
@@ -27,6 +28,7 @@ import { getExplicitActiveCombatStyleItem } from "../combat-style-utils.js";
 import { _renderCard as _renderSkillOpposedCard } from "../../skills/opposed-workflow/core/render.js";
 import { _normalizeCardFlag as _normalizeSkillCardFlag } from "../../skills/opposed-workflow/core/schema.js";
 import { FLAG_NS as SKILL_FLAG_NS, FLAG_KEY as SKILL_FLAG_KEY, CARD_VERSION as SKILL_CARD_VERSION } from "../../skills/opposed-workflow/core/constants.js";
+import { _resolveOutcome as _resolveSkillOutcome } from "../../skills/opposed-workflow/core/helpers.js";
 import { renderCard as _renderMagicOpposedCard } from "../../magic/opposed/render.js";
 import { computeMagicCastingTN } from "../../magic/magicka-utils.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
@@ -313,6 +315,177 @@ function _setActorTokenRefs(entry, actor, tokenDoc) {
   entry.name = actor?.name ?? tokenDoc?.name ?? entry.name ?? null;
 }
 
+function _clone(value) {
+  return foundry.utils.deepClone(value);
+}
+
+function _laneRefs(entry = {}) {
+  const actorUuid = String(entry?.actorUuid ?? "").trim() || null;
+  const tokenUuid = String(entry?.tokenUuid ?? "").trim() || null;
+  const tokenName = String(entry?.tokenName ?? "").trim() || null;
+  const name = String(entry?.name ?? tokenName ?? "").trim() || null;
+  return { actorUuid, tokenUuid, tokenName, name };
+}
+
+function _primaryUuid(refs = {}) {
+  return refs.actorUuid ?? refs.tokenUuid ?? null;
+}
+
+function _primaryName(refs = {}) {
+  return refs.tokenName ?? refs.name ?? null;
+}
+
+function _matchesLaneRef(value, refs = {}) {
+  const needle = String(value ?? "").trim();
+  if (!needle) return false;
+  return [refs.actorUuid, refs.tokenUuid]
+    .filter(Boolean)
+    .some((candidate) => String(candidate).trim() === needle);
+}
+
+function _escapeRegExp(text) {
+  return String(text ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function _replaceNames(text, replacements = []) {
+  let out = String(text ?? "");
+  for (const pair of replacements) {
+    const from = String(pair?.from ?? "").trim();
+    const to = String(pair?.to ?? "").trim();
+    if (!from || !to || from === to) continue;
+    out = out.replace(new RegExp(_escapeRegExp(from), "g"), to);
+  }
+  return out;
+}
+
+function _buildNameReplacements(...pairs) {
+  const out = [];
+  for (const pair of pairs) {
+    const from = String(pair?.from ?? "").trim();
+    const to = String(pair?.to ?? "").trim();
+    if (!from || !to || from === to) continue;
+    out.push({ from, to });
+  }
+  return out;
+}
+
+function _rewriteButtonLabel(existingLabel, targetName, replacements = []) {
+  const label = String(existingLabel ?? "").trim();
+  const safeTargetName = String(targetName ?? "").trim();
+  if (!label) return safeTargetName ? `Apply -> ${safeTargetName}` : label;
+  const arrowIndex = label.indexOf("→");
+  if (arrowIndex >= 0 && safeTargetName) {
+    return `${label.slice(0, arrowIndex).trim()} → ${safeTargetName}`;
+  }
+  return _replaceNames(label, replacements);
+}
+
+function _retargetPayloadRefs(payload, oldRefs, newRefs, { replacements = [] } = {}) {
+  if (!payload || typeof payload !== "object") return payload;
+
+  if (_matchesLaneRef(payload.targetUuid, oldRefs)) {
+    payload.targetUuid = _primaryUuid(newRefs) ?? payload.targetUuid ?? null;
+    payload.targetName = _primaryName(newRefs) ?? payload.targetName ?? null;
+    if (Object.prototype.hasOwnProperty.call(payload, "buttonLabel")) {
+      payload.buttonLabel = _rewriteButtonLabel(payload.buttonLabel, payload.targetName, replacements);
+    }
+  } else if (Object.prototype.hasOwnProperty.call(payload, "targetName")) {
+    payload.targetName = _replaceNames(payload.targetName, replacements);
+  }
+
+  if (_matchesLaneRef(payload.attackerActorUuid, oldRefs)) {
+    payload.attackerActorUuid = newRefs.actorUuid ?? payload.attackerActorUuid ?? null;
+  }
+  if (_matchesLaneRef(payload.attackerTokenUuid, oldRefs)) {
+    payload.attackerTokenUuid = newRefs.tokenUuid ?? payload.attackerTokenUuid ?? null;
+  }
+  if (_matchesLaneRef(payload.casterUuid, oldRefs)) {
+    payload.casterUuid = newRefs.actorUuid ?? payload.casterUuid ?? null;
+  }
+  if (_matchesLaneRef(payload.casterTokenUuid, oldRefs)) {
+    payload.casterTokenUuid = newRefs.tokenUuid ?? payload.casterTokenUuid ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "buttonLabel")) {
+    payload.buttonLabel = _replaceNames(payload.buttonLabel, replacements);
+  }
+
+  return payload;
+}
+
+function _retargetCombatDamageData(damageData, oldRefs, newRefs, { replacements = [] } = {}) {
+  if (!damageData || typeof damageData !== "object") return;
+  if (damageData.applyPayload && typeof damageData.applyPayload === "object") {
+    _retargetPayloadRefs(damageData.applyPayload, oldRefs, newRefs, { replacements });
+  }
+  if (typeof damageData.extraNoteHtml === "string") {
+    damageData.extraNoteHtml = _replaceNames(damageData.extraNoteHtml, replacements);
+  }
+}
+
+function _retargetMagicDamageData(damageData, oldRefs, newRefs, { replacements = [] } = {}) {
+  if (!damageData || typeof damageData !== "object") return;
+  if (damageData.applyPayload && typeof damageData.applyPayload === "object") {
+    _retargetPayloadRefs(damageData.applyPayload, oldRefs, newRefs, { replacements });
+  }
+  if (damageData._magicPayload && typeof damageData._magicPayload === "object") {
+    _retargetPayloadRefs(damageData._magicPayload, oldRefs, newRefs, { replacements });
+  }
+}
+
+function _retargetOutcomeText(outcome, replacements = []) {
+  if (!outcome || typeof outcome !== "object" || typeof outcome.text !== "string") return;
+  outcome.text = _replaceNames(outcome.text, replacements);
+}
+
+function _combatHasResolvedState(data) {
+  if (!data || typeof data !== "object") return false;
+  if (String(data?.status ?? "").trim().toLowerCase() === "resolved") return true;
+  if (data?.outcome) return true;
+  return _getDefenderEntries(data).some((def) => Boolean(def?.outcome) || Boolean(def?.damage?.rolled));
+}
+
+function _skillHasResolvedState(data) {
+  if (!data || typeof data !== "object") return false;
+  if (String(data?.status ?? "").trim().toLowerCase() === "resolved") return true;
+  return Boolean(data?.outcome) && Boolean(data?.attacker?.result) && Boolean(data?.defender?.result);
+}
+
+function _magicHasResolvedState(data) {
+  if (!data || typeof data !== "object") return false;
+  if (String(data?.status ?? "").trim().toLowerCase() === "resolved") return true;
+  if (data?.outcome) return true;
+  return _magicDefenderEntries(data).some((def) => Boolean(def?.outcome) || Boolean(def?.damage?.rolled));
+}
+
+function _rebuildSkillOutcome(data, previousOutcome = null) {
+  if (!previousOutcome || typeof previousOutcome !== "object") return previousOutcome;
+
+  const rollOff = data?.context?.rollOff ?? null;
+  if (rollOff?.kind === "bothCritSuccess") {
+    const winner = String(previousOutcome?.winner ?? "").trim().toLowerCase();
+    const attempts = Array.isArray(rollOff?.attempts) ? rollOff.attempts.length : 5;
+    if (winner === "attacker" || winner === "defender") {
+      const winnerName = winner === "attacker" ? data?.attacker?.name : data?.defender?.name;
+      return {
+        ...previousOutcome,
+        text: `${winnerName} wins — roll-off breaks the tie after both critical successes.`
+      };
+    }
+    return {
+      ...previousOutcome,
+      text: `Tie — roll-off still unresolved after ${attempts} attempts.`
+    };
+  }
+
+  const recomputed = _resolveSkillOutcome(data);
+  if (!recomputed) return previousOutcome;
+  return {
+    ...previousOutcome,
+    ...recomputed,
+    text: recomputed.text
+  };
+}
+
 function _resetSkillSide(side) {
   if (!side) return;
   side.skillUuid = null;
@@ -426,6 +599,45 @@ async function _retargetAttacker(data, targetTokenDoc) {
   return true;
 }
 
+async function _retargetAttackerResolved(data, targetTokenDoc) {
+  const targetActor = _resolveActor(targetTokenDoc);
+  if (!targetActor || !targetTokenDoc) return false;
+
+  const oldAttackerRefs = _laneRefs(data?.attacker);
+  const nextBase = _buildAttackerEntry(targetActor, targetTokenDoc);
+  const previousAttacker = _clone(data.attacker ?? {});
+  data.attacker = {
+    ...previousAttacker,
+    actorUuid: nextBase.actorUuid,
+    tokenUuid: nextBase.tokenUuid,
+    tokenName: nextBase.tokenName,
+    name: nextBase.name,
+    label: nextBase.label,
+    itemUuid: nextBase.itemUuid,
+    baseTarget: nextBase.baseTarget
+  };
+
+  const newAttackerRefs = _laneRefs(data.attacker);
+  const replacements = _buildNameReplacements({ from: oldAttackerRefs.name, to: newAttackerRefs.name });
+
+  const defenders = _getDefenderEntries(data);
+  for (const def of defenders) {
+    _retargetOutcomeText(def?.outcome, replacements);
+    _retargetCombatDamageData(_getDefenderDamage(data, def), oldAttackerRefs, newAttackerRefs, { replacements });
+  }
+  _retargetOutcomeText(data.outcome, replacements);
+
+  data.context = data.context ?? {};
+  const currentAttackMode = String(getContextAttackMode(data.context) ?? "").trim().toLowerCase();
+  data.context.attackMode = currentAttackMode || await inferAttackModeFromPreferredWeapon(targetActor);
+  data.context.weaponUuid = getPreferredWeaponUuid(targetActor, { meleeOnly: false }) || null;
+  if (data.context.lastWeaponUuid != null) {
+    data.context.lastWeaponUuid = data.context.weaponUuid;
+  }
+
+  return true;
+}
+
 async function _retargetDefender(data, targetTokenDoc) {
   const targetActor = _resolveActor(targetTokenDoc);
   if (!targetActor || !targetTokenDoc) return false;
@@ -459,6 +671,44 @@ async function _retargetDefender(data, targetTokenDoc) {
   return true;
 }
 
+async function _retargetDefenderResolved(data, targetTokenDoc) {
+  const targetActor = _resolveActor(targetTokenDoc);
+  if (!targetActor || !targetTokenDoc) return false;
+
+  const defenders = _getDefenderEntries(data);
+  if (!defenders.length) return false;
+
+  const idx = _resolveDefenderIndex(data, {
+    defenderTokenUuid: data?.defender?.tokenUuid,
+    defenderActorUuid: data?.defender?.actorUuid
+  }) ?? 0;
+  const previous = _clone(defenders[idx] ?? {});
+  const oldDefenderRefs = _laneRefs(previous);
+
+  defenders[idx] = {
+    ...previous,
+    actorUuid: targetActor?.uuid ?? null,
+    tokenUuid: targetTokenDoc?.uuid ?? null,
+    tokenName: targetTokenDoc?.name ?? targetActor?.name ?? null,
+    name: targetActor?.name ?? targetTokenDoc?.name ?? previous?.name ?? "Defender"
+  };
+  data.defenders = defenders;
+  data.defender = defenders[idx] ?? defenders[0];
+
+  const newDefenderRefs = _laneRefs(data.defender);
+  const replacements = _buildNameReplacements({ from: oldDefenderRefs.name, to: newDefenderRefs.name });
+
+  if (_isMultiDefender(data)) {
+    _retargetOutcomeText(defenders[idx]?.outcome, replacements);
+    _retargetCombatDamageData(defenders[idx]?.damage, oldDefenderRefs, newDefenderRefs, { replacements });
+  } else {
+    _retargetOutcomeText(data.outcome, replacements);
+    _retargetCombatDamageData(data.damage, oldDefenderRefs, newDefenderRefs, { replacements });
+  }
+
+  return true;
+}
+
 function _retargetSkillAttacker(data, targetTokenDoc) {
   const targetActor = _resolveActor(targetTokenDoc);
   if (!targetActor || !targetTokenDoc) return false;
@@ -480,6 +730,16 @@ function _retargetSkillAttacker(data, targetTokenDoc) {
   return true;
 }
 
+function _retargetSkillAttackerResolved(data, targetTokenDoc) {
+  const targetActor = _resolveActor(targetTokenDoc);
+  if (!targetActor || !targetTokenDoc) return false;
+
+  data.attacker = data.attacker ?? {};
+  _setActorTokenRefs(data.attacker, targetActor, targetTokenDoc);
+  data.outcome = _rebuildSkillOutcome(data, data.outcome);
+  return true;
+}
+
 function _retargetSkillDefender(data, targetTokenDoc) {
   const targetActor = _resolveActor(targetTokenDoc);
   if (!targetActor || !targetTokenDoc) return false;
@@ -495,6 +755,16 @@ function _retargetSkillDefender(data, targetTokenDoc) {
   data.context.waitingSince = data.attacker?.result ? Date.now() : null;
   if (data.context.rollOff) delete data.context.rollOff;
 
+  return true;
+}
+
+function _retargetSkillDefenderResolved(data, targetTokenDoc) {
+  const targetActor = _resolveActor(targetTokenDoc);
+  if (!targetActor || !targetTokenDoc) return false;
+
+  data.defender = data.defender ?? {};
+  _setActorTokenRefs(data.defender, targetActor, targetTokenDoc);
+  data.outcome = _rebuildSkillOutcome(data, data.outcome);
   return true;
 }
 
@@ -547,6 +817,27 @@ async function _retargetMagicAttacker(data, targetTokenDoc) {
   return true;
 }
 
+async function _retargetMagicAttackerResolved(data, targetTokenDoc) {
+  const targetActor = _resolveActor(targetTokenDoc);
+  if (!targetActor || !targetTokenDoc) return false;
+
+  const oldAttackerRefs = _laneRefs(data?.attacker);
+  data.attacker = data.attacker ?? {};
+  _setActorTokenRefs(data.attacker, targetActor, targetTokenDoc);
+  const newAttackerRefs = _laneRefs(data.attacker);
+  const replacements = _buildNameReplacements({ from: oldAttackerRefs.name, to: newAttackerRefs.name });
+
+  const defenders = _magicDefenderEntries(data);
+  for (const def of defenders) {
+    _retargetOutcomeText(def?.outcome, replacements);
+    _retargetMagicDamageData(def?.damage, oldAttackerRefs, newAttackerRefs, { replacements });
+  }
+  _retargetOutcomeText(data.outcome, replacements);
+  _retargetMagicDamageData(data.damage, oldAttackerRefs, newAttackerRefs, { replacements });
+
+  return true;
+}
+
 function _retargetMagicDefender(data, targetTokenDoc) {
   const targetActor = _resolveActor(targetTokenDoc);
   if (!targetActor || !targetTokenDoc) return false;
@@ -572,6 +863,45 @@ function _retargetMagicDefender(data, targetTokenDoc) {
   data.context = data.context ?? {};
   data.context.phase = data.attacker?.result ? "awaiting-defense" : "pending";
   data.context.waitingSince = data.attacker?.result ? Date.now() : null;
+
+  return true;
+}
+
+function _retargetMagicDefenderResolved(data, targetTokenDoc) {
+  const targetActor = _resolveActor(targetTokenDoc);
+  if (!targetActor || !targetTokenDoc) return false;
+
+  const defenders = _magicDefenderEntries(data);
+  if (!defenders.length) return false;
+
+  const idx = _resolveMagicDefenderIndex(data) ?? 0;
+  const previous = _clone(defenders[idx] ?? {});
+  const oldDefenderRefs = _laneRefs(previous);
+  defenders[idx] = {
+    ...previous,
+    actorUuid: targetActor?.uuid ?? null,
+    tokenUuid: targetTokenDoc?.uuid ?? null,
+    tokenName: targetTokenDoc?.name ?? targetActor?.name ?? null,
+    name: targetActor?.name ?? targetTokenDoc?.name ?? previous?.name ?? "Defender"
+  };
+
+  if (Array.isArray(data.defenders)) {
+    data.defenders = defenders;
+    data.defender = defenders[idx] ?? defenders[0] ?? null;
+  } else {
+    data.defender = defenders[0] ?? null;
+  }
+
+  const newDefenderRefs = _laneRefs(data.defender);
+  const replacements = _buildNameReplacements({ from: oldDefenderRefs.name, to: newDefenderRefs.name });
+
+  if (Array.isArray(data.defenders)) {
+    _retargetOutcomeText(defenders[idx]?.outcome, replacements);
+    _retargetMagicDamageData(defenders[idx]?.damage, oldDefenderRefs, newDefenderRefs, { replacements });
+  } else {
+    _retargetOutcomeText(data.outcome, replacements);
+    _retargetMagicDamageData(data.damage, oldDefenderRefs, newDefenderRefs, { replacements });
+  }
 
   return true;
 }
@@ -668,6 +998,7 @@ export async function retargetOpposedMessage(
     }
 
     const data = foundry.utils.deepClone(raw);
+    const preserveResolved = _combatHasResolvedState(data);
     if (!_canInteractCombatOpposed(user, live, data) && !(forceAutomation && automationAllowed)) {
       ui.notifications?.warn?.("You do not have permission to modify this opposed card.");
       return false;
@@ -682,7 +1013,9 @@ export async function retargetOpposedMessage(
         ui.notifications?.warn?.("You do not have permission to use the selected token as attacker.");
         return false;
       }
-      const ok = await _retargetAttacker(data, nextAttackerDoc);
+      const ok = preserveResolved
+        ? await _retargetAttackerResolved(data, nextAttackerDoc)
+        : await _retargetAttacker(data, nextAttackerDoc);
       if (!ok) return false;
     }
 
@@ -695,7 +1028,9 @@ export async function retargetOpposedMessage(
         ui.notifications?.warn?.("You do not have permission to use the selected token as defender.");
         return false;
       }
-      const ok = await _retargetDefender(data, nextDefenderDoc);
+      const ok = preserveResolved
+        ? await _retargetDefenderResolved(data, nextDefenderDoc)
+        : await _retargetDefender(data, nextDefenderDoc);
       if (!ok) return false;
     }
 
@@ -719,6 +1054,7 @@ export async function retargetOpposedMessage(
     }
 
     const data = cloneFlagState(env.state);
+    const preserveResolved = _skillHasResolvedState(data);
     if (!_canInteractSkillOpposed(user, live, data) && !(forceAutomation && automationAllowed)) {
       ui.notifications?.warn?.("You do not have permission to modify this opposed card.");
       return false;
@@ -733,7 +1069,7 @@ export async function retargetOpposedMessage(
         ui.notifications?.warn?.("You do not have permission to use the selected token as attacker.");
         return false;
       }
-      if (!_retargetSkillAttacker(data, nextAttackerDoc)) return false;
+      if (!(preserveResolved ? _retargetSkillAttackerResolved(data, nextAttackerDoc) : _retargetSkillAttacker(data, nextAttackerDoc))) return false;
     }
 
     if (nextDefenderDoc) {
@@ -745,7 +1081,7 @@ export async function retargetOpposedMessage(
         ui.notifications?.warn?.("You do not have permission to use the selected token as defender.");
         return false;
       }
-      if (!_retargetSkillDefender(data, nextDefenderDoc)) return false;
+      if (!(preserveResolved ? _retargetSkillDefenderResolved(data, nextDefenderDoc) : _retargetSkillDefender(data, nextDefenderDoc))) return false;
     }
 
     data.context = data.context ?? {};
@@ -766,6 +1102,7 @@ export async function retargetOpposedMessage(
   }
 
   const data = cloneFlagState(env.state);
+  const preserveResolved = _magicHasResolvedState(data);
   if (!_canInteractMagicOpposed(user, live, data) && !(forceAutomation && automationAllowed)) {
     ui.notifications?.warn?.("You do not have permission to modify this opposed card.");
     return false;
@@ -780,7 +1117,9 @@ export async function retargetOpposedMessage(
       ui.notifications?.warn?.("You do not have permission to use the selected token as attacker.");
       return false;
     }
-    const ok = await _retargetMagicAttacker(data, nextAttackerDoc);
+    const ok = preserveResolved
+      ? await _retargetMagicAttackerResolved(data, nextAttackerDoc)
+      : await _retargetMagicAttacker(data, nextAttackerDoc);
     if (!ok) return false;
   }
 
@@ -793,7 +1132,9 @@ export async function retargetOpposedMessage(
       ui.notifications?.warn?.("You do not have permission to use the selected token as defender.");
       return false;
     }
-    const ok = _retargetMagicDefender(data, nextDefenderDoc);
+    const ok = preserveResolved
+      ? _retargetMagicDefenderResolved(data, nextDefenderDoc)
+      : _retargetMagicDefender(data, nextDefenderDoc);
     if (!ok) return false;
   }
 

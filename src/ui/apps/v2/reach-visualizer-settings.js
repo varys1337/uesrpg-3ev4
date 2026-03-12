@@ -33,7 +33,7 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
       submitOnChange: false,
     },
     window: {
-      title: "Reach Visualizer",
+      title: "Configure Visualiser",
     },
     position: {
       width: 560,
@@ -150,7 +150,7 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
       // no-op
     }
 
-    // If diagonal mode changed, flanking reach checks use the same setting — refresh immediately.
+    // If diagonal mode changed, flanking reach checks use the same setting; refresh immediately.
     try {
       if (isEngagementFlankingHomebrewEnabled()) {
         scheduleEngagementFlankingRefresh({ reason: "reachDiagonalModeChange", fullScene: true });

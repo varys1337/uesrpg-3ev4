@@ -23,7 +23,7 @@ import {
 } from "../../../utils/authority-proxy.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
 import { onDropItemIntoContainer } from "../item/listeners/containment.js";
-import { activateEditorButtons } from "../shared/editor-activation.js";
+import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
@@ -40,7 +40,7 @@ import {
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
 const ALLOWED_GROUP_FORM_PATH = createFormPathMatcher({
-  exact: ["name"],
+  exact: ["name", "system.description", "system.notes"],
 });
 
 export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
@@ -151,6 +151,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /** @override */
   get title() {
     return this.document.name;
+  }
+
+  /** V1 compat: inherited editor submit/save paths access `sheet.form`. */
+  get form() {
+    return this.element;
   }
 
   async _onChangeForm(formConfig, event) {
@@ -292,7 +297,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
         this.changeTab(expectedPrimary, "primary", { force: true });
       }
 
-      activateEditorButtons(this, el);
+      activateProseMirrorEditors(this, el);
     } finally {
       this._traceSheetPerf("_onRender", perfStart, {
         limited: Boolean(context?.limited),
@@ -663,27 +668,15 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   _onOpenDescriptionEditor(event, _target) {
     event?.preventDefault?.();
     if (!this.isEditable) return;
-    const container = this.element?.querySelector?.(".details .editor-section.description .editor");
-    const button = container?.querySelector?.(".editor-edit");
-    if (button) {
-      button.click();
-      return;
-    }
-    const field = container?.querySelector?.("[name='system.description']");
-    if (field) field.focus();
+    const editor = this.element?.querySelector?.(".details .editor-section.description prose-mirror[name='system.description']");
+    openProseMirrorEditor(editor);
   }
 
   _onOpenNotesEditor(event, _target) {
     event?.preventDefault?.();
     if (!this.isEditable) return;
-    const container = this.element?.querySelector?.(".details .editor-section.notes .editor");
-    const button = container?.querySelector?.(".editor-edit");
-    if (button) {
-      button.click();
-      return;
-    }
-    const field = container?.querySelector?.("[name='system.notes']");
-    if (field) field.focus();
+    const editor = this.element?.querySelector?.(".details .editor-section.notes prose-mirror[name='system.notes']");
+    openProseMirrorEditor(editor);
   }
 
   /** Open a member's actor sheet */

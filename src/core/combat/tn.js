@@ -22,6 +22,7 @@ import { isDebugEnabled } from "../../utils/debug.js";
 import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
 import { computeMagicCastingTN } from "../magic/magicka-utils.js";
 import { getPreferredWardDefenseSpell } from "./ward-defense.js";
+import { getMountedCombatCapAdjustment, getUnusualCombatCapAdjustment } from "./unusual-combat.js";
 import {
   hasEquippedShield as hasEquippedShieldCanonical,
   hasEquippedShieldType as hasEquippedShieldTypeCanonical,
@@ -640,6 +641,24 @@ export function computeTN({
 
   breakdown.push({ key: "base", label: baseLabel, value: asNumber(baseTN), source: "base", detail: baseDetail });
   if (observantEntry) breakdown.push(observantEntry);
+
+  const unusualCombatCap = getUnusualCombatCapAdjustment({
+    actor,
+    role,
+    defenseType,
+    baseTN,
+    movementAction: context?.movementAction ?? null,
+    context,
+  });
+  if (unusualCombatCap?.breakdown) breakdown.push(unusualCombatCap.breakdown);
+
+  const mountedCombatCap = getMountedCombatCapAdjustment({
+    actor,
+    role,
+    baseTN: unusualCombatCap ? (baseTN + Number(unusualCombatCap.delta ?? 0)) : baseTN,
+    attackMode,
+  });
+  if (mountedCombatCap?.breakdown) breakdown.push(mountedCombatCap.breakdown);
 
   if (role === "defender" && (defenseType === "parry" || defenseType === "counter")) {
     const defenderWeapon = _getPreferredDefenderWeapon(actor);

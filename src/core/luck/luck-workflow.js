@@ -28,10 +28,45 @@ import { SYSTEM_ID } from "../constants.js";
 import { getMessageIdFromContextLi } from "../../utils/chat/contextmenu.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { applyLuckResultMutation, canMutateLuckResult } from "./result-reresolution.js";
+import { canUseLuck } from "../rules/npc-rules.js";
 
 // ── Constants ───────────────────────────────────────────────────────────
 
 const ROLL_FORMULA = "1d100";
+const MANUAL_BURN_LUCK_OPTIONS = Object.freeze([
+  {
+    id: "burn1",
+    cost: 1,
+    title: "Burn 1 Luck",
+    effectText: "Add a degree of success to a successful test. This can be done multiple times for a given test.",
+    confirmTitle: "Burn 1 Luck",
+    confirmLabel: "Burn 1 Luck",
+  },
+  {
+    id: "burn3",
+    cost: 3,
+    title: "Burn 3 Luck",
+    effectText: "Reroll a failed test. This may only be done once for a given test and cannot reroll Critical Failures.",
+    confirmTitle: "Burn 3 Luck",
+    confirmLabel: "Burn 3 Luck",
+  },
+  {
+    id: "burn5",
+    cost: 5,
+    title: "Burn 5 Luck",
+    effectText: "Negate the effects of a critical failure. This must be done immediately after the test is rolled.",
+    confirmTitle: "Burn 5 Luck",
+    confirmLabel: "Burn 5 Luck",
+  },
+  {
+    id: "burn10",
+    cost: 10,
+    title: "Burn 10 Luck",
+    effectText: "Ignore the effects of a wound. Alternatively, with GM permission, survive death at great cost until the encounter ends.",
+    confirmTitle: "Burn 10 Luck",
+    confirmLabel: "Burn 10 Luck",
+  },
+]);
 
 // ══════════════════════════════════════════════════════════════════════════
 //  Utility helpers
@@ -412,6 +447,77 @@ function _getBurnBaseLuck(actor) {
 
 function _getTotalLuck(actor) {
   return Number(actor?.system?.characteristics?.lck?.total ?? actor?.system?.characteristics?.lck?.value ?? 0) || 0;
+}
+
+function _buildManualBurnLuckChatContent(actor, option, remainingLuck) {
+  return `<div class="uesrpg">
+    <h3 style="color: #c44;">Luck Burned</h3>
+    <p><b>${_esc(actor?.name ?? "Actor")}</b> permanently burned <b>${option.cost} Luck</b>.</p>
+    <p><b>Effect:</b> ${_esc(option.effectText)}</p>
+    <p><b>Remaining Luck:</b> ${remainingLuck}</p>
+  </div>`;
+}
+
+export function getBurnLuckTotals(actor) {
+  return {
+    currentLuck: _getBurnBaseLuck(actor),
+    totalLuck: _getTotalLuck(actor),
+  };
+}
+
+export function getManualBurnLuckOptions(actor) {
+  const { currentLuck } = getBurnLuckTotals(actor);
+  return MANUAL_BURN_LUCK_OPTIONS.map((option) => ({
+    ...option,
+    available: currentLuck >= option.cost,
+  }));
+}
+
+export function canOpenBurnLuckFromSheet(actor, { notify = false } = {}) {
+  if (!actor) {
+    if (notify) ui.notifications?.warn?.("No actor found for Burn Luck.");
+    return false;
+  }
+  if (!_canUserActOnActor(actor)) {
+    if (notify) ui.notifications?.warn?.("You do not have permission to burn Luck for this actor.");
+    return false;
+  }
+  if (!canUseLuck(actor)) {
+    if (notify) ui.notifications?.warn?.("This actor cannot use Luck.");
+    return false;
+  }
+  return true;
+}
+
+export async function burnLuckManually(actor, optionId) {
+  if (!canOpenBurnLuckFromSheet(actor, { notify: true })) return false;
+
+  const option = MANUAL_BURN_LUCK_OPTIONS.find((entry) => entry.id === optionId);
+  if (!option) {
+    ui.notifications?.warn?.("Unknown Burn Luck option.");
+    return false;
+  }
+
+  const currentBase = _getBurnBaseLuck(actor);
+  if (currentBase < option.cost) {
+    ui.notifications?.warn?.(`Not enough Luck to burn. Need ${option.cost}, have ${currentBase}.`);
+    return false;
+  }
+
+  const burnApplied = await _applyLuckBurnCost(actor, option.cost);
+  if (!burnApplied?.ok) {
+    ui.notifications?.warn?.("Burn effect applied, but permanent Luck could not be reduced.");
+    return false;
+  }
+
+  await ChatMessage.create({
+    user: game.user.id,
+    speaker: ChatMessage.getSpeaker({ actor }),
+    content: _buildManualBurnLuckChatContent(actor, option, burnApplied.nextBase),
+    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+  });
+
+  return true;
 }
 
 async function _spendLuckPoint(actor, amount = 1) {
@@ -1016,8 +1122,10 @@ async function _askRerollOrDoS() {
 //  Sheet action: Burn Luck from LP label click
 // ══════════════════════════════════════════════════════════════════════════
 
-export function openBurnLuckFromSheet(actor) {
-  return openBurnLuckDialog(actor);
+export async function openBurnLuckFromSheet(actor) {
+  if (!canOpenBurnLuckFromSheet(actor, { notify: true })) return false;
+  const { BurnLuckDialog } = await import("../../ui/apps/burn-luck-dialog.js");
+  return BurnLuckDialog.show(actor);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1044,6 +1152,8 @@ export const LuckAPI = {
   spendLPAddDoS,
   openBurnDialog: openBurnLuckDialog,
   openBurnLuckFromSheet,
+  burnLuckManually,
+  getManualBurnLuckOptions,
   registerLuckContextMenuOptions,
   markStaminaUsedOnTest,
 };

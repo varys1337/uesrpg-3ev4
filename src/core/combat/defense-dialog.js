@@ -137,8 +137,9 @@ function _renderContent({
       value: "evade",
       title: "Evade",
       checked: defaultDefenseType === "evade",
-      disabled: false,
-      tnKey: "evade"
+      disabled: !allowed.evade,
+      tnKey: "evade",
+      desc: allowed.evade ? "" : (reasons?.evade?.[0] ?? "Not available for this attack.")
     })}
     ${_renderDefenseChoice({
       value: "parry",
@@ -218,6 +219,8 @@ export async function showDefenseDialog(defender, options = {}) {
     defenderHasSmallWeapon,
     defenderHasShield: shieldOk,
     defenderHasWard: wardOk,
+    attackerActor: options.attackerActor ?? null,
+    defenderActor: defender,
     allowedDefenseTypes,
     allowParryRanged
   });
@@ -252,11 +255,13 @@ export async function showDefenseDialog(defender, options = {}) {
       defenderHasSmallWeapon,
       defenderHasShield: hasEquippedShield(defender),
       defenderHasWard: canUseWardDefense(defender),
+      attackerActor: options.attackerActor ?? null,
+      defenderActor: defender,
       allowedDefenseTypes,
       allowParryRanged
     });
 
-    for (const name of ["block", "parry", "counter"]) {
+    for (const name of ["evade", "block", "parry", "counter"]) {
       const radio = root.querySelector(`input[name="defenseType"][value="${name}"]`);
       if (radio) radio.disabled = !currentAvailability.allowed[name];
       const opt = radio?.closest(".def-opt");

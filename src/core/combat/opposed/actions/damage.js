@@ -8,7 +8,7 @@ import { _getDefenderOutcome, _getDefenderAdvantage, _getDefenderResolutionState
 import { getHitLocationFromRoll, resolveHitLocationForTarget, getDamageTypeFromWeapon, getAttackModeFromWeapon } from "../../combat-utils.js";
 import { rollWeaponDamage as _rollWeaponDamage, rollManualDamage as _rollManualDamage } from "../damage/roller.js";
 import { postWeaponDamageChatCard as _postWeaponDamageChatCard, postManualEffectChatCard as _postManualEffectChatCard } from "../damage/chat-cards.js";
-import { getPreferredWeaponUuid as _getPreferredWeaponUuid, getContextAttackMode } from "../helpers/workflow.js";
+import { getPreferredWeaponUuid as _getPreferredWeaponUuid, getContextAttackMode, getTokenMovementAction as _getTokenMovementAction } from "../helpers/workflow.js";
 import { _canControlActor } from "../helpers/util.js";
 import { getSpecialActionById } from "../../combat-style-utils.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
@@ -130,6 +130,7 @@ export async function _emitInlineDamageRollMessage({
  */
 export function _buildApplyPayload({
   targetUuid, targetName, attackerActorUuid, weaponUuid, ammoUuid,
+  attackerTokenUuid = null, movementAction = null,
   sourceItemUuid, damage, damageType, hitLocation, dosBonus = 0,
   penetration = 0, penetrateArmor = false, forcefulImpact = false,
   damagedValue = 0,
@@ -142,8 +143,10 @@ export function _buildApplyPayload({
   if (targetUuid != null) p.targetUuid = targetUuid;
   if (targetName != null) p.targetName = targetName;
   if (attackerActorUuid != null) p.attackerActorUuid = attackerActorUuid;
+  if (attackerTokenUuid != null) p.attackerTokenUuid = attackerTokenUuid;
   if (weaponUuid != null) p.weaponUuid = weaponUuid;
   if (ammoUuid != null) p.ammoUuid = ammoUuid;
+  if (movementAction != null) p.movementAction = movementAction;
   if (sourceItemUuid != null) p.sourceItemUuid = sourceItemUuid;
   if (damage != null) p.damage = damage;
   if (healing != null) p.healing = healing;
@@ -635,8 +638,10 @@ export async function handleDamageRoll(ctx) {
         targetUuid: defender.uuid,
         targetName: dToken?.name ?? defender.name,
         attackerActorUuid: attacker.uuid,
+        attackerTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
         weaponUuid: weaponUuidForDamage,
         ammoUuid,
+        movementAction: data.context?.attackerMovementAction ?? _getTokenMovementAction(aToken),
         sourceItemUuid,
         damage: dmg.finalDamage,
         damageType,
@@ -732,8 +737,10 @@ export async function handleDamageRoll(ctx) {
       targetUuid: defender.uuid,
       targetName: dToken?.name ?? defender.name,
       attackerActorUuid: attacker.uuid,
+      attackerTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
       weaponUuid: weapon?.uuid ?? "",
       ammoUuid,
+      movementAction: data.context?.attackerMovementAction ?? _getTokenMovementAction(aToken),
       damage: dmg.finalDamage,
       damageType,
       hitLocation,
@@ -911,8 +918,10 @@ export async function handleCounterDamageRoll(ctx) {
       targetUuid: attacker.uuid,
       targetName: aToken?.name ?? attacker.name,
       attackerActorUuid: defender.uuid,
+      attackerTokenUuid: dToken?.document?.uuid ?? dToken?.uuid ?? null,
       weaponUuid: weapon.uuid,
       ammoUuid: counterAmmoUuid,
+      movementAction: _getTokenMovementAction(dToken),
       damage: dmg.finalDamage,
       damageType,
       hitLocation,

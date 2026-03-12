@@ -223,6 +223,14 @@ const STATIC_CONDITIONS = {
     changes: []
   },
 
+  helpless: {
+    name: "Helpless",
+    img: "icons/svg/ice-aura.svg",
+    description: CONDITION_DESCRIPTIONS.get("helpless"),
+    // Tracking-only condition; defensive lockout is enforced in opposed workflows.
+    changes: []
+  },
+
   silenced: {
     name: "Silenced",
     img: "icons/svg/sound-off.svg",
@@ -351,6 +359,14 @@ const STATIC_CONDITIONS = {
     changes: []
   },
 
+  mounted: {
+    name: "Mounted",
+    img: "icons/svg/pawprint.svg",
+    description: CONDITION_DESCRIPTIONS.get("mounted"),
+    // Tracking-only condition for future mounted combat automation.
+    changes: []
+  },
+
   // Homebrew — Engagement & Flanking
   // Numeric tracking condition; effects are applied in combat TN computation.
   flanked: {
@@ -393,16 +409,19 @@ const TOKEN_HUD_CONDITION_ORDER = [
   "entangled",
   "flanked",
   "frenzied",
+  "helpless",
   "hidden",
   "immobilized",
   "inclose",
   "invisible",
+  "mounted",
   "paralyzed",
   "prone",
   "restrained",
   "silenced",
   "slowed",
   "stunned",
+  "surprised",
   "unconscious",
 ];
 
@@ -530,6 +549,24 @@ function _mkTokenHudStatusConfigForBurning() {
   };
 }
 
+function _mkTokenHudStatusConfigForSurprised() {
+  const k = "surprised";
+  return {
+    id: k,
+    name: "Surprised",
+    img: "icons/svg/portal.svg",
+    description: CONDITION_DESCRIPTIONS.get(k) ?? null,
+    hud: true,
+    disabled: false,
+    duration: {},
+    changes: [],
+    statuses: [k],
+    flags: {
+      core: { statusId: k }
+    }
+  };
+}
+
 /**
  * Build the set of StatusEffectConfig entries used by the Token HUD.
  *
@@ -546,6 +583,10 @@ export function getTokenHudStatusEffectConfigs() {
     }
     if (key === "burning") {
       out.push(_mkTokenHudStatusConfigForBurning());
+      continue;
+    }
+    if (key === "surprised") {
+      out.push(_mkTokenHudStatusConfigForSurprised());
       continue;
     }
     const cfg = _mkTokenHudStatusConfigForStatic(key);
@@ -593,6 +634,13 @@ export async function upgradeTokenHudStatusEffects(actor) {
 
     const k = _normalizeConditionKey(statusId);
     if (!k || !configs.has(k)) continue;
+
+    if (k === "surprised") {
+      try {
+        await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
+      } catch (_e) {}
+      continue;
+    }
 
     const cfg = configs.get(k);
     const hasSystemFlag = !!(effect.getFlag?.(FLAG_SCOPE, "condition")?.key);

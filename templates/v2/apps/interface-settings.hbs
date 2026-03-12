@@ -1,93 +1,115 @@
-{{!-- templates/v2/apps/interface-settings.hbs — AppV2 (no <form> wrapper) --}}
-<section class="uesrpg-settings">
-<fieldset>
-  <legend>Interface</legend>
+{{!-- templates/v2/apps/interface-settings.hbs --}}
+<section class="uesrpg-settings uesrpg-settings-panel">
+  <fieldset class="uesrpg-settings__section">
+    <legend>Interface</legend>
 
-  <div class="form-group">
-    <label>System Font</label>
-    <select name="changeUiFont">
-      {{selectOptions fontChoices selected=changeUiFont}}
-    </select>
-    <p class="notes">Requires a reload to apply.</p>
-  </div>
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-change-ui-font">System Font</label>
+      <select id="uesrpg-change-ui-font" name="changeUiFont">
+        {{selectOptions fontChoices selected=changeUiFont}}
+      </select>
+      <p class="setting-help">Requires a reload to apply.</p>
+    </div>
 
-  <div class="form-group">
-    <label>Sheets: Density</label>
-    <select name="sheetDensity">
-      {{selectOptions sheetDensityChoices selected=sheetDensity}}
-    </select>
-    <p class="notes">Controls vertical spacing and row height for UESRPG AppV2 sheets.</p>
-  </div>
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-sheet-density">Sheets: Density</label>
+      <select id="uesrpg-sheet-density" name="sheetDensity">
+        {{selectOptions sheetDensityChoices selected=sheetDensity}}
+      </select>
+      <p class="setting-help">Controls vertical spacing and row height for UESRPG AppV2 sheets.</p>
+    </div>
 
-  <div class="form-group">
-    <label>Do Not Show Dialogue on Startup</label>
-    <input type="checkbox" name="noStartUpDialog" {{checked noStartUpDialog}}>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-no-startup-dialog">Do Not Show Dialogue on Startup</label>
+      </div>
+      <input id="uesrpg-no-startup-dialog" type="checkbox" name="noStartUpDialog" {{checked noStartUpDialog}}>
+    </div>
 
-  <div class="form-group">
-    <label>Sort Actor Items Alphabetically</label>
-    <input type="checkbox" name="sortAlpha" {{checked sortAlpha}}>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-sort-alpha">Sort Actor Items Alphabetically</label>
+      </div>
+      <input id="uesrpg-sort-alpha" type="checkbox" name="sortAlpha" {{checked sortAlpha}}>
+    </div>
 
-  <div class="form-group">
-    <label>Sheets: Enable Loadout</label>
-    <input type="checkbox" name="enableLoadouts" {{checked enableLoadouts}}>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-enable-loadouts">Sheets: Enable Loadout</label>
+      </div>
+      <input id="uesrpg-enable-loadouts" type="checkbox" name="enableLoadouts" {{checked enableLoadouts}}>
+    </div>
 
-  <div class="form-group">
-    <label>Custom Cursor</label>
-    <input type="checkbox" name="customCursor" {{checked customCursor}}>
-    <p class="notes">Use the UESRPG stylized cursor (requires reload).</p>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-custom-cursor">Custom Cursor</label>
+        <p class="setting-help">Use the UESRPG stylized cursor. Requires a reload.</p>
+      </div>
+      <input id="uesrpg-custom-cursor" type="checkbox" name="customCursor" {{checked customCursor}}>
+    </div>
 
-  <div class="form-group">
-    <label>Auto-resize Actor/Item Sheets</label>
-    <input type="checkbox" name="autoResizeSheets" {{checked autoResizeSheets}}>
-    <p class="notes">Automatically resize sheets to fit content (clamped to screen height).</p>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-auto-resize-sheets">Auto-resize Actor/Item Sheets</label>
+        <p class="setting-help">Automatically resize sheets to fit content, clamped to screen height.</p>
+      </div>
+      <input id="uesrpg-auto-resize-sheets" type="checkbox" name="autoResizeSheets" {{checked autoResizeSheets}}>
+    </div>
 
-  <div class="form-group">
-    <label>Sheets: Inline Rules Tooltips</label>
-    <input type="checkbox" name="enableInlineRulesTooltips" {{checked enableInlineRulesTooltips}}>
-    <p class="notes">Show inline tooltips for qualities/traits and special actions. Alt-click opens a help dialog.</p>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-inline-rules-tooltips">Sheets: Inline Rules Tooltips</label>
+        <p class="setting-help">Show inline tooltips for qualities, traits, and special actions. Alt-click opens a help dialog.</p>
+      </div>
+      <input id="uesrpg-inline-rules-tooltips" type="checkbox" name="enableInlineRulesTooltips" {{checked enableInlineRulesTooltips}}>
+    </div>
 
-  <div class="form-group">
-    <label>Sheets: Encumbrance Breakdown + Highlights</label>
-    <input type="checkbox" name="encumbranceUiEnhanced" {{checked encumbranceUiEnhanced}}>
-    <p class="notes">Show ENC breakdown dialog and highlight top encumbrance contributors.</p>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-encumbrance-breakdown">Sheets: Encumbrance Breakdown + Highlights</label>
+        <p class="setting-help">Show the ENC breakdown dialog and highlight top encumbrance contributors.</p>
+      </div>
+      <input id="uesrpg-encumbrance-breakdown" type="checkbox" name="encumbranceUiEnhanced" {{checked encumbranceUiEnhanced}}>
+    </div>
 
-  <div class="form-group">
-    <label>Dialogs: Enhanced Keyboard Flow</label>
-    <input type="checkbox" name="dialogKeyboardEnhancements" {{checked dialogKeyboardEnhancements}}>
-    <p class="notes">When enabled, DialogV2 dialogs auto-focus the first input and support Enter/Esc keyboard actions in a consistent way.</p>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-dialog-keyboard-flow">Dialogs: Enhanced Keyboard Flow</label>
+        <p class="setting-help">DialogV2 dialogs auto-focus the first input and support consistent Enter/Esc keyboard actions.</p>
+      </div>
+      <input id="uesrpg-dialog-keyboard-flow" type="checkbox" name="dialogKeyboardEnhancements" {{checked dialogKeyboardEnhancements}}>
+    </div>
 
-  <div class="form-group">
-    <label>Sheets: Item Row Quick Actions Menu</label>
-    <input type="checkbox" name="enableItemRowQuickMenu" {{checked enableItemRowQuickMenu}}>
-    <p class="notes">When enabled, right-click on an item row opens a quick actions menu.</p>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-item-row-quick-menu">Sheets: Item Row Quick Actions Menu</label>
+        <p class="setting-help">When enabled, right-clicking an item row opens a quick actions menu.</p>
+      </div>
+      <input id="uesrpg-item-row-quick-menu" type="checkbox" name="enableItemRowQuickMenu" {{checked enableItemRowQuickMenu}}>
+    </div>
 
-  <div class="form-group">
-    <label>Opposed Rolls: Post Sub-Roll Chat Messages</label>
-    <input type="checkbox" name="opposedPostSubRollMessages" {{checked opposedPostSubRollMessages}}>
-    <p class="notes">Disable to reduce chat spam; only the parent opposed card will be created/updated.</p>
-  </div>
-</fieldset>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-opposed-sub-rolls">Opposed Rolls: Post Sub-Roll Chat Messages</label>
+        <p class="setting-help">Disable to reduce chat spam so only the parent opposed card is created or updated.</p>
+      </div>
+      <input id="uesrpg-opposed-sub-rolls" type="checkbox" name="opposedPostSubRollMessages" {{checked opposedPostSubRollMessages}}>
+    </div>
+  </fieldset>
 
-<fieldset>
-  <legend>Rule Elements</legend>
+  <fieldset class="uesrpg-settings__section">
+    <legend>Rule Elements</legend>
 
-  <div class="form-group">
-    <label>Rule Elements Engine</label>
-    <input type="checkbox" name="enableRuleElementsRuntime" {{checked enableRuleElementsRuntime}}>
-    <p class="notes">When enabled, Rule Element automation runs during opposed workflows (combat, skill, magic). When disabled, all RE automation is suppressed and the Automation tab is hidden on item sheets.</p>
-  </div>
-</fieldset>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-rule-elements-runtime">Rule Elements Engine</label>
+        <p class="setting-help">Runs Rule Element automation during opposed workflows. Disabling it suppresses RE automation and hides the Automation tab on item sheets.</p>
+      </div>
+      <input id="uesrpg-rule-elements-runtime" type="checkbox" name="enableRuleElementsRuntime" {{checked enableRuleElementsRuntime}}>
+    </div>
+  </fieldset>
 
-<footer class="sheet-footer flexrow">
-  <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
-</footer>
+  <footer class="uesrpg-settings__footer">
+    <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+  </footer>
 </section>

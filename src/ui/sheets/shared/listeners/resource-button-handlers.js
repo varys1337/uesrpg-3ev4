@@ -9,6 +9,7 @@
 import { HPTempHPDialog } from "../../../apps/hp-temp-hp-dialog.js";
 import { openStaminaDialog } from "../../../../core/stamina/stamina-dialog.js";
 import { MagickaBarrierDialog } from "../../../apps/magicka-barrier-dialog.js";
+import { BurnLuckDialog } from "../../../apps/burn-luck-dialog.js";
 
 /**
  * Resource button configuration.
@@ -19,6 +20,7 @@ const RESOURCE_DIALOGS = {
   hp:      (actor) => HPTempHPDialog.show(actor),
   stamina: (actor) => openStaminaDialog(actor),
   magicka: (actor) => MagickaBarrierDialog.show(actor),
+  luck_points: (actor) => BurnLuckDialog.show(actor),
 };
 
 /**

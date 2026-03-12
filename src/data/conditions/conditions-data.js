@@ -216,6 +216,16 @@ const CONDITIONS_DATASET = Object.freeze([
 
   // ── Hidden ─────────────────────────────────────────────────────────────────
   {
+    id: "helpless",
+    name: "Helpless",
+    img: "icons/svg/ice-aura.svg",
+    hudVisible: true,
+    description:
+      `<p>The character is unable to meaningfully defend themself. Helpless characters cannot take defensive actions or commit defenses against attacks.</p>`,
+    rulesRef: { chapter: "Chapter 5 - Advanced Mechanics", section: "Combat Adjudication" }
+  },
+
+  {
     id: "hidden",
     name: "Hidden",
     img: "icons/svg/cowled.svg",
@@ -260,6 +270,16 @@ const CONDITIONS_DATASET = Object.freeze([
   },
 
   // ── Lost Ear ───────────────────────────────────────────────────────────────
+  {
+    id: "mounted",
+    name: "Mounted",
+    img: "icons/svg/pawprint.svg",
+    hudVisible: true,
+    description:
+      `<p>The character is mounted. This condition currently serves as a tracking flag for future mounted combat automation.</p>`,
+    rulesRef: { chapter: "Chapter 5 - Advanced Mechanics", section: "Mounted Combat" }
+  },
+
   {
     id: "lost-ear",
     name: "Lost Ear",
@@ -412,6 +432,16 @@ const CONDITIONS_DATASET = Object.freeze([
   },
 
   // ── Unconscious ────────────────────────────────────────────────────────────
+  {
+    id: "surprised",
+    name: "Surprised",
+    img: "icons/svg/portal.svg",
+    hudVisible: true,
+    description:
+      `<p>Surprised characters do not roll 1d6 for initiative; they simply use their Initiative Rating. They also may only take reactions until after their first Turn has passed.</p>`,
+    rulesRef: { chapter: "Chapter 5 - Advanced Mechanics", section: "Surprise" }
+  },
+
   {
     id: "unconscious",
     name: "Unconscious",

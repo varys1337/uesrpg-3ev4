@@ -10,7 +10,7 @@ import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _comput
 import { applyAoEEvadeOutcome as _applyAoEEvadeOutcome, getTokenMovementAction as _getTokenMovementAction } from "../helpers/workflow.js";
 import { _canControlActor, _emitSuppressedSubRollDice, _logDebug, _opposedFlags, _safeGetSetting } from "../helpers/util.js";
 import { removeCondition } from "../../../conditions/condition-engine.js";
-import { canDefenderRoll, markDefenderIneligibleForHidden } from "./eligibility.js";
+import { canDefenderRoll, markDefenderIneligibleForHidden, markDefenderNoDefense } from "./eligibility.js";
 import { getDefenseTalentOverrides, applyDefenderTalentTNMods, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
@@ -317,19 +317,7 @@ export async function handleDefenderCommit(ctx) {
     if (eligibility.isHidden) {
       markDefenderIneligibleForHidden(data.defender);
     } else {
-      data.defender.noDefense = true;
-      data.defender.defenseType = "none";
-      data.defender.label = `No Defense (${reason})`;
-      data.defender.testLabel = "No Defense";
-      data.defender.defenseLabel = "No Defense";
-      data.defender.target = 0;
-      data.defender.tn = {
-        finalTN: 0,
-        baseTN: 0,
-        totalMod: 0,
-        breakdown: [{ key: "base", label: `No Defense (${reason})`, value: 0, source: "base" }]
-      };
-      data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
+      markDefenderNoDefense(data.defender, reason);
     }
 
     // Auto-request GM roll when ALL participants have committed (banking workflow)
@@ -422,6 +410,7 @@ export async function handleDefenderCommit(ctx) {
   });
 
   const choice = await DefenseDialog.show(defender, {
+    attackerActor: attacker,
     attackerContext: data.attacker,
     attackerWeaponTraits,
     defenderHasSmallWeapon,
@@ -477,6 +466,8 @@ export async function handleDefenderCommit(ctx) {
       defenderHasSmallWeapon,
       defenderHasShield: hasEquippedShield(defender),
       defenderHasWard: canUseWardDefense(defender),
+      attackerActor: attacker,
+      defenderActor: defender,
       allowedDefenseTypes,
       allowParryRanged: defenseTalentOverrides.allowParryRanged
     });

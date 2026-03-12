@@ -51,7 +51,7 @@ import {
   isWoundsOrShockEffect,
   onWoundsInjuriesControl
 } from "./shared/wounds-injuries-panel.js";
-import { activateEditorButtons } from "../shared/editor-activation.js";
+import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
 import {
   TALENT_LEARNING_MODE,
   validateTalentLearning,
@@ -106,6 +106,7 @@ const ATTACK_TRACKER_MAX_PATH = `flags.${SYSTEM_ID}.combat.attackTrackerOverride
 const ALLOWED_PC_FORM_PATH = createFormPathMatcher({
   exact: [
     "name",
+    "system.bio",
     "system.hp.value",
     "system.stamina.value",
     "system.magicka.value",
@@ -840,7 +841,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         this._traceSheetPerfPhase("dom:resource-bars", perfBarsStart, {});
       }
 
-      activateEditorButtons(this, el);
+      activateProseMirrorEditors(this, el);
     } finally {
       this._traceSheetPerf("_onRender", perfStart, {
         limited: Boolean(this.document?.limited),
@@ -1070,15 +1071,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     event?.preventDefault?.();
     if (!this.isEditable) return;
 
-    const bioRoot = this.element?.querySelector?.(".bioPage .contentContainer");
-    const editButton = bioRoot?.querySelector?.(".editor-edit");
-    if (editButton) {
-      editButton.click();
-      return;
-    }
-
-    const fallbackField = bioRoot?.querySelector?.("[name='system.bio']");
-    if (fallbackField) fallbackField.focus();
+    const editor = this.element?.querySelector?.(".bioPage .contentContainer prose-mirror[name='system.bio']");
+    openProseMirrorEditor(editor);
   }
 
   /** Open item sheet on name click */

@@ -1,63 +1,67 @@
-{{!-- templates/v2/apps/combat-settings.hbs — AppV2 (no <form> wrapper) --}}
-<section class="uesrpg-settings">
-<fieldset>
-  <legend>Combat</legend>
+{{!-- templates/v2/apps/combat-settings.hbs --}}
+<section class="uesrpg-settings uesrpg-settings-panel">
+  <fieldset class="uesrpg-settings__section">
+    <legend>Combat</legend>
 
-  <div class="form-group">
-    <label>Combat Sheet: Action Economy UI</label>
-    <input type="checkbox" name="enableActionEconomyUI" {{checked enableActionEconomyUI}}>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-action-economy-ui">Combat Sheet: Action Economy UI</label>
+      </div>
+      <input id="uesrpg-action-economy-ui" type="checkbox" name="enableActionEconomyUI" {{checked enableActionEconomyUI}}>
+    </div>
 
-  <div class="form-group">
-    <label>Action Point Automation</label>
-    <select name="actionPointAutomation">
-      <option value="round" {{#if (eq actionPointAutomation "round")}}selected{{/if}}>Round-Based</option>
-      <option value="turn" {{#if (eq actionPointAutomation "turn")}}selected{{/if}}>Turn-Based</option>
-      <option value="none" {{#if (eq actionPointAutomation "none")}}selected{{/if}}>None</option>
-    </select>
-    <p class="notes">Round-Based: AP is set to max at the start of each round. Turn-Based: AP is set to max at the start of each turn, except the first round in which all combatants start with max AP. None: No automation.</p>
-  </div>
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-action-point-automation">Action Point Automation</label>
+      <select id="uesrpg-action-point-automation" name="actionPointAutomation">
+        <option value="round" {{#if (eq actionPointAutomation "round")}}selected{{/if}}>Round-Based</option>
+        <option value="turn" {{#if (eq actionPointAutomation "turn")}}selected{{/if}}>Turn-Based</option>
+        <option value="none" {{#if (eq actionPointAutomation "none")}}selected{{/if}}>None</option>
+      </select>
+      <p class="setting-help">Round-Based sets AP to max each round. Turn-Based sets AP to max at each turn start, except round one where everyone starts at max. None disables automation.</p>
+    </div>
 
-  <div class="form-group">
-    <label>Token Range Measurement Mode</label>
-    <select name="tokenRangeMeasurement">
-      <option value="center" {{#if (eq tokenRangeMeasurement "center")}}selected{{/if}}>Center Point (Legacy)</option>
-      <option value="edge" {{#if (eq tokenRangeMeasurement "edge")}}selected{{/if}}>Edge to Edge (D&amp;D/PF2e)</option>
-    </select>
-    <p class="notes">How to measure distance between tokens. 'Center Point': Always measure center-to-center (legacy, treats all tokens as 1×1). 'Edge to Edge': Measure from nearest edges for tokens larger than 1×1 (D&amp;D/PF2e standard).</p>
-  </div>
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-token-range-mode">Token Range Measurement Mode</label>
+      <select id="uesrpg-token-range-mode" name="tokenRangeMeasurement">
+        <option value="center" {{#if (eq tokenRangeMeasurement "center")}}selected{{/if}}>Center Point (Legacy)</option>
+        <option value="edge" {{#if (eq tokenRangeMeasurement "edge")}}selected{{/if}}>Edge to Edge (D&amp;D/PF2e)</option>
+      </select>
+      <p class="setting-help">Center Point always measures center-to-center and treats all tokens as 1x1. Edge to Edge measures from the nearest token edges for larger token footprints.</p>
+    </div>
 
-  <div class="form-group">
-    <label>Dynamic Initiative</label>
-    <input type="checkbox" name="dynamicInitiativeEnabled" {{checked dynamicInitiativeEnabled}}>
-    <p class="notes">When enabled, initiative rerolls each new round and commits atomically with round advance. This changes round-order behavior for upkeep and timing effects.</p>
-  </div></fieldset>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-dynamic-initiative">Dynamic Initiative</label>
+        <p class="setting-help">Rerolls initiative each new round and commits together with round advance. This changes upkeep and timing behavior.</p>
+      </div>
+      <input id="uesrpg-dynamic-initiative" type="checkbox" name="dynamicInitiativeEnabled" {{checked dynamicInitiativeEnabled}}>
+    </div>
+  </fieldset>
 
-<fieldset>
-  <legend>Area of Effect</legend>
+  <fieldset class="uesrpg-settings__section">
+    <legend>Area of Effect</legend>
 
-  <div class="form-group">
-    <label>AoE Containment Mode</label>
-    <select name="aoeContainmentMode">
-      <option value="true-radius" {{#if (eq aoeContainmentMode "true-radius")}}selected{{/if}}>True Radius (Geometric)</option>
-      <option value="grid-aware" {{#if (eq aoeContainmentMode "grid-aware")}}selected{{/if}}>Grid-Aware (Cell Overlap)</option>
-    </select>
-    <p class="notes">True Radius: token is affected if any part of its space falls inside the template shape (geometric sampling). Grid-Aware: token is affected if the template overlaps any grid cell the token occupies (D&amp;D/PF2e style).</p>
-  </div>
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-aoe-containment-mode">AoE Containment Mode</label>
+      <select id="uesrpg-aoe-containment-mode" name="aoeContainmentMode">
+        <option value="true-radius" {{#if (eq aoeContainmentMode "true-radius")}}selected{{/if}}>True Radius (Geometric)</option>
+        <option value="grid-aware" {{#if (eq aoeContainmentMode "grid-aware")}}selected{{/if}}>Grid-Aware (Cell Overlap)</option>
+      </select>
+      <p class="setting-help">True Radius affects tokens when any part of their space falls inside the template. Grid-Aware affects a token when the template overlaps any occupied grid cell.</p>
+    </div>
 
-  <div class="form-group">
-    <label>AoE Range Origin</label>
-    <select name="aoeOriginMeasurement">
-      <option value="center" {{#if (eq aoeOriginMeasurement "center")}}selected{{/if}}>Center Point</option>
-      <option value="edge" {{#if (eq aoeOriginMeasurement "edge")}}selected{{/if}}>Nearest Edge</option>
-      <option value="match-token" {{#if (eq aoeOriginMeasurement "match-token")}}selected{{/if}}>Match Token Range Setting</option>
-    </select>
-    <p class="notes">How to measure range from the caster to an AoE placement or spell target. 'Center': from token center (legacy). 'Nearest Edge': from the caster token's closest edge. 'Match Token': use whichever mode is set for Token Range Measurement above.</p>
-  </div>
-</fieldset>
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-aoe-origin-measurement">AoE Range Origin</label>
+      <select id="uesrpg-aoe-origin-measurement" name="aoeOriginMeasurement">
+        <option value="center" {{#if (eq aoeOriginMeasurement "center")}}selected{{/if}}>Center Point</option>
+        <option value="edge" {{#if (eq aoeOriginMeasurement "edge")}}selected{{/if}}>Nearest Edge</option>
+        <option value="match-token" {{#if (eq aoeOriginMeasurement "match-token")}}selected{{/if}}>Match Token Range Setting</option>
+      </select>
+      <p class="setting-help">Controls how range is measured from the caster to the AoE placement or target. Match Token uses the Token Range Measurement mode above.</p>
+    </div>
+  </fieldset>
 
-<footer class="sheet-footer flexrow">
-  <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
-</footer>
+  <footer class="uesrpg-settings__footer">
+    <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+  </footer>
 </section>
-

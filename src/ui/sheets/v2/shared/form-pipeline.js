@@ -2,10 +2,21 @@
  * Shared AppV2 sheet form helpers for deterministic, allow-listed updates.
  */
 
-function _isFormControl(target) {
+function _isNativeFormControl(target) {
   return target instanceof HTMLInputElement
     || target instanceof HTMLSelectElement
     || target instanceof HTMLTextAreaElement;
+}
+
+function _isCustomFormControl(target) {
+  return target instanceof HTMLElement
+    && !_isNativeFormControl(target)
+    && Boolean(String(target.getAttribute?.("name") ?? "").trim())
+    && ("value" in target);
+}
+
+function _isFormControl(target) {
+  return _isNativeFormControl(target) || _isCustomFormControl(target);
 }
 
 function _coerceChangedValue(target, currentValue) {
@@ -37,6 +48,10 @@ function _coerceChangedValue(target, currentValue) {
   }
 
   return String(raw ?? "");
+}
+
+function _coerceCustomChangedValue(target) {
+  return target?.value;
 }
 
 /**
@@ -84,7 +99,9 @@ export function buildAllowedChangePatch({ document, target, allowPath, normalize
   if (!path || !allowPath(path)) return null;
 
   const currentValue = foundry.utils.getProperty(document, path);
-  let nextValue = _coerceChangedValue(target, currentValue);
+  let nextValue = _isNativeFormControl(target)
+    ? _coerceChangedValue(target, currentValue)
+    : _coerceCustomChangedValue(target);
   if (typeof normalizeValue === "function") {
     nextValue = normalizeValue({
       path,

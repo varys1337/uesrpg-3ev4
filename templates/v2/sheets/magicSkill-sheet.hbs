@@ -43,7 +43,7 @@
 
             {{!-- Description Tab --}}
             <div class="tab" data-group="primary" data-tab="description">
-                {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+                <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
             </div>
         
 
@@ -53,4 +53,3 @@
             {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
         </div>
 </section>
-

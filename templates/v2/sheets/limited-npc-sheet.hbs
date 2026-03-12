@@ -153,7 +153,7 @@
         <div class="bioPage">
           <h2>Biography</h2>
           <div class="contentContainer">
-            {{editor actor.system.bio target="system.bio" button=editable owner=owner editable=editable}}
+            <prose-mirror name="system.bio" value="{{actor.system.bio}}" data-document-uuid="{{actor.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{actor.system.enrichedBio}}}</prose-mirror>
           </div>
         </div>
 

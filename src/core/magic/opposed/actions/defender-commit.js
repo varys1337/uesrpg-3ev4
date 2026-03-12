@@ -23,6 +23,8 @@ import { computeCharacteristicDefenseTN } from "../../characteristic-defense-ser
 import { applyRuntimePreRollToTN } from "../../../traits/features/rule-element-runtime.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
+import { hasCondition } from "../../../conditions/condition-engine.js";
+import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
 
 /** @private */
 function syncDefenderToData(data, defender, defenderIndex) {
@@ -127,6 +129,33 @@ export async function handleDefenderCommit(ctx, action) {
   let selectedDefense = null;
   let selectedManualMod = 0;
   let selectedCircumstanceMod = 0;
+  const isCharacteristicAction = action === "defender-commit-characteristic";
+
+  if (!isCharacteristicAction && hasCondition(defenderActor, "helpless")) {
+    ensureBankedScaffold(data);
+    defender.banked.committed = true;
+    defender.banked.committedAt = Date.now();
+    defender.banked.committedBy = "system";
+    defender.banked.forced = true;
+    defender.banked.reason = "helpless";
+    markDefenderNoDefense(defender, "Helpless");
+    syncDefenderToData(data, defender, ctx.defenderIndex);
+    await commitLaneToFreshCardState({
+      message,
+      readState: _readMagicOpposedFlagState,
+      mutate: (_t) => {
+        _t.defender = foundry.utils.mergeObject(_t.defender ?? {}, data.defender ?? {}, { overwrite: true, insertKeys: true });
+        _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context ?? {}, { overwrite: true, insertKeys: true });
+        const _di = Number(ctx.defenderIndex ?? 0);
+        if (Number.isFinite(_di) && _di >= 0 && Array.isArray(data.defenders) && Array.isArray(_t.defenders) && _t.defenders[_di] && data.defenders[_di]) {
+          _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
+        }
+      },
+      updateCard: _updateCard,
+      fallbackData: data,
+    });
+    return;
+  }
 
   if (action === "defender-commit-characteristic") {
     selectedDefense = "characteristic-save";
@@ -168,7 +197,6 @@ export async function handleDefenderCommit(ctx, action) {
   syncDefenderToData(data, defender, defenderIndex);
 
   let commitAsNoDefense = action === "defender-commit-nodefense";
-  const isCharacteristicAction = action === "defender-commit-characteristic";
   if (!commitAsNoDefense && !isCharacteristicAction) {
     const apCost = Number(defender?.apCost ?? 1) || 1;
     const currentAP = Number(foundry.utils.getProperty(defenderActor, "system.action_points.value") ?? 0);

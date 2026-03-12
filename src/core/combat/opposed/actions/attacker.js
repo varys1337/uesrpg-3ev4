@@ -54,6 +54,7 @@ import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
+import { maybeHandleUnusualCombatAttackFailure } from "../../unusual-combat.js";
 
 /** @private — Clone current opposed flag state from a live message for lane-commit merging. */
 function _readCombatOpposedFlagState(fm) {
@@ -412,6 +413,8 @@ export async function handleAttackerAction(action, ctx) {
         rangeContext: data.context?.range ?? null
       }
     });
+    data.context = data.context ?? {};
+    data.context.attackerMovementAction = attackerMovementAction || null;
 
     const finalTN = tn.finalTN;
     const totalMod = tn.totalMod;
@@ -728,7 +731,8 @@ export async function handleAttackerAction(action, ctx) {
             source: `${flailWeapon.name} (Flail Critical Failure)`,
             weapon: flailWeapon,
             attackerActor: attacker,
-            attackMode: String(data?.context?.attackMode ?? "melee")
+            attackMode: String(data?.context?.attackMode ?? "melee"),
+            movementAction: data?.context?.attackerMovementAction ?? _getTokenMovementAction(aToken)
           });
         }
       }
@@ -811,6 +815,22 @@ export async function handleAttackerAction(action, ctx) {
     talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
     ...(Array.isArray(res?.talentNotes) && res.talentNotes.length ? { talentNotes: res.talentNotes } : {})
   };
+
+  data.context = data.context ?? {};
+  const unusualState = data.context.unusualCombat ?? {};
+  if (data.attacker.result.isSuccess === false && unusualState.attackerFailureHandled !== true) {
+    const followUp = await maybeHandleUnusualCombatAttackFailure({
+      attacker,
+      attackerToken: aToken,
+      movementAction: data.context?.attackerMovementAction ?? _getTokenMovementAction(aToken),
+    });
+    if (followUp?.handled) {
+      unusualState.attackerFailureHandled = true;
+      unusualState.attackerFailureMode = String(followUp.mode ?? "");
+      unusualState.attackerFailureOutcome = String(followUp.outcome ?? "");
+      data.context.unusualCombat = unusualState;
+    }
+  }
 
   // Combat talents: DoS adjustments already applied before roll message posting.
 

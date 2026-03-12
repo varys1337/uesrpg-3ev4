@@ -1,159 +1,148 @@
-{{!-- templates/v2/apps/reach-visualizer-settings.hbs — AppV2 (no <form> wrapper) --}}
-<section class="uesrpg-settings">
-<header class="sheet-header">
-  <h2>Reach Visualizer</h2>
-  <p class="notes">
-    Visualize active melee reach on the canvas.
-    <br/>
-    <em>Grid-aware</em> supports square and hex grids and falls back to smooth rings on gridless scenes.
-  </p>
-</header>
+{{!-- templates/v2/apps/reach-visualizer-settings.hbs --}}
+<section class="uesrpg-settings uesrpg-settings-panel">
+  <header class="uesrpg-settings__header">
+    <h2>Configure Visualiser</h2>
+    <p class="setting-help">Visualize active melee reach on the canvas. Grid-aware mode supports square and hex grids and falls back to smooth rings on gridless scenes.</p>
+  </header>
 
-<fieldset>
-  <legend>Behaviour</legend>
+  <fieldset class="uesrpg-settings__section">
+    <legend>Behaviour</legend>
 
-  <div class="form-group">
-    <label>Enabled</label>
-    <input type="checkbox" name="enabled" {{checked settings.enabled}} />
-  </div>
-
-  <div class="form-group">
-    <label title="Which tokens get an overlay drawn.">Display on</label>
-    <select name="behaviour">
-      {{selectOptions behaviourChoices selected=settings.behaviour}}
-    </select>
-    <p class="hint">Controls which tokens qualify for an overlay. Visibility rules are applied afterwards.</p>
-  </div>
-
-  <div class="form-group">
-    <label title="When the overlay is shown for qualifying tokens.">Visibility</label>
-    <select name="visibility">
-      {{selectOptions visibilityChoices selected=settings.visibility}}
-    </select>
-    <p class="hint">
-      <strong>Dynamic</strong> shows all qualifying tokens at Passive Opacity and highlights the hovered token at Active Opacity.
-    </p>
-  </div>
-</fieldset>
-
-<fieldset>
-  <legend>Source of truth</legend>
-
-  <div class="form-group">
-    <label title="How the active melee reach is determined for an actor.">Active reach source</label>
-    <select name="reachSource">
-      {{selectOptions reachSourceChoices selected=settings.reachSource}}
-    </select>
-    <p class="hint">
-      "Last-used" is stored per user and updates when you initiate a melee attack from a sheet.
-      Falls back to max equipped reach when unknown.
-    </p>
-  </div>
-</fieldset>
-
-<fieldset>
-  <legend>Appearance</legend>
-
-  <div class="form-group">
-    <label title="How the reach boundary is drawn.">Shape</label>
-    <select name="shape">
-      {{selectOptions shapeChoices selected=settings.shape}}
-    </select>
-    <p class="hint">
-      Grid-aware boundaries are outlined on the grid.
-      On hex scenes, reach uses an AoE-style emanation (radius in hexes).
-      On gridless scenes it automatically falls back to smooth rings.
-    </p>
-  </div>
-
-  <div class="form-group">
-    <label title="Controls how diagonal distance is counted on square grids.">Grid diagonals</label>
-    <select name="gridDiagonalMode">
-      {{selectOptions gridDiagonalChoices selected=settings.gridDiagonalMode}}
-    </select>
-    <p class="hint">
-      <strong>Ignore diagonal rule</strong> uses equal-cost diagonals (Chebyshev distance) regardless of the scene's movement setting — reach is not governed by movement.
-      <strong>Respect scene rule</strong> matches Foundry's configured diagonal movement rule (e.g. 1/2/1 alternating).
-      Only applies to Grid-aware shape on square grids. Flanking range checks follow this same setting.
-    </p>
-  </div>
-
-  <div class="form-group">
-    <label title="Color scheme for multi-token readability.">Color mode</label>
-    <select name="colorMode">
-      {{selectOptions colorModeChoices selected=settings.colorMode}}
-    </select>
-    <p class="hint">In disposition mode: friendly / neutral / hostile tokens are color-coded.</p>
-  </div>
-
-  <div class="form-group rv-uniform-color-row">
-    <label title="Used when Color mode is set to Uniform color.">Uniform color</label>
-    <input type="color" name="uniformColor" value="{{settings.uniformColor}}" />
-    <p class="hint">Applies to all overlays when Uniform color is selected.</p>
-  </div>
-
-  <div class="form-group rv-opacity-single">
-    <label title="Opacity applied to the overlay rings.">Opacity</label>
-    <div class="form-fields">
-      <input type="range" name="opacity" min="0.05" max="1" step="0.05" value="{{settings.opacity}}" data-range-value="opacity" />
-      <span class="range-value" data-range-value="opacity">{{settings.opacity}}</span>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-reach-enabled">Enabled</label>
+      </div>
+      <input id="uesrpg-reach-enabled" type="checkbox" name="enabled" {{checked settings.enabled}} />
     </div>
-  </div>
 
-  <div class="rv-opacity-dynamic">
-    <div class="form-group">
-      <label title="Opacity for non-hovered tokens in Dynamic mode.">Passive opacity</label>
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-reach-behaviour" title="Which tokens get an overlay drawn.">Display on</label>
+      <select id="uesrpg-reach-behaviour" name="behaviour">
+        {{selectOptions behaviourChoices selected=settings.behaviour}}
+      </select>
+      <p class="setting-help">Controls which tokens qualify for an overlay. Visibility rules are applied afterwards.</p>
+    </div>
+
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-reach-visibility" title="When the overlay is shown for qualifying tokens.">Visibility</label>
+      <select id="uesrpg-reach-visibility" name="visibility">
+        {{selectOptions visibilityChoices selected=settings.visibility}}
+      </select>
+      <p class="setting-help"><strong>Dynamic</strong> shows all qualifying tokens at Passive Opacity and highlights the hovered token at Active Opacity.</p>
+    </div>
+  </fieldset>
+
+  <fieldset class="uesrpg-settings__section">
+    <legend>Source of Truth</legend>
+
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-reach-source" title="How the active melee reach is determined for an actor.">Active reach source</label>
+      <select id="uesrpg-reach-source" name="reachSource">
+        {{selectOptions reachSourceChoices selected=settings.reachSource}}
+      </select>
+      <p class="setting-help">Last-used is stored per user and updates when you initiate a melee attack from a sheet. It falls back to max equipped reach when unknown.</p>
+    </div>
+  </fieldset>
+
+  <fieldset class="uesrpg-settings__section">
+    <legend>Appearance</legend>
+
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-reach-shape" title="How the reach boundary is drawn.">Shape</label>
+      <select id="uesrpg-reach-shape" name="shape">
+        {{selectOptions shapeChoices selected=settings.shape}}
+      </select>
+      <p class="setting-help">Grid-aware boundaries are outlined on the grid, use AoE-style emanation on hex scenes, and fall back to smooth rings on gridless scenes.</p>
+    </div>
+
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-grid-diagonal-mode" title="Controls how diagonal distance is counted on square grids.">Grid diagonals</label>
+      <select id="uesrpg-grid-diagonal-mode" name="gridDiagonalMode">
+        {{selectOptions gridDiagonalChoices selected=settings.gridDiagonalMode}}
+      </select>
+      <p class="setting-help"><strong>Ignore diagonal rule</strong> uses equal-cost diagonals regardless of scene movement. <strong>Respect scene rule</strong> matches Foundry's configured diagonal movement rule. This only applies to Grid-aware shape on square grids, and flanking checks use the same setting.</p>
+    </div>
+
+    <div class="setting-row setting-row--select">
+      <label class="setting-row__label" for="uesrpg-reach-color-mode" title="Color scheme for multi-token readability.">Color mode</label>
+      <select id="uesrpg-reach-color-mode" name="colorMode">
+        {{selectOptions colorModeChoices selected=settings.colorMode}}
+      </select>
+      <p class="setting-help">Disposition mode color-codes friendly, neutral, and hostile tokens.</p>
+    </div>
+
+    <div class="setting-row setting-row--select rv-uniform-color-row">
+      <label class="setting-row__label" for="uesrpg-reach-uniform-color" title="Used when Color mode is set to Uniform color.">Uniform color</label>
+      <input id="uesrpg-reach-uniform-color" type="color" name="uniformColor" value="{{settings.uniformColor}}" />
+      <p class="setting-help">Applies to all overlays when Uniform color is selected.</p>
+    </div>
+
+    <div class="setting-row setting-row--slider rv-opacity-single">
+      <label class="setting-row__label" for="uesrpg-reach-opacity" title="Opacity applied to the overlay rings.">Opacity</label>
       <div class="form-fields">
-        <input type="range" name="passiveOpacity" min="0.05" max="1" step="0.05" value="{{settings.passiveOpacity}}" data-range-value="passiveOpacity" />
-        <span class="range-value" data-range-value="passiveOpacity">{{settings.passiveOpacity}}</span>
+        <input id="uesrpg-reach-opacity" type="range" name="opacity" min="0.05" max="1" step="0.05" value="{{settings.opacity}}" data-range-value="opacity" />
+        <span class="range-value" data-range-value="opacity">{{settings.opacity}}</span>
       </div>
     </div>
 
-    <div class="form-group">
-      <label title="Opacity for the hovered token in Dynamic mode.">Active opacity</label>
-      <div class="form-fields">
-        <input type="range" name="activeOpacity" min="0.05" max="1" step="0.05" value="{{settings.activeOpacity}}" data-range-value="activeOpacity" />
-        <span class="range-value" data-range-value="activeOpacity">{{settings.activeOpacity}}</span>
+    <div class="rv-opacity-dynamic">
+      <div class="setting-row setting-row--slider">
+        <label class="setting-row__label" for="uesrpg-reach-passive-opacity" title="Opacity for non-hovered tokens in Dynamic mode.">Passive opacity</label>
+        <div class="form-fields">
+          <input id="uesrpg-reach-passive-opacity" type="range" name="passiveOpacity" min="0.05" max="1" step="0.05" value="{{settings.passiveOpacity}}" data-range-value="passiveOpacity" />
+          <span class="range-value" data-range-value="passiveOpacity">{{settings.passiveOpacity}}</span>
+        </div>
+      </div>
+
+      <div class="setting-row setting-row--slider">
+        <label class="setting-row__label" for="uesrpg-reach-active-opacity" title="Opacity for the hovered token in Dynamic mode.">Active opacity</label>
+        <div class="form-fields">
+          <input id="uesrpg-reach-active-opacity" type="range" name="activeOpacity" min="0.05" max="1" step="0.05" value="{{settings.activeOpacity}}" data-range-value="activeOpacity" />
+          <span class="range-value" data-range-value="activeOpacity">{{settings.activeOpacity}}</span>
+        </div>
       </div>
     </div>
-  </div>
 
-  <div class="form-group">
-    <label title="Line thickness in pixels.">Line width</label>
-    <div class="form-fields">
-      <input type="range" name="lineWidth" min="1" max="12" step="1" value="{{settings.lineWidth}}" data-range-value="lineWidth" />
-      <span class="range-value" data-range-value="lineWidth">{{settings.lineWidth}}</span>
+    <div class="setting-row setting-row--slider">
+      <label class="setting-row__label" for="uesrpg-reach-line-width" title="Line thickness in pixels.">Line width</label>
+      <div class="form-fields">
+        <input id="uesrpg-reach-line-width" type="range" name="lineWidth" min="1" max="12" step="1" value="{{settings.lineWidth}}" data-range-value="lineWidth" />
+        <span class="range-value" data-range-value="lineWidth">{{settings.lineWidth}}</span>
+      </div>
     </div>
-  </div>
 
-  <p class="hint">
-    Minimum reach is always shown when present (dashed inner boundary). Maximum reach is shown as a solid boundary.
-  </p>
-</fieldset>
+    <p class="setting-note">Minimum reach is always shown when present as a dashed inner boundary. Maximum reach is shown as a solid boundary.</p>
+  </fieldset>
 
-<fieldset>
-  <legend>Labels</legend>
+  <fieldset class="uesrpg-settings__section">
+    <legend>Labels</legend>
 
-  <div class="form-group">
-    <label>Show reach label</label>
-    <input type="checkbox" name="showLabel" {{checked settings.showLabel}} />
-    <p class="hint">Shows the active melee reach value above the token.</p>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-show-reach-label">Show reach label</label>
+        <p class="setting-help">Shows the active melee reach value above the token.</p>
+      </div>
+      <input id="uesrpg-show-reach-label" type="checkbox" name="showLabel" {{checked settings.showLabel}} />
+    </div>
 
-  <div class="form-group">
-    <label title="When you have exactly one target, show distance to that target on the controlled token(s).">Show target distance</label>
-    <input type="checkbox" name="showTargetDistance" {{checked settings.showTargetDistance}} />
-    <p class="hint">Only shown when exactly one target is set and the token is controlled.</p>
-  </div>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-show-target-distance" title="When you have exactly one target, show distance to that target on the controlled token(s).">Show target distance</label>
+        <p class="setting-help">Only shown when exactly one target is set and the token is controlled.</p>
+      </div>
+      <input id="uesrpg-show-target-distance" type="checkbox" name="showTargetDistance" {{checked settings.showTargetDistance}} />
+    </div>
 
-  <div class="form-group">
-    <label title="If enabled, includes vertical elevation in the target distance (3D).">Include elevation (3D)</label>
-    <input type="checkbox" name="includeElevation" {{checked settings.includeElevation}} />
-    <p class="hint">Uses token elevation (in scene units) combined with Foundry's horizontal grid-distance rules.</p>
-  </div>
-</fieldset>
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-include-elevation" title="If enabled, includes vertical elevation in the target distance (3D).">Include elevation (3D)</label>
+        <p class="setting-help">Uses token elevation combined with Foundry's horizontal grid-distance rules.</p>
+      </div>
+      <input id="uesrpg-include-elevation" type="checkbox" name="includeElevation" {{checked settings.includeElevation}} />
+    </div>
+  </fieldset>
 
-<footer class="sheet-footer flexrow">
-  <button type="submit"><i class="fas fa-save"></i> Save Settings</button>
-</footer>
+  <footer class="uesrpg-settings__footer">
+    <button type="submit"><i class="fas fa-save"></i> Save</button>
+  </footer>
 </section>

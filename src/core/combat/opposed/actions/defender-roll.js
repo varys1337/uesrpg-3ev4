@@ -26,7 +26,7 @@ import {
 } from "../helpers/workflow.js";
 import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _computeAdvantageRAW } from "../outcome-resolution.js";
 import { _cleanupAutoRollContext } from "../banking/state.js";
-import { canDefenderRoll, markDefenderIneligibleForHidden } from "./eligibility.js";
+import { canDefenderRoll, markDefenderIneligibleForHidden, markDefenderNoDefense } from "./eligibility.js";
 import { DefenseDialog } from "../../defense-dialog.js";
 import { computeTN } from "../../tn.js";
 import { getDefenseTalentOverrides, applyDefenderTalentTNMods, applyCombatTalentDoSAdjustments, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
@@ -224,19 +224,7 @@ export async function handleDefenderRoll(ctx) {
     if (eligibility.isHidden) {
       markDefenderIneligibleForHidden(data.defender);
     } else {
-      data.defender.noDefense = true;
-      data.defender.defenseType = "none";
-      data.defender.label = `No Defense (${reason})`;
-      data.defender.testLabel = "No Defense";
-      data.defender.defenseLabel = "No Defense";
-      data.defender.target = 0;
-      data.defender.tn = {
-        finalTN: 0,
-        baseTN: 0,
-        totalMod: 0,
-        breakdown: [{ key: "base", label: `No Defense (${reason})`, value: 0, source: "base" }]
-      };
-      data.defender.result = { rollTotal: 100, target: 0, isSuccess: false, degree: 1 };
+      markDefenderNoDefense(data.defender, reason);
     }
     await _updateCard(message, data);
     return;
@@ -309,6 +297,7 @@ export async function handleDefenderRoll(ctx) {
   });
 
   const choice = await DefenseDialog.show(defender, {
+    attackerActor: attacker,
     attackerContext: data.attacker,
     attackerWeaponTraits,
     defenderHasSmallWeapon,
@@ -364,6 +353,8 @@ export async function handleDefenderRoll(ctx) {
       defenderHasSmallWeapon,
       defenderHasShield: hasEquippedShield(defender),
       defenderHasWard: canUseWardDefense(defender),
+      attackerActor: attacker,
+      defenderActor: defender,
       allowedDefenseTypes,
       allowParryRanged: defenseTalentOverrides.allowParryRanged
     });

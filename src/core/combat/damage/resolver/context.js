@@ -27,6 +27,7 @@ export function buildDamageContext(payload = {}) {
   const hitLocation = normalizeHitLocation(payload.hitLocation ?? payload.location ?? "Body");
   const damageType = normalizeDamageType(payload.damageType ?? DAMAGE_TYPES.PHYSICAL);
   const attackModeRaw = String(payload.attackMode ?? "").trim().toLowerCase();
+  const movementActionRaw = String(payload.movementAction ?? "").trim().toLowerCase();
   const attackFromHidden = (typeof payload.attackFromHidden === "boolean")
     ? payload.attackFromHidden
     : (String(payload.attackFromHidden ?? "").trim() === "1" ? true : (String(payload.attackFromHidden ?? "").trim() === "0" ? false : null));
@@ -107,6 +108,7 @@ export function buildDamageContext(payload = {}) {
     attackerActor: payload.attackerActor ?? null,
     ammo,
     attackMode: attackModeRaw || null,
+    movementAction: movementActionRaw || null,
     attackFromHidden,
     magicSource: payload.magicSource === true,
     chatContext: (payload.chatContext && typeof payload.chatContext === "object")

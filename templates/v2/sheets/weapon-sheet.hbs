@@ -57,7 +57,7 @@
         <div class="tab" data-group="primary" data-tab="description">
             <div class="item-description-container">
                 <div class="basic-padding">
-                    {{editor item.system.description target="system.description" engine="prosemirror" button=true owner=owner editable=editable}}
+                    <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
                 </div>
             </div>
         </div>

@@ -224,20 +224,18 @@ export function isActorBlockedFromAoOAgainstTarget(actor, target) {
 }
 
 /**
- * Swashbuckler (Chapter 4): ignore limits placed on combat-related skill tests by Athletics/Acrobatics ranks.
- *
- * Current system note:
- * - The system does not currently enforce any Athletics/Acrobatics-rank "limits" on combat-related skill tests.
- * - This function exists as a compatibility hook for future enforcement and returns false today.
+ * Swashbuckler (Chapter 4): ignore limits placed on combat-related skill tests
+ * by Athletics/Acrobatics ranks, except when fighting underwater.
  *
  * @param {Actor} actor
  * @param {string} skillName
+ * @param {{ignoreUnderwaterException?: boolean, context?: {movementAction?: string|null}}} [opts]
  * @returns {boolean}
  */
-/** @private Future-use stub for when the system enforces rank limits. */
-function swashbucklerIgnoresCombatSkillRankLimits(actor, skillName) {
+export function swashbucklerIgnoresCombatSkillRankLimits(actor, skillName, { ignoreUnderwaterException = false, context = {} } = {}) {
   if (!actor) return false;
   if (!hasTalent(actor, "swashbuckler")) return false;
+  if (!ignoreUnderwaterException && String(context?.movementAction ?? "").trim().toLowerCase() === "swim") return false;
   const k = normalizeTalentKey(skillName);
   return k === "athletics" || k === "acrobatics";
 }
