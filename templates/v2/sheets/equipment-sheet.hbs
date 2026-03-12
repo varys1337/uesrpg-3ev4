@@ -16,7 +16,6 @@
                 <input type="number" name="system.price" value="{{#if item.system.price}}{{item.system.price}}{{else}}0{{/if}}"/>
                 <span class="item-stat-label">Price</span>
             </div>
-        </div>
     </div>
 </header>
 
@@ -27,22 +26,22 @@
     <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
 </nav>
 
-        {{!-- Sheet Body --}}
-        <section class="sheet-body">
+{{!-- Sheet Body --}}
+<section class="sheet-body">
 
-            {{!-- Description Tab --}}
-            <div class="tab" data-group="primary" data-tab="description">
-                <div class="item-description-container">
-                    <div class="basic-padding">
-                        <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
-                    </div>
-                </div>
+    {{!-- Description Tab --}}
+    <div class="tab" data-group="primary" data-tab="description">
+        <div class="item-description-container">
+            <div class="basic-padding">
+                <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
             </div>
+        </div>
+    </div>
 
-            {{!-- Attributes Tab --}}
-            <div class="tab" data-group="primary" data-tab="attributes">
-                <div class="attribute-tab-container">
-                    <div class="item-selection-container">
+    {{!-- Attributes Tab --}}
+    <div class="tab" data-group="primary" data-tab="attributes">
+        <div class="attribute-tab-container">
+            <div class="item-selection-container">
                         <h2>Attributes</h2>
                         <div class="selection-container">
                             <div class="grid-container">
@@ -323,13 +322,12 @@
                 </div>
                 {{/if}}
 
-            </div>
-        </div>
+    </div>
 
 
-        {{!-- Effects Tab --}}
-        <div class="tab effects" data-group="primary" data-tab="effects">
-            {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
-        </div>
+    {{!-- Effects Tab --}}
+    <div class="tab effects" data-group="primary" data-tab="effects">
+        {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+    </div>
 </section>
 

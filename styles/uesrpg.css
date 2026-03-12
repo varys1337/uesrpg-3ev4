@@ -5709,20 +5709,16 @@ button[data-ues-skill-opposed-action]) {
   min-height: 0;
   padding: 12px;
 }*/
-/* Full-width editor container*/
-.worldbuilding.sheet.item.armor .item-description-container,
-.worldbuilding.sheet.item.weapon .item-description-container,
-.worldbuilding.sheet.item.ammunition .item-description-container {
+/* Full-width description editor container across non-spell item sheets. */
+.worldbuilding.sheet.item:not(.spell) .tab[data-tab=description] .item-description-container {
   display: flex;
   flex-direction: column;
   width: 100%;
   min-height: 0;
 }
 
-/* Editor should fill available space and scroll internally*/
-.worldbuilding.sheet.item.armor :is(.editor, prose-mirror),
-.worldbuilding.sheet.item.weapon :is(.editor, prose-mirror),
-.worldbuilding.sheet.item.ammunition :is(.editor, prose-mirror) {
+/* Description editor should fill available space and scroll internally. */
+.worldbuilding.sheet.item:not(.spell) .tab[data-tab=description] :is(.editor, prose-mirror) {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -5730,9 +5726,7 @@ button[data-ues-skill-opposed-action]) {
   width: 100%;
 }
 
-.worldbuilding.sheet.item.armor :is(.editor-content, .ProseMirror),
-.worldbuilding.sheet.item.weapon :is(.editor-content, .ProseMirror),
-.worldbuilding.sheet.item.ammunition :is(.editor-content, .ProseMirror) {
+.worldbuilding.sheet.item:not(.spell) .tab[data-tab=description] :is(.editor-content, .ProseMirror) {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
