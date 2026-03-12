@@ -66,6 +66,96 @@
   opacity: 0.88;
 }
 
+.uesrpg-burn-luck__summary {
+  display: grid;
+  gap: 4px;
+  padding: var(--uesrpg-space-md, 8px);
+  border: 1px solid rgba(99, 72, 36, 0.25);
+  background: rgba(255, 248, 234, 0.72);
+}
+
+.uesrpg-burn-luck__summary-line {
+  margin: 0;
+}
+
+.uesrpg-burn-luck__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--uesrpg-dialog-gap, 8px);
+  align-items: stretch;
+}
+
+.uesrpg-burn-luck__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid rgba(99, 72, 36, 0.22);
+  background: rgba(255, 248, 234, 0.66);
+  box-sizing: border-box;
+}
+
+.uesrpg-burn-luck__option {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: var(--uesrpg-control-h-md, 30px);
+  height: auto;
+  padding: 8px 12px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.uesrpg-burn-luck__option-title {
+  display: block;
+  width: 100%;
+  font-size: var(--uesrpg-font-md, 16px);
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.uesrpg-burn-luck__option-text {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--uesrpg-font-sm, 12px);
+  line-height: 1.35;
+  color: #2f2216;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.application.uesrpg-resource-dialog .uesrpg-burn-luck__option,
+.worldbuilding.uesrpg-resource-dialog .uesrpg-burn-luck__option {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  align-items: center;
+  text-align: center;
+}
+
+.application.uesrpg-resource-dialog .uesrpg-burn-luck__option > span,
+.worldbuilding.uesrpg-resource-dialog .uesrpg-burn-luck__option > span {
+  color: inherit;
+}
+
+.uesrpg-burn-luck__card.is-disabled {
+  opacity: 0.82;
+}
+
+.uesrpg-burn-luck__card.is-disabled .uesrpg-burn-luck__option-text {
+  color: #5b4b39;
+}
+
+@media (max-width: 640px) {
+  .uesrpg-burn-luck__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .uesrpg-stamina-dialog {
   max-height: 60vh;
   overflow-y: auto;
@@ -233,4 +323,3 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   background: rgba(255, 246, 224, 0.97);
   border-color: rgba(112, 82, 43, 0.55);
 }
-

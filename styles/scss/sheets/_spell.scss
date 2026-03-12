@@ -231,7 +231,7 @@
   background: rgba(250, 248, 239, 0.55);
 }
 
-.spell-sheet .spell-section--editor .editor {
+.spell-sheet .spell-section--editor :is(.editor, prose-mirror) {
   min-height: 260px;
 }
 

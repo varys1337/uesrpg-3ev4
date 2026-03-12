@@ -179,6 +179,18 @@ function _buildLinkedSpellSummary(linked) {
   };
 }
 
+function _mergeLiveItemProseValues(flatData, root) {
+  if (!root || typeof root.querySelector !== "function") return flatData;
+  const nextFlatData = flatData ?? {};
+  const editor = root.querySelector('prose-mirror[name="system.description"]');
+  if (!editor || !("value" in editor)) return nextFlatData;
+
+  const liveValue = editor.value;
+  if (liveValue === undefined) return nextFlatData;
+  nextFlatData["system.description"] = String(liveValue ?? "");
+  return nextFlatData;
+}
+
 function _sanitizeNumericBySchema(node, schema, rootSystem, path = []) {
   if (!_isPlainObject(schema)) return;
   if (!_isPlainObject(node)) return;
@@ -546,6 +558,21 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   /* Form Submission */
 
+  async _onChangeForm(formConfig, event) {
+    if (typeof super._onChangeForm === "function") super._onChangeForm(formConfig, event);
+    if (!this.isEditable || !this.document?.isOwner) return;
+
+    const target = event?.target;
+    const path = String(target?.getAttribute?.("name") ?? "").trim();
+    if (path !== "system.description" || !("value" in (target ?? {}))) return;
+
+    const nextValue = String(target.value ?? "");
+    const currentValue = String(this.document?.system?.description ?? "");
+    if (Object.is(currentValue, nextValue)) return;
+
+    await requestUpdateDocument(this.document, { "system.description": nextValue });
+  }
+
   /**
    * Form submit handler for AppV2.
    * Normalizes form data via the shared normalizer, validates spell scaling,
@@ -558,6 +585,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    */
   async _onFormSubmit(event, form, formData) {
     let flatData = foundry.utils.flattenObject(formData.object);
+    flatData = _mergeLiveItemProseValues(flatData, form);
     const docType = String(this.document?.type ?? "").toLowerCase();
     const isShieldLaneDoc = docType === "shield" || (docType === "armor" && (
       this.document?.system?.isShield === true

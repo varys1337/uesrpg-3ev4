@@ -3452,8 +3452,23 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
   width: 100%;
 }
 
+.worldbuilding.sheet.actor:not(.group) .spell-school-table :is(th, td):nth-child(1) {
+  width: 60%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .spell-school-table :is(th, td):nth-child(2),
+.worldbuilding.sheet.actor:not(.group) .spell-school-table :is(th, td):nth-child(3) {
+  width: 15%;
+  text-align: center;
+}
+
+.worldbuilding.sheet.actor:not(.group) .spell-school-table :is(th, td):nth-child(4) {
+  width: 10%;
+  text-align: center;
+}
+
 .worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-name-cell {
-  width: 74%;
+  width: 60%;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -3461,15 +3476,15 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
 }
 
 .worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-rank-cell {
-  width: 12%;
+  width: 15%;
 }
 
 .worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-mp-cell {
-  width: 10%;
+  width: 15%;
 }
 
 .worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-actions-cell {
-  width: 4%;
+  width: 10%;
 }
 
 .worldbuilding.sheet.actor:not(.group) .combat-style-table {
@@ -3856,19 +3871,149 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
 }
 
 /* --- Settings Panel Fieldset Polish ---*/
+.uesrpg-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 2px 4px 6px;
+}
+
+.uesrpg-settings__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.uesrpg-settings__header h2 {
+  margin: 0;
+  text-align: left;
+  font-size: 24px;
+}
+
+.uesrpg-settings-panel fieldset,
 .uesrpg-settings fieldset {
   border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 6px;
-  padding: 10px 14px 12px;
-  margin-bottom: 12px;
+  border-radius: 8px;
+  padding: 14px 16px 16px;
+  margin: 0;
+  background: rgba(255, 249, 236, 0.18);
 }
+
+.uesrpg-settings-panel legend,
 .uesrpg-settings legend {
-  padding: 0 8px;
-  font-weight: 700;
+  padding: 0 10px;
+  font-weight: 800;
   font-size: 11px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  opacity: 0.75;
+  opacity: 0.8;
+}
+
+.uesrpg-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.uesrpg-settings .setting-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+}
+
+.uesrpg-settings .setting-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.uesrpg-settings .setting-row__label {
+  display: block;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #24190f;
+}
+
+.uesrpg-settings .setting-row--toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px 14px;
+  padding: 6px 0;
+}
+
+.uesrpg-settings .setting-row--toggle > input[type="checkbox"] {
+  margin-top: 2px;
+  justify-self: end;
+}
+
+.uesrpg-settings .setting-row--select :is(select, input[type="number"], input[type="text"], input[type="color"]),
+.uesrpg-settings .setting-row--slider .form-fields {
+  width: 100%;
+}
+
+.uesrpg-settings .setting-row--slider .form-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.uesrpg-settings .setting-row--slider input[type="range"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.uesrpg-settings .range-value {
+  min-width: 40px;
+  text-align: right;
+  font-weight: 700;
+  color: #3b2c1b;
+}
+
+.uesrpg-settings .setting-help,
+.uesrpg-settings .setting-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #4a3823;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.uesrpg-settings .setting-help strong,
+.uesrpg-settings .setting-note strong {
+  color: #2a1d11;
+}
+
+.uesrpg-settings .setting-note {
+  padding: 8px 10px;
+  border-left: 3px solid rgba(120, 88, 42, 0.35);
+  background: rgba(255, 248, 232, 0.42);
+}
+
+.uesrpg-settings .setting-note p {
+  margin: 0;
+}
+
+.uesrpg-settings .setting-note p + p {
+  margin-top: 6px;
+}
+
+.uesrpg-settings__footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.uesrpg-settings__footer > button {
+  width: min(320px, 100%);
 }
 
 /* --- UESRPG AppV2 Button Polish --- dark wood on parchment ---*/
@@ -4469,9 +4614,9 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
 }
 
 /* Editor should fill available space and scroll internally*/
-.worldbuilding.sheet.item.armor .editor,
-.worldbuilding.sheet.item.weapon .editor,
-.worldbuilding.sheet.item.ammunition .editor {
+.worldbuilding.sheet.item.armor :is(.editor, prose-mirror),
+.worldbuilding.sheet.item.weapon :is(.editor, prose-mirror),
+.worldbuilding.sheet.item.ammunition :is(.editor, prose-mirror) {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -4479,9 +4624,9 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
   width: 100%;
 }
 
-.worldbuilding.sheet.item.armor .editor-content,
-.worldbuilding.sheet.item.weapon .editor-content,
-.worldbuilding.sheet.item.ammunition .editor-content {
+.worldbuilding.sheet.item.armor :is(.editor-content, .ProseMirror),
+.worldbuilding.sheet.item.weapon :is(.editor-content, .ProseMirror),
+.worldbuilding.sheet.item.ammunition :is(.editor-content, .ProseMirror) {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -4830,24 +4975,23 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
 }
 
 /* Actor/NPC Biography section*/
-.worldbuilding .tab.core .biography-container .editor {
+.worldbuilding .tab.core .biography-container :is(.editor, prose-mirror) {
   min-height: 150px;
 }
 
-.worldbuilding .bioPage .contentContainer .editor {
+.worldbuilding .bioPage .contentContainer :is(.editor, prose-mirror) {
   min-height: 220px;
   max-height: none;
   overflow: hidden;
 }
 
-.worldbuilding .bioPage .contentContainer .editor .editor-content,
-.worldbuilding .bioPage .contentContainer .editor .ProseMirror {
+.worldbuilding .bioPage .contentContainer :is(.editor, prose-mirror) :is(.editor-content, .ProseMirror) {
   max-height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
-.worldbuilding .bioPage .contentContainer .editor .editor-edit {
+.worldbuilding .bioPage .contentContainer prose-mirror button.toggle {
   display: none;
   pointer-events: none;
 }
@@ -4866,12 +5010,12 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
   min-height: 220px;
 }
 
-.worldbuilding.sheet.actor.group .tab.details .editor-section > :is(.editor, .editor-content) {
+.worldbuilding.sheet.actor.group .tab.details .editor-section > :is(.editor, .editor-content, prose-mirror) {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-.worldbuilding.sheet.actor.group .editor-section .editor .editor-edit {
+.worldbuilding.sheet.actor.group .editor-section prose-mirror button.toggle {
   display: none;
   pointer-events: none;
 }
@@ -6613,24 +6757,75 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
 }
 
 .uesrpg-startup .dialogForm {
-  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px;
 }
 
 .uesrpg-startup .startup-panel {
+  margin: 0;
+  padding: 12px 16px;
+  background: rgba(78, 78, 78, 0.12);
   text-align: center;
-  margin: 5px;
-  padding: 5px;
-  background-color: rgba(78, 78, 78, 0.137);
+}
+
+.uesrpg-startup .startup-panel h2 {
+  margin: 0 0 10px;
+}
+
+.uesrpg-startup .startup-panel p {
+  margin: 0;
+}
+
+.uesrpg-startup .startup-panel--social {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 22px;
+  padding-block: 10px;
 }
 
 .uesrpg-startup .startup-social-link {
-  margin-left: 10px;
-  margin-right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #e8992f;
 }
 
-.uesrpg-startup .startup-changelog {
-  overflow-y: scroll;
-  height: 300px;
+.uesrpg-startup .startup-panel--copy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.uesrpg-startup .startup-copy,
+.uesrpg-startup .startup-thanks-list {
+  max-width: 680px;
+  margin-inline: auto;
+  line-height: 1.45;
+}
+
+.uesrpg-startup .startup-thanks-list {
+  padding-left: 22px;
+  text-align: left;
+}
+
+.uesrpg-startup .startup-thanks-list li + li {
+  margin-top: 8px;
+}
+
+.uesrpg-startup .startup-panel--note {
+  padding-block: 10px;
+}
+
+.uesrpg-startup .startup-panel--note p {
+  font-style: italic;
+}
+
+.application.uesrpg-startup-dialog .window-content,
+.worldbuilding.uesrpg-startup-dialog .window-content {
+  padding: 10px 12px;
 }
 
 /*---
@@ -6725,6 +6920,22 @@ body.system-uesrpg-3ev4 #chat-controls :is(.roll-type-select, select):focus-visi
 .worldbuilding.sheet.actor .tab.magic table thead th,
 .worldbuilding.sheet.actor .tab.equipment table thead th,
 .worldbuilding.sheet.actor.group .tab.inventory table thead th {
+  color: #2a2014;
+  text-shadow: 0 1px 0 rgba(255, 245, 225, 0.18);
+  border-bottom: 1px solid rgba(88, 64, 28, 0.28);
+}
+
+.application.uesrpg-dialog .uesrpg-enc-breakdown__table thead,
+.worldbuilding.uesrpg-dialog .uesrpg-enc-breakdown__table thead {
+  background:
+    linear-gradient(180deg, rgba(136, 103, 53, 0.62), rgba(92, 69, 34, 0.58)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+.application.uesrpg-dialog .uesrpg-enc-breakdown__table thead th,
+.worldbuilding.uesrpg-dialog .uesrpg-enc-breakdown__table thead th {
+  background: transparent;
   color: #2a2014;
   text-shadow: 0 1px 0 rgba(255, 245, 225, 0.18);
   border-bottom: 1px solid rgba(88, 64, 28, 0.28);
@@ -7007,10 +7218,10 @@ body.theme-dark .worldbuilding.sheet.actor .rest-btn:hover {
 }
 
 /* Magic spell table: widen Name and compress Rank/Cost columns.*/
-.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-name-cell { width: 80%; }
-.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-rank-cell { width: 9%; }
-.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-mp-cell { width: 7%; }
-.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-actions-cell { width: 4%; }
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-name-cell { width: 60%; }
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-rank-cell { width: 15%; }
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-mp-cell { width: 15%; }
+.worldbuilding.sheet.actor:not(.group) .spell-school-table .spell-actions-cell { width: 10%; }
 
 /* Equipment/container tables: reserve more space for name columns.*/
 .worldbuilding.sheet.actor:not(.group) .containerList table,
