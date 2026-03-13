@@ -544,7 +544,7 @@ export async function prepareItemSheetData(sheet, data) {
     } else {
       data.enchantmentDisplay = null;
     }
-  } else if (itemType === "container" || itemType === "scroll") {
+  } else if (itemType === "scroll") {
     data.uiSpellcastingConfig = _buildSpellcastingUiConfig(itemDoc);
   }
 

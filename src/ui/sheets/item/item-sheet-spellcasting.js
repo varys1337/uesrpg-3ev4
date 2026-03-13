@@ -20,7 +20,7 @@ import { SYSTEM_ID } from "../../constants.js";
 
 /* ── Private: spellcasting flag utilities ─────────────────────────────────── */
 
-const _EQUIPMENT_ITEM_TYPES = new Set(["weapon", "armor", "shield", "ammunition", "equipment", "container", "scroll"]);
+const _EQUIPMENT_ITEM_TYPES = new Set(["weapon", "armor", "shield", "ammunition", "equipment", "scroll"]);
 
 function _normalizeSpellcastingCostMode(value) {
   const mode = String(value ?? "soul").trim().toLowerCase();

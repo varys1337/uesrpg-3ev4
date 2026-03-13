@@ -494,31 +494,32 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
     const qty = bagItem?.system?.quantity ?? 0;
     const enc = bagItem?.system?.enc ?? 0;
 
+    const safeName = foundry.utils.escapeHTML(bagItem.name);
+    const safeType = foundry.utils.escapeHTML(bagItem.type);
     const entry = `<tr data-item-id="${bagItem._id}">
-      <td data-item-id="${bagItem._id}">
-        <div style="display: flex; flex-direction: row; align-items: center; gap: 5px;">
-          <img class="item-img" src="${img}" height="24" width="24">
-          ${isContained ? '<i class="fa-solid fa-backpack"></i>' : ""}
-          ${bagItem.name}
-        </div>
+      <td class="uesrpg-container-picker__name" data-item-id="${bagItem._id}">
+        <img class="item-img" src="${img}" height="24" width="24">
+        ${isContained ? '<i class="fa-solid fa-backpack"></i>' : ""}
+        ${safeName}
       </td>
-      <td style="text-align: center;">${bagItem.type}</td>
-      <td style="text-align: center;">${qty}</td>
-      <td style="text-align: center;">${enc}</td>
-      <td style="text-align: center;">
+      <td class="uesrpg-container-picker__cell">${safeType}</td>
+      <td class="uesrpg-container-picker__cell">${qty}</td>
+      <td class="uesrpg-container-picker__cell">${enc}</td>
+      <td class="uesrpg-container-picker__cell">
         <input type="checkbox" class="itemSelect container-select" data-item-id="${bagItem._id}" ${isInThisContainer ? "checked" : ""}>
       </td>
     </tr>`;
     tableEntries.push(entry);
   }
 
-  const content = `<div>
-      <div style="padding: 5px 0;">
-        <label>Select Items to add to your ${sheet.document.name}.</label>
-        ${tooLarge ? "<div>Some items do not appear on this list because their ENC is greater than the capacity in the container.</div>" : ""}
+  const safeContainerName = foundry.utils.escapeHTML(sheet.document.name);
+  const content = `<div class="uesrpg-container-picker">
+      <div class="uesrpg-container-picker__intro">
+        <label>Select items to add to <strong>${safeContainerName}</strong>.</label>
+        ${tooLarge ? `<div class="uesrpg-container-picker__oversize-note">Some items are hidden because their ENC exceeds remaining container capacity.</div>` : ""}
       </div>
-      <div>
-        <table>
+      <div class="uesrpg-container-picker__table-wrap">
+        <table class="uesrpg-container-picker__table">
           <thead>
             <tr>
               <th>Name</th>
@@ -536,6 +537,8 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
   await customDialog({
     title: `Add Items to ${sheet.document.name}`,
     content,
+    classes: ["uesrpg-container-picker-dialog"],
+    width: 760,
     yes: {
       label: "Apply",
       callback: async (html) => {
