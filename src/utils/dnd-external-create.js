@@ -16,6 +16,10 @@ function _hasAny(haystack, needles) {
   return needles.some((needle) => haystack.includes(needle));
 }
 
+function _isMeaningfulNumeric(value) {
+  return Number.isFinite(Number(value)) && Number(value) !== 0;
+}
+
 export function inferDroppedItemType(item) {
   const rawType = String(item?.type ?? "").trim();
   const sourceType = rawType.toLowerCase();
@@ -46,10 +50,9 @@ export function inferDroppedItemType(item) {
 
   const isArmorByFields =
     sys.armorClass != null ||
-    sys.isShield != null ||
     sys.hitLocations != null ||
-    sys.blockRating != null ||
-    sys.magic_ar != null;
+    _isMeaningfulNumeric(sys.blockRating) ||
+    _isMeaningfulNumeric(sys.magic_ar);
 
   const isAmmoByFields =
     sys.arrowType != null;
@@ -141,6 +144,19 @@ export async function createExternalDroppedItem(targetActor, droppedItem, option
 
   const created = await requestCreateEmbeddedDocuments(targetActor, "Item", [createData]);
   const first = Array.isArray(created) ? (created[0] ?? null) : null;
+
+  const sourceType = _str(droppedItem?.type);
+  if (first && sourceType === "item" && _str(first.type) !== "equipment") {
+    try {
+      await first.update({ type: "equipment" });
+    } catch (err) {
+      console.warn("UESRPG | Failed to normalize legacy dropped item to equipment", {
+        sourceItem: droppedItem?.uuid ?? null,
+        createdId: first?.id ?? null,
+        err,
+      });
+    }
+  }
 
   dndDebug("create.result", {
     targetActor: targetActor?.uuid ?? null,

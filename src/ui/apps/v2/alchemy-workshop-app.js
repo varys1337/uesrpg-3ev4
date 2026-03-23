@@ -1,97 +1,267 @@
-﻿/**
+/**
  * Alchemy Workshop - AppV2
- *
- * A HandlebarsApplicationMixin(ApplicationV2) wizard for brewing potions,
- * poisons, and toxins.  Modelled after EnchantingWorkshopAppV2 in structure
- * but entirely independent of it.
- *
- * Supported modes:
- *   potion  - 1-3 ingredient slots, each with a school-matched effect + SL
- *   poison  - single Destruction ingredient, poison level derived from depth
- *   toxin   - 1-3 ingredient slots with Toxin-attribute effects + SL
- *   gather  - ingredient gathering helper (rolls vs. Alchemy; optional gate)
- *
- * Instance state (this._ws) is intentionally ephemeral (not persisted to any
- * document) - it represents pending UI selections before the Commit action
- * dispatches a chat-card brew message.
- *
- * Warning: Architect Note: AppV2 anti-pattern guard - this app NEVER reads the DOM
- * to collect form values.  All state lives in this._ws; _prepareContext() derives
- * template data from it; form actions mutate this._ws then call render().
  */
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 import {
-  listPotionEffects,
-  listToxinEffects,
-  getEffectByKey,
-  computeEffectCost,
-  computeUpkeepDuration,
-  effectHasUpkeep,
   QUALITY_TIERS,
   ALCHEMY_SCHOOLS,
   POISON_DICE,
 } from "../../../core/alchemy/effects.js";
-import { SYSTEM_ID, templatePath } from "../../constants.js";
-
+import { templatePath } from "../../constants.js";
 import {
   getAlchemySkill,
+  getAlchemySkillSnapshot,
   getAlchemyTalents,
   computeEffectiveStrength,
   computeBrewModifiers,
   validateBrewRecipe,
   createPendingBrewMessage,
+  getAlchemyInventoryState,
+  getActorKnownAlchemyEffects,
+  addActorKnownAlchemyEffect,
+  removeActorKnownAlchemyEffect,
+  resolveAlchemyEffectDescriptor,
 } from "../../../core/alchemy/workflow.js";
-
-// Constants
+import { resolveDroppedItem } from "../../../utils/drop-data.js";
 
 const MAX_SLOTS = 3;
 const TEMPLATE_PATH = templatePath("v2/apps/alchemy-workshop.hbs");
 
-// Workshop state factory
-
 function _defaultSlot() {
-  return { ingredientId: null, effectKey: null, spellLevel: 1, params: {} };
+  return {
+    ingredientId: null,
+    effectSource: "spell",
+    effectKey: null,
+    spellUuid: null,
+    spellLevel: 1,
+    params: {},
+  };
+}
+
+function _cloneSlot(slot) {
+  return {
+    ingredientId: slot?.ingredientId ?? null,
+    effectSource: slot?.spellUuid ? "spell" : String(slot?.effectSource ?? "spell"),
+    effectKey: slot?.effectKey ?? null,
+    spellUuid: slot?.spellUuid ?? null,
+    spellLevel: Math.max(1, Number(slot?.spellLevel ?? 1) || 1),
+    params: slot?.params ?? {},
+  };
 }
 
 function _defaultState(mode = "potion") {
   return {
     mode,
+    activeSlotIdx: 0,
     nothingVentured: false,
     slots: [_defaultSlot(), _defaultSlot(), _defaultSlot()],
-    // Gather-mode only
     gatherSchool: "restoration",
-    // Poison-mode only
     ingredientId: null,
   };
 }
 
-// App class
+function _getSpellLevelOptions(spell) {
+  const levels = new Set([Math.max(1, Number(spell?.system?.level ?? 1) || 1)]);
+  for (const entry of Array.isArray(spell?.system?.scaling?.levels) ? spell.system.scaling.levels : []) {
+    const level = Math.max(1, Number(entry?.level ?? 0) || 0);
+    if (level > 0) levels.add(level);
+  }
+  return Array.from(levels).sort((a, b) => a - b);
+}
+
+function _buildSpellEntryFromDocument(actor, spell, mode = "potion") {
+  if (!spell || spell.type !== "spell") return null;
+  if (spell.pack) return null;
+
+  const parent = spell.parent ?? null;
+  const parentDocName = String(parent?.documentName ?? "").trim();
+  const sourceType = parentDocName === "Actor" ? "actor" : "world";
+  if (sourceType === "actor" && String(parent?.uuid ?? "") !== String(actor?.uuid ?? "")) return null;
+  if (parentDocName && parentDocName !== "Actor") return null;
+
+  const levelOptions = _getSpellLevelOptions(spell);
+  return {
+    effectSource: "spell",
+    spellUuid: String(spell.uuid ?? "").trim(),
+    spellId: spell.id,
+    key: `spell:${spell.uuid}`,
+    value: `spell:${spell.uuid}`,
+    label: spell.name,
+    school: String(spell?.system?.school ?? "").toLowerCase(),
+    attributes: [],
+    levelOptions,
+    slMin: levelOptions[0] ?? 1,
+    slMax: levelOptions[levelOptions.length - 1] ?? 1,
+    sourceType,
+    sourceLabel: sourceType === "actor" ? "Actor Spell" : "World Spell",
+    mode,
+  };
+}
+
+function _buildRecipeFromState(ws) {
+  if (ws.mode === "poison") {
+    return {
+      mode: "poison",
+      ingredientId: ws.ingredientId ?? null,
+      poisonLevel: null,
+    };
+  }
+
+  return {
+    mode: ws.mode,
+    slots: ws.slots.map((slot) => ({
+      ingredientId: slot.ingredientId ?? null,
+      effectSource: "spell",
+      effectKey: null,
+      spellUuid: slot.spellUuid ?? null,
+      spellLevel: Math.max(1, Number(slot.spellLevel ?? 1) || 1),
+      params: slot.params ?? {},
+    })),
+  };
+}
+
+function _getStoredTrialBonus(actor, recipe) {
+  const effects = (recipe.slots ?? [])
+    .map((slot) => `spell:${String(slot?.spellUuid ?? "")}:${Number(slot?.spellLevel ?? 1) || 1}`)
+    .filter(Boolean)
+    .sort()
+    .join(",");
+  const hash = `${recipe.mode}|${effects}|${recipe.poisonLevel ?? 0}`;
+  const te = actor?.flags?.["uesrpg-3ev4"]?.alchemy?.trialAndError ?? {};
+  return Math.min(30, (te[hash] ?? 0) * 10);
+}
+
+function _formatDurationLabel(duration) {
+  if (!duration) return "Instant";
+  const unit = String(duration.unit ?? "").trim();
+  if (!unit || unit === "instant") return "Instant";
+  return `${Number(duration.value ?? 0)} ${unit}`;
+}
+
+function _readDropData(event) {
+  try {
+    const parsed = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
+    if (parsed?.type) return parsed;
+  } catch (_err) {
+    // Fall through to raw payload parse.
+  }
+
+  const raw = event?.dataTransfer?.getData?.("text/plain");
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch (_err) {
+    return null;
+  }
+}
+
+function _buildCurrentEffectDetail(actor, ingredient, slot, mode = "potion") {
+  const descriptor = resolveAlchemyEffectDescriptor(actor, slot, { ingredient, mode });
+  if (!descriptor || descriptor.compatible === false || !descriptor.directPayload) return null;
+
+  const candidateLevels = Array.isArray(descriptor.levelOptions) && descriptor.levelOptions.length
+    ? descriptor.levelOptions.slice()
+    : Array.from(
+        { length: Math.max(0, Math.min(descriptor.slMax, ingredient.depthBase) - descriptor.slMin + 1) },
+        (_, idx) => descriptor.slMin + idx
+      );
+  const allowedLevels = candidateLevels.filter((level) => {
+    if (level > ingredient.depthBase) return false;
+    const preview = resolveAlchemyEffectDescriptor(actor, {
+      ...slot,
+      spellLevel: level,
+    }, { ingredient });
+    return Boolean(preview) && Number(preview.cost ?? 0) <= Number(ingredient.effectiveStrength ?? 0);
+  });
+  const selectedSpellLevel = allowedLevels.includes(descriptor.spellLevel)
+    ? descriptor.spellLevel
+    : (allowedLevels[0] ?? descriptor.spellLevel);
+  const highestAllowedLevel = allowedLevels.length
+    ? allowedLevels[allowedLevels.length - 1]
+    : Math.max(descriptor.slMin, Math.min(descriptor.slMax, ingredient.depthBase));
+
+  return {
+    label: descriptor.effectLabel,
+    school: descriptor.school,
+    spellLevel: descriptor.spellLevel,
+    selectedSpellLevel,
+    cost: descriptor.cost,
+    effectiveStrength: ingredient.effectiveStrength,
+    durationLabel: _formatDurationLabel(descriptor.finalDuration),
+    slMin: allowedLevels[0] ?? descriptor.slMin,
+    slMax: highestAllowedLevel,
+    levelOptions: allowedLevels,
+    hasDiscreteLevels: Array.isArray(descriptor.levelOptions) && descriptor.levelOptions.length > 0 && allowedLevels.length > 0,
+    sourceLabel: descriptor.effectSource === "spell" ? "Spell" : "Catalog",
+  };
+}
+
+function _findViableSpellLevel(actor, ingredient, spellEntry) {
+  if (!ingredient || !spellEntry) return { ok: false, reason: "Choose an ingredient first." };
+
+  const levels = Array.isArray(spellEntry.levelOptions) && spellEntry.levelOptions.length
+    ? spellEntry.levelOptions
+    : [Math.max(1, Number(spellEntry.slMin ?? 1) || 1)];
+  let firstDescriptor = null;
+  let mismatchReason = "";
+  let invalidReason = "";
+
+  for (const spellLevel of levels) {
+    const descriptor = resolveAlchemyEffectDescriptor(actor, {
+      ingredientId: ingredient.id,
+      effectSource: "spell",
+      spellUuid: spellEntry.spellUuid,
+      spellLevel,
+      params: {},
+    }, { ingredient, mode: spellEntry.mode ?? "potion" });
+    if (!descriptor) continue;
+    if (!firstDescriptor) firstDescriptor = descriptor;
+    if (descriptor.compatible === false || !descriptor.directPayload) {
+      invalidReason = descriptor.invalidReason || invalidReason || "That spell cannot be serialized into a direct alchemy effect.";
+      continue;
+    }
+    if (String(descriptor.school ?? "").toLowerCase() !== String(ingredient.school ?? "").toLowerCase()) {
+      mismatchReason = `${descriptor.effectLabel || spellEntry.label || "That effect"} requires a ${String(descriptor.school ?? "matching").toLowerCase()} ingredient.`;
+      continue;
+    }
+    if (Array.isArray(descriptor.levelOptions) && descriptor.levelOptions.length && !descriptor.levelOptions.includes(spellLevel)) continue;
+    if (spellLevel > ingredient.depthBase) continue;
+    if (descriptor.cost > ingredient.effectiveStrength) continue;
+    return { ok: true, spellLevel, descriptor };
+  }
+
+  if (invalidReason) return { ok: false, reason: invalidReason };
+  if (mismatchReason) return { ok: false, reason: mismatchReason };
+
+  const cheapestLevel = levels[0] ?? 1;
+  if (firstDescriptor && Number(firstDescriptor.cost ?? 0) > ingredient.effectiveStrength) {
+    return { ok: false, reason: `Cost ${firstDescriptor.cost} exceeds strength ${ingredient.effectiveStrength}.` };
+  }
+  if (cheapestLevel > ingredient.depthBase) {
+    return { ok: false, reason: `Minimum SL ${cheapestLevel} exceeds depth ${ingredient.depthBase}.` };
+  }
+  return { ok: false, reason: "No valid spell level for this ingredient." };
+}
 
 export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
-
-  // Static configuration
-
   static DEFAULT_OPTIONS = {
     id: "alchemy-workshop",
     classes: ["uesrpg", "alchemy-workshop"],
     tag: "form",
-    position: { width: 600, height: "auto" },
+    position: { width: 760, height: "auto" },
     window: {
       resizable: true,
       title: "Alchemy Workshop",
     },
     form: {
-      // submitOnChange is intentionally FALSE - we manage state imperatively.
       submitOnChange: false,
       closeOnSubmit: false,
     },
-    // IMPORTANT (Foundry v13): DEFAULT_OPTIONS.actions is wired to click handlers only
-    // (ApplicationV2._onClickAction). Change-driven inputs in this workshop are
-    // handled via _onChangeForm instead.
     actions: {
-      commit:     AlchemyWorkshopAppV2._onCommit,
+      commit: AlchemyWorkshopAppV2._onCommit,
       rollGather: AlchemyWorkshopAppV2._onRollGather,
     },
   };
@@ -100,139 +270,93 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     workshop: { template: TEMPLATE_PATH },
   };
 
-  // Constructor
-
   constructor(options = {}) {
     super(options);
-    /** @type {string} UUID of the actor this workshop is open for. */
     this._actorUuid = options.actorUuid ?? null;
-    /** @type {object} Ephemeral UI state. */
     this._ws = _defaultState(options.mode ?? "potion");
+    this._boundDropzones = false;
+    this._boundTray = false;
   }
-
-  // Context preparation
 
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
-
     const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
     if (!actor) return { ...context, error: "Actor not found." };
 
     const ws = this._ws;
     const skill = getAlchemySkill(actor);
+    const skillSnapshot = getAlchemySkillSnapshot(actor, { skill });
     const talents = getAlchemyTalents(actor);
-    // Alchemy is a core mechanic - gather helper is always available.
-    const enableGather = true;
-    const requireLab = game.settings.get(SYSTEM_ID, "alchemy.requireLab");
+    const inventory = getAlchemyInventoryState(actor);
+    const knownEffects = getActorKnownAlchemyEffects(actor);
 
-    // Available ingredients in actor inventory.
     const ingredients = actor.items
-      .filter((i) => i.flags?.["uesrpg-3ev4"]?.alchemy?.kind === "ingredient")
-      .map((i) => {
-        const algData = i.flags["uesrpg-3ev4"].alchemy;
-        const effectiveStrength = computeEffectiveStrength(i, actor);
-        const tier = Object.entries(QUALITY_TIERS).find(
-          ([, t]) => t.strength >= effectiveStrength
-        );
+      .filter((item) => item.flags?.["uesrpg-3ev4"]?.alchemy?.kind === "ingredient")
+      .map((item) => {
+        const alchemy = item.flags["uesrpg-3ev4"].alchemy;
+        const effectiveStrength = computeEffectiveStrength(item, actor);
+        const tier = Object.entries(QUALITY_TIERS).find(([, entry]) => entry.strength >= effectiveStrength);
         return {
-          id: i.id,
-          name: i.name,
-          school: algData.school ?? "?",
-          strengthBase: algData.strengthBase ?? 0,
+          id: item.id,
+          name: item.name,
+          school: String(alchemy.school ?? "?").toLowerCase(),
+          strengthBase: Number(alchemy.strengthBase ?? 0),
           effectiveStrength,
-          depthBase: algData.depthBase ?? 1,
+          depthBase: Number(alchemy.depthBase ?? 1),
           tierLabel: tier ? tier[1].label : "?",
-          qty: Number(i.system?.quantity ?? 1),
+          qty: Number(item.system?.quantity ?? 1),
         };
       });
 
-    // Destruction ingredients for poison mode.
-    const destructionIngredients = ingredients.filter((i) => i.school === "destruction");
+    const destructionIngredients = ingredients.filter((item) => item.school === "destruction");
+    const firstPreparedSlot = ws.slots.findIndex((slot) => slot?.ingredientId || slot?.spellUuid);
+    const activeSlotIdx = Math.max(0, Math.min(MAX_SLOTS - 1, Number(ws.activeSlotIdx ?? (firstPreparedSlot >= 0 ? firstPreparedSlot : 0)) || 0));
+    this._ws.activeSlotIdx = activeSlotIdx;
 
-    // Build per-slot context.
-    const slots = ws.slots.map((slot, idx) => {
-      const ingredient = slot.ingredientId
-        ? ingredients.find((i) => i.id === slot.ingredientId)
+    const slots = ws.slots.map((rawSlot, idx) => {
+      const slot = _cloneSlot(rawSlot);
+      const ingredient = slot.ingredientId ? ingredients.find((item) => item.id === slot.ingredientId) ?? null : null;
+      const currentEffectDetail = ingredient && slot.spellUuid
+        ? _buildCurrentEffectDetail(actor, ingredient, slot, ws.mode)
         : null;
-
-      // Effects available for this slot = effects matching the ingredient's school.
-      let availableEffects = [];
-      if (ingredient) {
-        const listFn = ws.mode === "toxin" ? listToxinEffects : listPotionEffects;
-        availableEffects = listFn({ school: ingredient.school }).map((e) => {
-          const sl = Number(slot.spellLevel ?? 1);
-          const [slMin, slMax] = e.slRange ?? [1, 7];
-          const clampedSl = Math.max(slMin, Math.min(slMax, sl));
-          const cost = computeEffectCost(e.key, clampedSl);
-          const affordable = cost <= ingredient.effectiveStrength;
-          const withinDepth = clampedSl <= ingredient.depthBase;
-          return {
-            key: e.key,
-            label: e.label,
-            school: e.school,
-            slMin,
-            slMax,
-            cost,
-            affordable,
-            withinDepth,
-            eligible: affordable && withinDepth,
-            selected: e.key === slot.effectKey,
-          };
-        });
-      }
-
-      // Current effect detail.
-      let currentEffectDetail = null;
-      if (slot.effectKey && ingredient) {
-        const sl = Number(slot.spellLevel ?? 1);
-        const effectDef = getEffectByKey(slot.effectKey);
-        const cost = computeEffectCost(slot.effectKey, sl);
-        const upkeep = effectHasUpkeep(slot.effectKey);
-        const duration = upkeep
-          ? computeUpkeepDuration(slot.effectKey, ingredient.effectiveStrength, cost)
-          : null;
-        currentEffectDetail = {
-          label: effectDef?.label ?? slot.effectKey,
-          sl,
-          cost,
-          effectiveStrength: ingredient.effectiveStrength,
-          hasUpkeep: upkeep,
-          durationLabel: duration ? `${duration.value} ${duration.unit}` : "Instant",
-          slMin: effectDef?.slRange?.[0] ?? 1,
-          slMax: Math.min(effectDef?.slRange?.[1] ?? 7, ingredient.depthBase),
-        };
-      }
-
-      return { idx, slot, ingredient, availableEffects, currentEffectDetail };
+      const knownEffect = slot.spellUuid
+        ? knownEffects.find((entry) => entry.spellUuid === slot.spellUuid) ?? null
+        : null;
+      return {
+        idx,
+        isActive: idx === activeSlotIdx,
+        slot,
+        ingredient,
+        currentEffectDetail,
+        missingEffectLabel: slot.spellUuid && !currentEffectDetail
+          ? String(knownEffect?.label ?? "Selected effect no longer resolves")
+          : "",
+      };
     });
 
-    // Modifier breakdown.
     const recipe = _buildRecipeFromState(ws);
-    const trialAndErrorBonus = talents.hasTrialAndError
-      ? _getStoredTrialBonus(actor, recipe)
-      : 0;
+    const validation = validateBrewRecipe(actor, recipe);
+    const trialAndErrorBonus = talents.hasTrialAndError ? _getStoredTrialBonus(actor, recipe) : 0;
     const mods = computeBrewModifiers(actor, recipe, {
       nothingVentured: ws.nothingVentured,
       trialAndErrorBonus,
+      skill,
     });
 
-    // Validation errors.
-    const validation = validateBrewRecipe(actor, recipe);
+    const activeSlot = slots[activeSlotIdx] ?? slots[0];
 
-    // Poison mode: selected ingredient.
     let poisonIngredient = null;
-    if (ws.mode === "poison" && ws.ingredientId) {
-      poisonIngredient = ingredients.find((i) => i.id === ws.ingredientId) ?? null;
-    }
     let poisonDice = null;
-    if (poisonIngredient) {
-      poisonDice = POISON_DICE[poisonIngredient.depthBase] ?? "1d4";
+    if (ws.mode === "poison" && ws.ingredientId) {
+      poisonIngredient = ingredients.find((item) => item.id === ws.ingredientId) ?? null;
+      if (poisonIngredient) poisonDice = POISON_DICE[poisonIngredient.depthBase] ?? "1d4";
     }
 
     return {
       ...context,
       actor,
       skill,
+      skillSnapshot,
       talents,
       ws,
       mode: ws.mode,
@@ -240,39 +364,285 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
         potion: true,
         poison: true,
         toxin: true,
-        gather: enableGather,
+        gather: true,
       },
       ingredients,
       destructionIngredients,
       slots,
+      activeSlotIdx,
+      activeSlot,
+      knownEffects,
       mods,
       validation,
       adjustedTN: Math.max(0, mods.tn + mods.totalMod),
-      requireLab,
-      labPresent: actor.items.some((i) => /alchemy\s*lab/i.test(i.name ?? "")),
-      toolsPresent: actor.items.some((i) => /alchemy\s*(tools?|kit|equipment)/i.test(i.name ?? "")),
+      toolsPresent: inventory.toolsPresent,
       poisonIngredient,
       poisonDice,
       schools: ALCHEMY_SCHOOLS,
       gatherSchool: ws.gatherSchool,
-      qualityTiers: Object.entries(QUALITY_TIERS).map(([k, v]) => ({ key: k, ...v })),
+      qualityTiers: Object.entries(QUALITY_TIERS).map(([key, value]) => ({ key, ...value })),
       maxSlots: MAX_SLOTS,
+      hasBlockingErrors: (validation.errors?.length ?? 0) > 0,
+      hardError: skillSnapshot.found ? null : "No valid Alchemy skill found on the acting character.",
     };
   }
 
-  // Form change handling
+  _onRender(context, options) {
+    super._onRender(context, options);
+    this._bindTrayDraggables();
+    this._bindKnownEffectDropzone();
+    this._bindKnownEffectControls();
+    this._bindSpellDropzones();
+    this._bindSlotControls();
+  }
 
-  /**
-   * Handle changes to form inputs.
-   *
-   * Foundry v13 routes input change events through _onChangeForm.
-   * We use this to keep the workshop state (_ws) deterministic without relying
-   * on click-based DEFAULT_OPTIONS.actions.
-   *
-   * @param {import("foundry/applications/api").ApplicationFormConfiguration} formConfig
-   * @param {Event} event
-   */
-  _onChangeForm(formConfig, event) {
+  _bindTrayDraggables() {
+    const root = this.element;
+    if (!root) return;
+
+    root.querySelectorAll("[data-drag-spell-uuid]").forEach((row) => {
+      if (row.dataset.dragBound === "true") return;
+      row.dataset.dragBound = "true";
+      row.addEventListener("dragstart", (event) => {
+        const uuid = String(row.dataset.dragSpellUuid ?? "").trim();
+        if (!uuid) return;
+        event.dataTransfer?.setData("text/plain", JSON.stringify({ type: "Item", uuid }));
+      });
+    });
+  }
+
+  _bindSpellDropzones() {
+    const root = this.element;
+    if (!root) return;
+
+    root.querySelectorAll("[data-spell-drop-slot]").forEach((zone) => {
+      if (zone.dataset.dropBound === "true") return;
+      zone.dataset.dropBound = "true";
+
+      zone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        zone.style.outline = "2px solid rgba(201, 157, 71, 0.9)";
+      });
+
+      zone.addEventListener("dragleave", () => {
+        zone.style.outline = "";
+      });
+
+      zone.addEventListener("drop", async (event) => {
+        event.preventDefault();
+        zone.style.outline = "";
+        const slotIdx = Number(zone.dataset.spellDropSlot ?? -1);
+        if (slotIdx < 0) return;
+        await this._handleDroppedSpell(event, slotIdx);
+      });
+    });
+  }
+
+  _bindKnownEffectDropzone() {
+    const root = this.element;
+    if (!root) return;
+
+    root.querySelectorAll("[data-known-effect-drop]").forEach((zone) => {
+      if (zone.dataset.dropBound === "true") return;
+      zone.dataset.dropBound = "true";
+
+      zone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        zone.style.outline = "2px solid rgba(201, 157, 71, 0.9)";
+      });
+
+      zone.addEventListener("dragleave", () => {
+        zone.style.outline = "";
+      });
+
+      zone.addEventListener("drop", async (event) => {
+        event.preventDefault();
+        zone.style.outline = "";
+        await this._handleDroppedKnownEffect(event);
+      });
+    });
+  }
+
+  _bindKnownEffectControls() {
+    const root = this.element;
+    if (!root) return;
+
+    root.querySelectorAll("[data-remove-known-effect]").forEach((button) => {
+      if (button.dataset.removeBound === "true") return;
+      button.dataset.removeBound = "true";
+      button.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const spellUuid = String(button.dataset.removeKnownEffect ?? "").trim();
+        if (!spellUuid) return;
+        const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
+        if (!actor) return;
+        await removeActorKnownAlchemyEffect(actor, spellUuid);
+        await this.render();
+      });
+    });
+  }
+
+  _bindSlotControls() {
+    const root = this.element;
+    if (!root) return;
+
+    root.querySelectorAll("[data-slot-card]").forEach((card) => {
+      if (card.dataset.slotBound === "true") return;
+      card.dataset.slotBound = "true";
+      card.addEventListener("click", async () => {
+        const slotIdx = Number(card.dataset.slotCard ?? -1);
+        if (!Number.isFinite(slotIdx) || slotIdx < 0 || slotIdx >= MAX_SLOTS) return;
+        if (this._ws.activeSlotIdx === slotIdx) return;
+        this._ws.activeSlotIdx = slotIdx;
+        await this.render();
+      });
+    });
+
+    root.querySelectorAll("[data-clear-spell]").forEach((button) => {
+      if (button.dataset.clearBound === "true") return;
+      button.dataset.clearBound = "true";
+      button.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const slotIdx = Number(button.dataset.clearSpell ?? -1);
+        if (!Number.isFinite(slotIdx) || slotIdx < 0 || slotIdx >= MAX_SLOTS) return;
+        this._ws.slots[slotIdx] = { ...this._ws.slots[slotIdx], spellUuid: null, spellLevel: 1, effectSource: "spell", effectKey: null, params: {} };
+        this._ws.activeSlotIdx = slotIdx;
+        await this.render();
+      });
+    });
+  }
+
+  async _handleDroppedSpell(event, slotIdx) {
+    const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
+    if (!actor) {
+      ui.notifications.error("UESRPG | Alchemy Workshop: Actor not found.");
+      return;
+    }
+
+    const dropData = _readDropData(event);
+    if (!dropData || dropData.type !== "Item") return;
+
+    const spell = await resolveDroppedItem(dropData);
+    if (!spell || spell.type !== "spell") {
+      ui.notifications.warn("Drop a spell item into the slot.");
+      return;
+    }
+
+    if (spell.pack) {
+      ui.notifications.warn("Compendium spells are not supported here. Use an actor-owned spell or a world spell item.");
+      return;
+    }
+
+    if (String(spell.parent?.documentName ?? "") === "Actor" && String(spell.parent.uuid ?? "") !== String(actor.uuid ?? "")) {
+      ui.notifications.warn("Only spells owned by this actor or world spell items can be used.");
+      return;
+    }
+
+    if (String(spell.parent?.documentName ?? "") && String(spell.parent?.documentName ?? "") !== "Actor") {
+      ui.notifications.warn("That drop source is not supported for alchemy.");
+      return;
+    }
+
+    const slot = _cloneSlot(this._ws.slots[slotIdx]);
+    if (!slot.ingredientId) {
+      ui.notifications.warn("Choose an ingredient for the slot before dropping a spell.");
+      return;
+    }
+
+    const ingredientItem = actor.items.get(slot.ingredientId);
+    if (!ingredientItem) {
+      ui.notifications.warn("That ingredient could not be found on the actor.");
+      return;
+    }
+
+    const ingredient = {
+      id: ingredientItem.id,
+      school: String(ingredientItem.flags?.["uesrpg-3ev4"]?.alchemy?.school ?? "").toLowerCase(),
+      depthBase: Number(ingredientItem.flags?.["uesrpg-3ev4"]?.alchemy?.depthBase ?? 1),
+      effectiveStrength: computeEffectiveStrength(ingredientItem, actor),
+    };
+
+    if (this._ws.slots.some((otherSlot, idx) => idx !== slotIdx && String(otherSlot?.spellUuid ?? "") === String(spell.uuid ?? ""))) {
+      ui.notifications.warn("Each spell effect may only be selected once per brew.");
+      return;
+    }
+
+    const spellEntry = _buildSpellEntryFromDocument(actor, spell, this._ws.mode);
+    if (!spellEntry) {
+      ui.notifications.warn("Only actor-owned spells for this actor or world spell items can be used.");
+      return;
+    }
+
+    const viability = _findViableSpellLevel(actor, ingredient, spellEntry);
+    if (!viability.ok) {
+      ui.notifications.warn(viability.reason);
+      return;
+    }
+
+    if (!actor.flags?.["uesrpg-3ev4"]?.alchemy?.knownEffects?.some?.((entry) => String(entry?.spellUuid ?? "") === String(spell.uuid ?? ""))) {
+      const learned = await addActorKnownAlchemyEffect(actor, spell);
+      if (!learned?.ok) {
+        ui.notifications.warn(learned?.reason ?? "Could not add that spell to Known Effects.");
+        return;
+      }
+    }
+
+    this._ws.slots[slotIdx] = {
+      ...slot,
+      effectSource: "spell",
+      effectKey: null,
+      spellUuid: spell.uuid,
+      spellLevel: viability.spellLevel,
+      params: {},
+    };
+    this._ws.activeSlotIdx = slotIdx;
+    await this.render();
+  }
+
+  async _handleDroppedKnownEffect(event) {
+    const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
+    if (!actor) {
+      ui.notifications.error("UESRPG | Alchemy Workshop: Actor not found.");
+      return;
+    }
+
+    const dropData = _readDropData(event);
+    if (!dropData || dropData.type !== "Item") return;
+
+    const spell = await resolveDroppedItem(dropData);
+    if (!spell || spell.type !== "spell") {
+      ui.notifications.warn("Drop a spell item into Known Effects.");
+      return;
+    }
+
+    if (spell.pack) {
+      ui.notifications.warn("Compendium spells are not supported here. Drag an actor-owned spell or a world spell item.");
+      return;
+    }
+
+    if (String(spell.parent?.documentName ?? "") === "Actor" && String(spell.parent.uuid ?? "") !== String(actor.uuid ?? "")) {
+      ui.notifications.warn("Only spells owned by this actor or world spell items can be added to Known Effects.");
+      return;
+    }
+
+    if (String(spell.parent?.documentName ?? "") && String(spell.parent?.documentName ?? "") !== "Actor") {
+      ui.notifications.warn("That drop source is not supported for Known Effects.");
+      return;
+    }
+
+    const result = await addActorKnownAlchemyEffect(actor, spell);
+    if (!result?.ok) {
+      ui.notifications.warn(result?.reason ?? "Could not add that spell to Known Effects.");
+      return;
+    }
+
+    if (result.added) ui.notifications.info(`${spell.name} added to Known Effects.`);
+    await this.render();
+  }
+
+  async _onChangeForm(formConfig, event) {
     super._onChangeForm(formConfig, event);
 
     const target = event?.target;
@@ -281,73 +651,62 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     const name = String(target.getAttribute("name") ?? "").trim();
     if (!name) return;
 
-    // Mode switch.
     if (name === "mode") {
       const newMode = String(target.value ?? "").trim() || "potion";
       if (newMode === this._ws.mode) return;
       this._ws = _defaultState(newMode);
-      void this.render();
+      await this.render();
       return;
     }
 
-    // Potion/Toxin: ingredient picker per slot.
     if (name.startsWith("ingredient-")) {
       const slotIdx = Number(name.split("-")[1] ?? 0);
+      if (!Number.isFinite(slotIdx) || slotIdx < 0 || slotIdx >= MAX_SLOTS) return;
       const ingredientId = String(target.value ?? "").trim() || null;
-      if (!Number.isFinite(slotIdx) || slotIdx < 0 || slotIdx >= MAX_SLOTS) return;
       this._ws.slots[slotIdx] = { ..._defaultSlot(), ingredientId };
-      void this.render();
+      this._ws.activeSlotIdx = slotIdx;
+      await this.render();
       return;
     }
 
-    // Potion/Toxin: effect picker per slot.
-    if (name.startsWith("effect-")) {
-      const slotIdx = Number(name.split("-")[1] ?? 0);
-      const effectKey = String(target.value ?? "").trim() || null;
-      if (!Number.isFinite(slotIdx) || slotIdx < 0 || slotIdx >= MAX_SLOTS) return;
-      this._ws.slots[slotIdx] = { ...this._ws.slots[slotIdx], effectKey, spellLevel: 1, params: {} };
-      void this.render();
-      return;
-    }
-
-    // Potion/Toxin: SL per slot.
     if (name.startsWith("sl-")) {
       const slotIdx = Number(name.split("-")[1] ?? 0);
-      const sl = Math.max(1, Math.min(7, Number(target.value) || 1));
       if (!Number.isFinite(slotIdx) || slotIdx < 0 || slotIdx >= MAX_SLOTS) return;
-      this._ws.slots[slotIdx] = { ...this._ws.slots[slotIdx], spellLevel: sl };
-      void this.render();
+      const spellLevel = Math.max(1, Number(target.value ?? 1) || 1);
+      this._ws.slots[slotIdx] = { ...this._ws.slots[slotIdx], spellLevel };
+      this._ws.activeSlotIdx = slotIdx;
+      await this.render();
       return;
     }
 
-    // Poison mode: single ingredient picker.
     if (name === "poison-ingredient") {
-      const ingredientId = String(target.value ?? "").trim() || null;
-      this._ws.ingredientId = ingredientId;
-      void this.render();
+      this._ws.ingredientId = String(target.value ?? "").trim() || null;
+      await this.render();
       return;
     }
 
-    // Gather mode: school selector.
     if (name === "gatherSchool") {
       this._ws.gatherSchool = String(target.value ?? "restoration").trim() || "restoration";
-      void this.render();
+      await this.render();
       return;
     }
 
-    // Talent toggle.
     if (name === "nothingVentured") {
-      // Checkbox
-      // @ts-ignore
       this._ws.nothingVentured = Boolean(target.checked);
-      void this.render();
+      await this.render();
     }
   }
 
-  static async _onCommit(event, target) {
+  static async _onCommit() {
     const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
     if (!actor) {
       ui.notifications.error("UESRPG | Alchemy Workshop: Actor not found.");
+      return;
+    }
+
+    const skillSnapshot = getAlchemySkillSnapshot(actor);
+    if (!skillSnapshot.found) {
+      ui.notifications.warn("This actor has no valid Alchemy skill entry.");
       return;
     }
 
@@ -359,42 +718,36 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     const recipe = _buildRecipeFromState(this._ws);
     const validation = validateBrewRecipe(actor, recipe);
 
-    if (!validation.ok) {
-      const msg = validation.errors.join("\n- ");
-      ui.notifications.warn(`Cannot brew:\n- ${msg}`);
+    if ((validation.errors?.length ?? 0) > 0) {
+      ui.notifications.warn(`Cannot brew:\n- ${validation.errors.join("\n- ")}`);
       return;
     }
 
-    // Post pending brew message to chat.
     await createPendingBrewMessage(actor, recipe, { nothingVentured: this._ws.nothingVentured });
-
     ui.notifications.info(`${actor.name}: Brew pending - roll Alchemy in chat.`);
     await this.close();
   }
 
-  static async _onRollGather(event, target) {
-    await this._commitGather(await fromUuid(this._actorUuid));
+  static async _onRollGather() {
+    const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
+    await this._commitGather(actor);
   }
 
   async _commitGather(actor) {
-    const skill = getAlchemySkill(actor);
-    const tn = Number(skill?.system?.total ?? 0);
+    const skillSnapshot = getAlchemySkillSnapshot(actor);
+    const tn = skillSnapshot.tn;
     const school = this._ws.gatherSchool;
 
-    if (tn <= 0) {
-      ui.notifications.warn("Actor has no Alchemy skill to roll.");
+    if (!skillSnapshot.found) {
+      ui.notifications.warn("Actor has no valid Alchemy skill to roll.");
       return;
     }
 
-    // Roll the gathering test.
     const roll = new Roll("1d100");
     await roll.evaluate();
     const success = roll.total <= tn;
-
-    // Determine quality of gathered ingredient on success.
     const qualityLabel = success ? _randomQualityOnGather(roll.total, tn) : null;
-
-    const gmIds = game.users?.filter((u) => u.isGM).map((u) => u.id) ?? [];
+    const gmIds = game.users?.filter((user) => user.isGM).map((user) => user.id) ?? [];
 
     await ChatMessage.create({
       user: game.user.id,
@@ -424,62 +777,14 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
 
     if (!success) await this.close();
   }
-
-  // Window title
-
-  get title() {
-    const actor = this._actorUuid
-      ? game.actors?.find((a) => a.uuid === this._actorUuid)
-      : null;
-    return actor ? `Alchemy Workshop - ${actor.name}` : "Alchemy Workshop";
-  }
 }
 
-// Private helpers
-
-/** Build a recipe object from workshop state (used by validation + modifiers). */
-function _buildRecipeFromState(ws) {
-  if (ws.mode === "poison") {
-    return {
-      mode: "poison",
-      ingredientId: ws.ingredientId ?? null,
-      poisonLevel: null, // derived from ingredient depth in workflow
-    };
-  }
-
-  return {
-    mode: ws.mode,
-    slots: ws.slots.map((s) => ({
-      ingredientId: s.ingredientId ?? null,
-      effectKey: s.effectKey ?? null,
-      spellLevel: Number(s.spellLevel ?? 1),
-      params: s.params ?? {},
-    })),
-  };
+function _randomQualityOnGather(rollTotal, tn) {
+  const margin = Math.max(0, tn - rollTotal);
+  if (margin >= 50) return "Legendary";
+  if (margin >= 40) return "Master";
+  if (margin >= 30) return "Expert";
+  if (margin >= 20) return "Adept";
+  if (margin >= 10) return "Journeyman";
+  return "Novice";
 }
-
-/** Look up cached Trial-and-Error bonus synchronously from actor flags. */
-function _getStoredTrialBonus(actor, recipe) {
-  // Inline the hash logic so we don't need an async call in _prepareContext.
-  const effects = (recipe.slots ?? [])
-    .map((e) => `${e.effectKey ?? ""}:${e.spellLevel ?? 1}`)
-    .sort()
-    .join(",");
-  const hash = `${recipe.mode}|${effects}|${recipe.poisonLevel ?? 0}`;
-  const te = actor?.flags?.["uesrpg-3ev4"]?.alchemy?.trialAndError ?? {};
-  return Math.min(30, (te[hash] ?? 0) * 10);
-}
-
-/**
- * Determine quality label for a gathered ingredient.
- * Better roll (lower value vs TN) = higher quality.
- */
-function _randomQualityOnGather(roll, tn) {
-  const margin = tn - roll; // 0..tn
-  const tiers = Object.values(QUALITY_TIERS);
-  // Map margin (0 = barely made it -> ubiquitous; tn-1 = near perfect -> rare).
-  const ratio = Math.min(1, margin / Math.max(1, tn));
-  const idx = Math.floor(ratio * Math.min(5, tiers.length - 1));
-  return tiers[idx]?.label ?? "Common";
-}
-

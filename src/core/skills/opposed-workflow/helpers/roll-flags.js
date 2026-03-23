@@ -27,6 +27,10 @@ export function buildSkillOpposedRollFlags({
     rollMode: game.settings.get("core", "rollMode"),
     useSpecialization: Boolean(decl?.useSpec),
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
+    rollOptions: {
+      ...(decl?.selectedCharacteristicKey ? { selectedCharacteristicKey: String(decl.selectedCharacteristicKey).toLowerCase() } : {}),
+      ...(decl?.histskinUnderwater === true ? { histskin: true } : {})
+    },
     isSuccess: Boolean(res?.isSuccess),
     degree: Number(res?.degree ?? 0) || 0,
     textual: String(res?.textual ?? "")
@@ -73,9 +77,17 @@ export function buildSkillOpposedRollFlags({
     ...(dosOverride ? { dosOverride } : {})
   };
 
-  if (decl?.histskinUnderwater === true) {
-    rollFlags.uesrpg.rollOptions = { ...(rollFlags.uesrpg.rollOptions ?? {}), histskin: true };
-    rollFlags["uesrpg-3ev4"].rollOptions = { ...(rollFlags["uesrpg-3ev4"].rollOptions ?? {}), histskin: true };
+  if (decl?.selectedCharacteristicKey || decl?.histskinUnderwater === true) {
+    rollFlags.uesrpg.rollOptions = {
+      ...(rollFlags.uesrpg.rollOptions ?? {}),
+      ...(decl?.selectedCharacteristicKey ? { selectedCharacteristicKey: String(decl.selectedCharacteristicKey).toLowerCase() } : {}),
+      ...(decl?.histskinUnderwater === true ? { histskin: true } : {})
+    };
+    rollFlags["uesrpg-3ev4"].rollOptions = {
+      ...(rollFlags["uesrpg-3ev4"].rollOptions ?? {}),
+      ...(decl?.selectedCharacteristicKey ? { selectedCharacteristicKey: String(decl.selectedCharacteristicKey).toLowerCase() } : {}),
+      ...(decl?.histskinUnderwater === true ? { histskin: true } : {})
+    };
   }
 
   return rollFlags;

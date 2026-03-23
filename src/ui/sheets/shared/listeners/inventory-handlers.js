@@ -5,7 +5,8 @@
  * Shared across actor sheet modules.
  */
 
-import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { setOwnedItemQuantityOrDelete } from "../../../../core/items/owned-item-quantity.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 
 /**
@@ -55,6 +56,11 @@ export const onMinusQty = asyncGuardSheet(async function onMinusQty(event, targe
     ui.notifications.info(`You have used your last ${item.name}!`);
   }
 
+  if (item.type === "ammunition") {
+    await setOwnedItemQuantityOrDelete({ item, quantity: newQty });
+    return;
+  }
+
   await requestUpdateDocument(item, { "system.quantity": newQty });
 });
 
@@ -74,4 +80,19 @@ export const onItemEquip = asyncGuardSheet(async function onItemEquip(event, tar
 
   const current = Boolean(item?.system?.equipped);
   await requestUpdateDocument(item, { "system.equipped": !current });
+});
+
+export const onWeaponAmmoSelect = asyncGuardSheet(async function onWeaponAmmoSelect(event, target) {
+  const li = (target ?? event.currentTarget).closest(".item");
+  const item = this.actor.getEmbeddedDocument("Item", li?.dataset?.itemId);
+  if (!item || item.type !== "weapon") return;
+
+  const ammoId = String(target?.value ?? "").trim();
+  const currentAmmoId = String(item.system?.ammoId ?? "").trim();
+  if (ammoId === currentAmmoId) return true;
+
+  return requestUpdateEmbeddedDocuments(this.actor, "Item", [{
+    _id: item.id,
+    "system.ammoId": ammoId,
+  }]);
 });

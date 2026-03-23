@@ -180,6 +180,7 @@ const _CATALOG = [
     slRange: [1, 5],
     baseDuration: { unit: "minutes", value: 5 },
     toxinOverrides: { removeUpkeep: true },
+    toxinSave: { characteristic: "end", label: "Endurance" },
     notes: "Calms the target. As a potion: calms the drinker. As a toxin: effect is not Upkeep.",
   },
   {
@@ -191,6 +192,7 @@ const _CATALOG = [
     slRange: [1, 5],
     baseDuration: { unit: "minutes", value: 3 },
     toxinOverrides: { removeUpkeep: true },
+    toxinSave: { characteristic: "end", label: "Endurance" },
     notes: "Forces the target to attack the nearest creature. When used as a toxin: effect is not Upkeep.",
   },
   {
@@ -244,6 +246,7 @@ const _CATALOG = [
     slRange: [1, 7],
     baseDuration: { unit: "minutes", value: 5 },
     toxinOverrides: { removeUpkeep: true },
+    toxinSave: { characteristic: "end", label: "Endurance" },
     notes: "Drains SL Health from the target. When used as a toxin: not considered Upkeep.",
   },
   {
@@ -255,6 +258,7 @@ const _CATALOG = [
     slRange: [1, 7],
     baseDuration: { unit: "minutes", value: 5 },
     toxinOverrides: { removeUpkeep: true },
+    toxinSave: { characteristic: "end", label: "Endurance" },
     notes: "Drains SL Magicka from the target. When used as a toxin: not considered Upkeep.",
   },
   {
@@ -266,6 +270,7 @@ const _CATALOG = [
     slRange: [1, 7],
     baseDuration: { unit: "minutes", value: 5 },
     toxinOverrides: { removeUpkeep: true },
+    toxinSave: { characteristic: "end", label: "Endurance" },
     notes: "Drains SL Stamina Points from the target. When used as a toxin: not considered Upkeep.",
   },
   {
@@ -276,6 +281,7 @@ const _CATALOG = [
     costFormula: "SL * 20",
     slRange: [1, 5],
     baseDuration: null,
+    toxinSave: { characteristic: "end", label: "Endurance" },
     notes: "Inflicts the Paralyzed condition on the target. When used as a toxin: not considered Upkeep.",
   },
   {
@@ -286,6 +292,7 @@ const _CATALOG = [
     costFormula: "SL * 15",
     slRange: [1, 5],
     baseDuration: null,
+    toxinSave: { characteristic: "end", label: "Endurance" },
     notes: "Inflicts the Silenced condition on the target. When used as a toxin: not considered Upkeep.",
   },
 ];

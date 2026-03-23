@@ -1,254 +1,273 @@
-{{!--
-  Alchemy Workshop — AppV2 template
-  Data contract (from AlchemyWorkshopAppV2._prepareContext):
-    actor              Actor document
-    skill              Alchemy skill item | null
-    talents            { isMasterAlchemist, alchemistSchools, hasNothingVentured, hasTrialAndError }
-    ws                 { mode, nothingVentured, slots[], gatherSchool, ingredientId }
-    modes              { potion, poison, toxin, gather } — enabled flags
-    ingredients        [{ id, name, school, strengthBase, effectiveStrength, depthBase, tierLabel, qty }]
-    destructionIngredients  subset of ingredients with school=destruction
-    slots              [{ idx, slot, ingredient, availableEffects[], currentEffectDetail }]
-    mods               { tn, alchemyRank, penaltyBreakdown[], totalMod, brewTime }
-    adjustedTN         number
-    validation         { ok, errors[] }
-    requireLab / labPresent / toolsPresent
-    poisonIngredient / poisonDice
-    schools            string[]
-    gatherSchool       string
-    qualityTiers       [{ key, strength, depth, label }]
-    maxSlots           3
---}}
-
 <div class="alchemy-workshop-wrap">
-
-  {{!-- ── Header ── --}}
-  <div class="workshop-header">
-    <div class="actor-info">
-      <img src="{{actor.img}}" alt="{{actor.name}}" class="actor-thumb" style="width:40px;height:40px;border-radius:4px;margin-right:0.5rem;">
-      <div>
-        <div class="actor-name" style="font-weight:bold;">{{actor.name}}</div>
-        <div class="skill-tn" style="font-size:0.85em;opacity:0.8;">
-          {{#if skill}}Alchemy TN {{mods.tn}} · Rank {{mods.alchemyRank}}{{else}}<span style="color:#c62828;">No Alchemy skill found</span>{{/if}}
-        </div>
-      </div>
-    </div>
-
-    {{!-- Mode selector --}}
-    <div class="mode-selector" style="margin-left:auto;">
-      <label style="font-size:0.8em;opacity:0.7;display:block;">Mode</label>
-      <select name="mode" style="min-width:130px;">
-        {{#if modes.potion}}<option value="potion" {{#if (eq ws.mode "potion")}}selected{{/if}}>Brew Potion</option>{{/if}}
-        {{#if modes.poison}}<option value="poison" {{#if (eq ws.mode "poison")}}selected{{/if}}>Brew Poison</option>{{/if}}
-        {{#if modes.toxin}}<option value="toxin"  {{#if (eq ws.mode "toxin")}}selected{{/if}}>Brew Toxin</option>{{/if}}
-        {{#if modes.gather}}<option value="gather" {{#if (eq ws.mode "gather")}}selected{{/if}}>Gather Ingredients</option>{{/if}}
-      </select>
-    </div>
-  </div>
-
-  {{!-- ── Lab / Tools warnings ── --}}
-  {{#if requireLab}}
-    {{#unless labPresent}}
-      <div class="warning-banner" style="background:#5a1a1a;color:#ffb3b3;padding:0.4rem 0.75rem;border-radius:4px;margin-top:0.5rem;font-size:0.85em;">
-        ⚠ No Alchemy Lab in inventory — brewing will fail RAW validation.
-      </div>
-    {{/unless}}
-  {{/if}}
-  {{#unless toolsPresent}}
-    <div class="warning-banner" style="background:#5a3a00;color:#ffe0b2;padding:0.4rem 0.75rem;border-radius:4px;margin-top:0.4rem;font-size:0.85em;">
-      ⚠ No Alchemical Tools in inventory — brewing will fail RAW validation.
-    </div>
-  {{/unless}}
-
-  {{!-- ══════════════════════════════════════════════════════════════════════ --}}
-  {{!-- POTION / TOXIN MODE                                                    --}}
-  {{!-- ══════════════════════════════════════════════════════════════════════ --}}
-  {{#if (or (eq ws.mode "potion") (eq ws.mode "toxin"))}}
-    <div class="slots-section" style="margin-top:1rem;">
-      <h3 style="margin:0 0 0.5rem;font-size:1em;">
-        {{#if (eq ws.mode "potion")}}Potion Effects{{else}}Toxin Effects{{/if}}
-        <span style="font-weight:normal;opacity:0.6;font-size:0.85em;">(1–{{maxSlots}} ingredient slots)</span>
-      </h3>
-
-      {{#each slots as |s|}}
-        <div class="ingredient-slot" style="border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:0.6rem;margin-bottom:0.6rem;">
-          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-            <span style="font-size:0.8em;opacity:0.6;min-width:3rem;">Slot {{inc s.idx}}</span>
-
-            {{!-- Ingredient picker --}}
-            <select name="ingredient-{{s.idx}}" data-slot="{{s.idx}}" style="flex:1;min-width:120px;">
-              <option value="">— Select Ingredient —</option>
-              {{#each @root.ingredients as |ing|}}
-                <option value="{{ing.id}}" {{#if (eq ing.id s.slot.ingredientId)}}selected{{/if}}>
-                  {{ing.name}} ({{capitalize ing.school}}, Str {{ing.effectiveStrength}}, Depth {{ing.depthBase}}) ×{{ing.qty}}
-                </option>
-              {{/each}}
-            </select>
-
-            {{!-- Effect picker (enabled only when ingredient is chosen) --}}
-            <select name="effect-{{s.idx}}" data-slot="{{s.idx}}"
-              style="flex:1;min-width:140px;" {{#unless s.ingredient}}disabled{{/unless}}>
-              <option value="">— Select Effect —</option>
-              {{#each s.availableEffects as |ef|}}
-                <option value="{{ef.key}}" {{#if ef.selected}}selected{{/if}} {{#unless ef.eligible}}disabled{{/unless}}>
-                  {{ef.label}}{{#unless ef.eligible}} (cost {{ef.cost}} > str {{@root.slots.[../idx].ingredient.effectiveStrength}}){{/unless}}
-                </option>
-              {{/each}}
-            </select>
-
-            {{!-- SL selector --}}
-            {{#if s.currentEffectDetail}}
-              <div style="display:flex;align-items:center;gap:0.3rem;">
-                <label style="font-size:0.8em;opacity:0.7;">SL</label>
-                <input type="number"
-                  name="sl-{{s.idx}}"
-                  data-slot="{{s.idx}}"
-                  value="{{s.slot.spellLevel}}"
-                  min="{{s.currentEffectDetail.slMin}}"
-                  max="{{s.currentEffectDetail.slMax}}"
-                  style="width:48px;text-align:center;"
-                  {{!-- Use oninput to fire change immediately --}}
-                  oninput="this.dispatchEvent(new Event('change',{bubbles:true}))">
-              </div>
+  {{#if error}}
+    <div class="alchemy-workshop-banner is-danger">{{error}}</div>
+  {{else}}
+    <section class="workshop-header">
+      <div class="alchemy-workshop-actor">
+        <img src="{{actor.img}}" alt="{{actor.name}}" class="actor-thumb">
+        <div class="alchemy-workshop-actor__text">
+          <div class="actor-name">{{actor.name}}</div>
+          <div class="alchemy-workshop-meta">
+            {{#if skillSnapshot.found}}
+              Alchemy TN {{skillSnapshot.tn}} · Rank {{skillSnapshot.rank}}
+            {{else}}
+              <span class="alchemy-workshop-text-danger">No valid Alchemy skill found</span>
             {{/if}}
           </div>
+        </div>
+      </div>
 
-          {{!-- Effect detail row --}}
-          {{#if s.currentEffectDetail}}
-            <div class="effect-detail" style="margin-top:0.35rem;font-size:0.8em;opacity:0.8;padding-left:3.5rem;">
-              Cost <strong>{{s.currentEffectDetail.cost}}</strong> / {{s.currentEffectDetail.effectiveStrength}} · {{s.currentEffectDetail.durationLabel}}
-              {{#if s.currentEffectDetail.hasUpkeep}}<span style="color:#90caf9;margin-left:0.4rem;">⟳ Upkeep</span>{{/if}}
+      <div class="alchemy-workshop-mode">
+        <label class="alchemy-workshop-label" for="alchemy-workshop-mode">Mode</label>
+        <select id="alchemy-workshop-mode" name="mode" class="alchemy-workshop-select">
+          {{#if modes.potion}}<option value="potion" {{#if (eq ws.mode "potion")}}selected{{/if}}>Brew Potion</option>{{/if}}
+          {{#if modes.poison}}<option value="poison" {{#if (eq ws.mode "poison")}}selected{{/if}}>Brew Poison</option>{{/if}}
+          {{#if modes.toxin}}<option value="toxin" {{#if (eq ws.mode "toxin")}}selected{{/if}}>Brew Toxin</option>{{/if}}
+          {{#if modes.gather}}<option value="gather" {{#if (eq ws.mode "gather")}}selected{{/if}}>Gather Ingredients</option>{{/if}}
+        </select>
+      </div>
+    </section>
+
+    {{#if hardError}}
+      <div class="alchemy-workshop-banner is-danger">{{hardError}}</div>
+    {{/if}}
+
+    {{#if (or (eq ws.mode "potion") (eq ws.mode "toxin"))}}
+      <section class="alchemy-workshop-section">
+        <div class="alchemy-workshop-section__header">
+          <h3>Known Effects</h3>
+          <p>Teach the actor effects here, then drag known entries into ingredient slots below. Dropping a valid spell directly into a slot will auto-learn it.</p>
+        </div>
+
+        <div class="alchemy-known-dropzone" data-known-effect-drop>
+          <div class="alchemy-known-dropzone__title">Drop spell here to learn effect</div>
+          <div class="alchemy-known-dropzone__text">
+            Accepts actor-owned spells for this actor and world spell items. Compendium spell drops are rejected.
+          </div>
+        </div>
+
+        <div class="alchemy-known-list">
+          {{#if knownEffects.length}}
+            {{#each knownEffects as |entry|}}
+              <article
+                class="alchemy-known-entry {{#unless entry.valid}}is-invalid{{/unless}}"
+                draggable="{{#if entry.valid}}true{{else}}false{{/if}}"
+                {{#if entry.valid}}data-drag-spell-uuid="{{entry.spellUuid}}"{{/if}}>
+                <div class="alchemy-known-entry__body">
+                  <div class="alchemy-known-entry__title">{{entry.label}}</div>
+                  <div class="alchemy-known-entry__meta">{{capitalize entry.school}} · {{entry.sourceLabel}} · {{entry.levelSummary}}</div>
+                  {{#unless entry.valid}}
+                    <div class="alchemy-known-entry__warning">
+                      Source spell is missing or invalid. Remove this known effect or replace the underlying spell.
+                    </div>
+                  {{/unless}}
+                </div>
+                <button type="button" class="alchemy-workshop-button is-compact" data-remove-known-effect="{{entry.spellUuid}}">
+                  Remove
+                </button>
+              </article>
+            {{/each}}
+          {{else}}
+            <div class="alchemy-workshop-empty">
+              No known effects stored yet. Add spells above, then drag them into the slots below.
             </div>
           {{/if}}
         </div>
-      {{/each}}
-    </div>
-  {{/if}}
+      </section>
 
-  {{!-- ══════════════════════════════════════════════════════════════════════ --}}
-  {{!-- POISON MODE                                                             --}}
-  {{!-- ══════════════════════════════════════════════════════════════════════ --}}
-  {{#if (eq ws.mode "poison")}}
-    <div class="poison-section" style="margin-top:1rem;">
-      <h3 style="margin:0 0 0.5rem;font-size:1em;">Destruction Ingredient</h3>
-      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-        <select name="poison-ingredient" style="flex:1;min-width:200px;">
-          <option value="">— Select Destruction Ingredient —</option>
-          {{#each destructionIngredients as |ing|}}
-            <option value="{{ing.id}}" {{#if (eq ing.id ws.ingredientId)}}selected{{/if}}>
-              {{ing.name}} ({{ing.tierLabel}}, Depth {{ing.depthBase}}) ×{{ing.qty}}
-            </option>
+      <section class="alchemy-workshop-section">
+        <div class="alchemy-workshop-section__header">
+          <h3>{{#if (eq ws.mode "potion")}}Potion Effects{{else}}Toxin Effects{{/if}}</h3>
+          <p>Up to {{maxSlots}} unique spell effects. Choose an ingredient first, then drop a known spell or a valid actor/world spell into the slot.</p>
+        </div>
+
+        <div class="alchemy-slot-list">
+          {{#each slots as |s|}}
+            <article data-slot-card="{{s.idx}}" class="alchemy-slot-card {{#if s.isActive}}is-active{{/if}}">
+              <div class="alchemy-slot-card__top">
+                <div class="alchemy-slot-card__label">Slot {{inc s.idx}}</div>
+                <select name="ingredient-{{s.idx}}" data-slot="{{s.idx}}" class="alchemy-workshop-select alchemy-slot-card__ingredient">
+                  <option value="">- Select Ingredient -</option>
+                  {{#each @root.ingredients as |ing|}}
+                    <option value="{{ing.id}}" {{#if (eq ing.id s.slot.ingredientId)}}selected{{/if}}>
+                      {{ing.name}} ({{capitalize ing.school}}, Str {{ing.effectiveStrength}}, Depth {{ing.depthBase}}) x{{ing.qty}}
+                    </option>
+                  {{/each}}
+                </select>
+                {{#if s.slot.spellUuid}}
+                  <button type="button" class="alchemy-workshop-button is-compact" data-clear-spell="{{s.idx}}">Clear</button>
+                {{/if}}
+              </div>
+
+              <div data-spell-drop-slot="{{s.idx}}" class="alchemy-slot-dropzone {{#if s.currentEffectDetail}}is-filled{{/if}}">
+                {{#if s.currentEffectDetail}}
+                  <div class="alchemy-slot-dropzone__top">
+                    <div>
+                      <div class="alchemy-slot-dropzone__title">{{s.currentEffectDetail.label}}</div>
+                      <div class="alchemy-slot-dropzone__meta">{{capitalize s.currentEffectDetail.school}} spell · {{s.currentEffectDetail.sourceLabel}}</div>
+                    </div>
+                    <div class="alchemy-slot-dropzone__stats">
+                      Cost <strong>{{s.currentEffectDetail.cost}}</strong> / {{s.currentEffectDetail.effectiveStrength}}<br>
+                      {{s.currentEffectDetail.durationLabel}}
+                    </div>
+                  </div>
+                {{else if s.missingEffectLabel}}
+                  <div class="alchemy-slot-dropzone__warning">
+                    {{s.missingEffectLabel}} no longer resolves. Clear the slot or repair the matching Known Effects entry.
+                  </div>
+                {{else if s.ingredient}}
+                  <div class="alchemy-slot-dropzone__hint">
+                    Drop a known spell here for this {{capitalize s.ingredient.school}} ingredient, or drag a valid actor/world spell into the slot to auto-learn it.
+                  </div>
+                {{else}}
+                  <div class="alchemy-slot-dropzone__hint">
+                    Choose an ingredient first, then drop a spell into this slot.
+                  </div>
+                {{/if}}
+              </div>
+
+              {{#if s.currentEffectDetail}}
+                <div class="alchemy-slot-level">
+                  <label class="alchemy-workshop-label" for="alchemy-slot-sl-{{s.idx}}">Spell Level</label>
+                  {{#if s.currentEffectDetail.hasDiscreteLevels}}
+                    <select id="alchemy-slot-sl-{{s.idx}}" name="sl-{{s.idx}}" data-slot="{{s.idx}}" class="alchemy-workshop-select alchemy-slot-level__control">
+                      {{#each s.currentEffectDetail.levelOptions as |level|}}
+                        <option value="{{level}}" {{#if (eq level s.currentEffectDetail.selectedSpellLevel)}}selected{{/if}}>{{level}}</option>
+                      {{/each}}
+                    </select>
+                  {{else}}
+                    <input
+                      id="alchemy-slot-sl-{{s.idx}}"
+                      type="number"
+                      name="sl-{{s.idx}}"
+                      data-slot="{{s.idx}}"
+                      value="{{s.slot.spellLevel}}"
+                      min="{{s.currentEffectDetail.slMin}}"
+                      max="{{s.currentEffectDetail.slMax}}"
+                      class="alchemy-workshop-input alchemy-slot-level__control"
+                      oninput="this.dispatchEvent(new Event('change',{bubbles:true}))">
+                  {{/if}}
+                </div>
+              {{/if}}
+            </article>
           {{/each}}
-        </select>
+        </div>
+      </section>
+    {{/if}}
 
-        {{#if poisonIngredient}}
-          <div style="font-size:0.85em;opacity:0.85;">
-            Poison Level <strong>{{poisonIngredient.depthBase}}</strong> → <strong>{{poisonDice}}</strong> damage (ignores armor)
+    {{#if (eq ws.mode "poison")}}
+      <section class="alchemy-workshop-section">
+        <div class="alchemy-workshop-section__header">
+          <h3>Destruction Ingredient</h3>
+          <p>Poisons require a destruction ingredient. Poison level equals ingredient depth.</p>
+        </div>
+
+        <div class="alchemy-poison-row">
+          <select name="poison-ingredient" class="alchemy-workshop-select alchemy-poison-row__select">
+            <option value="">- Select Destruction Ingredient -</option>
+            {{#each destructionIngredients as |ing|}}
+              <option value="{{ing.id}}" {{#if (eq ing.id ws.ingredientId)}}selected{{/if}}>
+                {{ing.name}} ({{ing.tierLabel}}, Depth {{ing.depthBase}}) x{{ing.qty}}
+              </option>
+            {{/each}}
+          </select>
+
+          {{#if poisonIngredient}}
+            <div class="alchemy-poison-row__summary">
+              Poison Level <strong>{{poisonIngredient.depthBase}}</strong> → <strong>{{poisonDice}}</strong> damage
+            </div>
+          {{/if}}
+        </div>
+
+        {{#unless destructionIngredients.length}}
+          <div class="alchemy-workshop-banner is-warning">No Destruction ingredients found in inventory.</div>
+        {{/unless}}
+      </section>
+    {{/if}}
+
+    {{#if (eq ws.mode "gather")}}
+      <section class="alchemy-workshop-section">
+        <div class="alchemy-workshop-section__header">
+          <h3>Gather Ingredients</h3>
+          <p>Roll Alchemy to search for ingredients from the chosen school.</p>
+        </div>
+        <div class="alchemy-gather-row">
+          <label class="alchemy-workshop-label" for="alchemy-gather-school">School</label>
+          <select id="alchemy-gather-school" name="gatherSchool" class="alchemy-workshop-select">
+            {{#each schools as |school|}}
+              <option value="{{school}}" {{#if (eq school gatherSchool)}}selected{{/if}}>{{capitalize school}}</option>
+            {{/each}}
+          </select>
+        </div>
+      </section>
+    {{/if}}
+
+    {{#unless (eq ws.mode "gather")}}
+      <section class="alchemy-summary-panel">
+        <div class="alchemy-summary-panel__badges">
+          {{#if talents.isMasterAlchemist}}
+            <span class="badge alchemy-summary-badge">Master Alchemist</span>
+          {{/if}}
+          {{#each talents.alchemistSchools as |school|}}
+            <span class="badge alchemy-summary-badge">Alchemist [{{capitalize school}}]</span>
+          {{/each}}
+          {{#if talents.hasNothingVentured}}
+            <span class="badge alchemy-summary-badge">Nothing Ventured, Nothing Gained</span>
+          {{/if}}
+          {{#if talents.hasTrialAndError}}
+            <span class="badge alchemy-summary-badge">Trial and Error</span>
+          {{/if}}
+        </div>
+
+        <div class="alchemy-summary-grid">
+          {{#each mods.penaltyBreakdown as |p|}}
+            <div class="alchemy-summary-grid__label">{{p.label}}</div>
+            <div class="alchemy-summary-grid__value {{#if (lt p.value 0)}}is-negative{{else}}is-positive{{/if}}">
+              {{#if (gt p.value 0)}}+{{/if}}{{p.value}}
+            </div>
+          {{/each}}
+
+          <div class="alchemy-summary-grid__label is-strong">Adjusted TN</div>
+          <div class="alchemy-summary-grid__value is-strong">{{adjustedTN}}</div>
+
+          <div class="alchemy-summary-grid__label">Brew Time</div>
+          <div class="alchemy-summary-grid__value">{{mods.brewTime}} hr{{#if (gt mods.brewTime 1)}}s{{/if}}</div>
+        </div>
+
+        {{#if talents.hasNothingVentured}}
+          <label class="alchemy-inline-check" for="nothingVentured">
+            <input type="checkbox" id="nothingVentured" name="nothingVentured" {{#if ws.nothingVentured}}checked{{/if}}>
+            <span>Use Nothing Ventured (+20 TN, but doubles or failure cause backfire).</span>
+          </label>
+        {{/if}}
+
+        {{#if validation.errors.length}}
+          <div class="alchemy-workshop-banner is-danger">
+            {{#each validation.errors as |err|}}
+              <div>• {{err}}</div>
+            {{/each}}
           </div>
         {{/if}}
-      </div>
+      </section>
+    {{/unless}}
 
-      {{#unless destructionIngredients.length}}
-        <div style="margin-top:0.5rem;font-size:0.85em;color:#ffb3b3;">
-          ⚠ No Destruction ingredients found in inventory.
-        </div>
-      {{/unless}}
-    </div>
-  {{/if}}
-
-  {{!-- ══════════════════════════════════════════════════════════════════════ --}}
-  {{!-- GATHER MODE                                                             --}}
-  {{!-- ══════════════════════════════════════════════════════════════════════ --}}
-  {{#if (eq ws.mode "gather")}}
-    <div class="gather-section" style="margin-top:1rem;">
-      <h3 style="margin:0 0 0.5rem;font-size:1em;">Gather Ingredients</h3>
-      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-        <label style="font-size:0.85em;opacity:0.8;">School:</label>
-        <select name="gatherSchool" style="min-width:140px;">
-          {{#each schools as |school|}}
-            <option value="{{school}}" {{#if (eq school gatherSchool)}}selected{{/if}}>{{capitalize school}}</option>
-          {{/each}}
-        </select>
-      </div>
-      <div style="margin-top:0.5rem;font-size:0.85em;opacity:0.75;">
-        Roll Alchemy (TN {{mods.tn}}) to find ingredients of the selected school.
-        Better margin = higher quality ingredient found.
-      </div>
-    </div>
-  {{/if}}
-
-  {{!-- ══════════════════════════════════════════════════════════════════════ --}}
-  {{!-- SUMMARY PANEL (potion / poison / toxin only)                           --}}
-  {{!-- ══════════════════════════════════════════════════════════════════════ --}}
-  {{#unless (eq ws.mode "gather")}}
-    <div class="summary-panel" style="margin-top:1rem;border-top:1px solid rgba(255,255,255,0.1);padding-top:0.75rem;">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.3rem 1rem;font-size:0.85em;">
-
-        {{!-- Talent badges --}}
-        {{#if talents.isMasterAlchemist}}
-          <div style="grid-column:1/-1;"><span class="badge" style="background:#1a3a5a;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.8em;">Master Alchemist</span></div>
-        {{/if}}
-        {{#each talents.alchemistSchools as |school|}}
-          <div style="grid-column:1/-1;"><span class="badge" style="background:#1a3a1a;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.8em;">Alchemist [{{capitalize school}}]</span></div>
-        {{/each}}
-        {{#if talents.hasNothingVentured}}
-          <div style="grid-column:1/-1;"><span class="badge" style="background:#3a2a00;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.8em;">Nothing Ventured, Nothing Gained</span></div>
-        {{/if}}
-        {{#if talents.hasTrialAndError}}
-          <div style="grid-column:1/-1;"><span class="badge" style="background:#2a1a3a;padding:0.15rem 0.4rem;border-radius:3px;font-size:0.8em;">Trial and Error</span></div>
-        {{/if}}
-
-        {{!-- Modifier breakdown --}}
-        {{#each mods.penaltyBreakdown as |p|}}
-          <div style="opacity:0.75;">{{p.label}}</div>
-          <div style="text-align:right;{{#if (lt p.value 0)}}color:#ef9a9a;{{else}}color:#a5d6a7;{{/if}}">{{#if (gt p.value 0)}}+{{/if}}{{p.value}}</div>
-        {{/each}}
-
-        <div style="font-weight:bold;border-top:1px solid rgba(255,255,255,0.15);padding-top:0.3rem;margin-top:0.2rem;">Adjusted TN</div>
-        <div style="font-weight:bold;text-align:right;border-top:1px solid rgba(255,255,255,0.15);padding-top:0.3rem;margin-top:0.2rem;">{{adjustedTN}}</div>
-
-        <div>Brew Time</div>
-        <div style="text-align:right;">{{mods.brewTime}} hr{{#if (gt mods.brewTime 1)}}s{{/if}}</div>
-      </div>
-
-      {{!-- Nothing Ventured toggle (only when talent present) --}}
-      {{#if talents.hasNothingVentured}}
-        <div style="margin-top:0.5rem;display:flex;align-items:center;gap:0.5rem;">
-          <input type="checkbox" id="nothingVentured" name="nothingVentured"
-            {{#if ws.nothingVentured}}checked{{/if}} style="cursor:pointer;">
-          <label for="nothingVentured" style="font-size:0.85em;cursor:pointer;">
-            Use Nothing Ventured (+20 TN, but doubles/fail = backfire)
-          </label>
-        </div>
+    <footer class="alchemy-workshop-footer">
+      {{#if (eq ws.mode "gather")}}
+        <button type="button" data-action="rollGather" class="alchemy-workshop-button is-primary is-wide" {{#unless skillSnapshot.found}}disabled{{/unless}}>
+          <i class="fas fa-dice"></i> Roll Alchemy (TN {{skillSnapshot.tn}})
+        </button>
+      {{else}}
+        <button
+          type="button"
+          data-action="commit"
+          class="alchemy-workshop-button is-primary is-wide"
+          {{#if hasBlockingErrors}}disabled title="Fix blocking validation errors before committing."{{/if}}>
+          <i class="fas fa-flask"></i>
+          {{#if (eq ws.mode "potion")}}Brew Potion{{/if}}
+          {{#if (eq ws.mode "poison")}}Brew Poison{{/if}}
+          {{#if (eq ws.mode "toxin")}}Brew Toxin{{/if}}
+        </button>
       {{/if}}
-
-      {{!-- Validation errors --}}
-      {{#unless validation.ok}}
-        <div class="validation-errors" style="margin-top:0.5rem;padding:0.4rem 0.6rem;background:#3a0a0a;border-radius:4px;font-size:0.82em;color:#ffb3b3;">
-          {{#each validation.errors as |err|}}
-            <div>• {{err}}</div>
-          {{/each}}
-        </div>
-      {{/unless}}
-    </div>
-  {{/unless}}
-
-  {{!-- ── Footer: Commit / Roll button ── --}}
-  <div class="footer" style="margin-top:0.75rem;display:flex;gap:0.5rem;">
-    {{#if (eq ws.mode "gather")}}
-      <button type="button" data-action="rollGather" style="flex:1;padding:0.5rem;font-weight:bold;">
-        <i class="fas fa-dice"></i> Roll Alchemy (TN {{mods.tn}})
-      </button>
-    {{else}}
-      <button type="button" data-action="commit"
-        {{#unless validation.ok}}disabled title="Fix validation errors before committing."{{/unless}}
-        style="flex:1;padding:0.5rem;font-weight:bold;">
-        <i class="fas fa-flask"></i>
-        {{#if (eq ws.mode "potion")}}Brew Potion{{/if}}
-        {{#if (eq ws.mode "poison")}}Brew Poison{{/if}}
-        {{#if (eq ws.mode "toxin")}}Brew Toxin{{/if}}
-      </button>
-    {{/if}}
-  </div>
-
+    </footer>
+  {{/if}}
 </div>

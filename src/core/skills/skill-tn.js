@@ -16,6 +16,7 @@ import { getArmoredAgilityAcrobaticsBonus } from "../traits/mobility-talents.js"
 import { hasCondition } from "../conditions/condition-engine.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { normalizeKey } from "./key-utils.js";
+import { CHARACTERISTIC_KEYS, normalizeCharacteristicKey } from "../../utils/maps/characteristics.js";
 
 export const SKILL_DIFFICULTIES = Object.freeze([
   { key: "effortless", label: "Effortless", mod: 40 },
@@ -44,17 +45,36 @@ function _asNumber(v) {
 const _governingParseCache = new WeakMap();
 
 function _canonicalCharacteristicToken(v) {
-  switch (v) {
-    case "strength": return "str";
-    case "endurance": return "end";
-    case "agility": return "agi";
-    case "intelligence": return "int";
-    case "willpower": return "wp";
-    case "perception": return "prc";
-    case "personality": return "prs";
-    case "luck": return "lck";
-    default: return v;
-  }
+  return normalizeCharacteristicKey(v);
+}
+
+function _isKnownCharacteristicKey(key) {
+  return CHARACTERISTIC_KEYS.includes(_canonicalCharacteristicToken(key));
+}
+
+function _resolveEffectiveSkillCharacteristicKey(skill, selectedCharacteristicKey = null) {
+  const selected = _canonicalCharacteristicToken(String(selectedCharacteristicKey ?? "").trim().toLowerCase());
+  if (_isKnownCharacteristicKey(selected)) return selected;
+  const base = _canonicalCharacteristicToken(skill?.system?.baseCha ?? skill?.governingCharacteristic ?? "");
+  if (_isKnownCharacteristicKey(base)) return base;
+  const governingRaw = String(skill?.system?.governingCha ?? "").trim().toLowerCase();
+  const governingMatch = governingRaw
+    .split(/[,\n/;]+|\s+/)
+    .map((token) => _canonicalCharacteristicToken(token))
+    .find((token) => _isKnownCharacteristicKey(token));
+  return governingMatch ?? base;
+}
+
+function _isAgilityCharacteristicKey(key) {
+  return _canonicalCharacteristicToken(key) === "agi";
+}
+
+function _isPhysicalCharacteristicKey(key) {
+  return ["str", "agi", "end"].includes(_canonicalCharacteristicToken(key));
+}
+
+function _isStrOrEndCharacteristicKey(key) {
+  return ["str", "end"].includes(_canonicalCharacteristicToken(key));
 }
 
 function _getParsedGoverningData(skill) {
@@ -174,73 +194,20 @@ function _maybeAddSenseLossAwarenessMods(actor, skillItem, situationalMods) {
 
   applySenseLossPenaltyAdjustments(situationalMods, actor);
 }
-function _isAgilityBasedSkill(skillItem) {
-  // Skills can encode governing characteristics as a single token ("Agi"),
-  // a full word ("Agility"), or a comma/space separated list ("Str, Agi").
-  // Treat any token containing AGI/Agility as agility-based for mobility rules.
-  const governingRaw = String(skillItem?.system?.governingCha || skillItem?.system?.baseCha || "");
-  const governing = governingRaw.trim().toLowerCase();
-  if (!governing) return false;
-
-  // Match whole tokens to avoid false positives.
-  return /\bagi\b|\bagility\b/.test(governing);
+function _isAgilityBasedSkill(skillItem, { selectedCharacteristicKey = null } = {}) {
+  return _isAgilityCharacteristicKey(_resolveEffectiveSkillCharacteristicKey(skillItem, selectedCharacteristicKey));
 }
 
 /**
  * Determine if a skill is based on STR, AGI, or END.
  * Used for Frenzied condition penalty exemption.
  */
-function _isPhysicalSkill(skill) {
-  const gov = String(skill?.system?.governingCha ?? skill?.system?.baseCha ?? skill?.governingCharacteristic ?? "").trim().toLowerCase();
-  return /\bstr\b|\bstrength\b|\bagi\b|\bagility\b|\bend\b|\bendurance\b/.test(gov);
+function _isPhysicalSkill(skill, { selectedCharacteristicKey = null } = {}) {
+  return _isPhysicalCharacteristicKey(_resolveEffectiveSkillCharacteristicKey(skill, selectedCharacteristicKey));
 }
 
-function _isStrOrEndSkill(skill) {
-  const gov = String(skill?.system?.governingCha ?? skill?.system?.baseCha ?? skill?.governingCharacteristic ?? "").trim().toLowerCase();
-  return /\bstr\b|\bstrength\b|\bend\b|\bendurance\b/.test(gov);
-}
-
-function _collectItemSkillBonuses(actor, skill) {
-  const out = [];
-  if (!actor) return out;
-
-  const key = String(skill?._professionKey ?? "").trim();
-  const name = String(skill?.name ?? "").trim();
-
-  const candidates = new Set();
-  if (key) {
-    candidates.add(key.toLowerCase());
-    candidates.add(normalizeKey(key));
-  }
-  if (name) {
-    candidates.add(name.toLowerCase());
-    candidates.add(normalizeKey(name));
-  }
-
-  const seen = new Set(); // dedupe by itemId+entryKey+value
-
-  for (const item of (actor.items ?? [])) {
-    const sys = item?.system ?? {};
-    if (!sys.equipped) continue;
-
-    const arr = Array.isArray(sys.skillArray) ? sys.skillArray : [];
-    for (const entry of arr) {
-      const eName = String(entry?.name ?? "").trim();
-      const eValue = _asNumber(entry?.value);
-      if (!eName || !eValue) continue;
-
-      const lc = eName.toLowerCase();
-      const ek = normalizeKey(eName);
-      if (!(candidates.has(lc) || candidates.has(ek))) continue;
-
-      const sig = `${item.id}|${ek}|${eValue}`;
-      if (seen.has(sig)) continue;
-      seen.add(sig);
-
-      out.push({ itemName: item.name, value: eValue });
-    }
-  }
-  return out;
+function _isStrOrEndSkill(skill, { selectedCharacteristicKey = null } = {}) {
+  return _isStrOrEndCharacteristicKey(_resolveEffectiveSkillCharacteristicKey(skill, selectedCharacteristicKey));
 }
 
 function _isCombatStyle(skillItem) {
@@ -256,16 +223,13 @@ function _encumbrancePhysicalKey(k) {
 export function computeSkillTN({
   actor,
   skillItem,
+  itemBonuses = null,
   difficultyKey = "average",
   manualMod = 0,
   selectedCharacteristicKey = null,
   useSpecialization = false,
   situationalMods = []
 } = {}) {
-  // Derive item-based skill bonuses from equipped items that use the legacy `system.skillArray` format.
-  // This allows the chat card breakdown to attribute bonuses to specific items.
-  const itemBonuses = _collectItemSkillBonuses(actor, skillItem);
-
   // Active Effects: global test modifiers + skill-specific lanes.
   // Supported keys:
   // - system.modifiers.tests.all
@@ -291,7 +255,7 @@ export function computeSkillTN({
   if (
     actor &&
     !_isCombatStyle({ type: skillItem?.type, name: skillItem?.name }) &&
-    _isStrOrEndSkill({ system: skillItem?.system ?? {} }) &&
+    _isStrOrEndSkill({ system: skillItem?.system ?? {} }, { selectedCharacteristicKey }) &&
     !_asNumber(_aeSkillResolved["system.modifiers.skills.physicalExertion"] ?? 0)
   ) {
     const hasLegacy = actor.effects?.some(e =>
@@ -370,12 +334,14 @@ function computeSkillTNFromData({
   // Stored `system.value` is derived from the currently selected base characteristic.
   // For per-roll selection, swap old characteristic contribution with the selected one.
   const selectedCharKey = _canonicalCharacteristicToken(String(selectedCharacteristicKey ?? "").trim().toLowerCase());
-  const { tokens: governingTokens, baseNorm: currentBaseCharKey } = _getParsedGoverningData(skill);
+  const { baseNorm: currentBaseCharKey } = _getParsedGoverningData(skill);
   if (
     selectedCharKey &&
+    _isKnownCharacteristicKey(selectedCharKey) &&
+    currentBaseCharKey &&
     selectedCharKey !== currentBaseCharKey &&
     ["skill", "magicSkill", "combatStyle"].includes(String(skill?.type ?? "")) &&
-    governingTokens.has(selectedCharKey)
+    _isKnownCharacteristicKey(currentBaseCharKey)
   ) {
     const oldTotal = _asNumber(actorSystem?.characteristics?.[currentBaseCharKey]?.total ?? 0);
     const newTotal = _asNumber(actorSystem?.characteristics?.[selectedCharKey]?.total ?? 0);
@@ -456,13 +422,13 @@ function computeSkillTNFromData({
   // Key: system.modifiers.skills.frenziedPenalty
   // Applies to all skill tests except STR/AGI/END-based skills.
   const frenziedPenalty = _asNumber(resolved["system.modifiers.skills.frenziedPenalty"] ?? 0);
-  if (frenziedPenalty && !_isPhysicalSkill(skill)) {
+  if (frenziedPenalty && !_isPhysicalSkill(skill, { selectedCharacteristicKey: selectedCharKey })) {
     breakdown.push({ label: "Effects: Frenzied", value: frenziedPenalty, source: "aeFrenziedPenalty" });
   }
 
   // Physical Exertion bonus (STR/END-based skills only; not Combat Style).
   const physicalExertion = _asNumber(resolved["system.modifiers.skills.physicalExertion"] ?? 0);
-  if (physicalExertion && _isStrOrEndSkill(skill) && !_isCombatStyle({ type: skill?.type, name: skill?.name })) {
+  if (physicalExertion && _isStrOrEndSkill(skill, { selectedCharacteristicKey: selectedCharKey }) && !_isCombatStyle({ type: skill?.type, name: skill?.name })) {
     breakdown.push({ label: "Physical Exertion", value: physicalExertion, source: "staminaPhysicalExertion" });
   }
 
@@ -512,10 +478,8 @@ function computeSkillTNFromData({
     } else if (isCharacteristic) {
       applyEnc = _encumbrancePhysicalKey(skill?._characteristicKey ?? "");
     } else {
-      // Effective characteristic: selectedCharKey if valid in governing set, else baseCha.
-      const effectiveCharKey = (selectedCharKey && governingTokens.has(selectedCharKey))
-        ? selectedCharKey
-        : currentBaseCharKey;
+      // Effective characteristic: selectedCharKey when valid, else baseCha.
+      const effectiveCharKey = _isKnownCharacteristicKey(selectedCharKey) ? selectedCharKey : currentBaseCharKey;
       if (_encumbrancePhysicalKey(effectiveCharKey)) {
         applyEnc = true;
       } else {
@@ -542,7 +506,7 @@ function computeSkillTNFromData({
   const skillSpecific = _asNumber(mobility?.skillTestPenalties?.[nameKey]);
   if (skillSpecific) breakdown.push({ label: "Armor: Penalty", value: skillSpecific, source: "armorSkill" });
 
-  const mobilityAgiPenalty = (_isAgilityBasedSkill({ system: skill.system }) && !_isCombatStyle({ type: skill.type, name: skill.name }))
+  const mobilityAgiPenalty = (_isAgilityBasedSkill({ system: skill.system }, { selectedCharacteristicKey: selectedCharKey }) && !_isCombatStyle({ type: skill.type, name: skill.name }))
     ? _asNumber(mobility?.agilityTestPenalty)
     : 0;
   if (mobilityAgiPenalty) breakdown.push({ label: "Armor: Penalty", value: mobilityAgiPenalty, source: "armorAgility" });

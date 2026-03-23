@@ -1,4 +1,5 @@
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { getEffectChanges, buildEffectChangesUpdate } from "../../utils/compat.js";
 
 /**
  * src/core/conditions/frenzied.js
@@ -472,7 +473,7 @@ function _registerFrenziedCreateHook() {
       if (!isFrenzied) return;
 
       // Check if changes are missing
-      const currentChanges = Array.isArray(effect.changes) ? effect.changes : [];
+      const currentChanges = getEffectChanges(effect);
       if (_needsFrenziedChangesRepair(currentChanges)) {
         // Immediately update with changes
         const changes = _mkFrenziedChanges(actor);
@@ -484,7 +485,7 @@ function _registerFrenziedCreateHook() {
         }));
 
         if (changesToApply.length > 0) {
-          await requestUpdateDocument(effect, { changes: changesToApply });
+          await requestUpdateDocument(effect, buildEffectChangesUpdate(changesToApply));
           _dbg("UESRPG | Frenzied | Fixed missing changes immediately after creation", {
             effectId: effect.id,
             actor: actor.name,
@@ -544,7 +545,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
   
   // If already frenzied, ensure it has changes and update flags
   if (existing) {
-    const existingChanges = Array.isArray(existing.changes) ? existing.changes : [];
+    const existingChanges = getEffectChanges(existing);
     
     // If changes are missing, add them
     if (_needsFrenziedChangesRepair(existingChanges)) {
@@ -557,7 +558,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
       }));
       
       await requestUpdateDocument(existing, {
-        changes: changesToApply,
+        ...buildEffectChangesUpdate(changesToApply),
         [`${FLAG_PATH}.condition.voluntary`]: voluntary,
         [`${FLAG_PATH}.condition.source`]: source
       });
@@ -618,7 +619,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
     },
     origin: null,
     duration: {},
-    changes: changesToApply  // Use cloned changes
+    ...buildEffectChangesUpdate(changesToApply)
   };
 
   try {
@@ -638,7 +639,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
 
     const createdEffect = created?.[0];
     if (createdEffect) {
-      const appliedChanges = Array.isArray(createdEffect.changes) ? createdEffect.changes : [];
+      const appliedChanges = getEffectChanges(createdEffect);
       if (appliedChanges.length === 0) {
         console.warn("UESRPG | Frenzied | Effect created but changes are empty - repair hook will fix", {
           effectId: createdEffect.id,

@@ -1,0 +1,170 @@
+{{!-- templates/v2/sheets/warfare-unit/tab-core.hbs --}}
+<div class="tab core" data-group="primary" data-tab="core">
+  <div class="tabContainer">
+    <div class="warfare-sheet-content">
+
+      {{#if profileWarnings.length}}
+      <div class="warfare-callout warfare-callout--warning">
+        <h3>Warnings</h3>
+        <ul>
+          {{#each profileWarnings}}
+          <li>{{this}}</li>
+          {{/each}}
+        </ul>
+      </div>
+      {{/if}}
+
+      <fieldset class="warfare-fieldset">
+        <legend>Identity</legend>
+        <div class="warfare-form-grid">
+          <div class="form-group">
+            <label for="wf-category">Unit Type</label>
+            <select id="wf-category" name="system.identity.category" {{#unless editable}}disabled{{/unless}}>
+              <option value="" {{#unless currentCategory}}selected{{/unless}}>-- Select --</option>
+              {{#each categoryOptions}}
+              <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+              {{/each}}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="wf-rank">Rank</label>
+            <select id="wf-rank" name="system.identity.rank" {{#unless editable}}disabled{{/unless}}>
+              <option value="" {{#unless currentRank}}selected{{/unless}}>-- Select --</option>
+              {{#each rankOptions}}
+              <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+              {{/each}}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="wf-tradition">Provincial Tradition</label>
+            <select id="wf-tradition" name="system.doctrine.tradition" {{#unless editable}}disabled{{/unless}}>
+              <option value="" {{#unless currentTradition}}selected{{/unless}}>-- Select --</option>
+              {{#each traditionOptions}}
+              <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+              {{/each}}
+            </select>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="warfare-fieldset">
+        <legend>Derived Statistics</legend>
+        <div class="warfare-derived-2x2">
+          <div class="warfare-derived-cell">
+            <div class="warfare-derived-cell__label">Resolve</div>
+            <div class="warfare-derived-cell__values">
+              <span class="warfare-derived-cell__current">{{system.stats.resolve.value}}</span>
+              <span class="warfare-derived-cell__sep">/</span>
+              <span class="warfare-derived-cell__max">{{system.stats.resolve.max}}</span>
+            </div>
+            <div class="warfare-derived-cell__sub">Loss Total: {{system.stats.resolve.lossTotal}}</div>
+          </div>
+
+          <div class="warfare-derived-cell">
+            <div class="warfare-derived-cell__label">Bulk</div>
+            <div class="warfare-derived-cell__values">
+              <span class="warfare-derived-cell__current">{{system.stats.bulk.value}}</span>
+              <span class="warfare-derived-cell__sep">/</span>
+              <span class="warfare-derived-cell__max">{{derived.bulkMax}}</span>
+            </div>
+            <div class="warfare-derived-cell__sub">Threshold: {{derived.bulkLossThreshold}} Resolve per Bulk</div>
+          </div>
+
+          <div class="warfare-derived-cell">
+            <div class="warfare-derived-cell__label">Discipline</div>
+            <div class="warfare-derived-cell__values">
+              <span class="warfare-derived-cell__current">{{system.stats.discipline.value}}</span>
+              <span class="warfare-derived-cell__sep">/</span>
+              <span class="warfare-derived-cell__max">{{derived.baseDiscipline}}</span>
+            </div>
+            <div class="warfare-derived-cell__sub">DB: {{derived.baseDb}} · Commander: {{derived.commanderBonus}}</div>
+          </div>
+
+          <div class="warfare-derived-cell">
+            <div class="warfare-derived-cell__label">Speed</div>
+            <div class="warfare-derived-cell__values">
+              <span class="warfare-derived-cell__current">{{system.stats.speed.value}}</span>
+            </div>
+            <div class="warfare-derived-cell__sub">Base: {{derived.speedBase}}{{#if system.status.battle.suppressed}} · Suppressed{{/if}}</div>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="warfare-fieldset">
+        <legend>Command</legend>
+        <div class="warfare-form-grid">
+          <div class="form-group">
+            <label>Commander Bonus (Derived)</label>
+            <span class="warfare-derived-value">{{derived.commanderBonus}}</span>
+          </div>
+          <div class="form-group">
+            <label>Commander Bonus Override</label>
+            <input type="number" name="system.commander.bonusOverride" value="{{system.commander.bonusOverride}}" {{#unless editable}}disabled{{/unless}}>
+          </div>
+          <div class="form-group">
+            <label>Weekly Upkeep</label>
+            <span class="warfare-derived-value">{{derived.weeklyUpkeep}} gp</span>
+          </div>
+          <div class="form-group">
+            <label>Equipment Slots</label>
+            <span class="warfare-derived-value">{{derived.equipmentSlots}}</span>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="warfare-fieldset">
+        <legend>Discipline Modifiers</legend>
+        <div class="warfare-disc-manual">
+          <label>Manual:</label>
+          <input type="number" name="system.modifiers.discipline.manual" value="{{system.modifiers.discipline.manual}}" {{#unless editable}}disabled{{/unless}}>
+        </div>
+        <div class="warfare-disc-toggles">
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.campaign.inspiringSpeech" {{checked system.modifiers.discipline.campaign.inspiringSpeech}} {{#unless editable}}disabled{{/unless}}> Inspiring Speech</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.campaign.forcedMarch" {{checked system.modifiers.discipline.campaign.forcedMarch}} {{#unless editable}}disabled{{/unless}}> Forced March</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.campaign.poorClimate" {{checked system.modifiers.discipline.campaign.poorClimate}} {{#unless editable}}disabled{{/unless}}> Poor Climate</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.campaign.longCampaign" {{checked system.modifiers.discipline.campaign.longCampaign}} {{#unless editable}}disabled{{/unless}}> Long Campaign</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.campaign.defendingAlliedSettlement" {{checked system.modifiers.discipline.campaign.defendingAlliedSettlement}} {{#unless editable}}disabled{{/unless}}> Defending Allied Settlement</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.battle.rearCharged" {{checked system.modifiers.discipline.battle.rearCharged}} {{#unless editable}}disabled{{/unless}}> Charged in Rear</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.battle.adjacentFriendlyBroken" {{checked system.modifiers.discipline.battle.adjacentFriendlyBroken}} {{#unless editable}}disabled{{/unless}}> Adjacent Friendly Broken</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.battle.commanderLost" {{checked system.modifiers.discipline.battle.commanderLost}} {{#unless editable}}disabled{{/unless}}> Commander Lost</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.battle.rallyBonus" {{checked system.modifiers.discipline.battle.rallyBonus}} {{#unless editable}}disabled{{/unless}}> Rally Bonus</label>
+          <label class="warfare-disc-toggle"><input type="checkbox" name="system.modifiers.discipline.battle.enemyBrokenBonus" {{checked system.modifiers.discipline.battle.enemyBrokenBonus}} {{#unless editable}}disabled{{/unless}}> Enemy Broken Bonus</label>
+        </div>
+      </fieldset>
+
+      {{#if derived.traditionLabel}}
+      <fieldset class="warfare-fieldset">
+        <legend>Doctrine</legend>
+        <div class="warfare-doctrine-entries">
+          {{#if derived.traditionBattleDoctrine}}
+          <div class="warfare-doctrine-entry">
+            <span class="warfare-doctrine-entry__label">Battle</span>
+            <span class="warfare-doctrine-entry__text">{{derived.traditionBattleDoctrine}}</span>
+          </div>
+          {{/if}}
+          {{#if derived.traditionCampaignDoctrine}}
+          <div class="warfare-doctrine-entry">
+            <span class="warfare-doctrine-entry__label">Campaign</span>
+            <span class="warfare-doctrine-entry__text">{{derived.traditionCampaignDoctrine}}</span>
+          </div>
+          {{/if}}
+        </div>
+      </fieldset>
+      {{/if}}
+
+      <fieldset class="warfare-fieldset">
+        <legend>Description</legend>
+        <div class="editor-section description">
+          <prose-mirror name="system.description" value="{{system.description}}" data-document-uuid="{{actor.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{enrichedDescription}}}</prose-mirror>
+        </div>
+        {{#if hasLegacyNotes}}
+        <div class="warfare-callout warfare-callout--notice">
+          <h3>Legacy Notes (read-only)</h3>
+          <div class="editor-content">{{{enrichedNotes}}}</div>
+        </div>
+        {{/if}}
+      </fieldset>
+
+    </div>
+  </div>
+</div>

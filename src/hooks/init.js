@@ -55,11 +55,14 @@ import { migrateActorsIfNeeded, normalizeActors } from "../core/migrations/actor
 import { migrateCombatLegacyIfNeeded } from "../core/migrations/combat-legacy.js";
 import { pruneInClosePair } from "../core/conditions/status-hud.js";
 import { isReachLengthHomebrewEnabled } from "../core/homebrew/reach-length/weapon.js";
+import { isMassCombatEnabled } from "../core/homebrew/settings.js";
 import { measureTokenDistance } from "../core/combat/opposed/range.js";
 import { registerEngagementFlanking } from "../core/homebrew/engagement-flanking/index.js";
 import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
 import { registerShieldDebugObservers } from "../utils/dev/shield-debug.js";
 import { registerStaleEmbeddedDeleteSuppression } from "../utils/embedded-delete-guard.js";
+import { registerClashChatActions } from "../core/mass-warfare/clash/chat-actions.js";
+import { registerWarfareAttachmentHooks } from "../core/mass-warfare/actions.js";
 
 function applyCustomCursorConfig() {
   try {
@@ -130,6 +133,72 @@ function pruneRetiredSocialItemTypesFromCreateDialogs(root) {
       select.dispatchEvent(new Event("change", { bubbles: true }));
     }
   }
+}
+
+// ── Warfare Unit create-flow gating ─────────────────────────────────────────
+// When homebrew.massCombat.enabled === false, prune "Warfare Unit" from actor
+// create dialogs so GMs cannot accidentally create units they haven't opted in to.
+// Existing Warfare Unit actors remain openable (sheet is always registered).
+
+const _WARFARE_UNIT_TYPE = "Warfare Unit";
+
+function pruneWarfareUnitTypeIfDisabled() {
+  if (isMassCombatEnabled()) return;
+
+  const pruneArrayInPlace = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (let i = arr.length - 1; i >= 0; i -= 1) {
+      if (arr[i] === _WARFARE_UNIT_TYPE) arr.splice(i, 1);
+    }
+  };
+
+  const pruneObjectKey = (obj) => {
+    if (!obj || typeof obj !== "object") return;
+    if (_WARFARE_UNIT_TYPE in obj) delete obj[_WARFARE_UNIT_TYPE];
+  };
+
+  pruneArrayInPlace(game?.documentTypes?.Actor);
+  pruneArrayInPlace(CONFIG?.Actor?.types);
+  pruneArrayInPlace(CONFIG?.Actor?.metadata?.types);
+  pruneArrayInPlace(CONFIG?.Actor?.documentClass?.metadata?.types);
+  pruneObjectKey(CONFIG?.Actor?.typeLabels);
+  pruneObjectKey(CONFIG?.Actor?.typeIcons);
+  pruneObjectKey(CONFIG?.Actor?.dataModels);
+}
+
+function pruneWarfareUnitFromActorCreateDialogs(root) {
+  if (isMassCombatEnabled()) return;
+  const targetRoot = root instanceof HTMLElement ? root : null;
+  if (!targetRoot) return;
+  const selects = targetRoot.querySelectorAll?.("select[name='type']");
+  if (!selects?.length) return;
+
+  for (const select of selects) {
+    let changed = false;
+    for (const option of Array.from(select.options ?? [])) {
+      if (option?.value === _WARFARE_UNIT_TYPE) {
+        option.remove();
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    if (select.value === _WARFARE_UNIT_TYPE) {
+      const fallback = select.options?.[0]?.value ?? "";
+      select.value = fallback;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+}
+
+function registerWarfareUnitCreateTypeUiGuard() {
+  const guard = (_app, html) => {
+    const root = resolveRenderedUiRoot(html);
+    if (!root) return;
+    pruneWarfareUnitFromActorCreateDialogs(root);
+  };
+
+  Hooks.on("renderDocumentDirectory", guard);
+  Hooks.on("renderDialogV2", guard);
 }
 
 function resolveRenderedUiRoot(html) {
@@ -210,6 +279,13 @@ export default async function initHandler() {
   Hooks.once("setup", retireLegacySocialItemCreateTypesInMemory);
   Hooks.once("ready", retireLegacySocialItemCreateTypesInMemory);
 
+  // Warfare Unit: prune from actor create UI when mass combat is disabled.
+  // Run at init, setup, and ready to cover all catalog hydration timings.
+  pruneWarfareUnitTypeIfDisabled();
+  registerWarfareUnitCreateTypeUiGuard();
+  Hooks.once("setup", pruneWarfareUnitTypeIfDisabled);
+  Hooks.once("ready", pruneWarfareUnitTypeIfDisabled);
+
   registerHandlebarsHelpers();
   Hooks.once("setup", preloadHandlebarsTemplates);
 
@@ -246,8 +322,10 @@ export default async function initHandler() {
     registerChatMessageSocket,
     registerAuthorityProxy,
     registerReachVisualizer,
+    registerClashChatActions,
   });
   registerChatCommands();
+  registerWarfareAttachmentHooks();
 
   registerOnce("hooks:in-close-auto-prune", () => {
     Hooks.on("updateToken", async (tokenDoc, changed, _options, _userId) => {
@@ -347,4 +425,3 @@ export default async function initHandler() {
 
   registerSpecialActionOutcomeHook({ executeSpecialAction });
 }
-

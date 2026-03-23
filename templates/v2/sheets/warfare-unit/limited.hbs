@@ -1,0 +1,12 @@
+{{!-- templates/v2/sheets/warfare-unit/limited.hbs --}}
+<section class="warfare-limited">
+  <div class="warfare-limited__portrait">
+    <img src="{{actor.img}}" alt="{{actor.name}}">
+  </div>
+  <h2 class="warfare-limited__name">{{actor.name}}</h2>
+  <div class="warfare-limited__type">{{derived.rankLabel}} {{derived.categoryLabel}}</div>
+  {{#if derived.traditionLabel}}
+  <div class="warfare-limited__type">{{derived.traditionLabel}}</div>
+  {{/if}}
+  <div class="warfare-limited__description">{{{enrichedDescription}}}</div>
+</section>

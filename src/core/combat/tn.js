@@ -27,6 +27,7 @@ import {
   hasEquippedShield as hasEquippedShieldCanonical,
   hasEquippedShieldType as hasEquippedShieldTypeCanonical,
 } from "../items/shield-utils.js";
+import { isWarfareUnitActorType } from "../actors/types.js";
 
 /**
  * Read combat TN modifiers from actor.system.modifiers.combat.*.
@@ -244,6 +245,9 @@ export function getSizeToHitModifier({ mode = "melee", attackerSize = "standard"
 }
 
 export function listCombatStyles(actor) {
+  // Warfare Units don't have individual combat styles.
+  if (isWarfareUnitActorType(actor?.type)) return [];
+
   const styles = (actor?.items ?? [])
     .filter(i => i.type === "combatStyle")
     .map(i => ({ uuid: i.uuid, id: i.id, name: i.name, item: i }));
@@ -433,6 +437,7 @@ export function computeWardDefenseTN({
  */
 export function computeDefenderTNOverride(defender, tnOverride) {
   if (!defender || !tnOverride || typeof tnOverride !== "object") return null;
+  if (isWarfareUnitActorType(defender?.type)) return null;
 
   const skillName = String(tnOverride.skillName ?? "").trim();
   const newChaKey = String(tnOverride.fallbackCharacteristic ?? tnOverride.characteristicKey ?? "").trim().toLowerCase();
@@ -478,6 +483,11 @@ export function computeDefenderTNOverride(defender, tnOverride) {
 }
 
 function computeEvadeTN(defender, { tnOverride = null } = {}) {
+  // Warfare Units don't evade in standard combat.
+  if (isWarfareUnitActorType(defender?.type)) {
+    return { baseTN: 0, baseLabel: "Base TN", observantDelta: 0, observantLabel: "" };
+  }
+
   if (defender?.type === "NPC") {
     const sys = defender?.system ?? {};
     const base = Number(sys?.professions?.evade ?? 0);

@@ -597,7 +597,6 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       if (ok && pendingLuckCost > 0) {
         await requestUpdateDocument(actor, {
           "system.characteristics.lck.base": Math.max(0, Number(actor.system?.characteristics?.lck?.base ?? 0) - pendingLuckCost),
-          "system.characteristics.lck.total": Math.max(0, Number(actor.system?.characteristics?.lck?.total ?? 0) - pendingLuckCost),
         });
         await appendChargenAudit(actor, {
           step: "birthsign",

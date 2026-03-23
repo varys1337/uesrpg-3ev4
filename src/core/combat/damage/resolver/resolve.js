@@ -981,7 +981,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       hitLocation,
       source: ctx.options?.source ?? "Attack",
       weapon: ctx.options?.weapon ?? null,
+      ammo: ctx.options?.ammo ?? null,
       origin: ctx.options?.origin ?? ctx.options?.weapon ?? null,
+      chatContext: foundry.utils.deepClone(ctx.options?.chatContext ?? null),
       strikeEnchantmentSideEffects: strikeEnchantComponents.sideEffects ?? [],
     });
   } catch (err) {

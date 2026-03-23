@@ -36,7 +36,7 @@ import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
 import { onSetBaseCharacteristics, onClickCharacteristic } from "../shared/listeners/characteristics-handlers.js";
 
 // Shared inventory / economy
-import { onToggle2H, onPlusQty, onMinusQty, onItemEquip } from "../shared/listeners/inventory-handlers.js";
+import { onToggle2H, onPlusQty, onMinusQty, onItemEquip, onWeaponAmmoSelect } from "../shared/listeners/inventory-handlers.js";
 import { onWealthCalc, onCarryBonus } from "../shared/listeners/economy-handlers.js";
 
 // Shared UI-state handlers (collapse, search, loadouts, item create)
@@ -88,6 +88,7 @@ import {
   buildAllowedSubmitPatch,
   createFormPathMatcher,
 } from "./shared/form-pipeline.js";
+import { setOwnedItemQuantityOrDelete } from "../../../core/items/owned-item-quantity.js";
 
 
 
@@ -258,6 +259,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         String(itemModifiedTime),
         i?.system?.equipped ? "1" : "0",
         String(i?.system?.quantity ?? ""),
+        String(i?.system?.ammoId ?? ""),
+        String(i?.system?.attackMode ?? ""),
+        String(i?.system?.consumeAmmo ?? ""),
         cs?.contained ? "1" : "0",
         cs?.container_id ?? "",
         i?.system?.school ?? "",
@@ -1049,8 +1053,13 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     }
 
     if (!this._uesrpgTabChangeHandler) {
-      this._uesrpgTabChangeHandler = (ev) => {
+      this._uesrpgTabChangeHandler = async (ev) => {
         const root = ev.currentTarget;
+        const ammoSelect = ev.target?.closest?.("select[data-action='weaponAmmoSelect']");
+        if (ammoSelect && root?.contains?.(ammoSelect)) {
+          await this._onWeaponAmmoSelect(ev, ammoSelect);
+          return;
+        }
         const styleSelect = ev.target?.closest?.(".uesrpg-active-combat-style");
         if (styleSelect && root?.contains?.(styleSelect)) {
           this._onActiveCombatStyleChange(ev, styleSelect);
@@ -1191,6 +1200,13 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   async _onPlusQty(event, target) { return onPlusQty.call(this, event, target); }
   async _onMinusQty(event, target) { return onMinusQty.call(this, event, target); }
   async _onItemEquip(event, target) { return onItemEquip.call(this, event, target); }
+  async _onWeaponAmmoSelect(event, target) {
+    const result = await onWeaponAmmoSelect.call(this, event, target);
+    if (result === false || result === null) return result;
+    this._uesrpgItemsCache = null;
+    await this._queueRenderParts(["equipment"]);
+    return result;
+  }
   async _onItemCreate(event, target) {
     return onItemCreate(this, event, {
       baseCha: null,
@@ -1805,7 +1821,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
     const newQty = Math.max(currentQty - 1, 0);
     if (newQty === 0 && currentQty > 0) ui.notifications.info("Out of Ammunition!");
-    await requestUpdateDocument(item, { "system.quantity": newQty });
+    await setOwnedItemQuantityOrDelete({ item, quantity: newQty });
   }
 
   /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */

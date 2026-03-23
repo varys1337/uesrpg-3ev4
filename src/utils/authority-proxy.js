@@ -338,6 +338,7 @@ function _deepClonePlain(obj) {
  *  - flags[systemId].skillOpposed
  *  - flags[systemId].magicOpposed
  *  - flags[systemId].charOpposed
+ *  - flags[systemId].warfareClash
  */
 export function sanitizeChatMessageUpdatePayload(payload) {
   if (!payload || typeof payload !== "object") return {};
@@ -355,6 +356,7 @@ export function sanitizeChatMessageUpdatePayload(payload) {
     if (Object.prototype.hasOwnProperty.call(sysFlags, "skillOpposed")) cleanedSysFlags.skillOpposed = _deepClonePlain(sysFlags.skillOpposed);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "magicOpposed")) cleanedSysFlags.magicOpposed = _deepClonePlain(sysFlags.magicOpposed);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "charOpposed")) cleanedSysFlags.charOpposed = _deepClonePlain(sysFlags.charOpposed);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "warfareClash")) cleanedSysFlags.warfareClash = _deepClonePlain(sysFlags.warfareClash);
     if (Object.keys(cleanedSysFlags).length > 0) out.flags = { [sysId]: cleanedSysFlags };
   }
 
@@ -378,6 +380,7 @@ export function isChatMessageUpdateFresh(message, payload) {
     if (Object.prototype.hasOwnProperty.call(incoming, "skillOpposed")) lanes.push("skillOpposed");
     if (Object.prototype.hasOwnProperty.call(incoming, "magicOpposed")) lanes.push("magicOpposed");
     if (Object.prototype.hasOwnProperty.call(incoming, "charOpposed")) lanes.push("charOpposed");
+    if (Object.prototype.hasOwnProperty.call(incoming, "warfareClash")) lanes.push("warfareClash");
     if (lanes.length === 0) return true;
 
     const extract = (obj, lane) => {

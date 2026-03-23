@@ -92,4 +92,15 @@ export function registerHomebrewSettings() {
       }
     },
   });
+
+  // ── Mass Combat (Warfare Unit) ────────────────────────────────────────
+  _reg("homebrew.massCombat.enabled", {
+    name: "Homebrew: Mass Combat System",
+    hint: "Enables the Warfare Unit actor type and mass combat UI. When disabled, existing Warfare Unit actors remain openable but new ones cannot be created.",
+    scope: "world",
+    config: false,
+    requiresReload: false,
+    default: false,
+    type: Boolean,
+  });
 }

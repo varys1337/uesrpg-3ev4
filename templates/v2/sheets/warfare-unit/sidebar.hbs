@@ -1,0 +1,143 @@
+{{!-- templates/v2/sheets/warfare-unit/sidebar.hbs --}}
+<aside class="sheet-fixed-container warfare-sidebar">
+
+  {{!-- Portrait (fills full sidebar width; frame decoration overlays via ::before) --}}
+  <div class="warfare-sidebar__portrait">
+    <img src="{{actor.img}}" alt="{{actor.name}}" data-action="editPortrait" title="Change Portrait">
+  </div>
+
+  <div class="fixed-data-container warfare-sidebar__content">
+
+    {{!-- Unit name — charname-style field below portrait, above nav --}}
+    <h1 class="charname warfare-sidebar__name">
+      <input type="text" name="name" value="{{actor.name}}" placeholder="Unit Name" {{#unless editable}}disabled{{/unless}}>
+    </h1>
+
+    {{!-- Primary tab navigation --}}
+    <nav class="sheet-tabs tabs" data-group="primary">
+      <a class="item" data-action="tab" data-group="primary" data-tab="core">Core</a>
+      <a class="item" data-action="tab" data-group="primary" data-tab="actions">Actions</a>
+      <a class="item" data-action="tab" data-group="primary" data-tab="magic">Implements</a>
+      <a class="item" data-action="tab" data-group="primary" data-tab="items">Loadout</a>
+    </nav>
+
+    {{!-- Commander Card --}}
+    <div class="warfare-sidebar__commander" data-drop-zone="commander">
+      <h3>Commander</h3>
+      {{#if commanderResolved}}
+        <div class="commander-card" title="Click to view commander sheet">
+          <img class="commander-card__img" src="{{commanderResolved.img}}" alt="{{commanderResolved.name}}" data-action="viewCommander">
+          <span class="commander-card__name" data-action="viewCommander">{{commanderResolved.name}}</span>
+          {{#if editable}}
+          <button type="button" class="commander-card__clear" data-action="clearCommander" title="Remove Commander"><i class="fas fa-times"></i></button>
+          {{/if}}
+        </div>
+      {{else if system.commander.name}}
+        <div class="commander-card commander-card--stale" title="Linked actor not found">
+          <img class="commander-card__img" src="{{system.commander.img}}" alt="{{system.commander.name}}">
+          <span class="commander-card__name">{{system.commander.name}} (missing)</span>
+          {{#if editable}}
+          <button type="button" class="commander-card__clear" data-action="clearCommander" title="Remove Commander"><i class="fas fa-times"></i></button>
+          {{/if}}
+        </div>
+      {{else}}
+        <div class="commander-card commander-card--empty">
+          <p class="commander-card__hint">Drag a PC or NPC here</p>
+        </div>
+      {{/if}}
+    </div>
+
+    {{!-- Resource Bars — inline editable stat trackers --}}
+    <div class="warfare-sidebar__stats resourceBars">
+
+      {{!-- Resolve --}}
+      <div class="resource-row">
+        <span class="warfare-rname warfare-rname--condition" title="Resolve (current / max)">RES</span>
+        <div class="warfare-stat-bar">
+          <div class="warfare-bar-fill warfare-bar-fill--condition" style="width:{{resolvePct}}%"></div>
+          <div class="bar-values">
+            <input type="number" name="system.stats.resolve.value"
+              value="{{system.stats.resolve.value}}"
+              {{#unless editable}}disabled{{/unless}}
+              min="0" title="Current Resolve">
+            /
+            <label title="Resolve Max">{{system.stats.resolve.max}}</label>
+          </div>
+        </div>
+      </div>
+
+      {{!-- Bulk --}}
+      <div class="resource-row">
+        <span class="warfare-rname warfare-rname--bulk" title="Bulk (current / max)">BULK</span>
+        <div class="warfare-stat-bar">
+          <div class="warfare-bar-fill warfare-bar-fill--bulk" style="width:{{bulkPct}}%"></div>
+          <div class="bar-values">
+            <input type="number" name="system.stats.bulk.value"
+              value="{{system.stats.bulk.value}}"
+              {{#unless editable}}disabled{{/unless}}
+              min="0" title="Current Bulk">
+            /
+            <input type="number" name="system.stats.bulk.max"
+              value="{{derived.bulkMax}}"
+              {{#unless editable}}disabled{{/unless}}
+              min="0" class="warfare-bar-input--max" title="Bulk Max (editable)">
+          </div>
+        </div>
+      </div>
+
+      {{!-- Discipline --}}
+      <div class="resource-row">
+        <span class="warfare-rname warfare-rname--discipline" title="Discipline (Base + permanent bonus, then commander and battle modifiers)">DISC</span>
+        <div class="warfare-stat-bar">
+          <div class="warfare-bar-fill warfare-bar-fill--discipline" style="width:{{disciplinePct}}%"></div>
+          <div class="bar-values">
+            <input type="number" name="system.stats.discipline.base"
+              value="{{system.stats.discipline.base}}"
+              {{#unless editable}}disabled{{/unless}}
+              min="0" class="warfare-bar-input--narrow" title="Base Discipline">
+            <span class="warfare-stat-sub">+</span>
+            <input type="number" name="system.stats.discipline.bonus"
+              value="{{system.stats.discipline.bonus}}"
+              {{#unless editable}}disabled{{/unless}}
+              class="warfare-bar-input--narrow" title="Discipline Bonus">
+            <span class="warfare-stat-sub">→</span>
+            <label title="Current Discipline">{{system.stats.discipline.value}}</label>
+          </div>
+        </div>
+      </div>
+
+      {{!-- Speed --}}
+      <div class="resource-row">
+        <span class="warfare-rname warfare-rname--speed" title="Speed (effective / +bonus)">SPD</span>
+        <div class="warfare-stat-bar">
+          <div class="bar-values">
+            <label title="Effective Speed">{{system.stats.speed.value}}</label>
+            <span class="warfare-stat-sub">+</span>
+            <input type="number" name="system.stats.speed.bonus"
+              value="{{system.stats.speed.bonus}}"
+              {{#unless editable}}disabled{{/unless}}
+              class="warfare-bar-input--narrow" title="Speed Bonus">
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    {{!-- Status badges (read-only indicators; battle-state checkboxes in Actions tab) --}}
+    {{#if derived.enslaved}}
+    <div class="warfare-sidebar__status-badge warfare-sidebar__status-badge--enslaved">Enslaved</div>
+    {{/if}}
+    {{#if derived.leaderless}}
+    <div class="warfare-sidebar__status-badge warfare-sidebar__status-badge--leaderless">Leaderless</div>
+    {{/if}}
+
+    {{#if profileWarnings.length}}
+    <div class="warfare-sidebar__messages warfare-sidebar__messages--warning">
+      {{#each profileWarnings}}
+      <p>{{this}}</p>
+      {{/each}}
+    </div>
+    {{/if}}
+
+  </div>
+</aside>

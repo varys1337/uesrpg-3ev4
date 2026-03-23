@@ -30,6 +30,14 @@ import { resolveSpellProfile } from "../../spell-profile.js";
 const _FLAG_NS = FLAG_SCOPE;
 const NAMESPACE = FLAG_SCOPE;
 
+function _ignoreTraining(data = {}) {
+  return data?.attacker?.ignoreTraining === true || data?.attacker?.spellOptions?.ignoreTraining === true;
+}
+
+function _ignoreActionPoints(data = {}) {
+  return data?.attacker?.ignoreActionPoints === true || data?.attacker?.spellOptions?.ignoreActionPoints === true;
+}
+
 /** @private — Clone current magic opposed state from a live message for lane-commit merging. */
 function _readMagicOpposedFlagState(fm) {
   const raw = fm?.flags?.[_FLAG_NS]?.magicOpposed ?? null;
@@ -563,7 +571,7 @@ export async function handleAttackerRoll(ctx) {
 
   if (data.attacker.result) return;
 
-  if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+  if (!_ignoreTraining(data) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
     ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
     return;
   }
@@ -580,7 +588,8 @@ export async function handleAttackerRoll(ctx) {
   // Preflight resources (AP + Magicka) before spending.
   const apCost = Number(data.attacker.apCost ?? 1) || 1;
   const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
-  if (currentAP < apCost) {
+  const ignoreAP = _ignoreActionPoints(data);
+  if (!ignoreAP && currentAP < apCost) {
     ui.notifications.warn("Not enough Action Points to cast a spell.");
     return;
   }
@@ -601,8 +610,10 @@ export async function handleAttackerRoll(ctx) {
   }
 
   const apReason = (String(data.attacker.castActionType ?? "primary") === "secondary") ? "Cast Magic (Instant)" : "Cast Magic";
-  const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
-  if (!apSpentOk) return;
+  if (!ignoreAP) {
+    const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
+    if (!apSpentOk) return;
+  }
 
   // Increment attack counter for attack spells (after AP is spent successfully)
   if (spellClassification.isAttack) {
@@ -625,10 +636,12 @@ export async function handleAttackerRoll(ctx) {
     };
     const ok = resourceSpec?.itemCtx?.item ? await requestUpdateDocument(resourceSpec.itemCtx.item, updates) : false;
     if (!ok) {
-      try {
-        await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-      } catch (_e) {
-        // best-effort
+      if (!ignoreAP) {
+        try {
+          await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+        } catch (_e) {
+          // best-effort
+        }
       }
       ui.notifications.warn("Failed to spend Soul Energy from enchanted item.");
       return;
@@ -641,10 +654,12 @@ export async function handleAttackerRoll(ctx) {
   } else {
     magickaSpend = await consumeSpellMagicka(attacker, spell, data.attacker.spellOptions ?? {});
     if (!magickaSpend?.ok) {
-      try {
-        await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-      } catch (_e) {
-        // best-effort
+      if (!ignoreAP) {
+        try {
+          await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+        } catch (_e) {
+          // best-effort
+        }
       }
       return;
     }

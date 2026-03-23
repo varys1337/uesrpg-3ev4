@@ -18,6 +18,7 @@ import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, request
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../system/flags.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 
 const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellEffects]");
 
@@ -203,7 +204,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
     const effectGroup = `spell.effect.${spell.id || spellUuid}.${effectKey}`;
     
     // Validate changes against the modifier registry (dev-mode warnings)
-    const clonedChanges = foundry.utils.deepClone(ef.changes ?? []);
+    const clonedChanges = foundry.utils.deepClone(getEffectChanges(ef));
     if (isDebugEnabled("spellCastingDebug")) {
       validateAEChanges(clonedChanges, { context: `spell "${spell.name}" effect "${ef.name}"` });
     }

@@ -20,7 +20,7 @@
  * 3. Error handling with user notifications
  */
 
-import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { setOwnedItemQuantityOrDelete } from "../../../items/owned-item-quantity.js";
 
 /**
  * Resolve an actor from a UUID, handling token/actor edge cases.
@@ -78,7 +78,7 @@ export async function consumePendingAmmo(pendingAmmo) {
         const qty = Number(ammo.system?.quantity ?? 0);
         const next = Math.min(qty, Math.max(0, Number(qtyAfter ?? 0)));
         if (next !== qty) {
-          await requestUpdateEmbeddedDocuments(actor, "Item", [{ _id: ammoId, "system.quantity": next }]);
+          await setOwnedItemQuantityOrDelete({ actor, itemId: ammoId, item: ammo, quantity: next });
         }
         return true;
       }
@@ -93,7 +93,9 @@ export async function consumePendingAmmo(pendingAmmo) {
       }
       const qty = Number(doc.system?.quantity ?? 0);
       const next = Math.min(qty, Math.max(0, Number(qtyAfter ?? 0)));
-      if (next !== qty) await requestUpdateDocument(doc, { "system.quantity": next });
+      if (next !== qty) {
+        await setOwnedItemQuantityOrDelete({ actor: doc.parent, itemId: doc.id, item: doc, quantity: next });
+      }
       return true;
     }
 

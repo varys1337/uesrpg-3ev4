@@ -1,0 +1,78 @@
+{{!-- templates/v2/sheets/warfare-unit/tab-actions.hbs --}}
+<div class="tab actions" data-group="primary" data-tab="actions">
+  <div class="tabContainer">
+    <div class="warfare-sheet-content">
+
+      <div class="warfare-clash-section">
+        <button type="button" class="warfare-clash-btn" data-action="initiateClash"
+          title="Target one enemy Warfare Unit token, then choose Melee or Ranged and resolve a Clash with stance, charge, and facing inputs.">
+          &#9876; Initiate Clash
+        </button>
+        <button type="button" class="warfare-clash-btn warfare-clash-btn--discipline" data-action="rollDiscipline"
+          title="Roll a general Discipline test for this unit.">
+          Roll Discipline
+        </button>
+      </div>
+
+      <div class="warfare-action-columns">
+        <div class="warfare-action-column">
+          <h3 class="warfare-action-column__header">Leader Actions</h3>
+          <div class="warfare-action-column__list">
+            {{#each leaderActions}}
+            <button type="button"
+              class="warfare-action-btn"
+              data-action="rollWarfareAction"
+              data-action-id="{{this.id}}"
+              data-action-type="leader"
+              title="{{this.summary}}">{{this.label}}</button>
+            {{else}}
+            <p class="warfare-hint">No leader actions defined.</p>
+            {{/each}}
+          </div>
+        </div>
+
+        <div class="warfare-action-column">
+          <h3 class="warfare-action-column__header">Unit Actions</h3>
+          <div class="warfare-action-column__list">
+            {{#each unitActions}}
+            <button type="button"
+              class="warfare-action-btn"
+              data-action="rollWarfareAction"
+              data-action-id="{{this.id}}"
+              data-action-type="unit"
+              title="{{this.summary}}">{{this.label}}</button>
+            {{else}}
+            <p class="warfare-hint">No unit actions defined.</p>
+            {{/each}}
+          </div>
+        </div>
+      </div>
+
+      <fieldset class="warfare-fieldset">
+        <legend>Battle State</legend>
+        <div class="warfare-form-grid">
+          <div class="form-group"><label><input type="checkbox" name="system.status.battle.hidden" {{checked system.status.battle.hidden}} {{#unless editable}}disabled{{/unless}}> Hidden</label></div>
+          <div class="form-group"><label><input type="checkbox" name="system.status.battle.ambushReady" {{checked system.status.battle.ambushReady}} {{#unless editable}}disabled{{/unless}}> Ambush Ready</label></div>
+          <div class="form-group"><label><input type="checkbox" name="system.status.battle.broken" {{checked system.status.battle.broken}} {{#unless editable}}disabled{{/unless}}> Broken</label></div>
+          <div class="form-group"><label><input type="checkbox" name="system.status.battle.suppressed" {{checked system.status.battle.suppressed}} {{#unless editable}}disabled{{/unless}}> Suppressed</label></div>
+          <div class="form-group"><label><input type="checkbox" name="system.status.battle.defeated" {{checked system.status.battle.defeated}} {{#unless editable}}disabled{{/unless}}> Defeated</label></div>
+          <div class="form-group"><label><input type="checkbox" name="system.status.battle.frenzied" {{checked system.status.battle.frenzied}} {{#unless editable}}disabled{{/unless}}> Frenzied</label></div>
+          <div class="form-group"><label><input type="checkbox" name="system.status.battle.flyer" {{checked system.status.battle.flyer}} {{#unless editable}}disabled{{/unless}}> Flyer</label></div>
+          <div class="form-group"><label><input type="checkbox" name="system.status.leaderless" {{checked system.status.leaderless}} {{#unless editable}}disabled{{/unless}}> Leaderless</label></div>
+        </div>
+      </fieldset>
+
+      {{#if derived.notices.length}}
+      <fieldset class="warfare-fieldset">
+        <legend>Automation Notes</legend>
+        <ul>
+          {{#each derived.notices}}
+          <li>{{this}}</li>
+          {{/each}}
+        </ul>
+      </fieldset>
+      {{/if}}
+
+    </div>
+  </div>
+</div>

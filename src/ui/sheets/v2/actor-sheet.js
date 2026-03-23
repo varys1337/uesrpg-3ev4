@@ -33,7 +33,7 @@ import { onSkillRoll, onSpellRoll, onCombatRoll, onResistanceRoll, onDamageRoll 
 import { onRaceMenu, onBirthSignMenu, onXPMenu, onStartingResourcesMenu, onAdvancementMenu } from "../shared/dialogs/character-menus.js";
 import { onClickCharacteristic, onLuckyMenu } from "../shared/listeners/characteristics-handlers.js";
 
-import { onToggle2H, onPlusQty, onMinusQty, onItemEquip } from "../shared/listeners/inventory-handlers.js";
+import { onToggle2H, onPlusQty, onMinusQty, onItemEquip, onWeaponAmmoSelect } from "../shared/listeners/inventory-handlers.js";
 import { onWealthCalc, onCarryBonus } from "../shared/listeners/economy-handlers.js";
 import { onToggleGroupCollapse, onItemSearch, onLoadoutSave, onLoadoutApply, onLoadoutDelete } from "../shared/helpers/ui-state-handlers.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
@@ -97,6 +97,7 @@ import {
   buildAllowedSubmitPatch,
   createFormPathMatcher,
 } from "./shared/form-pipeline.js";
+import { setOwnedItemQuantityOrDelete } from "../../../core/items/owned-item-quantity.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2Base = foundry.applications.sheets.ActorSheetV2;
@@ -198,6 +199,9 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         String(itemModifiedTime),
         i?.system?.equipped ? "1" : "0",
         String(i?.system?.quantity ?? ""),
+        String(i?.system?.ammoId ?? ""),
+        String(i?.system?.attackMode ?? ""),
+        String(i?.system?.consumeAmmo ?? ""),
         String(i?.system?.value ?? ""),
         String(i?.system?.bonus ?? ""),
         String(i?.system?.isProfession ?? ""),
@@ -919,7 +923,13 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     }
 
     if (!this._uesrpgTabChangeHandler) {
-      this._uesrpgTabChangeHandler = () => {};
+      this._uesrpgTabChangeHandler = async (ev) => {
+        const root = ev.currentTarget;
+        const ammoSelect = ev.target?.closest?.("select[data-action='weaponAmmoSelect']");
+        if (ammoSelect && root?.contains?.(ammoSelect)) {
+          await this._onWeaponAmmoSelect(ev, ammoSelect);
+        }
+      };
     }
 
     if (!this._uesrpgTabInputHandler) {
@@ -1155,7 +1165,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     });
 
     const newQty = Math.max(currentQty - 1, 0);
-    await requestUpdateDocument(item, { "system.quantity": newQty });
+    await setOwnedItemQuantityOrDelete({ item, quantity: newQty });
 
     if (newQty === 0) ui.notifications.info("Out of Ammunition!");
   }
@@ -1164,6 +1174,13 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onPlusQty(event, target) { return onPlusQty.call(this, event, target); }
   async _onMinusQty(event, target) { return onMinusQty.call(this, event, target); }
   async _onItemEquip(event, target) { return onItemEquip.call(this, event, target); }
+  async _onWeaponAmmoSelect(event, target) {
+    const result = await onWeaponAmmoSelect.call(this, event, target);
+    if (result === false || result === null) return result;
+    this._uesrpgItemsCache = null;
+    await this._queueRenderParts(["equipment"]);
+    return result;
+  }
   async _onItemCreate(event, target) { return onItemCreate(this, event, { target }); }
 
   async _duplicateItem(item) {

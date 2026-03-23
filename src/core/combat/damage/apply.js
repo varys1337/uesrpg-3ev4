@@ -356,6 +356,8 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
       applicationId: options?.applicationId ?? crypto?.randomUUID?.() ?? foundry?.utils?.randomID?.() ?? null,
       origin: options?.origin ?? null,
       source,
+      weapon: options?.weapon ?? null,
+      ammo: options?.ammo ?? null,
       amountApplied: finalDamageAdjusted,
       hitLocation,
       damageType,
@@ -365,7 +367,8 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
       woundMode: woundEval.mode,
       woundTriggerReason: woundEval.reason,
       criticalSuccess: Boolean(options?.criticalSuccess ?? options?.isCritical ?? false),
-      woundTriggered: isWounded === true
+      woundTriggered: isWounded === true,
+      chatContext: foundry.utils.deepClone(options?.chatContext ?? null),
     });
   } catch (err) {
     console.error("UESRPG | uesrpgDamageApplied hook dispatch failed", err);

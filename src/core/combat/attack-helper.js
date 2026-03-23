@@ -7,6 +7,7 @@
 import { OpposedWorkflow } from "./opposed-workflow.js";
 import { DefenseDialog } from "./defense-dialog.js";
 import { resolveStyleForCombatTest } from "./combat-style-utils.js";
+import { isWarfareUnitActorType } from "../actors/types.js";
 
 /**
  * Perform a weapon attack
@@ -76,6 +77,8 @@ export async function performWeaponAttack(attackerToken, defenderToken, weapon, 
  */
 function getAttackSkill(actor, weapon) {
   if (!actor?.system || !weapon) return 50;
+  // Warfare Units use mass combat clash tests, not individual attack skills.
+  if (isWarfareUnitActorType(actor?.type)) return 0;
 
   // NPC combat tests: active Combat Style first, Combat profession fallback.
   if (String(actor.type ?? "") === "NPC") {

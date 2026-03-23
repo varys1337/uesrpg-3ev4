@@ -1,5 +1,5 @@
 import { SYSTEM_ID } from "../constants.js";
-import { migrateActorsIfNeeded } from "./actors.js";
+import { migrateActorsIfNeeded, migrateWarfareUnitNeutralLanesIfNeeded } from "./actors.js";
 import { migrateItemsIfNeeded } from "./items.js";
 import { migrateCombatLegacyIfNeeded } from "./combat-legacy.js";
 
@@ -37,6 +37,7 @@ export async function runSystemMigrations({
       await migrateActorsIfNeeded();
       await migrateItemsIfNeeded();
       await migrateCombatLegacyIfNeeded();
+      await migrateWarfareUnitNeutralLanesIfNeeded();
 
       const elapsedMs = Math.max(0, Date.now() - startedAt);
       const elapsedSec = (elapsedMs / 1000).toFixed(2);

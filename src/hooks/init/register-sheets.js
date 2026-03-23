@@ -2,6 +2,7 @@ import { GroupSheetV2 } from "../../ui/sheets/v2/group-sheet.js";
 import { SimpleItemSheetV2 } from "../../ui/sheets/v2/item-sheet.js";
 import { PCActorSheetV2 } from "../../ui/sheets/v2/actor-sheet.js";
 import { NpcSheetV2 } from "../../ui/sheets/v2/npc-sheet.js";
+import { WarfareUnitSheetV2 } from "../../ui/sheets/v2/warfare-unit-sheet.js";
 
 export async function registerSheets() {
   foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", PCActorSheetV2, {
@@ -25,5 +26,13 @@ export async function registerSheets() {
     types: ["NPC"],
     makeDefault: true,
     label: "UESRPG NPC Sheet",
+  });
+
+  // Warfare Unit sheet — always registered so existing actors remain openable
+  // even when mass combat is toggled off. Creation gating is separate.
+  foundry.documents.collections.Actors.registerSheet("uesrpg-3ev4", WarfareUnitSheetV2, {
+    types: ["Warfare Unit"],
+    makeDefault: true,
+    label: "UESRPG Warfare Unit Sheet",
   });
 }

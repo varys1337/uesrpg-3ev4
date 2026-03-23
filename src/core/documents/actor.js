@@ -13,6 +13,7 @@ import { ensureSystemData } from "../actors/prepare/ensure-system-data.js";
 import { prepareCharacterData } from "../actors/prepare/character.js";
 import { prepareNPCData } from "../actors/prepare/npc.js";
 import { prepareGroupData } from "../actors/prepare/group.js";
+import { prepareWarfareUnitData } from "../actors/prepare/warfare-unit.js";
 import { aggregateItemStats } from "../actors/rules/item-aggregation.js";
 import { getArmorMobilityPenalties, flyCalc } from "../actors/rules/armor-mobility.js";
 import { isShieldItem } from "../items/shield-utils.js";
@@ -39,6 +40,7 @@ import {
   hasWoundPenaltySuppression,
   applyWoundThresholdAEs
 } from "../actors/ae/modifiers.js";
+import { FLAG_SCOPE } from "../constants.js";
 
 /** Item types that carry a TN via baseCha and implement _prepareCombatStyleData. */
 const TN_ITEM_TYPES = new Set(["skill", "combatStyle", "magicSkill"]);
@@ -84,9 +86,24 @@ export class SimpleActor extends Actor {
       })
     }
 
-    
+    if (this.type === 'Warfare Unit') {
+      // Token defaults for Warfare Unit: unlinked, visible name, neutral disposition.
+      // Bar1 shows Resolve, with Condition preserved as a mirrored compatibility lane.
+      this.prototypeToken.updateSource({
+        'sight.enabled': false,
+        actorLink: false,
+        disposition: 0,
+        'displayName': CONST.TOKEN_DISPLAY_MODES.ALWAYS,
+        'displayBars': CONST.TOKEN_DISPLAY_MODES.OWNER,
+        'bar1.attribute': 'stats.resolve'
+      })
+    }
+
+
     // Preps and adds standard skill items to Character types
     await super._preCreate(data, options, user);
+    // Warfare Unit: do not auto-populate skills or any PC items.
+    if (this.type === 'Warfare Unit') return;
     if (this.type === 'Player Character') {
       if (Array.isArray(data?.items) && data.items.length > 0) return;
       const sources = await _getCoreSkillSourcesSorted();
@@ -97,6 +114,22 @@ export class SimpleActor extends Actor {
         'system.size': 'standard'
       })
     }
+  }
+
+  async _onCreate(data, options, userId) {
+    await super._onCreate(data, options, userId);
+    if (this.type !== "Warfare Unit") return;
+    if (!this.isOwner) return;
+
+    const maxResolve = Number(this.system?.stats?.resolve?.max ?? this.system?.stats?.condition?.max ?? this.system?._derived?.resolveMax ?? this.system?._derived?.conditionMax ?? 0) || 0;
+    const currentResolve = Number(this.system?.stats?.resolve?.value ?? this.system?.stats?.condition?.value ?? 0) || 0;
+    if (maxResolve <= 0 || currentResolve !== 0) return;
+
+    await this.update({
+      "system.stats.resolve.value": maxResolve,
+      "system.stats.condition.value": maxResolve,
+      [`flags.${FLAG_SCOPE}.warfareConditionInitialized`]: true,
+    });
   }
   prepareBaseData() {
     // Ensure minimum scaffolding before base prep to tolerate partial/corrupt actor payloads.
@@ -122,6 +155,8 @@ export class SimpleActor extends Actor {
         this._recomputeItemTNs();
       } else if (actorData.type === "Group") {
         this._prepareGroupData(actorData);
+      } else if (actorData.type === "Warfare Unit") {
+        this._prepareWarfareUnitData(actorData);
       }
     } catch (err) {
       console.error(`uesrpg-3ev4 | Error during prepareDerivedData for ${this.name || this.id}:`, err);
@@ -344,6 +379,14 @@ export class SimpleActor extends Actor {
   _prepareGroupData(actorData) {
     // Delegate to extracted module
     prepareGroupData(this, actorData);
+  }
+
+  /**
+   * Prepare Warfare Unit type specific data.
+   * Isolated from humanoid prep — no combat, magic, encumbrance, or skill paths.
+   */
+  _prepareWarfareUnitData(actorData) {
+    prepareWarfareUnitData(this, actorData);
   }
 
 

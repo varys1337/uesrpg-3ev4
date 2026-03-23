@@ -300,7 +300,7 @@ export async function rollCreationBackfire(highestSL) {
     minorEffect = await rollMinorEffects();
   }
 
-  return { d4, highestSL, total, entry, minorEffect };
+  return { d4, d4Roll, highestSL, total, entry, minorEffect };
 }
 
 /**
@@ -317,7 +317,7 @@ export async function rollPotionBackfire() {
     minorEffect = await rollMinorEffects();
   }
 
-  return { roll: roll.total, entry, minorEffect };
+  return { roll: roll.total, rollObject: roll, entry, minorEffect };
 }
 
 /**
@@ -328,7 +328,7 @@ export async function rollMinorEffects() {
   const roll = new Roll("2d8");
   await roll.evaluate();
   const entry = lookupMinorEffect(roll.total);
-  return { roll: roll.total, entry };
+  return { roll: roll.total, rollObject: roll, entry };
 }
 
 /**

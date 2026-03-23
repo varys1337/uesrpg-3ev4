@@ -2,34 +2,35 @@
  * Alchemy Rendering Helpers
  *
  * Pure HTML-building functions for all alchemy chat cards.
- * No Foundry API calls, no document mutations, no side effects.
- * All functions are synchronous except renderBrewResultCard (requires roll.render()).
- *
- * Internal to the alchemy subsystem — not re-exported from index.js.
  */
 
-// ── Brew Pending Card ─────────────────────────────────────────────────────────
+function _esc(value) {
+  return foundry.utils.escapeHTML(String(value ?? ""));
+}
 
-/**
- * Render the pending brew chat card (shown before the Roll is made).
- *
- * @param {object} data
- * @param {string} data.actorImg
- * @param {string} data.actorName
- * @param {string} data.modeLabel        "Brew Potion" / "Brew Poison" / "Brew Toxin"
- * @param {string} data.skillName
- * @param {number} data.tn               Base TN from Alchemy skill.
- * @param {number} data.alchemyRank
- * @param {string} data.effectsHtml      Pre-built effect rows HTML (potion/toxin).
- * @param {string} data.poisonHtml       Pre-built poison row HTML.
- * @param {string} data.penaltyRowsHtml  Pre-built penalty rows HTML.
- * @param {number} data.adjustedTN       TN after modifiers.
- * @param {boolean} data.nothingVentured
- * @param {number}  data.trialBonus
- * @param {number}  data.brewTime
- * @param {string}  data.actorUuid
- * @returns {string}
- */
+function _section(title, bodyHtml, extraClass = "") {
+  if (!String(bodyHtml ?? "").trim()) return "";
+  const titleHtml = title ? `<div class="uesrpg-alchemy-section__title">${title}</div>` : "";
+  const className = ["uesrpg-alchemy-section", extraClass].filter(Boolean).join(" ");
+  return `
+    <section class="${className}">
+      ${titleHtml}
+      <div class="uesrpg-alchemy-section__body">
+        ${bodyHtml}
+      </div>
+    </section>
+  `;
+}
+
+function _summaryRow(label, value, extraClass = "") {
+  return `
+    <div class="uesrpg-da-row ${extraClass}">
+      <span class="k">${label}</span>
+      <span class="v">${value}</span>
+    </div>
+  `;
+}
+
 export function renderBrewPendingCard(data) {
   const {
     actorImg = "icons/svg/mystery-man.svg",
@@ -41,6 +42,7 @@ export function renderBrewPendingCard(data) {
     effectsHtml = "",
     poisonHtml = "",
     penaltyRowsHtml = "",
+    warningRowsHtml = "",
     adjustedTN = 0,
     nothingVentured = false,
     trialBonus = 0,
@@ -48,12 +50,22 @@ export function renderBrewPendingCard(data) {
     actorUuid = "",
   } = data;
 
-  const nothingVenturedRow = nothingVentured
-    ? '<div class="uesrpg-da-row"><span class="k">⚠ Nothing Ventured</span><span class="v">Doubles or fail = backfire</span></div>'
-    : "";
-  const trialBonusRow = trialBonus > 0
-    ? `<div class="uesrpg-da-row"><span class="k">Trial and Error</span><span class="v">+${trialBonus}</span></div>`
-    : "";
+  const summaryHtml = [
+    _summaryRow("Alchemy Skill", `${skillName} (TN ${tn})`),
+    _summaryRow("Alchemy Rank", `${alchemyRank}`),
+    _summaryRow("Adjusted TN", `<strong>${adjustedTN}</strong>`, "is-strong"),
+    _summaryRow("Brew Time", `${brewTime} hour${brewTime !== 1 ? "s" : ""}`),
+  ].join("");
+
+  const specialNotes = [
+    nothingVentured
+      ? '<div class="uesrpg-alchemy-note is-warning"><div class="label">Nothing Ventured</div><div class="text">Doubles or failure causes a backfire check.</div></div>'
+      : "",
+    trialBonus > 0
+      ? `<div class="uesrpg-alchemy-note"><div class="label">Trial and Error</div><div class="text">+${trialBonus} TN from repeated recipe practice.</div></div>`
+      : "",
+    warningRowsHtml,
+  ].join("");
 
   return `
     <div class="uesrpg-alchemy-brew-card">
@@ -65,20 +77,16 @@ export function renderBrewPendingCard(data) {
         </div>
       </div>
       <div class="body">
-        <div class="uesrpg-da-row"><span class="k">Alchemy Skill</span><span class="v">${skillName} (TN ${tn})</span></div>
-        <div class="uesrpg-da-row"><span class="k">Alchemy Rank</span><span class="v">${alchemyRank}</span></div>
-        ${effectsHtml}${poisonHtml}
-        ${penaltyRowsHtml}
-        <div class="uesrpg-da-row"><span class="k">Adjusted TN</span><span class="v"><strong>${adjustedTN}</strong></span></div>
-        ${nothingVenturedRow}
-        ${trialBonusRow}
-        <div class="uesrpg-da-row"><span class="k">Brew Time</span><span class="v">${brewTime} hour${brewTime !== 1 ? "s" : ""}</span></div>
+        ${_section("Summary", summaryHtml, "is-summary")}
+        ${_section("Selected Effects", effectsHtml || poisonHtml, "is-effects")}
+        ${_section("Modifiers", penaltyRowsHtml, "is-modifiers")}
+        ${_section("Notes", specialNotes, "is-notes")}
       </div>
-      <div class="footer" style="margin-top:0.5rem;">
-        <button type="button"
+      <div class="footer uesrpg-alchemy-actions">
+        <button
+          type="button"
           data-action="alchemyRoll"
-          data-actor-uuid="${actorUuid}"
-          style="width:100%;padding:0.4rem 0;font-weight:bold;">
+          data-actor-uuid="${actorUuid}">
           Roll Alchemy (TN ${adjustedTN})
         </button>
       </div>
@@ -86,25 +94,6 @@ export function renderBrewPendingCard(data) {
   `;
 }
 
-// ── Brew Result Card ──────────────────────────────────────────────────────────
-
-/**
- * Render the brew result chat card (shown after the roll is resolved).
- * Async because roll.render() is async.
- *
- * @param {object} data
- * @param {string} data.actorImg
- * @param {string} data.actorName
- * @param {string} data.outcomeLabel      "Success" / "Critical Success" / "Failure" / "Critical Failure"
- * @param {string} data.outcomeColor      CSS color string.
- * @param {number} data.rollTotal
- * @param {number} data.adjustedTN
- * @param {Roll}   data.roll              Foundry Roll instance (for roll.render()).
- * @param {string} data.itemHtml          Pre-built created-item row HTML.
- * @param {string} data.backfireHtml      Pre-built backfire row HTML.
- * @param {string} data.drinkButtonHtml   Pre-built drink/apply button HTML.
- * @returns {Promise<string>}
- */
 export async function renderBrewResultCard(data) {
   const {
     actorImg = "icons/svg/mystery-man.svg",
@@ -126,38 +115,20 @@ export async function renderBrewResultCard(data) {
       <div class="hdr">
         <img class="actor-thumb" src="${actorImg}" alt="">
         <div class="hdr-text">
-          <div class="title">${actorName} — Brew Result</div>
+          <div class="title">${actorName} - Brew Result</div>
           <div class="sub" style="color:${outcomeColor};font-weight:bold;">${outcomeLabel} (${rollTotal} vs TN ${adjustedTN})</div>
         </div>
       </div>
       <div class="body">
         ${renderedRoll}
-        ${itemHtml}
-        ${backfireHtml}
-        ${drinkButtonHtml}
+        ${_section("Outcome", itemHtml, "is-result")}
+        ${_section("Backfire", backfireHtml, "is-backfire")}
       </div>
+      ${drinkButtonHtml ? `<div class="footer uesrpg-alchemy-actions">${drinkButtonHtml}</div>` : ""}
     </div>
   `;
 }
 
-// ── Apply-to-Weapon Card ──────────────────────────────────────────────────────
-
-/**
- * Render the apply-to-weapon confirmation chat card.
- *
- * @param {object} data
- * @param {string} data.actorImg
- * @param {string} data.actorName
- * @param {string} data.weaponName
- * @param {string} data.kind              "poison" | "toxin"
- * @param {number|null} data.poisonLevel  For poison kind.
- * @param {string|null} data.damageFormula For poison kind.
- * @param {object[]|null} data.effects    For toxin kind (array of { effectKey, spellLevel }).
- * @param {number} data.maxHits
- * @param {boolean} data.backfired
- * @param {Function} data.getEffectLabel  `(effectKey) => string` label resolver (to avoid importing effects here).
- * @returns {string}
- */
 export function renderApplyToWeaponCard(data) {
   const {
     actorImg = "icons/svg/mystery-man.svg",
@@ -174,15 +145,20 @@ export function renderApplyToWeaponCard(data) {
 
   let detailRows = "";
   if (kind === "poison") {
-    detailRows = `<div class="uesrpg-da-row"><span class="k">Poison Level</span><span class="v">${poisonLevel} (${damageFormula})</span></div>`;
+    detailRows = _summaryRow("Poison Level", `${poisonLevel} (${damageFormula})`);
   } else {
     detailRows = effects.map(
-      (e) => `<div class="uesrpg-da-row"><span class="k">${getEffectLabel(e.effectKey)}</span><span class="v">SL ${e.spellLevel ?? 1}</span></div>`
+      (effect) => `
+        <div class="uesrpg-alchemy-note">
+          <div class="label">${effect.effectLabel ?? effect.spellName ?? getEffectLabel(effect.effectKey)}</div>
+          <div class="text">SL ${effect.spellLevel ?? 1}</div>
+        </div>
+      `
     ).join("");
   }
 
   const backfiredRow = backfired
-    ? '<div class="uesrpg-da-row" style="color:#c62828;"><span class="k">⚠ Backfired</span><span class="v">Effects may be unpredictable</span></div>'
+    ? '<div class="uesrpg-alchemy-note is-danger"><div class="label">Backfired</div><div class="text">Effects may be unpredictable.</div></div>'
     : "";
 
   return `
@@ -195,27 +171,14 @@ export function renderApplyToWeaponCard(data) {
         </div>
       </div>
       <div class="body">
-        <div class="uesrpg-da-row"><span class="k">Weapon</span><span class="v">${weaponName}</span></div>
-        ${detailRows}
-        <div class="uesrpg-da-row"><span class="k">Hits</span><span class="v">${maxHits} remaining</span></div>
-        ${backfiredRow}
+        ${_section("Weapon", _summaryRow("Target", weaponName) + _summaryRow("Hits", `${maxHits} remaining`), "is-summary")}
+        ${_section(kind === "poison" ? "Poison" : "Effects", detailRows, "is-effects")}
+        ${backfiredRow ? _section("Warning", backfiredRow, "is-backfire") : ""}
       </div>
     </div>
   `;
 }
 
-// ── Alchemy Use Card ──────────────────────────────────────────────────────────
-
-/**
- * Render the alchemy use result chat card wrapper (potion drink, backfire results, etc.)
- *
- * @param {object} data
- * @param {string} data.actorImg
- * @param {string} data.actorName
- * @param {string} data.title    Subtitle shown under actor name.
- * @param {string} data.bodyHtml Pre-assembled body rows HTML.
- * @returns {string}
- */
 export function renderAlchemyUseCard(data) {
   const {
     actorImg = "icons/svg/mystery-man.svg",
@@ -233,7 +196,146 @@ export function renderAlchemyUseCard(data) {
           <div class="sub">${title}</div>
         </div>
       </div>
-      <div class="body">${bodyHtml}</div>
+      <div class="body">
+        ${_section("", bodyHtml, "is-effects")}
+      </div>
+    </div>
+  `;
+}
+
+export function renderPoisonResistanceCard(data = {}) {
+  const {
+    actorName = "Target",
+    actorUuid = "",
+    weaponName = "Weapon",
+    poisonLevel = 1,
+    damageFormula = "1d4",
+    endTN = 0,
+    finalTN = null,
+    rollTotal = null,
+    passed = null,
+    damageApplied = null,
+    resolving = false,
+    resolved = false,
+    statusNote = "",
+  } = data;
+
+  const safeActorName = _esc(actorName);
+  const safeActorUuid = _esc(actorUuid);
+  const safeWeaponName = _esc(weaponName);
+  const safeFormula = _esc(damageFormula);
+  const safeStatusNote = _esc(statusNote);
+  const showFinalTn = finalTN !== null && finalTN !== undefined;
+  const showRoll = rollTotal !== null && rollTotal !== undefined;
+  const showDamage = damageApplied !== null && damageApplied !== undefined;
+  const resultLabel = passed === null ? "" : (passed ? "Resisted" : "Failed");
+
+  const pendingRows = `
+    <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 10px; align-items:start;">
+      <div><strong>Target:</strong></div><div>${safeActorName}</div>
+      <div><strong>Weapon:</strong></div><div>${safeWeaponName}</div>
+      <div><strong>Poison:</strong></div><div>Level ${Number(poisonLevel) || 1} (${safeFormula})</div>
+      <div><strong>END TN:</strong></div><div>${Number(endTN) || 0}</div>
+      ${resolving ? `<div><strong>Status:</strong></div><div>Resolving...</div>` : ``}
+    </div>
+  `;
+
+  const resolvedRows = `
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px 12px; align-items:start;">
+      <div><strong>Target:</strong> ${safeActorName}</div>
+      <div><strong>Weapon:</strong> ${safeWeaponName}</div>
+      <div><strong>Poison:</strong> Level ${Number(poisonLevel) || 1}</div>
+      <div><strong>Formula:</strong> ${safeFormula}</div>
+      ${showFinalTn ? `<div><strong>TN:</strong> ${Number(finalTN) || 0}</div>` : ``}
+      ${showRoll ? `<div><strong>Roll:</strong> ${Number(rollTotal) || 0}</div>` : ``}
+      ${passed !== null ? `<div><strong>Result:</strong> ${resultLabel}</div>` : ``}
+      ${showDamage ? `<div><strong>Damage:</strong> ${Number(damageApplied) || 0}</div>` : ``}
+      ${safeStatusNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>Outcome:</strong><span style="overflow-wrap:anywhere;">${safeStatusNote}</span></div>` : ``}
+    </div>
+  `;
+
+  return `
+    <div class="uesrpg-chat-card" data-card="alchemy-poison-resistance">
+      <header class="card-header">
+        <h3>${resolved ? "Poison Resistance Result" : "Poison Resistance Test"}</h3>
+      </header>
+      <div class="card-content">
+        ${resolved ? resolvedRows : pendingRows}
+      </div>
+      ${resolved ? "" : `<footer class="card-footer">
+        <button
+          type="button"
+          data-ues-alchemy-poison-action="roll"
+          data-actor-uuid="${safeActorUuid}"
+          ${resolving ? "disabled" : ""}>${resolving ? "Resolving..." : "Roll Poison Resistance (END)"}</button>
+      </footer>`}
+    </div>
+  `;
+}
+
+export function renderToxinResistanceCard(data = {}) {
+  const {
+    actorName = "Target",
+    actorUuid = "",
+    weaponName = "Weapon",
+    endTN = 0,
+    effectsHtml = "",
+    directNotesHtml = "",
+    finalTN = null,
+    rollTotal = null,
+    passed = null,
+    resolving = false,
+    resolved = false,
+    statusNote = "",
+  } = data;
+
+  const safeActorName = _esc(actorName);
+  const safeActorUuid = _esc(actorUuid);
+  const safeWeaponName = _esc(weaponName);
+  const safeStatusNote = _esc(statusNote);
+  const showFinalTn = finalTN !== null && finalTN !== undefined;
+  const showRoll = rollTotal !== null && rollTotal !== undefined;
+  const resultLabel = passed === null ? "" : (passed ? "Resisted" : "Failed");
+
+  const pendingRows = `
+    <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 10px; align-items:start;">
+      <div><strong>Target:</strong></div><div>${safeActorName}</div>
+      <div><strong>Weapon:</strong></div><div>${safeWeaponName}</div>
+      <div><strong>END TN:</strong></div><div>${Number(endTN) || 0}</div>
+      ${resolving ? `<div><strong>Status:</strong></div><div>Resolving...</div>` : ``}
+    </div>
+    ${effectsHtml ? `<div style="margin-top:10px;"><strong>Toxin Effects</strong><div>${effectsHtml}</div></div>` : ``}
+    ${directNotesHtml ? `<div style="margin-top:10px;"><strong>Direct Effects Applied</strong><div>${directNotesHtml}</div></div>` : ``}
+  `;
+
+  const resolvedRows = `
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px 12px; align-items:start;">
+      <div><strong>Target:</strong> ${safeActorName}</div>
+      <div><strong>Weapon:</strong> ${safeWeaponName}</div>
+      ${showFinalTn ? `<div><strong>TN:</strong> ${Number(finalTN) || 0}</div>` : ``}
+      ${showRoll ? `<div><strong>Roll:</strong> ${Number(rollTotal) || 0}</div>` : ``}
+      ${passed !== null ? `<div><strong>Result:</strong> ${resultLabel}</div>` : ``}
+    </div>
+    ${effectsHtml ? `<div style="margin-top:10px;"><strong>Toxin Effects</strong><div>${effectsHtml}</div></div>` : ``}
+    ${directNotesHtml ? `<div style="margin-top:10px;"><strong>Direct Effects Applied</strong><div>${directNotesHtml}</div></div>` : ``}
+    ${safeStatusNote ? `<div style="margin-top:10px;"><strong>Outcome</strong><div style="overflow-wrap:anywhere;">${safeStatusNote}</div></div>` : ``}
+  `;
+
+  return `
+    <div class="uesrpg-chat-card" data-card="alchemy-toxin-resistance">
+      <header class="card-header">
+        <h3>${resolved ? "Toxin Resistance Result" : "Toxin Resistance Test"}</h3>
+      </header>
+      <div class="card-content">
+        ${resolved ? resolvedRows : pendingRows}
+      </div>
+      ${resolved ? "" : `<footer class="card-footer">
+        <button
+          type="button"
+          data-ues-alchemy-toxin-action="roll"
+          data-actor-uuid="${safeActorUuid}"
+          ${resolving ? "disabled" : ""}>${resolving ? "Resolving..." : "Roll Toxin Resistance (END)"}</button>
+      </footer>`}
     </div>
   `;
 }

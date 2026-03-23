@@ -316,7 +316,7 @@ export function createOverTimeConfig(overrides = {}) {
  * @returns {object[]} Parsed OverTime config objects (may be multiple if stacked).
  */
 function _parseOverTimeChanges(effect) {
-  const changes = effect?.changes;
+  const changes = getEffectChanges(effect);
   if (!changes?.length) return [];
 
   /** @type {object[]} */
@@ -1437,3 +1437,4 @@ export function getOverTimeConfig(effect) {
   const configs = _getAllOverTimeConfigs(effect);
   return configs.length ? configs[0] : null;
 }
+import { getEffectChanges } from "../../../utils/compat.js";

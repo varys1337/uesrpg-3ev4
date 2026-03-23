@@ -12,6 +12,7 @@ import {
 } from "../../system/homebrew.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
+import { isWarfareUnitActorType } from "../../actors/types.js";
 
 const NAMESPACE = "uesrpg-3ev4";
 const FLAG_HOOKS = "_engagementFlankingHooks";
@@ -250,6 +251,8 @@ function _getNpcEngagementScore(actor) {
 
 function _getEngagementScore(actor) {
   if (!actor) return 0;
+  // Warfare Units don't participate in individual engagement/flanking.
+  if (isWarfareUnitActorType(actor?.type)) return 0;
   if (String(actor.type ?? "").trim() === "NPC") return _getNpcEngagementScore(actor);
   return _getBestCombatStyleEngagement(actor);
 }

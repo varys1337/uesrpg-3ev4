@@ -14,6 +14,7 @@
  */
 
 import { SYSTEM_ID } from "../../../../core/system/namespace.js";
+import { getEffectChanges } from "../../../../utils/compat.js";
 
 /**
  * Build a cache-key string representing the actor's active-effect collection.
@@ -27,7 +28,7 @@ export function buildEffectsSignature(actor) {
       e?.id ?? "",
       e?.disabled ? "1" : "0",
       e?.transfer ? "1" : "0",
-      String(e?.changes?.length ?? 0),
+      String(getEffectChanges(e).length),
       String(e?.duration?.remaining ?? ""),
     ].join("~"));
   }

@@ -150,22 +150,23 @@ export function getSpellAoEConfig(spell) {
 function measureDistanceMeters(a, b) {
   if (!canvas?.grid || !a || !b) return 0;
 
-  // Use v13 namespaced Ray with fallback to global Ray for compatibility
-  const RayClass = foundry?.canvas?.geometry?.Ray ?? Ray;
-  const ray = new RayClass(a, b);
-
   // Use v13 measurePath API with fallback to deprecated measureDistances
   if (typeof canvas.grid.measurePath === "function") {
-    const path = canvas.grid.measurePath([{ ray }], { gridSpaces: true });
+    const path = canvas.grid.measurePath([a, b], { gridSpaces: true });
     // API may return object with distance property or array of distances
     const d = path?.distance ?? (Array.isArray(path) && path.length > 0 ? path[0] : null);
     if (Number.isFinite(d)) return d;
   } else {
     // Fallback for compatibility
-    const distances = canvas.grid.measureDistances([{ ray }], { gridSpaces: true });
+    const distances = canvas.grid.measureDistances([a, b], { gridSpaces: true });
     const d = Array.isArray(distances) ? distances[0] : 0;
     if (Number.isFinite(d)) return d;
   }
+
+  const pixels = Math.hypot(b.x - a.x, b.y - a.y);
+  const gridSize = Number(canvas.grid.size ?? 0) || 0;
+  const gridDistance = Number(canvas.scene.grid?.distance ?? 0) || 0;
+  if (gridSize > 0 && gridDistance > 0) return (pixels / gridSize) * gridDistance;
 
   return 0;
 }

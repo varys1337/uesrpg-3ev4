@@ -26,56 +26,19 @@ import { applyIntellectualTalentDoSOverrides } from "../../../../core/traits/int
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+import { getEffectChanges } from "../../../../utils/compat.js";
 import { MagicOpposedWorkflow } from "../../../../core/magic/opposed-workflow.js";
 import { consumeInspireHeroismEffect } from "../../../../core/combat/opposed/effects.js";
+import {
+  getAllCharacteristicOptions,
+  getCharacteristicLabel,
+  getPreferredSkillCharacteristic,
+  normalizeCharacteristicKey
+} from "../../../../utils/maps/characteristics.js";
 import {
   buildInlineQualityTags,
   collectWeaponInlineQualities,
 } from "../../../../core/combat/opposed/helpers/weapon-quality-display.js";
-
-function _normalizeChaKey(v = "") {
-  const s = String(v ?? "").trim().toLowerCase();
-  switch (s) {
-    case "strength": return "str";
-    case "endurance": return "end";
-    case "agility": return "agi";
-    case "intelligence": return "int";
-    case "willpower": return "wp";
-    case "perception": return "prc";
-    case "personality": return "prs";
-    case "luck": return "lck";
-    default: return s;
-  }
-}
-
-function _labelForChaKey(k = "") {
-  switch (String(k ?? "").toLowerCase()) {
-    case "str": return "Strength";
-    case "end": return "Endurance";
-    case "agi": return "Agility";
-    case "int": return "Intelligence";
-    case "wp": return "Willpower";
-    case "prc": return "Perception";
-    case "prs": return "Personality";
-    case "lck": return "Luck";
-    default: return "";
-  }
-}
-
-function _governingCharacteristicOptions(skillItem) {
-  const raw = String(skillItem?.system?.governingCha ?? "");
-  const base = _normalizeChaKey(skillItem?.system?.baseCha ?? "");
-  const keys = raw
-    .split(/[,\n/]+/)
-    .map(s => _normalizeChaKey(s))
-    .filter(Boolean);
-  const unique = [];
-  for (const k of keys) if (!unique.includes(k)) unique.push(k);
-  if (base && !unique.includes(base)) unique.push(base);
-  return unique
-    .map(k => ({ key: k, label: _labelForChaKey(k) || k.toUpperCase() }))
-    .filter(o => o.label);
-}
 
 /**
  * Handle skill roll from sheet.
@@ -120,12 +83,17 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   const quickShift = Boolean(event.shiftKey) && game.settings.get("uesrpg-3ev4", "skillRollQuickShift");
 
   const getLast = () => {
-    try { return game.settings.get("uesrpg-3ev4", "skillRollLastOptions") ?? {}; } catch (_e) { return {}; }
+    try {
+      const saved = game.settings.get("uesrpg-3ev4", "skillRollLastOptions") ?? {};
+      delete saved.selectedCharacteristicKey;
+      return saved;
+    } catch (_e) { return {}; }
   };
   const setLast = async (patch={}) => {
     const prev = getLast();
     const next = { ...prev, ...patch };
     next.lastSkillUuidByActor = { ...(prev.lastSkillUuidByActor||{}), ...(patch.lastSkillUuidByActor||{}) };
+    delete next.selectedCharacteristicKey;
     try { await game.settings.set("uesrpg-3ev4", "skillRollLastOptions", next); } catch (_e) {}
   };
 
@@ -165,9 +133,10 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   // --- Untargeted -> single skill test ---
   const isEvade = String(skillItem?.name ?? "").trim().toLowerCase() === "evade";
   const hasSpec = !isEvade && String(skillItem?.system?.trainedItems ?? "").trim().length > 0;
-  const governingOptions = _governingCharacteristicOptions(skillItem);
-  const showCharacteristicSelect = governingOptions.length > 1;
-  const defaultCharacteristic = _normalizeChaKey(skillItem?.system?.baseCha ?? "") || (governingOptions[0]?.key ?? "");
+  const characteristicOptions = getAllCharacteristicOptions(this.actor);
+  const defaultCharacteristic = getPreferredSkillCharacteristic(this.actor, skillItem)
+    || normalizeCharacteristicKey(skillItem?.system?.baseCha ?? "")
+    || (characteristicOptions[0]?.key ?? "");
   const resistanceSection = buildResistanceBonusSection(this.actor);
   const last = getLast();
 
@@ -232,13 +201,12 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
           <label><b>Difficulty</b></label>
           <select name="difficultyKey" style="width:100%;">${difficultyOptions}</select>
         </div>
-        ${showCharacteristicSelect ? `
         <div class="form-group" style="margin-top:8px;">
           <label><b>Characteristic</b></label>
           <select name="selectedCharacteristicKey" style="width:100%;">
-            ${governingOptions.map(o => `<option value="${o.key}" ${(o.key === (defaults.selectedCharacteristicKey ?? defaultCharacteristic)) ? "selected" : ""}>${o.label}</option>`).join("")}
+            ${characteristicOptions.map(o => `<option value="${o.key}" ${(o.key === (defaults.selectedCharacteristicKey ?? defaultCharacteristic)) ? "selected" : ""}>${o.label}</option>`).join("")}
           </select>
-        </div>` : ""}
+        </div>
         <div class="form-group" style="margin-top:8px;">
           <label style="display:flex; align-items:center; gap:8px;">
             <input type="checkbox" name="useSpec" ${hasSpec ? "" : "disabled"} ${defaults.useSpec ? "checked" : ""} />
@@ -307,11 +275,12 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     difficultyKey: decl.difficultyKey,
     manualMod: decl.manualMod,
     useSpec: Boolean(decl.useSpec),
-    selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
     lastSkillUuidByActor: { [this.actor.uuid]: skillItem.uuid }
   });
 
-  const staminaBonus = getPhysicalExertionSkillBonus(this.actor, skillItem);
+  const staminaBonus = getPhysicalExertionSkillBonus(this.actor, skillItem, {
+    selectedCharacteristicKey: decl.selectedCharacteristicKey ?? defaultCharacteristic
+  });
   const resMods = buildResistanceBonusMods(decl.resistanceSelected ?? []);
   const resBonus = resMods.reduce((sum, m) => sum + Number(m.value ?? 0), 0);
   const situationalMods = [...resMods];
@@ -323,7 +292,12 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     actor: this.actor,
     skillItem,
     targetToken: null,
-    options: { difficultyKey: decl.difficultyKey, manualMod: decl.manualMod, useSpec: Boolean(decl.useSpec) },
+    options: {
+      difficultyKey: decl.difficultyKey,
+      manualMod: decl.manualMod,
+      useSpec: Boolean(decl.useSpec),
+      selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic)
+    },
     context: { source: "sheet", quick: quickShift }
   });
   skillRollDebug("untargeted request", request);
@@ -353,6 +327,9 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   }
 
   if (tn?.difficulty?.mod) tags.push(`<span class="tag">${tn.difficulty.label} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
+  if (decl.selectedCharacteristicKey) {
+    tags.push(`<span class="tag">Characteristic ${getCharacteristicLabel(decl.selectedCharacteristicKey) || String(decl.selectedCharacteristicKey).toUpperCase()}</span>`);
+  }
   if (hasSpec && decl.useSpec) tags.push(`<span class="tag">Specialization +10</span>`);
   if (decl.isInterrogationTest) tags.push(`<span class="tag">Interrogation</span>`);
   if (decl.histskinUnderwater) tags.push(`<span class="tag">Histskin +30</span>`);
@@ -368,7 +345,9 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
   await applyKeenIntuitionToResult(this.actor, skillItem?.name ?? "", res, { allowPrompt: true });
   await applyHyperAwarenessToResult(this.actor, skillItem?.name ?? "", res, { allowPrompt: true });
   if (staminaBonus > 0) {
-    await consumePhysicalExertionForSkill(this.actor, skillItem);
+    await consumePhysicalExertionForSkill(this.actor, skillItem, {
+      selectedCharacteristicKey: decl.selectedCharacteristicKey ?? defaultCharacteristic
+    });
   }
 
   // Intellectual talents (Chapter 4): Businessman / Interrogator / Questioning (DoS replacement prompts).
@@ -395,8 +374,8 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
 
   const declaredParts = [];
   if (tn?.difficulty?.label) declaredParts.push(`${tn.difficulty.label} (${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod})`);
-  if (showCharacteristicSelect && decl.selectedCharacteristicKey) {
-    declaredParts.push(`Cha ${String(decl.selectedCharacteristicKey).toUpperCase()}`);
+  if (decl.selectedCharacteristicKey) {
+    declaredParts.push(`Cha ${getCharacteristicLabel(decl.selectedCharacteristicKey) || String(decl.selectedCharacteristicKey).toUpperCase()}`);
   }
   if (hasSpec && decl.useSpec) declaredParts.push("Spec +10");
   if (decl.isInterrogationTest) declaredParts.push("Interrogation");
@@ -427,7 +406,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
     isQuestioningTest: Boolean(decl?.isQuestioningTest),
     rollOptions: {
-      ...(showCharacteristicSelect && decl.selectedCharacteristicKey ? { selectedCharacteristicKey: String(decl.selectedCharacteristicKey).toLowerCase() } : {}),
+      ...(decl.selectedCharacteristicKey ? { selectedCharacteristicKey: String(decl.selectedCharacteristicKey).toLowerCase() } : {}),
       ...(decl.histskinUnderwater ? { histskin: true } : {})
     },
     isSuccess: Boolean(res.isSuccess),
@@ -445,7 +424,12 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
       uesrpg: {
         rollRequest: request,
         skillTest,
-        ...(decl.histskinUnderwater ? { rollOptions: { histskin: true } } : {}),
+        ...((decl.selectedCharacteristicKey || decl.histskinUnderwater) ? {
+          rollOptions: {
+            ...(decl.selectedCharacteristicKey ? { selectedCharacteristicKey: String(decl.selectedCharacteristicKey).toLowerCase() } : {}),
+            ...(decl.histskinUnderwater ? { histskin: true } : {})
+          }
+        } : {}),
         ...(dosOverride ? { dosOverride } : {}),
         reroll: { used: false, source: null },
         ...(staminaUsedOnTest ? { staminaUsedOnTest: true } : {})
@@ -453,7 +437,12 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
       "uesrpg-3ev4": {
         rollRequest: request,
         skillTest,
-        ...(decl.histskinUnderwater ? { rollOptions: { histskin: true } } : {}),
+        ...((decl.selectedCharacteristicKey || decl.histskinUnderwater) ? {
+          rollOptions: {
+            ...(decl.selectedCharacteristicKey ? { selectedCharacteristicKey: String(decl.selectedCharacteristicKey).toLowerCase() } : {}),
+            ...(decl.histskinUnderwater ? { histskin: true } : {})
+          }
+        } : {}),
         ...(dosOverride ? { dosOverride } : {}),
         ...(staminaUsedOnTest ? { staminaUsedOnTest: true } : {})
       }
@@ -632,7 +621,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
 
           for (const ef of (this.actor?.effects ?? [])) {
             if (ef?.disabled) continue;
-            const changes = Array.isArray(ef?.changes) ? ef.changes : [];
+            const changes = getEffectChanges(ef);
             let v = 0;
             for (const ch of changes) {
               if (!ch) continue;
@@ -652,7 +641,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
               if (!isItemEffectActive(this.actor, it, ef)) continue;
               if (ef?.disabled) continue;
 
-              const changes = Array.isArray(ef?.changes) ? ef.changes : [];
+              const changes = getEffectChanges(ef);
               let v = 0;
               for (const ch of changes) {
                 if (!ch) continue;

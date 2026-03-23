@@ -1,0 +1,92 @@
+{{!-- templates/v2/sheets/warfare-unit/tab-magic.hbs --}}
+<div class="tab magic" data-group="primary" data-tab="magic">
+  <div class="tabContainer">
+    <div class="warfare-sheet-content">
+
+      <fieldset class="warfare-fieldset">
+        <legend>Implements</legend>
+        <div class="warfare-form-grid">
+          <div class="form-group">
+            <label for="wf-magic-mode">Magic Mode</label>
+            <select id="wf-magic-mode" name="system.magic.mode" {{#unless editable}}disabled{{/unless}}>
+              {{#each magic.supportedModes}}
+              <option value="{{this}}" {{#if (eq this ../magic.mode)}}selected{{/if}}>
+                {{lookup ../magic.modeLabels this}}
+              </option>
+              {{/each}}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cast Spell</label>
+            <span class="warfare-derived-value">{{#if derived.canCastSpell}}Available{{else}}Unavailable{{/if}}</span>
+          </div>
+          <div class="form-group">
+            <label>Passive Bonuses</label>
+            <span class="warfare-derived-value">AR +{{derived.passiveImplementBonuses.ar}} / MAR +{{derived.passiveImplementBonuses.mar}}</span>
+          </div>
+          <div class="form-group">
+            <label>Bulk Threshold Bonus</label>
+            <span class="warfare-derived-value">+{{derived.passiveImplementBonuses.bulkLossDb}}</span>
+          </div>
+        </div>
+        <p class="warfare-hint">Passive implement effects are always derived. Use <strong>Cast Spell</strong> from the Actions tab for active effects and Battle Scrolls.</p>
+      </fieldset>
+
+      <fieldset class="warfare-fieldset">
+        <legend>Implement Entries</legend>
+        {{#if editable}}
+        <button type="button" data-action="addMagicEntry" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> Add Implement</button>
+        {{/if}}
+        {{#each magic.entries}}
+        <div class="warfare-spell-row" data-entry-index="{{@index}}">
+          <input type="text" name="system.magic.entries.{{@index}}.key" value="{{this.key}}" placeholder="Catalog Key" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.magic.entries.{{@index}}.name" value="{{this.name}}" placeholder="Display Name" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.magic.entries.{{@index}}.family" value="{{this.family}}" placeholder="Family" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="number" name="system.magic.entries.{{@index}}.count" value="{{this.count}}" min="1" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.magic.entries.{{@index}}.effect" value="{{this.effect}}" placeholder="Notes / Effect" {{#unless ../editable}}disabled{{/unless}}>
+          {{#if ../editable}}
+          <button type="button" data-action="removeMagicEntry" data-entry-index="{{@index}}" class="warfare-btn warfare-btn--icon" title="Remove"><i class="fas fa-trash"></i></button>
+          {{/if}}
+        </div>
+        {{else}}
+        <p class="warfare-hint">No implements configured.</p>
+        {{/each}}
+      </fieldset>
+
+      {{#if derived.implementEntries.length}}
+      <fieldset class="warfare-fieldset">
+        <legend>Derived Implement Summary</legend>
+        <div class="warfare-action-column__list">
+          {{#each derived.implementEntries}}
+          <div class="warfare-effect-row">
+            <span><strong>{{this.name}}</strong></span>
+            <span>{{this.family}} x{{this.count}}</span>
+            <span class="warfare-effect-row__status">{{#if this.passive}}Passive{{else}}Active{{/if}}</span>
+          </div>
+          {{/each}}
+        </div>
+      </fieldset>
+      {{/if}}
+
+      {{#if hasLegacySpells}}
+      <fieldset class="warfare-fieldset warfare-fieldset--legacy">
+        <legend>Legacy Spells</legend>
+        <p class="warfare-hint">Legacy `system.spells[]` data is preserved until it is manually migrated into Implement Entries.</p>
+        {{#each system.spells}}
+        <div class="warfare-spell-row" data-spell-index="{{@index}}">
+          <input type="text" name="system.spells.{{@index}}.name" value="{{this.name}}" placeholder="Spell Name" {{#unless ../editable}}disabled{{/unless}}>
+          <input type="text" name="system.spells.{{@index}}.effect" value="{{this.effect}}" placeholder="Effect" {{#unless ../editable}}disabled{{/unless}}>
+          {{#if ../editable}}
+          <button type="button" data-action="removeSpell" data-spell-index="{{@index}}" class="warfare-btn warfare-btn--icon" title="Remove"><i class="fas fa-trash"></i></button>
+          {{/if}}
+        </div>
+        {{/each}}
+        {{#if editable}}
+        <button type="button" data-action="addSpell" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> Add Legacy Spell</button>
+        {{/if}}
+      </fieldset>
+      {{/if}}
+
+    </div>
+  </div>
+</div>

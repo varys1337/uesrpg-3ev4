@@ -80,3 +80,11 @@ export function isEngagementFlankingHomebrewEnabled() {
 export function isEngagementFlankingOnlyInCombat() {
   return Boolean(getHomebrewSetting("homebrew.engagementFlanking.onlyInCombat", true));
 }
+
+/**
+ * Returns true when the Mass Combat (Warfare Unit) homebrew subsystem is enabled.
+ * @returns {boolean}
+ */
+export function isMassCombatEnabled() {
+  return Boolean(getHomebrewSetting("homebrew.massCombat.enabled", false));
+}

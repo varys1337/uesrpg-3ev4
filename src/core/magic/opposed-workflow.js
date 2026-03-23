@@ -45,6 +45,14 @@ const _FLAG_KEY = "magicOpposed";
 const _CARD_VERSION = 2;
 const _magicAutoRollLocalLocks = new Set();
 
+function _ignoreTraining(cfg = {}) {
+  return cfg?.ignoreTraining === true || cfg?.spellOptions?.ignoreTraining === true;
+}
+
+function _ignoreActionPoints(cfg = {}) {
+  return cfg?.ignoreActionPoints === true || cfg?.spellOptions?.ignoreActionPoints === true;
+}
+
 function _normalizeCastSourceCostMode(castSource = null) {
   const mode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
   if (mode === "magicka" || mode === "none") return mode;
@@ -189,7 +197,7 @@ export const MagicOpposedWorkflow = {
         return null;
       }
 
-      if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+      if (!_ignoreTraining(cfg) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
         ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
         return null;
       }
@@ -304,6 +312,8 @@ export const MagicOpposedWorkflow = {
         mpSpent: null,
         mpRemaining: null,
         backfire: false,
+        ignoreTraining: _ignoreTraining(cfg),
+        ignoreActionPoints: _ignoreActionPoints(cfg),
         castSource: cfg?.castSource ? foundry.utils.deepClone(cfg.castSource) : null
       },
       defenders: defenderEntries,
@@ -362,7 +372,7 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
-    if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+    if (!_ignoreTraining(cfg) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
       ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
       return null;
     }
@@ -377,6 +387,7 @@ export const MagicOpposedWorkflow = {
     const itemCastContext = cfg?.itemCastContext ? foundry.utils.deepClone(cfg.itemCastContext) : null;
     const castSourceMode = _normalizeCastSourceCostMode(castSource);
     const isEnchantmentSource = castSource?.type === "enchantment";
+    const ignoreAP = _ignoreActionPoints(cfg);
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
 
     const blocking = getBlockingNoDurationUpkeep(attacker, spell?.uuid ?? null);
@@ -388,7 +399,7 @@ export const MagicOpposedWorkflow = {
     // Preflight: check ALL resources before consuming ANY.
     const apCost = 1;
     const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
-    if (currentAP < apCost) {
+    if (!ignoreAP && currentAP < apCost) {
       ui.notifications.warn(`${attacker.name} does not have enough Action Points to cast.`);
       return null;
     }
@@ -415,16 +426,20 @@ export const MagicOpposedWorkflow = {
 
     // All pre-checks passed — now consume resources.
     const apReason = `Cast (Direct): ${spell.name}`;
-    const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
-    if (!apSpentOk) return null;
+    if (!ignoreAP) {
+      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
+      if (!apSpentOk) return null;
+    }
 
     let magickaSpend = { ok: true, consumed: 0, remaining: Number(attacker?.system?.magicka?.value ?? 0) || 0, refund: 0 };
     if (isEnchantmentSource && castSourceMode === "soul") {
       const soulSpend = await _spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
       if (!soulSpend?.ok) {
-        try {
-          await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-        } catch (_e) { /* best-effort */ }
+        if (!ignoreAP) {
+          try {
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) { /* best-effort */ }
+        }
         return null;
       }
       magickaSpend.consumed = Number(soulSpend.spent ?? enchantSoulCost ?? 0) || 0;
@@ -433,9 +448,11 @@ export const MagicOpposedWorkflow = {
       magickaSpend = await consumeSpellMagicka(attacker, spell, spellOptions);
       if (!magickaSpend?.ok) {
         // Rollback AP on magicka failure
-        try {
-          await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-        } catch (_e) { /* best-effort */ }
+        if (!ignoreAP) {
+          try {
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) { /* best-effort */ }
+        }
         return null;
       }
     }
@@ -530,6 +547,8 @@ export const MagicOpposedWorkflow = {
         mpSpent: Number(refundInfo?.finalCost ?? magickaSpend?.consumed ?? 0) || 0,
         mpRefund: Number(refundInfo?.refund ?? 0) || 0,
         backfire: needsBackfire,
+        ignoreTraining: _ignoreTraining(cfg),
+        ignoreActionPoints: ignoreAP,
         castSource: castSource ?? null
       },
       defender: {
@@ -605,7 +624,7 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
-    if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+    if (!_ignoreTraining(cfg) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
       ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
       return null;
     }
@@ -620,6 +639,7 @@ export const MagicOpposedWorkflow = {
     const itemCastContext = cfg?.itemCastContext ? foundry.utils.deepClone(cfg.itemCastContext) : null;
     const castSourceMode = _normalizeCastSourceCostMode(castSource);
     const isEnchantmentSource = castSource?.type === "enchantment";
+    const ignoreAP = _ignoreActionPoints(cfg);
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
 
     const blocking = getBlockingNoDurationUpkeep(attacker, spell?.uuid ?? null);
@@ -630,7 +650,7 @@ export const MagicOpposedWorkflow = {
 
     const apCost = 1;
     const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
-    if (currentAP < apCost) {
+    if (!ignoreAP && currentAP < apCost) {
       ui.notifications.warn("Not enough Action Points to cast the spell.");
       return null;
     }
@@ -665,8 +685,10 @@ export const MagicOpposedWorkflow = {
 
     const castActionType = String(cfg.castActionType ?? "primary");
     const apReason = (castActionType === "secondary") ? "Cast Magic (Instant)" : "Cast Magic";
-    const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
-    if (!apSpentOk) return null;
+    if (!ignoreAP) {
+      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
+      if (!apSpentOk) return null;
+    }
 
     if (spellClassification.isAttack) {
       try {
@@ -680,10 +702,12 @@ export const MagicOpposedWorkflow = {
     if (isEnchantmentSource && castSourceMode === "soul") {
       const soulSpend = await _spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
       if (!soulSpend?.ok) {
-        try {
-          await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-        } catch (_e) {
-          // best-effort
+        if (!ignoreAP) {
+          try {
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) {
+            // best-effort
+          }
         }
         return null;
       }
@@ -692,10 +716,12 @@ export const MagicOpposedWorkflow = {
     } else if (!(isEnchantmentSource && castSourceMode === "none")) {
       magickaSpend = await consumeSpellMagicka(attacker, spell, spellOptions);
       if (!magickaSpend?.ok) {
-        try {
-          await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-        } catch (_e) {
-          // best-effort
+        if (!ignoreAP) {
+          try {
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) {
+            // best-effort
+          }
         }
         return null;
       }
@@ -845,6 +871,8 @@ export const MagicOpposedWorkflow = {
         mpRefund: Number(magickaSpend.refund ?? 0) || 0,
         mpRestraintBreakdown: magickaSpend.restraintBreakdown ?? [],
         backfire: needsBackfire,
+        ignoreTraining: _ignoreTraining(cfg),
+        ignoreActionPoints: ignoreAP,
         castSource: castSource ?? null
       }
     };

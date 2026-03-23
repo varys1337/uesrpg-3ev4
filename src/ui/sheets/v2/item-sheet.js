@@ -63,6 +63,7 @@ const SUPPORTED_ITEM_SHEET_TYPES = new Set([
   "combatStyle",
   "container",
   "equipment",
+  "item",
   "magicSkill",
   "power",
   "scroll",
@@ -338,6 +339,16 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     return this.element;
   }
 
+  /** V1 compat: several shared handlers still read `sheet.actor`. */
+  get actor() {
+    return this.document?.actor ?? null;
+  }
+
+  /** V1 compat: shared helpers may read `sheet.item`. */
+  get item() {
+    return this.document ?? null;
+  }
+
   /* Rendering */
 
   /**
@@ -350,12 +361,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   _configureRenderParts(options) {
     const parts = super._configureRenderParts(options);
     const type = this.document.type;
-    if (type === "item") {
-      console.error("UESRPG | Legacy item type detected after strict equipment cutover", {
-        id: this.document.id,
-        name: this.document.name,
-      });
-    }
     const resolvedType = SUPPORTED_ITEM_SHEET_TYPES.has(type) ? type : "equipment";
     const template = `${ITEM_SHEET_TEMPLATE_BASE}/${resolvedType}-sheet.hbs`;
     this._uesrpgResolvedItemSheetTemplate = template;
@@ -658,7 +663,9 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    * @override
    */
   async close(options = {}) {
-    if (this.isEditable) {
+    const skipSubmitOnClose = options?.uesrpgSkipSubmitOnClose === true || this._skipSubmitOnCloseOnce === true;
+    this._skipSubmitOnCloseOnce = false;
+    if (this.isEditable && !skipSubmitOnClose) {
       try {
         await this._submitCurrentForm(null);
       } catch (err) {

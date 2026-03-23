@@ -18,6 +18,7 @@ import { _getSystemId, _findEnabledEffectByUesrpgKey } from "./helpers/util.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../../system/flags.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 
 // ====== ACTIVE EFFECT CREATION ======
 
@@ -169,7 +170,7 @@ export function getAimStateFromEffect(effect) {
   // Fallback: infer from change value (+10/+20/+30)
   if (!stacks) {
     try {
-      const c = (effect.changes ?? []).find((ch) => ch?.key === "system.modifiers.combat.attackTN");
+      const c = getEffectChanges(effect).find((ch) => ch?.key === "system.modifiers.combat.attackTN");
       const v = Number(c?.value ?? 0) || 0;
       const inferredStacks = Math.max(0, Math.min(3, Math.round(v / 10)));
       return { stacks: inferredStacks, itemUuid };

@@ -19,6 +19,7 @@
 
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { createDebugLogger } from "../_primitives.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 
 const _debug = createDebugLogger("aeLifecycleDebug", "[UESRPG][ConditionTriggers]");
 
@@ -63,7 +64,7 @@ export async function breakInvisibility(actor, reason = "attack") {
   const invisEffects = (actor.effects ?? []).filter(ef => {
     if (ef.disabled) return false;
     // Check if this effect sets the invisible condition
-    for (const c of (ef.changes ?? [])) {
+    for (const c of getEffectChanges(ef)) {
       if (c.key === "system.traits.condition.invisible") return true;
     }
     // Also check spell-effect flagged as Invisibility

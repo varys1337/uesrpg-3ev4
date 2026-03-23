@@ -33,6 +33,63 @@ import { FLAG_SCOPE } from "../../system/namespace.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
+function _mergeSupplementalGmDamageReport(existing, supplemental) {
+  if (!supplemental || typeof supplemental !== "object") return existing ? foundry.utils.deepClone(existing) : null;
+  if (!existing || typeof existing !== "object") return foundry.utils.deepClone(supplemental);
+
+  const merged = foundry.utils.deepClone(existing);
+  const extra = foundry.utils.deepClone(supplemental);
+
+  merged.panelKey = String(existing?.panelKey ?? supplemental?.panelKey ?? "").trim() || `gm-damage:${Date.now()}`;
+  merged.totalDamage = Math.max(0, Number(existing?.totalDamage ?? 0) || 0) + Math.max(0, Number(extra?.totalDamage ?? 0) || 0);
+
+  const existingHp = existing?.hp ?? {};
+  const extraHp = extra?.hp ?? {};
+  merged.hp = {
+    value: Number(extraHp?.value ?? existingHp?.value ?? 0) || 0,
+    max: Number(existingHp?.max ?? extraHp?.max ?? 0) || 0,
+    delta: Math.max(0, Number(existingHp?.delta ?? 0) || 0) + Math.max(0, Number(extraHp?.delta ?? 0) || 0),
+  };
+
+  if (existing?.tempHp || extra?.tempHp) {
+    const existingTemp = existing?.tempHp ?? {};
+    const extraTemp = extra?.tempHp ?? {};
+    merged.tempHp = {
+      value: Number(extraTemp?.value ?? existingTemp?.value ?? 0) || 0,
+      absorbed: Math.max(0, Number(existingTemp?.absorbed ?? 0) || 0) + Math.max(0, Number(extraTemp?.absorbed ?? 0) || 0),
+    };
+  } else {
+    merged.tempHp = null;
+  }
+
+  merged.buffers = Array.isArray(extra?.buffers) ? extra.buffers : (Array.isArray(existing?.buffers) ? existing.buffers : []);
+  merged.defeated = Boolean(existing?.defeated) || Boolean(extra?.defeated);
+  merged.woundTriggered = Boolean(existing?.woundTriggered) || Boolean(extra?.woundTriggered);
+  merged.woundThreshold = Number(extra?.woundThreshold ?? existing?.woundThreshold ?? 0) || 0;
+
+  const traitNotes = [
+    ...(Array.isArray(existing?.traitNotes) ? existing.traitNotes : []),
+    ...(Array.isArray(extra?.traitNotes) ? extra.traitNotes : []),
+  ].map((note) => String(note ?? "").trim()).filter(Boolean);
+  merged.traitNotes = Array.from(new Set(traitNotes));
+
+  const extraSegments = (Array.isArray(extra?.segments) ? extra.segments : []).map((segment) => {
+    const cloned = foundry.utils.deepClone(segment);
+    const sourceLabel = String(extra?.source ?? "Follow-up").trim();
+    cloned.sourceNotes = [
+      `Follow-up: ${sourceLabel}`,
+      ...(Array.isArray(cloned?.sourceNotes) ? cloned.sourceNotes : []),
+    ];
+    return cloned;
+  });
+  merged.segments = [
+    ...(Array.isArray(existing?.segments) ? foundry.utils.deepClone(existing.segments) : []),
+    ...extraSegments,
+  ];
+
+  return merged;
+}
+
 // ── Shared helpers (exported for use by other chat-handler modules) ───────────
 
 /**
@@ -144,6 +201,75 @@ async function _markMagicInlineDamageApplied(message, targetUuid, { gmDamageRepo
     flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version, state: data } } },
   };
   await safeUpdateChatMessage(message, payload);
+}
+
+export async function appendSupplementalDamageReportToMessage(message, targetUuid, { gmDamageReport = null } = {}) {
+  if (!message || !targetUuid || !gmDamageReport || typeof gmDamageReport !== "object") return false;
+
+  const rawOpposed = message?.flags?.[_FLAG_NS]?.opposed;
+  if (rawOpposed) {
+    const data = foundry.utils.deepClone(rawOpposed);
+
+    let defender = null;
+    if (_isMultiDefender(data)) {
+      const list = data.defenders ?? [];
+      defender = list.find((d) =>
+        (d.actorUuid && d.actorUuid === targetUuid)
+        || (d.tokenUuid && d.tokenUuid === targetUuid)
+      ) ?? null;
+    } else {
+      defender = data.defender ?? null;
+    }
+    if (!defender) return false;
+
+    const dmg = _getDefenderDamage(data, defender) ?? {};
+    dmg.applied = true;
+    dmg.gmDamageReport = _mergeSupplementalGmDamageReport(dmg.gmDamageReport ?? null, gmDamageReport);
+    _setDefenderDamage(data, defender, dmg);
+
+    const helpers = {
+      _getDefenderEntries, _isBankChoicesEnabledForData, _anyActiveGMOnline,
+      _getBankCommitState, _getDefenderOutcome, _getDefenderAdvantage,
+      _getDefenderResolutionState, _allDefendersCommitted, _isMultiDefender,
+      _safeGetSetting,
+    };
+    const renderCard = (d, msgId) =>
+      _isMultiDefender(d) ? renderMultiDefenderCard(d, msgId, helpers) : renderSingleDefenderCard(d, msgId, helpers);
+    await updateCard(message, data, renderCard);
+    return true;
+  }
+
+  const rawMagic = message?.flags?.[_FLAG_NS]?.magicOpposed;
+  if (rawMagic) {
+    const data = cloneFlagState(rawMagic.state ?? rawMagic);
+
+    let defender = null;
+    if (isMagicMultiDefender(data)) {
+      const list = getMagicDefenderEntries(data);
+      defender = list.find((d) =>
+        (d.actorUuid && d.actorUuid === targetUuid)
+        || (d.tokenUuid && d.tokenUuid === targetUuid)
+      ) ?? null;
+    } else {
+      defender = data.defender ?? null;
+    }
+    if (!defender) return false;
+
+    const dmg = getMagicDefenderDamage(data, defender) ?? {};
+    dmg.applied = true;
+    dmg.gmDamageReport = _mergeSupplementalGmDamageReport(dmg.gmDamageReport ?? null, gmDamageReport);
+    setMagicDefenderDamage(data, defender, dmg);
+
+    const version = Number(rawMagic.version ?? 2);
+    const content = renderMagicCard(data, message.id);
+    await safeUpdateChatMessage(message, {
+      content,
+      flags: { [_FLAG_NS]: { magicOpposed: { version, state: data } } },
+    });
+    return true;
+  }
+
+  return false;
 }
 
 // ── Magic inline damage / healing ────────────────────────────────────────────

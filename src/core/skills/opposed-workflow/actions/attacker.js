@@ -196,7 +196,6 @@ export async function handleAttackerRoll(ctx, action) {
     circumstanceMod: decl.circumstanceMod,
     manualMod: decl.manualMod,
     useSpec: Boolean(decl.useSpec),
-    selectedCharacteristicKey: String(decl.selectedCharacteristicKey ?? defaultCharacteristic),
     lastSkillUuidByActor: { [attacker.uuid]: decl.skillUuid }
   }));
 
@@ -264,7 +263,9 @@ export async function handleAttackerRoll(ctx, action) {
   }
 
   if (skillItem) {
-    await consumePhysicalExertionForSkill(attacker, skillItem);
+    await consumePhysicalExertionForSkill(attacker, skillItem, {
+      selectedCharacteristicKey: decl.selectedCharacteristicKey ?? defaultCharacteristic
+    });
   }
 
   const { freshMessage: freshMsgAR, freshData: freshDataAR } = await commitLaneResult({

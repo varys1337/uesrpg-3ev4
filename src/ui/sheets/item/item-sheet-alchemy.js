@@ -10,9 +10,37 @@
  */
 
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
-import { drinkPotion, applyAlchemyToWeapon } from "../../../core/alchemy/runtime.js";
+import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../core/alchemy/runtime.js";
 import { alertDialog, customDialog } from "../../../utils/dialog-v2-helper.js";
 import { SYSTEM_ID } from "../../constants.js";
+
+async function _showAlchemyUpdateFailure(sheet, actionLabel) {
+  const packId = String(sheet?.document?.pack ?? "").trim();
+  const pack = packId ? game.packs?.get?.(packId) ?? null : null;
+  const locked = Boolean(pack?.locked);
+  const content = packId
+    ? `<p>Could not ${actionLabel} on this compendium item.</p><p>${locked ? "The compendium is locked." : "The compendium entry may be read-only or you may not have permission to edit it."}</p>`
+    : `<p>Could not ${actionLabel} on this item.</p><p>The document update was rejected.</p>`;
+
+  await alertDialog({
+    title: "Alchemy Update Failed",
+    content,
+    buttonLabel: "OK",
+  });
+}
+
+async function _updateAlchemyDocument(sheet, updateData, actionLabel) {
+  const ok = await requestUpdateDocument(sheet.document, updateData);
+  if (!ok) await _showAlchemyUpdateFailure(sheet, actionLabel);
+  return ok;
+}
+
+async function _prepareSheetForDestructiveAlchemyAction(sheet) {
+  const quantity = Number(sheet?.document?.system?.quantity ?? 1);
+  if (quantity > 1) return;
+  sheet._skipSubmitOnCloseOnce = true;
+  await sheet.close({ uesrpgSkipSubmitOnClose: true });
+}
 
 /**
  * Enable this generic item as an alchemy ingredient by writing the alchemy flags.
@@ -23,14 +51,14 @@ import { SYSTEM_ID } from "../../constants.js";
  */
 export async function onEnableAlchemyIngredient(sheet, event) {
   event.preventDefault();
-  await requestUpdateDocument(sheet.document, {
+  await _updateAlchemyDocument(sheet, {
     [`flags.${SYSTEM_ID}.alchemy`]: {
       kind: "ingredient",
       school: "destruction",
       strengthBase: 5,
       depthBase: 2,
     },
-  });
+  }, "enable alchemy ingredient");
 }
 
 /**
@@ -41,9 +69,9 @@ export async function onEnableAlchemyIngredient(sheet, event) {
  */
 export async function onClearAlchemyIngredient(sheet, event) {
   event.preventDefault();
-  await requestUpdateDocument(sheet.document, {
+  await _updateAlchemyDocument(sheet, {
     [`flags.${SYSTEM_ID}.-=alchemy`]: null,
-  });
+  }, "remove alchemy ingredient");
 }
 
 /**
@@ -56,9 +84,22 @@ export async function onClearAlchemyIngredient(sheet, event) {
  */
 export async function onEnableAlchemyProduct(sheet, event, target) {
   event.preventDefault();
-  const kind = String(target?.dataset?.kind ?? "potion");
+  let kind = String(target?.dataset?.kind ?? "").trim().toLowerCase();
+  if (!kind) {
+    kind = String(await customDialog({
+      title: "Enable Alchemy Product",
+      content: "<p>Select which alchemical product this item should become.</p>",
+      buttons: {
+        potion: { label: "Potion", icon: "fas fa-flask", callback: () => "potion" },
+        poison: { label: "Poison", icon: "fas fa-skull-crossbones", callback: () => "poison" },
+        toxin: { label: "Toxin", icon: "fas fa-vial", callback: () => "toxin" },
+        cancel: { label: "Cancel", icon: "fas fa-times" },
+      },
+      defaultButton: "potion",
+    }) ?? "").trim().toLowerCase();
+  }
   if (!(["potion", "poison", "toxin"].includes(kind))) {
-    ui.notifications.warn("Unknown alchemy product type.");
+    if (kind) ui.notifications.warn("Unknown alchemy product type.");
     return;
   }
 
@@ -78,12 +119,12 @@ export async function onEnableAlchemyProduct(sheet, event, target) {
     ? { effects: [], durationRounds: 10, maxHits: 3 }
     : { effects: [] };
 
-  await requestUpdateDocument(sheet.document, {
+  await _updateAlchemyDocument(sheet, {
     "system.consumable": true,
     "system.wearable": false,
     "system.equipped": false,
     [`flags.${SYSTEM_ID}.alchemy`]: { ...baseFlags, ...kindFlags },
-  });
+  }, `enable ${kind} product`);
 }
 
 /**
@@ -94,9 +135,9 @@ export async function onEnableAlchemyProduct(sheet, event, target) {
  */
 export async function onClearAlchemyProduct(sheet, event) {
   event.preventDefault();
-  await requestUpdateDocument(sheet.document, {
+  await _updateAlchemyDocument(sheet, {
     [`flags.${SYSTEM_ID}.-=alchemy`]: null,
-  });
+  }, "remove alchemy product");
 }
 
 /**
@@ -120,6 +161,7 @@ export async function onDrinkAlchemyProduct(sheet, event) {
     return;
   }
 
+  await _prepareSheetForDestructiveAlchemyAction(sheet);
   await drinkPotion(actor, sheet.document);
 }
 
@@ -140,48 +182,13 @@ export async function onApplyAlchemyProductToWeapon(sheet, event) {
 
   const kind = String(sheet.document?.flags?.[SYSTEM_ID]?.alchemy?.kind ?? "");
   if (!(kind === "poison" || kind === "toxin")) {
-    ui.notifications.warn("Only poisons and toxins can be applied to weapons.");
+    ui.notifications.warn("Only poisons and toxins can be applied to weapons or ammunition.");
     return;
   }
 
-  const weapons = actor.items.filter((i) => i.type === "weapon" && i.system?.equipped === true);
-  if (!weapons.length) {
-    await alertDialog({
-      title: "Apply to Weapon",
-      content: "<p>No equipped weapons were found on this actor.</p>",
-    });
-    return;
-  }
+  const targetItem = await pickAlchemyCoatingTarget(actor);
+  if (!targetItem) return;
 
-  const options = weapons.map((w) => `<option value="${w.id}">${w.name}</option>`).join("");
-  const content = `
-    <div class="uesrpg-apply-alchemy-form">
-      <div class="form-group">
-        <label>Weapon</label>
-        <select name="weaponId">${options}</select>
-      </div>
-    </div>
-  `;
-
-  const weaponId = await customDialog({
-    title: "Apply to Weapon",
-    content,
-    yes: {
-      label: "Apply",
-      icon: "fas fa-check",
-      callback: (html) => html?.querySelector?.("select[name='weaponId']")?.value,
-    },
-    no: { label: "Cancel", icon: "fas fa-times" },
-    defaultButton: "yes",
-  });
-
-  if (!weaponId || typeof weaponId !== "string") return;
-
-  const weapon = actor.items.get(weaponId);
-  if (!weapon) {
-    ui.notifications.warn("Selected weapon could not be found.");
-    return;
-  }
-
-  await applyAlchemyToWeapon(actor, sheet.document, weapon);
+  await _prepareSheetForDestructiveAlchemyAction(sheet);
+  await applyAlchemyToTarget(actor, sheet.document, targetItem);
 }

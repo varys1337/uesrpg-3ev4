@@ -43,6 +43,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
         reachLengthAttackerAdvantageOnly: game.settings.get(NAMESPACE, "homebrew.reachLength.attackerAdvantageOnly"),
         engagementFlankingEnabled: game.settings.get(NAMESPACE, "homebrew.engagementFlanking.enabled"),
         engagementFlankingOnlyInCombat: game.settings.get(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat"),
+        massCombatEnabled: game.settings.get(NAMESPACE, "homebrew.massCombat.enabled"),
       },
     };
   }
@@ -80,6 +81,12 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
     if ("homebrew.engagementFlanking.onlyInCombat" in data) {
       await game.settings.set(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat", Boolean(data["homebrew.engagementFlanking.onlyInCombat"]));
     }
+
+    // Mass Combat
+    if ("homebrew.massCombat.enabled" in data) {
+      await game.settings.set(NAMESPACE, "homebrew.massCombat.enabled", Boolean(data["homebrew.massCombat.enabled"]));
+    }
+
     // Reload prompt
     if (needsReload) {
       const reload = await confirmDialog({

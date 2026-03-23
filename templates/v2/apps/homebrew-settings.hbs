@@ -66,6 +66,19 @@
     </div>
   </fieldset>
 
+  <fieldset class="uesrpg-settings__section">
+    <legend>Mass Combat (Warfare Units)</legend>
+
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-mass-combat-enabled">Enable Mass Combat System</label>
+        <p class="setting-help">Enables the <strong>Warfare Unit</strong> actor type and mass-combat UI. When disabled, existing Warfare Unit actors remain openable but new ones cannot be created from the sidebar.</p>
+        <p class="setting-note">Based on UESRPG Mass Warfare 3e rules.</p>
+      </div>
+      <input id="uesrpg-mass-combat-enabled" type="checkbox" name="homebrew.massCombat.enabled" {{checked homebrew.massCombatEnabled}}>
+    </div>
+  </fieldset>
+
   <footer class="uesrpg-settings__footer">
     <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
   </footer>

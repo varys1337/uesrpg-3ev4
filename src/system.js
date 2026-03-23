@@ -338,6 +338,17 @@ Hooks.once("init", async function() {
   console.log(`UESRPG | Initializing`);
   await initHandler();
 
+  // Register Mass Warfare profiles.
+  // Must run after initHandler (settings registered) but before any actor
+  // prepareDerivedData calls. Profiles are synchronous constants — no await needed.
+  try {
+    const { registerWarfareProfile, UESRPG_0_2_PROFILE, LEGACY_STUB_PROFILE } = await import("./core/mass-warfare/index.js");
+    registerWarfareProfile(UESRPG_0_2_PROFILE);
+    registerWarfareProfile(LEGACY_STUB_PROFILE);
+  } catch (err) {
+    console.warn("UESRPG | Failed to register Mass Warfare profiles", err);
+  }
+
   // Polyglot language exposure is handled canonically in src/hooks/init.js (initHandler).
 
   // Register Handlebars helpers

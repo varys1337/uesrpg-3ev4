@@ -15,6 +15,8 @@ import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } fro
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../constants.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { getEffectChanges } from "../../utils/compat.js";
+import { normalizeCharacteristicKey } from "../../utils/maps/characteristics.js";
 
 /**
  * Check and apply Physical Exertion bonus to characteristic test
@@ -49,20 +51,20 @@ export async function applyPhysicalExertionBonus(actor, characteristicId) {
  * @param {Item} skillItem - The skill being tested
  * @returns {Promise<number>} The bonus to apply (0 or 20)
  */
-export async function applyPhysicalExertionToSkill(actor, skillItem) {
+export async function applyPhysicalExertionToSkill(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
   if (!actor || !skillItem) return 0;
 
   // Don't apply to Combat Style
   if (skillItem.type === "combatStyle") return 0;
 
-  if (!_isStrOrEndSkill(skillItem)) return 0;
+  if (!_isStrOrEndSkill(skillItem, { selectedCharacteristicKey })) return 0;
 
   const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
   if (!effect) return 0;
 
   // If the effect uses the AE lane, do not apply or consume here.
-  const hasAeLane = Array.isArray(effect.changes) &&
-    effect.changes.some(c => String(c?.key ?? "") === "system.modifiers.skills.physicalExertion");
+  const changes = getEffectChanges(effect);
+  const hasAeLane = changes.some(c => String(c?.key ?? "") === "system.modifiers.skills.physicalExertion");
   if (hasAeLane) return 0;
 
   // Legacy behavior: consume and return the manual bonus.
@@ -74,27 +76,36 @@ export async function applyPhysicalExertionToSkill(actor, skillItem) {
   return 20;
 }
 
-function _isStrOrEndSkill(skillItem) {
-  const governingRaw = String(skillItem?.system?.governingCha || skillItem?.system?.baseCha || "");
-  const governing = governingRaw.trim().toLowerCase();
-  if (!governing) return false;
-  const isStrBased = /\bstr\b|\bstrength\b/.test(governing);
-  const isEndBased = /\bend\b|\bendurance\b/.test(governing);
-  return isStrBased || isEndBased;
+function _resolveSkillCharacteristicKey(skillItem, selectedCharacteristicKey = null) {
+  const selected = normalizeCharacteristicKey(selectedCharacteristicKey);
+  if (selected === "str" || selected === "end") return selected;
+  const base = normalizeCharacteristicKey(skillItem?.system?.baseCha ?? "");
+  if (base === "str" || base === "end") return base;
+  const governingRaw = String(skillItem?.system?.governingCha ?? "").trim().toLowerCase();
+  return governingRaw
+    .split(/[,\n/;]+|\s+/)
+    .map((token) => normalizeCharacteristicKey(token))
+    .find((token) => token === "str" || token === "end")
+    ?? base;
 }
 
-export function getPhysicalExertionSkillBonus(actor, skillItem) {
+function _isStrOrEndSkill(skillItem, { selectedCharacteristicKey = null } = {}) {
+  const characteristicKey = _resolveSkillCharacteristicKey(skillItem, selectedCharacteristicKey);
+  return characteristicKey === "str" || characteristicKey === "end";
+}
+
+export function getPhysicalExertionSkillBonus(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
   if (!actor || !skillItem) return 0;
   if (skillItem.type === "combatStyle") return 0;
-  if (!_isStrOrEndSkill(skillItem)) return 0;
+  if (!_isStrOrEndSkill(skillItem, { selectedCharacteristicKey })) return 0;
   const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
   return effect ? 20 : 0;
 }
 
-export async function consumePhysicalExertionForSkill(actor, skillItem) {
+export async function consumePhysicalExertionForSkill(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
   if (!actor || !skillItem) return 0;
   if (skillItem.type === "combatStyle") return 0;
-  if (!_isStrOrEndSkill(skillItem)) return 0;
+  if (!_isStrOrEndSkill(skillItem, { selectedCharacteristicKey })) return 0;
   const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
   if (!effect) return 0;
   await consumeStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION, {

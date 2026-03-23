@@ -351,22 +351,19 @@ function _measureDistanceMeters(aToken, bToken) {
 
     if (!canvas?.grid || !canvas?.scene) return Number.POSITIVE_INFINITY;
 
-    const RayClass = foundry?.canvas?.geometry?.Ray ?? Ray;
-    const ray = new RayClass(a, b);
-
     // Use v13 measurePath API with fallback to deprecated measureDistances
     if (typeof canvas.grid.measurePath === "function") {
-      const path = canvas.grid.measurePath([{ ray }], { gridSpaces: true });
+      const path = canvas.grid.measurePath([a, b], { gridSpaces: true });
       const d = path?.distance ?? (Array.isArray(path) && path.length > 0 ? path[0] : null);
       if (Number.isFinite(d)) return d;
     } else {
-      const distances = canvas.grid.measureDistances([{ ray }], { gridSpaces: true });
+      const distances = canvas.grid.measureDistances([a, b], { gridSpaces: true });
       const d = Array.isArray(distances) ? distances[0] : null;
       if (Number.isFinite(d)) return d;
     }
 
     // Fallback: pixel distance approximation
-    const pixels = ray.distance;
+    const pixels = Math.hypot(b.x - a.x, b.y - a.y);
     const gridSize = _num(canvas.grid.size, 0);
     const gridDistance = _num(canvas.scene.grid?.distance, 0);
     if (gridSize > 0 && gridDistance > 0) return (pixels / gridSize) * gridDistance;

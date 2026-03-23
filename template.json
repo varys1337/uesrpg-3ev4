@@ -3,7 +3,8 @@
     "types": [
       "Player Character",
       "NPC",
-      "Group"
+      "Group",
+      "Warfare Unit"
     ],
     "templates": {
       "equippedWeapons": {
@@ -789,6 +790,168 @@
       "lastRest": {
         "short": 0,
         "long": 0
+      }
+    },
+    "Warfare Unit": {
+      "description": "",
+      "notes": "",
+      "profile": {
+        "id": "uesrpg-0_2"
+      },
+      "commander": {
+        "uuid": "",
+        "id": "",
+        "name": "",
+        "img": "",
+        "bonusOverride": 0
+      },
+      "identity": {
+        "category": "",
+        "ancestry": "",
+        "rank": ""
+      },
+      "doctrine": {
+        "tradition": ""
+      },
+      "composition": {
+        "racialPresetKey": "",
+        "racialMods": {
+          "speedMod": 0,
+          "magickaMod": 0,
+          "offenseMod": 0,
+          "offenseType": "",
+          "conditionMod": 0,
+          "disciplineMod": 0,
+          "special": ""
+        }
+      },
+      "mounts": {
+        "primary": "none"
+      },
+      "economy": {
+        "cadence": "weekly",
+        "mode": "gold",
+        "amount": 0,
+        "enslaved": false,
+        "unpaidWeeks": 0,
+        "specialModifier": 0
+      },
+      "magic": {
+        "mode": "implements",
+        "entries": []
+      },
+      "equipment": {
+        "owned": []
+      },
+      "variant": {
+        "tags": [],
+        "overrides": {}
+      },
+      "status": {
+        "leaderless": false,
+        "battle": {
+          "hidden": false,
+          "ambushReady": false,
+          "revealed": true,
+          "routed": false,
+          "broken": false,
+          "suppressed": false,
+          "defeated": false,
+          "frenzied": false,
+          "flyer": false
+        }
+      },
+      "modifiers": {
+        "discipline": {
+          "manual": 0,
+          "campaign": {
+            "inspiringSpeech": false,
+            "forcedMarch": false,
+            "poorClimate": false,
+            "longCampaign": false,
+            "defendingAlliedSettlement": false
+          },
+          "battle": {
+            "rearCharged": false,
+            "adjacentFriendlyBroken": false,
+            "commanderLost": false,
+            "rallyBonus": false,
+            "enemyBrokenBonus": false
+          }
+        }
+      },
+      "classification": {
+        "unitType": "",
+        "ancestry": "",
+        "mount": "none",
+        "tier": "light"
+      },
+      "stats": {
+        "bulk": {
+          "value": 1,
+          "max": 0,
+          "lossTotal": 0
+        },
+        "resolve": {
+          "value": 0,
+          "max": 0,
+          "lossTotal": 0
+        },
+        "discipline": {
+          "value": 0,
+          "base": 0,
+          "bonus": 0
+        },
+        "condition": {
+          "value": 0,
+          "max": 0,
+          "maxOverride": 0,
+          "useMaxOverride": false
+        },
+        "magicka": {
+          "value": 0,
+          "max": 0
+        },
+        "speed": {
+          "value": 0,
+          "base": 0,
+          "bonus": 0
+        }
+      },
+      "gear": {
+        "tier": "light",
+        "apparel": "light",
+        "sets": 0,
+        "dmg": "",
+        "ar": 0,
+        "mar": 0,
+        "speedPenalty": 0,
+        "cost": 0
+      },
+      "racial": {
+        "speedMod": 0,
+        "magickaMod": 0,
+        "offenseMod": 0,
+        "offenseType": "",
+        "conditionMod": 0,
+        "disciplineMod": 0,
+        "special": ""
+      },
+      "combat": {
+        "hidden": false,
+        "deployed": false,
+        "leaderless": false
+      },
+      "traits": [],
+      "deployableEquipment": [],
+      "spells": [],
+      "upkeep": {
+        "weeklyGold": 0,
+        "enslaved": false
+      },
+      "rules": {
+        "source": "UESRPG Mass Warfare 3e",
+        "version": "2.0"
       }
     }
   },

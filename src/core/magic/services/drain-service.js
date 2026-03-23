@@ -23,6 +23,7 @@
 
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -195,7 +196,7 @@ async function _stripMaxReducingEffects(targetActor, effects, drainType) {
     const live = targetActor.effects.get(ae.id ?? ae._id);
     if (!live) continue;
 
-    const changes = live.changes ?? [];
+    const changes = getEffectChanges(live);
     const hasMaxReduction = changes.some(c => keysToStrip.includes(c.key));
     if (hasMaxReduction) {
       idsToRemove.push(live.id);

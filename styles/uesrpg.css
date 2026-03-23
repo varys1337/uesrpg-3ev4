@@ -2593,10 +2593,33 @@ button[data-ues-skill-opposed-action]) {
 
 .chat-message .uesrpg-alchemy-brew-card .body {
   padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .chat-message .uesrpg-alchemy-brew-card .footer {
   padding: 4px 10px 10px;
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-section__title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
+  text-transform: uppercase;
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .chat-message .uesrpg-alchemy-brew-card .uesrpg-da-row {
@@ -2604,16 +2627,60 @@ button[data-ues-skill-opposed-action]) {
   justify-content: space-between;
   gap: 10px;
   padding: 2px 0;
+  align-items: flex-start;
 }
 
 .chat-message .uesrpg-alchemy-brew-card .uesrpg-da-row .k {
   font-weight: 600;
   opacity: 0.9;
+  flex: 0 0 40%;
+  min-width: 0;
 }
 
 .chat-message .uesrpg-alchemy-brew-card .uesrpg-da-row .v {
   text-align: right;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-note {
+  border: 1px solid rgba(100, 160, 100, 0.18);
+  border-radius: 6px;
+  padding: 8px 9px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-note .label {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-note .text {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-note.is-warning {
+  border-color: rgba(197, 141, 30, 0.35);
+  background: rgba(197, 141, 30, 0.12);
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-note.is-danger {
+  border-color: rgba(198, 40, 40, 0.35);
+  background: rgba(198, 40, 40, 0.12);
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-message .uesrpg-alchemy-brew-card .uesrpg-alchemy-actions button {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font-weight: 700;
 }
 
 /* ---
@@ -2623,6 +2690,13 @@ button[data-ues-skill-opposed-action]) {
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
+  gap: 0.85rem;
+  color: #241a0f;
+}
+
+.alchemy-workshop .alchemy-workshop-wrap,
+.alchemy-workshop .alchemy-workshop-wrap :is(p, span, div, label, h3) {
+  color: inherit;
 }
 
 .alchemy-workshop .workshop-header {
@@ -2630,8 +2704,363 @@ button[data-ues-skill-opposed-action]) {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(115, 80, 28, 0.28);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(248, 236, 207, 0.82), rgba(230, 213, 176, 0.7));
+}
+
+.alchemy-workshop .alchemy-workshop-actor {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.alchemy-workshop .alchemy-workshop-actor .actor-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(93, 66, 29, 0.24);
+}
+
+.alchemy-workshop .alchemy-workshop-actor__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.alchemy-workshop .alchemy-workshop-actor__text .actor-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.alchemy-workshop .alchemy-workshop-meta {
+  color: #4f3d22;
+  font-size: 0.86rem;
+}
+
+.alchemy-workshop .alchemy-workshop-mode {
+  min-width: 210px;
+  margin-left: auto;
+}
+
+.alchemy-workshop .alchemy-workshop-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: #594221;
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+
+.alchemy-workshop .alchemy-workshop-select,
+.alchemy-workshop .alchemy-workshop-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid rgba(110, 81, 39, 0.34);
+  border-radius: 8px;
+  background: rgba(255, 249, 236, 0.92);
+  color: #20170d;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+}
+
+.alchemy-workshop .alchemy-workshop-select:focus,
+.alchemy-workshop .alchemy-workshop-input:focus {
+  outline: none;
+  border-color: rgba(137, 95, 28, 0.66);
+  box-shadow: 0 0 0 2px rgba(175, 132, 57, 0.18);
+}
+
+.alchemy-workshop .alchemy-workshop-section,
+.alchemy-workshop .alchemy-summary-panel {
+  border: 1px solid rgba(118, 82, 28, 0.2);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  background: rgba(248, 239, 217, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36);
+}
+
+.alchemy-workshop .alchemy-workshop-section__header {
+  margin-bottom: 0.7rem;
+}
+
+.alchemy-workshop .alchemy-workshop-section__header h3 {
+  margin: 0;
+  text-align: left;
+  color: #271b0d;
+}
+
+.alchemy-workshop .alchemy-workshop-section__header p {
+  margin: 0.2rem 0 0;
+  color: #594321;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.alchemy-workshop .alchemy-known-dropzone,
+.alchemy-workshop .alchemy-slot-dropzone {
+  border: 1px dashed rgba(142, 105, 48, 0.48);
+  border-radius: 10px;
+  background: rgba(255, 250, 239, 0.58);
+}
+
+.alchemy-workshop .alchemy-known-dropzone {
+  padding: 0.85rem 0.95rem;
+}
+
+.alchemy-workshop .alchemy-known-dropzone__title {
+  font-weight: 700;
+  color: #34230f;
+}
+
+.alchemy-workshop .alchemy-known-dropzone__text,
+.alchemy-workshop .alchemy-slot-dropzone__hint,
+.alchemy-workshop .alchemy-slot-dropzone__meta,
+.alchemy-workshop .alchemy-slot-dropzone__warning,
+.alchemy-workshop .alchemy-known-entry__meta,
+.alchemy-workshop .alchemy-known-entry__warning {
+  margin-top: 0.22rem;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.alchemy-workshop .alchemy-known-list,
+.alchemy-workshop .alchemy-slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.alchemy-workshop .alchemy-known-entry,
+.alchemy-workshop .alchemy-slot-card {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border: 1px solid rgba(124, 87, 31, 0.2);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  background: rgba(255, 251, 244, 0.5);
+}
+
+.alchemy-workshop .alchemy-slot-card {
+  flex-direction: column;
+  cursor: pointer;
+}
+
+.alchemy-workshop .alchemy-slot-card.is-active {
+  border-color: rgba(172, 126, 56, 0.72);
+  background: rgba(246, 232, 199, 0.74);
+  box-shadow: 0 0 0 1px rgba(185, 136, 59, 0.14);
+}
+
+.alchemy-workshop .alchemy-known-entry.is-invalid {
+  border-color: rgba(150, 56, 42, 0.3);
+  background: rgba(128, 41, 31, 0.07);
+}
+
+.alchemy-workshop .alchemy-known-entry__body,
+.alchemy-workshop .alchemy-slot-dropzone__top {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.alchemy-workshop .alchemy-known-entry__title,
+.alchemy-workshop .alchemy-slot-dropzone__title {
+  font-weight: 700;
+  color: #24170c;
+}
+
+.alchemy-workshop .alchemy-known-entry__warning,
+.alchemy-workshop .alchemy-slot-dropzone__warning,
+.alchemy-workshop .alchemy-workshop-text-danger {
+  color: #8f1d1d;
+}
+
+.alchemy-workshop .alchemy-slot-card__top,
+.alchemy-workshop .alchemy-poison-row,
+.alchemy-workshop .alchemy-gather-row,
+.alchemy-workshop .alchemy-slot-level {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.alchemy-workshop .alchemy-slot-card__label {
+  width: 52px;
+  color: #5c4727;
+  font-size: 0.84rem;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.alchemy-workshop .alchemy-slot-card__ingredient,
+.alchemy-workshop .alchemy-poison-row__select {
+  flex: 1 1 260px;
+}
+
+.alchemy-workshop .alchemy-slot-dropzone {
+  width: 100%;
+  padding: 0.85rem 0.95rem;
+}
+
+.alchemy-workshop .alchemy-slot-dropzone.is-filled {
+  border-style: solid;
+  border-color: rgba(133, 97, 39, 0.36);
+  background: rgba(255, 248, 231, 0.75);
+}
+
+.alchemy-workshop .alchemy-slot-dropzone__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.alchemy-workshop .alchemy-slot-dropzone__stats {
+  color: #503d1f;
+  font-size: 0.84rem;
+  text-align: right;
+}
+
+.alchemy-workshop .alchemy-slot-level__control {
+  width: 92px;
+  max-width: 100%;
+}
+
+.alchemy-workshop .alchemy-poison-row__summary {
+  color: #3b2c15;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.alchemy-workshop .alchemy-workshop-empty {
+  padding: 0.8rem 0.9rem;
+  border: 1px dashed rgba(124, 87, 31, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 250, 239, 0.46);
+  color: #594321;
+  font-size: 0.86rem;
+}
+
+.alchemy-workshop .alchemy-workshop-banner {
+  border-radius: 9px;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid rgba(118, 82, 28, 0.22);
+  background: rgba(255, 247, 228, 0.9);
+  color: #3a2a10;
+  line-height: 1.35;
+}
+
+.alchemy-workshop .alchemy-workshop-banner.is-danger {
+  border-color: rgba(146, 39, 26, 0.32);
+  background: rgba(118, 20, 20, 0.14);
+  color: #7b1717;
+}
+
+.alchemy-workshop .alchemy-workshop-banner.is-warning {
+  border-color: rgba(142, 101, 26, 0.32);
+  background: rgba(170, 126, 41, 0.16);
+  color: #5d3f04;
+}
+
+.alchemy-workshop .alchemy-summary-panel__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.8rem;
+}
+
+.alchemy-workshop .badge,
+.alchemy-workshop .alchemy-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.78em;
+  padding: 0.2rem 0.48rem;
+  border-radius: 999px;
+  background: rgba(111, 80, 26, 0.12);
+  color: #4f3b19;
+  border: 1px solid rgba(126, 90, 31, 0.18);
+}
+
+.alchemy-workshop .alchemy-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.28rem 0.85rem;
+  font-size: 0.86rem;
+}
+
+.alchemy-workshop .alchemy-summary-grid__label {
+  color: #4f3e22;
+}
+
+.alchemy-workshop .alchemy-summary-grid__label.is-strong,
+.alchemy-workshop .alchemy-summary-grid__value.is-strong {
+  margin-top: 0.2rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(116, 82, 30, 0.16);
+  font-weight: 700;
+  color: #22180d;
+}
+
+.alchemy-workshop .alchemy-summary-grid__value {
+  text-align: right;
+  color: #2a1b0c;
+}
+
+.alchemy-workshop .alchemy-summary-grid__value.is-negative {
+  color: #8e1e1e;
+}
+
+.alchemy-workshop .alchemy-summary-grid__value.is-positive {
+  color: #2f5c1f;
+}
+
+.alchemy-workshop .alchemy-inline-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+  color: #3f2f18;
+  font-size: 0.86rem;
+}
+
+.alchemy-workshop .alchemy-workshop-footer {
+  margin-top: 0.1rem;
+}
+
+.alchemy-workshop .alchemy-workshop-button {
+  min-height: 30px;
+  padding: 0.34rem 0.72rem;
+  border: 1px solid rgba(112, 77, 26, 0.55);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(125, 94, 46, 0.92), rgba(93, 66, 29, 0.96));
+  color: #f5ecd6;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 244, 221, 0.22);
+}
+
+.alchemy-workshop .alchemy-workshop-button:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(141, 107, 54, 0.98), rgba(104, 75, 34, 0.98));
+}
+
+.alchemy-workshop .alchemy-workshop-button:disabled {
+  opacity: 0.5;
+}
+
+.alchemy-workshop .alchemy-workshop-button.is-compact {
+  min-height: 28px;
+  padding: 0.25rem 0.58rem;
+}
+
+.alchemy-workshop .alchemy-workshop-button.is-primary.is-wide {
+  width: 100%;
+  min-height: 38px;
+  font-size: 1rem;
 }
 
 .alchemy-workshop .ingredient-slot {
@@ -2642,12 +3071,27 @@ button[data-ues-skill-opposed-action]) {
   border-color: rgba(100, 200, 100, 0.35) !important;
 }
 
-.alchemy-workshop .badge {
-  display: inline-block;
-  font-size: 0.78em;
-  padding: 0.15rem 0.45rem;
-  border-radius: 3px;
-  margin-right: 0.25rem;
+@media (max-width: 720px) {
+  .alchemy-workshop .alchemy-slot-dropzone__top,
+  .alchemy-workshop .alchemy-slot-card__top,
+  .alchemy-workshop .alchemy-poison-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .alchemy-workshop .alchemy-workshop-mode {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .alchemy-workshop .alchemy-slot-card__label {
+    width: auto;
+  }
+
+  .alchemy-workshop .alchemy-slot-dropzone__stats,
+  .alchemy-workshop .alchemy-summary-grid__value {
+    text-align: left;
+  }
 }
 
 /*---
@@ -5276,6 +5720,72 @@ button[data-ues-skill-opposed-action]) {
 
 .worldbuilding .item-selection-container .grid-container:last-child {
   border-bottom: none;
+}
+
+.worldbuilding .uesrpg-alchemy-action-row,
+.worldbuilding .uesrpg-alchemy-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.worldbuilding .uesrpg-alchemy-compact-btn {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.worldbuilding .uesrpg-alchemy-inline-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0 8px;
+}
+
+.worldbuilding .uesrpg-alchemy-inline-card {
+  border: 1px solid rgba(84, 58, 23, 0.18);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: rgba(255, 249, 236, 0.26);
+}
+
+.worldbuilding .uesrpg-alchemy-inline-card__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.worldbuilding .uesrpg-alchemy-inline-card__header h3 {
+  margin: 0;
+}
+
+.worldbuilding .uesrpg-alchemy-inline-card__header span {
+  font-size: 11px;
+  opacity: 0.74;
+  font-style: italic;
+}
+
+.worldbuilding .uesrpg-alchemy-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.worldbuilding .uesrpg-alchemy-inline-effects {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(84, 58, 23, 0.12);
+}
+
+.worldbuilding .uesrpg-alchemy-checkbox-wrap {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
 }
 
 .worldbuilding .attribute-container .right-align-content,
@@ -8329,7 +8839,7 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
 
 .worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(1),
 .worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(1) {
-  width: 50%;
+  width: 46%;
 }
 
 .worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(2),
@@ -8338,12 +8848,73 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
 .worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(3),
 .worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(4),
 .worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(4) {
-  width: 14%;
+  width: 12%;
 }
 
 .worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table th:nth-child(5),
 .worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table td:nth-child(5) {
-  width: 8%;
+  width: 14%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table .weapon-mode-cell {
+  padding-inline: 4px;
+  min-width: 140px;
+}
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table .weapon-ammo-select-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--uesrpg-control-h-sm, 26px);
+  background: var(--uesrpg-bg-input);
+  border: var(--uesrpg-border-input);
+  border-radius: var(--uesrpg-border-radius-sm);
+}
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table .weapon-ammo-select-wrap:focus-within {
+  border-color: var(--uesrpg-color-accent);
+  box-shadow: var(--uesrpg-shadow-focus);
+}
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table .weapon-ammo-select-wrap::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table .weapon-ammo-select-label {
+  display: block;
+  min-width: 0;
+  padding: 4px 28px 4px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table .weapon-ammo-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.worldbuilding.sheet.actor:not(.group) .equipmentList .weapon-table .weapon-ammo-select option {
+  color: var(--uesrpg-color-text);
 }
 
 .worldbuilding.sheet.actor:not(.group) .equipmentList .ammunition-table th:nth-child(1),
@@ -11555,6 +12126,82 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   width: 100%;
 }
 
+/* ── Container Picker Dialog ──────────────────────────────── */
+.uesrpg-container-picker-dialog .window-content {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.uesrpg-container-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.uesrpg-container-picker__intro {
+  flex-shrink: 0;
+  padding: 4px 0 6px;
+  font-size: var(--uesrpg-font-sm, 12px);
+}
+.uesrpg-container-picker__oversize-note {
+  margin-top: 4px;
+  font-style: italic;
+  color: rgba(60, 40, 0, 0.7);
+}
+.uesrpg-container-picker__table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid rgba(102, 76, 28, 0.35);
+  border-radius: 4px;
+}
+.uesrpg-container-picker__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--uesrpg-font-xs, 11px);
+}
+.uesrpg-container-picker__table thead tr {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(180, 145, 80, 0.82);
+}
+.uesrpg-container-picker__table th {
+  background: transparent;
+  color: #2a1800;
+  font-size: var(--uesrpg-font-xs, 11px);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 5px 6px;
+  border-bottom: 1px solid rgba(102, 76, 28, 0.4);
+  text-align: center;
+}
+.uesrpg-container-picker__table tbody tr:nth-child(even) {
+  background: rgba(220, 195, 140, 0.18);
+}
+.uesrpg-container-picker__table td {
+  padding: 4px 6px;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(102, 76, 28, 0.12);
+}
+.uesrpg-container-picker__name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.uesrpg-container-picker__cell {
+  text-align: center;
+  white-space: nowrap;
+}
+
 /* --- Feature Inspector ---*/
 /* Collapsible debug panel for trait/talent/power provenance.*/
 /* Located in Equipment tab of actor/NPC sheets.*/
@@ -13989,90 +14636,1372 @@ body.theme-dark .uesrpg.sheet.actor.group .pace-table thead th {
   padding: 0 20px;
 }
 
-/* ── Container Picker Dialog ──────────────────────────────── */
-.uesrpg-container-picker-dialog .window-content {
+.warfare-unit.uesrpg-sheet-root {
+  --warfare-border: var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  --warfare-border-strong: var(--uesrpg-ornament-border-strong, rgba(102, 76, 28, 0.45));
+  --warfare-panel: rgba(255, 249, 236, 0.9);
+  --warfare-panel-soft: rgba(255, 252, 246, 0.8);
+  --warfare-panel-muted: rgba(250, 243, 228, 0.7);
+  --warfare-text: #2a2014;
+  --warfare-text-soft: rgba(42, 32, 20, 0.74);
+  --warfare-accent: #7d140e;
+  --warfare-warning: #7d4c16;
+  --warfare-warning-bg: rgba(200, 150, 82, 0.16);
+  --warfare-notice: #214c65;
+  --warfare-notice-bg: rgba(83, 129, 155, 0.12);
+}
+.warfare-unit.uesrpg-sheet-root,
+.warfare-unit.uesrpg-sheet-root .sheet-section-container,
+.warfare-unit.uesrpg-sheet-root > .window-content {
+  height: 100%;
   min-height: 0;
+  max-height: 100%;
+}
+.warfare-unit.uesrpg-sheet-root input,
+.warfare-unit.uesrpg-sheet-root select,
+.warfare-unit.uesrpg-sheet-root textarea,
+.warfare-unit.uesrpg-sheet-root button {
+  font: inherit;
+}
+.warfare-unit.uesrpg-sheet-root > .window-content {
+  gap: 10px;
+  padding: 10px;
+  box-sizing: border-box;
+  color: var(--warfare-text);
+  background-image: url("../images/elements/backgrounds/brown_leather.webp");
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+.warfare-unit.uesrpg-sheet-root > .window-content > [data-application-part=sidebar] {
+  display: flex;
+  flex: 0 0 220px;
+  min-width: 200px;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-rows {
   display: flex;
   flex-direction: column;
+  gap: 0;
 }
-
-.uesrpg-container-picker {
+.warfare-unit.uesrpg-sheet-root .warfare-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--warfare-border);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-row:last-child {
+  border-bottom: none;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-row .warfare-stat-row__label {
+  font-size: 0.7rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  color: var(--warfare-accent);
+  min-width: 58px;
+  white-space: nowrap;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-row .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  padding: 0;
+  margin: 0;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-row .form-group label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  color: var(--warfare-text-soft);
+  white-space: nowrap;
+  line-height: 1;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-row .form-group input[type=number] {
+  width: 100%;
+  min-height: 22px;
+  padding: 1px 4px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-row .form-group .warfare-derived-value {
+  font-size: 0.85rem;
+  font-weight: bold;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-form-grid--2x2 {
+  grid-template-columns: 1fr 1fr;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar {
+  width: 100%;
+  min-width: 0;
+  background-image: var(--uesrpg-sidebar-url);
+  background-size: cover;
+  background-position: center top;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  box-sizing: border-box;
+  height: 100%;
   min-height: 0;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 2px solid rgba(0, 0, 0, 0.14);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 -1px 0 rgba(0, 0, 0, 0.1), inset 1px 0 0 rgba(255, 255, 255, 0.06), inset -1px 0 0 rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  color: var(--warfare-text);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  --uesrpg-sidebar-frame-height: 220px;
+  --uesrpg-sidebar-frame-top: 0px;
+  --uesrpg-sidebar-frame-inset: 6px;
 }
-
-.uesrpg-container-picker__intro {
-  flex-shrink: 0;
-  padding: 4px 0 6px;
-  font-size: var(--uesrpg-font-sm, 12px);
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar::before {
+  content: "";
+  position: absolute;
+  top: var(--uesrpg-sidebar-frame-top, 4px);
+  left: 50%;
+  width: calc(100% - var(--uesrpg-sidebar-frame-inset, 2px) * 2);
+  max-width: none;
+  height: min(var(--uesrpg-sidebar-frame-height, 180px), 100%);
+  transform: translateX(-50%);
+  background-image: var(--uesrpg-frame-url);
+  background-repeat: no-repeat;
+  background-position: center top;
+  background-size: 100% auto;
+  opacity: var(--uesrpg-sidebar-frame-opacity, 1);
+  pointer-events: none;
+  z-index: 0;
 }
-
-.uesrpg-container-picker__oversize-note {
-  margin-top: 4px;
-  font-style: italic;
-  color: rgba(60, 40, 0, 0.7);
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar > * {
+  position: relative;
+  z-index: 1;
 }
-
-.uesrpg-container-picker__table-wrap {
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__content {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  max-height: min(60vh, 560px);
   overflow-y: auto;
   overflow-x: hidden;
-  border: 1px solid rgba(102, 76, 28, 0.35);
-  border-radius: 4px;
+  gap: 6px;
+  color: var(--warfare-text);
+  padding: 0 calc(var(--uesrpg-space-sm) + 6px) calc(var(--uesrpg-space-sm) + 6px);
 }
-
-.uesrpg-container-picker__table {
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__portrait {
+  display: flex;
+  justify-content: center;
+  padding: 4px 4px 0;
+  flex-shrink: 0;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__portrait img {
   width: 100%;
-  border-collapse: collapse;
-  font-size: var(--uesrpg-font-xs, 11px);
+  max-width: none;
+  aspect-ratio: 1/1;
+  object-fit: cover;
+  border-radius: 4px 4px 0 0;
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  display: block;
 }
-
-.uesrpg-container-picker__table thead tr {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: rgba(180, 145, 80, 0.82);
+.warfare-unit.uesrpg-sheet-root .warfare-limited__portrait img {
+  width: 100%;
+  max-width: 150px;
+  aspect-ratio: 1/1;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(76, 57, 26, 0.45);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
 }
-
-.uesrpg-container-picker__table th {
-  background: transparent;
-  color: #2a1800;
-  font-size: var(--uesrpg-font-xs, 11px);
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__name {
+  margin: 8px 0 4px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__name input {
+  font-size: 0.84rem;
+  height: 32px;
+  letter-spacing: 0.02em;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__type-badge,
+.warfare-unit.uesrpg-sheet-root .warfare-limited__type {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-weight: 700;
+  color: var(--warfare-accent);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__commander,
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__stats,
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__combat-state,
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__messages,
+.warfare-unit.uesrpg-sheet-root .warfare-fieldset,
+.warfare-unit.uesrpg-sheet-root .warfare-limited,
+.warfare-unit.uesrpg-sheet-root .warfare-limited__description {
+  border: 1px solid var(--warfare-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  color: var(--warfare-text);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__commander,
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__stats,
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__combat-state,
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__messages {
+  padding: 6px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__commander h3 {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 5px 6px;
-  border-bottom: 1px solid rgba(102, 76, 28, 0.4);
+  letter-spacing: 0.04em;
+  color: var(--warfare-text);
+}
+.warfare-unit.uesrpg-sheet-root .commander-card {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid var(--warfare-border);
+  border-radius: 10px;
+  background: rgba(255, 250, 238, 0.8);
+}
+.warfare-unit.uesrpg-sheet-root .commander-card__img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--warfare-border-strong);
+  cursor: pointer;
+}
+.warfare-unit.uesrpg-sheet-root .commander-card__name {
+  min-width: 0;
+  font-weight: 700;
+  color: var(--warfare-text);
+  cursor: pointer;
+}
+.warfare-unit.uesrpg-sheet-root .commander-card__clear,
+.warfare-unit.uesrpg-sheet-root .warfare-btn {
+  border: 1px solid var(--warfare-border-strong);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(136, 103, 53, 0.62), rgba(92, 69, 34, 0.58)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  color: var(--warfare-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.warfare-unit.uesrpg-sheet-root .commander-card__clear {
+  width: 26px;
+  height: 26px;
+}
+.warfare-unit.uesrpg-sheet-root .commander-card--stale {
+  border-color: rgba(143, 80, 48, 0.45);
+  background: rgba(191, 135, 103, 0.12);
+}
+.warfare-unit.uesrpg-sheet-root .commander-card--empty {
+  display: block;
+  text-align: center;
+  border-style: dashed;
+  padding: 8px;
+}
+.warfare-unit.uesrpg-sheet-root .commander-card__hint {
+  margin: 0;
+  color: var(--warfare-text-soft);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__stats {
+  display: grid;
+  gap: 4px;
+}
+.warfare-unit.uesrpg-sheet-root .stat-block {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 2px 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(96, 71, 38, 0.18);
+  background: rgba(255, 251, 242, 0.86);
+}
+.warfare-unit.uesrpg-sheet-root .stat-block label {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: var(--warfare-text);
+}
+.warfare-unit.uesrpg-sheet-root .stat-block__value {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.warfare-unit.uesrpg-sheet-root .stat-block__computed {
+  grid-column: 2;
+  grid-row: 1;
+}
+.warfare-unit.uesrpg-sheet-root .stat-block__detail {
+  grid-column: 1/-1;
+  grid-row: 2;
+}
+.warfare-unit.uesrpg-sheet-root .stat-block input,
+.warfare-unit.uesrpg-sheet-root .warfare-form-grid input,
+.warfare-unit.uesrpg-sheet-root .warfare-form-grid select,
+.warfare-unit.uesrpg-sheet-root .warfare-equipment-row input,
+.warfare-unit.uesrpg-sheet-root .warfare-tag-row input,
+.warfare-unit.uesrpg-sheet-root .warfare-trait-row input,
+.warfare-unit.uesrpg-sheet-root .warfare-spell-row input,
+.warfare-unit.uesrpg-sheet-root .warfare-array-row textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  color: var(--warfare-text);
+  border: 1px solid rgba(96, 71, 38, 0.26);
+  border-radius: 8px;
+  background: rgba(255, 251, 242, 0.92);
+}
+.warfare-unit.uesrpg-sheet-root .stat-block > input {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 24px;
+  padding: 2px 6px;
+}
+.warfare-unit.uesrpg-sheet-root .stat-block input {
+  min-height: 24px;
+  padding: 2px 6px;
+}
+.warfare-unit.uesrpg-sheet-root .stat-block__computed,
+.warfare-unit.uesrpg-sheet-root .warfare-derived-value {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--warfare-text);
+}
+.warfare-unit.uesrpg-sheet-root .stat-block__detail,
+.warfare-unit.uesrpg-sheet-root .stat-block__max,
+.warfare-unit.uesrpg-sheet-root .warfare-hint {
+  font-size: 0.7rem;
+  color: var(--warfare-text-soft);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-rname {
+  cursor: default;
+  flex: 0 0 52px;
+  width: 52px;
+  height: 38px;
+  font-size: 11px;
+  line-height: 38px;
+  padding: 0 4px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-rname--condition {
+  background: var(--uesrpg-color-hp, #a83232);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-rname--discipline {
+  background: #4a6e38;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-rname--speed {
+  background: #3a6080;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-rname--magicka {
+  background: var(--uesrpg-color-magicka, #2c4d8a);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-rname--bulk {
+  background: #7a5a2a;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-bar {
+  flex: 1 1 auto;
+  width: auto;
+  height: 38px;
+  background: rgba(40, 28, 12, 0.55);
+  position: relative;
+  overflow: hidden;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0;
+  pointer-events: none;
+  opacity: 0.65;
+  transition: width 0.2s ease;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-bar-fill--condition {
+  background: var(--uesrpg-color-hp, #a83232);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-bar-fill--discipline {
+  background: #4a6e38;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-bar-fill--magicka {
+  background: var(--uesrpg-color-magicka, #2c4d8a);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-bar-fill--bulk {
+  background: #7a5a2a;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-bar .bar-values {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-bar .bar-values input, .warfare-unit.uesrpg-sheet-root .warfare-stat-bar .bar-values label {
+  pointer-events: all;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-stat-bar .bar-values input {
+  width: 36px;
+  min-height: unset;
+  height: 22px;
+  padding: 0 2px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
   text-align: center;
 }
-
-.uesrpg-container-picker__table tbody tr:nth-child(even) {
-  background: rgba(220, 195, 140, 0.18);
+.warfare-unit.uesrpg-sheet-root .warfare-stat-bar .bar-values label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
 }
-
-.uesrpg-container-picker__table td {
+.warfare-unit.uesrpg-sheet-root .warfare-stat-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.65);
+  margin-left: 4px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__stats.resourceBars {
+  gap: 4px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__combat-state {
+  display: grid;
+  gap: 4px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__combat-state label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--warfare-text);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: rgba(125, 20, 14, 0.12);
+  color: var(--warfare-accent);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__status-badge--enslaved {
+  background: rgba(125, 76, 22, 0.14);
+  color: var(--warfare-warning);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__messages {
+  display: grid;
+  gap: 6px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__messages p {
+  margin: 0;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__messages--warning {
+  border-color: rgba(141, 76, 18, 0.28);
+  background: linear-gradient(180deg, rgba(255, 245, 226, 0.92), rgba(255, 239, 214, 0.88));
+  color: #5c340f;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-sheet-content {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: calc(var(--uesrpg-space-md) + 6px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.08)), var(--uesrpg-parchment-url);
+  background-position: center top;
+  background-size: cover;
+  border: 2px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.1), inset 1px 0 0 rgba(255, 255, 255, 0.06), inset -1px 0 0 rgba(0, 0, 0, 0.08);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-fieldset legend {
+  padding: 0 6px;
+  font-weight: 800;
+  color: var(--warfare-accent);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-fieldset--legacy {
+  background: linear-gradient(180deg, rgba(247, 235, 217, 0.88), rgba(241, 227, 207, 0.82)), var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 12px;
+}
+.warfare-unit.uesrpg-sheet-root .form-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.warfare-unit.uesrpg-sheet-root .form-group label {
+  font-weight: 700;
+  color: var(--warfare-text);
+}
+.warfare-unit.uesrpg-sheet-root .form-group label input[type=checkbox],
+.warfare-unit.uesrpg-sheet-root .warfare-sidebar__combat-state label input[type=checkbox] {
+  margin-right: 8px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-callout {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--warfare-border);
+  background: rgba(255, 249, 236, 0.9);
+  color: var(--warfare-text);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-callout h3,
+.warfare-unit.uesrpg-sheet-root .warfare-callout p,
+.warfare-unit.uesrpg-sheet-root .warfare-callout ul {
+  margin: 0;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-callout ul {
+  padding-left: 18px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-callout--warning {
+  border-color: rgba(141, 76, 18, 0.28);
+  background: linear-gradient(180deg, rgba(255, 245, 226, 0.96), rgba(255, 239, 214, 0.9));
+  color: #5c340f;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-callout--notice {
+  border-color: rgba(49, 86, 109, 0.24);
+  background: linear-gradient(180deg, rgba(236, 244, 249, 0.96), rgba(228, 238, 245, 0.9));
+  color: #244658;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-list,
+.warfare-unit.uesrpg-sheet-root .warfare-effects-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-equipment-row,
+.warfare-unit.uesrpg-sheet-root .warfare-tag-row,
+.warfare-unit.uesrpg-sheet-root .warfare-array-row,
+.warfare-unit.uesrpg-sheet-root .warfare-trait-row,
+.warfare-unit.uesrpg-sheet-root .warfare-spell-row,
+.warfare-unit.uesrpg-sheet-root .warfare-effect-row {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  margin-top: 8px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-equipment-row,
+.warfare-unit.uesrpg-sheet-root .warfare-tag-row,
+.warfare-unit.uesrpg-sheet-root .warfare-array-row,
+.warfare-unit.uesrpg-sheet-root .warfare-trait-row,
+.warfare-unit.uesrpg-sheet-root .warfare-spell-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-effect-row {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--warfare-border);
+  border-radius: 10px;
+  background: rgba(255, 251, 242, 0.82);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-effect-row img {
+  border-radius: 4px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-effect-row__status {
+  color: var(--warfare-text-soft);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-array-row textarea,
+.warfare-unit.uesrpg-sheet-root .editor-section prose-mirror,
+.warfare-unit.uesrpg-sheet-root .editor-section .editor-content {
+  min-height: 160px;
+  border: 1px solid rgba(96, 71, 38, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 251, 242, 0.76);
+}
+.warfare-unit.uesrpg-sheet-root .editor-section {
+  color: var(--warfare-text);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-btn {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-weight: 700;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-btn--icon {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-btn--small {
+  justify-self: start;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-profile-badge {
+  padding: 0 4px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-column__header {
+  margin: 0 0 4px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--warfare-accent);
+  border-bottom: 1px solid var(--warfare-border-strong);
+  padding-bottom: 4px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-column__list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-btn {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: left;
+  color: var(--warfare-text);
+  border: 1px solid var(--warfare-border-strong);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 252, 244, 0.92), rgba(245, 235, 215, 0.88)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: background 0.1s, box-shadow 0.1s;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-btn:hover {
+  background: linear-gradient(180deg, rgba(255, 245, 225, 0.96), rgba(238, 220, 188, 0.92)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+  color: var(--warfare-accent);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-btn:active {
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-card {
+  padding: 4px 2px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-card__title {
+  margin: 0 0 2px;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--warfare-accent, #7d140e);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-card__type {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--warfare-text-soft, rgba(42, 32, 20, 0.74));
+}
+.warfare-unit.uesrpg-sheet-root .warfare-action-card__summary {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-limited {
+  display: grid;
+  gap: 12px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-limited__portrait {
+  display: flex;
+  justify-content: center;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-limited__name {
+  margin: 0;
+  text-align: center;
+  color: var(--warfare-accent);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-limited__type {
+  justify-content: center;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-limited__description {
+  padding: 14px;
+}
+@media (max-width: 960px) {
+  .warfare-unit.uesrpg-sheet-root > .window-content {
+    flex-direction: column;
+  }
+  .warfare-unit.uesrpg-sheet-root > .window-content > [data-application-part=sidebar] {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+  .warfare-unit.uesrpg-sheet-root .warfare-sidebar {
+    width: auto;
+    min-width: 0;
+    height: auto;
+    margin: 0;
+  }
+}
+@media (max-width: 640px) {
+  .warfare-unit.uesrpg-sheet-root > .window-content {
+    padding: 8px;
+  }
+  .warfare-unit.uesrpg-sheet-root .warfare-equipment-row,
+  .warfare-unit.uesrpg-sheet-root .warfare-tag-row,
+  .warfare-unit.uesrpg-sheet-root .warfare-array-row,
+  .warfare-unit.uesrpg-sheet-root .warfare-trait-row,
+  .warfare-unit.uesrpg-sheet-root .warfare-spell-row,
+  .warfare-unit.uesrpg-sheet-root .warfare-effect-row,
+  .warfare-unit.uesrpg-sheet-root .warfare-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* ── Clash Initiation Button ─────────────────────────────────────────────── */
+.warfare-unit.uesrpg-sheet-root .warfare-clash-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 6px;
+  border-bottom: 1px solid var(--warfare-border-strong, rgba(102, 76, 28, 0.45));
+  margin-bottom: 12px;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-clash-btn {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 6px 16px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #6b2a2a, #3d1616);
+  color: #f5e6c8;
+  border: 1px solid #9b4444;
+  cursor: pointer;
+  line-height: 1.3;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-clash-btn:hover {
+  background: linear-gradient(135deg, #8b3a3a, #5a2020);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-clash-btn:active {
+  background: linear-gradient(135deg, #5a1e1e, #2e1010);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-clash-btn--discipline {
+  background: linear-gradient(135deg, #4a3a1a, #2e2410);
+  border-color: #7a6030;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-clash-btn--discipline:hover {
+  background: linear-gradient(135deg, #5e4c22, #3a2e14);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-clash-btn--discipline:active {
+  background: linear-gradient(135deg, #3a2e14, #1e1808);
+}
+/* ── Discipline Roll Dialog ─────────────────────────────────────────────── */
+.warfare-discipline-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+  min-width: 240px;
+}
+.warfare-discipline-dialog .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.warfare-discipline-dialog .form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.warfare-discipline-dialog .form-group select,
+.warfare-discipline-dialog .form-group input[type="number"] {
+  font-size: 0.85rem;
   padding: 4px 6px;
-  vertical-align: middle;
-  border-bottom: 1px solid rgba(102, 76, 28, 0.12);
 }
-
-.uesrpg-container-picker__name {
+.warfare-discipline-dialog .form-group select {
+  width: 100%;
+}
+.warfare-discipline-dialog .form-group .notes {
+  margin: 0;
+  font-size: 0.72rem;
+  color: rgba(42, 32, 20, 0.6);
+  font-style: italic;
+}
+/* ── Clash Dialog (outside sheet element — rendered by DialogV2) ─────────── */
+.warfare-clash-dialog {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 4px 0;
+}
+.warfare-clash-dialog .warfare-clash-dialog__unit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.warfare-clash-dialog .warfare-clash-dialog__unit h4 {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.15);
+  padding-bottom: 4px;
+}
+.warfare-clash-dialog .warfare-clash-dialog__unit .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.warfare-clash-dialog .warfare-clash-dialog__unit .form-group label {
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.warfare-clash-dialog .warfare-clash-dialog__unit .form-group select {
+  font-size: 0.82rem;
+  padding: 3px 6px;
+}
+/* ── Clash Chat Card (rendered inside ChatMessage) ───────────────────────── */
+.warfare-clash-card {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.warfare-clash-card .warfare-clash-card__header {
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: center;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+}
+.warfare-clash-card .warfare-clash-card__units {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: start;
+  margin-bottom: 8px;
+}
+.warfare-clash-card .warfare-clash-card__divider {
+  width: 1px;
+  background: rgba(0, 0, 0, 0.15);
+  align-self: stretch;
+}
+.warfare-clash-card .warfare-clash-card__unit-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.warfare-clash-card .warfare-clash-card__unit-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+.warfare-clash-card .warfare-clash-card__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.warfare-clash-card .warfare-clash-card__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+.warfare-clash-card .warfare-clash-card__row code {
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.07);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+.warfare-clash-card .warfare-clash-card__label {
+  color: #666;
+  flex-shrink: 0;
+}
+.warfare-clash-card .warfare-clash-card__loss {
+  color: #a83232;
+  font-weight: 700;
+}
+.warfare-clash-card .warfare-clash-card__no-loss {
+  color: #4a6e38;
+  font-style: italic;
+}
+.warfare-clash-card .warfare-clash-card__fray {
+  border-top: 1px solid rgba(0, 0, 0, 0.15);
+  padding-top: 6px;
+  font-size: 0.82rem;
+  font-style: italic;
+}
+.warfare-clash-card .warfare-clash-card__fray .warfare-clash-card__label {
+  font-style: normal;
+}
+.warfare-clash-card .warfare-clash-card__unit-block--pending {
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0;
+}
+.warfare-clash-card .warfare-clash-card__committed-badge {
+  font-size: 0.8rem;
+  color: #3a6e3a;
+  font-weight: 600;
+  background: rgba(60, 120, 60, 0.1);
+  border: 1px solid rgba(60, 120, 60, 0.3);
+  border-radius: 4px;
+  padding: 3px 8px;
+  margin-top: 4px;
+}
+.warfare-clash-card .warfare-clash-btn--commit {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #6b2a2a, #3d1616);
+  color: #f5e6c8;
+  border: 1px solid #9b4444;
+  cursor: pointer;
+  line-height: 1.3;
+}
+.warfare-clash-card .warfare-clash-btn--commit:hover {
+  background: linear-gradient(135deg, #8b3a3a, #5a2020);
+}
+.warfare-clash-card .warfare-clash-btn--commit:active {
+  background: linear-gradient(135deg, #5a1e1e, #2e1010);
+}
+.warfare-clash-commit-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+  min-width: 260px;
+}
+.warfare-clash-commit-dialog .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.warfare-clash-commit-dialog .form-group label {
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.warfare-clash-commit-dialog .form-group select {
+  font-size: 0.85rem;
+  padding: 4px 6px;
+  width: 100%;
+}
+.warfare-clash-commit-dialog .form-group input[type="number"] {
+  font-size: 0.85rem;
+  padding: 4px 6px;
+}
+.warfare-clash-commit-dialog .form-group .notes {
+  margin: 0;
+  font-size: 0.72rem;
+  color: rgba(42, 32, 20, 0.6);
+  font-style: italic;
+}
+.warfare-clash-commit-dialog .warfare-clash-toggles {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  align-items: center;
+  padding: 2px 0;
+}
+.warfare-clash-commit-dialog .warfare-clash-toggle {
   display: flex;
   align-items: center;
   gap: 5px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* ── Sidebar Stat Editors ─────────────────────────────────────────────────── */
+.warfare-sidebar__section-label {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warfare-accent, #7d140e);
+  border-bottom: 1px solid rgba(102, 76, 28, 0.3);
+  padding-bottom: 3px;
+}
+.warfare-sidebar__stat-editors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0;
+}
+.warfare-sidebar__stat-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border: 1px solid rgba(102, 76, 28, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 251, 242, 0.6);
+}
+.warfare-sidebar__stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+}
+.warfare-sidebar__stat-name {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--warfare-accent, #7d140e);
+}
+.warfare-sidebar__stat-display {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(42, 32, 20, 0.65);
+}
+.warfare-sidebar__stat-inputs {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+}
+.warfare-sidebar__stat-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.warfare-sidebar__stat-field label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: rgba(42, 32, 20, 0.65);
+  line-height: 1;
+}
+.warfare-sidebar__stat-field input[type="number"] {
+  font-size: 0.85rem;
+  padding: 3px 5px;
+  width: 100%;
   min-width: 0;
+}
+.warfare-sidebar__stat-field--derived {
+  flex: 0 0 auto;
+  min-width: 50px;
+}
+.warfare-sidebar__stat-field--derived .warfare-derived-value {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--warfare-text, rgba(42, 32, 20, 0.92));
+  padding: 3px 0 2px;
+  display: block;
+}
+.warfare-sidebar__stat-derived {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 2px;
+}
+.warfare-sidebar__stat-derived span {
+  font-size: 0.7rem;
+  color: rgba(42, 32, 20, 0.6);
+}
+.warfare-sidebar__stat-derived strong {
+  color: rgba(42, 32, 20, 0.85);
+}
+.warfare-sidebar__racial-special {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  border: 1px solid rgba(102, 76, 28, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 248, 230, 0.7);
+  margin-top: 2px;
+}
+.warfare-sidebar__racial-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--warfare-accent, #7d140e);
+  opacity: 0.8;
+}
+.warfare-sidebar__racial-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(42, 32, 20, 0.85);
+  font-style: italic;
+}
+/* ── Compact discipline modifier toggles ──────────────────────────────────── */
+.warfare-disc-manual {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.warfare-disc-manual label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: rgba(42, 32, 20, 0.74);
+}
+.warfare-disc-manual input[type="number"] {
+  width: 64px;
+  min-height: 26px;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+  border: 1px solid rgba(96, 71, 38, 0.26);
+  border-radius: 6px;
+  background: rgba(255, 251, 242, 0.92);
+  color: #2a2014;
+}
+.warfare-disc-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 5px;
+  align-items: center;
+}
+.warfare-disc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border: 1px solid rgba(96, 71, 38, 0.22);
+  border-radius: 4px;
+  background: rgba(255, 251, 242, 0.75);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #2a2014;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.3;
+  transition: background 0.1s, border-color 0.1s;
+}
+.warfare-disc-toggle input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.warfare-disc-toggle:has(input:checked) {
+  background: rgba(74, 110, 56, 0.18);
+  border-color: rgba(74, 110, 56, 0.45);
+  color: #2e5022;
+}
+/* ── Doctrine centred read-only block ────────────────────────────────────── */
+.warfare-doctrine-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+}
+.warfare-doctrine-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.warfare-doctrine-entry__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--warfare-accent, #7d140e);
+  opacity: 0.8;
+}
+.warfare-doctrine-entry__text {
+  font-size: 0.82rem;
+  font-weight: 400;
+  font-style: italic;
+  color: rgba(42, 32, 20, 0.85);
+  line-height: 1.4;
+}
+/* ── Derived Statistics read-only display rows (tab-core body) ────────────── */
+.warfare-stat-rows--display {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.warfare-stat-row--display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 251, 242, 0.55);
+  border: 1px solid rgba(102, 76, 28, 0.14);
+}
+.warfare-stat-row--display .warfare-stat-row__label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--warfare-accent, #7d140e);
+  min-width: 80px;
+  flex-shrink: 0;
+}
+.warfare-stat-display-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.warfare-stat-display-group--muted {
+  opacity: 0.65;
+}
+.warfare-stat-display-label {
+  font-size: 0.67rem;
+  font-weight: 600;
+  color: rgba(42, 32, 20, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.warfare-stat-display-sep {
+  font-size: 1rem;
+  font-weight: 300;
+  color: rgba(42, 32, 20, 0.4);
+  padding: 0 2px;
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+.warfare-derived-value--highlight {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--warfare-text, rgba(42, 32, 20, 0.92));
+}
+/* ── Narrow bar inputs (discipline/speed inline) ── */
+.warfare-unit.uesrpg-sheet-root .warfare-bar-input--narrow {
+  width: 30px !important;
+  min-width: 0 !important;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-bar-input--max {
+  width: 36px !important;
+  min-width: 0 !important;
+}
+/* ── Derived Statistics 2×2 grid ── */
+.warfare-unit.uesrpg-sheet-root .warfare-derived-2x2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid rgba(102, 76, 28, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 251, 242, 0.65);
+  min-width: 0;
+  overflow: hidden;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warfare-accent, #7d140e);
+  line-height: 1;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__values-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__values {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__current {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--warfare-text, #2a2014);
+  line-height: 1;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__sep {
+  font-size: 0.85rem;
+  font-weight: 300;
+  color: rgba(42, 32, 20, 0.4);
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__max {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--warfare-text-soft, rgba(42, 32, 20, 0.74));
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__sub {
+  font-size: 0.65rem;
+  color: rgba(42, 32, 20, 0.55);
+  font-style: italic;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.uesrpg-container-picker__cell {
-  text-align: center;
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__override-label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: rgba(42, 32, 20, 0.55);
+  cursor: pointer;
   white-space: nowrap;
 }
-
-/*# sourceMappingURL=uesrpg.css.map */
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__override-label input[type="checkbox"] {
+  cursor: pointer;
+}
+.warfare-unit.uesrpg-sheet-root .warfare-derived-cell__override-input {
+  width: 46px;
+  min-width: 0;
+  font-size: 0.75rem;
+  padding: 1px 3px;
+  border: 1px solid rgba(96, 71, 38, 0.3);
+  border-radius: 4px;
+  background: rgba(255, 251, 242, 0.9);
+  color: var(--warfare-text, #2a2014);
+  text-align: center;
+}

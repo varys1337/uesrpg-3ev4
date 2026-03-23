@@ -20,6 +20,7 @@ export function registerChat({
   registerChatMessageSocket,
   registerAuthorityProxy,
   registerReachVisualizer,
+  registerClashChatActions,
 } = {}) {
   _chatDebug("start");
 
@@ -66,6 +67,15 @@ export function registerChat({
   } catch (err) {
     console.error("UESRPG | registerChat reachVisualizer failed", err);
     _chatDebug("registrar:fail", { name: "reachVisualizer", error: String(err?.message ?? err) });
+  }
+
+  try {
+    _chatDebug("registrar:start", { name: "clashChatActions" });
+    registerClashChatActions?.();
+    _chatDebug("registrar:ok", { name: "clashChatActions" });
+  } catch (err) {
+    console.error("UESRPG | registerChat clashChatActions failed", err);
+    _chatDebug("registrar:fail", { name: "clashChatActions", error: String(err?.message ?? err) });
   }
 
   _chatDebug("done");

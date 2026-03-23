@@ -21,6 +21,7 @@ import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
 import { isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -537,7 +538,7 @@ function _isAbsorbCharSpell(spell) {
  * Negates all numeric change values (e.g. -5 → +5).
  */
 function _buildCasterBuffData(targetEffect, spell, casterActor) {
-  const changes = targetEffect.changes ?? [];
+  const changes = getEffectChanges(targetEffect);
   if (!changes.length) return null;
 
   const mirroredChanges = changes.map(c => {

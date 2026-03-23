@@ -244,9 +244,6 @@ function _measurePointDistance(a, b) {
   try {
     if (!a || !b) return null;
 
-    // v13: Use namespaced Ray from foundry.canvas.geometry
-    const ray = new foundry.canvas.geometry.Ray(a, b);
-
     // Preferred: BaseGrid.measurePath (v13+)
     const grid = canvas?.grid;
     if (grid && typeof grid.measurePath === "function") {

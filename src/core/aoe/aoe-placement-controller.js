@@ -358,14 +358,16 @@ function _updatePreviewPosition(previewTemplate, previewDoc, x, y, direction) {
 function _measureDistanceMeters(a, b) {
   if (!canvas?.grid || !a || !b) return 0;
   try {
-    const RayClass = foundry?.canvas?.geometry?.Ray ?? Ray;
-    const ray = new RayClass(a, b);
     if (typeof canvas.grid.measurePath === "function") {
-      const path = canvas.grid.measurePath([{ ray }], { gridSpaces: true });
+      const path = canvas.grid.measurePath([a, b], { gridSpaces: true });
       const d = path?.distance ?? (Array.isArray(path) ? path[0] : null);
       if (Number.isFinite(d)) return d;
     }
   } catch (_e) { /* ignore */ }
+  const pixels = Math.hypot(b.x - a.x, b.y - a.y);
+  const gridSize = Number(canvas?.grid?.size ?? 0) || 0;
+  const gridDistance = Number(canvas?.scene?.grid?.distance ?? 0) || 0;
+  if (gridSize > 0 && gridDistance > 0) return (pixels / gridSize) * gridDistance;
   return 0;
 }
 

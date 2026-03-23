@@ -20,6 +20,7 @@ import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { listEquippedShields } from "../../../items/shield-utils.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
+import { isWarfareUnitActorType } from "../../../actors/types.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const NAMESPACE = FLAG_SCOPE;
@@ -30,6 +31,11 @@ const NAMESPACE = FLAG_SCOPE;
  * @returns {{finalTN: number, breakdown: Array, modifiers: Array}}
  */
 export function computeEvadeTNWithBreakdown(defender) {
+  // Warfare Units don't evade individually in standard combat.
+  if (isWarfareUnitActorType(defender?.type)) {
+    return { finalTN: 0, breakdown: [], modifiers: [] };
+  }
+
   const sys = defender?.system ?? {};
 
   let baseTN = 0;

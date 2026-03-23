@@ -48,26 +48,138 @@
                             <div class="grid-container">
                                 <div>Alchemy</div>
                                 <div class="right-align-content">
-                                    {{#if isAlchemyIngredient}}
-                                    <button type="button" data-action="clearAlchemyIngredient">
-                                        <i class="fas fa-times"></i> Remove Ingredient
-                                    </button>
-                                    {{else}}
-                                    <button type="button" data-action="enableAlchemyIngredient">
-                                        <i class="fas fa-flask"></i> Enable Ingredient
-                                    </button>
-                                    {{/if}}
-                                    {{#if isAlchemyProduct}}
-                                    <button type="button" data-action="clearAlchemyProduct">
-                                        <i class="fas fa-times"></i> Remove Product
-                                    </button>
-                                    {{else}}
-                                    <button type="button" data-action="enableAlchemyProduct">
-                                        <i class="fas fa-vial"></i> Enable Product
-                                    </button>
-                                    {{/if}}
+                                    <div class="uesrpg-alchemy-action-row">
+                                        {{#if isAlchemyIngredient}}
+                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyIngredient">
+                                            <i class="fas fa-times"></i> Remove Ingredient
+                                        </button>
+                                        {{else}}
+                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="enableAlchemyIngredient">
+                                            <i class="fas fa-flask"></i> Enable Ingredient
+                                        </button>
+                                        {{/if}}
+                                        {{#if isAlchemyProduct}}
+                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyProduct">
+                                            <i class="fas fa-times"></i> Remove Product
+                                        </button>
+                                        {{else}}
+                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="enableAlchemyProduct">
+                                            <i class="fas fa-vial"></i> Enable Product
+                                        </button>
+                                        {{/if}}
+                                    </div>
                                 </div>
                             </div>
+                            {{#if (or isAlchemyIngredient isAlchemyProduct)}}
+                            <div class="uesrpg-alchemy-inline-stack">
+                                {{#if isAlchemyIngredient}}
+                                <div class="uesrpg-alchemy-inline-card">
+                                    <div class="uesrpg-alchemy-inline-card__header">
+                                        <h3>Alchemy Ingredient</h3>
+                                        <span>Configured in-item for workshop use</span>
+                                    </div>
+                                    <div class="uesrpg-alchemy-inline-grid">
+                                        <div class="form-group">
+                                            <label>School</label>
+                                            <select name="flags.uesrpg-3ev4.alchemy.school">
+                                                <option value="alteration" {{#if (eq alchemyData.school "alteration")}}selected{{/if}}>Alteration</option>
+                                                <option value="conjuration" {{#if (eq alchemyData.school "conjuration")}}selected{{/if}}>Conjuration</option>
+                                                <option value="destruction" {{#if (eq alchemyData.school "destruction")}}selected{{/if}}>Destruction</option>
+                                                <option value="illusion" {{#if (eq alchemyData.school "illusion")}}selected{{/if}}>Illusion</option>
+                                                <option value="mysticism" {{#if (eq alchemyData.school "mysticism")}}selected{{/if}}>Mysticism</option>
+                                                <option value="restoration" {{#if (eq alchemyData.school "restoration")}}selected{{/if}}>Restoration</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Strength Base</label>
+                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.strengthBase" value="{{alchemyData.strengthBase}}" min="1" max="20">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Depth Base</label>
+                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.depthBase" value="{{alchemyData.depthBase}}" min="1" max="10">
+                                        </div>
+                                    </div>
+                                </div>
+                                {{/if}}
+
+                                {{#if isAlchemyProduct}}
+                                <div class="uesrpg-alchemy-inline-card">
+                                    <div class="uesrpg-alchemy-inline-card__header">
+                                        <h3>Alchemy Product</h3>
+                                        <span>Workshop output and manual-use controls</span>
+                                    </div>
+                                    <div class="uesrpg-alchemy-inline-grid">
+                                        <div class="form-group">
+                                            <label>Kind</label>
+                                            <select name="flags.uesrpg-3ev4.alchemy.kind">
+                                                <option value="potion" {{#if (eq alchemyProduct.kind "potion")}}selected{{/if}}>Potion</option>
+                                                <option value="poison" {{#if (eq alchemyProduct.kind "poison")}}selected{{/if}}>Poison</option>
+                                                <option value="toxin" {{#if (eq alchemyProduct.kind "toxin")}}selected{{/if}}>Toxin</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Backfired</label>
+                                            <div class="uesrpg-alchemy-checkbox-wrap">
+                                                <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.alchemy.backfired" {{checked alchemyProduct.backfired}}>
+                                            </div>
+                                        </div>
+
+                                        {{#if (eq alchemyProduct.kind "poison")}}
+                                        <div class="form-group">
+                                            <label>Poison Level</label>
+                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.poisonLevel" value="{{alchemyProduct.poisonLevel}}" min="1">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Damage Formula</label>
+                                            <input type="text" name="flags.uesrpg-3ev4.alchemy.damageFormula" value="{{alchemyProduct.damageFormula}}">
+                                        </div>
+                                        {{/if}}
+
+                                        {{#if (eq alchemyProduct.kind "toxin")}}
+                                        <div class="form-group">
+                                            <label>Duration (Rounds)</label>
+                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.durationRounds" value="{{alchemyProduct.durationRounds}}" min="1">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Max Hits</label>
+                                            <input type="number" name="flags.uesrpg-3ev4.alchemy.maxHits" value="{{alchemyProduct.maxHits}}" min="1">
+                                        </div>
+                                        {{/if}}
+                                    </div>
+
+                                    {{#if (or (eq alchemyProduct.kind "potion") (eq alchemyProduct.kind "toxin"))}}
+                                    <div class="uesrpg-alchemy-inline-effects">
+                                        <div class="uesrpg-alchemy-inline-card__header">
+                                            <h3>Brewed Effects</h3>
+                                            <span>Read-only summary from workshop data</span>
+                                        </div>
+                                        {{#if alchemyProduct.effects.length}}
+                                        <ul class="u-list-compact">
+                                            {{#each alchemyProduct.effects as |e|}}
+                                            <li><b>{{e.label}}</b> (SL {{e.spellLevel}})</li>
+                                            {{/each}}
+                                        </ul>
+                                        {{else}}
+                                        <div class="u-text-italic">No effects set yet.</div>
+                                        {{/if}}
+                                    </div>
+                                    {{/if}}
+
+                                    <div class="uesrpg-alchemy-inline-actions">
+                                        {{#if (eq alchemyProduct.kind "potion")}}
+                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="drinkAlchemyProduct">
+                                            <i class="fas fa-glass-whiskey"></i> Drink
+                                        </button>
+                                        {{else}}
+                                        <button type="button" class="uesrpg-alchemy-compact-btn" data-action="applyAlchemyProductToWeapon">
+                                            <i class="fas fa-syringe"></i> Apply to Weapon
+                                        </button>
+                                        {{/if}}
+                                    </div>
+                                </div>
+                                {{/if}}
+                            </div>
+                            {{/if}}
                             <div class="grid-container">
                                 <div>Wearable Item</div>
                                 <div class="right-align-content">
@@ -205,123 +317,6 @@
                         </div>
                     </div>
                 </div>
-
-                {{!-- Alchemy Ingredient Section --}}
-                {{#if isAlchemyIngredient}}
-                <div class="item-alchemy-section uesrpg-panel u-mt-sm">
-                    <h2>Alchemy Ingredient</h2>
-                    <div class="grid-container">
-                        <div>School</div>
-                        <div>
-                            <select name="flags.uesrpg-3ev4.alchemy.school">
-                                <option value="alteration" {{#if (eq alchemyData.school "alteration")}}selected{{/if}}>Alteration</option>
-                                <option value="conjuration" {{#if (eq alchemyData.school "conjuration")}}selected{{/if}}>Conjuration</option>
-                                <option value="destruction" {{#if (eq alchemyData.school "destruction")}}selected{{/if}}>Destruction</option>
-                                <option value="illusion" {{#if (eq alchemyData.school "illusion")}}selected{{/if}}>Illusion</option>
-                                <option value="mysticism" {{#if (eq alchemyData.school "mysticism")}}selected{{/if}}>Mysticism</option>
-                                <option value="restoration" {{#if (eq alchemyData.school "restoration")}}selected{{/if}}>Restoration</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="grid-container">
-                        <div>Strength Base</div>
-                        <div><input type="number" name="flags.uesrpg-3ev4.alchemy.strengthBase" value="{{alchemyData.strengthBase}}" min="1" max="20"></div>
-                    </div>
-                    <div class="grid-container">
-                        <div>Depth Base</div>
-                        <div><input type="number" name="flags.uesrpg-3ev4.alchemy.depthBase" value="{{alchemyData.depthBase}}" min="1" max="10"></div>
-                    </div>
-                    <div class="grid-container u-mt-xs">
-                        <div></div>
-                        <div>
-                            <button type="button" data-action="clearAlchemyIngredient">
-                                <i class="fas fa-times"></i> Remove Ingredient Type
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                {{/if}}
-
-                {{!-- Alchemy Product Section (Potion / Poison / Toxin) --}}
-                {{#if isAlchemyProduct}}
-                <div class="item-alchemy-product-section uesrpg-panel u-mt-sm">
-                    <h2>Alchemy Product</h2>
-
-                    <div class="grid-container">
-                        <div>Kind</div>
-                        <div>
-                            <select name="flags.uesrpg-3ev4.alchemy.kind">
-                                <option value="potion" {{#if (eq alchemyProduct.kind "potion")}}selected{{/if}}>Potion</option>
-                                <option value="poison" {{#if (eq alchemyProduct.kind "poison")}}selected{{/if}}>Poison</option>
-                                <option value="toxin" {{#if (eq alchemyProduct.kind "toxin")}}selected{{/if}}>Toxin</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    {{#if (eq alchemyProduct.kind "poison")}}
-                    <div class="grid-container">
-                        <div>Poison Level</div>
-                        <div><input type="number" name="flags.uesrpg-3ev4.alchemy.poisonLevel" value="{{alchemyProduct.poisonLevel}}" min="1"></div>
-                    </div>
-                    <div class="grid-container">
-                        <div>Damage Formula</div>
-                        <div><input type="text" name="flags.uesrpg-3ev4.alchemy.damageFormula" value="{{alchemyProduct.damageFormula}}"></div>
-                    </div>
-                    {{/if}}
-
-                    {{#if (eq alchemyProduct.kind "toxin")}}
-                    <div class="grid-container">
-                        <div>Duration (Rounds)</div>
-                        <div><input type="number" name="flags.uesrpg-3ev4.alchemy.durationRounds" value="{{alchemyProduct.durationRounds}}" min="1"></div>
-                    </div>
-                    <div class="grid-container">
-                        <div>Max Hits</div>
-                        <div><input type="number" name="flags.uesrpg-3ev4.alchemy.maxHits" value="{{alchemyProduct.maxHits}}" min="1"></div>
-                    </div>
-                    {{/if}}
-
-                    {{!-- Potion/ToXin effects list (display only; authored by the Alchemy Workshop) --}}
-                    {{#if (or (eq alchemyProduct.kind "potion") (eq alchemyProduct.kind "toxin"))}}
-                    <div class="u-mt-xs">
-                        <h3 style="margin: 0.25rem 0;">Effects</h3>
-                        {{#if alchemyProduct.effects.length}}
-                        <ul class="u-list-compact">
-                            {{#each alchemyProduct.effects as |e|}}
-                            <li><b>{{e.label}}</b> (SL {{e.spellLevel}})</li>
-                            {{/each}}
-                        </ul>
-                        {{else}}
-                        <div class="u-text-italic">No effects set (use the Alchemy Workshop to brew).</div>
-                        {{/if}}
-                    </div>
-                    {{/if}}
-
-                    <div class="grid-container u-mt-xs">
-                        <div>Backfired</div>
-                        <div class="right-align-content">
-                            <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.alchemy.backfired" {{checked alchemyProduct.backfired}}>
-                        </div>
-                    </div>
-
-                    <div class="grid-container u-mt-xs">
-                        <div></div>
-                        <div class="right-align-content" style="display:flex; gap:0.35rem; flex-wrap:wrap; justify-content:flex-end;">
-                            {{#if (eq alchemyProduct.kind "potion")}}
-                            <button type="button" data-action="drinkAlchemyProduct">
-                                <i class="fas fa-glass-whiskey"></i> Drink
-                            </button>
-                            {{else}}
-                            <button type="button" data-action="applyAlchemyProductToWeapon">
-                                <i class="fas fa-syringe"></i> Apply to Weapon
-                            </button>
-                            {{/if}}
-                            <button type="button" data-action="clearAlchemyProduct">
-                                <i class="fas fa-times"></i> Remove Product Type
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                {{/if}}
 
             </div>
         </div>

@@ -24,11 +24,12 @@ import { getAttackModeFromWeapon, getEffectiveWeaponHands, getTokenDashContext }
 import { isActorUndead } from "../../../traits/trait-registry.js";
 import { getWeaponReachBoundsEffective } from "../../../homebrew/reach-length/weapon.js";
 import { normalizeDiceExpression } from "../rolls.js";
-import { doesUserOwnActor, requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { doesUserOwnActor } from "../../../../utils/authority-proxy.js";
 import { gateRangedAttackAmmoAndLoad } from "../damage/ranged-ammo-gate.js";
 import { isDebugEnabled } from "../../../../utils/debug.js";
 import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
 import { _resolveItemViaActor } from "./docs.js";
+import { setOwnedItemQuantityOrDelete } from "../../../items/owned-item-quantity.js";
 import { circumstanceLabel as sharedCircumstanceLabel } from "../../../opposed/circumstance.js";
 export { getRuntimeSystemId as getSystemId } from "../../../system/namespace.js";
 
@@ -153,9 +154,6 @@ export function parseRangeTriplet(text) {
 export function measurePointDistance(a, b) {
   try {
     if (!a || !b) return null;
-
-    // v13: Use namespaced Ray from foundry.canvas.geometry
-    const ray = new foundry.canvas.geometry.Ray(a, b);
 
     // Preferred: BaseGrid.measurePath (v13+)
     const grid = canvas?.grid;
@@ -399,7 +397,7 @@ export async function preConsumeAttackAmmo(attacker, data) {
       return false;
     }
 
-    await requestUpdateDocument(ammo, { "system.quantity": Math.max(0, qty - 1) });
+    await setOwnedItemQuantityOrDelete({ item: ammo, quantity: Math.max(0, qty - 1) });
 
     const pre = {
       weaponUuid: weapon.uuid,

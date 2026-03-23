@@ -52,6 +52,9 @@ import {
   initializeAlchemyRuntime,
   drinkPotion,
   applyAlchemyToWeapon,
+  applyAlchemyToAmmo,
+  applyAlchemyToTarget,
+  pickAlchemyCoatingTarget,
 } from "./runtime.js";
 
 // ── Re-exports (public API surface) ──────────────────────────────────────────
@@ -74,7 +77,14 @@ export {
   CREATION_BACKFIRE_TABLE, POTION_BACKFIRE_TABLE, MINOR_EFFECTS_TABLE,
 };
 
-export { initializeAlchemyRuntime, drinkPotion, applyAlchemyToWeapon };
+export {
+  initializeAlchemyRuntime,
+  drinkPotion,
+  applyAlchemyToWeapon,
+  applyAlchemyToAmmo,
+  applyAlchemyToTarget,
+  pickAlchemyCoatingTarget,
+};
 
 // ── API registration ──────────────────────────────────────────────────────────
 
@@ -94,6 +104,8 @@ export function registerAlchemyApi() {
     },
     drinkPotion,
     applyToWeapon: applyAlchemyToWeapon,
+    applyToTarget: applyAlchemyToTarget,
+    pickCoatingTarget: pickAlchemyCoatingTarget,
     effects: { listPotionEffects, listToxinEffects, getEffectByKey, computeEffectCost },
   };
 }

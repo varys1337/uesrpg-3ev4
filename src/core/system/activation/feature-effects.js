@@ -15,6 +15,7 @@ import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "
 import { createSeverityDebugLogger } from "../../../utils/debug.js";
 import { SYSTEM_ID } from "../system-id.js";
 import { getRoundTimeSecondsSafe } from "../time/round-time.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 
 const _featureEffectsDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 
@@ -190,7 +191,7 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
         origin: itemUuid,
         disabled: false,
         duration: _buildDuration(durationMode, computed),
-        changes: foundry.utils.deepClone(ef.changes ?? []),
+        changes: foundry.utils.deepClone(getEffectChanges(ef)),
         flags: {
           [SYSTEM_ID]: {
             featureEffect: true,

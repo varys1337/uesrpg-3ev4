@@ -1,6 +1,7 @@
 import { shouldHideFromMainInventory } from "./sheet-inventory.js";
 import { isShieldItem } from "../../core/items/shield-utils.js";
 import { createDebugLogger } from "../../utils/debug.js";
+import { buildWeaponAmmoControlState } from "./shared/weapon-ammo-control.js";
 
 const _debug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][PrepareItems]");
 
@@ -126,7 +127,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
       continue;
     }
 
-    if (i.type === "equipment" || i.type === "scroll") {
+    if (i.type === "equipment" || i.type === "item" || i.type === "scroll") {
       i.system?.equipped ? gear.equipped.push(i) : gear.unequipped.push(i);
     } else if (i.type === "weapon") {
       i.system.resolvedDistanceDisplay = _resolveWeaponDistanceDisplay(i.system);
@@ -212,6 +213,14 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
         });
       }
     }
+  }
+
+  for (const weaponItem of [...weapon.equipped, ...weapon.unequipped]) {
+    if (String(weaponItem?.system?.attackMode ?? "").toLowerCase() !== "ranged") continue;
+    const ammoSource = sheetData?.document ?? sheetData?.actorDocument ?? { items: sheetData.items ?? [] };
+    const ammoControl = buildWeaponAmmoControlState(ammoSource, weaponItem);
+    weaponItem.system.inlineAmmoLabel = ammoControl.currentAmmoLabel;
+    weaponItem.system.inlineAmmoOptions = ammoControl.options;
   }
 
   // Group spells by school

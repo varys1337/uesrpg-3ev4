@@ -205,6 +205,13 @@ export async function prepareItemSheetData(sheet, data) {
     } catch (_e) {
       data.enableSpellRecipes = false;
     }
+
+    const alchemyEffectFlags = itemDoc?.flags?.["uesrpg-3ev4"]?.alchemyEffect ?? {};
+    data.canConfigureAlchemyEffectTags = Boolean(itemDoc?.isOwned);
+    data.alchemyEffectFlags = {
+      potion: Boolean(alchemyEffectFlags?.potion),
+      toxin: Boolean(alchemyEffectFlags?.toxin),
+    };
   }
 
   // --------------------------------------------
@@ -536,7 +543,7 @@ export async function prepareItemSheetData(sheet, data) {
   // Weapon / Armor: Enchantment display (read-only)
   // Written by the Enchanting Workshop; surfaced here for the item sheet Attributes tab.
   // --------------------------------------------
-  if (itemType === "weapon" || itemType === "armor" || itemType === "shield" || itemType === "ammunition" || itemType === "equipment") {
+  if (itemType === "weapon" || itemType === "armor" || itemType === "shield" || itemType === "ammunition" || itemType === "equipment" || itemType === "item") {
     const enc = itemDoc?.flags?.["uesrpg-3ev4"]?.enchanting ?? null;
     data.uiSpellcastingConfig = _buildSpellcastingUiConfig(itemDoc);
     if (enc?.version === 2 && enc.enchantType) {
@@ -552,7 +559,7 @@ export async function prepareItemSheetData(sheet, data) {
   // Generic Item: Alchemy ingredient data (flag-based)
   // Identifies items that serve as alchemy ingredients via flags["uesrpg-3ev4"].alchemy.
   // --------------------------------------------
-  if (itemType === "equipment") {
+  if (itemType === "equipment" || itemType === "item") {
     const alchemyFlags = itemDoc?.flags?.["uesrpg-3ev4"]?.alchemy ?? null;
     data.isAlchemyIngredient = alchemyFlags?.kind === "ingredient";
     data.isAlchemyProduct = ["potion", "poison", "toxin"].includes(String(alchemyFlags?.kind ?? ""));
@@ -574,11 +581,13 @@ export async function prepareItemSheetData(sheet, data) {
             .filter((e) => e && typeof e === "object")
             .map((e) => {
               const def = getEffectByKey(e.effectKey);
+              const label = String(e.effectLabel ?? e.spellName ?? "").trim();
               return {
                 key: String(e.effectKey ?? ""),
-                label: def?.label ?? String(e.effectKey ?? ""),
-                school: def?.school ?? String(e.school ?? ""),
+                label: label || def?.label || String(e.effectKey ?? e.spellUuid ?? ""),
+                school: String(e.school ?? def?.school ?? ""),
                 spellLevel: Number(e.spellLevel ?? 1),
+                effectSource: String(e.effectSource ?? "catalog"),
               };
             })
         : [];

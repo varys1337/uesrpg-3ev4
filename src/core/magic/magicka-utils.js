@@ -24,6 +24,7 @@ import { _bool } from "../../utils/coerce.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../system/flags.js";
 import { isShieldItem } from "../items/shield-utils.js";
+import { isWarfareUnitActorType } from "../actors/types.js";
 
 // Re-export for backward compatibility - canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
@@ -814,6 +815,9 @@ const RANK_TO_NUMERIC = Object.freeze({
  * @returns {number} - Spellcasting level (≥ 0)
  */
 export function getMagicSkillLevel(actor, school) {
+  // Warfare Units don't have individual magic skill items or NPC flag ranks.
+  if (isWarfareUnitActorType(actor?.type)) return 0;
+
   const schoolNormalized = _str(school).toLowerCase();
 
   // --- NPC branch: read per-school rank from flags ---

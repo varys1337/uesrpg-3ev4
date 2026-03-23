@@ -11,6 +11,7 @@ export function _getLastSkillRollOptions() {
     // Always exclude difficulty from saved options - force default to "average"
     delete saved.difficulty;
     delete saved.difficultyKey;
+    delete saved.selectedCharacteristicKey;
     return saved;
   } catch (_e) {
     return {};
@@ -23,6 +24,7 @@ export async function _setLastSkillRollOptions(next) {
     const sanitized = { ...next };
     delete sanitized.difficulty;
     delete sanitized.difficultyKey;
+    delete sanitized.selectedCharacteristicKey;
     await game.settings.set(SKILL_ROLL_SETTINGS_NS, SKILL_ROLL_LAST_OPTIONS_KEY, sanitized);
   } catch (_e) {
     // client setting may not exist if init hasn't run yet; fail silently
@@ -36,6 +38,7 @@ export function _mergeLastSkillRollOptions(patch={}) {
   // Always force difficulty to "average" (do not persist)
   delete next.difficulty;
   delete next.difficultyKey;
+  delete next.selectedCharacteristicKey;
   return next;
 }
 

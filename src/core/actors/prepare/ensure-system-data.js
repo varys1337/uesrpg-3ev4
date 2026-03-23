@@ -31,6 +31,12 @@ export function ensureSystemData(actor) {
     }
   }
 
+  // ── Warfare Unit: skip humanoid defaults, apply warfare-specific ones, then return ──
+  if (actor.type === "Warfare Unit") {
+    _ensureWarfareUnitSystemData(system);
+    return;
+  }
+
   // Characteristics
   if (!system.characteristics || typeof system.characteristics !== "object" || Array.isArray(system.characteristics)) {
     system.characteristics = {};
@@ -196,4 +202,194 @@ export function ensureSystemData(actor) {
     last_reset_round: 0,
     last_reset_turn: 0
   };
+
+}
+
+// ── Warfare Unit system data defaults (additive only) ─────────────────────
+function _ensureWarfareUnitSystemData(system) {
+  system.commander ??= { uuid: "", id: "", name: "", img: "", bonusOverride: 0 };
+  system.commander.bonusOverride ??= 0;
+  system.commanderAttachment ??= {
+    leaderActorUuid: "",
+    warfareTokenUuid: "",
+    leaderTokenUuid: "",
+    sceneId: "",
+  };
+  system.commanderAttachment.leaderActorUuid ??= "";
+  system.commanderAttachment.warfareTokenUuid ??= "";
+  system.commanderAttachment.leaderTokenUuid ??= "";
+  system.commanderAttachment.sceneId ??= "";
+  if (!system.classification || typeof system.classification !== "object") {
+    system.classification = {};
+  }
+  system.classification.unitType ??= "";
+  system.classification.ancestry ??= "";
+  system.classification.mount ??= "none";
+  system.classification.tier ??= "light";
+
+  if (!system.stats || typeof system.stats !== "object") system.stats = {};
+  system.stats.bulk ??= { value: 1, max: 0, lossTotal: 0 };
+  system.stats.bulk.value ??= 1;
+  system.stats.bulk.max ??= 0;
+  system.stats.bulk.lossTotal ??= 0;
+  system.stats.discipline ??= { value: 0, base: 0, bonus: 0 };
+  system.stats.discipline.value ??= 0;
+  system.stats.discipline.base ??= 0;
+  system.stats.discipline.bonus ??= 0;
+  system.stats.condition ??= { value: 0, max: 0 };
+  system.stats.condition.value ??= 0;
+  system.stats.condition.max ??= 0;
+  system.stats.magicka ??= { value: 0, max: 0 };
+  system.stats.magicka.value ??= 0;
+  system.stats.magicka.max ??= 0;
+  system.stats.speed ??= { value: 0, base: 0, bonus: 0 };
+  system.stats.speed.value ??= 0;
+  system.stats.speed.base ??= 0;
+  system.stats.speed.bonus ??= 0;
+
+  if (!system.gear || typeof system.gear !== "object") system.gear = {};
+  system.gear.sets ??= 0;
+  system.gear.dmg ??= "";
+  system.gear.ar ??= 0;
+  system.gear.mar ??= 0;
+  system.gear.speedPenalty ??= 0;
+  system.gear.cost ??= 0;
+
+  if (!system.racial || typeof system.racial !== "object") system.racial = {};
+  system.racial.speedMod ??= 0;
+  system.racial.magickaMod ??= 0;
+  system.racial.offenseMod ??= 0;
+  system.racial.offenseType ??= "";
+  system.racial.conditionMod ??= 0;
+  system.racial.disciplineMod ??= 0;
+  system.racial.special ??= "";
+
+  if (!system.combat || typeof system.combat !== "object") system.combat = {};
+  system.combat.hidden ??= false;
+  system.combat.deployed ??= false;
+  system.combat.leaderless ??= false;
+
+  if (!Array.isArray(system.traits)) system.traits = [];
+  if (!Array.isArray(system.deployableEquipment)) system.deployableEquipment = [];
+  if (!Array.isArray(system.spells)) system.spells = [];
+
+  if (!system.upkeep || typeof system.upkeep !== "object") system.upkeep = {};
+  system.upkeep.weeklyGold ??= 0;
+  system.upkeep.enslaved ??= false;
+
+  if (!system.rules || typeof system.rules !== "object") system.rules = {};
+  system.rules.source ??= "UESRPG Mass Warfare 3e";
+  system.rules.version ??= "0.2";
+
+  if (typeof system.description !== "string") system.description = "";
+  if (typeof system.notes !== "string") system.notes = "";
+
+  // ── Neutral canonized lanes (Phase 2 additions — additive) ─────────────
+  // profile
+  if (!system.profile || typeof system.profile !== "object") system.profile = {};
+  system.profile.id ??= "uesrpg-0_2";
+
+  // identity
+  if (!system.identity || typeof system.identity !== "object") system.identity = {};
+  system.identity.category ??= "";
+  system.identity.ancestry ??= "";
+  system.identity.rank ??= "";
+
+  if (!system.doctrine || typeof system.doctrine !== "object") system.doctrine = {};
+  system.doctrine.tradition ??= "";
+
+  // composition
+  if (!system.composition || typeof system.composition !== "object") system.composition = {};
+  system.composition.racialPresetKey ??= "";
+  if (!system.composition.racialMods || typeof system.composition.racialMods !== "object") {
+    system.composition.racialMods = {};
+  }
+  system.composition.racialMods.speedMod      ??= 0;
+  system.composition.racialMods.magickaMod    ??= 0;
+  system.composition.racialMods.offenseMod    ??= 0;
+  system.composition.racialMods.offenseType   ??= "";
+  system.composition.racialMods.conditionMod  ??= 0;
+  system.composition.racialMods.disciplineMod ??= 0;
+  system.composition.racialMods.special       ??= "";
+
+  // mounts
+  if (!system.mounts || typeof system.mounts !== "object") system.mounts = {};
+  system.mounts.primary ??= "none";
+
+  // economy
+  if (!system.economy || typeof system.economy !== "object") system.economy = {};
+  system.economy.cadence  ??= "weekly";
+  system.economy.mode     ??= "gold";
+  system.economy.amount   ??= 0;
+  system.economy.enslaved ??= false;
+  system.economy.unpaidWeeks ??= 0;
+  system.economy.specialModifier ??= 0;
+
+  // magic
+  if (!system.magic || typeof system.magic !== "object") system.magic = {};
+  system.magic.mode ??= "implements";
+  if (!Array.isArray(system.magic.entries)) system.magic.entries = [];
+
+  // equipment (owned)
+  if (!system.equipment || typeof system.equipment !== "object") system.equipment = {};
+  if (!Array.isArray(system.equipment.owned)) system.equipment.owned = [];
+
+  // variant
+  if (!system.variant || typeof system.variant !== "object") system.variant = {};
+  if (!Array.isArray(system.variant.tags)) system.variant.tags = [];
+  if (!system.variant.overrides || typeof system.variant.overrides !== "object") {
+    system.variant.overrides = {};
+  }
+
+  // status
+  if (!system.status || typeof system.status !== "object") system.status = {};
+  system.status.leaderless ??= false;
+  if (!system.status.battle || typeof system.status.battle !== "object") {
+    system.status.battle = {};
+  }
+  system.status.battle.hidden      ??= false;
+  system.status.battle.ambushReady ??= false;
+  system.status.battle.revealed    ??= true;
+  system.status.battle.routed      ??= false;
+  system.status.battle.broken      ??= false;
+  system.status.battle.suppressed  ??= false;
+  system.status.battle.defeated    ??= false;
+  system.status.battle.frenzied    ??= false;
+  system.status.battle.flyer       ??= false;
+
+  if (!system.modifiers || typeof system.modifiers !== "object") system.modifiers = {};
+  if (!system.modifiers.discipline || typeof system.modifiers.discipline !== "object") {
+    system.modifiers.discipline = {};
+  }
+  system.modifiers.discipline.manual ??= 0;
+  if (!system.modifiers.discipline.campaign || typeof system.modifiers.discipline.campaign !== "object") {
+    system.modifiers.discipline.campaign = {};
+  }
+  system.modifiers.discipline.campaign.inspiringSpeech ??= false;
+  system.modifiers.discipline.campaign.forcedMarch ??= false;
+  system.modifiers.discipline.campaign.poorClimate ??= false;
+  system.modifiers.discipline.campaign.longCampaign ??= false;
+  system.modifiers.discipline.campaign.defendingAlliedSettlement ??= false;
+  if (!system.modifiers.discipline.battle || typeof system.modifiers.discipline.battle !== "object") {
+    system.modifiers.discipline.battle = {};
+  }
+  system.modifiers.discipline.battle.rearCharged ??= false;
+  system.modifiers.discipline.battle.adjacentFriendlyBroken ??= false;
+  system.modifiers.discipline.battle.commanderLost ??= false;
+  system.modifiers.discipline.battle.rallyBonus ??= false;
+  system.modifiers.discipline.battle.enemyBrokenBonus ??= false;
+
+  // gear.tier (new neutral field alongside classification.tier)
+  if (!system.gear || typeof system.gear !== "object") system.gear = {};
+  system.gear.tier ??= system.classification?.tier ?? "light";
+  system.gear.apparel ??= system.gear.tier ?? system.classification?.tier ?? "light";
+
+  system.stats.resolve ??= { value: 0, max: 0, lossTotal: 0 };
+  system.stats.resolve.value ??= 0;
+  system.stats.resolve.max ??= 0;
+  system.stats.resolve.lossTotal ??= 0;
+
+  system.stats.condition.maxOverride ??= 0;
+  system.stats.condition.useMaxOverride ??= false;
+  system.rules.version ??= "2.0";
 }

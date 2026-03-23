@@ -81,6 +81,19 @@
             </div>
           </div>
 
+          {{#if canConfigureAlchemyEffectTags}}
+          <div class="spell-toggle-stack">
+            <div class="spell-subsection spell-subsection--inline">
+              <h5 class="spell-subsection-title">Alchemy Eligibility</h5>
+              <div class="spell-row spell-row-checks spell-row-checks--tight">
+                <label class="spell-check"><input type="checkbox" name="flags.uesrpg-3ev4.alchemyEffect.potion" {{checked alchemyEffectFlags.potion}} data-spell-autosave /> Potion</label>
+                <label class="spell-check"><input type="checkbox" name="flags.uesrpg-3ev4.alchemyEffect.toxin" {{checked alchemyEffectFlags.toxin}} data-spell-autosave /> Toxin</label>
+              </div>
+              <p class="spell-hint">Actor-owned tagged spells can be selected in the Alchemy Workshop for potion or toxin brewing.</p>
+            </div>
+          </div>
+          {{/if}}
+
           {{!-- Effect Type / Strength / Defense (single-row 3-column layout) --}}
           <div class="spell-row spell-row--grid-3col">
             <div>

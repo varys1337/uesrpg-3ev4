@@ -10,6 +10,7 @@
  */
 
 import { getOriginAEs } from "../../../core/magic/effects/origin-effect.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 
@@ -171,7 +172,7 @@ function _collectModifiedKeys(actor, originAE) {
     if (ef_f.spellUuid !== spellUuid) continue;
     if (ef_f.casterUuid !== casterUuid) continue;
 
-    for (const ch of (ef.changes ?? [])) {
+    for (const ch of getEffectChanges(ef)) {
       if (!ch?.key || seen.has(ch.key)) continue;
       seen.add(ch.key);
       const modeStr = _modeLabel(ch.mode);

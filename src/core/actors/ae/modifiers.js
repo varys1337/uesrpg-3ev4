@@ -11,6 +11,7 @@
 
 import { collectApplicableEffects, getApplicableEffectsCached } from "../../active-effects/modifier-evaluator.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 
 /**
  * All AE key paths evaluated during actor prepare. Maintained centrally so
@@ -137,7 +138,7 @@ export function collectAEModifiersForKeys(actor, targetKeys = []) {
   const effects = getApplicableEffectsCached(actor);
 
   for (const effect of effects) {
-    const changes = Array.isArray(effect.changes) ? effect.changes : [];
+    const changes = getEffectChanges(effect);
     for (const ch of changes) {
       if (!ch) continue;
       const key = ch.key;
@@ -187,7 +188,7 @@ export function collectAEModifiersForKeySetMerged(actor, keySet = []) {
   const out = { add: 0, override: null };
 
   for (const effect of effects) {
-    const changes = Array.isArray(effect.changes) ? effect.changes : [];
+    const changes = getEffectChanges(effect);
     for (const ch of changes) {
       if (!ch) continue;
       const key = ch.key;
@@ -496,7 +497,7 @@ export function collectSkillAEModifiers(actor) {
 
   for (const effect of actor.effects ?? []) {
     if (!effect.active) continue;
-    for (const change of effect.changes ?? []) {
+    for (const change of getEffectChanges(effect)) {
       const m = String(change.key ?? "").match(/^skill\.(.+)\.bonus$/);
       if (!m) continue;
       const name = m[1];

@@ -1,5 +1,6 @@
 import { collectApplicableEffects, getApplicableEffectsCached } from "./collect.js";
 import { createEvaluationMemo, effectMatchesContext } from "./conditions.js";
+import { getEffectChanges } from "../../utils/compat.js";
 
 /**
  * @typedef {object} AEEvaluateOptions
@@ -92,7 +93,7 @@ function _evaluateCore(actor, keys, options = {}) {
       continue;
     }
 
-    const changes = Array.isArray(effect.changes) ? effect.changes : [];
+    const changes = getEffectChanges(effect);
     for (const change of changes) {
       const key = change?.key;
       if (!keySet.has(key)) continue;

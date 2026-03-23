@@ -3,43 +3,21 @@
  * Skill selection and listing helpers
  */
 
-import { _esc } from "./util.js";
 import { normalizeKey } from "../../key-utils.js";
+import {
+  CHARACTERISTIC_KEYS,
+  getAllCharacteristicOptions,
+  getCharacteristicLabel,
+  getPreferredSkillCharacteristic,
+  normalizeCharacteristicKey
+} from "../../../../utils/maps/characteristics.js";
 
 /* ─── Characteristic pseudo-UUID helpers ──────────────────────────────────── */
 
-const _CHA_KEYS = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
-const _CHA_LABELS = {
-  str: "Strength", end: "Endurance", agi: "Agility", int: "Intelligence",
-  wp: "Willpower", prc: "Perception", prs: "Personality", lck: "Luck"
-};
-
-function _normalizeChaKey(v = "") {
-  const s = String(v ?? "").trim().toLowerCase();
-  switch (s) {
-    case "strength": return "str";
-    case "endurance": return "end";
-    case "agility": return "agi";
-    case "intelligence": return "int";
-    case "willpower": return "wp";
-    case "perception": return "prc";
-    case "personality": return "prs";
-    case "luck": return "lck";
-    default: return s;
-  }
-}
-
-function _governingChaOptions(item) {
-  const raw = String(item?.system?.governingCha ?? "");
-  const base = _normalizeChaKey(item?.system?.baseCha ?? "");
-  const keys = raw
-    .split(/[,\n/]+/)
-    .map(_normalizeChaKey)
-    .filter(Boolean);
-  const unique = [];
-  for (const k of keys) if (!unique.includes(k)) unique.push(k);
-  if (base && !unique.includes(base)) unique.push(base);
-  return unique.filter(k => _CHA_LABELS[k]).map(k => ({ key: k, label: _CHA_LABELS[k] }));
+function _governingChaOptions(actor, item = null) {
+  const type = String(item?.type ?? "").trim();
+  if (!["skill", "magicSkill", "combatStyle"].includes(type)) return [];
+  return getAllCharacteristicOptions(actor);
 }
 
 /**
@@ -49,15 +27,17 @@ function _governingChaOptions(item) {
  * @returns {object|null}
  */
 export function _buildCharacteristicPseudoItem(actor, chaKey) {
-  if (!actor || !_CHA_LABELS[chaKey]) return null;
-  const value = Number(actor.system?.characteristics?.[chaKey]?.total ?? 0);
+  const normalizedKey = normalizeCharacteristicKey(chaKey);
+  const label = getCharacteristicLabel(normalizedKey);
+  if (!actor || !label) return null;
+  const value = Number(actor.system?.characteristics?.[normalizedKey]?.total ?? 0);
   return {
-    uuid: `cha:${chaKey}`,
-    id: `cha:${chaKey}`,
+    uuid: `cha:${normalizedKey}`,
+    id: `cha:${normalizedKey}`,
     type: "characteristic",
-    name: _CHA_LABELS[chaKey],
+    name: label,
     system: { value },
-    _characteristicKey: chaKey
+    _characteristicKey: normalizedKey
   };
 }
 
@@ -80,8 +60,8 @@ export function _listSkills(actor, { allowCombatStyle = false } = {}) {
         name: `${cs.name} (Combat Style)`, 
         hasSpec: false, 
         isCombatStyle: true,
-        governingChaOptions: _governingChaOptions(cs),
-        selectedCha: _normalizeChaKey(cs?.system?.baseCha ?? "")
+        governingChaOptions: _governingChaOptions(actor, cs),
+        selectedCha: getPreferredSkillCharacteristic(actor, cs) || normalizeCharacteristicKey(cs?.system?.baseCha ?? "")
       });
     }
   }
@@ -92,8 +72,8 @@ export function _listSkills(actor, { allowCombatStyle = false } = {}) {
     name: i.name,
     item: i,
     hasSpec: _hasSpecializations(i),
-    governingChaOptions: _governingChaOptions(i),
-    selectedCha: _normalizeChaKey(i?.system?.baseCha ?? "")
+    governingChaOptions: _governingChaOptions(actor, i),
+    selectedCha: getPreferredSkillCharacteristic(actor, i) || normalizeCharacteristicKey(i?.system?.baseCha ?? "")
   });
 
   if (isNpc) {
@@ -110,8 +90,8 @@ export function _listSkills(actor, { allowCombatStyle = false } = {}) {
           hasSpec: false, 
           isProfession: true,
           isCombatProfession: true,
-          governingChaOptions: _governingChaOptions(combatProf),
-          selectedCha: _normalizeChaKey(combatProf?.system?.baseCha ?? "")
+          governingChaOptions: _governingChaOptions(actor, combatProf),
+          selectedCha: normalizeCharacteristicKey(combatProf?.system?.baseCha ?? "")
         });
       }
     }
@@ -126,8 +106,8 @@ export function _listSkills(actor, { allowCombatStyle = false } = {}) {
             item: p,
             hasSpec: false,
             isProfession: true,
-            governingChaOptions: _governingChaOptions(p),
-            selectedCha: _normalizeChaKey(p?.system?.baseCha ?? "")
+            governingChaOptions: _governingChaOptions(actor, p),
+            selectedCha: normalizeCharacteristicKey(p?.system?.baseCha ?? "")
           });
         }
         continue;
@@ -138,14 +118,14 @@ export function _listSkills(actor, { allowCombatStyle = false } = {}) {
         item: p,
         hasSpec: false,
         isProfession: true,
-        governingChaOptions: _governingChaOptions(p),
-        selectedCha: _normalizeChaKey(p?.system?.baseCha ?? "")
+        governingChaOptions: _governingChaOptions(actor, p),
+        selectedCha: normalizeCharacteristicKey(p?.system?.baseCha ?? "")
       });
     }
   }
 
   // Add characteristics for all actor types
-  for (const chaKey of _CHA_KEYS) {
+  for (const chaKey of CHARACTERISTIC_KEYS) {
     const chaItem = _buildCharacteristicPseudoItem(actor, chaKey);
     if (chaItem) {
       out.push({

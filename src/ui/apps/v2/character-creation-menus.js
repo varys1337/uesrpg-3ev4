@@ -79,7 +79,7 @@ export async function applyBirthsignSelection(actor, {
   if (itemsToCreate.length) await requestCreateEmbeddedDocuments(actor, "Item", itemsToCreate);
 
   if (starCursed && String(signKey).toLowerCase() === "thief") {
-    await requestUpdateDocument(actor, { "system.characteristics.lck.base": 50, "system.characteristics.lck.total": 50 });
+    await requestUpdateDocument(actor, { "system.characteristics.lck.base": 50 });
   }
 
   if (starCursed && selectedSign.starCursedChoices?.attributes?.length) {
@@ -127,7 +127,6 @@ export async function applyBirthsignSelection(actor, {
   const updates = { "system.birthSign": signLabel };
   if (luckCost > 0) {
     updates["system.characteristics.lck.base"] = nextLuck;
-    updates["system.characteristics.lck.total"] = nextLuck;
   }
   await requestUpdateDocument(actor, updates);
 
@@ -235,9 +234,7 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
         const updates = {};
         for (const value in this.#actor.system.characteristics) {
           const baseChaPath = `system.characteristics.${value}.base`;
-          const totalChaPath = `system.characteristics.${value}.total`;
           updates[baseChaPath] = selectedRace.baseline[value];
-          updates[totalChaPath] = selectedRace.baseline[value] + this.#actor.system.characteristics[value].bonus;
         }
         await requestUpdateDocument(this.#actor, updates);
 

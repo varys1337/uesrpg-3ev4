@@ -67,7 +67,7 @@ export async function _skillRollDialog({
   })();
   const selectedGoverning = Array.isArray(selectedSkillMeta?.governingChaOptions) ? selectedSkillMeta.governingChaOptions : [];
   const selectedBaseCha = String(selectedSkillMeta?.selectedCha ?? "").trim().toLowerCase();
-  const showCharacteristic = selectedGoverning.length > 1;
+  const showCharacteristic = selectedGoverning.length > 0;
   const defaultCharacteristic = String(defaultSelectedCharacteristicKey || selectedBaseCha || selectedGoverning[0]?.key || "").toLowerCase();
   const characteristicRow = `
       <div class="form-group" style="margin-top:8px;" data-ues-char-row="1" ${showCharacteristic ? "" : "hidden"}>
@@ -218,7 +218,7 @@ export async function _skillRollDialog({
         let governing = [];
         try { governing = JSON.parse(governingRaw); } catch (_e) { governing = []; }
         const options = Array.isArray(governing) ? governing.filter(g => g?.key && g?.label) : [];
-        if (options.length > 1) {
+        if (options.length > 0) {
           chaRow.hidden = false;
           const current = String(chaSelect.value ?? "").trim().toLowerCase();
           const preferred = String(opt?.dataset?.selectedCha ?? "").trim().toLowerCase();

@@ -11,6 +11,7 @@
 
 import { getDifficultyByKey } from "./skill-tn.js";
 import { createDebugLogger } from "../../utils/debug.js";
+import { normalizeCharacteristicKey } from "../../utils/maps/characteristics.js";
 
 const SKILL_ROLL_REQUEST_VERSION = 1;
 
@@ -27,11 +28,11 @@ export function normalizeSkillRollOptions(raw = {}, fallback = {}) {
 
   const diffKey = String(raw.difficultyKey ?? fallback.difficultyKey ?? "average");
   const diff = getDifficultyByKey(diffKey);
-  const selectedCharacteristicKey = String(
+  const selectedCharacteristicKey = normalizeCharacteristicKey(String(
     raw.selectedCharacteristicKey
     ?? fallback.selectedCharacteristicKey
     ?? ""
-  ).trim().toLowerCase();
+  ));
 
   return {
     difficultyKey: diff.key,

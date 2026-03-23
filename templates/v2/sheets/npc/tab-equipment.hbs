@@ -84,7 +84,7 @@
                                         <th class="item-name-cell item-create" data-action="itemCreate" id="weapon"><div class="ues-th-content"><a class="uesrpg-group-toggle" data-action="groupToggle" data-group="weapons" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Weapons</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
                                         <th>Damage</th>
                                         <th>{{sheetUi.weaponDistanceHeaderLabel}}</th>
-                                        <th>2H</th>
+                                        <th>2H / Ammo</th>
                                         <th class="right-align-cell"><i class="fas fa-trash"></i></th>
                                     </tr>
                                 </thead>
@@ -110,7 +110,20 @@
                                                     {{item.system.resolvedDistanceDisplay}}
                                                 {{/if}}
                                             </td>
-                                            <td><input class="toggle2H checkbox" data-action="toggle2H" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage"></td>
+                                            <td class="weapon-mode-cell">
+                                                {{#if (eq item.system.attackMode "ranged")}}
+                                                    <div class="weapon-ammo-select-wrap" title="{{item.system.inlineAmmoLabel}}">
+                                                        <span class="weapon-ammo-select-label">{{item.system.inlineAmmoLabel}}</span>
+                                                        <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="Select ammunition">
+                                                            {{#each item.system.inlineAmmoOptions}}
+                                                                <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+                                                            {{/each}}
+                                                        </select>
+                                                    </div>
+                                                {{else}}
+                                                    <input class="toggle2H checkbox" data-action="toggle2H" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage">
+                                                {{/if}}
+                                            </td>
                                             <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
@@ -135,7 +148,20 @@
                                                     {{item.system.resolvedDistanceDisplay}}
                                                 {{/if}}
                                             </td>
-                                            <td><input class="toggle2H checkbox" data-action="toggle2H" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage"></td>
+                                            <td class="weapon-mode-cell">
+                                                {{#if (eq item.system.attackMode "ranged")}}
+                                                    <div class="weapon-ammo-select-wrap" title="{{item.system.inlineAmmoLabel}}">
+                                                        <span class="weapon-ammo-select-label">{{item.system.inlineAmmoLabel}}</span>
+                                                        <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="Select ammunition">
+                                                            {{#each item.system.inlineAmmoOptions}}
+                                                                <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+                                                            {{/each}}
+                                                        </select>
+                                                    </div>
+                                                {{else}}
+                                                    <input class="toggle2H checkbox" data-action="toggle2H" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage">
+                                                {{/if}}
+                                            </td>
                                             <td class="right-align-cell"><a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}

@@ -16,6 +16,7 @@ import {
   requestDeleteEmbeddedDocuments
 } from "./authority-proxy.js";
 import { claimRecentEmbeddedDeletes, settleRecentEmbeddedDeletes } from "./embedded-delete-guard.js";
+import { getEffectChanges, buildEffectChangesUpdate } from "./compat.js";
 
 /**
  * Safely retrieve an Active Effect by ID from an actor, returning null if not found.
@@ -291,7 +292,7 @@ export async function applyGroupedEffect(actor, effectData, { timeout = 5000 } =
           _id: existing.id,
           name: effectData.name ?? existing.name,
           img: effectData.img ?? effectData.icon ?? existing.img,
-          changes: Array.isArray(effectData.changes) ? effectData.changes : (existing.changes ?? []),
+          ...buildEffectChangesUpdate(Array.isArray(effectData.changes) ? effectData.changes : getEffectChanges(existing)),
           flags: effectData.flags ?? existing.flags,
           duration: effectData.duration ?? existing.duration,
           disabled: effectData.disabled ?? false,

@@ -6,6 +6,7 @@
 
 import { evaluateAEModifierKeys, evaluateAEModifierKeysDetailed } from "../../../active-effects/modifier-evaluator.js";
 import { isTransferEffectActive } from "../../../active-effects/transfer.js";
+import { getEffectChanges } from "../../../../utils/compat.js";
 
 /**
  * Derive deterministic AE damage modifiers at the resolver boundary.
@@ -142,7 +143,7 @@ export function collectTypedBonusDamage(attackerActor) {
     if (!effect || effect.disabled) continue;
     const priority = Number(effect.priority ?? 0) || 0;
 
-    for (const ch of (Array.isArray(effect.changes) ? effect.changes : [])) {
+    for (const ch of getEffectChanges(effect)) {
       if (!ch) continue;
       if (ch.key !== "system.modifiers.combat.damage.dealt") continue;
 
