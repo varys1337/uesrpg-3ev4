@@ -3,8 +3,17 @@ import { clearRacialTalentUsageOnRest } from "../../core/traits/racial-talents.j
 import { _num } from "../../utils/coerce.js";
 import { _canPromptForActor } from "../../core/traits/index.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
-import { requestAtomicUpdateDocument } from "../../utils/authority-proxy.js";
+import { requestAtomicUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { hasStuntedMagicka } from "../../core/magic/magic-modifiers.js";
+import { getRecoveryAEModifiers } from "../../core/actors/ae/modifiers.js";
+import {
+  getNaturalHealingStarsignProfile,
+  getRitualBlessingNames,
+  hasRitualBirthsign,
+  hasStarCursedRitualBirthsign,
+  isRitualBlessingItem,
+} from "../../core/traits/starsigns/index.js";
+import birthsignSigns from "./racemenu/data/birthsign-signs.js";
 
 // Chapter 5: Untreated wounds block natural HP regeneration.
 // Reuse the authoritative helper from the wounds subsystem when available.
@@ -31,6 +40,171 @@ function _notifyHpHealingSkipped(actor) {
   } catch (_) {
     // Intentionally ignore notification failures.
   }
+}
+
+function _resolveRecoveryLane(baseValue, lane, { defaultValue = 0 } = {}) {
+  const base = _num(baseValue, defaultValue);
+  const add = _num(lane?.add, 0);
+  if (lane?.override != null) return Math.max(0, _num(lane.override, defaultValue));
+  return Math.max(0, base + add);
+}
+
+function _resolveResourceRecoveryProfile(actor) {
+  const ae = getRecoveryAEModifiers(actor);
+  return {
+    naturalHealing: {
+      multiplier: _resolveRecoveryLane(actor?.system?.recovery?.naturalHealing?.multiplier, ae?.naturalHealing?.multiplier, { defaultValue: 1 }),
+      flatBonus: _resolveRecoveryLane(actor?.system?.recovery?.naturalHealing?.flatBonus, ae?.naturalHealing?.flatBonus, { defaultValue: 0 }),
+    },
+    magicka: {
+      multiplier: _resolveRecoveryLane(actor?.system?.recovery?.magickaRecovery?.multiplier, ae?.magicka?.multiplier, { defaultValue: 1 }),
+    },
+    stamina: {
+      multiplier: _resolveRecoveryLane(actor?.system?.recovery?.staminaRecovery?.multiplier, ae?.stamina?.multiplier, { defaultValue: 1 }),
+    }
+  };
+}
+
+function _resolveNaturalHealingProfile(actor, { endBonus = 0 } = {}) {
+  const baseHealing = Math.max(0, _num(endBonus, 0));
+  const recoveryProfile = _resolveResourceRecoveryProfile(actor);
+  const starsignProfile = getNaturalHealingStarsignProfile(actor);
+  const hasRapidRecovery = hasTalent(actor, "rapidrecovery");
+  const aeMultiplier = Math.max(1, _num(recoveryProfile?.naturalHealing?.multiplier, 1));
+  const aeFlatBonus = _num(recoveryProfile?.naturalHealing?.flatBonus, 0);
+
+  const multiplier = Math.max(
+    1,
+    Math.max(1, _num(starsignProfile?.multiplier, 1)),
+    aeMultiplier,
+    hasRapidRecovery ? 2 : 1
+  );
+  const flatBonus = _num(starsignProfile?.flatBonus, 0) + aeFlatBonus;
+
+  const sources = [];
+  if (Array.isArray(starsignProfile?.sources) && starsignProfile.sources.length) {
+    sources.push(...starsignProfile.sources.map((source) => String(source ?? "").trim()).filter(Boolean));
+  }
+  if (aeMultiplier !== 1 || aeFlatBonus !== 0) sources.push("AE recovery");
+  if (hasRapidRecovery) sources.push("Rapid Recovery");
+
+  return {
+    baseHealing,
+    multiplier,
+    flatBonus,
+    finalHealing: Math.max(0, Math.floor(baseHealing * multiplier) + flatBonus),
+    sources
+  };
+}
+
+function _appendRestLineNote(line, note) {
+  const text = String(note ?? "").trim();
+  if (!text) return String(line ?? "");
+  const current = String(line ?? "");
+  if (current.endsWith("</li>")) return current.replace("</li>", `; ${foundry.utils.escapeHTML(text)}</li>`);
+  return `${current}; ${foundry.utils.escapeHTML(text)}`;
+}
+
+function _getRitualBlessingSource(name) {
+  const desired = String(name ?? "").trim().toLowerCase();
+  if (!desired) return null;
+  const candidates = [
+    ...(Array.isArray(birthsignSigns?.ritual?.items) ? birthsignSigns.ritual.items : []),
+    ...(Array.isArray(birthsignSigns?.ritual?.starCursed) ? birthsignSigns.ritual.starCursed : []),
+  ];
+  return candidates.find((entry) => entry?.pack && String(entry?.name ?? "").trim().toLowerCase() === desired) ?? null;
+}
+
+async function _loadBirthsignGrantCreateData(ref) {
+  const packId = String(ref?.pack ?? "").trim();
+  const itemName = String(ref?.name ?? "").trim();
+  if (!packId || !itemName) return null;
+
+  const pack = game.packs?.get?.(packId);
+  if (!pack) return null;
+
+  await pack.getIndex();
+  const entry = pack.index.find((row) => String(row?.name ?? "").trim().toLowerCase() === itemName.toLowerCase()) ?? null;
+  if (!entry?._id) return null;
+
+  const itemDoc = await pack.getDocument(entry._id);
+  if (!itemDoc) return null;
+
+  const itemData = itemDoc.toObject();
+  delete itemData.ownership;
+  return itemData;
+}
+
+async function _promptRitualBlessingChoice(actor, { currentName = "" } = {}) {
+  const selectedName = String(currentName ?? "").trim().toLowerCase();
+  const options = getRitualBlessingNames()
+    .map((name) => {
+      const selected = selectedName === String(name).trim().toLowerCase() ? "selected" : "";
+      return `<option value="${foundry.utils.escapeHTML(name)}" ${selected}>${foundry.utils.escapeHTML(name)}</option>`;
+    })
+    .join("");
+
+  return customDialog({
+    title: "The Ritual",
+    content: `
+      <div class="uesrpg-ritual-refresh">
+        <p><b>${foundry.utils.escapeHTML(actor?.name ?? "Actor")}</b> must choose one Ritual blessing for the new day.</p>
+        <div class="form-group">
+          <label for="uesrpg-ritual-blessing">Blessing</label>
+          <select id="uesrpg-ritual-blessing" name="uesrpg-ritual-blessing">${options}</select>
+        </div>
+      </div>
+    `,
+    buttons: {
+      choose: {
+        label: "Choose Blessing",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          return String(root?.querySelector?.('select[name="uesrpg-ritual-blessing"]')?.value ?? "").trim() || null;
+        }
+      },
+      cancel: {
+        label: "Keep Current",
+        callback: () => null
+      }
+    },
+    default: "choose",
+    width: 420
+  });
+}
+
+async function _applyRitualBlessingRefresh(actor) {
+  if (!actor || !hasRitualBirthsign(actor) || hasStarCursedRitualBirthsign(actor)) {
+    return { changed: false, chosen: null };
+  }
+
+  const existingBlessings = Array.from(actor?.items ?? []).filter((item) => isRitualBlessingItem(item));
+  const currentName = String(existingBlessings[0]?.name ?? "").trim() || null;
+
+  if (!_canPromptForActor(actor)) {
+    return { changed: false, chosen: currentName };
+  }
+
+  let chosen = null;
+  try {
+    chosen = await _promptRitualBlessingChoice(actor, { currentName });
+  } catch (_e) {
+    chosen = null;
+  }
+
+  if (!chosen) return { changed: false, chosen: currentName };
+
+  const sourceRef = _getRitualBlessingSource(chosen);
+  const itemData = await _loadBirthsignGrantCreateData(sourceRef);
+  if (!itemData) return { changed: false, chosen: currentName };
+
+  const idsToDelete = existingBlessings.map((item) => String(item?.id ?? "")).filter(Boolean);
+  if (idsToDelete.length) {
+    await requestDeleteEmbeddedDocuments(actor, "Item", idsToDelete);
+  }
+  await requestCreateEmbeddedDocuments(actor, "Item", [itemData]);
+
+  return { changed: true, chosen };
 }
 
 export function buildRestChatContent(title, lines) {
@@ -105,6 +279,7 @@ export async function applyShortRest(actor, opts = {}) {
   const meta = { hpHealed: 0, line: `<li><b>${actorName}</b>: `, hasUpdates: false, hadUntreatedWounds: false };
 
   await requestAtomicUpdateDocument(actorUuid, (freshActor) => {
+    const resourceRecovery = _resolveResourceRecoveryProfile(freshActor);
     const fatigueBonus = _num(freshActor.system?.fatigue?.bonus ?? 0);
     const currentSP = _num(freshActor.system?.stamina?.value ?? 0);
     const maxSP = _num(freshActor.system?.stamina?.max ?? 0);
@@ -120,17 +295,23 @@ export async function applyShortRest(actor, opts = {}) {
       updateData["system.fatigue.bonus"] = Math.max(0, fatigueBonus - 1);
       meta.line += `Removed 1 fatigue (now ${Math.max(0, fatigueBonus - 1)})`;
     } else if (currentSP < maxSP) {
-      const deltaSP = useMeditation ? 2 : 1;
-      const newSP = Math.min(currentSP + deltaSP, maxSP);
-      updateData["system.stamina.value"] = newSP;
-      meta.line += `Recovered ${newSP - currentSP} SP (now ${newSP}/${maxSP})`;
+      const deltaSP = Math.max(0, Math.floor((useMeditation ? 2 : 1) * Math.max(0, _num(resourceRecovery?.stamina?.multiplier, 1))));
+      if (deltaSP > 0) {
+        const newSP = Math.min(currentSP + deltaSP, maxSP);
+        updateData["system.stamina.value"] = newSP;
+        meta.line += `Recovered ${newSP - currentSP} SP (now ${newSP}/${maxSP})`;
+      } else {
+        meta.line += "No recovery needed";
+      }
     } else {
       meta.line += "No recovery needed";
     }
 
     // RAW: Recover MP = floor(maxMP / 10).
     const mpRecoverBase = Math.floor(maxMP / 10);
-    const mpRecover = stuntedMagicka ? 0 : (useMeditation ? (mpRecoverBase * 2) : mpRecoverBase);
+    const mpRecover = stuntedMagicka
+      ? 0
+      : Math.max(0, Math.floor(mpRecoverBase * Math.max(0, _num(resourceRecovery?.magicka?.multiplier, 1)) * (useMeditation ? 2 : 1)));
     if (stuntedMagicka) {
       meta.line += " (MP recovery skipped due to Stunted Magicka)";
     } else if (mpRecover > 0 && currentMP < maxMP) {
@@ -180,7 +361,6 @@ export async function applyLongRest(actor) {
   const actorUuid = actor.uuid;
   // END bonus is stable over the course of a rest (no equipment swaps expected mid-rest).
   const endBonus = Math.floor(_num(actor.system?.characteristics?.end?.total ?? 0) / 10);
-  const hasRapidRecovery = hasTalent(actor, "rapidrecovery");
   const stuntedMagicka = hasStuntedMagicka(actor);
 
   // ── Phase 2: atomic read-compute-write ───────────────────────────────────
@@ -224,11 +404,12 @@ export async function applyLongRest(actor) {
 
     // RAW: Heal END bonus HP on long rest only if there are no untreated wounds.
     if (!untreatedWounds && currentHP < maxHP && endBonus > 0) {
-      // Rapid Recovery (Chapter 4): double natural healing rate.
-      const healBase = hasRapidRecovery ? (endBonus * 2) : endBonus;
-      meta.hpHealed = Math.min(healBase, maxHP - currentHP);
+      const healingProfile = _resolveNaturalHealingProfile(freshActor, { endBonus });
+      meta.hpHealed = Math.min(healingProfile.finalHealing, maxHP - currentHP);
       updateData["system.hp.value"] = currentHP + meta.hpHealed;
-      recoveryParts.push(`Healed ${meta.hpHealed} HP`);
+      let healText = `Healed ${meta.hpHealed} HP`;
+      if (healingProfile.sources.length) healText += ` (${healingProfile.sources.join("; ")})`;
+      recoveryParts.push(healText);
     } else if (untreatedWounds && currentHP < maxHP) {
       recoveryParts.push("HP not healed (untreated wounds)");
       meta.untreatedWoundsNoHeal = true;
@@ -260,6 +441,14 @@ export async function applyLongRest(actor) {
     } catch (_e) {
       // Non-blocking.
     }
+  }
+  try {
+    const ritualRefresh = await _applyRitualBlessingRefresh(actor);
+    if (ritualRefresh?.changed && ritualRefresh?.chosen) {
+      meta.line = _appendRestLineNote(meta.line, `Ritual blessing: ${ritualRefresh.chosen}`);
+    }
+  } catch (_e) {
+    // Non-blocking.
   }
   try {
     const reconcile = game?.uesrpg?.wounds?.reconcileWoundState;

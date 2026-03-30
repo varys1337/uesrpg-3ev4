@@ -15,8 +15,14 @@ import {
   requestUpdateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments
 } from "./authority-proxy.js";
+import {
+  hasEmbeddedDocument,
+  isMissingDocumentError,
+  normalizeEmbeddedDocumentIds
+} from "./authority-proxy/embedded-docs.js";
 import { claimRecentEmbeddedDeletes, settleRecentEmbeddedDeletes } from "./embedded-delete-guard.js";
 import { getEffectChanges, buildEffectChangesUpdate } from "./compat.js";
+import { resolveUuidSync } from "./uuid-cache.js";
 
 /**
  * Safely retrieve an Active Effect by ID from an actor, returning null if not found.
@@ -79,17 +85,11 @@ async function safeGetEffectByUuid(uuid) {
  */
 export function safeGetEffectByUuidSync(uuid) {
   if (!uuid || typeof uuid !== "string") return null;
-  
+
   const debug = isDebugEnabled("aeLifecycleDebug");
-  const resolver = foundry?.utils?.fromUuidSync ?? globalThis.fromUuidSync;
-  
-  if (typeof resolver !== "function") {
-    if (debug) console.debug(`[AE Lifecycle] fromUuidSync not available`);
-    return null;
-  }
-  
+
   try {
-    const effect = resolver(uuid);
+    const effect = resolveUuidSync(uuid);
     if (!(effect instanceof ActiveEffect)) {
       if (debug) console.debug(`[AE Lifecycle] UUID ${uuid} is not an ActiveEffect`);
       return null;
@@ -123,45 +123,12 @@ function effectExists(effect) {
  * @returns {boolean}
  */
 export function isMissingDocError(err) {
-  const msg = String(err?.message ?? err ?? "");
-  return msg.includes("does not exist") || 
-         msg.includes("No Document") || 
-         msg.includes("not found") ||
-         msg.includes("Invalid document");
-}
-
-function _getEmbeddedCollection(parent, embeddedName) {
-  if (!parent || !embeddedName) return null;
-  if (embeddedName === "ActiveEffect") return parent.effects ?? null;
-  if (embeddedName === "Item") return parent.items ?? null;
-  if (embeddedName === "Token") return parent.tokens ?? null;
-  if (embeddedName === "MeasuredTemplate") return parent.templates ?? parent.measuredTemplates ?? null;
-  return null;
-}
-
-export function hasEmbeddedDocument(parent, embeddedName, docId) {
-  if (!parent || !docId) return false;
-  const collection = _getEmbeddedCollection(parent, embeddedName);
-  if (!collection?.get && !collection?.has) return true;
-  if (typeof collection.has === "function") return collection.has(docId);
-  return Boolean(collection.get(docId));
-}
-
-function _normalizeEmbeddedDeleteIds(docIds) {
-  const out = [];
-  const seen = new Set();
-  for (const rawId of Array.isArray(docIds) ? docIds : []) {
-    const id = String(rawId ?? "").trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-  return out;
+  return isMissingDocumentError(err);
 }
 
 export async function safeDeleteEmbeddedDocuments(parent, embeddedName, docIds, { context = "AE Lifecycle", logUnexpected = true } = {}) {
   if (!parent || !embeddedName) return false;
-  const normalizedIds = _normalizeEmbeddedDeleteIds(docIds);
+  const normalizedIds = normalizeEmbeddedDocumentIds(docIds);
   if (!normalizedIds.length) return false;
 
   const liveIds = normalizedIds.filter((docId) => hasEmbeddedDocument(parent, embeddedName, docId));

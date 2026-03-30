@@ -9,15 +9,28 @@
  * origin-deduplication logic is maintained in a single location.
  */
 
-import { collectApplicableEffects, getApplicableEffectsCached } from "../../active-effects/modifier-evaluator.js";
+import { getApplicableEffectsCached } from "../../active-effects/modifier-evaluator.js";
+import { applyNumericModifierChange, createModifierTotal, isAddMode, isOverrideMode, mergeModifierTotals } from "../../active-effects/reducers.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
 import { getEffectChanges } from "../../../utils/compat.js";
+
+const RESISTANCE_AE_PATHS = Object.freeze({
+  fireR: ["system.modifiers.resistance.fireR", "system.traits.resistance.fire"],
+  frostR: ["system.modifiers.resistance.frostR", "system.traits.resistance.frost"],
+  shockR: ["system.modifiers.resistance.shockR", "system.traits.resistance.shock"],
+  poisonR: ["system.modifiers.resistance.poisonR", "system.resistances.poison", "system.traits.resistance.poison"],
+  magicR: ["system.modifiers.resistance.magicR", "system.resistances.magic"],
+  diseaseR: ["system.modifiers.resistance.diseaseR", "system.resistances.disease", "system.traits.resistance.disease"],
+  silverR: ["system.modifiers.resistance.silverR"],
+  sunlightR: ["system.modifiers.resistance.sunlightR"],
+  natToughness: ["system.modifiers.resistance.natToughness"],
+});
 
 /**
  * All AE key paths evaluated during actor prepare. Maintained centrally so
  * buildActorAETotalsMap can collect them in a single effect-array pass.
  */
-const _ALL_ACTOR_AE_KEYS = [
+const _ALL_ACTOR_AE_KEYS = Object.freeze([
   // Characteristic bonuses (post-calculation)
   "system.characteristics.str.bonus", "system.characteristics.end.bonus",
   "system.characteristics.agi.bonus", "system.characteristics.int.bonus",
@@ -45,6 +58,11 @@ const _ALL_ACTOR_AE_KEYS = [
   // Lucky/Unlucky slots (alias pairs merged by _mergeFromMap)
   "system.modifiers.lucky_numbers.max",   "system.modifiers.lucky_numbers.value",
   "system.modifiers.unlucky_numbers.max", "system.modifiers.unlucky_numbers.value",
+  // Recovery
+  "system.modifiers.recovery.naturalHealing.multiplier",
+  "system.modifiers.recovery.naturalHealing.flatBonus",
+  "system.modifiers.recovery.magicka.multiplier",
+  "system.modifiers.recovery.stamina.multiplier",
   // Carry/Encumbrance
   "system.modifiers.carry.base",    "system.modifiers.carry.bonus",
   "system.modifiers.carry.override",
@@ -53,20 +71,11 @@ const _ALL_ACTOR_AE_KEYS = [
   // Fatigue/Exhaustion (alias pairs)
   "system.modifiers.fatigue.bonus",   "system.modifiers.exhaustion.bonus",
   "system.modifiers.fatigue.penalty", "system.modifiers.exhaustion.penalty",
-  // Resistances (all paths from applyResistanceAEModifiers)
-  "system.modifiers.resistance.fireR",    "system.traits.resistance.fire",
-  "system.modifiers.resistance.frostR",   "system.traits.resistance.frost",
-  "system.modifiers.resistance.shockR",   "system.traits.resistance.shock",
-  "system.modifiers.resistance.poisonR",  "system.resistances.poison",
-  "system.traits.resistance.poison",
-  "system.modifiers.resistance.magicR",   "system.resistances.magic",
-  "system.modifiers.resistance.diseaseR", "system.resistances.disease",
-  "system.traits.resistance.disease",
-  "system.modifiers.resistance.silverR",  "system.modifiers.resistance.sunlightR",
-  "system.modifiers.resistance.natToughness",
+  // Resistances (all paths from RESISTANCE_AE_PATHS)
+  ...Object.values(RESISTANCE_AE_PATHS).flat(),
   // Wound Threshold
   "system.modifiers.wound_threshold.bonus", "system.modifiers.wound_threshold.value",
-];
+]);
 
 /**
  * Merge AE key results from a pre-built totals map as an aliased key-set.
@@ -77,18 +86,7 @@ const _ALL_ACTOR_AE_KEYS = [
  * @returns {{add: number, override: number|null}}
  */
 function _mergeFromMap(map, keySet) {
-  const out = { add: 0, override: null };
-  for (const k of keySet) {
-    const m = map[k];
-    if (!m) continue;
-    if (m.override != null) {
-      out.override = m.override;
-      out.add = 0;
-    } else if (out.override == null) {
-      out.add += m.add;
-    }
-  }
-  return out;
+  return mergeModifierTotals(keySet.map((key) => map[key]));
 }
 
 /**
@@ -122,16 +120,8 @@ export function buildActorAETotalsMap(actor) {
 export function collectAEModifiersForKeys(actor, targetKeys = []) {
   const keys = Array.isArray(targetKeys) ? targetKeys.filter(Boolean) : [];
   const out = {};
-  for (const k of keys) out[k] = { add: 0, override: null };
+  for (const k of keys) out[k] = createModifierTotal();
   if (!keys.length) return out;
-
-  const asNum = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const ADD = CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
-  const OVERRIDE = CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
 
   // Use the shared effect collection helper (disabled-filtering, transfer-gating,
   // origin-deduplication all handled centrally in modifier-evaluator.js).
@@ -143,17 +133,7 @@ export function collectAEModifiersForKeys(actor, targetKeys = []) {
       if (!ch) continue;
       const key = ch.key;
       if (!out[key]) continue;
-      const mode = ch.mode;
-      const value = asNum(ch.value);
-      if (!value && mode !== OVERRIDE) continue;
-
-      if (mode === OVERRIDE) {
-        out[key].override = value;
-        out[key].add = 0;
-      } else if (mode === ADD) {
-        // Ignore ADDs if an OVERRIDE exists (final-wins semantics for the pipeline).
-        if (out[key].override == null) out[key].add += value;
-      }
+      applyNumericModifierChange(out[key], ch);
     }
   }
 
@@ -170,22 +150,14 @@ export function collectAEModifiersForKeys(actor, targetKeys = []) {
  */
 export function collectAEModifiersForKeySetMerged(actor, keySet = []) {
   const keys = Array.isArray(keySet) ? keySet.filter(Boolean) : [];
-  if (!keys.length) return { add: 0, override: null };
+  if (!keys.length) return createModifierTotal();
 
   const keyLookup = new Set(keys);
-
-  const asNum = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const ADD = CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
-  const OVERRIDE = CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
 
   // Use the shared effect collection helper.
   const effects = getApplicableEffectsCached(actor);
 
-  const out = { add: 0, override: null };
+  const out = createModifierTotal();
 
   for (const effect of effects) {
     const changes = getEffectChanges(effect);
@@ -193,16 +165,7 @@ export function collectAEModifiersForKeySetMerged(actor, keySet = []) {
       if (!ch) continue;
       const key = ch.key;
       if (!keyLookup.has(key)) continue;
-      const mode = ch.mode;
-      const value = asNum(ch.value);
-      if (!value && mode !== OVERRIDE) continue;
-
-      if (mode === OVERRIDE) {
-        out.override = value;
-        out.add = 0;
-      } else if (mode === ADD) {
-        if (out.override == null) out.add += value;
-      }
+      applyNumericModifierChange(out, ch);
     }
   }
 
@@ -286,6 +249,26 @@ export function getLuckyUnluckySlotAEModifiers(actor) {
 }
 
 /**
+ * Read deterministic AE modifiers for recovery lanes.
+ * @param {SimpleActor} actor
+ */
+export function getRecoveryAEModifiers(actor) {
+  const map = buildActorAETotalsMap(actor);
+  return {
+    naturalHealing: {
+      multiplier: map["system.modifiers.recovery.naturalHealing.multiplier"] ?? { add: 0, override: null },
+      flatBonus: map["system.modifiers.recovery.naturalHealing.flatBonus"] ?? { add: 0, override: null }
+    },
+    magicka: {
+      multiplier: map["system.modifiers.recovery.magicka.multiplier"] ?? { add: 0, override: null }
+    },
+    stamina: {
+      multiplier: map["system.modifiers.recovery.stamina.multiplier"] ?? { add: 0, override: null }
+    }
+  };
+}
+
+/**
  * Read deterministic AE modifiers for Carry/Encumbrance.
  * @param {SimpleActor} actor
  */
@@ -327,82 +310,19 @@ export function getFatigueAEModifiers(actor) {
  */
 export function applyResistanceAEModifiers(actor, resistanceData) {
   if (!resistanceData || typeof resistanceData !== 'object') return resistanceData;
-  
-  // Map of resistance keys to their corresponding AE key paths
-  const resistanceKeyMap = {
-    fireR: {
-      legacy: "system.modifiers.resistance.fireR",
-      traits: "system.traits.resistance.fire"
-    },
-    frostR: {
-      legacy: "system.modifiers.resistance.frostR",
-      traits: "system.traits.resistance.frost"
-    },
-    shockR: {
-      legacy: "system.modifiers.resistance.shockR",
-      traits: "system.traits.resistance.shock"
-    },
-    poisonR: {
-      legacy: "system.modifiers.resistance.poisonR",
-      resistances: "system.resistances.poison",
-      traits: "system.traits.resistance.poison"
-    },
-    magicR: {
-      legacy: "system.modifiers.resistance.magicR",
-      resistances: "system.resistances.magic"
-    },
-    diseaseR: {
-      legacy: "system.modifiers.resistance.diseaseR",
-      resistances: "system.resistances.disease",
-      traits: "system.traits.resistance.disease"
-    },
-    silverR: {
-      legacy: "system.modifiers.resistance.silverR"
-    },
-    sunlightR: {
-      legacy: "system.modifiers.resistance.sunlightR"
-    },
-    natToughness: {
-      legacy: "system.modifiers.resistance.natToughness"
-    }
-  };
-  
+
   // Use the centrally-cached totals map (includes all resistance key paths).
   const aeMods = buildActorAETotalsMap(actor);
-  
+
   // Apply modifiers to each resistance value
   const result = { ...resistanceData };
-  for (const resKey in resistanceKeyMap) {
-    const paths = resistanceKeyMap[resKey];
-    let totalAdd = 0;
-    let hasOverride = false;
-    let overrideVal = 0;
-    
-    // Collect ADD/OVERRIDE from all applicable AE key paths for this resistance.
-    // If ANY path has an OVERRIDE, it wins over ADDs (per system convention).
-    for (const pathKey of ["legacy", "resistances", "traits"]) {
-      const aeKey = paths[pathKey];
-      if (!aeKey) continue;
-      const m = aeMods[aeKey];
-      if (!m) continue;
-      if (m.override != null) {
-        hasOverride = true;
-        overrideVal += Number(m.override);
-      } else {
-        totalAdd += Number(m.add ?? 0);
-      }
-    }
-    
-    // Apply: OVERRIDE replaces base; ADD is additive to base.
-    if (typeof result[resKey] === 'number') {
-      if (hasOverride) {
-        result[resKey] = overrideVal;
-      } else if (totalAdd !== 0) {
-        result[resKey] = Number(result[resKey] ?? 0) + totalAdd;
-      }
-    }
+  for (const [resKey, keys] of Object.entries(RESISTANCE_AE_PATHS)) {
+    const merged = mergeModifierTotals(keys.map((key) => aeMods[key]), { accumulateOverrides: true });
+    if (typeof result[resKey] !== 'number') continue;
+    if (merged.override != null) result[resKey] = Number(merged.override);
+    else if (merged.add) result[resKey] = Number(result[resKey] ?? 0) + Number(merged.add);
   }
-  
+
   return result;
 }
 
@@ -504,9 +424,9 @@ export function collectSkillAEModifiers(actor) {
       const val = Number(change.value) || 0;
       const mode = Number(change.mode);
       // mode 5 = OVERRIDE, mode 2 = ADD (Foundry CONST.ACTIVE_EFFECT_MODES)
-      if (mode === 5) {
+      if (isOverrideMode(mode)) {
         overrideTracker[name] = val;
-      } else {
+      } else if (isAddMode(mode)) {
         result[name] = (result[name] ?? 0) + val;
       }
     }

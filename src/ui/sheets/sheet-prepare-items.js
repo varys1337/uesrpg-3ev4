@@ -1,5 +1,6 @@
 import { shouldHideFromMainInventory } from "./sheet-inventory.js";
 import { isShieldItem } from "../../core/items/shield-utils.js";
+import { TRAINING_RANK_LABELS } from "../../core/config/label-catalog.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { buildWeaponAmmoControlState } from "./shared/weapon-ammo-control.js";
 
@@ -266,17 +267,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   if (isNpc) {
     actorData.ui = actorData.ui || {};
     if (!actorData.ui.npcMagicRankOptions) {
-      actorData.ui.npcMagicRankOptions = {
-        untrained: "Untrained",
-        novice: "Novice",
-        apprentice: "Apprentice",
-        journeyman: "Journeyman",
-        adept: "Adept",
-        expert: "Expert",
-        master: "Master",
-        grandmaster: "Grandmaster",
-        legendary: "Legendary"
-      };
+      actorData.ui.npcMagicRankOptions = TRAINING_RANK_LABELS;
     }
   }
 

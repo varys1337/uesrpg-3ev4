@@ -2,8 +2,6 @@
  * Extend the base Item entity with system-specific functionality.
  * @extends {Item}
  */
-import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
-import { hasLegacyQualityToken, sumLegacyQualityParam } from "./item-utils.js";
 import { prepareArmorItem } from "./item-prepare/armor.js";
 import { prepareNormalItem } from "./item-prepare/normal.js";
 import { prepareWeaponItem } from "./item-prepare/weapon.js";
@@ -12,7 +10,9 @@ import { prepareModSkillItems } from "./item-prepare/mod-skill-items.js";
 import { prepareCombatStyleData } from "./item-prepare/combat-style.js";
 import { prepareContainerItem } from "./item-prepare/container.js";
 import { prepareShieldItem } from "./item-prepare/shield.js";
+import { buildInjectedStructuredQualities } from "./item-prepare/shared.js";
 import { isLegacyShieldSystemData } from "../items/shield-utils.js";
+import { duplicateContainedItemsOnActor } from "./item/container-lifecycle.js";
 
 export class SimpleItem extends Item {
   async _preCreate(data, options, user) {
@@ -30,7 +30,7 @@ export class SimpleItem extends Item {
     await super._onCreate(data, options, user);
     switch (data.type) {
       case 'container':
-        await this._duplicateContainedItemsOnActor(this.actor, data);
+        await duplicateContainedItemsOnActor(this, this.actor, data);
         break;
     }
   }
@@ -87,62 +87,7 @@ export class SimpleItem extends Item {
    * - Stored on `system.qualitiesStructuredInjected` for automation consumers.
    */
   _injectAutoQualities(itemData) {
-    const manual = Array.isArray(itemData.qualitiesStructured) ? itemData.qualitiesStructured : [];
-    const autoQ = Array.isArray(itemData.autoQualitiesStructured)
-      ? itemData.autoQualitiesStructured
-      : [];
-
-    const byKey = new Map();
-
-    // Manual first (authoritative for values)
-    for (const q of manual) {
-      if (!q) continue;
-      const rawKey = String(q.key ?? "").trim();
-      const key = rawKey.toLowerCase();
-      if (!key) continue;
-      const entry = { key };
-      if (q.value !== undefined && q.value !== null && q.value !== "") {
-        const n = Number(q.value);
-        if (Number.isFinite(n)) entry.value = n;
-      }
-      byKey.set(key, entry);
-    }
-
-    // Auto second (only if not already present).
-    for (const q of autoQ) {
-      if (!q) continue;
-      const rawKey = String(q.key ?? q ?? "").trim();
-      const key = rawKey.toLowerCase();
-      if (!key) continue;
-      if (byKey.has(key)) continue;
-      const entry = { key };
-      if (q.value !== undefined && q.value !== null && q.value !== "") {
-        const n = Number(q.value);
-        if (Number.isFinite(n)) entry.value = n;
-      }
-      byKey.set(key, entry);
-    }
-
-    // Legacy qualities parsing (weapons only): make sure common RAW qualities are available
-    // to automation even if the item was not updated via the Structured Qualities UI.
-    if (this.type === "weapon") {
-      const legacyText = String(itemData.qualities ?? "");
-
-      // Primitive / Proven (weapon quality level also auto-grants these, but legacy items may store it only as text)
-      if (!byKey.has("primitive") && hasLegacyQualityToken(legacyText, "primitive")) {
-        byKey.set("primitive", { key: "primitive" });
-      }
-      if (!byKey.has("proven") && hasLegacyQualityToken(legacyText, "proven")) {
-        byKey.set("proven", { key: "proven" });
-      }
-
-      // Damaged (X) stacks; store the summed value if no structured entry exists.
-      if (!byKey.has("damaged")) {
-        const dv = sumLegacyQualityParam(legacyText, "Damaged");
-        if (dv > 0) byKey.set("damaged", { key: "damaged", value: dv });
-      }
-    }
-    itemData.qualitiesStructuredInjected = Array.from(byKey.values());
+    itemData.qualitiesStructuredInjected = buildInjectedStructuredQualities(this.type, itemData);
   }
 
 
@@ -197,30 +142,7 @@ _prepareContainerItem(actorData, itemData) {
 }
 
 async _duplicateContainedItemsOnActor(actorData, itemData) {
-  if (!actorData || !Array.isArray(itemData?.system?.contained_items)) return;
-
-  const itemsToDuplicate = [];
-  for (const containedItem of itemData.system.contained_items) {
-    const clone = containedItem?.item ? (containedItem.item.toObject ? containedItem.item.toObject() : containedItem.item) : containedItem;
-    if (!clone) continue;
-    clone.system = clone.system || {};
-    clone.system.containerStats = clone.system.containerStats || {};
-    clone.system.containerStats.container_id = itemData._id;
-    itemsToDuplicate.push(clone);
-  }
-
-  if (itemsToDuplicate.length === 0) return;
-
-  try {
-    const createdContainedItems = await requestCreateEmbeddedDocuments(actorData, "Item", itemsToDuplicate);
-
-    // Persist the newly created item references back to the container document.
-    const newContainedItems = (createdContainedItems ?? []).map(item => ({ _id: item._id, item }));
-    await requestUpdateDocument(this, { 'system.contained_items': newContainedItems });
-  } catch (err) {
-    console.error("UESRPG | Failed to duplicate contained items onto actor", { container: this.name, err });
-    ui.notifications?.error?.("Failed to create contained items for container.");
-  }
+  await duplicateContainedItemsOnActor(this, actorData, itemData);
 }
   _untrainedException(actorData) {
     // Defensive guard: safe property access and array filtering

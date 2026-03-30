@@ -1,14 +1,8 @@
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { cloneFlagState, clonePlain } from "../../utils/clone.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 const FLAG_KEY = "travelPlanner";
 const STATE_VERSION = 1;
-
-function deepClone(value) {
-  if (typeof foundry?.utils?.deepClone === "function") {
-    return foundry.utils.deepClone(value);
-  }
-  return JSON.parse(JSON.stringify(value));
-}
 
 function normalizeTableMappings(map = {}) {
   const normalized = {};
@@ -89,7 +83,7 @@ export function createDefaultTravelPlannerState() {
 export function migrateTravelPlannerState(rawState) {
   const base = createDefaultTravelPlannerState();
   if (!rawState || typeof rawState !== "object") return base;
-  const next = foundry.utils.mergeObject(base, deepClone(rawState), {
+  const next = foundry.utils.mergeObject(base, cloneFlagState(rawState), {
     inplace: false,
     insertKeys: true,
     insertValues: true,
@@ -124,8 +118,8 @@ export async function updateTravelPlannerState(groupActor, updater) {
   if (!groupActor) throw new Error("Missing Group actor for travel planner update.");
   const current = getTravelPlannerState(groupActor);
   const next = typeof updater === "function"
-    ? updater(deepClone(current))
-    : foundry.utils.mergeObject(current, deepClone(updater ?? {}), {
+    ? updater(clonePlain(current))
+    : foundry.utils.mergeObject(current, clonePlain(updater ?? {}), {
       inplace: false,
       overwrite: true,
       insertKeys: true,
@@ -142,8 +136,8 @@ export async function resetTravelPlannerState(groupActor, { keepTables = true } 
   const existing = getTravelPlannerState(groupActor);
   const fresh = createDefaultTravelPlannerState();
   if (keepTables) {
-    fresh.travel.eventTablesByTerrain = deepClone(existing.travel.eventTablesByTerrain ?? {});
-    fresh.camping.eventTablesByTerrain = deepClone(existing.camping.eventTablesByTerrain ?? {});
+    fresh.travel.eventTablesByTerrain = clonePlain(existing.travel.eventTablesByTerrain ?? {});
+    fresh.camping.eventTablesByTerrain = clonePlain(existing.camping.eventTablesByTerrain ?? {});
   }
   await requestUpdateDocument(groupActor, {
     [`flags.${FLAG_SCOPE}.${FLAG_KEY}`]: fresh,

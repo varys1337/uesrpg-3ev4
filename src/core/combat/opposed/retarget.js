@@ -22,6 +22,7 @@ import {
   _resolveDefenderIndex
 } from "./schema.js";
 import { _isBankChoicesEnabledForData, _getBankCommitState } from "./banking/state.js";
+import { _resolveDoc, _resolveActor } from "./helpers/docs.js";
 import { _anyActiveGMOnline, _safeGetSetting } from "./helpers/util.js";
 import { inferAttackModeFromPreferredWeapon, getPreferredWeaponUuid, getContextAttackMode } from "./helpers/workflow.js";
 import { getExplicitActiveCombatStyleItem } from "../combat-style-utils.js";
@@ -48,24 +49,6 @@ function _retargetDebug(event, payload = {}) {
   } catch (_e) {
     // no-op
   }
-}
-
-function _resolveDoc(uuid) {
-  if (!uuid) return null;
-  try {
-    return fromUuidSync(uuid);
-  } catch (_e) {
-    return null;
-  }
-}
-
-function _resolveActor(docOrUuid) {
-  const doc = (typeof docOrUuid === "string") ? _resolveDoc(docOrUuid) : docOrUuid;
-  if (!doc) return null;
-  if (doc.documentName === "Actor") return doc;
-  if (doc.documentName === "Token") return doc.actor ?? null;
-  if (doc.actor) return doc.actor;
-  return null;
 }
 
 function _resolveToken(docOrUuid) {

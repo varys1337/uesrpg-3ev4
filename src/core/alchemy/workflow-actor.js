@@ -1,5 +1,6 @@
 import { getMagicSkillLevel } from "../magic/magicka-utils.js";
 import { getAlchemyFlags } from "./shared.js";
+import { getActorItemsArray, normalizeAlchemyName } from "./utils.js";
 
 const RANK_TO_NUMERIC = Object.freeze({
   untrained: -1,
@@ -12,14 +13,6 @@ const RANK_TO_NUMERIC = Object.freeze({
   grandmaster: 6,
   legendary: 7,
 });
-
-function _actorItems(actor) {
-  return Array.from(actor?.items ?? []);
-}
-
-function _normalizeAlchemyName(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
 
 function _resolveAlchemyTN(skill) {
   return Math.max(
@@ -56,14 +49,15 @@ function _resolveAlchemyRank(actor, skill) {
   return tn > 0 ? Math.max(1, Math.floor(tn / 10)) : 0;
 }
 
-export function getAlchemySkill(actor) {
-  const candidates = _actorItems(actor).filter((item) => item?.type === "skill" || item?.type === "magicSkill");
+export function getAlchemySkill(actor, { items = null } = {}) {
+  const actorItems = Array.isArray(items) ? items : getActorItemsArray(actor);
+  const candidates = actorItems.filter((item) => item?.type === "skill" || item?.type === "magicSkill");
   if (!candidates.length) return null;
 
   return candidates
     .map((item) => {
       const name = String(item?.name ?? "").trim();
-      const normalized = _normalizeAlchemyName(name);
+      const normalized = normalizeAlchemyName(name);
       let score = 0;
       if (normalized === "alchemy") score += 100;
       else if (name.toLowerCase() === "alchemy") score += 75;
@@ -75,15 +69,16 @@ export function getAlchemySkill(actor) {
     .sort((a, b) => b.score - a.score)[0]?.item ?? null;
 }
 
-export function getAlchemySkillSnapshot(actor, { skill = null } = {}) {
-  const item = skill ?? getAlchemySkill(actor);
+export function getAlchemySkillSnapshot(actor, { skill = null, items = null } = {}) {
+  const item = skill ?? getAlchemySkill(actor, { items });
   const tn = _resolveAlchemyTN(item);
   const rank = _resolveAlchemyRank(actor, item);
   return { item, tn, rank, found: Boolean(item && tn > 0 && rank > 0) };
 }
 
-export function getAlchemyTalents(actor) {
-  const talents = _actorItems(actor).filter((item) => item?.type === "talent");
+export function getAlchemyTalents(actor, { items = null } = {}) {
+  const actorItems = Array.isArray(items) ? items : getActorItemsArray(actor);
+  const talents = actorItems.filter((item) => item?.type === "talent");
 
   const hasName = (name) =>
     talents.some((t) => String(t.name ?? "").toLowerCase() === name.toLowerCase());

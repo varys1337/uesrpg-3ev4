@@ -13,37 +13,15 @@ import { FoundryCoreProvider } from "./providers/foundry-core-provider.js";
 import { CalendariaProvider } from "./providers/calendaria-provider.js";
 import { _num } from "../../utils/coerce.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
-
-// Reserved for future use (settings, flags, etc).
-const NAMESPACE = "uesrpg-3ev4";
-
-function _nowMs() {
-  return Date.now();
-}
-
-function _safeCallAll(hookName, payload) {
-  try {
-    Hooks.callAll(hookName, payload);
-  } catch (err) {
-    console.error(`UESRPG | time-service | Hooks.callAll failed for ${hookName}`, err);
-  }
-}
-
-function _combatSnapshot(combat) {
-  const c = combat ?? game?.combat ?? null;
-  if (!c) return null;
-  return {
-    id: c.id ?? null,
-    started: Boolean(c.started),
-    round: _num(c.round, 0),
-    turn: _num(c.turn, 0)
-  };
-}
-
-function _isCombatLikeSource(source) {
-  const s = String(source ?? "");
-  return s === "combat" || s.startsWith("combat");
-}
+import {
+  buildTimePublicApi,
+  combatSnapshot,
+  isCombatLikeSource,
+  noteEmit,
+  nowMs,
+  safeCallAll,
+  shouldDedupe,
+} from "./service-helpers.js";
 
 class TimeServiceImpl {
   constructor() {
@@ -329,40 +307,7 @@ class TimeServiceImpl {
     if (this._publicApi) return this._publicApi;
 
     // Bind methods once for stable references.
-    const api = {
-      // Canonical API
-      getWorldTimeSeconds: this.getWorldTimeSeconds.bind(this),
-      getRoundTimeSeconds: this.getRoundTimeSeconds.bind(this),
-      toCalendarComponents: this.toCalendarComponents.bind(this),
-      componentsToWorldTimeSeconds: this.componentsToWorldTimeSeconds.bind(this),
-      format: this.format.bind(this),
-      advanceWorldTimeSeconds: this.advanceWorldTimeSeconds.bind(this),
-      advanceWorldTimeToPreset: this.advanceWorldTimeToPreset.bind(this),
-
-      // Interop aliases
-      worldTimeSecondsToComponents: this.worldTimeSecondsToComponents.bind(this),
-      formatWorldTime: this.formatWorldTime.bind(this),
-
-      isCalendariaActive: this.isCalendariaActive.bind(this),
-      getCalendariaApi: this.getCalendariaApi.bind(this),
-
-      onTimeChange: this.onTimeChange.bind(this),
-      offTimeChange: this.offTimeChange.bind(this),
-
-      // Adapter registration for other calendar modules.
-      registerAdapter: this.registerAdapter.bind(this),
-      unregisterAdapter: this.unregisterAdapter.bind(this)
-    };
-
-    // Only expose the Calendaria namespace when Calendaria is active and API is present.
-    // This is a getter so that late module init does not permanently lock it to null.
-    Object.defineProperty(api, "calendaria", {
-      enumerable: true,
-      configurable: false,
-      get: () => (this._calendaria.isAvailable() ? this._calendariaNamespace : null)
-    });
-
-    this._publicApi = api;
+    this._publicApi = buildTimePublicApi(this, this._calendariaNamespace);
     return this._publicApi;
   }
 
@@ -371,10 +316,10 @@ class TimeServiceImpl {
     const _t0 = isPerfEnabled() ? monoMs() : 0;
 
     // Fire system-level hook first for interop.
-    _safeCallAll("uesrpg.timeChanged", p);
+    safeCallAll("uesrpg.timeChanged", p);
 
-    if (_isCombatLikeSource(p?.source)) {
-      _safeCallAll("uesrpg.combatTimeChanged", p);
+    if (isCombatLikeSource(p?.source)) {
+      safeCallAll("uesrpg.combatTimeChanged", p);
     }
 
     for (const cb of Array.from(this._listeners)) {
@@ -405,25 +350,11 @@ class TimeServiceImpl {
     const wt = _num(worldTimeSeconds, null);
     if (wt == null) return false;
 
-    const now = _nowMs();
-    const last = this._lastEmit;
-
-    // Only dedupe identical worldTime within a short window.
-    if (last.worldTimeSeconds === wt && (now - _num(last.atMs, 0)) <= 250) {
-      // Always allow combat-like sources to be emitted separately.
-      if (_isCombatLikeSource(source) || _isCombatLikeSource(last.source)) return false;
-      return true;
-    }
-
-    return false;
+    return shouldDedupe(this._lastEmit, wt, source);
   }
 
   _noteEmit(worldTimeSeconds, source) {
-    this._lastEmit = {
-      worldTimeSeconds: _num(worldTimeSeconds, null),
-      atMs: _nowMs(),
-      source: String(source ?? "") || null
-    };
+    this._lastEmit = noteEmit(worldTimeSeconds, source);
   }
 
   _handleWorldTimeUpdate(worldTime, dtSeconds, options, userId) {
@@ -441,7 +372,7 @@ class TimeServiceImpl {
       source: "worldTime",
       userId: userId ?? null,
       options: options ?? null,
-      combat: _combatSnapshot()
+      combat: combatSnapshot(null, _num)
     };
 
     this._noteEmit(wt, "worldTime");
@@ -473,7 +404,7 @@ class TimeServiceImpl {
       source: "calendaria",
       userId: data?.userId ?? null,
       options: data ?? null,
-      combat: _combatSnapshot()
+      combat: combatSnapshot(null, _num)
     };
 
     this._noteEmit(wt, "calendaria");
@@ -507,7 +438,7 @@ class TimeServiceImpl {
       : _num(c.turn, 0);
 
     const key = `${c.id ?? ""}::${nextRound}::${nextTurn}`;
-    const now = _nowMs();
+    const now = nowMs();
     if (this._lastCombatIntent.key === key && (now - _num(this._lastCombatIntent.atMs, 0)) <= 50) return;
     this._lastCombatIntent = { key, atMs: now };
 

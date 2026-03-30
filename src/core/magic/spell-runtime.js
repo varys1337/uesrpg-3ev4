@@ -20,6 +20,7 @@ import { registerLinkedEntity, getOriginAEs } from "./effects/origin-effect.js";
 import { _str, createDebugLogger, isDebugEnabled } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
 import { FLAG_SCOPE, SYSTEM_ID } from "../system/namespace.js";
+import { createUuidResolver, resolveUuidSync } from "../../utils/uuid-cache.js";
 
 // ── Shared Private Helpers ───────────────────────────────────────────────────
 
@@ -335,8 +336,9 @@ export async function linkTemplateToOriginAE(originAE, templateUuid, label = "")
  */
 export function getTokensInTemplate(templateDocOrUuid) {
   try {
+    const resolver = createUuidResolver();
     const doc = typeof templateDocOrUuid === "string"
-      ? fromUuidSync(templateDocOrUuid)
+      ? resolver.resolveSync(templateDocOrUuid)
       : templateDocOrUuid;
     if (!doc) return [];
 
@@ -556,8 +558,9 @@ function _rebuildZoneRegistryFull() {
  */
 function _getActiveSpellZonesFromRegistry() {
   const results = [];
+  const resolver = createUuidResolver();
   for (const [aeUuid, entry] of _zoneRegistry) {
-    const ae = fromUuidSync(aeUuid);
+    const ae = resolver.resolveSync(aeUuid) ?? resolveUuidSync(aeUuid);
     if (!ae) {
       // Stale entry — AE was removed without the deleteActiveEffect hook firing
       _zoneRegistry.delete(aeUuid);

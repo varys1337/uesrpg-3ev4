@@ -422,8 +422,8 @@ export async function handleDamageRoll(ctx) {
           // Free Action: 0 AP, initiate test with dropdown selection
           const attackerTokenUuid = data.attacker?.tokenUuid ?? null;
           const defenderTokenUuid = data.defender?.tokenUuid ?? null;
-          const attackerToken = attackerTokenUuid ? fromUuidSync(attackerTokenUuid)?.object : null;
-          const defenderToken = defenderTokenUuid ? fromUuidSync(defenderTokenUuid)?.object : null;
+          const attackerToken = attackerTokenUuid ? _resolveDoc(attackerTokenUuid)?.object : null;
+          const defenderToken = defenderTokenUuid ? _resolveDoc(defenderTokenUuid)?.object : null;
 
           if (attackerToken && defenderToken) {
             const { SkillOpposedWorkflow } = await import("../../../skills/opposed-workflow/index.js");

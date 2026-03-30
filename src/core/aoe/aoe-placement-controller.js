@@ -18,6 +18,14 @@
  * Target: Foundry VTT v13.351
  */
 
+import {
+  cleanupPreview,
+  getCanvasPosition,
+  snapToGrid as snapToGridPoint,
+  updatePreviewPosition,
+} from "./placement-helpers.js";
+import { measureDistanceMeters, resolveRangeOrigin } from "./measurement.js";
+
 /**
  * Re-entry guard: only one placement session at a time per client.
  * @type {boolean}
@@ -118,7 +126,7 @@ export async function startPlacement(templateData, options = {}) {
     return null;
   } finally {
     // --- Guaranteed cleanup ---
-    _cleanupPreview(previewTemplate);
+    cleanupPreview(previewTemplate);
 
     // Restore previous layer
     if (previousActiveLayer && typeof previousActiveLayer.activate === "function") {
@@ -196,11 +204,11 @@ function _interactivePlacementLoop(previewTemplate, previewDoc, opts) {
     // --- Pointer move: update preview position ---
     const onPointerMove = (ev) => {
       if (!active) return;
-      const pos = _getCanvasPosition(ev);
+      const pos = getCanvasPosition(ev);
       if (!pos) return;
 
-      const snapped = snapToGrid ? _snapToGrid(pos) : pos;
-      _updatePreviewPosition(previewTemplate, previewDoc, snapped.x, snapped.y, currentDirection);
+      const snapped = snapToGrid ? snapToGridPoint(pos) : pos;
+      updatePreviewPosition(previewTemplate, previewDoc, snapped.x, snapped.y, currentDirection);
     };
 
     // --- Left click: confirm placement ---
@@ -211,15 +219,15 @@ function _interactivePlacementLoop(previewTemplate, previewDoc, opts) {
       // v13 (PIXI v8): FederatedPointerEvent has .button directly
       if ((ev.button ?? ev.data?.button) !== 0) return;
 
-      const pos = _getCanvasPosition(ev);
+      const pos = getCanvasPosition(ev);
       if (!pos) return;
 
-      const snapped = snapToGrid ? _snapToGrid(pos) : pos;
+      const snapped = snapToGrid ? snapToGridPoint(pos) : pos;
 
       // Range gating (supports aoeOriginMeasurement setting for edge-based origins)
       if (Number.isFinite(maxRangeMeters) && maxRangeMeters > 0 && rangeOrigin) {
-        const effectiveOrigin = _resolveRangeOrigin(rangeOrigin);
-        const d = _measureDistanceMeters(effectiveOrigin, snapped);
+        const effectiveOrigin = resolveRangeOrigin(rangeOrigin);
+        const d = measureDistanceMeters(effectiveOrigin, snapped);
         if (d > maxRangeMeters) {
           ui.notifications?.warn(
             `Out of range (${Math.round(d)}m, max ${maxRangeMeters}m). ` +
@@ -261,7 +269,7 @@ function _interactivePlacementLoop(previewTemplate, previewDoc, opts) {
       currentDirection = (currentDirection + delta) % 360;
       if (currentDirection < 0) currentDirection += 360;
 
-      _updatePreviewPosition(previewTemplate, previewDoc, previewDoc.x, previewDoc.y, currentDirection);
+      updatePreviewPosition(previewTemplate, previewDoc, previewDoc.x, previewDoc.y, currentDirection);
     };
 
     // Install listeners

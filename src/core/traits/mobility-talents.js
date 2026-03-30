@@ -14,7 +14,7 @@ import { buildEffectDuration } from "../time/effect-duration.js";
 import { _lower } from "./_primitives.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
-import { getEffectChanges } from "../../utils/compat.js";
+import { evaluateAEModifierKeys, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 
 function _asInt(v, d = 0) {
   const n = Number(v);
@@ -67,10 +67,16 @@ function isAttackOfOpportunityLabel(label) {
  */
 export function shouldDeferEvadeApForStepAside({ defender, defenseType, attackerLabel = null } = {}) {
   if (!defender) return false;
-  if (!hasTalent(defender, "stepaside")) return false;
   if (_lower(defenseType) !== "evade") return false;
   if (!isAttackOfOpportunityLabel(attackerLabel)) return false;
-  return true;
+  const aeResolved = evaluateAEModifierKeys(defender, ["system.modifiers.combat.evadeAoOCost"], {
+    context: { defenseType: "evade", attackerLabel: String(attackerLabel ?? "") },
+    enforceConditions: true,
+    dedupeByOrigin: true
+  });
+  const evadeAoOCost = Number(aeResolved?.["system.modifiers.combat.evadeAoOCost"] ?? 0) || 0;
+  if (evadeAoOCost <= 0) return true;
+  return hasTalent(defender, "stepaside");
 }
 
 /**
@@ -184,17 +190,7 @@ export function isActorBlockedFromAoOAgainstTarget(actor, target) {
   if (!actor || !target) return false;
 
   // Global "noAoO" effects (e.g., Overwhelm advantage sets a flag-lane change on the actor).
-  try {
-    for (const ef of (actor.effects ?? [])) {
-      if (!ef || ef.disabled) continue;
-      const changes = getEffectChanges(ef);
-      if (changes.some(ch => String(ch?.key ?? "") === `flags.${FLAG_SCOPE}.combat.noAoO` && (String(ch?.value ?? "true") === "true"))) {
-        return true;
-      }
-    }
-  } catch (_e) {
-    // ignore
-  }
+  if (getActorCapabilityFlag(actor, `flags.${FLAG_SCOPE}.combat.noAoO`)) return true;
 
   // Target-scoped blocks (Assassin Strike).
   const scope = "uesrpg-3ev4";

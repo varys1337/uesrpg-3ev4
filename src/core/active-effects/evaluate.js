@@ -1,5 +1,6 @@
 import { collectApplicableEffects, getApplicableEffectsCached } from "./collect.js";
 import { createEvaluationMemo, effectMatchesContext } from "./conditions.js";
+import { getEffectChangePriority, isAddMode, isOverrideMode, toNumericEffectValue } from "./reducers.js";
 import { getEffectChanges } from "../../utils/compat.js";
 
 /**
@@ -101,7 +102,7 @@ function _evaluateCore(actor, keys, options = {}) {
       const mode = change?.mode;
       const rawValue = change?.value;
 
-      const numeric = _toNumber(rawValue);
+      const numeric = toNumericEffectValue(rawValue);
       if (numeric === null) {
         if (debug) console.debug("[UESRPG|AE] Ignoring non-numeric AE change", { change, effect });
         continue;
@@ -121,7 +122,7 @@ function _evaluateCore(actor, keys, options = {}) {
         });
       }
 
-      if (_isAddMode(mode)) {
+      if (isAddMode(mode)) {
         const mapForKey = addByKeyByEffect.get(key);
         if (!mapForKey) continue;
         const prev = mapForKey.get(effKey) ?? 0;
@@ -129,8 +130,8 @@ function _evaluateCore(actor, keys, options = {}) {
         continue;
       }
 
-      if (_isOverrideMode(mode)) {
-        const priority = _getChangePriority(change);
+      if (isOverrideMode(mode)) {
+        const priority = getEffectChangePriority(change);
         const cand = { effKey, value: numeric, priority, order: changeOrder++ };
         const best = overrideByKey.get(key);
         if (!best || cand.priority > best.priority || (cand.priority === best.priority && cand.order > best.order)) {
@@ -241,49 +242,4 @@ export function buildAEBreakdownEntries(detailsByKey) {
   }
 
   return Array.from(byEffect.values()).filter(e => (Number(e.value) || 0) !== 0);
-}
-
-function _toNumber(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (trimmed.length === 0) return null;
-    const n = Number(trimmed);
-    if (Number.isFinite(n)) return n;
-    return null;
-  }
-
-  return null;
-}
-
-function _isAddMode(mode) {
-  if (mode === 2 || mode === "ADD") return true;
-  const CONST_MODES = globalThis?.CONST?.ACTIVE_EFFECT_MODES;
-  if (CONST_MODES && mode === CONST_MODES.ADD) return true;
-  return false;
-}
-
-function _isOverrideMode(mode) {
-  if (mode === 5 || mode === "OVERRIDE") return true;
-  const CONST_MODES = globalThis?.CONST?.ACTIVE_EFFECT_MODES;
-  if (CONST_MODES && mode === CONST_MODES.OVERRIDE) return true;
-  return false;
-}
-
-function _getChangePriority(change) {
-  const pr = Number(change?.priority);
-  if (Number.isFinite(pr)) return pr;
-
-  const defaults = globalThis?.ActiveEffectConfig?.DEFAULT_PRIORITIES;
-  if (defaults && typeof defaults === "object") {
-    const mode = change?.mode;
-    if (typeof mode === "number" && Number.isFinite(mode) && mode in defaults) {
-      const n = Number(defaults[mode]);
-      if (Number.isFinite(n)) return n;
-    }
-  }
-
-  return 0;
 }

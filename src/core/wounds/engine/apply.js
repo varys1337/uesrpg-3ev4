@@ -7,6 +7,8 @@
 
 import { doTestRoll, formatResultOutcomeLabel } from "../../../utils/degree-roll-helper.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateChatMessage, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { createSeverityDebugLogger } from "../../../utils/debug.js";
+import { createUuidResolver } from "../../../utils/uuid-cache.js";
 import { isActorUndead, isActorUndeadBloodless } from "../../traits/trait-registry.js";
 import { hasTalent } from "../../traits/talents-api.js";
 import { applyGroupedEffect, getEffectGroup } from "../../../utils/ae-helpers.js";
@@ -27,19 +29,13 @@ import {
 } from "./calc.js";
 import { makeEffect, getWhisperRecipientsForActor } from "./format.js";
 import { getWoundState, isDerivedWounded, getBloodLossStatus, WOUND_STATES } from "./state.js";
+import { buildDifficultyOptionsHtml, deleteOwnedEffects, getCurrentWorldTimeSeconds } from "../shared.js";
 
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const _SHOCK_IN_FLIGHT = new Set();
 const _INVARIANTS_IN_FLIGHT = new Map();
 const esc = (s) => foundry.utils.escapeHTML(String(s ?? ""));
-
-function _difficultyOptionsHtml(defaultKey = "average") {
-  return SKILL_DIFFICULTIES.map((d) => {
-    const sign = d.mod >= 0 ? "+" : "";
-    const selected = d.key === defaultKey ? "selected" : "";
-    return `<option value="${d.key}" ${selected}>${d.label} (${sign}${d.mod})</option>`;
-  }).join("\n");
-}
+const _debugWounds = createSeverityDebugLogger("woundsDebug", "[UESRPG][Wounds]", "debug");
 
 async function _promptShockRollOptions(actor, baseTn) {
   const content = `
@@ -50,7 +46,7 @@ async function _promptShockRollOptions(actor, baseTn) {
       </div>
       <div class="form-group" style="margin-top:8px;">
         <label><b>Difficulty</b></label>
-        <select name="difficultyKey" style="width:100%;">${_difficultyOptionsHtml("average")}</select>
+        <select name="difficultyKey" style="width:100%;">${buildDifficultyOptionsHtml("average")}</select>
       </div>
       <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
         <label style="margin:0;"><b>Manual Modifier</b></label>
@@ -77,21 +73,14 @@ async function _promptShockRollOptions(actor, baseTn) {
     width: 420
   });
   if (!picked) return null;
-  const diff = SKILL_DIFFICULTIES.find((d) => d.key === String(picked.difficultyKey ?? "average")) ?? SKILL_DIFFICULTIES.find((d) => d.key === "average");
+  const diff = SKILL_DIFFICULTIES.find((d) => d.key === String(picked.difficultyKey ?? "average"))
+    ?? SKILL_DIFFICULTIES.find((d) => d.key === "average");
   const finalTn = Math.max(0, (Number(baseTn) || 0) + (Number(diff?.mod ?? 0) || 0) + (Number(picked.manualMod ?? 0) || 0));
   return {
     difficulty: diff,
     manualMod: Number(picked.manualMod ?? 0) || 0,
     target: finalTn
   };
-}
-
-function _currentWorldTimeSeconds() {
-  const fromApi = Number(game?.uesrpg?.time?.getWorldTimeSeconds?.() ?? NaN);
-  if (Number.isFinite(fromApi)) return fromApi;
-  const fromCore = Number(game?.time?.worldTime ?? NaN);
-  if (Number.isFinite(fromCore)) return fromCore;
-  return 0;
 }
 
 function _findShockMarker(actor, { applicationId = "", kind = "", hitLocation = "" } = {}) {
@@ -239,35 +228,6 @@ export async function applyMaimedOutcomeForWound(actor, woundEffect, { reason = 
   return { applied: true, reason };
 }
 
-async function _deleteEffects(actor, effectIds, { reason = "wounds" } = {}) {
-  if (!actor || !Array.isArray(effectIds) || !effectIds.length) return true;
-
-  const ids = effectIds
-    .map((id) => String(id ?? "").trim())
-    .filter(Boolean);
-  if (!ids.length) return true;
-
-  try {
-    const ok = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
-    if (ok !== false) return true;
-  } catch (_err) {
-    // Fall through to one-by-one fallback.
-  }
-
-  let allOk = true;
-  for (const id of ids) {
-    try {
-      const ok = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [id]);
-      if (ok === false) allOk = false;
-    } catch (_err) {
-      allOk = false;
-    }
-  }
-  if (!allOk) {
-    console.warn(`${SYSTEM_ID} | Failed to delete one or more ActiveEffects during ${reason}`, { actor: actor?.uuid ?? actor?.id ?? null });
-  }
-  return allOk;
-}
 
 /**
  * Apply unconditional shock effects (immediate, not test-gated)
@@ -471,10 +431,6 @@ export async function postShockTestChatCard({ actor, woundEffect, hitLocation, d
   if (!actor || !woundEffect) return;
   const endTN = Number(actor.system?.characteristics?.end?.total ?? 0) || 0;
   const hitLocationLabel = hitLocation?.label ?? String(hitLocation ?? "");
-  const actorName = esc(actor.name);
-  const safeHitLocationLabel = esc(hitLocationLabel || "(unknown)");
-  const actorUuid = esc(actor.uuid);
-  const woundEffectId = esc(woundEffect.id);
 
   const cardHtml = _renderShockTestCard({
     actor,
@@ -497,6 +453,9 @@ export async function postShockTestChatCard({ actor, woundEffect, hitLocation, d
         endTN,
         finalTN: null,
         rollTotal: null,
+        isSuccess: null,
+        isCriticalSuccess: null,
+        isCriticalFailure: null,
         passed: null,
         dieHardRerolled: false,
         failNote: null,
@@ -539,6 +498,9 @@ function _renderShockTestCard({
   endTN,
   finalTN = null,
   rollTotal = null,
+  isSuccess = null,
+  isCriticalSuccess = null,
+  isCriticalFailure = null,
   passed = null,
   dieHardRerolled = false,
   failNote = null,
@@ -550,6 +512,7 @@ function _renderShockTestCard({
   const safeHitLocationLabel = esc(hitLocationLabel || "(unknown)");
   const actorUuid = esc(actor?.uuid ?? "");
   const safeWoundEffectId = esc(woundEffectId ?? "");
+  const outcomeSuccess = isSuccess ?? passed;
   const hasFinalTn = finalTN !== null && finalTN !== undefined && String(finalTN) !== "";
   const hasRollTotal = rollTotal !== null && rollTotal !== undefined && String(rollTotal) !== "";
   const pendingRows = `
@@ -565,7 +528,7 @@ function _renderShockTestCard({
       <div><strong>Location:</strong> ${safeHitLocationLabel}</div>
       ${hasFinalTn ? `<div><strong>TN:</strong> ${Number(finalTN)}</div>` : ``}
       ${hasRollTotal ? `<div><strong>Roll:</strong> ${Number(rollTotal)}</div>` : ``}
-      <div><strong>Result:</strong> ${formatResultOutcomeLabel({ isSuccess: passed, isCriticalSuccess: result?.isCriticalSuccess, isCriticalFailure: result?.isCriticalFailure })}</div>
+      <div><strong>Result:</strong> ${formatResultOutcomeLabel({ isSuccess: outcomeSuccess, isCriticalSuccess, isCriticalFailure })}</div>
       ${dieHardRerolled ? `<div><strong>Die-Hard:</strong> Reroll used</div>` : ``}
       ${failNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>Consequence:</strong><span style="overflow-wrap:anywhere;">${esc(failNote)}</span></div>` : ``}
       ${magicNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>Magic:</strong><span style="overflow-wrap:anywhere;">${esc(magicNote)}</span></div>` : ``}
@@ -730,7 +693,7 @@ export async function enforceWoundInvariants(actor, { context = "unknown" } = {}
 
       if (p >= d) {
         try {
-          await _deleteEffects(actor, [ef.id], { reason: "enforceWoundInvariants:deleteHealedWounds" });
+          await deleteOwnedEffects(actor, [ef.id], { reason: "enforceWoundInvariants:deleteHealedWounds" });
         } catch (err) {
           console.warn(`${SYSTEM_ID} | Failed to delete fully healed wound effect`, err);
         }
@@ -785,7 +748,7 @@ export async function cleanupWoundStateIfNoWounds(actor) {
   const toDelete = [...bloodLoss, ...forestall, ...firstAid];
 
   if (toDelete.length) {
-    await _deleteEffects(actor, toDelete.map((ef) => ef.id), { reason: "cleanupWoundStateIfNoWounds" });
+    await deleteOwnedEffects(actor, toDelete.map((ef) => ef.id), { reason: "cleanupWoundStateIfNoWounds" });
   }
 
   let clearedWounded = false;
@@ -808,7 +771,7 @@ export async function evaluateUntreatedWoundDeadlines(actor, { now = Date.now(),
 
   const worldNow = Number.isFinite(Number(nowWorldTimeSeconds))
     ? Number(nowWorldTimeSeconds)
-    : _currentWorldTimeSeconds();
+    : getCurrentWorldTimeSeconds();
   const wallNow = Number(now);
 
   let converted = 0;
@@ -879,7 +842,7 @@ export async function removeShockMarkersForApplication(actor, applicationId, { r
   if (!toDelete.length) return;
 
   try {
-    await _deleteEffects(actor, toDelete.map(e => e.id), { reason: "removeShockMarkersForApplication" });
+    await deleteOwnedEffects(actor, toDelete.map(e => e.id), { reason: "removeShockMarkersForApplication" });
   } catch (err) {
     console.warn(`${SYSTEM_ID} | Failed to remove shock markers for wound`, { appId, err });
   }
@@ -923,17 +886,13 @@ export async function activateWoundPassiveState(actor, { resetBloodLoss = true }
           }
         });
         await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effect]);
-        if (game.user?.isGM) {
-          console.debug("UESRPG | Wounds | Blood loss started", { actor: actor.uuid, remainingRounds: next });
-        }
+        _debugWounds("Blood loss started", { actor: actor.uuid, remainingRounds: next });
       } else {
         await requestUpdateDocument(existing, {
           name: `Blood Loss (${next})`,
           [`${FLAG_PATH}.wounds.remainingRounds`]: next
         });
-        if (game.user?.isGM) {
-          console.debug("UESRPG | Wounds | Blood loss reset", { actor: actor.uuid, remainingRounds: next });
-        }
+        _debugWounds("Blood loss reset", { actor: actor.uuid, remainingRounds: next });
       }
     } catch (err) {
       console.warn("UESRPG | Failed to start/reset Blood Loss after shock resolution", err);
@@ -1020,9 +979,7 @@ export async function tickBloodLoss(actor) {
         content: `<div class="uesrpg-chat-card"><div class="header"><b>${esc(actor.name)}</b></div><div>Blood loss: HP dropped to 0.</div></div>`,
         style: CONST.CHAT_MESSAGE_STYLES.OTHER
       });
-      if (game.user?.isGM) {
-        console.debug("UESRPG | Wounds | Blood loss expired, actor dropped to 0 HP", { actor: actor.uuid });
-      }
+      _debugWounds("Blood loss expired, actor dropped to 0 HP", { actor: actor.uuid });
     } catch (_e) {
       // Non-blocking.
     }
@@ -1242,13 +1199,14 @@ export async function resolveShockTestFromChat(...args) {
   const inflightKey = `${actorUuid}:${woundEffectId}`;
   if (_SHOCK_IN_FLIGHT.has(inflightKey)) return;
   _SHOCK_IN_FLIGHT.add(inflightKey);
+  const resolver = createUuidResolver();
 
   let woundEf = null;
   let resolvingSet = false;
   let shockCardState = { resolving: false, resolved: false };
 
   try {
-    const actor = await fromUuid(String(actorUuid));
+    const actor = await resolver.resolve(String(actorUuid));
     if (!actor) {
       ui.notifications?.warn?.("Shock: actor not found.");
       return;
@@ -1282,19 +1240,35 @@ export async function resolveShockTestFromChat(...args) {
     const shockMessage = shockMessageId ? (game.messages?.get(shockMessageId) ?? null) : null;
     const updateShockCard = async (patch = {}) => {
       if (!shockMessage) return;
+      const messageFlags = shockMessage.flags?.[FLAG_SCOPE]?.wounds ?? {};
+      const has = (key) => Object.prototype.hasOwnProperty.call(patch, key);
+      const nextIsSuccess = has("isSuccess")
+        ? patch.isSuccess
+        : has("passed")
+          ? patch.passed
+          : (messageFlags.isSuccess ?? messageFlags.passed ?? null);
       const nextState = {
         actor,
         woundEffectId,
         hitLocationLabel: w.hitLocation ?? "Body",
         endTN,
-        finalTN: patch.finalTN ?? null,
-        rollTotal: patch.rollTotal ?? null,
-        passed: Object.prototype.hasOwnProperty.call(patch, "passed") ? patch.passed : null,
-        dieHardRerolled: patch.dieHardRerolled === true,
-        failNote: patch.failNote ?? null,
-        magicNote: patch.magicNote ?? null,
-        resolving: patch.resolving === true,
-        resolved: patch.resolved === true
+        finalTN: has("finalTN") ? patch.finalTN : (messageFlags.finalTN ?? null),
+        rollTotal: has("rollTotal") ? patch.rollTotal : (messageFlags.rollTotal ?? null),
+        isSuccess: nextIsSuccess,
+        isCriticalSuccess: has("isCriticalSuccess")
+          ? patch.isCriticalSuccess
+          : (messageFlags.isCriticalSuccess ?? null),
+        isCriticalFailure: has("isCriticalFailure")
+          ? patch.isCriticalFailure
+          : (messageFlags.isCriticalFailure ?? null),
+        passed: nextIsSuccess,
+        dieHardRerolled: has("dieHardRerolled")
+          ? patch.dieHardRerolled === true
+          : messageFlags.dieHardRerolled === true,
+        failNote: has("failNote") ? patch.failNote : (messageFlags.failNote ?? null),
+        magicNote: has("magicNote") ? patch.magicNote : (messageFlags.magicNote ?? null),
+        resolving: has("resolving") ? patch.resolving === true : messageFlags.resolving === true,
+        resolved: has("resolved") ? patch.resolved === true : messageFlags.resolved === true
       };
       await requestUpdateChatMessage(shockMessage, {
         content: _renderShockTestCard(nextState),
@@ -1303,6 +1277,9 @@ export async function resolveShockTestFromChat(...args) {
         [`flags.${FLAG_SCOPE}.wounds.endTN`]: endTN,
         [`flags.${FLAG_SCOPE}.wounds.finalTN`]: nextState.finalTN,
         [`flags.${FLAG_SCOPE}.wounds.rollTotal`]: nextState.rollTotal,
+        [`flags.${FLAG_SCOPE}.wounds.isSuccess`]: nextState.isSuccess,
+        [`flags.${FLAG_SCOPE}.wounds.isCriticalSuccess`]: nextState.isCriticalSuccess,
+        [`flags.${FLAG_SCOPE}.wounds.isCriticalFailure`]: nextState.isCriticalFailure,
         [`flags.${FLAG_SCOPE}.wounds.passed`]: nextState.passed,
         [`flags.${FLAG_SCOPE}.wounds.dieHardRerolled`]: nextState.dieHardRerolled,
         [`flags.${FLAG_SCOPE}.wounds.failNote`]: nextState.failNote,
@@ -1418,6 +1395,9 @@ export async function resolveShockTestFromChat(...args) {
     await updateShockCard({
       finalTN: rollTn,
       rollTotal: Number(test?.roll?.total ?? test?.total ?? 0) || 0,
+      isSuccess: passed,
+      isCriticalSuccess: test?.isCriticalSuccess === true,
+      isCriticalFailure: test?.isCriticalFailure === true,
       passed,
       dieHardRerolled,
       failNote,
@@ -1438,7 +1418,7 @@ export async function resolveShockTestFromChat(...args) {
     }
     if (shockCardState.resolving && !shockCardState.resolved) {
       try {
-        const actor = actorUuid ? await fromUuid(String(actorUuid)) : null;
+        const actor = actorUuid ? await resolver.resolve(String(actorUuid)) : null;
         if (actor) {
           const wound = actor.effects?.get?.(String(woundEffectId)) ?? null;
           const woundFlags = wound?.getFlag?.(FLAG_SCOPE, "wounds") ?? {};

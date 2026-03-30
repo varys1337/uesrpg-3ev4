@@ -14,7 +14,7 @@
  *   3. In hot paths, replace game.settings.get(NAMESPACE, key) with getCachedSetting(key).
  */
 
-const NAMESPACE = "uesrpg-3ev4";
+import { SYSTEM_ID } from "../system/namespace.js";
 
 /** @type {Record<string, any>} */
 const _cache = {};
@@ -26,6 +26,8 @@ const _cache = {};
 const HOT_SETTING_KEYS = [
   "showFeatureInspector",
   "useRawChargenWizard",
+  "actionPointAutomation",
+  "dynamicInitiativeEnabled",
 ];
 
 /**
@@ -35,7 +37,7 @@ const HOT_SETTING_KEYS = [
 export function initSettingsCache() {
   for (const key of HOT_SETTING_KEYS) {
     try {
-      _cache[key] = game.settings.get(NAMESPACE, key);
+      _cache[key] = game.settings.get(SYSTEM_ID, key);
     } catch (_e) {
       _cache[key] = undefined;
     }
@@ -55,7 +57,7 @@ export function getCachedSetting(key) {
   }
   // Safe fallback for non-hot keys
   try {
-    return game.settings.get(NAMESPACE, key);
+    return game.settings.get(SYSTEM_ID, key);
   } catch (_e) {
     return undefined;
   }
@@ -69,7 +71,7 @@ export function getCachedSetting(key) {
  */
 export function invalidateCachedSetting(key) {
   try {
-    _cache[key] = game.settings.get(NAMESPACE, key);
+    _cache[key] = game.settings.get(SYSTEM_ID, key);
   } catch (_e) {
     // leave stale value rather than crashing
   }

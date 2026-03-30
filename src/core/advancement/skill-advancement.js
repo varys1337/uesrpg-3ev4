@@ -18,6 +18,8 @@
  */
 
 import { _num as _asNumber } from "../../utils/coerce.js";
+import { CHARACTERISTIC_KEYS, CHARACTERISTIC_LABELS, normalizeCharacteristicKey } from "../../utils/maps/characteristics.js";
+import { getMaxPurchasableSkillRankKeyFromXpTotal } from "./progression.js";
 
 export const SKILL_RANK_ORDER = Object.freeze([
   "untrained",
@@ -115,16 +117,13 @@ function _parseGoverningKeys(governingRaw) {
   const raw = String(governingRaw ?? "").trim().toLowerCase();
   if (!raw) return new Set();
 
-  // Token-based matching: keep it explicit and conservative.
   const keys = new Set();
-  if (/\bstr\b|\bstrength\b/.test(raw)) keys.add("str");
-  if (/\bend\b|\bendurance\b/.test(raw)) keys.add("end");
-  if (/\bagi\b|\bagility\b/.test(raw)) keys.add("agi");
-  if (/\bint\b|\bintelligence\b/.test(raw)) keys.add("int");
-  if (/\bwp\b|\bwillpower\b/.test(raw)) keys.add("wp");
-  if (/\bprc\b|\bperception\b/.test(raw)) keys.add("prc");
-  if (/\bprs\b|\bpersonality\b/.test(raw)) keys.add("prs");
-  if (/\blck\b|\bluck\b/.test(raw)) keys.add("lck");
+  for (const characteristicKey of CHARACTERISTIC_KEYS) {
+    const label = String(CHARACTERISTIC_LABELS[characteristicKey] ?? "").toLowerCase();
+    const pattern = new RegExp(`\\b(?:${characteristicKey}|${label})\\b`);
+    if (!pattern.test(raw)) continue;
+    keys.add(normalizeCharacteristicKey(characteristicKey));
+  }
   return keys;
 }
 
@@ -148,14 +147,8 @@ export function isFavoredSkillForActor(actor, governingRaw) {
  * Returns the maximum rank index (in SKILL_RANK_ORDER) purchasable at xpTotal.
  */
 export function getMaxPurchasableRankIndexFromXpTotal(xpTotal) {
-  const total = Math.max(0, _asNumber(xpTotal, 0));
-  // Thresholds match the XP menu and RAW Chapter 2.
-  if (total < 1000) return RANK_INDEX.novice;
-  if (total < 2500) return RANK_INDEX.apprentice;
-  if (total < 4000) return RANK_INDEX.journeyman;
-  if (total < 5500) return RANK_INDEX.adept;
-  if (total < 7000) return RANK_INDEX.expert;
-  return RANK_INDEX.master;
+  const key = getMaxPurchasableSkillRankKeyFromXpTotal(xpTotal);
+  return RANK_INDEX[key] ?? RANK_INDEX.novice;
 }
 
 function _getFlat(flatData, path) {

@@ -27,14 +27,14 @@ import {
 } from "../../utils/authority-proxy.js";
 import { applyDamage, applyHealing } from "../combat/damage/apply.js";
 import { applyDamageResolved } from "../combat/damage-resolver.js";
-import { renderAlchemyUseCard, renderPoisonResistanceCard, renderToxinResistanceCard } from "./render.js";
+import { renderPoisonResistanceCard, renderToxinResistanceCard } from "./render.js";
 import {
   ALCHEMY_DEFAULT_ICON,
   cloneAlchemyData as _cloneData,
   emitAlchemyRoll3d as _emitAlchemyRoll3d,
   FLAG_NS,
   formatAlchemyDurationLabel as _formatDurationLabel,
-  getAlchemyFlags as _getAlchemyFlags,
+  getAlchemyFlags,
 } from "./shared.js";
 import {
   clearAppliedAlchemy as _clearAppliedAlchemy,
@@ -68,109 +68,25 @@ import {
   processCharacteristicDefenseOutcome,
 } from "../magic/characteristic-defense-service.js";
 import { normalizeSpellConfig } from "../magic/spell-config.js";
+import {
+  ALCHEMY_POISON_CARD_KEY,
+  ALCHEMY_TOXIN_CARD_KEY,
+  alchemyNoteHtml as _alchemyNoteHtml,
+  getPoisonCardState as _getPoisonCardState,
+  getWhisperRecipientsForActor as _getWhisperRecipientsForActor,
+  poisonCardFlagPatch as _poisonCardFlagPatch,
+  postAlchemyUseMessage as _postAlchemyUseMessageImpl,
+  toxinCardFlagPatch as _toxinCardFlagPatch,
+} from "./runtime/chat-cards.js";
+import { registerAlchemyRuntimeHooks } from "./runtime/hooks.js";
+import {
+  getEnduranceTN as _getEnduranceTN,
+  resolveStaminaPaths as _resolveStaminaPaths,
+  rollEnduranceTest as _rollEnduranceTest,
+} from "./runtime/resource-updates.js";
 
 // ── Flag namespace constant (delegated to canonical FLAG_SCOPE from namespace.js) ──
-const ALCHEMY_POISON_CARD_KEY = "alchemyPoisonCard";
-const ALCHEMY_TOXIN_CARD_KEY = "alchemyToxinCard";
 const _ALCHEMY_ON_HIT_IN_FLIGHT = new Set();
-
-// ── Internal flag helpers ─────────────────────────────────────────────────────
-
-function _getWhisperRecipientsForActor(actor) {
-  const out = new Set();
-  for (const user of game.users?.contents ?? []) {
-    if (!user) continue;
-    if (user.isGM) {
-      out.add(user.id);
-      continue;
-    }
-    try {
-      if (actor?.testUserPermission?.(user, "OWNER")) out.add(user.id);
-    } catch (_err) {
-      // no-op
-    }
-  }
-  return Array.from(out);
-}
-
-function _getPoisonCardState(message) {
-  return _cloneData(message?.flags?.[FLAG_NS]?.[ALCHEMY_POISON_CARD_KEY] ?? {});
-}
-
-function _poisonCardFlagPatch(state = {}) {
-  return Object.fromEntries(
-    Object.entries(state).map(([key, value]) => [`flags.${FLAG_NS}.${ALCHEMY_POISON_CARD_KEY}.${key}`, value])
-  );
-}
-
-function _toxinCardFlagPatch(state = {}) {
-  return Object.fromEntries(
-    Object.entries(state).map(([key, value]) => [`flags.${FLAG_NS}.${ALCHEMY_TOXIN_CARD_KEY}.${key}`, value])
-  );
-}
-
-function _alchemyNoteHtml(label, text, extraClass = "") {
-  return `
-    <div class="uesrpg-alchemy-note ${extraClass}">
-      <div class="label">${label}</div>
-      <div class="text">${text}</div>
-    </div>
-  `;
-}
-
-
-// ── Idempotency guard ─────────────────────────────────────────────────────────
-let _runtimeInitialized = false;
-
-// ── §H Stamina path resolver ──────────────────────────────────────────────────
-
-/**
- * Resolve the correct stamina document path and current values for an actor.
- * Actors with `staminaPoints` use that field; others use `stamina`.
- * @param {Actor} actor
- * @returns {{ valuePath: string, value: number, max: number }}
- */
-function _resolveStaminaPaths(actor) {
-  const usePoints = actor.system?.staminaPoints !== undefined;
-  return {
-    valuePath: usePoints ? "system.staminaPoints.value" : "system.stamina.value",
-    value: Number(actor.system?.staminaPoints?.value ?? actor.system?.stamina?.value ?? 0),
-    max: Number(actor.system?.staminaPoints?.max ?? actor.system?.stamina?.max ?? 0),
-  };
-}
-
-function _getEnduranceTN(actor) {
-  return Math.max(
-    0,
-    Number(
-      actor?.system?.characteristics?.end?.total
-      ?? actor?.system?.characteristics?.end?.value
-      ?? 0
-    ) || 0
-  );
-}
-
-async function _rollEnduranceTest(actor, { label = "Endurance Test", modifier = 0 } = {}) {
-  const tn = Math.max(0, _getEnduranceTN(actor) + (Number(modifier ?? 0) || 0));
-  if (tn <= 0) {
-    return { ok: false, reason: `${actor?.name ?? "Target"} has no valid Endurance TN.` };
-  }
-
-  const result = await doTestRoll(actor, {
-    target: tn,
-    allowLucky: true,
-    allowUnlucky: true,
-  });
-  _emitAlchemyRoll3d(result?.roll ?? null);
-  return {
-    ok: true,
-    tn,
-    roll: result?.roll ?? null,
-    total: Number(result?.rollTotal ?? result?.roll?.total ?? 0) || 0,
-    success: Boolean(result?.isSuccess),
-    label,
-  };
-}
 
 async function _applySerializedSpellEffect(targetActor, effectEntry, {
   casterActor = null,
@@ -317,7 +233,7 @@ async function _applySerializedSpellEffect(targetActor, effectEntry, {
  */
 export async function drinkPotion(actor, potionItem) {
   if (!actor || !potionItem) return;
-  const algData = _getAlchemyFlags(potionItem);
+  const algData = getAlchemyFlags(potionItem);
   if (!algData || algData.kind !== "potion") {
     ui.notifications.warn("That item is not a brewed potion.");
     return;
@@ -1314,18 +1230,7 @@ export async function pickAlchemyCoatingTarget(actor) {
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 async function _postAlchemyUseMessage(actor, item, title, bodyHtml) {
-  const content = renderAlchemyUseCard({
-    actorImg: actor.img ?? "icons/svg/mystery-man.svg",
-    actorName: actor.name,
-    title,
-    bodyHtml,
-  });
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    content,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-  });
+  return _postAlchemyUseMessageImpl(actor, item, title, bodyHtml);
 }
 
 // ── Initialization ────────────────────────────────────────────────────────────
@@ -1336,27 +1241,8 @@ async function _postAlchemyUseMessage(actor, item, title, bodyHtml) {
  * Idempotent — safe to call multiple times; duplicate registrations are silently skipped.
  */
 export function initializeAlchemyRuntime() {
-  if (_runtimeInitialized) {
-    console.warn("UESRPG | Alchemy runtime already initialized — skipping duplicate registration.");
-    return;
-  }
-  _runtimeInitialized = true;
-
-  // On-hit: react to any damage-applied event.
-  Hooks.on("uesrpgDamageApplied", (targetActor, context) => {
-    _onDamageApplied(targetActor, context).catch((err) => {
-      console.error("UESRPG | Alchemy on-hit resolution failed", err);
-    });
+  registerAlchemyRuntimeHooks({
+    onDamageApplied: _onDamageApplied,
+    onUpdateCombat: _onUpdateCombat,
   });
-
-  // Round tick-down: react when combat advances.
-  Hooks.on("updateCombat", (combat, updateData) => {
-    try {
-      _onUpdateCombat(combat, updateData);
-    } catch (err) {
-      console.warn("UESRPG | Alchemy round tick failed", err);
-    }
-  });
-
-  console.log("UESRPG | Alchemy runtime hooks registered.");
 }

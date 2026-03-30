@@ -150,18 +150,66 @@
                                     {{#if (or (eq alchemyProduct.kind "potion") (eq alchemyProduct.kind "toxin"))}}
                                     <div class="uesrpg-alchemy-inline-effects">
                                         <div class="uesrpg-alchemy-inline-card__header">
-                                            <h3>Brewed Effects</h3>
-                                            <span>Read-only summary from workshop data</span>
+                                            <h3>Effect Slots</h3>
+                                            <span>Drop spells here for direct manual configuration</span>
                                         </div>
-                                        {{#if alchemyProduct.effects.length}}
-                                        <ul class="u-list-compact">
-                                            {{#each alchemyProduct.effects as |e|}}
-                                            <li><b>{{e.label}}</b> (SL {{e.spellLevel}})</li>
-                                            {{/each}}
-                                        </ul>
+                                        {{#if alchemyProduct.canManageEffects}}
+                                        <div class="u-text-muted u-text-xs">Accepts any spell item you can drag here, including actor, world, and compendium spells.</div>
                                         {{else}}
-                                        <div class="u-text-italic">No effects set yet.</div>
+                                        <div class="u-text-muted u-text-xs">Manual spell assignment requires edit permission on this produce item.</div>
                                         {{/if}}
+                                        <div class="uesrpg-alchemy-inline-stack">
+                                            {{#each alchemyProduct.effectSlots as |slot|}}
+                                            <div class="uesrpg-alchemy-inline-card">
+                                                <div class="uesrpg-alchemy-inline-card__header">
+                                                    <h3>Slot {{slot.displayIndex}}</h3>
+                                                    {{#if slot.hasEffect}}
+                                                    <span>{{slot.effect.sourceLabel}}</span>
+                                                    {{else}}
+                                                    <span>Empty</span>
+                                                    {{/if}}
+                                                </div>
+                                                <div class="uesrpg-alchemy-inline-grid">
+                                                    <div class="form-group">
+                                                        <label>Spell Dropzone</label>
+                                                        <div
+                                                            class="uesrpg-alchemy-product-dropzone {{#if slot.hasEffect}}is-filled{{/if}}"
+                                                            data-alchemy-product-drop-slot="{{slot.idx}}"
+                                                            role="region"
+                                                            aria-label="Alchemy spell dropzone for slot {{slot.displayIndex}}">
+                                                            {{#if slot.hasEffect}}
+                                                            <div class="uesrpg-alchemy-product-dropzone__title">
+                                                                <b>{{slot.effect.label}}</b> (SL {{slot.effect.spellLevel}})
+                                                            </div>
+                                                            {{#if slot.effect.school}}<div class="uesrpg-alchemy-product-dropzone__meta">{{capitalize slot.effect.school}} spell</div>{{/if}}
+                                                            {{#if slot.effect.missingSpell}}<div class="uesrpg-alchemy-product-dropzone__warning">Source spell could not be resolved. Drop a replacement or clear this slot.</div>{{/if}}
+                                                            {{#if slot.effect.isLegacyCatalog}}<div class="uesrpg-alchemy-product-dropzone__warning">Legacy catalog effect stored here. Clear or replace with a spell drop.</div>{{/if}}
+                                                            {{else}}
+                                                            <div class="uesrpg-alchemy-product-dropzone__hint">Drop a spell item here.</div>
+                                                            {{/if}}
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label>Spell Level</label>
+                                                        <select name="alchemy-effect-level-{{slot.idx}}" {{#unless @root.alchemyProduct.canManageEffects}}disabled{{else}}{{#unless slot.effect.canConfigureLevel}}disabled{{/unless}}{{/unless}}>
+                                                            {{#if slot.levelOptions.length}}
+                                                            {{#each slot.levelOptions as |level|}}
+                                                            <option value="{{level.value}}" {{#if level.selected}}selected{{/if}}>{{level.label}}</option>
+                                                            {{/each}}
+                                                            {{else}}
+                                                            <option value="1">SL 1</option>
+                                                            {{/if}}
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                <div class="uesrpg-alchemy-inline-actions">
+                                                    <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyProductEffect" data-slot-idx="{{slot.idx}}" {{#unless @root.alchemyProduct.canManageEffects}}disabled{{else}}{{#unless slot.hasEffect}}disabled{{/unless}}{{/unless}}>
+                                                        <i class="fas fa-times"></i> Clear Slot
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            {{/each}}
+                                        </div>
                                     </div>
                                     {{/if}}
 

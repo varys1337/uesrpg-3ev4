@@ -21,6 +21,7 @@
  */
 
 import { setOwnedItemQuantityOrDelete } from "../../../items/owned-item-quantity.js";
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 
 /**
  * Resolve an actor from a UUID, handling token/actor edge cases.

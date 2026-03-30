@@ -11,7 +11,7 @@ import { resolveOpposed } from "../../../utils/degree-roll-helper.js";
 import { getSpellDamageFormula, getSpellDamageType, rollSpellHealing } from "../magicka-utils.js";
 
 import { getHitLocationFromRoll } from "../../combat/combat-utils.js";
-import { getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsEffectApplication, isHealingType, isTemporaryHealingType, maybeResolveAoEEvadeEscape, emitSuppressedOpposedSubRollDice } from "./spell-helpers.js";
+import { getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsEffectApplication, isHealingType, isTemporaryHealingType, maybeResolveAoEEvadeEscape } from "./spell-helpers.js";
 import { setDefenderOutcome, markResolutionPhase, setMagicDefenderDamage } from "./schema.js";
 import { trySpellReflect } from "../spell-runtime.js";
 import { isCharacteristicDefense, executeCharacteristicDefense, processCharacteristicDefenseOutcome } from "../characteristic-defense-service.js";
@@ -19,10 +19,9 @@ import { createDebugLogger } from "../_primitives.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { buildMagicCastContextRows } from "./cast-context.js";
+import { postMagicOpposedSubRoll } from "./subrolls.js";
 
 const _spellDebug = createDebugLogger("spellCastingDebug");
-const NAMESPACE = "uesrpg-3ev4";
-
 function _buildMagicDamageComponents(spell, damageType, damageInfo = null) {
   const components = [];
   const normalizedType = String(damageType ?? "magic").trim().toLowerCase() || "magic";
@@ -763,18 +762,13 @@ async function resolveWithCharacteristicDefense(ctx) {
 
       // Post the roll to chat for 3D dice and audit trail
       try {
-        const postSubRolls = game.settings?.settings?.has?.(`${NAMESPACE}.opposedPostSubRollMessages`)
-          ? game.settings.get(NAMESPACE, "opposedPostSubRollMessages")
-          : true;
-        if (postSubRolls) {
-          await defResult.roll.toMessage({
-            speaker: ChatMessage.getSpeaker({ actor: defender }),
-            flavor: `<b>${defResult.characteristicLabel} Save</b>`,
-            flags: { "uesrpg-3ev4": { magicOpposedMeta: { parentMessageId: message.id, stage: "characteristic-defense" } } }
-          });
-        } else {
-          emitSuppressedOpposedSubRollDice(defResult.roll, { rollMode: game.settings.get("core", "rollMode") });
-        }
+        await postMagicOpposedSubRoll({
+          roll: defResult.roll,
+          actor: defender,
+          flavor: `<b>${defResult.characteristicLabel} Save</b>`,
+          parentMessageId: message.id,
+          stage: "characteristic-defense"
+        });
       } catch (_chatErr) {
         console.warn("UESRPG | Failed to post characteristic defense roll to chat", _chatErr);
       }

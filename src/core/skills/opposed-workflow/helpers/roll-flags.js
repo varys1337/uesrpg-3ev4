@@ -3,6 +3,7 @@
  */
 
 import { _skillOpposedMetaFlag } from "../core/schema.js";
+import { _getCoreRollMode } from "../core/util.js";
 
 export function buildSkillOpposedRollFlags({
   side,
@@ -24,7 +25,7 @@ export function buildSkillOpposedRollFlags({
     skillName: skillLabel,
     target: tn?.finalTN,
     rollFormula: "1d100",
-    rollMode: game.settings.get("core", "rollMode"),
+    rollMode: _getCoreRollMode(),
     useSpecialization: Boolean(decl?.useSpec),
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
     rollOptions: {

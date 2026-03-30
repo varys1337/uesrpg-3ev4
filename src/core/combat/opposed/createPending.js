@@ -134,13 +134,15 @@ export async function createPending(cfg = {}) {
           skipAttackCountIncrement,
           isFreeActionAttack,
           isReactionAttack,
-          followUpStrike: isFollowUpStrike
-            ? {
-                active: true,
-                penalty: -20,
-                sourceWeaponUuid: cfg?.followUpStrikeSourceWeaponUuid ?? null
-              }
-            : undefined,
+            followUpStrike: isFollowUpStrike
+              ? {
+                  active: true,
+                  penalty: -20,
+                  freeAttack: true,
+                  ignoresRoundLimit: Boolean(cfg?.followUpStrikeIgnoresRoundLimit ?? true),
+                  sourceWeaponUuid: cfg?.followUpStrikeSourceWeaponUuid ?? null
+                }
+              : undefined,
           bankChoicesEnabled: true,
           rollContext,
           rollOptions: Array.isArray(rollContext?.rollOptions) ? rollContext.rollOptions.slice() : [],

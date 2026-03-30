@@ -185,11 +185,11 @@ export const SkillOpposedWorkflow = {
       let targetActor = null;
       let targetToken = null;
       if (sideRole === "attacker") {
-        targetActor = _resolveActor(data?.defender?.actorUuid);
-        targetToken = _resolveToken(data?.defender?.tokenUuid);
+        targetActor = _resolveActor(data?.defender?.actorUuid, { resolver: uuid });
+        targetToken = _resolveToken(data?.defender?.tokenUuid, { resolver: uuid });
       } else if (sideRole === "defender") {
-        targetActor = _resolveActor(data?.attacker?.actorUuid);
-        targetToken = _resolveToken(data?.attacker?.tokenUuid);
+        targetActor = _resolveActor(data?.attacker?.actorUuid, { resolver: uuid });
+        targetToken = _resolveToken(data?.attacker?.tokenUuid, { resolver: uuid });
       }
 
       let skillItem = null;
@@ -235,8 +235,8 @@ export const SkillOpposedWorkflow = {
         data.defender = data.defender ?? {};
         if (c.skillUuid != null) data.defender.skillUuid = String(c.skillUuid);
         if (c.skillLabel != null) data.defender.skillLabel = String(c.skillLabel);
-        if (c.declared && typeof c.declared === "object") data.defender.declared = foundry.utils.deepClone(c.declared);
-        if (c.tn && typeof c.tn === "object") data.defender.tn = foundry.utils.deepClone(c.tn);
+        if (c.declared && typeof c.declared === "object") data.defender.declared = { ...c.declared };
+        if (c.tn && typeof c.tn === "object") data.defender.tn = { ...c.tn, breakdown: Array.isArray(c.tn.breakdown) ? c.tn.breakdown.map((entry) => ({ ...entry })) : c.tn.breakdown };
       }
     }
 
@@ -358,8 +358,8 @@ export const SkillOpposedWorkflow = {
       await _maybeResolveBothCritSuccessRollOff({
         message: parent,
         data,
-        attacker: _resolveActor(data.attacker.actorUuid),
-        defender: _resolveActor(data.defender.actorUuid)
+        attacker: _resolveActor(data.attacker.actorUuid, { resolver: uuid }),
+        defender: _resolveActor(data.defender.actorUuid, { resolver: uuid })
       });
       data.status = "resolved";
       data.context = data.context ?? {};
@@ -371,13 +371,14 @@ export const SkillOpposedWorkflow = {
   },
 
   async createPending(cfg = {}) {
-    const aDoc = _resolveDoc(cfg.attackerTokenUuid) ?? _resolveDoc(cfg.attackerActorUuid) ?? _resolveDoc(cfg.attackerUuid);
-    const dDoc = _resolveDoc(cfg.defenderTokenUuid) ?? _resolveDoc(cfg.defenderActorUuid) ?? _resolveDoc(cfg.defenderUuid);
+    const resolver = createUuidResolver();
+    const aDoc = _resolveDoc(cfg.attackerTokenUuid, { resolver }) ?? _resolveDoc(cfg.attackerActorUuid, { resolver }) ?? _resolveDoc(cfg.attackerUuid, { resolver });
+    const dDoc = _resolveDoc(cfg.defenderTokenUuid, { resolver }) ?? _resolveDoc(cfg.defenderActorUuid, { resolver }) ?? _resolveDoc(cfg.defenderUuid, { resolver });
 
-    const aToken = _resolveToken(aDoc);
-    const dToken = _resolveToken(dDoc);
-    const attacker = _resolveActor(aDoc);
-    const defender = _resolveActor(dDoc);
+    const aToken = _resolveToken(aDoc, { resolver });
+    const dToken = _resolveToken(dDoc, { resolver });
+    const attacker = _resolveActor(aDoc, { resolver });
+    const defender = _resolveActor(dDoc, { resolver });
 
     if (!attacker || !defender) {
       ui.notifications.warn("Opposed skill test requires both an actor and a target (token or actor).");

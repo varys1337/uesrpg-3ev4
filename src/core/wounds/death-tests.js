@@ -4,21 +4,24 @@
  * Chapter 5 unconscious death-test loop.
  */
 
-import { doTestRoll, formatDegree, formatResultOutcomeLabel } from "../../utils/degree-roll-helper.js";
-import { requestUpdateChatMessage, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { doTestRoll } from "../../utils/degree-roll-helper.js";
+import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { createSeverityDebugLogger } from "../../utils/debug.js";
+import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
+import { createUuidResolver } from "../../utils/uuid-cache.js";
 import { hasCondition, removeCondition } from "../conditions/condition-engine.js";
 import { isActiveGMUser } from "./wound-schema.js";
 import { SYSTEM_ID } from "../constants.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
-import { getBloodLossStatus } from "./engine/state.js";
+import { announceDeathTest, queueDeathPromptCard, updateDeathPromptMessage } from "./death-test-chat.js";
+import { buildDifficultyOptionsHtml } from "./shared.js";
 
 const FLAG_KEY = "chapter5.deathState";
-const PROMPT_FLAG_KEY = "deathTestPrompt";
-const esc = (s) => foundry.utils.escapeHTML(String(s ?? ""));
 
 let _deathHooksRegistered = false;
 const _inFlightResolve = new Set();
+const _debugWounds = createSeverityDebugLogger("woundsDebug", "[UESRPG][Death Tests]", "debug");
 
 function _isNpcActor(actor) {
   return String(actor?.type ?? "").trim().toLowerCase() === "npc";
@@ -325,149 +328,6 @@ export async function markAutoFailNextDeathTest(actor, { source = "damage" } = {
   return true;
 }
 
-async function _announceDeathTest(actor, { success, autoFailed = false, degree = 0, failureCount = 0, luckBonus = 0 } = {}) {
-  const status = formatResultOutcomeLabel({ isSuccess: success }, { uppercase: true });
-  const details = success
-    ? (autoFailed ? "" : ` - ${formatDegree({ isSuccess: true, degree })}`)
-    : (autoFailed ? " (auto-fail due to recent damage)" : ` - ${formatDegree({ isSuccess: false, degree })}`);
-
-  const extra = !success
-    ? `<p><b>Failures:</b> ${failureCount} (dies if this exceeds Luck bonus ${luckBonus})</p>`
-    : "";
-
-  const content = `
-    <div class="uesrpg-chat-card">
-      <header class="card-header"><h3>Death Test</h3></header>
-      <div class="card-content">
-        <p><b>Actor:</b> ${esc(actor.name)}</p>
-        <p><b>Result:</b> ${status}${details}</p>
-        ${extra}
-      </div>
-    </div>
-  `;
-
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    content,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER
-  });
-}
-
-function _renderDeathPromptCard(actor, state, { resolvedMessageId = null } = {}) {
-  const hp = Number(actor?.system?.hp?.value ?? 0) || 0;
-  const endTn = _getEnduranceTN(actor);
-  const luckBonus = _getLuckBonus(actor);
-  const lastPromptMeta = state?.lastPromptMeta ?? {};
-  const bloodLoss = lastPromptMeta?.bloodLoss ?? getBloodLossStatus(actor);
-  const bloodLossLabel = bloodLoss?.hasEffect
-    ? (bloodLoss?.paused
-      ? `Paused (${esc(bloodLoss?.pauseLabel || "Suppressed")}) - ${Math.max(0, Number(bloodLoss?.remainingRounds ?? 0) || 0)} rounds left`
-      : `${Math.max(0, Number(bloodLoss?.remainingRounds ?? 0) || 0)} rounds remaining`)
-    : "Not active";
-  const lastResult = state?.lastResult ?? null;
-  const isResolved = Boolean(resolvedMessageId) && Array.isArray(state?.resolvedPromptIds) && state.resolvedPromptIds.includes(String(resolvedMessageId));
-  const degreeText = Number.isFinite(Number(lastResult?.degree)) ? formatDegree({
-    isSuccess: lastResult?.success === true,
-    degree: Number(lastResult.degree ?? 0) || 0
-  }) : "";
-
-  let resultHtml = "";
-  if (isResolved && lastResult?.kind === "death-test") {
-    const status = formatResultOutcomeLabel({ isSuccess: lastResult?.success, isCriticalSuccess: lastResult?.isCriticalSuccess, isCriticalFailure: lastResult?.isCriticalFailure }, { uppercase: true });
-    const details = lastResult?.success
-      ? (lastResult?.autoFailed ? "" : ` - ${degreeText}`)
-      : (lastResult?.autoFailed ? " (auto-fail due to recent damage)" : ` - ${degreeText}`);
-    resultHtml = `
-      <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.12);">
-        <p><b>Result:</b> ${status}${details}</p>
-        <p><b>Tests Rolled:</b> ${Math.max(0, Number(state?.testsRolled ?? 0) || 0)}</p>
-        <p><b>Failures:</b> ${Math.max(0, Number(state?.failureCount ?? 0) || 0)} / Luck bonus ${Math.max(0, Number(luckBonus ?? 0) || 0)}</p>
-        ${state?.isDead === true ? `<p><b>Status:</b> ${esc(actor?.name ?? "Actor")} dies from sustained trauma while unconscious.</p>` : ""}
-      </div>
-    `;
-  }
-
-  return `
-    <div class="uesrpg-chat-card" data-card="death-test-pending">
-      <header class="card-header"><h3>${isResolved ? "Death Test Resolved" : "Death Test Pending (Blood Loss Watch)"}</h3></header>
-      <div class="card-content">
-        <p><b>Actor:</b> ${esc(actor.name)}</p>
-        <p><b>Status:</b> ${state?.isDead === true ? "Dead" : "Unconscious at 0 HP"}</p>
-        <p><b>HP:</b> ${hp}</p>
-        <p><b>END:</b> ${endTn}</p>
-        <p><b>Blood Loss:</b> ${bloodLossLabel}</p>
-        <p><b>Failures:</b> ${Math.max(0, Number(state?.failureCount ?? 0) || 0)} / Luck bonus ${Math.max(0, Number(luckBonus ?? 0) || 0)}</p>
-        ${!isResolved ? `<p><i>Click to resolve this turn's death test.</i></p>` : ""}
-        ${resultHtml}
-      </div>
-      ${!isResolved ? `<footer class="card-footer">
-        <button type="button" data-ues-death-action="roll" data-actor-uuid="${esc(actor.uuid)}">Roll Death Test (END)</button>
-      </footer>` : ""}
-    </div>
-  `;
-}
-
-async function _updateDeathPromptMessage(messageId, actor, state) {
-  const msgId = String(messageId ?? "").trim();
-  if (!msgId || !actor) return;
-  const message = game.messages?.get(msgId) ?? null;
-  if (!message) return;
-  const promptState = {
-    actorUuid: actor.uuid,
-    createdAt: Date.now(),
-    resolved: Array.isArray(state?.resolvedPromptIds) && state.resolvedPromptIds.includes(msgId),
-    resolvedAt: Number(state?.lastResult?.at ?? 0) || Date.now(),
-    result: state?.lastResult ?? null,
-    isDead: state?.isDead === true,
-  };
-  await requestUpdateChatMessage(message, {
-    content: _renderDeathPromptCard(actor, state, { resolvedMessageId: msgId }),
-    [`flags.${SYSTEM_ID}.${PROMPT_FLAG_KEY}`]: promptState
-  });
-}
-
-async function _announceDeathTestResult(actor, {
-  success,
-  autoFailed = false,
-  degree = 0,
-  failureCount = 0,
-  testsRolled = 0,
-  luckBonus = 0,
-} = {}) {
-  const status = formatResultOutcomeLabel({ isSuccess: success }, { uppercase: true });
-  const details = success
-    ? (autoFailed ? "" : ` - ${formatDegree({ isSuccess: true, degree })}`)
-    : (autoFailed ? " (auto-fail due to recent damage)" : ` - ${formatDegree({ isSuccess: false, degree })}`);
-
-  const content = `
-    <div class="uesrpg-chat-card" data-card="death-test-result">
-      <header class="card-header"><h3>Death Test Result</h3></header>
-      <div class="card-content">
-        <p><b>Actor:</b> ${esc(actor.name)}</p>
-        <p><b>Result:</b> ${status}${details}</p>
-        <p><b>Tests Rolled:</b> ${Math.max(0, Number(testsRolled ?? 0) || 0)}</p>
-        <p><b>Failures:</b> ${Math.max(0, Number(failureCount ?? 0) || 0)} / Luck bonus ${Math.max(0, Number(luckBonus ?? 0) || 0)}</p>
-      </div>
-    </div>
-  `;
-
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    content,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER
-  });
-}
-
-function _difficultyOptionsHtml(defaultKey = "average") {
-  return SKILL_DIFFICULTIES.map((d) => {
-    const sign = d.mod >= 0 ? "+" : "";
-    const selected = d.key === defaultKey ? "selected" : "";
-    return `<option value="${d.key}" ${selected}>${d.label} (${sign}${d.mod})</option>`;
-  }).join("\n");
-}
-
 async function _promptDeathRollOptions(actor, baseTn) {
   const content = `
     <div class="uesrpg-skill-roll">
@@ -481,7 +341,7 @@ async function _promptDeathRollOptions(actor, baseTn) {
       </div>
       <div class="form-group" style="margin-top:8px;">
         <label><b>Difficulty</b></label>
-        <select name="difficultyKey" style="width:100%;">${_difficultyOptionsHtml("average")}</select>
+        <select name="difficultyKey" style="width:100%;">${buildDifficultyOptionsHtml("average")}</select>
       </div>
       <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
         <label style="margin:0;"><b>Manual Modifier</b></label>
@@ -491,7 +351,7 @@ async function _promptDeathRollOptions(actor, baseTn) {
   `;
 
   const picked = await customDialog({
-    title: `${esc(actor?.name ?? "Actor")} - Death Test (END)`,
+    title: `${foundry.utils.escapeHTML(String(actor?.name ?? "Actor"))} - Death Test (END)`,
     content,
     buttons: {
       roll: {
@@ -518,65 +378,6 @@ async function _promptDeathRollOptions(actor, baseTn) {
     difficulty: diff,
     manualMod: Number(picked.manualMod ?? 0) || 0,
   };
-}
-
-async function _queueDeathPromptCard(actor, state) {
-  const hp = Number(actor?.system?.hp?.value ?? 0) || 0;
-  const endTn = _getEnduranceTN(actor);
-  const luckBonus = _getLuckBonus(actor);
-  const bloodLoss = getBloodLossStatus(actor);
-  const bloodLossLabel = bloodLoss.hasEffect
-    ? (bloodLoss.paused
-      ? `Paused (${esc(bloodLoss.pauseLabel || "Suppressed")}) - ${Math.max(0, Number(bloodLoss.remainingRounds ?? 0) || 0)} rounds left`
-      : `${Math.max(0, Number(bloodLoss.remainingRounds ?? 0) || 0)} rounds remaining`)
-    : "Not active";
-
-  state.lastPromptMeta = {
-    at: Date.now(),
-    hp,
-    endTn,
-    luckBonus,
-    bloodLoss: {
-      hasEffect: bloodLoss.hasEffect === true,
-      paused: bloodLoss.paused === true,
-      remainingRounds: Math.max(0, Number(bloodLoss.remainingRounds ?? 0) || 0),
-      pauseReason: bloodLoss.pauseReason ?? null,
-      pauseLabel: bloodLoss.pauseLabel ?? "",
-    },
-  };
-
-  const content = _renderDeathPromptCard(actor, state);
-
-  const msg = await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    content,
-    flags: {
-      [SYSTEM_ID]: {
-        [PROMPT_FLAG_KEY]: {
-          actorUuid: actor.uuid,
-          createdAt: Date.now(),
-          resolved: false,
-        }
-      }
-    },
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER
-  });
-
-  if (!msg?.id) return;
-  state.pendingPrompts.push({
-    messageId: String(msg.id),
-    createdAt: Date.now(),
-    resolved: false,
-    resolvedAt: 0,
-  });
-  if (game.user?.isGM) {
-    console.debug("UESRPG | Death Tests | Queued pending prompt", {
-      actor: actor.uuid,
-      messageId: msg.id,
-      bloodLoss: state.lastPromptMeta?.bloodLoss ?? null,
-    });
-  }
 }
 
 async function _finalizeDeath(actor, state, reason = "failure-threshold-exceeded") {
@@ -617,7 +418,10 @@ export async function tickDeathTestsEndTurn(actor) {
   state.unconsciousAtZeroHp = true;
 
   if (_isPcActor(actor)) {
-    await _queueDeathPromptCard(actor, state);
+    await queueDeathPromptCard(actor, state, {
+      endTn: _getEnduranceTN(actor),
+      luckBonus: _getLuckBonus(actor),
+    });
     state.lastResult = {
       kind: "death-test-prompted",
       at: Date.now(),
@@ -655,7 +459,7 @@ export async function tickDeathTestsEndTurn(actor) {
           user: game.user.id,
           speaker: ChatMessage.getSpeaker({ actor }),
           flavor: `${actor.name} - Death Test (END ${tn})`,
-          rollMode: game.settings.get("core", "rollMode"),
+          rollMode: getCoreRollMode(),
         });
       } catch (_e) {
         // Non-blocking.
@@ -677,7 +481,7 @@ export async function tickDeathTestsEndTurn(actor) {
   };
 
   await _writeState(actor, state);
-  await _announceDeathTest(actor, {
+  await announceDeathTest(actor, {
     success,
     autoFailed,
     degree,
@@ -696,7 +500,8 @@ export async function resolveDeathTestFromChat({ actorUuid, messageId, action } 
   if (String(action ?? "") !== "roll") return null;
   if (!actorUuid || !messageId) return null;
 
-  const actor = await fromUuid(String(actorUuid));
+  const resolver = createUuidResolver();
+  const actor = await resolver.resolve(String(actorUuid));
   if (!actor) {
     ui.notifications?.warn?.("Death test: actor not found.");
     return null;
@@ -754,7 +559,7 @@ export async function resolveDeathTestFromChat({ actorUuid, messageId, action } 
             user: game.user.id,
             speaker: ChatMessage.getSpeaker({ actor }),
             flavor: `${actor.name} - Death Test (END ${options.target})`,
-            rollMode: game.settings.get("core", "rollMode"),
+            rollMode: getCoreRollMode(),
           });
         } catch (_e) {
           // Non-blocking.
@@ -781,22 +586,26 @@ export async function resolveDeathTestFromChat({ actorUuid, messageId, action } 
     };
 
     await _writeState(actor, state);
-    await _updateDeathPromptMessage(msgId, actor, state);
+    await updateDeathPromptMessage(msgId, actor, state, {
+      endTn: _getEnduranceTN(actor),
+      luckBonus,
+    });
 
     if (!success && state.failureCount > luckBonus) {
       await _finalizeDeath(actor, state);
-      await _updateDeathPromptMessage(msgId, actor, state);
-    }
-
-    if (game.user?.isGM) {
-      console.debug("UESRPG | Death Tests | Prompt resolved", {
-        actor: actor.uuid,
-        messageId: msgId,
-        success,
-        failureCount: state.failureCount,
-        testsRolled: state.testsRolled,
+      await updateDeathPromptMessage(msgId, actor, state, {
+        endTn: _getEnduranceTN(actor),
+        luckBonus,
       });
     }
+
+    _debugWounds("Prompt resolved", {
+      actor: actor.uuid,
+      messageId: msgId,
+      success,
+      failureCount: state.failureCount,
+      testsRolled: state.testsRolled,
+    });
 
     return state;
   } finally {

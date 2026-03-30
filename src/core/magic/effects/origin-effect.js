@@ -22,6 +22,7 @@ import { FLAG_SCOPE } from "../../system/namespace.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
 import { isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
 import { getEffectChanges } from "../../../utils/compat.js";
+import { createUuidResolver, resolveUuidSync } from "../../../utils/uuid-cache.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -312,7 +313,7 @@ export async function teardownOriginAE(originEffect, options = {}) {
       const slotId = _str(castSource.enchantSpellSlotId);
       const sourceLane = _str(castSource.sourceLane || "workshop").toLowerCase();
       if (itemUuid && slotId) {
-        const itemDoc = fromUuidSync(itemUuid);
+        const itemDoc = resolveUuidSync(itemUuid);
         const item = itemDoc?.documentName === "Item" ? itemDoc : null;
         const current = sourceLane === "extension"
           ? _str(item?.flags?.[_FLAG_NS]?.itemSpellcasting?.activeUpkeepSlotId)
@@ -503,7 +504,7 @@ export function findOriginAEByGroupKey(groupKey) {
   const castTime = _num(parts[2], 0);
   if (!casterUuid || !spellUuid) return null;
 
-  const casterDoc = fromUuidSync(casterUuid);
+  const casterDoc = resolveUuidSync(casterUuid);
   const casterActor = casterDoc?.documentName === "Actor" ? casterDoc : casterDoc?.actor;
   if (!casterActor) return null;
 
@@ -748,7 +749,8 @@ async function _deleteLinkedEntity(link) {
   if (!link?.uuid) return false;
 
   try {
-    const doc = fromUuidSync(link.uuid);
+    const resolver = createUuidResolver();
+    const doc = resolver.resolveSync(link.uuid);
     if (!doc) return false; // Already deleted
 
     switch (link.type) {

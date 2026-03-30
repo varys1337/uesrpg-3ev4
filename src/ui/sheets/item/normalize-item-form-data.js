@@ -6,7 +6,7 @@
  * (no document mutations, no UI dialogs).
  *
  * Usage:
- *   import { normalizeItemFormData, validateSpellScaling } from "./item/normalize-item-form-data.js";
+ *   import { normalizeItemFormData, validateSpellScaling } from "./normalize-item-form-data.js";
  *   const { scalingLevels } = normalizeItemFormData(item, flatFormData);
  *   if (item.type === "spell" && scalingLevels.length && !skipValidation) {
  *     const blocked = await validateSpellScaling(item, flatFormData, scalingLevels);
@@ -15,7 +15,7 @@
  *   await item.update(flatFormData);  // or super._updateObject(event, flatFormData)
  */
 
-import { SPECIAL_ACTIONS } from "../../../core/combat/combat-style-utils.js";
+import { SPECIAL_ACTIONS } from "../../../core/config/special-actions.js";
 import { validateScalingLevels, formatValidationMessage } from "../../../core/magic/spell-config.js";
 import { alertDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { createDebugLogger } from "../../../utils/debug.js";

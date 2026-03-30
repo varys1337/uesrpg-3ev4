@@ -61,6 +61,8 @@ import { FLAG_SCOPE } from "../system/namespace.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 import { buildSpellExpirationAnchor, normalizeSpellExpirationAnchor, explainSpellAnchorResolution } from "../../utils/document-resolution.js";
+import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
+import { isMagicDynamicInitiativeEnabled } from "./settings.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][Upkeep]");
@@ -107,10 +109,7 @@ async function _handleCombatBoundaryUpkeep(payload) {
       round: nextRound,
       turn: nextTurn,
       targetCombatantId: targetCombatantId || null,
-      enabled: (() => {
-        try { return Boolean(game.settings.get("uesrpg-3ev4", "dynamicInitiativeEnabled")); }
-        catch (_e) { return false; }
-      })(),
+      enabled: isMagicDynamicInitiativeEnabled(),
       durationMs: monoMs() - _t0,
     });
   }
@@ -147,10 +146,6 @@ import { _num, _str, createDebugLogger } from "./_primitives.js";
 
 function _fromUuidSync(uuid) {
   return resolveUuidSync(uuid);
-}
-
-function _resolveActorSync(uuid) {
-  return resolveActorFromUuidSync(uuid);
 }
 
 /**
@@ -661,7 +656,7 @@ async function _checkUpkeepCombatTurnStart(nextRound, nextTurn) {
   const { groups } = await _collectExpiringGroupsCombatTurnStart(nextRound, nextTurn);
 
   for (const group of groups.values()) {
-    const casterActor = _resolveActorSync(group.casterUuid);
+    const casterActor = resolveActorFromUuidSync(group.casterUuid);
     if (!casterActor) continue;
     await _withPromptLock(group.groupKey, group.promptContext, async () => {
       await _createUpkeepPrompt(group, casterActor);
@@ -686,7 +681,7 @@ async function _checkUpkeepRealtime(nowTimeOverride = null) {
     const { groups } = await _collectExpiringGroupsRealtime(nowTimeOverride);
 
     for (const group of groups.values()) {
-      const casterActor = _resolveActorSync(group.casterUuid);
+      const casterActor = resolveActorFromUuidSync(group.casterUuid);
       if (!casterActor) continue;
       if (_isRecentlyPrompted(group.groupKey, group.promptContext)) continue;
 
@@ -739,7 +734,7 @@ async function _createUpkeepPrompt(group, casterActor) {
   const isConjureEquipment = spellName.includes("conjure weapon") || spellName.includes("conjure armour") ||
     spellName.includes("conjure armor") || spellName.includes("bound weapon") || spellName.includes("bound armour") ||
     spellName.includes("bound armor");
-  const hasLivingArmory = hasTalent(casterActor, "livingarmory");
+  const hasLivingArmory = getActorCapabilityFlag(casterActor, "flags.uesrpg-3ev4.magic.upkeepViaAP") || hasTalent(casterActor, "livingarmory");
   // Check if all effect targets are the caster
   const allSelf = (group.effectRefs ?? []).every(ref => ref.targetActorId === casterActor.id);
   const showLivingArmory = isConjureEquipment && hasLivingArmory && allSelf;
@@ -855,7 +850,7 @@ export async function handleUpkeepGroupConfirm(message) {
   const data = message?.flags?.[_FLAG_NS]?.upkeepGroup;
   if (!data) return;
 
-  const casterActor = _resolveActorSync(data.casterUuid);
+  const casterActor = resolveActorFromUuidSync(data.casterUuid);
 
   if (!casterActor) {
     console.error("UESRPG | upkeep-workflow | Could not resolve caster actor", data.casterUuid);
@@ -1001,7 +996,7 @@ export async function handleUpkeepGroupConfirm(message) {
   const isConjureEquipment = spellName.includes("conjure weapon") || spellName.includes("conjure armour") ||
     spellName.includes("conjure armor") || spellName.includes("bound weapon") || spellName.includes("bound armour") ||
     spellName.includes("bound armor");
-  const hasLivingArmory = hasTalent(casterActor, "livingarmory");
+  const hasLivingArmory = getActorCapabilityFlag(casterActor, "flags.uesrpg-3ev4.magic.upkeepViaAP") || hasTalent(casterActor, "livingarmory");
   const allTargetsSelf = matches.every(m => m.targetActor.id === casterActor.id);
   const canUseLivingArmory = isConjureEquipment && hasLivingArmory && allTargetsSelf && (!isEnchantmentOrigin || enchantmentCostMode === "magicka");
 

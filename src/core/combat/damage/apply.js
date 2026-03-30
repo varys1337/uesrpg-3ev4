@@ -10,12 +10,20 @@ import { calculateDamage } from "./calc.js";
 import { DAMAGE_TYPES } from "./types.js";
 import { isItemMagicSource } from "./reduction.js";
 import { isActorImmuneToDamageType, isActorIncorporeal } from "../../traits/trait-registry.js";
-import { requestUpdateDocument, requestCreateActiveEffect, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isAnyDebugEnabled } from "../../../utils/debug.js";
 import { shouldTriggerWound } from "../../wounds/wound-rules.js";
 import { isShieldItem } from "../../items/shield-utils.js";
-import { syncNpcDeathState } from "../../wounds/death-tests.js";
 import { getResolvedArmorValues, isArmorCoveringLocation } from "../armor-state.js";
+import {
+  applyPostDamageUpdate,
+  dispatchDamageAppliedHook,
+  finalizeDamageTargetState,
+  ensureUnconsciousEffect,
+  resolveDamageUpdateTarget
+} from "./post-application.js";
+
+export { ensureUnconsciousEffect };
 
 function _healingDebug(...args) {
   if (!isAnyDebugEnabled(["woundsDebug", "spellCastingDebug"])) return;
@@ -320,10 +328,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   }
 
   // Choose update target: unlinked token actor if applicable, else base actor
-  const activeToken = actor.token ?? actor.getActiveTokens?.()[0] ?? null;
-  const isUnlinkedToken = !!(activeToken && actor.prototypeToken && actor.prototypeToken.actorLink === false);
-
-  const updateTarget = isUnlinkedToken ? activeToken.actor : actor;
+  const updateTarget = resolveDamageUpdateTarget(actor);
 
   // Canonical wound trigger routing.
   const woundEval = shouldTriggerWound({
@@ -338,41 +343,27 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   if (newHP === 0) woundStatus = _isNpcActor(updateTarget) ? "dead" : "unconscious";
   else if (isWounded) woundStatus = "wounded";
 
-  // Keep this path free of direct wounded-flag writes.
-  // Wounds subsystem reconciles `system.wounded` as a derived compatibility mirror.
-  const updateData = { 
-    "system.hp.value": newHP,
-    "system.tempHP": newTempHP
-  };
-
-  await requestUpdateDocument(updateTarget, updateData);
-  if (_isNpcActor(updateTarget)) {
-    await syncNpcDeathState(updateTarget);
-  }
+  await applyPostDamageUpdate(actor, { newHP, newTempHP });
 
   // Emit damage-applied hook for downstream automation (wounds, conditions, etc.)
-  try {
-    Hooks.callAll("uesrpgDamageApplied", updateTarget, {
-      applicationId: options?.applicationId ?? crypto?.randomUUID?.() ?? foundry?.utils?.randomID?.() ?? null,
-      origin: options?.origin ?? null,
-      source,
-      weapon: options?.weapon ?? null,
-      ammo: options?.ammo ?? null,
-      amountApplied: finalDamageAdjusted,
-      hitLocation,
-      damageType,
-      damageAppliedByType: damageAppliedByType,
-      woundThreshold,
-      woundThresholdDelta: Number(woundThresholdDelta) || 0,
-      woundMode: woundEval.mode,
-      woundTriggerReason: woundEval.reason,
-      criticalSuccess: Boolean(options?.criticalSuccess ?? options?.isCritical ?? false),
-      woundTriggered: isWounded === true,
-      chatContext: foundry.utils.deepClone(options?.chatContext ?? null),
-    });
-  } catch (err) {
-    console.error("UESRPG | uesrpgDamageApplied hook dispatch failed", err);
-  }
+  dispatchDamageAppliedHook(updateTarget, {
+    applicationId: options?.applicationId ?? crypto?.randomUUID?.() ?? foundry?.utils?.randomID?.() ?? null,
+    origin: options?.origin ?? null,
+    source,
+    weapon: options?.weapon ?? null,
+    ammo: options?.ammo ?? null,
+    amountApplied: finalDamageAdjusted,
+    hitLocation,
+    damageType,
+    damageAppliedByType: damageAppliedByType,
+    woundThreshold,
+    woundThresholdDelta: Number(woundThresholdDelta) || 0,
+    woundMode: woundEval.mode,
+    woundTriggerReason: woundEval.reason,
+    criticalSuccess: Boolean(options?.criticalSuccess ?? options?.isCritical ?? false),
+    woundTriggered: isWounded === true,
+    chatContext: foundry.utils.deepClone(options?.chatContext ?? null),
+  });
 
 
   if (forcefulImpact && String(damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL) {
@@ -383,30 +374,7 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     }
   }
 
-  // Optional: apply unconscious effect (safe + idempotent)
-  if (woundStatus === "unconscious" && !_isNpcActor(updateTarget)) {
-    try {
-      const targetActor = updateTarget;
-
-      const hasUnconsciousEffect = targetActor.effects?.some(
-        (e) => e?.statuses?.has?.("unconscious") || e?.name === "Unconscious"
-      );
-
-      if (!hasUnconsciousEffect) {
-        const unconsciousEffect = {
-          name: "Unconscious",
-          icon: "icons/svg/unconscious.svg",
-          duration: {},
-          statuses: ["unconscious"],
-          flags: { core: { statusId: "unconscious" } },
-        };
-
-        await requestCreateActiveEffect(targetActor, unconsciousEffect);
-      }
-    } catch (err) {
-      console.error("UESRPG | Failed to apply unconscious effect:", err);
-    }
-  }
+  await finalizeDamageTargetState(updateTarget, { newHP });
 
   // Damage chat message (GM-only, blind by default)
   const gmIds = game.users?.filter(u => u.isGM).map(u => u.id) ?? [];
@@ -649,40 +617,6 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
  */
 export async function applyForcefulImpact(targetActor, hitLocation) {
   return _applyForcefulImpact(targetActor, hitLocation);
-}
-
-/**
- * Exported helper for resolver pipelines.
- * Ensures the target actor has the Unconscious status effect applied.
- *
- * This helper exists because damage-resolver imports it.
- * Keep it small and deterministic: if a compatible unconscious status is already present,
- * do nothing. Otherwise create a minimal ActiveEffect with the standard unconscious status id.
- *
- * @param {Actor} targetActor
- */
-export async function ensureUnconsciousEffect(targetActor) {
-  try {
-    if (!targetActor) return;
-
-    const hasUnconscious = targetActor.effects?.some(
-      (e) => e?.statuses?.has?.("unconscious") || e?.name === "Unconscious"
-    );
-
-    if (hasUnconscious) return;
-
-    const unconsciousEffect = {
-      name: "Unconscious",
-      icon: "icons/svg/unconscious.svg",
-      duration: {},
-      statuses: ["unconscious"],
-      flags: { core: { statusId: "unconscious" } },
-    };
-
-    await requestCreateActiveEffect(targetActor, unconsciousEffect);
-  } catch (err) {
-    console.error("UESRPG | Failed to apply unconscious effect:", err);
-  }
 }
 
 /**

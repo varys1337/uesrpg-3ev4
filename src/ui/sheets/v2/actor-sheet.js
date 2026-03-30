@@ -77,7 +77,6 @@ import {
 } from "../shared/prepare.js";
 import { getCachedSetting } from "../../../core/config/settings-cache.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
-import { isPerfEnabled, perfRecord } from "../../../utils/perf-tracker.js";
 import {
   buildEffectsSignature,
   buildWoundsSignature,
@@ -98,6 +97,16 @@ import {
   createFormPathMatcher,
 } from "./shared/form-pipeline.js";
 import { setOwnedItemQuantityOrDelete } from "../../../core/items/owned-item-quantity.js";
+import {
+  clearQueuedRenderPartsState,
+  isSheetPerfTraceEnabled,
+  partRendered,
+  queueRenderParts,
+  renderedPartsSet,
+  resolveWeaponDistanceHeaderLabel,
+  traceSheetPerf,
+  traceSheetPerfPhase,
+} from "./shared/sheet-runtime-helpers.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2Base = foundry.applications.sheets.ActorSheetV2;
@@ -129,26 +138,6 @@ function normalizePcFormValue({ path, value, currentValue, rawValue }) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return currentValue;
   return Math.max(0, Math.round(n));
-}
-
-function resolveWeaponDistanceHeaderLabel(weaponBuckets) {
-  const equipped = Array.isArray(weaponBuckets?.equipped) ? weaponBuckets.equipped : [];
-  const unequipped = Array.isArray(weaponBuckets?.unequipped) ? weaponBuckets.unequipped : [];
-  const weapons = [...equipped, ...unequipped];
-  if (!weapons.length) return "Distance";
-
-  let hasRanged = false;
-  let hasMelee = false;
-  for (const weapon of weapons) {
-    const mode = String(weapon?.system?.attackMode ?? "").toLowerCase();
-    if (mode === "ranged") hasRanged = true;
-    else hasMelee = true;
-    if (hasRanged && hasMelee) return "Distance";
-  }
-
-  if (hasRanged) return "Range";
-  if (hasMelee) return "Reach";
-  return "Distance";
 }
 
 export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
@@ -216,86 +205,39 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   }
 
   _renderedPartsSet(options) {
-    const parts = options?.parts;
-    return Array.isArray(parts) && parts.length ? new Set(parts) : null;
+    return renderedPartsSet(options);
   }
 
   _partRendered(options, part) {
-    const rendered = this._renderedPartsSet(options);
-    if (!rendered) return true;
-    return rendered.has(part);
+    return partRendered(options, part);
   }
 
   _traceSheetPerfPhase(phase, startedAtMs, details = {}) {
-    this._traceSheetPerf(`phase:${phase}`, startedAtMs, details);
+    traceSheetPerfPhase(this, {
+      systemId: SYSTEM_ID,
+      sheetName: "PCActorSheetV2",
+      phase,
+      startedAtMs,
+      details,
+    });
   }
 
   async _queueRenderParts(parts = []) {
-    if (!Array.isArray(parts) || !parts.length) return;
-    if (!this._uesrpgQueuedParts) this._uesrpgQueuedParts = new Set();
-    for (const part of parts) this._uesrpgQueuedParts.add(part);
-
-    if (!this._uesrpgRenderPartsPromise) {
-      this._uesrpgRenderPartsPromise = new Promise((resolve) => {
-        this._uesrpgRenderPartsResolvers.push(resolve);
-      });
-      this._uesrpgRenderPartsRafId = requestAnimationFrame(async () => {
-        const queued = Array.from(this._uesrpgQueuedParts ?? []);
-        this._uesrpgQueuedParts = new Set();
-        try {
-          if (queued.length) await this.render({ parts: queued });
-        } finally {
-          const resolvers = this._uesrpgRenderPartsResolvers.splice(0);
-          for (const resolve of resolvers) resolve();
-          this._uesrpgRenderPartsPromise = null;
-          this._uesrpgRenderPartsRafId = null;
-        }
-      });
-    }
-
-    return this._uesrpgRenderPartsPromise;
+    return queueRenderParts(this, parts);
   }
 
   _isSheetPerfTraceEnabled() {
-    try {
-      return Boolean(game?.settings?.get?.(SYSTEM_ID, "sheetPerfTrace"));
-    } catch (_e) {
-      return false;
-    }
+    return isSheetPerfTraceEnabled(SYSTEM_ID);
   }
 
   _traceSheetPerf(stage, startedAtMs, details = {}) {
-    const traceEnabled = this._isSheetPerfTraceEnabled();
-    const perfEnabled = isPerfEnabled();
-    if (!traceEnabled && !perfEnabled) return;
-    const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
-    const payload = {
-      sheet: "PCActorSheetV2",
-      actorId: this.document?.id ?? null,
-      actorName: this.document?.name ?? null,
-      tab: this.tabGroups?.primary ?? "core",
+    traceSheetPerf(this, {
+      systemId: SYSTEM_ID,
+      sheetName: "PCActorSheetV2",
       stage,
-      elapsedMs,
-      ...details,
-    };
-    if (perfEnabled) {
-      perfRecord({
-        event: "sheet.render",
-        ...payload,
-        durationMs: elapsedMs,
-      });
-    }
-    if (!traceEnabled) return;
-    const warnThresholdMs = stage === "_onClose"
-      ? 24
-      : stage === "_onRender"
-        ? 32
-        : stage === "_prepareContext"
-          ? 40
-          : null;
-    const line = `UESRPG | sheetPerfTrace ${JSON.stringify(payload)}`;
-    if (warnThresholdMs !== null && elapsedMs > warnThresholdMs) console.warn(line);
-    else console.log(line);
+      startedAtMs,
+      details,
+    });
   }
 
   /**
@@ -1436,11 +1378,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       }
       this._uesrpgRestoreDblClickHandler = null;
       this._uesrpgRestoreDblClickEl = null;
-      if (this._uesrpgRenderPartsRafId != null) cancelAnimationFrame(this._uesrpgRenderPartsRafId);
-      this._uesrpgRenderPartsRafId = null;
-      this._uesrpgRenderPartsPromise = null;
-      this._uesrpgRenderPartsResolvers = [];
-      this._uesrpgQueuedParts = null;
+      clearQueuedRenderPartsState(this);
       this._uesrpgBioCache = null;
       this._uesrpgItemsCache = null;
       this._uesrpgCombatCache = null;

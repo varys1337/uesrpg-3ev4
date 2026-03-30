@@ -16,6 +16,7 @@ import { _resolveActor, _resolveToken } from "../core/docs.js";
 import { autoRollBanked } from "../banking/orchestrator.js";
 import { handleAttackerRoll } from "./attacker.js";
 import { handleDefenderRoll } from "./defender.js";
+import { createUuidResolver } from "../../../../utils/uuid-cache.js";
 
 /**
  * Dispatch a skill opposed action.
@@ -27,15 +28,16 @@ import { handleDefenderRoll } from "./defender.js";
  * @returns {Promise<object|undefined>}
  */
 export async function dispatchAction(message, action, { event, batchedUpdate = false, dataOverride = null } = {}, workflow) {
+  const resolver = createUuidResolver();
   const data = (dataOverride && typeof dataOverride === "object")
     ? foundry.utils.deepClone(dataOverride)
     : _getMessageState(message);
   if (!data) return;
 
-  const attacker = _resolveActor(data.attacker.actorUuid);
-  const defender = _resolveActor(data.defender.actorUuid);
-  const aToken = _resolveToken(data.attacker.tokenUuid);
-  const dToken = _resolveToken(data.defender.tokenUuid);
+  const attacker = _resolveActor(data.attacker.actorUuid, { resolver });
+  const defender = _resolveActor(data.defender.actorUuid, { resolver });
+  const aToken = _resolveToken(data.attacker.tokenUuid, { resolver });
+  const dToken = _resolveToken(data.defender.tokenUuid, { resolver });
 
   // Hard bind the roll to the original token identities (prevents "replacement target" responses).
   if (data.attacker.tokenUuid && !aToken) {
@@ -79,7 +81,7 @@ export async function dispatchAction(message, action, { event, batchedUpdate = f
     return;
   }
 
-  const ctx = { message, data, attacker, defender, aToken, dToken, event, batchedUpdate };
+  const ctx = { message, data, attacker, defender, aToken, dToken, event, batchedUpdate, resolver };
 
   if (action === "attacker-roll" || action === "attacker-roll-committed") {
     return handleAttackerRoll(ctx, action);

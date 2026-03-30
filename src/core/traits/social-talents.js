@@ -13,6 +13,7 @@ import { buildEffectDuration } from "../time/effect-duration.js";
 import { getActorCanvasToken } from "./combat-proximity.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { doTestRoll, formatResultSummary } from "../../utils/degree-roll-helper.js";
+import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
 import { SYSTEM_ROLL_FORMULA } from "../constants.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
@@ -200,7 +201,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
       ${successNote}
     </div>`;
 
-  const rollMode = game.settings.get("core", "rollMode");
+  const rollMode = getCoreRollMode();
   await res.roll.toMessage({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),

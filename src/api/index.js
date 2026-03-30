@@ -7,9 +7,9 @@
  * Usage (from a Foundry macro or external module):
  *   import { AttackTracker, requestUpdateDocument } from "systems/uesrpg-3ev4/src/api/index.js";
  *
- * Runtime namespace (game.uesrpg.*) continues to be populated in
- * src/system.js ("ready") and src/hooks/init.js ("init") for console /
- * non-ESM access.  This barrel provides the static-import equivalent.
+ * Runtime namespace (game.uesrpg.*) is populated by the startup registrars in
+ * src/hooks/init.js and src/system.js for console / non-ESM access. This barrel
+ * provides the static-import equivalent.
  */
 
 // ─── Authority Proxy (permission-safe mutations) ───────────────────────────

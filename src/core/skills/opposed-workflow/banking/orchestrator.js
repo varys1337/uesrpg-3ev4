@@ -82,7 +82,7 @@ export async function autoRollBanked(parentMessageId, workflow, { trigger = "unk
     const message = game.messages.get(parentMessageId) ?? null;
     if (!message) return;
 
-    let data = foundry.utils.deepClone(_getMessageState(message));
+    let data = _getMessageState(message);
     if (!data) return;
 
     if (!_bothSidesCommitted(data)) return;
@@ -108,10 +108,10 @@ export async function autoRollBanked(parentMessageId, workflow, { trigger = "unk
     perfEnd(claimLabel);
 
     // Verify we still own the claim after the persisted update.
-    const freshAfterClaim = foundry.utils.deepClone(_getMessageState(message));
+    const freshAfterClaim = _getMessageState(message);
     if (!verifyAutoRollClaim(freshAfterClaim?.context, claimId)) return;
 
-    let workingData = foundry.utils.deepClone(freshAfterClaim);
+    let workingData = freshAfterClaim;
 
     // Roll attacker lane first if needed.
     if (!freshAfterClaim?.attacker?.result) {

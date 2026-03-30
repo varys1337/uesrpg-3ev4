@@ -1,11 +1,11 @@
 import { UESRPG } from "../../constants.js";
 import {
-  hasLegacyQuality,
   roundPriceUp,
   safeNumber,
 } from "../item-utils.js";
 import { isLegacyShieldSystemData } from "../../items/shield-utils.js";
 import { prepareShieldItem } from "./shield.js";
+import { getDamagedQualityValue, hasRunedQuality, stepWeightClass } from "./shared.js";
 
 /**
  * Resolve the native coverage lane key from armorClass.
@@ -52,20 +52,10 @@ export function prepareArmorItem(actorData, itemData) {
   itemData.autoQualitiesStructured = [];
 
   // Weight class: authored base + quality step (material no longer contributes).
-  const stepWeightClass = (base, delta) => {
-    const order = ["none", "light", "medium", "heavy", "superheavy", "crippling"];
-    let i = order.indexOf(String(base || "none").toLowerCase());
-    if (i === -1) i = 0;
-    i = Math.max(0, Math.min(order.length - 1, i + delta));
-    return order[i];
-  };
-
   const derivedWeightClass = stepWeightClass(itemData.weightClass ?? "none", weightDelta);
 
   // Damaged quality value: applied after selecting the native lane.
-  const injected = itemData.qualitiesStructuredInjected ?? itemData.qualitiesStructured ?? [];
-  const damagedQ = injected.find(q => q?.key === "damaged");
-  const damagedValue = safeNumber(damagedQ?.value, 0);
+  const damagedValue = getDamagedQualityValue(itemData);
 
   // Select the native lane and compute prepared effective values.
   // These fields are native-lane prep/display data only; combat runtime resolution lives in src/core/combat/armor-state.js.
@@ -83,10 +73,7 @@ export function prepareArmorItem(actorData, itemData) {
   itemData.enchant_levelEffective = safeNumber(itemData.enchant_level, 0);
 
   // Runed price multiplier (quality flag, not AR mutation).
-  const hasRuned = itemData.runed === true
-    || injected.some(q => String(q?.key ?? "").toLowerCase() === "runed")
-    || hasLegacyQuality(itemData.qualities, "runed");
-  const finalPrice = hasRuned ? roundPriceUp(derivedPrice * 1.25) : derivedPrice;
+  const finalPrice = hasRunedQuality(itemData) ? roundPriceUp(derivedPrice * 1.25) : derivedPrice;
 
   itemData.encEffective        = derivedEnc;
   itemData.priceEffective      = finalPrice;

@@ -10,6 +10,7 @@
 
 import { getSpecialActionById } from "../combat-style-utils.js";
 import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
+import { _resolveDoc } from "./helpers/docs.js";
 
 /**
  * Execute special actions selected during advantage spending.
@@ -71,8 +72,8 @@ export async function executeAdvantageSpecialActions({
         }
       } else if (choice.mode === "free") {
         // Free Action: 0 AP, initiate test with dropdown selection
-        const actorToken = actorTokenUuid ? fromUuidSync(actorTokenUuid)?.object : null;
-        const opponentToken = opponentTokenUuid ? fromUuidSync(opponentTokenUuid)?.object : null;
+        const actorToken = actorTokenUuid ? _resolveDoc(actorTokenUuid)?.object : null;
+        const opponentToken = opponentTokenUuid ? _resolveDoc(opponentTokenUuid)?.object : null;
 
         if (actorToken && opponentToken) {
           const { SkillOpposedWorkflow } = await import("../../skills/opposed-workflow/index.js");

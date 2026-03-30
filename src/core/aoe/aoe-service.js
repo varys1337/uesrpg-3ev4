@@ -15,6 +15,7 @@
 import { buildTemplateData, buildSourceFlags, validateAoeSpec, normalizeShape } from "./aoe-template-data.js";
 import { startPlacement, isPlacementActive } from "./aoe-placement-controller.js";
 import { FLAG_NAMESPACE, AOE_SOURCE_TYPES } from "./aoe-constants.js";
+import { collectTargetsInTemplate, getAoeContainmentMode } from "./containment.js";
 
 export class AoEService {
 
@@ -124,10 +125,11 @@ export class AoEService {
     let targets = [];
 
     if (collectTargets) {
-      targets = await _collectTargetsInTemplate(placementResult.templateDoc, {
+      targets = await collectTargetsInTemplate(placementResult.templateDoc, {
         isPulse,
         includeCaster,
         casterTokenId: token?.id ?? token?.document?.id ?? null,
+        containmentMode: getAoeContainmentMode(),
       });
     }
 

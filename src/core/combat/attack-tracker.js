@@ -11,6 +11,7 @@ import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 import { requestBatchUpdateDocuments } from "../../utils/authority-proxy.js";
+import { evaluateAEModifierKeys, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 
 const ATTACK_OVERRIDE_MAX_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.max`;
 const ATTACK_OVERRIDE_CURRENT_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.current`;
@@ -260,9 +261,31 @@ export class AttackTracker {
     const baseLimit = 2;
     if (!actor) return baseLimit;
 
+    if (context?.ignoreRoundLimit === true || context?.followUpStrikeActive === true) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+    if (getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.combat.followupIgnoresRoundLimit")) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+
     const overrides = this.getOverrides(actor);
     if (overrides.max != null) {
       return Math.max(1, Math.floor(overrides.max));
+    }
+
+    const attackMode = String(context?.attackMode ?? "").trim().toLowerCase();
+    const aeKeys = ["system.modifiers.combat.attackLimit.total"];
+    if (attackMode === "melee") aeKeys.push("system.modifiers.combat.attackLimit.melee");
+    if (attackMode === "ranged") aeKeys.push("system.modifiers.combat.attackLimit.ranged");
+
+    const aeResolved = evaluateAEModifierKeys(actor, aeKeys, {
+      context: { attackMode },
+      enforceConditions: true,
+      dedupeByOrigin: true
+    });
+    const totalBonus = aeKeys.reduce((sum, key) => sum + (Number(aeResolved?.[key] ?? 0) || 0), 0);
+    if (totalBonus !== 0) {
+      return Math.max(1, Math.floor(baseLimit + totalBonus));
     }
 
     const hasDualWielderTalent = hasTalent(actor, "dualwielder") || hasTalent(actor, "dualfighter");

@@ -7,13 +7,15 @@
 import { RULE_PHASES, normalizeRulePhase } from "../../rules/phases.js";
 import { evaluatePredicate } from "../../rules/predicate.js";
 import { addRollOption, addRollOptions, buildBaseRollOptions } from "../../rules/roll-options.js";
-import { isDebugEnabled } from "../../../utils/debug.js";
+import { createSeverityDebugLogger, isDebugEnabled } from "../../../utils/debug.js";
 import { _num } from "../../../utils/coerce.js";
+import { createUuidResolver } from "../../../utils/uuid-cache.js";
 import { getActorCanvasToken } from "../combat-proximity.js";
 import { hasTalent } from "../talents-api.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { compileConditionsToPredicate } from "./conditions-to-predicate.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { applyAEDegreeModifiers } from "../../../utils/degree/ae-degree-modifiers.js";
 import { getFeatureConfig } from "./feature-config.js";
 import {
   getRuleElements,
@@ -26,6 +28,7 @@ import { SYSTEM_ID } from "../../system/namespace.js";
 const RUNTIME_SETTING = "enableRuleElementsRuntime";
 const FEATURE_ITEM_TYPES = new Set(["trait", "talent", "power"]);
 const SUPPORT_MATRIX = getRuleElementRuntimeSupport();
+const _runtimeDebug = createSeverityDebugLogger("ruleElementDebug", "UESRPG | rule-element-runtime |", "debug");
 
 function _slug(value) {
   return String(value ?? "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9:_-]/g, "");
@@ -52,18 +55,9 @@ function _safeGetSetting(scope, key, fallback = false) {
   }
 }
 
-function _safeSetSetting(scope, key, value) {
-  try {
-    return game?.settings?.set?.(scope, key, value);
-  } catch (_e) {
-    return null;
-  }
-}
-
 function _debug(message, data = null) {
-  if (!isDebugEnabled("ruleElementDebug")) return;
-  if (data == null) console.debug(`UESRPG | rule-element-runtime | ${message}`);
-  else console.debug(`UESRPG | rule-element-runtime | ${message}`, data);
+  if (data == null) _runtimeDebug(message);
+  else _runtimeDebug(message, data);
 }
 
 function _normalizeWorkflow(workflow) {
@@ -123,31 +117,23 @@ function _collectFeatureItems(actor, item = null) {
   return items;
 }
 
-function _resolveActorFromUuid(uuid) {
+function _resolveActorFromUuid(uuid, resolver = null) {
   const u = String(uuid ?? "").trim();
   if (!u) return null;
-  try {
-    const doc = fromUuidSync(u);
-    if (doc?.documentName === "Actor") return doc;
-    return doc?.actor ?? null;
-  } catch (_e) {
-    return null;
-  }
+  const doc = resolver?.resolveSync?.(u) ?? null;
+  if (doc?.documentName === "Actor") return doc;
+  return doc?.actor ?? null;
 }
 
-function _resolveTokenFromUuid(uuid) {
+function _resolveTokenFromUuid(uuid, resolver = null) {
   const u = String(uuid ?? "").trim();
   if (!u) return null;
-  try {
-    const doc = fromUuidSync(u);
-    if (!doc) return null;
-    if (doc?.documentName === "Token") return doc.object ?? null;
-    if (doc?.object?.documentName === "Token") return doc.object;
-    if (doc?.documentName === "TokenDocument") return doc.object ?? null;
-    return null;
-  } catch (_e) {
-    return null;
-  }
+  const doc = resolver?.resolveSync?.(u) ?? null;
+  if (!doc) return null;
+  if (doc?.documentName === "Token") return doc.object ?? null;
+  if (doc?.object?.documentName === "Token") return doc.object;
+  if (doc?.documentName === "TokenDocument") return doc.object ?? null;
+  return null;
 }
 
 export function getRuleElementRuntimeSettingsState() {
@@ -603,8 +589,9 @@ export function evaluateRuleElementsRuntime({
     return output;
   }
 
-  const resolvedTargetActor = targetActor ?? targetToken?.actor ?? _resolveActorFromUuid(rollContext?.targetUuid ?? null);
-  const resolvedTargetToken = targetToken ?? _resolveTokenFromUuid(rollContext?.targetTokenUuid ?? null) ?? (resolvedTargetActor ? getActorCanvasToken(resolvedTargetActor) : null);
+  const resolver = createUuidResolver();
+  const resolvedTargetActor = targetActor ?? targetToken?.actor ?? _resolveActorFromUuid(rollContext?.targetUuid ?? null, resolver);
+  const resolvedTargetToken = targetToken ?? _resolveTokenFromUuid(rollContext?.targetTokenUuid ?? null, resolver) ?? (resolvedTargetActor ? getActorCanvasToken(resolvedTargetActor) : null);
   const actorToken = getActorCanvasToken(actor);
 
   let resolvedTestType = _slug(testType || rollContext?.testType || "");
@@ -841,7 +828,7 @@ export function evaluateREDefenseOverrides({ defender, attackMode } = {}) {
   } catch (_e) {
     // Non-critical: fall back to no overrides.
     if (isDebugEnabled("activationDebug")) {
-      console.debug("uesrpg | evaluateREDefenseOverrides failed", _e);
+      _runtimeDebug("evaluateREDefenseOverrides failed", _e);
     }
   }
   return result;
@@ -915,6 +902,19 @@ export async function applyRuntimePostRollToResult({
     changed = true;
   }
 
+  const aeDegreeOutcome = applyAEDegreeModifiers(params.actor, result, {
+    workflow: runtime.workflow,
+    side: params.side,
+    skillName: params.skillName,
+    characteristicKey: params.characteristicKey,
+    attackMode: params.attackMode,
+    defenseType: params.defenseType,
+    item: params.item,
+    rollContext: params.rollContext,
+    degreeScopes: params.degreeScopes
+  });
+  if (aeDegreeOutcome?.changed) changed = true;
+
   // Reroll eligibility: if the test FAILED and there are reroll grants, offer a prompt.
   // Follows the Iron Will pattern: prompt Reroll / Keep Failure, overwrite result in-place.
   const rerollGrants = Array.isArray(runtime?.rerollGrants) ? runtime.rerollGrants : [];
@@ -959,6 +959,7 @@ export async function applyRuntimePostRollToResult({
     workflow: runtime.workflow,
     dosDelta: delta,
     dosReplacement: runtime.dosReplacement,
+    aeDegreeModifiers: aeDegreeOutcome ?? null,
     pendingDosReplacements: pendingReplacements,
     rerollGrants: runtime.rerollGrants,
     defenseOverrides: runtime.defenseOverrides,

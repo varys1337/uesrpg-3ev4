@@ -33,6 +33,7 @@ import { spawnSummon } from "./summon-service.js";
 import { getUserSpellTargets } from "../spell-runtime.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
+import { pickCanvasLocation as sharedPickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 
 const _FLAG_NS = FLAG_SCOPE;
@@ -440,7 +441,7 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
   // If not on an active canvas, fall back to auto-position.
   let position = null;
   if (canvas?.ready) {
-    position = await pickCanvasLocation({
+    position = await sharedPickCanvasLocation({
       label: `Click on the canvas to place ${summonActor.name}. Right-click or Escape to cancel.`,
       tokenWidth: tw,
       tokenHeight: th,

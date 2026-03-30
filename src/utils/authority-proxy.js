@@ -21,212 +21,39 @@
  *    with a deterministic in-flight guard.
  */
 
-import { isDebugEnabled } from "./debug.js";
-import { SYSTEM_ID } from "../core/constants.js";
 import { isPerfEnabled, monoMs, perfRecord } from "./perf-tracker.js";
+import {
+  QUERY_UPDATE_CHAT_MESSAGE_V1,
+  QUERY_CREATE_ACTIVE_EFFECT_V1,
+  QUERY_UPDATE_DOCUMENT_V1,
+  QUERY_BATCH_UPDATE_DOCUMENTS_V1,
+  QUERY_CREATE_ACTOR_V1,
+  QUERY_CREATE_EMBEDDED_DOCS_V1,
+  QUERY_UPDATE_EMBEDDED_DOCS_V1,
+  QUERY_DELETE_EMBEDDED_DOCS_V1,
+  acquireLock as _acquireLock,
+  releaseLock as _releaseLock,
+  stableStringify as _stableStringify,
+  isRecentDuplicate as _isRecentDuplicate,
+  lockKeyForDoc as _lockKeyForDoc,
+  isAllowedGenericDocument as _isAllowedGenericDocument,
+  debugLog as _dlog,
+  warnLog as _dwarn,
+  channelSystemId as _channelSystemId
+} from "./authority-proxy/shared.js";
+import {
+  deleteEmbeddedDocumentsIdempotent as _deleteEmbeddedDocumentsIdempotent
+} from "./authority-proxy/embedded-docs.js";
+import {
+  sanitizeChatMessageUpdatePayload,
+  isChatMessageUpdateFresh,
+  sanitizeGenericUpdatePayload as _sanitizeGenericUpdatePayload,
+  sanitizeEmbeddedDocData as _sanitizeEmbeddedDocData,
+  sanitizeActorCreateData as _sanitizeActorCreateData
+} from "./authority-proxy/sanitize.js";
+import { createUuidResolver } from "./uuid-cache.js";
 
-const NAMESPACE = SYSTEM_ID;
-
-const QUERY_UPDATE_CHAT_MESSAGE_V1 = `${NAMESPACE}.authority.updateChatMessage.v1`;
-const QUERY_CREATE_ACTIVE_EFFECT_V1 = `${NAMESPACE}.authority.createActiveEffect.v1`;
-const QUERY_UPDATE_DOCUMENT_V1 = `${NAMESPACE}.authority.updateDocument.v1`;
-const QUERY_BATCH_UPDATE_DOCUMENTS_V1 = `${NAMESPACE}.authority.batchUpdateDocuments.v1`;
-const QUERY_CREATE_ACTOR_V1 = `${NAMESPACE}.authority.createActor.v1`;
-const QUERY_CREATE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.createEmbeddedDocuments.v1`;
-const QUERY_UPDATE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.updateEmbeddedDocuments.v1`;
-const QUERY_DELETE_EMBEDDED_DOCS_V1 = `${NAMESPACE}.authority.deleteEmbeddedDocuments.v1`;
-
-const _IN_FLIGHT_LOCKS = new Set();
-const _RECENT_SIGNATURES = new Map();
-
-function _debugEnabled() {
-  return isDebugEnabled("effectsProxyDebug");
-}
-
-function _dlog(msg, data) {
-  if (!_debugEnabled()) return;
-  try {
-    console.log(`UESRPG | authority-proxy | ${msg}`, data ?? "");
-  } catch (_e) {
-    /* no-op */
-  }
-}
-
-function _dwarn(msg, data) {
-  if (!_debugEnabled()) return;
-  try {
-    console.warn(`UESRPG | authority-proxy | ${msg}`, data ?? "");
-  } catch (_e) {
-    /* no-op */
-  }
-}
-
-function _isMissingEmbeddedDeleteError(err) {
-  const msg = String(err?.message ?? err ?? "");
-  return msg.includes("does not exist")
-    || msg.includes("No Document")
-    || msg.includes("not found")
-    || msg.includes("Invalid document");
-}
-
-function _getEmbeddedCollection(parent, embeddedName) {
-  if (!parent || !embeddedName) return null;
-  if (embeddedName === "ActiveEffect") return parent.effects ?? null;
-  if (embeddedName === "Item") return parent.items ?? null;
-  return null;
-}
-
-function _normalizeEmbeddedIds(ids) {
-  const out = [];
-  const seen = new Set();
-  for (const rawId of Array.isArray(ids) ? ids : []) {
-    const id = String(rawId ?? "").trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-  return out;
-}
-
-function _hasEmbeddedDocument(parent, embeddedName, docId) {
-  if (!parent || !embeddedName || !docId) return false;
-  const collection = _getEmbeddedCollection(parent, embeddedName);
-  if (!collection?.get && !collection?.has) return true;
-  if (typeof collection.has === "function") return collection.has(docId);
-  return Boolean(collection.get(docId));
-}
-
-async function _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids) {
-  const requestedIds = _normalizeEmbeddedIds(ids);
-  if (!requestedIds.length) return { ok: false, error: "No valid ids" };
-
-  const liveIds = requestedIds.filter((id) => _hasEmbeddedDocument(actor, embeddedName, id));
-  const skippedIds = requestedIds.filter((id) => !liveIds.includes(id));
-  const debugData = {
-    actorUuid: actor?.uuid ?? null,
-    embeddedName,
-    requestedIds,
-    liveIds,
-    skippedIds
-  };
-
-  if (skippedIds.length && liveIds.length) {
-    _dlog("deleteEmbeddedDocuments reduced stale ids", debugData);
-  }
-
-  if (!liveIds.length) {
-    _dlog("deleteEmbeddedDocuments already gone", debugData);
-    return { ok: true, requestedIds, deletedIds: [], skippedIds, allAlreadyGone: true };
-  }
-
-  try {
-    await actor.deleteEmbeddedDocuments(embeddedName, liveIds);
-    return { ok: true, requestedIds, deletedIds: liveIds, skippedIds };
-  } catch (err) {
-    const survivingIds = liveIds.filter((id) => _hasEmbeddedDocument(actor, embeddedName, id));
-    if (_isMissingEmbeddedDeleteError(err) || !survivingIds.length) {
-      _dlog("deleteEmbeddedDocuments soft-suppressed race", {
-        ...debugData,
-        survivingIds,
-        error: String(err?.message ?? err ?? "")
-      });
-      return {
-        ok: true,
-        requestedIds,
-        deletedIds: liveIds.filter((id) => !survivingIds.includes(id)),
-        skippedIds,
-        survivingIds,
-        softSuppressed: true
-      };
-    }
-
-    console.error("UESRPG | authority-proxy | deleteEmbeddedDocuments failed", {
-      actorUuid: actor?.uuid ?? null,
-      embeddedName,
-      requestedIds,
-      liveIds,
-      skippedIds,
-      survivingIds,
-      err
-    });
-    return { ok: false, error: err?.message ?? String(err), requestedIds, liveIds, skippedIds, survivingIds };
-  }
-}
-
-function _channelSystemId() {
-  return game.system?.id ?? NAMESPACE;
-}
-
-function _sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function _acquireLock(key, { timeoutMs = 3000, pollMs = 25 } = {}) {
-  const start = Date.now();
-  while (_IN_FLIGHT_LOCKS.has(key)) {
-    if ((Date.now() - start) > timeoutMs) {
-      throw new Error(`authority lock timeout for ${key}`);
-    }
-    await _sleep(pollMs);
-  }
-  _IN_FLIGHT_LOCKS.add(key);
-}
-
-function _releaseLock(key) {
-  _IN_FLIGHT_LOCKS.delete(key);
-}
-
-function _stableStringify(value) {
-  const seen = new WeakSet();
-  const walk = (v) => {
-    if (v === null) return "null";
-    const t = typeof v;
-    if (t === "string") return JSON.stringify(v);
-    if (t === "number" || t === "boolean") return String(v);
-    if (t !== "object") return JSON.stringify(String(v));
-
-    if (seen.has(v)) return '"[Circular]"';
-    seen.add(v);
-
-    if (Array.isArray(v)) return `[${v.map(walk).join(",")}]`;
-
-    const keys = Object.keys(v).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    const parts = keys.map((k) => `${JSON.stringify(k)}:${walk(v[k])}`);
-    return `{${parts.join(",")}}`;
-  };
-
-  try {
-    return walk(value);
-  } catch (_e) {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-}
-
-function _isRecentDuplicate(signature, { windowMs = 1500, maxEntries = 500 } = {}) {
-  try {
-    const now = Date.now();
-    const prev = _RECENT_SIGNATURES.get(signature) ?? 0;
-    if (prev && (now - prev) < windowMs) return true;
-
-    _RECENT_SIGNATURES.set(signature, now);
-
-    // Simple size bound; clear oldest-ish by brute force when oversized.
-    if (_RECENT_SIGNATURES.size > maxEntries) {
-      const entries = Array.from(_RECENT_SIGNATURES.entries());
-      entries.sort((a, b) => a[1] - b[1]);
-      const toDelete = Math.ceil(entries.length * 0.25);
-      for (let i = 0; i < toDelete; i++) _RECENT_SIGNATURES.delete(entries[i][0]);
-    }
-
-    return false;
-  } catch (_e) {
-    return false;
-  }
-}
+export { sanitizeChatMessageUpdatePayload, isChatMessageUpdateFresh };
 
 export function getMessageAuthorId(message) {
   try {
@@ -315,120 +142,6 @@ function _isAuthor(message, user) {
   }
 }
 
-function _deepClonePlain(obj) {
-  // JSON round-trip strips read-only property descriptors from Foundry v13 flag
-  // proxy objects.  foundry.utils.deepClone preserves those descriptors, causing
-  // "Cannot assign to read only property" errors during mergeObject.
-  try {
-    return JSON.parse(JSON.stringify(obj));
-  } catch (_e) {
-    try {
-      return structuredClone(obj);
-    } catch (_e2) {
-      return obj;
-    }
-  }
-}
-
-/**
- * Sanitize payload to prevent arbitrary ChatMessage updates from clients.
- * Allowed:
- *  - content: string
- *  - flags[systemId].opposed
- *  - flags[systemId].skillOpposed
- *  - flags[systemId].magicOpposed
- *  - flags[systemId].charOpposed
- *  - flags[systemId].warfareClash
- */
-export function sanitizeChatMessageUpdatePayload(payload) {
-  if (!payload || typeof payload !== "object") return {};
-
-  const sysId = _channelSystemId();
-  const out = {};
-
-  if (typeof payload.content === "string") out.content = payload.content;
-
-  const flags = payload.flags;
-  const sysFlags = (flags && typeof flags === "object") ? flags[sysId] : null;
-  if (sysFlags && typeof sysFlags === "object") {
-    const cleanedSysFlags = {};
-    if (Object.prototype.hasOwnProperty.call(sysFlags, "opposed")) cleanedSysFlags.opposed = _deepClonePlain(sysFlags.opposed);
-    if (Object.prototype.hasOwnProperty.call(sysFlags, "skillOpposed")) cleanedSysFlags.skillOpposed = _deepClonePlain(sysFlags.skillOpposed);
-    if (Object.prototype.hasOwnProperty.call(sysFlags, "magicOpposed")) cleanedSysFlags.magicOpposed = _deepClonePlain(sysFlags.magicOpposed);
-    if (Object.prototype.hasOwnProperty.call(sysFlags, "charOpposed")) cleanedSysFlags.charOpposed = _deepClonePlain(sysFlags.charOpposed);
-    if (Object.prototype.hasOwnProperty.call(sysFlags, "warfareClash")) cleanedSysFlags.warfareClash = _deepClonePlain(sysFlags.warfareClash);
-    if (Object.keys(cleanedSysFlags).length > 0) out.flags = { [sysId]: cleanedSysFlags };
-  }
-
-  return out;
-}
-
-/**
- * Determine whether the incoming payload is at least as new as the currently stored opposed state.
- */
-export function isChatMessageUpdateFresh(message, payload) {
-  try {
-    const sysId = _channelSystemId();
-    const incoming = payload?.flags?.[sysId] ?? null;
-    if (!incoming || typeof incoming !== "object") return true;
-
-    const current = message?.flags?.[sysId] ?? null;
-    if (!current || typeof current !== "object") return true;
-
-    const lanes = [];
-    if (Object.prototype.hasOwnProperty.call(incoming, "opposed")) lanes.push("opposed");
-    if (Object.prototype.hasOwnProperty.call(incoming, "skillOpposed")) lanes.push("skillOpposed");
-    if (Object.prototype.hasOwnProperty.call(incoming, "magicOpposed")) lanes.push("magicOpposed");
-    if (Object.prototype.hasOwnProperty.call(incoming, "charOpposed")) lanes.push("charOpposed");
-    if (Object.prototype.hasOwnProperty.call(incoming, "warfareClash")) lanes.push("warfareClash");
-    if (lanes.length === 0) return true;
-
-    const extract = (obj, lane) => {
-      if (lane === "opposed") {
-        return {
-          ts: Number(obj?.opposed?.context?.updatedAt ?? 0),
-          seq: Number(obj?.opposed?.context?.updatedSeq ?? 0)
-        };
-      }
-      if (lane === "skillOpposed") {
-        return {
-          ts: Number(obj?.skillOpposed?.state?.context?.updatedAt ?? 0),
-          seq: Number(obj?.skillOpposed?.state?.context?.updatedSeq ?? 0)
-        };
-      }
-      if (lane === "magicOpposed") {
-        return {
-          ts: Number(obj?.magicOpposed?.state?.context?.updatedAt ?? 0),
-          seq: Number(obj?.magicOpposed?.state?.context?.updatedSeq ?? 0)
-        };
-      }
-      if (lane === "charOpposed") {
-        return {
-          ts: Number(obj?.charOpposed?.state?.context?.updatedAt ?? 0),
-          seq: Number(obj?.charOpposed?.state?.context?.updatedSeq ?? 0)
-        };
-      }
-      return { ts: 0, seq: 0 };
-    };
-
-    const incSeq = Math.max(...lanes.map(l => extract(incoming, l).seq));
-    const curSeq = Math.max(...lanes.map(l => extract(current, l).seq));
-
-    if (incSeq && curSeq) {
-      if (incSeq < curSeq) return false;
-      if (incSeq > curSeq) return true;
-      // If sequences tie, fall through to timestamp comparison.
-    }
-
-    const incTs = Math.max(...lanes.map(l => extract(incoming, l).ts));
-    const curTs = Math.max(...lanes.map(l => extract(current, l).ts));
-    if (!incTs || !curTs) return true;
-    return incTs >= curTs;
-  } catch (_e) {
-    return true;
-  }
-}
-
 function _selectActiveGM() {
   try {
     if (game.users?.activeGM) return game.users.activeGM;
@@ -460,162 +173,6 @@ function _selectDocumentOwner(doc) {
   } catch (_e) {
     return null;
   }
-}
-
-function _sanitizeGenericUpdatePayload(doc, payload) {
-  if (!payload || typeof payload !== "object") return {};
-
-  const docName = doc?.documentName ?? "";
-  const out = {};
-
-  // Allow flags and system subtrees; allow name/img for user-facing changes.
-  // IMPORTANT: We also allow dot-path updates within these subtrees (e.g. "system.hp.value").
-  const allowTopLevel = new Set(["system", "flags", "name", "img", "icon"]);
-
-  // TokenDocument: conservative allowlist. Includes dead-status sync lanes
-  // required by NPC 0 HP handling (overlay/statuses/effects).
-  if (docName === "Token") {
-    // Keep this intentionally narrow; these keys are used by:
-    // - deterministic position swaps (x/y)
-    // - dead overlay/status reconciliation (overlayEffect/statuses/effects)
-    const allowedTokenKeys = new Set(["x", "y", "overlayEffect", "statuses", "effects"]);
-    for (const [k, v] of Object.entries(payload)) {
-      if (allowedTokenKeys.has(k)) {
-        out[k] = _deepClonePlain(v);
-        continue;
-      }
-      if (k === "flags" && v && typeof v === "object") {
-        out.flags = _deepClonePlain(v);
-        continue;
-      }
-      if (k.startsWith("flags.")) out[k] = _deepClonePlain(v);
-    }
-    return out;
-  }
-
-  // Combatant: support deterministic combat state toggles only.
-  if (docName === "Combatant") {
-    const allowedCombatantKeys = new Set(["defeated", "hidden", "initiative", "flags", "name", "img", "icon"]);
-    for (const [k, v] of Object.entries(payload)) {
-      if (allowedCombatantKeys.has(k)) {
-        if (k === "icon" && payload.img === undefined) out.img = _deepClonePlain(v);
-        else out[k] = _deepClonePlain(v);
-        continue;
-      }
-      if (k.startsWith("flags.")) out[k] = _deepClonePlain(v);
-    }
-    if (out.icon !== undefined) delete out.icon;
-    return out;
-  }
-
-  // ActiveEffect: allow standard AE mutation lanes.
-  if (docName === "ActiveEffect") {
-    const allowed = new Set(["changes", "duration", "disabled", "name", "img", "icon", "flags", "statuses", "tint", "origin", "transfer"]);
-    for (const [k, v] of Object.entries(payload)) {
-      if (allowed.has(k)) {
-        // Normalize legacy icon -> img.
-        if (k === "icon" && payload.img === undefined) out.img = _deepClonePlain(v);
-        else out[k] = _deepClonePlain(v);
-        continue;
-      }
-      // Permit dot-path updates for safe subtrees.
-      if (k.startsWith("flags.") || k.startsWith("duration.")) {
-        out[k] = _deepClonePlain(v);
-      }
-    }
-    // Do not retain "icon" if we normalized it.
-    if (out.icon !== undefined) delete out.icon;
-    return out;
-  }
-
-  // Actor / Item / other.
-  for (const [k, v] of Object.entries(payload)) {
-    if (allowTopLevel.has(k)) {
-      if (k === "icon" && payload.img === undefined) out.img = _deepClonePlain(v);
-      else out[k] = _deepClonePlain(v);
-      continue;
-    }
-
-    // Permit dot-path updates for safe subtrees.
-    if (k.startsWith("system.") || k.startsWith("flags.")) {
-      out[k] = _deepClonePlain(v);
-    }
-  }
-
-  if (out.icon !== undefined) delete out.icon;
-  return out;
-}
-
-function _sanitizeEmbeddedDocData(embeddedName, data) {
-  if (!data || typeof data !== "object") return null;
-
-  if (embeddedName === "ActiveEffect") {
-    // Allow Foundry's standard AE fields. Do not allow forcing IDs.
-    // Normalize legacy "icon" to v13 "img".
-    const allowed = new Set(["name", "img", "icon", "origin", "disabled", "duration", "changes", "flags", "statuses", "tint", "transfer"]);
-    const out = {};
-    for (const [k, v] of Object.entries(data)) {
-      if (!allowed.has(k) && !k.startsWith("flags.") && !k.startsWith("duration.")) continue;
-      if (k === "icon") {
-        if (out.img === undefined && data.img === undefined) out.img = _deepClonePlain(v);
-        continue;
-      }
-      out[k] = _deepClonePlain(v);
-    }
-    return out;
-  }
-
-  if (embeddedName === "Item") {
-    // Embedded Items: be conservative; allow system/name/img/type/flags.
-    const allowed = new Set(["name", "img", "type", "system", "flags"]);
-    const out = {};
-    for (const [k, v] of Object.entries(data)) {
-      if (!allowed.has(k) && !k.startsWith("system.") && !k.startsWith("flags.")) continue;
-      out[k] = _deepClonePlain(v);
-    }
-    return out;
-  }
-
-  return null;
-}
-
-function _sanitizeActorCreateData(actorData) {
-  if (!actorData || typeof actorData !== "object") return null;
-
-  const out = {};
-
-  if (typeof actorData.name === "string") out.name = actorData.name.trim() || "New Character";
-  if (typeof actorData.type === "string") out.type = actorData.type;
-  if (typeof actorData.img === "string") out.img = actorData.img;
-  if (actorData.system && typeof actorData.system === "object") out.system = _deepClonePlain(actorData.system);
-  if (actorData.flags && typeof actorData.flags === "object") out.flags = _deepClonePlain(actorData.flags);
-
-  if (!out.name) out.name = "New Character";
-  if (!out.type) out.type = "Player Character";
-
-  delete out.ownership;
-  delete out.permission;
-  delete out.folder;
-  delete out.sort;
-  delete out._id;
-
-  return out;
-}
-
-function _lockKeyForDoc(doc) {
-  try {
-    const docName = doc?.documentName ?? "Document";
-    const uuid = doc?.uuid ?? "";
-    const id = doc?.id ?? "";
-    return `${docName}:${uuid || id}`;
-  } catch (_e) {
-    return "Document:unknown";
-  }
-}
-
-function _isAllowedGenericDocument(doc) {
-  const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant"]);
-  return !!doc && doc.documentName !== "ChatMessage" && allowedDocs.has(doc.documentName);
 }
 
 export function registerAuthorityProxy() {
@@ -1308,13 +865,14 @@ export async function requestBatchUpdateDocuments(updates, { timeout = 5000 } = 
   }
 
   // Direct path: current user can update each document.
+  const resolver = createUuidResolver();
   if (prepared.length && prepared.every((r) => {
-    const doc = fromUuidSync(r.uuid);
+    const doc = resolver.resolveSync(r.uuid);
     return !!doc && (game.user?.isGM || doc.isOwner);
   })) {
     const lockKeys = [];
     for (const row of prepared) {
-      const doc = fromUuidSync(row.uuid);
+      const doc = resolver.resolveSync(row.uuid);
       if (!doc) {
         failures.push({ uuid: row.uuid, error: "Document not found during direct update" });
         continue;
@@ -1334,7 +892,7 @@ export async function requestBatchUpdateDocuments(updates, { timeout = 5000 } = 
     let updatedCount = 0;
     try {
       for (const row of prepared) {
-        const doc = fromUuidSync(row.uuid);
+        const doc = resolver.resolveSync(row.uuid);
         if (!doc) {
           failures.push({ uuid: row.uuid, error: "Document not found during apply" });
           continue;

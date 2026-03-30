@@ -139,6 +139,7 @@ const lord = {
       type: "trait",
       img: `${imgPath}/sign-lord.webp`,
       desc: "Those born under the sign of the Lord double their natural healing rate.",
+      data: { "system.recovery.naturalHealing.multiplier": 2 },
     },
   ],
   starCursed: [
@@ -147,7 +148,10 @@ const lord = {
       type: "trait",
       img: `${imgPath}/sign-lord.webp`,
       desc: "Double natural healing rate. Gain +5 Endurance.",
-      data: { "system.characteristicBonus.endChaBonus": 5 },
+      data: {
+        "system.recovery.naturalHealing.multiplier": 2,
+        "system.characteristicBonus.endChaBonus": 5,
+      },
     },
     {
       name: "Weakness (Fire, 2)",
@@ -326,9 +330,6 @@ const ritual = {
       img: `${imgPath}/sign-ritual.webp`,
       desc: "Choose one of the following powers at the beginning of each day: Blessed Touch, Blessed Word, or Mara's Gift. This power lasts until your next long rest, when you may choose again.",
     },
-    { pack: SIGNS_PACK, name: "Mara's Gift" },
-    { pack: POWERS_PACK, name: "Blessed Touch" },
-    { pack: POWERS_PACK, name: "Blessed Word" },
   ],
   starCursed: [
     {
@@ -338,7 +339,7 @@ const ritual = {
       desc: "Gain all three powers permanently (Blessed Touch, Blessed Word, Mara's Gift), but lose 5 Luck.",
       data: { "system.characteristicBonus.lckChaBonus": -5 },
     },
-    { pack: SIGNS_PACK, name: "Mara's Gift" },
+    { pack: POWERS_PACK, name: "Mara's Gift" },
     { pack: POWERS_PACK, name: "Blessed Touch" },
     { pack: POWERS_PACK, name: "Blessed Word" },
   ],
@@ -370,7 +371,7 @@ const thief = {
       img: `${imgPath}/sign-thief.webp`,
       desc: "Extra permanent lucky number. Replace Luck score with 50. Gain Akaviri Danger-Sense and Running Out of Luck.",
     },
-    { pack: SIGNS_PACK, name: "Akaviri Danger-Sense" },
+    { pack: POWERS_PACK, name: "Akaviri Danger-Sense" },
     { pack: SIGNS_PACK, name: "Running Out of Luck" },
   ],
   // Special: Star-Cursed Thief sets Luck base to 50 — handled in onBirthSignMenu callback.
@@ -428,7 +429,7 @@ const shadow = {
       img: `${imgPath}/sign-shadow.webp`,
       desc: "Those born under the sign of the Shadow gain the Moonshadow power.",
     },
-    { pack: SIGNS_PACK, name: "Moonshadow" },
+    { pack: POWERS_PACK, name: "Moonshadow" },
   ],
   starCursed: [
     {
@@ -438,7 +439,7 @@ const shadow = {
       desc: "Gain Moonshadow power and +5 Perception.",
       data: { "system.characteristicBonus.prcChaBonus": 5 },
     },
-    { pack: SIGNS_PACK, name: "Moonshadow" },
+    { pack: POWERS_PACK, name: "Moonshadow" },
   ],
   starCursedChoices: {
     attributes: ["personality", "strength"],
@@ -463,7 +464,7 @@ const tower = {
       desc: "Those born under the sign of the Tower gain the Treasure Seeker power and +5 Perception.",
       data: { "system.characteristicBonus.prcChaBonus": 5 },
     },
-    { pack: SIGNS_PACK, name: "Treasure Seeker" },
+    { pack: POWERS_PACK, name: "Treasure Seeker" },
   ],
   starCursed: [
     {
@@ -476,7 +477,7 @@ const tower = {
         "system.characteristicBonus.agiChaBonus": 5,
       },
     },
-    { pack: SIGNS_PACK, name: "Treasure Seeker" },
+    { pack: POWERS_PACK, name: "Treasure Seeker" },
   ],
   starCursedChoices: {
     attributes: ["willpower", "strength"],

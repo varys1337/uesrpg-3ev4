@@ -55,6 +55,7 @@ export async function handleFollowUpStrike(ctx, workflow) {
       attackerTarget: data?.attacker?.target ?? null,
       weaponUuid: fus.otherWeaponUuid,
       followUpStrike: true,
+      followUpStrikeIgnoresRoundLimit: Boolean(fus.ignoresRoundLimit),
       forcedHitLocation: data?.context?.forcedHitLocation ?? null
     });
   }

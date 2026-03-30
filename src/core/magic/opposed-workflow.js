@@ -39,6 +39,12 @@ import { applySpellEffectsToTarget } from "./effects/spell-effects.js";
 import { spellRequiresOriginAE, createOriginAE } from "./effects/origin-effect.js";
 import { buildRollContext } from "../rules/roll-context.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
+import {
+  normalizeCastSourceCostMode,
+  resolveItemContextFromCastSource,
+  getItemSoulPoolSnapshot,
+  spendItemSoulCost,
+} from "./opposed/cast-source.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _FLAG_KEY = "magicOpposed";
@@ -51,55 +57,6 @@ function _ignoreTraining(cfg = {}) {
 
 function _ignoreActionPoints(cfg = {}) {
   return cfg?.ignoreActionPoints === true || cfg?.spellOptions?.ignoreActionPoints === true;
-}
-
-function _normalizeCastSourceCostMode(castSource = null) {
-  const mode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
-  if (mode === "magicka" || mode === "none") return mode;
-  return "soul";
-}
-
-function _resolveItemContextFromCastSource(castSource = null, itemCastContext = null) {
-  const itemUuid = String(itemCastContext?.itemUuid ?? castSource?.itemUuid ?? "").trim();
-  const sourceLane = String(itemCastContext?.sourceLane ?? castSource?.sourceLane ?? "workshop").trim().toLowerCase();
-  const slotId = String(itemCastContext?.slotId ?? castSource?.spellSlotId ?? "").trim();
-  if (!itemUuid) return null;
-  const itemDoc = fromUuidSync(itemUuid);
-  const item = itemDoc?.documentName === "Item" ? itemDoc : null;
-  if (!item) return null;
-  return { item, sourceLane, slotId };
-}
-
-function _getItemSoulPoolSnapshot(itemCtx = null) {
-  if (!itemCtx?.item) return { value: 0, max: 0, poolPath: "" };
-  const { item, sourceLane } = itemCtx;
-  if (sourceLane === "extension") {
-    const pool = item.flags?.[_FLAG_NS]?.itemSpellcasting?.pool ?? {};
-    return {
-      value: Number(item.system?.charge?.value ?? pool?.value ?? 0) || 0,
-      max: Number(item.system?.charge?.max ?? pool?.max ?? 0) || 0,
-      poolPath: `flags.${_FLAG_NS}.itemSpellcasting.pool.value`
-    };
-  }
-  const pool = item.flags?.[_FLAG_NS]?.enchanting?.cast?.pool ?? {};
-  return {
-    value: Number(pool?.value ?? 0) || 0,
-    max: Number(pool?.max ?? 0) || 0,
-    poolPath: `flags.${_FLAG_NS}.enchanting.cast.pool.value`
-  };
-}
-
-async function _spendItemSoulCost({ itemCtx, cost }) {
-  const amount = Math.max(0, Number(cost ?? 0) || 0);
-  const snap = _getItemSoulPoolSnapshot(itemCtx);
-  if (snap.value < amount) {
-    return { ok: false, reason: "insufficient", value: snap.value, max: snap.max, spent: 0 };
-  }
-  const next = Math.max(0, snap.value - amount);
-  const updates = { [snap.poolPath]: next, "system.charge.value": next };
-  const ok = await requestUpdateDocument(itemCtx.item, updates);
-  if (!ok) return { ok: false, reason: "update-failed", value: snap.value, max: snap.max, spent: 0 };
-  return { ok: true, value: next, max: snap.max, spent: amount };
 }
 
 /**
@@ -385,7 +342,7 @@ export const MagicOpposedWorkflow = {
     const spellOptions = cfg.spellOptions ?? {};
     const castSource = cfg?.castSource ? foundry.utils.deepClone(cfg.castSource) : null;
     const itemCastContext = cfg?.itemCastContext ? foundry.utils.deepClone(cfg.itemCastContext) : null;
-    const castSourceMode = _normalizeCastSourceCostMode(castSource);
+    const castSourceMode = normalizeCastSourceCostMode(castSource);
     const isEnchantmentSource = castSource?.type === "enchantment";
     const ignoreAP = _ignoreActionPoints(cfg);
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
@@ -405,11 +362,11 @@ export const MagicOpposedWorkflow = {
     }
 
     let itemCtx = null;
-    if (isEnchantmentSource) itemCtx = _resolveItemContextFromCastSource(castSource, itemCastContext);
+    if (isEnchantmentSource) itemCtx = resolveItemContextFromCastSource(castSource, itemCastContext);
     let enchantSoulCost = 0;
     if (isEnchantmentSource && castSourceMode === "soul") {
       enchantSoulCost = Math.max(0, Number(castSource?.cost ?? 0) || 0);
-      const pool = _getItemSoulPoolSnapshot(itemCtx);
+      const pool = getItemSoulPoolSnapshot(itemCtx);
       if (pool.value < enchantSoulCost) {
         ui.notifications.warn(`${attacker.name} does not have enough Soul Energy (${pool.value}/${enchantSoulCost}) to cast.`);
         return null;
@@ -433,7 +390,7 @@ export const MagicOpposedWorkflow = {
 
     let magickaSpend = { ok: true, consumed: 0, remaining: Number(attacker?.system?.magicka?.value ?? 0) || 0, refund: 0 };
     if (isEnchantmentSource && castSourceMode === "soul") {
-      const soulSpend = await _spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
+      const soulSpend = await spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
       if (!soulSpend?.ok) {
         if (!ignoreAP) {
           try {
@@ -637,7 +594,7 @@ export const MagicOpposedWorkflow = {
     const spellOptions = cfg.spellOptions ?? {};
     const castSource = cfg?.castSource ? foundry.utils.deepClone(cfg.castSource) : null;
     const itemCastContext = cfg?.itemCastContext ? foundry.utils.deepClone(cfg.itemCastContext) : null;
-    const castSourceMode = _normalizeCastSourceCostMode(castSource);
+    const castSourceMode = normalizeCastSourceCostMode(castSource);
     const isEnchantmentSource = castSource?.type === "enchantment";
     const ignoreAP = _ignoreActionPoints(cfg);
     const tn = computeMagicCastingTN(attacker, spell, spellOptions);
@@ -656,11 +613,11 @@ export const MagicOpposedWorkflow = {
     }
 
     let itemCtx = null;
-    if (isEnchantmentSource) itemCtx = _resolveItemContextFromCastSource(castSource, itemCastContext);
+    if (isEnchantmentSource) itemCtx = resolveItemContextFromCastSource(castSource, itemCastContext);
     let enchantSoulCost = 0;
     if (isEnchantmentSource && castSourceMode === "soul") {
       enchantSoulCost = Math.max(0, Number(castSource?.cost ?? 0) || 0);
-      const pool = _getItemSoulPoolSnapshot(itemCtx);
+      const pool = getItemSoulPoolSnapshot(itemCtx);
       if (pool.value < enchantSoulCost) {
         ui.notifications.warn(`Not enough Soul Energy to cast ${spell?.name ?? "spell"}. Required: ${enchantSoulCost}, Available: ${pool.value}.`);
         return null;
@@ -700,7 +657,7 @@ export const MagicOpposedWorkflow = {
 
     let magickaSpend = { ok: true, consumed: 0, remaining: Number(attacker?.system?.magicka?.value ?? 0) || 0, refund: 0 };
     if (isEnchantmentSource && castSourceMode === "soul") {
-      const soulSpend = await _spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
+      const soulSpend = await spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
       if (!soulSpend?.ok) {
         if (!ignoreAP) {
           try {

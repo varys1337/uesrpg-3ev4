@@ -9,47 +9,12 @@
 import { hasTalent } from "../traits/talents-api.js";
 import { listGroupActorsForMember } from "../traits/intellectual-talents.js";
 import { resolveSurpriseState } from "./surprise-state.js";
-
-function _numericOr(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function _luckBonus(actor) {
-  if (!actor) return 0;
-  const rawBonus = actor?.system?.characteristics?.lck?.bonus;
-  const fromBonus = Number(rawBonus);
-  if (rawBonus !== undefined && rawBonus !== null && Number.isFinite(fromBonus)) return fromBonus;
-  if (String(actor?.type ?? "").toLowerCase() === "npc") return 0;
-  return Math.floor(_numericOr(actor?.system?.characteristics?.lck?.total, 0) / 10);
-}
-
-function _pcPrecedence(actor) {
-  return String(actor?.type ?? "") === "Player Character" ? 1 : 0;
-}
-
-function _combatSensesInitiativeRating(actor) {
-  const prcBonus = Number(actor?.system?.characteristics?.prc?.bonus ?? 0) || 0;
-  return (2 * prcBonus) + 2;
-}
-
-function _initiativeTupleLikeSystem(combatant, initiativeValue) {
-  const actor = combatant?.actor ?? null;
-  const initiativeTotal = _numericOr(initiativeValue, Number.NEGATIVE_INFINITY);
-  const initiativeRating = _numericOr(actor?.system?.initiative?.value, 0);
-  const luckBonus = _luckBonus(actor);
-  const pcPrecedence = _pcPrecedence(actor);
-  const stableId = String(combatant?.id ?? combatant?._id ?? "");
-  return [initiativeTotal, initiativeRating, luckBonus, pcPrecedence, stableId];
-}
-
-function _compareProjected(a, b) {
-  if (a.tuple[0] !== b.tuple[0]) return b.tuple[0] - a.tuple[0];
-  if (a.tuple[1] !== b.tuple[1]) return b.tuple[1] - a.tuple[1];
-  if (a.tuple[2] !== b.tuple[2]) return b.tuple[2] - a.tuple[2];
-  if (a.tuple[3] !== b.tuple[3]) return b.tuple[3] - a.tuple[3];
-  return String(a.tuple[4]).localeCompare(String(b.tuple[4]), undefined, { numeric: true, sensitivity: "base" });
-}
+import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
+import {
+  compareProjectedInitiativeEntries,
+  getCombatSensesInitiativeRating,
+  getInitiativeTieBreakTuple,
+} from "../documents/combat/initiative-helpers.js";
 
 function _findDeterministicTacticianProvider(actor, initiativeByActorUuid) {
   if (!actor?.uuid || !initiativeByActorUuid) return null;
@@ -62,7 +27,7 @@ function _findDeterministicTacticianProvider(actor, initiativeByActorUuid) {
     for (const member of members) {
       const memberUuid = String(member?.id ?? "").trim();
       if (!memberUuid || memberUuid === actor.uuid) continue;
-      const memberActor = fromUuidSync(memberUuid);
+      const memberActor = resolveActorFromUuidSync(memberUuid);
       if (!memberActor) continue;
       if (!hasTalent(memberActor, "tactician")) continue;
       const ini = Number(initiativeByActorUuid.get(memberActor.uuid));
@@ -119,7 +84,7 @@ export async function resolveCombatantInitiative(combat, combatant, opts = {}) {
 
   const useCombatSenses = Boolean(opts?.useCombatSenses) && !isSurprised && !tacticianChoice;
   const normalIR = Number(actor?.system?.initiative?.value ?? 0) || 0;
-  const combatSensesIR = _combatSensesInitiativeRating(actor);
+  const combatSensesIR = getCombatSensesInitiativeRating(actor);
   const ir = useCombatSenses ? combatSensesIR : normalIR;
   const dice = hasTalent(actor, "lightningreflexes") ? "2d6kh" : "1d6";
 
@@ -198,9 +163,9 @@ export async function prepareDynamicRoundInitiativeUpdate(combat, opts = {}) {
     return {
       combatantId: String(c.id),
       defeated: Boolean(c?.defeated),
-      tuple: _initiativeTupleLikeSystem(c, nextInitiative)
+      tuple: getInitiativeTieBreakTuple(c, nextInitiative)
     };
-  }).sort(_compareProjected);
+  }).sort(compareProjectedInitiativeEntries);
 
   const orderedCombatantIds = projected.map((p) => p.combatantId);
   let startingTurn = 0;

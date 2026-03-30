@@ -1,9 +1,9 @@
 import { UESRPG } from "../../constants.js";
 import {
-  hasLegacyQuality,
   roundPriceUp,
   safeNumber,
 } from "../item-utils.js";
+import { getDamagedQualityValue, hasRunedQuality, stepWeightClass } from "./shared.js";
 
 export function prepareShieldItem(actorData, itemData) {
   const baseEnc   = safeNumber(itemData.enc, 0);
@@ -14,20 +14,10 @@ export function prepareShieldItem(actorData, itemData) {
   const qualityPriceMult = safeNumber(qRule?.priceMult, 1.0);
   const weightDelta      = safeNumber(qRule?.weightClassDelta, 0);
 
-  const stepWeightClass = (base, delta) => {
-    const order = ["none", "light", "medium", "heavy", "superheavy", "crippling"];
-    let i = order.indexOf(String(base || "none").toLowerCase());
-    if (i === -1) i = 0;
-    i = Math.max(0, Math.min(order.length - 1, i + delta));
-    return order[i];
-  };
-
   itemData.isShieldEffective = true;
   itemData.autoQualitiesStructured = [];
 
-  const injected = itemData.qualitiesStructuredInjected ?? itemData.qualitiesStructured ?? [];
-  const damagedQ = injected.find(q => q?.key === "damaged");
-  const damagedValue = safeNumber(damagedQ?.value, 0);
+  const damagedValue = getDamagedQualityValue(itemData);
 
   // Shield type: only used for the targe free-hand flag. No longer modifies BR or ENC.
   const typeKey = String(itemData.shieldType || "normal").toLowerCase();
@@ -42,10 +32,7 @@ export function prepareShieldItem(actorData, itemData) {
   const derivedPrice = roundPriceUp(basePrice * qualityPriceMult);
   const derivedEnc   = baseEnc;
 
-  const hasRuned = itemData.runed === true
-    || injected.some(q => String(q?.key ?? "").toLowerCase() === "runed")
-    || hasLegacyQuality(itemData.qualities, "runed");
-  if (hasRuned) {
+  if (hasRunedQuality(itemData)) {
     itemData.priceEffective = roundPriceUp(derivedPrice * 1.25);
   } else {
     itemData.priceEffective = derivedPrice;

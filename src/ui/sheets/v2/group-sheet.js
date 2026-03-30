@@ -31,6 +31,7 @@ import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
 import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
+import { pickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import {
   buildAllowedChangePatch,
   buildAllowedSubmitPatch,
@@ -821,61 +822,56 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       return;
     }
 
-    // Calculate grid layout
-    const cols = Math.ceil(Math.sqrt(deployable.length));
-    const rows = Math.ceil(deployable.length / cols);
-    const gridSize = canvas.grid.size;
-    const spacing = gridSize;
-    const canvasRect = canvas.dimensions.sceneRect;
-    const gridWidth = cols * spacing;
-    const gridHeight = rows * spacing;
+    let didMinimize = false;
+    let placedCount = 0;
+    let cancelled = false;
 
-    const padding = gridSize;
-    let startX = canvasRect.x + canvasRect.width / 2 - gridWidth / 2;
-    let startY = canvasRect.y + canvasRect.height / 2 - gridHeight / 2;
-    startX = Math.max(
-      canvasRect.x + padding,
-      Math.min(startX, canvasRect.x + canvasRect.width - gridWidth - padding)
-    );
-    startY = Math.max(
-      canvasRect.y + padding,
-      Math.min(startY, canvasRect.y + canvasRect.height - gridHeight - padding)
-    );
+    try {
+      if (!this.minimized && typeof this.minimize === "function") {
+        await this.minimize();
+        didMinimize = true;
+      }
 
-    const tokenDocs = [];
-    for (let i = 0; i < deployable.length; i++) {
-      const actor = deployable[i].actor;
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const snapped = canvas.grid.getSnappedPosition(
-        startX + col * spacing,
-        startY + row * spacing,
-        1
-      );
-      try {
-        const tokenData = await actor.getTokenDocument();
-        tokenDocs.push({
-          ...tokenData.toObject(),
-          x: snapped.x,
-          y: snapped.y,
-          hidden: false,
-        });
-      } catch (err) {
-        console.error(`UESRPG | Failed to prepare token for ${actor.name}`, err);
-        ui.notifications.warn(`Could not prepare token for ${actor.name}.`);
+      for (let i = 0; i < deployable.length; i++) {
+        const actor = deployable[i].actor;
+        try {
+          const tokenData = await actor.getTokenDocument();
+          const tokenWidth = Math.max(1, Number(tokenData.width) || 1);
+          const tokenHeight = Math.max(1, Number(tokenData.height) || 1);
+          const picked = await pickCanvasLocation({
+            label: `Place ${actor.name} (${i + 1}/${deployable.length}). Right-click or Escape to cancel.`,
+            tokenWidth,
+            tokenHeight,
+            timeout: 60_000,
+          });
+          if (!picked) {
+            cancelled = true;
+            break;
+          }
+
+          await canvas.scene.createEmbeddedDocuments("Token", [{
+            ...tokenData.toObject(),
+            x: picked.x,
+            y: picked.y,
+            hidden: false,
+          }]);
+          placedCount += 1;
+        } catch (err) {
+          console.error(`UESRPG | Failed to deploy token for ${actor.name}`, err);
+          ui.notifications.warn(`Could not deploy token for ${actor.name}.`);
+        }
+      }
+    } finally {
+      if (didMinimize && typeof this.maximize === "function") {
+        await this.maximize();
+        this.bringToTop?.();
       }
     }
 
-    if (tokenDocs.length) {
-      try {
-        await canvas.scene.createEmbeddedDocuments("Token", tokenDocs);
-        ui.notifications.info(
-          `Deployed ${tokenDocs.length} group members in a ${cols}×${rows} grid.`
-        );
-      } catch (err) {
-        console.error("UESRPG | Failed to deploy group tokens", err);
-        ui.notifications.error("Failed to deploy group. See console for details.");
-      }
+    if (placedCount > 0 && cancelled) {
+      ui.notifications.info(`Group deployment stopped after placing ${placedCount} member(s).`);
+    } else if (placedCount > 0) {
+      ui.notifications.info(`Deployed ${placedCount} group member(s).`);
     } else {
       ui.notifications.warn("No tokens could be deployed.");
     }

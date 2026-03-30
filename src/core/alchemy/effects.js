@@ -4,7 +4,8 @@
  * Authoritative source for all alchemical effects drawn from the Rules Compendium
  * Appendix (Spell Effects / Spell Attributes tables). Only effects with the
  * "potion" or "toxin" attribute appear here; pure enchanting effects live in
- * src/data/spell-effects.json.
+ * src/data/spell-effects-catalog.js (with JSON retained only as a generated
+ * compatibility artifact).
  *
  * Public API:
  *   listPotionEffects({ school })  → effects eligible for potion crafting
@@ -21,7 +22,7 @@
 // ── Inline catalog (avoids browser ES module JSON assertion issues) ───────────
 //
 // Each entry:
-//   key           Unique identifier matching spell-effects.json where possible.
+//   key           Unique identifier matching spell-effects-catalog.js where possible.
 //   label         Display name.
 //   school        Alchemical school (alteration | illusion | mysticism | restoration | destruction).
 //   attributes    Array of "potion", "toxin", "upkeep" as applicable.

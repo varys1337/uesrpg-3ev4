@@ -14,6 +14,7 @@
  */
 
 import { _num, _str } from "./_primitives.js";
+import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 
 function _hasItemNamed(actor, type, name) {
   const target = _str(name).trim().toLowerCase();
@@ -145,6 +146,13 @@ export function getSpellRestraintReduction(actor, spell, options = {}) {
   let wb = baseWB;
   const baseCost = Number.isFinite(Number(options.baseCost)) ? Math.max(0, Math.floor(Number(options.baseCost))) : null;
   const minCost = Number.isFinite(Number(options.minCost)) ? Math.max(0, Math.floor(Number(options.minCost))) : 1;
+  const restraintBonus = Number(
+    evaluateAEModifierKeys(actor, ["system.modifiers.magic.spellRestraintBonus"], {
+      context: { attackMode: "magic", itemUuid: String(spell?.uuid ?? "") },
+      enforceConditions: true,
+      dedupeByOrigin: true
+    })?.["system.modifiers.magic.spellRestraintBonus"] ?? 0
+  ) || 0;
 
   // Talent: Magicka Cycling (+2 WB for restraint).
   if (actorHasTalent(actor, "Magicka Cycling")) {
@@ -162,6 +170,11 @@ export function getSpellRestraintReduction(actor, spell, options = {}) {
   if (actorHasTalent(actor, "Methodical") && isSpellConventional(spell)) {
     wb += 1;
     breakdown.push("Methodical: +1 WB (conventional restraint)");
+  }
+
+  if (restraintBonus !== 0) {
+    wb += restraintBonus;
+    breakdown.push(`${restraintBonus > 0 ? "+" : ""}${restraintBonus} Spell Restraint (AE)`);
   }
 
   const extraDelta = Number(options.restraintWbDelta ?? 0) || 0;
@@ -230,6 +243,16 @@ export function canOverloadWhileRestrained(actor) {
  */
 export function computeElementalDamageBonus(actor, damageType) {
   const dt = _str(damageType).toLowerCase();
+  if (!dt) return { bonus: 0, label: "" };
+  const aeKey = `system.modifiers.magic.damage.${dt}`;
+  const aeBonus = Number(
+    evaluateAEModifierKeys(actor, [aeKey], {
+      context: { attackMode: "magic" },
+      enforceConditions: true,
+      dedupeByOrigin: true
+    })?.[aeKey] ?? 0
+  ) || 0;
+  if (aeBonus !== 0) return { bonus: aeBonus, label: `Active Effects: ${aeBonus > 0 ? "+" : ""}${aeBonus}` };
   if (dt === "fire" && actorHasTalent(actor, "Pyromancer")) return { bonus: 1, label: "Pyromancer: +1" };
   if (dt === "frost" && actorHasTalent(actor, "Cryomancer")) return { bonus: 1, label: "Cryomancer: +1" };
   if (dt === "shock" && actorHasTalent(actor, "Electromancer")) return { bonus: 1, label: "Electromancer: +1" };

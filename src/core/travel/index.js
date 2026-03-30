@@ -1,4 +1,5 @@
 import { createStarterEventTablesForGroup } from "./events.js";
+import { resolveGroupActorForTravel } from "./group-resolution.js";
 import { resetTravelPlannerState } from "./state.js";
 
 export * from "./state.js";
@@ -16,17 +17,14 @@ export function registerTravelApi() {
       return openTravelPlanner(opts);
     },
     createStarterEventTables: async (opts = {}) => {
-      const { resolveGroupActorForTravel } = await import("../../macros/travel-planner.js");
       const group = await resolveGroupActorForTravel(opts);
       if (!group) return null;
       return createStarterEventTablesForGroup(group, { overwrite: Boolean(opts?.overwrite) });
     },
     resetPlannerState: async (opts = {}) => {
-      const { resolveGroupActorForTravel } = await import("../../macros/travel-planner.js");
       const group = await resolveGroupActorForTravel(opts);
       if (!group) return null;
       return resetTravelPlannerState(group, { keepTables: opts?.keepTables !== false });
     },
   };
 }
-

@@ -29,6 +29,7 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
+import { _num } from "../../../../utils/coerce.js";
 import { executeSpecialAction } from "../../../../core/combat/special-actions-helper.js";
 import { applySprintBonus, applyPowerDrawBonus } from "../../../../core/stamina/stamina-integration-hooks.js";
 import {
@@ -40,6 +41,7 @@ import { resolveSurpriseState } from "../../../../core/combat/surprise-state.js"
 import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { getMovementActionLegality } from "../../../../core/combat/movement-rules.js";
 import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../../core/alchemy/runtime.js";
+import { getActorCapabilityFlag } from "../../../../core/active-effects/modifier-evaluator.js";
 
 const _specialActionLaunchLocks = new Set();
 
@@ -545,7 +547,9 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         return;
       }
       const selfToken = resolveTokenForActor(actor);
-      if (selfToken && hasOpponentWithTalentInMeleeRange(selfToken, "unrelenting")) {
+      if (selfToken && hasOpponentWithTalentInMeleeRange(selfToken, "unrelenting", {
+        actorPredicate: (opponentActor) => getActorCapabilityFlag(opponentActor, "flags.uesrpg-3ev4.combat.preventEnemyDisengage")
+      })) {
         ui.notifications.warn("Disengage is prevented by Unrelenting (opponent in melee range).");
         return;
       }
@@ -913,7 +917,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       }
 
       const reloadState = rangedWeapon.system?.reloadState ?? {};
-      const reloadCost = Number(reloadState.reloadAPCost ?? 0);
+      const reloadCost = Math.max(0, Math.trunc(_num(reloadState.reloadAPCost, 0)));
 
       if (!reloadState.requiresReload || reloadCost === 0) {
         ui.notifications.info(`${rangedWeapon.name} does not require reloading.`);
@@ -925,15 +929,18 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         return;
       }
 
-      const powerDrawReduction = await applyPowerDrawBonus(actor, rangedWeapon);
+      const powerDrawReduction = Math.max(0, Math.trunc(_num(await applyPowerDrawBonus(actor, rangedWeapon), 0)));
       const hasRapidReload = hasTalent(actor, "rapidreload") || hasTalent(actor, "dualrapidreloadfighter");
       const talentReloadReduction = hasRapidReload ? 1 : 0;
       // Reload 0 = free (RAW: Power Draw reduces by 1; reaching 0 means the reload is free).
       const effectiveReloadCost = Math.max(0, reloadCost - powerDrawReduction - talentReloadReduction);
       const isFreeReload = effectiveReloadCost === 0;
 
-      const currentAP = Number(actor.system?.action_points?.value ?? 0);
-      const currentProgress = Number(reloadState.reloadProgress ?? 0);
+      const currentAP = Math.max(0, Math.trunc(_num(actor.system?.action_points?.value, 0)));
+      const currentProgress = Math.min(
+        reloadCost,
+        Math.max(0, Math.trunc(_num(reloadState.reloadProgress, 0)))
+      );
       const remaining = Math.max(0, effectiveReloadCost - currentProgress);
 
       if (!isFreeReload && currentAP < 1) {
@@ -950,7 +957,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         apToSpend = 1;
       } else {
         // Multi-AP reload: ask the actor how many AP to spend this turn.
-        const maxSpendable = Math.min(currentAP, remaining);
+        const maxSpendable = Math.max(0, Math.min(currentAP, remaining));
         const progressLabel = currentProgress > 0
           ? ` (${currentProgress}/${effectiveReloadCost} AP already spent)`
           : "";
@@ -981,8 +988,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
               label: "Spend AP",
               callback: (html) => {
                 const root = html instanceof HTMLElement ? html : html?.[0];
-                const raw = Number(root?.querySelector?.("[name=apSpend]")?.value ?? 0);
-                const spend = Number.isFinite(raw) ? Math.trunc(raw) : 0;
+                const spend = Math.max(0, Math.trunc(_num(root?.querySelector?.("[name=apSpend]")?.value, 0)));
                 return Math.max(1, spend);
               }
             },
@@ -996,7 +1002,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
 
       const numericSpend = isFreeReload
         ? 0
-        : Math.max(0, Math.min(Number.isFinite(Number(apToSpend)) ? Math.trunc(Number(apToSpend)) : 0, currentAP, remaining));
+        : Math.max(0, Math.min(Math.trunc(_num(apToSpend, 0)), currentAP, remaining));
       const newAP = isFreeReload ? currentAP : Math.max(0, currentAP - numericSpend);
       const newProgress = isFreeReload ? 0 : Math.max(0, currentProgress + numericSpend);
       const reloadComplete = isFreeReload || newProgress >= effectiveReloadCost;

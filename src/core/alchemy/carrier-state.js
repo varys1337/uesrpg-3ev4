@@ -4,6 +4,7 @@ import {
   requestUpdateEmbeddedDocuments,
 } from "../../utils/authority-proxy.js";
 import { ALCHEMY_DEFAULT_ICON, cloneAlchemyData, FLAG_NS } from "./shared.js";
+import { getActorItemsArray } from "./utils.js";
 
 export const ALCHEMY_WEAPON_AE_KEY = "alchemyWeaponApplied";
 
@@ -44,11 +45,11 @@ export function isAlchemyAmmoTarget(item) {
 }
 
 export function getAlchemyWeaponTargets(actor) {
-  return Array.from(actor?.items ?? []).filter((item) => isAlchemyWeaponTarget(item));
+  return getActorItemsArray(actor).filter((item) => isAlchemyWeaponTarget(item));
 }
 
 export function getAlchemyCoatingTargets(actor) {
-  return Array.from(actor?.items ?? []).filter((item) => isAlchemyWeaponTarget(item) || isAlchemyAmmoTarget(item));
+  return getActorItemsArray(actor).filter((item) => isAlchemyWeaponTarget(item) || isAlchemyAmmoTarget(item));
 }
 
 export function getAlchemyTargetOptionLabel(item) {

@@ -52,28 +52,10 @@ export async function applyPhysicalExertionBonus(actor, characteristicId) {
  * @returns {Promise<number>} The bonus to apply (0 or 20)
  */
 export async function applyPhysicalExertionToSkill(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
-  if (!actor || !skillItem) return 0;
-
-  // Don't apply to Combat Style
-  if (skillItem.type === "combatStyle") return 0;
-
-  if (!_isStrOrEndSkill(skillItem, { selectedCharacteristicKey })) return 0;
-
-  const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
+  const effect = _getPhysicalExertionEffectForSkill(actor, skillItem, { selectedCharacteristicKey });
   if (!effect) return 0;
-
-  // If the effect uses the AE lane, do not apply or consume here.
-  const changes = getEffectChanges(effect);
-  const hasAeLane = changes.some(c => String(c?.key ?? "") === "system.modifiers.skills.physicalExertion");
-  if (hasAeLane) return 0;
-
-  // Legacy behavior: consume and return the manual bonus.
-  await consumeStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION, {
-    bonus: "+20 to test",
-    message: `Applied to ${skillItem.name} skill test`
-  });
-
-  return 20;
+  if (_hasPhysicalExertionAeLane(effect)) return 0;
+  return _consumeLegacyPhysicalExertion(actor, skillItem);
 }
 
 function _resolveSkillCharacteristicKey(skillItem, selectedCharacteristicKey = null) {
@@ -94,25 +76,35 @@ function _isStrOrEndSkill(skillItem, { selectedCharacteristicKey = null } = {}) 
   return characteristicKey === "str" || characteristicKey === "end";
 }
 
-export function getPhysicalExertionSkillBonus(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
-  if (!actor || !skillItem) return 0;
-  if (skillItem.type === "combatStyle") return 0;
-  if (!_isStrOrEndSkill(skillItem, { selectedCharacteristicKey })) return 0;
-  const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
-  return effect ? 20 : 0;
+function _getPhysicalExertionEffectForSkill(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
+  if (!actor || !skillItem) return null;
+  if (skillItem.type === "combatStyle") return null;
+  if (!_isStrOrEndSkill(skillItem, { selectedCharacteristicKey })) return null;
+  return getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
 }
 
-export async function consumePhysicalExertionForSkill(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
-  if (!actor || !skillItem) return 0;
-  if (skillItem.type === "combatStyle") return 0;
-  if (!_isStrOrEndSkill(skillItem, { selectedCharacteristicKey })) return 0;
-  const effect = getActiveStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION);
-  if (!effect) return 0;
+function _hasPhysicalExertionAeLane(effect) {
+  const changes = getEffectChanges(effect);
+  return changes.some((change) => String(change?.key ?? "") === "system.modifiers.skills.physicalExertion");
+}
+
+async function _consumeLegacyPhysicalExertion(actor, skillItem) {
   await consumeStaminaEffect(actor, STAMINA_EFFECT_KEYS.PHYSICAL_EXERTION, {
     bonus: "+20 to test",
     message: `Applied to ${skillItem.name} skill test`
   });
   return 20;
+}
+
+export function getPhysicalExertionSkillBonus(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
+  const effect = _getPhysicalExertionEffectForSkill(actor, skillItem, { selectedCharacteristicKey });
+  return effect ? 20 : 0;
+}
+
+export async function consumePhysicalExertionForSkill(actor, skillItem, { selectedCharacteristicKey = null } = {}) {
+  const effect = _getPhysicalExertionEffectForSkill(actor, skillItem, { selectedCharacteristicKey });
+  if (!effect) return 0;
+  return _consumeLegacyPhysicalExertion(actor, skillItem);
 }
 
 /**

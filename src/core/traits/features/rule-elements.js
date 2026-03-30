@@ -153,6 +153,10 @@ export const MODIFIER_TARGET_OPTIONS = Object.freeze({
   "system.characteristicBonus.prcChaBonus": "Characteristic: PRC",
   "system.characteristicBonus.prsChaBonus": "Characteristic: PRS",
   "system.characteristicBonus.lckChaBonus": "Characteristic: LCK",
+  "system.modifiers.recovery.naturalHealing.multiplier": "Recovery: Natural Healing Multiplier",
+  "system.modifiers.recovery.naturalHealing.flatBonus": "Recovery: Natural Healing Flat Bonus",
+  "system.modifiers.recovery.magicka.multiplier": "Recovery: Magicka Multiplier",
+  "system.modifiers.recovery.stamina.multiplier": "Recovery: Stamina Multiplier",
 });
 
 /** Boolean flag paths. */

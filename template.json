@@ -383,6 +383,15 @@
       "modifiers": {
         "combat": {
           "attackTN": 0,
+          "evadeAoOCost": 0,
+          "attackLimit": {
+            "total": 0,
+            "melee": 0,
+            "ranged": 0
+          },
+          "opposed": {
+            "attackTN": 0
+          },
           "defenseTN": {
             "total": 0,
             "evade": 0,
@@ -391,8 +400,113 @@
             "counter": 0
           }
         },
+        "movement": {
+          "climbSpeed": 0,
+          "dashMultiplier": 0,
+          "sprintMultiplier": 0,
+          "hiddenSpeedMultiplier": 0
+        },
+        "magic": {
+          "negateChance": 0,
+          "spellRestraintBonus": 0,
+          "cost": {
+            "_all": 0,
+            "alteration": 0,
+            "conjuration": 0,
+            "destruction": 0,
+            "illusion": 0,
+            "mysticism": 0,
+            "necromancy": 0,
+            "restoration": 0
+          },
+          "damage": {
+            "fire": 0,
+            "frost": 0,
+            "shock": 0
+          }
+        },
+        "damage": {
+          "fromSunlight": 0,
+          "fromSilver": 0,
+          "fromMagic": 0
+        },
         "tests": {
-          "all": 0
+          "all": 0,
+          "fear": 0,
+          "social": 0,
+          "observe": 0,
+          "panic": 0,
+          "horror": 0
+        },
+        "degrees": {
+          "success": {
+            "all": 0,
+            "skills": {
+              "all": 0
+            },
+            "combat": {
+              "all": 0,
+              "attack": 0,
+              "defense": 0
+            },
+            "magic": {
+              "all": 0,
+              "alteration": 0,
+              "conjuration": 0,
+              "destruction": 0,
+              "illusion": 0,
+              "mysticism": 0,
+              "necromancy": 0,
+              "restoration": 0
+            },
+            "social": 0,
+            "observe": 0,
+            "minimum": {
+              "all": 0,
+              "skills": {
+                "all": 0
+              },
+              "combat": {
+                "attack": 0,
+                "defense": 0
+              },
+              "magic": {
+                "all": 0,
+                "alteration": 0,
+                "conjuration": 0,
+                "destruction": 0,
+                "illusion": 0,
+                "mysticism": 0,
+                "necromancy": 0,
+                "restoration": 0
+              },
+              "social": 0,
+              "observe": 0
+            }
+          },
+          "failure": {
+            "skills": {
+              "all": 0
+            },
+            "combat": {
+              "all": 0,
+              "attack": 0,
+              "defense": 0
+            },
+            "magic": {
+              "all": 0,
+              "alteration": 0,
+              "conjuration": 0,
+              "destruction": 0,
+              "illusion": 0,
+              "mysticism": 0,
+              "necromancy": 0,
+              "restoration": 0
+            },
+            "social": 0,
+            "observe": 0,
+            "backfire": 0
+          }
         }
       }
     },
@@ -759,6 +873,15 @@
       "modifiers": {
         "combat": {
           "attackTN": 0,
+          "evadeAoOCost": 0,
+          "attackLimit": {
+            "total": 0,
+            "melee": 0,
+            "ranged": 0
+          },
+          "opposed": {
+            "attackTN": 0
+          },
           "defenseTN": {
             "total": 0,
             "evade": 0,
@@ -767,8 +890,113 @@
             "counter": 0
           }
         },
+        "movement": {
+          "climbSpeed": 0,
+          "dashMultiplier": 0,
+          "sprintMultiplier": 0,
+          "hiddenSpeedMultiplier": 0
+        },
+        "magic": {
+          "negateChance": 0,
+          "spellRestraintBonus": 0,
+          "cost": {
+            "_all": 0,
+            "alteration": 0,
+            "conjuration": 0,
+            "destruction": 0,
+            "illusion": 0,
+            "mysticism": 0,
+            "necromancy": 0,
+            "restoration": 0
+          },
+          "damage": {
+            "fire": 0,
+            "frost": 0,
+            "shock": 0
+          }
+        },
+        "damage": {
+          "fromSunlight": 0,
+          "fromSilver": 0,
+          "fromMagic": 0
+        },
         "tests": {
-          "all": 0
+          "all": 0,
+          "fear": 0,
+          "social": 0,
+          "observe": 0,
+          "panic": 0,
+          "horror": 0
+        },
+        "degrees": {
+          "success": {
+            "all": 0,
+            "skills": {
+              "all": 0
+            },
+            "combat": {
+              "all": 0,
+              "attack": 0,
+              "defense": 0
+            },
+            "magic": {
+              "all": 0,
+              "alteration": 0,
+              "conjuration": 0,
+              "destruction": 0,
+              "illusion": 0,
+              "mysticism": 0,
+              "necromancy": 0,
+              "restoration": 0
+            },
+            "social": 0,
+            "observe": 0,
+            "minimum": {
+              "all": 0,
+              "skills": {
+                "all": 0
+              },
+              "combat": {
+                "attack": 0,
+                "defense": 0
+              },
+              "magic": {
+                "all": 0,
+                "alteration": 0,
+                "conjuration": 0,
+                "destruction": 0,
+                "illusion": 0,
+                "mysticism": 0,
+                "necromancy": 0,
+                "restoration": 0
+              },
+              "social": 0,
+              "observe": 0
+            }
+          },
+          "failure": {
+            "skills": {
+              "all": 0
+            },
+            "combat": {
+              "all": 0,
+              "attack": 0,
+              "defense": 0
+            },
+            "magic": {
+              "all": 0,
+              "alteration": 0,
+              "conjuration": 0,
+              "destruction": 0,
+              "illusion": 0,
+              "mysticism": 0,
+              "necromancy": 0,
+              "restoration": 0
+            },
+            "social": 0,
+            "observe": 0,
+            "backfire": 0
+          }
         }
       }
     },

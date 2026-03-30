@@ -29,6 +29,7 @@ import { getTokensInTemplate } from "../spell-runtime.js";
 import { registerSpellTickHandler } from "../ticks/spell-tick-engine.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE, SYSTEM_ID } from "../../system/namespace.js";
+import { createUuidResolver } from "../../../utils/uuid-cache.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const RUNE_DETONATION_RADIUS_M = 3; // RAW: 3m burst
@@ -116,8 +117,9 @@ function _rebuildRuneRegistryFull() {
  */
 function _getActiveRunesFromRegistry() {
   const runes = [];
+  const resolver = createUuidResolver();
   for (const [aeUuid] of _runeRegistry) {
-    const ae = fromUuidSync(aeUuid);
+    const ae = resolver.resolveSync(aeUuid);
     if (!ae) {
       _runeRegistry.delete(aeUuid);
       continue;
@@ -327,6 +329,7 @@ export function initializeRuneTriggerService() {
 
     const token = tokenDoc.object ?? tokenDoc;
     const tokenCenter = token?.center ?? { x: _num(tokenDoc.x, 0) + 50, y: _num(tokenDoc.y, 0) + 50 };
+    const resolver = createUuidResolver();
 
     for (const rune of runes) {
       const runeData = rune.flags?.[_FLAG_NS]?.rune ?? {};
@@ -337,7 +340,7 @@ export function initializeRuneTriggerService() {
 
       for (const tpl of tplLinks) {
         try {
-          const tplDoc = fromUuidSync(tpl.uuid);
+          const tplDoc = resolver.resolveSync(tpl.uuid);
           if (!tplDoc) continue;
 
           const tplObj = tplDoc.object ?? tplDoc;

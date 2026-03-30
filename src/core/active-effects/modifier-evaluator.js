@@ -9,6 +9,7 @@
  */
 
 export { collectApplicableEffects, getApplicableEffectsCached } from "./collect.js";
+export { getActorCapabilityFlag } from "./capability-flags.js";
 export {
   evaluateAEModifierKeys,
   evaluateAEModifierKeysDetailed,

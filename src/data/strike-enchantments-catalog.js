@@ -1,8 +1,10 @@
 /**
  * src/data/strike-enchantments-catalog.js
  *
- * Strike Enchantments catalog for the Enchanting Workshop.
+ * Canonical strike enchantments catalog for the Enchanting Workshop runtime.
  * Sourced from the UESRPG Rules Compendium Strike Enchantments table.
+ *
+ * `strike-enchantments.json` is a generated compatibility artifact. Do not hand-edit it.
  *
  * Each entry:
  *  - key:         Unique identifier

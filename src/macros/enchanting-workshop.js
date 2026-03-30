@@ -1,3 +1,5 @@
+import { findOpenAppInstance, focusOpenApp, resolveMacroActor } from "./shared.js";
+
 /**
  * src/macros/enchanting-workshop.js
  *
@@ -26,45 +28,21 @@ const NAMESPACE = "uesrpg-3ev4";
  * @param {{ actorUuid?: string, mode?: string }} [opts]
  */
 export async function openEnchantingWorkshop(opts = {}) {
-  // Resolve actor
-  let actorUuid = opts.actorUuid ?? null;
+  const actor = await resolveMacroActor({
+    actorUuid: opts.actorUuid ?? null,
+    multipleSelectionWarning: "Enchanting Workshop: Multiple tokens are selected. Please select exactly one token.",
+    noActorWarning: "Enchanting Workshop: No actor found. Control a token or assign a character to your user account.",
+  });
+  if (!actor) return;
 
-  if (!actorUuid) {
-    // Try controlled token first
-    const controlled = canvas?.tokens?.controlled ?? [];
-    if (controlled.length === 1) {
-      actorUuid = controlled[0].actor?.uuid ?? null;
-    } else if (controlled.length > 1) {
-      ui.notifications?.warn("Enchanting Workshop: Multiple tokens are selected. Please select exactly one token.");
-      return;
-    }
-  }
+  const actorUuid = actor.uuid;
+  const { EnchantingWorkshopAppV2 } = await import("../ui/apps/v2/enchanting-workshop-app.js");
 
-  if (!actorUuid) {
-    // Fall back to assigned character
-    actorUuid = game.user?.character?.uuid ?? null;
-  }
-
-  if (!actorUuid) {
-    ui.notifications?.warn(
-      "Enchanting Workshop: No actor found. Control a token or assign a character to your user account."
-    );
-    return;
-  }
-
-  // Import and render the app
-  const { EnchantingWorkshopAppV2 } = await import(
-    "../ui/apps/v2/enchanting-workshop-app.js"
+  const existing = findOpenAppInstance(
+    EnchantingWorkshopAppV2,
+    (app) => app._actorUuid === actorUuid,
   );
-
-  // Check if already open — if so, bring to front
-  const existing = Object.values(ui.windows ?? {}).find(
-    w => w instanceof EnchantingWorkshopAppV2 && w._actorUuid === actorUuid
-  );
-  if (existing) {
-    existing.bringToTop();
-    return;
-  }
+  if (existing) return focusOpenApp(existing);
 
   const app = new EnchantingWorkshopAppV2({
     actorUuid,

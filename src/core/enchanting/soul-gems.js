@@ -18,6 +18,7 @@
  * Target: Foundry VTT v13.351
  */
 
+import { requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../constants.js";
 
 const _NS = SYSTEM_ID;
@@ -110,8 +111,6 @@ export async function consumeSoulGem(actor, gemItem) {
   if (!actor || !gemItem) return false;
 
   try {
-    // Use the authority proxy for permission-safe deletion.
-    const { requestDeleteEmbeddedDocuments } = await import("../../utils/authority-proxy.js");
     await requestDeleteEmbeddedDocuments(actor, "Item", [gemItem.id]);
     return true;
   } catch (err) {

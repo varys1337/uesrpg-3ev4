@@ -6,6 +6,8 @@
  * Foundry VTT v13.
  */
 
+import { resolveUuidSync } from "./uuid-cache.js";
+
 function _getPixelsPerMeter() {
   const gridSize = Number(canvas?.grid?.size ?? 0) || 0;
   const gridDistance = Number(canvas?.scene?.grid?.distance ?? 0) || 0;
@@ -32,7 +34,7 @@ function _getTemplateObject(templateDoc, templateId) {
 function resolveTemplateByUuid(templateUuid) {
   if (!templateUuid) return null;
   try {
-    const doc = fromUuidSync(String(templateUuid));
+    const doc = resolveUuidSync(String(templateUuid));
     return doc?.documentName === "MeasuredTemplate" ? doc : null;
   } catch (_e) {
     return null;

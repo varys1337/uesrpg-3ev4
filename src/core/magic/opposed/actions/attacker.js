@@ -15,20 +15,24 @@ import { AttackTracker } from "../../../combat/attack-tracker.js";
 import { classifySpellForRouting, emitCastResolved } from "../../spell-runtime.js";
 import { ensureBankedScaffold, getDefenderEntries } from "../schema.js";
 import { SKILL_DIFFICULTIES } from "../../../skills/skill-tn.js";
-import { spellRequiresOriginAE, createOriginAE, registerLinkedEntity, findOriginAE } from "../../effects/origin-effect.js";
+import { spellRequiresOriginAE, createOriginAE, registerLinkedEntity } from "../../effects/origin-effect.js";
 import { isCharacteristicDefense, computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
-import { emitSuppressedOpposedSubRollDice } from "../spell-helpers.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
 import { resolveSpellProfile } from "../../spell-profile.js";
+import {
+  normalizeCastSourceCostMode,
+  resolveItemContextFromCastSource,
+  getItemSoulPoolSnapshot,
+} from "../cast-source.js";
+import { postMagicOpposedSubRoll } from "../subrolls.js";
 
 const _FLAG_NS = FLAG_SCOPE;
-const NAMESPACE = FLAG_SCOPE;
 
 function _ignoreTraining(data = {}) {
   return data?.attacker?.ignoreTraining === true || data?.attacker?.spellOptions?.ignoreTraining === true;
@@ -45,42 +49,62 @@ function _readMagicOpposedFlagState(fm) {
   return state ? cloneFlagState(state) : null;
 }
 
-function _normalizeCastSourceCostMode(castSource = null) {
-  const mode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
-  if (mode === "magicka" || mode === "none") return mode;
-  return "soul";
+function _getLiveMagicOpposedMessage(message) {
+  const messageId = message?.id ?? message?._id ?? "";
+  return messageId ? (game.messages?.get?.(messageId) ?? message) : message;
+}
+
+function _getAttackerRollClaimId(state = {}) {
+  return String(state?.context?.attackerRollInFlight?.claimId ?? "").trim();
+}
+
+async function _acquireAttackerRollClaim(message, _updateCard) {
+  const liveMessage = _getLiveMagicOpposedMessage(message);
+  const freshState = _readMagicOpposedFlagState(liveMessage);
+  if (!freshState?.attacker || freshState.attacker.result) {
+    return { acquired: false, data: freshState, claimId: null };
+  }
+  if (_getAttackerRollClaimId(freshState)) {
+    return { acquired: false, data: freshState, claimId: null };
+  }
+
+  const claimId = foundry.utils.randomID();
+  freshState.context = freshState.context ?? {};
+  freshState.context.attackerRollInFlight = {
+    claimId,
+    startedAt: Date.now(),
+    startedBy: game.user.id
+  };
+  await _updateCard(liveMessage, freshState);
+
+  const claimedState = _readMagicOpposedFlagState(_getLiveMagicOpposedMessage(message));
+  if (_getAttackerRollClaimId(claimedState) !== claimId) {
+    return { acquired: false, data: claimedState, claimId: null };
+  }
+  return { acquired: true, data: claimedState, claimId };
+}
+
+async function _releaseAttackerRollClaim(message, data, _updateCard, claimId, { persist = false } = {}) {
+  if (!claimId) return data ?? null;
+  const liveMessage = _getLiveMagicOpposedMessage(message);
+  const working = persist
+    ? (_readMagicOpposedFlagState(liveMessage) ?? data ?? null)
+    : (data ?? _readMagicOpposedFlagState(liveMessage) ?? null);
+  if (!working) return data ?? null;
+  if (_getAttackerRollClaimId(working) !== claimId) return working;
+
+  working.context = working.context ?? {};
+  working.context.attackerRollInFlight = null;
+  if (persist) {
+    await _updateCard(liveMessage, working);
+  }
+  return working;
 }
 
 function _resolveItemContextFromState(data = {}) {
   const castSource = data?.attacker?.castSource ?? null;
   const itemCtx = data?.context?.itemCastContext ?? null;
-  const itemUuid = String(itemCtx?.itemUuid ?? castSource?.itemUuid ?? "").trim();
-  const sourceLane = String(itemCtx?.sourceLane ?? castSource?.sourceLane ?? "workshop").trim().toLowerCase();
-  const slotId = String(itemCtx?.slotId ?? castSource?.spellSlotId ?? "").trim();
-  if (!itemUuid) return null;
-  const itemDoc = resolveUuidSync(itemUuid);
-  const item = itemDoc?.documentName === "Item" ? itemDoc : null;
-  if (!item) return null;
-  return { item, sourceLane, slotId };
-}
-
-function _getItemSoulPoolSnapshot(itemCtx = null) {
-  if (!itemCtx?.item) return { value: 0, max: 0, poolPath: "" };
-  const { item, sourceLane } = itemCtx;
-  if (sourceLane === "extension") {
-    const pool = item.flags?.[_FLAG_NS]?.itemSpellcasting?.pool ?? {};
-    return {
-      value: Number(item.system?.charge?.value ?? pool?.value ?? 0) || 0,
-      max: Number(item.system?.charge?.max ?? pool?.max ?? 0) || 0,
-      poolPath: `flags.${_FLAG_NS}.itemSpellcasting.pool.value`
-    };
-  }
-  const pool = item.flags?.[_FLAG_NS]?.enchanting?.cast?.pool ?? {};
-  return {
-    value: Number(pool?.value ?? 0) || 0,
-    max: Number(pool?.max ?? 0) || 0,
-    poolPath: `flags.${_FLAG_NS}.enchanting.cast.pool.value`
-  };
+  return resolveItemContextFromCastSource(castSource, itemCtx);
 }
 
 function _resolveCastResourceSpec(attacker, data, spell) {
@@ -94,7 +118,7 @@ function _resolveCastResourceSpec(attacker, data, spell) {
       itemCtx: null
     };
   }
-  const mode = _normalizeCastSourceCostMode(castSource);
+  const mode = normalizeCastSourceCostMode(castSource);
   const itemCtx = _resolveItemContextFromState(data);
   if (mode === "soul") {
     return {
@@ -448,7 +472,7 @@ export async function handleAttackerCommit(ctx) {
         return;
       }
     } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "soul") {
-      const pool = _getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
+      const pool = getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
       if (pool.value < Number(resourceSpec?.cost ?? 0)) {
         ui.notifications.warn(`Not enough Soul Energy to commit ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${pool.value}.`);
         return;
@@ -567,281 +591,296 @@ export async function handleAttackerCommit(ctx) {
  * @returns {Promise<void>}
  */
 export async function handleAttackerRoll(ctx) {
-  const { message, data, attacker, spell, defenders, batchedUpdate, _updateCard, workflow } = ctx;
+  const { message, data, attacker, spell, batchedUpdate, _updateCard, workflow } = ctx;
+  let workingData = data;
+  let claimId = null;
 
-  if (data.attacker.result) return;
-
-  if (!_ignoreTraining(data) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
-    ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
-    return;
-  }
-
-  // Preflight: gate attack limit BEFORE any resource consumption.
-  const spellClassification = classifySpellForRouting(spell);
-  if (spellClassification.isAttack && game.combat) {
-    if (AttackTracker.hasExceededLimit(attacker)) {
-      ui.notifications.warn(AttackTracker.getLimitWarning(attacker) || "Attack limit reached for this round.");
-      return;
-    }
-  }
-
-  // Preflight resources (AP + Magicka) before spending.
-  const apCost = Number(data.attacker.apCost ?? 1) || 1;
-  const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
-  const ignoreAP = _ignoreActionPoints(data);
-  if (!ignoreAP && currentAP < apCost) {
-    ui.notifications.warn("Not enough Action Points to cast a spell.");
-    return;
-  }
-
-  const resourceSpec = _resolveCastResourceSpec(attacker, data, spell);
-  if (_isMagickaCommitRequired(resourceSpec)) {
-    const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
-    if (currentMagicka < Number(resourceSpec?.cost ?? 0)) {
-      ui.notifications.warn(`Not enough Magicka to cast ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${currentMagicka}.`);
-      return;
-    }
-  } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "soul") {
-    const pool = _getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
-    if (pool.value < Number(resourceSpec?.cost ?? 0)) {
-      ui.notifications.warn(`Not enough Soul Energy to cast ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${pool.value}.`);
-      return;
-    }
-  }
-
-  const apReason = (String(data.attacker.castActionType ?? "primary") === "secondary") ? "Cast Magic (Instant)" : "Cast Magic";
-  if (!ignoreAP) {
-    const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
-    if (!apSpentOk) return;
-  }
-
-  // Increment attack counter for attack spells (after AP is spent successfully)
-  if (spellClassification.isAttack) {
-    try {
-      await AttackTracker.incrementAttacks(attacker);
-    } catch (err) {
-      console.error("UESRPG | Failed to increment attack counter", { actor: attacker?.uuid, err });
-      // Don't break the workflow if attack tracking fails
-    }
-  }
-
-  // Consume Magicka at cast time. If this fails due to a race, we attempt to refund AP.
-  let magickaSpend = { ok: true, consumed: 0, remaining: Number(attacker?.system?.magicka?.value ?? 0) || 0, refund: 0 };
-  if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "soul") {
-    const pool = _getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
-    const next = Math.max(0, pool.value - Number(resourceSpec?.cost ?? 0));
-    const updates = {
-      [pool.poolPath]: next,
-      "system.charge.value": next
-    };
-    const ok = resourceSpec?.itemCtx?.item ? await requestUpdateDocument(resourceSpec.itemCtx.item, updates) : false;
-    if (!ok) {
-      if (!ignoreAP) {
-        try {
-          await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-        } catch (_e) {
-          // best-effort
-        }
-      }
-      ui.notifications.warn("Failed to spend Soul Energy from enchanted item.");
-      return;
-    }
-    magickaSpend.consumed = Number(resourceSpec?.cost ?? 0) || 0;
-    magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
-  } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "none") {
-    magickaSpend.consumed = 0;
-    magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
-  } else {
-    magickaSpend = await consumeSpellMagicka(attacker, spell, data.attacker.spellOptions ?? {});
-    if (!magickaSpend?.ok) {
-      if (!ignoreAP) {
-        try {
-          await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
-        } catch (_e) {
-          // best-effort
-        }
-      }
-      return;
-    }
-  }
-
-  data.attacker.mpSpent = Number(magickaSpend.consumed ?? 0) || 0;
-  data.attacker.mpRemaining = Number(magickaSpend.remaining ?? attacker?.system?.magicka?.value ?? 0) || 0;
-
-  const primaryDef = Array.isArray(defenders) ? defenders[0] ?? null : null;
-  const targetActor = getActorFromResolvedDocument(resolveUuidSync(String(primaryDef?.actorUuid ?? "").trim()));
-  const targetToken = (() => {
-    const tokenUuid = String(primaryDef?.tokenUuid ?? "").trim();
-    if (!tokenUuid) return null;
-    return resolveUuidSync(tokenUuid)?.object ?? null;
-  })();
-
-  const castingTn = (data.attacker?.tn && typeof data.attacker.tn === "object")
-    ? data.attacker.tn
-    : { finalTN: Number(data.attacker?.tn?.finalTN ?? 0) || 0 };
-  applyRuntimePreRollToTN({
-    actor: attacker,
-    targetActor,
-    targetToken,
-    item: spell,
-    rollContext: data?.context?.rollContext,
-    workflow: "magic",
-    side: "attacker",
-    attackMode: "magic",
-    tn: castingTn
-  });
-  data.attacker.tn = castingTn;
-
-  // Roll casting test
-  const result = await doTestRoll(attacker, {
-    target: Number(castingTn.finalTN ?? 0) || 0,
-    allowLucky: true,
-    allowUnlucky: true
-  });
-
-  await applyRuntimePostRollToResult({
-    actor: attacker,
-    targetActor,
-    targetToken,
-    item: spell,
-    rollContext: data?.context?.rollContext,
-    workflow: "magic",
-    side: "attacker",
-    attackMode: "magic",
-    result,
-    allowPrompt: true
-  });
-  _applyBindingStrengthFloorIfNeeded(data, result);
-
-  const postSubRolls = game.settings?.settings?.has?.(`${NAMESPACE}.opposedPostSubRollMessages`)
-    ? game.settings.get(NAMESPACE, "opposedPostSubRollMessages")
-    : true;
-  if (postSubRolls) {
-    await result.roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor: attacker }),
-      flavor: `<b>${spell.name}</b> — Casting Test`,
-      flags: { [_FLAG_NS]: { magicOpposedMeta: { parentMessageId: message.id, stage: "attacker" } } }
-    });
-  } else {
-    emitSuppressedOpposedSubRollDice(result.roll, { rollMode: game.settings.get("core", "rollMode") });
-  }
-
-  // Backfire (RAW / system rules)
-  const needsBackfire = shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
-  if (needsBackfire) {
-    await triggerBackfire(attacker, spell);
-  }
-
-  // RAW: Spell Restraint reduces Magicka cost only on a successful spellcast.
   try {
-    const refundInfo = (resourceSpec?.type === "enchantment" && resourceSpec?.mode !== "magicka")
-      ? { finalCost: Number(magickaSpend?.consumed ?? 0) || 0, refund: 0, breakdown: [] }
-      : await applySpellRestraintRefund(attacker, spell, data.attacker.spellOptions ?? {}, result, magickaSpend);
-    if (refundInfo?.refund > 0) {
-      data.attacker.mpSpent = refundInfo.finalCost;
-      data.attacker.mpRemaining = Number(attacker.system?.magicka?.value ?? data.attacker.mpRemaining);
-      data.attacker.mpRefund = refundInfo.refund;
-      data.attacker.mpRestraintBreakdown = refundInfo.breakdown;
+    const claim = await _acquireAttackerRollClaim(message, _updateCard);
+    if (!claim?.acquired) return claim?.data;
+    claimId = claim.claimId;
+    workingData = claim.data ?? data;
+
+    if (workingData?.attacker?.result) {
+      return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
     }
-  } catch (err) {
-    console.warn("UESRPG | Spell restraint refund failed", err);
-  }
 
-  // Emit castResolved hook
-  try {
-    emitCastResolved({
-      caster: attacker,
-      spell,
-      result,
-      success: result.isSuccess,
-      backfired: needsBackfire,
-      mpSpent: Number(data.attacker.mpSpent ?? magickaSpend?.consumed ?? 0) || 0,
-      spellOptions: data.attacker.spellOptions ?? {}
-    });
-  } catch (_e) { /* no-op */ }
+    if (!_ignoreTraining(workingData) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
+      ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+      return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+    }
 
-  // Create Origin AE on the caster for persistent spells (only on success)
-  if (result.isSuccess && spellRequiresOriginAE(spell)) {
-    try {
-      const defUuids = defenders.map((d) => d?.actorUuid).filter(Boolean);
-      const originAE = await createOriginAE(attacker, spell, {
-        costPaid: Number(data.attacker.mpSpent ?? magickaSpend?.consumed ?? 0) || 0,
-        scalingChoices: (data.attacker.spellOptions?.castLevel) ? { level: data.attacker.spellOptions.castLevel } : null,
-        spellOptions: data.attacker.spellOptions ?? {},
-        targetUuids: defUuids,
-        castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
-        castSource: data.attacker.castSource ?? null,
-        casterTokenUuid: data.attacker.tokenUuid ?? null
-      });
+    // Preflight: gate attack limit BEFORE any resource consumption.
+    const spellClassification = classifySpellForRouting(spell);
+    if (spellClassification.isAttack && game.combat) {
+      if (AttackTracker.hasExceededLimit(attacker)) {
+        ui.notifications.warn(AttackTracker.getLimitWarning(attacker) || "Attack limit reached for this round.");
+        return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+      }
+    }
 
-      // Link AoE template to Origin AE if present
-      if (originAE) {
-        const tplUuid = data?.context?.aoe?.templateUuid ?? null;
-        if (tplUuid) {
+    // Preflight resources (AP + Magicka) before spending.
+    const apCost = Number(workingData.attacker?.apCost ?? 1) || 1;
+    const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
+    const ignoreAP = _ignoreActionPoints(workingData);
+    if (!ignoreAP && currentAP < apCost) {
+      ui.notifications.warn("Not enough Action Points to cast a spell.");
+      return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+    }
+
+    const resourceSpec = _resolveCastResourceSpec(attacker, workingData, spell);
+    if (_isMagickaCommitRequired(resourceSpec)) {
+      const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+      if (currentMagicka < Number(resourceSpec?.cost ?? 0)) {
+        ui.notifications.warn(`Not enough Magicka to cast ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${currentMagicka}.`);
+        return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+      }
+    } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "soul") {
+      const pool = getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
+      if (pool.value < Number(resourceSpec?.cost ?? 0)) {
+        ui.notifications.warn(`Not enough Soul Energy to cast ${spell?.name ?? "spell"}. Required: ${resourceSpec?.cost ?? 0}, Available: ${pool.value}.`);
+        return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+      }
+    }
+
+    const apReason = (String(workingData.attacker?.castActionType ?? "primary") === "secondary") ? "Cast Magic (Instant)" : "Cast Magic";
+    if (!ignoreAP) {
+      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
+      if (!apSpentOk) {
+        return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+      }
+    }
+
+    if (spellClassification.isAttack) {
+      try {
+        await AttackTracker.incrementAttacks(attacker);
+      } catch (err) {
+        console.error("UESRPG | Failed to increment attack counter", { actor: attacker?.uuid, err });
+      }
+    }
+
+    let magickaSpend = { ok: true, consumed: 0, remaining: Number(attacker?.system?.magicka?.value ?? 0) || 0, refund: 0 };
+    if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "soul") {
+      const pool = getItemSoulPoolSnapshot(resourceSpec?.itemCtx);
+      const next = Math.max(0, pool.value - Number(resourceSpec?.cost ?? 0));
+      const updates = {
+        [pool.poolPath]: next,
+        "system.charge.value": next
+      };
+      const ok = resourceSpec?.itemCtx?.item ? await requestUpdateDocument(resourceSpec.itemCtx.item, updates) : false;
+      if (!ok) {
+        if (!ignoreAP) {
           try {
-            await registerLinkedEntity(originAE, {
-              type: "template",
-              uuid: tplUuid,
-              label: `${spell.name} AoE`
-            });
-          } catch (_tplErr) {
-            console.warn("UESRPG | Failed to link AoE template to Origin AE", _tplErr);
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) {
+            // best-effort
           }
         }
+        ui.notifications.warn("Failed to spend Soul Energy from enchanted item.");
+        return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
       }
-    } catch (_e) {
-      console.warn("UESRPG | Failed to create Origin AE for opposed spell", _e);
+      magickaSpend.consumed = Number(resourceSpec?.cost ?? 0) || 0;
+      magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+    } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "none") {
+      magickaSpend.consumed = 0;
+      magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+    } else {
+      magickaSpend = await consumeSpellMagicka(attacker, spell, workingData.attacker?.spellOptions ?? {});
+      if (!magickaSpend?.ok) {
+        if (!ignoreAP) {
+          try {
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) {
+            // best-effort
+          }
+        }
+        return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+      }
     }
-  }
 
-  data.attacker.result = result;
-  data.attacker.backfire = needsBackfire;
-  if (result.isSuccess) {
-    await _setEnchantmentUpkeepPointerIfNeeded(data, spell);
-  }
+    workingData.attacker.mpSpent = Number(magickaSpend.consumed ?? 0) || 0;
+    workingData.attacker.mpRemaining = Number(magickaSpend.remaining ?? attacker?.system?.magicka?.value ?? 0) || 0;
+
+    const defenders = getDefenderEntries(workingData);
+    const primaryDef = defenders[0] ?? null;
+    const targetActor = getActorFromResolvedDocument(resolveUuidSync(String(primaryDef?.actorUuid ?? "").trim()));
+    const targetToken = (() => {
+      const tokenUuid = String(primaryDef?.tokenUuid ?? "").trim();
+      if (!tokenUuid) return null;
+      return resolveUuidSync(tokenUuid)?.object ?? null;
+    })();
+
+    const castingTn = (workingData.attacker?.tn && typeof workingData.attacker.tn === "object")
+      ? workingData.attacker.tn
+      : { finalTN: Number(workingData.attacker?.tn?.finalTN ?? 0) || 0 };
+    applyRuntimePreRollToTN({
+      actor: attacker,
+      targetActor,
+      targetToken,
+      item: spell,
+      rollContext: workingData?.context?.rollContext,
+      workflow: "magic",
+      side: "attacker",
+      attackMode: "magic",
+      tn: castingTn
+    });
+    workingData.attacker.tn = castingTn;
+
+    // Roll casting test
+    const result = await doTestRoll(attacker, {
+      target: Number(castingTn.finalTN ?? 0) || 0,
+      allowLucky: true,
+      allowUnlucky: true
+    });
+
+    await applyRuntimePostRollToResult({
+      actor: attacker,
+      targetActor,
+      targetToken,
+      item: spell,
+      rollContext: workingData?.context?.rollContext,
+      workflow: "magic",
+      side: "attacker",
+      attackMode: "magic",
+      result,
+      allowPrompt: true
+    });
+    _applyBindingStrengthFloorIfNeeded(workingData, result);
+
+    await postMagicOpposedSubRoll({
+    roll: result.roll,
+    actor: attacker,
+    flavor: `<b>${spell.name}</b> — Casting Test`,
+    parentMessageId: message.id,
+    stage: "attacker"
+  });
+
+    // Backfire (RAW / system rules)
+    const needsBackfire = shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
+    if (needsBackfire) {
+      await triggerBackfire(attacker, spell);
+    }
+
+    // RAW: Spell Restraint reduces Magicka cost only on a successful spellcast.
+    try {
+      const refundInfo = (resourceSpec?.type === "enchantment" && resourceSpec?.mode !== "magicka")
+        ? { finalCost: Number(magickaSpend?.consumed ?? 0) || 0, refund: 0, breakdown: [] }
+        : await applySpellRestraintRefund(attacker, spell, workingData.attacker?.spellOptions ?? {}, result, magickaSpend);
+      if (refundInfo?.refund > 0) {
+        workingData.attacker.mpSpent = refundInfo.finalCost;
+        workingData.attacker.mpRemaining = Number(attacker.system?.magicka?.value ?? workingData.attacker.mpRemaining);
+        workingData.attacker.mpRefund = refundInfo.refund;
+        workingData.attacker.mpRestraintBreakdown = refundInfo.breakdown;
+      }
+    } catch (err) {
+      console.warn("UESRPG | Spell restraint refund failed", err);
+    }
+
+    // Emit castResolved hook
+    try {
+      emitCastResolved({
+        caster: attacker,
+        spell,
+        result,
+        success: result.isSuccess,
+        backfired: needsBackfire,
+        mpSpent: Number(workingData.attacker.mpSpent ?? magickaSpend?.consumed ?? 0) || 0,
+        spellOptions: workingData.attacker?.spellOptions ?? {}
+      });
+    } catch (_e) { /* no-op */ }
+
+    // Create Origin AE on the caster for persistent spells (only on success)
+    if (result.isSuccess && spellRequiresOriginAE(spell)) {
+      try {
+        const defUuids = defenders.map((d) => d?.actorUuid).filter(Boolean);
+        const originAE = await createOriginAE(attacker, spell, {
+          costPaid: Number(workingData.attacker.mpSpent ?? magickaSpend?.consumed ?? 0) || 0,
+          scalingChoices: (workingData.attacker?.spellOptions?.castLevel) ? { level: workingData.attacker.spellOptions.castLevel } : null,
+          spellOptions: workingData.attacker?.spellOptions ?? {},
+          targetUuids: defUuids,
+          castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
+          castSource: workingData.attacker?.castSource ?? null,
+          casterTokenUuid: workingData.attacker?.tokenUuid ?? null
+        });
+
+        // Link AoE template to Origin AE if present
+        if (originAE) {
+          const tplUuid = workingData?.context?.aoe?.templateUuid ?? null;
+          if (tplUuid) {
+            try {
+              await registerLinkedEntity(originAE, {
+                type: "template",
+                uuid: tplUuid,
+                label: `${spell.name} AoE`
+              });
+            } catch (_tplErr) {
+              console.warn("UESRPG | Failed to link AoE template to Origin AE", _tplErr);
+            }
+          }
+        }
+      } catch (_e) {
+        console.warn("UESRPG | Failed to create Origin AE for opposed spell", _e);
+      }
+    }
+
+    workingData.attacker.result = result;
+    workingData.attacker.backfire = needsBackfire;
+    if (result.isSuccess) {
+      await _setEnchantmentUpkeepPointerIfNeeded(workingData, spell);
+    }
 
   // Direct and healing spells skip the standard Block/Evade/Ward defense step
   // — resolve immediately.  Characteristic defense spells proceed to the
   // awaiting-defense phase so the defender can roll their characteristic save
   // (either via the chat card button or automatically in banked mode).
-  const directNoDefense = Boolean(data.context?.healingDirect) || Boolean(spell?.system?.isDirect);
-  if (directNoDefense) {
-    for (const def of defenders) {
+    workingData.context = workingData.context ?? {};
+    workingData.context.attackerRollInFlight = null;
+    const directNoDefense = Boolean(workingData.context?.healingDirect) || Boolean(spell?.system?.isDirect);
+    if (directNoDefense) {
+      for (const def of defenders) {
       def.noDefense = true;
       def.defenseType = def.defenseType || "-";
       def.tn = def.tn ?? null;
       def.result = def.result ?? { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };
+      }
+      workingData.context.phase = "resolved";
+      for (let i = 0; i < defenders.length; i += 1) {
+        const defActor = ctx.resolveActor(defenders[i]?.actorUuid);
+        if (!defActor) continue;
+        await workflow._resolveOutcome(message, workingData, attacker, defActor, { defenderIndex: i, batchedUpdate, spell });
+      }
+      return workingData;
     }
-    data.context.phase = "resolved";
-    for (let i = 0; i < defenders.length; i += 1) {
-      const defActor = ctx.resolveActor(defenders[i]?.actorUuid);
-      if (!defActor) continue;
-      await workflow._resolveOutcome(message, data, attacker, defActor, { defenderIndex: i, batchedUpdate, spell });
-    }
-    return data;
-  }
 
-  data.context.phase = "awaiting-defense";
-  ctx._markResolutionPhase(data);
-  if (batchedUpdate) return data;
+    workingData.context.phase = "awaiting-defense";
+    ctx._markResolutionPhase(workingData);
+    if (batchedUpdate) return workingData;
   // Fresh-state re-read: apply attacker result + context onto live state to preserve
   // any defender-side commit that arrived during the roll phase.
-  await commitLaneToFreshCardState({
+    await commitLaneToFreshCardState({
     message,
     readState: _readMagicOpposedFlagState,
     mutate: (_t) => {
-      _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
-      _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
-      if (Array.isArray(data.defenders) && Array.isArray(_t.defenders)) {
-        for (let _di = 0; _di < data.defenders.length; _di++) {
-          if (_t.defenders[_di] && data.defenders[_di]) {
-            _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], data.defenders[_di], { overwrite: true, insertKeys: true });
+      _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, workingData.attacker, { overwrite: true, insertKeys: true });
+      _t.context = foundry.utils.mergeObject(_t.context ?? {}, workingData.context, { overwrite: true, insertKeys: true });
+      if (Array.isArray(workingData.defenders) && Array.isArray(_t.defenders)) {
+        for (let _di = 0; _di < workingData.defenders.length; _di++) {
+          if (_t.defenders[_di] && workingData.defenders[_di]) {
+            _t.defenders[_di] = foundry.utils.mergeObject(_t.defenders[_di], workingData.defenders[_di], { overwrite: true, insertKeys: true });
           }
         }
       }
     },
     updateCard: _updateCard,
-    fallbackData: data,
+    fallbackData: workingData,
   });
-  return data;
+    return workingData;
+  } catch (err) {
+    try {
+      await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+    } catch (_releaseErr) {
+      // best-effort
+    }
+    throw err;
+  }
 }

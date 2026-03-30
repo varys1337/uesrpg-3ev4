@@ -543,11 +543,11 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
     tags.push(`<span class="tag armor-tag">${m.label} ${v}</span>`);
   }
 
-  if (tn?.difficulty?.mod) tags.push(`<span class="tag">${tn.difficulty.label} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
-  if (decl.manualMod) tags.push(`<span class="tag">Mod ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}</span>`);
+  if (tn?.difficulty?.mod) tags.push(`<span class="tag modifier-tag">${tn.difficulty.label} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
+  if (decl.manualMod) tags.push(`<span class="tag modifier-tag">Mod ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}</span>`);
   if (resBonus) {
     const labels = resMods.map(m => m.label).join(", ");
-    tags.push(`<span class="tag">Resistance Bonus ${resBonus >= 0 ? "+" : ""}${resBonus}${labels ? ` (${labels})` : ""}</span>`);
+    tags.push(`<span class="tag modifier-tag">Resistance Bonus ${resBonus >= 0 ? "+" : ""}${resBonus}${labels ? ` (${labels})` : ""}</span>`);
   }
 
   // Perform roll

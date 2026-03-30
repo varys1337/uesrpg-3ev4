@@ -27,6 +27,7 @@ import { promptYesNo, promptSelectToken } from "../dialogs/common.js";
 import { _measureTokenDistance } from "./docs.js";
 import { getOtherDualWieldWeaponUuid } from "./combat.js";
 import { peekFreeNextDefenseCommit } from "../../activation-state-flags.js";
+import { getActorCapabilityFlag } from "../../../active-effects/modifier-evaluator.js";
 
 /**
  * _getActiveCombatRoundContext
@@ -290,7 +291,8 @@ export async function _maybeEnableFollowUpStrike({ data, attacker, attackerResul
   if (data?.context?.followUpStrike?.eligible) return; // already enabled on this card
   if (!_safeGetSetting("uesrpg-3ev4", "enableFollowupStrike", false)) return;
   if (attackerResult.isSuccess !== false) return;
-  if (!hasTalent(attacker, "followupstrike")) return;
+  const followupAttackFree = getActorCapabilityFlag(attacker, "flags.uesrpg-3ev4.combat.followupAttackFree");
+  if (!followupAttackFree && !hasTalent(attacker, "followupstrike")) return;
 
   // RAW: only while dual wielding.
   const currentWeaponUuid = data?.context?.weaponUuid ?? null;
@@ -301,6 +303,8 @@ export async function _maybeEnableFollowUpStrike({ data, attacker, attackerResul
   data.context.followUpStrike = {
     eligible: true,
     used: false,
+    freeAttack: true,
+    ignoresRoundLimit: true,
     sourceWeaponUuid: currentWeaponUuid ?? null,
     otherWeaponUuid
   };

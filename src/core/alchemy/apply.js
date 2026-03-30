@@ -1,9 +1,13 @@
-import {
-  requestCreateEmbeddedDocuments,
-  requestDeleteEmbeddedDocuments,
-  requestUpdateDocument,
-} from "../../utils/authority-proxy.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import {
+  clearLegacyAlchemyCarrierFlag,
+  consumeOwnedItem,
+  createAlchemyChatMessage,
+  createCarrierEffect,
+  createOwnedItem,
+  deleteOwnedItem,
+  updateAlchemyDocument,
+} from "./operations.js";
 import { getEffectByKey } from "./effects.js";
 import { renderApplyToWeaponCard } from "./render.js";
 import { ALCHEMY_DEFAULT_ICON, cloneAlchemyData, getAlchemyFlags, FLAG_NS } from "./shared.js";
@@ -18,6 +22,7 @@ import {
   isAlchemyWeaponTarget,
 } from "./carrier-state.js";
 import { getAlchemyEffectLabel as _effectLabel, normalizeStoredSpellEffect as _normalizeStoredSpellEffect } from "./spell-effects.js";
+import { createAlchemyOperationResult, getActorItemsArray } from "./utils.js";
 
 async function _normalizeAlchemyCarrierEffects(alchemyFlags, { mode = "poison" } = {}) {
   const normalizedEffects = [];
@@ -48,24 +53,24 @@ async function _applyAlchemyToCarrierItem(carrierItem, alchemyItem, alchemyFlags
   if (existing) await clearAppliedAlchemy(carrierItem, existing);
 
   const aeData = buildWeaponAlchemyAEData(alchemyItem, alchemyFlags);
-  const created = await requestCreateEmbeddedDocuments(carrierItem, "ActiveEffect", [aeData]);
-  const createdEffect = created?.[0] ?? null;
+  const created = await createCarrierEffect(carrierItem, aeData);
+  const createdEffect = created.data ?? null;
   if (!createdEffect) return null;
 
   if (carrierItem?.flags?.[FLAG_NS]?.alchemyApplied) {
-    await requestUpdateDocument(carrierItem, { [`flags.${FLAG_NS}.alchemyApplied`]: null });
+    await clearLegacyAlchemyCarrierFlag(carrierItem, `flags.${FLAG_NS}.alchemyApplied`);
   }
   return createdEffect;
 }
 
 function _alchemyApplyResult({ ok = false, targetType = null, carrierItem = null, consumedAlchemyItem = false, reason = "" } = {}) {
-  return {
-    ok: Boolean(ok),
+  return createAlchemyOperationResult({
+    ok,
     targetType: targetType ? String(targetType) : null,
     carrierItem: carrierItem ?? null,
     consumedAlchemyItem: Boolean(consumedAlchemyItem),
-    reason: String(reason ?? "").trim(),
-  };
+    reason,
+  });
 }
 
 async function _createCoatedAmmoItem(actor, ammoItem, alchemyFlags) {
@@ -91,8 +96,8 @@ async function _createCoatedAmmoItem(actor, ammoItem, alchemyFlags) {
     flags: clonedFlags,
   };
 
-  const created = await requestCreateEmbeddedDocuments(actor, "Item", [itemData]);
-  const coatedAmmo = created?.[0] ?? null;
+  const created = await createOwnedItem(actor, itemData);
+  const coatedAmmo = created.data ?? null;
   if (!coatedAmmo) {
     ui.notifications.warn(`Failed to create coated ammunition from ${ammoItem?.name ?? "ammunition"}.`);
     return null;
@@ -101,16 +106,7 @@ async function _createCoatedAmmoItem(actor, ammoItem, alchemyFlags) {
 }
 
 export async function consumeAlchemyItem(actor, item) {
-  const qty = Number(item.system?.quantity ?? 1);
-  if (qty <= 1) {
-    if (item.parent?.documentName === "Actor") {
-      await requestDeleteEmbeddedDocuments(item.parent, "Item", [item.id]);
-      return;
-    }
-    await item.delete();
-    return;
-  }
-  await requestUpdateDocument(item, { "system.quantity": qty - 1 });
+  await consumeOwnedItem(item);
 }
 
 async function _postApplyCard(actor, carrierItem, algData, effectData) {
@@ -127,7 +123,7 @@ async function _postApplyCard(actor, carrierItem, algData, effectData) {
     getEffectLabel: (k) => getEffectByKey(k)?.label ?? k,
   });
 
-  await ChatMessage.create({
+  await createAlchemyChatMessage({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
     content,
@@ -230,7 +226,7 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
   const createdEffect = await _applyAlchemyToCarrierItem(coatedAmmo, alchemyItem, effectData);
   if (!createdEffect) {
     try {
-      await requestDeleteEmbeddedDocuments(actor, "Item", [coatedAmmo.id]);
+      await deleteOwnedItem(actor, coatedAmmo.id);
     } catch (_cleanupErr) {
       // no-op
     }
@@ -242,14 +238,14 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
   const sourceQty = Math.max(0, Number(ammoItem?.system?.quantity ?? 0) || 0);
   try {
     if (sourceQty <= 1) {
-      await requestDeleteEmbeddedDocuments(actor, "Item", [ammoItem.id]);
+      await deleteOwnedItem(actor, ammoItem.id);
     } else {
-      await requestUpdateDocument(ammoItem, { "system.quantity": sourceQty - 1 });
+      await updateAlchemyDocument(ammoItem, { "system.quantity": sourceQty - 1 });
     }
   } catch (err) {
     console.error("UESRPG | Failed to consume source ammunition for alchemy coating", { actor: actor?.uuid, ammo: ammoItem?.uuid, err });
     try {
-      await requestDeleteEmbeddedDocuments(actor, "Item", [coatedAmmo.id]);
+      await deleteOwnedItem(actor, coatedAmmo.id);
     } catch (_cleanupErr) {
       // no-op
     }
@@ -263,14 +259,14 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
   } catch (err) {
     console.error("UESRPG | Failed to consume alchemy item after ammo coating", { actor: actor?.uuid, item: alchemyItem?.uuid, ammo: ammoItem?.uuid, coatedAmmo: coatedAmmo?.uuid, err });
     try {
-      await requestDeleteEmbeddedDocuments(actor, "Item", [coatedAmmo.id]);
+      await deleteOwnedItem(actor, coatedAmmo.id);
     } catch (_cleanupErr) {
       // no-op
     }
     const restoreQty = Math.max(0, Number(ammoItem?.system?.quantity ?? 0) || 0);
     try {
       if (ammoItem?.parent?.items?.get?.(ammoItem.id)) {
-        await requestUpdateDocument(ammoItem, { "system.quantity": restoreQty + 1 });
+        await updateAlchemyDocument(ammoItem, { "system.quantity": restoreQty + 1 });
       } else {
         const restored = {
           name: ammoItem.name,
@@ -282,7 +278,7 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
           },
           flags: cloneAlchemyData(ammoItem.flags ?? {}),
         };
-        await requestCreateEmbeddedDocuments(actor, "Item", [restored]);
+        await createOwnedItem(actor, restored);
       }
     } catch (_restoreErr) {
       // no-op
@@ -306,7 +302,7 @@ export async function applyAlchemyToTarget(actor, alchemyItem, targetItem) {
 }
 
 export async function pickAlchemyWeapon(actor) {
-  const weapons = Array.from(actor?.items ?? []).filter((item) => isAlchemyWeaponTarget(item));
+  const weapons = getActorItemsArray(actor).filter((item) => isAlchemyWeaponTarget(item));
   if (weapons.length === 0) {
     ui.notifications.warn("No equipped weapons found.");
     return null;

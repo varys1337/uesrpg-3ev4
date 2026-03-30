@@ -34,7 +34,7 @@
 // Dataset
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CONDITIONS_DATASET = Object.freeze([
+export const CONDITIONS_DATASET = Object.freeze([
 
   // ── Bleeding (X) ──────────────────────────────────────────────────────────
   {
@@ -495,3 +495,18 @@ export const CONDITION_DESCRIPTIONS = Object.freeze(
 const CONDITIONS_BY_ID = Object.freeze(
   new Map(CONDITIONS_DATASET.map(c => [c.id, c]))
 );
+
+export function getConditionDataById(id) {
+  const key = String(id ?? "").trim().toLowerCase();
+  if (!key) return null;
+  return CONDITIONS_BY_ID.get(key) ?? null;
+}
+
+export function listConditionData({ hudVisible } = {}) {
+  if (hudVisible == null) return Array.from(CONDITIONS_DATASET);
+  return CONDITIONS_DATASET.filter((entry) => Boolean(entry?.hudVisible) === Boolean(hudVisible));
+}
+
+export function isConditionHudVisible(id) {
+  return Boolean(getConditionDataById(id)?.hudVisible);
+}

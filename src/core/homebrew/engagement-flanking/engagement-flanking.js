@@ -13,52 +13,32 @@ import {
 import { isDebugEnabled } from "../../../utils/debug.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
 import { isWarfareUnitActorType } from "../../actors/types.js";
-
-const NAMESPACE = "uesrpg-3ev4";
-const FLAG_HOOKS = "_engagementFlankingHooks";
-const DEFAULT_UNARMED_REACH = Object.freeze({ min: 0, max: 1 });
-const DISP_HOSTILE = Number(CONST?.TOKEN_DISPOSITIONS?.HOSTILE ?? -1);
-const DISP_NEUTRAL = Number(CONST?.TOKEN_DISPOSITIONS?.NEUTRAL ?? 0);
-const DISP_FRIENDLY = Number(CONST?.TOKEN_DISPOSITIONS?.FRIENDLY ?? 1);
-const DISP_SECRET = Number(CONST?.TOKEN_DISPOSITIONS?.SECRET ?? -2);
-const COMBAT_STYLE_RANK_TO_ENGAGEMENT = Object.freeze({
-  untrained: 1,
-  novice: 1,
-  apprentice: 1,
-  journeyman: 2,
-  adept: 2,
-  expert: 3,
-  master: 4,
-});
-const SIZE_NUMERIC = Object.freeze({
-  puny: 1,
-  tiny: 2,
-  small: 3,
-  standard: 4,
-  large: 5,
-  huge: 6,
-  enormous: 7,
-});
+import { getReachVisualizerSettings } from "../settings.js";
+import {
+  COMBAT_STYLE_RANK_TO_ENGAGEMENT,
+  DEFAULT_UNARMED_REACH,
+  DISP_FRIENDLY,
+  DISP_HOSTILE,
+  DISP_NEUTRAL,
+  DISP_SECRET,
+  FLAG_HOOKS,
+  NAMESPACE,
+  SIZE_NUMERIC,
+} from "./constants.js";
+import {
+  consumePendingRefreshContext,
+  mergeDirtyPointList as _mergeDirtyPoints,
+  mergeIdSet as _mergeIds,
+  normalizeEngagementStringId as _normalizeStringId,
+  queueRefreshContext as _queueRefreshContextState,
+  resetEngagementRefreshContext as _resetPendingRefreshContext,
+  snapshotRefreshContext as _snapshotRefreshContext,
+} from "./refresh-context.js";
 
 let _debouncedRefresh = null;
-let _pendingRefreshContext = _createRefreshContext();
 const _tokenPositionCache = new Map();
 const _flankedTouchedTokenIds = new Set();
 let _flankedTouchedSeeded = false;
-
-function _createRefreshContext() {
-  return {
-    fullScene: false,
-    reasons: new Set(),
-    dirtyTokenIds: new Set(),
-    dirtyActorIds: new Set(),
-    dirtyPoints: [],
-  };
-}
-
-function _resetPendingRefreshContext() {
-  _pendingRefreshContext = _createRefreshContext();
-}
 
 function _isEFDebugEnabled() {
   return isDebugEnabled("homebrewEngagementFlanking") || isDebugEnabled("effectsProxyDebug");
@@ -94,105 +74,9 @@ function _getPxPerUnit() {
   return size / dist;
 }
 
-/**
- * Returns true when the reach visualizer is configured to use Chebyshev (equal-cost diagonal)
- * distance for grid reach checks. Reads directly from game settings to avoid a UI-layer import.
- * Defaults to true (Chebyshev) when the setting is absent or unreadable.
- */
 function _reachUsesChebyshev() {
-  try {
-    const s = game?.settings?.get("uesrpg-3ev4", "reachVisualizer");
-    return String(s?.gridDiagonalMode ?? "chebyshev") !== "scene";
-  } catch (_e) {
-    return true;
-  }
-}
-
-function _normalizeStringId(value) {
-  const out = String(value ?? "").trim();
-  return out || null;
-}
-
-function _mergeIds(target, values) {
-  if (!target || !values) return;
-  for (const value of values) {
-    const id = _normalizeStringId(value);
-    if (id) target.add(id);
-  }
-}
-
-function _mergeDirtyPoints(target, points) {
-  if (!Array.isArray(points)) return;
-  for (const point of points) {
-    const x = Number(point?.x ?? NaN);
-    const y = Number(point?.y ?? NaN);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-    target.push({ x, y });
-  }
-}
-
-function _snapshotRefreshContext(context = {}) {
-  const reasons = new Set();
-  if (context?.reasons instanceof Set) {
-    for (const reason of context.reasons) reasons.add(String(reason ?? "").trim() || "manual");
-  } else {
-    reasons.add(String(context?.reason ?? "manual").trim() || "manual");
-  }
-
-  const dirtyTokenIds = new Set();
-  const dirtyActorIds = new Set();
-  _mergeIds(dirtyTokenIds, context?.dirtyTokenIds ?? []);
-  _mergeIds(dirtyActorIds, context?.dirtyActorIds ?? []);
-
-  const dirtyPoints = [];
-  _mergeDirtyPoints(dirtyPoints, context?.dirtyPoints ?? []);
-
-  const hasDirty = dirtyTokenIds.size > 0 || dirtyActorIds.size > 0 || dirtyPoints.length > 0;
-  return {
-    fullScene: context?.fullScene === true || !hasDirty,
-    reasons,
-    dirtyTokenIds,
-    dirtyActorIds,
-    dirtyPoints,
-  };
-}
-
-function _queueRefreshContext(context = {}) {
-  const reason = String(context?.reason ?? "hook").trim() || "hook";
-  const hadPending = _pendingRefreshContext.fullScene
-    || _pendingRefreshContext.dirtyTokenIds.size > 0
-    || _pendingRefreshContext.dirtyActorIds.size > 0
-    || _pendingRefreshContext.dirtyPoints.length > 0;
-
-  _pendingRefreshContext.reasons.add(reason);
-  if (context?.fullScene === true) _pendingRefreshContext.fullScene = true;
-  _mergeIds(_pendingRefreshContext.dirtyTokenIds, context?.dirtyTokenIds ?? []);
-  _mergeIds(_pendingRefreshContext.dirtyActorIds, context?.dirtyActorIds ?? []);
-  _mergeDirtyPoints(_pendingRefreshContext.dirtyPoints, context?.dirtyPoints ?? []);
-
-  if (hadPending) {
-    _recordPerf({
-      event: "engagementFlanking.coalesced",
-      reason,
-      fullScene: _pendingRefreshContext.fullScene,
-      dirtyTokenCount: _pendingRefreshContext.dirtyTokenIds.size,
-      dirtyActorCount: _pendingRefreshContext.dirtyActorIds.size,
-      dirtyPointCount: _pendingRefreshContext.dirtyPoints.length,
-      mergedReasonCount: _pendingRefreshContext.reasons.size,
-    });
-  }
-}
-
-function _consumePendingRefreshContext() {
-  const out = {
-    fullScene: _pendingRefreshContext.fullScene,
-    reasons: new Set(_pendingRefreshContext.reasons),
-    dirtyTokenIds: new Set(_pendingRefreshContext.dirtyTokenIds),
-    dirtyActorIds: new Set(_pendingRefreshContext.dirtyActorIds),
-    dirtyPoints: _pendingRefreshContext.dirtyPoints.map((point) => ({ x: point.x, y: point.y })),
-  };
-  _resetPendingRefreshContext();
-  return out;
+  const settings = getReachVisualizerSettings();
+  return String(settings?.gridDiagonalMode ?? "chebyshev") !== "scene";
 }
 
 function _getDispositionClass(tokenDoc) {
@@ -842,16 +726,16 @@ export async function refreshEngagementFlanking(options = {}) {
 }
 
 export function scheduleEngagementFlankingRefresh(options = {}) {
-  _queueRefreshContext(options);
+  _queueRefreshContextState(options);
   if (!_debouncedRefresh) {
     const debounce = foundry?.utils?.debounce;
     _debouncedRefresh = (typeof debounce === "function")
       ? debounce(() => {
-          const context = _consumePendingRefreshContext();
+          const context = consumePendingRefreshContext();
           void refreshEngagementFlanking(context).catch(_drawDebugError);
         }, 80)
       : (() => {
-          const context = _consumePendingRefreshContext();
+          const context = consumePendingRefreshContext();
           void refreshEngagementFlanking(context).catch(_drawDebugError);
         });
   }

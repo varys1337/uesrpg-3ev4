@@ -9,6 +9,7 @@ import {
   roundPriceUp,
   safeNumber,
 } from "../item-utils.js";
+import { getInjectedQualities, hasRunedQuality } from "./shared.js";
 
 export function prepareWeaponItem(itemDoc, actorData, itemData) {
   itemData.weapon2H ? itemData.damage3 = itemData.damage2 : itemData.damage3 = itemData.damage;
@@ -27,7 +28,7 @@ export function prepareWeaponItem(itemDoc, actorData, itemData) {
   const isThrown = hasStructuredQuality(itemData.qualitiesStructured, "thrown") || hasLegacyQuality(itemData.qualities, "thrown");
   const useMeleeMaterial = (attackMode === "melee") || (attackMode === "ranged" && isThrown);
 
-  const injected = itemData.qualitiesStructuredInjected ?? itemData.qualitiesStructured ?? [];
+  const injected = getInjectedQualities(itemData);
   const traits = Array.isArray(itemData.qualitiesTraits) ? itemData.qualitiesTraits : [];
   const isSling = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "sling")
     || traits.some(t => String(t ?? "").toLowerCase() === "sling")
@@ -63,10 +64,7 @@ export function prepareWeaponItem(itemDoc, actorData, itemData) {
     ? safeNumber(mRule.enchantLevel, 0)
     : safeNumber(itemData.enchant_level, 0);
 
-  const hasRuned = itemData.runed === true
-    || injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "runed")
-    || hasLegacyQuality(itemData.qualities, "runed");
-  if (hasRuned) {
+  if (hasRunedQuality(itemData)) {
     itemData.priceEffective = roundPriceUp(Number(itemData.priceEffective ?? 0) * 1.2);
   }
 
@@ -97,9 +95,11 @@ export function prepareWeaponItem(itemDoc, actorData, itemData) {
   if (itemData.reloadState.isLoaded === undefined) {
     itemData.reloadState.isLoaded = true;
   }
-  if (itemData.reloadState.reloadProgress === undefined) {
-    itemData.reloadState.reloadProgress = 0;
-  }
+  const reloadProgressRaw = Number(itemData.reloadState.reloadProgress ?? 0);
+  const reloadProgress = Number.isFinite(reloadProgressRaw) ? Math.max(0, Math.trunc(reloadProgressRaw)) : 0;
+  itemData.reloadState.reloadProgress = requiresReload
+    ? Math.min(reloadProgress, reloadAPCost)
+    : 0;
 
   // Compute range bands for ranged weapons and thrown weapons (melee attackMode + thrown quality)
   // when system.range is a valid triplet. Thrown weapons that have their range stored only in

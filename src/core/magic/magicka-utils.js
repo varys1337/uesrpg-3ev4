@@ -16,7 +16,7 @@ import { MagicTimekeeping } from "./timekeeping-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 import { getDifficultyByKey } from "../skills/skill-tn.js";
-import { evaluateAEModifierKeysDetailed } from "../active-effects/modifier-evaluator.js";
+import { evaluateAEModifierKeysDetailed, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { hasGrandmasterForSkill } from "../traits/general-talents.js";
 import { computeSpellRestraintReduction, getActorWillpowerBonus, getSpellRestraintReduction } from "./magic-modifiers.js";
 import { _num, _strTrim as _str, isDebugEnabled } from "./_primitives.js";
@@ -25,6 +25,7 @@ import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../system/flags.js";
 import { isShieldItem } from "../items/shield-utils.js";
 import { isWarfareUnitActorType } from "../actors/types.js";
+import { hasTalent } from "../traits/talents-api.js";
 
 // Re-export for backward compatibility - canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
@@ -868,6 +869,9 @@ export function isActorTrainedInMagicSchool(actor, school) {
  */
 function _hasTwoFreeHandsForCasting(actor) {
   if (!actor) return false;
+  if (getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.magic.ignoreSomaticComponents") || hasTalent(actor, "thoughtcaster")) {
+    return true;
+  }
 
   const conditions = actor?.system?.traits?.condition ?? {};
   // Movement-restricting states that would prevent free hand motions.
@@ -978,6 +982,8 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   const aeTotalsByKey = aeResult?.totalsByKey ?? {};
   const aeModifier = aeKeys.reduce((sum, k) => sum + (Number(aeTotalsByKey?.[k] ?? 0) || 0), 0);
 
+  const ignoresVerbalComponents = getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.magic.ignoreVerbalComponents") || hasTalent(actor, "thoughtcaster");
+
   // NPCs do not use embedded Magic Skill items for casting.
   // They rely on the NPC sheet "Magic Profession" lane (system.professions.magic).
   // NPCs also do not have a canonical "spellcasting level" source, so we default to
@@ -997,7 +1003,7 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     const manualMod = _num(options?.manualModifier ?? options?.manualMod, 0);
 
     // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
-    const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced);
+    const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced) && !ignoresVerbalComponents;
     const silencePenalty = isSilenced ? -20 : 0;
     const noFreeHandsPenalty = _hasTwoFreeHandsForCasting(actor) ? 0 : -20;
 
@@ -1049,7 +1055,7 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   const manualMod = _num(options?.manualModifier ?? options?.manualMod, 0);
 
   // RAW (Silence): Silenced characters suffer -20 casting TN (unable to speak).
-  const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced);
+  const isSilenced = Boolean(actor?.system?.traits?.condition?.silenced) && !ignoresVerbalComponents;
   const silencePenalty = isSilenced ? -20 : 0;
   const noFreeHandsPenalty = _hasTwoFreeHandsForCasting(actor) ? 0 : -20;
 
@@ -1093,4 +1099,3 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
     finalTN: Math.max(0, finalTN)
   };
 }
-

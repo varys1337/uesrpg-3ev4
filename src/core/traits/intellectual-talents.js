@@ -11,6 +11,7 @@
 import { hasTalent, getSkillRank, normalizeTalentKey } from "./talents-api.js";
 import { promptDoSReplacement } from "./combat-talents.js";
 import { _canPromptForActor, _applyDoSOverride } from "./_primitives.js";
+import { createUuidResolver } from "../../utils/uuid-cache.js";
 
 /**
  * Apply Businessman / Interrogator / Questioning DoS overrides to a successful skill test result.
@@ -181,6 +182,7 @@ export function listTacticianInitiativeProvidersForActor(actor, combat) {
   if (!actor || !combat) return [];
   const groups = listGroupActorsForMember(actor.uuid);
   if (!groups.length) return [];
+  const resolver = createUuidResolver();
 
   const combatants = Array.from(combat.combatants ?? []);
   const initByActorUuid = new Map();
@@ -198,8 +200,7 @@ export function listTacticianInitiativeProvidersForActor(actor, combat) {
     for (const m of members) {
       const memberUuid = String(m?.id ?? "").trim();
       if (!memberUuid || memberUuid === actor.uuid) continue;
-      let memberActor = null;
-      try { memberActor = fromUuidSync(memberUuid); } catch (_e) { memberActor = null; }
+      const memberActor = resolver.resolveSync(memberUuid);
       if (!memberActor) continue;
       if (!hasTalent(memberActor, "tactician")) continue;
       const ini = initByActorUuid.get(memberActor.uuid);

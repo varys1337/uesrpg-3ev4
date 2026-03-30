@@ -210,14 +210,5 @@ export function registerStaleEmbeddedDeleteSuppression() {
 
       notifications.__uesrpgEmbeddedDeleteSuppressed = true;
     }
-
-    if (!console.__uesrpgEmbeddedDeleteSuppressed) {
-      const originalConsoleError = console.error.bind(console);
-      console.error = function patchedEmbeddedDeleteConsoleError(...args) {
-        if (shouldSuppressRecentEmbeddedDeleteError(args)) return;
-        return originalConsoleError(...args);
-      };
-      console.__uesrpgEmbeddedDeleteSuppressed = true;
-    }
   });
 }

@@ -15,13 +15,13 @@ import {
   formatCreationBackfire,
 } from "./backfire.js";
 
-import {
-  requestCreateEmbeddedDocuments,
-  requestDeleteEmbeddedDocuments,
-  requestUpdateDocument,
-} from "../../utils/authority-proxy.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import {
+  consumeOwnedItem,
+  createAlchemyChatMessage,
+  createOwnedItem,
+} from "./operations.js";
 
 import {
   renderBrewPendingCard,
@@ -67,45 +67,8 @@ import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections, buildResistanceBonusMods } from "../traits/trait-resistance-ui.js";
 import { normalizeSkillRollOptions } from "../skills/roll-request.js";
 import { getAllCharacteristicOptions, getPreferredSkillCharacteristic, normalizeCharacteristicKey } from "../../utils/maps/characteristics.js";
-
-const ALCHEMY_TOOL_RX = /(?:(?:alchem(?:y|ical)).*(?:tools?|equipment|kits?|field\s*kit)|(?:tools?|equipment|kits?|field\s*kit).*(?:alchem(?:y|ical)))/i;
-function _actorItems(actor) {
-  return Array.from(actor?.items ?? []);
-}
-
-function _normalizeAlchemyName(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function _safeFromUuidSync(uuid) {
-  const wanted = String(uuid ?? "").trim();
-  if (!wanted || typeof fromUuidSync !== "function") return null;
-  try {
-    return fromUuidSync(wanted) ?? null;
-  } catch (_err) {
-    return null;
-  }
-}
-
-function _isSupportedAlchemySpellSource(actor, spell) {
-  if (!spell || spell.type !== "spell") return false;
-  if (spell.pack) return false;
-
-  const parent = spell.parent ?? null;
-  if (!parent) return true;
-  if (parent.documentName !== "Actor") return false;
-  return String(parent.uuid ?? "") === String(actor?.uuid ?? "");
-}
-
-function _findActorSpellByUuid(actor, spellUuid) {
-  const wanted = String(spellUuid ?? "").trim();
-  if (!wanted) return null;
-  const actorOwned = _actorItems(actor).find((item) => item?.type === "spell" && String(item?.uuid ?? "").trim() === wanted) ?? null;
-  if (actorOwned) return actorOwned;
-
-  const resolved = _safeFromUuidSync(wanted);
-  return _isSupportedAlchemySpellSource(actor, resolved) ? resolved : null;
-}
+import { computeAlchemyRecipeHash, updateTrialAndErrorState } from "./workflow-state.js";
+import { buildActorItemSnapshot } from "./utils.js";
 
 export function getActorKnownAlchemyEffects(actor) {
   return getActorKnownAlchemyEffectsImpl(actor);
@@ -156,35 +119,36 @@ export function computeEffectiveStrength(ingredient, actor, opts = {}) {
   return computeEffectiveStrengthImpl(ingredient, actor, opts);
 }
 
-function _recipeHash(recipe) {
-  const effects = _getFilledAlchemySlotsImpl(recipe)
-    .map((slot) => _getSlotIdentifierImpl(slot))
-    .sort()
-    .join(",");
-  return `${recipe.mode}|${effects}|${recipe.poisonLevel ?? 0}`;
-}
-
 async function _getTrialAndErrorBonus(actor, recipe) {
-  const hash = _recipeHash(recipe);
+  const hash = computeAlchemyRecipeHash(recipe, {
+    getFilledSlots: _getFilledAlchemySlotsImpl,
+    getSlotIdentifier: _getSlotIdentifierImpl,
+  });
   const te = actor?.flags?.[FLAG_NS]?.alchemy?.trialAndError ?? {};
   return Math.min(30, (te[hash] ?? 0) * 10);
 }
 
 async function _incrementTrialAndError(actor, recipe) {
   if (!actor) return;
-  const hash = _recipeHash(recipe);
+  const hash = computeAlchemyRecipeHash(recipe, {
+    getFilledSlots: _getFilledAlchemySlotsImpl,
+    getSlotIdentifier: _getSlotIdentifierImpl,
+  });
   const existing = foundry.utils.deepClone(actor?.flags?.[FLAG_NS]?.alchemy?.trialAndError ?? {});
   existing[hash] = Math.min(3, (existing[hash] ?? 0) + 1);
-  await requestUpdateDocument(actor, { [`flags.${FLAG_NS}.alchemy.trialAndError`]: existing });
+  await updateTrialAndErrorState(actor, existing);
 }
 
 async function _resetTrialAndError(actor, recipe) {
   if (!actor) return;
-  const hash = _recipeHash(recipe);
+  const hash = computeAlchemyRecipeHash(recipe, {
+    getFilledSlots: _getFilledAlchemySlotsImpl,
+    getSlotIdentifier: _getSlotIdentifierImpl,
+  });
   const existing = foundry.utils.deepClone(actor?.flags?.[FLAG_NS]?.alchemy?.trialAndError ?? {});
   if (existing[hash]) {
     delete existing[hash];
-    await requestUpdateDocument(actor, { [`flags.${FLAG_NS}.alchemy.trialAndError`]: existing });
+    await updateTrialAndErrorState(actor, existing);
   }
 }
 
@@ -197,9 +161,10 @@ export function validateBrewRecipe(actor, recipe) {
 }
 
 export async function createPendingBrewMessage(actor, recipe, { nothingVentured = false } = {}) {
-  const skill = getAlchemySkill(actor);
-  const skillSnapshot = getAlchemySkillSnapshot(actor, { skill });
-  const talents = getAlchemyTalents(actor);
+  const itemSnapshot = buildActorItemSnapshot(actor);
+  const skill = getAlchemySkill(actor, { items: itemSnapshot.items });
+  const skillSnapshot = getAlchemySkillSnapshot(actor, { skill, items: itemSnapshot.items });
+  const talents = getAlchemyTalents(actor, { items: itemSnapshot.items });
   const trialBonus = talents.hasTrialAndError ? await _getTrialAndErrorBonus(actor, recipe) : 0;
   const validation = validateBrewRecipe(actor, recipe);
 
@@ -274,7 +239,7 @@ export async function createPendingBrewMessage(actor, recipe, { nothingVentured 
     },
   };
 
-  return ChatMessage.create({
+  return createAlchemyChatMessage({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
     content,
@@ -463,7 +428,8 @@ export async function handleBrewChatAction(messageId) {
     return;
   }
 
-  const skill = getAlchemySkill(actor);
+  const itemSnapshot = buildActorItemSnapshot(actor);
+  const skill = getAlchemySkill(actor, { items: itemSnapshot.items });
   if (!skill) {
     await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     ui.notifications.warn("This actor has no valid Alchemy skill entry.");
@@ -496,7 +462,7 @@ export async function handleBrewChatAction(messageId) {
   const criticalSuccess = Boolean(rollResult.isCriticalSuccess);
   const criticalFail = Boolean(rollResult.isCriticalFailure);
   const doubles = rollTotal % 11 === 0;
-  const talents = getAlchemyTalents(actor);
+  const talents = getAlchemyTalents(actor, { items: itemSnapshot.items });
 
   let result;
   try {
@@ -539,8 +505,9 @@ export async function resolveBrew(actor, recipe, rollCtx) {
     talents: precomputedTalents,
   } = rollCtx;
 
-  const talents = precomputedTalents ?? getAlchemyTalents(actor);
-  const skill = getAlchemySkill(actor);
+  const itemSnapshot = buildActorItemSnapshot(actor);
+  const talents = precomputedTalents ?? getAlchemyTalents(actor, { items: itemSnapshot.items });
+  const skill = getAlchemySkill(actor, { items: itemSnapshot.items });
   const effects = _getFilledAlchemySlotsImpl(recipe);
   const multiEffect = effects.length > 1;
   const highestSL = Math.max(1, ...effects.map((e) => Number(e.spellLevel ?? 1)));
@@ -609,9 +576,10 @@ function _buildStoredAlchemyEffect(actor, recipeMode, slot, talents) {
 }
 
 async function _createAlchemyItem(actor, recipe, { backfired = false, backfireResult = null, skill, talents } = {}) {
-  const resolvedSkill = skill ?? getAlchemySkill(actor);
-  const resolvedTalents = talents ?? getAlchemyTalents(actor);
-  const { rank: alchemyRank } = getAlchemySkillSnapshot(actor, { skill: resolvedSkill });
+  const itemSnapshot = buildActorItemSnapshot(actor);
+  const resolvedSkill = skill ?? getAlchemySkill(actor, { items: itemSnapshot.items });
+  const resolvedTalents = talents ?? getAlchemyTalents(actor, { items: itemSnapshot.items });
+  const { rank: alchemyRank } = getAlchemySkillSnapshot(actor, { skill: resolvedSkill, items: itemSnapshot.items });
 
   let itemName;
   let alchemyFlags;
@@ -680,8 +648,8 @@ async function _createAlchemyItem(actor, recipe, { backfired = false, backfireRe
     flags: { [FLAG_NS]: { alchemy: alchemyFlags } },
   };
 
-  const [created] = await requestCreateEmbeddedDocuments(actor, "Item", [itemData]);
-  return created ?? null;
+  const created = await createOwnedItem(actor, itemData);
+  return created.data ?? null;
 }
 
 async function _consumeIngredients(actor, recipe) {
@@ -698,12 +666,7 @@ async function _consumeIngredients(actor, recipe) {
   for (const id of ids) {
     const item = actor.items.get(id);
     if (!item) continue;
-    const qty = Number(item.system?.quantity ?? 1);
-    if (qty <= 1) {
-      await requestDeleteEmbeddedDocuments(actor, "Item", [item.id]);
-    } else {
-      await requestUpdateDocument(item, { "system.quantity": qty - 1 });
-    }
+    await consumeOwnedItem(item);
   }
 }
 
@@ -759,7 +722,7 @@ async function _postBrewResultMessage(actor, recipe, roll, rollTotal, adjustedTN
     drinkButtonHtml,
   });
 
-  await ChatMessage.create({
+  await createAlchemyChatMessage({
     user: game.user.id,
     speaker: ChatMessage.getSpeaker({ actor }),
     content,

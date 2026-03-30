@@ -385,7 +385,7 @@ function _registerFrenziedToggleHook() {
 
 
 // Register a preCreateActiveEffect hook to inject changes if they're missing
-// This MUST run BEFORE condition-automation.js hook (which returns early for frenzied)
+// This MUST run before generic condition automation touches the same actor state.
 // Use a high priority to ensure it runs first
 function _registerFrenziedPreCreateHook() {
   if (game.uesrpg?._frenziedPreCreateHookRegistered) return;

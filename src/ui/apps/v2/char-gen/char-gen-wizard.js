@@ -7,6 +7,7 @@ import { SpellLearningMenuAppV2 } from "./spell-learning-menu.js";
 import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { appendChargenAudit, buildChargenSummary, buildChargenSummaryChatHtml } from "./audit-log.js";
 import { SPECIAL_ACTIONS } from "../../../../core/config/special-actions.js";
+import { TRAINING_RANK_LABELS } from "../../../../core/config/label-catalog.js";
 import { SYSTEM_ID, templatePath } from "../../../constants.js";
 import {
   SKILL_RANK_ORDER,
@@ -707,7 +708,10 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       `<option value="__new__">Create New Combat Style</option>`,
       ...styles.map((it) => `<option value="${it.id}">${it.name}</option>`),
     ].join("");
-    const rankOptions = RANK_OPTIONS.map((rank) => `<option value="${rank}" ${rank === "novice" ? "selected" : ""}>${rank}</option>`).join("");
+    const rankOptions = RANK_OPTIONS.map((rank) => {
+      const label = TRAINING_RANK_LABELS[rank] ?? rank;
+      return `<option value="${rank}" ${rank === "novice" ? "selected" : ""}>${label}</option>`;
+    }).join("");
     const saChecks = SPECIAL_ACTIONS.map((sa) => `<label style="display:flex; align-items:center; gap:6px;">
       <input type="checkbox" class="cg-sa" value="${sa.id}">
       <span>${sa.name}</span>

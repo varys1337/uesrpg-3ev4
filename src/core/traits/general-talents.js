@@ -10,20 +10,14 @@
 
 import { normalizeTalentKey } from "./talents-api.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
-import { isDebugEnabled } from "../../utils/debug.js";
+import { createDebugLogger } from "../../utils/debug.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { resolveActorFromUuidSync } from "../../utils/uuid-cache.js";
+import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback, getCanonicalFlags, getLegacyFlags } from "../system/flags.js";
 
-function _debugEnabled() {
-  return isDebugEnabled("skillRollDebug");
-}
-
-function _dlog(...args) {
-  if (!_debugEnabled()) return;
-  // eslint-disable-next-line no-console
-  console.log("[UESRPG][GeneralTalents]", ...args);
-}
+const _dlog = createDebugLogger("skillRollDebug", "[UESRPG][GeneralTalents]");
 
 function _iterTalentItems(actor) {
   const items = actor?.items ?? [];
@@ -167,8 +161,7 @@ export async function rerollSkillTestFromChatMessage(message) {
 
   const actorUuid = String(st.actorUuid ?? "") || String(getFlagValueWithFallback(message, "rollRequest.actorUuid") ?? "") || "";
   if (!actorUuid) return false;
-  let actor = null;
-  try { actor = fromUuidSync(actorUuid); } catch (_e) { actor = null; }
+  const actor = resolveActorFromUuidSync(actorUuid);
   if (!actor) return false;
 
   const skillName = String(st.skillName ?? "").trim() || (getFlagValueWithFallback(message, "rollRequest.skill.name") ?? null);
@@ -182,7 +175,7 @@ export async function rerollSkillTestFromChatMessage(message) {
   if (!Number.isFinite(target)) return false;
 
   const rollFormula = String(st.rollFormula ?? "1d100").trim() || "1d100";
-  const rollMode = String(st.rollMode ?? (game.settings.get("core", "rollMode") ?? "")).trim();
+  const rollMode = String(st.rollMode ?? getCoreRollMode()).trim();
 
   _dlog("reroll", { messageId: message.id, actor: actor.name, skillName, source: eligibility.source, target });
 

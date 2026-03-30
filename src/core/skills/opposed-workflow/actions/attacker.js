@@ -17,7 +17,7 @@ import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../.
 import { applyIntellectualTalentDoSOverrides } from "../../../traits/intellectual-talents.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { _getMessageState } from "../core/schema.js";
-import { _emitSuppressedSubRollDice, _esc, _safeGetSetting } from "../core/util.js";
+import { _emitSuppressedSubRollDice, _esc, _safeGetSetting, _getCoreRollMode, _isQuickShiftRequested } from "../core/util.js";
 import { _updateCard } from "../core/card-updater.js";
 import { _listSkills } from "../core/skills.js";
 import { _skillRollDialog } from "../core/dialogs.js";
@@ -81,7 +81,7 @@ export async function handleAttackerRoll(ctx, action) {
   });
 
   let decl = null;
-  const quick = Boolean(event?.shiftKey) && game.settings.get("uesrpg-3ev4", "skillRollQuickShift");
+  const quick = _isQuickShiftRequested(event);
 
   if (isCommittedRoll) {
     decl = readCommittedDeclaration(data.attacker, "Attacker");
@@ -214,7 +214,7 @@ export async function handleAttackerRoll(ctx, action) {
   skillRollDebug("opposed attacker TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
 
   const rollFormula = "1d100";
-  const rollMode = game.settings.get("core", "rollMode");
+  const rollMode = _getCoreRollMode();
   const res = await doTestRoll(attacker, { rollFormula, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
   await applyKeenIntuitionToResult(attacker, skillLabel, res, { allowPrompt: true });

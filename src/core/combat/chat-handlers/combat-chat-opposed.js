@@ -210,7 +210,7 @@ export function onUpdateChatMessageOpposed(message, changes) {
     const opposed = message?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
     if (opposed) {
       if (!isRelevantOpposedUpdate(changes)) return;
-      if (isContentOnlyUpdate(changes) && (opposed?.context?.autoRollRequested === true || opposed?.context?.autoRollStarted === true)) return;
+      if (isContentOnlyUpdate(changes) && opposed?.context?.autoRollStarted === true) return;
       const activeGM = game.users.activeGM ?? null;
       if (activeGM) {
         OpposedWorkflow.maybeAutoRollBanked(message).catch((err) =>

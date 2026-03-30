@@ -18,16 +18,17 @@ import { SYSTEM_ID } from "../constants.js";
 /**
  * Read all enchanting-related system settings in one place.
  *
- * @returns {{ enableChargedStrikeVariant: boolean, enableCursedConstant: boolean }}
+ * @returns {{ enableChargedStrikeVariant: boolean, enableCursedConstant: boolean, enableCastEnchantmentRuntime: boolean }}
  */
 export function getEnchantingSettings() {
   try {
     return {
       enableChargedStrikeVariant: Boolean(game.settings.get(SYSTEM_ID, "enchanting.enableChargedStrikeVariant")),
       enableCursedConstant: Boolean(game.settings.get(SYSTEM_ID, "enchanting.enableCursedConstant")),
+      enableCastEnchantmentRuntime: Boolean(game.settings.get(SYSTEM_ID, "enchanting.enableCastEnchantmentRuntime")),
     };
   } catch (_err) {
     // Safe fallback if called before settings are registered (e.g., during import-time tests).
-    return { enableChargedStrikeVariant: false, enableCursedConstant: false };
+    return { enableChargedStrikeVariant: false, enableCursedConstant: false, enableCastEnchantmentRuntime: false };
   }
 }

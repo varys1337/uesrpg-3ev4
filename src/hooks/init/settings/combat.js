@@ -1,4 +1,5 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
+import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
 
 function _reg(key, config) {
   if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
@@ -22,6 +23,7 @@ export function registerCombatSettings() {
       turn: "Turn-Based",
       none: "None",
     },
+    onChange: () => invalidateCachedSetting("actionPointAutomation"),
   });
 
   // Combat sheet UI: optional Action Economy gating for quick actions
@@ -94,5 +96,6 @@ export function registerCombatSettings() {
     config: false,
     type: Boolean,
     default: false,
+    onChange: () => invalidateCachedSetting("dynamicInitiativeEnabled"),
   });
 }

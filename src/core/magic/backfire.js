@@ -12,6 +12,7 @@ import { getMagicSkillLevel } from "./magicka-utils.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { actorHasTalent } from "./magic-modifiers.js";
 import { confirmDialog } from "../../utils/dialog-v2-helper.js";
+import { getBackfireSeverityModifier } from "../../utils/degree/ae-degree-modifiers.js";
 
 /**
  * Backfire tables from Chapter 6 p.156-159 (RAW verbatim).
@@ -169,6 +170,7 @@ function _lookupBackfireEffect(school, rollResult) {
 export async function triggerBackfire(actor, spell) {
   const spellLevel = Number(spell.system?.level ?? 1);
   const school = String(spell.system?.school ?? "Unknown");
+  const severityModifier = getBackfireSeverityModifier(actor);
   
   // Talent (Chapter 4): Control — may test Willpower to negate a backfire.
   if (actorHasTalent(actor, "Control")) {
@@ -204,8 +206,11 @@ export async function triggerBackfire(actor, spell) {
   }
 
   // Roll 1d4 + spellLevel (RAW Chapter 6 p.156)
-  const roll = await new Roll("1d4 + @spellLevel", { spellLevel }).evaluate();
-  const rollResult = roll.total;
+  const roll = await new Roll("1d4 + @spellLevel + @severityModifier", {
+    spellLevel,
+    severityModifier
+  }).evaluate();
+  const rollResult = Math.max(1, Number(roll.total ?? 0) || 0);
   
   // Look up backfire effect
   const backfireEffect = _lookupBackfireEffect(school, rollResult);

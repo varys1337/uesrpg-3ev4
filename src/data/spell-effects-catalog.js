@@ -1,8 +1,10 @@
 /**
  * src/data/spell-effects-catalog.js
  *
- * Spell effects catalog for the Enchanting Workshop.
+ * Canonical spell effects catalog for the Enchanting Workshop runtime.
  * Sourced from the UESRPG Rules Compendium Appendix tables.
+ *
+ * `spell-effects.json` is a generated compatibility artifact. Do not hand-edit it.
  *
  * Each entry:
  *  - key:          Unique identifier used in enchantment flags

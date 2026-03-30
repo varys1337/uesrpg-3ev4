@@ -217,12 +217,10 @@ export function collectFeatureMods({ actor }) {
           for (let idx = 0; idx < mods.length; idx += 1) {
             const mod = mods[idx];
             if (mod.source?.itemId === item.id && mod.rule) {
-              if (_isDebug()) {
-                _warnOnce(
-                  `stackOverride:${item.id}:${mod.path}`,
-                  `Overriding stacking for "${item.name}" path="${mod.path}": ${mod.rule.stacking} → ${overrideMode}`,
-                );
-              }
+              _warnOnce(
+                `stackOverride:${item.id}:${mod.path}`,
+                `Overriding stacking for "${item.name}" path="${mod.path}": ${mod.rule.stacking} → ${overrideMode}`,
+              );
               mods[idx] = makeFeatureMod({
                 ...mod,
                 rule: { ...(mod.rule ?? {}), stacking: overrideMode }

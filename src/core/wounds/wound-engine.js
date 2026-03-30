@@ -18,7 +18,13 @@ import { registerWoundCombatTicker } from "./wound-ticker.js";
 import { normalizeHitLocation, isActiveGMUser } from "./wound-schema.js";
 import { SYSTEM_ID, FLAG_SCOPE } from "../constants.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
-import { SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
+import { deleteOwnedEffects, getCurrentWorldTimeSeconds } from "./shared.js";
+import {
+  collectHealingTestCandidates,
+  findHealerKit,
+  promptTreatWoundRollOptions,
+  resolveHealingTestTarget,
+} from "./treatment-helpers.js";
 
 // Import from segmented modules
 import { 
@@ -56,212 +62,6 @@ import { doTestRoll } from "../../utils/degree-roll-helper.js";
 let _woundHooksRegistered = false;
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const esc = (s) => foundry.utils.escapeHTML(String(s ?? ""));
-
-async function _deleteEffects(actor, effectIds, { reason = "wounds" } = {}) {
-  if (!actor || !Array.isArray(effectIds) || !effectIds.length) return true;
-
-  const ids = effectIds
-    .map((id) => String(id ?? "").trim())
-    .filter(Boolean);
-  if (!ids.length) return true;
-
-  try {
-    const ok = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
-    if (ok !== false) return true;
-  } catch (_err) {
-    // Fall through to one-by-one fallback.
-  }
-
-  let allOk = true;
-  for (const id of ids) {
-    try {
-      const ok = await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [id]);
-      if (ok === false) allOk = false;
-    } catch (_err) {
-      allOk = false;
-    }
-  }
-  if (!allOk) {
-    console.warn(`${SYSTEM_ID} | Failed to delete one or more ActiveEffects during ${reason}`, { actor: actor?.uuid ?? actor?.id ?? null });
-  }
-  return allOk;
-}
-
-function _findHealerKit(actor) {
-  const items = actor?.items?.contents ?? [];
-  return items.some((i) => {
-    const qty = Number(i?.system?.quantity ?? 1);
-    if (qty <= 0) return false;
-    const name = String(i?.name ?? "").toLowerCase();
-    return name.includes("healer") || name.includes("healing kit") || name.includes("medicine kit") || name.includes("bandage");
-  });
-}
-
-function _normalizeHealingToken(v) {
-  return String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function _parseHealingTN(v) {
-  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-  const s = String(v ?? "").trim();
-  if (!s) return 0;
-  const match = s.match(/-?\d+(?:\.\d+)?/);
-  if (!match) return 0;
-  const n = Number(match[0]);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function _isHealingToken(...parts) {
-  const text = _normalizeHealingToken(parts.filter(Boolean).join(" "));
-  if (!text) return false;
-  return text.includes("survival")
-    || text.includes("medicine")
-    || text.includes("medic")
-    || text.includes("professionmedicine");
-}
-
-function _collectHealingTestCandidates(healer) {
-  if (!healer) return [];
-  const candidates = [];
-  const pushCandidate = (id, label, tn, source) => {
-    const num = _parseHealingTN(tn);
-    if (!Number.isFinite(num) || num <= 0) return;
-    const safeId = String(id ?? "").trim();
-    if (!safeId) return;
-    candidates.push({
-      id: safeId,
-      label: String(label ?? safeId),
-      tn: Math.max(0, num),
-      source: String(source ?? "unknown")
-    });
-  };
-
-  const prof = healer.system?.professions ?? {};
-  for (const [k, v] of Object.entries(prof)) {
-    if (!_isHealingToken(k)) continue;
-    pushCandidate(`prof:${k}`, `Profession: ${k}`, v ?? 0, "professions");
-  }
-
-  const skills = healer.system?.skills ?? {};
-  for (const [skillKey, skillData] of Object.entries(skills)) {
-    const entry = skillData ?? {};
-    const specialization = String(entry?.specialization ?? "");
-    const isProfessionSlot = skillKey === "profession1" || skillKey === "profession2" || skillKey === "profession3";
-    const keyMatch = _isHealingToken(skillKey);
-    const specMatch = _isHealingToken(specialization);
-    if (!(keyMatch || specMatch || (isProfessionSlot && specMatch))) continue;
-    const label = specMatch
-      ? `Skill: ${specialization} (${skillKey})`
-      : `Skill: ${skillKey}`;
-    const idBase = `skill:${skillKey}:${specialization || "base"}`;
-    pushCandidate(`${idBase}:tn`, label, entry?.tn, "system.skills");
-    pushCandidate(`${idBase}:value`, label, entry?.value, "system.skills");
-    pushCandidate(`${idBase}:total`, label, entry?.total, "system.skills");
-    pushCandidate(`${idBase}:final`, label, entry?.final, "system.skills");
-  }
-
-  const items = healer.items?.contents ?? [];
-  for (const i of items) {
-    const name = String(i?.name ?? "");
-    const field = String(i?.system?.field ?? "");
-    const specialization = String(i?.system?.specialization ?? "");
-    const itemType = String(i?.type ?? "").toLowerCase();
-    if (!_isHealingToken(name, field, specialization)) continue;
-    const label = `Item: ${name || "Skill"}`;
-    const idBase = `item:${String(i?.id ?? i?.uuid ?? (name || "unknown"))}`;
-    pushCandidate(`${idBase}:value`, label, i?.system?.value, itemType === "skill" ? "skill-item" : "item");
-    pushCandidate(`${idBase}:tn`, label, i?.system?.tn, itemType === "skill" ? "skill-item" : "item");
-    pushCandidate(`${idBase}:total`, label, i?.system?.total, itemType === "skill" ? "skill-item" : "item");
-    pushCandidate(`${idBase}:final`, label, i?.system?.final, itemType === "skill" ? "skill-item" : "item");
-  }
-
-  const seen = new Set();
-  const deduped = [];
-  for (const c of candidates) {
-    const key = `${c.id}|${c.tn}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(c);
-  }
-  deduped.sort((a, b) => Number(b.tn) - Number(a.tn));
-  return deduped;
-}
-
-function _resolveHealingTestTarget(healer) {
-  const c = _collectHealingTestCandidates(healer);
-  return c.length ? Math.max(0, Number(c[0]?.tn ?? 0) || 0) : 0;
-}
-
-function _difficultyOptionsHtml(defaultKey = "average") {
-  return SKILL_DIFFICULTIES.map((d) => {
-    const sign = d.mod >= 0 ? "+" : "";
-    const selected = d.key === defaultKey ? "selected" : "";
-    return `<option value="${d.key}" ${selected}>${d.label} (${sign}${d.mod})</option>`;
-  }).join("\n");
-}
-
-async function _promptTreatWoundRollOptions(healer, candidates = []) {
-  if (!Array.isArray(candidates) || !candidates.length) return null;
-  const candidateOptions = candidates.map((c, idx) => {
-    const selected = idx === 0 ? "selected" : "";
-    return `<option value="${c.id}" ${selected}>${esc(c.label)} (TN ${Number(c.tn) || 0})</option>`;
-  }).join("\n");
-
-  const content = `
-    <div class="uesrpg-skill-roll">
-      <div class="form-group">
-        <label><b>Skill Lane</b></label>
-        <select name="candidateId" style="width:100%;">${candidateOptions}</select>
-      </div>
-      <div class="form-group" style="margin-top:8px;">
-        <label><b>Difficulty</b></label>
-        <select name="difficultyKey" style="width:100%;">${_difficultyOptionsHtml("average")}</select>
-      </div>
-      <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <label style="margin:0;"><b>Manual Modifier</b></label>
-        <input name="manualMod" type="number" value="0" style="width:120px;" />
-      </div>
-    </div>
-  `;
-
-  const result = await customDialog({
-    title: `Treat Wound - ${esc(healer?.name ?? "Healer")} Roll Options`,
-    content,
-    buttons: {
-      roll: {
-        label: "Roll",
-        callback: (html) => {
-          const root = html instanceof HTMLElement ? html : html?.[0];
-          const candidateId = String(root?.querySelector('select[name="candidateId"]')?.value ?? "").trim();
-          const difficultyKey = String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average");
-          const manualMod = Number.parseInt(String(root?.querySelector('input[name="manualMod"]')?.value ?? "0"), 10) || 0;
-          return { candidateId, difficultyKey, manualMod };
-        }
-      },
-      cancel: { label: "Cancel", callback: () => null }
-    },
-    default: "roll",
-    width: 420
-  });
-  if (!result) return null;
-  const selected = candidates.find((c) => c.id === String(result.candidateId ?? "").trim()) ?? candidates[0];
-  const diff = SKILL_DIFFICULTIES.find((d) => d.key === String(result.difficultyKey ?? "average")) ?? SKILL_DIFFICULTIES.find((d) => d.key === "average");
-  const finalTN = Math.max(0, (Number(selected?.tn ?? 0) || 0) + (Number(diff?.mod ?? 0) || 0) + (Number(result.manualMod ?? 0) || 0));
-  return {
-    candidate: selected,
-    difficulty: diff,
-    manualMod: Number(result.manualMod ?? 0) || 0,
-    target: finalTN
-  };
-}
-
-function _currentWorldTimeSeconds() {
-  const fromApi = Number(game?.uesrpg?.time?.getWorldTimeSeconds?.() ?? NaN);
-  if (Number.isFinite(fromApi)) return fromApi;
-  const fromCore = Number(game?.time?.worldTime ?? NaN);
-  if (Number.isFinite(fromCore)) return fromCore;
-  return 0;
-}
 
 async function _postWoundWorkflowCard({ title, actor, healer, lines = [] } = {}) {
   try {
@@ -309,7 +109,7 @@ export async function createWoundFromDamage(actor, { damage = 0, hitLocation = "
   const loc = normalizeHitLocation(hitLocation ?? "Body");
   const locLabel = loc?.label ?? "Body";
   const ts = Date.now();
-  const worldNow = _currentWorldTimeSeconds();
+  const worldNow = getCurrentWorldTimeSeconds();
   const endTotal = Number(actor?.system?.characteristics?.end?.total ?? 0) || 0;
   const endBonusDays = Math.max(0, Math.floor(endTotal / 10));
   const treatmentDeadlineMs = endBonusDays * 24 * 60 * 60 * 1000;
@@ -400,7 +200,7 @@ export async function firstAid(actorLike) {
   // Remove blood loss countdown
   const bloodLossEffects = findEffectsByKind(actor, "bloodLoss");
   if (bloodLossEffects.length) {
-    const deleted = await _deleteEffects(actor, bloodLossEffects.map((ef) => ef.id), { reason: "firstAid:bloodLoss" });
+    const deleted = await deleteOwnedEffects(actor, bloodLossEffects.map((ef) => ef.id), { reason: "firstAid:bloodLoss" });
     removedBloodLoss = deleted ? bloodLossEffects.length : 0;
   }
 
@@ -513,8 +313,8 @@ export async function attemptFirstAid(actorLike, { healerActor = null, skill = n
   const actor = await resolveActorLike(actorLike);
   if (!actor) return { ok: false, reason: "invalidTarget" };
   const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
-  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : _findHealerKit(healer);
-  const tn = Math.max(0, Number(skill ?? _resolveHealingTestTarget(healer)) || 0);
+  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : findHealerKit(healer);
+  const tn = Math.max(0, Number(skill ?? resolveHealingTestTarget(healer)) || 0);
 
   if (!bypass && !resolvedHasKit) {
     await _postWoundWorkflowCard({ title: "First Aid", actor, healer, lines: ["Failed: missing healer's kit/supplies."] });
@@ -566,9 +366,9 @@ export async function attemptTreatWound(actorLike, woundEffectId, { healerActor 
   if (!woundEffect || woundData?.kind !== "wound") return { ok: false, reason: "invalidWound", reasonText: "Invalid wound target." };
 
   const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
-  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : _findHealerKit(healer);
-  const candidates = _collectHealingTestCandidates(healer);
-  const baseTn = Math.max(0, _resolveHealingTestTarget(healer));
+  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : findHealerKit(healer);
+  const candidates = collectHealingTestCandidates(healer);
+  const baseTn = Math.max(0, resolveHealingTestTarget(healer));
   let tn = baseTn;
   let selectedLaneLabel = "Auto";
   const crippleRelated = _isCrippleRelatedWound(actor, woundEffect);
@@ -596,7 +396,7 @@ export async function attemptTreatWound(actorLike, woundEffectId, { healerActor 
   let passed = true;
   let dramaticFailure = false;
   if (!bypass) {
-    const opts = await _promptTreatWoundRollOptions(healer, candidates);
+    const opts = await promptTreatWoundRollOptions(healer, candidates);
     if (!opts) return { ok: false, reason: "cancelled", suppressUiWarning: true };
     tn = Math.max(0, Number(opts.target ?? 0) || 0);
     selectedLaneLabel = String(opts?.candidate?.label ?? "Skill");
@@ -848,8 +648,8 @@ export async function attemptTreatAllWounds(actorLike, { healerActor = null, has
   if (!wounds.length) return { ok: true, treated: 0 };
 
   const healer = await resolveActorLike(healerActor) ?? canvas?.tokens?.controlled?.[0]?.actor ?? game.user?.character ?? actor;
-  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : _findHealerKit(healer);
-  const tn = Math.max(0, _resolveHealingTestTarget(healer));
+  const resolvedHasKit = (typeof hasKit === "boolean") ? hasKit : findHealerKit(healer);
+  const tn = Math.max(0, resolveHealingTestTarget(healer));
   if (!bypass && !resolvedHasKit) return { ok: false, reason: "missingKit" };
   if (!bypass && tn <= 0) return { ok: false, reason: "invalidTestTarget" };
 
@@ -1187,15 +987,19 @@ export function registerWoundHooks() {
       });
 
       // Post the shock test card to allow the target to roll END and apply conditional consequences.
-      await postShockTestChatCard({
-        actor,
-        woundEffect: woundDoc,
-        hitLocation,
-        damageAppliedByType,
-        applicationId: appId || null
-      });
+      try {
+        await postShockTestChatCard({
+          actor,
+          woundEffect: woundDoc,
+          hitLocation,
+          damageAppliedByType,
+          applicationId: appId || null
+        });
+      } catch (err) {
+        console.warn("UESRPG | Failed to post shock test card", err);
+      }
     } catch (err) {
-      console.warn("UESRPG | Wound creation failed", err);
+      console.warn("UESRPG | Wound application failed", err);
     }
   };
 
@@ -1273,7 +1077,7 @@ export function registerWoundHooks() {
 
   Hooks.on("uesrpg.timeChanged", async (payload) => {
     if (!isActiveGMUser(game.user)) return;
-    const worldTime = Number(payload?.worldTime ?? _currentWorldTimeSeconds());
+    const worldTime = Number(payload?.worldTime ?? getCurrentWorldTimeSeconds());
     if (!Number.isFinite(worldTime)) return;
 
     const actors = game.actors?.contents ?? [];

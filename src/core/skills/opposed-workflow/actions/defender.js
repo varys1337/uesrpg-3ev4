@@ -18,7 +18,7 @@ import { applyIntellectualTalentDoSOverrides } from "../../../traits/intellectua
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { _getMessageState } from "../core/schema.js";
 import { _getLastSkillRollOptions, _setLastSkillRollOptions, _mergeLastSkillRollOptions } from "../core/settings.js";
-import { _emitSuppressedSubRollDice, _esc, _safeGetSetting } from "../core/util.js";
+import { _emitSuppressedSubRollDice, _esc, _safeGetSetting, _getCoreRollMode, _isQuickShiftRequested } from "../core/util.js";
 import { _updateCard } from "../core/card-updater.js";
 import { _listSkills } from "../core/skills.js";
 import { _skillRollDialog } from "../core/dialogs.js";
@@ -91,7 +91,7 @@ export async function handleDefenderRoll(ctx, action) {
   });
 
   let decl = null;
-  const quick = Boolean(event?.shiftKey) && game.settings.get("uesrpg-3ev4", "skillRollQuickShift");
+  const quick = _isQuickShiftRequested(event);
 
   if (isCommittedRoll) {
     decl = readCommittedDeclaration(data.defender, "Defender");
@@ -223,7 +223,7 @@ export async function handleDefenderRoll(ctx, action) {
   });
   skillRollDebug("opposed defender TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
 
-  const rollMode = game.settings.get("core", "rollMode");
+  const rollMode = _getCoreRollMode();
   const res = await doTestRoll(defender, { rollFormula: "1d100", target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 
   // Awareness talent automation: Keen Intuition (Observe) / Hyper Awareness (Evade).

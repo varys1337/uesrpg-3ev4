@@ -1,3 +1,5 @@
+import { findOpenAppInstance, focusOpenApp, resolveMacroActor, resolveMacroActorInput } from "./shared.js";
+
 /**
  * Character Generation Wizard macro entrypoint.
  *
@@ -6,48 +8,27 @@
  */
 
 export async function openCharGenWizard(opts = {}) {
-  let actorUuid = opts.actorUuid ?? null;
-
-  if (!actorUuid) {
-    const controlled = canvas?.tokens?.controlled ?? [];
-    if (controlled.length === 1) {
-      actorUuid = controlled[0]?.actor?.uuid ?? null;
-    } else if (controlled.length > 1) {
-      ui.notifications?.warn?.("Character Generation Wizard: select exactly one token, or none.");
-      return;
-    }
-  }
-
-  if (!actorUuid) actorUuid = game.user?.character?.uuid ?? null;
+  const actor = await resolveMacroActor({
+    actorUuid: opts.actorUuid ?? null,
+    multipleSelectionWarning: "Character Generation Wizard: select exactly one token, or none.",
+    noActorWarning: "Character Generation Wizard: No actor found. Control a token or assign a character to your user account.",
+  });
+  if (!actor) return;
 
   const { CharGenWizardAppV2 } = await import("../ui/apps/v2/char-gen/char-gen-wizard.js");
 
-  const existing = Object.values(ui.windows ?? {}).find(
-    (w) => w instanceof CharGenWizardAppV2
-  );
-  if (existing) {
-    if (typeof existing.maximize === "function") await existing.maximize();
-    existing.bringToTop();
-    return;
-  }
+  const existing = findOpenAppInstance(CharGenWizardAppV2);
+  if (existing) return focusOpenApp(existing, { maximize: true });
 
   const app = new CharGenWizardAppV2({
-    actorUuid,
+    actorUuid: actor.uuid,
     name: opts.name ?? "",
   });
   await app.render(true);
 }
 
 export async function runRawChargenFlow(actorOrOpts = {}) {
-  let actor = actorOrOpts;
-  if (actorOrOpts && actorOrOpts.actorUuid) {
-    actor = await fromUuid(actorOrOpts.actorUuid);
-  } else if (!actorOrOpts?.documentName) {
-    const controlled = canvas?.tokens?.controlled ?? [];
-    actor = controlled.length === 1 ? controlled[0]?.actor : null;
-    if (!actor) actor = game.user?.character ?? null;
-  }
-
+  const actor = await resolveMacroActorInput(actorOrOpts);
   if (!actor || actor.documentName !== "Actor") {
     ui.notifications?.warn?.("No actor found for RAW chargen flow.");
     return false;

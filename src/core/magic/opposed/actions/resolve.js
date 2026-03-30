@@ -9,7 +9,7 @@ import { getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsEffec
 import { getSpellDamageType } from "../../magicka-utils.js";
 import { getBlockValue } from "../../../combat/mitigation.js";
 import { resolveHitLocationForTarget } from "../../../combat/combat-utils.js";
-import { getActiveWardSpell, getWardBlockRating } from "../../../combat/ward-defense.js";
+import { getActiveWardSpell } from "../../../combat/ward-defense.js";
 import { listEquippedShields } from "../../../items/shield-utils.js";
 import { buildMagicCastContextRows } from "../cast-context.js";
 
@@ -152,14 +152,16 @@ export async function handleWardResolve(ctx) {
     return;
   }
 
-  // Get active Ward spell and its BR
-  const wardSpell = getActiveWardSpell(defenderActor);
+  // Prefer the Ward spell actually paid for during the defense step.
+  const wardSpellUuid = String(defender?.wardSpellUuid ?? "").trim();
+  const resolvedWardDoc = wardSpellUuid ? await ctx?._uuidResolver?.resolve?.(wardSpellUuid) : null;
+  const wardSpell = resolvedWardDoc?.documentName === "Item" ? resolvedWardDoc : getActiveWardSpell(defenderActor);
   if (!wardSpell) {
     ui.notifications.warn("No active Ward spell found on the defender.");
     return;
   }
-  const wardBR = getWardBlockRating(defenderActor);
-  const wardName = wardSpell.name ?? "Ward";
+  const wardBR = Math.max(0, Number(wardSpell?.system?.spell_str ?? 0) || 0);
+  const wardName = String(defender?.wardSpellName ?? wardSpell?.name ?? "Ward");
 
   // Roll spell damage
   const spellOptions = data.attacker.spellOptions ?? {};

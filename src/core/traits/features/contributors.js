@@ -73,10 +73,8 @@ function _emitItemBonusMods(item, source) {
   const sys = item?.system ?? {};
   const mods = [];
   const itemNameKey = normalizeFeatureKey(item.name ?? "");
-  const keyFlat = _normFlat(traitKey);
-  const paramFlat = _normFlat(traitParam);
 
-  if (itemNameKey === "stunted-magicka" || keyFlat.includes("stuntedmagicka") || paramFlat === "stuntedmagicka") {
+  if (itemNameKey === "stunted-magicka") {
     mods.push(makeFeatureMod({
       domain: FEATURE_DOMAINS.FLAG,
       path: "flag.stuntedMagicka",

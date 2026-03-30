@@ -177,13 +177,16 @@ export function hasAllyWithTalentInMeleeOfOpponent(allyToken, opponentToken, tal
  * @param {string} talentSlug
  * @returns {boolean}
  */
-export function hasOpponentWithTalentInMeleeRange(selfToken, talentSlug) {
-  if (!selfToken || !talentSlug) return false;
+export function hasOpponentWithTalentInMeleeRange(selfToken, talentSlug, { actorPredicate = null } = {}) {
+  if (!selfToken) return false;
 
   for (const t of _iterPlaceables()) {
     if (!t) continue;
     if (!_isOpponent(selfToken, t)) continue;
-    if (!hasTalent(t.actor, talentSlug)) continue;
+    const actor = t.actor ?? null;
+    const matchesTalent = talentSlug ? hasTalent(actor, talentSlug) : false;
+    const matchesPredicate = typeof actorPredicate === "function" ? actorPredicate(actor, t) === true : false;
+    if (!matchesTalent && !matchesPredicate) continue;
     const reach = getMeleeReachMeters(t.actor);
     if (isWithinMeleeRange(t, selfToken, reach)) return true;
   }

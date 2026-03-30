@@ -22,7 +22,7 @@
  * Target: Foundry VTT v13.351
  */
 
-import { hasTalent, getTalentItem, getNamedItemRank, resolveTalentSlug } from "./talents-api.js";
+import { hasTalent, getTalentItem, getNamedItemRank } from "./talents-api.js";
 import { shouldYieldToRE } from "./features/rule-elements.js";
 import {
   computeSpellRestraintReduction,
@@ -34,15 +34,22 @@ import {
 } from "../magic/magic-modifiers.js";
 import { _num, _lower } from "./_primitives.js";
 import { _bool, _strTrim } from "../../utils/coerce.js";
-import { requestUpdateDocument } from "../../utils/authority-proxy.js";
-import { FLAG_SCOPE } from "../system/namespace.js";
+import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
+export {
+  getSpellcastingTalentState,
+  setSpellcastingPrimedState,
+  clearSpellcastingPrimedState
+} from "./spellcasting-talent-state.js";
+export {
+  isActivatableSpellcastingTalent,
+  activateSpellcastingTalent,
+  handlePostCastTalentConsumption,
+  registerSpellcastingTalentHooks
+} from "./spellcasting-talent-activation.js";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Constants
 // ──────────────────────────────────────────────────────────────────────────────
-
-/** Flag namespace for spellcasting primed states. */
-const PRIMED_FLAG = "spellcasting.primed";
 
 /** Milestone subsystems that some talents require. */
 const MILESTONE_SUBSYSTEMS = {
@@ -127,86 +134,6 @@ function _hasUpkeep(profile) {
  */
 function _hasOverload(profile) {
   return _bool(profile?.classification?.hasOverload);
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Primed State Management
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Read the current primed talent state from actor flags.
- *
- * @param {Actor} actor
- * @returns {object|null} Primed state object or null.
- *   Shape: { slug: string, expiresAtWorldTime?: number, usesRemaining?: number, options?: object }
- */
-export function getSpellcastingTalentState(actor) {
-  if (!actor) return null;
-  const primed = actor.getFlag?.(FLAG_SCOPE, PRIMED_FLAG) ?? null;
-  if (!primed || typeof primed !== "object") return null;
-  if (!primed.slug) return null;
-
-  // Check expiry
-  if (primed.expiresAtWorldTime != null) {
-    const worldTime = game.time?.worldTime ?? 0;
-    if (worldTime > primed.expiresAtWorldTime) return null; // expired
-  }
-
-  return primed;
-}
-
-/**
- * Set a primed talent state on an actor.
- * Uses direct flag write (should be called from activation handler with authority).
- *
- * @param {Actor} actor
- * @param {object} state - { slug, expiresAtWorldTime?, usesRemaining?, options? }
- * @returns {Promise<void>}
- */
-export async function setSpellcastingPrimedState(actor, state) {
-  if (!actor || !state?.slug) return;
-  await requestUpdateDocument(actor, {
-    [`flags.${FLAG_SCOPE}.${PRIMED_FLAG}`]: {
-      slug: String(state.slug),
-      expiresAtWorldTime: state.expiresAtWorldTime ?? null,
-      usesRemaining: state.usesRemaining ?? 1,
-      options: state.options ?? {},
-      primedAt: Date.now()
-    }
-  });
-}
-
-/**
- * Clear the primed talent state on an actor.
- *
- * @param {Actor} actor
- * @returns {Promise<void>}
- */
-export async function clearSpellcastingPrimedState(actor) {
-  if (!actor) return;
-  try {
-    await requestUpdateDocument(actor, { [`flags.${FLAG_SCOPE}.-=${PRIMED_FLAG}`]: null });
-  } catch (_e) {
-    // Flag may not exist; safe to ignore
-  }
-}
-
-/**
- * Consume one use of the primed state. If usesRemaining reaches 0, clear it.
- *
- * @param {Actor} actor
- * @returns {Promise<void>}
- */
-async function _consumePrimedState(actor) {
-  const state = getSpellcastingTalentState(actor);
-  if (!state) return;
-
-  const remaining = _num(state.usesRemaining, 1) - 1;
-  if (remaining <= 0) {
-    await clearSpellcastingPrimedState(actor);
-  } else {
-    await setSpellcastingPrimedState(actor, { ...state, usesRemaining: remaining });
-  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -470,7 +397,7 @@ function _applySeasonedConjurer(actor, profile, spell) {
  * that affect only the caster."
  */
 function _applyLivingArmory(actor, profile, spell) {
-  if (!hasTalent(actor, "livingarmory")) return null;
+  if (!getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.magic.upkeepViaAP") && !hasTalent(actor, "livingarmory")) return null;
   if (!_hasUpkeep(profile)) return null;
   // Only applies to Conjure Weapon / Conjure Armour spells
   const name = _lower(spell?.name ?? profile?.name ?? "");
@@ -791,192 +718,4 @@ export function applyTalentSummaryToProfile(profile, summary) {
   }
 
   return profile;
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Talent Activation Handler
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Names of talents that support manual activation (priming).
- */
-const ACTIVATABLE_SPELLCASTING_TALENTS = new Set([
-  "bendreality",
-  "control",
-  "flowofmagicka",
-  "healer",
-  "overcharge",
-  "voidchanneler"
-]);
-
-function _getTalentActivationSlug(talentItem) {
-  const byAlias = resolveTalentSlug(talentItem?.name ?? "");
-  if (byAlias) return byAlias;
-  return _lower(talentItem?.name ?? "").replace(/[^a-z0-9]/g, "");
-}
-
-/**
- * Check whether a talent item is an activatable spellcasting talent.
- *
- * @param {Item} talentItem
- * @returns {boolean}
- */
-export function isActivatableSpellcastingTalent(talentItem) {
-  if (!talentItem || talentItem.type !== "talent") return false;
-  const slug = _getTalentActivationSlug(talentItem);
-  return ACTIVATABLE_SPELLCASTING_TALENTS.has(slug);
-}
-
-/**
- * Handle activation of a spellcasting talent (sets primed state and posts chat).
- *
- * @param {Actor} actor - The actor activating the talent
- * @param {Item} talentItem - The talent item being activated
- * @returns {Promise<boolean>} true if activation was successful
- */
-export async function activateSpellcastingTalent(actor, talentItem) {
-  if (!actor || !talentItem) return false;
-
-  const slug = _getTalentActivationSlug(talentItem);
-
-  // Build primed state based on talent
-  let primedState = null;
-  let chatMessage = "";
-
-  switch (slug) {
-    case "bendreality":
-      primedState = { slug: "bendreality", usesRemaining: 1 };
-      chatMessage = `<strong>${actor.name}</strong> activates <strong>Bend Reality</strong>: ` +
-        `may use Alteration in place of Athletics or Acrobatics (costs 2 MP).`;
-      break;
-
-    case "control":
-      primedState = { slug: "control", usesRemaining: 1 };
-      chatMessage = `<strong>${actor.name}</strong> readies <strong>Control</strong>: ` +
-        `may test Willpower to negate their next magical backfire.`;
-      break;
-
-    case "flowofmagicka":
-      primedState = { slug: "flowofmagicka", usesRemaining: 1 };
-      chatMessage = `<strong>${actor.name}</strong> readies <strong>Flow of Magicka</strong>: ` +
-        `as a reaction to a spell cast, may make a -20 Mysticism test to negate the spell ` +
-        `(DoS must exceed spell level).`;
-      break;
-
-    case "healer":
-      primedState = { slug: "healer", usesRemaining: 1 };
-      chatMessage = `<strong>${actor.name}</strong> readies <strong>Healer</strong>: ` +
-        `may make a Restoration test and spend 10 MP to treat a wound (1 hour ritual).`;
-      break;
-
-    case "overcharge":
-      // Overcharge is typically activated via casting dialog; manual activation
-      // pre-selects the option for the next cast
-      primedState = { slug: "overcharge", usesRemaining: 1 };
-      chatMessage = `<strong>${actor.name}</strong> readies <strong>Overcharge</strong>: ` +
-        `next damaging spell will roll damage twice and use the highest (cost doubled after restraint).`;
-      break;
-
-    case "voidchanneler":
-      primedState = { slug: "voidchanneler", usesRemaining: 1 };
-      chatMessage = `<strong>${actor.name}</strong> activates <strong>Void Channeler</strong>: ` +
-        `spends 1 SP to increase all summoned Daedra's Natural Toughness by WB for one Round.`;
-      break;
-
-    default:
-      console.warn(`UESRPG | Unknown activatable spellcasting talent: ${slug}`);
-      return false;
-  }
-
-  if (!primedState) return false;
-
-  // Set primed state
-  await setSpellcastingPrimedState(actor, primedState);
-
-  // Post chat message
-  await ChatMessage.create({
-    content: `<div class="uesrpg talent-activation">${chatMessage}</div>`,
-    speaker: ChatMessage.getSpeaker({ actor }),
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER
-  });
-
-  return true;
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Post-Cast Hook Handler
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Handle post-cast talent consumption.
- * Called after a spell cast resolves to consume primed states if applicable.
- *
- * @param {object} payload - from uesrpg.spell.castResolved hook
- * @param {Actor} payload.caster
- * @param {Item} payload.spell
- * @param {boolean} payload.success
- * @param {object} payload.spellOptions
- */
-export async function handlePostCastTalentConsumption(payload) {
-  if (!payload?.caster || !payload?.success) return;
-
-  const actor = payload.caster;
-  const primed = getSpellcastingTalentState(actor);
-  if (!primed) return;
-
-  // Check if the primed talent should be consumed by this cast
-  switch (primed.slug) {
-    case "overcharge":
-      // Consumed after any successful damaging spell cast with overcharge enabled
-      if (_bool(payload.spellOptions?.useOvercharge)) {
-        await _consumePrimedState(actor);
-      }
-      break;
-
-    case "control":
-      // Consumed when a backfire occurs and is negated (handled by backfire.js)
-      // Don't consume on normal successful casts
-      break;
-
-    case "flowofmagicka":
-      // Consumed when used as a reaction (handled by opposed defense system)
-      break;
-
-    case "healer":
-      // Consumed when the healing ritual is performed (handled separately)
-      break;
-
-    case "bendreality":
-      // Consumed when Alteration is used in place of Athletics/Acrobatics
-      break;
-
-    case "voidchanneler":
-      // Consumed when the SP is spent for the boost (handled by summon system)
-      break;
-
-    default:
-      break;
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Hook Registration
-// ──────────────────────────────────────────────────────────────────────────────
-
-let _hooksRegistered = false;
-
-/**
- * Register spellcasting talent hooks.
- * Must be called exactly once during system initialization.
- */
-export function registerSpellcastingTalentHooks() {
-  if (_hooksRegistered) return;
-  _hooksRegistered = true;
-
-  // Listen for cast resolution to consume primed states
-  Hooks.on("uesrpg.spell.castResolved", (payload) => {
-    handlePostCastTalentConsumption(payload).catch(err => {
-      console.error("UESRPG | spellcasting-talents | postCast hook error:", err);
-    });
-  });
 }

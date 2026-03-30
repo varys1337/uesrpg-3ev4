@@ -326,19 +326,19 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     tags.push(`<span class="tag armor-tag">${m.label} ${v}</span>`);
   }
 
-  if (tn?.difficulty?.mod) tags.push(`<span class="tag">${tn.difficulty.label} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
+  if (tn?.difficulty?.mod) tags.push(`<span class="tag modifier-tag">${tn.difficulty.label} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
   if (decl.selectedCharacteristicKey) {
-    tags.push(`<span class="tag">Characteristic ${getCharacteristicLabel(decl.selectedCharacteristicKey) || String(decl.selectedCharacteristicKey).toUpperCase()}</span>`);
+    tags.push(`<span class="tag modifier-tag">Characteristic ${getCharacteristicLabel(decl.selectedCharacteristicKey) || String(decl.selectedCharacteristicKey).toUpperCase()}</span>`);
   }
-  if (hasSpec && decl.useSpec) tags.push(`<span class="tag">Specialization +10</span>`);
-  if (decl.isInterrogationTest) tags.push(`<span class="tag">Interrogation</span>`);
-  if (decl.histskinUnderwater) tags.push(`<span class="tag">Histskin +30</span>`);
-  if (decl.manualMod) tags.push(`<span class="tag">Mod ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}</span>`);
+  if (hasSpec && decl.useSpec) tags.push(`<span class="tag modifier-tag">Specialization +10</span>`);
+  if (decl.isInterrogationTest) tags.push(`<span class="tag modifier-tag">Interrogation</span>`);
+  if (decl.histskinUnderwater) tags.push(`<span class="tag modifier-tag">Histskin +30</span>`);
+  if (decl.manualMod) tags.push(`<span class="tag modifier-tag">Mod ${decl.manualMod >= 0 ? "+" : ""}${decl.manualMod}</span>`);
   if (resBonus) {
     const labels = resMods.map(m => m.label).join(", ");
-    tags.push(`<span class="tag">Resistance Bonus ${resBonus >= 0 ? "+" : ""}${resBonus}${labels ? ` (${labels})` : ""}</span>`);
+    tags.push(`<span class="tag modifier-tag">Resistance Bonus ${resBonus >= 0 ? "+" : ""}${resBonus}${labels ? ` (${labels})` : ""}</span>`);
   }
-  if (staminaBonus > 0) tags.push(`<span class="tag">Physical Exertion +${staminaBonus}</span>`);
+  if (staminaBonus > 0) tags.push(`<span class="tag modifier-tag">Physical Exertion +${staminaBonus}</span>`);
 
   const res = await doTestRoll(this.actor, { rollFormula: SYSTEM_ROLL_FORMULA, target: tn.finalTN, allowLucky: true, allowUnlucky: true });
 

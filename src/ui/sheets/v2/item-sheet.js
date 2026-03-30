@@ -30,7 +30,6 @@ import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { activateProseMirrorEditors } from "../shared/editor-activation.js";
 import { DEFAULTS } from "../../../core/migrations/item-defaults.generated.js";
-import { traceSheetPerf } from "../../../core/debug/perf.js";
 import { bindDelegated } from "./_delegated-bindings.js";
 import { readDropData, resolveDroppedItem } from "../../../utils/drop-data.js";
 import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
@@ -39,6 +38,13 @@ import {
   onEnableAlchemyProduct, onClearAlchemyProduct,
   onDrinkAlchemyProduct, onApplyAlchemyProductToWeapon,
 } from "../item/item-sheet-alchemy.js";
+import {
+  ALCHEMY_PRODUCT_DROP_SELECTOR,
+  clearAlchemyProductEffectSlot,
+  handleAlchemyProductSpellDrop,
+  registerAlchemyProductListeners,
+  updateAlchemyProductEffectLevel,
+} from "../item/item-sheet-alchemy-effects.js";
 import {
   onCastScroll, onToggleSpellcastingEnable,
   onAddSpellcastingSlot, onRemoveSpellcastingSlot,
@@ -50,7 +56,7 @@ import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shar
 import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { buildAdvancementPlan } from "../item/advancement-plan.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
-import { createDebugLogger } from "../../../utils/debug.js";
+import { createDebugLogger, traceSheetPerf } from "../../../utils/debug.js";
 import { resolveUuidSync } from "../../../utils/uuid-cache.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
@@ -263,7 +269,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     },
     dragDrop: [{
       dragSelector: ".item",
-      dropSelector: ".window-content, .sheet-body, .tab, .itemListContainer",
+      dropSelector: `.window-content, .sheet-body, .tab, .itemListContainer, ${ALCHEMY_PRODUCT_DROP_SELECTOR}`,
     }],
     actions: {
       editPortrait: SimpleItemSheetV2.prototype._onEditPortrait,
@@ -303,6 +309,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       // Alchemy product actions
       enableAlchemyProduct: SimpleItemSheetV2.prototype._onEnableAlchemyProduct,
       clearAlchemyProduct: SimpleItemSheetV2.prototype._onClearAlchemyProduct,
+      clearAlchemyProductEffect: SimpleItemSheetV2.prototype._onClearAlchemyProductEffect,
       drinkAlchemyProduct: SimpleItemSheetV2.prototype._onDrinkAlchemyProduct,
       applyAlchemyProductToWeapon: SimpleItemSheetV2.prototype._onApplyAlchemyProductToWeapon,
       // Scroll actions
@@ -569,6 +576,12 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
     const target = event?.target;
     const path = String(target?.getAttribute?.("name") ?? "").trim();
+    if (path.startsWith("alchemy-effect-level-")) {
+      const slotIdx = Number.parseInt(path.slice("alchemy-effect-level-".length), 10);
+      if (!Number.isFinite(slotIdx) || slotIdx < 0) return;
+      await updateAlchemyProductEffectLevel(this, slotIdx, target?.value ?? 1);
+      return;
+    }
     if (path !== "system.description" || !("value" in (target ?? {}))) return;
 
     const nextValue = String(target.value ?? "");
@@ -1108,6 +1121,12 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   async _onClearAlchemyProduct(event) { return onClearAlchemyProduct(this, event); }
   async _onDrinkAlchemyProduct(event) { return onDrinkAlchemyProduct(this, event); }
   async _onApplyAlchemyProductToWeapon(event) { return onApplyAlchemyProductToWeapon(this, event); }
+  async _onClearAlchemyProductEffect(event, target) {
+    event?.preventDefault?.();
+    const slotIdx = Number.parseInt(String(target?.dataset?.slotIdx ?? ""), 10);
+    if (!Number.isFinite(slotIdx) || slotIdx < 0) return;
+    return clearAlchemyProductEffectSlot(this, slotIdx);
+  }
 
   /* Scroll Actions */
 
@@ -1533,6 +1552,16 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   }
 
+  /** @override */
+  _canDragDrop(_selector) {
+    return this.isEditable;
+  }
+
+  /** @override */
+  _canDragStart(_selector) {
+    return this.isEditable;
+  }
+
   /**
    * Per-part listener registration.
    * Body listeners are attached only when the body part renders.
@@ -1549,6 +1578,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
     if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
     if (type === "scroll") this._registerScrollListeners(el);
+    if (type === "equipment" || type === "item") registerAlchemyProductListeners(this, el);
     if (type === "container") this._registerContainmentListeners(el);
 
     const featureTypes = new Set(["trait", "talent", "power"]);
@@ -1585,6 +1615,26 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    */
   async _onDrop(event) {
     event.preventDefault();
+
+    if (this.document.type === "equipment" || this.document.type === "item") {
+      const alchemyZone = event?.target instanceof Element
+        ? event.target.closest(ALCHEMY_PRODUCT_DROP_SELECTOR)
+        : null;
+      if (alchemyZone) {
+        if (event.__uesAlchemyProductDropHandled === true) return;
+        event.__uesAlchemyProductDropHandled = true;
+
+        const slotIdx = Number.parseInt(String(alchemyZone.dataset.alchemyProductDropSlot ?? ""), 10);
+        if (!Number.isFinite(slotIdx) || slotIdx < 0) return;
+
+        const result = await handleAlchemyProductSpellDrop(this, event, slotIdx);
+        if (!result?.ok) return;
+
+        ui.notifications?.info?.(`Assigned ${result.spellName} to Slot ${slotIdx + 1}.`);
+        await this.render();
+        return;
+      }
+    }
 
     // Scroll: accept a dropped spell item to fill the spellUuid field.
     if (this.document.type === "scroll") {

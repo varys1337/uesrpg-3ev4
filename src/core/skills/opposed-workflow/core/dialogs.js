@@ -9,6 +9,7 @@ import { hasCondition } from "../../../conditions/condition-engine.js";
 import { buildResistanceBonusSection, readResistanceBonusSelections } from "../../../traits/trait-resistance-ui.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { resolveUuidSync } from "../../../../utils/uuid-cache.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 
 export async function _skillRollDialog({
@@ -88,12 +89,8 @@ export async function _skillRollDialog({
     const byList = Array.isArray(skills) ? (skills.find(s => String(s?.uuid ?? "") === String(selectedSkillUuid ?? ""))?.name ?? null) : null;
     if (byList) return String(byList);
     if (!showSkillSelect && selectedSkillUuid && !String(selectedSkillUuid).startsWith("prof:")) {
-      try {
-        const doc = fromUuidSync(String(selectedSkillUuid));
-        return String(doc?.name ?? "");
-      } catch (_e) {
-        return "";
-      }
+      const doc = resolveUuidSync(String(selectedSkillUuid));
+      return String(doc?.name ?? "");
     }
     return "";
   })();

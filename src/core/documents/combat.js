@@ -8,43 +8,21 @@ import { createDebugLogger } from "../../utils/debug.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { resolveSurpriseState } from "../combat/surprise-state.js";
-import { FLAG_SCOPE } from "../system/namespace.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
 import { prepareDynamicRoundInitiativeUpdate, resolveCombatantInitiative } from "../combat/dynamic-initiative.js";
+import {
+  compareInitiativeTuples,
+  getCombatSensesInitiativeRating,
+  getInitiativeTieBreakTuple,
+} from "./combat/initiative-helpers.js";
+import { getActionPointAutomationSetting, getCombatRollModeMessageOptions, isDynamicInitiativeEnabledSetting } from "./combat/settings.js";
+import { emitDynamicInitiativeRoundSummary } from "./combat/initiative-ui.js";
+import { refreshActionPointsForCombatActor, resetAllActionPointsForCombat } from "./combat/ap-automation.js";
+import { registerCombatApHooks } from "./combat/hooks.js";
+
+export { getInitiativeTieBreakTuple } from "./combat/initiative-helpers.js";
 
 const _initiativeDebug = createDebugLogger("skillRollDebug", "[UESRPG][Initiative]");
-
-function _numericOr(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function _luckBonus(actor) {
-  if (!actor) return 0;
-  const rawBonus = actor?.system?.characteristics?.lck?.bonus;
-  const fromBonus = Number(rawBonus);
-  if (rawBonus !== undefined && rawBonus !== null && Number.isFinite(fromBonus)) return fromBonus;
-
-  // Chapter 5 default: NPC luck bonus is 0 when not explicitly present.
-  if (String(actor?.type ?? "").toLowerCase() === "npc") return 0;
-
-  return Math.floor(_numericOr(actor?.system?.characteristics?.lck?.total, 0) / 10);
-}
-
-function _pcPrecedence(actor) {
-  return String(actor?.type ?? "") === "Player Character" ? 1 : 0;
-}
-
-export function getInitiativeTieBreakTuple(combatant) {
-  const actor = combatant?.actor ?? null;
-  const initiativeTotal = _numericOr(combatant?.initiative, Number.NEGATIVE_INFINITY);
-  const initiativeRating = _numericOr(actor?.system?.initiative?.value, 0);
-  const luckBonus = _luckBonus(actor);
-  const pcPrecedence = _pcPrecedence(actor);
-  const stableId = String(combatant?.id ?? combatant?._id ?? "");
-
-  return [initiativeTotal, initiativeRating, luckBonus, pcPrecedence, stableId];
-}
 
 export class SystemCombat extends Combat {
   /**
@@ -73,82 +51,11 @@ export class SystemCombat extends Combat {
   static _dynamicInitiativePendingSummaryByBoundary = new Map();
 
   static _resolveRollModeMessageOptions() {
-    let rollMode = "roll";
-    try { rollMode = String(game.settings.get("core", "rollMode") ?? "roll").toLowerCase(); }
-    catch (_e) { rollMode = "roll"; }
-
-    if (rollMode === "gmroll") {
-      return { rollMode, whisper: ChatMessage.getWhisperRecipients("GM") };
-    }
-    if (rollMode === "blindroll") {
-      return { rollMode, whisper: ChatMessage.getWhisperRecipients("GM"), blind: true };
-    }
-    if (rollMode === "selfroll") {
-      return { rollMode, whisper: [game.user.id] };
-    }
-    return { rollMode };
+    return getCombatRollModeMessageOptions();
   }
 
   static async _emitDynamicInitiativeRoundSummary(summary, { combatId = null, round = null } = {}) {
-    const rows = Array.isArray(summary?.rows) ? summary.rows : [];
-    if (!rows.length) return;
-
-    const esc = (v) => foundry.utils.escapeHTML(String(v ?? ""));
-    const sorted = rows.slice().sort((a, b) => {
-      const ai = Number(a?.initiative ?? Number.NEGATIVE_INFINITY);
-      const bi = Number(b?.initiative ?? Number.NEGATIVE_INFINITY);
-      if (ai !== bi) return bi - ai;
-      return String(a?.combatantName ?? "").localeCompare(String(b?.combatantName ?? ""));
-    });
-    const choiceLabel = (row) => {
-      const choice = String(row?.choice ?? "normal");
-      if (choice === "combatSenses") return "Combat Senses";
-      if (choice === "tactician") {
-        const tacticianName = String(row?.tacticianName ?? "").trim();
-        return tacticianName ? `Tactician (${tacticianName})` : "Tactician";
-      }
-      return "Normal";
-    };
-
-    const content = `
-      <div class="uesrpg-damage-applied-card">
-        <div class="hdr">
-          <div class="hdr-text">
-            <div class="title">Initiative - Round ${Number(round ?? summary?.round ?? 0)}</div>
-          </div>
-        </div>
-        <div class="body">
-          ${sorted.map((row, idx) => `
-            <div class="uesrpg-da-row">
-              <span class="k">${idx + 1}. ${esc(row?.combatantName ?? "Combatant")}</span>
-              <span class="v"><b>${Number(row?.initiative ?? 0)}</b> <span class="muted">(${esc(choiceLabel(row))}, ${esc(row?.formula ?? "0")})</span></span>
-            </div>
-          `).join("")}
-        </div>
-      </div>
-    `;
-
-    const modeOpts = SystemCombat._resolveRollModeMessageOptions();
-    await ChatMessage.create({
-      user: game.user.id,
-      speaker: ChatMessage.getSpeaker({ alias: "Initiative" }),
-      content,
-      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-      ...modeOpts,
-    });
-
-    const dsn = game?.dice3d;
-    if (!dsn || typeof dsn.showForRoll !== "function") return;
-    const isPublic = modeOpts.rollMode === "roll" || modeOpts.rollMode === "publicroll";
-    const sync = Boolean(isPublic);
-    const rolls = sorted.map((r) => r?.roll).filter(Boolean);
-    await Promise.allSettled(rolls.map(async (roll) => {
-      try {
-        await dsn.showForRoll(roll, game.user, sync);
-      } catch (_err) {
-        try { await dsn.showForRoll(roll); } catch (_err2) {}
-      }
-    }));
+    return emitDynamicInitiativeRoundSummary(summary, { combatId, round });
   }
 
   static _initiativeCacheKey(combat, user) {
@@ -172,19 +79,11 @@ export class SystemCombat extends Combat {
    * before the setting is registered during early initialization.
    */
   get apAutomationType() {
-    try {
-      return game.settings.get("uesrpg-3ev4", "actionPointAutomation");
-    } catch (_e) {
-      return "off";
-    }
+    return getActionPointAutomationSetting();
   }
 
   get dynamicInitiativeEnabled() {
-    try {
-      return Boolean(game.settings.get("uesrpg-3ev4", "dynamicInitiativeEnabled"));
-    } catch (_e) {
-      return false;
-    }
+    return isDynamicInitiativeEnabledSetting();
   }
 
   _actorHasCondition(actor, key) {
@@ -209,6 +108,9 @@ export class SystemCombat extends Combat {
   }
 
   async _refreshActionPoints(actor) {
+    await refreshActionPointsForCombatActor(actor);
+    return;
+
     if (!actor) return;
 
     const maxRaw = Number(actor?.system?.action_points?.max ?? 0);
@@ -259,6 +161,9 @@ export class SystemCombat extends Combat {
   }
 
   async resetAllActionPoints() {
+    await resetAllActionPointsForCombat(this);
+    return;
+
     const _perf = isPerfEnabled();
     const _t0 = _perf ? monoMs() : 0;
     const BATCH_SIZE = 25;
@@ -418,6 +323,9 @@ export class SystemCombat extends Combat {
    *  - Cleanup of the dedup map when a combat document is deleted.
    */
   static registerAPHooks() {
+    registerCombatApHooks(SystemCombat);
+    return;
+
     Hooks.on("updateCombat", (combat, changed, _options, _userId) => {
       if (!game.user?.isGM) return;
       if (!("round" in changed)) return;
@@ -507,12 +415,7 @@ export class SystemCombat extends Combat {
   _sortCombatants(a, b) {
     const ta = getInitiativeTieBreakTuple(a);
     const tb = getInitiativeTieBreakTuple(b);
-
-    if (ta[0] !== tb[0]) return tb[0] - ta[0];
-    if (ta[1] !== tb[1]) return tb[1] - ta[1];
-    if (ta[2] !== tb[2]) return tb[2] - ta[2];
-    if (ta[3] !== tb[3]) return tb[3] - ta[3];
-    return String(ta[4]).localeCompare(String(tb[4]), undefined, { numeric: true, sensitivity: "base" });
+    return compareInitiativeTuples(ta, tb);
   }
 
   /**
@@ -728,10 +631,7 @@ export class SystemCombat extends Combat {
   }
 
   _combatSensesInitiativeRating(actor) {
-    // Chapter 4: Combat Senses formula (as specified in the rules text):
-    // IR = (2x Perception Bonus) + 2
-    const prcBonus = Number(actor?.system?.characteristics?.prc?.bonus ?? 0) || 0;
-    return (2 * prcBonus) + 2;
+    return getCombatSensesInitiativeRating(actor);
   }
 
   async _promptCombatSensesChoice(actor) {

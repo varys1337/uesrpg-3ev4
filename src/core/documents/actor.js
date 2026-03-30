@@ -7,7 +7,6 @@
 import { isTransferEffectActive } from "../active-effects/transfer.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 import { applyTraitDerived, collectTraitDamageModifiers, getResistanceKeyForTraitType, getActorTraitValue, isActorUndead } from "../traits/trait-registry.js";
-import { hasTalent } from "../traits/talents-api.js";
 import { isNPC } from "../rules/npc-rules.js";
 import { ensureSystemData } from "../actors/prepare/ensure-system-data.js";
 import { prepareCharacterData } from "../actors/prepare/character.js";
@@ -16,7 +15,6 @@ import { prepareGroupData } from "../actors/prepare/group.js";
 import { prepareWarfareUnitData } from "../actors/prepare/warfare-unit.js";
 import { aggregateItemStats } from "../actors/rules/item-aggregation.js";
 import { getArmorMobilityPenalties, flyCalc } from "../actors/rules/armor-mobility.js";
-import { isShieldItem } from "../items/shield-utils.js";
 import {
   hasVampireLordForm,
   hasWereWolfForm,
@@ -41,6 +39,18 @@ import {
   applyWoundThresholdAEs
 } from "../actors/ae/modifiers.js";
 import { FLAG_SCOPE } from "../constants.js";
+import { buildActorPrepareContext, hasTalentCached } from "./actor/prepare-context.js";
+import {
+  calculateAddedHalfSpeed,
+  calculateFatiguePenalty,
+  calculateInitiative,
+  calculateSpeed,
+  calculateWoundThreshold,
+  determineIbToMp,
+  hasHalfWoundPenalty,
+} from "./actor/derived.js";
+import { applyMovementRestrictionSemantics, getActorConditionKeySet } from "./actor/conditions.js";
+import { wouldCreateCircularGroupReference } from "./actor/group-membership.js";
 
 /** Item types that carry a TN via baseCha and implement _prepareCombatStyleData. */
 const TN_ITEM_TYPES = new Set(["skill", "combatStyle", "magicSkill"]);
@@ -189,33 +199,12 @@ export class SimpleActor extends Actor {
 
   _getPrepareCtx() {
     if (this._uesrpgPrepareCtx) return this._uesrpgPrepareCtx;
-
-    const items = Array.from(this?.items?.contents ?? this?.items ?? []);
-    const equippedItems = items.filter(item => item?.system?.equipped === true);
-    const talents = items.filter(item => item?.type === "talent");
-    const traitsAndTalents = items.filter(item => item && (item.type === "trait" || item.type === "talent"));
-    const talentSlugSet = new Set();
-    for (const t of talents) {
-      const sys = t?.system ?? {};
-      const slug = String(sys.slug ?? sys.key ?? sys.id ?? "").trim().toLowerCase();
-      const name = String(t?.name ?? "").trim().toLowerCase().replace(/\s+/g, "");
-      if (slug) talentSlugSet.add(slug);
-      if (name) talentSlugSet.add(name);
-    }
-
-    this._uesrpgPrepareCtx = { items, equippedItems, talents, traitsAndTalents, talentSlugSet };
+    this._uesrpgPrepareCtx = buildActorPrepareContext(this);
     return this._uesrpgPrepareCtx;
   }
 
   _hasTalentCached(key) {
-    const k = String(key ?? "").trim().toLowerCase();
-    if (!k) return false;
-    const normalized = k.replace(/\s+/g, "");
-    const set = this._getPrepareCtx()?.talentSlugSet;
-    if (set instanceof Set) {
-      if (set.has(k) || set.has(normalized)) return true;
-    }
-    try { return hasTalent(this, key); } catch (_e) { return false; }
+    return hasTalentCached(this, key);
   }
 
   /**
@@ -396,26 +385,7 @@ export class SimpleActor extends Actor {
    * @returns {Promise<Boolean>} - True if circular, false if safe
    */
   async _wouldCreateCircularReference(actorUuid) {
-    // Can't add self
-    if (actorUuid === this.uuid) return true;
-
-    // Recursively check if actorUuid contains this group
-    const checkActor = async (uuid, visited = new Set()) => {
-      if (visited.has(uuid)) return false;
-      visited.add(uuid);
-
-      const actor = await fromUuid(uuid);
-      if (!actor || actor.type !== 'Group') return false;
-
-      for (const member of actor.system.members || []) {
-        if (member.id === this.uuid) return true;
-        if (await checkActor(member.id, visited)) return true;
-      }
-
-      return false;
-    };
-
-    return checkActor(actorUuid);
+    return wouldCreateCircularGroupReference(this, actorUuid);
   }
     
    _calculateItemSkillModifiers(actorData, agg) {
@@ -446,119 +416,27 @@ export class SimpleActor extends Actor {
   }
 
   _speedCalc(actorData) {
-    const items = this._getPrepareCtx().items;
-    const attribute = items.filter(item => item?.system?.halfSpeed === true);
-    let speed = Number(actorData?.system?.speed?.base ?? 0);
-    if (attribute.length >= 1) speed = Math.ceil(speed / 2);
-
-    // Wall of Steel (Chapter 4): ignore speed penalty from any armor worn.
-    // Current system models an explicit -1 Speed penalty for tower shields in this method;
-    // armor weight-class speed penalties are tracked elsewhere. Apply the RAW override to this lane.
-    let ignoreArmorSpeedPenalty = false;
-    try { ignoreArmorSpeedPenalty = this._hasTalentCached("wallofsteel"); } catch (_e) { ignoreArmorSpeedPenalty = false; }
-    const hasTowerShield = items.some(item => {
-      if (!item || !isShieldItem(item, { allowLegacy: true })) return false;
-      const sys = item.system ?? {};
-      if (sys.equipped !== true) return false;
-      return String(sys.shieldType ?? "normal").toLowerCase() === "tower";
-    });
-    if (!ignoreArmorSpeedPenalty && hasTowerShield) speed = Math.max(0, speed - 1);
-    return speed;
+    return calculateSpeed(this, actorData);
   }
 
   _iniCalc(actorData) {
-    const attribute = this._getPrepareCtx().traitsAndTalents;
-    let init = Number(actorData?.system?.initiative?.base ?? 0);
-    const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
-    const chaCalc = (ch) => Math.floor(this._getCharacteristicTotal(actorData, ch) / 10) * 3;
-
-    // Rule Element: overrideValue for initiative characteristic replacement.
-    const reIniChar = actorData?.system?._reOverrides?.["system.initiative.replaceCharacteristic"] ?? null;
-    if (reIniChar && reIniChar !== "none") {
-      const ch = String(reIniChar).toLowerCase();
-      if (validChars.includes(ch)) return chaCalc(ch);
-    }
-
-    for (const item of attribute) {
-      if (item?.system?.replace?.ini && item.system.replace.ini.characteristic !== "none") {
-        const ch = item.system.replace.ini.characteristic;
-        if (validChars.includes(ch)) init = chaCalc(ch);
-      }
-    }
-    return init;
+    return calculateInitiative(this, actorData);
   }
 
   _woundThresholdCalc(actorData) {
-    const attribute = this._getPrepareCtx().traitsAndTalents;
-    let wound = Number(actorData?.system?.wound_threshold?.base ?? 0);
-    const validChars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
-    const chaCalc = (ch) => Math.floor(this._getCharacteristicTotal(actorData, ch) / 10) * 3;
-
-    // Rule Element: overrideValue for wound threshold characteristic replacement.
-    const reWtChar = actorData?.system?._reOverrides?.["system.wound_threshold.replaceCharacteristic"] ?? null;
-    if (reWtChar && reWtChar !== "none") {
-      const ch = String(reWtChar).toLowerCase();
-      if (validChars.includes(ch)) return chaCalc(ch);
-    }
-
-    for (const item of attribute) {
-      if (item?.system?.replace?.wt && item.system.replace.wt.characteristic !== "none") {
-        const ch = item.system.replace.wt.characteristic;
-        if (validChars.includes(ch)) wound = chaCalc(ch);
-      }
-    }
-    return wound;
+    return calculateWoundThreshold(this, actorData);
   }
 
   _calcFatiguePenalty(actorData) {
-    const attribute = this._getPrepareCtx().items.filter(item => item?.system?.halfFatiguePenalty === true);
-    let penalty = 0;
-    // Enduring (Chapter 4): halve penalties imposed by levels of fatigue.
-    let hasEnduring = false;
-    try { hasEnduring = this._hasTalentCached("enduring"); } catch (_e) { hasEnduring = false; }
-    // Rule Element: booleanFlag halfFatiguePenalty via passive RE.
-    const reHalfFatigue = Boolean(actorData?.system?._reFlags?.halfFatiguePenalty);
-    if (attribute.length >= 1 || hasEnduring || reHalfFatigue) {
-      penalty = Number(actorData?.system?.fatigue?.level || 0) * -5;
-    } else {
-      penalty = Number(actorData?.system?.fatigue?.level || 0) * -10;
-    }
-    return penalty
+    return calculateFatiguePenalty(this, actorData);
   }
 
   _halfWoundPenalty(actorData) {
-    const hasItem = this._getPrepareCtx().items.some(item => item?.system?.halfWoundPenalty === true);
-    // Unstoppable (Chapter 4): halve the passive effects of wounds.
-    let hasUnstoppable = false;
-    try { hasUnstoppable = this._hasTalentCached("unstoppable"); } catch (_e) { hasUnstoppable = false; }
-    // Rule Element: booleanFlag halfWoundPenalty via passive RE.
-    const reHalfWound = Boolean(actorData?.system?._reFlags?.halfWoundPenalty);
-    return hasItem || hasUnstoppable || reHalfWound;
+    return hasHalfWoundPenalty(this, actorData);
   }
 
   _determineIbMp(actorData) {
-    const actorIntBonus = Number(actorData?.system?.characteristics?.int?.bonus || 0);
-    let total = 0;
-
-    // Item-based Power Well (legacy: addIBToMP checkbox on talent/trait items).
-    let addIbItems = this._getPrepareCtx().items.filter(item => item?.system?.addIBToMP === true);
-    if (addIbItems.length >= 1) {
-      total = addIbItems.reduce(
-        (acc, item) => actorIntBonus * Number(item?.system?.addIntToMPMultiplier || 0) + acc,
-        0
-      );
-    }
-
-    // Depth of Understanding (Chapter 4): grants Power Well (IB × 5) trait.
-    // RAW: "The character gains the Power Well (IB × 5) Trait."
-    // Coded directly to avoid requiring a manual Power Well item on the character.
-    try {
-      if (this._hasTalentCached("depthofunderstanding")) {
-        total += actorIntBonus * 5;
-      }
-    } catch (_e) { /* graceful degradation during init */ }
-
-    return total;
+    return determineIbToMp(this, actorData);
   }
 
   _isMechanical(actorData) {
@@ -612,21 +490,7 @@ export class SimpleActor extends Actor {
    * This is a derived-data helper only; it does not mutate document data.
    */
   _getUesConditionKeySet(actorData) {
-    const out = new Set();
-    const effects = actorData?.effects?.contents ?? actorData?.effects ?? [];
-    for (const e of effects) {
-      const flagged = e?.getFlag?.("uesrpg-3ev4", "condition") ?? e?.flags?.["uesrpg-3ev4"]?.condition ?? null;
-      const key = flagged?.key ? String(flagged.key).trim().toLowerCase() : "";
-      if (key) out.add(key);
-
-      // Fallback: some conditions may exist as named effects without our flags.
-      const nm = String(e?.name ?? "").trim().toLowerCase();
-      if (nm) {
-        const first = nm.split("(")[0].trim().split(/\s+/)[0];
-        if (first) out.add(first);
-      }
-    }
-    return out;
+    return getActorConditionKeySet(actorData);
   }
 
   /**
@@ -634,78 +498,11 @@ export class SimpleActor extends Actor {
    * This does not block token movement in the canvas; it deterministically adjusts derived speed values.
    */
   _applyMovementRestrictionSemantics(actorData, actorSystemData) {
-    try {
-      if (!actorSystemData?.speed) return;
-
-      const keys = this._getUesConditionKeySet(actorData);
-
-      const clamp = (n) => {
-        const v = Number(n);
-        return Number.isFinite(v) ? Math.max(0, v) : 0;
-      };
-
-      let ground = clamp(actorSystemData.speed.value);
-      let swim = clamp(actorSystemData.speed.swimSpeed);
-      let fly = clamp(actorSystemData.speed.flySpeed);
-
-      const immobile = keys.has("immobilized") || keys.has("restrained") || keys.has("paralyzed") || keys.has("unconscious");
-      if (immobile) {
-        ground = 0;
-        swim = 0;
-        fly = 0;
-      } else {
-        // Slowed / Entangled: halve (round up)
-        if (keys.has("slowed")) {
-          ground = Math.ceil(ground / 2);
-          swim = Math.ceil(swim / 2);
-          fly = Math.ceil(fly / 2);
-        }
-        if (keys.has("entangled")) {
-          ground = Math.ceil(ground / 2);
-          swim = Math.ceil(swim / 2);
-          fly = Math.ceil(fly / 2);
-        }
-
-        // Prone: movement costs double, so effective ground speed is halved (round down).
-        if (keys.has("prone")) {
-          ground = Math.floor(ground / 2);
-        }
-
-        // Hidden: movement costs double, so effective movement speeds are halved (round down).
-        if (keys.has("hidden")) {
-          ground = Math.floor(ground / 2);
-          swim = Math.floor(swim / 2);
-          fly = Math.floor(fly / 2);
-        }
-      }
-
-      actorSystemData.speed.value = ground;
-      actorSystemData.speed.swimSpeed = swim;
-
-      // Some actors may not define flySpeed in their schema; guard defensively.
-      if (Object.prototype.hasOwnProperty.call(actorSystemData.speed, "flySpeed")) {
-        actorSystemData.speed.flySpeed = fly;
-      }
-    } catch (err) {
-      console.warn("uesrpg-3ev4 | Movement restriction semantics failed", err);
-    }
+    applyMovementRestrictionSemantics(actorData, actorSystemData);
   }
 
   _addHalfSpeed(actorData) {
-    const items = this._getPrepareCtx().items;
-    let halfSpeedItems = items.filter(item => item?.system?.addHalfSpeed === true);
-    let isWereCroc = items.filter(item => item?.system?.shiftFormStyle === "shiftFormWereCrocodile");
-    let speed = Number(actorData?.system?.speed?.value || 0);
-    if (isWereCroc.length > 0 && halfSpeedItems.length > 0) {
-      speed = Number(actorData?.system?.speed?.base || 0);
-    } else if (isWereCroc.length === 0 && halfSpeedItems.length > 0) {
-      speed = Math.ceil(Number(actorData?.system?.speed?.value || 0)/2) + Number(actorData?.system?.speed?.base || 0);
-    } else if (isWereCroc.length > 0 && halfSpeedItems.length === 0) {
-      speed = Math.ceil(Number(actorData?.system?.speed?.base || 0)/2);
-    } else {
-      speed = Number(actorData?.system?.speed?.value || 0);
-    }
-    return speed
+    return calculateAddedHalfSpeed(this, actorData);
   }
 
   /**

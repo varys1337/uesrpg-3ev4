@@ -1,10 +1,11 @@
 import { MagicOpposedWorkflow } from "../../magic/opposed-workflow.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { getEnchantingSettings } from "../settings.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
 function _settingEnabled() {
-  return game.settings.get(_FLAG_NS, "enchanting.enableCastEnchantmentRuntime") === true;
+  return getEnchantingSettings().enableCastEnchantmentRuntime === true;
 }
 
 function _asNum(v, fallback = 0) {

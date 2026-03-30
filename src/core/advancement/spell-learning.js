@@ -6,17 +6,13 @@ import {
 import { _num, _num as asNumber } from "../../utils/coerce.js";
 import { getMagicSkillLevel, isActorTrainedInMagicSchool } from "../magic/magicka-utils.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
+import { asTrimmedString, getActorItemsArray, normalizeLowercaseString } from "./utils.js";
 
 const CHARGEN_NS = FLAG_SCOPE;
 const CHARGEN_PATH = "chargen";
 
-function asString(value) {
-  return String(value ?? "").trim();
-}
-
-function normalizeSchool(value) {
-  return asString(value).toLowerCase();
-}
+const asString = asTrimmedString;
+const normalizeSchool = normalizeLowercaseString;
 
 function getSpellLevel(spell) {
   return Math.max(1, Math.min(7, _num(spell?.system?.level, 1)));
@@ -62,15 +58,6 @@ export function spellSignature(spellLike) {
   const type = normalizeSpellLearningType(spellLike);
   const name = asString(spellLike?.name).toLowerCase();
   return `${name}|${school}|${level}|${type}`;
-}
-
-function getActorItemsArray(actorLike) {
-  const items = actorLike?.items;
-  if (!items) return [];
-  if (Array.isArray(items)) return items;
-  if (typeof items?.[Symbol.iterator] === "function") return Array.from(items);
-  if (Array.isArray(items?.contents)) return items.contents;
-  return [];
 }
 
 function getOwnedSpellSourceUuid(itemLike) {

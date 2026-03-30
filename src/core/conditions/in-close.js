@@ -17,6 +17,7 @@ import { alertDialog, customDialog } from "../../utils/dialog-v2-helper.js";
 import { isReachLengthHomebrewEnabled } from "../homebrew/reach-length/weapon.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { FLAG_SCOPE } from "./constants.js";
+import { createUuidResolver } from "../../utils/uuid-cache.js";
 
 /**
  * Activate In Close for a token, selecting a partner from nearby tokens.
@@ -120,9 +121,10 @@ export async function activateInClose(tokenPlaceable, tokenDoc, actor) {
  */
 export async function deactivateInClose(tokenDoc, actor) {
   const inCloseWith = tokenDoc.getFlag(FLAG_SCOPE, "reachLength.inCloseWith") ?? {};
+  const uuidResolver = createUuidResolver();
 
   for (const [partnerUuid] of Object.entries(inCloseWith)) {
-    const partnerDoc = fromUuidSync(partnerUuid);
+    const partnerDoc = uuidResolver.resolveSync(partnerUuid);
     if (!partnerDoc) continue;
     await _pruneInClosePair(tokenDoc, partnerDoc);
   }

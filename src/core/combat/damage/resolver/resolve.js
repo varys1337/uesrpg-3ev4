@@ -23,11 +23,9 @@ import { asNumber } from "./normalize.js";
 import { listArmorSourcesForLocation } from "./armor.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
 import {
-  applyDamage,
   calculateDamage,
   DAMAGE_TYPES,
   applyForcefulImpact,
-  ensureUnconsciousEffect,
   isItemMagicSource,
   itemHasToken,
 } from "../../damage-automation.js";
@@ -51,8 +49,13 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { collectStrikeEnchantmentEffects, consumeStrikeCharge } from "../../../enchanting/runtime/strike-runtime.js";
 import { shouldTriggerWound } from "../../../wounds/wound-rules.js";
-import { syncNpcDeathState } from "../../../wounds/death-tests.js";
 import { getRuntimeSystemId as _getSystemId } from "../../../system/namespace.js";
+import {
+  applyPostDamageUpdate,
+  dispatchDamageAppliedHook,
+  finalizeDamageTargetState,
+  resolveDamageUpdateTarget
+} from "../post-application.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
 const _isNpcActor = (actor) => String(actor?.type ?? "").trim().toLowerCase() === "npc";
@@ -616,10 +619,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     return Number.isFinite(v) ? v : 0;
   })();
 
-  // Choose update target: unlinked token actor if applicable, else base actor
-  const activeToken = targetActor.token ?? targetActor.getActiveTokens?.()[0] ?? null;
-  const isUnlinkedToken = !!(activeToken && targetActor.prototypeToken && targetActor.prototypeToken.actorLink === false);
-  const updateTarget = isUnlinkedToken ? activeToken.actor : targetActor;
+  const updateTarget = resolveDamageUpdateTarget(targetActor);
 
   let woundThreshold = baseWoundThreshold;
   let woundThresholdDelta = 0;
@@ -941,23 +941,23 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   const newHP = Math.max(0, Number(currentHP) - remainingDamage);
 
-  const updateData = { "system.hp.value": newHP, "system.tempHP": newTempHP };
+  const extraUpdates = {};
   if (bufferAbsorbed > 0) {
-    updateData["system.buffers.physical"] = newBuffers.physical;
-    updateData["system.buffers.magical"] = newBuffers.magical;
-    updateData["system.buffers.elemental"] = newBuffers.elemental;
+    extraUpdates["system.buffers.physical"] = newBuffers.physical;
+    extraUpdates["system.buffers.magical"] = newBuffers.magical;
+    extraUpdates["system.buffers.elemental"] = newBuffers.elemental;
   }
   if (untouchableSpentLp > 0) {
     const nextLp = Math.max(0, untouchableCurrentLp - untouchableSpentLp);
-    updateData["system.luck_points.value"] = nextLp;
+    extraUpdates["system.luck_points.value"] = nextLp;
   }
   if (spellAbsorptionRestored > 0) {
     const currentMP = Number(updateTarget.system?.magicka?.value ?? 0);
     const maxMP = Number(updateTarget.system?.magicka?.max ?? 0);
     const nextMP = Math.min(maxMP, currentMP + spellAbsorptionRestored);
-    updateData["system.magicka.value"] = nextMP;
+    extraUpdates["system.magicka.value"] = nextMP;
   }
-  await requestUpdateDocument(updateTarget, updateData);
+  await applyPostDamageUpdate(targetActor, { newHP, newTempHP, extraUpdates });
 
   const woundEval = shouldTriggerWound({
     damageApplied: Math.max(0, totalApplied),
@@ -968,27 +968,26 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   woundTriggered = woundEval.triggered === true;
 
   // Emit canonical damage-applied hook for downstream automation (e.g. Chapter 5 wounds/shock).
-  try {
-    Hooks.callAll("uesrpgDamageApplied", updateTarget, {
-      applicationId,
-      woundTriggered,
-      woundMode: woundEval.mode,
-      woundTriggerReason: woundEval.reason,
-      criticalSuccess: Boolean(ctx.options?.criticalSuccess ?? ctx.options?.isCritical ?? false),
-      woundThreshold,
-      amountApplied: Math.max(0, totalApplied),
-      damageAppliedByType,
-      hitLocation,
-      source: ctx.options?.source ?? "Attack",
-      weapon: ctx.options?.weapon ?? null,
-      ammo: ctx.options?.ammo ?? null,
-      origin: ctx.options?.origin ?? ctx.options?.weapon ?? null,
-      chatContext: foundry.utils.deepClone(ctx.options?.chatContext ?? null),
-      strikeEnchantmentSideEffects: strikeEnchantComponents.sideEffects ?? [],
-    });
-  } catch (err) {
-    console.warn("UESRPG | uesrpgDamageApplied hook failed", err);
-  }
+  dispatchDamageAppliedHook(updateTarget, {
+    applicationId,
+    woundTriggered,
+    woundMode: woundEval.mode,
+    woundTriggerReason: woundEval.reason,
+    criticalSuccess: Boolean(ctx.options?.criticalSuccess ?? ctx.options?.isCritical ?? false),
+    woundThreshold,
+    amountApplied: Math.max(0, totalApplied),
+    damageAppliedByType,
+    hitLocation,
+    source: ctx.options?.source ?? "Attack",
+    weapon: ctx.options?.weapon ?? null,
+    ammo: ctx.options?.ammo ?? null,
+    origin: ctx.options?.origin ?? ctx.options?.weapon ?? null,
+    chatContext: foundry.utils.deepClone(ctx.options?.chatContext ?? null),
+    strikeEnchantmentSideEffects: strikeEnchantComponents.sideEffects ?? [],
+  }, {
+    logPrefix: "UESRPG | uesrpgDamageApplied hook failed",
+    logLevel: "warn"
+  });
 
   // Consume strike enchantment charge AFTER damage is applied and hooks have fired.
   if (strikeEnchantComponents.chargeConsumptionNeeded && weaponCtx) {
@@ -1047,12 +1046,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     }
   }
 
-  if (newHP === 0 && !_isNpcActor(updateTarget)) {
-    await ensureUnconsciousEffect(updateTarget);
-  }
-  if (_isNpcActor(updateTarget)) {
-    await syncNpcDeathState(updateTarget);
-  }
+  await finalizeDamageTargetState(updateTarget, { newHP });
 
   // Entangling (Chapter 7): on hit, target makes STR or AGI test; failure applies Entangled.
   try {

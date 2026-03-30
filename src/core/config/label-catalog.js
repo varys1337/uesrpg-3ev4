@@ -159,6 +159,18 @@ export const SPELL_RANK_LABELS = Object.freeze({
   7: "Legendary"
 });
 
+export const TRAINING_RANK_LABELS = Object.freeze({
+  untrained: "Untrained",
+  novice: "Novice",
+  apprentice: "Apprentice",
+  journeyman: "Journeyman",
+  adept: "Adept",
+  expert: "Expert",
+  master: "Master",
+  grandmaster: "Grandmaster",
+  legendary: "Legendary"
+});
+
 // ── Circumstance modifiers ────────────────────────────────────────────────────
 // Keys are stringified numeric values — JS object access coerces numbers to
 // strings automatically, so CIRCUMSTANCE_MOD_LABELS[30] resolves correctly.

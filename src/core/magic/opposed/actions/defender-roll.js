@@ -10,20 +10,18 @@
  */
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
+import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
 import { getActiveWardSpell } from "../../../combat/ward-defense.js";
+import { computeSpellAttemptMagickaCost, consumeSpellMagicka } from "../../magicka-utils.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { resolveToken } from "../schema.js";
-import { executeCharacteristicDefense, computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
-import { emitSuppressedOpposedSubRollDice } from "../spell-helpers.js";
-import { FLAG_SCOPE } from "../../../system/namespace.js";
+import { executeCharacteristicDefense } from "../../characteristic-defense-service.js";
 import { listEquippedShields } from "../../../items/shield-utils.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
 import { isWarfareUnitActorType } from "../../../actors/types.js";
-
-const _FLAG_NS = FLAG_SCOPE;
-const NAMESPACE = FLAG_SCOPE;
+import { postMagicOpposedSubRoll } from "../subrolls.js";
 
 /**
  * Compute evade TN with breakdown.
@@ -138,9 +136,41 @@ export async function handleDefenderRoll(ctx, action) {
 
   const defenseType = (action === "defender-roll-block") ? "block" : (action === "defender-roll-ward") ? "ward" : "evade";
   const defenseLabel = defenseType.charAt(0).toUpperCase() + defenseType.slice(1);
+  const wardSpell = defenseType === "ward" ? getActiveWardSpell(defenderActor) : null;
+  if (defenseType === "ward" && !wardSpell) {
+    ui.notifications.warn("No active Ward spell found on the defender.");
+    return;
+  }
+
+  let wardAttemptCost = 0;
+  if (wardSpell) {
+    const wardCostInfo = computeSpellAttemptMagickaCost(defenderActor, wardSpell, {});
+    wardAttemptCost = Math.max(0, Number(wardCostInfo?.cost ?? 0) || 0);
+    const currentMagicka = Number(defenderActor?.system?.magicka?.value ?? 0) || 0;
+    if (currentMagicka < wardAttemptCost) {
+      ui.notifications.warn(`Not enough Magicka to use ${wardSpell?.name ?? "Ward"}. Required: ${wardAttemptCost}, Available: ${currentMagicka}.`);
+      return;
+    }
+  }
 
   const apSpentOk = await ActionEconomy.spendAP(defenderActor, apCost, { reason: `Defense (${defenseLabel})`, silent: false });
   if (!apSpentOk) return;
+
+  if (wardSpell) {
+    const wardSpend = await consumeSpellMagicka(defenderActor, wardSpell, {});
+    if (!wardSpend?.ok) {
+      try {
+        await requestUpdateDocument(defenderActor, { "system.action_points.value": currentAP });
+      } catch (_e) {
+        // best-effort
+      }
+      return;
+    }
+    defender.wardSpellUuid = String(wardSpell?.uuid ?? "");
+    defender.wardSpellName = String(wardSpell?.name ?? "Ward");
+    defender.wardMpSpent = Number(wardSpend?.consumed ?? wardAttemptCost) || 0;
+    defender.wardMpRemaining = Number(wardSpend?.remaining ?? defenderActor?.system?.magicka?.value ?? 0) || 0;
+  }
 
   const tnObj = (defenseType === "block" || defenseType === "ward") ? computeBlockTNWithBreakdown(defenderActor) : computeEvadeTNWithBreakdown(defenderActor);
   const manualMod = Number(defender?.declared?.manualMod ?? 0) || 0;
@@ -157,7 +187,7 @@ export async function handleDefenderRoll(ctx, action) {
   tnObj.finalTN = Math.max(0, Number(tnObj.finalTN ?? 0) + manualMod + circumstanceMod);
   const attackerToken = resolveToken(data?.attacker?.tokenUuid);
   const runtimeDefenseItem = (() => {
-    if (defenseType === "ward") return getActiveWardSpell(defenderActor);
+    if (defenseType === "ward") return wardSpell;
     if (defenseType !== "block") return null;
     return listEquippedShields(defenderActor, { includeBuckler: false, allowLegacy: true })[0] ?? null;
   })();
@@ -195,18 +225,14 @@ export async function handleDefenderRoll(ctx, action) {
     allowPrompt: true
   });
 
-  const postSubRolls = game.settings?.settings?.has?.(`${NAMESPACE}.opposedPostSubRollMessages`)
-    ? game.settings.get(NAMESPACE, "opposedPostSubRollMessages")
-    : true;
-  if (postSubRolls) {
-    await result.roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor: defenderActor }),
-      flavor: `<b>${defenseLabel}</b> vs ${data.attacker.spellName}`,
-      flags: { [_FLAG_NS]: { magicOpposedMeta: { parentMessageId: message.id, stage: "defender", defenderIndex } } }
-    });
-  } else {
-    emitSuppressedOpposedSubRollDice(result.roll, { rollMode: game.settings.get("core", "rollMode") });
-  }
+  await postMagicOpposedSubRoll({
+    roll: result.roll,
+    actor: defenderActor,
+    flavor: `<b>${defenseLabel}</b> vs ${data.attacker.spellName}`,
+    parentMessageId: message.id,
+    stage: "defender",
+    defenderIndex
+  });
 
   defender.result = result;
   defender.defenseType = defenseLabel;
@@ -284,18 +310,14 @@ export async function handleDefenderCharacteristicTest(ctx) {
   }
 
   // Post the roll to chat as a separate 3D dice card (like opposed combat tests)
-  const postSubRolls = game.settings?.settings?.has?.(`${NAMESPACE}.opposedPostSubRollMessages`)
-    ? game.settings.get(NAMESPACE, "opposedPostSubRollMessages")
-    : true;
-  if (postSubRolls) {
-    await defResult.roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor: defenderActor }),
-      flavor: `<b>${defResult.characteristicLabel} Save</b>`,
-      flags: { "uesrpg-3ev4": { magicOpposedMeta: { parentMessageId: message.id, stage: "defender", defenderIndex } } }
-    });
-  } else {
-    emitSuppressedOpposedSubRollDice(defResult.roll, { rollMode: game.settings.get("core", "rollMode") });
-  }
+  await postMagicOpposedSubRoll({
+    roll: defResult.roll,
+    actor: defenderActor,
+    flavor: `<b>${defResult.characteristicLabel} Save</b>`,
+    parentMessageId: message.id,
+    stage: "defender",
+    defenderIndex
+  });
 
   // Store result in defender entry (format matching doTestRoll output)
   defender.result = {

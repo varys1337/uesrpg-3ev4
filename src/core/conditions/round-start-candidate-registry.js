@@ -15,6 +15,8 @@
 import { getActorTraitValue } from "../traits/trait-registry.js";
 import { hasCondition } from "./condition-engine.js";
 import { SYSTEM_ID } from "../system/namespace.js";
+import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
+import { resolveUuidSync } from "../../utils/uuid-cache.js";
 
 /** @typedef {{ actorId: string, actorUuid: string, regenValue: number }} CandidateEntry */
 
@@ -55,13 +57,11 @@ function _makeEntry(actor, regenValue = 0) {
   };
 }
 
-function _resolveActor(entry) {
+function _resolveActor(entry, { cache } = {}) {
   if (!entry) return null;
 
-  try {
-    const fromUuid = fromUuidSync(entry.actorUuid);
-    if (fromUuid?.documentName === "Actor") return fromUuid;
-  } catch (_e) {}
+  const fromUuid = resolveUuidSync(entry.actorUuid, { cache });
+  if (fromUuid?.documentName === "Actor") return fromUuid;
 
   return game?.actors?.get?.(entry.actorId) ?? null;
 }
@@ -71,11 +71,15 @@ function _hasRegeneration(actor) {
   return value > 0 ? value : 0;
 }
 
+function _hasRegenerationFlag(actor) {
+  return getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.healing.regenerationRoundStart") ? 1 : 0;
+}
+
 function _refreshActorCandidates(actor) {
   const actorId = String(actor?.id ?? "");
   if (!actorId) return;
 
-  const regenValue = _hasRegeneration(actor);
+  const regenValue = _hasRegeneration(actor) || _hasRegenerationFlag(actor);
   if (regenValue > 0) {
     const entry = _makeEntry(actor, regenValue);
     if (entry) _actorsWithRegeneration.set(actorId, entry);
@@ -180,10 +184,11 @@ function _queryCandidates(mapRef, combat, type) {
     };
   }
 
+  const resolveCache = new Map();
   const candidates = [];
   for (const [actorId, entry] of mapRef) {
     if (!actorIdSet.has(actorId)) continue;
-    const actor = _resolveActor(entry);
+    const actor = _resolveActor(entry, { cache: resolveCache });
     if (!actor) {
       return {
         candidates: [],

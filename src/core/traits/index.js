@@ -163,8 +163,10 @@ export {
 export {
   TALENT_LEARNING_MODE,
   TALENT_NO_GOVERNING_COST_RULE,
+  TALENT_LEARNING_NOTICE_MODE,
   getTalentLearningMode,
   getTalentNoGoverningCostRule,
+  getTalentLearningNoticeMode,
   normalizeTalentLevel,
   parseGoverningCharacteristics,
   parseTalentRequirements,

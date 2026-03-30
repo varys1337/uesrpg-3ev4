@@ -88,3 +88,12 @@ export function isEngagementFlankingOnlyInCombat() {
 export function isMassCombatEnabled() {
   return Boolean(getHomebrewSetting("homebrew.massCombat.enabled", false));
 }
+
+/**
+ * Returns the reach visualizer settings object.
+ * Defaults to Chebyshev diagonal mode when unavailable.
+ * @returns {{ gridDiagonalMode?: string }}
+ */
+export function getReachVisualizerSettings() {
+  return getHomebrewSetting("reachVisualizer", { gridDiagonalMode: "chebyshev" }) ?? { gridDiagonalMode: "chebyshev" };
+}

@@ -527,7 +527,7 @@ export async function handleDefenderRoll(ctx) {
       try {
         const uuid = String(data?.context?.weaponUuid ?? "").trim();
         if (!uuid) return null;
-        const doc = fromUuidSync(uuid);
+        const doc = _resolveItemViaActor(uuid, attacker);
         return doc?.type === "weapon" ? doc : null;
       } catch { return null; }
     })();

@@ -8,6 +8,8 @@
  *  - Deterministic normalization: tolerate naming punctuation/case.
  */
 
+import { resolveUuidSync } from "../../utils/uuid-cache.js";
+
 /**
  * Normalize an arbitrary label into a stable lookup key.
  *
@@ -301,15 +303,11 @@ export function getCombatStyleRank(actor, { styleUuid = null, styleName = null }
   if (!actor) return 0;
 
   if (styleUuid) {
-    try {
-      const doc = fromUuidSync(styleUuid);
-      const styleItem = (doc?.documentName === "Item") ? doc : null;
-      if (styleItem && styleItem.type === "combatStyle" && styleItem.actor?.id === actor.id) {
-        const rankKey = String(styleItem.system?.rank ?? "").toLowerCase().trim();
-        return Number(SKILL_RANK_TO_NUMBER[rankKey] ?? 0);
-      }
-    } catch (_e) {
-      // ignore
+    const doc = resolveUuidSync(styleUuid);
+    const styleItem = (doc?.documentName === "Item") ? doc : null;
+    if (styleItem && styleItem.type === "combatStyle" && styleItem.actor?.id === actor.id) {
+      const rankKey = String(styleItem.system?.rank ?? "").toLowerCase().trim();
+      return Number(SKILL_RANK_TO_NUMBER[rankKey] ?? 0);
     }
   }
 

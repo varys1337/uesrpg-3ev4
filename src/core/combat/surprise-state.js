@@ -7,6 +7,9 @@
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../system/namespace.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
+import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
+import { doTestRoll } from "../../utils/degree-roll-helper.js";
+import { hasAkaviriDangerSense } from "../traits/starsigns/index.js";
 const SURPRISE_FLAG_PATH = "chapter5.surpriseState";
 
 let _hooksRegistered = false;
@@ -30,11 +33,56 @@ function _actorCombatant(actor, combat = game.combat) {
   return combat.combatants.find((c) => c?.actor?.id === actor.id) ?? null;
 }
 
+function _resolveLuckTarget(actor) {
+  const candidates = [
+    actor?.system?.characteristics?.lck?.total,
+    actor?.system?.characteristics?.lck?.value,
+    actor?.system?.characteristics?.lck?.base,
+  ];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+async function _attemptAkaviriDangerSenseAvoidance(actor) {
+  if (!actor || !hasAkaviriDangerSense(actor)) {
+    return { attempted: false, succeeded: false, rollTotal: null, target: null };
+  }
+
+  const target = _resolveLuckTarget(actor);
+  if (!Number.isFinite(target)) {
+    return { attempted: false, succeeded: false, rollTotal: null, target: null };
+  }
+
+  try {
+    const result = await doTestRoll(actor, { rollFormula: "1d100", target, allowLucky: true, allowUnlucky: true });
+    return {
+      attempted: true,
+      succeeded: Boolean(result?.isSuccess),
+      rollTotal: Number(result?.rollTotal ?? result?.roll?.total ?? NaN) || null,
+      target
+    };
+  } catch (_e) {
+    return { attempted: true, succeeded: false, rollTotal: null, target };
+  }
+}
+
 export function resolveSurpriseState(actor, { combatContext = game.combat } = {}) {
   const combat = combatContext ?? game.combat ?? null;
   if (!actor || !_isActiveCombat(combat)) {
     return {
       combatId: null,
+      isSurprised: false,
+      hasPassedFirstTurn: true,
+      onlyReactions: false,
+      canTakeTurnActions: true
+    };
+  }
+  if (getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.senses.alwaysAwakeForSurprise")) {
+    return {
+      combatId: _combatId(combat),
       isSurprised: false,
       hasPassedFirstTurn: true,
       onlyReactions: false,
@@ -62,11 +110,17 @@ export function resolveSurpriseState(actor, { combatContext = game.combat } = {}
 export async function setActorSurprised(actor, { combat = game.combat, surprised = true } = {}) {
   if (!actor || !_isActiveCombat(combat)) return false;
 
+  const blockedByAwakeFlag = Boolean(surprised) && getActorCapabilityFlag(actor, "flags.uesrpg-3ev4.senses.alwaysAwakeForSurprise");
+  const dangerSenseAvoided = Boolean(surprised) && !blockedByAwakeFlag
+    ? await _attemptAkaviriDangerSenseAvoidance(actor)
+    : { attempted: false, succeeded: false, rollTotal: null, target: null };
+  const preventedByDangerSense = dangerSenseAvoided?.succeeded === true;
+
   const cid = _combatId(combat);
   const payload = {
     combatId: cid,
-    isSurprised: Boolean(surprised),
-    hasPassedFirstTurn: !Boolean(surprised),
+    isSurprised: (blockedByAwakeFlag || preventedByDangerSense) ? false : Boolean(surprised),
+    hasPassedFirstTurn: (blockedByAwakeFlag || preventedByDangerSense) ? true : !Boolean(surprised),
     updatedAt: Date.now()
   };
 

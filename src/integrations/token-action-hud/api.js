@@ -17,32 +17,15 @@ import { applyShortRest, applyLongRest, buildRestChatContent } from "../../ui/sh
 import { LanguageSelectorAppV2, FactionSelectorAppV2 } from "../../ui/apps/v2/social-selectors.js";
 import { buildSpecialActionsForActor } from "../../core/combat/combat-style-utils.js";
 import { getSpecialActionById } from "../../config/index.js";
-
-function _result (ok, path, extra = {}) {
-  return { ok, path, ...extra };
-}
-
-function _resolveToken (actor, explicitToken = null) {
-  if (explicitToken) return explicitToken;
-  const controlled = canvas?.tokens?.controlled?.find?.((t) => t?.actor?.id === actor?.id) ?? null;
-  if (controlled) return controlled;
-  return actor?.getActiveTokens?.()?.[0] ?? null;
-}
-
-function _makeSyntheticTarget (dataset = {}) {
-  return { dataset: { ...(dataset ?? {}) } };
-}
-
-function _makeSyntheticEvent (target, { shiftKey = false } = {}) {
-  const ev = new MouseEvent("click", {
-    bubbles: true,
-    cancelable: true,
-    view: window,
-    shiftKey: !!shiftKey
-  });
-  Object.defineProperty(ev, "currentTarget", { writable: false, value: target });
-  return ev;
-}
+import {
+  invokeSheetOrHandler,
+  makeSyntheticCharacteristicTarget,
+  makeSyntheticItemTarget,
+  makeSyntheticTarget,
+  result,
+  routeFeatureActivation,
+  routeResourceDialog,
+} from "./helpers.js";
 
 /**
  * Create the stable Token Action HUD integration API.
@@ -58,25 +41,23 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async executeCombatQuickAction({ actor, token = null, payload = {}, shiftKey = false } = {}) {
-      if (!actor) return _result(false, "none", { reason: "no-actor" });
+      if (!actor) return result(false, "none", { reason: "no-actor" });
 
-      const resolvedToken = _resolveToken(actor, token);
       const dataset = {
         ...(payload ?? {}),
         combatAction: payload?.combatAction ?? payload?.action ?? "",
-        action: payload?.action ?? payload?.combatAction ?? ""
+        action: payload?.action ?? payload?.combatAction ?? "",
       };
-      const target = _makeSyntheticTarget(dataset);
-      const event = _makeSyntheticEvent(target, { shiftKey });
-      const sheet = actor?.sheet ?? { actor, token: resolvedToken, element: null };
-
-      if (sheet && typeof sheet._onCombatQuickAction === "function") {
-        await sheet._onCombatQuickAction(event, target);
-        return _result(true, "sheet._onCombatQuickAction");
-      }
-
-      await onCombatQuickAction.call(sheet, event, target);
-      return _result(true, "shared.listeners.onCombatQuickAction");
+      return invokeSheetOrHandler({
+        actor,
+        token,
+        target: makeSyntheticTarget(dataset),
+        shiftKey,
+        sheetMethod: "_onCombatQuickAction",
+        handler: onCombatQuickAction,
+        successPathSheet: "sheet._onCombatQuickAction",
+        successPathHandler: "shared.listeners.onCombatQuickAction",
+      });
     },
 
     /**
@@ -85,20 +66,19 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async executeCastMagic({ actor, token = null, preselectedSpell = null, shiftKey = false, castActionType = "primary" } = {}) {
-      if (!actor) return _result(false, "none", { reason: "no-actor" });
+      if (!actor) return result(false, "none", { reason: "no-actor" });
 
-      const resolvedToken = _resolveToken(actor, token);
-      const target = _makeSyntheticTarget({ actionType: castActionType === "secondary" ? "secondary" : "primary" });
-      const event = _makeSyntheticEvent(target, { shiftKey });
-      const sheet = actor?.sheet ?? { actor, token: resolvedToken, element: null };
-
-      if (sheet && typeof sheet._onCastMagicAction === "function") {
-        await sheet._onCastMagicAction(event, target, preselectedSpell);
-        return _result(true, "sheet._onCastMagicAction");
-      }
-
-      await onCastMagicAction.call(sheet, event, target, preselectedSpell);
-      return _result(true, "shared.listeners.onCastMagicAction");
+      return invokeSheetOrHandler({
+        actor,
+        token,
+        target: makeSyntheticTarget({ actionType: castActionType === "secondary" ? "secondary" : "primary" }),
+        shiftKey,
+        sheetMethod: "_onCastMagicAction",
+        handler: onCastMagicAction,
+        handlerArgs: [preselectedSpell],
+        successPathSheet: "sheet._onCastMagicAction",
+        successPathHandler: "shared.listeners.onCastMagicAction",
+      });
     },
 
     /**
@@ -107,21 +87,16 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async executeSkillRoll({ actor, itemId, shiftKey = false } = {}) {
-      if (!actor || !itemId) return _result(false, "none", { reason: "bad-args" });
-      const target = {
-        dataset: { itemId },
-        closest: () => ({ dataset: { itemId } })
-      };
-      const event = _makeSyntheticEvent(target, { shiftKey });
-      const sheet = actor?.sheet ?? { actor, element: null };
-
-      if (sheet && typeof sheet._onSkillRoll === "function") {
-        await sheet._onSkillRoll(event, target);
-        return _result(true, "sheet._onSkillRoll");
-      }
-
-      await onSkillRoll.call(sheet, event, target);
-      return _result(true, "shared.listeners.onSkillRoll");
+      if (!actor || !itemId) return result(false, "none", { reason: "bad-args" });
+      return invokeSheetOrHandler({
+        actor,
+        target: makeSyntheticItemTarget(itemId),
+        shiftKey,
+        sheetMethod: "_onSkillRoll",
+        handler: onSkillRoll,
+        successPathSheet: "sheet._onSkillRoll",
+        successPathHandler: "shared.listeners.onSkillRoll",
+      });
     },
 
     /**
@@ -130,21 +105,16 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async executeCombatRoll({ actor, itemId, shiftKey = false } = {}) {
-      if (!actor || !itemId) return _result(false, "none", { reason: "bad-args" });
-      const target = {
-        dataset: { itemId },
-        closest: () => ({ dataset: { itemId } })
-      };
-      const event = _makeSyntheticEvent(target, { shiftKey });
-      const sheet = actor?.sheet ?? { actor, element: null };
-
-      if (sheet && typeof sheet._onCombatRoll === "function") {
-        await sheet._onCombatRoll(event, target);
-        return _result(true, "sheet._onCombatRoll");
-      }
-
-      await onCombatRoll.call(sheet, event, target);
-      return _result(true, "shared.listeners.onCombatRoll");
+      if (!actor || !itemId) return result(false, "none", { reason: "bad-args" });
+      return invokeSheetOrHandler({
+        actor,
+        target: makeSyntheticItemTarget(itemId),
+        shiftKey,
+        sheetMethod: "_onCombatRoll",
+        handler: onCombatRoll,
+        successPathSheet: "sheet._onCombatRoll",
+        successPathHandler: "shared.listeners.onCombatRoll",
+      });
     },
 
     /**
@@ -153,21 +123,16 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async executeCharacteristicRoll({ actor, key, label, shiftKey = false } = {}) {
-      if (!actor || !key || !label) return _result(false, "none", { reason: "bad-args" });
-
-      const target = document.createElement("span");
-      target.id = key;
-      target.setAttribute("name", label);
-      const event = _makeSyntheticEvent(target, { shiftKey });
-      const sheet = actor?.sheet ?? { actor, element: null };
-
-      if (sheet && typeof sheet._onClickCharacteristic === "function") {
-        await sheet._onClickCharacteristic(event, target);
-        return _result(true, "sheet._onClickCharacteristic");
-      }
-
-      await onClickCharacteristic.call(sheet, event, target);
-      return _result(true, "shared.listeners.onClickCharacteristic");
+      if (!actor || !key || !label) return result(false, "none", { reason: "bad-args" });
+      return invokeSheetOrHandler({
+        actor,
+        target: makeSyntheticCharacteristicTarget(key, label),
+        shiftKey,
+        sheetMethod: "_onClickCharacteristic",
+        handler: onClickCharacteristic,
+        successPathSheet: "sheet._onClickCharacteristic",
+        successPathHandler: "shared.listeners.onClickCharacteristic",
+      });
     },
 
     /**
@@ -176,30 +141,15 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async executeFeatureActivation({ item, actor, event = null } = {}) {
-      if (!item) return _result(false, "none", { reason: "no-item" });
-
-      if (item.type === "talent") {
-        await activateTalentFromItemSheet({ item, event });
-        return _result(true, "shared-handlers.activateTalentFromItemSheet");
-      }
-      if (item.type === "power") {
-        await activatePowerFromItemSheet({ item, event });
-        return _result(true, "shared-handlers.activatePowerFromItemSheet");
-      }
-      if (item.type === "trait") {
-        await activateTraitFromItemSheet({ item, event });
-        return _result(true, "shared-handlers.activateTraitFromItemSheet");
-      }
-
-      await executeItemActivation({
+      return routeFeatureActivation({
         item,
-        actor: actor ?? item.actor ?? null,
+        actor,
         event,
-        renderChat: true,
-        includeImage: true,
-        context: {}
+        executeItemActivation,
+        activateTalentFromItemSheet,
+        activatePowerFromItemSheet,
+        activateTraitFromItemSheet,
       });
-      return _result(true, "activation.executeItemActivation");
     },
 
     /**
@@ -208,13 +158,13 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string,result?:any}>}
      */
     async executeScrollCast({ actor, scrollItem, castActionType = "primary" } = {}) {
-      if (!actor || !scrollItem) return _result(false, "none", { reason: "bad-args" });
-      const result = await castScrollFromItem({
+      if (!actor || !scrollItem) return result(false, "none", { reason: "bad-args" });
+      const castResult = await castScrollFromItem({
         scrollItem,
         casterActor: actor,
-        castActionType
+        castActionType,
       });
-      return _result(true, "scroll-casting.castScrollFromItem", { result });
+      return result(true, "scroll-casting.castScrollFromItem", { result: castResult });
     },
 
     /**
@@ -223,28 +173,14 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async openResourceDialog({ actor, resourceId } = {}) {
-      if (!actor || !resourceId) return _result(false, "none", { reason: "bad-args" });
-
-      if (resourceId === "resource-health") {
-        await HPTempHPDialog.show(actor);
-        return _result(true, "HPTempHPDialog.show");
-      }
-      if (resourceId === "resource-stamina") {
-        await openStaminaDialog(actor);
-        return _result(true, "openStaminaDialog");
-      }
-      if (resourceId === "resource-magicka") {
-        await MagickaBarrierDialog.show(actor);
-        return _result(true, "MagickaBarrierDialog.show");
-      }
-      if (resourceId === "resource-luck") {
-        const fn = LuckAPI?.openBurnLuckFromSheet ?? LuckAPI?.openBurnDialog;
-        if (typeof fn !== "function") return _result(false, "none", { reason: "no-resource-dialog-handler" });
-        await fn(actor);
-        return _result(true, "LuckAPI.openBurnLuckFromSheet");
-      }
-
-      return _result(false, "none", { reason: "no-resource-dialog-handler" });
+      return routeResourceDialog({
+        actor,
+        resourceId,
+        HPTempHPDialog,
+        openStaminaDialog,
+        MagickaBarrierDialog,
+        LuckAPI,
+      });
     },
 
     /**
@@ -253,20 +189,20 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async applyRest({ actor, restType } = {}) {
-      if (!actor || !restType) return _result(false, "none", { reason: "bad-args" });
+      if (!actor || !restType) return result(false, "none", { reason: "bad-args" });
       const fn = restType === "shortRest" ? applyShortRest : applyLongRest;
-      if (typeof fn !== "function") return _result(false, "none", { reason: "no-rest-function" });
+      if (typeof fn !== "function") return result(false, "none", { reason: "no-rest-function" });
 
       const { line } = await fn(actor);
       if (line && typeof buildRestChatContent === "function") {
         await ChatMessage.create({
           user: game.user.id,
           speaker: ChatMessage.getSpeaker({ actor }),
-          content: buildRestChatContent(restType === "shortRest" ? "Short Rest" : "Long Rest", [line])
+          content: buildRestChatContent(restType === "shortRest" ? "Short Rest" : "Long Rest", [line]),
         });
       }
 
-      return _result(true, `rest-workflow.${restType}`);
+      return result(true, `rest-workflow.${restType}`);
     },
 
     /**
@@ -275,16 +211,16 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string,entryId?:string|null,focusedOpenSupported?:boolean}>}
      */
     async openSocialSelector({ actor, kind, entryId = null } = {}) {
-      if (!actor || !kind) return _result(false, "none", { reason: "bad-args" });
+      if (!actor || !kind) return result(false, "none", { reason: "bad-args" });
       if (kind === "language") {
         await LanguageSelectorAppV2.prompt(actor);
-        return _result(true, "LanguageSelectorAppV2.prompt", { entryId, focusedOpenSupported: false });
+        return result(true, "LanguageSelectorAppV2.prompt", { entryId, focusedOpenSupported: false });
       }
       if (kind === "faction") {
         await FactionSelectorAppV2.prompt(actor);
-        return _result(true, "FactionSelectorAppV2.prompt", { entryId, focusedOpenSupported: false });
+        return result(true, "FactionSelectorAppV2.prompt", { entryId, focusedOpenSupported: false });
       }
-      return _result(false, "none", { reason: "no-social-selector" });
+      return result(false, "none", { reason: "no-social-selector" });
     },
 
     /**
@@ -312,9 +248,9 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async setItemEquipped({ item, equipped } = {}) {
-      if (!item) return _result(false, "none", { reason: "no-item" });
+      if (!item) return result(false, "none", { reason: "no-item" });
       await item.update({ "system.equipped": Boolean(equipped) });
-      return _result(true, "item.update.system.equipped");
+      return result(true, "item.update.system.equipped");
     },
 
     /**
@@ -324,10 +260,10 @@ export function createTokenActionHudApi() {
      */
     async openDocumentSheet({ document } = {}) {
       if (!document?.sheet || typeof document.sheet.render !== "function") {
-        return _result(false, "none", { reason: "no-sheet" });
+        return result(false, "none", { reason: "no-sheet" });
       }
       document.sheet.render(true);
-      return _result(true, "document.sheet.render");
+      return result(true, "document.sheet.render");
     },
 
     /**
@@ -337,16 +273,27 @@ export function createTokenActionHudApi() {
      * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
      */
     async runFeaturePostChatAutomation({ item, actor = null, event = null } = {}) {
-      if (!item) return _result(false, "none", { reason: "no-item" });
+      if (!item) return result(false, "none", { reason: "no-item" });
       await executeItemActivation({
         item,
         actor: actor ?? item.actor ?? null,
         event,
         renderChat: false,
         includeImage: false,
-        context: {}
+        context: {},
       });
-      return _result(true, "activation.executeItemActivation.renderChatFalse");
-    }
+      return result(true, "activation.executeItemActivation.renderChatFalse");
+    },
+
+    /**
+     * Execute an item's macro entrypoint when available.
+     * @param {{item: Item, actor?: Actor|null, event?: Event|null}} params
+     * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
+     */
+    async executeItemMacro({ item, actor = null, event = null } = {}) {
+      if (!item) return result(false, "none", { reason: "no-item" });
+      await executeItemMacroBestEffort({ item, actor: actor ?? item.actor ?? null, event });
+      return result(true, "activation.executeItemMacroBestEffort");
+    },
   };
 }

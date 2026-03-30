@@ -141,8 +141,13 @@ export async function handleAttackerAction(action, ctx) {
     }
 
     try {
-      if (AttackTracker.hasExceededLimit(attacker, { attackMode: String(data?.context?.attackMode ?? "").toLowerCase() })) {
-        const warning = AttackTracker.getLimitWarning(attacker, { attackMode: String(data?.context?.attackMode ?? "").toLowerCase() })
+      const attackLimitContext = {
+        attackMode: String(data?.context?.attackMode ?? "").toLowerCase(),
+        followUpStrikeActive: Boolean(data?.context?.followUpStrike?.active),
+        ignoreRoundLimit: Boolean(data?.context?.followUpStrike?.ignoresRoundLimit)
+      };
+      if (AttackTracker.hasExceededLimit(attacker, attackLimitContext)) {
+        const warning = AttackTracker.getLimitWarning(attacker, attackLimitContext)
           || "Attack limit reached for this round.";
         ui.notifications.warn(warning);
         return;
@@ -589,16 +594,16 @@ export async function handleAttackerAction(action, ctx) {
       }
     }
 
-    const limit = AttackTracker.getAttackLimit(attacker, {
+    const attackLimitContext = {
       attackMode: attackModeNow,
-      weaponId: weaponIdNow
-    });
+      weaponId: weaponIdNow,
+      followUpStrikeActive: Boolean(data?.context?.followUpStrike?.active),
+      ignoreRoundLimit: Boolean(data?.context?.followUpStrike?.ignoresRoundLimit)
+    };
+    const limit = AttackTracker.getAttackLimit(attacker, attackLimitContext);
     const count = AttackTracker.getAttackCount(attacker);
     if (count >= limit) {
-      const warning = AttackTracker.getLimitWarning(attacker, {
-        attackMode: attackModeNow,
-        weaponId: weaponIdNow
-      });
+      const warning = AttackTracker.getLimitWarning(attacker, attackLimitContext);
       if (warning) ui.notifications?.warn?.(warning);
       return;
     }

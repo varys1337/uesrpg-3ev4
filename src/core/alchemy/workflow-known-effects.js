@@ -1,39 +1,8 @@
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { FLAG_NS } from "./shared.js";
+import { findActorSpellByUuid, getActorItemsArray, isSupportedAlchemySpellSource } from "./utils.js";
 
-function _actorItems(actor) {
-  return Array.from(actor?.items ?? []);
-}
-
-function _safeFromUuidSync(uuid) {
-  const wanted = String(uuid ?? "").trim();
-  if (!wanted || typeof fromUuidSync !== "function") return null;
-  try {
-    return fromUuidSync(wanted) ?? null;
-  } catch (_err) {
-    return null;
-  }
-}
-
-export function isSupportedAlchemySpellSource(actor, spell) {
-  if (!spell || spell.type !== "spell") return false;
-  if (spell.pack) return false;
-
-  const parent = spell.parent ?? null;
-  if (!parent) return true;
-  if (parent.documentName !== "Actor") return false;
-  return String(parent.uuid ?? "") === String(actor?.uuid ?? "");
-}
-
-export function findActorSpellByUuid(actor, spellUuid) {
-  const wanted = String(spellUuid ?? "").trim();
-  if (!wanted) return null;
-  const actorOwned = _actorItems(actor).find((item) => item?.type === "spell" && String(item?.uuid ?? "").trim() === wanted) ?? null;
-  if (actorOwned) return actorOwned;
-
-  const resolved = _safeFromUuidSync(wanted);
-  return isSupportedAlchemySpellSource(actor, resolved) ? resolved : null;
-}
+export { findActorSpellByUuid } from "./utils.js";
 
 export function getSpellLevelOptions(spell) {
   const levels = new Set([Math.max(1, Number(spell?.system?.level ?? 1) || 1)]);
@@ -105,8 +74,9 @@ function _sortKnownEffects(entries) {
 }
 
 export function getActorKnownAlchemyEffects(actor) {
+  const items = getActorItemsArray(actor);
   const known = getActorKnownEffectsRaw(actor).map((entry) => {
-    const spell = findActorSpellByUuid(actor, entry.spellUuid);
+    const spell = findActorSpellByUuid(actor, entry.spellUuid, { items });
     const metadata = spell ? _buildKnownEffectMetadata(spell) : entry;
     return {
       ...entry,

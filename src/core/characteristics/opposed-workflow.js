@@ -17,7 +17,7 @@
  * Target: Foundry VTT v13.351
  */
 
-import { doTestRoll, resolveOpposed, computeResultFromRollTotal } from "../../utils/degree-roll-helper.js";
+import { doTestRoll, computeResultFromRollTotal } from "../../utils/degree-roll-helper.js";
 
 import { FLAG_NS, FLAG_KEY, CARD_VERSION, CHARACTERISTICS, bankedAutoRollLocalLocks } from "./opposed/constants.js";
 import { _bothSidesCommitted, _getMessageState, _normalizeCardFlag } from "./opposed/schema.js";
@@ -27,6 +27,13 @@ import { _renderCard, _btn } from "./opposed/render.js";
 import { _updateCard } from "./opposed/card-updater.js";
 import { _charTestDialog } from "./opposed/dialogs.js";
 import { _resolveOutcome, computeCharacteristicTN } from "./opposed/helpers.js";
+import {
+  createActionUuidResolver as _createActionUuidResolverImpl,
+  getTokenDocumentUuid as _getTokenDocumentUuidImpl,
+  resolveActorCached as _resolveActorCachedImpl,
+  resolveTokenCached as _resolveTokenCachedImpl,
+} from "./opposed/resolver-cache.js";
+import { maybeResolveBothCritSuccessRollOff as _maybeResolveBothCritSuccessRollOffImpl } from "./opposed/rolloff.js";
 import { buildRollContext } from "../rules/roll-context.js";
 import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../traits/features/rule-element-runtime.js";
 import { verifyAutoRollClaim } from "../opposed/shared/auto-roll-claim.js";
@@ -43,16 +50,7 @@ import { perfStart, perfEnd } from "../../utils/debug.js";
  * @returns {{ resolveSync: (uuid: string|null|undefined) => any }}
  */
 function createActionUuidResolver() {
-  const cache = new Map();
-  return {
-    resolveSync(uuid) {
-      if (!uuid) return null;
-      if (cache.has(uuid)) return cache.get(uuid);
-      const result = _resolveDoc(uuid);
-      cache.set(uuid, result);
-      return result;
-    }
-  };
+  return _createActionUuidResolverImpl();
 }
 
 /**
@@ -67,10 +65,7 @@ function createActionUuidResolver() {
  * @returns {Actor|null}
  */
 function _resolveActorCached(docOrUuid, resolver) {
-  if (!docOrUuid) return null;
-  if (typeof docOrUuid !== "string") return _resolveActor(docOrUuid);
-  const doc = resolver ? resolver.resolveSync(docOrUuid) : _resolveDoc(docOrUuid);
-  return _resolveActor(doc);
+  return _resolveActorCachedImpl(docOrUuid, resolver);
 }
 
 /**
@@ -85,10 +80,7 @@ function _resolveActorCached(docOrUuid, resolver) {
  * @returns {TokenDocument|null}
  */
 function _resolveTokenCached(docOrUuid, resolver) {
-  if (!docOrUuid) return null;
-  if (typeof docOrUuid !== "string") return _resolveToken(docOrUuid);
-  const doc = resolver ? resolver.resolveSync(docOrUuid) : _resolveDoc(docOrUuid);
-  return _resolveToken(doc);
+  return _resolveTokenCachedImpl(docOrUuid, resolver);
 }
 
 
@@ -106,13 +98,14 @@ function _resolveTokenCached(docOrUuid, resolver) {
  * @returns {string|null}
  */
 function getTokenDocumentUuid(tokenLike) {
-  return tokenLike?.document?.uuid ?? tokenLike?.uuid ?? null;
+  return _getTokenDocumentUuidImpl(tokenLike);
 }
 
 
 // ── Roll-off for both critical successes ──
 
 export async function _maybeResolveBothCritSuccessRollOff({ message, data, attacker, defender } = {}) {
+  return _maybeResolveBothCritSuccessRollOffImpl({ message, data, attacker, defender });
   if (!message || !data || !attacker || !defender) return;
   if (data?.outcome?.winner && data.outcome.winner !== "tie") return;
   if (data?.context?.rollOff?.resolved) return;

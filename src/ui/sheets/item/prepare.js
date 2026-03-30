@@ -15,7 +15,7 @@ import {
   ITEM_QUALITY_LABELS,
   resolveQualityCatalog
 } from "../../../core/config/label-catalog.js";
-import { SPECIAL_ACTIONS } from "../../../core/combat/combat-style-utils.js";
+import { SPECIAL_ACTIONS } from "../../../core/config/special-actions.js";
 import {
   normalizeSpellConfig,
   getStackingPolicyOptions,
@@ -52,6 +52,7 @@ import { getRuleElementRuntimeSettingsState } from "../../../core/traits/feature
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-catalog.js";
 import { getEffectByKey } from "../../../core/alchemy/effects.js";
+import { buildAlchemyProductEffectSlots } from "./item-sheet-alchemy-effects.js";
 import {
   isReachLengthHomebrewEnabled,
   getReachLengthModel,
@@ -600,6 +601,8 @@ export async function prepareItemSheetData(sheet, data) {
         durationRounds: Number(alchemyFlags?.durationRounds ?? 10),
         maxHits: Number(alchemyFlags?.maxHits ?? 3),
         effects,
+        effectSlots: buildAlchemyProductEffectSlots(itemDoc, actorDoc),
+        canManageEffects: Boolean(data.editable && itemDoc?.isOwner !== false),
         brewedAt: alchemyFlags?.brew?.brewedAt ?? null,
         alchemyRank: alchemyFlags?.brew?.alchemyRank ?? null,
       };

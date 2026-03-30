@@ -16,6 +16,21 @@ import { getMigrationState, setMigrationState, getSystemVersionString } from "./
 const MODULE_ID = SYSTEM_ID;
 const WARFARE_CONDITION_INIT_FLAG_PATH = `flags.${SYSTEM_ID}.warfareConditionInitialized`;
 
+function _buildResistanceDefaults() {
+  return {
+    diseaseR: 0,
+    fireR: 0,
+    frostR: 0,
+    shockR: 0,
+    poisonR: 0,
+    magicR: 0,
+    natToughness: 0,
+    silverR: 0,
+    sunlightR: 0,
+    physicalR: 0
+  };
+}
+
 function _isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -25,18 +40,7 @@ function _ensureResistanceDefaults(sys) {
   const res = _isPlainObject(sys?.resistance) ? sys.resistance : null;
 
   if (!res) {
-    update["system.resistance"] = {
-      diseaseR: 0,
-      fireR: 0,
-      frostR: 0,
-      shockR: 0,
-      poisonR: 0,
-      magicR: 0,
-      natToughness: 0,
-      silverR: 0,
-      sunlightR: 0,
-      physicalR: 0
-    };
+    update["system.resistance"] = _buildResistanceDefaults();
     return update;
   }
 
@@ -54,6 +58,25 @@ function _ensureResistanceDefaults(sys) {
   return update;
 }
 
+function _buildInvalidActorSystemPatch(actor) {
+  return {
+    _id: actor.id,
+    system: {
+      resistance: _buildResistanceDefaults()
+    }
+  };
+}
+
+function _buildActorMigrationPatch(actor) {
+  const sys = actor.system;
+  if (!_isPlainObject(sys)) return _buildInvalidActorSystemPatch(actor);
+
+  const update = _ensureResistanceDefaults(sys);
+  if (!Object.keys(update).length) return null;
+  update._id = actor.id;
+  return update;
+}
+
 export async function migrateActorsIfNeeded() {
   if (!game.user.isGM) return;
 
@@ -65,35 +88,8 @@ export async function migrateActorsIfNeeded() {
     const updates = [];
 
     for (const actor of game.actors.contents) {
-      const sys = actor.system;
-
-      // Repair invalid system payload.
-      if (!_isPlainObject(sys)) {
-        updates.push({
-          _id: actor.id,
-          system: {
-            resistance: {
-              diseaseR: 0,
-              fireR: 0,
-              frostR: 0,
-              shockR: 0,
-              poisonR: 0,
-              magicR: 0,
-              natToughness: 0,
-              silverR: 0,
-              sunlightR: 0,
-              physicalR: 0
-            }
-          }
-        });
-        continue;
-      }
-
-      const update = _ensureResistanceDefaults(sys);
-      if (Object.keys(update).length) {
-        update._id = actor.id;
-        updates.push(update);
-      }
+      const update = _buildActorMigrationPatch(actor);
+      if (update) updates.push(update);
     }
 
     if (updates.length) {
@@ -427,23 +423,7 @@ export async function normalizeActors() {
 
       // Repair invalid system payload.
       if (!_isPlainObject(sys)) {
-        updates.push({
-          _id: actor.id,
-          system: {
-            resistance: {
-              diseaseR: 0,
-              fireR: 0,
-              frostR: 0,
-              shockR: 0,
-              poisonR: 0,
-              magicR: 0,
-              natToughness: 0,
-              silverR: 0,
-              sunlightR: 0,
-              physicalR: 0
-            }
-          }
-        });
+        updates.push(_buildInvalidActorSystemPatch(actor));
         continue;
       }
 

@@ -45,12 +45,24 @@ export function _safeGetSetting(key, defaultValue = null) {
   }
 }
 
+export function _getCoreRollMode(defaultValue = "roll") {
+  try {
+    return game.settings.get("core", "rollMode") ?? defaultValue;
+  } catch (_e) {
+    return defaultValue;
+  }
+}
+
+export function _isQuickShiftRequested(event) {
+  return Boolean(event?.shiftKey) && Boolean(_safeGetSetting("skillRollQuickShift", false));
+}
+
 export function _emitSuppressedSubRollDice(roll, { rollMode = null } = {}) {
   if (!roll) return null;
   const dsn = game?.dice3d;
   if (!dsn || typeof dsn.showForRoll !== "function") return null;
 
-  const mode = String(rollMode ?? game?.settings?.get?.("core", "rollMode") ?? "roll").toLowerCase();
+  const mode = String(rollMode ?? _getCoreRollMode("roll")).toLowerCase();
   const isPublic = mode === "roll" || mode === "publicroll";
   const sync = Boolean(isPublic);
 

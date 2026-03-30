@@ -14,6 +14,7 @@ import {
   getSpellAlchemyAttributes,
   getSpellLevelOptions,
 } from "./workflow-known-effects.js";
+import { ALCHEMY_TOOL_RX, getActorItemsArray } from "./utils.js";
 import { resolveSpellProfile } from "../magic/spell-profile.js";
 import {
   getSpellDamageFormula,
@@ -22,8 +23,6 @@ import {
 } from "../magic/magicka-utils.js";
 import { classifySpellForRouting } from "../magic/spell-runtime.js";
 import { spellNeedsEffectApplication } from "../magic/opposed/spell-helpers.js";
-
-const ALCHEMY_TOOL_RX = /(?:(?:alchem(?:y|ical)).*(?:tools?|equipment|kits?|field\s*kit)|(?:tools?|equipment|kits?|field\s*kit).*(?:alchem(?:y|ical)))/i;
 
 export function normalizeRecipeSlot(slot) {
   const effectSource = String(slot?.effectSource ?? (slot?.spellUuid ? "spell" : "catalog")).trim().toLowerCase() || "catalog";
@@ -276,10 +275,10 @@ function _buildCatalogDescriptor(actor, slot, ingredient, talents) {
   };
 }
 
-export function getAlchemyInventoryState(actor) {
-  const items = Array.from(actor?.items ?? []);
+export function getAlchemyInventoryState(actor, { items = null } = {}) {
+  const actorItems = Array.isArray(items) ? items : getActorItemsArray(actor);
   return {
-    toolsPresent: items.some((item) => ALCHEMY_TOOL_RX.test(item?.name ?? "")),
+    toolsPresent: actorItems.some((item) => ALCHEMY_TOOL_RX.test(item?.name ?? "")),
   };
 }
 

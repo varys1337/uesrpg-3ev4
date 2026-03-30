@@ -3,79 +3,82 @@
  *
  * Ensures required system data structures exist with safe defaults.
  * This only initializes missing objects/fields; it does not perform computations.
- * 
+ *
  * IMPORTANT:
  *  - Side-effect free (no persistent document updates)
  *  - Schema changes must occur in migrations, not here
  */
+
+import { CHARACTERISTIC_KEYS, MAGIC_SCHOOL_KEYS } from "../../domain/constants.js";
 
 /**
  * Ensure required system data objects exist with safe defaults.
  * @param {SimpleActor} actor
  */
 export function ensureSystemData(actor) {
-  // Defensive hardening: some legacy actors can end up with an invalid "system" payload
-  // (e.g. an empty string). If we don't tolerate that, Foundry can crash during
-  // initializeDocuments, before our GM-only migrations can run.
-  //
-  // NOTE: This only affects runtime derived-data scaffolding. Persisted schema repair
-  // happens in migrations.
   let system = actor.system;
   if (!system || typeof system !== "object" || Array.isArray(system)) {
     system = {};
-    // Best-effort: prefer to restore the Actor.system object reference if possible.
     try {
       actor.system = system;
     } catch (_e) {
-      // Ignore; we will continue using the local "system" reference for this prepare pass.
+      // Ignore and continue with the local scaffold for this prepare pass.
     }
   }
 
-  // ── Warfare Unit: skip humanoid defaults, apply warfare-specific ones, then return ──
   if (actor.type === "Warfare Unit") {
     _ensureWarfareUnitSystemData(system);
     return;
   }
 
-  // Characteristics
+  _ensureCharacteristics(system);
+  _ensureCoreResources(system);
+  _ensureSocialDefaults(system);
+  _ensureModifierLanes(system);
+  _ensureTraitDefaults(system);
+  _ensureDerivedContainers(system);
+  _ensureResistanceDefaults(system);
+  _ensureSkillContainers(system);
+  _ensureCombatTracking(system);
+}
+
+function _ensureCharacteristics(system) {
   if (!system.characteristics || typeof system.characteristics !== "object" || Array.isArray(system.characteristics)) {
     system.characteristics = {};
   }
-  const chars = ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"];
-  for (const c of chars) {
-    system.characteristics[c] ??= { base: 0, total: 0, bonus: 0 };
-    // Backfill missing sub-fields (NPC template lacks 'bonus')
-    system.characteristics[c].base ??= 0;
-    system.characteristics[c].total ??= 0;
-    system.characteristics[c].bonus ??= 0;
+  for (const characteristicKey of CHARACTERISTIC_KEYS) {
+    system.characteristics[characteristicKey] ??= { base: 0, total: 0, bonus: 0 };
+    system.characteristics[characteristicKey].base ??= 0;
+    system.characteristics[characteristicKey].total ??= 0;
+    system.characteristics[characteristicKey].bonus ??= 0;
   }
+}
 
-  // Core resources
+function _ensureCoreResources(system) {
   system.hp ??= { value: 0, max: 0, base: 0, bonus: 0 };
   system.stamina ??= { value: 0, max: 0, bonus: 0 };
   system.magicka ??= { value: 0, max: 0, bonus: 0 };
   system.luck_points ??= { value: 0, max: 0, bonus: 0 };
   system.luck_points.bonus ??= 0;
   system.action_points ??= { value: 0, max: 0 };
+}
 
-  // Social data canonical store for actor-native languages/factions
+function _ensureSocialDefaults(system) {
   if (!system.social || typeof system.social !== "object" || Array.isArray(system.social)) {
     system.social = {};
   }
   if (!system.social.languages || typeof system.social.languages !== "object" || Array.isArray(system.social.languages)) {
     system.social.languages = {};
   }
-  if (!Array.isArray(system.social.languages.entries)) {
-    system.social.languages.entries = [];
-  }
-  if (!Array.isArray(system.social.factions)) {
-    system.social.factions = [];
-  }
+  if (!Array.isArray(system.social.languages.entries)) system.social.languages.entries = [];
+  if (!Array.isArray(system.social.factions)) system.social.factions = [];
+}
 
-  // Modifier lanes (Active Effects)
+function _ensureModifierLanes(system) {
   if (!system.modifiers || typeof system.modifiers !== "object" || Array.isArray(system.modifiers)) {
     system.modifiers = {};
   }
+
   system.modifiers.characteristics ??= {};
   system.modifiers.skills ??= {};
   system.modifiers.hp ??= { base: 0, bonus: 0, max: 0, value: 0 };
@@ -83,7 +86,6 @@ export function ensureSystemData(actor) {
   system.modifiers.stamina ??= { base: 0, bonus: 0, max: 0, value: 0 };
   system.modifiers.luck_points ??= { base: 0, bonus: 0, max: 0, value: 0 };
 
-  // Initiative / Speed / Action Points / Lucky Numbers modifier lanes (Active Effects)
   system.modifiers.initiative ??= { base: 0, bonus: 0, value: 0, flat: 0, mult: { agi: 1, int: 1, prc: 1 } };
   system.modifiers.speed ??= {};
   system.modifiers.speed.value ??= 0;
@@ -95,23 +97,96 @@ export function ensureSystemData(actor) {
   system.modifiers.lucky_numbers ??= { max: 0, value: 0 };
   system.modifiers.unlucky_numbers ??= { max: 0, value: 0 };
 
-  // Movement / stealth / magic defense modifier lanes (Active Effects)
   system.modifiers.movement ??= {};
   system.modifiers.movement.fallDamage ??= 0;
+  system.modifiers.movement.climbSpeed ??= 0;
+  system.modifiers.movement.dashMultiplier ??= 0;
+  system.modifiers.movement.sprintMultiplier ??= 0;
+  system.modifiers.movement.hiddenSpeedMultiplier ??= 0;
+
   system.modifiers.stealth ??= {};
   system.modifiers.stealth.visual ??= 0;
   system.modifiers.stealth.auditory ??= 0;
+
   system.modifiers.magic ??= {};
+  system.modifiers.magic.cost ??= {};
+  system.modifiers.magic.cost._all ??= 0;
+  for (const school of MAGIC_SCHOOL_KEYS) system.modifiers.magic.cost[school] ??= 0;
+  system.modifiers.magic.damage ??= {};
+  system.modifiers.magic.damage.fire ??= 0;
+  system.modifiers.magic.damage.frost ??= 0;
+  system.modifiers.magic.damage.shock ??= 0;
+  system.modifiers.magic.negateChance ??= 0;
+  system.modifiers.magic.spellRestraintBonus ??= 0;
   system.modifiers.magic.spellReflect ??= 0;
   system.modifiers.magic.spellAbsorption ??= 0;
+
+  system.modifiers.combat ??= {};
+  system.modifiers.combat.attackLimit ??= {};
+  system.modifiers.combat.attackLimit.total ??= 0;
+  system.modifiers.combat.attackLimit.melee ??= 0;
+  system.modifiers.combat.attackLimit.ranged ??= 0;
+  system.modifiers.combat.opposed ??= {};
+  system.modifiers.combat.opposed.attackTN ??= 0;
+  system.modifiers.combat.evadeAoOCost ??= 0;
+
   system.modifiers.tests ??= {};
   system.modifiers.tests.all ??= 0;
   system.modifiers.tests.fear ??= 0;
   system.modifiers.tests.social ??= 0;
   system.modifiers.tests.observe ??= 0;
+  system.modifiers.tests.panic ??= 0;
+  system.modifiers.tests.horror ??= 0;
 
-  // Traits: movement / condition boolean flags
-  // Guard against non-object values (NPC template has duplicate "traits" key, last-wins = "")
+  system.modifiers.damage ??= {};
+  system.modifiers.damage.fromSunlight ??= 0;
+  system.modifiers.damage.fromSilver ??= 0;
+  system.modifiers.damage.fromMagic ??= 0;
+
+  system.modifiers.degrees ??= {};
+  system.modifiers.degrees.success ??= {};
+  system.modifiers.degrees.success.all ??= 0;
+  system.modifiers.degrees.success.skills ??= {};
+  system.modifiers.degrees.success.skills.all ??= 0;
+  system.modifiers.degrees.success.combat ??= {};
+  system.modifiers.degrees.success.combat.all ??= 0;
+  system.modifiers.degrees.success.combat.attack ??= 0;
+  system.modifiers.degrees.success.combat.defense ??= 0;
+  system.modifiers.degrees.success.magic ??= {};
+  system.modifiers.degrees.success.magic.all ??= 0;
+  for (const school of MAGIC_SCHOOL_KEYS) system.modifiers.degrees.success.magic[school] ??= 0;
+  system.modifiers.degrees.success.social ??= 0;
+  system.modifiers.degrees.success.observe ??= 0;
+
+  system.modifiers.degrees.success.minimum ??= {};
+  system.modifiers.degrees.success.minimum.all ??= 0;
+  system.modifiers.degrees.success.minimum.skills ??= {};
+  system.modifiers.degrees.success.minimum.skills.all ??= 0;
+  system.modifiers.degrees.success.minimum.combat ??= {};
+  system.modifiers.degrees.success.minimum.combat.attack ??= 0;
+  system.modifiers.degrees.success.minimum.combat.defense ??= 0;
+  system.modifiers.degrees.success.minimum.magic ??= {};
+  system.modifiers.degrees.success.minimum.magic.all ??= 0;
+  for (const school of MAGIC_SCHOOL_KEYS) system.modifiers.degrees.success.minimum.magic[school] ??= 0;
+  system.modifiers.degrees.success.minimum.social ??= 0;
+  system.modifiers.degrees.success.minimum.observe ??= 0;
+
+  system.modifiers.degrees.failure ??= {};
+  system.modifiers.degrees.failure.skills ??= {};
+  system.modifiers.degrees.failure.skills.all ??= 0;
+  system.modifiers.degrees.failure.combat ??= {};
+  system.modifiers.degrees.failure.combat.all ??= 0;
+  system.modifiers.degrees.failure.combat.attack ??= 0;
+  system.modifiers.degrees.failure.combat.defense ??= 0;
+  system.modifiers.degrees.failure.magic ??= {};
+  system.modifiers.degrees.failure.magic.all ??= 0;
+  for (const school of MAGIC_SCHOOL_KEYS) system.modifiers.degrees.failure.magic[school] ??= 0;
+  system.modifiers.degrees.failure.social ??= 0;
+  system.modifiers.degrees.failure.observe ??= 0;
+  system.modifiers.degrees.failure.backfire ??= 0;
+}
+
+function _ensureTraitDefaults(system) {
   if (!system.traits || typeof system.traits !== "object" || Array.isArray(system.traits)) {
     system.traits = {};
   }
@@ -127,16 +202,15 @@ export function ensureSystemData(actor) {
   system.traits.condition.calmed ??= false;
   system.traits.condition.panicked ??= false;
   system.traits.condition.horrified ??= false;
+}
 
-  // Derived stats containers
+function _ensureDerivedContainers(system) {
   system.initiative ??= { base: 0, value: 0, bonus: 0 };
   system.wound_threshold ??= { base: 0, value: 0, bonus: 0 };
   system.speed ??= { base: 0, value: 0, bonus: 0, swimSpeed: 0, flySpeed: 0 };
   system.speed.swimSpeed ??= 0;
   system.speed.flySpeed ??= 0;
   system.carry_rating ??= { current: 0, max: 0, penalty: 0, bonus: 0, label: "Minimal" };
-
-  // Armor mobility penalties (derived) - neutral defaults
   system.mobility ??= {
     armorWeightClass: "none",
     agilityTestPenalty: 0,
@@ -144,24 +218,19 @@ export function ensureSystemData(actor) {
     speedPenalty: 0,
     sources: []
   };
-
-  // Combat state containers
   system.fatigue ??= { level: 0, penalty: 0, bonus: 0 };
   system.woundPenalty ??= 0;
   system.wounded ??= false;
-
-  // Luck numbers (PCs may use lucky/unlucky numbers; NPCs use fixed critical bands)
   system.lucky_numbers ??= {
     ln1: 0, ln2: 0, ln3: 0, ln4: 0, ln5: 0, ln6: 0, ln7: 0, ln8: 0, ln9: 0, ln10: 0
   };
   system.unlucky_numbers ??= { ul1: 0, ul2: 0, ul3: 0, ul4: 0, ul5: 0, ul6: 0 };
+}
 
-  // Resistances
-  // Ensure the container is an object even if a legacy actor has corrupted data.
+function _ensureResistanceDefaults(system) {
   if (!system.resistance || typeof system.resistance !== "object" || Array.isArray(system.resistance)) {
     system.resistance = {};
   }
-  // Keep defaults idempotent; do not overwrite existing values.
   system.resistance.diseaseR ??= 0;
   system.resistance.fireR ??= 0;
   system.resistance.frostR ??= 0;
@@ -171,11 +240,8 @@ export function ensureSystemData(actor) {
   system.resistance.natToughness ??= 0;
   system.resistance.silverR ??= 0;
   system.resistance.sunlightR ??= 0;
-  // New: Physical Resistance (separate from Natural Toughness)
   system.resistance.physicalR ??= 0;
 
-  // (#4) Weaknesses (inverse resistances — damage amplification)
-  // Populated by trait/talent/power weakness definitions and Rule Elements.
   if (!system.weakness || typeof system.weakness !== "object" || Array.isArray(system.weakness)) {
     system.weakness = {};
   }
@@ -189,23 +255,23 @@ export function ensureSystemData(actor) {
   system.weakness.silverR ??= 0;
   system.weakness.sunlightR ??= 0;
   system.weakness.physicalR ??= 0;
+}
 
-  // Professions / Skills containers
+function _ensureSkillContainers(system) {
   system.professions ??= {};
   system.professionsWound ??= {};
   system.skills ??= {};
-  
-  // Combat tracking
+}
+
+function _ensureCombatTracking(system) {
   system.combat_tracking ??= {
     attacks_this_round: 0,
     attacks_this_turn: 0,
     last_reset_round: 0,
     last_reset_turn: 0
   };
-
 }
 
-// ── Warfare Unit system data defaults (additive only) ─────────────────────
 function _ensureWarfareUnitSystemData(system) {
   system.commander ??= { uuid: "", id: "", name: "", img: "", bonusOverride: 0 };
   system.commander.bonusOverride ??= 0;
@@ -284,12 +350,9 @@ function _ensureWarfareUnitSystemData(system) {
   if (typeof system.description !== "string") system.description = "";
   if (typeof system.notes !== "string") system.notes = "";
 
-  // ── Neutral canonized lanes (Phase 2 additions — additive) ─────────────
-  // profile
   if (!system.profile || typeof system.profile !== "object") system.profile = {};
   system.profile.id ??= "uesrpg-0_2";
 
-  // identity
   if (!system.identity || typeof system.identity !== "object") system.identity = {};
   system.identity.category ??= "";
   system.identity.ancestry ??= "";
@@ -298,64 +361,57 @@ function _ensureWarfareUnitSystemData(system) {
   if (!system.doctrine || typeof system.doctrine !== "object") system.doctrine = {};
   system.doctrine.tradition ??= "";
 
-  // composition
   if (!system.composition || typeof system.composition !== "object") system.composition = {};
   system.composition.racialPresetKey ??= "";
   if (!system.composition.racialMods || typeof system.composition.racialMods !== "object") {
     system.composition.racialMods = {};
   }
-  system.composition.racialMods.speedMod      ??= 0;
-  system.composition.racialMods.magickaMod    ??= 0;
-  system.composition.racialMods.offenseMod    ??= 0;
-  system.composition.racialMods.offenseType   ??= "";
-  system.composition.racialMods.conditionMod  ??= 0;
+  system.composition.racialMods.speedMod ??= 0;
+  system.composition.racialMods.magickaMod ??= 0;
+  system.composition.racialMods.offenseMod ??= 0;
+  system.composition.racialMods.offenseType ??= "";
+  system.composition.racialMods.conditionMod ??= 0;
   system.composition.racialMods.disciplineMod ??= 0;
-  system.composition.racialMods.special       ??= "";
+  system.composition.racialMods.special ??= "";
 
-  // mounts
   if (!system.mounts || typeof system.mounts !== "object") system.mounts = {};
   system.mounts.primary ??= "none";
 
-  // economy
   if (!system.economy || typeof system.economy !== "object") system.economy = {};
-  system.economy.cadence  ??= "weekly";
-  system.economy.mode     ??= "gold";
-  system.economy.amount   ??= 0;
+  system.economy.cadence ??= "weekly";
+  system.economy.mode ??= "gold";
+  system.economy.amount ??= 0;
   system.economy.enslaved ??= false;
   system.economy.unpaidWeeks ??= 0;
   system.economy.specialModifier ??= 0;
 
-  // magic
   if (!system.magic || typeof system.magic !== "object") system.magic = {};
   system.magic.mode ??= "implements";
   if (!Array.isArray(system.magic.entries)) system.magic.entries = [];
 
-  // equipment (owned)
   if (!system.equipment || typeof system.equipment !== "object") system.equipment = {};
   if (!Array.isArray(system.equipment.owned)) system.equipment.owned = [];
 
-  // variant
   if (!system.variant || typeof system.variant !== "object") system.variant = {};
   if (!Array.isArray(system.variant.tags)) system.variant.tags = [];
   if (!system.variant.overrides || typeof system.variant.overrides !== "object") {
     system.variant.overrides = {};
   }
 
-  // status
   if (!system.status || typeof system.status !== "object") system.status = {};
   system.status.leaderless ??= false;
   if (!system.status.battle || typeof system.status.battle !== "object") {
     system.status.battle = {};
   }
-  system.status.battle.hidden      ??= false;
+  system.status.battle.hidden ??= false;
   system.status.battle.ambushReady ??= false;
-  system.status.battle.revealed    ??= true;
-  system.status.battle.routed      ??= false;
-  system.status.battle.broken      ??= false;
-  system.status.battle.suppressed  ??= false;
-  system.status.battle.defeated    ??= false;
-  system.status.battle.frenzied    ??= false;
-  system.status.battle.flyer       ??= false;
+  system.status.battle.revealed ??= true;
+  system.status.battle.routed ??= false;
+  system.status.battle.broken ??= false;
+  system.status.battle.suppressed ??= false;
+  system.status.battle.defeated ??= false;
+  system.status.battle.frenzied ??= false;
+  system.status.battle.flyer ??= false;
 
   if (!system.modifiers || typeof system.modifiers !== "object") system.modifiers = {};
   if (!system.modifiers.discipline || typeof system.modifiers.discipline !== "object") {
@@ -379,8 +435,6 @@ function _ensureWarfareUnitSystemData(system) {
   system.modifiers.discipline.battle.rallyBonus ??= false;
   system.modifiers.discipline.battle.enemyBrokenBonus ??= false;
 
-  // gear.tier (new neutral field alongside classification.tier)
-  if (!system.gear || typeof system.gear !== "object") system.gear = {};
   system.gear.tier ??= system.classification?.tier ?? "light";
   system.gear.apparel ??= system.gear.tier ?? system.classification?.tier ?? "light";
 

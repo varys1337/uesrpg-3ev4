@@ -4,7 +4,10 @@
     "label": "Fire Damage",
     "school": "destruction",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Deals SL Fire damage to the target.",
     "attributes": [],
     "allowConstant": false,
@@ -15,7 +18,10 @@
     "label": "Frost Damage",
     "school": "destruction",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Deals SL Frost damage to the target.",
     "attributes": [],
     "allowConstant": false,
@@ -26,7 +32,10 @@
     "label": "Shock Damage",
     "school": "destruction",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Deals SL Shock damage to the target.",
     "attributes": [],
     "allowConstant": false,
@@ -37,9 +46,14 @@
     "label": "Drain Health",
     "school": "mysticism",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Drains SL Health from the target for the duration.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": false,
     "notes": null
   },
@@ -48,9 +62,14 @@
     "label": "Drain Magicka",
     "school": "mysticism",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Drains SL Magicka from the target for the duration.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": false,
     "notes": null
   },
@@ -59,9 +78,14 @@
     "label": "Drain Stamina",
     "school": "mysticism",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Drains SL Stamina from the target for the duration.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": false,
     "notes": null
   },
@@ -70,7 +94,10 @@
     "label": "Absorb Health",
     "school": "mysticism",
     "costFormula": "SL * 15",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Transfers SL Health from the target to the caster.",
     "attributes": [],
     "allowConstant": false,
@@ -81,7 +108,10 @@
     "label": "Absorb Magicka",
     "school": "mysticism",
     "costFormula": "SL * 15",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Transfers SL Magicka from the target to the caster.",
     "attributes": [],
     "allowConstant": false,
@@ -92,7 +122,10 @@
     "label": "Dispel",
     "school": "mysticism",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Attempts to dispel magical effects on the target with Dispel Strength = SL.",
     "attributes": [],
     "allowConstant": false,
@@ -103,19 +136,27 @@
     "label": "Soul Trap",
     "school": "mysticism",
     "costFormula": "50",
-    "slRange": [1, 1],
+    "slRange": [
+      1,
+      1
+    ],
     "description": "Marks the target's soul. If the target dies while the effect is active, their soul is trapped in a soul gem held by the caster.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": false,
     "fixedCost": 50,
-    "notes": "Fixed cost 50. Duration must be set; Upkeep keeps it active."
+    "notes": "Fixed cost 50."
   },
   {
     "key": "disintegrate",
     "label": "Disintegrate",
     "school": "mysticism",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Applies the Damaged(X) quality to target's equipped weapon or armor based on SL.",
     "attributes": [],
     "allowConstant": false,
@@ -126,7 +167,10 @@
     "label": "Paralyze",
     "school": "mysticism",
     "costFormula": "SL * 20",
-    "slRange": [1, 5],
+    "slRange": [
+      1,
+      5
+    ],
     "description": "Inflicts the Paralyzed condition on the target. SL determines duration.",
     "attributes": [],
     "allowConstant": false,
@@ -137,7 +181,10 @@
     "label": "Silence",
     "school": "mysticism",
     "costFormula": "SL * 15",
-    "slRange": [1, 5],
+    "slRange": [
+      1,
+      5
+    ],
     "description": "Inflicts the Silenced condition on the target. SL determines duration.",
     "attributes": [],
     "allowConstant": false,
@@ -148,9 +195,14 @@
     "label": "Slow Fall",
     "school": "alteration",
     "costFormula": "SL * 5",
-    "slRange": [1, 3],
+    "slRange": [
+      1,
+      3
+    ],
     "description": "Reduces or negates fall damage for the caster/target.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
     "notes": null
   },
@@ -159,9 +211,14 @@
     "label": "Feather",
     "school": "alteration",
     "costFormula": "SL * 5",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Reduces the target's Encumbrance by SL * 5 for the duration.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
     "notes": null
   },
@@ -170,9 +227,14 @@
     "label": "Burden",
     "school": "alteration",
     "costFormula": "SL * 5",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Increases the target's Encumbrance by SL * 5 for the duration.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": false,
     "notes": null
   },
@@ -181,9 +243,14 @@
     "label": "Fortify Attribute",
     "school": "restoration",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Temporarily increases a chosen attribute by SL * 5 for the duration.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
     "notes": "Choose which attribute to fortify."
   },
@@ -192,8 +259,11 @@
     "label": "Restore Health",
     "school": "restoration",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
-    "description": "Restores SL Health instantly (or over time if Upkeep).",
+    "slRange": [
+      1,
+      7
+    ],
+    "description": "Restores SL Health instantly.",
     "attributes": [],
     "allowConstant": false,
     "notes": null
@@ -203,7 +273,10 @@
     "label": "Restore Magicka",
     "school": "restoration",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Restores SL Magicka instantly.",
     "attributes": [],
     "allowConstant": false,
@@ -214,7 +287,10 @@
     "label": "Restore Stamina",
     "school": "restoration",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Restores SL Stamina instantly.",
     "attributes": [],
     "allowConstant": false,
@@ -225,9 +301,14 @@
     "label": "Shield",
     "school": "restoration",
     "costFormula": "SL * 10",
-    "slRange": [1, 7],
+    "slRange": [
+      1,
+      7
+    ],
     "description": "Provides SL Magic Armor Rating to the target for the duration.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
     "notes": null
   },
@@ -236,9 +317,14 @@
     "label": "Night Eye",
     "school": "illusion",
     "costFormula": "SL * 5",
-    "slRange": [1, 3],
-    "description": "Grants the target the ability to see in darkness. SL determines effectiveness.",
-    "attributes": ["upkeep"],
+    "slRange": [
+      1,
+      3
+    ],
+    "description": "Grants the target the ability to see in darkness.",
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
     "notes": null
   },
@@ -247,9 +333,14 @@
     "label": "Chameleon",
     "school": "illusion",
     "costFormula": "SL * 15",
-    "slRange": [1, 5],
-    "description": "Partially or fully renders the target invisible. SL determines transparency level.",
-    "attributes": ["upkeep"],
+    "slRange": [
+      1,
+      5
+    ],
+    "description": "Partially or fully renders the target invisible. SL determines transparency.",
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
     "notes": null
   },
@@ -258,9 +349,14 @@
     "label": "Invisibility",
     "school": "illusion",
     "costFormula": "SL * 20",
-    "slRange": [1, 5],
+    "slRange": [
+      1,
+      5
+    ],
     "description": "Renders the target fully invisible until they take an action that breaks invisibility.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": false,
     "notes": null
   },
@@ -269,31 +365,14 @@
     "label": "Calm",
     "school": "illusion",
     "costFormula": "SL * 10",
-    "slRange": [1, 5],
+    "slRange": [
+      1,
+      5
+    ],
     "description": "Calms the target, preventing aggressive actions while active.",
-    "attributes": ["upkeep"],
-    "allowConstant": false,
-    "notes": null
-  },
-  {
-    "key": "frenzy",
-    "label": "Frenzy",
-    "school": "illusion",
-    "costFormula": "SL * 10",
-    "slRange": [1, 5],
-    "description": "Forces the target to attack the nearest creature.",
-    "attributes": ["upkeep"],
-    "allowConstant": false,
-    "notes": null
-  },
-  {
-    "key": "demoralize",
-    "label": "Demoralize",
-    "school": "illusion",
-    "costFormula": "SL * 10",
-    "slRange": [1, 5],
-    "description": "Forces the target to flee in fear.",
-    "attributes": [],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": false,
     "notes": null
   },
@@ -302,21 +381,15 @@
     "label": "Waterbreathing",
     "school": "alteration",
     "costFormula": "SL * 10",
-    "slRange": [1, 3],
+    "slRange": [
+      1,
+      3
+    ],
     "description": "Allows the target to breathe underwater for the duration.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
-    "notes": null
-  },
-  {
-    "key": "levitation",
-    "label": "Levitation",
-    "school": "alteration",
-    "costFormula": "SL * 10",
-    "slRange": [1, 5],
-    "description": "Allows the target to levitate and move through the air.",
-    "attributes": ["upkeep"],
-    "allowConstant": false,
     "notes": null
   },
   {
@@ -324,31 +397,30 @@
     "label": "Become Ethereal",
     "school": "alteration",
     "costFormula": "SL * 20",
-    "slRange": [1, 5],
-    "description": "Renders the target incorporeal: immune to physical damage but cannot attack. CANNOT be used in Constant enchantments.",
-    "attributes": ["upkeep"],
+    "slRange": [
+      1,
+      5
+    ],
+    "description": "Renders the target incorporeal. CANNOT be used in Constant enchantments (RAW).",
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": false,
     "notes": "RAW: Cannot be used in Constant enchantments."
-  },
-  {
-    "key": "openLock",
-    "label": "Open Lock",
-    "school": "mysticism",
-    "costFormula": "SL * 15",
-    "slRange": [1, 5],
-    "description": "Attempts to open a locked container or door. SL determines lock difficulty overcome.",
-    "attributes": [],
-    "allowConstant": false,
-    "notes": null
   },
   {
     "key": "detectLife",
     "label": "Detect Life",
     "school": "mysticism",
     "costFormula": "SL * 5",
-    "slRange": [1, 5],
+    "slRange": [
+      1,
+      5
+    ],
     "description": "Reveals living creatures within SL * 5 metres.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
     "notes": null
   },
@@ -357,9 +429,14 @@
     "label": "Detect Dead",
     "school": "mysticism",
     "costFormula": "SL * 5",
-    "slRange": [1, 5],
+    "slRange": [
+      1,
+      5
+    ],
     "description": "Reveals undead creatures within SL * 5 metres.",
-    "attributes": ["upkeep"],
+    "attributes": [
+      "upkeep"
+    ],
     "allowConstant": true,
     "notes": null
   },
@@ -368,32 +445,13 @@
     "label": "Turn Undead",
     "school": "restoration",
     "costFormula": "SL * 15",
-    "slRange": [1, 5],
+    "slRange": [
+      1,
+      5
+    ],
     "description": "Forces undead creatures to flee. SL determines difficulty of undead affected.",
     "attributes": [],
     "allowConstant": false,
     "notes": null
-  },
-  {
-    "key": "summonCreature",
-    "label": "Summon Creature",
-    "school": "conjuration",
-    "costFormula": "SL * 20",
-    "slRange": [1, 7],
-    "description": "Summons a creature of SL power to serve the caster. CANNOT be used in Constant enchantments (Conjuration restriction).",
-    "attributes": ["upkeep"],
-    "allowConstant": false,
-    "notes": "RAW: Conjuration effects cannot be used in Constant enchantments."
-  },
-  {
-    "key": "boundWeapon",
-    "label": "Bound Weapon",
-    "school": "conjuration",
-    "costFormula": "SL * 15",
-    "slRange": [1, 5],
-    "description": "Conjures a bound weapon of SL tier for the caster to wield. CANNOT be used in Constant enchantments (Conjuration restriction).",
-    "attributes": ["upkeep"],
-    "allowConstant": false,
-    "notes": "RAW: Conjuration effects cannot be used in Constant enchantments."
   }
 ]

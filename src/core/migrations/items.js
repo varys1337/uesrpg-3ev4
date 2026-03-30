@@ -806,6 +806,116 @@ async function _backfillScrollCastingControlsActorItems(defaultRequireTraining, 
   }
 }
 
+function _readScrollCastingDefaults() {
+  let defaultRequireTraining = false;
+  let defaultConsumeMagicka = false;
+  const defaultConsumeOnCast = true;
+
+  try { defaultRequireTraining = game.settings.get(MODULE_ID, "scrollRequiresTraining") === true; }
+  catch (_e) { /* no-op */ }
+  try { defaultConsumeMagicka = game.settings.get(MODULE_ID, "scrollConsumesMagicka") === true; }
+  catch (_e) { /* no-op */ }
+
+  return { defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast };
+}
+
+async function _runLegacyItemRepairPasses({ state, currentVersion }) {
+  try {
+    const socialCleanup = await _cleanupRetiredSocialItems();
+    const repaired = await _repairLegacyItemTypeCutoverIfNeeded();
+    if (!repaired.attempted && socialCleanup.totalDeleted === 0) return;
+
+    if (socialCleanup.totalDeleted > 0 || state.socialItemRetirementCleanup !== currentVersion) {
+      state.socialItemRetirementCleanup = currentVersion;
+    }
+    state.itemLegacyRepair = currentVersion;
+    await setMigrationState(state);
+
+    if (repaired.afterCount > 0 && _debugEnabled()) {
+      console.warn(`${MODULE_ID} | Legacy item->equipment self-repair could not clear all docs`, {
+        before: repaired.beforeCount,
+        remaining: repaired.afterCount,
+        references: repaired.remaining,
+      });
+      return;
+    }
+
+    if (socialCleanup.totalDeleted > 0 && _debugEnabled()) {
+      console.log(`${MODULE_ID} | Retired social item cleanup complete`, socialCleanup);
+      return;
+    }
+
+    if (_debugEnabled()) {
+      console.log(`${MODULE_ID} | Legacy item->equipment self-repair complete`, {
+        converted: Math.max(0, repaired.beforeCount - repaired.afterCount),
+        remaining: repaired.afterCount,
+      });
+    }
+  } catch (err) {
+    console.error(`${MODULE_ID} | Legacy item self-repair failed`, err);
+    ui.notifications?.error?.("UESRPG item migration self-repair failed; check console for details.");
+  }
+}
+
+async function _runSocialRetirementCleanupPass({ state, currentVersion }) {
+  const cleanup = await _cleanupRetiredSocialItems();
+  console.log(`${MODULE_ID} | Social item retirement cleanup`, cleanup);
+  state.socialItemRetirementCleanup = currentVersion;
+}
+
+async function _runVersionedItemMigrationPass({ state, currentVersion }) {
+  _combatLegacyItemStats.weaponsEnhancedFromQualities = 0;
+  _combatLegacyItemStats.weaponsEnhancedFromRange = 0;
+
+  const migrationTelemetry = {
+    converted: 0,
+    skipped: 0,
+    failures: 0,
+  };
+
+  const legacyBefore = _collectLegacyItemReferences();
+  const worldResult = await _processWorldItems("Migrating");
+  const actorResult = await _processActorItems("Migrating");
+  const legacyAfter = _collectLegacyItemReferences();
+
+  migrationTelemetry.converted = Number(worldResult?.plannedLegacyConversions ?? 0) + Number(actorResult?.plannedLegacyConversions ?? 0);
+  migrationTelemetry.skipped = Math.max(0, legacyBefore.length - migrationTelemetry.converted);
+  migrationTelemetry.failures = legacyAfter.length;
+
+  console.log(`${MODULE_ID} | Combat legacy weapon migration summary`, {
+    weaponsEnhancedFromQualities: _combatLegacyItemStats.weaponsEnhancedFromQualities,
+    weaponsEnhancedFromRange: _combatLegacyItemStats.weaponsEnhancedFromRange
+  });
+  console.log(`${MODULE_ID} | Legacy item->equipment migration telemetry`, migrationTelemetry);
+  if (legacyAfter.length && _debugEnabled()) {
+    console.warn(`${MODULE_ID} | Stale legacy item docs remain after migration`, {
+      remaining: legacyAfter.length,
+      references: legacyAfter,
+    });
+  }
+
+  state.items = currentVersion;
+}
+
+async function _runScrollCastingBackfillPass({
+  state,
+  currentVersion,
+  defaults,
+  needsScrollCastingBackfill,
+  needsScrollConsumeOnCastBackfill,
+}) {
+  const { defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast } = defaults;
+  await _backfillScrollCastingControlsWorld(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast);
+  await _backfillScrollCastingControlsActorItems(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast);
+
+  if (needsScrollCastingBackfill) {
+    state.scrollCastingControls = currentVersion;
+  }
+  if (needsScrollConsumeOnCastBackfill) {
+    state.scrollConsumeOnCast = currentVersion;
+  }
+}
+
 export async function migrateItemsIfNeeded() {
   // Lightweight normalization pass; safe to run on every startup.
   if (!game.user.isGM) return;
@@ -816,97 +926,29 @@ export async function migrateItemsIfNeeded() {
   const needsScrollCastingBackfill = state?.scrollCastingControls !== currentVersion;
   const needsScrollConsumeOnCastBackfill = state?.scrollConsumeOnCast !== currentVersion;
   if (!needsSocialRetirementCleanup && !needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) {
-    try {
-      const socialCleanup = await _cleanupRetiredSocialItems();
-      const repaired = await _repairLegacyItemTypeCutoverIfNeeded();
-      if (!repaired.attempted && socialCleanup.totalDeleted === 0) return;
-
-      if (socialCleanup.totalDeleted > 0 || state.socialItemRetirementCleanup !== currentVersion) {
-        state.socialItemRetirementCleanup = currentVersion;
-      }
-      state.itemLegacyRepair = currentVersion;
-      await setMigrationState(state);
-
-      if (repaired.afterCount > 0 && _debugEnabled()) {
-        console.warn(`${MODULE_ID} | Legacy item->equipment self-repair could not clear all docs`, {
-          before: repaired.beforeCount,
-          remaining: repaired.afterCount,
-          references: repaired.remaining,
-        });
-      } else if (socialCleanup.totalDeleted > 0 && _debugEnabled()) {
-        console.log(`${MODULE_ID} | Retired social item cleanup complete`, socialCleanup);
-      } else if (_debugEnabled()) {
-        console.log(`${MODULE_ID} | Legacy item->equipment self-repair complete`, {
-          converted: Math.max(0, repaired.beforeCount - repaired.afterCount),
-          remaining: repaired.afterCount,
-        });
-      }
-    } catch (err) {
-      console.error(`${MODULE_ID} | Legacy item self-repair failed`, err);
-      ui.notifications?.error?.("UESRPG item migration self-repair failed; check console for details.");
-    }
+    await _runLegacyItemRepairPasses({ state, currentVersion });
     return;
   }
 
-  let defaultRequireTraining = false;
-  let defaultConsumeMagicka = false;
-  const defaultConsumeOnCast = true;
-  try { defaultRequireTraining = game.settings.get(MODULE_ID, "scrollRequiresTraining") === true; } catch (_e) { /* no-op */ }
-  try { defaultConsumeMagicka = game.settings.get(MODULE_ID, "scrollConsumesMagicka") === true; } catch (_e) { /* no-op */ }
+  const defaults = _readScrollCastingDefaults();
 
   try {
-    _combatLegacyItemStats.weaponsEnhancedFromQualities = 0;
-    _combatLegacyItemStats.weaponsEnhancedFromRange = 0;
-    const migrationTelemetry = {
-      converted: 0,
-      skipped: 0,
-      failures: 0,
-    };
-
     if (needsSocialRetirementCleanup) {
-      const cleanup = await _cleanupRetiredSocialItems();
-      console.log(
-        `${MODULE_ID} | Social item retirement cleanup`,
-        cleanup
-      );
-      state.socialItemRetirementCleanup = currentVersion;
+      await _runSocialRetirementCleanupPass({ state, currentVersion });
     }
 
     if (needsItemMigration) {
-      const legacyBefore = _collectLegacyItemReferences();
-      const worldResult = await _processWorldItems("Migrating");
-      const actorResult = await _processActorItems("Migrating");
-      const legacyAfter = _collectLegacyItemReferences();
-
-      migrationTelemetry.converted = Number(worldResult?.plannedLegacyConversions ?? 0) + Number(actorResult?.plannedLegacyConversions ?? 0);
-      migrationTelemetry.skipped = Math.max(0, legacyBefore.length - migrationTelemetry.converted);
-      migrationTelemetry.failures = legacyAfter.length;
-
-      console.log(`${MODULE_ID} | Combat legacy weapon migration summary`, {
-        weaponsEnhancedFromQualities: _combatLegacyItemStats.weaponsEnhancedFromQualities,
-        weaponsEnhancedFromRange: _combatLegacyItemStats.weaponsEnhancedFromRange
-      });
-      console.log(`${MODULE_ID} | Legacy item->equipment migration telemetry`, migrationTelemetry);
-      if (legacyAfter.length && _debugEnabled()) {
-        console.warn(`${MODULE_ID} | Stale legacy item docs remain after migration`, {
-          remaining: legacyAfter.length,
-          references: legacyAfter,
-        });
-      }
-      state.items = currentVersion;
+      await _runVersionedItemMigrationPass({ state, currentVersion });
     }
 
     if (needsScrollCastingBackfill || needsScrollConsumeOnCastBackfill) {
-      await _backfillScrollCastingControlsWorld(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast);
-      await _backfillScrollCastingControlsActorItems(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast);
-    }
-
-    if (needsScrollCastingBackfill) {
-      state.scrollCastingControls = currentVersion;
-    }
-
-    if (needsScrollConsumeOnCastBackfill) {
-      state.scrollConsumeOnCast = currentVersion;
+      await _runScrollCastingBackfillPass({
+        state,
+        currentVersion,
+        defaults,
+        needsScrollCastingBackfill,
+        needsScrollConsumeOnCastBackfill,
+      });
     }
 
     // Record migration version after a successful pass.
