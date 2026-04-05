@@ -24,6 +24,12 @@ export function sanitizeChatMessageUpdatePayload(payload) {
   const sysFlags = (flags && typeof flags === "object") ? flags[sysId] : null;
   if (sysFlags && typeof sysFlags === "object") {
     const cleanedSysFlags = {};
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "skillTest")) cleanedSysFlags.skillTest = deepClonePlain(sysFlags.skillTest);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "reroll")) cleanedSysFlags.reroll = deepClonePlain(sysFlags.reroll);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "luckUsedOnTest")) cleanedSysFlags.luckUsedOnTest = deepClonePlain(sysFlags.luckUsedOnTest);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "staminaUsedOnTest")) cleanedSysFlags.staminaUsedOnTest = deepClonePlain(sysFlags.staminaUsedOnTest);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "luckBurned")) cleanedSysFlags.luckBurned = deepClonePlain(sysFlags.luckBurned);
+    if (Object.prototype.hasOwnProperty.call(sysFlags, "criticalFailureNegated")) cleanedSysFlags.criticalFailureNegated = deepClonePlain(sysFlags.criticalFailureNegated);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "opposed")) cleanedSysFlags.opposed = deepClonePlain(sysFlags.opposed);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "skillOpposed")) cleanedSysFlags.skillOpposed = deepClonePlain(sysFlags.skillOpposed);
     if (Object.prototype.hasOwnProperty.call(sysFlags, "magicOpposed")) cleanedSysFlags.magicOpposed = deepClonePlain(sysFlags.magicOpposed);
@@ -103,6 +109,36 @@ export function sanitizeGenericUpdatePayload(doc, payload) {
   const docName = doc?.documentName ?? "";
   const out = {};
   const allowTopLevel = new Set(["system", "flags", "name", "img", "icon"]);
+
+  if (docName === "Scene") {
+    for (const [k, v] of Object.entries(payload)) {
+      if (k === "flags" && v && typeof v === "object") {
+        out.flags = deepClonePlain(v);
+        continue;
+      }
+      if (k === "name") {
+        out.name = deepClonePlain(v);
+        continue;
+      }
+      if (k.startsWith("flags.")) out[k] = deepClonePlain(v);
+    }
+    return out;
+  }
+
+  if (docName === "Region") {
+    for (const [k, v] of Object.entries(payload)) {
+      if (k === "flags" && v && typeof v === "object") {
+        out.flags = deepClonePlain(v);
+        continue;
+      }
+      if (k === "name") {
+        out.name = deepClonePlain(v);
+        continue;
+      }
+      if (k.startsWith("flags.")) out[k] = deepClonePlain(v);
+    }
+    return out;
+  }
 
   if (docName === "Token") {
     const allowedTokenKeys = new Set(["x", "y", "overlayEffect", "statuses", "effects"]);

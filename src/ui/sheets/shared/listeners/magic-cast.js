@@ -8,7 +8,7 @@
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, classifySpellForRouting, debugMagicRoutingLog } from "../../../../core/magic/spell-runtime.js";
 import { filterTargetsBySpellRange, getSpellRangeType, getSpellAoEConfig, getSpellMaxRangeMeters } from "../../../../core/magic/spell-range.js";
 import { AoEService, AOE_SOURCE_TYPES } from "../../../../core/aoe/index.js";
-import { isActorTrainedInMagicSchool } from "../../../../core/magic/magicka-utils.js";
+import { canActorCastSpell, getSpellCastingSchool } from "../../../../core/magic/magicka-utils.js";
 import { showSpellOptionsDialog } from "../../../../core/magic/dialogs/spell-options-dialog.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
@@ -146,7 +146,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         ? spellsAll.filter(s => s?.system?.isInstant === true)
         : spellsAll;
 
-      const spells = spellsByAction.filter(s => isActorTrainedInMagicSchool(actor, s?.system?.school));
+      const spells = spellsByAction.filter((s) => canActorCastSpell(actor, s));
       const scrollCandidates = await getCastableScrollCandidates(actor, { castActionType });
       const itemRuntimeEnabled = game.settings.get(_FLAG_NS, "enchanting.enableCastEnchantmentRuntime") === true;
       const itemSpellCandidatesAll = itemRuntimeEnabled
@@ -170,7 +170,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
 
       const spellOptions = [
         ...spells.map((s) =>
-          `<option value="spell:${s.id}">Spell: ${s.name} (${s.system.school} L${s.system.level}, ${s.system.cost} MP)</option>`
+          `<option value="spell:${s.id}">Spell: ${s.name} (${getSpellCastingSchool(s)} L${s.system.level}, ${s.system.cost} MP)</option>`
         ),
         ...scrollCandidates.map(({ scroll, spell: linkedSpell }) =>
           `<option value="scroll:${scroll.id}">Scroll: ${scroll.name} -> ${linkedSpell.name} (${linkedSpell.system?.school ?? "Unknown"} L${linkedSpell.system?.level ?? 1}, Qty ${Number(scroll.system?.quantity ?? 0)})</option>`
@@ -246,8 +246,8 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
       } else {
         spell = actor.items.get(sourceId);
         if (!spell) return;
-        if (!isActorTrainedInMagicSchool(actor, spell?.system?.school)) {
-          ui.notifications.warn(`${actor.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+        if (!canActorCastSpell(actor, spell)) {
+          ui.notifications.warn(`${actor.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
           return;
         }
       }

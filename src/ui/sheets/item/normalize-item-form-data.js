@@ -16,6 +16,11 @@
  */
 
 import { SPECIAL_ACTIONS } from "../../../core/config/special-actions.js";
+import {
+  getWeaponBaseReachState,
+  parseWeaponReachMax,
+  parseWeaponReachMin,
+} from "../../../core/homebrew/reach-length/weapon.js";
 import { validateScalingLevels, formatValidationMessage } from "../../../core/magic/spell-config.js";
 import { alertDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { createDebugLogger } from "../../../utils/debug.js";
@@ -107,39 +112,20 @@ export function normalizeItemFormData(item, formData) {
   const togglePrefix = "qualitiesStructured.toggle.";
   const valuePrefix = "qualitiesStructured.value.";
 
-  let legacyStructuredReach = null;
-  let reachFromSystem = null;
-  if (Object.prototype.hasOwnProperty.call(formData, "system.reach")) {
-    reachFromSystem = formData["system.reach"];
-  }
-  const existingStructured = Array.isArray(item?.system?.qualitiesStructured)
-    ? item.system.qualitiesStructured
-    : [];
-  for (const q of existingStructured) {
-    if (String(q?.key ?? "").toLowerCase() !== "reach") continue;
-    const n = Number(q?.value);
-    if (!Number.isFinite(n) || n <= 0) continue;
-    legacyStructuredReach = legacyStructuredReach == null ? n : Math.max(legacyStructuredReach, n);
-  }
-
   for (const [k, v] of Object.entries(formData)) {
     if (k.startsWith(togglePrefix)) {
       const key = k.slice(togglePrefix.length);
-      if (v) structuredMap.set(key, { key });
+      if (key !== "reach" && v) structuredMap.set(key, { key });
       delete formData[k];
       continue;
     }
     if (k.startsWith(valuePrefix)) {
       const key = k.slice(valuePrefix.length);
-      const num = Number(v);
       if (key === "reach") {
-        if (Number.isFinite(num) && num > 0) {
-          legacyStructuredReach = legacyStructuredReach == null ? num : Math.max(legacyStructuredReach, num);
-          structuredMap.set(key, { key, value: num });
-        }
         delete formData[k];
         continue;
       }
+      const num = Number(v);
       if (!Number.isNaN(num) && num !== 0) {
         structuredMap.set(key, { key, value: num });
       }
@@ -148,9 +134,6 @@ export function normalizeItemFormData(item, formData) {
   }
 
   const structured = Array.from(structuredMap.values());
-  if (legacyStructuredReach != null && !structured.some((q) => String(q?.key ?? "").toLowerCase() === "reach")) {
-    structured.push({ key: "reach", value: legacyStructuredReach });
-  }
 
   // Bridge legacy Runed checkbox to canonical structured qualities.
   if (Object.prototype.hasOwnProperty.call(formData, "system.runed")) {
@@ -172,38 +155,6 @@ export function normalizeItemFormData(item, formData) {
     // NOTE: magic_ar enforcement removed — armor values are now authored manually via armorValues lanes.
   }
 
-  if (itemType === "weapon") {
-    // Reconcile Reach with header-first precedence:
-    // header system.reach -> (melee only) legacy structured reach fallback.
-    const parseHeaderReach = (raw) => {
-      const s = String(raw ?? "").trim().toLowerCase();
-      if (!s || s === "x") return null;
-      const n = Number(raw);
-      if (!Number.isFinite(n) || n <= 0) return null;
-      return n;
-    };
-    const headerReach = parseHeaderReach(reachFromSystem);
-    const attackMode = String(
-      formData["system.attackMode"] ?? item?.system?.attackMode ?? "melee"
-    ).toLowerCase();
-    const isMeleeWeapon = attackMode === "melee";
-    const fallbackStructuredReach = isMeleeWeapon
-      ? (() => {
-          let best = null;
-          for (const q of structured) {
-            if (String(q?.key ?? "").toLowerCase() !== "reach") continue;
-            const n = Number(q?.value);
-            if (!Number.isFinite(n) || n <= 0) continue;
-            best = best == null ? n : Math.max(best, n);
-          }
-          return best;
-        })()
-      : null;
-    const reachValue = headerReach ?? fallbackStructuredReach;
-
-    formData["system.reach"] = (reachValue != null) ? reachValue : "";
-  }
-
   // Weapon Reload mirroring
   if (
     Object.prototype.hasOwnProperty.call(formData, "system.reloadState.reloadAPCost") &&
@@ -222,6 +173,30 @@ export function normalizeItemFormData(item, formData) {
 
   structured.sort((a, b) => (a.key || "").localeCompare(b.key || ""));
   formData["system.qualitiesStructured"] = structured;
+
+  if (itemType === "weapon") {
+    const attackMode = String(formData["system.attackMode"] ?? item?.system?.attackMode ?? "melee").toLowerCase();
+    const baseReach = getWeaponBaseReachState(
+      { type: "weapon", system: item?.system ?? {}, flags: item?.flags ?? {}, attackMode },
+      { attackMode, includeLegacyFallback: true }
+    );
+    const currentPersistedReach = parseWeaponReachMax(item?.system?.reach);
+
+    if (Object.prototype.hasOwnProperty.call(formData, "system.reachMin")) {
+      formData["system.reachMin"] = parseWeaponReachMin(formData["system.reachMin"]);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(formData, "system.reach")) {
+      formData["system.reach"] = parseWeaponReachMax(formData["system.reach"]) ?? 0;
+    } else if (
+      attackMode === "melee"
+      && currentPersistedReach == null
+      && Number.isFinite(baseReach.max)
+      && baseReach.max > 0
+    ) {
+      formData["system.reach"] = baseReach.max;
+    }
+  }
 
   } // end QUALITIES_TYPES guard
 
@@ -495,6 +470,27 @@ export function normalizeItemFormData(item, formData) {
           };
         });
     }
+  }
+
+  if (itemType === "invocation") {
+    const aspectsText = String(formData["system.aspectsText"] ?? "").trim();
+    const rawDomainKey = String(formData["system.domainKey"] ?? item?.system?.domainKey ?? "").trim().toLowerCase();
+    const rawTnDomainKey = String(formData["system.tnDomainKey"] ?? item?.system?.tnDomainKey ?? "").trim().toLowerCase();
+    const rawCircle = Number(formData["system.circle"] ?? item?.system?.circle ?? 1);
+    const rawPietyCost = Number(formData["system.pietyCost"] ?? item?.system?.pietyCost ?? 1);
+    const rawImportVersion = Number(formData["system.source.importVersion"] ?? item?.system?.source?.importVersion ?? 0);
+
+    formData["system.aspects"] = aspectsText
+      ? aspectsText.split(",").map((value) => String(value ?? "").trim()).filter(Boolean)
+      : [];
+    formData["system.domainKey"] = rawDomainKey;
+    formData["system.tnDomainKey"] = rawTnDomainKey;
+    formData["system.isUniversal"] = rawDomainKey === "universal";
+    formData["system.circle"] = Math.max(1, Math.min(4, Number.isFinite(rawCircle) ? Math.trunc(rawCircle) : 1));
+    formData["system.pietyCost"] = Math.max(0, Number.isFinite(rawPietyCost) ? Math.trunc(rawPietyCost) : 0);
+    formData["system.source.importVersion"] = Number.isFinite(rawImportVersion) ? Math.max(0, Math.trunc(rawImportVersion)) : 0;
+
+    delete formData["system.aspectsText"];
   }
 
   if (isShieldLaneDoc) {

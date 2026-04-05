@@ -85,6 +85,22 @@
       "system": "uesrpg-3ev4"
     },
     {
+      "name": "religion-invocations",
+      "label": "Religion Invocations",
+      "path": "./packs/religion-invocations",
+      "private": false,
+      "type": "Item",
+      "system": "uesrpg-3ev4"
+    },
+    {
+      "name": "religion-domain-spells",
+      "label": "Religion Domain Spells",
+      "path": "./packs/religion-domain-spells",
+      "private": false,
+      "type": "Item",
+      "system": "uesrpg-3ev4"
+    },
+    {
       "name": "journal",
       "label": "Reference Revised",
       "path": "./packs/reference-revised-v1",
@@ -131,6 +147,8 @@
         "signs",
         "items-revised",
         "spells-revised",
+        "religion-invocations",
+        "religion-domain-spells",
         "talents-revised",
         "traits-revised",
         "powers-revised",
@@ -166,8 +184,8 @@
   ],
   "compatibility": {
     "minimum": "13",
-    "verified": "13.351",
-    "maximum": "13"
+    "verified": "14.359",
+    "maximum": "14"
   },
   "socket": true
 }

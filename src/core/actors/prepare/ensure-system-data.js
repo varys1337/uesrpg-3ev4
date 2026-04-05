@@ -10,6 +10,7 @@
  */
 
 import { CHARACTERISTIC_KEYS, MAGIC_SCHOOL_KEYS } from "../../domain/constants.js";
+import { buildDefaultWorshipData, buildDefaultWorshipDomainState } from "../../religion/worship-store.js";
 
 /**
  * Ensure required system data objects exist with safe defaults.
@@ -40,6 +41,7 @@ export function ensureSystemData(actor) {
   _ensureResistanceDefaults(system);
   _ensureSkillContainers(system);
   _ensureCombatTracking(system);
+  _ensureWorshipDefaults(system);
 }
 
 function _ensureCharacteristics(system) {
@@ -270,6 +272,57 @@ function _ensureCombatTracking(system) {
     last_reset_round: 0,
     last_reset_turn: 0
   };
+}
+
+function _ensureWorshipDefaults(system) {
+  if (!system.worship || typeof system.worship !== "object" || Array.isArray(system.worship)) {
+    system.worship = buildDefaultWorshipData();
+    return;
+  }
+
+  system.worship.primaryDomainKey ??= "";
+  if (!system.worship.domains || typeof system.worship.domains !== "object" || Array.isArray(system.worship.domains)) {
+    system.worship.domains = {};
+  }
+
+  for (const [domainKey, state] of Object.entries(system.worship.domains)) {
+    if (!state || typeof state !== "object" || Array.isArray(state)) {
+      system.worship.domains[domainKey] = buildDefaultWorshipDomainState();
+      continue;
+    }
+
+    state.deityName ??= "";
+    state.initiated ??= false;
+    state.piety ??= {};
+    state.piety.value ??= 0;
+    state.piety.max ??= 0;
+    state.piety.bonus ??= 0;
+
+    state.penance ??= {};
+    state.penance.blocked ??= false;
+    state.penance.note ??= "";
+    state.penance.appliedAt ??= 0;
+
+    state.preparation ??= {};
+    if (!Array.isArray(state.preparation.preparedInvocationIds)) state.preparation.preparedInvocationIds = [];
+    state.preparation.lastPreparedAt ??= 0;
+
+    state.intervention ??= {};
+    state.intervention.lastLongRestUsage ??= 0;
+    state.intervention.lastRequestAt ??= 0;
+    state.intervention.lastResolvedAt ??= 0;
+    state.intervention.lastOutcome ??= "";
+    state.intervention.retributionNote ??= "";
+
+    if (!Array.isArray(state.history)) state.history = [];
+
+    state.observances ??= {};
+    state.observances.fasting ??= {};
+    state.observances.fasting.active ??= false;
+    state.observances.fasting.streakDays ??= 0;
+    state.observances.fasting.lastAccrualAt ??= 0;
+    state.observances.fasting.lastSourceLabel ??= "";
+  }
 }
 
 function _ensureWarfareUnitSystemData(system) {

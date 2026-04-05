@@ -17,7 +17,8 @@ import {
   consumeSpellMagicka,
   applySpellRestraintRefund,
   isHealingSpell,
-  isActorTrainedInMagicSchool
+  canActorCastSpell,
+  getSpellCastingSchool
 } from "./magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "./backfire.js";
 import { canUserRollActor } from "../../utils/permissions.js";
@@ -154,8 +155,8 @@ export const MagicOpposedWorkflow = {
         return null;
       }
 
-      if (!_ignoreTraining(cfg) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
-        ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+      if (!_ignoreTraining(cfg) && !canActorCastSpell(attacker, spell)) {
+        ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
         return null;
       }
 
@@ -329,8 +330,8 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
-    if (!_ignoreTraining(cfg) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
-      ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+    if (!_ignoreTraining(cfg) && !canActorCastSpell(attacker, spell)) {
+      ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
       return null;
     }
 
@@ -581,8 +582,8 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
-    if (!_ignoreTraining(cfg) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
-      ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+    if (!_ignoreTraining(cfg) && !canActorCastSpell(attacker, spell)) {
+      ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
       return null;
     }
 

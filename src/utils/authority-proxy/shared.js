@@ -123,6 +123,6 @@ export function lockKeyForDoc(doc) {
 }
 
 export function isAllowedGenericDocument(doc) {
-  const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant"]);
+  const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant", "Scene", "Region"]);
   return !!doc && doc.documentName !== "ChatMessage" && allowedDocs.has(doc.documentName);
 }

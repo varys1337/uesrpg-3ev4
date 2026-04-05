@@ -23,9 +23,37 @@ export { isReachLengthHomebrewEnabled, getReachLengthModel };
 
 const NAMESPACE = "uesrpg-3ev4";
 
-function _isMeleeWeapon(item) {
-  if (!item || item.type !== "weapon") return false;
-  return String(item?.system?.attackMode ?? "melee").toLowerCase() === "melee";
+function _resolveWeaponContext(weaponOrData, { attackMode = null } = {}) {
+  const system = weaponOrData?.system ?? {};
+  const flags = weaponOrData?.flags ?? {};
+  const type = String(weaponOrData?.type ?? "weapon").trim().toLowerCase();
+  const mode = String(attackMode ?? system?.attackMode ?? weaponOrData?.attackMode ?? "melee").trim().toLowerCase();
+  return { type, system, flags, attackMode: mode };
+}
+
+function _isMeleeWeapon(weaponOrData, { attackMode = null } = {}) {
+  const ctx = _resolveWeaponContext(weaponOrData, { attackMode });
+  return ctx.type === "weapon" && ctx.attackMode === "melee";
+}
+
+function _parsePositiveReach(raw) {
+  const text = String(raw ?? "").trim().toLowerCase();
+  if (!text || text === "x") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function _getStructuredReachFallbackMaxFromList(source) {
+  if (!Array.isArray(source)) return null;
+  let best = null;
+  for (const quality of source) {
+    const key = String(quality?.key ?? quality ?? "").trim().toLowerCase();
+    if (key !== "reach") continue;
+    const value = _parsePositiveReach(quality?.value);
+    if (value == null) continue;
+    best = best == null ? value : Math.max(best, value);
+  }
+  return best;
 }
 
 function _resolveOwnerActor({ ownerActor, ownerToken, ownWeapon } = {}) {
@@ -64,77 +92,111 @@ export function getWeaponLength(weapon) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+export function parseWeaponReachMin(raw) {
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+export function parseWeaponReachMax(raw) {
+  return _parsePositiveReach(raw);
+}
+
+export function getLegacyStructuredWeaponReach(system = {}) {
+  const manual = _getStructuredReachFallbackMaxFromList(system?.qualitiesStructured);
+  if (manual != null) return manual;
+  return _getStructuredReachFallbackMaxFromList(system?.qualitiesStructuredInjected);
+}
+
+export function getHomebrewWeaponReachOverrides(flags = {}, { model = getReachLengthModel() } = {}) {
+  const reachLength = flags?.[NAMESPACE]?.homebrew?.reachLength ?? {};
+  const branch = reachLength?.[model] ?? {};
+  const length = Number(reachLength?.length);
+  return {
+    length: Number.isFinite(length) && length > 0 ? length : 0,
+    min: branch?.min === undefined || branch?.min === null || branch?.min === "" ? null : parseWeaponReachMin(branch.min),
+    max: parseWeaponReachMax(branch?.max),
+  };
+}
+
+export function getWeaponBaseReachState(weaponOrData, { attackMode = null, includeLegacyFallback = true } = {}) {
+  const ctx = _resolveWeaponContext(weaponOrData, { attackMode });
+  if (ctx.type !== "weapon" || ctx.attackMode !== "melee") {
+    return { min: 0, max: 0, source: "none" };
+  }
+
+  const min = parseWeaponReachMin(ctx.system?.reachMin);
+  const persisted = parseWeaponReachMax(ctx.system?.reach);
+  if (persisted != null) {
+    return { min, max: persisted, source: "system" };
+  }
+
+  if (!includeLegacyFallback) {
+    return { min, max: 0, source: "none" };
+  }
+
+  const legacy = getLegacyStructuredWeaponReach(ctx.system);
+  if (legacy != null) {
+    return { min, max: legacy, source: "legacyStructured" };
+  }
+
+  return { min, max: 0, source: "none" };
+}
+
+export function resolveWeaponReachValue({
+  system = {},
+  flags = {},
+  attackMode = null,
+  includeLegacyFallback = true,
+  includeHomebrewFallback = true,
+  model = getReachLengthModel(),
+} = {}) {
+  const base = getWeaponBaseReachState({ type: "weapon", system, flags, attackMode }, {
+    attackMode,
+    includeLegacyFallback,
+  });
+  if (base.max > 0) return { value: base.max, source: base.source };
+  if (!includeHomebrewFallback) return { value: null, source: "none" };
+
+  const overrides = getHomebrewWeaponReachOverrides(flags, { model });
+  if (overrides.max != null) return { value: overrides.max, source: "homebrew" };
+  return { value: null, source: "none" };
+}
+
 /**
  * Returns effective reach bounds for a weapon, respecting the Reach & Length Overhaul
  * homebrew settings and per-weapon flag overrides.
  *
  * @param {Item} weapon
- * @returns {{ min: number, max: number, source: "homebrew-classic"|"homebrew-simplified"|"system" }}
+ * @returns {{ min: number, max: number, source: "homebrew-classic"|"homebrew-simplified"|"system"|"legacyStructured"|"none" }}
  */
-export function getWeaponReachBoundsEffective(weapon) {
-  const sys = weapon?.system ?? {};
-
-  const _parseHeaderReachMin = (raw) => {
-    const n = Number(raw);
-    return (Number.isFinite(n) && n >= 0) ? n : 0;
-  };
-
-  const _parseReachMaxOrMissing = (raw) => {
-    const s = String(raw ?? "").trim().toLowerCase();
-    if (!s || s === "x") return null;
-    const n = Number(raw);
-    // Header max reach: treat 0 and non-numeric as missing so melee fallback can apply.
-    if (!Number.isFinite(n) || n <= 0) return null;
-    return n;
-  };
-
-  const _getStructuredReachFallbackMax = (item) => {
-    const source = Array.isArray(item?.system?.qualitiesStructuredInjected)
-      ? item.system.qualitiesStructuredInjected
-      : (Array.isArray(item?.system?.qualitiesStructured) ? item.system.qualitiesStructured : []);
-    let best = null;
-    for (const q of source) {
-      const key = String(q?.key ?? q ?? "").trim().toLowerCase();
-      if (key !== "reach") continue;
-      const n = Number(q?.value);
-      if (!Number.isFinite(n) || n <= 0) continue;
-      best = best == null ? n : Math.max(best, n);
-    }
-    return best;
-  };
-
-  const sysMin = _parseHeaderReachMin(sys.reachMin);
-  const headerMax = _parseReachMaxOrMissing(sys.reach);
-  const meleeStructuredFallbackMax = _isMeleeWeapon(weapon) ? _getStructuredReachFallbackMax(weapon) : null;
-  const systemMax = (headerMax ?? meleeStructuredFallbackMax ?? 0);
-  const systemResult = { min: sysMin, max: systemMax, source: "system" };
-
-  if (!isReachLengthHomebrewEnabled()) return systemResult;
+export function getWeaponReachBoundsEffective(weaponOrData) {
+  const ctx = _resolveWeaponContext(weaponOrData);
+  const base = getWeaponBaseReachState(ctx, { includeLegacyFallback: true });
+  if (ctx.type !== "weapon" || ctx.attackMode !== "melee") return base;
+  if (!isReachLengthHomebrewEnabled()) return base;
 
   const model = getReachLengthModel();
-  const flags = weapon?.flags?.[NAMESPACE]?.homebrew?.reachLength ?? {};
+  const overrides = getHomebrewWeaponReachOverrides(ctx.flags, { model });
+  const hasOverride = overrides.min != null || overrides.max != null;
 
   if (model === "classic") {
-    const classicFlags = flags?.classic ?? {};
-    const hbMin = Number(classicFlags?.min);
-    const hbMax = _parseReachMaxOrMissing(classicFlags?.max);
-    const min = Number.isFinite(hbMin) ? hbMin : sysMin;
-    const max = hbMax ?? systemMax;
-    return { min, max, source: "homebrew-classic" };
+    return {
+      min: overrides.min ?? base.min,
+      max: overrides.max ?? base.max,
+      source: hasOverride ? "homebrew-classic" : base.source,
+    };
   }
 
   if (model === "simplified") {
-    const simpFlags = flags?.simplified ?? {};
-    const hbMin = Number(simpFlags?.min);
-    const hbMax = _parseReachMaxOrMissing(simpFlags?.max);
-    // Simplified default: min = 0 (no too-close gating), max falls back to system reach
-    const min = Number.isFinite(hbMin) ? hbMin : 0;
-    const max = hbMax ?? systemMax;
-    return { min, max, source: "homebrew-simplified" };
+    return {
+      min: overrides.min ?? 0,
+      max: overrides.max ?? base.max,
+      source: hasOverride ? "homebrew-simplified" : base.source,
+    };
   }
 
   // Unknown model - fall back to system
-  return systemResult;
+  return base;
 }
 
 /**

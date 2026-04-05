@@ -29,13 +29,13 @@ const FRAY_TABLE = [
     min: 51, max: 60,
     label: "Heroic Rally",
     effect: "restore-1d6-condition",
-    description: "Your unit rallies around a heroic soldier. Restore 1d6 Condition.",
+    description: "Your unit rallies around a heroic soldier. Restore 1d6 Resolve.",
   },
   {
     min: 61, max: 75,
     label: "Lose a Flank",
     effect: "lose-1d4-condition",
-    description: "Your unit loses a flank and begins to rout. Lose 1d4 Condition.",
+    description: "Your unit loses a flank and begins to rout. Lose 1d4 Resolve.",
   },
   {
     min: 76, max: 89,
@@ -47,7 +47,7 @@ const FRAY_TABLE = [
     min: 90, max: 99,
     label: "Enemy Champion Rallies",
     effect: "enemy-restore-1d6",
-    description: "An enemy champion rallies their comrades. The enemy unit restores 1d6 Condition.",
+    description: "An enemy champion rallies their comrades. The enemy unit restores 1d6 Resolve.",
   },
   {
     min: 100, max: 100,

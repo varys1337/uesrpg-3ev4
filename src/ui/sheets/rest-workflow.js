@@ -6,6 +6,12 @@ import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { requestAtomicUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { hasStuntedMagicka } from "../../core/magic/magic-modifiers.js";
 import { getRecoveryAEModifiers } from "../../core/actors/ae/modifiers.js";
+import { isReligionWorshipEnabled } from "../../core/homebrew/settings.js";
+import {
+  buildInvocationGroupEntries,
+  getActorRitualDomainEntries,
+  getDomainPreparationLimit,
+} from "../../core/religion/ritual-domains.js";
 import {
   getNaturalHealingStarsignProfile,
   getRitualBlessingNames,
@@ -13,6 +19,10 @@ import {
   hasStarCursedRitualBirthsign,
   isRitualBlessingItem,
 } from "../../core/traits/starsigns/index.js";
+import {
+  actorHasActiveFasting,
+  setPreparedInvocations,
+} from "../../core/religion/worship-service.js";
 import birthsignSigns from "./racemenu/data/birthsign-signs.js";
 
 // Chapter 5: Untreated wounds block natural HP regeneration.
@@ -230,6 +240,93 @@ async function _promptMeditationChoice(actor) {
   });
 }
 
+async function _promptLongRestInvocationPreparation(actor) {
+  if (!actor || actor.type !== "Player Character" || !_canPromptForActor(actor) || !isReligionWorshipEnabled()) {
+    return { updatedDomains: [] };
+  }
+
+  const domainEntries = getActorRitualDomainEntries(actor);
+  if (!domainEntries.length) return { updatedDomains: [] };
+
+  const shouldPrepare = await customDialog({
+    title: "Invocation Preparation",
+    content: `
+      <div class="uesrpg-long-rest-invocations">
+        <p><b>${foundry.utils.escapeHTML(actor?.name ?? "Actor")}</b> may re-prepare invocations for the next day.</p>
+        <p>Choose <b>Re-prepare</b> to review each ritual domain. Choose <b>Keep Current</b> to preserve the existing prepared lists.</p>
+      </div>
+    `,
+    buttons: {
+      prepare: { label: "Re-prepare", callback: () => true },
+      keep: { label: "Keep Current", callback: () => false },
+    },
+    default: "keep",
+    width: 460,
+  });
+
+  if (!shouldPrepare) return { updatedDomains: [] };
+
+  const groups = buildInvocationGroupEntries(actor);
+  const updatedDomains = [];
+
+  for (const domainEntry of domainEntries) {
+    const domainKey = String(domainEntry?.key ?? "").trim().toLowerCase();
+    if (!domainKey) continue;
+
+    const rows = groups.flatMap((group) =>
+      group.invocations
+        .filter((entry) => Array.isArray(entry.accessibleStores) && entry.accessibleStores.includes(domainKey))
+        .map((entry) => ({
+          id: entry.id,
+          label: entry.label,
+          groupLabel: group.label,
+          circle: entry.circle,
+          pietyCost: entry.pietyCost,
+          prepared: Array.isArray(entry.preparedIn) && entry.preparedIn.includes(domainKey),
+        }))
+    );
+
+    if (!rows.length) continue;
+
+    const prepLimit = getDomainPreparationLimit(actor, domainKey);
+    const picked = await customDialog({
+      title: `Prepare Invocations: ${foundry.utils.escapeHTML(domainEntry.label)}`,
+      content: `<div style="display:flex; flex-direction:column; gap:8px;">
+        <p style="margin:0;">Preparation limit: <b>${prepLimit}</b></p>
+        <div style="max-height:420px; overflow:auto;">${rows.map((row) => `
+          <label style="display:flex; gap:8px; align-items:flex-start; padding:4px 0;">
+            <input type="checkbox" name="invocationId" value="${row.id}" ${row.prepared ? "checked" : ""} />
+            <span><b>${foundry.utils.escapeHTML(row.label)}</b> (${foundry.utils.escapeHTML(row.groupLabel)}, Circle ${row.circle}, ${row.pietyCost} PP)</span>
+          </label>
+        `).join("")}</div>
+      </div>`,
+      buttons: {
+        save: {
+          label: "Save",
+          callback: (html) => {
+            const root = html instanceof HTMLElement ? html : html?.[0];
+            return Array.from(root?.querySelectorAll('input[name="invocationId"]:checked') ?? []).map((el) => el.value);
+          },
+        },
+        skip: { label: "Keep Current", callback: () => null },
+      },
+      defaultButton: "save",
+      width: 520,
+    });
+
+    if (!picked) continue;
+    if (picked.length > prepLimit) {
+      ui.notifications?.warn?.(`You can only prepare ${prepLimit} invocation(s) for ${domainEntry.label}.`);
+      continue;
+    }
+
+    await setPreparedInvocations(actor, domainKey, picked);
+    updatedDomains.push(domainEntry.label);
+  }
+
+  return { updatedDomains };
+}
+
 export async function applyShortRest(actor, opts = {}) {
   if (!actor) return { line: "", updatesApplied: false };
 
@@ -240,6 +337,7 @@ export async function applyShortRest(actor, opts = {}) {
   const actorName = actor.name;
   const actorUuid = actor.uuid;
   const stuntedMagicka = hasStuntedMagicka(actor);
+  const fastingFactor = actorHasActiveFasting(actor) ? 0.5 : 1;
 
   // Meditation (Chapter 4): optional short rest mode that doubles MP/SP regeneration.
   const allowPrompt = opts?.allowPrompt !== false;
@@ -295,7 +393,7 @@ export async function applyShortRest(actor, opts = {}) {
       updateData["system.fatigue.bonus"] = Math.max(0, fatigueBonus - 1);
       meta.line += `Removed 1 fatigue (now ${Math.max(0, fatigueBonus - 1)})`;
     } else if (currentSP < maxSP) {
-      const deltaSP = Math.max(0, Math.floor((useMeditation ? 2 : 1) * Math.max(0, _num(resourceRecovery?.stamina?.multiplier, 1))));
+      const deltaSP = Math.max(0, Math.floor((useMeditation ? 2 : 1) * Math.max(0, _num(resourceRecovery?.stamina?.multiplier, 1)) * fastingFactor));
       if (deltaSP > 0) {
         const newSP = Math.min(currentSP + deltaSP, maxSP);
         updateData["system.stamina.value"] = newSP;
@@ -311,7 +409,7 @@ export async function applyShortRest(actor, opts = {}) {
     const mpRecoverBase = Math.floor(maxMP / 10);
     const mpRecover = stuntedMagicka
       ? 0
-      : Math.max(0, Math.floor(mpRecoverBase * Math.max(0, _num(resourceRecovery?.magicka?.multiplier, 1)) * (useMeditation ? 2 : 1)));
+      : Math.max(0, Math.floor(mpRecoverBase * Math.max(0, _num(resourceRecovery?.magicka?.multiplier, 1)) * (useMeditation ? 2 : 1) * fastingFactor));
     if (stuntedMagicka) {
       meta.line += " (MP recovery skipped due to Stunted Magicka)";
     } else if (mpRecover > 0 && currentMP < maxMP) {
@@ -322,10 +420,11 @@ export async function applyShortRest(actor, opts = {}) {
 
     // Rapid Recovery HP heal applied to fresh current HP.
     if (rapidRecoveryRoll > 0 && currentHP < maxHP) {
-      meta.hpHealed = Math.min(rapidRecoveryRoll, maxHP - currentHP);
-      const newHP = Math.min(maxHP, currentHP + rapidRecoveryRoll);
+      const hpRecovered = Math.max(0, Math.floor(rapidRecoveryRoll * fastingFactor));
+      meta.hpHealed = Math.min(hpRecovered, maxHP - currentHP);
+      const newHP = Math.min(maxHP, currentHP + hpRecovered);
       updateData["system.hp.value"] = newHP;
-      meta.line += ` (+${rapidRecoveryRoll} HP)`;
+      meta.line += ` (+${hpRecovered} HP)`;
     }
 
     meta.hasUpdates = Object.keys(updateData).length > 0;
@@ -333,6 +432,7 @@ export async function applyShortRest(actor, opts = {}) {
   });
 
   if (useMeditation) meta.line += " (Meditation)";
+  if (fastingFactor < 1) meta.line += " (Fasting halved recovery)";
   meta.line += "</li>";
 
   if (meta.hpHealed > 0) {
@@ -350,7 +450,7 @@ export async function applyShortRest(actor, opts = {}) {
   return { line: meta.line, updatesApplied: meta.hasUpdates };
 }
 
-export async function applyLongRest(actor) {
+export async function applyLongRest(actor, opts = {}) {
   if (!actor) return { line: "", updatesApplied: false };
 
   // ── Phase 1: resolve stable derived values and async side-reads ─────────
@@ -362,6 +462,7 @@ export async function applyLongRest(actor) {
   // END bonus is stable over the course of a rest (no equipment swaps expected mid-rest).
   const endBonus = Math.floor(_num(actor.system?.characteristics?.end?.total ?? 0) / 10);
   const stuntedMagicka = hasStuntedMagicka(actor);
+  const fastingFactor = actorHasActiveFasting(actor) ? 0.5 : 1;
 
   // ── Phase 2: atomic read-compute-write ───────────────────────────────────
   // requestAtomicUpdateDocument re-reads the actor fresh inside a per-document
@@ -385,7 +486,7 @@ export async function applyLongRest(actor) {
     const recoveryParts = [];
 
     // RAW: Remove fatigue levels first; remaining recovery applies to SP.
-    let recoveryPool = Math.max(0, endBonus);
+    let recoveryPool = Math.max(0, Math.floor(endBonus * fastingFactor));
 
     if (fatigueBonus > 0 && recoveryPool > 0) {
       const fatigueRemoved = Math.min(fatigueBonus, recoveryPool);
@@ -404,7 +505,7 @@ export async function applyLongRest(actor) {
 
     // RAW: Heal END bonus HP on long rest only if there are no untreated wounds.
     if (!untreatedWounds && currentHP < maxHP && endBonus > 0) {
-      const healingProfile = _resolveNaturalHealingProfile(freshActor, { endBonus });
+      const healingProfile = _resolveNaturalHealingProfile(freshActor, { endBonus: Math.floor(endBonus * fastingFactor) });
       meta.hpHealed = Math.min(healingProfile.finalHealing, maxHP - currentHP);
       updateData["system.hp.value"] = currentHP + meta.hpHealed;
       let healText = `Healed ${meta.hpHealed} HP`;
@@ -419,8 +520,9 @@ export async function applyLongRest(actor) {
     if (stuntedMagicka) {
       recoveryParts.push("MP recovery skipped due to Stunted Magicka");
     } else if (currentMP < maxMP) {
-      updateData["system.magicka.value"] = maxMP;
-      recoveryParts.push("Recovered all MP");
+      const recoveredMp = Math.max(0, Math.floor((maxMP - currentMP) * fastingFactor));
+      updateData["system.magicka.value"] = Math.min(maxMP, currentMP + recoveredMp);
+      recoveryParts.push(`Recovered ${recoveredMp} MP (${Math.min(maxMP, currentMP + recoveredMp)}/${maxMP})`);
     }
 
     updateData["flags.uesrpg-3ev4.wounds.longRestCounter"] = longRestCounter + 1;
@@ -458,9 +560,20 @@ export async function applyLongRest(actor) {
   } catch (_e) {
     // Non-blocking.
   }
+  try {
+    if (opts?.allowPrompt !== false) {
+      const preparation = await _promptLongRestInvocationPreparation(actor);
+      if (Array.isArray(preparation?.updatedDomains) && preparation.updatedDomains.length) {
+        meta.line = _appendRestLineNote(meta.line, `Invocations prepared for ${preparation.updatedDomains.join(", ")}`);
+      }
+    }
+  } catch (_e) {
+    // Non-blocking.
+  }
   try { await clearRacialTalentUsageOnRest(actor, { restType: "long" }); } catch (_e) { /* ignore */ }
 
   if (meta.untreatedWoundsNoHeal) _notifyHpHealingSkipped(actor);
+  if (fastingFactor < 1) meta.line = _appendRestLineNote(meta.line, "Fasting halved HP/SP/MP recovery");
 
   return { line: meta.line, updatesApplied: meta.hasUpdates };
 }

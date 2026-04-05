@@ -1,4 +1,4 @@
-import { SYSTEM_ID, FLAG_SCOPE } from "../constants.js";
+import { SYSTEM_ID, FLAG_SCOPE, SYSTEM_ROLL_FORMULA } from "../constants.js";
 import { resolveWarfareProfile } from "./profile-registry.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import {
@@ -10,6 +10,18 @@ import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
 import { buildWarfareDisciplineTN } from "./tn.js";
 import { applyWarfareConditionDelta } from "./condition-target.js";
+import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
+import { measureTokenDistanceChebyshev } from "../combat/opposed/range.js";
+import { areTokensInBaseContact } from "./battlefield/geometry.js";
+import {
+  commitWarfareEncounterStrategicActivation,
+  declareWarfareEncounterChargeForActor,
+  ensureEncounterAllowsActorAction,
+} from "./encounter/controller.js";
+import {
+  getEncounterSceneForActor,
+  getSceneWarfareEncounterState,
+} from "./encounter/state.js";
 
 export const WARFARE_EFFECT_KEYS = Object.freeze({
   JOIN_FRAY_NEXT_CLASH: "joinFrayNextClash",
@@ -69,6 +81,116 @@ function getActionSummary(actor, entry) {
       : "Attach a targeted PC or NPC actor as this warfare unit's leader and link their token if both are on scene.";
   }
   return entry.summary ?? "";
+}
+
+async function _guardEncounterStrategicAction(actor, actionLabel) {
+  return ensureEncounterAllowsActorAction(actor, { actionLabel });
+}
+
+function _isBrokenOrRouted(actor) {
+  return Boolean(actor?.system?.status?.battle?.broken || actor?.system?.status?.battle?.routed);
+}
+
+function _blockedBattleStateLabel(actor) {
+  if (actor?.system?.status?.battle?.defeated) return "defeated";
+  if (actor?.system?.status?.battle?.routed) return "Routed";
+  if (actor?.system?.status?.battle?.broken) return "Broken";
+  return "";
+}
+
+function _findActorSkillByName(actor, name) {
+  const wanted = String(name ?? "").trim().toLowerCase();
+  return actor?.items?.find?.((item) =>
+    String(item?.type ?? "").trim().toLowerCase() === "skill"
+    && String(item?.name ?? "").trim().toLowerCase() === wanted
+  ) ?? null;
+}
+
+async function _getAttachedCommanderActor(warfareActor) {
+  const commanderUuid = String(warfareActor?.system?.commander?.uuid ?? "");
+  if (!commanderUuid) return null;
+  try {
+    const commander = await fromUuid(commanderUuid);
+    return commander?.documentName === "Actor" ? commander : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function _buildCommandDifficultyOptions(defaultKey = "average") {
+  return SKILL_DIFFICULTIES.map((entry) => {
+    const sign = entry.mod >= 0 ? "+" : "";
+    const selected = entry.key === defaultKey ? "selected" : "";
+    return `<option value="${entry.key}" ${selected}>${entry.label} (${sign}${entry.mod})</option>`;
+  }).join("\n");
+}
+
+async function _promptCommanderCommandRoll(commanderActor, targetActor) {
+  const commandItem = _findActorSkillByName(commanderActor, "command");
+  if (!commandItem) {
+    ui.notifications?.warn?.(`${commanderActor?.name ?? "Commander"} does not have the Command skill.`);
+    return null;
+  }
+
+  const declaration = await customDialog({
+    title: `${commanderActor.name} - Command Test`,
+    content: `
+      <div class="uesrpg-skill-roll">
+        <p>Resolve a <b>Command</b> test for <b>${esc(targetActor?.name ?? "the target unit")}</b>.</p>
+        <div class="form-group">
+          <label><b>Difficulty</b></label>
+          <select name="difficultyKey" style="width:100%;">${_buildCommandDifficultyOptions("average")}</select>
+        </div>
+        <div class="form-group" style="margin-top:8px;">
+          <label><b>Manual Modifier</b></label>
+          <input type="number" name="manualMod" value="0" style="width:90px;">
+        </div>
+      </div>`,
+    buttons: {
+      roll: {
+        label: "Roll",
+        callback: (html) => {
+          const root = html instanceof HTMLElement ? html : html?.[0];
+          return {
+            difficultyKey: String(root?.querySelector('[name="difficultyKey"]')?.value ?? "average"),
+            manualMod: Number(root?.querySelector('[name="manualMod"]')?.value ?? 0) || 0,
+            skillItem: commandItem,
+          };
+        },
+      },
+      cancel: { label: "Cancel" },
+    },
+    defaultButton: "roll",
+  });
+  if (!declaration) return null;
+
+  const tn = computeSkillTN({
+    actor: commanderActor,
+    skillItem: commandItem,
+    difficultyKey: declaration.difficultyKey,
+    manualMod: declaration.manualMod,
+  });
+  const result = await doTestRoll(commanderActor, {
+    rollFormula: SYSTEM_ROLL_FORMULA,
+    target: tn.finalTN,
+    allowLucky: true,
+    allowUnlucky: true,
+  });
+  await showRoll3d(result?.roll);
+  const outcome = formatResultOutcomeLabel(result);
+  await result?.roll?.toMessage?.({
+    speaker: ChatMessage.getSpeaker({ actor: commanderActor }),
+    flavor: `<div><h2 style="margin:0 0 6px 0;">Command Test</h2><div><b>Target:</b> ${tn.finalTN}</div><div><b>Target Unit:</b> ${esc(targetActor?.name ?? "")}</div><div style="margin-top:4px;"><b>${esc(outcome)}</b>${Number.isFinite(result?.degree) ? ` (${result.degree})` : ""}</div></div>`,
+  });
+  return { commandItem, tn, result };
+}
+
+function _guardBattleState(actor, actionLabel, { allowRally = false } = {}) {
+  const stateLabel = _blockedBattleStateLabel(actor);
+  if (!stateLabel) return true;
+  if (allowRally && String(stateLabel).toLowerCase() !== "defeated") return true;
+  ui.notifications?.warn?.(`${actionLabel} is blocked because this warfare unit is ${stateLabel}.`);
+  return false;
 }
 
 function buildActionCardHtml(actor, entry, {
@@ -255,55 +377,31 @@ async function postDisciplineOutcomeCard(actor, entry, {
   await postActionCard(actor, entry, { actionType, extraHtml, whisper, blind });
 }
 
-async function runLeaderShockRoll(commanderActor) {
-  const baseTn = Number(commanderActor?.system?.characteristics?.end?.total ?? 0) || 0;
-  const result = await doTestRoll(commanderActor, { target: baseTn, allowLucky: false, allowUnlucky: false });
-  await showRoll3d(result?.roll);
-  const outcome = formatResultOutcomeLabel(result);
-  await ChatMessage.create({
-    speaker: ChatMessage.getSpeaker({ actor: commanderActor }),
-    content: `
-      <div class="uesrpg-chat-card" data-card="warfare-shock">
-        <header class="card-header"><h3>Shock Test</h3></header>
-        <div class="card-content">
-          <p><b>Target:</b> ${esc(commanderActor.name)}</p>
-          <p><b>Reason:</b> Join the Fray</p>
-          <p><b>TN:</b> ${baseTn}</p>
-          <p><b>Roll:</b> ${result?.rollTotal ?? "?"} - ${esc(outcome)}${Number.isFinite(result?.degree) ? ` (${result.degree})` : ""}</p>
-        </div>
-      </div>`,
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-  });
-}
-
 async function handleJoinFray(actor, entry, actionType) {
+  const commander = await _getAttachedCommanderActor(actor);
+  if (!commander) {
+    ui.notifications?.warn?.("Join the Fray requires an attached commander actor.");
+    return false;
+  }
   const duration = buildEffectDuration({ actor, rounds: 1, preferCombat: true });
   await upsertWarfareEffect(actor, {
     key: WARFARE_EFFECT_KEYS.JOIN_FRAY_NEXT_CLASH,
     name: "Join the Fray",
     img: "icons/skills/melee/sword-damaged-broken-purple.webp",
     duration,
-    extraFlags: { expiresOnTurnStart: true, singleUse: true },
+    extraFlags: {
+      expiresOnTurnStart: true,
+      singleUse: true,
+      commanderActorUuid: String(commander.uuid ?? ""),
+      commanderName: String(commander.name ?? ""),
+    },
   });
-
-  let shockNote = "No commander is assigned; commander Shock test skipped.";
-  const commanderUuid = actor?.system?.commander?.uuid;
-  if (commanderUuid) {
-    const commander = await fromUuid(commanderUuid);
-    if (commander?.documentName === "Actor") {
-      await runLeaderShockRoll(commander);
-      shockNote = `Commander ${esc(commander.name)} rolled a Shock test.`;
-    } else {
-      ui.notifications?.warn?.("Assigned commander actor could not be resolved.");
-    }
-  } else {
-    ui.notifications?.warn?.("This warfare unit has no commander assigned; Shock test skipped.");
-  }
 
   await postActionCard(actor, entry, {
     actionType,
-    extraHtml: `<p>${shockNote}</p><p>The next Clash test for this unit gains +10 TN from Join the Fray.</p>`,
+    extraHtml: `<p>Commander <b>${esc(commander.name)}</b> is marked to join this unit's next Clash.</p><p>Resolve the commander's normal attack or spell workflow as part of that Clash's chat-card sequence.</p>`,
   });
+  return true;
 }
 
 async function handleMessenger(actor, entry, actionType) {
@@ -315,28 +413,53 @@ async function handleMessenger(actor, entry, actionType) {
     actionType,
     extraHtml: `<p><b>Messenger Table:</b> ${total}</p><p>${esc(effect)}</p>`,
   });
+  return true;
 }
 
 async function handleRally(actor, entry, actionType) {
-  const baseTn = Number(actor?.system?.stats?.discipline?.value ?? 0) || 0;
-  const modifier = await promptDisciplineModifier(`${actor.name} - Rally the Unit`, baseTn, "On success, apply +10 Current Discipline until the unit's next activation.");
-  if (modifier === null || modifier === undefined) return;
-  const rollData = await rollDiscipline(actor, { modifier });
-
-  let note = "Failure - no discipline was restored.";
-  if (rollData.result?.isSuccess) {
-    await requestUpdateDocument(actor, {
-      "system.modifiers.discipline.battle.rallyBonus": true,
-    });
-    note = "Success - Rally the Unit applied (+10 Current Discipline).";
+  const commander = await _getAttachedCommanderActor(actor);
+  if (!commander) {
+    ui.notifications?.warn?.("Rally the Unit requires an attached commander actor.");
+    return false;
   }
 
-  await postDisciplineOutcomeCard(actor, entry, {
+  const warfareTokenDoc = getActiveSceneTokenForActor(actor);
+  const targetRef = getTargetWarfareUnit(actor, { allowSelf: true });
+  if (!targetRef) return false;
+  const targetTokenDoc = targetRef.token?.document ?? getActiveSceneTokenForActor(targetRef.actor);
+  if (targetRef.actor.id !== actor.id) {
+    if (!warfareTokenDoc || !targetTokenDoc || !areTokensInBaseContact(warfareTokenDoc, targetTokenDoc)) {
+      ui.notifications?.warn?.("Rally the Unit can only target the attached unit or one adjacent friendly Warfare Unit.");
+      return false;
+    }
+    if (!warfareTokenDoc || Math.sign(Number(warfareTokenDoc.disposition ?? 0)) !== Math.sign(Number(targetTokenDoc.disposition ?? 0))) {
+      ui.notifications?.warn?.("Rally the Unit requires a friendly Warfare Unit target.");
+      return false;
+    }
+  }
+
+  const commandRoll = await _promptCommanderCommandRoll(commander, targetRef.actor);
+  if (!commandRoll) return false;
+
+  let note = "Failure - no discipline was restored.";
+  if (commandRoll.result?.isSuccess) {
+    const disciplineMax = Number(targetRef.actor?.system?._derived?.disciplineMax ?? targetRef.actor?.system?.stats?.discipline?.base ?? 0) || 0;
+    const currentDiscipline = Number(targetRef.actor?.system?.stats?.discipline?.value ?? 0) || 0;
+    if (currentDiscipline < disciplineMax) {
+      await requestUpdateDocument(targetRef.actor, {
+        "system.modifiers.discipline.battle.rallyBonus": true,
+      });
+      note = `Success - ${esc(targetRef.actor.name)} regains 10 Discipline, up to its legal maximum.`;
+    } else {
+      note = `${esc(targetRef.actor.name)} is already at its legal Discipline maximum.`;
+    }
+  }
+
+  await postActionCard(actor, entry, {
     actionType,
-    title: "Rally the Unit",
-    rollData,
-    note,
+    extraHtml: `<p><b>Commander:</b> ${esc(commander.name)}</p><p>${note}</p>`,
   });
+  return true;
 }
 
 async function handleHold(actor, entry, actionType) {
@@ -352,6 +475,7 @@ async function handleHold(actor, entry, actionType) {
     actionType,
     extraHtml: "<p>Hold is active. Enemy units take -20 TN to Clash Tests made against this unit, and this unit counts as Defending in its first Clash. The effect is lost if the unit moves first.</p>",
   });
+  return true;
 }
 
 function getTargetWarfareUnit(sourceActor, { allowSelf = false } = {}) {
@@ -447,14 +571,17 @@ async function promptRangedAttackOptions(actor) {
 }
 
 export async function rollWarfareRangedAttack(actor) {
+  if (!_guardBattleState(actor, "Ranged Attack")) return false;
+  const gate = await _guardEncounterStrategicAction(actor, "Ranged Attack");
+  if (!gate?.allowed) return false;
   if (!actor?.system?._derived?.canRangedAttack) {
     ui.notifications?.warn?.("Only Skirmisher units can make standard ranged attacks.");
-    return;
+    return false;
   }
   const targetRef = getTargetWarfareUnit(actor);
-  if (!targetRef) return;
+  if (!targetRef) return false;
   const choices = await promptRangedAttackOptions(actor);
-  if (!choices) return;
+  if (!choices) return false;
 
   const extraBreakdown = [];
   if (choices.longRange) extraBreakdown.push({ label: "Long Range", value: -10 });
@@ -498,6 +625,8 @@ export async function rollWarfareRangedAttack(actor) {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
   }
+  await commitWarfareEncounterStrategicActivation(actor, { gate });
+  return true;
 }
 
 async function promptSpellChoice(actor) {
@@ -560,8 +689,11 @@ function applyDisciplineRestorePatch(targetActor, amount) {
 }
 
 export async function castWarfareSpell(actor) {
+  if (!_guardBattleState(actor, "Cast Spell")) return false;
+  const gate = await _guardEncounterStrategicAction(actor, "Cast Spell");
+  if (!gate?.allowed) return false;
   const choice = await promptSpellChoice(actor);
-  if (!choice) return;
+  if (!choice) return false;
   const implementEntries = Array.isArray(actor?.system?.magic?.entries) ? actor.system.magic.entries : [];
   const scrollEntries = Array.isArray(actor?.system?._derived?.equipmentEntries)
     ? actor.system._derived.equipmentEntries.filter((item) => item.isBattleScroll && !item.expended)
@@ -572,7 +704,7 @@ export async function castWarfareSpell(actor) {
   ];
   const selected = selections[choice.selectionIndex];
   const entry = selected?.entry ?? null;
-  if (!entry) return;
+  if (!entry) return false;
 
   const extraBreakdown = [];
   if (actor?.system?._derived?.traditionKey === "summerset") extraBreakdown.push({ label: "Arcane Precision", value: 0 });
@@ -655,6 +787,8 @@ export async function castWarfareSpell(actor) {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
   }
+  await commitWarfareEncounterStrategicActivation(actor, { gate });
+  return true;
 }
 
 function getTargetLeaderActor() {
@@ -948,11 +1082,31 @@ async function handleAttachDetach(actor, entry, actionType) {
       actionType,
       extraHtml: "<p>Commander detached and token attachment cleared.</p>",
     });
-    return;
+    return true;
   }
 
   const target = getTargetLeaderActor();
-  if (!target) return;
+  if (!target) return false;
+  const scene = getEncounterSceneForActor(actor);
+  const encounterState = scene ? getSceneWarfareEncounterState(scene) : null;
+  const warfareTokenDoc = getActiveSceneTokenForActor(actor);
+  const leaderTokenDoc = target.token?.document ?? getActiveSceneTokenForActor(target.actor);
+  if (encounterState?.active) {
+    if (!warfareTokenDoc || !leaderTokenDoc) {
+      ui.notifications?.warn?.("Attach requires both commander and warfare unit tokens on the active encounter scene.");
+      return false;
+    }
+    const distance = measureTokenDistanceChebyshev(warfareTokenDoc?.object ?? warfareTokenDoc, leaderTokenDoc?.object ?? leaderTokenDoc);
+    const sceneGridDistance = Number(scene?.grid?.distance ?? canvas?.scene?.grid?.distance ?? 1) || 1;
+    if (!Number.isFinite(distance) || distance > sceneGridDistance) {
+      ui.notifications?.warn?.("Attach requires one eligible adjacent friendly PC or NPC token.");
+      return false;
+    }
+    if (Math.sign(Number(warfareTokenDoc?.disposition ?? 0)) !== Math.sign(Number(leaderTokenDoc?.disposition ?? 0))) {
+      ui.notifications?.warn?.("Attach requires a friendly adjacent commander token.");
+      return false;
+    }
+  }
 
   await requestUpdateDocument(actor, {
     "system.commander.uuid": target.actor.uuid,
@@ -965,8 +1119,6 @@ async function handleAttachDetach(actor, entry, actionType) {
     "system.commanderAttachment.leaderActorUuid": target.actor.uuid,
   });
 
-  const warfareTokenDoc = getActiveSceneTokenForActor(actor);
-  const leaderTokenDoc = target.token?.document ?? getActiveSceneTokenForActor(target.actor);
   const linked = await writeAttachmentFlags({
     warfareTokenDoc,
     leaderTokenDoc,
@@ -977,6 +1129,7 @@ async function handleAttachDetach(actor, entry, actionType) {
     actionType,
     extraHtml: `<p>${esc(target.actor.name)} attached as commander.${linked ? " Token follow linked on the active scene." : " Token follow skipped because one or both tokens were not found on the active scene."}</p>`,
   });
+  return true;
 }
 
 async function handleCharge(actor, entry, actionType) {
@@ -990,14 +1143,15 @@ async function handleCharge(actor, entry, actionType) {
   });
   await postActionCard(actor, entry, {
     actionType,
-    extraHtml: "<p>Speed is doubled for the current round/turn. Ambush extra damage remains a stored rule reminder for later automation.</p>",
+    extraHtml: "<p>Charge is declared for this round. Move the token normally on the scene and resolve the resulting clash against the declared target during the Clash phase.</p>",
   });
+  return true;
 }
 
 async function handleAmbush(actor, entry, actionType) {
   const baseTn = Number(actor?.system?.stats?.discipline?.value ?? 0) || 0;
   const modifier = await promptDisciplineModifier(`${actor.name} - Ambush`, baseTn, "Blind GM roll. On success, gain Hidden and Ambush Ready.");
-  if (modifier === null || modifier === undefined) return;
+  if (modifier === null || modifier === undefined) return false;
   const extraBreakdown = [];
   if (actor?.system?._derived?.fieldcraftActive) extraBreakdown.push({ label: "Fieldcraft", value: 10 });
   if (actor?.system?._derived?.implementEntries?.some?.((item) => item.key === "veilChannel")) extraBreakdown.push({ label: "Veil Channel", value: 10 });
@@ -1038,12 +1192,13 @@ async function handleAmbush(actor, entry, actionType) {
     whisper,
     blind: true,
   });
+  return true;
 }
 
 async function handleScout(actor, entry, actionType) {
   const baseTn = Number(actor?.system?.stats?.discipline?.value ?? 0) || 0;
   const modifier = await promptDisciplineModifier(`${actor.name} - Scout`, baseTn, "Blind GM roll. Compare this unit's DoS against hostile ambushers.");
-  if (modifier === null || modifier === undefined) return;
+  if (modifier === null || modifier === undefined) return false;
   const extraBreakdown = [];
   if (actor?.system?._derived?.fieldcraftActive) extraBreakdown.push({ label: "Fieldcraft", value: 10 });
   if (Number(actor?.system?._derived?.breakScoutBonus ?? 0) > 0) {
@@ -1061,10 +1216,12 @@ async function handleScout(actor, entry, actionType) {
     whisper: getGmRecipients(),
     blind: true,
   });
+  return true;
 }
 
 async function handleGeneric(actor, entry, actionType) {
   await postActionCard(actor, entry, { actionType });
+  return true;
 }
 
 async function handleAdvance(actor, entry, actionType) {
@@ -1073,32 +1230,64 @@ async function handleAdvance(actor, entry, actionType) {
     actionType,
     extraHtml: `<p>This unit may move up to ${speed * 2} spaces this Activation.</p>`,
   });
+  return true;
 }
 
 export async function handleWarfareAction(actor, { actionId = "", actionType = "unit" } = {}) {
   const entry = getActionEntry(actor, actionId, actionType);
-  if (!entry) return;
+  if (!entry) return false;
+  const actionLabel = getActionLabel(actor, entry);
+
+  if (actionId === "charge") {
+    if (!_guardBattleState(actor, actionLabel)) return false;
+    const declaration = await declareWarfareEncounterChargeForActor(actor, { actionLabel });
+    if (declaration?.handled) {
+      if (!declaration.declared) return false;
+      return handleCharge(actor, entry, actionType);
+    }
+    return handleCharge(actor, entry, actionType);
+  }
+
+  if (actionId === "castSpell") {
+    return castWarfareSpell(actor);
+  }
+
+  if (!_guardBattleState(actor, actionLabel, { allowRally: actionId === "rally" })) return false;
+
+  const gate = await _guardEncounterStrategicAction(actor, actionLabel);
+  if (!gate?.allowed) return false;
+
+  let resolved = false;
 
   switch (actionId) {
     case "advance":
-      return handleAdvance(actor, entry, actionType);
+      resolved = await handleAdvance(actor, entry, actionType);
+      break;
     case "joinFray":
-      return handleJoinFray(actor, entry, actionType);
+      resolved = await handleJoinFray(actor, entry, actionType);
+      break;
     case "rally":
-      return handleRally(actor, entry, actionType);
+      resolved = await handleRally(actor, entry, actionType);
+      break;
     case "abandon":
-      return handleAttachDetach(actor, entry, actionType);
+      resolved = await handleAttachDetach(actor, entry, actionType);
+      break;
     case "hold":
-      return handleHold(actor, entry, actionType);
-    case "castSpell":
-      return castWarfareSpell(actor);
+      resolved = await handleHold(actor, entry, actionType);
+      break;
     case "setAmbush":
-      return handleAmbush(actor, entry, actionType);
+      resolved = await handleAmbush(actor, entry, actionType);
+      break;
     case "scout":
-      return handleScout(actor, entry, actionType);
+      resolved = await handleScout(actor, entry, actionType);
+      break;
     default:
-      return handleGeneric(actor, entry, actionType);
+      resolved = await handleGeneric(actor, entry, actionType);
+      break;
   }
+
+  if (resolved) await commitWarfareEncounterStrategicActivation(actor, { gate });
+  return resolved;
 }
 
 export function transformWarfareActionEntries(actor, entries = []) {

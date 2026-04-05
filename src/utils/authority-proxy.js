@@ -13,7 +13,7 @@
  * Supported operations:
  *  - ChatMessage updates (sanitized): content + flags[systemId].opposed / skillOpposed
  *  - Actor embedded ActiveEffect creation
- *  - Generic document updates (Actor / Item / ActiveEffect / TokenDocument / Combatant)
+ *  - Generic document updates (Actor / Item / ActiveEffect / TokenDocument / Combatant / Scene / Region)
  *  - Actor embedded document create/update/delete (ActiveEffect / Item)
  *
  * Concurrency hardening:
@@ -279,7 +279,7 @@ export function registerAuthorityProxy() {
         if (doc.documentName === "ChatMessage") return { ok: false, error: "Use updateChatMessage proxy for ChatMessage" };
 
         // Supported docs only.
-        const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant"]);
+        const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant", "Scene", "Region"]);
         if (!allowedDocs.has(doc.documentName)) {
           return { ok: false, error: `Unsupported document type: ${doc.documentName}` };
         }
@@ -705,7 +705,7 @@ export async function requestCreateActiveEffect(actor, effectData, { timeout = 5
  * (e.g. capturing computed values for chat lines) are valid because the mutator
  * is called exactly once per invocation.
  *
- * Supported document types: Actor / Item / ActiveEffect / TokenDocument / Combatant
+ * Supported document types: Actor / Item / ActiveEffect / TokenDocument / Combatant / Scene / Region
  *
  * @param {Document|string} docOrUuid
  * @param {function(Document): object|null} mutator - Returns updateData or null to skip
@@ -720,7 +720,7 @@ export async function requestAtomicUpdateDocument(docOrUuid, mutator, { timeout 
   if (!doc) return false;
   if (doc.documentName === "ChatMessage") return false;
 
-  const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant"]);
+  const allowedDocs = new Set(["Actor", "Item", "ActiveEffect", "Token", "Combatant", "Scene", "Region"]);
   if (!allowedDocs.has(doc.documentName)) return false;
 
   // Direct path: authorized user — re-read fresh inside lock for atomicity.
@@ -756,7 +756,7 @@ export async function requestAtomicUpdateDocument(docOrUuid, mutator, { timeout 
  * Permission-safe generic document update.
  *
  * Supported:
- *  - Actor / Item / ActiveEffect / TokenDocument / Combatant
+ *  - Actor / Item / ActiveEffect / TokenDocument / Combatant / Scene / Region
  *
  * The payload is sanitized to conservative lanes.
  */

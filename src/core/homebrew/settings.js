@@ -90,6 +90,14 @@ export function isMassCombatEnabled() {
 }
 
 /**
+ * Returns true when the Religion & Worship homebrew subsystem is enabled.
+ * @returns {boolean}
+ */
+export function isReligionWorshipEnabled() {
+  return Boolean(getHomebrewSetting("homebrew.religionWorship.enabled", false));
+}
+
+/**
  * Returns the reach visualizer settings object.
  * Defaults to Chebyshev diagonal mode when unavailable.
  * @returns {{ gridDiagonalMode?: string }}

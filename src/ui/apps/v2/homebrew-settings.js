@@ -44,6 +44,7 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
         engagementFlankingEnabled: game.settings.get(NAMESPACE, "homebrew.engagementFlanking.enabled"),
         engagementFlankingOnlyInCombat: game.settings.get(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat"),
         massCombatEnabled: game.settings.get(NAMESPACE, "homebrew.massCombat.enabled"),
+        religionWorshipEnabled: game.settings.get(NAMESPACE, "homebrew.religionWorship.enabled"),
       },
     };
   }
@@ -87,6 +88,14 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
       await game.settings.set(NAMESPACE, "homebrew.massCombat.enabled", Boolean(data["homebrew.massCombat.enabled"]));
     }
 
+    // Religion & Worship
+    if ("homebrew.religionWorship.enabled" in data) {
+      const prev = game.settings.get(NAMESPACE, "homebrew.religionWorship.enabled");
+      const next = Boolean(data["homebrew.religionWorship.enabled"]);
+      await game.settings.set(NAMESPACE, "homebrew.religionWorship.enabled", next);
+      if (prev !== next) needsReload = true;
+    }
+
     // Reload prompt
     if (needsReload) {
       const reload = await confirmDialog({
@@ -101,4 +110,3 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
     }
   }
 }
-

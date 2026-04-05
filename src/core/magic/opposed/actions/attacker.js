@@ -8,7 +8,7 @@
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
-import { computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, applySpellRestraintRefund, isHealingSpell, getSpellScalingLevels, isActorTrainedInMagicSchool } from "../../magicka-utils.js";
+import { applySpellRestraintRefund, canActorCastSpell, computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, getSpellCastingSchool, getSpellScalingLevels, isHealingSpell } from "../../magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "../../backfire.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
 import { AttackTracker } from "../../../combat/attack-tracker.js";
@@ -161,7 +161,7 @@ function _buildCommitSpellPool(attacker, castActionType = "primary") {
   const byAction = String(castActionType) === "secondary"
     ? spellsAll.filter((s) => s?.system?.isInstant === true)
     : spellsAll;
-  const byTraining = byAction.filter((s) => isActorTrainedInMagicSchool(attacker, s?.system?.school));
+  const byTraining = byAction.filter((s) => canActorCastSpell(attacker, s));
 
   // For opposed workflow commit selection, include all targetable spells
   // (attack, healing, AND direct). Direct spells committed here auto-resolve
@@ -444,8 +444,8 @@ export async function handleAttackerCommit(ctx) {
     const spell = picked.spell;
     const spellOptions = picked.spellOptions ?? {};
 
-    if (!isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
-      ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+    if (!canActorCastSpell(attacker, spell)) {
+      ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
       return;
     }
 
@@ -605,8 +605,8 @@ export async function handleAttackerRoll(ctx) {
       return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
     }
 
-    if (!_ignoreTraining(workingData) && !isActorTrainedInMagicSchool(attacker, spell?.system?.school)) {
-      ui.notifications.warn(`${attacker.name} is untrained in ${spell?.system?.school ?? "that school"} and cannot cast ${spell.name}.`);
+    if (!_ignoreTraining(workingData) && !canActorCastSpell(attacker, spell)) {
+      ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
       return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
     }
 

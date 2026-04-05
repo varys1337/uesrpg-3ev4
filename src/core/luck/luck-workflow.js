@@ -11,6 +11,7 @@ import { SYSTEM_ID } from "../constants.js";
 import { getMessageIdFromContextLi } from "../../utils/chat/contextmenu.js";
 import { applyLuckResultMutation, canMutateLuckResult } from "./result-reresolution.js";
 import { canUseLuck } from "../rules/npc-rules.js";
+import { getFlagValueWithFallback } from "../system/flags.js";
 import {
   canUserActOnLuckActor,
   getLuckWhisperRecipients,
@@ -595,9 +596,22 @@ async function _executeBurn(actor, message, info, opt) {
     case "burn5": {
       effectText = "Critical Failure effects negated.";
       if (message) {
+        const currentSkillTest = getFlagValueWithFallback(message, "skillTest");
+        const currentReroll = getFlagValueWithFallback(message, "reroll");
         await requestUpdateChatMessage(message, {
-          [`flags.${SYSTEM_ID}.luckBurned`]: true,
-          [`flags.${SYSTEM_ID}.criticalFailureNegated`]: true,
+          flags: {
+            [SYSTEM_ID]: {
+              ...((message?.flags?.[SYSTEM_ID] && typeof message.flags[SYSTEM_ID] === "object") ? message.flags[SYSTEM_ID] : {}),
+              ...(currentSkillTest && typeof currentSkillTest === "object"
+                ? { skillTest: currentSkillTest }
+                : {}),
+              ...(currentReroll && typeof currentReroll === "object"
+                ? { reroll: currentReroll }
+                : {}),
+              luckBurned: true,
+              criticalFailureNegated: true,
+            },
+          },
         });
       }
       break;
@@ -751,8 +765,21 @@ export async function openBurnLuckFromSheet(actor) {
 
 export async function markStaminaUsedOnTest(message) {
   if (!message) return;
+  const currentSkillTest = getFlagValueWithFallback(message, "skillTest");
+  const currentReroll = getFlagValueWithFallback(message, "reroll");
   await requestUpdateChatMessage(message, {
-    [`flags.${SYSTEM_ID}.staminaUsedOnTest`]: true,
+    flags: {
+      [SYSTEM_ID]: {
+        ...((message?.flags?.[SYSTEM_ID] && typeof message.flags[SYSTEM_ID] === "object") ? message.flags[SYSTEM_ID] : {}),
+        ...(currentSkillTest && typeof currentSkillTest === "object"
+          ? { skillTest: currentSkillTest }
+          : {}),
+        ...(currentReroll && typeof currentReroll === "object"
+          ? { reroll: currentReroll }
+          : {}),
+        staminaUsedOnTest: true,
+      },
+    },
   });
 }
 

@@ -9,8 +9,10 @@
                             {{#each actor.magicSkill as |item id|}}
                                 <li class="item" data-item-id="{{item._id}}">
                                     <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
-                                        <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
-                                        <div class="item-name skill-open-item">{{item.name}}</div>
+                                        <img class="item-img" src="{{item.img}}" data-action="itemOpen" title="Open Item"/>
+                                        <div class="item-name skill-open-item" data-action="itemOpen">
+                                            {{item.name}}
+                                        </div>
                                     </div>
                                     <div class="item-controls">
                                         <div class="item-value">{{item.system.value}}%</div>
@@ -18,8 +20,59 @@
                                     </div>
                                 </li>
                             {{/each}}
+                            {{#unless actor.magicSkill.length}}
+                                <li>No magic skills trained.</li>
+                            {{/unless}}
                         </ol>
                     </div>
+
+                    {{#if actor.ui.worship.enabled}}
+                    <div class="spellListContainer">
+                        <div class="section-header" style="justify-content:flex-end;">
+                            <button type="button" data-action="itemCreate" class="section-header__action" id="invocation">+</button>
+                        </div>
+                        <div class="spellList">
+                            {{#each actor.invocationGroups as |group|}}
+                                <div class="spell-school-section" data-school="{{group.key}}">
+                                    <h3 class="spell-school-header uesrpg-group-toggle" data-action="groupToggle" data-group="invocation-group-{{group.key}}">
+                                        <i class="fas fa-chevron-down collapse-arrow"></i>
+                                        <span class="school-name">{{group.label}}</span>
+                                        <span class="school-count">({{group.count}})</span>
+                                    </h3>
+                                    <table class="spell-school-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Circle</th>
+                                                <th>PP Cost</th>
+                                                <th><i class="fas fa-trash"></i></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {{#each group.invocations as |invocation|}}
+                                                <tr class="spell-row item active" data-item-id="{{invocation._id}}">
+                                                    <td class="spell-name-cell">
+                                                        <i data-action="castInvocation" class="fas fa-dice-d20 magic-roll" title="Invoke Rite"></i>
+                                                        <img class="item-img" src="{{invocation.img}}" />
+                                                        <span data-action="itemOpen" class="item-name">{{invocation.name}}</span>
+                                                    </td>
+                                                    <td class="spell-rank-cell">Circle {{invocation.system.circle}}</td>
+                                                    <td class="spell-mp-cell">{{invocation.system.pietyCost}}</td>
+                                                    <td class="spell-actions-cell">
+                                                        <a data-action="itemDelete" class="item-delete" title="Delete"><i class="fas fa-trash"></i></a>
+                                                    </td>
+                                                </tr>
+                                            {{/each}}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {{/each}}
+                            {{#unless actor.invocationGroups.length}}
+                                <p>No invocations known.</p>
+                            {{/unless}}
+                        </div>
+                    </div>
+                    {{/if}}
 
                     <div class="spellListContainer">
                         <div class="spellList">

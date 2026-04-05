@@ -58,27 +58,10 @@ function _isNpcActor(actor) {
   return String(actor?.type ?? "").trim().toLowerCase() === "npc";
 }
 
-function _actorHasConditionKey(actor, key) {
-  const k = String(key || "").trim().toLowerCase();
-  if (!actor || !k) return false;
-
-  for (const ef of (actor.effects ?? [])) {
-    try {
-      if (ef?.disabled) continue;
-      if (ef?.statuses?.has?.(k)) return true;
-      if (String(ef?.flags?.core?.statusId ?? "").toLowerCase() === k) return true;
-      if (String(ef?.flags?.["uesrpg-3ev4"]?.condition?.key ?? "").toLowerCase() === k) return true;
-      if (String(ef?.name ?? "").toLowerCase() === k) return true;
-    } catch (_e) {
-      continue;
-    }
-  }
-
-  return false;
-}
-
-function _getArmorRuntimeOptions(actor) {
-  return { isProneForArmor: _actorHasConditionKey(actor, "prone") };
+function _getArmorRuntimeOptions(_actor) {
+  // Prone changes trigger-style armor coverage interactions, not the item's
+  // actual protection score for damage/quality degradation.
+  return { isProneForArmor: false };
 }
 
 function _getItemLocationProtectionScore(item, { actor = null } = {}) {

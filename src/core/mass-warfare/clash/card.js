@@ -70,9 +70,11 @@ function _renderPendingUnit(name, unitKey, msgId, { attackType = null } = {}) {
 function _renderCommittedUnit(unit, name) {
   const extras = [];
   if (unit.attackType && unit.attackType !== "melee") extras.push(`<div><b>Attack Type:</b> ${_esc(unit.attackType.charAt(0).toUpperCase() + unit.attackType.slice(1))}</div>`);
-  if (unit.joinFray) extras.push(`<div><b>Join Fray:</b> Yes <span style="opacity:0.75; font-size:12px;">(+10 TN)</span></div>`);
+  if (unit.joinFray) extras.push(`<div><b>Join Fray:</b> Yes</div>`);
+  if (unit.commanderJoinFray?.name) extras.push(`<div><b>Commander:</b> ${_esc(unit.commanderJoinFray.name)}</div>`);
   if (unit.modifier) extras.push(`<div><b>Modifier:</b> ${unit.modifier > 0 ? "+" : ""}${_esc(unit.modifier)}</div>`);
   if (unit.charged) extras.push(`<div><b>Charged:</b> Yes</div>`);
+  if (unit.contactSide) extras.push(`<div><b>Contact Side:</b> ${_esc(unit.contactSide)}</div>`);
   if (unit.incomingChargeSide && unit.incomingChargeSide !== "none") extras.push(`<div><b>Incoming Charge:</b> ${_esc(unit.incomingChargeSide)}</div>`);
   return `
   ${_unitHeader(name, unit.role)}
@@ -150,12 +152,16 @@ function _renderDamageDetails(unit) {
 
 function _renderResolvedUnit(unit, name) {
   const joinFrayRow = unit.joinFray
-    ? `<div><b>Join Fray:</b> Yes <span style="opacity:0.75; font-size:12px;">(+10 TN)</span></div>`
+    ? `<div><b>Join Fray:</b> Yes</div>`
+    : "";
+  const commanderRow = unit.commanderJoinFray?.name
+    ? `<div><b>Commander:</b> ${_esc(unit.commanderJoinFray.name)}</div>`
     : "";
   const holdRow = unit.holdApplied
     ? `<div><b>Hold:</b> Active <span style="opacity:0.75; font-size:12px;">(enemy TN -20)</span></div>`
     : "";
   const chargeRow = unit.charged ? `<div><b>Charged:</b> Yes</div>` : "";
+  const contactRow = unit.contactSide ? `<div><b>Contact Side:</b> ${_esc(unit.contactSide)}</div>` : "";
   const incomingRow = unit.incomingChargeSide && unit.incomingChargeSide !== "none"
     ? `<div><b>Incoming Charge:</b> ${_esc(unit.incomingChargeSide)}</div>`
     : "";
@@ -169,6 +175,7 @@ function _renderResolvedUnit(unit, name) {
   <div style="margin-top:4px; font-size:13px; line-height:1.25;">
     <div><b>Role:</b> ${_esc(_roleLabel(unit.role))}</div>
     ${joinFrayRow}
+    ${commanderRow}
     <div><b>Test:</b> <span style="opacity:0.6;">- (skipped)</span></div>
     <div><b>Damage:</b> <span style="opacity:0.6;">- (none dealt)</span></div>
     <div><b>Armor:</b> ${_esc(unit.ar)} <span style="opacity:0.6; font-size:12px;">(base only)</span></div>
@@ -182,7 +189,9 @@ function _renderResolvedUnit(unit, name) {
   <div style="margin-top:4px; font-size:13px; line-height:1.25;">
     <div><b>Role:</b> ${_esc(_roleLabel(unit.role))}</div>
     ${joinFrayRow}
+    ${commanderRow}
     ${chargeRow}
+    ${contactRow}
     ${incomingRow}
     ${holdRow}
     ${_renderTNLine({
@@ -213,9 +222,13 @@ export function renderClashCard(data, msgId) {
   const phase = data?.phase ?? "pending";
   const unit1Html = _renderUnitSection(data.unit1, phase, "unit1", msgId);
   const unit2Html = _renderUnitSection(data.unit2, phase, "unit2", msgId);
+  const groupRow = data?.clashGroupId
+    ? `<div style="margin:0 0 8px 0; font-size:12px; opacity:0.85;"><b>Clash Group:</b> ${_esc(data.clashGroupId)}${Array.isArray(data?.groupMembers) && data.groupMembers.length ? ` <span style="opacity:0.8;">(${_esc(data.groupMembers.join(", "))})</span>` : ""}</div>`
+    : "";
 
   return `
 <div class="ues-opposed-card" data-message-id="${_esc(msgId)}" style="max-width:100%; box-sizing:border-box; padding:6px 6px 0;">
+  ${groupRow}
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; max-width:100%; overflow:hidden;">
     <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12); min-width:0; overflow:hidden;">
       ${unit1Html}

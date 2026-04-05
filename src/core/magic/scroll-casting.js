@@ -1,5 +1,5 @@
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
-import { isActorTrainedInMagicSchool } from "./magicka-utils.js";
+import { canActorCastSpell } from "./magicka-utils.js";
 
 function toBool(value, fallback = false) {
   if (value === undefined || value === null) return fallback;
@@ -101,7 +101,7 @@ export async function getCastableScrollCandidates(actor, { castActionType = "pri
     if (isSecondary && spell?.system?.isInstant !== true) continue;
 
     const requiresTraining = toBool(it.system?.requireSchoolTraining, false);
-    if (requiresTraining && !isActorTrainedInMagicSchool(actor, spell?.system?.school)) continue;
+    if (requiresTraining && !canActorCastSpell(actor, spell)) continue;
 
     out.push({ scroll: it, spell });
   }

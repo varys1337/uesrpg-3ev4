@@ -30,7 +30,7 @@
                     <input type="text" name="system.range" value="{{item.system.range}}" placeholder="X/Y/Z"/>
                     <span class="item-stat-label">Range</span>
                     {{else}}
-                    <input type="number" name="system.reach" value="{{item.system.reach}}" min="0" step="1"/>
+                    <input type="number" value="{{weaponSheetHeaderReachValue}}" min="0" step="1" disabled class="u-input-disabled"/>
                     <span class="item-stat-label">Reach</span>
                     {{/if}}
                 </div>
@@ -96,8 +96,18 @@
                                         {{selectOptions weaponHandednessOptions selected=item.system.hands}}
                                     </select>
                                 </div>
-                                
+
                                 {{#unless (eq item.system.attackMode "ranged")}}
+                                <div class="weapon-field-row weapon-field-row--reach">
+                                    <label>Base Reach</label>
+                                    <div class="weapon-reach-inline">
+                                        <span class="weapon-reach-label">Min</span>
+                                        <input class="weapon-reach-input" type="number" name="system.reachMin" value="{{weaponSheetPersistedReachMinValue}}" min="0" step="1"/>
+                                        <span class="weapon-reach-label">Max Reach</span>
+                                        <input class="weapon-reach-input" type="number" name="system.reach" value="{{weaponSheetPersistedReachValue}}" min="0" step="1"/>
+                                    </div>
+                                </div>
+
                                 {{#if homebrewReachLengthEnabled}}
                                 <div class="weapon-field-row weapon-field-row--length">
                                     <label>Length (LNG)</label>
@@ -106,7 +116,7 @@
                                            min="0" step="1" placeholder="0"/>
                                 </div>
                                 <div class="weapon-field-row weapon-field-row--reach">
-                                    <label>Reach</label>
+                                    <label>Reach Override</label>
                                     <div class="weapon-reach-inline">
                                         <span class="weapon-reach-label">Min</span>
                                         <input class="weapon-reach-input" type="number"
@@ -118,16 +128,6 @@
                                                name="flags.uesrpg-3ev4.homebrew.reachLength.{{homebrewReachModel}}.max"
                                                value="{{lookup (lookup (lookup (lookup (lookup item.flags 'uesrpg-3ev4') 'homebrew') 'reachLength') homebrewReachModel) 'max'}}"
                                                min="0" step="1" placeholder="0"/>
-                                    </div>
-                                </div>
-                                {{else}}
-                                <div class="weapon-field-row weapon-field-row--reach">
-                                    <label>Reach</label>
-                                    <div class="weapon-reach-inline">
-                                        <span class="weapon-reach-label">Min Reach</span>
-                                        <input class="weapon-reach-input" type="number" name="system.reachMin" value="{{item.system.reachMin}}" min="0" step="1"/>
-                                        <span class="weapon-reach-label">Max Reach</span>
-                                        <input class="weapon-reach-input" type="number" name="system.reach" value="{{item.system.reach}}" min="0" step="1"/>
                                     </div>
                                 </div>
                                 {{/if}}

@@ -1,0 +1,81 @@
+<div class="uesrpg-army-campaign__body">
+  {{#if error}}
+  <p class="notification error">{{error}}</p>
+  {{else}}
+  <section class="warfare-fieldset">
+    <h3>{{group.name}}</h3>
+    <p><strong>Campaign Turn:</strong> {{state.campaignTurn}} | <strong>Army Actions:</strong> {{remainingActionsLabel}}</p>
+    <p><strong>Marshal:</strong> {{#if marshal}}{{marshal.name}}{{else}}Unassigned{{/if}}</p>
+    <p><strong>Location:</strong> {{#if state.locationNote}}{{state.locationNote}}{{else}}Unset{{/if}}</p>
+    <p><strong>Warfare Units:</strong> {{warfareMemberCount}} | <strong>Other Members:</strong> {{nonWarfareMemberCount}}</p>
+    <div class="controls">
+      {{#if editable}}<button type="button" data-action="advanceTurn"><i class="fas fa-forward"></i> Advance Turn</button>{{/if}}
+      {{#if editable}}<button type="button" data-action="setMarshal"><i class="fas fa-user-tie"></i> Set Marshal</button>{{/if}}
+      <button type="button" data-action="openMarshal"><i class="fas fa-user"></i> Open Marshal</button>
+      {{#if editable}}<button type="button" data-action="toggleSupply"><i class="fas fa-boxes-stacked"></i> Toggle Supply</button>{{/if}}
+    </div>
+  </section>
+
+  <section class="warfare-fieldset">
+    <h3>Supply and State</h3>
+    <p><strong>Reserve:</strong> {{state.supply.reserve}} / {{state.supply.capacity}}</p>
+    <p><strong>In Supply:</strong> {{#if state.supply.inSupply}}Yes{{else}}No{{/if}} | <strong>Out of Supply Turns:</strong> {{state.supply.consecutiveOutOfSupplyTurns}}</p>
+    <p><strong>Source Note:</strong> {{#if state.supply.sourceNote}}{{state.supply.sourceNote}}{{else}}Unset{{/if}}</p>
+    <p><strong>Contact State:</strong> {{contactStateLabel}} | <strong>Surprise:</strong> {{surpriseStateLabel}} | <strong>Battle Role:</strong> {{battleRoleLabel}}</p>
+  </section>
+
+  <section class="warfare-fieldset">
+    <h3>Army Actions</h3>
+    <div class="controls">
+      <button type="button" data-action="armyAction" data-army-action="march">March</button>
+      <button type="button" data-action="armyAction" data-army-action="scout">Scout</button>
+      <button type="button" data-action="armyAction" data-army-action="forage">Forage / Requisition</button>
+      <button type="button" data-action="armyAction" data-army-action="raid">Raid</button>
+      <button type="button" data-action="armyAction" data-army-action="reinforce">Reinforce / Muster</button>
+      <button type="button" data-action="armyAction" data-army-action="fortify">Fortify Camp</button>
+      <button type="button" data-action="armyAction" data-army-action="besiege">Besiege</button>
+      <button type="button" data-action="armyAction" data-army-action="special">Special Operation</button>
+      <button type="button" data-action="armyAction" data-army-action="contact">Resolve Contact</button>
+    </div>
+  </section>
+
+  <section class="warfare-fieldset">
+    <h3>Siege</h3>
+    <p><strong>Role:</strong> {{siegeRoleLabel}}</p>
+    <p><strong>Linked Scene:</strong> {{#if siegeScene}}{{siegeScene.name}}{{else}}None{{/if}}</p>
+    {{#if hasActiveSiege}}
+    <p><strong>Settlement:</strong> {{#if siegeState.settlementName}}{{siegeState.settlementName}}{{else}}Unset{{/if}}</p>
+    <p><strong>Fortification:</strong> Rating {{siegeState.fortificationRating}} | HP {{siegeState.fortificationHp}} / {{siegeState.fortificationHpMax}}</p>
+    <p><strong>Blockade:</strong> {{siegeState.blockadeState}} | <strong>Sap:</strong> {{siegeState.sapProgress}} | <strong>Breach:</strong> {{siegeState.breachProgress}} | <strong>Repair:</strong> {{siegeState.repairProgress}}</p>
+    <div class="controls">
+      <button type="button" data-action="siegeAction" data-siege-action="blockade">Blockade</button>
+      <button type="button" data-action="siegeAction" data-siege-action="repair">Repair</button>
+      <button type="button" data-action="siegeAction" data-siege-action="sap">Sap / Breach</button>
+      <button type="button" data-action="siegeAction" data-siege-action="smuggle">Smuggle / Supply</button>
+      <button type="button" data-action="siegeAction" data-siege-action="assault">Assault</button>
+      <button type="button" data-action="siegeAction" data-siege-action="sally">Sally</button>
+      <button type="button" data-action="configureFeature">Configure Region Feature</button>
+    </div>
+    {{else}}
+    <p class="warfare-hint">Link a siege scene with <strong>Besiege</strong> to unlock siege actions and Region-backed feature configuration.</p>
+    {{/if}}
+  </section>
+
+  <section class="warfare-fieldset">
+    <h3>History</h3>
+    {{#if recentHistory.length}}
+    <div class="warfare-action-column__list">
+      {{#each recentHistory}}
+      <div class="warfare-effect-row">
+        <span><strong>{{this.label}}</strong></span>
+        <span>{{this.summary}}</span>
+        <span class="warfare-effect-row__status">{{this.when}}</span>
+      </div>
+      {{/each}}
+    </div>
+    {{else}}
+    <p class="warfare-hint">No campaign history recorded yet.</p>
+    {{/if}}
+  </section>
+  {{/if}}
+</div>

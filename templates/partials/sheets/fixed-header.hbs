@@ -80,6 +80,31 @@
                             <i data-direction="decrease" data-resource="magicka" data-action="incrementResource" class="fas fa-angle-down" title="Decrease"></i>
                         </div>
                     </div>
+                    {{#if actor.ui.worship.available}}
+                    <div class="resource-row" id="worshipResource">
+                        <button type="button" class="resource-name resource-name--luck" data-resource="worship" title="Manage Piety Points">PP</button>
+                        <div class="maxBar" data-resource="worship" data-value="{{actor.ui.worship.displayPietyValue}}" data-max="{{actor.ui.worship.displayPietyMax}}" title="{{actor.ui.worship.displayDomainLabel}}">
+                            <div class="bar-values">
+                                <span>{{actor.ui.worship.displayPietyValue}}</span> / <label>{{actor.ui.worship.displayPietyMax}}</label>
+                                {{#if actor.ui.worship.displayDomainLabel}}
+                                <span class="temp-hp-overlay">{{actor.ui.worship.displayDomainLabel}}</span>
+                                {{/if}}
+                            </div>
+                            <div id="worshipBar" class="currentBar" data-resource="worship" style="background-color: var(--uesrpg-gold);"></div>
+                        </div>
+                        <div class="resource-controls">
+                            {{#if actor.ui.worship.hasPrimaryDomain}}
+                            <i data-direction="increase" data-resource="worship" data-action="incrementResource" class="fas fa-angle-up" title="Increase"></i>
+                            <i data-direction="restore" data-resource="worship" data-action="restoreResource" class="fas fa-undo" title="Restore"></i>
+                            <i data-direction="decrease" data-resource="worship" data-action="incrementResource" class="fas fa-angle-down" title="Decrease"></i>
+                            {{else}}
+                            <i class="fas fa-angle-up" title="Set a primary ritual domain first" style="opacity:0.35; cursor:not-allowed;"></i>
+                            <i class="fas fa-undo" title="Set a primary ritual domain first" style="opacity:0.35; cursor:not-allowed;"></i>
+                            <i class="fas fa-angle-down" title="Set a primary ritual domain first" style="opacity:0.35; cursor:not-allowed;"></i>
+                            {{/if}}
+                        </div>
+                    </div>
+                    {{/if}}
                     {{!-- Luck --}}
                     <div class="resource-row" id="luckResource">
                         <button type="button" class="resource-name resource-name--luck" data-resource="luck_points" title="Luck Points">LP</button>

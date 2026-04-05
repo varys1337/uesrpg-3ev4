@@ -139,6 +139,10 @@ export async function registerSystemRuntimeApi() {
           applyChapter6SpellRemediation: async (...args) => {
             const { applyChapter6SpellRemediation } = await import("../../utils/dev/chapter6-spell-remediation.js");
             return applyChapter6SpellRemediation(...args);
+          },
+          syncReligionContentPacks: async (...args) => {
+            const { syncReligionContentPacks } = await import("../../core/religion/content-sync.js");
+            return syncReligionContentPacks(...args);
           }
         }
       : null,

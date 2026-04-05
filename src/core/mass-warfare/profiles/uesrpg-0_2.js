@@ -614,8 +614,8 @@ export function computeDerived(sys) {
     warnings.push("Skirmishers in Heavy apparel lose Fieldcraft.");
   }
 
-  notices.push("Charge-phase sequencing is still manual in this pass; use clash dialog toggles for charge context.");
-  notices.push("Campaign doctrines are tracked as structured text and manual modifiers, not terrain automation.");
+  notices.push("Use the Warfare Encounter tracker for phase sequencing while charges, strategic actions, and clashes remain actor-driven.");
+  notices.push("Scene Regions can supply warfare terrain for charge-path legality; broader campaign doctrines remain manual.");
 
   sys.rules.source = "UESRPG Mass Warfare 3e";
   sys.rules.version = "2.0";
@@ -697,10 +697,11 @@ export const UESRPG_0_2_PROFILE = Object.freeze({
   computeDerived,
   sheetModel: {
     tabs: ["core", "actions", "magic", "items"],
-    encounterModel: "v2 - actor/chat automation without a dedicated phase tracker",
+    encounterModel: "v2 - actor/chat automation with a scene-backed encounter phase tracker",
     notices: [
       "Resolve is now the canonical warfare resource.",
-      "Charge sequencing, adjacency, and terrain doctrine triggers remain manual in this pass.",
+      "The encounter tracker rotates phases only; warfare actors own charges, strategic actions, and clash initiation.",
+      "Charge legality remains scene-backed, while facing and contact-side positioning are tracked manually by the table.",
     ],
   },
 });

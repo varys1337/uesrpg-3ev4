@@ -907,8 +907,10 @@ export async function tickWoundsEndTurn(actor) {
     return;
   }
 
-  await tickForestall(actor);
   await tickBloodLoss(actor);
+  // Blood loss must see any active Forestall protection for the whole current
+  // turn. Forestall then decrements/expires after that protected blood-loss check.
+  await tickForestall(actor);
   await tickDeathTestsEndTurn(actor);
 }
 

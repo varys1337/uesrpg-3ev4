@@ -16,7 +16,7 @@
  */
 
 import { resolveSpellProfile } from "./spell-profile.js";
-import { getActorMagicka, isActorTrainedInMagicSchool } from "./magicka-utils.js";
+import { canActorCastSpell, getActorMagicka, getSpellCastingSchool } from "./magicka-utils.js";
 import { MagicOpposedWorkflow } from "./opposed-workflow.js";
 import { showSpellOptionsDialog } from "./dialogs/spell-options-dialog.js";
 import { emitPreCast } from "./spell-runtime.js";
@@ -134,8 +134,8 @@ export const SpellCastingService = {
 
     // RAW: untrained casters cannot cast from that school.
     // Scrolls bypass training when ignoreTraining is set (controlled by setting).
-    if (!ignoreTraining && !isActorTrainedInMagicSchool(actor, spell?.system?.school)) {
-      return { valid: false, reason: `${actor.name} is untrained in ${spell?.system?.school ?? "this school"} and cannot cast ${spell.name}.` };
+    if (!ignoreTraining && !canActorCastSpell(actor, spell)) {
+      return { valid: false, reason: `${actor.name} is untrained in ${getSpellCastingSchool(spell) || "this school"} and cannot cast ${spell.name}.` };
     }
 
     // Check if actor has the spell.

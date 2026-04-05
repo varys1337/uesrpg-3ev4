@@ -32,6 +32,7 @@ import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/dro
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
 import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
 import { pickCanvasLocation } from "../../../utils/canvas-location-picker.js";
+import { openArmyCampaignApp } from "../../apps/v2/army-campaign-app.js";
 import {
   buildAllowedChangePatch,
   buildAllowedSubmitPatch,
@@ -123,6 +124,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       shortRest: GroupSheetV2.prototype._onShortRest,
       longRest: GroupSheetV2.prototype._onLongRest,
       deployGroup: GroupSheetV2.prototype._onDeployGroup,
+      openArmyCampaign: GroupSheetV2.prototype._onOpenArmyCampaign,
       itemCreate: GroupSheetV2.prototype._onItemCreate,
       itemDelete: GroupSheetV2.prototype._onItemDelete,
       itemShow: GroupSheetV2.prototype._onItemShow,
@@ -875,6 +877,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     } else {
       ui.notifications.warn("No tokens could be deployed.");
     }
+  }
+
+  async _onOpenArmyCampaign(event, _target) {
+    event?.preventDefault?.();
+    await openArmyCampaignApp(this.document);
   }
 
   /** Show item creation dialog with type selection */

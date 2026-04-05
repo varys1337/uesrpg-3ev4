@@ -10,7 +10,7 @@ import { collectItemTokens } from "./tokens.js";
 import { DAMAGE_TYPES } from "./types.js";
 import { getWallOfSteelArmorItemBonus } from "../../traits/resilience-talents.js";
 import { isShieldItem } from "../../items/shield-utils.js";
-import { getResolvedArmorValues, isArmorCoveringLocation } from "../armor-state.js";
+import { getArmorCoverageState, getResolvedArmorValues, isArmorCoveringLocation } from "../armor-state.js";
 
 /**
  * Best-effort condition check without importing the condition engine.
@@ -152,14 +152,16 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
 
       if (!isArmorCoveringLocation(item, propertyName)) continue;
 
-      const resolved = getResolvedArmorValues(item.system ?? {}, { isProneForArmor });
-      if (resolved.effectiveLane === "none") continue;
+      const coverageState = getArmorCoverageState(item.system ?? {}, { isProneForArmor });
+      if (coverageState === "none") continue;
 
-      if (resolved.effectiveLane === "full") {
+      if (coverageState === "full") {
         coverageClass = "full";
       } else if (coverageClass !== "full") {
         coverageClass = "partial";
       }
+
+      const resolved = getResolvedArmorValues(item.system ?? {}, { isProneForArmor: false });
 
       let ar = resolved.armor;
 
@@ -193,8 +195,8 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
       if (isShieldItem(item, { allowLegacy: true })) continue;
       if (!isArmorCoveringLocation(item, propertyName)) continue;
 
-      // Non-physical mitigation: read from the resolved manual lane (prone-aware).
-      const resolvedNonPhys = getResolvedArmorValues(item.system ?? {}, { isProneForArmor });
+      // Non-physical mitigation uses the armor's real authored protection lane.
+      const resolvedNonPhys = getResolvedArmorValues(item.system ?? {}, { isProneForArmor: false });
       if (resolvedNonPhys.effectiveLane === "none") continue;
 
       // Typed mitigation (elemental, poison, etc.)

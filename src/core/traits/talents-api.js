@@ -147,6 +147,15 @@ const TALENT_NAME_ALIASES = {
   proceduralenchanting: ["Procedural Enchanting"],
   salvageenergy: ["Salvage Energy"],
 
+  // Religion / worship talents
+  ordainedinitiate: ["Ordained Initiate"],
+  shrinewarden: ["Shrine Warden"],
+  domaininitiate: ["Domain Initiate"],
+  orthodoxfaith: ["Orthodox Faith"],
+  splinterfaith: ["Splinter Faith"],
+  seasonedtheurge: ["Seasoned Theurge"],
+  chosenintercessor: ["Chosen Intercessor"],
+
   // Weapon Expertise talents (automation)
   beardedwarrior: ["Bearded Warrior"],
   beastofsteel: ["Beast of Steel"],

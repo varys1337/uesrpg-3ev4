@@ -4,6 +4,9 @@ import { registerFrenzied, FrenziedAPI } from "../../core/conditions/frenzied.js
 import { registerFearSystem } from "../../core/fear/index.js";
 import { registerSurpriseHooks } from "../../core/combat/surprise-state.js";
 import { registerEngagementFlanking } from "../../core/homebrew/engagement-flanking/index.js";
+import { registerWarfareEncounterHooks } from "../../core/mass-warfare/encounter/hooks.js";
+import { registerWarfareBattlefieldHooks } from "../../core/mass-warfare/battlefield/hooks.js";
+import { registerWarfareCampaignHooks } from "../../core/mass-warfare/campaign/hooks.js";
 import { registerOnce } from "../_internal/hook-registry.js";
 
 export function registerCoreSubsystems() {
@@ -13,6 +16,9 @@ export function registerCoreSubsystems() {
     registerWounds();
     registerSurpriseHooks();
     registerFearSystem();
+    registerWarfareEncounterHooks();
+    registerWarfareBattlefieldHooks();
+    registerWarfareCampaignHooks();
 
     try {
       registerFrenzied();

@@ -4,6 +4,7 @@
 
 import { requestCreateEmbeddedDocuments } from "./authority-proxy.js";
 import { dndDebug } from "./dnd-debugger.js";
+import { getWeaponBaseReachState } from "../core/homebrew/reach-length/weapon.js";
 
 const STACKABLE_DEFAULT = new Set(["ammunition"]);
 const PHYSICAL_TYPES = new Set(["equipment", "scroll", "weapon", "armor", "shield", "ammunition", "container"]);
@@ -106,6 +107,28 @@ export function buildDroppedItemCreateData(item, options = {}) {
       container_id: "",
       container_name: "",
     };
+  }
+
+  if (_str(data.type) === "weapon") {
+    const baseReach = getWeaponBaseReachState({
+      type: "weapon",
+      system: data.system,
+      flags: data.flags ?? {},
+      attackMode: data.system?.attackMode,
+    }, {
+      attackMode: data.system?.attackMode,
+      includeLegacyFallback: true,
+    });
+
+    if (baseReach.max > 0) {
+      data.system.reach = baseReach.max;
+    }
+
+    if (Array.isArray(data.system?.qualitiesStructured)) {
+      data.system.qualitiesStructured = data.system.qualitiesStructured.filter(
+        (quality) => String(quality?.key ?? "").trim().toLowerCase() !== "reach"
+      );
+    }
   }
 
   if (sourceType !== inferredType) {

@@ -1,0 +1,104 @@
+<header class="sheet-header spell-header">
+  <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" height="50" width="50"/>
+  <div class="spell-header-fields">
+    <h1 class="spell-name">
+      <input name="name" type="text" value="{{item.name}}" placeholder="Invocation Name"/>
+    </h1>
+    <div class="spell-stats-row">
+      <div class="spell-stat spell-stat-wide">
+        <label>Domain</label>
+        <select name="system.domainKey" data-dtype="String">
+          {{selectOptions religionDomainOptions selected=item.system.domainKey}}
+        </select>
+      </div>
+      <div class="spell-stat">
+        <label>Circle</label>
+        <select name="system.circle" data-dtype="Number">
+          {{selectOptions invocationCircleOptions selected=item.system.circle}}
+        </select>
+      </div>
+      <div class="spell-stat">
+        <label>PP Cost</label>
+        <input type="number" name="system.pietyCost" value="{{item.system.pietyCost}}" min="0"/>
+      </div>
+      <div class="spell-stat spell-stat-wide">
+        <label>Time</label>
+        <input type="text" name="system.time" value="{{item.system.time}}" placeholder="e.g. 10 minutes"/>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="sheet-tabs tabs spell-tabs" data-group="primary">
+  <a class="item" data-action="tab" data-group="primary" data-tab="overview">Overview</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="ritual">Ritual</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+</nav>
+
+<section class="sheet-body">
+  <div class="tab" data-group="primary" data-tab="overview">
+    <div class="spell-casting-body spell-casting-body--overview">
+      <section class="spell-section spell-section--editor">
+        <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+      </section>
+    </div>
+  </div>
+
+  <div class="tab" data-group="primary" data-tab="ritual">
+    <div class="spell-casting-body">
+      <section class="spell-section">
+        <h4 class="spell-section-title">Ritual Details</h4>
+        <div class="spell-row">
+          <label class="spell-label">Ritual</label>
+          <input type="text" name="system.ritual" value="{{item.system.ritual}}" class="spell-input spell-input-fill" placeholder="Ritual classification" />
+        </div>
+        <div class="spell-row">
+          <label class="spell-label">Range</label>
+          <input type="text" name="system.range" value="{{item.system.range}}" class="spell-input spell-input-fill" placeholder="Range / targets" />
+        </div>
+        <div class="spell-row">
+          <label class="spell-label">Duration</label>
+          <input type="text" name="system.duration" value="{{item.system.duration}}" class="spell-input spell-input-fill" placeholder="Duration" />
+        </div>
+        <div class="spell-row">
+          <label class="spell-label">Aspects</label>
+          <input type="text" name="system.aspectsText" value="{{item.system.aspectsText}}" class="spell-input spell-input-fill" placeholder="Comma-separated aspects" />
+        </div>
+        <div class="spell-row">
+          <label class="spell-label">TN Skill</label>
+          <select name="system.tnDomainKey" class="spell-input spell-input-fill">
+            {{selectOptions invocationTnDomainOptions selected=item.system.tnDomainKey}}
+          </select>
+        </div>
+        <div class="spell-row">
+          <label class="spell-label">Requirements</label>
+          <textarea name="system.requirements" rows="4" class="spell-input spell-input-fill" placeholder="Requirements / offerings / materials">{{item.system.requirements}}</textarea>
+        </div>
+        <div class="spell-row">
+          <label class="spell-label">Effect</label>
+          <textarea name="system.effect" rows="6" class="spell-input spell-input-fill" placeholder="Effect text">{{item.system.effect}}</textarea>
+        </div>
+      <section class="spell-section">
+        <h4 class="spell-section-title">Source</h4>
+        <div class="spell-row">
+          <label class="spell-label">Source Key</label>
+          <input type="text" name="system.source.sourceKey" value="{{item.system.source.sourceKey}}" class="spell-input spell-input-fill" placeholder="Stable import key" />
+        </div>
+        <div class="spell-row">
+          <label class="spell-label">Source Path</label>
+          <input type="text" name="system.source.sourcePath" value="{{item.system.source.sourcePath}}" class="spell-input spell-input-fill" placeholder="Import source path" />
+        </div>
+        <div class="spell-row">
+          <label class="spell-label">Import Version</label>
+          <input type="number" name="system.source.importVersion" value="{{item.system.source.importVersion}}" min="0" class="spell-input spell-input-xs" />
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="tab" data-group="primary" data-tab="effects">
+    <div class="spell-casting-body">
+      {{> "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs"}}
+    </div>
+  </div>
+</section>

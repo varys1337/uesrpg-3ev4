@@ -98,6 +98,12 @@ import {
 } from "./shared/form-pipeline.js";
 import { setOwnedItemQuantityOrDelete } from "../../../core/items/owned-item-quantity.js";
 import {
+  ACTOR_ARMOR_CLASS_LABELS,
+  ACTOR_SIZE_LABELS,
+  SUPPLY_DICE_LABELS,
+  TRAINING_RANK_LABELS,
+} from "../../../core/config/label-catalog.js";
+import {
   clearQueuedRenderPartsState,
   isSheetPerfTraceEnabled,
   partRendered,
@@ -175,6 +181,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       actor?.id ?? "",
       actor?.type ?? "",
       sortAlpha ? "A" : "a",
+      actor?.system?.worship ? JSON.stringify(actor.system.worship) : "",
       String(actor?.items?.size ?? 0),
     ];
 
@@ -300,6 +307,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       ammoRoll: PCActorSheetV2.prototype._onAmmoRoll,
       castMagic: PCActorSheetV2.prototype._onCastMagicAction,
       castEnchantment: PCActorSheetV2.prototype._onCastEnchantmentAction,
+      castInvocation: PCActorSheetV2.prototype._onCastInvocationAction,
       cancelSpell: PCActorSheetV2.prototype._onCancelSpell,
       combatQuickAction: PCActorSheetV2.prototype._onCombatQuickAction,
       woundFirstAid: PCActorSheetV2.prototype._onWoundFirstAid,
@@ -329,6 +337,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       postItemToChat: PCActorSheetV2.prototype._onPostItemToChat,
       featureInspectorCopy: PCActorSheetV2.prototype._onFeatureInspectorCopy,
       openBioEditor: PCActorSheetV2.prototype._onOpenBioEditor,
+      openWorshipManager: PCActorSheetV2.prototype._onOpenWorshipManager,
     },
     dragDrop: [
       {
@@ -453,6 +462,10 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       context.limited = actor.limited;
       context.cssClass = this.isEditable ? "editable" : "locked";
       context.options = { editable: this.isEditable };
+      context.sizeOptions = ACTOR_SIZE_LABELS;
+      context.armorClassOptions = ACTOR_ARMOR_CLASS_LABELS;
+      context.supplyOptions = SUPPLY_DICE_LABELS;
+      context.skillRankOptions = TRAINING_RANK_LABELS;
 
       // Part-gating: skip expensive builders when AppV2 requests only specific parts.
       const partScope = createPartContextScope({
@@ -539,10 +552,14 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
             skill: context.actor.skill,
             professionSkill: context.actor.professionSkill,
             magicSkill: context.actor.magicSkill,
+            ritualDomain: context.actor.ritualDomain,
+            invocation: context.actor.invocation,
+            invocationGroups: context.actor.invocationGroups,
             ui: {
               ...(context.actor.ui ?? {}),
               spellsBySchool: ui.spellsBySchool,
               traitStackingById: ui.traitStackingById,
+              worship: ui.worship,
             },
           };
 
@@ -979,6 +996,26 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onDamageRoll(event, target) { return onDamageRoll.call(this, event, target); }
   async _onCastMagicAction(event, target, preselectedSpell = null) { return onCastMagicAction.call(this, event, target, preselectedSpell); }
   async _onCastEnchantmentAction(event, target) { return onCastEnchantmentAction.call(this, event, target); }
+  async _onCastInvocationAction(event, target) {
+    event?.preventDefault?.();
+    const li = target?.closest?.(".item") ?? event?.currentTarget?.closest?.(".item");
+    const itemId = li?.dataset?.itemId;
+    if (!itemId) return;
+    const invocation = this.document.items.get(itemId);
+    if (!invocation) return;
+    const { castInvocationFromItem } = await import("../../../core/religion/invocation-runtime.js");
+    return castInvocationFromItem({
+      actor: this.document,
+      invocation,
+      token: this.token?.object ?? this.token ?? null,
+      sheet: this,
+    });
+  }
+  async _onOpenWorshipManager(event, _target) {
+    event?.preventDefault?.();
+    const { PietyPointsDialog } = await import("../../apps/piety-points-dialog.js");
+    return PietyPointsDialog.show(this.document);
+  }
 
   async _onEditPortrait(event, target) {
     event?.preventDefault?.();

@@ -14,7 +14,7 @@ import {
   buildSpecialActionsForActor,
   isSpecialActionUsableNow
 } from "../../../core/combat/combat-style-utils.js";
-import { isActorTrainedInMagicSchool } from "../../../core/magic/magicka-utils.js";
+import { canActorCastSpell } from "../../../core/magic/magicka-utils.js";
 import { getLoadoutsForActor } from "../sheet-ui-state.js";
 import { isReachLengthHomebrewEnabled } from "../../../core/homebrew/reach-length/weapon.js";
 import { hasCondition } from "../../../core/conditions/condition-engine.js";
@@ -47,7 +47,7 @@ function _getCastableScrollsSync(actor, { instantOnly = false } = {}) {
     if (instantOnly && spell.system?.isInstant !== true) continue;
 
     const requiresTraining = it.system?.requireSchoolTraining === true;
-    if (requiresTraining && !isActorTrainedInMagicSchool(actor, spell?.system?.school)) continue;
+    if (requiresTraining && !canActorCastSpell(actor, spell)) continue;
 
     out.push(it);
   }

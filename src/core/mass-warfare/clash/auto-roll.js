@@ -118,13 +118,15 @@ async function _executeAutoRoll(message, data) {
     defenderCharged:    Boolean(working.unit2.charged),
     attackerIncomingChargeSide: working.unit1.incomingChargeSide ?? "none",
     defenderIncomingChargeSide: working.unit2.incomingChargeSide ?? "none",
+    attackerContactSide: working.unit1.contactSide ?? "front",
+    defenderContactSide: working.unit2.contactSide ?? "front",
     attackType:         working.unit1.attackType ?? "melee",
     applyDamage:        true,
   });
 
   await Promise.all([
-    clashResult.unit1.joinFray ? consumeJoinFrayNextClash(attacker).catch(() => false) : Promise.resolve(false),
-    clashResult.unit2.joinFray ? consumeJoinFrayNextClash(defender).catch(() => false) : Promise.resolve(false),
+    (clashResult.unit1.joinFray || working.unit1?.commanderJoinFray) ? consumeJoinFrayNextClash(attacker).catch(() => false) : Promise.resolve(false),
+    (clashResult.unit2.joinFray || working.unit2?.commanderJoinFray) ? consumeJoinFrayNextClash(defender).catch(() => false) : Promise.resolve(false),
     clashResult.unit1.holdApplied ? consumeHoldNextDefend(attacker).catch(() => false) : Promise.resolve(false),
     clashResult.unit2.holdApplied ? consumeHoldNextDefend(defender).catch(() => false) : Promise.resolve(false),
   ]);
@@ -180,6 +182,8 @@ function _writeUnitResults(flagUnit, resultUnit) {
   flagUnit.armorBreakdown  = resultUnit.armorBreakdown ?? null;
   flagUnit.mitigationBreakdown = resultUnit.mitigationBreakdown ?? null;
   flagUnit.holdApplied     = Boolean(resultUnit.holdApplied);
+  flagUnit.contactSide     = flagUnit.contactSide ?? "front";
+  flagUnit.commanderJoinFray = flagUnit.commanderJoinFray ?? null;
   flagUnit.conditionBefore = resultUnit.conditionBefore;
   flagUnit.conditionLoss   = resultUnit.conditionLoss;
   flagUnit.conditionAfter  = resultUnit.conditionAfter;

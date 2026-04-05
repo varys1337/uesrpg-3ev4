@@ -89,6 +89,12 @@ import {
   createFormPathMatcher,
 } from "./shared/form-pipeline.js";
 import { setOwnedItemQuantityOrDelete } from "../../../core/items/owned-item-quantity.js";
+import {
+  ACTOR_ARMOR_CLASS_LABELS,
+  ACTOR_SIZE_LABELS,
+  SUPPLY_DICE_LABELS,
+  TRAINING_RANK_LABELS,
+} from "../../../core/config/label-catalog.js";
 
 
 
@@ -235,6 +241,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       actor?.type ?? "",
       sortAlpha ? "A" : "a",
       npcSchoolRanks ? JSON.stringify(npcSchoolRanks) : "",
+      actor?.system?.worship ? JSON.stringify(actor.system.worship) : "",
       String(actor?.items?.size ?? 0),
     ];
 
@@ -357,6 +364,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       // Shared rolls & combat
       castMagic: NpcSheetV2.prototype._onCastMagicAction,
+      castInvocation: NpcSheetV2.prototype._onCastInvocationAction,
       damageRoll: NpcSheetV2.prototype._onDamageRoll,
       ammoRoll: NpcSheetV2.prototype._onAmmoRoll,
       skillRoll: NpcSheetV2.prototype._onSkillRoll,
@@ -386,6 +394,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       burnLuck: NpcSheetV2.prototype._onBurnLuck,
       openLanguageSelector: NpcSheetV2.prototype._onOpenLanguageSelector,
       openFactionSelector: NpcSheetV2.prototype._onOpenFactionSelector,
+      openWorshipManager: NpcSheetV2.prototype._onOpenWorshipManager,
 
       // Inventory
       toggle2H: NpcSheetV2.prototype._onToggle2H,
@@ -604,6 +613,10 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       context.limited = actor.limited;
       context.cssClass = this.isEditable ? "editable" : "locked";
       context.options = { editable: this.isEditable };
+      context.sizeOptions = ACTOR_SIZE_LABELS;
+      context.armorClassOptions = ACTOR_ARMOR_CLASS_LABELS;
+      context.supplyOptions = SUPPLY_DICE_LABELS;
+      context.skillRankOptions = TRAINING_RANK_LABELS;
 
       // Part-gating: skip expensive builders when AppV2 requests only specific parts.
       const partScope = createPartContextScope({
@@ -667,7 +680,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           context.items = buildActorSheetItems(actor);
 
           // This mutates `context.actor` with categorized buckets used by templates.
-          prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: false });
+          prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: true });
 
           // Cache only the derived patch fields that prepareCharacterItems attaches.
           const ui = context.actor.ui ?? {};
@@ -684,11 +697,16 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
             spellSchools: context.actor.spellSchools,
             ammunition: context.actor.ammunition,
             container: context.actor.container,
+            magicSkill: context.actor.magicSkill,
+            ritualDomain: context.actor.ritualDomain,
+            invocation: context.actor.invocation,
+            invocationGroups: context.actor.invocationGroups,
             ui: {
               ...(context.actor.ui ?? {}),
               spellsBySchool: ui.spellsBySchool,
               traitStackingById: ui.traitStackingById,
               npcMagicRankOptions: ui.npcMagicRankOptions,
+              worship: ui.worship,
             },
           };
 
@@ -1132,6 +1150,21 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   // Magic
   async _onCastMagicAction(event, target, preselectedSpell = null) { return onCastMagicAction.call(this, event, target, preselectedSpell); }
+  async _onCastInvocationAction(event, target) {
+    event?.preventDefault?.();
+    const li = target?.closest?.(".item") ?? event?.currentTarget?.closest?.(".item");
+    const itemId = li?.dataset?.itemId;
+    if (!itemId) return;
+    const invocation = this.document.items.get(itemId);
+    if (!invocation) return;
+    const { castInvocationFromItem } = await import("../../../core/religion/invocation-runtime.js");
+    return castInvocationFromItem({
+      actor: this.document,
+      invocation,
+      token: this.token?.object ?? this.token ?? null,
+      sheet: this,
+    });
+  }
   async _showSpellOptionsDialog(spell) { return showSpellOptionsDialog(this.document, spell); }
   async _castAttackSpell(spell, targets, spellOptions = {}, castActionType = "primary", opts = {}) {
     return castAttackSpell(this, spell, targets, spellOptions, castActionType, opts);
@@ -1276,6 +1309,11 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (!this.isEditable) return;
     const { LanguageSelectorAppV2 } = await import("../../apps/v2/social-selectors.js");
     await LanguageSelectorAppV2.prompt(this.document);
+  }
+  async _onOpenWorshipManager(event, _target) {
+    event?.preventDefault?.();
+    const { PietyPointsDialog } = await import("../../apps/piety-points-dialog.js");
+    return PietyPointsDialog.show(this.document);
   }
   async _onOpenFactionSelector(event, target) {
     event?.preventDefault?.();

@@ -123,20 +123,19 @@
                                 <div class="flex-container">
                                     <div>Size</div>
                                     <select name="system.size" data-type="String">
-                                        {{selectOptions actor.system.size_cat selected=actor.system.size localize=true}}
+                                        {{selectOptions sizeOptions selected=actor.system.size localize=true}}
                                     </select>
                                 </div>
                                 <div class="flex-container">
                                     <div>AC</div>
                                     <select name="system.armor_class" data-type="String">
-                                        {{selectOptions actor.system.armor_class_cat selected=actor.system.armor_class localize=true}}
+                                        {{selectOptions armorClassOptions selected=actor.system.armor_class localize=true}}
                                     </select>
                                 </div>
                                 {{#if engagementFlankingEnabled}}
                                 <div class="flex-container">
                                     <div>Engagement Score</div>
                                     <div class="uesrpg-status-inline-control">
-                                        <label class="uesrpg-status-inline-label" for="pc-max-engagement-score">Override</label>
                                         <input id="pc-max-engagement-score" name="flags.uesrpg-3ev4.homebrew.maxEngagementScore" type="number" class="uesrpg-max-engagement-score" min="0" step="1" placeholder="Auto" value="{{engagementFlankingMaxES}}">
                                     </div>
                                 </div>

@@ -7,6 +7,27 @@
 import { applyShortRest, applyLongRest, buildRestChatContent } from "../../rest-workflow.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
+import { getDefaultPietyMax } from "../../../../core/religion/worship-store.js";
+import { getOrthodoxFaithBonus } from "../../../../core/religion/clerical-talents.js";
+
+function getWorshipPrimaryDomainKey(actor) {
+  return String(actor?.system?.worship?.primaryDomainKey ?? "").trim().toLowerCase();
+}
+
+function getWorshipPrimaryState(actor) {
+  const domainKey = getWorshipPrimaryDomainKey(actor);
+  if (!domainKey) return { domainKey: "", state: null };
+  const state = actor?.system?.worship?.domains?.[domainKey] ?? null;
+  return { domainKey, state };
+}
+
+function getWorshipPrimaryMax(actor, domainKey, state) {
+  if (state && Object.prototype.hasOwnProperty.call(state?.piety ?? {}, "max")) {
+    const rawMax = Number(state?.piety?.max);
+    if (Number.isFinite(rawMax)) return Math.max(0, rawMax);
+  }
+  return Math.max(0, getDefaultPietyMax(actor, domainKey) + getOrthodoxFaithBonus(actor, domainKey));
+}
 
 /**
  * Increment resource handler.
@@ -18,9 +39,31 @@ import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 export const onIncrementResource = asyncGuardSheet(async function onIncrementResource(event, target) {
   event.preventDefault();
   const el = target ?? event.currentTarget;
-  const resource = this.actor.system[el.dataset.resource];
+  const resourceKey = String(el?.dataset?.resource ?? "").trim();
+  if (!resourceKey) return;
   const action = el.dataset.direction;
-  let dataPath = `system.${el.dataset.resource}.value`;
+
+  if (resourceKey === "worship") {
+    const { domainKey, state } = getWorshipPrimaryState(this.actor);
+    if (!domainKey || !state) {
+      ui.notifications?.warn?.("Set a primary ritual domain in Manage Piety Points first.");
+      return;
+    }
+
+    const currentValue = Number(state?.piety?.value ?? 0);
+    const safeCurrentValue = Number.isFinite(currentValue) ? Math.max(0, currentValue) : 0;
+    const maxValue = getWorshipPrimaryMax(this.actor, domainKey, state);
+    const delta = action === "increase" ? 1 : -1;
+    const nextValue = Math.max(0, Math.min(maxValue, safeCurrentValue + delta));
+    if (nextValue === safeCurrentValue) return;
+
+    return requestUpdateDocument(this.actor, {
+      [`system.worship.domains.${domainKey}.piety.value`]: nextValue,
+    });
+  }
+
+  const resource = this.actor.system[resourceKey];
+  const dataPath = `system.${resourceKey}.value`;
 
   // Update and increment resource
   action == "increase"
@@ -40,6 +83,19 @@ export const onResetResource = asyncGuardSheet(async function onResetResource(ev
   const el = target ?? event.currentTarget;
   const resourceLabel = el?.dataset?.resource;
   if (!resourceLabel) return;
+
+  if (resourceLabel === "worship") {
+    const { domainKey, state } = getWorshipPrimaryState(this.actor);
+    if (!domainKey || !state) {
+      ui.notifications?.warn?.("Set a primary ritual domain in Manage Piety Points first.");
+      return;
+    }
+
+    return requestUpdateDocument(this.actor, {
+      [`system.worship.domains.${domainKey}.piety.value`]: getWorshipPrimaryMax(this.actor, domainKey, state),
+    });
+  }
+
   const resource = this.actor.system?.[resourceLabel];
   if (!resource || typeof resource.max !== "number") return;
   const dataPath = `system.${resourceLabel}.value`;
@@ -135,21 +191,30 @@ export function setResourceBars(sheet) {
 
   if (data) {
     for (let bar of [...sheet.form.querySelectorAll(".currentBar")]) {
-      let resource = data[bar.dataset.resource];
+      const resource = data[bar.dataset.resource];
+      const resourceContainer = bar.closest(".maxBar");
+      const value = Number.isFinite(Number(resource?.value))
+        ? Number(resource.value)
+        : Number(resourceContainer?.dataset?.value ?? bar.dataset.value);
+      const max = Number.isFinite(Number(resource?.max))
+        ? Number(resource.max)
+        : Number(resourceContainer?.dataset?.max ?? bar.dataset.max);
+      const resourceElement = sheet.form.querySelector(`#${bar.id}`);
+      if (!resourceElement) continue;
 
-      if (resource.max !== 0) {
-        let resourceElement = sheet.form.querySelector(`#${bar.id}`);
-        let proportion = Number(
-          (100 * (resource.value / resource.max)).toFixed(0)
-        );
-
-        // if greater than 100 or lower than 20, set values to fit bars correctly
-        proportion < 100 ? (proportion = proportion) : (proportion = 100);
-        proportion < 0 ? (proportion = 0) : (proportion = proportion);
-
-        // Apply the proportion to the width of the resource bar
-        resourceElement.style.width = `${proportion}%`;
+      if (!Number.isFinite(max) || max <= 0) {
+        resourceElement.style.width = "0%";
+        continue;
       }
+
+      let proportion = Number((100 * (value / max)).toFixed(0));
+
+      // if greater than 100 or lower than 20, set values to fit bars correctly
+      proportion < 100 ? (proportion = proportion) : (proportion = 100);
+      proportion < 0 ? (proportion = 0) : (proportion = proportion);
+
+      // Apply the proportion to the width of the resource bar
+      resourceElement.style.width = `${proportion}%`;
     }
   }
 }

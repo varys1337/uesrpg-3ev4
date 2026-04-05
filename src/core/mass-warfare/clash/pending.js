@@ -45,6 +45,8 @@ function _emptyUnitState(actor, tokenDoc = null) {
     modifier:        0,       // manual flat TN modifier applied before roll
     charged:         false,
     incomingChargeSide: "none",
+    contactSide:     "front",
+    commanderJoinFray: null,
     features:        {},      // { [featureId]: boolean } — unit-type feature toggles
     banked: {
       committed:    false,
@@ -87,9 +89,27 @@ export async function createClashPending(attacker, defender, {
   attackerTokenDoc = null,
   defenderTokenDoc = null,
   attackType = "melee",
+  attackerCharged = false,
+  defenderCharged = false,
+  attackerIncomingChargeSide = "none",
+  defenderIncomingChargeSide = "none",
+  attackerContactSide = "front",
+  defenderContactSide = "front",
+  clashGroupId = "",
+  groupMembers = [],
+  commanderJoinFray = { unit1: null, unit2: null },
 } = {}) {
   const unit1 = _emptyUnitState(attacker, attackerTokenDoc);
   unit1.attackType = attackType === "ranged" ? "ranged" : "melee";
+  unit1.charged = Boolean(attackerCharged);
+  unit1.incomingChargeSide = String(attackerIncomingChargeSide ?? "none");
+  unit1.contactSide = String(attackerContactSide ?? "front");
+  unit1.commanderJoinFray = commanderJoinFray?.unit1 ?? null;
+  const unit2 = _emptyUnitState(defender, defenderTokenDoc);
+  unit2.charged = Boolean(defenderCharged);
+  unit2.incomingChargeSide = String(defenderIncomingChargeSide ?? "none");
+  unit2.contactSide = String(defenderContactSide ?? "front");
+  unit2.commanderJoinFray = commanderJoinFray?.unit2 ?? null;
 
   const data = {
     phase:             "pending",
@@ -97,7 +117,9 @@ export async function createClashPending(attacker, defender, {
     autoRollStarted:   false,
     autoRollStartedBy: null,
     unit1,
-    unit2:             _emptyUnitState(defender, defenderTokenDoc),
+    unit2,
+    clashGroupId:      String(clashGroupId ?? ""),
+    groupMembers:      Array.isArray(groupMembers) ? groupMembers.map((value) => String(value ?? "")).filter(Boolean) : [],
     createdAt:         Date.now(),
   };
 

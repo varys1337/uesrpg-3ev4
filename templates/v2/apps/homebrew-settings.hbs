@@ -79,6 +79,19 @@
     </div>
   </fieldset>
 
+  <fieldset class="uesrpg-settings__section">
+    <legend>Religion &amp; Worship</legend>
+
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-religion-worship-enabled">Enable Religion &amp; Worship</label>
+        <p class="setting-help">Unlocks ritual domains, invocation items, worship state, Divine Intervention, and religion-specific compendium/tooling lanes.</p>
+        <p class="setting-note">Requires a reload to apply consistently.</p>
+      </div>
+      <input id="uesrpg-religion-worship-enabled" type="checkbox" name="homebrew.religionWorship.enabled" {{checked homebrew.religionWorshipEnabled}}>
+    </div>
+  </fieldset>
+
   <footer class="uesrpg-settings__footer">
     <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
   </footer>

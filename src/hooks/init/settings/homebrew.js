@@ -103,4 +103,14 @@ export function registerHomebrewSettings() {
     default: false,
     type: Boolean,
   });
+
+  _reg("homebrew.religionWorship.enabled", {
+    name: "Homebrew: Religion & Worship",
+    hint: "Enables the Religion & Worship subsystem, including ritual domains, invocations, worship state, and religion-specific GM tools.",
+    scope: "world",
+    config: false,
+    requiresReload: true,
+    default: false,
+    type: Boolean,
+  });
 }

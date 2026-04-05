@@ -105,6 +105,8 @@
           <input type="text" name="system.equipment.owned.{{@index}}.placement" value="{{this.placement}}" placeholder="Placement" {{#unless ../editable}}disabled{{/unless}}>
           <input type="text" name="system.equipment.owned.{{@index}}.effect" value="{{this.effect}}" placeholder="Effect" {{#unless ../editable}}disabled{{/unless}}>
           {{#if ../editable}}
+          <button type="button" data-action="deployOwnedEquipmentToRegion" data-owned-index="{{@index}}" class="warfare-btn warfare-btn--small" title="Deploy to Region"><i class="fas fa-location-arrow"></i></button>
+          <button type="button" data-action="configureOwnedEquipmentRegion" data-owned-index="{{@index}}" class="warfare-btn warfare-btn--small" title="Configure Region"><i class="fas fa-draw-polygon"></i></button>
           <button type="button" data-action="removeOwnedEquipment" data-owned-index="{{@index}}" class="warfare-btn warfare-btn--icon" title="Remove"><i class="fas fa-trash"></i></button>
           {{/if}}
         </div>

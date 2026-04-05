@@ -119,7 +119,6 @@
                                             <td class="weapon-mode-cell">
                                                 {{#if (eq item.system.attackMode "ranged")}}
                                                     <div class="weapon-ammo-select-wrap" title="{{item.system.inlineAmmoLabel}}">
-                                                        <span class="weapon-ammo-select-label">{{item.system.inlineAmmoLabel}}</span>
                                                         <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="Select ammunition">
                                                             {{#each item.system.inlineAmmoOptions}}
                                                                 <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
@@ -160,7 +159,6 @@
                                             <td class="weapon-mode-cell">
                                                 {{#if (eq item.system.attackMode "ranged")}}
                                                     <div class="weapon-ammo-select-wrap" title="{{item.system.inlineAmmoLabel}}">
-                                                        <span class="weapon-ammo-select-label">{{item.system.inlineAmmoLabel}}</span>
                                                         <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="Select ammunition">
                                                             {{#each item.system.inlineAmmoOptions}}
                                                                 <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>

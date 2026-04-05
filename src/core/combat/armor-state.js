@@ -66,7 +66,7 @@ export function getArmorValuesForLane(sys, lane) {
  *
  * Takes into account:
  *  - the item's native armorClass (full / partial)
- *  - Prone condition (full → partial)
+ *  - Prone condition (full → partial) for trigger/classification purposes
  *
  * Does NOT mutate the item.
  *
@@ -100,6 +100,10 @@ export function isArmorCoveringLocation(itemOrSystem, locationKey) {
  *
  * Applies Damaged(X) from the item's structured qualities AFTER selecting the lane.
  * Does NOT mutate the item.
+ *
+ * Important: callers deciding whether Prone should affect real protection must
+ * opt in explicitly via isProneForArmor. RAW uses Prone as a coverage downgrade
+ * for trigger-style interactions, but not as an AR/MR/special AR degradation.
  *
  * @param {object} sys - item.system
  * @param {object} [options]

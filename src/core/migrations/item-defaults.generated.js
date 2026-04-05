@@ -427,6 +427,32 @@ export const DEFAULTS = deepFreeze(
       "damageType": "",
       "qualitiesStructured": [],
       "qualitiesTraits": []
+    },
+    "invocation": {
+      "description": "",
+      "domainKey": "",
+      "tnDomainKey": "",
+      "circle": 1,
+      "pietyCost": 1,
+      "isUniversal": false,
+      "time": "",
+      "ritual": "",
+      "range": "",
+      "duration": "",
+      "aspects": [],
+      "requirements": "",
+      "effect": "",
+      "automation": {
+        "mode": "manual",
+        "key": "",
+        "descriptors": [],
+        "allowManualFallback": true
+      },
+      "source": {
+        "sourceKey": "",
+        "sourcePath": "",
+        "importVersion": 1
+      }
     }
   },
   "__meta": {

@@ -26,6 +26,7 @@ import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../system/
 import { isShieldItem } from "../items/shield-utils.js";
 import { isWarfareUnitActorType } from "../actors/types.js";
 import { hasTalent } from "../traits/talents-api.js";
+import { canActorAccessDomainSpell, isDomainSpellItem } from "../religion/ritual-domains.js";
 
 // Re-export for backward compatibility - canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
@@ -96,12 +97,27 @@ function _normalizeKey(s) {
     .replace(/[^a-z0-9_]/g, "");
 }
 
+export function getSpellCastingSchool(spell) {
+  if (!spell) return "";
+  if (isDomainSpellItem(spell)) {
+    const explicit = _str(spell?.flags?.[FLAG_SCOPE]?.religion?.domainCastSchool);
+    if (explicit) return explicit;
+  }
+  return _str(spell?.system?.school);
+}
+
+export function canActorCastSpell(actor, spell) {
+  if (!spell) return false;
+  if (isDomainSpellItem(spell) && !canActorAccessDomainSpell(actor, spell)) return false;
+  return isActorTrainedInMagicSchool(actor, getSpellCastingSchool(spell));
+}
+
 function _collectSpellCostModifierKeys(spell) {
   const keySet = new Set([
     "system.modifiers.magic.cost._all"
   ]);
 
-  const schoolKey = _normalizeKey(spell?.system?.school);
+  const schoolKey = _normalizeKey(getSpellCastingSchool(spell));
   if (schoolKey) keySet.add(`system.modifiers.magic.cost.${schoolKey}`);
 
   return Array.from(keySet);
@@ -924,7 +940,7 @@ function _hasTwoFreeHandsForCasting(actor) {
  * @returns {object} - { baseTN, spellcastingLevel, spellLevel, modifiers, finalTN }
  */
 export function computeMagicCastingTN(actor, spell, options = {}) {
-  const schoolRaw = _str(spell?.system?.school);
+  const schoolRaw = getSpellCastingSchool(spell);
   const school = schoolRaw.toLowerCase();
   const schoolKey = _normalizeKey(schoolRaw || school);
 

@@ -15,6 +15,7 @@
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { buildWarfareDisciplineTN } from "../tn.js";
+import { ensureEncounterAllowsUtilityAction } from "../encounter/controller.js";
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -26,6 +27,9 @@ import { buildWarfareDisciplineTN } from "../tn.js";
  * @returns {Promise<void>}
  */
 export async function rollDisciplineForUnit(actor) {
+  const gate = await ensureEncounterAllowsUtilityAction(actor, { actionLabel: "Discipline Test" });
+  if (!gate?.allowed) return;
+
   const baseTn = buildWarfareDisciplineTN(actor).baseTN;
 
   const choices = await _showDisciplineDialog(actor.name, baseTn);

@@ -70,6 +70,7 @@ const SUPPORTED_ITEM_SHEET_TYPES = new Set([
   "container",
   "equipment",
   "item",
+  "invocation",
   "magicSkill",
   "power",
   "scroll",
@@ -1516,7 +1517,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
       // Type-specific wrapper classes for legacy selectors.
       el.classList.add(this.document.type);
-      if (this.document.type === "spell") el.classList.add("spell-sheet");
+      if (this.document.type === "spell" || this.document.type === "invocation") el.classList.add("spell-sheet");
 
       // Tab handling: fallback to first visible tab when remembered tab is absent.
       const desiredTab = this.tabGroups.primary ?? "description";

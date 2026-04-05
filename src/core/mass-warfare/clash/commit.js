@@ -71,7 +71,11 @@ export async function handleClashCommit(message, unitKey) {
 
   // Show per-unit stance dialog
   const forceJoinFray = hasWarfareActionEffect(actor, WARFARE_EFFECT_KEYS.JOIN_FRAY_NEXT_CLASH);
-  const choices = await _showCommitDialog(unit.actorName, clashFeatures, opponentIsRanged, { forceJoinFray });
+  const choices = await _showCommitDialog(unit.actorName, clashFeatures, opponentIsRanged, {
+    forceJoinFray,
+    initialState: unit,
+    lockBattlefieldMetadata: Boolean(snapshot?.clashGroupId),
+  });
   if (!choices || typeof choices !== "object") return; // cancelled
 
   // Re-read LIVE flag state after the dialog to catch concurrent sibling commits
@@ -116,7 +120,11 @@ export async function handleClashCommit(message, unitKey) {
  * @param {boolean}           opponentIsRanged — whether opponent is a ranged unit (pre-checks halfRangedDamage)
  * @returns {string}
  */
-function _buildCommitDialogContent(unitName, clashFeatures, opponentIsRanged, { forceJoinFray = false } = {}) {
+function _buildCommitDialogContent(unitName, clashFeatures, opponentIsRanged, {
+  forceJoinFray = false,
+  initialState = {},
+  lockBattlefieldMetadata = false,
+} = {}) {
   const featureToggles = clashFeatures.map(f => {
     const checked = (f.id === "halfRangedDamage" && opponentIsRanged) ? "checked" : "";
     return `<label class="warfare-clash-toggle" title="${f.description}">
@@ -124,37 +132,53 @@ function _buildCommitDialogContent(unitName, clashFeatures, opponentIsRanged, { 
       ${f.label}${f.isPassive ? " <span style='color:#888;font-size:0.75em;'>(passive)</span>" : ""}
     </label>`;
   }).join("");
+  const metadataRows = lockBattlefieldMetadata ? `
+      <div class="form-group">
+        <label><b>Charge State</b></label>
+        <div class="notes">${initialState?.charged ? "This unit counts as Charging." : "This unit is not Charging."}</div>
+      </div>
+      <div class="form-group">
+        <label><b>Contact Side</b></label>
+        <div class="notes">${String(initialState?.contactSide ?? "front").trim() || "front"}</div>
+      </div>
+      <div class="form-group">
+        <label><b>Incoming Charge</b></label>
+        <div class="notes">${String(initialState?.incomingChargeSide ?? "none").trim() || "none"}</div>
+      </div>
+      ${initialState?.commanderJoinFray?.name ? `<div class="form-group"><label><b>Commander Join the Fray</b></label><div class="notes">${initialState.commanderJoinFray.name} is already attached to this clash.</div></div>` : ""}`
+    : `
+      <div class="form-group">
+        <label><input type="checkbox" name="charged" ${initialState?.charged ? "checked" : ""}> This unit successfully charged</label>
+      </div>
+      <div class="form-group">
+        <label>Incoming Charge Side</label>
+        <select name="incomingChargeSide">
+          <option value="none" ${String(initialState?.incomingChargeSide ?? "none") === "none" ? "selected" : ""}>None</option>
+          <option value="front" ${String(initialState?.incomingChargeSide ?? "none") === "front" ? "selected" : ""}>Front</option>
+          <option value="flank" ${String(initialState?.incomingChargeSide ?? "none") === "flank" ? "selected" : ""}>Flank</option>
+          <option value="rear" ${String(initialState?.incomingChargeSide ?? "none") === "rear" ? "selected" : ""}>Rear</option>
+        </select>
+      </div>`;
 
   return `
     <div class="warfare-clash-commit-dialog">
       <div class="form-group">
         <label>Stance</label>
         <select name="role">
-          <option value="attack">Attacking</option>
-          <option value="defend">Defending</option>
-          <option value="none">No Stance</option>
+          <option value="attack" ${String(initialState?.role ?? "attack") === "attack" ? "selected" : ""}>Attacking</option>
+          <option value="defend" ${String(initialState?.role ?? "attack") === "defend" ? "selected" : ""}>Defending</option>
+          <option value="none" ${String(initialState?.role ?? "attack") === "none" ? "selected" : ""}>No Stance</option>
         </select>
       </div>
       <div class="form-group">
         <label>Modifier</label>
-        <input type="number" name="modifier" value="0" style="width:90px;">
+        <input type="number" name="modifier" value="${Number(initialState?.modifier ?? 0) || 0}" style="width:90px;">
         <p class="notes">Flat Discipline TN modifier for this clash only.</p>
       </div>
-      <div class="form-group">
-        <label><input type="checkbox" name="charged"> This unit successfully charged</label>
-      </div>
-      <div class="form-group">
-        <label>Incoming Charge Side</label>
-        <select name="incomingChargeSide">
-          <option value="none">None</option>
-          <option value="front">Front</option>
-          <option value="flank">Flank</option>
-          <option value="rear">Rear</option>
-        </select>
-      </div>
+      ${metadataRows}
       <div class="warfare-clash-toggles">
         <label class="warfare-clash-toggle">
-          <input type="checkbox" name="joinFray" ${forceJoinFray ? "checked disabled" : ""}>
+          <input type="checkbox" name="joinFray" ${initialState?.joinFray || forceJoinFray ? "checked" : ""} ${(forceJoinFray || initialState?.commanderJoinFray) ? "disabled" : ""}>
           Join the Fray
         </label>
         ${featureToggles}
@@ -170,10 +194,18 @@ function _buildCommitDialogContent(unitName, clashFeatures, opponentIsRanged, { 
  * @param {boolean}           opponentIsRanged
  * @returns {Promise<{role: string, joinFray: boolean, modifier: number, charged: boolean, incomingChargeSide: string, features: object}|null>}
  */
-async function _showCommitDialog(unitName, clashFeatures, opponentIsRanged, { forceJoinFray = false } = {}) {
+async function _showCommitDialog(unitName, clashFeatures, opponentIsRanged, {
+  forceJoinFray = false,
+  initialState = {},
+  lockBattlefieldMetadata = false,
+} = {}) {
   return customDialog({
     title: `${unitName} — Choose Stance`,
-    content: _buildCommitDialogContent(unitName, clashFeatures, opponentIsRanged, { forceJoinFray }),
+    content: _buildCommitDialogContent(unitName, clashFeatures, opponentIsRanged, {
+      forceJoinFray,
+      initialState,
+      lockBattlefieldMetadata,
+    }),
     buttons: {
       confirm: {
         label: "Commit Stance",
@@ -185,10 +217,14 @@ async function _showCommitDialog(unitName, clashFeatures, opponentIsRanged, { fo
           }
           return {
             role:     html.querySelector('[name="role"]').value,
-            joinFray: html.querySelector('[name="joinFray"]').checked,
+            joinFray: initialState?.commanderJoinFray ? false : html.querySelector('[name="joinFray"]').checked,
             modifier: Number(html.querySelector('[name="modifier"]')?.value ?? 0) || 0,
-            charged: Boolean(html.querySelector('[name="charged"]')?.checked),
-            incomingChargeSide: html.querySelector('[name="incomingChargeSide"]')?.value ?? "none",
+            charged: lockBattlefieldMetadata
+              ? Boolean(initialState?.charged)
+              : Boolean(html.querySelector('[name="charged"]')?.checked),
+            incomingChargeSide: lockBattlefieldMetadata
+              ? (initialState?.incomingChargeSide ?? "none")
+              : (html.querySelector('[name="incomingChargeSide"]')?.value ?? "none"),
             features,
           };
         },

@@ -12,6 +12,7 @@
 
 import { SYSTEM_ID } from "../constants.js";
 import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
+import { buildDefaultWorshipData, buildDefaultWorshipDomainState } from "../religion/worship-store.js";
 
 const MODULE_ID = SYSTEM_ID;
 const WARFARE_CONDITION_INIT_FLAG_PATH = `flags.${SYSTEM_ID}.warfareConditionInitialized`;
@@ -58,12 +59,114 @@ function _ensureResistanceDefaults(sys) {
   return update;
 }
 
+function _ensureWorshipDefaults(actor, sys) {
+  const update = {};
+  if (!["Player Character", "NPC"].includes(String(actor?.type ?? ""))) return update;
+
+  const worship = _isPlainObject(sys?.worship) ? sys.worship : null;
+  if (!worship) {
+    update["system.worship"] = buildDefaultWorshipData();
+    return update;
+  }
+
+  if (worship.primaryDomainKey === undefined) update["system.worship.primaryDomainKey"] = "";
+  if (!_isPlainObject(worship.domains)) {
+    update["system.worship.domains"] = {};
+    return update;
+  }
+
+  for (const [domainKey, state] of Object.entries(worship.domains)) {
+    const prefix = `system.worship.domains.${domainKey}`;
+    if (!_isPlainObject(state)) {
+      update[prefix] = buildDefaultWorshipDomainState();
+      continue;
+    }
+
+    if (state.deityName === undefined) update[`${prefix}.deityName`] = "";
+    if (state.initiated === undefined) update[`${prefix}.initiated`] = false;
+
+    if (!_isPlainObject(state.piety)) {
+      update[`${prefix}.piety`] = { value: 0, max: 0, bonus: 0 };
+    } else {
+      if (state.piety.value === undefined) update[`${prefix}.piety.value`] = 0;
+      if (state.piety.max === undefined) update[`${prefix}.piety.max`] = 0;
+      if (state.piety.bonus === undefined) update[`${prefix}.piety.bonus`] = 0;
+    }
+
+    if (!_isPlainObject(state.penance)) {
+      update[`${prefix}.penance`] = { blocked: false, note: "", appliedAt: 0 };
+    } else {
+      if (state.penance.blocked === undefined) update[`${prefix}.penance.blocked`] = false;
+      if (state.penance.note === undefined) update[`${prefix}.penance.note`] = "";
+      if (state.penance.appliedAt === undefined) update[`${prefix}.penance.appliedAt`] = 0;
+    }
+
+    if (!_isPlainObject(state.preparation)) {
+      update[`${prefix}.preparation`] = { preparedInvocationIds: [], lastPreparedAt: 0 };
+    } else {
+      if (!Array.isArray(state.preparation.preparedInvocationIds)) {
+        update[`${prefix}.preparation.preparedInvocationIds`] = [];
+      }
+      if (state.preparation.lastPreparedAt === undefined) update[`${prefix}.preparation.lastPreparedAt`] = 0;
+    }
+
+    if (!_isPlainObject(state.intervention)) {
+      update[`${prefix}.intervention`] = {
+        lastLongRestUsage: 0,
+        lastRequestAt: 0,
+        lastResolvedAt: 0,
+        lastOutcome: "",
+        retributionNote: "",
+      };
+    } else {
+      if (state.intervention.lastLongRestUsage === undefined) update[`${prefix}.intervention.lastLongRestUsage`] = 0;
+      if (state.intervention.lastRequestAt === undefined) update[`${prefix}.intervention.lastRequestAt`] = 0;
+      if (state.intervention.lastResolvedAt === undefined) update[`${prefix}.intervention.lastResolvedAt`] = 0;
+      if (state.intervention.lastOutcome === undefined) update[`${prefix}.intervention.lastOutcome`] = "";
+      if (state.intervention.retributionNote === undefined) update[`${prefix}.intervention.retributionNote`] = "";
+    }
+
+    if (!Array.isArray(state.history)) update[`${prefix}.history`] = [];
+
+    if (!_isPlainObject(state.observances)) {
+      update[`${prefix}.observances`] = {
+        fasting: {
+          active: false,
+          streakDays: 0,
+          lastAccrualAt: 0,
+          lastSourceLabel: "",
+        },
+      };
+    } else if (!_isPlainObject(state.observances.fasting)) {
+      update[`${prefix}.observances.fasting`] = {
+        active: false,
+        streakDays: 0,
+        lastAccrualAt: 0,
+        lastSourceLabel: "",
+      };
+    } else {
+      if (state.observances.fasting.active === undefined) update[`${prefix}.observances.fasting.active`] = false;
+      if (state.observances.fasting.streakDays === undefined) update[`${prefix}.observances.fasting.streakDays`] = 0;
+      if (state.observances.fasting.lastAccrualAt === undefined) update[`${prefix}.observances.fasting.lastAccrualAt`] = 0;
+      if (state.observances.fasting.lastSourceLabel === undefined) update[`${prefix}.observances.fasting.lastSourceLabel`] = "";
+    }
+  }
+
+  return update;
+}
+
 function _buildInvalidActorSystemPatch(actor) {
+  const system = {
+    resistance: _buildResistanceDefaults()
+  };
+
+  if (["Player Character", "NPC"].includes(String(actor?.type ?? ""))) {
+    system.worship = buildDefaultWorshipData();
+  }
+
   return {
     _id: actor.id,
-    system: {
-      resistance: _buildResistanceDefaults()
-    }
+    system
   };
 }
 
@@ -72,6 +175,7 @@ function _buildActorMigrationPatch(actor) {
   if (!_isPlainObject(sys)) return _buildInvalidActorSystemPatch(actor);
 
   const update = _ensureResistanceDefaults(sys);
+  Object.assign(update, _ensureWorshipDefaults(actor, sys));
   if (!Object.keys(update).length) return null;
   update._id = actor.id;
   return update;
@@ -429,6 +533,7 @@ export async function normalizeActors() {
 
       // Standard resistance defaults (PC/NPC/Group).
       const update = _ensureResistanceDefaults(sys);
+      Object.assign(update, _ensureWorshipDefaults(actor, sys));
 
       // Warfare Unit structural defaults.
       if (actor.type === "Warfare Unit") {
@@ -569,7 +674,14 @@ function _buildWarfareNeutralLanePatch(sys) {
     if (srcEquip.length > 0) {
       update["system.equipment.owned"] = srcEquip.map((e) => ({
         name:        String(e.name   ?? ""),
-        description: String(e.effect ?? ""),
+        key: "",
+        deployTime: Math.max(0, Number(e.deployTime ?? 0) || 0),
+        deployProgress: 0,
+        deployed: false,
+        expended: false,
+        placement: "",
+        effect: String(e.effect ?? ""),
+        cost: 0,
       }));
     }
   }

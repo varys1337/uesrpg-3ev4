@@ -11,6 +11,13 @@ import {
   validateTalentLearning,
   notifyTalentLearningResult,
 } from "../../../../core/traits/talent-learning.js";
+import { isReligionWorshipEnabled } from "../../../../core/homebrew/settings.js";
+import { getReligionDomains } from "../../../../core/religion/domain-registry.js";
+import {
+  buildRitualDomainItemSeed,
+  getActorRitualDomainItems,
+} from "../../../../core/religion/ritual-domains.js";
+import { RELIGION_INVOCATION_DOMAIN_UNIVERSAL } from "../../../../core/religion/constants.js";
 
 /**
  * Handle item creation from sheet "+" buttons.
@@ -37,10 +44,11 @@ export async function onItemCreate(sheet, event, {
   const element = target ?? event?.currentTarget;
   const type = String(element?.id ?? "").trim();
   if (!type) return;
+  let createType = type;
 
   let itemData = baseCha === null
-    ? [{ name: type, type }]
-    : [{ name: type, type, "system.baseCha": baseCha }];
+    ? [{ name: createType, type: createType }]
+    : [{ name: createType, type: createType, "system.baseCha": baseCha }];
 
   // Special case: createSelect opens a type picker dialog
   if (type === "createSelect") {
@@ -115,17 +123,104 @@ export async function onItemCreate(sheet, event, {
     ];
   }
 
-  if (includeMagicSkillSeed && type === "magicSkill") {
+  if (includeMagicSkillSeed && type === "magicSkill" && isReligionWorshipEnabled()) {
+    createType = await customDialog({
+      title: "Create Magic Skill",
+      content: `<div class="uesrpg-cast-magic-form">
+        <div class="form-group">
+          <label><b>Choose Entry Type</b></label>
+          <p style="margin:6px 0 0 0;">Create a standard magic skill or a ritual domain.</p>
+        </div>
+      </div>`,
+      buttons: {
+        magicSkill: { label: "Magic Skill", callback: () => "magicSkill" },
+        ritualDomain: { label: "Ritual Domain", callback: () => "ritualDomain" },
+        cancel: { label: "Cancel", callback: () => "" },
+      },
+      defaultButton: "magicSkill",
+      width: 360,
+    });
+    if (!createType) return;
+  }
+
+  if (includeMagicSkillSeed && createType === "magicSkill") {
     itemData = [
       {
         name: "Magic School Name",
-        type,
+        type: "magicSkill",
         img: "systems/uesrpg-3ev4/images/spell-compendium/mysticism_spellbook.webp",
         "system.governingCha": "Wp",
         "system.baseCha":
           (sheet.actor.system?.characteristics?.int?.total ?? 0) >= (sheet.actor.system?.characteristics?.wp?.total ?? 0)
             ? "wp"
             : "int",
+      },
+    ];
+  }
+
+  if (createType === "ritualDomain") {
+    if (!isReligionWorshipEnabled()) {
+      ui.notifications?.warn?.("Religion & Worship is disabled in Homebrew Settings.");
+      return;
+    }
+
+    const ownedDomains = new Set(Object.keys(getActorRitualDomainItems(sheet.actor)));
+    const choices = getReligionDomains().filter((domain) => !ownedDomains.has(domain.key));
+    if (!choices.length) {
+      ui.notifications?.info?.(`${sheet.actor.name} already has every ritual domain.`);
+      return;
+    }
+
+    const options = choices.map((domain) =>
+      `<option value="${domain.key}">${foundry.utils.escapeHTML(domain.label)}</option>`
+    ).join("");
+
+    const selectedDomainKey = await customDialog({
+      title: "Create Ritual Domain",
+      content: `<div class="uesrpg-cast-magic-form">
+        <div class="form-group">
+          <label><b>Select Ritual Domain</b></label>
+          <select name="domainKey" style="width:100%;">${options}</select>
+        </div>
+      </div>`,
+      buttons: {
+        create: {
+          label: "Create",
+          callback: (html) => {
+            const root = html instanceof HTMLElement ? html : html?.[0];
+            return root?.querySelector('select[name="domainKey"]')?.value ?? "";
+          },
+        },
+        cancel: { label: "Cancel", callback: () => "" },
+      },
+      defaultButton: "create",
+      width: 360,
+    });
+
+    if (!selectedDomainKey) return;
+    itemData = [buildRitualDomainItemSeed(sheet.actor, selectedDomainKey)];
+  }
+
+  if (createType === "invocation") {
+    if (!isReligionWorshipEnabled()) {
+      ui.notifications?.warn?.("Religion & Worship is disabled in Homebrew Settings.");
+      return;
+    }
+
+    const primaryDomainKey = String(sheet.actor?.system?.worship?.primaryDomainKey ?? "").trim().toLowerCase();
+    const ritualDomainKeys = Object.keys(getActorRitualDomainItems(sheet.actor));
+    const fallbackDomainKey = primaryDomainKey
+      || ritualDomainKeys[0]
+      || RELIGION_INVOCATION_DOMAIN_UNIVERSAL;
+
+    itemData = [
+      {
+        name: "New Invocation",
+        type: "invocation",
+        img: "systems/uesrpg-3ev4/images/spell-compendium/mysticism_spellbook.webp",
+        "system.domainKey": fallbackDomainKey,
+        "system.circle": 1,
+        "system.pietyCost": 1,
       },
     ];
   }

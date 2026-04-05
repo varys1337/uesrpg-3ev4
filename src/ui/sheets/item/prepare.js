@@ -10,11 +10,17 @@ import {
   AMMO_ARROW_TYPE_LABELS,
   ARMOR_WEIGHT_CLASS_LABELS,
   ARMOR_CLASS_LABELS,
+  SPELL_SCHOOL_LABELS,
+  TRAINING_RANK_LABELS,
   ARMOR_MATERIAL_LABELS,
   SHIELD_TYPE_LABELS,
   ITEM_QUALITY_LABELS,
-  resolveQualityCatalog
+  resolveQualityCatalog,
+  RELIGION_DOMAIN_LABELS,
+  INVOCATION_CIRCLE_LABELS,
 } from "../../../core/config/label-catalog.js";
+import { getReligionDomain } from "../../../core/religion/domain-registry.js";
+import { getActorRitualDomainItems } from "../../../core/religion/ritual-domains.js";
 import { SPECIAL_ACTIONS } from "../../../core/config/special-actions.js";
 import {
   normalizeSpellConfig,
@@ -54,6 +60,8 @@ import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-c
 import { getEffectByKey } from "../../../core/alchemy/effects.js";
 import { buildAlchemyProductEffectSlots } from "./item-sheet-alchemy-effects.js";
 import {
+  getWeaponBaseReachState,
+  getWeaponReachBoundsEffective,
   isReachLengthHomebrewEnabled,
   getReachLengthModel,
 } from "../../../core/homebrew/reach-length/weapon.js";
@@ -215,6 +223,28 @@ export async function prepareItemSheetData(sheet, data) {
     };
   }
 
+  if (itemType === "invocation") {
+    data.religionDomainOptions = RELIGION_DOMAIN_LABELS;
+    data.invocationCircleOptions = INVOCATION_CIRCLE_LABELS;
+    data.item.system.aspectsText = Array.isArray(data.item.system.aspects)
+      ? data.item.system.aspects.join(", ")
+      : "";
+    data.item.system.tnDomainKey = String(data.item.system.tnDomainKey ?? "").trim().toLowerCase();
+    const ownedRitualDomains = actorDoc ? Object.entries(getActorRitualDomainItems(actorDoc)) : [];
+    const invocationTnDomainOptions = { "": "Prepared Domain" };
+    if (ownedRitualDomains.length) {
+      for (const [domainKey, ritualItem] of ownedRitualDomains) {
+        invocationTnDomainOptions[domainKey] = ritualItem?.name || getReligionDomain(domainKey)?.ritualSkillName || `Ritual [${RELIGION_DOMAIN_LABELS[domainKey] ?? domainKey}]`;
+      }
+    } else {
+      for (const [domainKey, label] of Object.entries(RELIGION_DOMAIN_LABELS)) {
+        const ritualSkillName = getReligionDomain(domainKey)?.ritualSkillName || `Ritual [${label}]`;
+        invocationTnDomainOptions[domainKey] = ritualSkillName;
+      }
+    }
+    data.invocationTnDomainOptions = invocationTnDomainOptions;
+  }
+
   // --------------------------------------------
   // Armor: Effective Weight Class (derived)
   // --------------------------------------------
@@ -275,6 +305,8 @@ export async function prepareItemSheetData(sheet, data) {
   data.armorMaterialOptions = ARMOR_MATERIAL_LABELS;
   data.armorClassOptions = ARMOR_CLASS_LABELS;
   data.shieldTypeOptions = SHIELD_TYPE_LABELS;
+  data.spellSchoolOptions = SPELL_SCHOOL_LABELS;
+  data.skillRankOptions = TRAINING_RANK_LABELS;
   
   // Activation options for traits/talents/powers
   data.talentActionTypeOptions = {
@@ -538,6 +570,14 @@ export async function prepareItemSheetData(sheet, data) {
   if (itemType === "weapon") {
     data.homebrewReachLengthEnabled = isReachLengthHomebrewEnabled();
     data.homebrewReachModel = getReachLengthModel();
+
+    const attackMode = String(itemDoc?.system?.attackMode ?? "melee").toLowerCase();
+    const baseReach = getWeaponBaseReachState(itemDoc, { attackMode, includeLegacyFallback: true });
+    const effectiveReach = getWeaponReachBoundsEffective(itemDoc);
+
+    data.weaponSheetPersistedReachMinValue = baseReach.min ?? 0;
+    data.weaponSheetPersistedReachValue = baseReach.max ?? 0;
+    data.weaponSheetHeaderReachValue = effectiveReach.max ?? data.weaponSheetPersistedReachValue;
   }
 
   // --------------------------------------------

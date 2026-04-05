@@ -1,0 +1,49 @@
+<div class="uesrpg-worship-manager">
+  <header class="uesrpg-worship-manager__header" style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+    <div>
+      <h2 style="margin:0;">Manage Piety Points</h2>
+      <div>{{actorName}} ({{actorType}})</div>
+      {{#if showTrackedDomainSummary}}
+      {{#if trackedDomainLabel}}
+      <div><b>PP Bar Domain:</b> {{trackedDomainLabel}}</div>
+      {{else}}
+      <div><b>PP Bar Domain:</b> Not Set</div>
+      {{/if}}
+      {{/if}}
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+      <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>
+    </div>
+  </header>
+
+  <div class="uesrpg-worship-manager__scroll" style="display:flex; flex-direction:column; gap:10px; margin-top:12px;">
+    <section>
+      <div style="display:grid; gap:8px;">
+        {{#each ritualDomains as |domain|}}
+        <article data-domain-key="{{domain.key}}" style="border:1px solid var(--color-border-light-primary, #666); padding:10px;">
+          <div style="display:grid; grid-template-columns:minmax(0, 1fr) 90px 90px auto; gap:8px; align-items:end;">
+            <div style="min-width:0;">
+              <div><b>{{domain.label}}</b></div>
+              <div style="font-size:0.95em;">Prepared {{domain.preparedCount}} / {{domain.prepLimit}} | {{#if domain.initiated}}Initiated{{else}}Uninitiated{{/if}}{{#if domain.penanceBlocked}} | Penance Blocked{{/if}}{{#if domain.fastingActive}} | Fasting{{/if}}</div>
+            </div>
+            <div>
+              <label style="display:block;"><b>PP</b></label>
+              <input type="number" name="domainCurrentPP" value="{{domain.pietyValue}}" min="0" style="width:100%;" />
+            </div>
+            <div>
+              <label style="display:block;"><b>Max</b></label>
+              <input type="number" name="domainMaxPP" value="{{domain.pietyMax}}" min="0" style="width:100%;" />
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+              <button type="button" data-action="trackPietyDomain" data-domain-key="{{domain.key}}">{{#if domain.isTracked}}Tracked{{else}}Track PP{{/if}}</button>
+              <button type="button" data-action="saveDomainPiety">Save</button>
+              <button type="button" data-action="prepareInvocations" data-domain-key="{{domain.key}}">Prepare</button>
+            </div>
+          </div>
+        </article>
+        {{/each}}
+        {{#unless ritualDomains.length}}<p>No ritual domains trained.</p>{{/unless}}
+      </div>
+    </section>
+  </div>
+</div>

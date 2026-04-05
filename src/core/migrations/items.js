@@ -13,6 +13,7 @@
 import { applyDefaults } from "./apply-defaults.js";
 import { DEFAULTS } from "./item-defaults.generated.js";
 import { SYSTEM_ID, UESRPG } from "../constants.js";
+import { getWeaponBaseReachState } from "../homebrew/reach-length/weapon.js";
 import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
 
 const MODULE_ID = SYSTEM_ID;
@@ -202,6 +203,30 @@ function _normalizeEnchantLevel(item, sys = {}) {
   }
 
   return update;
+}
+
+function _repairWeaponReachFromSafeFallback(system = {}, flags = {}, { attackMode = null } = {}) {
+  let changed = false;
+  const currentReach = Number(system?.reach ?? 0);
+  const hasCurrentReach = Number.isFinite(currentReach) && currentReach > 0;
+  const baseReach = getWeaponBaseReachState(
+    { type: "weapon", system, flags, attackMode },
+    { attackMode, includeLegacyFallback: true }
+  );
+
+  if (!hasCurrentReach && baseReach.max > 0) {
+    system.reach = baseReach.max;
+    changed = true;
+  }
+
+  const structured = Array.isArray(system?.qualitiesStructured) ? system.qualitiesStructured : [];
+  const filtered = structured.filter((quality) => String(quality?.key ?? "").trim().toLowerCase() !== "reach");
+  if (filtered.length !== structured.length) {
+    system.qualitiesStructured = filtered;
+    changed = true;
+  }
+
+  return changed;
 }
 
 function _stripRichText(raw = "") {
@@ -420,29 +445,17 @@ function _normalizeWeaponSystem(item, sys = {}) {
   if (!Array.isArray(sys.qualitiesStructured)) update["system.qualitiesStructured"] = [];
   if (Object.prototype.hasOwnProperty.call(sys, "damageInstances")) update["system.-=damageInstances"] = null;
 
-  // ------------------------------------------------------------
-  // Reach migration
-  // ------------------------------------------------------------
-  // Reach used to exist as a structured quality (reach (X)) that was mirrored into system.reach.
-  // Reach is now a dedicated Basic Property (system.reach) and is removed from qualitiesStructured.
-  // We migrate any legacy structured reach into system.reach (non-destructive) and strip it.
   try {
-    const structured = Array.isArray(sys.qualitiesStructured) ? sys.qualitiesStructured : [];
-    const reachEntry = structured.find((q) => String(q?.key ?? "").toLowerCase() === "reach") ?? null;
-    const reachFromStructured = Number(reachEntry?.value ?? 0);
+    const repairedSystem = foundry.utils.deepClone(inferredSys);
+    if (_repairWeaponReachFromSafeFallback(repairedSystem, item?.flags ?? {}, { attackMode: repairedSystem.attackMode })) {
+      if (repairedSystem.reach !== inferredSys.reach) {
+        update["system.reach"] = repairedSystem.reach;
+      }
 
-    const reachFromSystemRaw = sys.reach;
-    const reachFromSystem = Number(reachFromSystemRaw ?? 0);
-    const systemHasReach = Number.isFinite(reachFromSystem) && reachFromSystem !== 0;
-
-    if (!systemHasReach && Number.isFinite(reachFromStructured) && reachFromStructured !== 0) {
-      update["system.reach"] = reachFromStructured;
-    }
-
-    if (reachEntry) {
-      const filtered = structured.filter((q) => String(q?.key ?? "").toLowerCase() !== "reach");
-      if (filtered.length !== structured.length) {
-        update["system.qualitiesStructured"] = filtered;
+      const originalStructured = Array.isArray(inferredSys.qualitiesStructured) ? inferredSys.qualitiesStructured : [];
+      const repairedStructured = Array.isArray(repairedSystem.qualitiesStructured) ? repairedSystem.qualitiesStructured : [];
+      if (JSON.stringify(repairedStructured) !== JSON.stringify(originalStructured)) {
+        update["system.qualitiesStructured"] = repairedStructured;
       }
     }
   } catch (_e) {
@@ -984,6 +997,8 @@ function _ensureArmorItemCatNonBreaking(system) {
 
 function _applyLegacyGuardrails(item, system) {
   const update = { changed: false, deleteEquippped: false };
+  const itemType = String(item?.type ?? "").toLowerCase();
+  const usesPhysicalGuardrails = new Set(["item", "equipment", "weapon", "armor", "shield", "ammunition"]);
 
   // Fix legacy typo: equippped -> equipped
   if (Object.prototype.hasOwnProperty.call(system, "equippped")) {
@@ -1000,26 +1015,11 @@ function _applyLegacyGuardrails(item, system) {
     update.changed = true;
   }
 
-  // Reach migration: lift structured reach into system.reach and strip it.
+  if (!usesPhysicalGuardrails.has(itemType)) return update;
+
   try {
-    const structured = Array.isArray(system.qualitiesStructured) ? system.qualitiesStructured : [];
-    const reachEntry = structured.find((q) => String(q?.key ?? "").toLowerCase() === "reach") ?? null;
-    const reachFromStructured = Number(reachEntry?.value ?? 0);
-
-    const reachFromSystem = Number(system.reach ?? 0);
-    const systemHasReach = Number.isFinite(reachFromSystem) && reachFromSystem !== 0;
-
-    if (!systemHasReach && Number.isFinite(reachFromStructured) && reachFromStructured !== 0) {
-      system.reach = reachFromStructured;
+    if (_repairWeaponReachFromSafeFallback(system, item?.flags ?? {}, { attackMode: system.attackMode })) {
       update.changed = true;
-    }
-
-    if (reachEntry) {
-      const filtered = structured.filter((q) => String(q?.key ?? "").toLowerCase() !== "reach");
-      if (filtered.length !== structured.length) {
-        system.qualitiesStructured = filtered;
-        update.changed = true;
-      }
     }
   } catch (_e) {
     // best-effort only

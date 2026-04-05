@@ -41,11 +41,13 @@ function _buildTnData(actor, {
   joinFray = false,
   charged = false,
   incomingChargeSide = "none",
+  opponentContactSide = "front",
   opponentHolding = false,
 } = {}) {
   const extraBreakdown = [];
   const traditionKey = _traditionKey(actor);
   if (opponentHolding) extraBreakdown.push({ label: "Opponent Holding", value: -20 });
+  if (opponentContactSide === "flank") extraBreakdown.push({ label: "Flanked", value: -20 });
   if (incomingChargeSide === "rear") extraBreakdown.push({ label: "Charged in the Rear", value: -10 });
   if (traditionKey === "orc-strongholds" && incomingChargeSide !== "none") extraBreakdown.push({ label: "Relentless Endurance", value: 10 });
   if (traditionKey === "hammerfell" && charged) extraBreakdown.push({ label: "Warrior Wave", value: 10 });
@@ -165,16 +167,19 @@ function _buildSideState(actor, {
   features,
   charged = false,
   incomingChargeSide = "none",
+  opponentContactSide = "front",
   tokenDoc = null,
   opponentHolding = false,
+  skipTest = false,
 }) {
-  const holdApplied = hasHoldNextDefend(actor);
-  const effectiveRole = holdApplied && role === "none" ? "defend" : role;
+  const holdApplied = hasHoldNextDefend(actor) && opponentContactSide === "front";
+  const effectiveRole = skipTest ? "none" : (holdApplied && role === "none" ? "defend" : role);
   const tnData = _buildTnData(actor, {
     modifier,
     joinFray,
     charged,
     incomingChargeSide,
+    opponentContactSide,
     opponentHolding,
   });
   return {
@@ -187,6 +192,7 @@ function _buildSideState(actor, {
     features: features ?? {},
     charged: Boolean(charged),
     incomingChargeSide: String(incomingChargeSide ?? "none"),
+    opponentContactSide: String(opponentContactSide ?? "front"),
     holdApplied,
     tnData,
     tn: tnData.finalTN,
@@ -243,6 +249,8 @@ export async function resolveClash({
   defenderCharged = false,
   attackerIncomingChargeSide = "none",
   defenderIncomingChargeSide = "none",
+  attackerContactSide = "front",
+  defenderContactSide = "front",
   attackType = "melee",
   applyDamage = true,
 } = {}) {
@@ -256,8 +264,10 @@ export async function resolveClash({
     features: attackerFeatures,
     charged: attackerCharged,
     incomingChargeSide: attackerIncomingChargeSide,
+    opponentContactSide: defenderContactSide,
     tokenDoc: attackerTokenDoc,
-    opponentHolding: defenderHolding,
+    opponentHolding: defenderHolding && attackerContactSide === "front",
+    skipTest: defenderContactSide === "rear",
   });
   const side2 = _buildSideState(defender, {
     role: defenderRole,
@@ -266,8 +276,10 @@ export async function resolveClash({
     features: defenderFeatures,
     charged: defenderCharged,
     incomingChargeSide: defenderIncomingChargeSide,
+    opponentContactSide: attackerContactSide,
     tokenDoc: defenderTokenDoc,
-    opponentHolding: attackerHolding,
+    opponentHolding: attackerHolding && defenderContactSide === "front",
+    skipTest: attackerContactSide === "rear",
   });
 
   const [test1, test2] = await Promise.all([

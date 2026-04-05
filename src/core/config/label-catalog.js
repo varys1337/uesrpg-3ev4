@@ -99,6 +99,33 @@ export const ARMOR_CLASS_LABELS = Object.freeze({
   full: "Full"
 });
 
+export const ACTOR_SIZE_LABELS = Object.freeze({
+  puny: "Puny",
+  tiny: "Tiny",
+  small: "Small",
+  standard: "Standard",
+  large: "Large",
+  huge: "Huge",
+  enormous: "Enormous"
+});
+
+export const ACTOR_ARMOR_CLASS_LABELS = Object.freeze({
+  none: "None",
+  super_light: "Super Light",
+  light: "Light",
+  medium: "Medium",
+  heavy: "Heavy",
+  super_heavy: "Super Heavy"
+});
+
+export const SUPPLY_DICE_LABELS = Object.freeze({
+  "1d2": "1d2",
+  "1d4": "1d4",
+  "1d6": "1d6",
+  "1d8": "1d8",
+  "1d10": "1d10"
+});
+
 // ── Armor materials ───────────────────────────────────────────────────────────
 
 export const ARMOR_MATERIAL_LABELS = Object.freeze({
@@ -169,6 +196,29 @@ export const TRAINING_RANK_LABELS = Object.freeze({
   master: "Master",
   grandmaster: "Grandmaster",
   legendary: "Legendary"
+});
+
+export const RELIGION_DOMAIN_LABELS = Object.freeze({
+  covenant: "Covenant",
+  duty: "Duty",
+  hearth: "Hearth",
+  grace: "Grace",
+  nature: "Nature",
+  exchange: "Exchange",
+  knowledge: "Knowledge",
+  victory: "Victory",
+  cycle: "Cycle",
+  fate: "Fate",
+  twilight: "Twilight",
+  ruin: "Ruin",
+  universal: "Universal"
+});
+
+export const INVOCATION_CIRCLE_LABELS = Object.freeze({
+  1: "Circle I",
+  2: "Circle II",
+  3: "Circle III",
+  4: "Circle IV"
 });
 
 // ── Circumstance modifiers ────────────────────────────────────────────────────
