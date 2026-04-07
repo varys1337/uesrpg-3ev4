@@ -44,7 +44,7 @@ export function registerWarfareBattlefieldHooks() {
       const preview = _previewTokenDoc(tokenDoc, changed);
       const nextDistance = getDistanceToBattlefieldEdge(scene, preview, edge);
       if (nextDistance >= currentDistance) {
-        ui.notifications?.warn?.("Broken or Routed warfare units must move toward their assigned battlefield edge.");
+        ui.notifications?.warn?.("Broken warfare units must move toward their assigned battlefield edge.");
         return false;
       }
     }
@@ -86,5 +86,5 @@ export function registerWarfareBattlefieldHooks() {
 function actorMustRetreat(scene, tokenDoc) {
   if (!isSceneWarfareEncounterActive(scene)) return false;
   const actor = tokenDoc?.actor ?? null;
-  return Boolean(actor?.system?.status?.battle?.broken || actor?.system?.status?.battle?.routed);
+  return Boolean(actor?.system?.status?.battle?.broken);
 }

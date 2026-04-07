@@ -37,6 +37,7 @@ import {
   handleWarfareAction,
   rollWarfareRangedAttack,
   castWarfareSpell,
+  startMixedWarfareOpposed,
   transformWarfareActionEntries,
   clearCommanderAttachment,
   hasWarfareActionEffect,
@@ -44,12 +45,6 @@ import {
 } from "../../../core/mass-warfare/index.js";
 import { maybeInitializeWarfareCondition } from "../../../core/mass-warfare/condition-target.js";
 import { areTokensInBaseContact } from "../../../core/mass-warfare/battlefield/geometry.js";
-import {
-  recordWarfareEncounterClash,
-  validateWarfareEncounterClash,
-} from "../../../core/mass-warfare/encounter/controller.js";
-import { getEncounterSceneForActor, getSceneWarfareEncounterState } from "../../../core/mass-warfare/encounter/state.js";
-import { getRegionWarfareFeatureState, updateRegionWarfareFeatureState } from "../../../core/mass-warfare/siege/state.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -71,10 +66,12 @@ const ALLOWED_WARFARE_FORM_PATH = createFormPathMatcher({
     "system.stats.resolve.lossTotal",
     "system.stats.discipline.base",
     "system.stats.discipline.bonus",
+    "system.stats.discipline.value",
     "system.stats.condition.value",
     "system.stats.condition.maxOverride",
     "system.stats.condition.useMaxOverride",
     "system.stats.magicka.value",
+    "system.stats.speed.value",
     "system.stats.speed.bonus",
     "system.commander.bonusOverride",
     "system.gear.sets",
@@ -90,7 +87,6 @@ const ALLOWED_WARFARE_FORM_PATH = createFormPathMatcher({
     "system.combat.deployed",
     "system.combat.leaderless",
     "system.upkeep.weeklyGold",
-    "system.upkeep.enslaved",
     // ── Neutral canonical lanes ──────────────────────────────────────────────
     "system.profile.id",
     "system.identity.category",
@@ -100,9 +96,7 @@ const ALLOWED_WARFARE_FORM_PATH = createFormPathMatcher({
     "system.gear.tier",
     "system.mounts.primary",
     "system.economy.cadence",
-    "system.economy.mode",
     "system.economy.amount",
-    "system.economy.enslaved",
     "system.economy.unpaidWeeks",
     "system.economy.specialModifier",
     "system.magic.mode",
@@ -110,7 +104,6 @@ const ALLOWED_WARFARE_FORM_PATH = createFormPathMatcher({
     "system.status.battle.hidden",
     "system.status.battle.ambushReady",
     "system.status.battle.revealed",
-    "system.status.battle.routed",
     "system.status.battle.broken",
     "system.status.battle.suppressed",
     "system.status.battle.defeated",
@@ -131,8 +124,6 @@ const ALLOWED_WARFARE_FORM_PATH = createFormPathMatcher({
   prefixes: [
     // Legacy array lanes
     "system.traits.",
-    "system.spells.",
-    "system.deployableEquipment.",
     // Neutral canonical array lanes
     "system.magic.entries.",
     "system.equipment.owned.",
@@ -185,24 +176,15 @@ function expandWarfareCompatibilityPatch(document, patch = {}) {
   }
 
   const cadence = String(patch["system.economy.cadence"] ?? current.economy?.cadence ?? "weekly");
-  const mode = String(patch["system.economy.mode"] ?? current.economy?.mode ?? "gold");
   const amountChanged =
     "system.economy.amount" in patch ||
-    "system.economy.cadence" in patch ||
-    "system.economy.mode" in patch;
-  if (amountChanged && cadence === "weekly" && mode === "gold") {
+    "system.economy.cadence" in patch;
+  if (amountChanged && cadence === "weekly") {
     expanded["system.upkeep.weeklyGold"] = Number(patch["system.economy.amount"] ?? current.economy?.amount ?? 0);
-  }
-  if ("system.economy.enslaved" in patch) {
-    expanded["system.upkeep.enslaved"] = Boolean(patch["system.economy.enslaved"]);
   }
   if ("system.upkeep.weeklyGold" in patch) {
     expanded["system.economy.cadence"] = "weekly";
-    expanded["system.economy.mode"] = "gold";
     expanded["system.economy.amount"] = Number(patch["system.upkeep.weeklyGold"] ?? 0);
-  }
-  if ("system.upkeep.enslaved" in patch) {
-    expanded["system.economy.enslaved"] = Boolean(patch["system.upkeep.enslaved"]);
   }
 
   if ("system.status.leaderless" in patch) {
@@ -233,33 +215,25 @@ function expandWarfareCompatibilityPatch(document, patch = {}) {
     expanded["system.stats.resolve.value"] = Number(patch["system.stats.condition.value"] ?? 0);
   }
 
+  if ("system.stats.discipline.value" in patch) {
+    const desiredValue = Number(patch["system.stats.discipline.value"] ?? 0) || 0;
+    const currentValue = Number(current.stats?.discipline?.value ?? 0) || 0;
+    const currentManual = Number(current.modifiers?.discipline?.manual ?? 0) || 0;
+    expanded["system.modifiers.discipline.manual"] = currentManual + (desiredValue - currentValue);
+    delete expanded["system.stats.discipline.value"];
+  }
+
+  if ("system.stats.speed.value" in patch) {
+    const desiredValue = Math.max(0, Number(patch["system.stats.speed.value"] ?? 0) || 0);
+    const baseSpeed = Number(current.stats?.speed?.base ?? current._derived?.speedBase ?? 0) || 0;
+    const isSuppressed = Boolean(current.status?.battle?.suppressed);
+    expanded["system.stats.speed.bonus"] = isSuppressed
+      ? Math.max(0, desiredValue * 2 - baseSpeed)
+      : Math.max(0, desiredValue - baseSpeed);
+    delete expanded["system.stats.speed.value"];
+  }
+
   return expanded;
-}
-
-function resolveWarfareActorScene(actor) {
-  return getEncounterSceneForActor(actor)
-    ?? actor?.token?.document?.parent
-    ?? actor?.getActiveTokens?.()[0]?.document?.parent
-    ?? canvas?.scene
-    ?? null;
-}
-
-function classifyEquipmentFeatureType(entry = {}) {
-  const key = String(entry?.key ?? "").trim().toLowerCase();
-  if (key.includes("mantlet")) return "mantlet";
-  if (key.includes("caltrop")) return "caltrops";
-  if (key.includes("spike")) return "spikes";
-  if (key.includes("fascine")) return "fascines";
-  if (key.includes("palisade")) return "palisade";
-  if (key.includes("mound")) return "mound";
-  const name = String(entry?.name ?? "").trim().toLowerCase();
-  if (name.includes("mantlet")) return "mantlet";
-  if (name.includes("caltrop")) return "caltrops";
-  if (name.includes("spike")) return "spikes";
-  if (name.includes("fascine")) return "fascines";
-  if (name.includes("palisade")) return "palisade";
-  if (name.includes("mound")) return "mound";
-  return "";
 }
 
 async function promptClashContactSides({
@@ -335,26 +309,19 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
       itemOpen:            WarfareUnitSheetV2.prototype._onItemOpen,
       itemDelete:          WarfareUnitSheetV2.prototype._onItemDelete,
       postItemToChat:      WarfareUnitSheetV2.prototype._onPostItemToChat,
-      // Spells (legacy system.spells[])
-      addSpell:            WarfareUnitSheetV2.prototype._onAddSpell,
-      removeSpell:         WarfareUnitSheetV2.prototype._onRemoveSpell,
       // Magic entries (neutral system.magic.entries[])
       addMagicEntry:       WarfareUnitSheetV2.prototype._onAddMagicEntry,
       removeMagicEntry:    WarfareUnitSheetV2.prototype._onRemoveMagicEntry,
-      // Deployable equipment (legacy system.deployableEquipment[])
-      addEquipment:        WarfareUnitSheetV2.prototype._onAddEquipment,
-      removeEquipment:     WarfareUnitSheetV2.prototype._onRemoveEquipment,
       // Owned equipment (neutral system.equipment.owned[])
       addOwnedEquipment:   WarfareUnitSheetV2.prototype._onAddOwnedEquipment,
       removeOwnedEquipment: WarfareUnitSheetV2.prototype._onRemoveOwnedEquipment,
-      configureOwnedEquipmentRegion: WarfareUnitSheetV2.prototype._onConfigureOwnedEquipmentRegion,
-      deployOwnedEquipmentToRegion: WarfareUnitSheetV2.prototype._onDeployOwnedEquipmentToRegion,
       // Warfare action buttons (Leader / Unit) and Clash automation
       rollWarfareAction:   WarfareUnitSheetV2.prototype._onRollWarfareAction,
       initiateClash:       WarfareUnitSheetV2.prototype._onInitiateClash,
       rollDiscipline:      WarfareUnitSheetV2.prototype._onRollDiscipline,
       rollRangedAttack:    WarfareUnitSheetV2.prototype._onRollRangedAttack,
       castSpellDirect:     WarfareUnitSheetV2.prototype._onCastSpellDirect,
+      startMixedOpposed:   WarfareUnitSheetV2.prototype._onStartMixedOpposed,
       // Active Effects
       createEffect:        WarfareUnitSheetV2.prototype._onCreateEffect,
       editEffect:          WarfareUnitSheetV2.prototype._onEditEffect,
@@ -535,13 +502,10 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     const economyModel = profile?.economy ?? {};
     context.economy = {
       cadence: sys.economy?.cadence ?? economyModel.defaultCadence ?? "weekly",
-      mode:    sys.economy?.mode    ?? economyModel.defaultMode    ?? "gold",
       amount:  sys.economy?.amount  ?? 0,
-      enslaved: Boolean(sys.economy?.enslaved ?? sys.upkeep?.enslaved ?? false),
       unpaidWeeks: Number(sys.economy?.unpaidWeeks ?? 0) || 0,
       specialModifier: Number(sys.economy?.specialModifier ?? 0) || 0,
-      supportedCadences: economyModel.supportedCadences ?? ["weekly", "monthly", "campaign"],
-      supportedModes:    economyModel.supportedModes    ?? ["gold", "resource", "labor"],
+      supportedCadences: economyModel.supportedCadences ?? ["weekly"],
     };
 
     // ── Magic lane ────────────────────────────────────────────────────────
@@ -559,8 +523,6 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     // Traits/Talents/Powers removed from Core tab — no context needed.
 
     // ── Legacy presence flags ─────────────────────────────────────────────
-    context.hasLegacySpells = Array.isArray(sys.spells) && sys.spells.length > 0;
-    context.hasLegacyDeployableEquipment = Array.isArray(sys.deployableEquipment) && sys.deployableEquipment.length > 0;
     context.hasLegacyNotes = typeof sys.notes === "string" && sys.notes.trim().length > 0;
 
     // ── Derived display cache ─────────────────────────────────────────────
@@ -587,6 +549,9 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     context.bulkPct = bulkMaxVal > 0
       ? Math.min(100, Math.round(bulkVal / bulkMaxVal * 100))
       : 0;
+    const speedValue = Math.max(0, Number(sys.stats?.speed?.value ?? 0) || 0);
+    context.speedDisplayMax = speedValue;
+    context.speedPct = speedValue > 0 ? 100 : 0;
 
     // ── Commander resolution ──────────────────────────────────────────────
     context.commanderResolved = null;
@@ -769,24 +734,6 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     await requestUpdateDocument(this.document, { "system.traits": traits });
   }
 
-  // ── Spell array management (legacy system.spells[]) ───────────────────────
-
-  async _onAddSpell(_event, _target) {
-    if (!this.isEditable) return;
-    const spells = foundry.utils.deepClone(this.document.system.spells ?? []);
-    spells.push({ name: "", effect: "" });
-    await requestUpdateDocument(this.document, { "system.spells": spells });
-  }
-
-  async _onRemoveSpell(_event, target) {
-    if (!this.isEditable) return;
-    const idx = Number(target?.dataset?.spellIndex ?? -1);
-    if (idx < 0) return;
-    const spells = foundry.utils.deepClone(this.document.system.spells ?? []);
-    spells.splice(idx, 1);
-    await requestUpdateDocument(this.document, { "system.spells": spells });
-  }
-
   // ── Magic entries (neutral system.magic.entries[]) ────────────────────────
 
   async _onAddMagicEntry(_event, _target) {
@@ -805,24 +752,6 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     await requestUpdateDocument(this.document, { "system.magic.entries": entries });
   }
 
-  // ── Deployable equipment (legacy system.deployableEquipment[]) ────────────
-
-  async _onAddEquipment(_event, _target) {
-    if (!this.isEditable) return;
-    const equip = foundry.utils.deepClone(this.document.system.deployableEquipment ?? []);
-    equip.push({ name: "", deployTime: 0, effect: "" });
-    await requestUpdateDocument(this.document, { "system.deployableEquipment": equip });
-  }
-
-  async _onRemoveEquipment(_event, target) {
-    if (!this.isEditable) return;
-    const idx = Number(target?.dataset?.equipIndex ?? -1);
-    if (idx < 0) return;
-    const equip = foundry.utils.deepClone(this.document.system.deployableEquipment ?? []);
-    equip.splice(idx, 1);
-    await requestUpdateDocument(this.document, { "system.deployableEquipment": equip });
-  }
-
   // ── Owned equipment (neutral system.equipment.owned[]) ────────────────────
 
   async _onAddOwnedEquipment(_event, _target) {
@@ -838,124 +767,6 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     if (idx < 0) return;
     const owned = foundry.utils.deepClone(this.document.system.equipment?.owned ?? []);
     owned.splice(idx, 1);
-    await requestUpdateDocument(this.document, { "system.equipment.owned": owned });
-  }
-
-  async _onConfigureOwnedEquipmentRegion(event, target) {
-    event?.preventDefault?.();
-    if (!this.isEditable) return;
-    const scene = resolveWarfareActorScene(this.document);
-    if (!scene) {
-      ui.notifications.warn("Open the relevant scene before configuring warfare feature regions.");
-      return;
-    }
-    const idx = Number(target?.dataset?.ownedIndex ?? -1);
-    if (idx < 0) return;
-    const owned = foundry.utils.deepClone(this.document.system.equipment?.owned ?? []);
-    const entry = owned[idx];
-    if (!entry) return;
-    const regions = Array.from(scene?.regions?.contents ?? []);
-    if (!regions.length) {
-      ui.notifications.warn("This scene has no Regions to configure.");
-      return;
-    }
-    const regionOptions = regions
-      .map((region) => `<option value="${region.uuid}">${foundry.utils.escapeHTML(region.name || region.id)}</option>`)
-      .join("");
-    const picked = await customDialog({
-      title: `${this.document.name} - Configure Warfare Region`,
-      content: `
-        <div class="form-group"><label><b>Region</b></label><select name="regionUuid">${regionOptions}</select></div>
-        <div class="form-group"><label><b>Notes</b></label><input type="text" name="notes" value="${foundry.utils.escapeHTML(String(entry.effect ?? ""))}"></div>
-      `,
-      buttons: {
-        confirm: {
-          label: "Save",
-          callback: (html) => ({
-            regionUuid: String(html?.querySelector('[name="regionUuid"]')?.value ?? "").trim(),
-            notes: String(html?.querySelector('[name="notes"]')?.value ?? "").trim(),
-          }),
-        },
-        cancel: { label: "Cancel" },
-      },
-      defaultButton: "confirm",
-      width: 460,
-    });
-    if (!picked?.regionUuid) return;
-    const region = await fromUuid(String(picked.regionUuid));
-    if (!region?.documentName || region.documentName !== "Region") return;
-    const featureType = classifyEquipmentFeatureType(entry);
-    await updateRegionWarfareFeatureState(region, (next) => ({
-      ...next,
-      kind: "deployable",
-      type: featureType || next.type || "mantlet",
-      sourceUnitActorUuid: this.document.uuid,
-      hp: Math.max(0, Number(next.hp ?? 1) || 1),
-      hpMax: Math.max(0, Number(next.hpMax ?? next.hp ?? 1) || 1),
-      intact: true,
-      notes: picked.notes,
-    }));
-    entry.placement = region.name || region.id;
-    entry.effect = picked.notes;
-    await requestUpdateDocument(this.document, { "system.equipment.owned": owned });
-  }
-
-  async _onDeployOwnedEquipmentToRegion(event, target) {
-    event?.preventDefault?.();
-    if (!this.isEditable) return;
-    const scene = resolveWarfareActorScene(this.document);
-    if (!scene) {
-      ui.notifications.warn("Open the relevant scene before deploying support equipment.");
-      return;
-    }
-    const encounterState = getSceneWarfareEncounterState(scene);
-    if (encounterState?.active && String(encounterState.phase ?? "") !== "strategic") {
-      ui.notifications.warn("Deploying warfare equipment on-scene is only available during the Strategic phase of an active encounter.");
-      return;
-    }
-    const idx = Number(target?.dataset?.ownedIndex ?? -1);
-    if (idx < 0) return;
-    const owned = foundry.utils.deepClone(this.document.system.equipment?.owned ?? []);
-    const entry = owned[idx];
-    if (!entry) return;
-    const regions = Array.from(scene?.regions?.contents ?? []);
-    if (!regions.length) {
-      ui.notifications.warn("This scene has no Regions available for deployment.");
-      return;
-    }
-    const regionOptions = regions
-      .map((region) => {
-        const feature = getRegionWarfareFeatureState(region);
-        const label = feature?.type ? `${region.name || region.id} (${feature.type})` : (region.name || region.id);
-        return `<option value="${region.uuid}">${foundry.utils.escapeHTML(label)}</option>`;
-      })
-      .join("");
-    const picked = await customDialog({
-      title: `${this.document.name} - Deploy Equipment`,
-      content: `<div class="form-group"><label><b>Region</b></label><select name="regionUuid">${regionOptions}</select></div>`,
-      buttons: {
-        confirm: { label: "Deploy", callback: (html) => String(html?.querySelector('[name="regionUuid"]')?.value ?? "").trim() },
-        cancel: { label: "Cancel" },
-      },
-      defaultButton: "confirm",
-      width: 460,
-    });
-    if (!picked) return;
-    const region = await fromUuid(String(picked));
-    if (!region?.documentName || region.documentName !== "Region") return;
-    const featureType = classifyEquipmentFeatureType(entry);
-    await updateRegionWarfareFeatureState(region, (next) => ({
-      ...next,
-      kind: "deployable",
-      type: featureType || next.type || "mantlet",
-      sourceUnitActorUuid: this.document.uuid,
-      hp: Math.max(0, Number(next.hp ?? 1) || 1),
-      hpMax: Math.max(0, Number(next.hpMax ?? next.hp ?? 1) || 1),
-      intact: true,
-    }));
-    entry.deployed = true;
-    entry.deployProgress = Number(entry.deployTime ?? 0) || 0;
-    entry.placement = region.name || region.id;
     await requestUpdateDocument(this.document, { "system.equipment.owned": owned });
   }
 
@@ -989,8 +800,8 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
 
   async _onInitiateClash(_event, _target) {
     const actor = this.document;
-    if (actor?.system?.status?.battle?.broken || actor?.system?.status?.battle?.routed) {
-      ui.notifications.warn("Broken or Routed warfare units cannot initiate clashes.");
+    if (actor?.system?.status?.battle?.broken || actor?.system?.status?.battle?.defeated) {
+      ui.notifications.warn("Broken or defeated warfare units cannot initiate clashes.");
       return;
     }
     const targets = [...(game.user.targets ?? [])];
@@ -1011,11 +822,6 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
       ui.notifications.warn("A unit cannot clash with itself.");
       return;
     }
-
-    const encounterGate = await validateWarfareEncounterClash(actor, {
-      targetTokenDoc: targets[0]?.document ?? null,
-    });
-    if (encounterGate?.active && !encounterGate.allowed) return;
 
     // Choose attack type before creating the clash card
     const attackType = await customDialog({
@@ -1040,7 +846,9 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
       defaultButton: "confirm",
     });
     if (!attackType) return; // cancelled
-    if (encounterGate?.active && attackType === "melee" && !areTokensInBaseContact(encounterGate?.attackerTokenDoc, encounterGate?.defenderTokenDoc)) {
+    const attackerTokenDoc = actor.token?.document ?? actor.getActiveTokens?.()[0]?.document ?? null;
+    const defenderTokenDoc = targets[0]?.document ?? null;
+    if (attackType === "melee" && attackerTokenDoc && defenderTokenDoc && !areTokensInBaseContact(attackerTokenDoc, defenderTokenDoc)) {
       ui.notifications.warn("A melee clash requires the two warfare tokens to be in base contact on the scene.");
       return;
     }
@@ -1053,8 +861,8 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
       : await promptClashContactSides({
           actorName: actor.name ?? "Attacker",
           targetName: targetActor.name ?? "Defender",
-          attackerDefault: encounterGate?.attackerChargeSide ?? encounterGate?.attackerContactSide ?? "front",
-          defenderDefault: encounterGate?.defenderChargeSide ?? encounterGate?.defenderContactSide ?? "front",
+          attackerDefault: "front",
+          defenderDefault: "front",
         });
     if (!manualContactSides) return;
 
@@ -1074,35 +882,21 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     };
 
     // Create the pending clash card — each side commits stance independently
-    const attackerTokenDoc = encounterGate?.attackerTokenDoc ?? actor.token?.document ?? actor.getActiveTokens?.()[0]?.document ?? null;
-    const defenderTokenDoc = encounterGate?.defenderTokenDoc ?? targets[0]?.document ?? null;
     const message = await createClashPending(actor, targetActor, {
       attackerTokenDoc,
       defenderTokenDoc,
       attackType,
-      attackerCharged: Boolean(encounterGate?.attackerCharged),
-      defenderCharged: Boolean(encounterGate?.defenderCharged),
-      attackerIncomingChargeSide: encounterGate?.defenderCharged ? (encounterGate?.defenderChargeSide ?? "none") : "none",
-      defenderIncomingChargeSide: encounterGate?.attackerCharged ? (encounterGate?.attackerChargeSide ?? "none") : "none",
+      attackerCharged: false,
+      defenderCharged: false,
+      attackerIncomingChargeSide: "none",
+      defenderIncomingChargeSide: "none",
       attackerContactSide: manualContactSides.attackerContactSide,
       defenderContactSide: manualContactSides.defenderContactSide,
-      clashGroupId: encounterGate?.clashGroupId ?? "",
-      groupMembers: encounterGate?.groupMembers ?? [],
+      clashGroupId: "",
+      groupMembers: [],
       commanderJoinFray,
     });
-    if (encounterGate?.active && encounterGate.allowed && message?.id) {
-      await recordWarfareEncounterClash(actor, {
-        attackerTokenUuid: encounterGate.attackerTokenUuid,
-        defenderTokenUuid: encounterGate.defenderTokenUuid,
-        attackType,
-        clashGroupId: encounterGate?.clashGroupId ?? "",
-        groupMembers: encounterGate?.groupMembers ?? [],
-        attackerContactSide: manualContactSides.attackerContactSide,
-        defenderContactSide: manualContactSides.defenderContactSide,
-        commanderJoinFray,
-        messageId: message.id,
-      });
-    }
+    void message;
   }
 
   async _onRollDiscipline(_event, _target) {
@@ -1115,6 +909,10 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
 
   async _onCastSpellDirect(_event, _target) {
     await castWarfareSpell(this.document);
+  }
+
+  async _onStartMixedOpposed(_event, _target) {
+    await startMixedWarfareOpposed(this.document, { initialAttackFamily: "melee" });
   }
 
   // ── Active Effect management ──────────────────────────────────────────────

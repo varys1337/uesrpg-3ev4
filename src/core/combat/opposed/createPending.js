@@ -9,6 +9,7 @@ import { getPreferredWeaponUuid as _getPreferredWeaponUuid, inferAttackModeFromP
 import { _renderCard } from "./render.js";
 import { _findEnabledEffectByUesrpgKey, _logDebug } from "./helpers/util.js";
 import { buildRollContext } from "../../rules/roll-context.js";
+import { applyHybridPendingState, getCombatDomain, prepareHybridPendingData } from "./hybrid.js";
 
 export async function createPending(cfg = {}) {
     const aDoc = _resolveDoc(cfg.attackerTokenUuid) ?? _resolveDoc(cfg.attackerActorUuid) ?? _resolveDoc(cfg.attackerUuid);
@@ -67,6 +68,13 @@ export async function createPending(cfg = {}) {
 
     if (!attacker || defenderEntries.length === 0) {
       ui.notifications.warn("Opposed test requires both an attacker and at least one defender (token or actor).");
+      return null;
+    }
+
+    const defenderActors = defenderEntries.map((entry) => _resolveActor(entry.actorUuid)).filter(Boolean);
+    const hybridInfo = prepareHybridPendingData(attacker, defenderActors, cfg);
+    if (hybridInfo?.error) {
+      ui.notifications.warn(hybridInfo.error);
       return null;
     }
 
@@ -160,6 +168,7 @@ export async function createPending(cfg = {}) {
         tokenUuid: aToken?.document?.uuid ?? null,
         tokenName: aToken?.name ?? null,
         name: attacker.name,
+        combatDomain: getCombatDomain(attacker),
         label: cfg.attackerLabel ?? "Attack",
         itemUuid: cfg.attackerItemUuid ?? cfg.itemUuid ?? null,
         baseTarget,
@@ -177,6 +186,23 @@ export async function createPending(cfg = {}) {
       defenders: defenderEntries,
       outcome: null
     };
+
+    applyHybridPendingState(data, hybridInfo);
+    if (hybridInfo?.enabled && hybridInfo.defenderDomain === "warfare" && defenderActors[0]) {
+      const holdActive = Boolean(defenderActors[0]?.effects?.find?.((effect) =>
+        !effect?.disabled && effect?.flags?.uesrpg?.key === "holdNextDefend"
+      ));
+      data.defender.hybrid = {
+        ...(data.defender.hybrid ?? {}),
+        holdActive,
+      };
+      if (Array.isArray(data.defenders) && data.defenders[0]) {
+        data.defenders[0].hybrid = {
+          ...(data.defenders[0].hybrid ?? {}),
+          holdActive,
+        };
+      }
+    }
 
     const message = await ChatMessage.create({
       user: game.user.id,

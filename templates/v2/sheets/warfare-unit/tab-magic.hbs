@@ -68,25 +68,6 @@
       </fieldset>
       {{/if}}
 
-      {{#if hasLegacySpells}}
-      <fieldset class="warfare-fieldset warfare-fieldset--legacy">
-        <legend>Legacy Spells</legend>
-        <p class="warfare-hint">Legacy `system.spells[]` data is preserved until it is manually migrated into Implement Entries.</p>
-        {{#each system.spells}}
-        <div class="warfare-spell-row" data-spell-index="{{@index}}">
-          <input type="text" name="system.spells.{{@index}}.name" value="{{this.name}}" placeholder="Spell Name" {{#unless ../editable}}disabled{{/unless}}>
-          <input type="text" name="system.spells.{{@index}}.effect" value="{{this.effect}}" placeholder="Effect" {{#unless ../editable}}disabled{{/unless}}>
-          {{#if ../editable}}
-          <button type="button" data-action="removeSpell" data-spell-index="{{@index}}" class="warfare-btn warfare-btn--icon" title="Remove"><i class="fas fa-trash"></i></button>
-          {{/if}}
-        </div>
-        {{/each}}
-        {{#if editable}}
-        <button type="button" data-action="addSpell" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> Add Legacy Spell</button>
-        {{/if}}
-      </fieldset>
-      {{/if}}
-
     </div>
   </div>
 </div>

@@ -13,15 +13,6 @@ import { applyWarfareConditionDelta } from "./condition-target.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { measureTokenDistanceChebyshev } from "../combat/opposed/range.js";
 import { areTokensInBaseContact } from "./battlefield/geometry.js";
-import {
-  commitWarfareEncounterStrategicActivation,
-  declareWarfareEncounterChargeForActor,
-  ensureEncounterAllowsActorAction,
-} from "./encounter/controller.js";
-import {
-  getEncounterSceneForActor,
-  getSceneWarfareEncounterState,
-} from "./encounter/state.js";
 
 export const WARFARE_EFFECT_KEYS = Object.freeze({
   JOIN_FRAY_NEXT_CLASH: "joinFrayNextClash",
@@ -38,19 +29,6 @@ const _attachmentStates = new Map();
 const _leaderToWarfare = new Map();
 const _tokenPositionCache = new Map();
 const LEADER_UPDATE_SUPPRESS_MS = 200;
-
-const MESSENGER_TABLE = Object.freeze({
-  1: "The messenger dies before delivering the message without their unit knowing.",
-  2: "The messenger dies after delivering the message without their unit knowing.",
-  3: "The messenger dies before delivering the message, but their Unit is informed.",
-  4: "The messenger dies after delivering the message, but their Unit is informed.",
-  5: "The messenger is delayed by 1 round.",
-  6: "Everything goes as planned and the messenger delivers the message unimpeded.",
-  7: "The messenger finds a shortcut, reducing their time by 1 round (minimum 1).",
-  8: "The messenger finds a shortcut, reducing their time by 2 rounds (minimum 1).",
-  9: "The messenger spots a weakness in an enemy unit. The enemy unit takes an extra 1d4 damage on its next Clash test.",
-  10: "The messenger spots a crucial flaw in an enemy unit's formation. The enemy unit takes an extra 1d8 damage on its next Clash test.",
-});
 
 function esc(value) {
   return foundry.utils.escapeHTML(String(value ?? ""));
@@ -83,17 +61,8 @@ function getActionSummary(actor, entry) {
   return entry.summary ?? "";
 }
 
-async function _guardEncounterStrategicAction(actor, actionLabel) {
-  return ensureEncounterAllowsActorAction(actor, { actionLabel });
-}
-
-function _isBrokenOrRouted(actor) {
-  return Boolean(actor?.system?.status?.battle?.broken || actor?.system?.status?.battle?.routed);
-}
-
 function _blockedBattleStateLabel(actor) {
   if (actor?.system?.status?.battle?.defeated) return "defeated";
-  if (actor?.system?.status?.battle?.routed) return "Routed";
   if (actor?.system?.status?.battle?.broken) return "Broken";
   return "";
 }
@@ -404,18 +373,6 @@ async function handleJoinFray(actor, entry, actionType) {
   return true;
 }
 
-async function handleMessenger(actor, entry, actionType) {
-  const roll = await (new Roll("1d10")).evaluate();
-  await showRoll3d(roll);
-  const total = Number(roll.total ?? 0) || 0;
-  const effect = MESSENGER_TABLE[total] ?? "No Messenger Table result found.";
-  await postActionCard(actor, entry, {
-    actionType,
-    extraHtml: `<p><b>Messenger Table:</b> ${total}</p><p>${esc(effect)}</p>`,
-  });
-  return true;
-}
-
 async function handleRally(actor, entry, actionType) {
   const commander = await _getAttachedCommanderActor(actor);
   if (!commander) {
@@ -500,13 +457,13 @@ function getTargetWarfareUnit(sourceActor, { allowSelf = false } = {}) {
   return { actor, token };
 }
 
-async function applyResolveLoss(actor, amount, { suppressed = null } = {}) {
+export async function applyResolveLoss(actor, amount, { suppressed = null } = {}) {
   const current = Number(actor?.system?.stats?.resolve?.value ?? actor?.system?.stats?.condition?.value ?? 0) || 0;
   const max = Number(actor?.system?.stats?.resolve?.max ?? actor?.system?.stats?.condition?.max ?? current) || current;
   const loss = Math.max(0, Number(amount ?? 0) || 0);
   const next = Math.max(0, current - loss);
   const totalLoss = Math.max(0, Number(actor?.system?.stats?.resolve?.lossTotal ?? Math.max(0, max - current)) || 0) + loss;
-  const db = Math.max(1, Number(actor?.system?._derived?.baseDb ?? actor?.system?._derived?.db ?? 1) || 1);
+  const db = Math.max(1, Number(actor?.system?._derived?.db ?? actor?.system?._derived?.baseDb ?? 1) || 1);
   const bulkLoss = loss > db ? 1 + Math.floor((loss - db) / db) : 0;
   const currentBulk = Math.max(0, Number(actor?.system?.stats?.bulk?.value ?? actor?.system?._derived?.bulkMax ?? actor?.system?.stats?.bulk?.max ?? 0) || 0);
   const currentBulkLossTotal = Math.max(0, Number(actor?.system?.stats?.bulk?.lossTotal ?? Math.max(0, (Number(actor?.system?.stats?.bulk?.max ?? currentBulk) || currentBulk) - currentBulk)) || 0);
@@ -524,6 +481,49 @@ async function applyResolveLoss(actor, amount, { suppressed = null } = {}) {
   if (suppressed !== null) update["system.status.battle.suppressed"] = Boolean(suppressed);
   await requestUpdateDocument(actor, update);
   return { current, next, loss, totalLoss, bulkLoss, currentBulk, nextBulk, db };
+}
+
+function getSingleTargetActor() {
+  const targets = Array.from(game?.user?.targets ?? []);
+  if (targets.length !== 1) return null;
+  return { actor: targets[0]?.actor ?? null, token: targets[0] };
+}
+
+function isMixedLeaderTarget(target) {
+  const actorType = String(target?.actor?.type ?? "").trim().toLowerCase();
+  return VALID_LEADER_ACTOR_TYPES.has(actorType);
+}
+
+export async function startMixedWarfareOpposed(actor, { initialAttackFamily = "melee" } = {}) {
+  const target = getSingleTargetActor();
+  if (!target?.actor || !isMixedLeaderTarget(target)) {
+    ui.notifications?.warn?.("Target exactly one PC or NPC token for mixed warfare combat.");
+    return false;
+  }
+  const { OpposedWorkflow } = await import("../combat/opposed-workflow.js");
+  await OpposedWorkflow.createPending({
+    attackerTokenUuid: getActiveSceneTokenForActor(actor)?.uuid ?? null,
+    attackerActorUuid: actor.uuid,
+    defenderTokenUuid: target.token?.document?.uuid ?? target.token?.uuid ?? null,
+    defenderActorUuid: target.actor.uuid,
+    attackerLabel: "Warfare Attack",
+    attackerTarget: Number(actor?.system?.stats?.discipline?.value ?? 0) || 0,
+    mode: "attack",
+    attackMode: initialAttackFamily === "melee" ? "melee" : "ranged",
+    hybridExplicit: true,
+    hybridReason: "gm-explicit",
+    context: {
+      hybridExplicit: true,
+      hybridReason: "gm-explicit",
+      hybrid: {
+        explicit: true,
+        reason: "gm-explicit",
+        initialAttackFamily,
+      },
+      hybridInitialAttackFamily: initialAttackFamily,
+    },
+  });
+  return true;
 }
 
 function buildRangedDamageFormula(actor, { extraDie = false } = {}) {
@@ -572,8 +572,10 @@ async function promptRangedAttackOptions(actor) {
 
 export async function rollWarfareRangedAttack(actor) {
   if (!_guardBattleState(actor, "Ranged Attack")) return false;
-  const gate = await _guardEncounterStrategicAction(actor, "Ranged Attack");
-  if (!gate?.allowed) return false;
+  const target = getSingleTargetActor();
+  if (target?.actor && isMixedLeaderTarget(target)) {
+    return startMixedWarfareOpposed(actor, { initialAttackFamily: "ranged" });
+  }
   if (!actor?.system?._derived?.canRangedAttack) {
     ui.notifications?.warn?.("Only Skirmisher units can make standard ranged attacks.");
     return false;
@@ -625,7 +627,6 @@ export async function rollWarfareRangedAttack(actor) {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
   }
-  await commitWarfareEncounterStrategicActivation(actor, { gate });
   return true;
 }
 
@@ -690,8 +691,10 @@ function applyDisciplineRestorePatch(targetActor, amount) {
 
 export async function castWarfareSpell(actor) {
   if (!_guardBattleState(actor, "Cast Spell")) return false;
-  const gate = await _guardEncounterStrategicAction(actor, "Cast Spell");
-  if (!gate?.allowed) return false;
+  const target = getSingleTargetActor();
+  if (target?.actor && isMixedLeaderTarget(target)) {
+    return startMixedWarfareOpposed(actor, { initialAttackFamily: "spell" });
+  }
   const choice = await promptSpellChoice(actor);
   if (!choice) return false;
   const implementEntries = Array.isArray(actor?.system?.magic?.entries) ? actor.system.magic.entries : [];
@@ -706,9 +709,7 @@ export async function castWarfareSpell(actor) {
   const entry = selected?.entry ?? null;
   if (!entry) return false;
 
-  const extraBreakdown = [];
-  if (actor?.system?._derived?.traditionKey === "summerset") extraBreakdown.push({ label: "Arcane Precision", value: 0 });
-  const rollData = await rollDiscipline(actor, { modifier: choice.modifier, extraBreakdown });
+  const rollData = await rollDiscipline(actor, { modifier: choice.modifier, extraBreakdown: [] });
   let note = "Failure - the implement effect does not resolve.";
   let extraHtml = "";
 
@@ -787,7 +788,6 @@ export async function castWarfareSpell(actor) {
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
   }
-  await commitWarfareEncounterStrategicActivation(actor, { gate });
   return true;
 }
 
@@ -1087,17 +1087,11 @@ async function handleAttachDetach(actor, entry, actionType) {
 
   const target = getTargetLeaderActor();
   if (!target) return false;
-  const scene = getEncounterSceneForActor(actor);
-  const encounterState = scene ? getSceneWarfareEncounterState(scene) : null;
   const warfareTokenDoc = getActiveSceneTokenForActor(actor);
   const leaderTokenDoc = target.token?.document ?? getActiveSceneTokenForActor(target.actor);
-  if (encounterState?.active) {
-    if (!warfareTokenDoc || !leaderTokenDoc) {
-      ui.notifications?.warn?.("Attach requires both commander and warfare unit tokens on the active encounter scene.");
-      return false;
-    }
+  if (warfareTokenDoc && leaderTokenDoc && warfareTokenDoc.parent?.id === leaderTokenDoc.parent?.id) {
     const distance = measureTokenDistanceChebyshev(warfareTokenDoc?.object ?? warfareTokenDoc, leaderTokenDoc?.object ?? leaderTokenDoc);
-    const sceneGridDistance = Number(scene?.grid?.distance ?? canvas?.scene?.grid?.distance ?? 1) || 1;
+    const sceneGridDistance = Number(warfareTokenDoc.parent?.grid?.distance ?? canvas?.scene?.grid?.distance ?? 1) || 1;
     if (!Number.isFinite(distance) || distance > sceneGridDistance) {
       ui.notifications?.warn?.("Attach requires one eligible adjacent friendly PC or NPC token.");
       return false;
@@ -1225,10 +1219,22 @@ async function handleGeneric(actor, entry, actionType) {
 }
 
 async function handleAdvance(actor, entry, actionType) {
+  const modifier = await promptDisciplineModifier(
+    `${actor.name} - Advance`,
+    Number(actor?.system?.stats?.discipline?.value ?? 0) || 0,
+    "On success, the unit may move up to double its current Speed this Activation."
+  );
+  if (modifier === null || modifier === undefined) return false;
+  const rollData = await rollDiscipline(actor, { modifier });
   const speed = Number(actor?.system?.stats?.speed?.value ?? 0) || 0;
-  await postActionCard(actor, entry, {
+  const note = rollData.result?.isSuccess
+    ? `Success - this unit may move up to ${speed * 2} spaces this Activation.`
+    : "Failure - this unit does not gain additional movement from Advance.";
+  await postDisciplineOutcomeCard(actor, entry, {
     actionType,
-    extraHtml: `<p>This unit may move up to ${speed * 2} spaces this Activation.</p>`,
+    title: "Advance",
+    rollData,
+    note,
   });
   return true;
 }
@@ -1238,24 +1244,11 @@ export async function handleWarfareAction(actor, { actionId = "", actionType = "
   if (!entry) return false;
   const actionLabel = getActionLabel(actor, entry);
 
-  if (actionId === "charge") {
-    if (!_guardBattleState(actor, actionLabel)) return false;
-    const declaration = await declareWarfareEncounterChargeForActor(actor, { actionLabel });
-    if (declaration?.handled) {
-      if (!declaration.declared) return false;
-      return handleCharge(actor, entry, actionType);
-    }
-    return handleCharge(actor, entry, actionType);
-  }
-
   if (actionId === "castSpell") {
     return castWarfareSpell(actor);
   }
 
   if (!_guardBattleState(actor, actionLabel, { allowRally: actionId === "rally" })) return false;
-
-  const gate = await _guardEncounterStrategicAction(actor, actionLabel);
-  if (!gate?.allowed) return false;
 
   let resolved = false;
 
@@ -1286,7 +1279,6 @@ export async function handleWarfareAction(actor, { actionId = "", actionType = "
       break;
   }
 
-  if (resolved) await commitWarfareEncounterStrategicActivation(actor, { gate });
   return resolved;
 }
 

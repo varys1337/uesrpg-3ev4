@@ -96,17 +96,38 @@ export const APPAREL = Object.freeze({
 export const GEAR_TIERS = APPAREL;
 
 export const MOUNTS = Object.freeze({
-  none: { label: "None", speedBonus: 0, upkeepMultiplier: 0, trait: "", chargeDie: "" },
-  light: { label: "Light Mounts", speedBonus: 3, upkeepMultiplier: 5, trait: "Sure-Footed", chargeDie: "" },
-  heavy: { label: "Heavy Mounts", speedBonus: 2, upkeepMultiplier: 10, trait: "Trampling Charge", chargeDie: "extra" },
-  flying: { label: "Flying Mounts", speedBonus: 1, upkeepMultiplier: 15, trait: "Flyer", chargeDie: "" },
+  none: { label: "None", speedBonus: 0, upkeepMultiplier: 0, trait: "", traitText: "", chargeDie: "" },
+  light: {
+    label: "Light Mounts",
+    speedBonus: 3,
+    upkeepMultiplier: 5,
+    trait: "Sure-Footed",
+    traitText: "Unit treats Difficult Terrain as Normal Terrain.",
+    chargeDie: "",
+  },
+  heavy: {
+    label: "Heavy Mounts",
+    speedBonus: 2,
+    upkeepMultiplier: 10,
+    trait: "Trampling Charge",
+    traitText: "Unit rolls one additional die of damage for the next Clash after successfully charging a Unit.",
+    chargeDie: "extra",
+  },
+  flying: {
+    label: "Flying Mounts",
+    speedBonus: 1,
+    upkeepMultiplier: 15,
+    trait: "Flyer",
+    traitText: "Unit receives Flyer Battlefield Condition.",
+    chargeDie: "",
+  },
 });
 
 export const EQUIPMENT_CATALOG = Object.freeze({
   fieldDressings: { label: "Field Dressings", deployTime: 1, effect: "Restore this unit's DMG in Resolve to an adjacent unit.", cost: 150 },
   spareAmmunition: { label: "Spare Ammunition", deployTime: 1, effect: "Next ranged attack gains one additional damage die.", cost: 150 },
   reserveShields: { label: "Reserve Shields", deployTime: 1, effect: "Gain +3 AR for the next Clash.", cost: 150 },
-  signalBanners: { label: "Signal Banners", deployTime: 1, effect: "Gain +20 Current Discipline until the start of this unit's next Activation.", cost: 150 },
+  signalBanners: { label: "Heraldic Banners", deployTime: 1, effect: "Gain +20 Current Discipline until the start of this unit's next Activation.", cost: 150 },
   mantlets: { label: "Mantlets", deployTime: 2, effect: "Gain +2 AR and +2 MAR against ranged attacks; Speed is halved while active.", cost: 300 },
   caltrops: { label: "Caltrops", deployTime: 2, effect: "Enemies treat the target grid as Difficult Terrain.", cost: 300 },
   spikes: { label: "Spikes", deployTime: 2, effect: "Mounted units test Discipline to enter; charging units in the grid suffer this unit's DMG.", cost: 300 },
@@ -216,7 +237,7 @@ export const TRADITIONS = Object.freeze({
   },
   "high-rock": {
     label: "High Rock",
-    battleDoctrine: "Ordered Banners: Once per round, when this unit uses Rally or deploys Signal Banners, one adjacent friendly unit gains +10 TN to Discipline Tests until the start of its next Activation.",
+    battleDoctrine: "Ordered Banners: Once per round, when this unit uses Rally or deploys Heraldic Banners, one adjacent friendly unit gains +10 TN to Discipline Tests until the start of its next Activation.",
     campaignDoctrine: "Marcher Roads: Ignore the first Poor Climate and Forced March penalty in Forest or Mountain terrain.",
   },
   hammerfell: {
@@ -231,7 +252,7 @@ export const TRADITIONS = Object.freeze({
   },
   summerset: {
     label: "Summerset",
-    battleDoctrine: "Arcane Precision: The first time each round this unit scores 1+ DoS on Cast a Spell or a Battle Scroll, increase total DoS by 1.",
+    battleDoctrine: "Arcane Affinity: This unit gains 1 additional Equipment slot, which may only be used for a Magic Implement.",
     campaignDoctrine: "Blessed Isle: Ignore the first Poor Climate and Forced March penalty in Grassland or Waterborne travel.",
   },
   valenwood: {
@@ -256,7 +277,7 @@ export const TRADITIONS = Object.freeze({
   },
   "orc-strongholds": {
     label: "Orc Strongholds",
-    battleDoctrine: "Relentless Endurance: When this unit is Charged it gains +10 TN on its next Clash Test.",
+    battleDoctrine: "Relentless Endurance: When this unit is Charged it gains +10 TN on its next Clash and Break Tests.",
     campaignDoctrine: "Stronghold Labor: Ignore the first Poor Climate and Forced March penalty in Mountain terrain or neutral territory.",
   },
   reach: {
@@ -269,7 +290,7 @@ export const TRADITIONS = Object.freeze({
 export const RACIAL_PRESETS = TRADITIONS;
 
 export const UNIT_ACTIONS = Object.freeze([
-  { id: "advance", label: "Advance", summary: "Double the unit's current Speed for this Activation." },
+  { id: "advance", label: "Advance", summary: "Make a Discipline Test; on success, double the unit's current Speed for this Activation." },
   { id: "hold", label: "Hold", summary: "Remain stationary; enemies take -20 TN to Clash Tests against the unit and it counts as Defending in its first Clash." },
   { id: "castSpell", label: "Cast a Spell", summary: "Use a Magic Implement or Battle Scroll with a Discipline Test." },
   { id: "setAmbush", label: "Set Ambush", summary: "Make a Discipline Test to become Hidden and prepare an ambush." },
@@ -277,8 +298,8 @@ export const UNIT_ACTIONS = Object.freeze([
 ]);
 
 export const LEADER_ACTIONS = Object.freeze([
-  { id: "joinFray", label: "Join the Fray", summary: "The commander joins the unit's next Clash this Clash Phase." },
-  { id: "rally", label: "Rally the Unit", summary: "Make a Command Test; on success restore 10 Discipline, up to Base Discipline." },
+  { id: "joinFray", label: "Join the Fray", summary: "The commander joins the unit's next clash." },
+  { id: "rally", label: "Rally the Unit", summary: "Make a Command Test; on success restore 10 lost Discipline to an attached or adjacent friendly unit." },
   { id: "abandon", label: "Attach to the Unit", summary: "Attach or detach a commander from this unit." },
 ]);
 
@@ -461,7 +482,6 @@ function _buildDisciplineModifiers(sys, derived, currentResolve, warnings) {
   const traditionKey = derived.traditionKey;
   if (traditionKey === "skyrim" && derived.holdActive) add("Northern Shieldwall", 10);
 
-  if (traditionKey === "summerset") warnings.push("Summerset Arcane Precision is handled during Cast a Spell resolution, not in passive derived TN.");
   if (traditionKey === "morrowind") warnings.push("Morrowind Ancestral Guidance rerolls remain manual reminder text in this pass.");
 
   return entries;
@@ -543,13 +563,6 @@ export function computeDerived(sys) {
   const equipmentEntries = _normalizeEquipmentEntries(sys, categoryKey);
   const passiveBonuses = _passiveImplementBonuses(implementEntries);
 
-  const bulkLossThreshold = Math.max(1, baseDb + passiveBonuses.bulkLossDb);
-  const inferredBulkLoss = Math.max(0, bulkMax - _num(sys.stats?.bulk?.value, bulkMax));
-  const storedBulkLossTotal = Math.max(0, _num(sys.stats?.bulk?.lossTotal, inferredBulkLoss));
-  const currentBulk = Math.max(0, Math.min(bulkMax, _num(sys.stats?.bulk?.value, bulkMax)));
-  sys.stats.bulk.value = currentBulk;
-  sys.stats.bulk.lossTotal = storedBulkLossTotal;
-
   const commanderBonus = _resolveCommanderBonus(sys);
   const holdActive = Boolean(sys._derived?.holdActive);
   const disciplineEntries = _buildDisciplineModifiers(sys, {
@@ -559,6 +572,13 @@ export function computeDerived(sys) {
   }, resolveValue, warnings);
   const currentDiscipline = Math.max(0, baseDisciplineTotal + commanderBonus + _sumEntries(disciplineEntries));
   sys.stats.discipline.value = currentDiscipline;
+  const currentDb = Math.max(1, Math.floor(currentDiscipline / 10));
+  const bulkLossThreshold = Math.max(1, currentDb + passiveBonuses.bulkLossDb);
+  const inferredBulkLoss = Math.max(0, bulkMax - _num(sys.stats?.bulk?.value, bulkMax));
+  const storedBulkLossTotal = Math.max(0, _num(sys.stats?.bulk?.lossTotal, inferredBulkLoss));
+  const currentBulk = Math.max(0, Math.min(bulkMax, _num(sys.stats?.bulk?.value, bulkMax)));
+  sys.stats.bulk.value = currentBulk;
+  sys.stats.bulk.lossTotal = storedBulkLossTotal;
 
   const apparelAr = _num(apparel.ar, 0);
   const apparelMar = _num(apparel.mar, 0);
@@ -606,18 +626,15 @@ export function computeDerived(sys) {
   const weeklyUpkeep = currentBulk * upkeepBase;
   sys.economy.amount = weeklyUpkeep;
   sys.upkeep.weeklyGold = weeklyUpkeep;
-  sys.upkeep.enslaved = Boolean(sys.economy?.enslaved ?? sys.upkeep?.enslaved);
 
-  const equipmentSlots = _num(category?.equipmentSlots, 1);
+  const summersetImplementSlot = traditionKey === "summerset" ? 1 : 0;
+  const equipmentSlots = _num(category?.equipmentSlots, 1) + summersetImplementSlot;
   const fieldcraftActive = categoryKey === "skirmishers" && apparelKey !== "heavy";
   if (categoryKey === "skirmishers" && apparelKey === "heavy") {
-    warnings.push("Skirmishers in Heavy apparel lose Fieldcraft.");
+    warnings.push("Skirmishers in Heavy apparel lose Fieldcraft and halve their effective ranged attack range.");
   }
 
-  notices.push("Use the Warfare Encounter tracker for phase sequencing while charges, strategic actions, and clashes remain actor-driven.");
-  notices.push("Scene Regions can supply warfare terrain for charge-path legality; broader campaign doctrines remain manual.");
-
-  sys.rules.source = "UESRPG Mass Warfare 3e";
+  sys.rules.source = "UESRPG Mass Warfare 3e v2.0";
   sys.rules.version = "2.0";
 
   sys._derived = {
@@ -635,6 +652,7 @@ export function computeDerived(sys) {
     tierLabel: apparel.label,
     mountLabel: mount.label,
     mountTrait: mount.trait,
+    mountTraitText: mount.traitText ?? "",
     mountChargeDie: mount.chargeDie === "extra" ? _extraDieFromFormula(apparel.dmg) : "",
     baseDiscipline: baseDisciplineTotal,
     commanderBonus,
@@ -642,7 +660,7 @@ export function computeDerived(sys) {
     disciplineMax: baseDisciplineTotal + commanderBonus,
     currentDiscipline,
     baseDb,
-    db: baseDb,
+    db: currentDb,
     bulk: currentBulk,
     bulkMax,
     bulkLossTotal: storedBulkLossTotal,
@@ -660,7 +678,9 @@ export function computeDerived(sys) {
     passiveImplementBonuses: passiveBonuses,
     canCastSpell: implementEntries.length > 0 || equipmentEntries.some((entry) => entry.isBattleScroll),
     canRangedAttack: Boolean(category?.canRangedAttack),
-    rangedRange: _num(category?.rangedRange, 0),
+    rangedRange: categoryKey === "skirmishers" && apparelKey === "heavy"
+      ? Math.max(0, Math.floor(_num(category?.rangedRange, 0) / 2))
+      : _num(category?.rangedRange, 0),
     fieldcraftActive,
     breakScoutBonus: passiveBonuses.breakScout + (fieldcraftActive ? 10 : 0),
     speedBase,
@@ -697,11 +717,11 @@ export const UESRPG_0_2_PROFILE = Object.freeze({
   computeDerived,
   sheetModel: {
     tabs: ["core", "actions", "magic", "items"],
-    encounterModel: "v2 - actor/chat automation with a scene-backed encounter phase tracker",
+    encounterModel: "v2 - actor/chat automation",
     notices: [
       "Resolve is now the canonical warfare resource.",
-      "The encounter tracker rotates phases only; warfare actors own charges, strategic actions, and clash initiation.",
-      "Charge legality remains scene-backed, while facing and contact-side positioning are tracked manually by the table.",
+      "Warfare Units are resolved through actor sheets, chat cards, and explicit manual battlefield positioning.",
+      "Compatibility-only scene helpers may still exist in the repo, but they are not the supported rules surface.",
     ],
   },
 });

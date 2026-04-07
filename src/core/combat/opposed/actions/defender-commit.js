@@ -37,6 +37,14 @@ import { getFlagValueWithFallback } from "../../../system/flags.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
 import { listEquippedShields, hasEquippedShieldType } from "../../../items/shield-utils.js";
+import { hasHoldNextDefend } from "../../../mass-warfare/actions.js";
+import {
+  buildHybridWarfareTn,
+  getHybridDomain,
+  isHybridOpposed,
+  promptHybridWarfareDefense,
+  rollHybridWarfareTest
+} from "../hybrid.js";
 
 /** @private — Clone current opposed flag state from a live message for lane-commit merging. */
 function _readCombatOpposedFlagState(fm) {
@@ -231,6 +239,59 @@ export async function handleDefenderCommitNoDefense(ctx) {
 export async function handleDefenderCommit(ctx) {
   const { message, data, defenderIndex, aToken, bankMode, isAoE, _updateCard } = ctx;
   const { attacker, defender, defenderData, dToken } = ctx;
+
+  if (isHybridOpposed(data) && getHybridDomain(data, "defender", defender) === "warfare") {
+    if (!bankMode) {
+      ui.notifications.warn("Banked choices are not enabled for this opposed test.");
+      return;
+    }
+    if (data.defender.result || data.defender.noDefense || data.defender?.banked?.committed === true) return;
+    if (!_canControlActor(defender)) {
+      ui.notifications.warn("You do not have permission to choose defender actions.");
+      return;
+    }
+    const choice = await promptHybridWarfareDefense(defender, attacker);
+    if (!choice) return;
+
+    const tn = buildHybridWarfareTn(defender, { modifier: choice.modifier }, {
+      joinFray: String(data?.context?.hybrid?.reason ?? "") === "join-fray",
+    });
+    data.defender.banked = data.defender.banked ?? {};
+    data.defender.banked.committed = true;
+    data.defender.banked.committedAt = Date.now();
+    data.defender.banked.committedBy = game.user.id;
+    data.defender.defenseType = "warfare";
+    data.defender.label = "Discipline Defense";
+    data.defender.defenseLabel = "Discipline Defense";
+    data.defender.testLabel = "Discipline";
+    data.defender.target = Number(tn.finalTN ?? 0) || 0;
+    data.defender.targetLabel = `${data.defender.target}`;
+    data.defender.tn = tn;
+    data.defender.hybrid = {
+      ...(data.defender.hybrid ?? {}),
+      modifier: Number(choice.modifier ?? 0) || 0,
+      holdActive: hasHoldNextDefend(defender),
+    };
+
+    const b = _getBankCommitState(data, data.defender);
+    if (b.bothCommitted && _allDefendersCommitted(data)) {
+      data.context = data.context ?? {};
+      if (!data.context.autoRollRequested) {
+        data.context.autoRollRequested = true;
+        data.context.autoRollRequestedAt = Date.now();
+        data.context.autoRollRequestedBy = game.user.id;
+      }
+    }
+
+    await commitLaneToFreshCardState({
+      message,
+      readState: _readCombatOpposedFlagState,
+      mutate: (s) => _applyDefenderLaneToFresh(s, data, defenderIndex),
+      updateCard: _updateCard,
+      fallbackData: data,
+    });
+    return;
+  }
 
   // CORRECTED: Feint gating - force No Defense if Feinted by this specific attacker
   const feintedEffect = defender.effects.find(e => 
@@ -719,6 +780,46 @@ export async function handleDefenderCommit(ctx) {
  */
 export async function handleDefenderRollCommitted(ctx) {
   const { message, data, attacker, defender, defenderIndex, aToken, dToken, bankMode, batchedUpdate, _updateCard } = ctx;
+
+  if (isHybridOpposed(data) && getHybridDomain(data, "defender", defender) === "warfare") {
+    if (!bankMode) {
+      ui.notifications.warn("Banked choices are not enabled for this opposed test.");
+      return;
+    }
+    if (data.defender.result || data.defender.noDefense) return;
+    if (!_canControlActor(defender)) {
+      ui.notifications.warn("You do not have permission to roll for the defender.");
+      return;
+    }
+    const bank = _getBankCommitState(data);
+    if (!bank.bothCommitted || !_allDefendersCommitted(data)) {
+      ui.notifications.warn(_isMultiDefender(data)
+        ? "All participants must commit their choices before rolling."
+        : "Both sides must commit their choices before rolling.");
+      return;
+    }
+    const tn = Number(data.defender?.target ?? data.defender?.tn?.finalTN ?? 0) || 0;
+    const res = await rollHybridWarfareTest(defender, tn);
+    data.defender.result = {
+      rollTotal: res.rollTotal,
+      target: tn,
+      isSuccess: res.isSuccess,
+      degree: res.degree,
+      textual: res.textual,
+      isCriticalSuccess: false,
+      isCriticalFailure: false,
+    };
+    data.defender.rolledAt = Date.now();
+    if (batchedUpdate) return data;
+    await commitLaneToFreshCardState({
+      message,
+      readState: _readCombatOpposedFlagState,
+      mutate: (s) => _applyDefenderLaneToFresh(s, data, defenderIndex),
+      updateCard: _updateCard,
+      fallbackData: data,
+    });
+    return data;
+  }
 
   if (!bankMode) {
     ui.notifications.warn("Banked choices are not enabled for this opposed test.");

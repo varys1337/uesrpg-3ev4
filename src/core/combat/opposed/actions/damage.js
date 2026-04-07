@@ -23,6 +23,12 @@ import {
 } from "../helpers/weapon-quality-display.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import {
+  getHybridDomain,
+  getHybridWarfareAttackMetadata,
+  getHybridWarfareDamageFormula,
+  isHybridOpposed
+} from "../hybrid.js";
 
 const DAMAGE_TYPES = {
   PHYSICAL: "physical",
@@ -242,6 +248,70 @@ export async function handleDamageRoll(ctx) {
   const existingDamage = _getDefenderDamage(data, data.defender);
   if (existingDamage?.rolled === true) {
     ui.notifications.warn("Damage has already been rolled for this target.");
+    return;
+  }
+
+  if (isHybridOpposed(data) && getHybridDomain(data, "attacker", attacker) === "warfare") {
+    const declaration = data?.attacker?.hybrid?.declaration ?? {};
+    const meta = getHybridWarfareAttackMetadata(attacker, declaration);
+    const formula = getHybridWarfareDamageFormula(attacker, declaration, Number(data?.attacker?.result?.degree ?? 0) || 0);
+    const dmg = await _rollManualDamage({ formula });
+    if (!dmg) return;
+
+    if (declaration.attackFamily === "ranged" && Number(dmg.finalDamage ?? 0) > 0) {
+      await requestUpdateDocument(attacker, { "system.status.battle.suppressed": true });
+    }
+
+    await _emitInlineDamageRollMessage({
+      actor: attacker,
+      token: aToken,
+      dmg,
+      label: `${meta.label} - Damage Roll`,
+      parentMessageId: message.id,
+      stage: "damage-roll-inline",
+    });
+
+    const { rollHtml, rollBHtml } = await _resolveInlineRollHtml(dmg, null);
+    const hitLocation = resolveHitLocationForTarget(
+      defender,
+      data?.context?.forcedHitLocation ?? getHitLocationFromRoll(data.attacker?.result?.rollTotal ?? 0)
+    );
+    const damageObj = {
+      rolled: true,
+      mode: "manual",
+      finalDamage: dmg.finalDamage,
+      damageString: dmg.damageString ?? "",
+      rollHtml,
+      rollBHtml,
+      rollATotal: dmg.rollA?.total ?? null,
+      rollBTotal: dmg.rollB?.total ?? null,
+      hitLocation,
+      weaponName: meta.label,
+      weaponImg: attacker?.img ?? null,
+      effectLabel: "Damage",
+      damageType: meta.isSpell ? DAMAGE_TYPES.MAGIC : DAMAGE_TYPES.PHYSICAL,
+      qualityPillsHtml: "",
+      extraNoteHtml: `<b>Hybrid Warfare Attack:</b> ${meta.source}`,
+      extraNotes: "",
+      applyPayload: _buildApplyPayload({
+        targetUuid: defender.uuid,
+        targetName: dToken?.name ?? defender.name,
+        attackerActorUuid: attacker.uuid,
+        attackerTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
+        damage: dmg.finalDamage,
+        damageType: meta.isSpell ? DAMAGE_TYPES.MAGIC : DAMAGE_TYPES.PHYSICAL,
+        hitLocation,
+        attackMode: meta.attackMode,
+        magicSource: meta.isSpell,
+        source: meta.source,
+        targetDomain: "humanoid",
+        warfareMitigation: meta.warfareMitigation,
+        buttonLabel: `Apply Damage -> ${dToken?.name ?? defender.name}`,
+      }),
+      applied: false,
+    };
+    _setDefenderDamage(data, data.defender, damageObj);
+    await _updateCard(message, data);
     return;
   }
 

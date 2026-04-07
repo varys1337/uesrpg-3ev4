@@ -44,6 +44,10 @@
               {{/each}}
             </select>
           </div>
+          <div class="form-group">
+            <label for="wf-commander-bonus">Commander Bonus</label>
+            <input id="wf-commander-bonus" type="number" name="system.commander.bonusOverride" value="{{system.commander.bonusOverride}}" {{#unless editable}}disabled{{/unless}}>
+          </div>
         </div>
       </fieldset>
 
@@ -77,7 +81,7 @@
               <span class="warfare-derived-cell__sep">/</span>
               <span class="warfare-derived-cell__max">{{derived.baseDiscipline}}</span>
             </div>
-            <div class="warfare-derived-cell__sub">DB: {{derived.baseDb}} · Commander: {{derived.commanderBonus}}</div>
+            <div class="warfare-derived-cell__sub">DB: {{derived.db}} - Commander: {{derived.commanderBonus}}</div>
           </div>
 
           <div class="warfare-derived-cell">
@@ -85,29 +89,7 @@
             <div class="warfare-derived-cell__values">
               <span class="warfare-derived-cell__current">{{system.stats.speed.value}}</span>
             </div>
-            <div class="warfare-derived-cell__sub">Base: {{derived.speedBase}}{{#if system.status.battle.suppressed}} · Suppressed{{/if}}</div>
-          </div>
-        </div>
-      </fieldset>
-
-      <fieldset class="warfare-fieldset">
-        <legend>Command</legend>
-        <div class="warfare-form-grid">
-          <div class="form-group">
-            <label>Commander Bonus (Derived)</label>
-            <span class="warfare-derived-value">{{derived.commanderBonus}}</span>
-          </div>
-          <div class="form-group">
-            <label>Commander Bonus Override</label>
-            <input type="number" name="system.commander.bonusOverride" value="{{system.commander.bonusOverride}}" {{#unless editable}}disabled{{/unless}}>
-          </div>
-          <div class="form-group">
-            <label>Weekly Upkeep</label>
-            <span class="warfare-derived-value">{{derived.weeklyUpkeep}} gp</span>
-          </div>
-          <div class="form-group">
-            <label>Equipment Slots</label>
-            <span class="warfare-derived-value">{{derived.equipmentSlots}}</span>
+            <div class="warfare-derived-cell__sub">Base: {{derived.speedBase}}{{#if system.status.battle.suppressed}} - Suppressed{{/if}}</div>
           </div>
         </div>
       </fieldset>

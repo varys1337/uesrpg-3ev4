@@ -29,6 +29,13 @@ function _attackerTestLabel(value) {
   return _shortenTestLabel(stripped || "Attack");
 }
 
+function _isHybridWarfareDefender(data, defender) {
+  return Boolean(
+    data?.context?.hybrid?.enabled
+    && String(defender?.combatDomain ?? data?.context?.hybrid?.defenderDomain ?? "").toLowerCase() === "warfare"
+  );
+}
+
 /**
  * Shorten verbose test labels for compact chat card display.
  * @param {string} value - Test label value
@@ -239,7 +246,8 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
       idx,
       isAoE,
       status: null, // Multi-defender doesn't use top-level status
-      damageData
+      damageData,
+      allowDefenderAdvantage: !_isHybridWarfareDefender(data, d)
     });
 
     const damagePanel = _buildDamagePanel(damageData);
@@ -427,7 +435,8 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
     idx,
     isAoE,
     status: data.status,
-    damageData
+    damageData,
+    allowDefenderAdvantage: !_isHybridWarfareDefender(data, d)
   });
 
   const damagePanel = _buildDamagePanel(damageData, {

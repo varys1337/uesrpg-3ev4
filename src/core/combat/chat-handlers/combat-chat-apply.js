@@ -30,6 +30,7 @@ import { updateCard } from "../opposed/cards/updater.js";
 import { _safeGetSetting } from "../opposed/helpers/util.js";
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { applyHybridDamageToWarfareUnit, isWarfareActor } from "../opposed/hybrid.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -512,35 +513,43 @@ export async function onApplyDamage(ev, message) {
   const attackerActor = attackerActorUuid ? resolveActorFromUuidSync(attackerActorUuid) : null;
   const weapon = weaponUuid ? resolveUuidSync(weaponUuid) : null;
 
-  const damageResult = await applyDamageResolved(targetActor, {
-    rawDamage,
-    damageType,
-    dosBonus,
-    penetration,
-    hitLocation,
-    damagedValue,
-    source,
-    ignoreReduction,
-    penetrateArmorForTriggers,
-    forcefulImpact,
-    pressAdvantage,
-    weapon,
-    attackerActor,
-    magicSource,
-    sourceItemUuid,
-    attackMode,
-    movementAction,
-    attackFromHidden,
-    ammoUuid,
-    damageComponents,
-    chatContext: {
-      parentMessageId: message?.id ?? null,
-      suppressStandaloneSummary: true,
-    },
-  });
+  const targetDomain = String(btn.dataset.targetDomain ?? "").trim().toLowerCase();
+  const warfareTarget = targetDomain === "warfare" || isWarfareActor(targetActor);
+  const resolvedDamage = warfareTarget
+    ? await applyHybridDamageToWarfareUnit(targetActor, {
+      rawDamage,
+      damageType,
+      magicSource,
+    })
+    : await applyDamageResolved(targetActor, {
+      rawDamage,
+      damageType,
+      dosBonus,
+      penetration,
+      hitLocation,
+      damagedValue,
+      source,
+      ignoreReduction,
+      penetrateArmorForTriggers,
+      forcefulImpact,
+      pressAdvantage,
+      weapon,
+      attackerActor,
+      magicSource,
+      sourceItemUuid,
+      attackMode,
+      movementAction,
+      attackFromHidden,
+      ammoUuid,
+      damageComponents,
+      chatContext: {
+        parentMessageId: message?.id ?? null,
+        suppressStandaloneSummary: true,
+      },
+    });
 
   await _markInlineDamageApplied(message, targetUuid, {
-    gmDamageReport: damageResult?.gmDamageReport ?? null
+    gmDamageReport: resolvedDamage?.gmDamageReport ?? null
   });
 }
 

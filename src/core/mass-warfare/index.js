@@ -26,7 +26,6 @@ export {
 export { LEGACY_STUB_PROFILE } from "./profiles/legacy-stub.js";
 
 export { resolveClash }             from "./clash/engine.js";
-export { rollFray }                 from "./clash/fray.js";
 export { renderClashCard }          from "./clash/card.js";
 export { createClashPending, readClashState } from "./clash/pending.js";
 export { handleClashCommit }        from "./clash/commit.js";
@@ -45,6 +44,7 @@ export {
   handleWarfareAction,
   rollWarfareRangedAttack,
   castWarfareSpell,
+  startMixedWarfareOpposed,
   transformWarfareActionEntries,
   hasWarfareActionEffect,
   consumeJoinFrayNextClash,

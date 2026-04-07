@@ -8,7 +8,7 @@
 
   <div class="fixed-data-container warfare-sidebar__content">
 
-    {{!-- Unit name — charname-style field below portrait, above nav --}}
+    {{!-- Unit name below portrait, above nav --}}
     <h1 class="charname warfare-sidebar__name">
       <input type="text" name="name" value="{{actor.name}}" placeholder="Unit Name" {{#unless editable}}disabled{{/unless}}>
     </h1>
@@ -47,7 +47,7 @@
       {{/if}}
     </div>
 
-    {{!-- Resource Bars — inline editable stat trackers --}}
+    {{!-- Resource Bars --}}
     <div class="warfare-sidebar__stats resourceBars">
 
       {{!-- Resolve --}}
@@ -87,46 +87,39 @@
 
       {{!-- Discipline --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--discipline" title="Discipline (Base + permanent bonus, then commander and battle modifiers)">DISC</span>
+        <span class="warfare-rname warfare-rname--discipline" title="Discipline (current / max)">DISC</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--discipline" style="width:{{disciplinePct}}%"></div>
-          <div class="bar-values">
-            <input type="number" name="system.stats.discipline.base"
-              value="{{system.stats.discipline.base}}"
+          <div class="bar-values bar-values--single">
+            <input type="number" name="system.stats.discipline.value"
+              value="{{system.stats.discipline.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" class="warfare-bar-input--narrow" title="Base Discipline">
-            <span class="warfare-stat-sub">+</span>
-            <input type="number" name="system.stats.discipline.bonus"
-              value="{{system.stats.discipline.bonus}}"
-              {{#unless editable}}disabled{{/unless}}
-              class="warfare-bar-input--narrow" title="Discipline Bonus">
-            <span class="warfare-stat-sub">→</span>
-            <label title="Current Discipline">{{system.stats.discipline.value}}</label>
+              min="0" title="Current Discipline">
+            /
+            <label title="Discipline Max">{{derived.disciplineMax}}</label>
           </div>
         </div>
       </div>
 
       {{!-- Speed --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--speed" title="Speed (effective / +bonus)">SPD</span>
+        <span class="warfare-rname warfare-rname--speed" title="Speed (effective / displayed max)">SPD</span>
         <div class="warfare-stat-bar">
-          <div class="bar-values">
-            <label title="Effective Speed">{{system.stats.speed.value}}</label>
-            <span class="warfare-stat-sub">+</span>
-            <input type="number" name="system.stats.speed.bonus"
-              value="{{system.stats.speed.bonus}}"
+          <div class="warfare-bar-fill warfare-bar-fill--speed" style="width:{{speedPct}}%"></div>
+          <div class="bar-values bar-values--single">
+            <input type="number" name="system.stats.speed.value"
+              value="{{system.stats.speed.value}}"
               {{#unless editable}}disabled{{/unless}}
-              class="warfare-bar-input--narrow" title="Speed Bonus">
+              min="0" title="Effective Speed">
+            /
+            <label title="Displayed Speed Max">{{speedDisplayMax}}</label>
           </div>
         </div>
       </div>
 
     </div>
 
-    {{!-- Status badges (read-only indicators; battle-state checkboxes in Actions tab) --}}
-    {{#if derived.enslaved}}
-    <div class="warfare-sidebar__status-badge warfare-sidebar__status-badge--enslaved">Enslaved</div>
-    {{/if}}
+    {{!-- Status badges --}}
     {{#if derived.leaderless}}
     <div class="warfare-sidebar__status-badge warfare-sidebar__status-badge--leaderless">Leaderless</div>
     {{/if}}

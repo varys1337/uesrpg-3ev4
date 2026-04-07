@@ -8,6 +8,10 @@
           title="Target one enemy Warfare Unit token, then choose Melee or Ranged and resolve a Clash with stance, charge, and facing inputs.">
           &#9876; Initiate Clash
         </button>
+        <button type="button" class="warfare-clash-btn" data-action="startMixedOpposed"
+          title="Target one PC or NPC token to start an explicit mixed warfare opposed card.">
+          Strike Character
+        </button>
         <button type="button" class="warfare-clash-btn warfare-clash-btn--discipline" data-action="rollDiscipline"
           title="Roll a general Discipline test for this unit.">
           Roll Discipline
@@ -61,17 +65,6 @@
           <div class="form-group"><label><input type="checkbox" name="system.status.leaderless" {{checked system.status.leaderless}} {{#unless editable}}disabled{{/unless}}> Leaderless</label></div>
         </div>
       </fieldset>
-
-      {{#if derived.notices.length}}
-      <fieldset class="warfare-fieldset">
-        <legend>Automation Notes</legend>
-        <ul>
-          {{#each derived.notices}}
-          <li>{{this}}</li>
-          {{/each}}
-        </ul>
-      </fieldset>
-      {{/if}}
 
     </div>
   </div>

@@ -30,7 +30,7 @@ function _currentResolve(actor) {
 }
 
 function _bulkLossFromSingleSource(actor, damage) {
-  const db = Math.max(1, _num(actor?.system?._derived?.baseDb ?? actor?.system?._derived?.db, 1));
+  const db = Math.max(1, _num(actor?.system?._derived?.db ?? actor?.system?._derived?.baseDb, 1));
   const appliedDamage = Math.max(0, _num(damage, 0));
   if (appliedDamage <= db) return 0;
   return 1 + Math.floor((appliedDamage - db) / db);

@@ -364,7 +364,7 @@ export function _buildResolutionDetails({ showResolutionDetails, outcome, attack
  * @param {Object|null} options.damageData - Inline damage data (if rolled).
  * @returns {string} - HTML action buttons or empty string.
  */
-export function _buildResolvedActions({ outcome, defender, advantage, resolutionState, idx, isAoE, status, damageData }) {
+export function _buildResolvedActions({ outcome, defender, advantage, resolutionState, idx, isAoE, status, damageData, allowDefenderAdvantage = true }) {
   if (!outcome) return "";
   if (status && status !== "resolved") return ""; // Single-defender specific check
 
@@ -423,6 +423,7 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
     && !["counter", "none"].includes(defenseType)
     && !isWardDefense
     && !isShieldBlockDefense
+    && allowDefenderAdvantage
     && (advD > 0)
     && (resolutionState.defenderAdvantage?.resolved !== true);
 

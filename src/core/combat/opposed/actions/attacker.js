@@ -55,6 +55,15 @@ import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
 import { maybeHandleUnusualCombatAttackFailure } from "../../unusual-combat.js";
+import {
+  applyHybridAttackerTnPenalty,
+  buildHybridWarfareTn,
+  getHybridDomain,
+  getHybridWarfareAttackMetadata,
+  isHybridOpposed,
+  promptHybridWarfareAttack,
+  rollHybridWarfareTest
+} from "../hybrid.js";
 
 /** @private — Clone current opposed flag state from a live message for lane-commit merging. */
 function _readCombatOpposedFlagState(fm) {
@@ -96,6 +105,110 @@ export async function handleAttackerAction(action, ctx) {
   if (!_canControlActor(attacker)) {
     ui.notifications.warn("You do not have permission to roll for the attacker.");
     return;
+  }
+
+  if (isHybridOpposed(data) && getHybridDomain(data, "attacker", attacker) === "warfare") {
+    const isCommitHybrid = action === "attacker-commit";
+    const isRollCommittedHybrid = action === "attacker-roll-committed";
+    const hybridBank = bankMode ? _getBankCommitState(data, data.defender) : null;
+
+    if (isRollCommittedHybrid) {
+      if (!bankMode) {
+        ui.notifications.warn("Banked choices are not enabled for this opposed test.");
+        return;
+      }
+      if (!hybridBank?.bothCommitted) {
+        ui.notifications.warn("Both sides must commit their choices before rolling.");
+        return;
+      }
+      if (!data.attacker?.hybrid?.declaration || !Number.isFinite(Number(data.attacker?.target ?? NaN))) {
+        ui.notifications.warn("The warfare unit has not committed an attack declaration yet.");
+        return;
+      }
+    }
+
+    if (!isRollCommittedHybrid) {
+      const declaration = await promptHybridWarfareAttack(attacker, {
+        initialAttackFamily: String(data?.context?.hybrid?.initialAttackFamily ?? data?.context?.hybridInitialAttackFamily ?? ""),
+      });
+      if (!declaration) return;
+
+      const joinFray = String(data?.context?.hybrid?.reason ?? "") === "join-fray";
+      const tn = buildHybridWarfareTn(attacker, declaration, { joinFray });
+      const meta = getHybridWarfareAttackMetadata(attacker, declaration);
+
+      data.context = data.context ?? {};
+      data.context.attackMode = meta.attackMode;
+      data.context.hybrid = {
+        ...(data.context.hybrid ?? {}),
+        warfareAttackFamily: declaration.attackFamily,
+        warfareMitigation: meta.warfareMitigation,
+        initialAttackFamily: declaration.attackFamily,
+      };
+      data.attacker.hasDeclared = true;
+      data.attacker.label = meta.label;
+      data.attacker.variant = declaration.attackFamily;
+      data.attacker.variantLabel = meta.label;
+      data.attacker.variantMod = 0;
+      data.attacker.manualMod = Number(declaration.modifier ?? 0) || 0;
+      data.attacker.circumstanceMod = 0;
+      data.attacker.totalMod = Number(tn.totalMod ?? 0) || 0;
+      data.attacker.baseTarget = Number(tn.baseTN ?? 0) || 0;
+      data.attacker.target = Number(tn.finalTN ?? 0) || 0;
+      data.attacker.tn = tn;
+      data.attacker.hybrid = {
+        ...(data.attacker.hybrid ?? {}),
+        declaration,
+        sourceLabel: meta.source,
+        warfareMitigation: meta.warfareMitigation,
+      };
+
+      if (isCommitHybrid) {
+        data.attacker.banked = data.attacker.banked ?? {};
+        data.attacker.banked.committed = true;
+        data.attacker.banked.committedAt = Date.now();
+        data.attacker.banked.committedBy = game.user.id;
+        if (hybridBank?.dCommitted || (hybridBank?.bothCommitted && _allDefendersCommitted(data))) {
+          data.context.autoRollRequested = true;
+          data.context.autoRollRequestedAt = Date.now();
+          data.context.autoRollRequestedBy = game.user.id;
+        }
+        await commitLaneToFreshCardState({
+          message,
+          readState: _readCombatOpposedFlagState,
+          mutate: (_t) => {
+            _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
+            _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
+          },
+          updateCard: _updateCard,
+          fallbackData: data,
+        });
+        return;
+      }
+    }
+
+    const res = await rollHybridWarfareTest(attacker, Number(data.attacker.target ?? 0));
+    data.attacker.result = {
+      rollTotal: res.rollTotal,
+      target: res.target,
+      isSuccess: res.isSuccess,
+      degree: res.degree,
+      textual: res.textual,
+      isCriticalSuccess: false,
+      isCriticalFailure: false,
+    };
+    if (batchedUpdate && isRollCommittedHybrid) return data;
+    await commitLaneToFreshCardState({
+      message,
+      readState: _readCombatOpposedFlagState,
+      mutate: (_t) => {
+        _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
+        _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
+      },
+      updateCard: _updateCard,
+      fallbackData: data,
+    });
+    return data;
   }
 
   const bank = bankMode ? _getBankCommitState(data, data.defender) : null;
@@ -300,6 +413,7 @@ export async function handleAttackerAction(action, ctx) {
     const manualMod = Number(decl.manualMod) || 0;
     const circumstanceMod = Number(decl.circumstanceMod) || 0;
     const situationalMods = _collectSensorySituationalMods(decl, attacker);
+    applyHybridAttackerTnPenalty(data, situationalMods);
 
     // Follow-up Strike (Chapter 4): on a failed dual-wield attack, spend 1 SP to make a free follow-up
     // attack with the other weapon at -20, which does not count toward attacks per round.

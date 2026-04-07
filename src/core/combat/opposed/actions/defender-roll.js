@@ -46,6 +46,13 @@ import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
 import { listEquippedShields, hasEquippedShieldType } from "../../../items/shield-utils.js";
+import {
+  buildHybridWarfareTn,
+  getHybridDomain,
+  isHybridOpposed,
+  promptHybridWarfareDefense,
+  rollHybridWarfareTest
+} from "../hybrid.js";
 
 function _resolveRuntimeDefenseItem(defender, choice = null, defenseType = null) {
   try {
@@ -172,6 +179,59 @@ export async function handleDefenderNoDefense(ctx) {
 export async function handleDefenderRoll(ctx) {
   const { message, data, defenderIndex, aToken, _updateCard } = ctx;
   const { attacker, defender, defenderData, dToken } = ctx;
+
+  if (isHybridOpposed(data) && getHybridDomain(data, "defender", defender) === "warfare") {
+    if (data.defender.result || data.defender.noDefense) return;
+    if (!_canControlActor(defender)) {
+      ui.notifications.warn("You do not have permission to roll for the defender.");
+      return;
+    }
+    const choice = await promptHybridWarfareDefense(defender, attacker);
+    if (!choice) return;
+    const tn = buildHybridWarfareTn(defender, { modifier: choice.modifier }, {
+      joinFray: String(data?.context?.hybrid?.reason ?? "") === "join-fray",
+    });
+    data.defender.defenseType = "warfare";
+    data.defender.label = "Discipline Defense";
+    data.defender.defenseLabel = "Discipline Defense";
+    data.defender.testLabel = "Discipline";
+    data.defender.target = Number(tn.finalTN ?? 0) || 0;
+    data.defender.targetLabel = `${data.defender.target}`;
+    data.defender.tn = tn;
+    data.defender.hybrid = {
+      ...(data.defender.hybrid ?? {}),
+      modifier: Number(choice.modifier ?? 0) || 0,
+    };
+    const res = await rollHybridWarfareTest(defender, data.defender.target);
+    data.defender.result = {
+      rollTotal: res.rollTotal,
+      target: data.defender.target,
+      isSuccess: res.isSuccess,
+      degree: res.degree,
+      textual: res.textual,
+      isCriticalSuccess: false,
+      isCriticalFailure: false,
+    };
+
+    if (data.attacker?.result) {
+      const baseOutcome = _resolveOutcomeRAW(data, data.defender) ?? { winner: "tie", text: "" };
+      const outcome = _applyAoEEvadeOutcome(data, baseOutcome);
+      _setDefenderOutcome(data, data.defender, outcome);
+      const advantage = _computeAdvantageRAW(data, outcome, data.defender);
+      _setDefenderAdvantage(data, data.defender, advantage);
+      const allResolved = _getDefenderEntries(data).every(def => Boolean(_getDefenderOutcome(data, def)));
+      if (allResolved) {
+        data.status = "resolved";
+        data.context = data.context ?? {};
+        data.context.phase = "resolved";
+        if (!data.context.resolvedAt) data.context.resolvedAt = Date.now();
+        _cleanupAutoRollContext(data.context);
+      }
+    }
+
+    await _updateCard(message, data);
+    return;
+  }
 
   if (data.defender.result || data.defender.noDefense) return;
 

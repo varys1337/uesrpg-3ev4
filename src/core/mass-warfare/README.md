@@ -1,49 +1,23 @@
 # Mass Warfare
 
-Current runtime scope for the Warfare Unit subsystem.
+Current supported runtime scope for Warfare Unit actors under the v2 rules pass.
 
-## Automated Now
+## Supported
 
 - profile-driven Warfare Unit derived data via `uesrpg-0_2`
-- AppV2 Warfare Unit sheet with `Core`, `Actions`, `Magic`, and `Items`
-- clash pending cards, stance commit, auto-roll, and clash resolution
-- battlefield geometry helpers for charge-path validation, terrain sampling, and clash grouping support
-- commander assignment and commander token attachment/follow state
-- warfare sheet actions for rally, ambush, scout, join-fray, ranged attack, spell effects, and related one-round effects
-- scene-backed encounter tracker with charge, strategic, and clash phase rotation
-- Group-backed army campaign state and AppV2 army campaign utility surface
-- scene-backed siege state plus Region-backed fortification and deployable feature flags
+- AppV2 Warfare Unit sheet with `Core`, `Actions`, `Implements`, and `Loadout`
+- clash pending cards, clash resolution, ranged attacks, implement casting, and mixed warfare-humanoid opposed flows
+- commander assignment, attach/detach, and commander token follow support
+- actor-driven battle state tracking for `Hidden`, `Ambush Ready`, `Broken`, `Suppressed`, `Defeated`, `Frenzied`, and `Flyer`
 
-## Still Manual
+## Compatibility Only
 
-- exact token movement and charge placement on the scene
-- campaign geography, route graphs, and structured regional movement
-- many campaign and siege outcomes still rely on GM judgement and note-backed resolution
-- non-warfare generic Active Effect expiration policy
+- `system.stats.condition.*` remains a mirror of Resolve for old worlds
+- legacy warfare data lanes may still exist on actors, but the live sheet prefers the v2 fields
+- encounter, campaign, siege, and battlefield helper modules may still exist in the repo, but they are not the supported rules surface for current Warfare Unit play
 
-## Encounter Ownership
+## Manual By Design
 
-The encounter controller owns:
-
-- round/phase rotation
-- alternating strategic side sequencing
-- scene-backed retreat-edge state
-- cleanup of warfare-owned one-round bonuses and effects
-
-Warfare actors remain authoritative for charges, strategic actions, commander actions, deployable placement decisions, and clash initiation. Facing and contact sides are table-tracked manually where needed, and the existing clash chat workflow remains authoritative for each clash result.
-
-## Campaign and Siege Ownership
-
-The army layer owns:
-
-- `Group.flags.uesrpg-3ev4.massWarfareArmy`
-- campaign turn, army action tracking, supply reserve/capacity, and siege scene linkage
-- manual campaign utilities such as March, Scout, Forage/Requisition, Raid, Reinforce/Muster, Besiege, and Special Operation
-
-The siege layer owns:
-
-- `Scene.flags.uesrpg-3ev4.warfareSiege`
-- `Region.flags.uesrpg-3ev4.warfareFeature`
-- fortification HP, blockade/sap/repair progress, and Region-backed deployable/fortification metadata
-
-The encounter app remains phase-only. It does not regain charge dialogs, strategic activation buttons, or clash queues.
+- token movement, facing, and contact-side positioning
+- campaign geography, route tracking, and siege progression
+- terrain adjudication beyond explicit actor/chat inputs

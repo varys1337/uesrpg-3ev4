@@ -3,47 +3,9 @@
   <div class="tabContainer">
     <div class="warfare-sheet-content">
 
-      <fieldset class="warfare-fieldset">
-        <legend>Upkeep</legend>
-        <div class="warfare-form-grid">
-          <div class="form-group">
-            <label for="wf-economy-cadence">Payment Cadence</label>
-            <select id="wf-economy-cadence" name="system.economy.cadence" {{#unless editable}}disabled{{/unless}}>
-              {{#each economy.supportedCadences}}
-              <option value="{{this}}" {{#if (eq this ../economy.cadence)}}selected{{/if}}>{{capitalize this}}</option>
-              {{/each}}
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="wf-economy-mode">Payment Mode</label>
-            <select id="wf-economy-mode" name="system.economy.mode" {{#unless editable}}disabled{{/unless}}>
-              {{#each economy.supportedModes}}
-              <option value="{{this}}" {{#if (eq this ../economy.mode)}}selected{{/if}}>{{capitalize this}}</option>
-              {{/each}}
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Amount</label>
-            <input type="number" name="system.economy.amount" value="{{economy.amount}}" {{#unless editable}}disabled{{/unless}} min="0">
-          </div>
-          <div class="form-group">
-            <label>Unpaid Weeks</label>
-            <input type="number" name="system.economy.unpaidWeeks" value="{{economy.unpaidWeeks}}" {{#unless editable}}disabled{{/unless}} min="0">
-          </div>
-          <div class="form-group">
-            <label>Special Modifier</label>
-            <input type="number" name="system.economy.specialModifier" value="{{economy.specialModifier}}" {{#unless editable}}disabled{{/unless}}>
-          </div>
-          <div class="form-group">
-            <label><input type="checkbox" name="system.economy.enslaved" {{checked economy.enslaved}} {{#unless editable}}disabled{{/unless}}> Enslaved</label>
-          </div>
-        </div>
-        <p class="warfare-hint">Derived weekly upkeep: <strong>{{derived.weeklyUpkeep}} gp</strong>.</p>
-      </fieldset>
-
-      <fieldset class="warfare-fieldset">
+      <fieldset class="warfare-fieldset warfare-fieldset--compact">
         <legend>Apparel and Mounts</legend>
-        <div class="warfare-form-grid">
+        <div class="warfare-form-grid warfare-form-grid--compact">
           <div class="form-group">
             <label for="wf-apparel">Apparel</label>
             <select id="wf-apparel" name="system.gear.apparel" {{#unless editable}}disabled{{/unless}}>
@@ -65,7 +27,7 @@
             <input type="number" name="system.gear.sets" value="{{system.gear.sets}}" {{#unless editable}}disabled{{/unless}} min="0">
           </div>
         </div>
-        <div class="warfare-form-grid warfare-form-grid--readonly">
+        <div class="warfare-loadout-summary">
           <div class="form-group">
             <label>DMG</label>
             <span class="warfare-derived-value">{{system.gear.dmg}}</span>
@@ -85,7 +47,39 @@
           <div class="form-group">
             <label>Mount Trait</label>
             <span class="warfare-derived-value">{{derived.mountTrait}}</span>
+            {{#if derived.mountTraitText}}
+            <span class="warfare-loadout-summary__text">{{derived.mountTraitText}}</span>
+            {{/if}}
           </div>
+        </div>
+      </fieldset>
+
+      <fieldset class="warfare-fieldset warfare-fieldset--compact">
+        <legend>Upkeep</legend>
+        <div class="warfare-form-grid warfare-form-grid--compact warfare-form-grid--upkeep">
+          <div class="form-group">
+            <label for="wf-economy-cadence">Payment Cadence</label>
+            <select id="wf-economy-cadence" name="system.economy.cadence" {{#unless editable}}disabled{{/unless}}>
+              {{#each economy.supportedCadences}}
+              <option value="{{this}}" {{#if (eq this ../economy.cadence)}}selected{{/if}}>{{capitalize this}}</option>
+              {{/each}}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Amount</label>
+            <input type="number" name="system.economy.amount" value="{{economy.amount}}" {{#unless editable}}disabled{{/unless}} min="0">
+          </div>
+          <div class="form-group">
+            <label>Unpaid Weeks</label>
+            <input type="number" name="system.economy.unpaidWeeks" value="{{economy.unpaidWeeks}}" {{#unless editable}}disabled{{/unless}} min="0">
+          </div>
+          <div class="form-group">
+            <label>Special Modifier</label>
+            <input type="number" name="system.economy.specialModifier" value="{{economy.specialModifier}}" {{#unless editable}}disabled{{/unless}}>
+          </div>
+        </div>
+        <div class="warfare-upkeep-footer">
+          <span class="warfare-hint">Derived weekly upkeep: <strong>{{derived.weeklyUpkeep}} gp</strong>.</span>
         </div>
       </fieldset>
 
@@ -105,8 +99,6 @@
           <input type="text" name="system.equipment.owned.{{@index}}.placement" value="{{this.placement}}" placeholder="Placement" {{#unless ../editable}}disabled{{/unless}}>
           <input type="text" name="system.equipment.owned.{{@index}}.effect" value="{{this.effect}}" placeholder="Effect" {{#unless ../editable}}disabled{{/unless}}>
           {{#if ../editable}}
-          <button type="button" data-action="deployOwnedEquipmentToRegion" data-owned-index="{{@index}}" class="warfare-btn warfare-btn--small" title="Deploy to Region"><i class="fas fa-location-arrow"></i></button>
-          <button type="button" data-action="configureOwnedEquipmentRegion" data-owned-index="{{@index}}" class="warfare-btn warfare-btn--small" title="Configure Region"><i class="fas fa-draw-polygon"></i></button>
           <button type="button" data-action="removeOwnedEquipment" data-owned-index="{{@index}}" class="warfare-btn warfare-btn--icon" title="Remove"><i class="fas fa-trash"></i></button>
           {{/if}}
         </div>
@@ -148,31 +140,6 @@
         {{#if editable}}
         <button type="button" data-action="createEffect" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> Add Effect</button>
         {{/if}}
-      </fieldset>
-
-      {{#if hasLegacyDeployableEquipment}}
-      <fieldset class="warfare-fieldset warfare-fieldset--legacy">
-        <legend>Legacy Deployables</legend>
-        <p class="warfare-hint">Legacy `system.deployableEquipment[]` data is preserved until it is manually migrated into Deployables and Support Equipment.</p>
-        {{#if editable}}
-        <button type="button" data-action="addEquipment" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> Add Legacy Deployable</button>
-        {{/if}}
-        {{#each system.deployableEquipment}}
-        <div class="warfare-equipment-row" data-equip-index="{{@index}}">
-          <input type="text" name="system.deployableEquipment.{{@index}}.name" value="{{this.name}}" placeholder="Item Name" {{#unless ../editable}}disabled{{/unless}}>
-          <input type="number" name="system.deployableEquipment.{{@index}}.deployTime" value="{{this.deployTime}}" min="0" {{#unless ../editable}}disabled{{/unless}}>
-          <input type="text" name="system.deployableEquipment.{{@index}}.effect" value="{{this.effect}}" placeholder="Effect" {{#unless ../editable}}disabled{{/unless}}>
-          {{#if ../editable}}
-          <button type="button" data-action="removeEquipment" data-equip-index="{{@index}}" class="warfare-btn warfare-btn--icon" title="Remove"><i class="fas fa-trash"></i></button>
-          {{/if}}
-        </div>
-        {{/each}}
-      </fieldset>
-      {{/if}}
-
-      <fieldset class="warfare-fieldset">
-        <legend>Rules Source</legend>
-        <p><strong>{{system.rules.source}}</strong> v{{system.rules.version}}</p>
       </fieldset>
 
     </div>
