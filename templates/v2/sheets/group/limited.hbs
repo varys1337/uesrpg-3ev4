@@ -14,12 +14,12 @@
       <div class="limited-info">
         <i class="fas fa-users"></i>
         <h2>{{actor.name}}</h2>
-        <p>A group of adventurers</p>
+        <p>{{localize "UESRPG.UI.GroupOfAdventurers"}}</p>
       </div>
 
       {{#if resolvedMembers.length}}
       <div class="visible-members">
-        <h3>Known Members</h3>
+        <h3>{{localize "UESRPG.UI.KnownMembers"}}</h3>
         <div class="member-portraits">
           {{#each resolvedMembers as |member|}}
           {{#if member.canView}}
@@ -36,7 +36,7 @@
 
       {{#if enrichedDescription}}
       <div class="description-section">
-        <h3>Description</h3>
+        <h3>{{localize "UESRPG.UI.Description"}}</h3>
         <div class="content-container">{{{enrichedDescription}}}</div>
       </div>
       {{/if}}

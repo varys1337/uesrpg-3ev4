@@ -17,6 +17,7 @@ import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../uti
 import { ensureWoundedPassiveEffect } from "../wounds/engine/apply.js";
 import { _num } from "./_primitives.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { buildEffectChange } from "../../utils/compat.js";
 
 const SYSTEM_SCOPE = "uesrpg-3ev4";
 const CHAR_GEN_SCOPE = "uesrpg";
@@ -235,8 +236,8 @@ export async function handleRacialTalentActivation({ actor, item, itemKey } = {}
 
     const changes = [];
     if (delta > 0) {
-      changes.push({ key: "system.modifiers.characteristics.str", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(delta * 10), priority: 20 });
-      changes.push({ key: "system.modifiers.resistance.magicR", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(delta), priority: 20 });
+      changes.push(buildEffectChange({ key: "system.modifiers.characteristics.str", type: "add", value: String(delta * 10), priority: 20 }));
+      changes.push(buildEffectChange({ key: "system.modifiers.resistance.magicR", type: "add", value: String(delta), priority: 20 }));
     }
 
     await createOrUpdateStatusEffect(actor, {
@@ -277,7 +278,7 @@ export async function handleRacialPowerActivation({ actor, item, itemKey } = {})
           [SYSTEM_SCOPE]: { wounds: { suppressWoundPenalty: true } }
         },
         changes: [
-          { key: "system.modifiers.stamina.value", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: "2", priority: 20 }
+          buildEffectChange({ key: "system.modifiers.stamina.value", type: "add", value: "2", priority: 20 })
         ]
       });
 

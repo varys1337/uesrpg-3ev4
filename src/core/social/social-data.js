@@ -1,6 +1,6 @@
 import { LANGUAGE_CHOICES } from "./social-choices.js";
 
-const KNOWN_LANG_SET = new Set(LANGUAGE_CHOICES.map((l) => normalizeKey(l)));
+const KNOWN_LANG_SET = new Set(LANGUAGE_CHOICES.map((l) => normalizeKey(l?.name ?? l)));
 const CYRODILIC_KEY = normalizeKey("Cyrodilic");
 const LANGUAGE_PREVIEW_LIMIT = 6;
 const FACTION_PREVIEW_LIMIT = 3;
@@ -139,7 +139,11 @@ export function buildKnownLanguagesStringFromEntries(entries = []) {
 }
 
 export function formatLanguageSlotSummary(maxLanguages) {
-  return `Cyrodilic (free) - Max additional: ${maxLanguages} (IB-2, max 4)`;
+  const cyrodilic = LANGUAGE_CHOICES.find((choice) => normalizeKey(choice?.name) === CYRODILIC_KEY)?.name ?? "Cyrodilic";
+  return game.i18n?.format?.("UESRPG.Apps.LanguageSelector.SlotSummary", {
+    cyrodilic,
+    max: Number(maxLanguages ?? 0),
+  }) ?? `${cyrodilic} (free) - Max additional: ${maxLanguages} (IB-2, max 4)`;
 }
 
 export function getSocialStateFromSystem(actorSystem = {}) {

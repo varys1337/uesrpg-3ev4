@@ -9,6 +9,7 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { templatePath } from "../constants.js";
 import { customDialog, renderDialogContent } from "../../utils/dialog-v2-helper.js";
 import { clampNumber, toFiniteNumber } from "./resource-dialog-utils.js";
+import { t, tf } from "../../utils/i18n.js";
 
 async function _buildDialogContent(actor) {
   const currentHP = toFiniteNumber(actor?.system?.hp?.value, 0);
@@ -52,42 +53,42 @@ async function _persistHpValues(actor, root) {
 export class HPTempHPDialog {
   static async show(actor) {
     if (!actor?.system) {
-      ui.notifications.error("Invalid actor for HP management");
+      ui.notifications.error(t("UESRPG.Notifications.InvalidActorHpManagement", "Invalid actor for HP management"));
       return false;
     }
 
     const content = await _buildDialogContent(actor);
     const result = await customDialog({
-      title: `Manage HP - ${actor?.name ?? "Actor"}`,
+      title: tf("UESRPG.Dialogs.HpManagement.Title", { actor: actor?.name ?? t("UESRPG.UI.Actor", "Actor") }, `Manage HP - ${actor?.name ?? "Actor"}`),
       content,
       classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--hp"],
       width: 540,
       buttons: {
         firstAid: {
-          label: "First Aid",
+          label: t("UESRPG.UI.FirstAid", "First Aid"),
           icon: "fas fa-medkit",
           callback: async (html) => {
             await _persistHpValues(actor, html);
             if (game.uesrpg?.wounds?.firstAid) {
               await game.uesrpg.wounds.firstAid(actor);
-              ui.notifications.info(`First Aid applied to ${actor.name}`);
+              ui.notifications.info(tf("UESRPG.Notifications.FirstAidApplied", { actor: actor.name }, `First Aid applied to ${actor.name}`));
               return true;
             }
-            ui.notifications.error("First Aid system not available");
+            ui.notifications.error(t("UESRPG.Notifications.FirstAidUnavailable", "First Aid system not available"));
             return false;
           },
         },
         apply: {
-          label: "Apply",
+          label: t("UESRPG.UI.Apply", "Apply"),
           icon: "fas fa-check",
           callback: async (html) => {
             const changed = await _persistHpValues(actor, html);
-            if (changed) ui.notifications.info(`HP updated for ${actor.name}`);
+            if (changed) ui.notifications.info(tf("UESRPG.Notifications.HpUpdated", { actor: actor.name }, `HP updated for ${actor.name}`));
             return true;
           },
         },
         cancel: {
-          label: "Cancel",
+          label: t("UESRPG.UI.Cancel", "Cancel"),
           icon: "fas fa-times",
           callback: () => false,
         },

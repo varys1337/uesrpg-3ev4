@@ -15,6 +15,7 @@ import { _buildDamagePanel } from "../../combat/opposed/cards/template-helpers.j
 import { createUuidResolver, getActorFromResolvedDocument, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { formatResultSummary } from "../../../utils/degree-roll-helper.js";
 import { buildMagicCastContextRows } from "./cast-context.js";
+import { t, tf } from "../../../utils/i18n.js";
 
 /**
  * Format signed number (+/-).
@@ -53,10 +54,10 @@ function summarizeOutcomeText(outcome) {
   // For characteristic defense, show the detailed text (includes save result)
   if (outcome?.characteristicDefense && outcome?.text) return outcome.text;
   const winner = String(outcome?.winner ?? "");
-  if (winner === "attacker") return "Caster wins.";
-  if (winner === "defender") return "Target wins.";
-  if (winner === "none") return "Both fail - neither resolves.";
-  return "Resolved.";
+  if (winner === "attacker") return t("UESRPG.Chat.Magic.CasterWins", "Caster wins.");
+  if (winner === "defender") return t("UESRPG.Chat.Magic.TargetWins", "Target wins.");
+  if (winner === "none") return t("UESRPG.Chat.Magic.BothFail", "Both fail - neither resolves.");
+  return t("UESRPG.Chat.Status.Resolved", "Resolved.");
 }
 
 function extractRollTotal(result) {
@@ -77,12 +78,12 @@ function renderMagicCastContextRows(attacker, spell = null) {
 
 function getMagicTestLabel(a, revealed) {
   if (!revealed) return "-";
-  return String(a?.spellSchool ?? a?.spellName ?? "Spell");
+  return String(a?.spellSchool ?? a?.spellName ?? t("UESRPG.Chat.Magic.Spell", "Spell"));
 }
 
 function getMagicAttackLabel(a, revealed) {
   if (!revealed) return "-";
-  const spellName = String(a?.spellName ?? "Spell");
+  const spellName = String(a?.spellName ?? t("UESRPG.Chat.Magic.Spell", "Spell"));
   const spellLevel = Number(a?.spellLevel ?? 1);
   return `${spellName} (${spellLevel})`;
 }
@@ -109,23 +110,23 @@ function renderTNLine(tnValue, entries) {
       }).join("")
     : "";
 
-  if (!rows) return renderRow("TN:", tnValue, { nowrapValue: true });
+  if (!rows) return renderRow(`${t("UESRPG.Chat.Common.TN", "TN")}:`, tnValue, { nowrapValue: true });
   return `
     <details style="margin:0;">
       <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;">
-        <b>TN:</b> ${tnValue} &#9654;
+        <b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${tnValue} &#9654;
       </summary>
       <div style="margin:4px 0 0 0; padding-left:8px; width:100%; box-sizing:border-box; font-size:12px; opacity:0.95;">${rows}</div>
     </details>
   `;
 }
 
-function renderRollLine(result, { noRollText = "Automatic" } = {}) {
+function renderRollLine(result, { noRollText = t("UESRPG.Chat.Common.Automatic", "Automatic") } = {}) {
   if (!result) return "";
-  if (result.noRoll) return renderRow("Roll:", noRollText, { nowrapValue: true });
+  if (result.noRoll) return renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, noRollText, { nowrapValue: true });
   const total = extractRollTotal(result);
   const totalText = total == null ? "??" : String(total);
-  return renderRow("Roll:", `${totalText} - ${fmtDegree(result)}`, { nowrapValue: true });
+  return renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `${totalText} - ${fmtDegree(result)}`, { nowrapValue: true });
 }
 
 function getCostPresentation(attacker = {}) {
@@ -136,27 +137,27 @@ function getCostPresentation(attacker = {}) {
   if (castSource?.type === "enchantment") {
     if (costMode === "none") {
       return {
-        label: "No Resource Cost",
+        label: t("UESRPG.Chat.Magic.NoResourceCost", "No Resource Cost"),
         value: "0",
         isNoCost: true
       };
     }
     if (costMode === "magicka") {
       return {
-        label: "MP Cost",
+        label: t("UESRPG.Chat.Magic.MPCost", "MP Cost"),
         value: String(spentCost),
         isNoCost: false
       };
     }
     return {
-      label: "Soul Energy Cost",
+      label: t("UESRPG.Chat.Magic.SoulEnergyCost", "Soul Energy Cost"),
       value: `${spentCost} (pool: ${Number(castSource?.pool?.value ?? 0)}/${Number(castSource?.pool?.max ?? 0)})`,
       isNoCost: false
     };
   }
 
   return {
-    label: "MP Cost",
+    label: t("UESRPG.Chat.Magic.MPCost", "MP Cost"),
     value: String(Number(attacker?.spellCost ?? 0) || 0),
     isNoCost: false
   };
@@ -189,7 +190,7 @@ function renderBreakdownDetails(title, entries, { inline = false } = {}) {
   if (inline) {
     return `
       <details style="display:inline-block; margin-left:6px; vertical-align:baseline;">
-        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="${String(title ?? "Breakdown")}">&#9654;</summary>
+        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="${String(title ?? t("UESRPG.Chat.Common.Breakdown", "Breakdown"))}">&#9654;</summary>
         <div style="margin-top:4px; font-size:12px; opacity:0.95;">${rows}</div>
       </details>
     `;
@@ -197,7 +198,7 @@ function renderBreakdownDetails(title, entries, { inline = false } = {}) {
 
   return `
     <details style="margin-top:6px;">
-      <summary style="cursor:pointer; user-select:none; white-space:nowrap; overflow-wrap:normal; word-break:keep-all;">${String(title ?? "Breakdown")}</summary>
+      <summary style="cursor:pointer; user-select:none; white-space:nowrap; overflow-wrap:normal; word-break:keep-all;">${String(title ?? t("UESRPG.Chat.Common.Breakdown", "Breakdown"))}</summary>
       <div style="margin-top:4px; font-size:12px; opacity:0.95;">${rows}</div>
     </details>
   `;
@@ -208,7 +209,7 @@ function renderBreakdownDetails(title, entries, { inline = false } = {}) {
  * Render button.
  */
 function btn({ label, action, disabled = false, title = "", dataset = null, style = "" } = {}) {
-  const safeLabel = String(label ?? "Action");
+  const safeLabel = String(label ?? t("UESRPG.Sheets.Combat.Action", "Action"));
   const safeAction = String(action ?? "");
   const safeTitle = String(title ?? "");
   const safeStyle = String(style ?? "").trim();
@@ -283,7 +284,7 @@ function resolveItemFromUuid(uuid, ctx) {
 
 function getMagicAttackerCommitGate(data, ctx) {
   const attacker = resolveActorFromUuid(data?.attacker?.actorUuid, ctx);
-  if (!attacker) return { allowed: false, reason: "Caster unavailable" };
+  if (!attacker) return { allowed: false, reason: t("UESRPG.Chat.Magic.CasterUnavailable", "Caster unavailable") };
 
   if (game?.combat) {
     const apCost = Number(data?.attacker?.apCost ?? 1) || 1;
@@ -299,7 +300,7 @@ function getMagicAttackerCommitGate(data, ctx) {
     if (game?.combat) {
       const cls = classifySpellForRouting(spell);
       if (cls?.isAttack && AttackTracker.hasExceededLimit(attacker)) {
-        return { allowed: false, reason: AttackTracker.getLimitWarning(attacker) || "Attack limit reached" };
+        return { allowed: false, reason: AttackTracker.getLimitWarning(attacker) || t("UESRPG.Chat.Opposed.AttackLimitReached", "Attack limit reached") };
       }
     }
     if (isEnchantSource && castMode === "soul") {
@@ -307,7 +308,7 @@ function getMagicAttackerCommitGate(data, ctx) {
       const sourceLane = String(castSource?.sourceLane ?? "workshop").trim().toLowerCase();
       const item = itemUuid ? resolveItemFromUuid(itemUuid, ctx) : null;
       const needed = Number(castSource?.cost ?? 0) || 0;
-      if (!item) return { allowed: false, reason: "Item unavailable" };
+      if (!item) return { allowed: false, reason: t("UESRPG.Chat.Common.ItemUnavailable", "Item unavailable") };
       const poolValue = sourceLane === "extension"
         ? Number(item.system?.charge?.value ?? item.flags?.["uesrpg-3ev4"]?.itemSpellcasting?.pool?.value ?? 0) || 0
         : Number(item.flags?.["uesrpg-3ev4"]?.enchanting?.cast?.pool?.value ?? 0) || 0;
@@ -325,7 +326,7 @@ function getMagicAttackerCommitGate(data, ctx) {
 
 function getMagicDefenderCommitDefenseGate(defenderData, ctx) {
   const defender = resolveActorFromUuid(defenderData?.actorUuid, ctx);
-  if (!defender) return { allowed: false, reason: "Target unavailable" };
+  if (!defender) return { allowed: false, reason: t("UESRPG.Chat.Magic.TargetUnavailable", "Target unavailable") };
   const apCost = Number(defenderData?.apCost ?? 1) || 1;
   const currentAP = Number(foundry.utils.getProperty(defender, "system.action_points.value") ?? 0);
   if (currentAP < apCost) return { allowed: false, reason: `${currentAP}/${apCost} AP` };
@@ -347,8 +348,10 @@ function renderMultiDefenderCard(data, messageId, ctx) {
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
   const isMultiCharSave = defenders.some(d => d.defenseType === "characteristic-save");
   const defenseNote = isAoE
-    ? "AoE: Block or Evade if aware. Choose No Defense if unable to defend."
-    : (isMultiCharSave ? "Defenders must make characteristic saves." : "Defender may choose Block, Evade, or No Defense.");
+    ? t("UESRPG.Chat.Magic.AoeDefenseNote", "AoE: Block or Evade if aware. Choose No Defense if unable to defend.")
+    : (isMultiCharSave
+      ? t("UESRPG.Chat.Magic.MultiCharacteristicSaveNote", "Defenders must make characteristic saves.")
+      : t("UESRPG.Chat.Magic.StandardDefenseNote", "Defender may choose Block, Evade, or No Defense."));
 
   const aTestLabel = getMagicTestLabel(a, revealAttacker);
   const aAttackLabel = getMagicAttackLabel(a, revealAttacker);
@@ -362,8 +365,12 @@ function renderMultiDefenderCard(data, messageId, ctx) {
   const attackerCommitLine = (() => {
     if (!bankMode || !shouldShowStatusLine()) return "";
     const rolled = !!a.result;
-    const statusText = anyOutcome ? "Resolved" : rolled ? "Rolled" : (aCommitted ? "Committed" : "Awaiting choice");
-    return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
+    const statusText = anyOutcome
+      ? t("UESRPG.Chat.Status.Resolved", "Resolved")
+      : rolled
+        ? t("UESRPG.Chat.Status.Rolled", "Rolled")
+        : (aCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
+    return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
   })();
   const attackerCommitGate = getMagicAttackerCommitGate(data, ctx);
 
@@ -372,13 +379,13 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     if (bankMode) {
       if (!aCommitted) {
         if (attackerCommitGate?.allowed === false) {
-          return `<div style="margin-top:8px; font-size:12px; opacity:0.85;"><i>Casting unavailable: ${String(attackerCommitGate?.reason ?? "Unavailable")}</i></div>`;
+          return `<div style="margin-top:8px; font-size:12px; opacity:0.85;"><i>${tf("UESRPG.Chat.Magic.CastingUnavailable", { reason: String(attackerCommitGate?.reason ?? t("UESRPG.UI.Unavailable", "Unavailable")) }, `Casting unavailable: ${String(attackerCommitGate?.reason ?? "Unavailable")}`)}</i></div>`;
         }
-        return `<div class="${actionRowClass(1)}">${btn({ label: "Casting", action: "attacker-commit" })}</div>`;
+        return `<div class="${actionRowClass(1)}">${btn({ label: t("UESRPG.Chat.Magic.Casting", "Casting"), action: "attacker-commit" })}</div>`;
       }
       return "";
     }
-    return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: "Roll Casting Test", action: "attacker-roll" })}</div>`;
+    return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${btn({ label: t("UESRPG.Chat.Magic.RollCastingTest", "Roll Casting Test"), action: "attacker-roll" })}</div>`;
   })();
 
   const defenderBlocks = defenders.map((d, idx) => {
@@ -391,21 +398,25 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     const dTN = revealDefender ? String(extractTN(d.tn)) : "-";
     const dTestLabel = !revealDefender
       ? "-"
-      : (isCharSave ? "Characteristic" : (d.noDefense ? "No Defense" : (d.defenseType ?? "(choose)")));
+      : (isCharSave ? t("UESRPG.Chat.Magic.Characteristic", "Characteristic") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? t("UESRPG.Chat.Common.Choose", "(choose)"))));
     const dDefenseLabel = !revealDefender
       ? "-"
-      : (isCharSave ? "Characteristic Save" : (d.noDefense ? "No Defense" : (d.defenseType ?? "-")));
+      : (isCharSave ? t("UESRPG.Chat.Magic.CharacteristicSave", "Characteristic Save") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? "-")));
     const dRollLine = isCharSave
-      ? (d.result ? renderRollLine(d.result) : renderRow("Roll:", `<i style="opacity:0.8;">Awaiting test...</i>`, { nowrapValue: true }))
+      ? (d.result ? renderRollLine(d.result) : renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `<i style="opacity:0.8;">${t("UESRPG.Chat.Magic.AwaitingTest", "Awaiting test...")}</i>`, { nowrapValue: true }))
       : (d.noDefense
-        ? renderRow("Roll:", `100 - <span style="color: red;">1 DoF</span>`, { nowrapValue: true })
+        ? renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `100 - <span style="color: red;">1 DoF</span>`, { nowrapValue: true })
         : renderRollLine(d.result));
 
     const defenderCommitLine = (() => {
       if (!bankMode || !shouldShowStatusLine()) return "";
       const rolled = !!d.result || !!d.noDefense;
-      const statusText = outcome ? "Resolved" : rolled ? "Rolled" : (dCommitted ? "Committed" : "Awaiting choice");
-      return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
+      const statusText = outcome
+        ? t("UESRPG.Chat.Status.Resolved", "Resolved")
+        : rolled
+          ? t("UESRPG.Chat.Status.Rolled", "Rolled")
+          : (dCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
+      return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
     })();
 
     const canRollDefender = Boolean(a.result &&!d.result && !d.noDefense);
@@ -420,7 +431,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
             const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
             return `
               <div class="${actionRowClass(1)}">
-                ${btn({ label: `Commit ${charLabel} Save`, action: "defender-commit-characteristic", dataset: { "defender-index": idx } })}
+                ${btn({ label: tf("UESRPG.Chat.Magic.CommitCharacteristicSave", { characteristic: charLabel }, `Commit ${charLabel} Save`), action: "defender-commit-characteristic", dataset: { "defender-index": idx } })}
               </div>
             `;
           }
@@ -428,16 +439,16 @@ function renderMultiDefenderCard(data, messageId, ctx) {
           if (defenseCommitGate?.allowed === false) {
             return `
               <div class="${actionRowClass(1)}">
-                ${btn({ label: "No Defense", action: "defender-commit-nodefense", dataset: { "defender-index": idx } })}
+                ${btn({ label: t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), action: "defender-commit-nodefense", dataset: { "defender-index": idx } })}
               </div>
-              <div style="margin-top:4px; font-size:12px; opacity:0.85;"><i>Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}</i></div>
+              <div style="margin-top:4px; font-size:12px; opacity:0.85;"><i>${tf("UESRPG.Chat.Opposed.DefenseUnavailable", { reason: String(defenseCommitGate?.reason ?? t("UESRPG.UI.Unavailable", "Unavailable")) }, `Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}`)}</i></div>
             `;
           }
           // Standard defense: Defense / No Defense buttons
           return `
             <div class="${actionRowClass(2)}">
-              ${btn({ label: "Defense", action: "defender-commit", dataset: { "defender-index": idx } })}
-              ${btn({ label: "No Defense", action: "defender-commit-nodefense", dataset: { "defender-index": idx } })}
+              ${btn({ label: t("UESRPG.Chat.Opposed.Defense", "Defense"), action: "defender-commit", dataset: { "defender-index": idx } })}
+              ${btn({ label: t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), action: "defender-commit-nodefense", dataset: { "defender-index": idx } })}
             </div>
           `;
         }
@@ -449,7 +460,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
         const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
         return `
           <div class="${actionRowClass(1)}">
-            ${btn({ label: `Roll ${charLabel} Save`, action: "defender-characteristic-test", dataset: { "defender-index": idx } })}
+            ${btn({ label: tf("UESRPG.Chat.Magic.RollCharacteristicSave", { characteristic: charLabel }, `Roll ${charLabel} Save`), action: "defender-characteristic-test", dataset: { "defender-index": idx } })}
           </div>
         `;
       }
@@ -459,10 +470,10 @@ function renderMultiDefenderCard(data, messageId, ctx) {
         const defenderActor = resolveActorFromUuid(d.actorUuid, ctx);
         const wardAvailable = defenderActor ? hasActiveWard(defenderActor) : false;
         const buttons = [
-          btn({ label: "Block", action: "defender-roll-block", dataset: { "defender-index": idx } }),
-          btn({ label: "Evade", action: "defender-roll-evade", dataset: { "defender-index": idx } }),
-          ...(wardAvailable ? [btn({ label: "Ward", action: "defender-roll-ward", dataset: { "defender-index": idx } })] : []),
-          btn({ label: "No Defense", action: "defender-no-defense", dataset: { "defender-index": idx } })
+          btn({ label: t("UESRPG.Chat.Opposed.Block", "Block"), action: "defender-roll-block", dataset: { "defender-index": idx } }),
+          btn({ label: t("UESRPG.Chat.Opposed.Evade", "Evade"), action: "defender-roll-evade", dataset: { "defender-index": idx } }),
+          ...(wardAvailable ? [btn({ label: t("UESRPG.Chat.Opposed.Ward", "Ward"), action: "defender-roll-ward", dataset: { "defender-index": idx } })] : []),
+          btn({ label: t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), action: "defender-no-defense", dataset: { "defender-index": idx } })
         ];
         return `<div class="${actionRowClass(buttons.length)}">${buttons.join("")}</div>`;
       }
@@ -472,7 +483,7 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     let outcomeLine = "";
     if (outcome) {
       const defType = String(d.defenseType ?? "").toLowerCase();
-      const resolveLabel = defType === "ward" ? "Resolve Ward" : "Resolve Block";
+      const resolveLabel = defType === "ward" ? t("UESRPG.Chat.Opposed.ResolveWard", "Resolve Ward") : t("UESRPG.Chat.Opposed.ResolveBlock", "Resolve Block");
       const resolveAction = defType === "ward" ? "ward-resolve" : "block-resolve";
       const dmgData = getMagicDefenderDamage(data, d);
       const blockResolveButton = (outcome?.needsBlockResolution && !isAoE && !dmgData?.rolled)
@@ -480,15 +491,15 @@ function renderMultiDefenderCard(data, messageId, ctx) {
         : "";
 
       outcomeLine = `
-        <div style="margin-top:10px;"><b>Outcome:</b> ${summarizeOutcomeText(outcome)}</div>
+        <div style="margin-top:10px;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${summarizeOutcomeText(outcome)}</div>
         ${blockResolveButton}
       `;
     } else if (bankMode && !bothCommitted) {
-      outcomeLine = `<div style="margin-top:10px;"><i>Waiting for both sides to commit choices...</i></div>`;
+      outcomeLine = `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
     } else if (a.result && !d.result && !d.noDefense) {
       outcomeLine = `
         <div style="margin-top:10px; padding:8px; background:rgba(0,0,0,0.05); border-left:3px solid #666;">
-          <div style="font-weight:700;">Awaiting defense selection</div>
+          <div style="font-weight:700;">${t("UESRPG.Chat.Magic.AwaitingDefenseSelection", "Awaiting defense selection")}</div>
           <div style="margin-top:4px; font-size:12px; opacity:0.9;">${defenseNote}</div>
         </div>
       `;
@@ -499,12 +510,12 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     return `
       <div style="padding:6px; border:1px solid rgba(0,0,0,0.12); border-radius:6px;">
         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
-          <div style="font-size:14px; font-weight:700;">Target</div>
+          <div style="font-size:14px; font-weight:700;">${t("UESRPG.Chat.Common.Target", "Target")}</div>
           <div style="font-size:12px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
         </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          ${renderRow("Test:", dTestLabel)}
-          ${renderRow("Defense:", dDefenseLabel)}
+          ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, dTestLabel)}
+          ${renderRow(`${t("UESRPG.Chat.Opposed.Defense", "Defense")}:`, dDefenseLabel)}
           ${renderTNLine(d.noDefense ? "-" : dTN, (d.noDefense || !revealDefender) ? null : (d.tn?.breakdown ?? d.tn?.modifiers))}
           ${dRollLine}
           ${defenderCommitLine}
@@ -521,12 +532,12 @@ function renderMultiDefenderCard(data, messageId, ctx) {
       <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
         <div style="padding-bottom:8px; border-bottom:1px solid rgba(0,0,0,0.12);">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">Caster</div>
+            <div style="font-size:14px; font-weight:700;">${t("UESRPG.Chat.Magic.Caster", "Caster")}</div>
             <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
           </div>
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-            ${renderRow("Test:", aTestLabel)}
-            ${showAttackRow ? renderRow("Attack:", aAttackLabel) : ""}
+            ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, aTestLabel)}
+            ${showAttackRow ? renderRow(`${t("UESRPG.Chat.Opposed.Attack", "Attack")}:`, aAttackLabel) : ""}
             ${attackerCastContextRows}
             ${attackerCostLine}
             ${renderTNLine(aTN, revealAttacker ? (a.tn?.breakdown ?? a.tn?.modifiers) : null)}
@@ -557,8 +568,10 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
   const isCharSave = d.defenseType === "characteristic-save";
   const defenseNote = isAoE
-    ? "AoE: Block or Evade if aware. Choose No Defense if unable to defend."
-    : (isCharSave ? "Defender must make a characteristic save." : "Defender may choose Block, Evade, or No Defense.");
+    ? t("UESRPG.Chat.Magic.AoeDefenseNote", "AoE: Block or Evade if aware. Choose No Defense if unable to defend.")
+    : (isCharSave
+      ? t("UESRPG.Chat.Magic.CharacteristicSaveNote", "Defender must make a characteristic save.")
+      : t("UESRPG.Chat.Magic.StandardDefenseNote", "Defender may choose Block, Evade, or No Defense."));
   
   const phase = String(data?.context?.phase ?? data?.status ?? "pending");
   const resolved = phase === "resolved";
@@ -577,17 +590,17 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   // isCharSave already declared above at line 353
   const dTestLabel = !revealChoices
     ? "-"
-    : (isCharSave ? "CHA Save" : (d.noDefense ? "No Defense" : (d.defenseType ?? "(choose)")));
+    : (isCharSave ? t("UESRPG.Chat.Magic.ChaSave", "CHA Save") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? t("UESRPG.Chat.Common.Choose", "(choose)"))));
   const dDefenseLabel = !revealChoices
     ? "-"
-    : (isCharSave ? "Characteristic Save" : (d.noDefense ? "No Defense" : (d.defenseType ?? "-")));
+    : (isCharSave ? t("UESRPG.Chat.Magic.CharacteristicSave", "Characteristic Save") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? "-")));
 
   const aRollLine = renderRollLine(a.result);
 
   const dRollLine = isCharSave
-    ? (d.result ? renderRollLine(d.result) : renderRow("Roll:", `<i style="opacity:0.8;">Awaiting test...</i>`, { nowrapValue: true }))
+    ? (d.result ? renderRollLine(d.result) : renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `<i style="opacity:0.8;">${t("UESRPG.Chat.Magic.AwaitingTest", "Awaiting test...")}</i>`, { nowrapValue: true }))
     : (d.noDefense
-      ? renderRow("Roll:", `100 - <span style="color: red;">1 DoF</span>`, { nowrapValue: true })
+      ? renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `100 - <span style="color: red;">1 DoF</span>`, { nowrapValue: true })
       : renderRollLine(d.result));
 
   const aBreakdownEntries = revealChoices ? (a.tn?.breakdown ?? a.tn?.modifiers) : null;
@@ -598,16 +611,24 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   const attackerCommitLine = (() => {
     if (!bankMode || !shouldShowStatusLine()) return "";
     const rolled = !!a.result;
-    const statusText = resolved ? "Resolved" : rolled ? "Rolled" : (aCommitted ? "Committed" : "Awaiting choice");
-    return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
+    const statusText = resolved
+      ? t("UESRPG.Chat.Status.Resolved", "Resolved")
+      : rolled
+        ? t("UESRPG.Chat.Status.Rolled", "Rolled")
+        : (aCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
+    return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
   })();
   const attackerCommitGate = getMagicAttackerCommitGate(data, ctx);
 
   const defenderCommitLine = (() => {
     if (!bankMode || !shouldShowStatusLine()) return "";
     const rolled = !!d.result || !!d.noDefense;
-    const statusText = resolved ? "Resolved" : rolled ? "Rolled" : (dCommitted ? "Committed" : "Awaiting choice");
-    return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
+    const statusText = resolved
+      ? t("UESRPG.Chat.Status.Resolved", "Resolved")
+      : rolled
+        ? t("UESRPG.Chat.Status.Rolled", "Rolled")
+        : (dCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
+    return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
   })();
 
   const attackerControls = (() => {
@@ -616,14 +637,14 @@ function renderSingleDefenderCard(data, messageId, ctx) {
     if (bankMode) {
       if (!aCommitted) {
         if (attackerCommitGate?.allowed === false) {
-          return `<div style="margin-top:8px; font-size:12px; opacity:0.85;"><i>Casting unavailable: ${String(attackerCommitGate?.reason ?? "Unavailable")}</i></div>`;
+          return `<div style="margin-top:8px; font-size:12px; opacity:0.85;"><i>${tf("UESRPG.Chat.Magic.CastingUnavailable", { reason: String(attackerCommitGate?.reason ?? t("UESRPG.UI.Unavailable", "Unavailable")) }, `Casting unavailable: ${String(attackerCommitGate?.reason ?? "Unavailable")}`)}</i></div>`;
         }
-        return `<div class="${actionRowClass(1)}">${btn({ label: "Casting", action: "attacker-commit" })}</div>`;
+        return `<div class="${actionRowClass(1)}">${btn({ label: t("UESRPG.Chat.Magic.Casting", "Casting"), action: "attacker-commit" })}</div>`;
       }
       return "";
     }
     
-    return `<div class="${actionRowClass(1)}">${btn({ label: "Roll Casting Test", action: "attacker-roll" })}</div>`;
+    return `<div class="${actionRowClass(1)}">${btn({ label: t("UESRPG.Chat.Magic.RollCastingTest", "Roll Casting Test"), action: "attacker-roll" })}</div>`;
   })();
 
   const defenderControls = (() => {
@@ -637,7 +658,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
           const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
           return `
             <div class="${actionRowClass(1)}">
-              ${btn({ label: `Commit ${charLabel} Save`, action: "defender-commit-characteristic" })}
+              ${btn({ label: tf("UESRPG.Chat.Magic.CommitCharacteristicSave", { characteristic: charLabel }, `Commit ${charLabel} Save`), action: "defender-commit-characteristic" })}
             </div>
           `;
         }
@@ -645,16 +666,16 @@ function renderSingleDefenderCard(data, messageId, ctx) {
         if (defenseCommitGate?.allowed === false) {
           return `
           <div class="${actionRowClass(1)}">
-            ${btn({ label: "No Defense", action: "defender-commit-nodefense" })}
+            ${btn({ label: t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), action: "defender-commit-nodefense" })}
           </div>
-          <div style="margin-top:4px; font-size:12px; opacity:0.85;"><i>Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}</i></div>
+          <div style="margin-top:4px; font-size:12px; opacity:0.85;"><i>${tf("UESRPG.Chat.Opposed.DefenseUnavailable", { reason: String(defenseCommitGate?.reason ?? t("UESRPG.UI.Unavailable", "Unavailable")) }, `Defense unavailable: ${String(defenseCommitGate?.reason ?? "Unavailable")}`)}</i></div>
         `;
         }
         // Standard defense: Defense / No Defense buttons
         return `
           <div class="${actionRowClass(2)}">
-            ${btn({ label: "Defense", action: "defender-commit" })}
-            ${btn({ label: "No Defense", action: "defender-commit-nodefense" })}
+            ${btn({ label: t("UESRPG.Chat.Opposed.Defense", "Defense"), action: "defender-commit" })}
+            ${btn({ label: t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), action: "defender-commit-nodefense" })}
           </div>
         `;
       }
@@ -666,7 +687,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
       const charLabel = String(d.characteristicLabel ?? "CHA").toUpperCase();
       return `
         <div class="${actionRowClass(1)}">
-          ${btn({ label: `Roll ${charLabel} Save`, action: "defender-characteristic-test" })}
+          ${btn({ label: tf("UESRPG.Chat.Magic.RollCharacteristicSave", { characteristic: charLabel }, `Roll ${charLabel} Save`), action: "defender-characteristic-test" })}
         </div>
       `;
     }
@@ -676,10 +697,10 @@ function renderSingleDefenderCard(data, messageId, ctx) {
       const defenderActor = resolveActorFromUuid(d.actorUuid, ctx);
       const wardAvailable = defenderActor ? hasActiveWard(defenderActor) : false;
       const buttons = [
-        btn({ label: "Block", action: "defender-roll-block" }),
-        btn({ label: "Evade", action: "defender-roll-evade" }),
-        ...(wardAvailable ? [btn({ label: "Ward", action: "defender-roll-ward" })] : []),
-        btn({ label: "No Defense", action: "defender-no-defense" })
+        btn({ label: t("UESRPG.Chat.Opposed.Block", "Block"), action: "defender-roll-block" }),
+        btn({ label: t("UESRPG.Chat.Opposed.Evade", "Evade"), action: "defender-roll-evade" }),
+        ...(wardAvailable ? [btn({ label: t("UESRPG.Chat.Opposed.Ward", "Ward"), action: "defender-roll-ward" })] : []),
+        btn({ label: t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), action: "defender-no-defense" })
       ];
       return `<div class="${actionRowClass(buttons.length)}">${buttons.join("")}</div>`;
     }
@@ -689,7 +710,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   let outcomeLine = "";
   if (resolved && data.outcome) {
     const defType = String(d.defenseType ?? "").toLowerCase();
-    const resolveLabel = defType === "ward" ? "Resolve Ward" : "Resolve Block";
+    const resolveLabel = defType === "ward" ? t("UESRPG.Chat.Opposed.ResolveWard", "Resolve Ward") : t("UESRPG.Chat.Opposed.ResolveBlock", "Resolve Block");
     const resolveAction = defType === "ward" ? "ward-resolve" : "block-resolve";
     const singleDmgData = getMagicDefenderDamage(data, d);
     const blockResolveButton = (data.outcome?.needsBlockResolution && !isAoE && !singleDmgData?.rolled)
@@ -697,15 +718,15 @@ function renderSingleDefenderCard(data, messageId, ctx) {
       : "";
 
     outcomeLine = `
-      <div style="margin-top:10px;"><b>Outcome:</b> ${summarizeOutcomeText(data.outcome)}</div>
+      <div style="margin-top:10px;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${summarizeOutcomeText(data.outcome)}</div>
       ${blockResolveButton}
     `;
   } else if (bankMode && !bothCommitted) {
-    outcomeLine = `<div style="margin-top:10px;"><i>Waiting for both sides to commit choices...</i></div>`;
+    outcomeLine = `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
   } else if (awaitingDefense) {
     outcomeLine = `
       <div style="margin-top:10px; padding:8px; background:rgba(0,0,0,0.05); border-left:3px solid #666;">
-        <div style="font-weight:700;">Awaiting defense selection</div>
+        <div style="font-weight:700;">${t("UESRPG.Chat.Magic.AwaitingDefenseSelection", "Awaiting defense selection")}</div>
         <div style="margin-top:4px; font-size:12px; opacity:0.9;">${defenseNote}</div>
       </div>
     `;
@@ -717,12 +738,12 @@ function renderSingleDefenderCard(data, messageId, ctx) {
       <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:stretch;">
         <div style="min-width:0; padding-right:8px; border-right:1px solid rgba(0,0,0,0.12); box-sizing:border-box; display:flex; flex-direction:column;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">Caster</div>
+            <div style="font-size:14px; font-weight:700;">${t("UESRPG.Chat.Magic.Caster", "Caster")}</div>
             <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
           </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          ${renderRow("Test:", aTestLabel)}
-          ${showAttackRow ? renderRow("Attack:", aAttackLabel) : ""}
+          ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, aTestLabel)}
+          ${showAttackRow ? renderRow(`${t("UESRPG.Chat.Opposed.Attack", "Attack")}:`, aAttackLabel) : ""}
           ${attackerCastContextRows}
           ${attackerCostLine}
           ${renderTNLine(aTN, aBreakdownEntries)}
@@ -734,12 +755,12 @@ function renderSingleDefenderCard(data, messageId, ctx) {
 
         <div style="min-width:0; padding-left:8px; box-sizing:border-box; display:flex; flex-direction:column;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">Target</div>
+            <div style="font-size:14px; font-weight:700;">${t("UESRPG.Chat.Common.Target", "Target")}</div>
             <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
           </div>
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-            ${renderRow("Test:", dTestLabel)}
-            ${renderRow("Defense:", dDefenseLabel)}
+            ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, dTestLabel)}
+            ${renderRow(`${t("UESRPG.Chat.Opposed.Defense", "Defense")}:`, dDefenseLabel)}
             ${renderTNLine(d.noDefense ? "-" : dTN, dBreakdownEntries)}
             ${dRollLine}
             ${defenderCommitLine}
@@ -766,7 +787,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
 export function renderUnopposedCard(data, messageId) {
   const a = data.attacker;
   const castSource = a.castSource ?? null;
-  const spellName = a.spellName ?? "Spell";
+  const spellName = a.spellName ?? t("UESRPG.Chat.Magic.Spell", "Spell");
   const spellSchool = a.spellSchool ?? "";
   const spellLevel = Number(a.spellLevel ?? 1);
   const spellCost = Number(a.spellCost ?? 0);
@@ -786,11 +807,11 @@ export function renderUnopposedCard(data, messageId) {
   const aTN = a.tn?.finalTN != null ? String(a.tn.finalTN) : "-";
   const aRollLine = a.result
     ? (a.result.noRoll
-      ? `<div><b>Roll:</b> Automatic</div>`
-      : `<div><b>Roll:</b> ${a.result.rollTotal} - ${fmtDegree(a.result)}</div>`)
+      ? `<div><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> ${t("UESRPG.Chat.Common.Automatic", "Automatic")}</div>`
+      : `<div><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> ${a.result.rollTotal} - ${fmtDegree(a.result)}</div>`)
     : "";
 
-  const aBreakdown = renderBreakdownDetails("TN breakdown", a.tn?.breakdown ?? a.tn?.modifiers);
+  const aBreakdown = renderBreakdownDetails(t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown"), a.tn?.breakdown ?? a.tn?.modifiers);
 
   const note = String(data?.context?.note ?? "");
   const noteLine = note
@@ -804,11 +825,11 @@ export function renderUnopposedCard(data, messageId) {
       <div style="display:grid; grid-template-columns:1fr; gap:8px;">
         <div>
           <div style="font-size:18px; font-weight:800; margin-bottom:6px;">${spellName}</div>
-          <div><b>School:</b> ${spellSchool || "-"}</div>
-          <div><b>Level:</b> ${spellLevel}</div>
+          <div><b>${t("UESRPG.Chat.Magic.School", "School")}:</b> ${spellSchool || "-"}</div>
+          <div><b>${t("UESRPG.Chat.Magic.Level", "Level")}:</b> ${spellLevel}</div>
           ${castContextRows}
           <div><b>${costLabel}:</b> ${costDetail}</div>
-          <div style="margin-top:6px;"><b>TN:</b> ${aTN}</div>
+          <div style="margin-top:6px;"><b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${aTN}</div>
           ${aRollLine}
           ${aBreakdown}
         </div>

@@ -1,12 +1,13 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
+import { localizeSettingConfig } from "../../../utils/i18n.js";
 
 function _reg(key, config) {
   if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
     console.warn(`UESRPG | Settings: duplicate key "${key}" вЂ” skipping.`);
     return;
   }
-  game.settings.register(SYSTEM_ID, key, config);
+  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Debug", key, config));
 }
 
 export function registerDebugSettings() {
@@ -82,7 +83,7 @@ export function registerDebugSettings() {
 
   _reg("perfDebug", {
     name: "Performance Profiling",
-    hint: "Log console.time/timeEnd markers for getData(), rule element evaluation, and opposed resolution.",
+    hint: "Log console.time/timeEnd markers for getData() and opposed resolution.",
     scope: "client",
     config: false,
     type: Boolean,

@@ -3,6 +3,7 @@
  * Active Effect handlers for item sheets
  */
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { buildEffectChangesData } from "../../../../utils/compat.js";
 
 /**
  * Handle Active Effect controls from the Effects tab.
@@ -30,10 +31,10 @@ export async function onEffectControl(sheet, event, actionEl = null) {
     const effectData = {
       name: "New Effect",
       img: "icons/svg/aura.svg",
-      changes: [],
       disabled: false,
       transfer: false,
-      duration: {}
+      duration: {},
+      ...buildEffectChangesData([])
     };
     const created = await requestCreateEmbeddedDocuments(itemDoc, "ActiveEffect", [effectData]);
     const eff = created && created.length ? created[0] : null;

@@ -55,8 +55,8 @@ import { FLAG_NS, FLAG_KEY } from "./constants.js";
  * @property {number}   ssModifier             - Spell Strength modifier applied to defender TN.
  * @property {number}   createdAt              - Timestamp (ms) of card creation.
  * @property {string}   createdBy              - User ID who created the card.
- * @property {object}   rollContext            - Roll context passed to rule element hooks.
- * @property {string[]} rollOptions            - Roll option flags for rule element evaluation.
+ * @property {object}   rollContext            - Roll context passed through opposed workflow helpers.
+ * @property {string[]} rollOptions            - Roll option flags carried with the opposed workflow context.
  * @property {number}   [schemaVersion]        - Schema version stamp written by card-updater.
  * @property {number}   [updatedAt]            - Timestamp (ms) of last card update.
  * @property {string}   [updatedBy]            - User ID who performed the last update.

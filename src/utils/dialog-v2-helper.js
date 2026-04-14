@@ -1,7 +1,7 @@
 /**
  * src/utils/dialog-v2-helper.js
  *
- * Thin wrappers around Foundry v13 DialogV2 for common dialog patterns.
+ * Thin wrappers around Foundry v14 DialogV2 for common dialog patterns.
  * All helpers use `foundry.applications.api.DialogV2` internally.
  *
  * Usage:

@@ -18,7 +18,6 @@
  *   - Binding prompt chat card (GM manually resolves the opposed WP test)
  *   - Restrained AP penalty on creature (if spell was Restrained)
  *
- * Target: Foundry VTT v13.351
  */
 
 import { findOriginAE } from "../effects/origin-effect.js";
@@ -26,6 +25,7 @@ import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.j
 import { createDebugLogger } from "../_primitives.js";
 import { applyMindlockEffects } from "../mindlock.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { buildEffectChange, buildEffectChangesData } from "../../../utils/compat.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -59,14 +59,6 @@ async function _applyRestrainedPenalty(tokenDoc, originAE, spell) {
     origin: spell.uuid,
     disabled: false,
     duration: {},
-    changes: [
-      {
-        key: "system.modifiers.action_points.max",
-        mode: CONST.ACTIVE_EFFECT_MODES.ADD,
-        value: "-1",
-        priority: 20
-      }
-    ],
     flags: {
       [_FLAG_NS]: {
         spellEffect: true,
@@ -78,7 +70,15 @@ async function _applyRestrainedPenalty(tokenDoc, originAE, spell) {
         stackRule: "override",
         source: "spell-restrained"
       }
-    }
+    },
+    ...buildEffectChangesData([
+      buildEffectChange({
+        key: "system.modifiers.action_points.max",
+        type: "add",
+        value: "-1",
+        priority: 20
+      })
+    ])
   };
 
   try {

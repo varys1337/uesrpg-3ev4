@@ -1,8 +1,10 @@
 import { SYSTEM_ID } from "../constants.js";
+import { migrateActiveEffectsIfNeeded } from "./active-effects.js";
 import { migrateActorsIfNeeded, migrateWarfareUnitNeutralLanesIfNeeded } from "./actors.js";
 import { migrateItemsIfNeeded } from "./items.js";
 import { migrateCombatLegacyIfNeeded } from "./combat-legacy.js";
 import { migrateWarfareFlagDocumentsIfNeeded } from "./warfare-flags.js";
+import { migrateAoeRegionLinksIfNeeded } from "./aoe-region-links.js";
 
 let _inFlight = null;
 
@@ -35,9 +37,11 @@ export async function runSystemMigrations({
         ui.notifications?.info?.("UESRPG migration pass started.");
       }
 
+      await migrateActiveEffectsIfNeeded();
       await migrateActorsIfNeeded();
       await migrateItemsIfNeeded();
       await migrateCombatLegacyIfNeeded();
+      await migrateAoeRegionLinksIfNeeded();
       await migrateWarfareUnitNeutralLanesIfNeeded();
       await migrateWarfareFlagDocumentsIfNeeded();
 

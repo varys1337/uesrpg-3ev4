@@ -1,6 +1,7 @@
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { clonePlain } from "../../utils/clone.js";
 import { SYSTEM_ID } from "../system/namespace.js";
+import { testAreaPoint } from "../aoe/containment.js";
 
 export const CONSECRATION_VERSION = 1;
 
@@ -78,15 +79,12 @@ export function getActiveConsecratedRegionsForToken(token, { domainKey = "" } = 
   if (!scene || !center) return [];
 
   return Array.from(scene.regions?.contents ?? []).filter((region) => {
-    if (typeof region?.testPoint !== "function") return false;
     const state = getRegionConsecrationState(region);
     if (!state.active) return false;
     if (regionDomainKey && state.domainKey !== regionDomainKey) return false;
-    try {
-      return region.testPoint(center);
-    } catch (_err) {
-      return false;
-    }
+    return testAreaPoint(region, center, {
+      elevation: token?.document?.elevation ?? token?.elevation ?? 0
+    });
   });
 }
 

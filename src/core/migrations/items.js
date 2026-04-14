@@ -15,9 +15,11 @@ import { DEFAULTS } from "./item-defaults.generated.js";
 import { SYSTEM_ID, UESRPG } from "../constants.js";
 import { getWeaponBaseReachState } from "../homebrew/reach-length/weapon.js";
 import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
+import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _RETIRED_SOCIAL_ITEM_TYPES = new Set(["language", "faction"]);
+const _RETIRED_RULE_ELEMENT_ITEM_TYPES = new Set(["trait", "talent", "power"]);
 const _combatLegacyItemStats = {
   weaponsEnhancedFromQualities: 0,
   weaponsEnhancedFromRange: 0,
@@ -163,6 +165,51 @@ async function _cleanupRetiredSocialItems() {
     actorDeleted,
     actorsTouched,
     totalDeleted: worldDeleted + actorDeleted,
+  };
+}
+
+async function _cleanupRetiredRuleElementFlags() {
+  let worldUpdated = 0;
+  let actorUpdated = 0;
+  let actorsTouched = 0;
+
+  const worldUpdates = [];
+  for (const item of game?.items?.contents ?? []) {
+    if (!_RETIRED_RULE_ELEMENT_ITEM_TYPES.has(String(item?.type ?? "").toLowerCase())) continue;
+    if (item.getFlag?.(SYSTEM_ID, "ruleElements") === undefined) continue;
+    worldUpdates.push({
+      _id: item.id,
+      [`flags.${SYSTEM_ID}.-=ruleElements`]: null,
+    });
+  }
+
+  if (worldUpdates.length) {
+    worldUpdated = worldUpdates.length;
+    await Item.updateDocuments(worldUpdates, { diff: false });
+  }
+
+  for (const actor of game?.actors?.contents ?? []) {
+    const embeddedUpdates = [];
+    for (const item of actor?.items?.contents ?? []) {
+      if (!_RETIRED_RULE_ELEMENT_ITEM_TYPES.has(String(item?.type ?? "").toLowerCase())) continue;
+      if (item.getFlag?.(SYSTEM_ID, "ruleElements") === undefined) continue;
+      embeddedUpdates.push({
+        _id: item.id,
+        [`flags.${SYSTEM_ID}.-=ruleElements`]: null,
+      });
+    }
+
+    if (!embeddedUpdates.length) continue;
+    actorsTouched += 1;
+    actorUpdated += embeddedUpdates.length;
+    await actor.updateEmbeddedDocuments("Item", embeddedUpdates, { diff: false });
+  }
+
+  return {
+    worldUpdated,
+    actorUpdated,
+    actorsTouched,
+    totalUpdated: worldUpdated + actorUpdated,
   };
 }
 
@@ -935,10 +982,11 @@ export async function migrateItemsIfNeeded() {
   const currentVersion = getSystemVersionString();
   const state = getMigrationState();
   const needsSocialRetirementCleanup = state?.socialItemRetirementCleanup !== currentVersion;
+  const needsRuleElementRetirementCleanup = state?.ruleElementRetirementCleanup !== currentVersion;
   const needsItemMigration = state?.items !== currentVersion;
   const needsScrollCastingBackfill = state?.scrollCastingControls !== currentVersion;
   const needsScrollConsumeOnCastBackfill = state?.scrollConsumeOnCast !== currentVersion;
-  if (!needsSocialRetirementCleanup && !needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) {
+  if (!needsSocialRetirementCleanup && !needsRuleElementRetirementCleanup && !needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) {
     await _runLegacyItemRepairPasses({ state, currentVersion });
     return;
   }
@@ -948,6 +996,12 @@ export async function migrateItemsIfNeeded() {
   try {
     if (needsSocialRetirementCleanup) {
       await _runSocialRetirementCleanupPass({ state, currentVersion });
+    }
+
+    if (needsRuleElementRetirementCleanup) {
+      const cleanup = await _cleanupRetiredRuleElementFlags();
+      console.log(`${MODULE_ID} | retired feature cleanup`, cleanup);
+      state.ruleElementRetirementCleanup = currentVersion;
     }
 
     if (needsItemMigration) {
@@ -982,6 +1036,10 @@ function _deepCloneSystem(sys) {
   } catch (_e) {
     return JSON.parse(JSON.stringify(sys ?? {}));
   }
+}
+
+function _systemsEqual(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
 function _ensureArmorItemCatNonBreaking(system) {
@@ -1081,8 +1139,17 @@ function _normalizeItemSystem(item) {
   const hasDefaults = Object.prototype.hasOwnProperty.call(DEFAULTS?.itemSystem ?? {}, type);
   if (!hasDefaults && type !== "equipment") return null;
 
-  const currentSystem = sourceSystem;
+  let currentSystem = sourceSystem;
   let preChanged = false;
+
+  if (isTypeDataModelsEnabled()) {
+    const cleanedSystem = cleanSystemDataWithModel("Item", type, currentSystem);
+    if (cleanedSystem && !_systemsEqual(cleanedSystem, currentSystem)) {
+      currentSystem = cleanedSystem;
+      preChanged = true;
+    }
+  }
+
   if (sourceType === "armor" || type === "armor") {
     preChanged = _applyLegacyArmorTypedFields(currentSystem) || preChanged;
   }

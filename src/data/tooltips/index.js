@@ -1,4 +1,9 @@
 export {
+  buildTooltipHeader,
+  localizeTooltipEntry,
+} from "./tooltip-i18n.js";
+
+export {
   TOOLTIP_PLACEHOLDER_PREFIX,
   SHARED_TOOLTIP_DEFAULTS,
   buildPlaceholderShortText,

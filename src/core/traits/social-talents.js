@@ -18,6 +18,7 @@ import { SYSTEM_ROLL_FORMULA } from "../constants.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { SYSTEM_ID } from "../system/namespace.js";
+import { buildEffectChange } from "../../utils/compat.js";
 
 const EFFECT_KEY_INSPIRE_HEROISM = "talent:inspireHeroism";
 
@@ -242,14 +243,12 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
         }
       },
       changes: [
-        { key: "system.modifiers.combat.attackTN", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: "10", priority: 20 },
-        { key: "system.modifiers.combat.defenseTN.total", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: "10", priority: 20 }
+        buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: "10", priority: 20 }),
+        buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: "10", priority: 20 })
       ]
     });
   }
 
   return res.isSuccess;
 }
-
-
 

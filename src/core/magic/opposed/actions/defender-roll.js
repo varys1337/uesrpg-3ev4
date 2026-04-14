@@ -14,10 +14,8 @@ import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
 import { getActiveWardSpell } from "../../../combat/ward-defense.js";
 import { computeSpellAttemptMagickaCost, consumeSpellMagicka } from "../../magicka-utils.js";
-import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { resolveToken } from "../schema.js";
 import { executeCharacteristicDefense } from "../../characteristic-defense-service.js";
-import { listEquippedShields } from "../../../items/shield-utils.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
 import { isWarfareUnitActorType } from "../../../actors/types.js";
@@ -185,44 +183,12 @@ export async function handleDefenderRoll(ctx, action) {
   }
   tnObj.modifiers = tnObj.breakdown;
   tnObj.finalTN = Math.max(0, Number(tnObj.finalTN ?? 0) + manualMod + circumstanceMod);
-  const attackerToken = resolveToken(data?.attacker?.tokenUuid);
-  const runtimeDefenseItem = (() => {
-    if (defenseType === "ward") return wardSpell;
-    if (defenseType !== "block") return null;
-    return listEquippedShields(defenderActor, { includeBuckler: false, allowLegacy: true })[0] ?? null;
-  })();
-  applyRuntimePreRollToTN({
-    actor: defenderActor,
-    targetActor: attacker,
-    targetToken: attackerToken,
-    item: runtimeDefenseItem,
-    rollContext: data?.context?.rollContext,
-    workflow: "magic",
-    side: "defender",
-    attackMode: "magic",
-    defenseType,
-    tn: tnObj
-  });
   const defenseTN = Number(tnObj.finalTN ?? 0) || 0;
 
   const result = await doTestRoll(defenderActor, {
     target: defenseTN,
     allowLucky: true,
     allowUnlucky: true
-  });
-
-  await applyRuntimePostRollToResult({
-    actor: defenderActor,
-    targetActor: attacker,
-    targetToken: attackerToken,
-    item: runtimeDefenseItem,
-    rollContext: data?.context?.rollContext,
-    workflow: "magic",
-    side: "defender",
-    attackMode: "magic",
-    defenseType,
-    result,
-    allowPrompt: true
   });
 
   await postMagicOpposedSubRoll({

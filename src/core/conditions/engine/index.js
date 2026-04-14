@@ -26,6 +26,9 @@ import { CONDITION_DESCRIPTIONS } from "../../../data/conditions/conditions-data
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
+import { buildEffectChange, buildEffectChangesData, buildEffectChangesUpdate, normalizeActiveEffectOrigin } from "../../../utils/compat.js";
+import { getCoreRollMode } from "../../../utils/chat-roll-mode.js";
+import { t, tf } from "../../../utils/i18n.js";
 
 // Stage-06: pure helpers from selectors.js (aliased with underscore prefix for internal call-site compatibility).
 import {
@@ -39,6 +42,8 @@ import {
 
 // Stage-06: per-actor condition index cache.
 import { getConditionIndex, invalidateConditionIndex } from "./index-cache.js";
+import { getStatusEffectConfigs } from "../status-effects-registry.js";
+import { getConditionDescription, getConditionName } from "./condition-i18n.js";
 
 // Stage-06: centralized flag scope constant.
 import { FLAG_SCOPE } from "../constants.js";
@@ -55,8 +60,7 @@ function _isConditionDebugEnabled() {
 
 function _knownStatusIds() {
   try {
-    const list = Array.isArray(CONFIG?.statusEffects) ? CONFIG.statusEffects : [];
-    return new Set(list.map(se => se?.id).filter(Boolean));
+    return new Set(getStatusEffectConfigs().map((se) => se?.id).filter(Boolean));
   } catch (_e) {
     return new Set();
   }
@@ -113,6 +117,34 @@ function _toNumber(n, fallback = 0) {
   return Number.isFinite(v) ? v : fallback;
 }
 
+function _conditionBaseName(key, fallback = null) {
+  const k = _normalizeConditionKey(key);
+  if (!k) return String(fallback ?? "");
+  const def = STATIC_CONDITIONS[k];
+  const defaultName = k === "bleeding"
+    ? "Bleeding"
+    : k === "burning"
+      ? "Burning"
+      : k === "flanked"
+        ? "Flanked"
+        : String(def?.name ?? fallback ?? k).replace(/\s*\(X\)\s*$/, "");
+  return getConditionName(k, defaultName);
+}
+
+function _conditionDescription(key, fallback = null) {
+  const k = _normalizeConditionKey(key);
+  if (!k) return String(fallback ?? "");
+  return getConditionDescription(k, CONDITION_DESCRIPTIONS.get(k) ?? fallback);
+}
+
+function _numericConditionName(key, value) {
+  const fallback = `${_conditionBaseName(key)} (${value})`;
+  return tf("UESRPG.Conditions.NumericName", {
+    condition: _conditionBaseName(key),
+    value,
+  }, fallback);
+}
+
 function _isActiveCombatant(actor) {
   try {
     const c = game.combat?.combatant?.actor;
@@ -138,6 +170,7 @@ function _getCharacteristicTotal(actor, key) {
 
 function _mkBaseEffectData({ name, img = null, icon = null, description = null, condition, changes = [], origin = null, statuses = null, coreStatusId = null }) {
   const effectImg = img ?? icon ?? null;
+  const normalizedOrigin = normalizeActiveEffectOrigin(origin);
   const conditionKey = condition?.key;
   const isNumericCondition = conditionKey === "bleeding" || conditionKey === "burning" || conditionKey === "flanked";
   const stackRule = isNumericCondition ? "refresh" : "override";
@@ -147,17 +180,17 @@ function _mkBaseEffectData({ name, img = null, icon = null, description = null, 
     name,
     // Foundry v13 ActiveEffect data uses "img". Accept a legacy "icon" arg internally.
     img: effectImg,
-    origin: origin ?? null,
+    origin: normalizedOrigin,
     disabled: false,
     duration: {},
-    changes,
     flags: {
       [FLAG_SCOPE]: {
         condition,
         owner: "system",
         source: "condition"
       }
-    }
+    },
+    ...buildEffectChangesData(changes)
   };
 
   // Add standardized metadata flags
@@ -196,29 +229,29 @@ const STATIC_CONDITIONS = {
   blinded: {
     name: "Blinded",
     img: "icons/svg/blind.svg",
-    description: CONDITION_DESCRIPTIONS.get("blinded"),
+    description: _conditionDescription("blinded"),
     // RAW: -30 penalty to tests benefitting from sight.
     // Deterministic automation scope: Combat Style tests + Observe.
     changes: [
-      { key: "system.modifiers.skills.observe", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -30, priority: 20 }
+      buildEffectChange({ key: "system.modifiers.skills.observe", type: "add", value: -30, priority: 20 })
     ]
   },
 
   deafened: {
     name: "Deafened",
     img: "icons/svg/deaf.svg",
-    description: CONDITION_DESCRIPTIONS.get("deafened"),
+    description: _conditionDescription("deafened"),
     // RAW: -30 penalty to tests benefitting from hearing.
     // Deterministic automation scope: Observe.
     changes: [
-      { key: "system.modifiers.skills.observe", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -30, priority: 20 }
+      buildEffectChange({ key: "system.modifiers.skills.observe", type: "add", value: -30, priority: 20 })
     ]
   },
 
   crippled: {
     name: "Crippled",
     img: "icons/svg/bones.svg",
-    description: CONDITION_DESCRIPTIONS.get("crippled"),
+    description: _conditionDescription("crippled"),
     // Tracking-only condition for now (no hard automation yet).
     changes: []
   },
@@ -226,7 +259,7 @@ const STATIC_CONDITIONS = {
   helpless: {
     name: "Helpless",
     img: "icons/svg/ice-aura.svg",
-    description: CONDITION_DESCRIPTIONS.get("helpless"),
+    description: _conditionDescription("helpless"),
     // Tracking-only condition; defensive lockout is enforced in opposed workflows.
     changes: []
   },
@@ -234,7 +267,7 @@ const STATIC_CONDITIONS = {
   silenced: {
     name: "Silenced",
     img: "icons/svg/sound-off.svg",
-    description: CONDITION_DESCRIPTIONS.get("silenced"),
+    description: _conditionDescription("silenced"),
     // Tracking-only condition for now (no hard automation yet).
     changes: []
   },
@@ -242,7 +275,7 @@ const STATIC_CONDITIONS = {
   stunned: {
     name: "Stunned",
     img: "icons/svg/stoned.svg",
-    description: CONDITION_DESCRIPTIONS.get("stunned"),
+    description: _conditionDescription("stunned"),
     // Tracking-only condition for now (no hard automation yet).
     changes: []
   },
@@ -250,30 +283,30 @@ const STATIC_CONDITIONS = {
   entangled: {
     name: "Entangled",
     img: "icons/svg/net.svg",
-    description: CONDITION_DESCRIPTIONS.get("entangled"),
+    description: _conditionDescription("entangled"),
     // RAW: -20 penalty to all Combat Style tests.
     // NOTE: Movement halving is enforced in actor derived Speed (Package 4).
     changes: [
-      { key: "system.modifiers.combat.attackTN", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -20, priority: 20 },
-      { key: "system.modifiers.combat.defenseTN.total", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -20, priority: 20 }
+      buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: -20, priority: 20 }),
+      buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: -20, priority: 20 })
     ]
   },
 
   dazed: {
     name: "Dazed",
     img: "icons/svg/daze.svg",
-    description: CONDITION_DESCRIPTIONS.get("dazed"),
+    description: _conditionDescription("dazed"),
     // RAW: Gain 1 fewer Action Point at the beginning of each round (minimum 1).
     // Automation approach: reduce AP max by 1; combat AP refresh clamps to minimum 1 while Dazed.
     changes: [
-      { key: "system.action_points.max", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -1, priority: 20 }
+      buildEffectChange({ key: "system.action_points.max", type: "add", value: -1, priority: 20 })
     ]
   },
 
   hidden: {
     name: "Hidden",
     img: "icons/svg/cowled.svg",
-    description: CONDITION_DESCRIPTIONS.get("hidden"),
+    description: _conditionDescription("hidden"),
     // Core icon (Foundry) used in the Token HUD palette.
     // RAW: Enemies cannot defend themselves against attacks from hidden characters.
     // Movement costs double (handled via derived Speed in Actor data).
@@ -284,7 +317,7 @@ const STATIC_CONDITIONS = {
   invisible: {
     name: "Invisible",
     img: "icons/svg/invisible.svg",
-    description: CONDITION_DESCRIPTIONS.get("invisible"),
+    description: _conditionDescription("invisible"),
     // RAW: Attacks made against invisible targets suffer -30 TN (handled in opposed workflow).
     changes: []
   },
@@ -292,7 +325,7 @@ const STATIC_CONDITIONS = {
   frenzied: {
     name: "Frenzied",
     img: "icons/svg/terror.svg",
-    description: CONDITION_DESCRIPTIONS.get("frenzied"),
+    description: _conditionDescription("frenzied"),
     // Automated via frenzied.js; changes are dynamic based on talents
     changes: []
   },
@@ -301,12 +334,12 @@ const STATIC_CONDITIONS = {
   prone: {
     name: "Prone",
     img: "icons/svg/falling.svg",
-    description: CONDITION_DESCRIPTIONS.get("prone"),
+    description: _conditionDescription("prone"),
     // RAW: -20 penalty to all Combat related tests.
     // NOTE: Movement restriction + stand-up cost are enforced via Package 4 semantics.
     changes: [
-      { key: "system.modifiers.combat.attackTN", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -20, priority: 20 },
-      { key: "system.modifiers.combat.defenseTN.total", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -20, priority: 20 }
+      buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: -20, priority: 20 }),
+      buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: -20, priority: 20 })
     ]
   },
 
@@ -314,25 +347,25 @@ const STATIC_CONDITIONS = {
   unconscious: {
     name: "Unconscious",
     img: "icons/svg/unconscious.svg",
-    description: CONDITION_DESCRIPTIONS.get("unconscious"),
+    description: _conditionDescription("unconscious"),
     changes: []
   },
   paralyzed: {
     name: "Paralyzed",
     img: "icons/svg/paralysis.svg",
-    description: CONDITION_DESCRIPTIONS.get("paralyzed"),
+    description: _conditionDescription("paralyzed"),
     changes: []
   },
   restrained: {
     name: "Restrained",
     img: "icons/svg/anchor.svg",
-    description: CONDITION_DESCRIPTIONS.get("restrained"),
+    description: _conditionDescription("restrained"),
     changes: []
   },
   grappled: {
     name: "Grappled",
     img: "icons/svg/grab.svg",
-    description: CONDITION_DESCRIPTIONS.get("grappled"),
+    description: _conditionDescription("grappled"),
     changes: []
   },
 
@@ -340,7 +373,7 @@ const STATIC_CONDITIONS = {
   feinted: {
     name: "Feinted",
     img: "icons/svg/combat.svg",
-    description: CONDITION_DESCRIPTIONS.get("feinted"),
+    description: _conditionDescription("feinted"),
     changes: []
   },
 
@@ -348,21 +381,21 @@ const STATIC_CONDITIONS = {
   slowed: {
     name: "Slowed",
     img: "icons/svg/wingfoot.svg",
-    description: CONDITION_DESCRIPTIONS.get("slowed"),
+    description: _conditionDescription("slowed"),
     // Core icon (Foundry) used in the Token HUD palette.
     changes: []
   },
   immobilized: {
     name: "Immobilized",
     img: "icons/svg/statue.svg",
-    description: CONDITION_DESCRIPTIONS.get("immobilized"),
+    description: _conditionDescription("immobilized"),
     changes: []
   },
 
   mounted: {
     name: "Mounted",
     img: "icons/svg/pawprint.svg",
-    description: CONDITION_DESCRIPTIONS.get("mounted"),
+    description: _conditionDescription("mounted"),
     // Tracking-only condition for future mounted combat automation.
     changes: []
   },
@@ -372,7 +405,7 @@ const STATIC_CONDITIONS = {
   flanked: {
     name: "Flanked (X)",
     img: "icons/svg/target.svg",
-    description: CONDITION_DESCRIPTIONS.get("flanked"),
+    description: _conditionDescription("flanked"),
     changes: []
   },
 
@@ -381,7 +414,7 @@ const STATIC_CONDITIONS = {
   inclose: {
     name: "In Close",
     img: "icons/svg/combat.svg",
-    description: CONDITION_DESCRIPTIONS.get("inclose"),
+    description: _conditionDescription("inclose"),
     changes: []
   }
 };
@@ -464,7 +497,7 @@ function _mkTokenHudStatusConfigForStatic(key) {
   const changes = Array.isArray(def.changes) ? _deepClone(def.changes) : [];
   return {
     id: k,
-    name: def.name,
+    name: t(`UESRPG.Conditions.${k}.Name`, def.name),
     img: def.img,
     description: def.description ?? null,
     hud: true,
@@ -478,7 +511,7 @@ function _mkTokenHudStatusConfigForStatic(key) {
         condition: {
           key: k,
           value: 1,
-          source: def.name
+          source: _conditionBaseName(k, def.name)
         },
         owner: "system",
         effectGroup: `condition.${k}`,
@@ -493,9 +526,9 @@ function _mkTokenHudStatusConfigForBleeding() {
   const k = "bleeding";
   return {
     id: k,
-    name: "Bleeding",
+    name: _conditionBaseName(k, "Bleeding"),
     img: "icons/svg/blood.svg",
-    description: CONDITION_DESCRIPTIONS.get("bleeding") ?? null,
+    description: _conditionDescription("bleeding") ?? null,
     hud: true,
     disabled: false,
     duration: {},
@@ -508,7 +541,7 @@ function _mkTokenHudStatusConfigForBleeding() {
           key: k,
           value: 1,
           delay: 0,
-          source: "Bleeding"
+          source: _conditionBaseName(k, "Bleeding")
         },
         owner: "system",
         effectGroup: `condition.${k}`,
@@ -523,9 +556,9 @@ function _mkTokenHudStatusConfigForBurning() {
   const k = "burning";
   return {
     id: k,
-    name: "Burning",
+    name: _conditionBaseName(k, "Burning"),
     img: "icons/svg/fire.svg",
-    description: CONDITION_DESCRIPTIONS.get("burning") ?? null,
+    description: _conditionDescription("burning") ?? null,
     hud: true,
     disabled: false,
     duration: {},
@@ -538,7 +571,7 @@ function _mkTokenHudStatusConfigForBurning() {
           key: k,
           value: 1,
           hitLocation: "Body",
-          source: "Burning"
+          source: _conditionBaseName(k, "Burning")
         },
         owner: "system",
         effectGroup: `condition.${k}`,
@@ -553,9 +586,9 @@ function _mkTokenHudStatusConfigForSurprised() {
   const k = "surprised";
   return {
     id: k,
-    name: "Surprised",
+    name: _conditionBaseName(k, "Surprised"),
     img: "icons/svg/portal.svg",
-    description: CONDITION_DESCRIPTIONS.get(k) ?? null,
+    description: _conditionDescription(k) ?? null,
     hud: true,
     disabled: false,
     duration: {},
@@ -662,7 +695,7 @@ export async function upgradeTokenHudStatusEffects(actor) {
         const cur = getConditionValue(actor, k) ?? xValue;
         const desiredName = `Bleeding (${cur})`;
         if (effect.name !== desiredName) updates.name = desiredName;
-        updates.changes = _mkBleedingWTChanges(cur);
+        Object.assign(updates, buildEffectChangesUpdate(_mkBleedingWTChanges(cur)));
       }
       if (k === "burning") {
         const cur = getConditionValue(actor, k) ?? xValue;
@@ -705,7 +738,7 @@ export async function upgradeTokenHudStatusEffects(actor) {
 
     if (k === "bleeding") {
       updates.name = `Bleeding (${xValue})`;
-      updates.changes = _mkBleedingWTChanges(xValue);
+      Object.assign(updates, buildEffectChangesUpdate(_mkBleedingWTChanges(xValue)));
       updates[`${FLAG_PATH}.condition`] = { key: k, value: xValue, delay: 0, source: "Bleeding" };
     } else if (k === "burning") {
       updates.name = `Burning (${xValue})`;
@@ -794,14 +827,17 @@ export async function applyCondition(actor, key, { origin = null, source = null 
   const k = _normalizeConditionKey(key);
   const def = STATIC_CONDITIONS[k];
   if (!def) {
-    ui.notifications?.warn?.(`Unknown condition key: ${k}`);
+    ui.notifications?.warn?.(tf("UESRPG.Notifications.UnknownConditionKey", { key: k }, `Unknown condition key: ${k}`));
     return null;
   }
 
   // Global immunity gate (traits/talents/powers + Active Effects).
   // This must apply to all condition entry points, including manual Token HUD toggles.
   if (isImmuneToCondition(actor, k)) {
-    ui.notifications?.warn?.(`${actor.name} is immune to ${def.name}.`);
+    ui.notifications?.warn?.(tf("UESRPG.Notifications.ConditionImmune", {
+      actor: actor.name,
+      condition: _conditionBaseName(k, def.name),
+    }, `${actor.name} is immune to ${def.name}.`));
     return null;
   }
 
@@ -809,13 +845,13 @@ export async function applyCondition(actor, key, { origin = null, source = null 
   const coreStatusId = _coreStatusIdForKey(k);
   const statuses = coreStatusId ? [coreStatusId] : null;
   const createData = _mkBaseEffectData({
-    name: def.name,
+    name: t(`UESRPG.Conditions.${k}.Name`, def.name),
     img: def.img,
     description: def.description ?? null,
     statuses,
     coreStatusId,
     origin,
-    condition: { key: k, value: 1, source: source ?? def.name },
+    condition: { key: k, value: 1, source: source ?? _conditionBaseName(k, def.name) },
     changes: Array.isArray(def.changes) ? def.changes : []
   });
 
@@ -823,7 +859,7 @@ export async function applyCondition(actor, key, { origin = null, source = null 
     createData,
     updateFn: async (_effect) => {
       const updates = {
-        name: def.name,
+        name: t(`UESRPG.Conditions.${k}.Name`, def.name),
         img: def.img,
         changes: Array.isArray(def.changes) ? def.changes : [],
         [`${FLAG_PATH}.condition.key`]: k,
@@ -863,7 +899,10 @@ export async function toggleCondition(actor, key, { origin = null, source = null
   // Immunity gate: prevent manual Token HUD / core status toggles from applying.
   if (isImmuneToCondition(actor, k)) {
     const def = STATIC_CONDITIONS[k];
-    ui.notifications?.warn?.(`${actor.name} is immune to ${def?.name ?? k}.`);
+    ui.notifications?.warn?.(tf("UESRPG.Notifications.ConditionImmune", {
+      actor: actor.name,
+      condition: _conditionBaseName(k, def?.name ?? k),
+    }, `${actor.name} is immune to ${def?.name ?? k}.`));
     return null;
   }
 
@@ -884,7 +923,7 @@ async function _applyStunnedOnApply(actor) {
  * a burning actor must pass WP-20 each turn before attempting non-extinguish actions.
  */
 export async function ensureBurningTurnActionAllowed(actor, { actionId = "action", allowExtinguish = false } = {}) {
-  if (!actor) return { allowed: false, reason: "Actor missing" };
+  if (!actor) return { allowed: false, reason: t("UESRPG.UI.ActorMissing", "Actor missing") };
 
   const burningX = Math.max(0, _toNumber(getConditionValue(actor, "burning") ?? 0, 0));
   if (burningX <= 0) return { allowed: true, reason: null, skipped: true };
@@ -917,7 +956,7 @@ export async function ensureBurningTurnActionAllowed(actor, { actionId = "action
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
       flavor: `${actor.name} — Burning Action Gate (WP ${tn})`,
-      rollMode: game.settings.get("core", "rollMode")
+      rollMode: getCoreRollMode()
     });
   } catch (_e) {
     // Non-blocking.
@@ -949,17 +988,17 @@ export async function ensureBurningTurnActionAllowed(actor, { actionId = "action
  * - on success remove Burning
  */
 export async function attemptExtinguishBurning(actor) {
-  if (!actor) return { ok: false, reason: "Actor missing" };
+  if (!actor) return { ok: false, reason: t("UESRPG.UI.ActorMissing", "Actor missing") };
 
   const burningX = Math.max(0, _toNumber(getConditionValue(actor, "burning") ?? 0, 0));
-  if (burningX <= 0) return { ok: false, reason: "Not burning" };
+  if (burningX <= 0) return { ok: false, reason: t("UESRPG.Conditions.burning.NotActive", "Not burning") };
 
   const chooseAgi = await customDialog({
-    title: "Put Out Fire",
-    content: "<p>Choose Strength or Agility for the extinguish test.</p>",
+    title: t("UESRPG.Dialogs.ExtinguishBurning.Title", "Put Out Fire"),
+    content: `<p>${t("UESRPG.Dialogs.ExtinguishBurning.Content", "Choose Strength or Agility for the extinguish test.")}</p>`,
     buttons: {
-      strength: { label: "Strength", callback: () => false },
-      agility: { label: "Agility", callback: () => true }
+      strength: { label: t("UESRPG.UI.Strength", "Strength"), callback: () => false },
+      agility: { label: t("UESRPG.UI.Agility", "Agility"), callback: () => true }
     },
     defaultButton: "strength"
   });
@@ -981,7 +1020,7 @@ export async function attemptExtinguishBurning(actor) {
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
       flavor: `${actor.name} — Extinguish Fire (${charKey.toUpperCase()} ${tn})`,
-      rollMode: game.settings.get("core", "rollMode")
+      rollMode: getCoreRollMode()
     });
   } catch (_e) {
     // Non-blocking.
@@ -1024,7 +1063,7 @@ export async function runSilencedRealizationCheck(actor, { combat = game.combat 
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor }),
       flavor: `${actor.name} — Silenced Realization (PRC ${tn})`,
-      rollMode: game.settings.get("core", "rollMode")
+      rollMode: getCoreRollMode()
     });
   } catch (_e) {
     // Non-blocking.
@@ -1055,14 +1094,14 @@ async function _postConditionNote(actor, content) {
 function _mkBleedingWTChanges(x) {
   const v = Math.max(0, _toNumber(x, 0));
   return [
-    {
+    buildEffectChange({
       // Apply to the final derived WT lane; actor derived-data reads this lane deterministically.
       // Using .bonus does not reliably propagate into system.wound_threshold.value in this build.
       key: "system.modifiers.wound_threshold.value",
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD,
+      mode: "add",
       value: -v,
       priority: 20
-    }
+    })
   ];
 }
 
@@ -1145,7 +1184,10 @@ export async function applyBleeding(actor, x, { origin = null, source = "Bleedin
   if (!actor) return null;
   if (isActorUndeadBloodless(actor)) return null;
   if (isImmuneToCondition(actor, "bleeding")) {
-    ui.notifications?.warn?.(`${actor.name} is immune to Bleeding.`);
+    ui.notifications?.warn?.(tf("UESRPG.Notifications.ConditionImmune", {
+      actor: actor.name,
+      condition: _conditionBaseName("bleeding", "Bleeding"),
+    }, `${actor.name} is immune to Bleeding.`));
     return null;
   }
   const add = Math.max(0, _toNumber(x, 0));
@@ -1157,13 +1199,13 @@ export async function applyBleeding(actor, x, { origin = null, source = "Bleedin
   const statuses = coreStatusId ? [coreStatusId] : null;
 
   const createData = _mkBaseEffectData({
-    name: `Bleeding (${add})`,
+    name: _numericConditionName("bleeding", add),
     icon: "icons/svg/blood.svg",
-    description: CONDITION_DESCRIPTIONS.get("bleeding") ?? null,
+    description: _conditionDescription("bleeding") ?? null,
     statuses,
     coreStatusId,
     origin,
-    condition: { key: "bleeding", value: add, delay: initialDelay, source },
+    condition: { key: "bleeding", value: add, delay: initialDelay, source: source ?? _conditionBaseName("bleeding", "Bleeding") },
     changes: _mkBleedingWTChanges(add)
   });
 
@@ -1177,11 +1219,11 @@ export async function applyBleeding(actor, x, { origin = null, source = "Bleedin
       // Do not reset timing; preserve earliest tick.
       const delay = Math.max(0, _toNumber(c.delay, initialDelay));
       const updates = {
-        name: `Bleeding (${next})`,
-        changes: _mkBleedingWTChanges(next),
+        name: _numericConditionName("bleeding", next),
         [`${FLAG_PATH}.condition.value`]: next,
         [`${FLAG_PATH}.condition.delay`]: delay
       };
+      Object.assign(updates, buildEffectChangesUpdate(_mkBleedingWTChanges(next)));
 
       if (coreStatusId) {
         updates["flags.core.statusId"] = coreStatusId;
@@ -1205,7 +1247,10 @@ export async function applyBurning(actor, x, { hitLocation = "Body", origin = nu
   if (!actor) return null;
   if (isActorSkeletal(actor)) return null;
   if (isImmuneToCondition(actor, "burning")) {
-    ui.notifications?.warn?.(`${actor.name} is immune to Burning.`);
+    ui.notifications?.warn?.(tf("UESRPG.Notifications.ConditionImmune", {
+      actor: actor.name,
+      condition: _conditionBaseName("burning", "Burning"),
+    }, `${actor.name} is immune to Burning.`));
     return null;
   }
   const add = Math.max(0, _toNumber(x, 0));
@@ -1217,13 +1262,13 @@ export async function applyBurning(actor, x, { hitLocation = "Body", origin = nu
   const statuses = coreStatusId ? [coreStatusId] : null;
 
   const createData = _mkBaseEffectData({
-    name: `Burning (${add})`,
+    name: _numericConditionName("burning", add),
     icon: "icons/svg/fire.svg",
-    description: CONDITION_DESCRIPTIONS.get("burning") ?? null,
+    description: _conditionDescription("burning") ?? null,
     statuses,
     coreStatusId,
     origin,
-    condition: { key: "burning", value: add, hitLocation: loc, source },
+    condition: { key: "burning", value: add, hitLocation: loc, source: source ?? _conditionBaseName("burning", "Burning") },
     changes: []
   });
 
@@ -1238,7 +1283,7 @@ export async function applyBurning(actor, x, { hitLocation = "Body", origin = nu
       const storedLoc = String(c.hitLocation || loc);
 
       const updates = {
-        name: `Burning (${next})`,
+        name: _numericConditionName("burning", next),
         [`${FLAG_PATH}.condition.value`]: next,
         [`${FLAG_PATH}.condition.hitLocation`]: storedLoc
       };
@@ -1275,7 +1320,10 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
   // value for an immune condition. This closes the "manual token HUD" bypass.
   if (next > 0 && isImmuneToCondition(actor, k)) {
     const def = STATIC_CONDITIONS[k];
-    ui.notifications?.warn?.(`${actor.name} is immune to ${def?.name ?? k}.`);
+    ui.notifications?.warn?.(tf("UESRPG.Notifications.ConditionImmune", {
+      actor: actor.name,
+      condition: _conditionBaseName(k, def?.name ?? k),
+    }, `${actor.name} is immune to ${def?.name ?? k}.`));
     return existing ?? null;
   }
 
@@ -1312,13 +1360,13 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
     const statuses = coreStatusId ? [coreStatusId] : null;
     const hadExisting = Boolean(existing);
     const createData = _mkBaseEffectData({
-      name: `Flanked (${next})`,
+      name: _numericConditionName("flanked", next),
       img: def?.img ?? "icons/svg/target.svg",
       description: def?.description ?? null,
       statuses,
       coreStatusId,
       origin: null,
-      condition: { key: k, value: next, source: "Engagement & Flanking" },
+      condition: { key: k, value: next, source: t("UESRPG.Conditions.flanked.Source", "Engagement & Flanking") },
       changes: []
     });
 
@@ -1326,7 +1374,7 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
       createData,
       updateFn: async (effect) => {
         const c = _getConditionData(effect) ?? {};
-        const source = String(c.source || "Engagement & Flanking");
+        const source = String(c.source || t("UESRPG.Conditions.flanked.Source", "Engagement & Flanking"));
         if (_isConditionDebugEnabled()) {
           console.log("UESRPG | Conditions | flanked upsert path", {
             actor: actor?.name ?? null,
@@ -1338,7 +1386,7 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
           });
         }
         const updates = {
-          name: `Flanked (${next})`,
+          name: _numericConditionName("flanked", next),
           [`${FLAG_PATH}.condition.key`]: k,
           [`${FLAG_PATH}.condition.value`]: next,
           [`${FLAG_PATH}.condition.source`]: source
@@ -1368,8 +1416,8 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
   if (!existing) {
     if (next <= 0) return null;
 
-    if (k === "bleeding") return applyBleeding(actor, next, { origin: null, source: "Bleeding" });
-    if (k === "burning") return applyBurning(actor, next, { origin: null, source: "Burning" });
+    if (k === "bleeding") return applyBleeding(actor, next, { origin: null, source: _conditionBaseName("bleeding", "Bleeding") });
+    if (k === "burning") return applyBurning(actor, next, { origin: null, source: _conditionBaseName("burning", "Burning") });
     return applyCondition(actor, k, { origin: null, source: null });
   }
 
@@ -1397,16 +1445,16 @@ export async function setConditionValue(actor, key, value, { preserveTiming = tr
     // Preserve delay by default. If the existing effect has no delay, keep 0.
     const c = _getConditionData(existing) ?? {};
     const delay = preserveTiming ? Math.max(0, _toNumber(c.delay, 0)) : 0;
-    updates.name = `Bleeding (${next})`;
-    updates.changes = _mkBleedingWTChanges(next);
+    updates.name = _numericConditionName("bleeding", next);
     updates[`${FLAG_PATH}.condition.delay`] = delay;
+    Object.assign(updates, buildEffectChangesUpdate(_mkBleedingWTChanges(next)));
   } else if (k === "burning") {
     const c = _getConditionData(existing) ?? {};
     const storedLoc = String(c.hitLocation || "Body");
-    updates.name = `Burning (${next})`;
+    updates.name = _numericConditionName("burning", next);
     updates[`${FLAG_PATH}.condition.hitLocation`] = storedLoc;
   } else if (k === "flanked") {
-    updates.name = `Flanked (${next})`;
+    updates.name = _numericConditionName("flanked", next);
   } else {
     // Static condition: clamp to 1
     updates[`${FLAG_PATH}.condition.value`] = 1;
@@ -1489,7 +1537,7 @@ async function _tickBleeding(actor) {
   // Bypass AR/resistance: ignoreReduction=true.
   await applyDamage(actor, x, DAMAGE_TYPES.PHYSICAL, {
     ignoreReduction: true,
-    source: `Bleeding (${x})`,
+    source: _numericConditionName("bleeding", x),
     hitLocation: "Body",
     isConditionTick: true,
     suppressWoundCheck: true
@@ -1502,9 +1550,9 @@ async function _tickBleeding(actor) {
   }
 
   await requestUpdateDocument(effect, {
-    name: `Bleeding (${next})`,
-    changes: _mkBleedingWTChanges(next),
-    [`${FLAG_PATH}.condition.value`]: next
+    name: _numericConditionName("bleeding", next),
+    [`${FLAG_PATH}.condition.value`]: next,
+    ...buildEffectChangesUpdate(_mkBleedingWTChanges(next))
   });
 }
 
@@ -1523,7 +1571,7 @@ async function _tickBurning(actor) {
 
   await applyDamage(actor, x, DAMAGE_TYPES.FIRE, {
     ignoreReduction: false,
-    source: `Burning (${x})`,
+    source: _numericConditionName("burning", x),
     hitLocation: loc,
     isConditionTick: true,
     suppressWoundCheck: true
@@ -1531,7 +1579,7 @@ async function _tickBurning(actor) {
 
   const next = x + 1;
   await requestUpdateDocument(effect, {
-    name: `Burning (${next})`,
+    name: _numericConditionName("burning", next),
     [`${FLAG_PATH}.condition.value`]: next
   });
 }
@@ -1570,9 +1618,9 @@ export function registerConditionHooks() {
       }
 
       await requestUpdateDocument(effect, {
-        name: `Bleeding (${next})`,
-        changes: _mkBleedingWTChanges(next),
-        [`${FLAG_PATH}.condition.value`]: next
+        name: _numericConditionName("bleeding", next),
+        [`${FLAG_PATH}.condition.value`]: next,
+        ...buildEffectChangesUpdate(_mkBleedingWTChanges(next))
       });
     } catch (err) {
       console.warn("UESRPG | Bleeding healing adjustment failed", err);

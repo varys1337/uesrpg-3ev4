@@ -12,8 +12,6 @@ export function registerApi({
   buildBaseRollOptions,
   buildRollContext,
   compileConditionsToPredicate,
-  getRuleElementRuntimeSupport,
-  selfTestRuleElementRuntime,
   applyDamage,
   applyHealing,
   applyDamageResolved,
@@ -28,6 +26,7 @@ export function registerApi({
   CharOpposedWorkflow,
   runCombatLegacyReadinessScan,
   tokenActionHudApi,
+  applicationApi,
 } = {}) {
   registerInitRuntimeApi({
     isPredicate,
@@ -37,8 +36,6 @@ export function registerApi({
     buildBaseRollOptions,
     buildRollContext,
     compileConditionsToPredicate,
-    getRuleElementRuntimeSupport,
-    selfTestRuleElementRuntime,
     applyDamage,
     applyHealing,
     applyDamageResolved,
@@ -53,5 +50,6 @@ export function registerApi({
     CharOpposedWorkflow,
     runCombatLegacyReadinessScan,
     tokenActionHudApi,
+    applicationApi,
   });
 }

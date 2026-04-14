@@ -19,12 +19,13 @@
  *
  * Must be initialized once at system ready via initializeStrikeOnHitRuntime().
  *
- * Target: Foundry VTT v13.351
+ * v14-safe per-hit batching for strike enchantment side effects.
  */
 
 import { requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
 import { SYSTEM_ID } from "../../constants.js";
+import { buildEffectChangesData } from "../../../utils/compat.js";
 
 // ---------------------------------------------------------------------------
 // Synchronous accumulator helpers
@@ -155,6 +156,7 @@ function _computeCondition(targetActor, fx, effectsToCreate) {
       },
     },
     // Marker-only AE — no effect changes. GMs apply mechanical consequences.
+    ...buildEffectChangesData([]),
   });
 
   return `${fx.catalog.label}: ${conditionLabel} applied to ${targetActor.name} for ${durationRounds} round(s)`;

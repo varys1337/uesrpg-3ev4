@@ -12,7 +12,6 @@
 
 import { contributeTraitMods, contributeTalentMods, contributePowerMods } from "./contributors.js";
 import { getFeatureConfig } from "./feature-config.js";
-import { getRuleElements } from "./rule-elements.js";
 import { FEATURE_DOMAINS, STACKING_MODES, makeFeatureMod } from "./feature-mod.js";
 import { createSeverityDebugLogger } from "../../../utils/debug.js";
 
@@ -25,149 +24,6 @@ function _warnOnce(key, msg) {
   _warnedKeys.add(key);
   _featureCollectDebug(`uesrpg | collectFeatureMods: ${msg}`);
 }
-
-const PASSIVE_FLAT_TARGET_MAP = Object.freeze({
-  "system.hpBonus": { domain: FEATURE_DOMAINS.HP, path: "system.hp.bonus" },
-  "system.spBonus": { domain: FEATURE_DOMAINS.SP, path: "system.stamina.bonus" },
-  "system.mpBonus": { domain: FEATURE_DOMAINS.MP, path: "system.magicka.bonus" },
-  "system.lpBonus": { domain: FEATURE_DOMAINS.LP, path: "system.luck_points.bonus" },
-  "system.wtBonus": { domain: FEATURE_DOMAINS.WOUND_THRESHOLD, path: "system.wound_threshold.bonus" },
-  "system.iniBonus": { domain: FEATURE_DOMAINS.INITIATIVE, path: "system.initiative.bonus" },
-  "system.speedBonus": { domain: FEATURE_DOMAINS.SPEED, path: "system.speed.bonus" },
-  "system.swimBonus": { domain: FEATURE_DOMAINS.SPEED, path: "system.speed.swimBonus" },
-  "system.flyBonus": { domain: FEATURE_DOMAINS.SPEED, path: "system.speed.flyBonus" },
-  "system.diseaseR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.diseaseR" },
-  "system.fireR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.fireR" },
-  "system.frostR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.frostR" },
-  "system.shockR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.shockR" },
-  "system.poisonR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.poisonR" },
-  "system.magicR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.magicR" },
-  "system.natToughnessR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.natToughness" },
-  "system.silverR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.silverR" },
-  "system.sunlightR": { domain: FEATURE_DOMAINS.RESISTANCE, path: "system.resistance.sunlightR" },
-  // (#4) Weakness targets — allows Rule Elements to target weakness paths.
-  "system.weakness.diseaseR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.diseaseR" },
-  "system.weakness.fireR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.fireR" },
-  "system.weakness.frostR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.frostR" },
-  "system.weakness.shockR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.shockR" },
-  "system.weakness.poisonR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.poisonR" },
-  "system.weakness.magicR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.magicR" },
-  "system.weakness.silverR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.silverR" },
-  "system.weakness.sunlightR": { domain: FEATURE_DOMAINS.WEAKNESS, path: "system.weakness.sunlightR" },
-  // Characteristic bonuses
-  "system.characteristicBonus.strChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.str.bonus" },
-  "system.characteristicBonus.endChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.end.bonus" },
-  "system.characteristicBonus.agiChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.agi.bonus" },
-  "system.characteristicBonus.intChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.int.bonus" },
-  "system.characteristicBonus.wpChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.wp.bonus" },
-  "system.characteristicBonus.prcChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.prc.bonus" },
-  "system.characteristicBonus.prsChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.prs.bonus" },
-  "system.characteristicBonus.lckChaBonus": { domain: FEATURE_DOMAINS.CHARACTERISTIC, path: "system.characteristics.lck.bonus" }
-});
-
-function _safeSlug(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9:_-]/g, "-");
-}
-
-function _flagKeyFromTarget(target) {
-  const raw = String(target ?? "").trim().replace(/^system\./, "");
-  if (!raw) return "";
-  return raw.replace(/[^A-Za-z0-9_]/g, "");
-}
-
-function _resolveStacking(mode) {
-  const m = _safeSlug(mode);
-  if (m === "highest") return STACKING_MODES.HIGHEST;
-  if (m === "none") return STACKING_MODES.NONE;
-  if (m === "any") return STACKING_MODES.ANY;
-  return STACKING_MODES.ADD;
-}
-
-function _buildRuleElementSource(item, element) {
-  return {
-    type: String(item?.type ?? "trait"),
-    key: `rule-element:${_safeSlug(element?.type ?? "unknown")}:${_safeSlug(element?.id ?? "")}`,
-    itemName: item?.name ?? "",
-    itemUuid: item?.uuid ?? "",
-    itemId: item?.id ?? ""
-  };
-}
-
-function _collectPassiveRuleElementMods(item) {
-  const out = [];
-  const elements = getRuleElements(item);
-
-  for (const element of elements) {
-    if (!element?.enabled) continue;
-    const source = _buildRuleElementSource(item, element);
-    const type = String(element?.type ?? "");
-
-    if (type === "flatModifier") {
-      const map = PASSIVE_FLAT_TARGET_MAP[String(element?.target ?? "")];
-      const value = Number(element?.value ?? 0);
-      if (!map || !Number.isFinite(value) || value === 0) continue;
-      out.push(makeFeatureMod({
-        domain: map.domain,
-        path: map.path,
-        mode: "add",
-        value,
-        source,
-        rule: { chapter: 4, name: element?.label ?? "Rule Element", stacking: _resolveStacking(element?.stacking) }
-      }));
-      continue;
-    }
-
-    if (type === "booleanFlag") {
-      const target = _flagKeyFromTarget(element?.target ?? "");
-      if (!target) continue;
-      out.push(makeFeatureMod({
-        domain: FEATURE_DOMAINS.FLAG,
-        path: `flag.${target}`,
-        mode: "boolean",
-        value: Boolean(element?.value),
-        source,
-        rule: { chapter: 4, name: element?.label ?? "Rule Element", stacking: STACKING_MODES.ANY }
-      }));
-      continue;
-    }
-
-    if (type === "overrideValue") {
-      const target = String(element?.target ?? "");
-      const characteristic = _safeSlug(element?.characteristic ?? "");
-      if (!target || !characteristic) continue;
-      const path = (target === "system.replace.ini.characteristic")
-        ? "system.initiative.replaceCharacteristic"
-        : (target === "system.replace.wt.characteristic")
-          ? "system.wound_threshold.replaceCharacteristic"
-          : "";
-      if (!path) continue;
-      out.push(makeFeatureMod({
-        domain: (path.includes("initiative")) ? FEATURE_DOMAINS.INITIATIVE : FEATURE_DOMAINS.WOUND_THRESHOLD,
-        path,
-        mode: "set",
-        value: characteristic,
-        source,
-        rule: { chapter: 4, name: element?.label ?? "Rule Element", stacking: STACKING_MODES.OVERRIDE }
-      }));
-      continue;
-    }
-
-    if (type === "senseLossReduction") {
-      const mode = _safeSlug(element?.mode ?? "halve") || "halve";
-      out.push(makeFeatureMod({
-        domain: FEATURE_DOMAINS.MISC,
-        path: "system.senses.lossReduction",
-        mode: "set",
-        value: mode,
-        source,
-        rule: { chapter: 4, name: element?.label ?? "Rule Element", stacking: STACKING_MODES.OVERRIDE }
-      }));
-    }
-  }
-
-  return out;
-}
-
 
 /**
  * Collect FeatureMods from all embedded trait/talent/power items on an actor.
@@ -203,10 +59,6 @@ export function collectFeatureMods({ actor }) {
         if (contributed?.length) mods.push(...contributed);
       }
 
-      if (isFeatureItem) {
-        const passive = _collectPassiveRuleElementMods(item);
-        if (passive.length) mods.push(...passive);
-      }
 
       // ── Feature Config: stacking override ────────────────────────
       // If the item has a per-instance stacking override, apply it to
@@ -259,8 +111,7 @@ const _OVERRIDE_PATHS = new Set([
  * Applying them again via `applyFeatureModTotals` would double-count.
  *
  * What passes through:
- *  - Rule Element-sourced mods (intentional additional contributions)
- *  - (#6) Racial talent-sourced mods (computed bonuses not in item schema)
+ *  - Racial talent-sourced mods (computed bonuses not in item schema)
  *  - Boolean flags (undead, incorporeal, etc.)
  *  - Set/override values (characteristic replacement, sense loss reduction)
  *
@@ -270,7 +121,6 @@ const _OVERRIDE_PATHS = new Set([
 export function filterModsForApplication(mods) {
   if (!Array.isArray(mods) || mods.length === 0) return [];
   return mods.filter(m =>
-    m.source?.key?.startsWith("rule-element:") ||
     m.source?.key?.startsWith("racial-talent:") ||
     m.mode === "boolean" ||
     m.mode === "set"
@@ -285,14 +135,14 @@ export function filterModsForApplication(mods) {
  *
  * **IMPORTANT**: The `totals` map passed here should be derived from mods filtered
  * by {@link filterModsForApplication} to exclude legacy-mirror values that are already
- * handled by item-aggregation. Only Rule Element contributions, boolean flags, and
- * set/override values should be present.
+ * handled by item-aggregation. Only computed racial-talent contributions, boolean flags,
+ * and set/override values should be present.
  *
  * Three classes of modification:
  *  1. **Numeric flat modifiers** (flatModifier) — additive to the existing value at the
  *     target path (e.g. `system.hp.bonus += 5`).
- *  2. **Boolean flags** (booleanFlag) — stored on `actorSystemData._reFlags` so consumer
- *     functions can check for RE-sourced boolean toggles (e.g. `halfFatiguePenalty`).
+ *  2. **Boolean flags** (booleanFlag) вЂ” stored on `actorSystemData._reFlags` so downstream
+ *     derived-data consumers can check resolved boolean toggles.
  *  3. **Override / set values** (overrideValue, senseLossReduction) — stored on
  *     `actorSystemData._reOverrides` for well-known paths consumed by `_iniCalc`,
  *     `_woundThresholdCalc`, and `adjustSensePenalty`.
@@ -366,7 +216,7 @@ const _WEAKNESS_TO_RESISTANCE = Object.freeze({
  * Subtract accumulated weakness values from corresponding resistance values.
  *
  * This is the final step in the Feature Mod pipeline: after all resistance
- * bonuses have been applied (via aggregation, AE modifiers, and Rule Elements),
+ * bonuses have been applied (via aggregation and AE modifiers),
  * any accumulated weakness values reduce the final resistance.
  *
  * Design:

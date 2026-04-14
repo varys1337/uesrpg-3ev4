@@ -15,6 +15,7 @@ import {
   extractConfiguredUnluckyNumbers,
   hasThiefBirthsign,
 } from "../../../../core/luck/lucky-numbers.js";
+import { t, tf } from "../../../../utils/i18n.js";
 
 const RANK_THRESHOLDS = Object.freeze([
   { minXp: 7000, rank: "Master" },
@@ -80,25 +81,25 @@ export async function onXPMenu(event, target) {
   }
 
   await customDialog({
-    title: "Experience Menu",
+    title: t("UESRPG.Dialogs.CharGen.ExperienceMenuTitle"),
     content: `<div>
                   <div style="display: flex; flex-direction: column;">
                       <div style="padding: 10px;">
                           <div style="display: flex; flex-direction: row; justify-content: space-around; background: rgba(180, 180, 180, 0.562); padding: 10px; text-align: center; border: 1px solid;">
                               <div style="width: 33.33%">
-                                  <div>Current XP</div>
+                                  <div>${t("UESRPG.Dialogs.CharGen.CurrentXp")}</div>
                                   ${isGM
       ? `<input type="number" id="xp" value="${this.actor.system.xp}">`
       : `<div style="padding: 6px 0;">${this.actor.system.xp}</div>`}
                               </div>
                               <div style="width: 33.33%">
-                                  <div>Total XP</div>
+                                  <div>${t("UESRPG.Dialogs.CharGen.TotalXp")}</div>
                                   ${isGM
       ? `<input type="number" id="xpTotal" value="${this.actor.system.xpTotal}">`
       : `<div style="padding: 6px 0;">${this.actor.system.xpTotal}</div>`}
                               </div>
                               <div style="width: 33.33%">
-                                  <div>Campaign Rank</div>
+                                  <div>${t("UESRPG.Dialogs.CharGen.CampaignRank")}</div>
                                   <div style="padding: 5px 0;">${this.actor.system.campaignRank}</div>
                               </div>
                           </div>
@@ -106,14 +107,14 @@ export async function onXPMenu(event, target) {
 
                       <div style="display: flex; flex-direction: row; justify-content: space-around; align-items: center;">
                           <div style="width: 50%">
-                              <p>Depending on how much total XP your character has, they may only purchase Ranks appropriate to their Campaign Skill Experience.</p>
-                              <p>Increase your total XP to select higher Skill Ranks.</p>
+                              <p>${t("UESRPG.Dialogs.CharGen.ExperienceMenuBody1")}</p>
+                              <p>${t("UESRPG.Dialogs.CharGen.ExperienceMenuBody2")}</p>
                           </div>
                           <div>
                               <table style="text-align: center;">
                                   <tr>
-                                      <th>Skill Rank</th>
-                                      <th>Total XP</th>
+                                      <th>${t("UESRPG.Dialogs.CharGen.SkillRank")}</th>
+                                      <th>${t("UESRPG.Dialogs.CharGen.TotalXp")}</th>
                                   </tr>
                                   ${rankRows.join("")}
                               </table>
@@ -122,7 +123,7 @@ export async function onXPMenu(event, target) {
                   </div>
               </div>`,
     yes: {
-      label: isGM ? "Submit" : "Close",
+      label: isGM ? t("UESRPG.UI.Submit") : t("UESRPG.UI.Close"),
       callback: async (html) => {
         if (!isGM) return;
         const root = html instanceof HTMLElement ? html : html?.[0];
@@ -151,40 +152,40 @@ async function _showLuckyInfo(actor) {
   const luckyNums = extractConfiguredLuckyNumbers(actor);
   const unluckyNums = extractConfiguredUnluckyNumbers(actor);
 
-  const luckyStr = luckyNums.length ? luckyNums.join(", ") : "None set";
-  const unluckyStr = unluckyNums.length ? unluckyNums.join(", ") : "None set";
+  const luckyStr = luckyNums.length ? luckyNums.join(", ") : t("UESRPG.UI.NoneSet");
+  const unluckyStr = unluckyNums.length ? unluckyNums.join(", ") : t("UESRPG.UI.NoneSet");
   const bonusLabel = `${luckBonus >= 0 ? "+" : ""}${luckBonus}`;
-  const thiefNote = hasThief ? " + Thief birthsign (+1 lucky)" : "";
+  const thiefNote = hasThief ? t("UESRPG.Dialogs.CharGen.ThiefBirthsignBonus") : "";
 
   await alertDialog({
-    title: "Lucky & Unlucky Numbers",
+    title: t("UESRPG.Dialogs.CharGen.LuckyNumbersTitle"),
     content: `<div style="display:flex;flex-direction:column;gap:10px;padding:4px 0;">
       <div>
-        <strong>Lucky Numbers</strong> (${allocLucky} slots): ${luckyStr}
+        <strong>${t("UESRPG.Dialogs.CharGen.LuckyNumbers")}</strong> (${allocLucky} ${t("UESRPG.Dialogs.CharGen.Slots")}): ${luckyStr}
       </div>
       <div>
-        <strong>Unlucky Numbers</strong> (${allocUnlucky} slots): ${unluckyStr}
+        <strong>${t("UESRPG.Dialogs.CharGen.UnluckyNumbers")}</strong> (${allocUnlucky} ${t("UESRPG.Dialogs.CharGen.Slots")}): ${unluckyStr}
       </div>
       <div style="font-size:0.85em;color:var(--color-text-dark-secondary,#666);border-top:1px solid rgba(0,0,0,0.12);padding-top:6px;">
-        Luck ${lck} &rarr; Luck Bonus ${bonusLabel}${thiefNote}
+        ${tf("UESRPG.Dialogs.CharGen.LuckBonusLine", { luck: lck, bonus: bonusLabel })}${thiefNote}
       </div>
     </div>`,
   });
 }
 
 async function _showRaceInfo(actor) {
-  const race = actor.system.race || "None selected";
+  const race = actor.system.race || t("UESRPG.Dialogs.CharGen.NoneSelected");
   await alertDialog({
-    title: "Race",
-    content: `<p style="margin:4px 0;">Current race: <strong>${race}</strong></p>`,
+    title: t("UESRPG.UI.Race"),
+    content: `<p style="margin:4px 0;">${tf("UESRPG.Dialogs.CharGen.CurrentRace", { race })}</p>`,
   });
 }
 
 async function _showSignInfo(actor) {
-  const sign = actor.system.birthSign || "None selected";
+  const sign = actor.system.birthSign || t("UESRPG.Dialogs.CharGen.NoneSelected");
   await alertDialog({
-    title: "Birth Sign",
-    content: `<p style="margin:4px 0;">Current sign: <strong>${sign}</strong></p>`,
+    title: t("UESRPG.Dialogs.CharGen.StageBirthsign"),
+    content: `<p style="margin:4px 0;">${tf("UESRPG.Dialogs.CharGen.CurrentSign", { sign })}</p>`,
   });
 }
 
@@ -203,29 +204,29 @@ async function _showXpDialog(actor) {
     : `<span id="adv-xp-avail" style="text-align:right;padding-right:4px;">${xpAvail}</span>`;
 
   const choice = await customDialog({
-    title: "Experience & Advancement",
+    title: t("UESRPG.Dialogs.CharGen.ExperienceAdvancementTitle"),
     width: 380,
     content: `<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0;">
       <div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px;">
-        <label for="adv-xp-total">Total XP Received</label>
+        <label for="adv-xp-total">${t("UESRPG.Dialogs.CharGen.TotalXpReceived")}</label>
         ${xpTotalField}
-        <label>XP Spent</label>
+        <label>${t("UESRPG.Dialogs.CharGen.XpSpent")}</label>
         <span id="adv-xp-spent" style="text-align:right;padding-right:4px;">${xpSpent}</span>
-        <label for="adv-xp-avail">XP Available</label>
+        <label for="adv-xp-avail">${t("UESRPG.Dialogs.CharGen.XpAvailable")}</label>
         ${xpAvailField}
-        <label>Campaign Rank</label>
+        <label>${t("UESRPG.Dialogs.CharGen.CampaignRank")}</label>
         <span id="adv-xp-rank" style="text-align:right;padding-right:4px;">${rank}</span>
       </div>
     </div>`,
     buttons: isGM
       ? {
         wizard: {
-          label: "Advancement Wizard",
+          label: t("UESRPG.Dialogs.CharGen.AdvancementWizard"),
           icon: "fas fa-scroll",
           callback: () => "wizard",
         },
         save: {
-          label: "Save",
+          label: t("UESRPG.UI.Save"),
           icon: "fas fa-check",
           callback: async (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
@@ -240,15 +241,15 @@ async function _showXpDialog(actor) {
             return "saved";
           },
         },
-        cancel: { label: "Cancel" },
+        cancel: { label: t("UESRPG.UI.Cancel") },
       }
       : {
         wizard: {
-          label: "Advancement Wizard",
+          label: t("UESRPG.Dialogs.CharGen.AdvancementWizard"),
           icon: "fas fa-scroll",
           callback: () => "wizard",
         },
-        close: { label: "Close" },
+        close: { label: t("UESRPG.UI.Close") },
       },
     defaultButton: isGM ? "save" : "close",
     rejectClose: false,
@@ -289,28 +290,28 @@ export async function onAdvancementMenu(event, _target) {
   let _choice = null;
 
   await customDialog({
-    title: "Advancement",
+    title: t("UESRPG.Dialogs.CharGen.AdvancementTitle"),
     width: 320,
     classes: ["uesrpg-advancement-dialog"],
     content: `<div class="uesrpg-advancement-menu">
       <button type="button" class="adv-btn" data-choice="lucky">
         <i class="fas fa-dice"></i>
-        <span>Lucky/Unlucky Numbers</span>
+        <span>${t("UESRPG.Dialogs.CharGen.LuckyNumbersTitle")}</span>
       </button>
       <button type="button" class="adv-btn" data-choice="xp">
         <i class="fas fa-star"></i>
-        <span>Experience &mdash; ${actor.system.xp} XP available</span>
+        <span>${tf("UESRPG.Dialogs.CharGen.ExperienceAvailable", { xp: actor.system.xp })}</span>
       </button>
       <div class="adv-ref" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
         <i class="fas fa-users" aria-hidden="true"></i>
-        <span><strong>Race:</strong> ${actor.system.race || "None"}</span>
+        <span><strong>${t("UESRPG.UI.Race")}:</strong> ${actor.system.race || t("UESRPG.UI.None")}</span>
       </div>
       <div class="adv-ref" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
         <i class="fas fa-moon" aria-hidden="true"></i>
-        <span><strong>Sign:</strong> ${actor.system.birthSign || "None"}</span>
+        <span><strong>${t("UESRPG.Dialogs.CharGen.StageBirthsign")}:</strong> ${actor.system.birthSign || t("UESRPG.UI.None")}</span>
       </div>
     </div>`,
-    no: { label: "Cancel" },
+    no: { label: t("UESRPG.UI.Cancel") },
     rejectClose: false,
     render: (_evt, dialogApp) => {
       const root = dialogApp?.element ?? dialogApp;
@@ -339,24 +340,24 @@ export async function onStartingResourcesMenu(event, target) {
   const currentXp = Number(this.actor?.system?.xp ?? currentXpTotal);
 
   await customDialog({
-    title: "Starting Resources (Chargen)",
+    title: t("UESRPG.Dialogs.CharGen.StartingResourcesTitle"),
     content: `<div class="uesrpg-cg-dialog" style="display: flex; flex-direction: column; gap: 8px;">
-      <p class="uesrpg-cg-dialog__note" style="margin: 0;">Set starting resources for RAW chargen. Campaign Rank is derived from Total XP.</p>
+      <p class="uesrpg-cg-dialog__note" style="margin: 0;">${t("UESRPG.Dialogs.CharGen.StartingResourcesNote")}</p>
       <label style="display: flex; flex-direction: column; gap: 4px;">
-        <span>Starting Drakes (wealth)</span>
+        <span>${t("UESRPG.Dialogs.CharGen.StartingDrakes")}</span>
         <input type="number" id="startingWealth" value="${currentWealth}" min="0">
       </label>
       <label style="display: flex; flex-direction: column; gap: 4px;">
-        <span>Starting Total XP</span>
+        <span>${t("UESRPG.Dialogs.CharGen.StartingTotalXp")}</span>
         <input type="number" id="startingXpTotal" value="${currentXpTotal}" min="0">
       </label>
       <label style="display: flex; flex-direction: column; gap: 4px;">
-        <span>Starting Unspent XP</span>
+        <span>${t("UESRPG.Dialogs.CharGen.StartingUnspentXp")}</span>
         <input type="number" id="startingXp" value="${currentXp}" min="0">
       </label>
     </div>`,
     yes: {
-      label: "Submit",
+      label: t("UESRPG.UI.Submit"),
       callback: async (html) => {
         const root = html instanceof HTMLElement ? html : html?.[0];
         const wealth = Number(root.querySelector("#startingWealth")?.value ?? 0);

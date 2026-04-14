@@ -1,11 +1,10 @@
 /**
  * Create or update a "status-like" ActiveEffect in a consistent way so token icon/HUD behavior
  * remains deterministic (statusId + statuses + core.statusId + icon).
- *
- * Foundry VTT v13 compatible.
  */
 
 import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { buildEffectChangesData, buildEffectChangesUpdate } from "../../utils/compat.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback, getCanonicalFlags, getLegacyFlags } from "../system/flags.js";
 
@@ -30,15 +29,15 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
     }
   };
 
-  // Prefer canonical uesrpg key matching, then statusId matching.
+  // Prefer canonical system key matching, then statuses/core.statusId fallback matching.
   let existing = null;
   if (key) existing = actor.effects.find((e) => isEnabled(e) && getFlagValueWithFallback(e, "key") === key) ?? null;
   if (!existing && sid) existing = actor.effects.find((e) => isEnabled(e) && hasStatus(e)) ?? null;
 
-  // Foundry v13: ActiveEffect uses `img`, not `icon`. Prefer `img` first.
   const nextIcon = img || existing?.img || existing?.icon || "icons/svg/aura.svg";
   const nextDuration = duration ?? existing?.duration ?? {};
   const nextOrigin = existing?.origin ?? actor.uuid;
+  const nextChanges = Array.isArray(changes) ? changes : [];
 
   const mergedFlags = {
     ...(existing?.flags ?? {}),
@@ -77,7 +76,6 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
     origin: nextOrigin,
     disabled: false,
     duration: nextDuration,
-    changes: Array.isArray(changes) ? changes : [],
     flags: mergedFlags,
     transfer: false
   };
@@ -85,11 +83,17 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
   if (sid) effectData.statuses = [sid];
 
   if (existing) {
-    await requestUpdateDocument(existing, effectData);
+    await requestUpdateDocument(existing, {
+      ...effectData,
+      ...buildEffectChangesUpdate(nextChanges)
+    });
     return existing;
   }
 
-  const createdArr = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData]);
+  const createdArr = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
+    ...effectData,
+    ...buildEffectChangesData(nextChanges)
+  }]);
   const created = Array.isArray(createdArr) ? createdArr[0] : null;
   return created ?? null;
 }

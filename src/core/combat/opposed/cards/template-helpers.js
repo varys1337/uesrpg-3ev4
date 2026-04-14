@@ -5,6 +5,7 @@
  */
 
 import { formatResultSummary } from "../../../../utils/degree-roll-helper.js";
+import { t, tf } from "../../../../utils/i18n.js";
 
 /**
  * Format degree of success/failure for display.
@@ -69,14 +70,14 @@ export function _renderBreakdown(tnObj, { inline = false } = {}) {
   if (inline) {
     return `
       <details style="display:inline-block; margin-left:6px; vertical-align:baseline;">
-        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="TN breakdown">&#9654;</summary>
+        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}">&#9654;</summary>
         <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
       </details>
     `;
   }
   return `
     <details style="margin-top:4px;">
-      <summary style="cursor:pointer; user-select:none; white-space:nowrap; overflow-wrap:normal; word-break:keep-all;">TN breakdown</summary>
+      <summary style="cursor:pointer; user-select:none; white-space:nowrap; overflow-wrap:normal; word-break:keep-all;">${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}</summary>
       <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
     </details>`;
 }
@@ -91,11 +92,11 @@ export function _renderBreakdown(tnObj, { inline = false } = {}) {
  */
 export function _renderTNLine({ value = "??", tnObj = null } = {}) {
   const rows = _buildBreakdownRows(tnObj);
-  if (!rows) return `<div><b>TN:</b> ${value}</div>`;
+  if (!rows) return `<div><b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${value}</div>`;
   return `
     <details style="margin:0;">
       <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;">
-        <b>TN:</b> ${value} &#9654;
+        <b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${value} &#9654;
       </summary>
       <div style="margin:4px 0 0 0; padding-left:8px; width:100%; box-sizing:border-box; font-size:12px; opacity:0.9;">${rows}</div>
     </details>
@@ -114,7 +115,7 @@ export function _renderRollLine({ result = null, noDefense = false } = {}) {
   if (noDefense) {
     // Keep output consistent with normal failures: represent No Defense as a deterministic 1 DoF failure.
     const stub = { rollTotal: 100, isSuccess: false, degree: 1 };
-    return `<div><b>Roll:</b> 100 - ${_fmtDegree(stub)}</div>`;
+    return `<div><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> 100 - ${_fmtDegree(stub)}</div>`;
   }
   if (!result) return "";
   const total = _extractRollTotal(result);
@@ -123,7 +124,7 @@ export function _renderRollLine({ result = null, noDefense = false } = {}) {
   const notesHtml = notes.length
     ? `<div class="uesrpg-opposed-notes" style="font-size:0.85em; opacity:0.85;">${notes.map(n => `<div>${n}</div>`).join("")}</div>`
     : "";
-  return `<div><b>Roll:</b> ${totalText} - ${_fmtDegree(result)}</div>${notesHtml}`;
+  return `<div><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> ${totalText} - ${_fmtDegree(result)}</div>${notesHtml}`;
 }
 
 /**
@@ -140,8 +141,12 @@ export function _buildAttackerStatusLine({ bankMode, anyOutcome, rolled, aCommit
   const showStatus = Boolean(game?.settings?.get?.("uesrpg-3ev4", "opposedShowStatusLine"));
   if (!bankMode || !showStatus) return "";
   const resolved = anyOutcome;
-  const statusText = resolved ? "Resolved" : rolled ? "Rolled" : (aCommitted ? "Committed" : "Awaiting choice");
-  return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
+  const statusText = resolved
+    ? t("UESRPG.Chat.Status.Resolved", "Resolved")
+    : rolled
+      ? t("UESRPG.Chat.Status.Rolled", "Rolled")
+      : (aCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
+  return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
 }
 
 /**
@@ -160,8 +165,12 @@ export function _buildDefenderStatusLine({ bankMode, outcome, rolled, dCommitted
   if (!bankMode || !showStatus) return "";
   const resolved = Boolean(outcome);
   const actuallyRolled = rolled || noDefense;
-  const statusText = resolved ? "Resolved" : actuallyRolled ? "Rolled" : (dCommitted ? "Committed" : "Awaiting choice");
-  return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>Status:</b> ${statusText}</div>`;
+  const statusText = resolved
+    ? t("UESRPG.Chat.Status.Resolved", "Resolved")
+    : actuallyRolled
+      ? t("UESRPG.Chat.Status.Rolled", "Rolled")
+      : (dCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
+  return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
 }
 
 /**
@@ -194,13 +203,13 @@ export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _s
     if (!aCommitted) {
       if (commitGate?.allowed === false) {
         const reason = String(commitGate?.reason ?? "Unavailable");
-        return `<div style="margin-top:6px; font-size:12px; opacity:0.85;"><i>Attack unavailable: ${reason}</i></div>`;
+      return `<div style="margin-top:6px; font-size:12px; opacity:0.85;"><i>${tf("UESRPG.Chat.Opposed.AttackUnavailable", { reason }, `Attack unavailable: ${reason}`)}</i></div>`;
       }
-      return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn("Attack", "attacker-commit")}</div>`;
+      return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn(t("UESRPG.Chat.Opposed.Attack", "Attack"), "attacker-commit")}</div>`;
     }
     return "";
   }
-  return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn("Roll Attack", "attacker-roll")}</div>`;
+  return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn(t("UESRPG.Chat.Opposed.RollAttack", "Roll Attack"), "attacker-roll")}</div>`;
 }
 
 /**
@@ -226,14 +235,14 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
         const reason = String(commitDefenseGate?.reason ?? "Unavailable");
         return `
         <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
-          ${_btn("No Defense", "defender-commit-nodefense", { "defender-index": idx })}
-          <div style="font-size:12px; opacity:0.85;"><i>Defense unavailable: ${reason}</i></div>
+          ${_btn(t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), "defender-commit-nodefense", { "defender-index": idx })}
+          <div style="font-size:12px; opacity:0.85;"><i>${tf("UESRPG.Chat.Opposed.DefenseUnavailable", { reason }, `Defense unavailable: ${reason}`)}</i></div>
         </div>`;
       }
       return `
         <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
-          ${_btn("Defense", "defender-commit", { "defender-index": idx })}
-          ${_btn("No Defense", "defender-commit-nodefense", { "defender-index": idx })}
+          ${_btn(t("UESRPG.Chat.Opposed.Defense", "Defense"), "defender-commit", { "defender-index": idx })}
+          ${_btn(t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), "defender-commit-nodefense", { "defender-index": idx })}
         </div>`;
     }
 
@@ -242,7 +251,7 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
     if (dCommitted && _allDefendersCommitted(data) && !defender.result) {
       const dt = String(defender?.defenseType ?? "").toLowerCase();
       if (dt && dt !== "none") {
-        return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn("Roll Defense", "defender-roll-committed", { "defender-index": idx })}</div>`;
+        return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn(t("UESRPG.Chat.Opposed.RollDefense", "Roll Defense"), "defender-roll-committed", { "defender-index": idx })}</div>`;
       }
     }
 
@@ -251,8 +260,8 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
 
   return `
     <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
-      ${_btn("Defend", "defender-roll", { "defender-index": idx })}
-      ${_btn("No Defense", "defender-nodefense", { "defender-index": idx })}
+      ${_btn(t("UESRPG.Chat.Opposed.Defend", "Defend"), "defender-roll", { "defender-index": idx })}
+      ${_btn(t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), "defender-nodefense", { "defender-index": idx })}
     </div>`;
 }
 
@@ -272,25 +281,25 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
  */
 export function _buildOutcomeLine({ outcome, bankMode, bothCommitted, allDefendersCommitted, aCommitted, anyGMOnline, data, isMulti }) {
   if (outcome) {
-    return `<div style="margin-top:10px; max-width:100%; overflow-wrap:break-word;"><b>Outcome:</b> ${outcome.text ?? ""}</div>`;
+    return `<div style="margin-top:10px; max-width:100%; overflow-wrap:break-word;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${outcome.text ?? ""}</div>`;
   }
 
   if (bankMode) {
     if (isMulti) {
       if (!allDefendersCommitted) {
         if (!aCommitted) {
-          return `<div style="margin-top:10px; font-size:13px;"><i>Waiting for attacker to commit choice.</i></div>`;
+          return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.WaitingAttackerCommit", "Waiting for attacker to commit choice.")}</i></div>`;
         }
-        return `<div style="margin-top:10px; font-size:13px;"><i>Waiting for all defenders to commit choices.</i></div>`;
+        return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.WaitingDefendersCommit", "Waiting for all defenders to commit choices.")}</i></div>`;
       }
-      return `<div style="margin-top:10px; font-size:13px;"><i>Rolling.</i></div>`;
+      return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.Rolling", "Rolling.")}</i></div>`;
     }
 
     if (!bothCommitted) {
-      return `<div style="margin-top:10px; font-size:13px;"><i>Waiting for both sides to commit choices...</i></div>`;
+      return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
     }
 
-    return `<div style="margin-top:10px; font-size:13px;"><i>Rolling...</i></div>`;
+    return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.RollingEllipsis", "Rolling...")}</i></div>`;
   }
 
   // Legacy/non-banked pending hint
@@ -301,10 +310,10 @@ export function _buildOutcomeLine({ outcome, bankMode, bothCommitted, allDefende
   const isStale = isWaiting && ageMs > 60000;
   const note = isStale
     ? `<div style="margin-top:6px; font-size:12px; opacity:0.85;">
-         Still waiting on the defender result. If this persists, ensure the defender roll message was posted, and have the attacker refresh the page to re-render the card.
+         ${t("UESRPG.Chat.Opposed.StillWaitingDefenderResult", "Still waiting on the defender result. If this persists, ensure the defender roll message was posted, and have the attacker refresh the page to re-render the card.")}
        </div>`
     : "";
-  return `<div style="margin-top:10px;"><i>Pending</i></div>${note}`;
+  return `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Status.Pending", "Pending")}</i></div>${note}`;
 }
 
 /**
@@ -331,19 +340,19 @@ export function _buildResolutionDetails({ showResolutionDetails, outcome, attack
   const dHL = (defender.precisionLocation ?? defender.hitLocation ?? "").toString();
 
   const lines = [];
-  lines.push(`<div><b>Attack variation:</b> ${aVariant}</div>`);
-  lines.push(`<div><b>Manual modifier:</b> ${aManual >= 0 ? "+" : ""}${aManual}</div>`);
-  if (aHL) lines.push(`<div><b>Attacker hit location:</b> ${aHL}</div>`);
-  if (dHL) lines.push(`<div><b>Defender hit location:</b> ${dHL}</div>`);
-  lines.push(`<div><b>Advantage:</b> Attacker ${advA} / Defender ${advD}</div>`);
-  lines.push(`<div><b>Defense:</b> ${dDefense}</div>`);
+  lines.push(`<div><b>${t("UESRPG.Chat.Opposed.AttackVariation", "Attack variation")}:</b> ${aVariant}</div>`);
+  lines.push(`<div><b>${t("UESRPG.Chat.Common.ManualModifier", "Manual modifier")}:</b> ${aManual >= 0 ? "+" : ""}${aManual}</div>`);
+  if (aHL) lines.push(`<div><b>${t("UESRPG.Chat.Opposed.AttackerHitLocation", "Attacker hit location")}:</b> ${aHL}</div>`);
+  if (dHL) lines.push(`<div><b>${t("UESRPG.Chat.Opposed.DefenderHitLocation", "Defender hit location")}:</b> ${dHL}</div>`);
+  lines.push(`<div><b>${t("UESRPG.Chat.Common.Advantage", "Advantage")}:</b> ${tf("UESRPG.Chat.Opposed.AdvantageSplit", { attacker: advA, defender: advD }, `Attacker ${advA} / Defender ${advD}`)}</div>`);
+  lines.push(`<div><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefense}</div>`);
   if (Number(defender?.result?.duelingBonus ?? 0) > 0) {
     lines.push(`<div><b>Dueling Weapon:</b> +${Number(defender.result.duelingBonus)} DoS</div>`);
   }
 
   return `
     <details style="margin-top:8px;">
-      <summary style="cursor:pointer;">Resolution details</summary>
+      <summary style="cursor:pointer;">${t("UESRPG.Chat.Opposed.ResolutionDetails", "Resolution details")}</summary>
       <div style="margin-top:6px; font-size:12px; opacity:0.9;">
         ${lines.join("")}
       </div>
@@ -378,8 +387,8 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
   if (outcome.winner === "attacker") {
     return `
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        ${_btn("Roll Damage", "damage-roll", { "defender-index": idx })}
-        ${advA > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advA}</span>` : ``}
+        ${_btn(t("UESRPG.Chat.Opposed.RollDamage", "Roll Damage"), "damage-roll", { "defender-index": idx })}
+        ${advA > 0 ? `<span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advA}</span>` : ``}
       </div>
     `;
   }
@@ -387,8 +396,8 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
   if (outcome.winner === "defender" && (defender.defenseType ?? "none") === "counter") {
     return `
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        ${_btn("Roll Damage", "counter-damage-roll", { "defender-index": idx })}
-        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>` : ``}
+        ${_btn(t("UESRPG.Chat.Opposed.RollDamage", "Roll Damage"), "counter-damage-roll", { "defender-index": idx })}
+        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>` : ``}
       </div>
     `;
   }
@@ -399,21 +408,21 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
   const isShieldBlockDefense = defenseType === "block" && !isWardDefense;
 
   if (outcome.winner === "defender" && isShieldBlockDefense) {
-    const blockLabel = isAoE ? "Resolve Block (Half Damage)" : "Resolve Block";
+    const blockLabel = isAoE ? t("UESRPG.Chat.Opposed.ResolveBlockHalfDamage", "Resolve Block (Half Damage)") : t("UESRPG.Chat.Opposed.ResolveBlock", "Resolve Block");
     return `
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         ${_btn(blockLabel, "block-resolve", { "defender-index": idx, "ues-gm-only": "true" })}
-        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>` : ``}
+        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>` : ``}
       </div>
     `;
   }
 
   if (outcome.winner === "defender" && isWardDefense) {
-    const wardLabel = isAoE ? "Resolve Ward (Half Damage)" : "Resolve Ward";
+    const wardLabel = isAoE ? t("UESRPG.Chat.Opposed.ResolveWardHalfDamage", "Resolve Ward (Half Damage)") : t("UESRPG.Chat.Opposed.ResolveWard", "Resolve Ward");
     return `
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
         ${_btn(wardLabel, "ward-resolve", { "defender-index": idx })}
-        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>` : ``}
+        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>` : ``}
       </div>
     `;
   }
@@ -430,8 +439,8 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
   if (defenderCanUseAdvantage) {
     return `
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        ${_btn("Resolve Advantage", "defender-advantage", { "defender-index": idx })}
-        <span style="opacity:0.85; font-size:12px;">Advantage: ${advD}</span>
+        ${_btn(t("UESRPG.Chat.Opposed.ResolveAdvantage", "Resolve Advantage"), "defender-advantage", { "defender-index": idx })}
+        <span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>
       </div>
     `;
   }
@@ -459,7 +468,7 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
   const headerImg = damageData.weaponImg
     ? `<img class="dmg-icon" src="${damageData.weaponImg}">`
     : "";
-  const headerLabel = damageData.weaponName || damageData.effectLabel || (isHealing ? "Healing" : "Damage");
+  const headerLabel = damageData.weaponName || damageData.effectLabel || (isHealing ? t("UESRPG.Chat.Common.Healing", "Healing") : t("UESRPG.Chat.Common.Damage", "Damage"));
 
   // ── Block/Ward status badge (single compact line) ──
   let statusBadge = "";
@@ -488,7 +497,7 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
     || (mode === "ward" && damageData.wardResult?.blocked && !damageData.wardResult?.isAoE);
 
   // ── Roll detail (collapsible for A/B rolls) ──
-  const damageLabel = isHealing ? "Healing" : "Damage";
+  const damageLabel = isHealing ? t("UESRPG.Chat.Common.Healing", "Healing") : t("UESRPG.Chat.Common.Damage", "Damage");
   const pills = damageData.qualityPillsHtml ?? "";
   const metadataRows = Array.isArray(damageData.panelMetadata)
     ? damageData.panelMetadata.filter((row) => row && typeof row === "object" && row.value != null && String(row.value).trim() !== "")
@@ -524,7 +533,7 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
 
   const damageDetailsHtml = (!fullyBlocked && gmDetailsAnchor) ? `
     <details class="dmg-details">
-      <summary class="dmg-details-summary">Details</summary>
+      <summary class="dmg-details-summary">${t("UESRPG.UI.Details", "Details")}</summary>
       <div class="dmg-details-content">
         ${gmDetailsAnchor}
       </div>
@@ -551,10 +560,10 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
       ? `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">${markerHtml}</div>`
       : "";
   } else if (damageData.applied) {
-    actionSection = `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;"><span class="damage-applied-label">\u2713 ${damageLabel} Applied</span>${markerHtml}</div>`;
+    actionSection = `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;"><span class="damage-applied-label">\u2713 ${tf("UESRPG.Chat.Common.Applied", { label: damageLabel }, `${damageLabel} Applied`)}</span>${markerHtml}</div>`;
   } else {
     const btnClass = isHealing ? "apply-healing-btn" : "apply-damage-btn";
-    const btnLabel = `Apply \u2192 ${p.targetName ?? "Target"}`;
+    const btnLabel = tf("UESRPG.Chat.Common.ApplyToTarget", { target: p.targetName ?? t("UESRPG.Chat.Common.Target", "Target") }, `Apply \u2192 ${p.targetName ?? "Target"}`);
     const dataAttrs = Object.entries(p)
       .filter(([k]) => k !== "buttonLabel" && k !== "targetName")
       .map(([k, v]) => `data-${_camelToKebab(k)}="${String(v ?? "").replace(/"/g, "&quot;")}"`) 

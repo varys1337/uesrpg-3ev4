@@ -10,11 +10,12 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { templatePath } from "../constants.js";
 import { customDialog, renderDialogContent } from "../../utils/dialog-v2-helper.js";
 import { clampNumber, toFiniteNumber } from "./resource-dialog-utils.js";
+import { t, tf } from "../../utils/i18n.js";
 
 const BUFFER_TYPE_LABELS = {
-  physical: "Physical",
-  magical: "Magical",
-  elemental: "Elemental",
+  physical: "UESRPG.UI.Physical",
+  magical: "UESRPG.UI.Magical",
+  elemental: "UESRPG.UI.Elemental",
 };
 
 async function _buildDialogContent(actor) {
@@ -35,9 +36,9 @@ async function _buildDialogContent(actor) {
     if (!flags?.bufferApplied) continue;
     const data = {
       id: ef.id,
-      name: flags.spellName || ef.name || "Unknown",
+      name: flags.spellName || ef.name || t("UESRPG.UI.Unknown", "Unknown"),
       type: String(flags.bufferType || "?"),
-      typeLabel: BUFFER_TYPE_LABELS[flags.bufferType] ?? String(flags.bufferType || "?"),
+      typeLabel: t(BUFFER_TYPE_LABELS[flags.bufferType], String(flags.bufferType || "?")),
       originalValue: toFiniteNumber(flags.bufferOriginalValue, 0),
       hasUpkeep: Boolean(flags.hasUpkeep),
     };
@@ -90,31 +91,31 @@ function _buildPatchFromRoot(actor, root) {
 export class MagickaBarrierDialog {
   static async show(actor) {
     if (!actor?.system) {
-      ui.notifications.error("Invalid actor for barrier management");
+      ui.notifications.error(t("UESRPG.Notifications.InvalidActorBarrierManagement", "Invalid actor for barrier management"));
       return false;
     }
 
     const content = await _buildDialogContent(actor);
     const result = await customDialog({
-      title: `Magicka & Barriers - ${actor?.name ?? "Actor"}`,
+      title: tf("UESRPG.Dialogs.MagickaBarrier.Title", { actor: actor?.name ?? t("UESRPG.UI.Actor", "Actor") }, `Magicka & Barriers - ${actor?.name ?? "Actor"}`),
       content,
       classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--magicka"],
       width: 540,
       buttons: {
         apply: {
-          label: "Apply",
+          label: t("UESRPG.UI.Apply", "Apply"),
           icon: "fas fa-check",
           callback: async (html) => {
             const patch = _buildPatchFromRoot(actor, html);
             if (Object.keys(patch).length) {
               await requestUpdateDocument(actor, patch);
-              ui.notifications.info(`Magicka & barriers updated for ${actor.name}`);
+              ui.notifications.info(tf("UESRPG.Notifications.MagickaBarrierUpdated", { actor: actor.name }, `Magicka & barriers updated for ${actor.name}`));
             }
             return true;
           },
         },
         clearAll: {
-          label: "Clear Buffers",
+          label: t("UESRPG.UI.ClearBuffers", "Clear Buffers"),
           icon: "fas fa-eraser",
           callback: async (html) => {
             const maxMP = toFiniteNumber(actor?.system?.magicka?.max, 0);
@@ -130,12 +131,12 @@ export class MagickaBarrierDialog {
             if (newMP !== currentMP) updateData["system.magicka.value"] = newMP;
 
             await requestUpdateDocument(actor, updateData);
-            ui.notifications.info(`All barriers cleared for ${actor.name}`);
+            ui.notifications.info(tf("UESRPG.Notifications.BarriersCleared", { actor: actor.name }, `All barriers cleared for ${actor.name}`));
             return true;
           },
         },
         cancel: {
-          label: "Cancel",
+          label: t("UESRPG.UI.Cancel", "Cancel"),
           icon: "fas fa-times",
           callback: () => false,
         },

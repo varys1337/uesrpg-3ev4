@@ -18,7 +18,7 @@ import { _getSystemId, _findEnabledEffectByUesrpgKey } from "./helpers/util.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../../system/flags.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
-import { getEffectChanges } from "../../../utils/compat.js";
+import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
 
 // ====== ACTIVE EFFECT CREATION ======
 
@@ -277,12 +277,7 @@ export async function applyPressAdvantageEffect(attacker, defender, { attackerTo
     disabled: false,
     duration,
     changes: [
-      {
-        key: "system.modifiers.combat.opposed.attackTN",
-        mode: CONST.ACTIVE_EFFECT_MODES.ADD,
-        value: tnDelta,
-        priority: 20
-      }
+      buildEffectChange({ key: "system.modifiers.combat.opposed.attackTN", type: "add", value: tnDelta, priority: 20 })
     ],
     flags: {
       [FLAG_SCOPE]: {
@@ -324,12 +319,7 @@ export async function applyOverextendEffect(opponent, { defenderUuid = null, def
     disabled: false,
     duration,
     changes: [
-      {
-        key: "system.modifiers.combat.opposed.attackTN",
-        mode: CONST.ACTIVE_EFFECT_MODES.ADD,
-        value: tnDelta,
-        priority: 20
-      }
+      buildEffectChange({ key: "system.modifiers.combat.opposed.attackTN", type: "add", value: tnDelta, priority: 20 })
     ],
     flags: {
       [FLAG_SCOPE]: {
@@ -368,12 +358,7 @@ export async function applyOverwhelmEffect(opponent, { defenderUuid = null } = {
     disabled: false,
     duration,
     changes: [
-      {
-        key: `flags.${FLAG_SCOPE}.combat.noAoO`,
-        mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE,
-        value: true,
-        priority: 20
-      }
+      buildEffectChange({ key: `flags.${FLAG_SCOPE}.combat.noAoO`, type: "override", value: true, priority: 20 })
     ],
     flags: {
       [FLAG_SCOPE]: {

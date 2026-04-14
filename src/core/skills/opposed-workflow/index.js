@@ -22,7 +22,6 @@ import { getFlagValueWithFallback } from "../../system/flags.js";
 import { createUuidResolver } from "../../../utils/uuid-cache.js";
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../traits/awareness-talents.js";
 import { applyIntellectualTalentDoSOverrides } from "../../traits/intellectual-talents.js";
-import { applyRuntimePostRollToResult } from "../../traits/features/rule-element-runtime.js";
 import { buildRollContext } from "../../rules/roll-context.js";
 
 import { FLAG_NS, FLAG_KEY, CARD_VERSION } from "./core/constants.js";
@@ -202,19 +201,6 @@ export const SkillOpposedWorkflow = {
           skillItem = null;
         }
       }
-
-      await applyRuntimePostRollToResult({
-        actor,
-        targetActor,
-        targetToken,
-        item: skillItem,
-        rollContext: data?.context?.rollContext,
-        workflow: "skill",
-        side: sideRole,
-        skillName: side?.skillLabel ?? "",
-        result: res,
-        allowPrompt: false
-      });
 
       return {
         rollTotal: res.rollTotal,

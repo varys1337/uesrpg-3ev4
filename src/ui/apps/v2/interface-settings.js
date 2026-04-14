@@ -5,6 +5,8 @@
  * ApplicationV2 interface settings panel.
  */
 
+import { getSettingPresentation, t } from "../../../utils/i18n.js";
+
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
 
@@ -32,35 +34,26 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     },
   };
 
-  async _prepareContext(options) {
-    const fontSetting = game.settings?.settings?.get?.(`${NAMESPACE}.changeUiFont`) ?? null;
-    const fontChoices = fontSetting?.choices ?? {
-      Cyrodiil: "Cyrodiil - Default",
-      "Magic-Cyr": "Magic-Cyr",
-    };
-    const densitySetting = game.settings?.settings?.get?.(`${NAMESPACE}.sheetDensity`) ?? null;
-    const sheetDensityChoices = densitySetting?.choices ?? {
-      comfortable: "Comfortable",
-      compact: "Compact",
-      ultra: "Ultra Compact",
-    };
+  get title() {
+    return t("UESRPG.Apps.Menus.interfaceSettings.Name", "Interface");
+  }
 
+  async _prepareContext(options) {
     return {
-      changeUiFont: game.settings.get(NAMESPACE, "changeUiFont"),
-      fontChoices,
-      sheetDensity: game.settings.get(NAMESPACE, "sheetDensity"),
-      sheetDensityChoices,
-      encumbranceUiEnhanced: game.settings.get(NAMESPACE, "encumbranceUiEnhanced"),
-      dialogKeyboardEnhancements: game.settings.get(NAMESPACE, "dialogKeyboardEnhancements"),
-      enableItemRowQuickMenu: game.settings.get(NAMESPACE, "enableItemRowQuickMenu"),
-      noStartUpDialog: game.settings.get(NAMESPACE, "noStartUpDialog"),
-      sortAlpha: game.settings.get(NAMESPACE, "sortAlpha"),
-      enableLoadouts: game.settings.get(NAMESPACE, "enableLoadouts"),
-      customCursor: game.settings.get(NAMESPACE, "customCursor"),
-      autoResizeSheets: game.settings.get(NAMESPACE, "autoResizeSheets"),
-      enableInlineRulesTooltips: game.settings.get(NAMESPACE, "enableInlineRulesTooltips"),
-      opposedPostSubRollMessages: game.settings.get(NAMESPACE, "opposedPostSubRollMessages"),
-      enableRuleElementsRuntime: game.settings.get(NAMESPACE, "enableRuleElementsRuntime"),
+      settings: {
+        changeUiFont: getSettingPresentation(NAMESPACE, "changeUiFont"),
+        sheetDensity: getSettingPresentation(NAMESPACE, "sheetDensity"),
+        encumbranceUiEnhanced: getSettingPresentation(NAMESPACE, "encumbranceUiEnhanced"),
+        dialogKeyboardEnhancements: getSettingPresentation(NAMESPACE, "dialogKeyboardEnhancements"),
+        enableItemRowQuickMenu: getSettingPresentation(NAMESPACE, "enableItemRowQuickMenu"),
+        noStartUpDialog: getSettingPresentation(NAMESPACE, "noStartUpDialog"),
+        sortAlpha: getSettingPresentation(NAMESPACE, "sortAlpha"),
+        enableLoadouts: getSettingPresentation(NAMESPACE, "enableLoadouts"),
+        customCursor: getSettingPresentation(NAMESPACE, "customCursor"),
+        autoResizeSheets: getSettingPresentation(NAMESPACE, "autoResizeSheets"),
+        enableInlineRulesTooltips: getSettingPresentation(NAMESPACE, "enableInlineRulesTooltips"),
+        opposedPostSubRollMessages: getSettingPresentation(NAMESPACE, "opposedPostSubRollMessages"),
+      },
     };
   }
 
@@ -81,7 +74,5 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     if ("autoResizeSheets" in data) await game.settings.set(NAMESPACE, "autoResizeSheets", toBool(data.autoResizeSheets));
     if ("enableInlineRulesTooltips" in data) await game.settings.set(NAMESPACE, "enableInlineRulesTooltips", toBool(data.enableInlineRulesTooltips));
     if ("opposedPostSubRollMessages" in data) await game.settings.set(NAMESPACE, "opposedPostSubRollMessages", toBool(data.opposedPostSubRollMessages));
-    if ("enableRuleElementsRuntime" in data) await game.settings.set(NAMESPACE, "enableRuleElementsRuntime", toBool(data.enableRuleElementsRuntime));
   }
 }
-

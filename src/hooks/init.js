@@ -46,8 +46,6 @@ import { normalizeRollOption, buildBaseRollOptions } from "../core/rules/roll-op
 import { buildRollContext } from "../core/rules/roll-context.js";
 import { compileConditionsToPredicate } from "../core/traits/features/conditions-to-predicate.js";
 import { executeSpecialAction } from "../core/combat/special-actions-helper.js";
-import { getRuleElementRuntimeSupport } from "../core/traits/features/rule-elements.js";
-import { selfTestRuleElementRuntime } from "../core/traits/features/rule-element-runtime.js";
 import { migrateItemsIfNeeded, normalizeItems } from "../core/migrations/items.js";
 import { migrateActorsIfNeeded, normalizeActors } from "../core/migrations/actors.js";
 import { migrateCombatLegacyIfNeeded } from "../core/migrations/combat-legacy.js";
@@ -56,6 +54,12 @@ import { registerShieldDebugObservers } from "../utils/dev/shield-debug.js";
 import { registerStaleEmbeddedDeleteSuppression } from "../utils/embedded-delete-guard.js";
 import { registerClashChatActions } from "../core/mass-warfare/clash/chat-actions.js";
 import { registerWarfareAttachmentHooks } from "../core/mass-warfare/actions.js";
+import {
+  getTypeDataModelDiagnosticsReport,
+  isTypeDataModelsEnabled,
+  registerTypeDataModels,
+} from "../core/data-models/registry.js";
+import { ApplyDamageService } from "../application/combat/apply-damage-service.js";
 
 function applyCustomCursorConfig() {
   try {
@@ -82,6 +86,8 @@ function applyCustomCursorConfig() {
 
 export default async function initHandler() {
   registerApi({
+    isTypeDataModelsEnabled,
+    getTypeDataModelDiagnosticsReport,
     isPredicate,
     evaluatePredicate,
     selfTestPredicate,
@@ -89,11 +95,9 @@ export default async function initHandler() {
     buildBaseRollOptions,
     buildRollContext,
     compileConditionsToPredicate,
-    getRuleElementRuntimeSupport,
-    selfTestRuleElementRuntime,
-    applyDamage,
-    applyHealing,
-    applyDamageResolved,
+    applyDamage: ApplyDamageService.applySimple.bind(ApplyDamageService),
+    applyHealing: ApplyDamageService.applyHealing.bind(ApplyDamageService),
+    applyDamageResolved: ApplyDamageService.applyResolved.bind(ApplyDamageService),
     DAMAGE_TYPES,
     resolveSurpriseState,
     setActorSurprised,
@@ -105,6 +109,13 @@ export default async function initHandler() {
     CharOpposedWorkflow,
     runCombatLegacyReadinessScan,
     tokenActionHudApi: createTokenActionHudApi(),
+    applicationApi: {
+      damage: {
+        apply: ApplyDamageService.applyResolved.bind(ApplyDamageService),
+        applySimple: ApplyDamageService.applySimple.bind(ApplyDamageService),
+        applyHealing: ApplyDamageService.applyHealing.bind(ApplyDamageService),
+      },
+    },
   });
 
   try {
@@ -134,12 +145,13 @@ export default async function initHandler() {
 
   CONFIG.Actor.documentClass = SimpleActor;
   CONFIG.Item.documentClass = SimpleItem;
-  registerCreateTypeGuards();
 
   registerHandlebarsHelpers();
   Hooks.once("setup", preloadHandlebarsTemplates);
 
   await registerSettings();
+  registerTypeDataModels();
+  registerCreateTypeGuards();
   registerStaleEmbeddedDeleteSuppression();
   applyCustomCursorConfig();
 
@@ -180,6 +192,10 @@ export default async function initHandler() {
   registerInCloseAutoPrune();
   registerAECacheInvalidation();
   registerCoreSubsystems();
+
+  if (isTypeDataModelsEnabled()) {
+    console.info("UESRPG | TypeDataModel diagnostics", getTypeDataModelDiagnosticsReport());
+  }
 
   registerMigrations({
     migrateActorsIfNeeded,

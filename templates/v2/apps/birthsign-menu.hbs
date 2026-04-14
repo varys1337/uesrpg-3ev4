@@ -1,19 +1,18 @@
 <div class="uesrpg-creation-dialog">
   <div class="menu-pinned">
     <div class="menu-instructions">
-      Select a Birthsign from the cards below or input your own custom birthsign label below.
-      Leave blank if you do NOT want to use a custom birthsign.
+      {{localize "UESRPG.Apps.BirthsignMenu.Instructions"}}
       <input type="text" id="customSign">
     </div>
   </div>
 
   <div class="menu-cards">
-    <h1 class="menu-section-heading">Birthsigns</h1>
+    <h1 class="menu-section-heading">{{localize "UESRPG.Apps.BirthsignMenu.Birthsigns"}}</h1>
     <div class="menu-grid">{{{signCards}}}</div>
   </div>
 
   <div class="creation-footer">
-    <button type="button" data-action="cancel">Cancel</button>
-    <button type="button" data-action="submit" class="default">Submit</button>
+    <button type="button" data-action="cancel">{{localize "UESRPG.UI.Cancel"}}</button>
+    <button type="button" data-action="submit" class="default">{{localize "UESRPG.UI.Apply"}}</button>
   </div>
 </div>

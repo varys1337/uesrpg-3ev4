@@ -1,21 +1,21 @@
 /**
  * src/core/aoe/aoe-placement-controller.js
  *
- * Placement controller that owns mouse interaction during AoE template placement.
+ * Legacy MeasuredTemplate placement controller.
  *
- * Design:
+ * Compatibility contract:
  * - Creates a client-side preview MeasuredTemplate on the TemplateLayer preview container
- * - Activates the TemplateLayer so token interactions are naturally suppressed
+ * - Preserves old template-based placement behavior for compatibility callers only
  * - Captures pointer events via the canvas stage to track + commit placement
  * - On confirm: persists a real MeasuredTemplateDocument via createEmbeddedDocuments
  * - On cancel: tears down preview without persisting
  * - Guarantees cleanup via try/finally + re-entry guard
  *
- * Fixes the token-overlap click bug: tokens do not receive clicks while the
- * template layer is active because Foundry's layer activation system disables
- * interaction on non-active layers.
+ * Active runtime AoE placement is Region-first and lives in
+ * `aoe-region-placement-controller.js`. Do not route new spell, power, or item
+ * targeting through this module.
  *
- * Target: Foundry VTT v13.351
+ * Legacy compatibility helper on Foundry VTT v14.359+.
  */
 
 import {

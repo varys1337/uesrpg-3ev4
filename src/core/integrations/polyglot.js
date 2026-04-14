@@ -10,7 +10,7 @@
  * Safe: this only *defines* the catalog and does not mutate any Actor data.
  */
 
-import { LANGUAGE_CHOICES } from "../social/social-choices.js";
+import { getChoiceLabel, LANGUAGE_CHOICES } from "../social/social-choices.js";
 
 /**
  * Build a URL-safe slug from a language label.
@@ -45,8 +45,9 @@ export function registerPolyglotLanguages() {
     const languages = {};
     const collisions = new Map();
 
-    for (const label of LANGUAGE_CHOICES ?? []) {
-      const key = slugifyLanguage(label);
+    for (const choice of LANGUAGE_CHOICES ?? []) {
+      const label = getChoiceLabel(choice);
+      const key = slugifyLanguage(choice?.name);
       if (!key) continue;
       if (languages[key] && languages[key] !== label) {
         const list = collisions.get(key) ?? [languages[key]];

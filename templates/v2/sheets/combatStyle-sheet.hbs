@@ -2,27 +2,27 @@
 <header class="item-compact-header">
   <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
   <div class="item-header-fields">
-    <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+    <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
     <div class="item-stats-row">
       <div class="item-stat">
         <label>{{item.system.value}}</label>
-        <span class="item-stat-label">Target Number</span>
+        <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.TargetNumber"}}</span>
       </div>
       <div class="item-stat">
         <select name="system.rank" data-type="String">
           {{selectOptions skillRankOptions selected=item.system.rank localize=true}}
         </select>
-        <span class="item-stat-label">Rank</span>
+        <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Rank"}}</span>
       </div>
       <div class="item-stat">
         <input type="text" name="system.governingCha" value="{{item.system.governingCha}}"/>
-        <span class="item-stat-label">Governing Char.</span>
+        <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.GoverningChar"}}</span>
       </div>
       <div class="item-stat">
         <select name="system.baseCha" data-type="String">
           {{selectOptions item.system.characteristics selected=item.system.baseCha localize=true}}
         </select>
-        <span class="item-stat-label">Selected Char.</span>
+        <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.SelectedChar"}}</span>
       </div>
     </div>
   </div>
@@ -30,9 +30,9 @@
 
 {{!-- Sheet Tab Navigation --}}
 <nav class="sheet-tabs tabs" data-group="primary">
-  <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
-  <a class="item" data-action="tab" data-group="primary" data-tab="combatStyle">Combat Style</a>
-  <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="description">{{localize "UESRPG.UI.Description"}}</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="combatStyle">{{localize "UESRPG.Sheets.Item.CombatStyle"}}</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
 </nav>
 
 {{!-- Sheet Body --}}

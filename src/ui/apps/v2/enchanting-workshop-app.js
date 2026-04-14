@@ -20,7 +20,7 @@
  *  - Form submitted via static _onSubmit - buildCast/buildStrike/buildConstant
  *    are called there, then finalizeEnchantment.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.359+
  */
 
 import {
@@ -38,16 +38,13 @@ import { hasTalent } from "../../../core/traits/talents-api.js";
 // Catalog data (JS modules - avoids import assertion browser compatibility issues)
 import { SPELL_EFFECTS_CATALOG as spellEffectsCatalog } from "../../../data/spell-effects-catalog.js";
 import { STRIKE_ENCHANTMENTS_CATALOG as strikeEnchantmentsCatalog } from "../../../data/strike-enchantments-catalog.js";
+import {
+  getLocalizedSpellFormsCatalog,
+  localizeSpellEffect,
+  localizeStrikeEnchantment,
+} from "../../../data/spell-i18n.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
-
-// Spell forms are small; define inline to avoid a separate file import chain.
-const spellFormsCatalog = [
-  { key: "touch",    label: "Touch",            paramKey: null, paramLabel: null },
-  { key: "target",   label: "Target",           paramKey: null, paramLabel: null },
-  { key: "self",     label: "Self",             paramKey: null, paramLabel: null },
-  { key: "area",     label: "Area (Z metres)",  paramKey: "Z",  paramLabel: "Radius (m)" },
-  { key: "onTarget", label: "On Target",        paramKey: null, paramLabel: null },
-];
+import { t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
@@ -55,6 +52,7 @@ const NAMESPACE = SYSTEM_ID;
 const WORKSHOP_MODES = ["cast", "strike", "constant", "recharge", "toggle"];
 
 export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
+  static #openByActor = new Map();
 
   /** @override */
   static DEFAULT_OPTIONS = {
@@ -69,7 +67,6 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       modeChange: EnchantingWorkshopAppV2.prototype._onModeChange,
     },
     window: {
-      title: "UESRPG - Enchanting Workshop",
       resizable: true,
     },
     position: {
@@ -87,6 +84,37 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     },
   };
 
+  static getOpenInstance(actorUuid = "") {
+    return this.#openByActor.get(String(actorUuid ?? "").trim()) ?? null;
+  }
+
+  static findOpenInstance(predicate = null) {
+    const matcher = typeof predicate === "function" ? predicate : () => true;
+    for (const app of this.#openByActor.values()) {
+      if (app?.rendered && matcher(app)) return app;
+    }
+    return null;
+  }
+
+  static async prompt({ actorUuid = null, mode = "cast" } = {}) {
+    const key = String(actorUuid ?? "").trim();
+    if (key) {
+      const existing = this.getOpenInstance(key);
+      if (existing?.rendered) {
+        if (WORKSHOP_MODES.includes(mode)) existing._mode = mode;
+        existing._previewResult = null;
+        await existing.render({ parts: ["form"] });
+        existing.bringToTop?.();
+        return existing;
+      }
+    }
+
+    const app = new EnchantingWorkshopAppV2({ actorUuid, mode });
+    if (key) this.#openByActor.set(key, app);
+    await app.render(true);
+    return app;
+  }
+
   /**
    * @param {{ actorUuid: string, mode?: string }} options
    */
@@ -95,6 +123,16 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     this._actorUuid = options.actorUuid ?? null;
     this._mode = WORKSHOP_MODES.includes(options.mode) ? options.mode : "cast";
     this._previewResult = null; // Last preview from _onChangeForm
+  }
+
+  get title() {
+    return t("UESRPG.Apps.EnchantingWorkshop.Title", "Enchanting Workshop");
+  }
+
+  async close(options = {}) {
+    const key = String(this._actorUuid ?? "").trim();
+    if (key) EnchantingWorkshopAppV2.#openByActor.delete(key);
+    return super.close(options);
   }
 
   /** @override */
@@ -145,7 +183,9 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       : [];
 
     // Spell effects catalog
-    const spellfxOptions = spellEffectsCatalog.map(e => ({
+    const spellfxOptions = spellEffectsCatalog.map((entry) => {
+      const e = localizeSpellEffect(entry);
+      return {
       key: e.key,
       label: e.label,
       school: e.school,
@@ -153,18 +193,24 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       attributes: e.attributes ?? [],
       allowConstant: e.allowConstant ?? false,
       description: e.description ?? "",
-    }));
+      };
+    });
 
     const spellfxConstantOptions = spellfxOptions.filter(e => e.allowConstant);
 
     // Strike enchantments catalog
-    const strikeOptions = strikeEnchantmentsCatalog.map(e => ({
+    const strikeOptions = strikeEnchantmentsCatalog.map((entry) => {
+      const e = localizeStrikeEnchantment(entry);
+      return {
       key: e.key,
       label: e.label,
       costFormula: e.costFormula,
       paramKeys: e.paramKeys ?? [],
       description: e.description ?? "",
-    }));
+      };
+    });
+
+    const spellFormsCatalog = getLocalizedSpellFormsCatalog();
 
     // Settings
     const enableCursed = game.settings.get(NAMESPACE, "enchanting.enableCursedConstant") ?? false;
@@ -571,4 +617,3 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
    */
   async _onModeChange(event, target) { /* superseded by _onChangeForm */ }
 }
-

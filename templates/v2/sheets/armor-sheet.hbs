@@ -2,12 +2,12 @@
 <header class="item-compact-header">
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
     <div class="item-header-fields">
-        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
         <div class="item-stats-row item-stats-row--weapon-armor">
             <div class="item-stats-grid item-stats-grid--two-rows">
                 <div class="item-stat">
                     <input type="number" name="system.quantity" value="{{item.system.quantity}}"/>
-                    <span class="item-stat-label">Quantity</span>
+                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Quantity"}}</span>
                 </div>
                 <div class="item-stat">
                     <input type="number" name="system.enc" value="{{item.system.enc}}"/>
@@ -15,12 +15,12 @@
                 </div>
                 <div class="item-stat">
                     <input type="number" name="system.price" value="{{item.system.price}}"/>
-                    <span class="item-stat-label">Price</span>
+                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Price"}}</span>
                 </div>
             </div>
             <div class="item-stat item-stat--equipped-side">
                 <input class="checkbox" type="checkbox" name="system.equipped" {{checked item.system.equipped}}>
-                <span class="item-stat-label">Equipped</span>
+                <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Equipped"}}</span>
             </div>
         </div>
     </div>
@@ -28,9 +28,9 @@
 
 {{!-- Sheet Tab Navigation --}}
 <nav class="sheet-tabs tabs" data-group="primary">
-    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="description">{{localize "UESRPG.UI.Description"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">{{localize "UESRPG.Sheets.Item.Attributes"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
 </nav>
 
     {{!-- Sheet Body --}}
@@ -49,137 +49,137 @@
             <div class="tab" data-group="primary" data-tab="attributes">
                 <div class="attribute-tab-container">
                     <div class="item-selection-container">
-                        <h2>Attributes</h2>
+                        <h2>{{localize "UESRPG.Sheets.Item.Attributes"}}</h2>
                         <div class="selection-container enchanting-compact-grid">
                             <div class="armor-attributes-container">
 
                                 {{!-- Quality section --}}
                                 <div class="armor-attributes-section">
-                                    <h3>Quality</h3>
+                                    <h3>{{localize "UESRPG.Sheets.Item.Quality"}}</h3>
                                     <div class="weapon-field-row">
-                                        <label>Quality</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.Quality"}}</label>
                                         <select name="system.qualityLevel">
                                             {{selectOptions weaponQualityOptions selected=item.system.qualityLevel}}
                                         </select>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Runed</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.Runed"}}</label>
                                         <input class="checkbox" type="checkbox" name="system.runed" {{checked item.system.runed}}>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Magic</label>
+                                        <label>{{localize "UESRPG.UI.Magic"}}</label>
                                         <input class="checkbox" type="checkbox" name="qualitiesStructured.toggle.magic" {{checked (lookup qualitiesSelectedToggle "magic")}}>
                                     </div>
                                 </div>
 
                                 {{!-- Type section --}}
                                 <div class="armor-attributes-section">
-                                    <h3>Type</h3>
+                                    <h3>{{localize "UESRPG.Sheets.Equipment.Type"}}</h3>
                                     <div class="weapon-field-row">
-                                        <label>Armor Class</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.ArmorClass"}}</label>
                                         <select name="system.armorClass">
                                             {{selectOptions armorClassOptions selected=item.system.armorClass}}
                                         </select>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Damaged</label>
-                                        <input type="number" name="qualitiesStructured.value.damaged" value="{{lookup qualitiesSelectedValue "damaged"}}" min="0" step="1" title="Damaged(X): subtracts X from the active armor lane at runtime"/>
+                                        <label>{{localize "UESRPG.Sheets.Item.Damaged"}}</label>
+                                        <input type="number" name="qualitiesStructured.value.damaged" value="{{lookup qualitiesSelectedValue "damaged"}}" min="0" step="1" title="{{localize "UESRPG.Sheets.Item.DamagedArmorTitle"}}"/>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Effective AR</label>
-                                        <span class="item-stat-derived" title="Native lane AR minus Damaged(X)">{{item.system.armorEffective}}</span>
+                                        <label>{{localize "UESRPG.Sheets.Item.EffectiveAR"}}</label>
+                                        <span class="item-stat-derived" title="{{localize "UESRPG.Sheets.Item.EffectiveARTitle"}}">{{item.system.armorEffective}}</span>
                                     </div>
                                 </div>
 
                                 {{!-- Full Armor Values --}}
                                 <div class="armor-attributes-section">
-                                    <h3>Full Armor Values</h3>
+                                    <h3>{{localize "UESRPG.Sheets.Item.FullArmorValues"}}</h3>
                                     <div class="weapon-field-row">
-                                        <label>Armor</label>
+                                        <label>{{localize "UESRPG.Sheets.Equipment.Armor"}}</label>
                                         <input type="number" name="system.armorValues.full.armor" value="{{item.system.armorValues.full.armor}}"/>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Magic AR</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.MagicAR"}}</label>
                                         <input type="number" name="system.armorValues.full.magic_ar" value="{{item.system.armorValues.full.magic_ar}}"/>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Special AR</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.SpecialAR"}}</label>
                                         <input type="number" name="system.armorValues.full.special_ar" value="{{item.system.armorValues.full.special_ar}}"/>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Special AR Type</label>
-                                        <input type="text" name="system.armorValues.full.special_ar_type" value="{{item.system.armorValues.full.special_ar_type}}" placeholder="fire / frost / shock …"/>
+                                        <label>{{localize "UESRPG.Sheets.Item.SpecialARType"}}</label>
+                                        <input type="text" name="system.armorValues.full.special_ar_type" value="{{item.system.armorValues.full.special_ar_type}}" placeholder="{{localize "UESRPG.Sheets.Item.ElementPlaceholder"}}"/>
                                     </div>
                                 </div>
 
                                 {{!-- Partial Armor Values --}}
                                 <div class="armor-attributes-section">
-                                    <h3>Partial Armor Values</h3>
+                                    <h3>{{localize "UESRPG.Sheets.Item.PartialArmorValues"}}</h3>
                                     <div class="weapon-field-row">
-                                        <label>Armor</label>
+                                        <label>{{localize "UESRPG.Sheets.Equipment.Armor"}}</label>
                                         <input type="number" name="system.armorValues.partial.armor" value="{{item.system.armorValues.partial.armor}}"/>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Magic AR</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.MagicAR"}}</label>
                                         <input type="number" name="system.armorValues.partial.magic_ar" value="{{item.system.armorValues.partial.magic_ar}}"/>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Special AR</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.SpecialAR"}}</label>
                                         <input type="number" name="system.armorValues.partial.special_ar" value="{{item.system.armorValues.partial.special_ar}}"/>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Special AR Type</label>
-                                        <input type="text" name="system.armorValues.partial.special_ar_type" value="{{item.system.armorValues.partial.special_ar_type}}" placeholder="fire / frost / shock …"/>
+                                        <label>{{localize "UESRPG.Sheets.Item.SpecialARType"}}</label>
+                                        <input type="text" name="system.armorValues.partial.special_ar_type" value="{{item.system.armorValues.partial.special_ar_type}}" placeholder="{{localize "UESRPG.Sheets.Item.ElementPlaceholder"}}"/>
                                     </div>
                                 </div>
 
                                 {{!-- Weight --}}
                                 <div class="armor-attributes-section">
-                                    <h3>Weight</h3>
+                                    <h3>{{localize "UESRPG.Sheets.Item.Weight"}}</h3>
                                     <div class="weapon-field-row">
-                                        <label>Weight Class</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.WeightClass"}}</label>
                                         <select name="system.weightClass">
                                             {{selectOptions armorWeightClassOptions selected=item.system.weightClass}}
                                         </select>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Effective Weight Class</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.EffectiveWeightClass"}}</label>
                                         <input type="text" value="{{#if item.system.weightClassEffective}}{{item.system.weightClassEffective}}{{else}}{{item.system.effectiveWeightClass}}{{/if}}" disabled>
                                     </div>
                                 </div>
 
                                 {{!-- Enchanting --}}
                                 <div class="armor-attributes-section enchanting-compact-grid">
-                                    <h3>Enchanting</h3>
+                                    <h3>{{localize "UESRPG.Sheets.Item.Enchanting"}}</h3>
                                     <div class="weapon-field-row">
-                                        <label>Enchant Level</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.EnchantLevel"}}</label>
                                         <div class="enchant-inline">
                                             <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}"/>
                                         </div>
                                     </div>
                                     <div class="weapon-field-row">
-                                        <label>Charge</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.Charge"}}</label>
                                         <div class="enchant-inline enchant-charge-inline">
-                                            <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="Decrease current charge">
+                                            <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
                                                 <i class="fas fa-minus"></i>
                                             </button>
                                             <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input">
                                             <span class="enchant-charge-sep">/</span>
                                             <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input">
-                                            <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="Increase current charge">
+                                            <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
                                                 <i class="fas fa-plus"></i>
                                             </button>
                                         </div>
                                     </div>
                                     {{#if enchantmentDisplay}}
                                     <div class="weapon-field-row">
-                                        <label>Active Enchantment</label>
+                                        <label>{{localize "UESRPG.Sheets.Item.ActiveEnchantment"}}</label>
                                         <span class="styled-font-gold">{{enchantmentDisplay.typeLabel}}</span>
                                     </div>
                                     {{#if (eq enchantmentDisplay.typeLabel "Cast")}}
                                     <div class="weapon-field-row">
-                                        <label>Cast</label>
-                                        <button type="button" data-action="castEnchantment">Cast Enchantment</button>
+                                        <label>{{localize "UESRPG.Sheets.Item.Cast"}}</label>
+                                        <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
                                     </div>
                                     {{/if}}
                                     {{/if}}
@@ -191,52 +191,52 @@
 
                     {{!-- Hit Locations --}}
                     <div class="item-selection-container">
-                        <h2>Hit Locations Covered</h2>
+                        <h2>{{localize "UESRPG.Sheets.Item.HitLocationsCovered"}}</h2>
                         <div class="selection-container armor-hitloc-table">
                             <div class="armor-hitloc-pair">
                                 <div class="armor-hitloc-row">
-                                    <div class="armor-hitloc-row__name">Head</div>
+                                    <div class="armor-hitloc-row__name">{{localize "UESRPG.Sheets.Item.HitLocation.Head"}}</div>
                                     <label class="armor-hitloc-row__toggle">
-                                        <span>Covered</span>
+                                        <span>{{localize "UESRPG.Sheets.Item.Covered"}}</span>
                                         <input class="checkbox" type="checkbox" name="system.hitLocations.Head" {{checked item.system.hitLocations.Head}}>
                                     </label>
                                 </div>
                                 <div class="armor-hitloc-row">
-                                    <div class="armor-hitloc-row__name">Body</div>
+                                    <div class="armor-hitloc-row__name">{{localize "UESRPG.Sheets.Item.HitLocation.Body"}}</div>
                                     <label class="armor-hitloc-row__toggle">
-                                        <span>Covered</span>
+                                        <span>{{localize "UESRPG.Sheets.Item.Covered"}}</span>
                                         <input class="checkbox" type="checkbox" name="system.hitLocations.Body" {{checked item.system.hitLocations.Body}}>
                                     </label>
                                 </div>
                             </div>
                             <div class="armor-hitloc-pair">
                                 <div class="armor-hitloc-row">
-                                    <div class="armor-hitloc-row__name">Right Arm</div>
+                                    <div class="armor-hitloc-row__name">{{localize "UESRPG.Sheets.Item.HitLocation.RightArm"}}</div>
                                     <label class="armor-hitloc-row__toggle">
-                                        <span>Covered</span>
+                                        <span>{{localize "UESRPG.Sheets.Item.Covered"}}</span>
                                         <input class="checkbox" type="checkbox" name="system.hitLocations.RightArm" {{checked item.system.hitLocations.RightArm}}>
                                     </label>
                                 </div>
                                 <div class="armor-hitloc-row">
-                                    <div class="armor-hitloc-row__name">Left Arm</div>
+                                    <div class="armor-hitloc-row__name">{{localize "UESRPG.Sheets.Item.HitLocation.LeftArm"}}</div>
                                     <label class="armor-hitloc-row__toggle">
-                                        <span>Covered</span>
+                                        <span>{{localize "UESRPG.Sheets.Item.Covered"}}</span>
                                         <input class="checkbox" type="checkbox" name="system.hitLocations.LeftArm" {{checked item.system.hitLocations.LeftArm}}>
                                     </label>
                                 </div>
                             </div>
                             <div class="armor-hitloc-pair">
                                 <div class="armor-hitloc-row">
-                                    <div class="armor-hitloc-row__name">Right Leg</div>
+                                    <div class="armor-hitloc-row__name">{{localize "UESRPG.Sheets.Item.HitLocation.RightLeg"}}</div>
                                     <label class="armor-hitloc-row__toggle">
-                                        <span>Covered</span>
+                                        <span>{{localize "UESRPG.Sheets.Item.Covered"}}</span>
                                         <input class="checkbox" type="checkbox" name="system.hitLocations.RightLeg" {{checked item.system.hitLocations.RightLeg}}>
                                     </label>
                                 </div>
                                 <div class="armor-hitloc-row">
-                                    <div class="armor-hitloc-row__name">Left Leg</div>
+                                    <div class="armor-hitloc-row__name">{{localize "UESRPG.Sheets.Item.HitLocation.LeftLeg"}}</div>
                                     <label class="armor-hitloc-row__toggle">
-                                        <span>Covered</span>
+                                        <span>{{localize "UESRPG.Sheets.Item.Covered"}}</span>
                                         <input class="checkbox" type="checkbox" name="system.hitLocations.LeftLeg" {{checked item.system.hitLocations.LeftLeg}}>
                                     </label>
                                 </div>
@@ -247,27 +247,27 @@
                     {{#if uiSpellcastingConfig}}
                     <div class="quality-container">
                         <div class="flex-container">
-                            <h2>Spellcasting Configuration</h2>
+                            <h2>{{localize "UESRPG.Sheets.Item.SpellcastingConfiguration"}}</h2>
                         </div>
                         <div class="selection-container">
                             <p class="u-text-muted u-text-sm">
-                                Configure item-based spell slots by picking a spell, binding strength, and cost mode/value.
+                                {{localize "UESRPG.Sheets.Item.SpellcastingConfigurationHelp"}}
                             </p>
                             <div class="grid-container">
-                                <div>Enable Spellcasting</div>
+                                <div>{{localize "UESRPG.Sheets.Item.EnableSpellcasting"}}</div>
                                 <div class="right-align-content">
                                     <button type="button" data-action="toggleSpellcastingEnable">
-                                        {{#if uiSpellcastingConfig.enabled}}Disable{{else}}Enable{{/if}}
+                                        {{#if uiSpellcastingConfig.enabled}}{{localize "UESRPG.Sheets.Item.Disable"}}{{else}}{{localize "UESRPG.Sheets.Item.Enable"}}{{/if}}
                                     </button>
                                 </div>
                             </div>
                             {{#if uiSpellcastingConfig.enabled}}
                             <div class="grid-container">
-                                <div>Charge Pool (Soul)</div>
-                                <div class="right-align-content u-text-muted">Used by Soul-cost slots; synced with item Charge.</div>
+                                <div>{{localize "UESRPG.Sheets.Item.ChargePoolSoul"}}</div>
+                                <div class="right-align-content u-text-muted">{{localize "UESRPG.Sheets.Item.ChargePoolSoulHelp"}}</div>
                             </div>
                             <div class="grid-container">
-                                <div>Charge Current / Max</div>
+                                <div>{{localize "UESRPG.Sheets.Item.ChargeCurrentMax"}}</div>
                                 <div class="right-align-content">
                                     <input type="number" data-spellcasting-charge="value" value="{{uiSpellcastingConfig.poolValue}}" min="0" step="1" class="u-w-50" />
                                     <span>/</span>
@@ -275,37 +275,37 @@
                                 </div>
                             </div>
                             <div class="grid-container">
-                                <div>Slots</div>
+                                <div>{{localize "UESRPG.Sheets.Item.Slots"}}</div>
                                 <div class="right-align-content">
-                                    <button type="button" data-action="addSpellcastingSlot">Add Slot</button>
-                                    <button type="button" data-action="editSpellcastingSlot">Save</button>
+                                    <button type="button" data-action="addSpellcastingSlot">{{localize "UESRPG.Sheets.Item.AddSlot"}}</button>
+                                    <button type="button" data-action="editSpellcastingSlot">{{localize "UESRPG.UI.Save"}}</button>
                                 </div>
                             </div>
                             {{#each uiSpellcastingConfig.slots as |slot|}}
                             <div class="grid-container" data-spellcasting-slot-id="{{slot.id}}">
                                 <div>
-                                    <input type="text" data-spellcasting-field="label" value="{{slot.label}}" placeholder="Label" />
+                                    <input type="text" data-spellcasting-field="label" value="{{slot.label}}" placeholder="{{localize "UESRPG.Sheets.Item.Label"}}" />
                                     <div class="u-text-muted u-text-xs">{{slot.spellUuid}}</div>
                                 </div>
                                 <div class="right-align-content">
-                                    <input type="number" data-spellcasting-field="cost" value="{{slot.cost}}" min="0" step="1" title="Soul Cost" class="u-w-50" />
-                                    <input type="number" data-spellcasting-field="bindingStrength" value="{{slot.bindingStrength}}" min="0" max="10" step="1" title="Binding Strength" class="u-w-50" />
+                                    <input type="number" data-spellcasting-field="cost" value="{{slot.cost}}" min="0" step="1" title="{{localize "UESRPG.Sheets.Item.SoulCost"}}" class="u-w-50" />
+                                    <input type="number" data-spellcasting-field="bindingStrength" value="{{slot.bindingStrength}}" min="0" max="10" step="1" title="{{localize "UESRPG.Sheets.Item.BindingStrength"}}" class="u-w-50" />
                                     <select data-spellcasting-field="costMode" class="u-w-50">
-                                        <option value="soul" {{#if (eq slot.costMode "soul")}}selected{{/if}}>Soul</option>
-                                        <option value="magicka" {{#if (eq slot.costMode "magicka")}}selected{{/if}}>Magicka</option>
-                                        <option value="none" {{#if (eq slot.costMode "none")}}selected{{/if}}>No Cost</option>
+                                        <option value="soul" {{#if (eq slot.costMode "soul")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.Soul"}}</option>
+                                        <option value="magicka" {{#if (eq slot.costMode "magicka")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.Magicka"}}</option>
+                                        <option value="none" {{#if (eq slot.costMode "none")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.NoCost"}}</option>
                                     </select>
-                                    <label><input type="checkbox" data-spellcasting-field="enabled" {{checked slot.enabled}} /> On</label>
-                                    <button type="button" data-action="pickSpellcastingSlotSpell" data-slot-id="{{slot.id}}">Pick</button>
-                                    <button type="button" data-action="removeSpellcastingSlot" data-slot-id="{{slot.id}}">Remove</button>
+                                    <label><input type="checkbox" data-spellcasting-field="enabled" {{checked slot.enabled}} /> {{localize "UESRPG.Sheets.Item.On"}}</label>
+                                    <button type="button" data-action="pickSpellcastingSlotSpell" data-slot-id="{{slot.id}}">{{localize "UESRPG.Sheets.Item.Pick"}}</button>
+                                    <button type="button" data-action="removeSpellcastingSlot" data-slot-id="{{slot.id}}">{{localize "UESRPG.UI.Remove"}}</button>
                                 </div>
                             </div>
                             {{/each}}
                             {{#if uiSpellcastingConfig.canCast}}
                             <div class="grid-container">
-                                <div>Cast</div>
+                                <div>{{localize "UESRPG.Sheets.Item.Cast"}}</div>
                                 <div class="right-align-content">
-                                    <button type="button" data-action="castEnchantment">Cast Enchantment</button>
+                                    <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
                                 </div>
                             </div>
                             {{/if}}

@@ -15,7 +15,6 @@ import { buildResistanceBonusMods } from "../../../traits/trait-resistance-ui.js
 import { consumePhysicalExertionForSkill } from "../../../stamina/stamina-integration-hooks.js";
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../traits/awareness-talents.js";
 import { applyIntellectualTalentDoSOverrides } from "../../../traits/intellectual-talents.js";
-import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { _getMessageState } from "../core/schema.js";
 import { _emitSuppressedSubRollDice, _esc, _safeGetSetting, _getCoreRollMode, _isQuickShiftRequested } from "../core/util.js";
 import { _updateCard } from "../core/card-updater.js";
@@ -200,17 +199,6 @@ export async function handleAttackerRoll(ctx, action) {
   }));
 
   data.attacker.tn = tn;
-  applyRuntimePreRollToTN({
-    actor: attacker,
-    targetActor: defender,
-    targetToken: dToken ?? null,
-    item: skillItem ?? null,
-    rollContext: data?.context?.rollContext,
-    workflow: "skill",
-    side: "attacker",
-    skillName: skillLabel,
-    tn
-  });
   skillRollDebug("opposed attacker TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
 
   const rollFormula = "1d100";
@@ -220,18 +208,6 @@ export async function handleAttackerRoll(ctx, action) {
   await applyKeenIntuitionToResult(attacker, skillLabel, res, { allowPrompt: true });
   await applyHyperAwarenessToResult(attacker, skillLabel, res, { allowPrompt: true });
   await applyIntellectualTalentDoSOverrides({ actor: attacker, skillName: skillLabel, result: res, isInterrogationTest: Boolean(decl?.isInterrogationTest), allowPrompt: true });
-  await applyRuntimePostRollToResult({
-    actor: attacker,
-    targetActor: defender,
-    targetToken: dToken ?? null,
-    item: skillItem ?? null,
-    rollContext: data?.context?.rollContext,
-    workflow: "skill",
-    side: "attacker",
-    skillName: skillLabel,
-    result: res,
-    allowPrompt: true
-  });
 
   if (concussiveApplied > 0) {
     await consumeConcussiveNextBash(attacker);

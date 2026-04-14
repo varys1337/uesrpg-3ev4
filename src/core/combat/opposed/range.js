@@ -6,6 +6,25 @@
 
 import { SYSTEM_ID } from "./constants.js";
 
+export function getTokenRangeMeasurementMode() {
+  try {
+    return game.settings.get(SYSTEM_ID, "tokenRangeMeasurement") ?? "center";
+  } catch (_err) {
+    return "center";
+  }
+}
+
+export function getAoeOriginMeasurementMode() {
+  try {
+    const mode = game.settings.get(SYSTEM_ID, "aoeOriginMeasurement") ?? "center";
+    if (mode === "edge") return "edge";
+    if (mode === "match-token") return getTokenRangeMeasurementMode();
+    return "center";
+  } catch (_err) {
+    return "center";
+  }
+}
+
 /**
  * Measure distance between two tokens accounting for their sizes.
  * Uses system setting to determine measurement mode:
@@ -21,7 +40,7 @@ export function measureTokenDistance(tokenA, tokenB) {
     if (!tokenA || !tokenB) return null;
     if (!canvas?.ready) return null;
 
-    const mode = game.settings.get(SYSTEM_ID, "tokenRangeMeasurement") ?? "center";
+    const mode = getTokenRangeMeasurementMode();
 
     if (mode === "center") {
       // Legacy center-to-center measurement
@@ -237,22 +256,24 @@ export function measureTokenDistanceGridSpaces(tokenA, tokenB) {
 }
 
 /**
- * Measure distance between two points.
- * @private
+ * Measure the distance between two canvas points in scene units.
+ *
+ * @param {{x:number,y:number}|null} a
+ * @param {{x:number,y:number}|null} b
+ * @param {{gridSpaces?: boolean}} [options]
+ * @returns {number|null}
  */
-function _measurePointDistance(a, b) {
+export function measurePointDistance(a, b, { gridSpaces = false } = {}) {
   try {
     if (!a || !b) return null;
 
-    // Preferred: BaseGrid.measurePath (v13+)
     const grid = canvas?.grid;
     if (grid && typeof grid.measurePath === "function") {
-      const result = grid.measurePath([a, b]);
-      const dist = result?.distance ?? result?.totalDistance ?? null;
-      if (Number.isFinite(dist)) return dist;
+      const result = grid.measurePath([a, b], gridSpaces ? { gridSpaces: true } : undefined);
+      const dist = result?.distance ?? result?.gridDistance ?? result?.totalDistance ?? null;
+      if (Number.isFinite(dist)) return Number(dist);
     }
 
-    // Fallback: manual calculation
     const gridSize = Number(canvas?.scene?.grid?.size ?? 0);
     const gridDistance = Number(canvas?.scene?.grid?.distance ?? 0);
     if (gridSize > 0 && gridDistance > 0) {
@@ -266,4 +287,60 @@ function _measurePointDistance(a, b) {
     console.warn("UESRPG | Failed to measure point distance", err);
     return null;
   }
+}
+
+/**
+ * Measure distance from a token to a canvas point, honoring center/edge mode.
+ * Edge mode falls back to center measurement on hex grids.
+ *
+ * @param {Token} token
+ * @param {{x:number,y:number}|null} point
+ * @param {{mode?: "center"|"edge"}} [options]
+ * @returns {number|null}
+ */
+export function measureTokenToPointDistance(token, point, { mode = null } = {}) {
+  try {
+    if (!token || !point) return null;
+    if (!canvas?.ready) return null;
+
+    const resolvedMode = mode ?? getTokenRangeMeasurementMode();
+    if (resolvedMode !== "edge") {
+      const center = token?.center ?? token?.object?.center ?? null;
+      return measurePointDistance(center, point, { gridSpaces: true });
+    }
+
+    const doc = token?.document ?? token;
+    const gridSize = Number(canvas?.scene?.grid?.size ?? 0);
+    const gridDistance = Number(canvas?.scene?.grid?.distance ?? 0);
+    const gridType = canvas?.grid?.type ?? CONST.GRID_TYPES.SQUARE;
+    if (!doc || !gridSize || !gridDistance) return null;
+
+    const supportsEdge = gridType === CONST.GRID_TYPES.SQUARE || gridType === CONST.GRID_TYPES.GRIDLESS;
+    if (!supportsEdge) {
+      const center = token?.center ?? token?.object?.center ?? null;
+      return measurePointDistance(center, point, { gridSpaces: true });
+    }
+
+    const width = Math.max(1, Number(doc.width ?? 1));
+    const height = Math.max(1, Number(doc.height ?? 1));
+    const left = Number(doc.x ?? 0);
+    const top = Number(doc.y ?? 0);
+    const right = left + (width * gridSize);
+    const bottom = top + (height * gridSize);
+
+    const dx = point.x < left ? (left - point.x) : (point.x > right ? (point.x - right) : 0);
+    const dy = point.y < top ? (top - point.y) : (point.y > bottom ? (point.y - bottom) : 0);
+    return (Math.hypot(dx, dy) / gridSize) * gridDistance;
+  } catch (err) {
+    console.warn("UESRPG | Failed to measure token-to-point distance", err);
+    return null;
+  }
+}
+
+/**
+ * Measure distance between two points.
+ * @private
+ */
+function _measurePointDistance(a, b) {
+  return measurePointDistance(a, b);
 }

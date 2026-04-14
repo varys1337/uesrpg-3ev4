@@ -8,6 +8,8 @@ import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../../
 import { promptDialog } from "../../../utils/dialog-v2-helper.js";
 import { appendChargenAudit } from "./char-gen/audit-log.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { t, tf } from "../../../utils/i18n.js";
+import { findIndexEntryByNormalizedName, getDocumentById } from "../../../core/compendium/access-service.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -48,7 +50,7 @@ export async function applyBirthsignSelection(actor, {
   if (!actor || !signKey) return false;
   const selectedSign = birthsignSigns[String(signKey).toLowerCase()];
   if (!selectedSign) {
-    ui.notifications?.error?.("Selected birthsign data was not found.");
+    ui.notifications?.error?.(t("UESRPG.Notifications.CharGen.SelectedBirthsignMissing"));
     return false;
   }
 
@@ -56,12 +58,9 @@ export async function applyBirthsignSelection(actor, {
   const itemsToCreate = [];
   for (const item of itemsArray) {
     if (item.pack) {
-      const pack = game.packs.get(item.pack);
-      if (!pack) continue;
-      await pack.getIndex();
-      const entry = pack.index.find((e) => e.name.toLowerCase() === item.name.toLowerCase());
+      const entry = await findIndexEntryByNormalizedName(item.pack, item.name, { fields: ["name"] });
       if (!entry) continue;
-      const itemDoc = await pack.getDocument(entry._id);
+      const itemDoc = await getDocumentById(item.pack, entry._id);
       if (!itemDoc) continue;
       const itemData = itemDoc.toObject();
       delete itemData.ownership;
@@ -89,9 +88,9 @@ export async function applyBirthsignSelection(actor, {
       .join("");
 
     await promptDialog({
-      title: "Star-Cursed Attribute Penalty",
-      content: `<div><div class="form-group"><label>Select attribute to reduce by ${Math.abs(choices.modifier)}:</label><select id="attr-select">${attrOptions}</select></div></div>`,
-      okLabel: "OK",
+      title: t("UESRPG.Dialogs.CharGen.StarCursedPenaltyTitle"),
+      content: `<div><div class="form-group"><label>${tf("UESRPG.Dialogs.CharGen.StarCursedPenaltyLabel", { amount: Math.abs(choices.modifier) })}</label><select id="attr-select">${attrOptions}</select></div></div>`,
+      okLabel: t("UESRPG.UI.OK"),
       callback: async (html) => {
         const el = html instanceof HTMLElement ? html : html?.[0];
         const selectedAttr = el?.querySelector("#attr-select")?.value;
@@ -161,7 +160,6 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
     id: "uesrpg-race-menu-v2",
     classes: ["worldbuilding", "uesrpg", "uesrpg-creation-app", "uesrpg-race-menu-app"],
     window: {
-      title: "Race Menu",
       resizable: true,
     },
     position: {
@@ -189,6 +187,10 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
     });
   }
 
+  get title() {
+    return t("UESRPG.Dialogs.CharGen.RaceMenuTitle", "Race Menu");
+  }
+
   async _prepareContext(options) {
     const coreRaceCards = renderRaceCards(coreRaces);
     const variantRaceCards = renderRaceCards(coreVariants);
@@ -214,7 +216,7 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
       const customRaceLabel = root.querySelector("#customRace")?.value?.trim() ?? "";
 
       if (raceSelection.length < 1 && customRaceLabel === "") {
-        ui.notifications.error("Please select a race or input a custom race label");
+        ui.notifications.error(t("UESRPG.Notifications.CharGen.SelectRaceOrCustom"));
         return;
       }
 
@@ -227,7 +229,7 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
         raceName = raceSelection[0].value;
         const selectedRace = races[raceName];
         if (!selectedRace) {
-          ui.notifications.error("Selected race data was not found.");
+          ui.notifications.error(t("UESRPG.Notifications.CharGen.SelectedRaceMissing"));
           return;
         }
 
@@ -300,7 +302,6 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     id: "uesrpg-birthsign-menu-v2",
     classes: ["worldbuilding", "uesrpg", "uesrpg-creation-app", "uesrpg-birthsign-menu-app"],
     window: {
-      title: "Birthsign Menu",
       resizable: true,
     },
     position: {
@@ -326,6 +327,10 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       app.#resolver = resolve;
       app.render(true);
     });
+  }
+
+  get title() {
+    return t("UESRPG.Dialogs.CharGen.BirthsignMenuTitle", "Birthsign Menu");
   }
 
   async _prepareContext(options) {
@@ -370,7 +375,7 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const customSignLabel = root.querySelector("#customSign")?.value?.trim() ?? "";
 
       if (signSelection.length < 1 && customSignLabel === "") {
-        ui.notifications.error("Please select a birthsign or input a custom birthsign label");
+        ui.notifications.error(t("UESRPG.Notifications.CharGen.SelectBirthsignOrCustom"));
         return;
       }
 
@@ -428,4 +433,3 @@ function toSlug(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
-

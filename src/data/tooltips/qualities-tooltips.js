@@ -10,6 +10,7 @@ import {
   buildPlaceholderShortText,
   composeTooltipText,
 } from "./shared-tooltips.js";
+import { buildTooltipHeader, localizeTooltipEntry } from "./tooltip-i18n.js";
 
 export const DEFAULT_QUALITY_TOOLTIP_POINTER = "See UESRPG Rules: Chapter 7 (Weapon/Armor Qualities).";
 
@@ -88,12 +89,18 @@ export function buildQualityTooltipText({ label, key, itemType = "" }) {
   const normalizedKey = String(key ?? "").trim();
   const normalizedLabel = String(label ?? "").trim() || normalizedKey || "Unknown";
   const entry = getQualityTooltipEntry(normalizedKey, { itemType });
-  const pointer = entry?.pointer ?? DEFAULT_QUALITY_TOOLTIP_POINTER;
-  const shortText = entry?.shortText ?? buildPlaceholderShortText({ domain: "quality", id: normalizedKey || "unknown" });
+  const localized = localizeTooltipEntry("Qualities", normalizedKey || "unknown", entry, {
+    label: normalizedLabel,
+    pointerId: "Quality",
+  });
+  const shortText = localized.shortText || buildPlaceholderShortText({ domain: "quality", id: normalizedKey || "unknown" });
   return composeTooltipText({
-    header: `Quality: ${normalizedLabel} (${normalizedKey}).`,
+    header: buildTooltipHeader("Quality", {
+      label: localized.label,
+      key: normalizedKey,
+    }, `Quality: ${localized.label} (${normalizedKey}).`),
     shortText,
-    pointer,
+    pointer: localized.pointer || DEFAULT_QUALITY_TOOLTIP_POINTER,
   });
 }
 
@@ -101,6 +108,14 @@ export function buildQualityHelpText({ label, key, itemType = "" }) {
   const normalizedKey = String(key ?? "").trim();
   const normalizedLabel = String(label ?? "").trim() || normalizedKey || "Unknown";
   const entry = getQualityTooltipEntry(normalizedKey, { itemType });
-  const helpText = entry?.helpText ?? buildPlaceholderLongText({ domain: "quality", id: normalizedKey || "unknown" });
-  return `${normalizedLabel} (${normalizedKey}): ${helpText}`;
+  const localized = localizeTooltipEntry("Qualities", normalizedKey || "unknown", entry, {
+    label: normalizedLabel,
+    pointerId: "Quality",
+  });
+  const helpText = localized.helpText || buildPlaceholderLongText({ domain: "quality", id: normalizedKey || "unknown" });
+  const header = buildTooltipHeader("Quality", {
+    label: localized.label,
+    key: normalizedKey,
+  }, `Quality: ${localized.label} (${normalizedKey}).`);
+  return [header, helpText].filter(Boolean).join(" ");
 }

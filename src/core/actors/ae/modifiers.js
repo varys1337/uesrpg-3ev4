@@ -13,6 +13,7 @@ import { getApplicableEffectsCached } from "../../active-effects/modifier-evalua
 import { applyNumericModifierChange, createModifierTotal, isAddMode, isOverrideMode, mergeModifierTotals } from "../../active-effects/reducers.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
 import { getEffectChanges } from "../../../utils/compat.js";
+import { getCachedAETotals, setCachedAETotals } from "../derived-cache/actor-derived-cache.js";
 
 const RESISTANCE_AE_PATHS = Object.freeze({
   fireR: ["system.modifiers.resistance.fireR", "system.traits.resistance.fire"],
@@ -98,10 +99,10 @@ function _mergeFromMap(map, keySet) {
  * @returns {Record<string, {add: number, override: number|null}>}
  */
 export function buildActorAETotalsMap(actor) {
-  if (actor?._aeTotalsMap) return actor._aeTotalsMap;
+  const cached = getCachedAETotals(actor);
+  if (cached) return cached;
   const map = collectAEModifiersForKeys(actor, _ALL_ACTOR_AE_KEYS);
-  if (actor) actor._aeTotalsMap = map;
-  return map;
+  return setCachedAETotals(actor, map);
 }
 
 /**
@@ -422,11 +423,9 @@ export function collectSkillAEModifiers(actor) {
       if (!m) continue;
       const name = m[1];
       const val = Number(change.value) || 0;
-      const mode = Number(change.mode);
-      // mode 5 = OVERRIDE, mode 2 = ADD (Foundry CONST.ACTIVE_EFFECT_MODES)
-      if (isOverrideMode(mode)) {
+      if (isOverrideMode(change)) {
         overrideTracker[name] = val;
-      } else if (isAddMode(mode)) {
+      } else if (isAddMode(change)) {
         result[name] = (result[name] ?? 0) + val;
       }
     }

@@ -1,5 +1,6 @@
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { doTestRoll, formatResultSummary } from "../../utils/degree-roll-helper.js";
+import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
 import { buildCircumstanceOptionsHtml, circumstanceLabel, normalizeCircumstanceMod } from "../opposed/circumstance.js";
 import { SKILL_DIFFICULTIES, computeSkillTN } from "../skills/skill-tn.js";
 import { isReligionWorshipEnabled } from "../homebrew/settings.js";
@@ -17,6 +18,7 @@ import { getWorshipDomainState } from "./worship-store.js";
 import { hasShrineWarden, getSeasonedTheurgeBindings } from "./clerical-talents.js";
 import { isActorInsideMatchingConsecratedRegion } from "./consecration.js";
 import { updateWorshipDomain } from "./worship-service.js";
+import { getLocalizedInvocationEffect, getLocalizedInvocationName } from "./religion-i18n.js";
 
 function asKey(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -72,7 +74,7 @@ async function chooseInvocationOptions(actor, invocation, {
   return customDialog({
     title: "Invocation Options",
     content: `<div class="uesrpg-spell-options">
-      <h3>${escapeHtml(invocation?.name ?? "Invocation")}</h3>
+      <h3>${escapeHtml(getLocalizedInvocationName(invocation) || invocation?.name || "Invocation")}</h3>
       <div class="form-group">
         <label>PP Cost: <b>${pietyCost}</b></label>
       </div>
@@ -198,11 +200,11 @@ function buildInvocationFlavor({
   if (options?.manualModifier) declaredParts.push(`Mod ${options.manualModifier >= 0 ? "+" : ""}${options.manualModifier}`);
   if (options?.aspectMatch) declaredParts.push("Aspect +10");
 
-  const effectText = String(invocation?.system?.effect ?? invocation?.system?.description ?? "").trim();
+  const effectText = getLocalizedInvocationEffect(invocation);
 
   return `
     <div>
-      <h2 style="margin:0 0 6px 0;"><img src="${escapeHtml(invocation?.img ?? "")}" style="height:24px; vertical-align:middle; margin-right:6px;"/>${escapeHtml(invocation?.name ?? "Invocation")}</h2>
+      <h2 style="margin:0 0 6px 0;"><img src="${escapeHtml(invocation?.img ?? "")}" style="height:24px; vertical-align:middle; margin-right:6px;"/>${escapeHtml(getLocalizedInvocationName(invocation) || invocation?.name || "Invocation")}</h2>
       <div><b>Target Number:</b> ${tn?.finalTN ?? 0}</div>
       ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
       <div style="margin-top:4px;">${degreeLine}</div>
@@ -296,7 +298,7 @@ export async function castInvocationFromItem({ actor, invocation, token = null }
           type: "invocationCast",
           createdAt: Date.now(),
           invocationId: invocation.id,
-          invocationName: invocation.name,
+          invocationName: getLocalizedInvocationName(invocation) || invocation.name,
           invocationDomainKey: getInvocationDomainKey(invocation),
           storeDomainKey,
           tnDomainKey,
@@ -319,11 +321,11 @@ export async function castInvocationFromItem({ actor, invocation, token = null }
       options,
       result: rollResult,
     });
-    const rollMode = game.settings.get("core", "rollMode");
+    const rollMode = getCoreRollMode();
     const invocationTest = {
       actorUuid: actor.uuid,
       invocationUuid: invocation.uuid,
-      invocationName: invocation.name,
+      invocationName: getLocalizedInvocationName(invocation) || invocation.name,
       storeDomainKey,
       tnDomainKey,
       target: tn.finalTN,

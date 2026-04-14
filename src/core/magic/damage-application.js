@@ -15,8 +15,6 @@ import { getActorTraitValue } from "../traits/trait-registry.js";
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
 import { _str, createDebugLogger } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
-import { RULE_PHASES } from "../rules/phases.js";
-import { evaluateRuleElementsRuntime } from "../traits/features/rule-element-runtime.js";
 import { isShieldItem } from "../items/shield-utils.js";
 import { getResolvedArmorValues } from "../combat/armor-state.js";
 
@@ -40,20 +38,6 @@ function _maxEffectFlagNumber(actor, { flagPath } = {}) {
   }
 
   return max;
-}
-
-function _sumRuntimeDamageBonus(runtime, damageType) {
-  const list = Array.isArray(runtime?.damageBonus) ? runtime.damageBonus : [];
-  if (!list.length) return 0;
-  const dtype = _str(damageType).toLowerCase() || DAMAGE_TYPES.MAGIC;
-  let total = 0;
-  for (const row of list) {
-    const value = Number(row?.value ?? 0) || 0;
-    if (!value) continue;
-    const bonusType = _str(row?.damageType).toLowerCase();
-    if (!bonusType || bonusType === "untyped" || bonusType === dtype) total += value;
-  }
-  return total;
 }
 
 function _getWhisperRecipients(actor) {
@@ -276,25 +260,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
 
   let adjustedDamage = Number(damage || 0) || 0;
   const extraBreakdownLines = [];
-  const runtimePreDamage = evaluateRuleElementsRuntime({
-    actor: casterActor,
-    targetActor,
-    item: spell ?? null,
-    rollContext: options?.rollContext ?? null,
-    workflow: "magic",
-    phase: RULE_PHASES.PRE_DAMAGE,
-    side: "attacker",
-    attackMode: "magic"
-  });
-  const runtimeDamageBonus = _sumRuntimeDamageBonus(runtimePreDamage, dt);
-  const runtimeWtDelta = Number(runtimePreDamage?.wtDelta ?? 0) || 0;
-  if (runtimeDamageBonus !== 0) {
-    adjustedDamage = Math.max(0, adjustedDamage + runtimeDamageBonus);
-    extraBreakdownLines.push(`Rule Elements: +${runtimeDamageBonus}`);
-  }
-  if (runtimeWtDelta !== 0) {
-    extraBreakdownLines.push(`Rule Elements: WT ${runtimeWtDelta >= 0 ? "+" : ""}${runtimeWtDelta}`);
-  }
+  const woundThresholdDelta = 0;
   if (_bool(options.isOverloaded) && Number(options.overloadBonus || 0) > 0) {
     extraBreakdownLines.push(`Overload Bonus: +${Number(options.overloadBonus || 0)}`);
   }
@@ -376,7 +342,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
       magicSource: true,
       skipChatMessage,
       extraBreakdownLines,
-      woundThresholdDelta: runtimeWtDelta,
+      woundThresholdDelta,
       damageAppliedByType,
     });
     if (!result) return result;
@@ -422,7 +388,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     magicSource: true,
     skipChatMessage,
     extraBreakdownLines,
-    woundThresholdDelta: runtimeWtDelta,
+    woundThresholdDelta,
     damageAppliedByType: dt && dt !== "none" && dt !== DAMAGE_TYPES.PHYSICAL ? damageAppliedByType : null,
   });
   if (!result) return result;

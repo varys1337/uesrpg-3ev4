@@ -2,26 +2,26 @@
                 <div class="magicTabContainer">
                     <div class="magicSkillContainer">
                         <div class="section-header">
-                            <span class="section-header__label">Magic Skills</span>
+                            <span class="section-header__label">{{localize "UESRPG.Sheets.Magic.MagicSkills"}}</span>
                             <button type="button" data-action="itemCreate" class="section-header__action" id="magicSkill">+</button>
                         </div>
                         <ol class="skillList">
                             {{#each actor.magicSkill as |item|}}
                                 <li class="item" data-item-id="{{item._id}}">
                                     <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
-                                        <img class="item-img" src="{{item.img}}" data-action="itemOpen" title="Open Item"/>
+                                        <img class="item-img" src="{{item.img}}" data-action="itemOpen" title="{{localize "UESRPG.UI.OpenItem"}}"/>
                                         <div class="item-name skill-open-item" data-action="itemOpen">
                                             {{item.name}}
                                         </div>
                                     </div>
                                     <div class="item-controls">
                                         <div class="item-value">{{item.system.value}}%</div>
-                                        <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                        <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a>
                                     </div>
                                 </li>
                             {{/each}}
                             {{#unless actor.magicSkill.length}}
-                                <li>No magic skills trained.</li>
+                                <li>{{localize "UESRPG.Sheets.Magic.NoMagicSkillsTrained"}}</li>
                             {{/unless}}
                         </ol>
                     </div>
@@ -42,9 +42,9 @@
                                     <table class="spell-school-table">
                                         <thead>
                                             <tr>
-                                                <th>Name</th>
-                                                <th>Circle</th>
-                                                <th>PP Cost</th>
+                                                <th>{{localize "UESRPG.UI.Name"}}</th>
+                                                <th>{{localize "UESRPG.Sheets.Magic.Circle"}}</th>
+                                                <th>{{localize "UESRPG.Sheets.Magic.PPCost"}}</th>
                                                 <th><i class="fas fa-trash"></i></th>
                                             </tr>
                                         </thead>
@@ -52,14 +52,14 @@
                                             {{#each group.invocations as |invocation|}}
                                                 <tr class="spell-row item active" data-item-id="{{invocation._id}}">
                                                     <td class="spell-name-cell">
-                                                        <i class="fas fa-dice-d20 magic-roll" data-action="castInvocation" title="Invoke Rite"></i>
+                                                        <i class="fas fa-dice-d20 magic-roll" data-action="castInvocation" title="{{localize "UESRPG.Sheets.Magic.InvokeRite"}}"></i>
                                                         <img class="item-img" src="{{invocation.img}}" data-action="itemOpen" />
                                                         <span class="item-name" data-action="itemOpen">{{invocation.name}}</span>
                                                     </td>
-                                                    <td class="spell-rank-cell">Circle {{invocation.system.circle}}</td>
+                                                    <td class="spell-rank-cell">{{localize "UESRPG.Sheets.Magic.Circle"}} {{invocation.system.circle}}</td>
                                                     <td class="spell-mp-cell">{{invocation.system.pietyCost}}</td>
                                                     <td class="spell-actions-cell">
-                                                        <a class="item-delete" data-action="itemDelete" title="Delete"><i class="fas fa-trash"></i></a>
+                                                        <a class="item-delete" data-action="itemDelete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
                                                     </td>
                                                 </tr>
                                             {{/each}}
@@ -68,7 +68,7 @@
                                 </div>
                             {{/each}}
                             {{#unless actor.invocationGroups.length}}
-                                <p>No invocations known.</p>
+                                <p>{{localize "UESRPG.Sheets.Magic.NoInvocationsKnown"}}</p>
                             {{/unless}}
                         </div>
                     </div>
@@ -84,7 +84,7 @@
                                         <span class="school-name">{{schoolData.label}}</span>
                                         <span class="school-count">({{schoolData.count}})</span>
                                         <span class="npc-school-rank" onclick="event.stopPropagation();">
-                                            <label class="sr-only">Effective Rank</label>
+                                            <label class="sr-only">{{localize "UESRPG.Sheets.Magic.EffectiveRank"}}</label>
                                             <select name="flags.uesrpg-3ev4.npcMagicSchoolRanks.{{schoolData.key}}" class="npc-school-rank-select">
                                                 {{selectOptions @root.actor.ui.npcMagicRankOptions selected=schoolData.effectiveRank}}
                                             </select>
@@ -93,9 +93,9 @@
                                     <table class="spell-school-table">
                                         <thead>
                                             <tr>
-                                                <th>Name</th>
-                                                <th>Rank</th>
-                                                <th>MP Cost</th>
+                                                <th>{{localize "UESRPG.UI.Name"}}</th>
+                                                <th>{{localize "UESRPG.UI.Rank"}}</th>
+                                                <th>{{localize "UESRPG.Sheets.Magic.MPCost"}}</th>
                                                 <th><i class="fas fa-trash"></i></th>
                                             </tr>
                                         </thead>
@@ -103,22 +103,22 @@
                                             {{#each schoolData.spells as |spell|}}
                                                 <tr class="spell-row item active" data-item-id="{{spell._id}}">
                                                     <td class="spell-name-cell">
-                                                        <i class="fas fa-dice-d20 magic-roll" data-action="magicRoll" title="Cast Spell (Left-click) / Post Description (Right-click)"></i>
+                                                        <i class="fas fa-dice-d20 magic-roll" data-action="magicRoll" title="{{localize "UESRPG.Sheets.Magic.CastSpellPostDescription"}}"></i>
                                                         <img class="item-img" src="{{spell.img}}" data-action="itemOpen" />
                                                         <span class="item-name" data-action="itemOpen">{{spell.name}}</span>
                                                     </td>
                                                     <td class="spell-rank-cell">
-                                                        {{#if (eq spell.system.level 1)}}Novice{{/if}}
-                                                        {{#if (eq spell.system.level 2)}}Apprentice{{/if}}
-                                                        {{#if (eq spell.system.level 3)}}Adept{{/if}}
-                                                        {{#if (eq spell.system.level 4)}}Expert{{/if}}
-                                                        {{#if (eq spell.system.level 5)}}Master{{/if}}
-                                                        {{#if (eq spell.system.level 6)}}Grandmaster{{/if}}
-                                                        {{#if (eq spell.system.level 7)}}Legendary{{/if}}
+                                                        {{#if (eq spell.system.level 1)}}{{localize "UESRPG.Choices.Ranks.novice"}}{{/if}}
+                                                        {{#if (eq spell.system.level 2)}}{{localize "UESRPG.Choices.Ranks.apprentice"}}{{/if}}
+                                                        {{#if (eq spell.system.level 3)}}{{localize "UESRPG.Choices.Ranks.adept"}}{{/if}}
+                                                        {{#if (eq spell.system.level 4)}}{{localize "UESRPG.Choices.Ranks.expert"}}{{/if}}
+                                                        {{#if (eq spell.system.level 5)}}{{localize "UESRPG.Choices.Ranks.master"}}{{/if}}
+                                                        {{#if (eq spell.system.level 6)}}{{localize "UESRPG.Choices.Ranks.grandmaster"}}{{/if}}
+                                                        {{#if (eq spell.system.level 7)}}{{localize "UESRPG.Choices.Ranks.legendary"}}{{/if}}
                                                     </td>
                                                     <td class="spell-mp-cell">{{spell.system.cost}}</td>
                                                     <td class="spell-actions-cell">
-                                                        <a class="item-delete" data-action="itemDelete" title="Delete"><i class="fas fa-trash"></i></a>
+                                                        <a class="item-delete" data-action="itemDelete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
                                                     </td>
                                                 </tr>
                                             {{/each}}

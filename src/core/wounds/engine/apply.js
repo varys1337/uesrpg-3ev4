@@ -30,6 +30,7 @@ import {
 import { makeEffect, getWhisperRecipientsForActor } from "./format.js";
 import { getWoundState, isDerivedWounded, getBloodLossStatus, WOUND_STATES } from "./state.js";
 import { buildDifficultyOptionsHtml, deleteOwnedEffects, getCurrentWorldTimeSeconds } from "../shared.js";
+import { buildEffectChange, buildEffectChangesData } from "../../../utils/compat.js";
 
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const _SHOCK_IN_FLIGHT = new Set();
@@ -126,7 +127,7 @@ async function _upsertShockMarker(actor, { applicationId = "", kind = "", hitLoc
     name: String(name ?? "Marker"),
     img,
     statuses: _statusesForShockKind(canonicalKind),
-    changes: Array.isArray(changes) ? changes : [],
+    ...buildEffectChangesData(Array.isArray(changes) ? changes : []),
     flags: { [FLAG_SCOPE]: { wounds: woundFlags } }
   }]);
   const created = Array.isArray(docs) ? (docs[0] ?? null) : null;
@@ -209,8 +210,8 @@ export async function applyMaimedOutcomeForWound(actor, woundEffect, { reason = 
       name: `Maimed Body (${label})`,
       img: "icons/svg/skull.svg",
       changes: [
-        { key: "system.stamina.max", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -1, priority: 20 },
-        { key: "system.wound_threshold.value", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -1, priority: 20 }
+        buildEffectChange({ key: "system.stamina.max", type: "add", value: -1, priority: 20 }),
+        buildEffectChange({ key: "system.wound_threshold.value", type: "add", value: -1, priority: 20 })
       ],
       extraWoundFlags: { permanent: true, maimed: true, maimedAt: now, maimedReason: reason, immediate: immediate === true }
     });
@@ -607,8 +608,8 @@ export async function ensureWoundedPassiveEffect(actor) {
         disabled: false,
         duration: {},
         changes: [
-          { key: "system.woundPenalty", mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE, value: -20, priority: 20 },
-          { key: "system.modifiers.initiative.bonus", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: -2, priority: 20 }
+          buildEffectChange({ key: "system.woundPenalty", type: "override", value: -20, priority: 20 }),
+          buildEffectChange({ key: "system.modifiers.initiative.bonus", type: "add", value: -2, priority: 20 })
         ],
         flags: {
           [FLAG_SCOPE]: {

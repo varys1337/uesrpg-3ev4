@@ -1,38 +1,39 @@
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { escapeFearHtml } from "./effects-and-restrictions.js";
+import { t } from "../../utils/i18n.js";
 
 export async function showFearTestDialog({ defaultType = "panic", defaultModifier = 0, defaultSource = "Fear Source" } = {}) {
   return customDialog({
-    title: "Configure Fear Test",
+    title: t("UESRPG.Dialogs.Fear.ConfigureTitle"),
     content: `
       <div style="display:grid;gap:var(--form-gap,6px);padding:0 4px 4px">
         <div class="form-group">
-          <label class="form-group__label">Test Type</label>
+          <label class="form-group__label">${t("UESRPG.Dialogs.Fear.TestType")}</label>
           <div class="form-fields">
             <select name="type">
-              <option value="panic"${defaultType === "panic" ? " selected" : ""}>Panic - Mundane Horror (WP +/- X)</option>
-              <option value="horror"${defaultType === "horror" ? " selected" : ""}>Horror - Supernatural Terror (WP +/- X)</option>
+              <option value="panic"${defaultType === "panic" ? " selected" : ""}>${t("UESRPG.Dialogs.Fear.PanicOption")}</option>
+              <option value="horror"${defaultType === "horror" ? " selected" : ""}>${t("UESRPG.Dialogs.Fear.HorrorOption")}</option>
             </select>
           </div>
         </div>
         <div class="form-group">
-          <label class="form-group__label">Modifier</label>
+          <label class="form-group__label">${t("UESRPG.Dialogs.Fear.Modifier")}</label>
           <div class="form-fields">
             <input type="number" name="modifier" value="${Number(defaultModifier) || 0}" step="5" placeholder="0" />
           </div>
-          <p class="hint">Positive = easier. Negative = harder.</p>
+          <p class="hint">${t("UESRPG.Dialogs.Fear.ModifierHint")}</p>
         </div>
         <div class="form-group">
-          <label class="form-group__label">Fear Source</label>
+          <label class="form-group__label">${t("UESRPG.Dialogs.Fear.Source")}</label>
           <div class="form-fields">
-            <input type="text" name="source" value="${escapeFearHtml(defaultSource)}" placeholder="Fear Source" />
+            <input type="text" name="source" value="${escapeFearHtml(defaultSource)}" placeholder="${t("UESRPG.Dialogs.Fear.Source")}" />
           </div>
         </div>
       </div>
     `,
     buttons: {
       ok: {
-        label: "Run Tests",
+        label: t("UESRPG.Dialogs.Fear.RunTests"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.element ?? html;
           if (!(root instanceof HTMLElement)) return null;
@@ -44,7 +45,7 @@ export async function showFearTestDialog({ defaultType = "panic", defaultModifie
           };
         }
       },
-      cancel: { label: "Cancel", callback: () => null }
+      cancel: { label: t("UESRPG.UI.Cancel"), callback: () => null }
     },
     defaultButton: "ok",
     rejectClose: false

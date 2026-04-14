@@ -3,10 +3,11 @@
 
  *
  * Small AoE geometry helpers for escape checks.
- * Foundry VTT v13.
+ * Foundry VTT v14.359+.
  */
 
 import { resolveUuidSync } from "./uuid-cache.js";
+import { testAreaPoint } from "../core/aoe/containment.js";
 
 function _getPixelsPerMeter() {
   const gridSize = Number(canvas?.grid?.size ?? 0) || 0;
@@ -26,6 +27,17 @@ function _getTemplateObject(templateDoc, templateId) {
   );
 }
 
+function _getRegionObject(regionDoc, regionId) {
+  if (regionDoc?.object) return regionDoc.object;
+  const id = regionDoc?.id ?? regionDoc?._id ?? regionId ?? null;
+  if (!id) return null;
+  return (
+    canvas?.regions?.get?.(id) ??
+    canvas?.regions?.placeables?.find?.((region) => region?.id === id || region?.document?.id === id) ??
+    null
+  );
+}
+
 /**
  * Resolve a MeasuredTemplateDocument from a UUID.
  * @param {string|null} templateUuid
@@ -41,26 +53,20 @@ function resolveTemplateByUuid(templateUuid) {
   }
 }
 
-/**
- * Determine if a token can move 1 meter to leave a template area.
- * Uses a simple 8-direction sample from the token center.
- *
- * @param {object} params
- * @param {string|null} params.templateUuid
- * @param {string|null} params.templateId
- * @param {Token|null} params.token
- * @param {number} params.stepMeters
- * @returns {boolean|null} true if a 1m step can exit, false if not, null if unknown
- */
-export function canTokenEscapeTemplate({ templateUuid = null, templateId = null, token = null, stepMeters = 1 } = {}) {
-  if (!canvas?.scene || !token) return null;
+function resolveRegionByUuid(regionUuid) {
+  if (!regionUuid) return null;
+  try {
+    const doc = resolveUuidSync(String(regionUuid));
+    return doc?.documentName === "Region" ? doc : null;
+  } catch (_e) {
+    return null;
+  }
+}
 
-  const templateDoc = resolveTemplateByUuid(templateUuid);
-  const templateObj = _getTemplateObject(templateDoc, templateId);
-  if (!templateObj?.shape || typeof templateObj.shape.contains !== "function") return null;
-
+function _canTokenEscapeAreaObject(areaObj, token, stepMeters) {
   const center = token?.center ?? token?.object?.center ?? null;
   if (!center) return null;
+  const elevation = token?.document?.elevation ?? token?.elevation ?? 0;
 
   const ppm = _getPixelsPerMeter();
   if (!ppm) return null;
@@ -68,7 +74,13 @@ export function canTokenEscapeTemplate({ templateUuid = null, templateId = null,
   const step = Number(stepMeters) * ppm;
   if (!Number.isFinite(step) || step <= 0) return null;
 
-  const isInside = templateObj.shape.contains(center.x - templateObj.x, center.y - templateObj.y);
+  let isInside = false;
+  try {
+    isInside = testAreaPoint(areaObj, center, { elevation });
+  } catch (_e) {
+    return null;
+  }
+
   if (!isInside) return true;
 
   const diag = step / Math.SQRT2;
@@ -84,11 +96,44 @@ export function canTokenEscapeTemplate({ templateUuid = null, templateId = null,
   ];
 
   for (const off of offsets) {
-    const px = center.x + off.x;
-    const py = center.y + off.y;
-    const inside = templateObj.shape.contains(px - templateObj.x, py - templateObj.y);
-    if (!inside) return true;
+    const point = { x: center.x + off.x, y: center.y + off.y };
+    try {
+      const inside = testAreaPoint(areaObj, point, { elevation });
+      if (!inside) return true;
+    } catch (_e) {
+      return null;
+    }
   }
 
   return false;
+}
+
+export function canTokenEscapeArea({ areaUuid = null, areaId = null, token = null, stepMeters = 1 } = {}) {
+  if (!canvas?.scene || !token) return null;
+
+  const regionDoc = resolveRegionByUuid(areaUuid);
+  if (regionDoc) return _canTokenEscapeAreaObject(regionDoc, token, stepMeters);
+  const regionObj = _getRegionObject(regionDoc, areaId);
+  if (regionObj) return _canTokenEscapeAreaObject(regionObj, token, stepMeters);
+
+  const templateDoc = resolveTemplateByUuid(areaUuid);
+  const templateObj = _getTemplateObject(templateDoc, areaId);
+  if (templateObj) return _canTokenEscapeAreaObject(templateObj, token, stepMeters);
+
+  return null;
+}
+
+/**
+ * Determine if a token can move 1 meter to leave a template area.
+ * Uses a simple 8-direction sample from the token center.
+ *
+ * @param {object} params
+ * @param {string|null} params.templateUuid
+ * @param {string|null} params.templateId
+ * @param {Token|null} params.token
+ * @param {number} params.stepMeters
+ * @returns {boolean|null} true if a 1m step can exit, false if not, null if unknown
+ */
+export function canTokenEscapeTemplate({ templateUuid = null, templateId = null, token = null, stepMeters = 1 } = {}) {
+  return canTokenEscapeArea({ areaUuid: templateUuid, areaId: templateId, token, stepMeters });
 }

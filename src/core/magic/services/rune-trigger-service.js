@@ -15,17 +15,18 @@
  *
  * Implementation:
  *  - Rune Origin AEs carry `flags.uesrpg.rune` metadata.
- *  - Proximity detection uses `updateToken` hook to check distance from rune template.
+ *  - Proximity detection uses `updateToken` hook to check distance from the rune area.
  *  - Time detection uses the spell tick engine (worldTime trigger).
  *  - Manual detonation via `detonateRune()` API.
  *  - Detonation applies damage, emits hook, then tears down Origin AE.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.359+
  */
 
 import { getOriginAEs, teardownOriginAE } from "../effects/origin-effect.js";
 import { requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
-import { getTokensInTemplate } from "../spell-runtime.js";
+import { getTokensInArea } from "../spell-runtime.js";
+import { getLinkedAreaEntities } from "../region-links.js";
 import { registerSpellTickHandler } from "../ticks/spell-tick-engine.js";
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE, SYSTEM_ID } from "../../system/namespace.js";
@@ -57,7 +58,7 @@ const _debug = createDebugLogger("aeLifecycleDebug", "[UESRPG][Rune]");
  * @property {string} aeUuid - UUID of the rune Origin AE
  * @property {string} actorId - Foundry id of the owning actor
  * @property {object} runeData - Snapshot of flags.rune metadata
- * @property {string[]} templateUuids - UUIDs of linked template documents
+ * @property {string[]} areaUuids - UUIDs of linked area documents
  */
 
 /** @type {Map<string, RuneEntry>} */
@@ -82,13 +83,12 @@ function _makeRuneEntry(originAE) {
   const aeUuid = originAE.uuid;
   if (!aeUuid) return null;
   const actor = originAE.parent;
-  const linked = flags.linkedEntities ?? [];
-  const tplLinks = linked.filter(l => l.type === "template");
+  const areaLinks = getLinkedAreaEntities(originAE);
   return {
     aeUuid: String(aeUuid),
     actorId: String(actor?.id ?? ""),
     runeData: { ...(flags.rune ?? {}) },
-    templateUuids: tplLinks.map(l => String(l.uuid))
+    areaUuids: areaLinks.map(l => String(l.uuid))
   };
 }
 
@@ -182,7 +182,7 @@ export function rebuildRuneRegistry() {
  * Check if an Origin AE is a rune.
  *
  * A rune is identified by having `flags.uesrpg-3ev4.rune` metadata OR
- * by having a linked template and spell with rune-like attributes.
+ * by having a linked area and spell with rune-like attributes.
  *
  * @param {ActiveEffect} originAE
  * @returns {boolean}
@@ -227,7 +227,7 @@ export function getActiveRunes(casterActor = null) {
  *
  * Collects tokens within the detonation radius, emits the `uesrpg.spell.runeDetonated`
  * hook (allowing damage/effect application by subscribers), then tears down the Origin AE
- * (removing the template and all linked entities).
+ * (removing linked areas and all linked entities).
  *
  * @param {ActiveEffect} originAE - The rune's Origin AE
  * @param {object} [opts]
@@ -241,15 +241,14 @@ export async function detonateRune(originAE, opts = {}) {
 
   const runeData = flags.rune ?? {};
   const spellName = _str(flags.spellName || originAE.name);
-  const linked = Array.isArray(flags.linkedEntities) ? flags.linkedEntities : [];
-  const tplLinks = linked.filter(l => l.type === "template");
+  const areaLinks = getLinkedAreaEntities(originAE);
 
   _debug("Detonating rune:", spellName, "trigger:", opts.triggerSource ?? "unknown");
 
-  // Collect tokens within all linked templates
+  // Collect tokens within all linked areas
   const allTokens = [];
-  for (const tpl of tplLinks) {
-    const tokens = getTokensInTemplate(tpl.uuid);
+  for (const area of areaLinks) {
+    const tokens = getTokensInArea(area.uuid);
     for (const t of tokens) {
       if (!allTokens.some(existing => existing.id === t.id)) {
         allTokens.push(t);
@@ -267,7 +266,7 @@ export async function detonateRune(originAE, opts = {}) {
       triggerSource: opts.triggerSource ?? "unknown",
       triggerToken: opts.triggerToken ?? null,
       tokens: allTokens,
-      templateUuids: tplLinks.map(l => l.uuid),
+      areaUuids: areaLinks.map(l => l.uuid),
       runeData
     });
   } catch (err) {
@@ -284,7 +283,7 @@ export async function detonateRune(originAE, opts = {}) {
     });
   } catch (_e) { /* no-op */ }
 
-  // Teardown: remove template + Origin AE
+  // Teardown: remove linked areas + Origin AE
   const result = await teardownOriginAE(originAE, { silent: true });
 
   // Delete the Origin AE itself (teardown only cleans linked entities)
@@ -335,21 +334,23 @@ export function initializeRuneTriggerService() {
       const runeData = rune.flags?.[_FLAG_NS]?.rune ?? {};
       if (runeData.triggerType !== "proximity") continue;
 
-      const linked = rune.flags?.[_FLAG_NS]?.linkedEntities ?? [];
-      const tplLinks = linked.filter(l => l.type === "template");
+      const areaLinks = getLinkedAreaEntities(rune);
 
-      for (const tpl of tplLinks) {
+      for (const area of areaLinks) {
         try {
-          const tplDoc = resolver.resolveSync(tpl.uuid);
-          if (!tplDoc) continue;
+          const areaDoc = resolver.resolveSync(area.uuid);
+          if (!areaDoc) continue;
+          const areaObj = areaDoc.object ?? areaDoc;
+          let areaCenter = areaObj?.center ?? null;
+          if (!areaCenter && areaDoc?.documentName === "Region") {
+            const bounds = areaObj?.bounds ?? null;
+            if (bounds) areaCenter = { x: bounds.x + (bounds.width / 2), y: bounds.y + (bounds.height / 2) };
+          }
+          if (!areaCenter) continue;
 
-          const tplObj = tplDoc.object ?? tplDoc;
-          const tplX = tplDoc.x ?? 0;
-          const tplY = tplDoc.y ?? 0;
-
-          // Check distance from token center to template center
-          const dx = tokenCenter.x - tplX;
-          const dy = tokenCenter.y - tplY;
+          // Check distance from token center to area center
+          const dx = tokenCenter.x - areaCenter.x;
+          const dy = tokenCenter.y - areaCenter.y;
           const distPixels = Math.sqrt(dx * dx + dy * dy);
 
           // Convert to meters using grid scale

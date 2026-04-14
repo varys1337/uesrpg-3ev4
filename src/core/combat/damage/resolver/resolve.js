@@ -22,6 +22,7 @@ import { getAETwitterMods, collectTypedBonusDamage } from "./ae-mods.js";
 import { asNumber } from "./normalize.js";
 import { listArmorSourcesForLocation } from "./armor.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
+import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import {
   calculateDamage,
   DAMAGE_TYPES,
@@ -29,8 +30,6 @@ import {
   isItemMagicSource,
   itemHasToken,
 } from "../../damage-automation.js";
-import { RULE_PHASES } from "../../../rules/phases.js";
-import { evaluateRuleElementsRuntime } from "../../../traits/features/rule-element-runtime.js";
 import { applyTalentDamageModifiers, getEnemyWoundThresholdDelta } from "../../../traits/combat-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import {
@@ -50,6 +49,7 @@ import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../
 import { collectStrikeEnchantmentEffects, consumeStrikeCharge } from "../../../enchanting/runtime/strike-runtime.js";
 import { shouldTriggerWound } from "../../../wounds/wound-rules.js";
 import { getRuntimeSystemId as _getSystemId } from "../../../system/namespace.js";
+import { getEffectChanges, normalizeActiveEffectOrigin } from "../../../../utils/compat.js";
 import {
   applyPostDamageUpdate,
   dispatchDamageAppliedHook,
@@ -96,7 +96,7 @@ async function _runEntanglingEscapeCheck({ attacker, defender } = {}) {
   await roll.toMessage({
     speaker: ChatMessage.getSpeaker({ actor: defender }),
     flavor: `Entangling Escape Check (${chosenLabel}) — ${isSuccess ? "Success" : "Failure"}`,
-    rollMode: game.settings.get("core", "rollMode")
+    rollMode: getCoreRollMode()
   });
 
   if (!isSuccess) {
@@ -185,20 +185,6 @@ function _asInt(v) {
 
 function _maxTraitValue(actor, key) {
   return Math.max(0, Number(getActorTraitValue(actor, key, { mode: "max" })) || 0);
-}
-
-function _sumRuntimeDamageBonus(runtime, damageType) {
-  const list = Array.isArray(runtime?.damageBonus) ? runtime.damageBonus : [];
-  if (!list.length) return 0;
-  const dtype = String(damageType ?? "").trim().toLowerCase() || DAMAGE_TYPES.PHYSICAL;
-  let total = 0;
-  for (const row of list) {
-    const value = Number(row?.value ?? 0) || 0;
-    if (!value) continue;
-    const bonusType = String(row?.damageType ?? "").trim().toLowerCase();
-    if (!bonusType || bonusType === "untyped" || bonusType === dtype) total += value;
-  }
-  return total;
 }
 
 function _isNaturalWeaponSource(item) {
@@ -352,22 +338,6 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   }
 
   const ctx = buildDamageContext(payload);
-  const runtimePreDamage = evaluateRuleElementsRuntime({
-    actor: ctx.options?.attackerActor ?? null,
-    targetActor,
-    item: ctx.options?.weapon ?? null,
-    rollContext: payload?.rollContext ?? null,
-    workflow: "combat",
-    phase: RULE_PHASES.PRE_DAMAGE,
-    side: "attacker",
-    attackMode: ctx.options?.attackMode ?? null
-  });
-  const runtimeDamageBonus = _sumRuntimeDamageBonus(runtimePreDamage, ctx.damageType);
-  if (runtimeDamageBonus !== 0) {
-    ctx.rawDamage = Math.max(0, Number(ctx.rawDamage || 0) + runtimeDamageBonus);
-  }
-  const runtimeWtDelta = Number(runtimePreDamage?.wtDelta ?? 0) || 0;
-
   // Unique identifier for this damage application (used for wound/shock idempotency).
   const applicationId = String(ctx.options?.applicationId ?? "").trim() || foundry.utils.randomID();
   ctx.options.applicationId = applicationId;
@@ -404,7 +374,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   if (powerAttackEffect) {
     try {
       const fromFlag = Number(getFlagValueWithFallback(powerAttackEffect, "damageBonus") ?? 0);
-      const fromChange = (powerAttackEffect.changes ?? [])
+      const fromChange = getEffectChanges(powerAttackEffect)
         .filter((ch) => String(ch?.key ?? "") === "system.modifiers.combat.damage.dealt")
         .reduce((sum, ch) => sum + (Number(ch?.value ?? 0) || 0), 0);
       if (Number.isFinite(fromFlag) && fromFlag !== 0) powerAttackAppliedBonus = fromFlag;
@@ -479,10 +449,6 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       damageContext: talentContext
     });
   }
-  if (runtimeDamageBonus) {
-    traitNotes.push(`Rule Elements: +${runtimeDamageBonus} damage`);
-  }
-
   // Weapon Expertise damage modifiers (Bruiser, Dart Thrower, Executioner, Pugilist, etc.)
   if (weaponCtx && attackerActor) {
     applyWeaponExpertiseDamageModifiers({
@@ -623,10 +589,6 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
   let woundThreshold = baseWoundThreshold;
   let woundThresholdDelta = 0;
-  if (runtimeWtDelta) {
-    woundThresholdDelta += runtimeWtDelta;
-    woundThreshold = Math.max(0, Number(woundThreshold || 0) + runtimeWtDelta);
-  }
   if (weaponCtx && attackerActor) {
     const mode = String(attackMode ?? "").toLowerCase().trim();
     if (mode === "melee" || mode === "ranged") {
@@ -667,8 +629,6 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     } else {
       traitNotes.push(`Wound Threshold: ${woundThresholdDelta}`);
     }
-  } else if (woundThresholdDelta) {
-    traitNotes.push(`Rule Elements: WT ${woundThresholdDelta >= 0 ? "+" : ""}${woundThresholdDelta}`);
   }
 
   // Spell Absorption (X): negate magic-typed bonus damage and restore MP.
@@ -968,6 +928,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   woundTriggered = woundEval.triggered === true;
 
   // Emit canonical damage-applied hook for downstream automation (e.g. Chapter 5 wounds/shock).
+  const damageOrigin = normalizeActiveEffectOrigin(ctx.options?.origin)
+    ?? normalizeActiveEffectOrigin(ctx.options?.weapon?.uuid)
+    ?? null;
   dispatchDamageAppliedHook(updateTarget, {
     applicationId,
     woundTriggered,
@@ -981,7 +944,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     source: ctx.options?.source ?? "Attack",
     weapon: ctx.options?.weapon ?? null,
     ammo: ctx.options?.ammo ?? null,
-    origin: ctx.options?.origin ?? ctx.options?.weapon ?? null,
+    origin: damageOrigin,
     chatContext: foundry.utils.deepClone(ctx.options?.chatContext ?? null),
     strikeEnchantmentSideEffects: strikeEnchantComponents.sideEffects ?? [],
   }, {

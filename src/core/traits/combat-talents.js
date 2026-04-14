@@ -17,7 +17,6 @@ import {
   getTalentItem,
   getSkillRank
 } from "./talents-api.js";
-import { shouldYieldToRE } from "./features/rule-elements.js";
 import { hasCondition } from "../conditions/condition-engine.js";
 import { itemHasToken } from "../combat/damage-automation.js";
 import { getEffectiveWeaponHands } from "../combat/combat-utils.js";
@@ -43,7 +42,6 @@ export function applyAttackerTalentPreTN({ attacker, declaration, situationalMod
 
   const variant = _lower(declaration?.variant ?? "");
   if (variant === "precision" && hasTalent(attacker, "precise")) {
-    if (shouldYieldToRE(attacker, "precise", "tnModifier", "combat", getTalentItem)) return;
     if (!situationalMods.some((m) => String(m?.key ?? "") === "talent:precise")) {
       situationalMods.push(_buildSituationalMod("talent:precise", "Precise", +20));
     }
@@ -56,9 +54,6 @@ export function getDefenseTalentOverrides({ defender, attackMode, attackerWeapon
   const isRanged = (mode === "ranged");
 
   if (defender && isRanged && weaponCtx && hasTalent(defender, "lightningreflexes")) {
-    if (shouldYieldToRE(defender, "lightningreflexes", "defenseOverride", "combat", getTalentItem)) {
-      return { allowParryRanged: false, parryRangedTNMod: 0 };
-    }
     return { allowParryRanged: true, parryRangedTNMod: -20 };
   }
   return { allowParryRanged: false, parryRangedTNMod: 0 };
@@ -100,11 +95,9 @@ export function getEnemyWoundThresholdDelta({ attacker, attackMode } = {}) {
   const mode = _lower(attackMode);
   if (!attacker) return 0;
   if (mode === "melee" && hasTalent(attacker, "cripplingstrikes")) {
-    if (shouldYieldToRE(attacker, "cripplingstrikes", "wtDelta", "combat", getTalentItem)) return 0;
     return -1;
   }
   if (mode === "ranged" && hasTalent(attacker, "eyeofvengeance")) {
-    if (shouldYieldToRE(attacker, "eyeofvengeance", "wtDelta", "combat", getTalentItem)) return 0;
     return -1;
   }
   return 0;
@@ -127,8 +120,6 @@ export function applyTalentDamageModifiers({ attacker, target, attackerToken, we
   if (!hasTalent(attacker, "sneakattack") && !hasTalent(attacker, "assassinate")) return;
   if (!weapon || weapon.type !== "weapon") return;
 
-  const sneakYieldToRE = shouldYieldToRE(attacker, "sneakattack", "damageBonus", "combat", getTalentItem);
-
   const tok = attackerToken ?? getActorCanvasToken(attacker);
   const forcedHidden = (typeof damageContext.attackFromHidden === "boolean") ? damageContext.attackFromHidden : null;
   const hiddenNow = forcedHidden === null
@@ -137,16 +128,12 @@ export function applyTalentDamageModifiers({ attacker, target, attackerToken, we
   if (!hiddenNow) return;
 
   if (hasTalent(attacker, "sneakattack")) {
-    if (sneakYieldToRE) {
+    const stealthRank = getSkillRank(attacker, "Stealth");
+    if (stealthRank > 0) {
+      damageContext.talentDamageBonus = _asNumber(damageContext.talentDamageBonus, 0) + stealthRank;
+      damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
+      damageContext.talentNotes.push(`Sneak Attack: +${stealthRank} damage (Stealth rank)`);
       damageContext._isSneakAttack = true;
-    } else {
-      const stealthRank = getSkillRank(attacker, "Stealth");
-      if (stealthRank > 0) {
-        damageContext.talentDamageBonus = _asNumber(damageContext.talentDamageBonus, 0) + stealthRank;
-        damageContext.talentNotes = Array.isArray(damageContext.talentNotes) ? damageContext.talentNotes : [];
-        damageContext.talentNotes.push(`Sneak Attack: +${stealthRank} damage (Stealth rank)`);
-        damageContext._isSneakAttack = true;
-      }
     }
   }
 

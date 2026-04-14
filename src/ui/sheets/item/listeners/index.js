@@ -7,7 +7,6 @@ import { registerContainmentListeners } from "./containment.js";
 import { registerModifierListeners } from "./modifiers.js";
 import { registerUsageListeners } from "./usage.js";
 import { registerEffectListeners } from "./effects.js";
-import { registerRuleElementListeners } from "./rule-elements.js";
 import { activateTalentFromItemSheet, activatePowerFromItemSheet, activateTraitFromItemSheet } from "../../shared-handlers.js";
 import { SPECIAL_ACTIONS } from "../../../../core/config/special-actions.js";
 import { isDebugEnabled } from "../../../../utils/debug.js";
@@ -566,5 +565,4 @@ export function registerItemSheetListeners(sheet, html) {
   registerModifierListeners(sheet, html);
   registerUsageListeners(sheet, html);
   registerEffectListeners(sheet, html);
-  registerRuleElementListeners(sheet, html);
 }

@@ -11,6 +11,7 @@ import {
 } from "../../../../core/advancement/spell-learning.js";
 import { appendChargenAudit } from "./audit-log.js";
 import { SYSTEM_ID, templatePath } from "../../../constants.js";
+import { t, tf } from "../../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -62,7 +63,6 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     classes: ["worldbuilding", "uesrpg", "uesrpg-spell-learning-app"],
     position: { width: 980, height: 760 },
     window: {
-      title: "Spell Learning (Chargen)",
       resizable: true,
     },
     dragDrop: [
@@ -90,6 +90,10 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     const app = new SpellLearningMenuAppV2(actor, options);
     await app.render(true);
     return app;
+  }
+
+  get title() {
+    return t("UESRPG.Dialogs.SpellLearning.Title", "Spell Learning (Chargen)");
   }
 
   #buildLiveFingerprint() {
@@ -176,7 +180,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     this.#draftEntries.push({
       id: this.#nextEntryId(),
       kind: asString(op.kind || "spellLearn"),
-      label: asString(op.label || "Staged spell learning"),
+      label: asString(op.label || t("UESRPG.Dialogs.SpellLearning.StagedSpellLearning")),
       costXp: asNumber(op.costXp, 0),
       costWealth: asNumber(op.costWealth, 0),
       payload: cloneData(op.payload ?? {}),
@@ -203,10 +207,10 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   async #confirmDiscardIfDirty() {
     if (!this.#dirty) return true;
     return confirmDialog({
-      title: "Discard Unconfirmed Spell Purchases",
-      content: "<p>Discard all staged spell purchases and close?</p>",
-      yesLabel: "Discard",
-      noLabel: "Keep Editing",
+      title: t("UESRPG.Dialogs.SpellLearning.DiscardUnconfirmedTitle"),
+      content: `<p>${t("UESRPG.Dialogs.SpellLearning.DiscardUnconfirmedContent")}</p>`,
+      yesLabel: t("UESRPG.UI.Discard"),
+      noLabel: t("UESRPG.UI.KeepEditing"),
     });
   }
 
@@ -229,7 +233,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   async #finalizeDraft() {
     if (!this.#draftEntries.length) return { ok: true, applied: 0 };
     if (this.#isDrifted()) {
-      return { ok: false, reason: "Actor data changed while this menu was open. Reopen Spell Learning and stage again." };
+      return { ok: false, reason: t("UESRPG.Notifications.SpellLearning.ActorChangedReopen") };
     }
 
     const createdData = [];
@@ -321,7 +325,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     const recentLog = Array.isArray(log)
       ? [...log].slice(-12).reverse().map((row) => ({
         outcome: asString(row?.outcome),
-        spellName: asString(row?.spell?.name || "Unknown Spell"),
+        spellName: asString(row?.spell?.name || t("UESRPG.Dialogs.SpellLearning.UnknownSpell")),
         spellType: asString(row?.spell?.type || "conventional"),
         level: asNumber(row?.spell?.level, 1),
         school: asString(row?.spell?.school || "unknown"),
@@ -334,7 +338,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
 
     return {
       ...context,
-      actorName: this.#sessionBase?.actorName ?? this.#actor?.name ?? "Unknown",
+      actorName: this.#sessionBase?.actorName ?? this.#actor?.name ?? t("UESRPG.UI.Unknown"),
       xp: asNumber(this.#sessionBase?.xp, 0),
       xpProjected: asNumber(derived?.xp, 0),
       wealth: asNumber(this.#sessionBase?.wealth, 0),
@@ -378,7 +382,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     if (!data || data.type !== "Item") return;
     const spell = await resolveDroppedItem(data);
     if (!spell || spell.type !== "spell") {
-      ui.notifications?.warn?.("Only spell items can be dropped here.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpellLearning.OnlySpellItems"));
       return;
     }
     const zone = String(event?.target?.closest?.(".uesrpg-spelllearn__dropzone")?.dataset?.zone ?? "");
@@ -415,23 +419,23 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     const drakesOk = drakesValidation.ok;
 
     if (!xpOk && !drakesOk) {
-      return { ok: false, reason: xpValidation.reason || drakesValidation.reason || "Spell learning blocked." };
+      return { ok: false, reason: xpValidation.reason || drakesValidation.reason || t("UESRPG.Notifications.SpellLearning.Blocked") };
     }
     if (xpOk && !drakesOk) return { ok: true, paymentMode: "xp" };
     if (!xpOk && drakesOk) return { ok: true, paymentMode: "drakes" };
 
     const choice = await customDialog({
-      title: "Choose Spell Payment",
+      title: t("UESRPG.Dialogs.SpellLearning.ChoosePaymentTitle"),
       content: `<div style="display:flex; flex-direction:column; gap:6px;">
         <p style="margin:0;"><b>${spell.name}</b></p>
-        <p style="margin:0;">Type: ${costs.type} | Level ${costs.level}</p>
-        <p style="margin:0;">XP Cost: ${costs.xpCost}</p>
-        <p style="margin:0;">Drakes Cost: ${costs.drakesCost}</p>
+        <p style="margin:0;">${tf("UESRPG.Dialogs.SpellLearning.TypeLevel", { type: costs.type, level: costs.level })}</p>
+        <p style="margin:0;">${tf("UESRPG.Dialogs.SpellLearning.XpCost", { cost: costs.xpCost })}</p>
+        <p style="margin:0;">${tf("UESRPG.Dialogs.SpellLearning.DrakesCost", { cost: costs.drakesCost })}</p>
       </div>`,
       buttons: {
-        xp: { label: `Learn (XP ${costs.xpCost})` },
-        drakes: { label: `Learn (Drakes ${costs.drakesCost})` },
-        cancel: { label: "Cancel" },
+        xp: { label: tf("UESRPG.Dialogs.SpellLearning.LearnXpLabel", { cost: costs.xpCost }) },
+        drakes: { label: tf("UESRPG.Dialogs.SpellLearning.LearnDrakesLabel", { cost: costs.drakesCost }) },
+        cancel: { label: t("UESRPG.UI.Cancel") },
       },
       default: "xp",
     });
@@ -441,12 +445,12 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
 
   async #handleDroppedSpell(spell, zone) {
     if (zone !== "standard" && zone !== "ritual") {
-      ui.notifications?.warn?.("Drop spells into one of the spell learning zones.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpellLearning.DropIntoZone"));
       return;
     }
     const type = normalizeSpellLearningType(spell);
     if (zone === "ritual" && type !== "ritual") {
-      ui.notifications?.warn?.("Drop ritual spells in the Ritual zone.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpellLearning.DropRitualInRitualZone"));
       await appendChargenAudit(this.#actor, {
         step: "spells",
         action: "blocked",
@@ -455,7 +459,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
       return;
     }
     if (zone === "standard" && type === "ritual") {
-      ui.notifications?.warn?.("Drop ritual spells in the Ritual zone.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpellLearning.DropRitualInRitualZone"));
       await appendChargenAudit(this.#actor, {
         step: "spells",
         action: "blocked",
@@ -474,7 +478,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     const knownSpellIndex = buildKnownSpellIndex(actorMock);
     const validation = validateSpellLearningPurchase(actorMock, spell, picked.paymentMode, { knownSpellIndex });
     if (!validation.ok) {
-      ui.notifications?.warn?.(validation.reason || "Spell learning blocked.");
+      ui.notifications?.warn?.(validation.reason || t("UESRPG.Notifications.SpellLearning.Blocked"));
       return;
     }
 
@@ -482,7 +486,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     const costWealth = picked.paymentMode === "drakes" ? asNumber(validation.costs?.drakesCost, 0) : 0;
     await this.#stageOperation({
       kind: "spellLearn",
-      label: `Learn Spell: ${spell.name} (${picked.paymentMode.toUpperCase()})`,
+      label: tf("UESRPG.Dialogs.SpellLearning.LearnSpellLabel", { name: spell.name, paymentMode: picked.paymentMode.toUpperCase() }),
       costXp,
       costWealth,
       payload: {
@@ -503,7 +507,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
         costWealth,
       },
     });
-    ui.notifications?.info?.(`Staged spell: ${spell.name}.`);
+    ui.notifications?.info?.(tf("UESRPG.Notifications.SpellLearning.StagedSpell", { name: spell.name }));
   }
 
   async _onRemoveDraftEntry(event, target) {
@@ -517,10 +521,10 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     event?.preventDefault?.();
     if (!this.#dirty) return;
     const confirmed = await confirmDialog({
-      title: "Discard Staged Spell Purchases",
-      content: "<p>Discard all staged spell purchases?</p>",
-      yesLabel: "Discard",
-      noLabel: "Cancel",
+      title: t("UESRPG.Dialogs.SpellLearning.DiscardStagedTitle"),
+      content: `<p>${t("UESRPG.Dialogs.SpellLearning.DiscardStagedContent")}</p>`,
+      yesLabel: t("UESRPG.UI.Discard"),
+      noLabel: t("UESRPG.UI.Cancel"),
     });
     if (!confirmed) return;
     await this.#clearDraft();
@@ -529,15 +533,14 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   async _onConfirmDraft(event) {
     event?.preventDefault?.();
     if (!this.#draftEntries.length) {
-      ui.notifications?.info?.("No staged spell purchases to confirm.");
+      ui.notifications?.info?.(t("UESRPG.Notifications.SpellLearning.NoStagedPurchases"));
       return;
     }
     const out = await this.#finalizeDraft();
     if (!out.ok) {
-      ui.notifications?.error?.(out.reason || "Failed to confirm staged spell purchases.");
+      ui.notifications?.error?.(out.reason || t("UESRPG.Notifications.SpellLearning.ConfirmFailed"));
       return;
     }
-    ui.notifications?.info?.(`Confirmed ${out.applied} staged spell purchase(s).`);
+    ui.notifications?.info?.(tf("UESRPG.Notifications.SpellLearning.ConfirmedPurchases", { count: out.applied }));
   }
 }
-

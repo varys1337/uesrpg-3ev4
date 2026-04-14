@@ -1,6 +1,7 @@
 ﻿const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 import { customDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
+import { getCoreRollMode } from "../../../utils/chat-roll-mode.js";
 import {
   getTravelPlannerState,
   updateTravelPlannerState,
@@ -34,6 +35,7 @@ import { applyShortRest, applyLongRest, buildRestChatContent } from "../../sheet
 import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { t, tf } from "../../../utils/i18n.js";
 
 const TEMPLATE_PATH = templatePath("v2/apps/travel-planner.hbs");
 const TRACKER_DEFAULT_EFFECTS = {
@@ -167,7 +169,11 @@ function findTerrainLabel(key) {
 }
 
 function spendEffectLabel(type, effectKey, note) {
-  if (effectKey === "custom") return note ? `Custom: ${note}` : "Custom";
+  if (effectKey === "custom") {
+    return note
+      ? tf("UESRPG.Chat.TravelPlanner.CustomEffectWithNote", { note })
+      : t("UESRPG.Chat.TravelPlanner.CustomEffect");
+  }
   const pool = type === "benefit" ? PLANNING_BENEFITS : PLANNING_IMPAIRMENTS;
   const found = pool.find((e) => String(e.key) === String(effectKey));
   return found?.label ?? String(effectKey);
@@ -190,6 +196,8 @@ async function resolveActorFromUuid(uuid) {
 }
 
 export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
+  static #openByGroup = new Map();
+
   static DEFAULT_OPTIONS = {
     id: "uesrpg-travel-planner",
     classes: ["uesrpg", "uesrpg-travel-planner"],
@@ -254,11 +262,46 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     planner: { template: TEMPLATE_PATH },
   };
 
+  static getOpenInstance(groupOrUuid = "") {
+    const key = String(groupOrUuid ?? "").trim();
+    return this.#openByGroup.get(key) ?? null;
+  }
+
+  static findOpenInstance(predicate = null) {
+    const matcher = typeof predicate === "function" ? predicate : () => true;
+    for (const app of this.#openByGroup.values()) {
+      if (app?.rendered && matcher(app)) return app;
+    }
+    return null;
+  }
+
+  static async prompt({ groupUuid = null, tab = "planning", forceNew = false } = {}) {
+    const key = String(groupUuid ?? "").trim();
+    if (!forceNew && key) {
+      const existing = this.getOpenInstance(key);
+      if (existing?.rendered) {
+        await existing.setActiveTab(tab);
+        existing.bringToTop?.();
+        return existing;
+      }
+    }
+    const app = new TravelPlannerAppV2({ groupUuid, tab });
+    if (key) this.#openByGroup.set(key, app);
+    await app.render(true);
+    return app;
+  }
+
   constructor(options = {}) {
     super(options);
     this._groupUuid = options.groupUuid ?? null;
     this._initialTab = String(options.tab ?? "planning");
     this._memberCache = [];
+  }
+
+  async close(options = {}) {
+    const key = String(this._groupUuid ?? "").trim();
+    if (key) TravelPlannerAppV2.#openByGroup.delete(key);
+    return super.close(options);
   }
 
   async setActiveTab(tab) {
@@ -270,7 +313,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   }
 
   get title() {
-    return "Travel Planner";
+    return t("UESRPG.Apps.TravelPlanner.Title", "Travel Planner");
   }
 
   async _prepareContext(options) {
@@ -388,7 +431,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       if (!actor) return;
       const members = this._memberCache ?? [];
       if (!members.some((m) => String(m.uuid) === String(actor.uuid))) {
-        ui.notifications.warn("Only Group members can be assigned by drag-and-drop.");
+        ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.OnlyGroupMembersDrag"));
         return;
       }
       const phase = String(rowSlot.dataset.phase ?? "");
@@ -851,7 +894,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     if (!group?.isOwner) return;
     await createStarterEventTablesForGroup(group, { overwrite: false });
     await this.render();
-    ui.notifications.info("Starter travel/camping event tables are ready.");
+    ui.notifications.info(t("UESRPG.Notifications.TravelPlanner.StarterTablesReady"));
   }
 
   async _onSpendBenefit(event, target) {
@@ -870,14 +913,14 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
   async _onSpendCustomBenefit(event) {
     event?.preventDefault?.();
-    const note = await this.#promptCustomNote("Spend Custom Benefit");
+    const note = await this.#promptCustomNote(t("UESRPG.Dialogs.TravelPlanner.SpendCustomBenefitTitle"));
     if (!note) return;
     await this.#recordSpend("benefit", "custom", note);
   }
 
   async _onSpendCustomImpairment(event) {
     event?.preventDefault?.();
-    const note = await this.#promptCustomNote("Spend Custom Impairment");
+    const note = await this.#promptCustomNote(t("UESRPG.Dialogs.TravelPlanner.SpendCustomImpairmentTitle"));
     if (!note) return;
     await this.#recordSpend("impairment", "custom", note);
   }
@@ -935,9 +978,9 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   async _onResetPlanner(event) {
     event?.preventDefault?.();
     const ok = await confirmDialog({
-      title: "Reset Travel Planner",
-      content: "<p>Reset planner progress and assignments? Event table links will be kept.</p>",
-      yesLabel: "Reset",
+      title: t("UESRPG.Dialogs.TravelPlanner.ResetTitle"),
+      content: `<p>${t("UESRPG.Dialogs.TravelPlanner.ResetContent")}</p>`,
+      yesLabel: t("UESRPG.Dialogs.TravelPlanner.Reset"),
     });
     if (!ok) return;
     const group = await this.#resolveGroup();
@@ -949,7 +992,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   async #promptCustomNote(title) {
     const content = `
       <div class="form-group">
-        <label><b>Note</b></label>
+        <label><b>${t("UESRPG.UI.Note")}</b></label>
         <input type="text" name="note" style="width:100%;" />
       </div>
     `;
@@ -958,10 +1001,10 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       content,
       buttons: {
         ok: {
-          label: "Spend",
+          label: t("UESRPG.Dialogs.TravelPlanner.Spend"),
           callback: (root) => String(root?.querySelector('input[name="note"]')?.value ?? "").trim(),
         },
-        cancel: { label: "Cancel", callback: () => "" },
+        cancel: { label: t("UESRPG.UI.Cancel"), callback: () => "" },
       },
       default: "ok",
       width: 420,
@@ -974,11 +1017,11 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const totals = computePlanningTotals(next.planning.entries, next.planning.spends);
       const spend = availableSpends(totals);
       if (type === "benefit" && spend.benefits <= 0) {
-        ui.notifications.warn("No unspent benefits available.");
+        ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.NoUnspentBenefits"));
         return next;
       }
       if (type === "impairment" && spend.impairments <= 0) {
-        ui.notifications.warn("No unspent impairments available.");
+        ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.NoUnspentImpairments"));
         return next;
       }
       spendEntry = {
@@ -1013,7 +1056,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         }
       }
       if (idx < 0) {
-        ui.notifications.warn(`No ${targetType} spends to undo.`);
+        ui.notifications.warn(tf("UESRPG.Notifications.TravelPlanner.NoSpendsToUndo", { type: targetType }));
         return next;
       }
       const [removed] = rows.splice(idx, 1);
@@ -1047,15 +1090,15 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const when = new Date().toLocaleString();
     await ChatMessage.create({
       user: game.user.id,
-      speaker: { alias: "Travel Planner" },
+      speaker: { alias: t("UESRPG.Chat.TravelPlanner.Speaker") },
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
       content: `
         <div class="uesrpg-travel-roll-card">
-          <h3>${type === "benefit" ? "Benefit Spent" : "Impairment Spent"}</h3>
-          <p><b>Group:</b> ${esc(group?.name ?? "Unknown Group")}</p>
-          <p><b>Effect:</b> ${esc(label)}</p>
-          ${note ? `<p><b>Note:</b> ${esc(note)}</p>` : ""}
-          <p><b>By:</b> ${esc(game.user?.name ?? "Unknown User")} | <b>At:</b> ${esc(when)}</p>
+          <h3>${type === "benefit" ? t("UESRPG.Chat.TravelPlanner.BenefitSpent") : t("UESRPG.Chat.TravelPlanner.ImpairmentSpent")}</h3>
+          <p><b>${t("UESRPG.UI.Group")}:</b> ${esc(group?.name ?? t("UESRPG.Chat.TravelPlanner.UnknownGroup"))}</p>
+          <p><b>${t("UESRPG.Chat.TravelPlanner.Effect")}:</b> ${esc(label)}</p>
+          ${note ? `<p><b>${t("UESRPG.UI.Note")}:</b> ${esc(note)}</p>` : ""}
+          <p><b>${t("UESRPG.Chat.TravelPlanner.By")}:</b> ${esc(game.user?.name ?? t("UESRPG.Chat.TravelPlanner.UnknownUser"))} | <b>${t("UESRPG.Chat.TravelPlanner.At")}:</b> ${esc(when)}</p>
         </div>
       `,
     });
@@ -1064,7 +1107,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   async #rollEntry(phase, rowId) {
     const group = await this.#resolveGroup();
     if (!group?.isOwner) {
-      ui.notifications.warn("You do not have permission to roll from this planner.");
+      ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.NoPermissionToRoll"));
       return;
     }
 
@@ -1077,12 +1120,12 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const row = ensureArray(rows).find((r) => String(r.id) === String(rowId));
     if (!row) return;
     if (!row.actorUuid) {
-      ui.notifications.warn("Assign an actor first.");
+      ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.AssignActorFirst"));
       return;
     }
     const actor = await resolveActorFromUuid(row.actorUuid);
     if (!actor) {
-      ui.notifications.warn("Assigned actor could not be resolved.");
+      ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.AssignedActorUnresolved"));
       return;
     }
 
@@ -1095,14 +1138,14 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
 
     if (!hasRowRollInputs(row)) {
-      ui.notifications.warn("Select a valid skill/characteristic before rolling.");
+      ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.SelectValidTest"));
       return;
     }
 
     if ((phase === "travel" || phase === "camping")
       && String(row.endeavourKey ?? "") === "custom"
       && !String(row.note ?? "").trim()) {
-      ui.notifications.warn("Enter a custom endeavour label before rolling.");
+      ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.EnterCustomEndeavourLabel"));
       return;
     }
 
@@ -1128,13 +1171,13 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     let watchGuidance = "";
     if (phase === "camping" && row.endeavourKey === "watch") {
       const applyFatiguePrompt = await confirmDialog({
-        title: "Watch Endeavour - Fatigue Prompt",
-        content: "<p>If this watch is taken as an extra endeavour, mark 1 Fatigue on the watcher?</p>",
-        yesLabel: "Mark Guidance",
-        noLabel: "Skip",
+        title: t("UESRPG.Dialogs.TravelPlanner.WatchFatigueTitle"),
+        content: `<p>${t("UESRPG.Dialogs.TravelPlanner.WatchFatigueContent")}</p>`,
+        yesLabel: t("UESRPG.Dialogs.TravelPlanner.MarkGuidance"),
+        noLabel: t("UESRPG.UI.Skip"),
       });
       if (applyFatiguePrompt) {
-        watchGuidance = "Watch taken as an extra endeavour: apply 1 Fatigue to the watcher (manual apply).";
+        watchGuidance = t("UESRPG.Chat.TravelPlanner.WatchFatigueGuidance");
       }
     }
 
@@ -1232,7 +1275,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             </div>
           `,
         },
-        { rollMode: game.settings.get("core", "rollMode") },
+        { rollMode: getCoreRollMode() },
       );
       return;
     }
@@ -1278,7 +1321,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
     if (!outcome.triggered) {
-      ui.notifications.info(`No event this stage (${outcome.check?.total ?? 0} on 2d10).`);
+      ui.notifications.info(tf("UESRPG.Notifications.TravelPlanner.NoEventThisStage", { total: outcome.check?.total ?? 0 }));
       return;
     }
     await this.#mutateState((next) => {
@@ -1310,7 +1353,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   async #applyGroupRest(restType = "short") {
     const group = await this.#resolveGroup();
     if (!group?.isOwner) {
-      ui.notifications.warn("You do not have permission to rest this group.");
+      ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.NoPermissionToRest"));
       return;
     }
     const members = await this.#resolveGroupMembers(group);
@@ -1323,7 +1366,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       if (result?.line) lines.push(result.line);
     }
     if (!lines.length) {
-      ui.notifications.warn("No members available for rest.");
+      ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.NoMembersForRest"));
       return;
     }
 
@@ -1348,22 +1391,22 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     await this.render(false);
     if (restType === "long") {
       if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
-        ui.notifications.warn(`Long rest completed. ${timeForward.reason}`);
+        ui.notifications.warn(tf("UESRPG.Notifications.TravelPlanner.LongRestCompletedReason", { reason: timeForward.reason }));
       } else if (timeForward.applied && timeForward.mode === "sunrise") {
-        ui.notifications.info("Long rest completed. Time advanced to sunrise.");
+        ui.notifications.info(t("UESRPG.Notifications.TravelPlanner.LongRestAdvancedSunrise"));
       } else if (timeForward.applied) {
-        ui.notifications.info("Long rest completed. Time advanced by 8 hours.");
+        ui.notifications.info(t("UESRPG.Notifications.TravelPlanner.LongRestAdvancedHours"));
       } else {
-        ui.notifications.info("Long rest completed.");
+        ui.notifications.info(t("UESRPG.Notifications.TravelPlanner.LongRestCompleted"));
       }
       return;
     }
     if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
-      ui.notifications.warn(`Short rest completed. ${timeForward.reason}`);
+      ui.notifications.warn(tf("UESRPG.Notifications.TravelPlanner.ShortRestCompletedReason", { reason: timeForward.reason }));
     } else if (timeForward.applied) {
-      ui.notifications.info("Short rest completed. Time advanced by 1 hour.");
+      ui.notifications.info(t("UESRPG.Notifications.TravelPlanner.ShortRestAdvancedHour"));
     } else {
-      ui.notifications.info("Short rest completed.");
+      ui.notifications.info(t("UESRPG.Notifications.TravelPlanner.ShortRestCompleted"));
     }
   }
 
@@ -1433,7 +1476,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const group = await this.#resolveGroup();
     if (!group) return null;
     if (!group.isOwner) {
-      ui.notifications.warn("This planner is read-only for your user.");
+      ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.ReadOnly"));
       return null;
     }
     const next = await updateTravelPlannerState(group, mutator);
@@ -1441,4 +1484,3 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     return next;
   }
 }
-

@@ -2,6 +2,7 @@ import { applyGroupedEffect } from "../../utils/ae-helpers.js";
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { SYSTEM_ID } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { buildEffectChange, getEffectChanges } from "../../utils/compat.js";
 
 export const FEAR_FLAG = "fear";
 export const FEAR_GROUP_PREFIX = "fear.";
@@ -144,12 +145,12 @@ export async function createFearEffect(actor, {
   const changes = [];
   const penalty = Number(testPenalty ?? 0) || 0;
   if (penalty) {
-    changes.push({
+    changes.push(buildEffectChange({
       key: "system.modifiers.tests.all",
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD,
+      type: "add",
       value: penalty,
       priority: 20,
-    });
+    }));
   }
 
   await applyGroupedEffect(actor, {
@@ -278,7 +279,7 @@ export function getFearActionRestrictions(actor) {
     if (fear.blockActions === true) restrictions.blockActions = true;
     if (fear.blockReactions === true) restrictions.blockReactions = true;
     if (fear.cannotApproach === true) restrictions.cannotApproach = true;
-    const lanePenalty = (effect?.changes ?? [])
+    const lanePenalty = getEffectChanges(effect)
       .filter((change) => String(change?.key ?? "") === "system.modifiers.tests.all")
       .reduce((sum, change) => sum + (Number(change?.value ?? 0) || 0), 0);
     restrictions.testPenalty += lanePenalty;

@@ -2,12 +2,12 @@
 <header class="item-compact-header">
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
     <div class="item-header-fields">
-        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
         <div class="item-stats-row item-stats-row--weapon-armor">
             <div class="item-stats-grid item-stats-grid--two-rows">
                 <div class="item-stat">
                     <input type="number" name="system.quantity" value="{{item.system.quantity}}"/>
-                    <span class="item-stat-label">Quantity</span>
+                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Quantity"}}</span>
                 </div>
                 <div class="item-stat">
                     <input type="number" name="system.enc" value="{{item.system.enc}}"/>
@@ -15,29 +15,29 @@
                 </div>
                 <div class="item-stat">
                     <input type="number" name="system.price" value="{{item.system.price}}"/>
-                    <span class="item-stat-label">Price</span>
+                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Price"}}</span>
                 </div>
                 <div class="item-stat">
                     <input type="text" name="system.damage" value="{{item.system.damage}}"/>
-                    <span class="item-stat-label">Damage</span>
+                    <span class="item-stat-label">{{localize "UESRPG.Chat.Common.Damage"}}</span>
                 </div>
                 <div class="item-stat">
                     <input type="text" name="system.damage2" value="{{item.system.damage2}}"/>
-                    <span class="item-stat-label">2H Damage</span>
+                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Weapon2HDamage"}}</span>
                 </div>
                 <div class="item-stat">
                     {{#if (eq item.system.attackMode "ranged")}}
                     <input type="text" name="system.range" value="{{item.system.range}}" placeholder="X/Y/Z"/>
-                    <span class="item-stat-label">Range</span>
+                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Range"}}</span>
                     {{else}}
                     <input type="number" value="{{weaponSheetHeaderReachValue}}" min="0" step="1" disabled class="u-input-disabled"/>
-                    <span class="item-stat-label">Reach</span>
+                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Reach"}}</span>
                     {{/if}}
                 </div>
             </div>
             <div class="item-stat item-stat--equipped-side">
                 <input class="checkbox" type="checkbox" name="system.equipped" {{checked item.system.equipped}}>
-                <span class="item-stat-label">Equipped</span>
+                <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Equipped"}}</span>
             </div>
         </div>
     </div>
@@ -45,9 +45,9 @@
 
 {{!-- Sheet Tab Navigation --}}
 <nav class="sheet-tabs tabs" data-group="primary">
-    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="description">{{localize "UESRPG.UI.Description"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">{{localize "UESRPG.Sheets.Item.Attributes"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
 </nav>
 
     {{!-- Sheet Body --}}
@@ -66,21 +66,21 @@
         <div class="tab" data-group="primary" data-tab="attributes">
             <div class="attribute-tab-container">
                 <div class="item-selection-container">
-                    <h2>Attributes</h2>
+                    <h2>{{localize "UESRPG.Sheets.Item.Attributes"}}</h2>
                     <div class="selection-container">
                         <div class="weapon-attributes-container">
                             <div class="weapon-attributes-section">
-                                <h3>Quality &amp; Material</h3>
+                                <h3>{{localize "UESRPG.Sheets.Item.QualityMaterial"}}</h3>
                                 
                                 <div class="weapon-field-row">
-                                    <label>Quality</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.Quality"}}</label>
                                     <select name="system.qualityLevel">
                                         {{selectOptions weaponQualityOptions selected=item.system.qualityLevel}}
                                     </select>
                                 </div>
 
                                 <div class="weapon-field-row">
-                                    <label>Material</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.Material"}}</label>
                                     <select name="system.material">
                                         {{selectOptions weaponMaterialOptions selected=item.system.material}}
                                     </select>
@@ -88,10 +88,10 @@
                             </div>
 
                             <div class="weapon-attributes-section">
-                                <h3>Basic Properties</h3>
+                                <h3>{{localize "UESRPG.Sheets.Item.BasicProperties"}}</h3>
 
                                 <div class="weapon-field-row">
-                                    <label>Handedness</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.Handedness"}}</label>
                                     <select name="system.hands">
                                         {{selectOptions weaponHandednessOptions selected=item.system.hands}}
                                     </select>
@@ -99,31 +99,31 @@
 
                                 {{#unless (eq item.system.attackMode "ranged")}}
                                 <div class="weapon-field-row weapon-field-row--reach">
-                                    <label>Base Reach</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.BaseReach"}}</label>
                                     <div class="weapon-reach-inline">
-                                        <span class="weapon-reach-label">Min</span>
+                                        <span class="weapon-reach-label">{{localize "UESRPG.Sheets.Item.Min"}}</span>
                                         <input class="weapon-reach-input" type="number" name="system.reachMin" value="{{weaponSheetPersistedReachMinValue}}" min="0" step="1"/>
-                                        <span class="weapon-reach-label">Max Reach</span>
+                                        <span class="weapon-reach-label">{{localize "UESRPG.Sheets.Item.MaxReach"}}</span>
                                         <input class="weapon-reach-input" type="number" name="system.reach" value="{{weaponSheetPersistedReachValue}}" min="0" step="1"/>
                                     </div>
                                 </div>
 
                                 {{#if homebrewReachLengthEnabled}}
                                 <div class="weapon-field-row weapon-field-row--length">
-                                    <label>Length (LNG)</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.LengthLng"}}</label>
                                     <input type="number" name="flags.uesrpg-3ev4.homebrew.reachLength.length"
                                            value="{{lookup (lookup (lookup (lookup item.flags 'uesrpg-3ev4') 'homebrew') 'reachLength') 'length'}}"
                                            min="0" step="1" placeholder="0"/>
                                 </div>
                                 <div class="weapon-field-row weapon-field-row--reach">
-                                    <label>Reach Override</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.ReachOverride"}}</label>
                                     <div class="weapon-reach-inline">
-                                        <span class="weapon-reach-label">Min</span>
+                                        <span class="weapon-reach-label">{{localize "UESRPG.Sheets.Item.Min"}}</span>
                                         <input class="weapon-reach-input" type="number"
                                                name="flags.uesrpg-3ev4.homebrew.reachLength.{{homebrewReachModel}}.min"
                                                value="{{lookup (lookup (lookup (lookup (lookup item.flags 'uesrpg-3ev4') 'homebrew') 'reachLength') homebrewReachModel) 'min'}}"
                                                min="0" step="1" placeholder="0"/>
-                                        <span class="weapon-reach-label">Max</span>
+                                        <span class="weapon-reach-label">{{localize "UESRPG.Sheets.Item.Max"}}</span>
                                         <input class="weapon-reach-input" type="number"
                                                name="flags.uesrpg-3ev4.homebrew.reachLength.{{homebrewReachModel}}.max"
                                                value="{{lookup (lookup (lookup (lookup (lookup item.flags 'uesrpg-3ev4') 'homebrew') 'reachLength') homebrewReachModel) 'max'}}"
@@ -134,21 +134,21 @@
                                 {{/unless}}
 
                                 <div class="weapon-field-row">
-                                    <label>Roll 2H Damage</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.Roll2HDamage"}}</label>
                                     <input class="checkbox" type="checkbox" name="system.weapon2H" {{checked item.system.weapon2H}}>
                                 </div>
                             </div>
                             
                             <div class="weapon-attributes-section">
-                                <h3>Equipment Type</h3>
+                                <h3>{{localize "UESRPG.Sheets.Item.EquipmentType"}}</h3>
                                 
                                 <div class="weapon-field-row">
-                                    <label>Equipment Tag</label>
-                                    <input type="text" name="system.equipmentType" value="{{item.system.equipmentType}}" placeholder="e.g., Long Blade"/>
+                                    <label>{{localize "UESRPG.Sheets.Item.EquipmentTag"}}</label>
+                                    <input type="text" name="system.equipmentType" value="{{item.system.equipmentType}}" placeholder="{{localize "UESRPG.Sheets.Item.EquipmentTagPlaceholder"}}"/>
                                 </div>
                                 
                                 <div class="weapon-field-row">
-                                    <label>Attack Mode</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.AttackMode"}}</label>
                                     <select name="system.attackMode">
                                         {{selectOptions attackModeOptions selected=item.system.attackMode}}
                                     </select>
@@ -157,10 +157,10 @@
 
                             {{#if (eq item.system.attackMode "ranged")}}
                             <div class="weapon-attributes-section">
-                                <h3>Ranged Properties</h3>
+                                <h3>{{localize "UESRPG.Sheets.Item.RangedProperties"}}</h3>
                                 
                                 <div class="weapon-field-row">
-                                    <label>Ammunition</label>
+                                    <label>{{localize "UESRPG.Sheets.Equipment.Ammunition"}}</label>
                                     <select name="system.ammoId">
                                         <option value="">-</option>
                                         {{#each ammoOptions}}
@@ -170,12 +170,12 @@
                                 </div>
 
                                 <div class="weapon-field-row">
-                                    <label>Consume Ammo</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.ConsumeAmmo"}}</label>
                                     <input type="checkbox" name="system.consumeAmmo" {{checked item.system.consumeAmmo}}>
                                 </div>
 
                                  <div class="weapon-field-row">
-                                     <label>Reload Cost (AP)</label>
+                                     <label>{{localize "UESRPG.Sheets.Item.ReloadCostAP"}}</label>
                                      {{#if canEditReloadAPCost}}
                                      <input type="number" name="system.reloadState.reloadAPCost" value="{{item.system.reloadState.reloadAPCost}}" min="0" step="1"/>
                                      {{else}}
@@ -184,35 +184,35 @@
                                  </div>
                                 
                                 <div class="weapon-field-row">
-                                    <label>Loaded</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.Loaded"}}</label>
                                     <input type="checkbox" name="system.reloadState.isLoaded" {{checked item.system.reloadState.isLoaded}}/>
                                 </div>
                             </div>
                             {{/if}}
 
                             <div class="weapon-attributes-section enchanting-compact-grid">
-                                <h3>Enchanting</h3>
+                                <h3>{{localize "UESRPG.Sheets.Item.Enchanting"}}</h3>
                                 
                                 <div class="weapon-field-row">
-                                    <label>Enchant Level</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.EnchantLevel"}}</label>
                                     <div class="weapon-enchant-wrap enchant-inline">
                                         <input type="number" name="system.enchant_level" value="{{item.system.enchant_level}}" class="u-w-full"/>
                                         {{#if item.system.enchant_levelEffective}}
-                                            <div class="effective-hint"><span class="label">Eff</span>{{item.system.enchant_levelEffective}}</div>
+                                            <div class="effective-hint"><span class="label">{{localize "UESRPG.UI.EffectiveAbbrev"}}</span>{{item.system.enchant_levelEffective}}</div>
                                         {{/if}}
                                     </div>
                                 </div>
 
                                 <div class="weapon-field-row">
-                                    <label>Charge</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.Charge"}}</label>
                                     <div class="flex-container weapon-charge-row enchant-inline enchant-charge-inline">
-                                        <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="Decrease current charge">
+                                        <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
                                             <i class="fas fa-minus"></i>
                                         </button>
                                         <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input"/>
                                         <span class="enchant-charge-sep">/</span>
                                         <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input"/>
-                                        <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="Increase current charge">
+                                        <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
                                             <i class="fas fa-plus"></i>
                                         </button>
                                     </div>
@@ -222,14 +222,14 @@
                             {{!-- Active Enchantment display (read-only; written by Enchanting Workshop) --}}
                             {{#if enchantmentDisplay}}
                             <div class="weapon-attributes-section weapon-enchantment-display">
-                                <h3>Active Enchantment</h3>
+                                <h3>{{localize "UESRPG.Sheets.Item.ActiveEnchantment"}}</h3>
                                 <div class="weapon-field-row">
-                                    <label>Type</label>
+                                    <label>{{localize "UESRPG.Sheets.Equipment.Type"}}</label>
                                     <span class="styled-font-gold">{{enchantmentDisplay.typeLabel}}</span>
                                 </div>
                                 {{#if enchantmentDisplay.useCharges}}
                                 <div class="weapon-field-row">
-                                    <label>Charge Pool</label>
+                                    <label>{{localize "UESRPG.Sheets.Item.ChargePool"}}</label>
                                     <span>{{enchantmentDisplay.chargeValue}} / {{enchantmentDisplay.chargeMax}}</span>
                                 </div>
                                 {{/if}}
@@ -241,7 +241,7 @@
                                 {{/each}}
                                 {{#if (eq enchantmentDisplay.typeLabel "Cast")}}
                                 <div class="weapon-field-row">
-                                    <button type="button" data-action="castEnchantment">Cast Enchantment</button>
+                                    <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
                                 </div>
                                 {{/if}}
                             </div>
@@ -253,7 +253,7 @@
 
                 <div class="quality-container">
                     <div class="flex-container">
-                        <h2>Qualities</h2>
+                        <h2>{{localize "UESRPG.Sheets.Item.Qualities"}}</h2>
                     </div>
 
                     <!-- Core qualities (kept as a compact grid for automation-critical toggles/values) -->
@@ -281,7 +281,7 @@
 
                     <!-- Other traits (reference / future automation) -->
                     <div class="structured-traits-block">
-                        <div class="structured-traits-label">Other Traits</div>
+                        <div class="structured-traits-label">{{localize "UESRPG.Sheets.Item.OtherTraits"}}</div>
                         <div class="structured-traits-pills">
                             {{#each traitsCatalog}}
                                 <label class="uesrpg-pill {{#if this.selected}}is-selected{{/if}}">
@@ -296,25 +296,25 @@
                 {{#if uiSpellcastingConfig}}
                 <div class="quality-container">
                     <div class="flex-container">
-                        <h2>Spellcasting Configuration</h2>
+                        <h2>{{localize "UESRPG.Sheets.Item.SpellcastingConfiguration"}}</h2>
                     </div>
                     <div class="selection-container">
                         <p class="u-text-muted u-text-sm">
-                            Configure item-based spellcasting slots. For each slot: pick a spell, set binding strength, then choose cost mode and value.
+                            {{localize "UESRPG.Sheets.Item.SpellcastingConfigurationWeaponHelp"}}
                         </p>
                         <div class="weapon-field-row">
-                            <label>Enable Spellcasting</label>
+                            <label>{{localize "UESRPG.Sheets.Item.EnableSpellcasting"}}</label>
                             <button type="button" data-action="toggleSpellcastingEnable">
-                                {{#if uiSpellcastingConfig.enabled}}Disable{{else}}Enable{{/if}}
+                                {{#if uiSpellcastingConfig.enabled}}{{localize "UESRPG.Sheets.Item.Disable"}}{{else}}{{localize "UESRPG.Sheets.Item.Enable"}}{{/if}}
                             </button>
                         </div>
                         {{#if uiSpellcastingConfig.enabled}}
                         <div class="weapon-field-row">
-                            <label>Charge Pool (Soul)</label>
-                            <span class="u-text-muted">Used by Soul-cost slots; synced with item Charge.</span>
+                            <label>{{localize "UESRPG.Sheets.Item.ChargePoolSoul"}}</label>
+                            <span class="u-text-muted">{{localize "UESRPG.Sheets.Item.ChargePoolSoulHelp"}}</span>
                         </div>
                         <div class="weapon-field-row">
-                            <label>Charge Current / Max</label>
+                            <label>{{localize "UESRPG.Sheets.Item.ChargeCurrentMax"}}</label>
                             <div class="right-align-content">
                                 <input type="number" data-spellcasting-charge="value" value="{{uiSpellcastingConfig.poolValue}}" min="0" step="1" class="u-w-50" />
                                 <span>/</span>
@@ -322,51 +322,51 @@
                             </div>
                         </div>
                         <div class="weapon-field-row">
-                            <button type="button" data-action="addSpellcastingSlot">Add Spell Slot</button>
-                            <button type="button" data-action="editSpellcastingSlot">Save Spellcasting Config</button>
+                            <button type="button" data-action="addSpellcastingSlot">{{localize "UESRPG.Sheets.Item.AddSpellSlot"}}</button>
+                            <button type="button" data-action="editSpellcastingSlot">{{localize "UESRPG.Sheets.Item.SaveSpellcastingConfig"}}</button>
                         </div>
                         {{#each uiSpellcastingConfig.slots as |slot|}}
                         <div class="weapon-enchant-effect-row u-py-sm" data-spellcasting-slot-id="{{slot.id}}">
                             <div class="weapon-field-row">
-                                <label>Slot Name</label>
-                                <input type="text" data-spellcasting-field="label" value="{{slot.label}}" placeholder="e.g. Fire Bolt" />
+                                <label>{{localize "UESRPG.Sheets.Item.SlotName"}}</label>
+                                <input type="text" data-spellcasting-field="label" value="{{slot.label}}" placeholder="{{localize "UESRPG.Sheets.Item.SlotNamePlaceholder"}}" />
                             </div>
                             <div class="weapon-field-row">
-                                <label>Resource Cost</label>
-                                <input type="number" data-spellcasting-field="cost" value="{{slot.cost}}" min="0" step="1" title="Resource Cost Value" />
+                                <label>{{localize "UESRPG.Sheets.Item.ResourceCost"}}</label>
+                                <input type="number" data-spellcasting-field="cost" value="{{slot.cost}}" min="0" step="1" title="{{localize "UESRPG.Sheets.Item.ResourceCostValue"}}" />
                             </div>
                             <div class="weapon-field-row">
-                                <label>Binding Strength</label>
-                                <input type="number" data-spellcasting-field="bindingStrength" value="{{slot.bindingStrength}}" min="0" max="10" step="1" title="Auto-success DoS value" />
+                                <label>{{localize "UESRPG.Sheets.Item.BindingStrength"}}</label>
+                                <input type="number" data-spellcasting-field="bindingStrength" value="{{slot.bindingStrength}}" min="0" max="10" step="1" title="{{localize "UESRPG.Sheets.Item.AutoSuccessDosValue"}}" />
                             </div>
                             <div class="weapon-field-row">
-                                <label>Cost Mode</label>
+                                <label>{{localize "UESRPG.Sheets.Item.CostMode"}}</label>
                                 <select data-spellcasting-field="costMode">
-                                    <option value="soul" {{#if (eq slot.costMode "soul")}}selected{{/if}}>Soul Energy</option>
-                                    <option value="magicka" {{#if (eq slot.costMode "magicka")}}selected{{/if}}>Magicka</option>
-                                    <option value="none" {{#if (eq slot.costMode "none")}}selected{{/if}}>No Cost</option>
+                                    <option value="soul" {{#if (eq slot.costMode "soul")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.SoulEnergy"}}</option>
+                                    <option value="magicka" {{#if (eq slot.costMode "magicka")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.Magicka"}}</option>
+                                    <option value="none" {{#if (eq slot.costMode "none")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.NoCost"}}</option>
                                 </select>
                             </div>
                             <div class="weapon-field-row">
-                                <label>Enabled</label>
+                                <label>{{localize "UESRPG.Sheets.Item.Enabled"}}</label>
                                 <label>
                                     <input type="checkbox" data-spellcasting-field="enabled" {{checked slot.enabled}} />
-                                    Slot Active
+                                    {{localize "UESRPG.Sheets.Item.SlotActive"}}
                                 </label>
                             </div>
                             <div class="weapon-field-row">
-                                <label>Stored Spell UUID</label>
-                                <span class="enchant-effect-params u-text-muted">{{#if slot.spellUuid}}{{slot.spellUuid}}{{else}}No spell selected yet{{/if}}</span>
+                                <label>{{localize "UESRPG.Sheets.Item.StoredSpellUUID"}}</label>
+                                <span class="enchant-effect-params u-text-muted">{{#if slot.spellUuid}}{{slot.spellUuid}}{{else}}{{localize "UESRPG.Sheets.Item.NoSpellSelectedYet"}}{{/if}}</span>
                             </div>
                             <div class="weapon-field-row">
-                                <button type="button" data-action="pickSpellcastingSlotSpell" data-slot-id="{{slot.id}}">Pick Spell</button>
-                                <button type="button" data-action="removeSpellcastingSlot" data-slot-id="{{slot.id}}">Remove Slot</button>
+                                <button type="button" data-action="pickSpellcastingSlotSpell" data-slot-id="{{slot.id}}">{{localize "UESRPG.Sheets.Item.PickSpell"}}</button>
+                                <button type="button" data-action="removeSpellcastingSlot" data-slot-id="{{slot.id}}">{{localize "UESRPG.Sheets.Item.RemoveSlot"}}</button>
                             </div>
                         </div>
                         {{/each}}
                         {{#if uiSpellcastingConfig.canCast}}
                         <div class="weapon-field-row">
-                            <button type="button" data-action="castEnchantment">Cast Enchantment</button>
+                            <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
                         </div>
                         {{/if}}
                         {{/if}}

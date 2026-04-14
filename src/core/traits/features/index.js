@@ -17,29 +17,4 @@ export {
   STACKING_OVERRIDE_OPTIONS,
   TARGET_POLICY_OPTIONS
 } from "./feature-config.js";
-export {
-  RULE_ELEMENT_TYPES,
-  CONDITION_TYPES,
-  RULE_ELEMENT_RUNTIME_SUPPORT,
-  getRuleElements,
-  setRuleElements,
-  createRuleElement,
-  createCondition,
-  getRuleElementOptions,
-  getRuleElementTypesByFamily,
-  getRuleElementRuntimeSupport,
-  normalizeRuleElement,
-  validateRuleElement,
-  isREAuthoritative,
-  shouldYieldToRE,
-} from "./rule-elements.js";
 export { compileConditionsToPredicate } from "./conditions-to-predicate.js";
-export {
-  isRuleElementRuntimeEnabled,
-  getRuleElementRuntimeSettingsState,
-  evaluateRuleElementsRuntime,
-  getRuntimeTnDelta,
-  applyRuntimePreRollToTN,
-  applyRuntimePostRollToResult,
-  selfTestRuleElementRuntime
-} from "./rule-element-runtime.js";

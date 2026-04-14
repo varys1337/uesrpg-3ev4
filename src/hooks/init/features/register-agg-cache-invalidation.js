@@ -1,14 +1,13 @@
 import { registerOnce } from "../../_internal/hook-registry.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
+import { invalidateActorDerivedCache } from "../../../core/actors/derived-cache/actor-derived-cache.js";
 
 export function registerAggCacheInvalidationHooks() {
   registerOnce("hooks:agg-cache-invalidation", () => {
     const invalidateActorAggCacheFromItem = (item) => {
       const actor = item?.parent;
       if (!actor || actor.documentName !== "Actor") return;
-      if (Object.prototype.hasOwnProperty.call(actor, "_aggCache")) actor._aggCache = null;
-      if (Object.prototype.hasOwnProperty.call(actor, "_aeApplicableCache")) actor._aeApplicableCache = null;
-      if (Object.prototype.hasOwnProperty.call(actor, "_aeTotalsMap")) actor._aeTotalsMap = null;
+      invalidateActorDerivedCache(actor, { lanes: ["items", "ae", "prepare"] });
     };
 
     Hooks.on("preUpdateItem", (item, _changes, _options, _userId) => invalidateActorAggCacheFromItem(item));

@@ -5,6 +5,7 @@
 
 import { doesUserOwnActor } from "../../../../utils/authority-proxy.js";
 import { formatResultSummary } from "../../../../utils/degree-roll-helper.js";
+import { getCoreRollMode, isPublicChatMessageMode } from "../../../../utils/chat-roll-mode.js";
 
 export function _esc(value) {
   const raw = String(value ?? "");
@@ -46,11 +47,7 @@ export function _safeGetSetting(key, defaultValue = null) {
 }
 
 export function _getCoreRollMode(defaultValue = "roll") {
-  try {
-    return game.settings.get("core", "rollMode") ?? defaultValue;
-  } catch (_e) {
-    return defaultValue;
-  }
+  return getCoreRollMode({ fallback: defaultValue });
 }
 
 export function _isQuickShiftRequested(event) {
@@ -62,9 +59,7 @@ export function _emitSuppressedSubRollDice(roll, { rollMode = null } = {}) {
   const dsn = game?.dice3d;
   if (!dsn || typeof dsn.showForRoll !== "function") return null;
 
-  const mode = String(rollMode ?? _getCoreRollMode("roll")).toLowerCase();
-  const isPublic = mode === "roll" || mode === "publicroll";
-  const sync = Boolean(isPublic);
+  const sync = isPublicChatMessageMode(rollMode ?? _getCoreRollMode("roll"));
 
   try {
     const primary = dsn.showForRoll(roll, game.user, sync);
@@ -86,4 +81,3 @@ export function _emitSuppressedSubRollDice(roll, { rollMode = null } = {}) {
   }
   return null;
 }
-

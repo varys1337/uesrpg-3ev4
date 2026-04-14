@@ -1,6 +1,7 @@
 import { systemRootPath } from "../../core/constants.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { capitalizeFirstLetter } from "../../utils/stringHelpers.js";
+import { t } from "../../utils/i18n.js";
 
 const getUserChoice = async (choices, penalty, defaultChoice) => {
   const choiceTemplatePath = `${systemRootPath}/templates/partials/dialogs/choose-birthsign-penalty.hbs`;
@@ -12,12 +13,12 @@ const getUserChoice = async (choices, penalty, defaultChoice) => {
   });
 
   return customDialog({
-    title: "Choose Birthsign Penalty",
+    title: t("UESRPG.Dialogs.CharGen.ChooseBirthsignPenaltyTitle"),
     content,
     buttons: {
-      cancel: { label: "Cancel", callback: () => null },
+      cancel: { label: t("UESRPG.UI.Cancel"), callback: () => null },
       submit: {
-        label: "Submit",
+        label: t("UESRPG.UI.Submit"),
         callback: (html) => html.querySelector('input[type="radio"]:checked')?.value ?? null,
       },
     },

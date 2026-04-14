@@ -28,6 +28,7 @@
  */
 import { ActionEconomy } from "../../core/combat/action-economy.js";
 import { isShieldItem } from "../../core/items/shield-utils.js";
+import { t } from "../../utils/i18n.js";
 export function buildCombatQuickContext(actorData) {
   const combatStyleName = (actorData?.combatStyle?.[0]?.name) ?? null;
 
@@ -45,7 +46,7 @@ export function buildCombatQuickContext(actorData) {
 
   const equippedAmmo = equippedAmmoDocs.map(a => ({
     _id: a?._id,
-    name: a?.name ?? "(Unnamed)",
+    name: a?.name ?? t("UESRPG.UI.Unnamed", "(Unnamed)"),
     // Ammunition schema uses system.quantity (not qty)
     qty: Number.isFinite(Number(a?.system?.quantity)) ? Number(a.system.quantity) : null,
   })).filter(a => !!a._id);
@@ -57,12 +58,12 @@ export function buildCombatQuickContext(actorData) {
 
   const equippedShields = equippedArmorDocs
     .filter(a => isShieldItem(a, { allowLegacy: true }))
-    .map(a => ({ _id: a?._id, name: a?.name ?? "(Unnamed)" }))
+    .map(a => ({ _id: a?._id, name: a?.name ?? t("UESRPG.UI.Unnamed", "(Unnamed)") }))
     .filter(a => !!a._id);
 
   const equippedArmor = equippedArmorDocs
     .filter(a => !isShieldItem(a, { allowLegacy: true }))
-    .map(a => ({ _id: a?._id, name: a?.name ?? "(Unnamed)" }))
+    .map(a => ({ _id: a?._id, name: a?.name ?? t("UESRPG.UI.Unnamed", "(Unnamed)") }))
     .filter(a => !!a._id);
 
   // Optional action economy gating for quick actions.
@@ -72,7 +73,7 @@ export function buildCombatQuickContext(actorData) {
   const apValueRaw = actorData?.system?.action_points?.value;
   const apValue = Number(apValueRaw);
   const quickAttacksDisabled = enableActionEconomyUI && Number.isFinite(apValue) && apValue <= 0;
-  const quickAttacksDisabledReason = quickAttacksDisabled ? "No Action Points remaining." : "";
+  const quickAttacksDisabledReason = quickAttacksDisabled ? t("UESRPG.Sheets.Combat.NoActionPointsRemaining", "No Action Points remaining.") : "";
 
   return {
     combatStyleName,
@@ -164,25 +165,25 @@ async function performQuickWeaponAttack(actor, weaponId, options = {}) {
 
   const weapon = actor.items?.get?.(weaponId) ?? null;
   if (!weapon) {
-    ui.notifications.warn("No weapon found for that quick action.");
+    ui.notifications.warn(t("UESRPG.Notifications.Sheets.NoQuickActionWeapon", "No weapon found for that quick action."));
     return null;
   }
 
   const attackerToken = resolveTokenForActor(actor);
   if (!attackerToken) {
-    ui.notifications.warn("Please place and select a token for this actor.");
+    ui.notifications.warn(t("UESRPG.Notifications.Sheets.SelectTokenForActor", "Please place and select a token for this actor."));
     return null;
   }
 
   const defenderToken = resolveFirstTargetedToken();
   if (!defenderToken) {
-    ui.notifications.warn("Please target an enemy token.");
+    ui.notifications.warn(t("UESRPG.Notifications.Sheets.TargetEnemyToken", "Please target an enemy token."));
     return null;
   }
 
   const perform = window?.Uesrpg3e?.combat?.performWeaponAttack;
   if (typeof perform !== "function") {
-    ui.notifications.error("Combat attack helper is unavailable (Uesrpg3e.combat.performWeaponAttack).");
+    ui.notifications.error(t("UESRPG.Notifications.Sheets.CombatAttackHelperUnavailable", "Combat attack helper is unavailable (Uesrpg3e.combat.performWeaponAttack)."));
     return null;
   }
 
@@ -217,7 +218,7 @@ export async function spendActionPoints(actor, amount = 1, { reason = "" } = {})
  * @returns {string}
  */
 export function buildCollapsedActionCardHtml(title, bodyHtml) {
-  const safeTitle = String(title ?? "Action");
+  const safeTitle = String(title ?? t("UESRPG.Sheets.Combat.Action", "Action"));
   const body = String(bodyHtml ?? "");
 
   return `
@@ -230,7 +231,7 @@ export function buildCollapsedActionCardHtml(title, bodyHtml) {
           data-ues-action-card-toggle="1"
           aria-expanded="false"
           style="display:inline-flex; align-items:center; justify-content:center; white-space:nowrap; word-break:keep-all; min-width:84px; line-height:1; padding:4px 10px; text-align:center;"
-        >Expand</button>
+        >${t("UESRPG.UI.Expand", "Expand")}</button>
       </div>
       <div class="uesrpg-action-card__body" data-ues-action-card-body="1" aria-hidden="true" style="display:none;">
         ${body}

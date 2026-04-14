@@ -1,15 +1,15 @@
 <div class="uesrpg-resource-dialog__layout">
   <div class="uesrpg-resource-dialog__body uesrpg-hp-dialog">
     <div class="uesrpg-resource-dialog__group form-group">
-      <label class="uesrpg-resource-dialog__label">Current HP</label>
+      <label class="uesrpg-resource-dialog__label">{{localize "UESRPG.Dialogs.HpManagement.CurrentHp"}}</label>
       <input type="number" name="hp" value="{{currentHP}}" min="0" max="{{maxHP}}" />
-      <span class="uesrpg-resource-dialog__hint hint">Max: {{maxHP}}</span>
+      <span class="uesrpg-resource-dialog__hint hint">{{localize "UESRPG.Dialogs.HpManagement.Max" max=maxHP}}</span>
     </div>
 
     <div class="uesrpg-resource-dialog__group form-group">
-      <label class="uesrpg-resource-dialog__label">Temporary HP</label>
+      <label class="uesrpg-resource-dialog__label">{{localize "UESRPG.Dialogs.HpManagement.TempHp"}}</label>
       <input type="number" name="tempHP" value="{{currentTempHP}}" min="0" />
-      <span class="uesrpg-resource-dialog__hint hint">Extra HP buffer, does not stack</span>
+      <span class="uesrpg-resource-dialog__hint hint">{{localize "UESRPG.Dialogs.HpManagement.TempHint"}}</span>
     </div>
   </div>
 </div>

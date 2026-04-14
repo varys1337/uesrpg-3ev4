@@ -18,6 +18,7 @@ import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
+import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
 import {
   LUCKY_SLOT_KEYS,
@@ -593,7 +594,7 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
       <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
     </div>`;
 
-  const rollMode = game.settings.get("core", "rollMode");
+  const rollMode = getCoreRollMode();
 
   await res.roll.toMessage({
     user: game.user.id,

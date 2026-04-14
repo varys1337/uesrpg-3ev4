@@ -6,11 +6,11 @@
  * of active spell effects, including modified keys, duration/upkeep status,
  * and a permission-gated cancel action.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14 runtime
  */
 
 import { getOriginAEs } from "../../../core/magic/effects/origin-effect.js";
-import { getEffectChanges } from "../../../utils/compat.js";
+import { getEffectChanges, normalizeEffectChangeMode } from "../../../utils/compat.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 
@@ -175,7 +175,7 @@ function _collectModifiedKeys(actor, originAE) {
     for (const ch of getEffectChanges(ef)) {
       if (!ch?.key || seen.has(ch.key)) continue;
       seen.add(ch.key);
-      const modeStr = _modeLabel(ch.mode);
+      const modeStr = _modeLabel(ch.type);
       keys.push({
         key: ch.key,
         label: _humanizeKey(ch.key),
@@ -188,8 +188,9 @@ function _collectModifiedKeys(actor, originAE) {
 }
 
 function _modeLabel(mode) {
-  if (mode === 2 || mode === "ADD") return "+";
-  if (mode === 5 || mode === "OVERRIDE") return "=";
+  const normalized = normalizeEffectChangeMode(mode);
+  if (normalized === "add") return "+";
+  if (normalized === "override") return "=";
   return "?";
 }
 

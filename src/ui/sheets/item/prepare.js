@@ -45,18 +45,9 @@ import {
   getFeatureConfigOptions,
   getFeatureConfigCapabilities
 } from "../../../core/traits/features/feature-config.js";
-import {
-  getRuleElements,
-  getRuleElementOptions,
-  getRuleElementTypesByFamily,
-  RULE_ELEMENT_TYPES,
-  CONDITION_TYPES,
-  getRuleElementRuntimeSupport,
-  validateRuleElement
-} from "../../../core/traits/features/rule-elements.js";
-import { getRuleElementRuntimeSettingsState } from "../../../core/traits/features/rule-element-runtime.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
 import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-catalog.js";
+import { localizeStrikeEnchantment } from "../../../data/spell-i18n.js";
 import { getEffectByKey } from "../../../core/alchemy/effects.js";
 import { buildAlchemyProductEffectSlots } from "./item-sheet-alchemy-effects.js";
 import {
@@ -450,87 +441,12 @@ export async function prepareItemSheetData(sheet, data) {
   }
 
   // --------------------------------------------
-  // Feature Config + Rule Elements (Traits/Talents/Powers)
+  // Feature Config (Traits/Talents/Powers)
   // --------------------------------------------
   if (itemType && ["trait", "talent", "power"].includes(itemType)) {
     data.featureConfig = getFeatureConfig(itemDoc);
     data.featureOptions = getFeatureConfigOptions();
     data.featureCapabilities = getFeatureConfigCapabilities(itemType);
-
-    // Rule Elements
-    const runtimeSupport = getRuleElementRuntimeSupport();
-    const runtimeSettings = getRuleElementRuntimeSettingsState();
-    const workflowEnabled = runtimeSettings?.enabled ?? {};
-
-    data.ruleElements = getRuleElements(itemDoc).map((element) => {
-      const support = runtimeSupport?.[element.type] ?? { status: "planned", workflows: ["all"], phases: [] };
-      const elementWorkflows = Array.isArray(element?.workflows) && element.workflows.length ? element.workflows : ["all"];
-      const scopedWorkflows = elementWorkflows.includes("all")
-        ? ["skill", "characteristic", "combat", "magic"]
-        : elementWorkflows;
-      const supportWorkflows = Array.isArray(support?.workflows) && support.workflows.length
-        ? support.workflows
-        : ["all"];
-      const supportedScopedWorkflows = supportWorkflows.includes("all")
-        ? scopedWorkflows
-        : scopedWorkflows.filter((wf) => supportWorkflows.includes(wf));
-      const workflowSupported = supportWorkflows.includes("all") || supportedScopedWorkflows.length > 0;
-      const runtimeOffByWorkflow = supportedScopedWorkflows.length > 0
-        ? supportedScopedWorkflows.every((wf) => !workflowEnabled?.[wf])
-        : false;
-      const validation = validateRuleElement(element);
-      const supportStatus = String(support?.status ?? "planned");
-      let runtimeStatus = supportStatus;
-      let runtimeReason = "";
-
-      if (supportStatus !== "informational" && !workflowSupported) {
-        runtimeStatus = "unsupportedInWorkflow";
-        runtimeReason = "Type is not executable in the selected workflow scope.";
-      } else if (supportStatus !== "informational" && runtimeOffByWorkflow) {
-        runtimeStatus = "disabledBySetting";
-        runtimeReason = "Selected workflow scope is disabled by world runtime settings.";
-      }
-
-      return {
-        ...element,
-        runtimeStatus,
-        runtimeReason,
-        runtimeSupport: support,
-        validation
-      };
-    });
-
-    data.ruleElementOptions = getRuleElementOptions();
-    data.ruleElementTypesByFamily = getRuleElementTypesByFamily();
-    data.ruleElementRuntimeSupport = runtimeSupport;
-    data.ruleElementRuntimeSettings = runtimeSettings;
-
-    // Lookup maps for the template (type key → label/icon/description)
-    const reLabels = {};
-    const reIcons = {};
-    const reDescriptions = {};
-    for (const [key, def] of Object.entries(RULE_ELEMENT_TYPES)) {
-      reLabels[key] = def.label;
-      reIcons[key] = def.icon;
-      reDescriptions[key] = def.description;
-    }
-    data.ruleElementLabels = reLabels;
-    data.ruleElementIcons = reIcons;
-    data.ruleElementDescriptions = reDescriptions;
-    data.ruleElementStatusLabels = {
-      active: "Active",
-      planned: "Planned",
-      informational: "Informational",
-      disabledBySetting: "Disabled by Setting",
-      unsupportedInWorkflow: "Unsupported in Workflow"
-    };
-
-    // Condition label lookup
-    const condLabels = {};
-    for (const [key, def] of Object.entries(CONDITION_TYPES)) {
-      condLabels[key] = def.label;
-    }
-    data.conditionLabels = condLabels;
   }
 
   // Active Effects list for templates (plain objects)
@@ -687,9 +603,10 @@ function _buildEnchantmentDisplay(enc, item) {
       .map(e => {
         const catalogEntry = STRIKE_ENCHANTMENTS_CATALOG.find(c => c.key === e.key);
         if (!catalogEntry) return null;
+        const localizedCatalogEntry = localizeStrikeEnchantment(catalogEntry);
         return {
-          label: catalogEntry.label,
-          paramSummary: _buildParamSummary(catalogEntry, e),
+          label: localizedCatalogEntry.label,
+          paramSummary: _buildParamSummary(localizedCatalogEntry, e),
         };
       })
       .filter(Boolean);
@@ -786,13 +703,14 @@ function _buildSpellcastingUiConfig(item) {
 function _buildParamSummary(catalogEntry, effectEntry) {
   const parts = [];
   if (effectEntry.sl != null && catalogEntry.paramKeys?.includes("sl")) {
-    parts.push(`SL ${effectEntry.sl}`);
+    parts.push(`${catalogEntry.paramLabels?.sl ?? "SL"} ${effectEntry.sl}`);
   }
   if (effectEntry.y != null && catalogEntry.paramKeys?.includes("y")) {
-    parts.push(`Amount ${effectEntry.y}`);
+    parts.push(`${catalogEntry.paramLabels?.y ?? "Amount"} ${effectEntry.y}`);
   }
   if (effectEntry.type != null && catalogEntry.paramKeys?.includes("type")) {
-    parts.push(`Target: ${effectEntry.type}`);
+    parts.push(`${catalogEntry.paramLabels?.type ?? "Target"}: ${effectEntry.type}`);
   }
   return parts.join(", ");
 }
+

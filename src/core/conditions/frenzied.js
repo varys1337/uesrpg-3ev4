@@ -1,5 +1,5 @@
 import { customDialog } from "../../utils/dialog-v2-helper.js";
-import { getEffectChanges, buildEffectChangesUpdate } from "../../utils/compat.js";
+import { buildEffectChange, getEffectChanges, buildEffectChangesData, buildEffectChangesUpdate, getEffectChangeTypeValue, normalizeEffectChanges } from "../../utils/compat.js";
 
 /**
  * src/core/conditions/frenzied.js
@@ -29,12 +29,12 @@ import { getEffectChanges, buildEffectChangesUpdate } from "../../utils/compat.j
  */
 
 import { hasCondition } from "./condition-engine.js";
-import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
-import { safeGetEffect } from "../../utils/ae-helpers.js";
+import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { TimeService } from "../time/index.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { normalizeKey } from "../../utils/coerce.js";
+import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
 const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const CONDITION_KEY = "frenzied";
 const FRENZIED_END_GUARD_PATH = `${FLAG_PATH}.frenzied.endSpend`;
@@ -248,7 +248,7 @@ function _getTalentModifiers(actor) {
  * Exported for use by actor repair mechanism.
  * 
  * @param {Actor} actor
- * @returns {Array<{key: string, mode: number, value: string, priority: number}>}
+ * @returns {Array<{key: string, type: string, value: string, priority: number}>}
  */
 export function _mkFrenziedChanges(actor) {
   const mods = _getTalentModifiers(actor);
@@ -259,7 +259,7 @@ export function _mkFrenziedChanges(actor) {
     // Using system.modifiers.wound_threshold.value as per condition-engine.js (bleeding)
     { 
       key: "system.modifiers.wound_threshold.value", 
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      type: "add", 
       value: String(mods.wtBonus), 
       priority: 20 
     },
@@ -269,7 +269,7 @@ export function _mkFrenziedChanges(actor) {
     // Implement SB +N by raising STR total by +10 per +1 SB so the bonus is reflected consistently.
     { 
       key: "system.modifiers.characteristics.str", 
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      type: "add", 
       value: String(Number(mods.sbBonus) * 10), 
       priority: 20 
     },
@@ -281,7 +281,7 @@ export function _mkFrenziedChanges(actor) {
     // NOTE: This is a blanket penalty; skill-tn.js must check if skill is STR/AGI/END-based and exempt it
     { 
       key: "system.modifiers.skills.frenziedPenalty", 
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      type: "add", 
       value: String(mods.skillPenalty), 
       priority: 20 
     },
@@ -289,25 +289,25 @@ export function _mkFrenziedChanges(actor) {
     // Immunities: Stunned + fear equivalents (Panic/Horror) + passive wound effects
     { 
       key: "system.traits.immunity.stunned", 
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      type: "add", 
       value: "1", 
       priority: 30 
     },
     { 
       key: "system.traits.immunity.panic", 
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      type: "add", 
       value: "1", 
       priority: 30 
     },
     { 
       key: "system.traits.immunity.horror", 
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      type: "add", 
       value: "1", 
       priority: 30 
     },
     { 
       key: "system.traits.immunity.passiveWounds", 
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD, 
+      type: "add", 
       value: "1", 
       priority: 30 
     }
@@ -413,18 +413,17 @@ function _registerFrenziedPreCreateHook() {
       if (!isFrenzied) return;
       
       // If changes are missing or empty, inject them
-      const currentChanges = Array.isArray(data?.changes) ? data.changes : [];
+      const currentChanges = getEffectChanges(data);
       if (_needsFrenziedChangesRepair(currentChanges)) {
         const changes = _mkFrenziedChanges(parent);
-        const changesToApply = changes.map(c => ({
+        const changesToApply = normalizeEffectChanges(changes.map(c => buildEffectChange({
           key: String(c.key ?? ""),
-          mode: Number(c.mode ?? CONST.ACTIVE_EFFECT_MODES.ADD),
+          type: getEffectChangeTypeValue(c),
           value: String(c.value ?? ""),
           priority: Number(c.priority ?? 20)
-        }));
+        })));
         
-        // Inject changes into the create data
-        data.changes = changesToApply;
+        Object.assign(data, buildEffectChangesData(changesToApply));
         
         // Also ensure flags are set correctly
         if (!data.flags) data.flags = {};
@@ -477,12 +476,12 @@ function _registerFrenziedCreateHook() {
       if (_needsFrenziedChangesRepair(currentChanges)) {
         // Immediately update with changes
         const changes = _mkFrenziedChanges(actor);
-        const changesToApply = changes.map(c => ({
+        const changesToApply = normalizeEffectChanges(changes.map(c => buildEffectChange({
           key: String(c.key ?? ""),
-          mode: Number(c.mode ?? CONST.ACTIVE_EFFECT_MODES.ADD),
+          type: getEffectChangeTypeValue(c),
           value: String(c.value ?? ""),
           priority: Number(c.priority ?? 20)
-        }));
+        })));
 
         if (changesToApply.length > 0) {
           await requestUpdateDocument(effect, buildEffectChangesUpdate(changesToApply));
@@ -550,12 +549,12 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
     // If changes are missing, add them
     if (_needsFrenziedChangesRepair(existingChanges)) {
       const changes = _mkFrenziedChanges(actor);
-      const changesToApply = changes.map(c => ({
+      const changesToApply = normalizeEffectChanges(changes.map(c => buildEffectChange({
         key: String(c.key ?? ""),
-        mode: Number(c.mode ?? CONST.ACTIVE_EFFECT_MODES.ADD),
+        type: getEffectChangeTypeValue(c),
         value: String(c.value ?? ""),
         priority: Number(c.priority ?? 20)
-      }));
+      })));
       
       await requestUpdateDocument(existing, {
         ...buildEffectChangesUpdate(changesToApply),
@@ -592,19 +591,15 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
   }
 
   // Deep clone changes to avoid any reference issues
-  const changesToApply = changes.map(c => ({
+  const changesToApply = normalizeEffectChanges(changes.map(c => buildEffectChange({
     key: String(c.key ?? ""),
-    mode: Number(c.mode ?? CONST.ACTIVE_EFFECT_MODES.ADD),
+    type: getEffectChangeTypeValue(c),
     value: String(c.value ?? ""),
     priority: Number(c.priority ?? 20)
-  }));
+  })));
 
   const effectData = {
-    name: "Frenzied",
-    img: "icons/svg/terror.svg",
-    disabled: false,
     flags: {
-      core: { statusId: CONDITION_KEY },
       [FLAG_SCOPE]: {
         condition: {
           key: CONDITION_KEY,
@@ -617,9 +612,6 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
         source: "condition"
       }
     },
-    origin: null,
-    duration: {},
-    ...buildEffectChangesUpdate(changesToApply)
   };
 
   try {
@@ -632,12 +624,18 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
     _dbg("UESRPG | Frenzied | Creating effect", {
       actor: actor.name,
       changesCount: changesToApply.length,
-      changes: changesToApply.map(c => ({ key: c.key, mode: c.mode, value: c.value }))
+      changes: changesToApply.map(c => ({ key: c.key, type: c.type, value: c.value }))
     });
 
-    const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData]);
+    const createdEffect = await createOrUpdateStatusEffect(actor, {
+      statusId: CONDITION_KEY,
+      name: "Frenzied",
+      img: "icons/svg/terror.svg",
+      duration: {},
+      flags: effectData.flags,
+      changes: changesToApply,
+    });
 
-    const createdEffect = created?.[0];
     if (createdEffect) {
       const appliedChanges = getEffectChanges(createdEffect);
       if (appliedChanges.length === 0) {
@@ -649,7 +647,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
         _dbg("UESRPG | Frenzied | Effect created successfully", { effectId: createdEffect.id, changesCount: appliedChanges.length });
       }
     } else {
-      console.error("UESRPG | Frenzied | No effect was created", { created, effectData });
+      console.error("UESRPG | Frenzied | No effect was created", { effectData });
     }
 
     // RAW: Gain +1 SP immediately (can exceed max) - stored as temp SP
@@ -660,7 +658,7 @@ export async function applyFrenzied(actor, { source = "Frenzied", voluntary = fa
 
     ui.notifications.info(`${actor.name} gains ${mods.spBonus} temporary Stamina Point${mods.spBonus > 1 ? 's' : ''} from Frenzy!`);
 
-    return created?.[0] ?? null;
+    return createdEffect ?? null;
   } catch (err) {
     console.warn("UESRPG | Frenzied | failed to create effect", err);
     return null;

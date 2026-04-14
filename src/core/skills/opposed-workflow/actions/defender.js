@@ -15,7 +15,6 @@ import { buildResistanceBonusMods } from "../../../traits/trait-resistance-ui.js
 import { consumePhysicalExertionForSkill } from "../../../stamina/stamina-integration-hooks.js";
 import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../../traits/awareness-talents.js";
 import { applyIntellectualTalentDoSOverrides } from "../../../traits/intellectual-talents.js";
-import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { _getMessageState } from "../core/schema.js";
 import { _getLastSkillRollOptions, _setLastSkillRollOptions, _mergeLastSkillRollOptions } from "../core/settings.js";
 import { _emitSuppressedSubRollDice, _esc, _safeGetSetting, _getCoreRollMode, _isQuickShiftRequested } from "../core/util.js";
@@ -210,17 +209,6 @@ export async function handleDefenderRoll(ctx, action) {
   }));
 
   data.defender.tn = tn;
-  applyRuntimePreRollToTN({
-    actor: defender,
-    targetActor: attacker,
-    targetToken: aToken ?? null,
-    item: defSkill ?? null,
-    rollContext: data?.context?.rollContext,
-    workflow: "skill",
-    side: "defender",
-    skillName: skillLabel,
-    tn
-  });
   skillRollDebug("opposed defender TN", { finalTN: tn.finalTN, breakdown: tn.breakdown });
 
   const rollMode = _getCoreRollMode();
@@ -236,19 +224,6 @@ export async function handleDefenderRoll(ctx, action) {
     skillName: skillLabel,
     result: res,
     isInterrogationTest: Boolean(decl?.isInterrogationTest),
-    allowPrompt: true
-  });
-
-  await applyRuntimePostRollToResult({
-    actor: defender,
-    targetActor: attacker,
-    targetToken: aToken ?? null,
-    item: defSkill ?? null,
-    rollContext: data?.context?.rollContext,
-    workflow: "skill",
-    side: "defender",
-    skillName: skillLabel,
-    result: res,
     allowPrompt: true
   });
 

@@ -1,4 +1,5 @@
-﻿import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { t } from "../../../utils/i18n.js";
 /**
  * src/ui/apps/v2/debug-settings.js
  *
@@ -29,9 +30,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       closeOnSubmit: true,
       submitOnChange: false,
     },
-    window: {
-      title: "UESRPG - Debugging",
-    },
+    window: {},
     position: {
       width: 520,
     },
@@ -43,6 +42,10 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       template: templatePath("v2/apps/debug-settings.hbs"),
     },
   };
+
+  get title() {
+    return t("UESRPG.Apps.DebugSettings.Title", "Debugging");
+  }
 
   async _prepareContext(options) {
     return {
@@ -91,4 +94,3 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
   }
 }
-

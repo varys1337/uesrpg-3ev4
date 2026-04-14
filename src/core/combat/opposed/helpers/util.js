@@ -5,6 +5,7 @@
 
 import { isDebugEnabled } from "../../../../utils/debug.js";
 import { doesUserOwnActor, getChatMessageAuthorUser } from "../../../../utils/authority-proxy.js";
+import { getCoreRollMode, isPublicChatMessageMode } from "../../../../utils/chat-roll-mode.js";
 export { getRuntimeSystemId as _getSystemId } from "../../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
 
@@ -96,9 +97,7 @@ export function _emitSuppressedSubRollDice(roll, { rollMode = null } = {}) {
   const dsn = game?.dice3d;
   if (!dsn || typeof dsn.showForRoll !== "function") return null;
 
-  const mode = String(rollMode ?? game?.settings?.get?.("core", "rollMode") ?? "roll").toLowerCase();
-  const isPublic = mode === "roll" || mode === "publicroll";
-  const sync = Boolean(isPublic);
+  const sync = isPublicChatMessageMode(rollMode ?? getCoreRollMode());
 
   try {
     const primary = dsn.showForRoll(roll, game.user, sync);

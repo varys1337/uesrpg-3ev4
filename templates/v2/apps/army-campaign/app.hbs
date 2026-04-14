@@ -4,20 +4,20 @@
   {{else}}
   <section class="warfare-fieldset">
     <h3>{{group.name}}</h3>
-    <p><strong>Campaign Turn:</strong> {{state.campaignTurn}} | <strong>Army Actions:</strong> {{remainingActionsLabel}}</p>
-    <p><strong>Marshal:</strong> {{#if marshal}}{{marshal.name}}{{else}}Unassigned{{/if}}</p>
-    <p><strong>Location:</strong> {{#if state.locationNote}}{{state.locationNote}}{{else}}Unset{{/if}}</p>
-    <p><strong>Warfare Units:</strong> {{warfareMemberCount}} | <strong>Other Members:</strong> {{nonWarfareMemberCount}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.CampaignTurn"}}:</strong> {{state.campaignTurn}} | <strong>{{localize "UESRPG.Apps.ArmyCampaign.ArmyActions"}}:</strong> {{remainingActionsLabel}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.Marshal"}}:</strong> {{#if marshal}}{{marshal.name}}{{else}}{{localize "UESRPG.Apps.ArmyCampaign.Unassigned"}}{{/if}}</p>
+    <p><strong>{{localize "UESRPG.UI.Location"}}:</strong> {{#if state.locationNote}}{{state.locationNote}}{{else}}{{localize "UESRPG.Apps.ArmyCampaign.Unset"}}{{/if}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.WarfareUnits"}}:</strong> {{warfareMemberCount}} | <strong>{{localize "UESRPG.Apps.ArmyCampaign.OtherMembers"}}:</strong> {{nonWarfareMemberCount}}</p>
     <div class="controls">
-      {{#if editable}}<button type="button" data-action="advanceTurn"><i class="fas fa-forward"></i> Advance Turn</button>{{/if}}
-      {{#if editable}}<button type="button" data-action="setMarshal"><i class="fas fa-user-tie"></i> Set Marshal</button>{{/if}}
-      <button type="button" data-action="openMarshal"><i class="fas fa-user"></i> Open Marshal</button>
-      {{#if editable}}<button type="button" data-action="toggleSupply"><i class="fas fa-boxes-stacked"></i> Toggle Supply</button>{{/if}}
+      {{#if editable}}<button type="button" data-action="advanceTurn"><i class="fas fa-forward"></i> {{localize "UESRPG.Apps.ArmyCampaign.AdvanceTurn"}}</button>{{/if}}
+      {{#if editable}}<button type="button" data-action="setMarshal"><i class="fas fa-user-tie"></i> {{localize "UESRPG.Apps.ArmyCampaign.SetMarshal"}}</button>{{/if}}
+      <button type="button" data-action="openMarshal"><i class="fas fa-user"></i> {{localize "UESRPG.Apps.ArmyCampaign.OpenMarshal"}}</button>
+      {{#if editable}}<button type="button" data-action="toggleSupply"><i class="fas fa-boxes-stacked"></i> {{localize "UESRPG.Apps.ArmyCampaign.ToggleSupply"}}</button>{{/if}}
     </div>
   </section>
 
   <section class="warfare-fieldset">
-    <h3>Supply and State</h3>
+    <h3>{{localize "UESRPG.Apps.ArmyCampaign.SupplyAndState"}}</h3>
     <p><strong>Reserve:</strong> {{state.supply.reserve}} / {{state.supply.capacity}}</p>
     <p><strong>In Supply:</strong> {{#if state.supply.inSupply}}Yes{{else}}No{{/if}} | <strong>Out of Supply Turns:</strong> {{state.supply.consecutiveOutOfSupplyTurns}}</p>
     <p><strong>Source Note:</strong> {{#if state.supply.sourceNote}}{{state.supply.sourceNote}}{{else}}Unset{{/if}}</p>
@@ -25,24 +25,24 @@
   </section>
 
   <section class="warfare-fieldset">
-    <h3>Army Actions</h3>
+    <h3>{{localize "UESRPG.Apps.ArmyCampaign.ArmyActions"}}</h3>
     <div class="controls">
-      <button type="button" data-action="armyAction" data-army-action="march">March</button>
-      <button type="button" data-action="armyAction" data-army-action="scout">Scout</button>
-      <button type="button" data-action="armyAction" data-army-action="forage">Forage / Requisition</button>
-      <button type="button" data-action="armyAction" data-army-action="raid">Raid</button>
-      <button type="button" data-action="armyAction" data-army-action="reinforce">Reinforce / Muster</button>
-      <button type="button" data-action="armyAction" data-army-action="fortify">Fortify Camp</button>
-      <button type="button" data-action="armyAction" data-army-action="besiege">Besiege</button>
-      <button type="button" data-action="armyAction" data-army-action="special">Special Operation</button>
-      <button type="button" data-action="armyAction" data-army-action="contact">Resolve Contact</button>
+      <button type="button" data-action="armyAction" data-army-action="march">{{localize "UESRPG.Apps.ArmyCampaign.March"}}</button>
+      <button type="button" data-action="armyAction" data-army-action="scout">{{localize "UESRPG.Apps.ArmyCampaign.Scout"}}</button>
+      <button type="button" data-action="armyAction" data-army-action="forage">{{localize "UESRPG.Apps.ArmyCampaign.ForageRequisition"}}</button>
+      <button type="button" data-action="armyAction" data-army-action="raid">{{localize "UESRPG.Apps.ArmyCampaign.Raid"}}</button>
+      <button type="button" data-action="armyAction" data-army-action="reinforce">{{localize "UESRPG.Apps.ArmyCampaign.ReinforceMuster"}}</button>
+      <button type="button" data-action="armyAction" data-army-action="fortify">{{localize "UESRPG.Apps.ArmyCampaign.FortifyCamp"}}</button>
+      <button type="button" data-action="armyAction" data-army-action="besiege">{{localize "UESRPG.Apps.ArmyCampaign.Besiege"}}</button>
+      <button type="button" data-action="armyAction" data-army-action="special">{{localize "UESRPG.Apps.ArmyCampaign.SpecialOperation"}}</button>
+      <button type="button" data-action="armyAction" data-army-action="contact">{{localize "UESRPG.Apps.ArmyCampaign.ResolveContact"}}</button>
     </div>
   </section>
 
   <section class="warfare-fieldset">
-    <h3>Siege</h3>
+    <h3>{{localize "UESRPG.Apps.ArmyCampaign.Siege"}}</h3>
     <p><strong>Role:</strong> {{siegeRoleLabel}}</p>
-    <p><strong>Linked Scene:</strong> {{#if siegeScene}}{{siegeScene.name}}{{else}}None{{/if}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.LinkedScene"}}:</strong> {{#if siegeScene}}{{siegeScene.name}}{{else}}{{localize "UESRPG.UI.None"}}{{/if}}</p>
     {{#if hasActiveSiege}}
     <p><strong>Settlement:</strong> {{#if siegeState.settlementName}}{{siegeState.settlementName}}{{else}}Unset{{/if}}</p>
     <p><strong>Fortification:</strong> Rating {{siegeState.fortificationRating}} | HP {{siegeState.fortificationHp}} / {{siegeState.fortificationHpMax}}</p>
@@ -62,7 +62,7 @@
   </section>
 
   <section class="warfare-fieldset">
-    <h3>History</h3>
+    <h3>{{localize "UESRPG.Apps.ArmyCampaign.History"}}</h3>
     {{#if recentHistory.length}}
     <div class="warfare-action-column__list">
       {{#each recentHistory}}
@@ -74,7 +74,7 @@
       {{/each}}
     </div>
     {{else}}
-    <p class="warfare-hint">No campaign history recorded yet.</p>
+    <p class="warfare-hint">{{localize "UESRPG.Apps.ArmyCampaign.NoHistory"}}</p>
     {{/if}}
   </section>
   {{/if}}

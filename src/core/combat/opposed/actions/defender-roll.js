@@ -5,6 +5,7 @@
  */
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
+import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { 
   _getDefenderEntries, 
   _getDefenderOutcome, 
@@ -14,6 +15,7 @@ import {
 import { _canControlActor, _emitSuppressedSubRollDice, _logDebug, _opposedFlags, _safeGetSetting } from "../helpers/util.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { t, tf } from "../../../../utils/i18n.js";
 import { 
   getTokenMovementAction as _getTokenMovementAction,
   asNumber as _asNumber,
@@ -40,12 +42,11 @@ import { hasEquippedShield, listCombatStyles } from "../../tn.js";
 import { breakAimChainIfPresent as _breakAimChainIfPresent, consumeInspireHeroismEffect as _consumeInspireHeroismEffect } from "../effects.js";
 import { consumeFreeNextDefenseCommit } from "../../activation-state-flags.js";
 import { canUseWardDefense, getPreferredWardDefenseSpell } from "../../ward-defense.js";
-import { applyRuntimePreRollToTN, applyRuntimePostRollToResult, evaluateREDefenseOverrides } from "../../../traits/features/rule-element-runtime.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../../system/flags.js";
-import { listEquippedShields, hasEquippedShieldType } from "../../../items/shield-utils.js";
+import { hasEquippedShieldType } from "../../../items/shield-utils.js";
 import {
   buildHybridWarfareTn,
   getHybridDomain,
@@ -53,36 +54,6 @@ import {
   promptHybridWarfareDefense,
   rollHybridWarfareTest
 } from "../hybrid.js";
-
-function _resolveRuntimeDefenseItem(defender, choice = null, defenseType = null) {
-  try {
-    const resolvedDefenseType = String(defenseType ?? choice?.defenseType ?? "").trim().toLowerCase();
-    const blockSource = String(choice?.blockSource ?? "").trim().toLowerCase();
-    if (resolvedDefenseType === "block" && blockSource === "ward") {
-      return getPreferredWardDefenseSpell(defender);
-    }
-    if (resolvedDefenseType === "block" && hasEquippedShield(defender)) {
-      const shield = listEquippedShields(defender, { includeBuckler: false, allowLegacy: true })[0] ?? null;
-      if (shield) return shield;
-    }
-
-    if (resolvedDefenseType === "parry" || resolvedDefenseType === "counter") {
-      const choiceUuid = String(choice?.weaponUuid ?? "").trim();
-      if (choiceUuid) {
-        const chosen = _resolveItemViaActor(choiceUuid, defender);
-        if (chosen?.type === "weapon" && chosen?.parent?.id === defender?.id) return chosen;
-      }
-      const preferredUuid = _getPreferredWeaponUuid(defender, { meleeOnly: true }) || "";
-      if (preferredUuid) {
-        const preferred = _resolveItemViaActor(preferredUuid, defender);
-        if (preferred?.type === "weapon" && preferred?.parent?.id === defender?.id) return preferred;
-      }
-    }
-  } catch (_e) {
-    return null;
-  }
-  return null;
-}
 
 async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
   try {
@@ -160,9 +131,9 @@ export async function handleDefenderNoDefense(ctx) {
     await ChatMessage.create({
       user: game.user.id,
       speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
-      content: `<div class="ues-opposed-card" style="padding:6px;"><b>No Defense</b> declared.</div>`,
+      content: `<div class="ues-opposed-card" style="padding:6px;"><b>${t("UESRPG.Chat.Opposed.NoDefense", "No Defense")}</b> ${t("UESRPG.Chat.Opposed.Declared", "declared")}.</div>`,
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-      rollMode: game.settings.get("core", "rollMode"),
+      rollMode: getCoreRollMode(),
       flags: _opposedFlags(message.id, "defender-nodefense", { defenderIndex })
     });
   } catch (err) {
@@ -308,16 +279,6 @@ export async function handleDefenderRoll(ctx) {
     attackerWeaponTraits
   });
 
-  // Rule Element: defenseOverride — when the legacy interceptor yields to RE, consume
-  // the RE-sourced override so the defense dialog still knows about allowed options.
-  if (!defenseTalentOverrides.allowParryRanged) {
-    const reDefOverrides = evaluateREDefenseOverrides({ defender, attackMode: data.context?.attackMode ?? "melee" });
-    if (reDefOverrides.allowParryRanged) {
-      defenseTalentOverrides.allowParryRanged = true;
-      defenseTalentOverrides.parryRangedTNMod = reDefOverrides.parryRangedTNMod || -20;
-    }
-  }
-
   // Combat talent: Fearsome (OPTIONAL) — the defender may use Persuade(Strength) in place of Evade
   // when taking an Evade reaction against melee attacks.
   // We do NOT auto-apply this override; we prompt right after the defender selects "Evade".
@@ -370,7 +331,9 @@ export async function handleDefenderRoll(ctx) {
       movementAction: defenderMovementAction
     }
   });
-  if (!choice) return;
+  if (!choice) {
+    return;
+  }
   if (String(choice?.defenseType ?? "").toLowerCase() === "ward") {
     choice.defenseType = "block";
     choice.blockSource = "ward";
@@ -381,16 +344,16 @@ export async function handleDefenderRoll(ctx) {
   let fearsomeTNOverride = null;
   if (choice.defenseType === "evade" && fearsomeContext?.fearsome?.available) {
     const usePersuade = await customDialog({
-      title: "Fearsome",
+      title: t("UESRPG.Dialogs.Opposed.Fearsome", "Fearsome"),
       content: `
         <div class="uesrpg">
-          <p><b>${defender.name}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.</p>
-          <p>Choose which test to roll for this reaction.</p>
+          <p>${tf("UESRPG.Dialogs.Opposed.FearsomeBody", { defender: foundry.utils.escapeHTML(defender.name) }, `<b>${foundry.utils.escapeHTML(defender.name)}</b> may use <b>Persuade (Strength)</b> in place of <b>Evade</b> when taking an Evade reaction against melee attacks.`)}</p>
+          <p>${t("UESRPG.Dialogs.Opposed.ChooseReactionTest", "Choose which test to roll for this reaction.")}</p>
         </div>
       `,
       buttons: {
-        evade: { label: "Use Evade", callback: () => false },
-        persuade: { label: "Use Persuade (Strength)", callback: () => true }
+        evade: { label: t("UESRPG.Dialogs.Opposed.UseEvade", "Use Evade"), callback: () => false },
+        persuade: { label: t("UESRPG.Dialogs.Opposed.UsePersuadeStrength", "Use Persuade (Strength)"), callback: () => true }
       },
       defaultButton: "evade",
     });
@@ -566,21 +529,6 @@ export async function handleDefenderRoll(ctx) {
     attackerWeaponTraits
   });
 
-  const runtimeDefenseItem = _resolveRuntimeDefenseItem(defender, choice, choice.defenseType);
-
-  applyRuntimePreRollToTN({
-    actor: defender,
-    targetActor: attacker ?? null,
-    targetToken: aToken ?? null,
-    item: runtimeDefenseItem,
-    rollContext: data?.context?.rollContext,
-    workflow: "combat",
-    side: "defender",
-    attackMode: String(data?.context?.attackMode ?? ""),
-    defenseType: String(choice?.defenseType ?? ""),
-    tn
-  });
-
   // ── Homebrew: Reach & Length — Length Penalty TN injection ────────────────
   {
     const attackerWeapon = (() => {
@@ -685,21 +633,6 @@ export async function handleDefenderRoll(ctx) {
       console.warn("UESRPG | combat talent DoS adjustment (defender) failed", err);
     }
 
-    await applyRuntimePostRollToResult({
-      actor: defender,
-      targetActor: attacker ?? null,
-      targetToken: aToken ?? null,
-      item: runtimeDefenseItem,
-      rollContext: data?.context?.rollContext,
-      workflow: "combat",
-      side: "defender",
-      attackMode: String(data?.context?.attackMode ?? ""),
-      defenseType: String(choice?.defenseType ?? ""),
-      testLabel: String(data?.defender?.testLabel ?? data?.defender?.label ?? ""),
-      result: res,
-      allowPrompt: true
-    });
-
     const postSubRolls = _safeGetSetting("uesrpg-3ev4", "opposedPostSubRollMessages", true);
     if (postSubRolls) {
       // IMPORTANT: The defender may not have permission to update the parent opposed card
@@ -709,7 +642,7 @@ export async function handleDefenderRoll(ctx) {
       await res.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
         flavor: `${data.defender.label} \u2014 Defender Roll`,
-        rollMode: game.settings.get("core", "rollMode"),
+        rollMode: getCoreRollMode(),
         flags: _opposedFlags(message.id, "defender-roll", {
           defenderIndex,
           commit: {
@@ -731,7 +664,7 @@ export async function handleDefenderRoll(ctx) {
         })
       });
     } else {
-      _emitSuppressedSubRollDice(res.roll, { rollMode: game.settings.get("core", "rollMode") });
+      _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
     }
 
     data.defender.result = {

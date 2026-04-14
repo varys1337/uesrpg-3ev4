@@ -1,7 +1,6 @@
 import { createStarterEventTablesForGroup } from "../core/travel/events.js";
 import { resetTravelPlannerState, updateTravelPlannerState } from "../core/travel/state.js";
 import { resolveGroupActorForTravel } from "../core/travel/group-resolution.js";
-import { findOpenAppInstance, focusOpenApp } from "./shared.js";
 
 export async function openTravelPlanner(opts = {}) {
   const group = await resolveGroupActorForTravel(opts);
@@ -18,25 +17,11 @@ export async function openTravelPlanner(opts = {}) {
   }
 
   const { TravelPlannerAppV2 } = await import("../ui/apps/v2/travel-planner-app.js");
-  if (!opts.forceNew && opts?.reuseOpenWindow !== false) {
-    const existing = findOpenAppInstance(
-      TravelPlannerAppV2,
-      (w) => String(w._groupUuid) === String(group.uuid),
-    );
-    if (existing) {
-      if (opts?.tab && typeof existing.setActiveTab === "function") {
-        await existing.setActiveTab(String(opts.tab));
-      }
-      return focusOpenApp(existing);
-    }
-  }
-
-  const app = new TravelPlannerAppV2({
+  return TravelPlannerAppV2.prompt({
     groupUuid: group.uuid,
     tab: opts?.tab ?? "planning",
+    forceNew: Boolean(opts.forceNew || opts?.reuseOpenWindow === false),
   });
-  await app.render(true);
-  return app;
 }
 
 export async function createStarterTravelEventTables(opts = {}) {

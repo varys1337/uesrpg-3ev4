@@ -9,7 +9,6 @@ import {
   getSkillRank,
   getCombatStyleRank
 } from "./talents-api.js";
-import { shouldYieldToRE } from "./features/rule-elements.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import {
   getActorCanvasToken,
@@ -122,15 +121,15 @@ export async function applyCombatTalentDoSAdjustments({
 
   let bonusDoS = 0;
   if (withinMeleeOfOpponent) {
-    if (hasTalent(actor, "brawler") && opponentsInMelee >= 2 && !shouldYieldToRE(actor, "brawler", "dosBonus", "combat", getTalentItem)) {
+    if (hasTalent(actor, "brawler") && opponentsInMelee >= 2) {
       bonusDoS += 1;
       notes.push("Brawler: +1 DoS (rolled only)");
     }
-    if ((isCombatStyleTest || isEvadeTest) && hasTalent(actor, "duelist") && opponentsInMelee === 1 && !shouldYieldToRE(actor, "duelist", "dosBonus", "combat", getTalentItem)) {
+    if ((isCombatStyleTest || isEvadeTest) && hasTalent(actor, "duelist") && opponentsInMelee === 1) {
       bonusDoS += 1;
       notes.push("Duelist: +1 DoS (rolled only)");
     }
-    if (isCombatStyleTest && hasTalent(actor, "teamwork") && !shouldYieldToRE(actor, "teamwork", "dosBonus", "combat", getTalentItem)) {
+    if (isCombatStyleTest && hasTalent(actor, "teamwork")) {
       const hasAlly = hasAllyWithTalentInMeleeOfOpponent(token, opponentToken, "teamwork", {
         reachMetersForAlly: 2
       });
@@ -145,7 +144,7 @@ export async function applyCombatTalentDoSAdjustments({
   const rolledDoS = Math.max(1, baseDoS + bonusDoS);
   const replaceOptions = [];
 
-  if (isCombatStyleTest && hasTalent(actor, "hyperawareness") && !shouldYieldToRE(actor, "hyperawareness", "dosReplacement", "combat", getTalentItem)) {
+  if (isCombatStyleTest && hasTalent(actor, "hyperawareness")) {
     const obsRank = getSkillRank(actor, "Observe");
     if (obsRank > 0) {
       replaceOptions.push({
@@ -157,7 +156,7 @@ export async function applyCombatTalentDoSAdjustments({
     }
   }
 
-  if (withinMeleeOfOpponent && isCombatStyleTest && hasTalent(actor, "trickyfighter") && !shouldYieldToRE(actor, "trickyfighter", "dosReplacement", "combat", getTalentItem)) {
+  if (withinMeleeOfOpponent && isCombatStyleTest && hasTalent(actor, "trickyfighter")) {
     const deceiveRank = getSkillRank(actor, "Deceive");
     if (deceiveRank > 0) {
       replaceOptions.push({
@@ -170,7 +169,7 @@ export async function applyCombatTalentDoSAdjustments({
   }
 
   const label = _lower(testLabel);
-  if (hasTalent(actor, "wrestler") && !shouldYieldToRE(actor, "wrestler", "dosReplacement", "combat", getTalentItem)) {
+  if (hasTalent(actor, "wrestler")) {
     const looksLikeGrapple = label.includes("grapple") || label.includes("restrain") || label.includes("entangle");
     if (looksLikeGrapple) {
       const csRank = getCombatStyleRank(actor, { styleUuid, styleName: testLabel });
@@ -185,7 +184,7 @@ export async function applyCombatTalentDoSAdjustments({
     }
   }
 
-  if (withinMeleeOfOpponent && opponentsInMelee === 1 && hasTalent(actor, "champion") && !shouldYieldToRE(actor, "champion", "dosReplacement", "combat", getTalentItem)) {
+  if (withinMeleeOfOpponent && opponentsInMelee === 1 && hasTalent(actor, "champion")) {
     const rank = getCorrespondingRank({ actor, defenseType: dt, styleUuid, testLabel });
     if (rank > 0) {
       replaceOptions.push({
@@ -197,7 +196,7 @@ export async function applyCombatTalentDoSAdjustments({
     }
   }
 
-  if (withinMeleeOfOpponent && opponentsInMelee >= 2 && hasTalent(actor, "godofwar") && !shouldYieldToRE(actor, "godofwar", "dosReplacement", "combat", getTalentItem)) {
+  if (withinMeleeOfOpponent && opponentsInMelee >= 2 && hasTalent(actor, "godofwar")) {
     const rank = getCorrespondingRank({ actor, defenseType: dt, styleUuid, testLabel });
     if (rank > 0) {
       replaceOptions.push({

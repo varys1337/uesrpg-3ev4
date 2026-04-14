@@ -23,7 +23,6 @@
  */
 
 import { hasTalent, getTalentItem, getNamedItemRank } from "./talents-api.js";
-import { shouldYieldToRE } from "./features/rule-elements.js";
 import {
   computeSpellRestraintReduction,
   computeElementalDamageBonus,
@@ -195,7 +194,6 @@ function _checkMilestoneDependency(slug, actor) {
  */
 function _applyCryomancer(actor, profile) {
   if (!hasTalent(actor, "cryomancer")) return null;
-  if (shouldYieldToRE(actor, "cryomancer", "damageBonus", "magic", getTalentItem)) return null;
   const dt = _damageType(profile);
   if (dt !== "frost") return null;
   return {
@@ -210,7 +208,6 @@ function _applyCryomancer(actor, profile) {
  */
 function _applyPyromancer(actor, profile) {
   if (!hasTalent(actor, "pyromancer")) return null;
-  if (shouldYieldToRE(actor, "pyromancer", "damageBonus", "magic", getTalentItem)) return null;
   const dt = _damageType(profile);
   if (dt !== "fire") return null;
   return {
@@ -225,7 +222,6 @@ function _applyPyromancer(actor, profile) {
  */
 function _applyElectromancer(actor, profile) {
   if (!hasTalent(actor, "electromancer")) return null;
-  if (shouldYieldToRE(actor, "electromancer", "damageBonus", "magic", getTalentItem)) return null;
   const dt = _damageType(profile);
   if (dt !== "shock") return null;
   return {
@@ -240,7 +236,6 @@ function _applyElectromancer(actor, profile) {
  */
 function _applyCreative(actor, profile, spell) {
   if (!hasTalent(actor, "creative")) return null;
-  if (shouldYieldToRE(actor, "creative", "spellModifier", "magic", getTalentItem)) return null;
   if (!isSpellUnconventional(spell)) return null;
   return {
     slug: "creative",
@@ -254,7 +249,6 @@ function _applyCreative(actor, profile, spell) {
  */
 function _applyMethodical(actor, profile, spell) {
   if (!hasTalent(actor, "methodical")) return null;
-  if (shouldYieldToRE(actor, "methodical", "spellModifier", "magic", getTalentItem)) return null;
   if (!isSpellConventional(spell)) return null;
   return {
     slug: "methodical",
@@ -268,7 +262,6 @@ function _applyMethodical(actor, profile, spell) {
  */
 function _applyMagickaCycling(actor, profile, spell, castContext) {
   if (!hasTalent(actor, "magickacycling")) return null;
-  if (shouldYieldToRE(actor, "magickacycling", "spellModifier", "magic", getTalentItem)) return null;
   // Only applies when the caster has opted in (dialog checkbox or flag)
   // Note: Magicka Cycling is passive per RAW — always improves WB for restraint
   return {
@@ -323,7 +316,6 @@ function _applyOvercharge(actor, profile, spell, castContext) {
  */
 function _applyMageGuard(actor, profile, spell, castContext) {
   if (!hasTalent(actor, "mageguard")) return null;
-  if (shouldYieldToRE(actor, "mageguard", "spellModifier", "magic", getTalentItem)) return null;
   if (!_hasReinforce(profile)) return null;
   // Must NOT be restraining
   const isRestrained = _bool(castContext?.spellOptions?.isRestrained ?? castContext?.isRestrained);

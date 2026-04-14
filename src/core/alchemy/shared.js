@@ -1,4 +1,5 @@
 import { FLAG_SCOPE } from "../system/namespace.js";
+import { getCoreRollMode, isPublicChatMessageMode } from "../../utils/chat-roll-mode.js";
 
 export const FLAG_NS = FLAG_SCOPE;
 export const ALCHEMY_DEFAULT_ICON = "icons/consumables/potions/bottle-bulb-empty-glass.webp";
@@ -20,8 +21,7 @@ export function emitAlchemyRoll3d(roll, { rollMode = null } = {}) {
   const dsn = game?.dice3d;
   if (!dsn || typeof dsn.showForRoll !== "function") return null;
 
-  const mode = String(rollMode ?? game?.settings?.get?.("core", "rollMode") ?? "roll").toLowerCase();
-  const sync = mode === "roll" || mode === "publicroll";
+  const sync = isPublicChatMessageMode(rollMode ?? getCoreRollMode());
   try {
     const primary = dsn.showForRoll(roll, game.user, sync);
     Promise.resolve(primary).catch(() => {

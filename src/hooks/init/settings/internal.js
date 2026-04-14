@@ -1,11 +1,12 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
+import { localizeSettingConfig } from "../../../utils/i18n.js";
 
 function _reg(key, config) {
   if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
     console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
     return;
   }
-  game.settings.register(SYSTEM_ID, key, config);
+  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Internal", key, config));
 }
 
 export function registerInternalSettings() {
@@ -44,6 +45,15 @@ export function registerInternalSettings() {
   _reg("autoRunMigrationsOnStartup", {
     name: "Auto-Run Migrations on Startup",
     hint: "When enabled, migrations run automatically on GM world startup.",
+    scope: "world",
+    config: false,
+    default: false,
+    type: Boolean,
+  });
+
+  _reg("enableTypeDataModels", {
+    name: "Enable TypeDataModels",
+    hint: "Enables conservative Actor and Item TypeDataModel registration for v14 runtime validation.",
     scope: "world",
     config: false,
     default: false,

@@ -5,37 +5,37 @@
                         <div class="tableListHeader">
                             <div class="equipment-info-container">
                                 <div class="wealthContainer uesrpg-panel">
-                                    <div class="section-header"><span class="section-header__label">Wealth</span></div>
+                                    <div class="section-header"><span class="section-header__label">{{localize "UESRPG.Sheets.Equipment.Wealth"}}</span></div>
                                     <input type="number" name="system.wealth" value="{{actor.system.wealth}}">
-                                    <button type="button" data-action="wealthCalc" class="wealthCalc">Add/Subtract</button>
+                                    <button type="button" data-action="wealthCalc" class="wealthCalc">{{localize "UESRPG.Sheets.Equipment.AddSubtract"}}</button>
                                 </div>
                                 <div class="encContainer uesrpg-panel">
-                                    <div class="section-header"><span class="section-header__label">Encumbrance</span></div>
+                                    <div class="section-header"><span class="section-header__label">{{localize "UESRPG.Sheets.Equipment.Encumbrance"}}</span></div>
                                     <div class="encLabel">{{actor.system.carry_rating.current}} / {{actor.system.carry_rating.max}} ENC</div>
-                                    <button type="button" data-action="carryBonus" class="carryBonus">Set Carry Bonus</button>
+                                    <button type="button" data-action="carryBonus" class="carryBonus">{{localize "UESRPG.Sheets.Equipment.SetCarryBonus"}}</button>
                                     {{#if sheetUi.encBreakdownEnabled}}
-                                        <button type="button" data-action="encBreakdown" class="encBreakdown">ENC Details</button>
+                                        <button type="button" data-action="encBreakdown" class="encBreakdown">{{localize "UESRPG.Sheets.Equipment.EncDetails"}}</button>
                                     {{/if}}
                                 </div>
                             </div>
 
                             <div class="uesrpg-item-tools">
                                 <div class="uesrpg-item-search">
-                                    <input type="text" id="uesrpg-item-search" placeholder="Search items..." autocomplete="off">
+                                    <input type="text" id="uesrpg-item-search" placeholder="{{localize "UESRPG.Sheets.Equipment.SearchItems"}}" autocomplete="off">
                                 </div>
 
                                 {{#if sheetUi.enableLoadouts}}
                                     <div class="uesrpg-loadouts" data-actor-id="{{actor._id}}">
-                                        <label>Loadout</label>
+                                        <label>{{localize "UESRPG.Sheets.Equipment.Loadout"}}</label>
                                         <select id="uesrpg-loadout-select">
                                             <option value="">-</option>
                                             {{#each sheetUi.loadouts as |l id|}}
                                                 <option value="{{l.id}}">{{l.name}}</option>
                                             {{/each}}
                                         </select>
-                                        <button type="button" data-action="loadoutSave" class="uesrpg-loadout-save">Save Current</button>
-                                        <button type="button" data-action="loadoutApply" class="uesrpg-loadout-apply">Apply</button>
-                                        <button type="button" data-action="loadoutDelete" class="uesrpg-loadout-delete" title="Delete"><i class="fas fa-trash"></i></button>
+                                        <button type="button" data-action="loadoutSave" class="uesrpg-loadout-save">{{localize "UESRPG.Sheets.Equipment.SaveCurrent"}}</button>
+                                        <button type="button" data-action="loadoutApply" class="uesrpg-loadout-apply">{{localize "UESRPG.UI.Apply"}}</button>
+                                        <button type="button" data-action="loadoutDelete" class="uesrpg-loadout-delete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></button>
                                     </div>
                                 {{/if}}
                             </div>
@@ -45,10 +45,10 @@
                             <table class="ues-table--container">
                                 <thead>
                                     <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create ues-col-name" id="container"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="containers" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Container</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
-                                        <th class="ues-col-stat" title="ENC Value of the empty container / ENC Value applied to carry limit">ENC</th>
-                                        <th class="ues-col-stat">Capacity</th>
-                                        <th class="ues-col-stat">Item Count</th>
+                                        <th data-action="itemCreate" class="item-name-cell item-create ues-col-name" id="container"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="containers" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Container"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                        <th class="ues-col-stat" title="{{localize "UESRPG.Sheets.Equipment.EmptyContainerEncTitle"}}">ENC</th>
+                                        <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Capacity"}}</th>
+                                        <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.ItemCount"}}</th>
                                         <th class="ues-col-actions"><i class="fas fa-trash"></i></th>
                                     </tr>
                                 </thead>
@@ -58,20 +58,20 @@
                                             <td class="item-name-cell ues-col-name">
                                                 <div class="tableItemNameCell">
                                                     <div class="qty-controls">
-                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     </div>
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
+                                                    <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
                                             </td>
-                                            <td class="ues-col-stat" title="Container's own ENC">{{item.system.enc}}</td>
+                                            <td class="ues-col-stat" title="{{localize "UESRPG.Sheets.Equipment.ContainerOwnEnc"}}">{{item.system.enc}}</td>
                                             <td class="ues-col-stat">{{item.system.container_enc.current}}/{{item.system.container_enc.max}}</td>
                                             <td class="ues-col-stat">{{item.system.container_enc.item_count}}</td>
                                             <td class="ues-col-actions">
-                                                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                                <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a>
                                             </td>
                                         </tr>
                                     {{/each}}
@@ -84,10 +84,10 @@
                             <table class="weapon-table">
                                 <thead>
                                     <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create" id="weapon"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="weapons" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Weapons</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
-                                        <th>Damage</th>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="weapon"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="weapons" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Weapons"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                        <th>{{localize "UESRPG.Sheets.Equipment.Damage"}}</th>
                                         <th>{{sheetUi.weaponDistanceHeaderLabel}}</th>
-                                        <th>2H / Ammo</th>
+                                        <th>{{localize "UESRPG.Sheets.Equipment.TwoHandedAmmo"}}</th>
                                         <th class="right-align-cell"><i class="fas fa-trash"></i></th>
                                     </tr>
                                 </thead>
@@ -96,14 +96,14 @@
                                         <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     <i data-action="damageRoll" class="fas fa-dice-d20 damage-roll"></i>
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
@@ -119,31 +119,31 @@
                                             <td class="weapon-mode-cell">
                                                 {{#if (eq item.system.attackMode "ranged")}}
                                                     <div class="weapon-ammo-select-wrap" title="{{item.system.inlineAmmoLabel}}">
-                                                        <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="Select ammunition">
+                                                        <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="{{localize "UESRPG.Sheets.Equipment.SelectAmmunition"}}">
                                                             {{#each item.system.inlineAmmoOptions}}
                                                                 <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
                                                             {{/each}}
                                                         </select>
                                                     </div>
                                                 {{else}}
-                                                    <input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage">
+                                                    <input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} title="{{localize "UESRPG.Sheets.Equipment.Toggle2HDamage"}}">
                                                 {{/if}}
                                             </td>
-                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
                                     {{#each actor.weapon.unequipped as |item id|}}
                                         <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     <i data-action="damageRoll" class="fas fa-dice-d20 damage-roll"></i>
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
@@ -159,17 +159,17 @@
                                             <td class="weapon-mode-cell">
                                                 {{#if (eq item.system.attackMode "ranged")}}
                                                     <div class="weapon-ammo-select-wrap" title="{{item.system.inlineAmmoLabel}}">
-                                                        <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="Select ammunition">
+                                                        <select class="weapon-ammo-select" data-action="weaponAmmoSelect" aria-label="{{localize "UESRPG.Sheets.Equipment.SelectAmmunition"}}">
                                                             {{#each item.system.inlineAmmoOptions}}
                                                                 <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
                                                             {{/each}}
                                                         </select>
                                                     </div>
                                                 {{else}}
-                                                    <input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} title="Toggle 2H Damage">
+                                                    <input data-action="toggle2H" class="toggle2H checkbox" type="checkbox" {{checked item.system.weapon2H}} title="{{localize "UESRPG.Sheets.Equipment.Toggle2HDamage"}}">
                                                 {{/if}}
                                             </td>
-                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
                                 </tbody>
@@ -178,9 +178,9 @@
                             <table class="ammunition-table">
                                 <thead>
                                     <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create" id="ammunition"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="ammunition" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Ammunition</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
-                                        <th>Bonus</th>
-                                        <th>Qty</th>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="ammunition"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="ammunition" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Ammunition"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                        <th>{{localize "UESRPG.Sheets.Equipment.Bonus"}}</th>
+                                        <th>{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
                                         <th class="right-align-cell"><i class="fas fa-trash"></i></th>
                                     </tr>
                                 </thead>
@@ -189,42 +189,42 @@
                                         <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     <i data-action="ammoRoll" class="fas fa-dice-d20 ammo-roll"></i>
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
                                             </td>
                                             <td>{{item.system.damage}}</td>
-                                            <td><button type="button" data-action="plusQty" class="minusQty plusQty" title="Click to Increase, right-click to decrease">{{item.system.quantity}}</button></td>
-                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                            <td><button type="button" data-action="plusQty" class="minusQty plusQty" title="{{localize "UESRPG.Sheets.Equipment.QuantityAdjustTitle"}}">{{item.system.quantity}}</button></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
                                     {{#each actor.ammunition.unequipped as |item id|}}
                                         <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     <i data-action="ammoRoll" class="fas fa-dice-d20 ammo-roll"></i>
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
                                             </td>
                                             <td>{{item.system.damage}}</td>
-                                            <td><button type="button" data-action="plusQty" class="minusQty plusQty" title="Click to Increase, right-click to decrease">{{item.system.quantity}}</button></td>
-                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                            <td><button type="button" data-action="plusQty" class="minusQty plusQty" title="{{localize "UESRPG.Sheets.Equipment.QuantityAdjustTitle"}}">{{item.system.quantity}}</button></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
                                 </tbody>
@@ -233,10 +233,10 @@
                             <table class="shield-table">
                                 <thead>
                                     <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create" id="shield"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="shield" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Shields</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="shield"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="shield" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Shields"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
                                         <th>BR</th>
                                         <th>MBR</th>
-                                        <th>Type</th>
+                                        <th>{{localize "UESRPG.Sheets.Equipment.Type"}}</th>
                                         <th class="right-align-cell"><i class="fas fa-trash"></i></th>
                                     </tr>
                                 </thead>
@@ -245,13 +245,13 @@
                                         <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
@@ -259,20 +259,20 @@
                                             <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
                                             <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
                                             <td>{{item.system.shieldType}}</td>
-                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
                                     {{#each actor.shield.unequipped as |item id|}}
                                         <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
@@ -280,7 +280,7 @@
                                             <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
                                             <td>{{#if item.system.magic_brEffective}}{{item.system.magic_brEffective}}{{else}}{{item.system.magic_br}}{{/if}}</td>
                                             <td>{{item.system.shieldType}}</td>
-                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
                                 </tbody>
@@ -289,7 +289,7 @@
                             <table class="armor-table">
                                 <thead>
                                     <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create" id="armor" data-alt-type="equipment"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="armor" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Armor</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                        <th data-action="itemCreate" class="item-name-cell item-create" id="armor" data-alt-type="equipment"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="armor" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Armor"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
                                         <th>AR</th>
                                         <th>MR</th>
                                         <th>BR</th>
@@ -301,13 +301,13 @@
                                         <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
@@ -315,20 +315,20 @@
                                             <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
                                             <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
                                             <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
-                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
                                     {{#each actor.armor.unequipped as |item id|}}
                                         <tr class="item active{{#if item._encIsTopContributor}} uesrpg-enc-top{{/if}}" data-item-id="{{item._id}}" data-item-type="{{item.type}}">
                                             <td class="item-name-cell">
                                                 <div class="flex-container">
-                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                    <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}">
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
@@ -336,7 +336,7 @@
                                             <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
                                             <td>{{#if item.system.magic_arEffective}}{{item.system.magic_arEffective}}{{#if item.system.special_ar_typeEffective}} {{item.system.special_ar_typeEffective}}{{/if}}{{else}}{{item.system.magic_ar}}{{/if}}</td>
                                             <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
-                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a></td>
+                                            <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                                         </tr>
                                     {{/each}}
                                 </tbody>
@@ -345,10 +345,10 @@
                             <table class="ues-table--gear">
                                 <thead>
                                     <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create ues-col-name" id="createSelect"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="gear" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">Equipment</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
-                                        <th class="ues-col-stat">Qty</th>
+                                        <th data-action="itemCreate" class="item-name-cell item-create ues-col-name" id="createSelect"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="gear" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Equipment"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                        <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
                                         <th class="ues-col-stat">ENC</th>
-                                        <th class="ues-col-stat">Price</th>
+                                        <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Price"}}</th>
                                         <th class="ues-col-actions"><i class="fas fa-trash"></i></th>
                                     </tr>
                                 </thead>
@@ -358,27 +358,27 @@
                                             <td class="item-name-cell ues-col-name">
                                                 <div class="tableItemNameCell">
                                                     <div class="qty-controls">
-                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     </div>
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
+                                                    <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
                                             </td>
                                             <td class="ues-col-stat">
-                                                <button type="button" data-action="plusQty" class="minusQty plusQty" title="Click to increase, right click to decrease">
+                                                <button type="button" data-action="plusQty" class="minusQty plusQty" title="{{localize "UESRPG.Sheets.Equipment.QuantityAdjustTitle"}}">
                                                     <div>{{item.system.quantity}}</div>
                                                 </button>
                                             </td>
                                             <td class="ues-col-stat">{{item.system.enc}}</td>
                                             <td class="ues-col-stat">{{item.system.price}}</td>
                                             <td class="ues-col-actions">
-                                                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                                <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a>
                                             </td>
                                         </tr>
                                     {{/each}}
@@ -387,27 +387,27 @@
                                             <td class="item-name-cell ues-col-name">
                                                 <div class="tableItemNameCell">
                                                     <div class="qty-controls">
-                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="Equip">
+                                                        <input type="checkbox" data-action="itemEquip" class="itemEquip checkbox" {{checked item.system.equipped}} title="{{localize "UESRPG.UI.Equip"}}">
                                                     </div>
                                                     {{#if item.system.uiHasCastEnchantment}}
-                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="Cast Enchantment"></i>
+                                                        <i class="fas fa-wand-magic-sparkles" data-action="castEnchantment" data-item-id="{{item._id}}" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}"></i>
                                                     {{/if}}
-                                                    <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
+                                                    <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
                                                     {{#if item.system.containerStats.contained}}
-                                                        <i title="Open Container" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
+                                                        <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
                                                 </div>
                                             </td>
                                             <td class="ues-col-stat">
-                                                <button type="button" data-action="plusQty" class="minusQty plusQty" title="Click to increase, right click to decrease">
+                                                <button type="button" data-action="plusQty" class="minusQty plusQty" title="{{localize "UESRPG.Sheets.Equipment.QuantityAdjustTitle"}}">
                                                     <div>{{item.system.quantity}}</div>
                                                 </button>
                                             </td>
                                             <td class="ues-col-stat">{{item.system.enc}}</td>
                                             <td class="ues-col-stat">{{item.system.price}}</td>
                                             <td class="ues-col-actions">
-                                                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                                <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a>
                                             </td>
                                         </tr>
                                     {{/each}}
@@ -420,8 +420,8 @@
                     <div class="uesrpg-equipment-sub-body">
                     <div class="uesrpg-panel uesrpg-panel--subtle uesrpg-equipment-effects-section">
                         <header class="effects-header flexrow">
-                            <h3>Effects</h3>
-                            <a data-action="effectControl" class="effect-control" data-effect-action="create" title="Create Effect">
+                            <h3>{{localize "UESRPG.Sheets.Equipment.Effects"}}</h3>
+                            <a data-action="effectControl" class="effect-control" data-effect-action="create" title="{{localize "UESRPG.Sheets.Equipment.CreateEffect"}}">
                                 <i class="fas fa-plus"></i>
                             </a>
                         </header>
@@ -431,22 +431,19 @@
                                     <img class="effect-icon" src="{{effect.img}}" />
                                     <h4 class="effect-name">{{effect.name}}</h4>
                                     <div class="effect-controls flexrow">
-                                        <a data-action="effectControl" class="effect-control" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle Effect">
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.ToggleEffect"}}">
                                             <i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i>
                                         </a>
-                                        <a data-action="effectControl" class="effect-control" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit Effect"><i class="fas fa-edit"></i></a>
-                                        <a data-action="effectControl" class="effect-control" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete Effect"><i class="fas fa-trash"></i></a>
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="edit" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.EditEffect"}}"><i class="fas fa-edit"></i></a>
+                                        <a data-action="effectControl" class="effect-control" data-effect-action="delete" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.DeleteEffect"}}"><i class="fas fa-trash"></i></a>
                                     </div>
                                 </li>
                             {{/each}}
                         </ol>
                         {{#unless effects.length}}
-                            <p class="effects-empty-msg">No active effects.</p>
+                            <p class="effects-empty-msg">{{localize "UESRPG.Sheets.Equipment.NoActiveEffects"}}</p>
                         {{/unless}}
                     </div>
                     </div>
                 </div>
             </div>
-
-
-

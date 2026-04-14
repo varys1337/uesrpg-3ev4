@@ -8,11 +8,11 @@
  *  - spell-hooks.js        → emitPreCast, emitCastResolved, emitEffectApplied
  *  - prior routing helper  → classifySpellForRouting, getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, debugMagicRoutingLog
  *  - spell-reflect.js      → getSpellReflectThreshold, trySpellReflect
- *  - spell-zone-service.js → linkTemplateToOriginAE, getTokensInTemplate, getActiveSpellZones
+ *  - spell-zone-service.js → linkAreaToOriginAE, getTokensInArea, getActiveSpellZones
  *
  * None of these modules carry side-effect initialization; they are pure utility/service exports.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.359+
  */
 
 import { evaluateAEModifierKeys } from "../active-effects/modifier-evaluator.js";
@@ -21,6 +21,8 @@ import { _str, createDebugLogger, isDebugEnabled } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
 import { FLAG_SCOPE, SYSTEM_ID } from "../system/namespace.js";
 import { createUuidResolver, resolveUuidSync } from "../../utils/uuid-cache.js";
+import { getLinkedAreaEntities, getLinkedAreaUuids, getLinkedRegionUuids, buildRegionLink, resolveLinkedArea } from "./region-links.js";
+import { testAreaPoint } from "../aoe/containment.js";
 
 // ── Shared Private Helpers ───────────────────────────────────────────────────
 
@@ -310,40 +312,40 @@ export async function trySpellReflect(targetActor, spell, casterActor, options =
 const _FLAG_NS = FLAG_SCOPE;
 
 /**
- * Link an existing MeasuredTemplate to an Origin AE.
+ * Link an existing Region to an Origin AE.
  *
  * @param {ActiveEffect} originAE - Origin AE on the caster
- * @param {string} templateUuid - UUID of the MeasuredTemplateDocument
+ * @param {string} regionUuid - UUID of the Region document
  * @param {string} [label] - Human-readable label
  * @returns {Promise<boolean>} Success
  */
-export async function linkTemplateToOriginAE(originAE, templateUuid, label = "") {
-  if (!originAE || !templateUuid) return false;
-  return registerLinkedEntity(originAE, {
-    type: "template",
-    uuid: templateUuid,
-    label: label || "Spell Zone"
-  });
+export async function linkAreaToOriginAE(originAE, regionUuid, label = "") {
+  const link = buildRegionLink(regionUuid, label);
+  if (!originAE || !link) return false;
+  return registerLinkedEntity(originAE, link);
 }
 
 /**
- * Get all tokens currently within a MeasuredTemplate's area.
+ * Legacy alias for callers that still use template-oriented naming.
+ */
+export async function linkTemplateToOriginAE(originAE, templateUuid, label = "") {
+  return linkAreaToOriginAE(originAE, templateUuid, label);
+}
+
+/**
+ * Get all tokens currently within a linked area.
  *
  * Uses center + corner + midpoint sampling for accuracy.
  *
- * @param {MeasuredTemplateDocument|string} templateDocOrUuid - Template document or UUID
- * @returns {Token[]} Array of Token objects within the template
+ * @param {RegionDocument|MeasuredTemplateDocument|string} areaDocOrUuid - Area document or UUID
+ * @returns {Token[]} Array of Token objects within the area
  */
-export function getTokensInTemplate(templateDocOrUuid) {
+export function getTokensInArea(areaDocOrUuid) {
   try {
-    const resolver = createUuidResolver();
-    const doc = typeof templateDocOrUuid === "string"
-      ? resolver.resolveSync(templateDocOrUuid)
-      : templateDocOrUuid;
+    const doc = typeof areaDocOrUuid === "string"
+      ? resolveLinkedArea(areaDocOrUuid)
+      : areaDocOrUuid;
     if (!doc) return [];
-
-    const tpl = doc.object ?? doc;
-    if (!tpl?.shape) return [];
 
     const scene = doc.parent ?? canvas?.scene;
     if (!scene) return [];
@@ -353,23 +355,27 @@ export function getTokensInTemplate(templateDocOrUuid) {
 
     return tokens.filter(token => {
       if (!token?.document) return false;
-      return _isTokenInTemplate(token, tpl);
+      return _isTokenInArea(token, doc.object ?? doc);
     });
   } catch (err) {
-    console.warn("UESRPG | spell-zone-service | getTokensInTemplate error", err);
+    console.warn("UESRPG | spell-zone-service | getTokensInArea error", err);
     return [];
   }
 }
 
+export function getTokensInTemplate(templateDocOrUuid) {
+  return getTokensInArea(templateDocOrUuid);
+}
+
 /**
- * Get all active spell zones (Origin AEs that have linked templates).
+ * Get all active spell zones (Origin AEs that have linked areas).
  *
  * When `useZoneRegistry` is enabled and no casterActor filter is provided,
  * reads from the in-memory zone registry (O(zones)) instead of scanning all
  * actors (O(all_actors × all_effects)).
  *
  * @param {Actor} [casterActor] - If provided, only returns zones for this caster (legacy scan, already cheap)
- * @returns {Array<{originAE: ActiveEffect, templateUuids: string[], spellName: string, casterUuid: string, spellUuid: string}>}
+ * @returns {Array<{originAE: ActiveEffect, areaUuids: string[], regionUuids: string[], areaType: string, spellName: string, casterUuid: string, spellUuid: string}>}
  */
 export function getActiveSpellZones(casterActor = null) {
   // Registry fast-path: only for full scans (no caster filter).
@@ -386,16 +392,18 @@ export function getActiveSpellZones(casterActor = null) {
     for (const origin of origins) {
       const flags = origin.flags?.[_FLAG_NS];
       if (!flags?.isOriginAE) continue;
-      const linked = flags.linkedEntities ?? [];
-      const tplLinks = linked.filter(l => l.type === "template");
-      if (!tplLinks.length) continue;
+      const areaUuids = getLinkedAreaUuids(origin);
+      const regionUuids = getLinkedRegionUuids(origin);
+      if (!areaUuids.length) continue;
 
       results.push({
         originAE: origin,
-        templateUuids: tplLinks.map(l => l.uuid),
+        areaUuids,
+        regionUuids,
         spellName: flags.spellName ?? origin.name,
         casterUuid: flags.casterUuid ?? actor.uuid,
-        spellUuid: flags.spellUuid ?? ""
+        spellUuid: flags.spellUuid ?? "",
+        areaType: regionUuids.length ? "region" : "template"
       });
     }
   }
@@ -406,29 +414,18 @@ export function getActiveSpellZones(casterActor = null) {
 // ─── Zone Internals ──────────────────────────────────────────────────────────
 
 /**
- * Check if a token is within a template's shape.
+ * Check if a token is within an area.
  * Uses center point + 8-direction sampling for tokens larger than 1x1.
  * @param {Token} token
- * @param {MeasuredTemplate} tpl
+ * @param {Region|MeasuredTemplate} area
  * @returns {boolean}
  * @private
  */
-function _isTokenInTemplate(token, tpl) {
-  const shape = tpl.shape;
-  if (!shape) return false;
-
-  // Template world position
-  const tplX = tpl.document?.x ?? tpl.x ?? 0;
-  const tplY = tpl.document?.y ?? tpl.y ?? 0;
-
-  // Sample points on the token (center + corners + midpoints)
+function _isTokenInArea(token, area) {
   const points = _getTokenSamplePoints(token);
-
+  const elevation = token?.document?.elevation ?? token?.elevation ?? 0;
   for (const pt of points) {
-    // Convert to template-local coordinates
-    const localX = pt.x - tplX;
-    const localY = pt.y - tplY;
-    if (shape.contains(localX, localY)) return true;
+    if (testAreaPoint(area, pt, { elevation })) return true;
   }
   return false;
 }
@@ -490,7 +487,8 @@ function _getTokenSamplePoints(token) {
  * @typedef {object} ZoneEntry
  * @property {string} aeUuid - UUID of the Origin AE (e.g. "Actor.abc.ActiveEffect.def")
  * @property {string} actorId - Foundry id of the owning actor
- * @property {string[]} templateUuids - UUIDs of linked MeasuredTemplateDocuments
+ * @property {string[]} areaUuids - UUIDs of linked regions or legacy templates
+ * @property {string[]} regionUuids - UUIDs of linked regions
  * @property {string} spellName
  * @property {string} casterUuid
  * @property {string} spellUuid
@@ -510,7 +508,7 @@ function _isZoneRegistryEnabled() {
 }
 
 /**
- * Build a ZoneEntry from an actor + Origin AE. Returns null if AE has no template links.
+ * Build a ZoneEntry from an actor + Origin AE. Returns null if AE has no area links.
  * @param {Actor} actor
  * @param {ActiveEffect} originAE
  * @returns {ZoneEntry|null}
@@ -518,15 +516,16 @@ function _isZoneRegistryEnabled() {
 function _makeZoneEntry(actor, originAE) {
   const flags = originAE?.flags?.[_FLAG_NS];
   if (!flags?.isOriginAE) return null;
-  const linked = flags.linkedEntities ?? [];
-  const tplLinks = linked.filter(l => l.type === "template");
-  if (!tplLinks.length) return null;
+  const areaUuids = getLinkedAreaUuids(originAE);
+  const regionUuids = getLinkedRegionUuids(originAE);
+  if (!areaUuids.length) return null;
   const aeUuid = originAE.uuid;
   if (!aeUuid) return null;
   return {
     aeUuid: String(aeUuid),
     actorId: String(actor.id),
-    templateUuids: tplLinks.map(l => String(l.uuid)),
+    areaUuids,
+    regionUuids,
     spellName: String(flags.spellName ?? originAE.name ?? ""),
     casterUuid: String(flags.casterUuid ?? actor.uuid ?? ""),
     spellUuid: String(flags.spellUuid ?? "")
@@ -554,7 +553,7 @@ function _rebuildZoneRegistryFull() {
 
 /**
  * Read active zones from the registry. Cleans stale entries on the fly.
- * @returns {Array<{originAE: ActiveEffect, templateUuids: string[], spellName: string, casterUuid: string, spellUuid: string}>}
+ * @returns {Array<{originAE: ActiveEffect, areaUuids: string[], regionUuids: string[], spellName: string, casterUuid: string, spellUuid: string, areaType: string}>}
  */
 function _getActiveSpellZonesFromRegistry() {
   const results = [];
@@ -568,10 +567,12 @@ function _getActiveSpellZonesFromRegistry() {
     }
     results.push({
       originAE: ae,
-      templateUuids: entry.templateUuids,
+      areaUuids: entry.areaUuids,
+      regionUuids: entry.regionUuids,
       spellName: entry.spellName,
       casterUuid: entry.casterUuid,
-      spellUuid: entry.spellUuid
+      spellUuid: entry.spellUuid,
+      areaType: entry.regionUuids?.length ? "region" : "template"
     });
   }
   return results;

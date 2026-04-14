@@ -1,98 +1,94 @@
 {{!-- templates/v2/apps/homebrew-settings.hbs --}}
 <section class="uesrpg-settings uesrpg-settings-panel">
   <fieldset class="uesrpg-settings__section">
-    <legend>Movement</legend>
+    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.Movement"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-homebrew-speed-formula">Speed Formula: SB + AB (Homebrew)</label>
-        <p class="setting-help">Computes base Speed as <strong>SB + AB + bonus</strong> instead of RAW <strong>SB + (2 x AB) + bonus</strong>. Applies to all Characters and NPCs.</p>
-        <p class="setting-note">Requires a reload to apply consistently.</p>
+        <label class="setting-row__label" for="uesrpg-homebrew-speed-formula">{{settings.homebrewSpeedFormulaSBAB.name}}</label>
+        <p class="setting-help">{{settings.homebrewSpeedFormulaSBAB.hint}}</p>
       </div>
-      <input id="uesrpg-homebrew-speed-formula" type="checkbox" name="homebrew.speedFormulaSBAB" {{checked homebrewSpeedFormulaSBAB}}>
+      <input id="uesrpg-homebrew-speed-formula" type="checkbox" name="homebrew.speedFormulaSBAB" {{checked settings.homebrewSpeedFormulaSBAB.value}}>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Combat - Reach &amp; Length (Harnmaster-inspired)</legend>
+    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.ReachLength"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-reach-length-enabled">Enable Reach &amp; Length Overhaul</label>
-        <p class="setting-help">Unlocks per-weapon <strong>Length (LNG)</strong>, homebrew reach overrides, the <strong>In Close</strong> Token HUD condition, and Length Penalty TN automation.</p>
-        <p class="setting-note">Requires a reload to apply consistently.</p>
+        <label class="setting-row__label" for="uesrpg-reach-length-enabled">{{settings.reachLengthEnabled.name}}</label>
+        <p class="setting-help">{{settings.reachLengthEnabled.hint}}</p>
       </div>
-      <input id="uesrpg-reach-length-enabled" type="checkbox" name="homebrew.reachLength.enabled" {{checked homebrew.reachLengthEnabled}}>
+      <input id="uesrpg-reach-length-enabled" type="checkbox" name="homebrew.reachLength.enabled" {{checked settings.reachLengthEnabled.value}}>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-length-model">Reach Model</label>
-      <select id="uesrpg-reach-length-model" name="homebrew.reachLength.reachModel" {{#unless homebrew.reachLengthEnabled}}disabled{{/unless}}>
-        <option value="classic" {{#if (eq homebrew.reachLengthModel "classic")}}selected{{/if}}>Classic (Min + Max Reach)</option>
-        <option value="simplified" {{#if (eq homebrew.reachLengthModel "simplified")}}selected{{/if}}>Simplified (Max Reach Only)</option>
+      <label class="setting-row__label" for="uesrpg-reach-length-model">{{settings.reachLengthModel.name}}</label>
+      <select id="uesrpg-reach-length-model" name="homebrew.reachLength.reachModel" {{#unless settings.reachLengthEnabled.value}}disabled{{/unless}}>
+        {{selectOptions settings.reachLengthModel.choices selected=settings.reachLengthModel.value}}
       </select>
-      <p class="setting-help"><strong>Classic:</strong> weapons have minimum and maximum reach, so polearms cannot attack adjacent targets. <strong>Simplified:</strong> only maximum reach is used.</p>
+      <p class="setting-help">{{settings.reachLengthModel.hint}}</p>
     </div>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-attacker-advantage-only">Length Advantage: Attacker Only</label>
-        <p class="setting-help">Applies Length TN modifiers only on the attacker side and suppresses defender-side Length bonuses and penalties.</p>
+        <label class="setting-row__label" for="uesrpg-attacker-advantage-only">{{settings.reachLengthAttackerAdvantageOnly.name}}</label>
+        <p class="setting-help">{{settings.reachLengthAttackerAdvantageOnly.hint}}</p>
       </div>
-      <input id="uesrpg-attacker-advantage-only" type="checkbox" name="homebrew.reachLength.attackerAdvantageOnly" {{checked homebrew.reachLengthAttackerAdvantageOnly}} {{#unless homebrew.reachLengthEnabled}}disabled{{/unless}}>
+      <input id="uesrpg-attacker-advantage-only" type="checkbox" name="homebrew.reachLength.attackerAdvantageOnly" {{checked settings.reachLengthAttackerAdvantageOnly.value}} {{#unless settings.reachLengthEnabled.value}}disabled{{/unless}}>
     </div>
 
-    <p class="setting-note">When the overhaul is enabled, Length Penalty automation, pairwise <strong>In Close</strong> tracking, and auto-prune beyond 1 m are all active. The only direct option here is which reach model to use.</p>
+    <p class="setting-note">{{localize "UESRPG.Apps.HomebrewSettings.ReachLengthNote"}}</p>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Combat - Engagement &amp; Flanking</legend>
+    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.EngagementFlanking"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-engagement-flanking-enabled">Enable Engagement &amp; Flanking</label>
-        <p class="setting-help">Auto-computes <strong>Flanked (X)</strong> from nearby threats, defensive skill, and ally support. Melee attacks and melee maneuvers gain <strong>+5 TN per Flanked point</strong>.</p>
+        <label class="setting-row__label" for="uesrpg-engagement-flanking-enabled">{{settings.engagementFlankingEnabled.name}}</label>
+        <p class="setting-help">{{settings.engagementFlankingEnabled.hint}}</p>
       </div>
-      <input id="uesrpg-engagement-flanking-enabled" type="checkbox" name="homebrew.engagementFlanking.enabled" {{checked homebrew.engagementFlankingEnabled}}>
+      <input id="uesrpg-engagement-flanking-enabled" type="checkbox" name="homebrew.engagementFlanking.enabled" {{checked settings.engagementFlankingEnabled.value}}>
     </div>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-engagement-only-in-combat">Only In Combat</label>
-        <p class="setting-help">Restricts Flanked automation to active combats only.</p>
+        <label class="setting-row__label" for="uesrpg-engagement-only-in-combat">{{settings.engagementFlankingOnlyInCombat.name}}</label>
+        <p class="setting-help">{{settings.engagementFlankingOnlyInCombat.hint}}</p>
         <p class="setting-note"><code>game.combat.started</code></p>
       </div>
-      <input id="uesrpg-engagement-only-in-combat" type="checkbox" name="homebrew.engagementFlanking.onlyInCombat" {{checked homebrew.engagementFlankingOnlyInCombat}}>
+      <input id="uesrpg-engagement-only-in-combat" type="checkbox" name="homebrew.engagementFlanking.onlyInCombat" {{checked settings.engagementFlankingOnlyInCombat.value}}>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Mass Combat (Warfare Units)</legend>
+    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.MassCombat"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-mass-combat-enabled">Enable Mass Combat System</label>
-        <p class="setting-help">Enables the <strong>Warfare Unit</strong> actor type and mass-combat UI. When disabled, existing Warfare Unit actors remain openable but new ones cannot be created from the sidebar.</p>
-        <p class="setting-note">Based on UESRPG Mass Warfare 3e rules.</p>
+        <label class="setting-row__label" for="uesrpg-mass-combat-enabled">{{settings.massCombatEnabled.name}}</label>
+        <p class="setting-help">{{settings.massCombatEnabled.hint}}</p>
+        <p class="setting-note">{{localize "UESRPG.Apps.HomebrewSettings.MassCombatNote"}}</p>
       </div>
-      <input id="uesrpg-mass-combat-enabled" type="checkbox" name="homebrew.massCombat.enabled" {{checked homebrew.massCombatEnabled}}>
+      <input id="uesrpg-mass-combat-enabled" type="checkbox" name="homebrew.massCombat.enabled" {{checked settings.massCombatEnabled.value}}>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Religion &amp; Worship</legend>
+    <legend>{{localize "UESRPG.Apps.HomebrewSettings.Sections.ReligionWorship"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-religion-worship-enabled">Enable Religion &amp; Worship</label>
-        <p class="setting-help">Unlocks ritual domains, invocation items, worship state, Divine Intervention, and religion-specific compendium/tooling lanes.</p>
-        <p class="setting-note">Requires a reload to apply consistently.</p>
+        <label class="setting-row__label" for="uesrpg-religion-worship-enabled">{{settings.religionWorshipEnabled.name}}</label>
+        <p class="setting-help">{{settings.religionWorshipEnabled.hint}}</p>
       </div>
-      <input id="uesrpg-religion-worship-enabled" type="checkbox" name="homebrew.religionWorship.enabled" {{checked homebrew.religionWorshipEnabled}}>
+      <input id="uesrpg-religion-worship-enabled" type="checkbox" name="homebrew.religionWorship.enabled" {{checked settings.religionWorshipEnabled.value}}>
     </div>
   </fieldset>
 
   <footer class="uesrpg-settings__footer">
-    <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+    <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
   </footer>
 </section>

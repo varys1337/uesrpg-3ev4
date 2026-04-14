@@ -1,5 +1,6 @@
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
+import { t, tf } from "../../../utils/i18n.js";
 import { buildWarfareDisciplineTN } from "../../mass-warfare/tn.js";
 import { applyResolveLoss, hasHoldNextDefend, WARFARE_EFFECT_KEYS } from "../../mass-warfare/actions.js";
 
@@ -124,47 +125,49 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
   const hasSpell = spellEntries.length > 0;
   const chargeActive = hasWarfareEffect(actor, WARFARE_EFFECT_KEYS.CHARGE);
   const options = [
-    `<option value="melee" ${initialAttackFamily === "melee" ? "selected" : ""}>Melee Attack</option>`,
-    canRanged ? `<option value="ranged" ${initialAttackFamily === "ranged" ? "selected" : ""}>Ranged Attack</option>` : "",
-    hasSpell ? `<option value="spell" ${initialAttackFamily === "spell" ? "selected" : ""}>Cast a Spell</option>` : "",
+    `<option value="melee" ${initialAttackFamily === "melee" ? "selected" : ""}>${t("UESRPG.Dialogs.Opposed.MixedMeleeAttack", "Melee Attack")}</option>`,
+    canRanged ? `<option value="ranged" ${initialAttackFamily === "ranged" ? "selected" : ""}>${t("UESRPG.Dialogs.Opposed.MixedRangedAttack", "Ranged Attack")}</option>` : "",
+    hasSpell ? `<option value="spell" ${initialAttackFamily === "spell" ? "selected" : ""}>${t("UESRPG.Dialogs.Opposed.MixedCastSpell", "Cast a Spell")}</option>` : "",
   ].filter(Boolean).join("");
   const spellOptions = spellEntries.map((choice, index) => {
     const name = esc(choice?.entry?.name ?? choice?.entry?.key ?? `Spell ${index + 1}`);
-    const source = choice.source === "scroll" ? "battle scroll" : "implement";
+    const source = choice.source === "scroll"
+      ? t("UESRPG.Dialogs.Opposed.BattleScroll", "battle scroll")
+      : t("UESRPG.Dialogs.Opposed.Implement", "implement");
     return `<option value="${index}">${name} (${source})</option>`;
   }).join("");
 
   return customDialog({
-    title: `${actor?.name ?? "Unit"} - Mixed Attack`,
+    title: tf("UESRPG.Dialogs.Opposed.MixedAttackTitle", { actor: actor?.name ?? t("UESRPG.Dialogs.Opposed.Unit", "Unit") }, `${actor?.name ?? "Unit"} - Mixed Attack`),
     content: `
       <div class="warfare-discipline-dialog">
         <div class="form-group">
-          <label>Attack Family</label>
+          <label>${t("UESRPG.Dialogs.Opposed.AttackFamily", "Attack Family")}</label>
           <select name="attackFamily">${options}</select>
         </div>
         <div class="form-group">
-          <label>Manual Modifier</label>
+          <label>${t("UESRPG.Dialogs.Opposed.ManualModifier", "Manual Modifier")}</label>
           <input type="number" name="modifier" value="0" style="width:90px;">
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="longRange"> Long Range (-10 TN)</label>
+          <label><input type="checkbox" name="longRange"> ${t("UESRPG.Dialogs.Opposed.LongRangePenalty", "Long Range (-10 TN)")}</label>
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="spareAmmo"> Spare Ammunition (extra die)</label>
+          <label><input type="checkbox" name="spareAmmo"> ${t("UESRPG.Dialogs.Opposed.SpareAmmunition", "Spare Ammunition (extra die)")}</label>
         </div>
         <div class="form-group">
-          <label><input type="checkbox" name="charged" ${chargeActive ? "checked" : ""}> Count as Charging</label>
+          <label><input type="checkbox" name="charged" ${chargeActive ? "checked" : ""}> ${t("UESRPG.Dialogs.Opposed.CountAsCharging", "Count as Charging")}</label>
         </div>
         ${hasSpell ? `
         <div class="form-group">
-          <label>Spell Source</label>
+          <label>${t("UESRPG.Dialogs.Opposed.SpellSource", "Spell Source")}</label>
           <select name="spellIndex">${spellOptions}</select>
         </div>` : ""}
-        <p class="notes">Mixed opposed attacks use Warfare Discipline on the unit side and the normal combat workflow on the humanoid side.</p>
+        <p class="notes">${t("UESRPG.Dialogs.Opposed.MixedAttackNote", "Mixed opposed attacks use Warfare Discipline on the unit side and the normal combat workflow on the humanoid side.")}</p>
       </div>`,
     buttons: {
       attack: {
-        label: "Commit",
+        label: t("UESRPG.UI.Commit", "Commit"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           return {
@@ -177,7 +180,7 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
           };
         },
       },
-      cancel: { label: "Cancel" },
+      cancel: { label: t("UESRPG.UI.Cancel", "Cancel") },
     },
     defaultButton: "attack",
   }).then((choice) => {
@@ -185,7 +188,7 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
     if (choice.attackFamily === "spell") {
       const selectedSpell = spellEntries[choice.spellIndex] ?? null;
       if (!selectedSpell) {
-        ui.notifications?.warn?.("Select a valid damaging implement or battle scroll.");
+        ui.notifications?.warn?.(t("UESRPG.Notifications.Opposed.SelectValidDamagingMagicSource", "Select a valid damaging implement or battle scroll."));
         return null;
       }
       choice.spell = {
@@ -201,22 +204,24 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
 export async function promptHybridWarfareDefense(actor, attacker) {
   const holdActive = hasHoldNextDefend(actor);
   return customDialog({
-    title: `${actor?.name ?? "Unit"} - Mixed Defense`,
+    title: tf("UESRPG.Dialogs.Opposed.MixedDefenseTitle", { actor: actor?.name ?? t("UESRPG.Dialogs.Opposed.Unit", "Unit") }, `${actor?.name ?? "Unit"} - Mixed Defense`),
     content: `
       <div class="warfare-discipline-dialog">
-        <p>Resolve this defense using the unit's current Discipline.</p>
+        <p>${t("UESRPG.Dialogs.Opposed.MixedDefenseNote", "Resolve this defense using the unit's current Discipline.")}</p>
         <div class="form-group">
-          <label>Manual Modifier</label>
+          <label>${t("UESRPG.Dialogs.Opposed.ManualModifier", "Manual Modifier")}</label>
           <input type="number" name="modifier" value="0" style="width:90px;">
         </div>
         <p class="notes">
-          Opponent: ${esc(attacker?.name ?? "Attacker")}<br>
-          ${holdActive ? "Hold is active: the attacker suffers -20 TN in this mixed engagement." : "Hold is not active."}
+          ${tf("UESRPG.Dialogs.Opposed.OpponentLabel", { opponent: esc(attacker?.name ?? t("UESRPG.Dialogs.Opposed.Attacker", "Attacker")) }, `Opponent: ${esc(attacker?.name ?? "Attacker")}`)}<br>
+          ${holdActive
+            ? t("UESRPG.Dialogs.Opposed.HoldActiveMixed", "Hold is active: the attacker suffers -20 TN in this mixed engagement.")
+            : t("UESRPG.Dialogs.Opposed.HoldInactive", "Hold is not active.")}
         </p>
       </div>`,
     buttons: {
       defend: {
-        label: "Commit",
+        label: t("UESRPG.UI.Commit", "Commit"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           return {
@@ -224,7 +229,7 @@ export async function promptHybridWarfareDefense(actor, attacker) {
           };
         },
       },
-      cancel: { label: "Cancel" },
+      cancel: { label: t("UESRPG.UI.Cancel", "Cancel") },
     },
     defaultButton: "defend",
   });

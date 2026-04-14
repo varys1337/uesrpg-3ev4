@@ -28,10 +28,10 @@ import { ActionEconomy } from "./action-economy.js";
 import { AttackTracker } from "./attack-tracker.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { requestCreateActiveEffect } from "../../utils/authority-proxy.js";
+import { buildEffectChange } from "../../utils/compat.js";
 import { buildSpecialActionsForActor, isSpecialActionUsableNow, SPECIAL_ACTIONS, getSpecialActionById } from "./combat-style-utils.js";
 import { getActiveStaminaEffect, consumeStaminaEffect, STAMINA_EFFECT_KEYS } from "../stamina/stamina-effects.js";
 import { isActorSkeletal, isActorUndead } from "../traits/trait-registry.js";
-import { canTokenEscapeTemplate } from "../../utils/aoe-utils.js";
 import { TimeService, buildEffectDuration } from "../time/index.js";
 import { MagicTimekeeping } from "../magic/timekeeping-helper.js";
 import { isEffectExpiredByCombat, isEffectExpiredByWorldTime } from "../magic/effects/spell-effect-expiration.js";
@@ -392,12 +392,12 @@ async function _applyOverextendEffect(opponent, { defenderUuid = null, defenderT
     disabled: false,
     duration,
     changes: [
-      {
+      buildEffectChange({
         key: "system.modifiers.combat.opposed.attackTN",
-        mode: CONST.ACTIVE_EFFECT_MODES.ADD,
+        type: "add",
         value: tnDelta,
         priority: 20
-      }
+      })
     ],
     flags: {
   uesrpg: {

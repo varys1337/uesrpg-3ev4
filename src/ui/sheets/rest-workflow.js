@@ -24,6 +24,7 @@ import {
   setPreparedInvocations,
 } from "../../core/religion/worship-service.js";
 import birthsignSigns from "./racemenu/data/birthsign-signs.js";
+import { findIndexEntryByNormalizedName, getDocumentById } from "../../core/compendium/access-service.js";
 
 // Chapter 5: Untreated wounds block natural HP regeneration.
 // Reuse the authoritative helper from the wounds subsystem when available.
@@ -130,14 +131,10 @@ async function _loadBirthsignGrantCreateData(ref) {
   const itemName = String(ref?.name ?? "").trim();
   if (!packId || !itemName) return null;
 
-  const pack = game.packs?.get?.(packId);
-  if (!pack) return null;
-
-  await pack.getIndex();
-  const entry = pack.index.find((row) => String(row?.name ?? "").trim().toLowerCase() === itemName.toLowerCase()) ?? null;
+  const entry = await findIndexEntryByNormalizedName(packId, itemName, { fields: ["name"] });
   if (!entry?._id) return null;
 
-  const itemDoc = await pack.getDocument(entry._id);
+  const itemDoc = await getDocumentById(packId, entry._id);
   if (!itemDoc) return null;
 
   const itemData = itemDoc.toObject();

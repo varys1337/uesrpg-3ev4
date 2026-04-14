@@ -1,54 +1,54 @@
 <div class="social-selector-app">
   <div class="social-selector-layout">
     <section class="social-panel">
-      <h2 class="social-panel-title">Available Languages</h2>
+      <h2 class="social-panel-title">{{localize "UESRPG.Apps.LanguageSelector.Available"}}</h2>
       <p class="social-panel-subtitle">{{slotSummary}}</p>
       <div class="social-choice-list social-choice-list--languages">
         {{#each choices as |choice|}}
           <div class="social-choice-row">
-            <span>{{choice.name}}</span>
+            <span>{{choice.label}}</span>
             <button
               type="button"
               data-action="addLanguage"
               data-language-name="{{choice.name}}"
               {{#if choice.disabled}}disabled{{/if}}>
-              {{#if choice.disabled}}Added{{else}}Add{{/if}}
+              {{#if choice.disabled}}{{localize "UESRPG.UI.Added"}}{{else}}{{localize "UESRPG.UI.Add"}}{{/if}}
             </button>
           </div>
         {{/each}}
       </div>
       <div class="social-custom-add">
-        <input id="social-language-custom" type="text" placeholder="Custom language name">
-        <button type="button" data-action="addCustomLanguage">Add Custom</button>
+        <input id="social-language-custom" type="text" placeholder="{{localize "UESRPG.Apps.LanguageSelector.CustomPlaceholder"}}">
+        <button type="button" data-action="addCustomLanguage">{{localize "UESRPG.UI.AddCustom"}}</button>
       </div>
     </section>
 
     <section class="social-panel">
-      <h2 class="social-panel-title">Selected Languages</h2>
+      <h2 class="social-panel-title">{{localize "UESRPG.Apps.LanguageSelector.Selected"}}</h2>
       <div class="social-selected-list social-selected-list--languages">
         {{#each entries as |entry|}}
           <div class="social-language-row" data-entry-id="{{entry.id}}">
-            <input data-field="name" type="text" value="{{entry.name}}" placeholder="Language">
-            <label class="social-toggle-pill" title="Can speak this language">
+            <input data-field="name" type="text" value="{{entry.name}}" placeholder="{{localize "UESRPG.Apps.LanguageSelector.LanguagePlaceholder"}}">
+            <label class="social-toggle-pill" title="{{localize "UESRPG.Apps.LanguageSelector.CanSpeak"}}">
               <input data-field="speak" type="checkbox" {{#if entry.speak}}checked{{/if}}>
-              <span>Speak</span>
+              <span>{{localize "UESRPG.Apps.LanguageSelector.Speak"}}</span>
             </label>
-            <label class="social-toggle-pill" title="Can read/write this language">
+            <label class="social-toggle-pill" title="{{localize "UESRPG.Apps.LanguageSelector.CanReadWrite"}}">
               <input data-field="readWrite" type="checkbox" {{#if entry.readWrite}}checked{{/if}}>
-              <span>R/W</span>
+              <span>{{localize "UESRPG.Apps.LanguageSelector.ReadWriteShort"}}</span>
             </label>
-            <button type="button" data-action="removeLanguage" data-entry-id="{{entry.id}}">Remove</button>
+            <button type="button" data-action="removeLanguage" data-entry-id="{{entry.id}}">{{localize "UESRPG.UI.Remove"}}</button>
           </div>
         {{/each}}
         {{#unless entries.length}}
-          <p class="social-empty">No additional languages selected.</p>
+          <p class="social-empty">{{localize "UESRPG.Apps.LanguageSelector.Empty"}}</p>
         {{/unless}}
       </div>
     </section>
   </div>
 
   <footer class="social-selector-footer">
-    <button type="button" data-action="cancel">Cancel</button>
-    <button type="button" data-action="save" class="default">Save</button>
+    <button type="button" data-action="cancel">{{localize "UESRPG.UI.Cancel"}}</button>
+    <button type="button" data-action="save" class="default">{{localize "UESRPG.UI.Save"}}</button>
   </footer>
 </div>

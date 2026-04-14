@@ -5,6 +5,7 @@
  */
 
 import { FLAG_SCOPE } from "../../constants.js";
+import { buildEffectChangesData, normalizeActiveEffectOrigin } from "../../../utils/compat.js";
 
 /**
  * Format damage-by-type map for display
@@ -42,17 +43,18 @@ function addWoundMetadata(flags) {
 export function makeEffect({ name, img, icon, flags, changes = [], origin = null }) {
   // Add standardized metadata flags for system-created wound effects
   const enhancedFlags = addWoundMetadata(flags);
+  const normalizedOrigin = normalizeActiveEffectOrigin(origin);
   
   return {
     name,
     // Foundry v13 ActiveEffect data uses "img".
     // Accept a legacy "icon" arg for internal callers.
     img: img ?? icon,
-    origin: origin ?? null,
+    origin: normalizedOrigin,
     disabled: false,
     duration: {},
-    changes,
-    flags: { [FLAG_SCOPE]: enhancedFlags }
+    flags: { [FLAG_SCOPE]: enhancedFlags },
+    ...buildEffectChangesData(changes)
   };
 }
 

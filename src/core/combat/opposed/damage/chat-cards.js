@@ -17,6 +17,7 @@
 
 import { buildWeaponPillsInline as _buildWeaponPillsInline } from "../helpers/weapon-quality-display.js";
 import { _opposedFlags } from "../helpers/util.js";
+import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 
 /**
  * Post a weapon damage chat card showing damage, hit location, and weapon qualities.
@@ -103,7 +104,7 @@ export async function postWeaponDamageChatCard({
     content: cardHtml,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     rolls: [dmg.rollA, dmg.rollB].filter(Boolean),
-    rollMode: game.settings.get("core", "rollMode"),
+    rollMode: getCoreRollMode(),
     flags: msgFlags,
   });
   return created;
@@ -194,7 +195,7 @@ export async function postManualEffectChatCard({
     content: cardHtml,
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     rolls: [dmg.rollA, dmg.rollB].filter(Boolean),
-    rollMode: game.settings.get("core", "rollMode"),
+    rollMode: getCoreRollMode(),
     flags: msgFlags,
   });
   return created;

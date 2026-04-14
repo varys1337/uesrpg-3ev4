@@ -80,10 +80,25 @@ export function buildWoundsSignature(actor) {
  * @returns {string}
  */
 export function buildCombatSignature(actor, itemsSignature, effectsSignature) {
+  const combatTracking = actor?.system?.combat_tracking ?? {};
+  const attackOverrides = actor?.flags?.[SYSTEM_ID]?.combat?.attackTrackerOverrides ?? {};
+  const activeCombat = game?.combat ?? null;
   const parts = [
     actor?.id ?? "",
     itemsSignature ?? "",
     effectsSignature ?? "",
+    String(actor?.system?.action_points?.value ?? ""),
+    String(actor?.system?.action_points?.max ?? ""),
+    String(combatTracking?.attacks_this_round ?? ""),
+    String(combatTracking?.attacks_this_turn ?? ""),
+    String(combatTracking?.last_reset_round ?? ""),
+    String(combatTracking?.last_reset_turn ?? ""),
+    JSON.stringify(combatTracking?.weapon_uses_this_round ?? {}),
+    String(attackOverrides?.current ?? ""),
+    String(attackOverrides?.max ?? ""),
+    String(activeCombat?.id ?? ""),
+    String(activeCombat?.round ?? ""),
+    String(activeCombat?.turn ?? ""),
     String(actor?.system?.fatigue?.level ?? ""),
     String(actor?.system?.fatigue?.penalty ?? ""),
     String(actor?.system?.woundPenalty ?? ""),

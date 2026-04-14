@@ -10,6 +10,7 @@ import { systemRootPath } from "../constants.js";
 import { STAMINA_EFFECT_KEYS, getActiveStaminaEffect, consumeStaminaEffect } from "./stamina-effects.js";
 import { STAMINA_OPTIONS, getStaminaOptionById } from "./stamina-options.js";
 import { spendStaminaOption } from "./stamina-spend.js";
+import { t } from "../../utils/i18n.js";
 
 export { STAMINA_EFFECT_KEYS, getActiveStaminaEffect, consumeStaminaEffect };
 
@@ -37,7 +38,7 @@ function syncDialogState(root) {
     amountDiv?.classList.toggle("is-hidden", !isPowerAttack);
     const option = select?.selectedOptions?.[0];
     const description = String(option?.dataset?.description ?? "").trim();
-    if (help) help.textContent = description || "Choose an action to see details.";
+    if (help) help.textContent = description || t("UESRPG.Dialogs.Stamina.ActionHelp");
   };
 
   select?.addEventListener("change", sync);
@@ -46,7 +47,7 @@ function syncDialogState(root) {
 
 export async function openStaminaDialog(actor) {
   if (!actor) {
-    ui.notifications.warn("No actor available for stamina spending.");
+    ui.notifications.warn(t("UESRPG.Notifications.Stamina.NoActor"));
     return;
   }
 
@@ -71,19 +72,19 @@ export async function openStaminaDialog(actor) {
   });
 
   await customDialog({
-    title: "Spend Stamina",
+    title: t("UESRPG.Dialogs.Stamina.Title"),
     content,
     classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--stamina"],
     buttons: {
       spend: {
-        label: "Spend",
+        label: t("UESRPG.Dialogs.Stamina.Spend"),
         callback: async (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           const selectedId = root?.querySelector('select[name="stamina-action"]')?.value;
           const powerAttackSP = parseInt(root?.querySelector('input[name="power-attack-sp"]')?.value || "1", 10);
 
           if (!selectedId) {
-            ui.notifications.warn("Please select a stamina action.");
+            ui.notifications.warn(t("UESRPG.Notifications.Stamina.SelectAction"));
             return;
           }
 
@@ -94,7 +95,7 @@ export async function openStaminaDialog(actor) {
           await spendStaminaOption(actor, option, spAmount);
         }
       },
-      cancel: { label: "Cancel" }
+      cancel: { label: t("UESRPG.UI.Cancel") }
     },
     default: "spend",
     render: (_event, html) => {

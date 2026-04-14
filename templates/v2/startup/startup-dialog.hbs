@@ -1,33 +1,31 @@
 <div class="uesrpg-startup">
   <div class="dialogForm">
     <div class="startup-panel startup-panel--social">
-      <a class="startup-social-link" href="{{discordInviteUrl}}" aria-label="Discord">
+      <a class="startup-social-link" href="{{discordInviteUrl}}" aria-label="{{localize "UESRPG.Startup.Discord"}}">
         <i class="fab fa-discord fa-2x"></i>
       </a>
-      <a class="startup-social-link" href="{{githubUrl}}" aria-label="GitHub">
+      <a class="startup-social-link" href="{{githubUrl}}" aria-label="{{localize "UESRPG.Startup.GitHub"}}">
         <i class="fab fa-github fa-2x"></i>
       </a>
     </div>
 
     <div class="startup-panel startup-panel--copy">
-      <h2>Join the Community!</h2>
+      <h2>{{localize "UESRPG.Startup.JoinCommunityTitle"}}</h2>
       <p class="startup-copy">
-        Hey adventurer! Thanks for checking out the UESRPG system on Foundry.
-        You can learn more about the game, download the free rulebooks, and
-        connect with the community on the
-        <a href="{{discordInviteUrl}}">Discord Server</a>.
+        {{localize "UESRPG.Startup.JoinCommunityBody"}}
+        <a href="{{discordInviteUrl}}">{{localize "UESRPG.Startup.DiscordServer"}}</a>.
       </p>
 
-      <h2>Special Thanks</h2>
+      <h2>{{localize "UESRPG.Startup.SpecialThanksTitle"}}</h2>
       <ul class="startup-thanks-list">
-        <li>DogBoneZone, the original author of the `uesrpg-d100` Foundry VTT system from which this fork began.</li>
-        <li>Gman95, the original creator of the UESRPG-Revised module, from which much of this system's content was adapted.</li>
-        <li>jamejtb and supagreybard for maintaining and updating the main fork.</li>
+        <li>{{localize "UESRPG.Startup.ThanksDogBoneZone"}}</li>
+        <li>{{localize "UESRPG.Startup.ThanksGman95"}}</li>
+        <li>{{localize "UESRPG.Startup.ThanksMaintainers"}}</li>
       </ul>
     </div>
 
     <div class="startup-panel startup-panel--note">
-      <p>You can disable this popup in System Settings by checking the option not to show it again.</p>
+      <p>{{localize "UESRPG.Startup.DisablePopupNote"}}</p>
     </div>
   </div>
 </div>

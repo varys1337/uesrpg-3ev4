@@ -1,6 +1,7 @@
 import { alertDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestCreateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { postItemToChat } from "../../shared-handlers.js";
+import { t } from "../../../../utils/i18n.js";
 
 const SYSTEM_ID = "uesrpg-3ev4";
 const SETTING_KEY = "enableItemRowQuickMenu";
@@ -66,8 +67,8 @@ function _buildKebabButton(itemId) {
   button.className = "uesrpg-item-quickmenu-btn";
   button.dataset.action = "itemQuickMenu";
   button.dataset.itemId = String(itemId ?? "");
-  button.setAttribute("aria-label", "Item actions");
-  button.setAttribute("title", "Item actions");
+  button.setAttribute("aria-label", t("UESRPG.UI.ItemActions", "Item actions"));
+  button.setAttribute("title", t("UESRPG.UI.ItemActions", "Item actions"));
   button.innerHTML = "<span aria-hidden=\"true\">&#8942;</span>";
   return button;
 }
@@ -109,14 +110,14 @@ export async function openItemRowQuickMenu(sheet, item, { anchorEl } = {}) {
 
   const buttons = {
     open: {
-      label: "Open",
+      label: t("UESRPG.UI.Open", "Open"),
       icon: "fas fa-up-right-from-square",
       callback: async () => {
         await item?.sheet?.render?.(true);
       },
     },
     post: {
-      label: "Post to Chat",
+      label: t("UESRPG.UI.PostToChat", "Post to Chat"),
       icon: "fas fa-comment",
       callback: async () => {
         if (typeof sheet?._onPostItemToChat === "function") {
@@ -127,22 +128,22 @@ export async function openItemRowQuickMenu(sheet, item, { anchorEl } = {}) {
       },
     },
     info: {
-      label: "What is this?",
+      label: t("UESRPG.UI.WhatIsThis", "What is this?"),
       icon: "fas fa-circle-question",
       callback: async () => {
         const content = description
           ? `<div class="uesrpg-item-quickmenu-info"><p><strong>${_escapeHtml(item.name)}</strong> (${_escapeHtml(item.type)})</p><div>${description}</div></div>`
-          : `<div class="uesrpg-item-quickmenu-info"><p><strong>${_escapeHtml(item.name)}</strong> (${_escapeHtml(item.type)})</p><p>No description is available for this item yet.</p></div>`;
+          : `<div class="uesrpg-item-quickmenu-info"><p><strong>${_escapeHtml(item.name)}</strong> (${_escapeHtml(item.type)})</p><p>${_escapeHtml(t("UESRPG.UI.NoItemDescription", "No description is available for this item yet."))}</p></div>`;
         await alertDialog({
-          title: "Item Information",
+          title: t("UESRPG.UI.ItemInformation", "Item Information"),
           content,
-          buttonLabel: "Close",
+          buttonLabel: t("UESRPG.UI.Close", "Close"),
           classes: ["uesrpg-item-quickmenu-info-dialog"],
         });
       },
     },
     cancel: {
-      label: "Close",
+      label: t("UESRPG.UI.Close", "Close"),
       icon: "fas fa-times",
       callback: () => null,
     },
@@ -150,7 +151,7 @@ export async function openItemRowQuickMenu(sheet, item, { anchorEl } = {}) {
 
   if (canEquip) {
     buttons.equip = {
-      label: item.system.equipped ? "Unequip" : "Equip",
+      label: item.system.equipped ? t("UESRPG.UI.Unequip", "Unequip") : t("UESRPG.UI.Equip", "Equip"),
       icon: "fas fa-shield-halved",
       callback: async () => {
         if (typeof sheet?._onItemEquip === "function") {
@@ -162,7 +163,7 @@ export async function openItemRowQuickMenu(sheet, item, { anchorEl } = {}) {
 
   if (canMutate) {
     buttons.duplicate = {
-      label: "Duplicate",
+      label: t("UESRPG.UI.Duplicate", "Duplicate"),
       icon: "fas fa-clone",
       callback: async () => {
         if (typeof sheet?._duplicateItem === "function") {
@@ -174,7 +175,7 @@ export async function openItemRowQuickMenu(sheet, item, { anchorEl } = {}) {
       },
     };
     buttons.delete = {
-      label: "Delete",
+      label: t("UESRPG.UI.Delete", "Delete"),
       icon: "fas fa-trash",
       callback: async () => {
         if (typeof sheet?._onItemDelete === "function") {
@@ -187,12 +188,12 @@ export async function openItemRowQuickMenu(sheet, item, { anchorEl } = {}) {
   const content = `
     <div class="uesrpg-item-quickmenu">
       <p class="uesrpg-item-quickmenu__title">${_escapeHtml(item.name)}</p>
-      <p class="uesrpg-item-quickmenu__hint">Choose an action for this item.</p>
+      <p class="uesrpg-item-quickmenu__hint">${_escapeHtml(t("UESRPG.UI.ChooseItemAction", "Choose an action for this item."))}</p>
     </div>
   `;
 
   await customDialog({
-    title: "Item Quick Actions",
+    title: t("UESRPG.UI.ItemQuickActions", "Item Quick Actions"),
     content,
     buttons,
     default: "open",

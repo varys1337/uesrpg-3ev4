@@ -17,7 +17,6 @@ import { ensureBankedScaffold, getDefenderEntries } from "../schema.js";
 import { SKILL_DIFFICULTIES } from "../../../skills/skill-tn.js";
 import { spellRequiresOriginAE, createOriginAE, registerLinkedEntity } from "../../effects/origin-effect.js";
 import { isCharacteristicDefense, computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
-import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
@@ -25,6 +24,7 @@ import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
 import { resolveSpellProfile } from "../../spell-profile.js";
+import { t, tf } from "../../../../utils/i18n.js";
 import {
   normalizeCastSourceCostMode,
   resolveItemContextFromCastSource,
@@ -187,8 +187,8 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
   const spells = _buildCommitSpellPool(attacker, castActionType);
   if (!spells.length) {
     ui.notifications.warn(castActionType === "secondary"
-      ? "No castable Instant spells available to commit (must be trained in the spell's school)."
-      : "No castable spells available to commit (must be trained in the spell's school).");
+      ? t("UESRPG.Notifications.Magic.NoCastableInstantSpellsCommit", "No castable Instant spells available to commit (must be trained in the spell's school).")
+      : t("UESRPG.Notifications.Magic.NoCastableSpellsCommit", "No castable spells available to commit (must be trained in the spell's school)."));
     return null;
   }
 
@@ -213,54 +213,54 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
     const school = String(s?.system?.school ?? "");
     const level = Number(s?.system?.level ?? 1) || 1;
     const cost = Number(s?.system?.cost ?? 0) || 0;
-    return `<option value="${String(s.id)}">${s.name} (${school} L${level}, ${cost} MP)</option>`;
+    return `<option value="${String(s.id)}">${s.name} (${school} ${t("UESRPG.Dialogs.SpellOptions.LevelAbbrev", "L")}${level}, ${cost} MP)</option>`;
   }).join("");
 
   return await customDialog({
-    title: "Cast Magic",
+    title: t("UESRPG.Sheets.Combat.CastMagic", "Cast Magic"),
     content: `
         <div class="uesrpg uesrpg-adv-dialog uesrpg-adv-dialog--magic-cast">
-          <div class="uesrpg-dialog-section-header">Cast Magic</div>
+          <div class="uesrpg-dialog-section-header">${t("UESRPG.Sheets.Combat.CastMagic", "Cast Magic")}</div>
           <div class="form-group">
-            <label><b>Select Spell to Commit</b></label>
+            <label><b>${t("UESRPG.Dialogs.SpellOptions.SelectSpellToCommit", "Select Spell to Commit")}</b></label>
             <select name="spellId" style="width:100%;">${spellOptions}</select>
           </div>
           <div class="form-group" id="ues-cast-level-group" style="display:none;">
-            <label><b>Cast at Level</b></label>
+            <label><b>${t("UESRPG.Dialogs.SpellOptions.CastAtLevel", "Cast at Level")}</b></label>
             <select name="castLevel" id="ues-cast-level" style="width:100%;"></select>
           </div>
           <div class="form-group">
-            <label><b>Difficulty</b></label>
+            <label><b>${t("UESRPG.Dialogs.SpellOptions.Difficulty", "Difficulty")}</b></label>
             <select name="difficultyKey" style="width:100%;">${_difficultyOptionsHtml(startingDifficulty)}</select>
           </div>
           <div class="form-group">
-            <label><b>Circumstance Modifier</b></label>
+            <label><b>${t("UESRPG.Dialogs.Opposed.CircumstanceModifier", "Circumstance Modifier")}</b></label>
             <select name="circumstanceMod" style="width:100%;">${buildCircumstanceOptionsHtml(startingCircumstance)}</select>
           </div>
           <div class="form-group">
-            <label><b>Manual Modifier</b></label>
+            <label><b>${t("UESRPG.Chat.Common.ManualModifier", "Manual modifier")}</b></label>
             <input type="number" name="manualModifier" value="${startingManual}" step="1" />
           </div>
           <div class="uesrpg-defense-flags">
-            <span class="uesrpg-defense-flags__label">Casting Options</span>
+            <span class="uesrpg-defense-flags__label">${t("UESRPG.Dialogs.SpellOptions.CastingOptions", "Casting Options")}</span>
             <div class="uesrpg-defense-flags__items">
               <label class="uesrpg-inline-check" id="ues-restrain-group">
                 <input type="checkbox" name="restrain" />
-                <span><b>Spell Restraint</b> (reduce cost by ${preferredRestraintReduction} to min 1)</span>
+                <span><b>${t("UESRPG.Dialogs.SpellOptions.SpellRestraint", "Spell Restraint")}</b> ${tf("UESRPG.Dialogs.SpellOptions.ReduceCostMin", { value: preferredRestraintReduction }, `(reduce cost by ${preferredRestraintReduction} to min 1)`)}</span>
               </label>
               <label class="uesrpg-inline-check" id="ues-overload-group" style="display:none;">
                 <input type="checkbox" name="overload" />
-                <span><b>Overload</b></span>
+                <span><b>${t("UESRPG.Dialogs.SpellOptions.Overload", "Overload")}</b></span>
               </label>
               ${hasOverchargeTalent ? `
               <label class="uesrpg-inline-check">
                 <input type="checkbox" name="overcharge" />
-                <span><b>Overcharge</b> (talent option)</span>
+                <span><b>${t("UESRPG.Dialogs.SpellOptions.Overcharge", "Overcharge")}</b> ${t("UESRPG.Dialogs.SpellOptions.TalentOption", "(talent option)")}</span>
               </label>` : ""}
               ${hasMagickaCyclingTalent ? `
               <label class="uesrpg-inline-check">
                 <input type="checkbox" name="magickaCycling" />
-                <span><b>Magicka Cycling</b> (talent option)</span>
+                <span><b>${t("UESRPG.Dialogs.SpellOptions.MagickaCycling", "Magicka Cycling")}</b> ${t("UESRPG.Dialogs.SpellOptions.TalentOption", "(talent option)")}</span>
               </label>` : ""}
             </div>
           </div>
@@ -269,7 +269,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
       buttons: {
         commit: {
           icon: '<i class="fas fa-check"></i>',
-          label: "Commit",
+          label: t("UESRPG.Chat.Opposed.CommitChoices", "Commit"),
           callback: (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
             const spellId = String(root?.querySelector('select[name="spellId"]')?.value ?? "");
@@ -309,7 +309,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
         },
         cancel: {
           icon: '<i class="fas fa-times"></i>',
-          label: "Cancel",
+          label: t("UESRPG.UI.Cancel", "Cancel"),
           callback: () => null
         }
       },
@@ -338,7 +338,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
           });
           const restraintReduction = Number(restraintProfile?.cost?.effectiveRestraintReduction ?? restraintProfile?.cost?.restrained?.reduction ?? 0) || 0;
           if (restraintLabel) {
-            restraintLabel.innerHTML = `<b>Spell Restraint</b> (reduce cost by ${restraintReduction} to min 1)`;
+            restraintLabel.innerHTML = `<b>${t("UESRPG.Dialogs.SpellOptions.SpellRestraint", "Spell Restraint")}</b> ${tf("UESRPG.Dialogs.SpellOptions.ReduceCostMin", { value: restraintReduction }, `(reduce cost by ${restraintReduction} to min 1)`)}`;
           }
           
           // Filter and validate scaling levels
@@ -365,13 +365,13 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
           // Build dropdown options
           if (castLevelSelect) {
             const options = [];
-            options.push(`<option value="base">Base (Level ${baseLevel}, ${baseCost} MP)</option>`);
+            options.push(`<option value="base">${tf("UESRPG.Dialogs.SpellOptions.BaseLevelOption", { level: baseLevel, cost: baseCost }, `Base (Level ${baseLevel}, ${baseCost} MP)`)}</option>`);
             
             for (let i = 0; i < validScalingLevels.length; i++) {
               const entry = validScalingLevels[i];
               const dmgText = entry.damageFormula ? `, ${entry.damageFormula}` : "";
               const descText = entry.description ? ` — ${entry.description}` : "";
-              options.push(`<option value="${entry.level}" data-scaling-index="${i}">Level ${entry.level} (${entry.cost} MP${dmgText})${descText}</option>`);
+              options.push(`<option value="${entry.level}" data-scaling-index="${i}">${tf("UESRPG.Dialogs.SpellOptions.LevelOption", { level: entry.level, cost: entry.cost, extra: `${dmgText}${descText}` }, `Level ${entry.level} (${entry.cost} MP${dmgText})${descText}`)}</option>`);
             }
             
             castLevelSelect.innerHTML = options.join("");
@@ -487,17 +487,6 @@ export async function handleAttackerCommit(ctx) {
       if (!tokenUuid) return null;
       return resolveUuidSync(tokenUuid)?.object ?? null;
     })();
-    applyRuntimePreRollToTN({
-      actor: attacker,
-      targetActor,
-      targetToken,
-      item: spell,
-      rollContext: data?.context?.rollContext,
-      workflow: "magic",
-      side: "attacker",
-      attackMode: "magic",
-      tn
-    });
 
     data.attacker.spellUuid = spell.uuid;
     data.attacker.spellName = spell.name;
@@ -532,18 +521,6 @@ export async function handleAttackerCommit(ctx) {
         if (defActor) {
           const tnData = computeCharacteristicDefenseTN(defActor, spell);
           if (tnData) {
-            applyRuntimePreRollToTN({
-              actor: defActor,
-              targetActor: attacker,
-              targetToken: null,
-              item: spell,
-              rollContext: data?.context?.rollContext,
-              workflow: "magic",
-              side: "defender",
-              attackMode: "magic",
-              defenseType: "characteristic-save",
-              tn: tnData
-            });
             def.tn = {
               finalTN: tnData.finalTN,
               baseTN: tnData.baseTN,
@@ -713,17 +690,6 @@ export async function handleAttackerRoll(ctx) {
     const castingTn = (workingData.attacker?.tn && typeof workingData.attacker.tn === "object")
       ? workingData.attacker.tn
       : { finalTN: Number(workingData.attacker?.tn?.finalTN ?? 0) || 0 };
-    applyRuntimePreRollToTN({
-      actor: attacker,
-      targetActor,
-      targetToken,
-      item: spell,
-      rollContext: workingData?.context?.rollContext,
-      workflow: "magic",
-      side: "attacker",
-      attackMode: "magic",
-      tn: castingTn
-    });
     workingData.attacker.tn = castingTn;
 
     // Roll casting test
@@ -731,19 +697,6 @@ export async function handleAttackerRoll(ctx) {
       target: Number(castingTn.finalTN ?? 0) || 0,
       allowLucky: true,
       allowUnlucky: true
-    });
-
-    await applyRuntimePostRollToResult({
-      actor: attacker,
-      targetActor,
-      targetToken,
-      item: spell,
-      rollContext: workingData?.context?.rollContext,
-      workflow: "magic",
-      side: "attacker",
-      attackMode: "magic",
-      result,
-      allowPrompt: true
     });
     _applyBindingStrengthFloorIfNeeded(workingData, result);
 
@@ -803,18 +756,24 @@ export async function handleAttackerRoll(ctx) {
           casterTokenUuid: workingData.attacker?.tokenUuid ?? null
         });
 
-        // Link AoE template to Origin AE if present
+        // Link AoE area to Origin AE if present
         if (originAE) {
-          const tplUuid = workingData?.context?.aoe?.templateUuid ?? null;
-          if (tplUuid) {
+          const areaUuid = workingData?.context?.aoe?.areaUuid
+            ?? workingData?.context?.aoe?.regionUuid
+            ?? workingData?.context?.aoe?.templateUuid
+            ?? null;
+          const areaType = (workingData?.context?.aoe?.areaType === "region" || workingData?.context?.aoe?.regionUuid)
+            ? "region"
+            : "template";
+          if (areaUuid) {
             try {
               await registerLinkedEntity(originAE, {
-                type: "template",
-                uuid: tplUuid,
+                type: areaType,
+                uuid: areaUuid,
                 label: `${spell.name} AoE`
               });
             } catch (_tplErr) {
-              console.warn("UESRPG | Failed to link AoE template to Origin AE", _tplErr);
+              console.warn("UESRPG | Failed to link AoE area to Origin AE", _tplErr);
             }
           }
         }

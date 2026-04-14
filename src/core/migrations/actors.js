@@ -13,6 +13,7 @@
 import { SYSTEM_ID } from "../constants.js";
 import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
 import { buildDefaultWorshipData, buildDefaultWorshipDomainState } from "../religion/worship-store.js";
+import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
 
 const MODULE_ID = SYSTEM_ID;
 const WARFARE_CONDITION_INIT_FLAG_PATH = `flags.${SYSTEM_ID}.warfareConditionInitialized`;
@@ -34,6 +35,25 @@ function _buildResistanceDefaults() {
 
 function _isPlainObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function _cloneData(value) {
+  try {
+    return foundry.utils.deepClone(value);
+  } catch (_err) {
+    return JSON.parse(JSON.stringify(value));
+  }
+}
+
+function _systemsEqual(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function _applySystemPathUpdates(system, updateObject = {}) {
+  for (const [key, value] of Object.entries(updateObject)) {
+    if (!key.startsWith("system.")) continue;
+    foundry.utils.setProperty(system, key.slice("system.".length), value);
+  }
 }
 
 function _ensureResistanceDefaults(sys) {
@@ -156,6 +176,16 @@ function _ensureWorshipDefaults(actor, sys) {
 }
 
 function _buildInvalidActorSystemPatch(actor) {
+  if (isTypeDataModelsEnabled()) {
+    const modelSystem = cleanSystemDataWithModel("Actor", actor?.type, {});
+    if (_isPlainObject(modelSystem)) {
+      return {
+        _id: actor.id,
+        system: modelSystem,
+      };
+    }
+  }
+
   const system = {
     resistance: _buildResistanceDefaults()
   };
@@ -521,6 +551,7 @@ export async function normalizeActors() {
   if (!game.user.isGM) return;
   try {
     const updates = [];
+    const typeDataModelsEnabled = isTypeDataModelsEnabled();
 
     for (const actor of game.actors.contents) {
       const sys = actor.system;
@@ -531,21 +562,48 @@ export async function normalizeActors() {
         continue;
       }
 
-      // Standard resistance defaults (PC/NPC/Group).
-      const update = _ensureResistanceDefaults(sys);
-      Object.assign(update, _ensureWorshipDefaults(actor, sys));
+      let workingSystem = _cloneData(sys);
+      let changed = false;
 
-      // Warfare Unit structural defaults.
-      if (actor.type === "Warfare Unit") {
-        const wfUpdate = _ensureWarfareUnitDefaults(sys);
-        Object.assign(update, wfUpdate);
-        if (actor.getFlag?.(SYSTEM_ID, "warfareConditionInitialized") === undefined) {
-          update[WARFARE_CONDITION_INIT_FLAG_PATH] = true;
+      if (typeDataModelsEnabled) {
+        const cleanedSystem = cleanSystemDataWithModel("Actor", actor.type, workingSystem);
+        if (_isPlainObject(cleanedSystem) && !_systemsEqual(cleanedSystem, sys)) {
+          workingSystem = cleanedSystem;
+          changed = true;
         }
       }
 
-      if (Object.keys(update).length) {
-        update._id = actor.id;
+      // Standard resistance defaults (PC/NPC/Group).
+      const pathUpdates = _ensureResistanceDefaults(workingSystem);
+      Object.assign(pathUpdates, _ensureWorshipDefaults(actor, workingSystem));
+
+      // Warfare Unit structural defaults.
+      if (actor.type === "Warfare Unit") {
+        const wfUpdate = _ensureWarfareUnitDefaults(workingSystem);
+        Object.assign(pathUpdates, wfUpdate);
+        if (actor.getFlag?.(SYSTEM_ID, "warfareConditionInitialized") === undefined) {
+          pathUpdates[WARFARE_CONDITION_INIT_FLAG_PATH] = true;
+        }
+      }
+
+      const hasFlagUpdate = Object.prototype.hasOwnProperty.call(pathUpdates, WARFARE_CONDITION_INIT_FLAG_PATH);
+      const systemPathUpdates = Object.fromEntries(
+        Object.entries(pathUpdates).filter(([key]) => key.startsWith("system."))
+      );
+
+      if (Object.keys(systemPathUpdates).length) {
+        _applySystemPathUpdates(workingSystem, systemPathUpdates);
+        changed = true;
+      }
+
+      if (changed || hasFlagUpdate) {
+        const update = {
+          _id: actor.id,
+          system: workingSystem,
+        };
+        if (hasFlagUpdate) {
+          update[WARFARE_CONDITION_INIT_FLAG_PATH] = true;
+        }
         updates.push(update);
       }
     }

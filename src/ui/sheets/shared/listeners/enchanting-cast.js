@@ -223,8 +223,11 @@ export const onCastEnchantmentAction = asyncGuardSheet(async function onCastEnch
     aoe = {
       ...foundry.utils.deepClone(aoeSpec ?? {}),
       isAoE: true,
-      templateId: placed.templateId ?? null,
-      templateUuid: placed.templateUuid ?? null,
+      areaType: "region",
+      areaId: placed.areaId ?? placed.regionId ?? null,
+      areaUuid: placed.areaUuid ?? placed.regionUuid ?? null,
+      regionId: placed.regionId ?? null,
+      regionUuid: placed.regionUuid ?? null,
     };
     if (Array.isArray(placed.targets) && placed.targets.length) workingTargets = placed.targets;
   } else if ((rangeType === "ranged" || rangeType === "melee") && workingTargets.length) {
@@ -250,4 +253,3 @@ export const onCastEnchantmentAction = asyncGuardSheet(async function onCastEnch
     options: { targetTokenUuids, aoe, spellOptions }
   });
 });
-

@@ -7,6 +7,7 @@ import {
   isSystemMigrationRunning,
   runSystemMigrations,
 } from "../../../core/migrations/runner.js";
+import { getSettingPresentation, t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
@@ -14,7 +15,7 @@ const NAMESPACE = SYSTEM_ID;
 function _stateSummary(state, key, currentVersion) {
   const value = String(state?.[key] ?? "").trim();
   return {
-    version: value || "(none)",
+    version: value || t("UESRPG.UI.None", "(none)"),
     upToDate: value === currentVersion,
   };
 }
@@ -46,12 +47,17 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     },
   };
 
+  get title() {
+    return t("UESRPG.Apps.Menus.migrationSettings.Name", "Migration");
+  }
+
   async _prepareContext(options) {
     const currentVersion = getSystemVersionString();
     const state = getMigrationState();
 
     return {
       autoRunMigrationsOnStartup: game.settings.get(NAMESPACE, "autoRunMigrationsOnStartup") === true,
+      autoRunMigrationsOnStartupSetting: getSettingPresentation(NAMESPACE, "autoRunMigrationsOnStartup"),
       isRunning: isSystemMigrationRunning(),
       currentVersion,
       status: {
@@ -66,7 +72,7 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     const data = formData.object ?? {};
     const next = Boolean(data.autoRunMigrationsOnStartup);
     await game.settings.set(NAMESPACE, "autoRunMigrationsOnStartup", next);
-    ui.notifications?.info?.("Migration startup setting saved.");
+    ui.notifications?.info?.(t("UESRPG.Notifications.MigrationStartupSaved", "Migration startup setting saved."));
   }
 
   async _onRunMigrations(event, target) {
@@ -74,12 +80,12 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     void target;
 
     if (!game.user?.isGM) {
-      ui.notifications?.warn?.("Only a GM can run migrations.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.MigrationsOnlyGM", "Only a GM can run migrations."));
       return;
     }
 
     if (isSystemMigrationRunning()) {
-      ui.notifications?.info?.("Migration pass is already running.");
+      ui.notifications?.info?.(t("UESRPG.Notifications.MigrationsAlreadyRunning", "Migration pass is already running."));
       return;
     }
 

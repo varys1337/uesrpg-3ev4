@@ -5,8 +5,7 @@
  * Also exports resolveActor and getWhisperRecipients for use by other chat-handler modules.
  */
 
-import { applyHealing, DAMAGE_TYPES } from "../damage-automation.js";
-import { applyDamageResolved } from "../damage-resolver.js";
+import { DAMAGE_TYPES } from "../damage-automation.js";
 import { doesUserOwnActor, requestUpdateChatMessage, requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { cloneFlagState } from "../../../utils/clone.js";
 import {
@@ -30,7 +29,7 @@ import { updateCard } from "../opposed/cards/updater.js";
 import { _safeGetSetting } from "../opposed/helpers/util.js";
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
-import { applyHybridDamageToWarfareUnit, isWarfareActor } from "../opposed/hybrid.js";
+import { ApplyDamageService } from "../../../application/combat/apply-damage-service.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -514,39 +513,34 @@ export async function onApplyDamage(ev, message) {
   const weapon = weaponUuid ? resolveUuidSync(weaponUuid) : null;
 
   const targetDomain = String(btn.dataset.targetDomain ?? "").trim().toLowerCase();
-  const warfareTarget = targetDomain === "warfare" || isWarfareActor(targetActor);
-  const resolvedDamage = warfareTarget
-    ? await applyHybridDamageToWarfareUnit(targetActor, {
-      rawDamage,
-      damageType,
-      magicSource,
-    })
-    : await applyDamageResolved(targetActor, {
-      rawDamage,
-      damageType,
-      dosBonus,
-      penetration,
-      hitLocation,
-      damagedValue,
-      source,
-      ignoreReduction,
-      penetrateArmorForTriggers,
-      forcefulImpact,
-      pressAdvantage,
-      weapon,
-      attackerActor,
-      magicSource,
-      sourceItemUuid,
-      attackMode,
-      movementAction,
-      attackFromHidden,
-      ammoUuid,
-      damageComponents,
-      chatContext: {
-        parentMessageId: message?.id ?? null,
-        suppressStandaloneSummary: true,
-      },
-    });
+  const resolvedDamage = await ApplyDamageService.applyChatCard({
+    targetActor,
+    rawDamage,
+    damageType,
+    dosBonus,
+    penetration,
+    hitLocation,
+    damagedValue,
+    source,
+    ignoreReduction,
+    penetrateArmorForTriggers,
+    forcefulImpact,
+    pressAdvantage,
+    weapon,
+    attackerActor,
+    magicSource,
+    sourceItemUuid,
+    attackMode,
+    movementAction,
+    attackFromHidden,
+    ammoUuid,
+    damageComponents,
+    targetDomain,
+    chatContext: {
+      parentMessageId: message?.id ?? null,
+      suppressStandaloneSummary: true,
+    },
+  });
 
   await _markInlineDamageApplied(message, targetUuid, {
     gmDamageReport: resolvedDamage?.gmDamageReport ?? null
@@ -573,7 +567,7 @@ export async function onApplyHealing(ev, message) {
     return;
   }
 
-  await applyHealing(targetActor, healing, { source, isTemporary });
+  await ApplyDamageService.applyHealing(targetActor, healing, { source, isTemporary });
 
   await _markInlineDamageApplied(message, targetUuid);
 }

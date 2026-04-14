@@ -4,6 +4,8 @@
  * Non-mutating diagnostics for Release N legacy retirement readiness.
  */
 
+import { getEffectChanges } from "../../utils/compat.js";
+
 const LEGACY_RESISTANCE_KEYS = new Set([
   "physicalR",
   "fireR",
@@ -49,7 +51,7 @@ function _countLegacyResistanceOnEffects(effects = [], ownerLabel = "") {
   let count = 0;
   const samples = [];
   for (const effect of effects) {
-    for (const ch of effect?.changes ?? []) {
+    for (const ch of getEffectChanges(effect)) {
       const key = _asString(ch?.key);
       if (!key.includes(".resistance.")) continue;
       const short = key.split(".").pop();

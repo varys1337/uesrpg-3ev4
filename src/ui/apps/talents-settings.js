@@ -1,16 +1,17 @@
 import { TalentsSettingsAppV2 } from "./v2/talents-settings.js";
+import { localizeMenuConfig } from "../../utils/i18n.js";
 
 const NAMESPACE = "uesrpg-3ev4";
 
 export function registerTalentsSettingsMenu() {
   if (game.settings?.menus?.get(`${NAMESPACE}.talentsSettings`)) return;
 
-  game.settings.registerMenu(NAMESPACE, "talentsSettings", {
+  game.settings.registerMenu(NAMESPACE, "talentsSettings", localizeMenuConfig("Menus", "talentsSettings", {
     name: "Talents",
     label: "Configure Talents",
     hint: "Talent automation and Chapter 4 RAW compliance settings.",
     icon: "fas fa-user-ninja",
     restricted: true,
     type: TalentsSettingsAppV2,
-  });
+  }));
 }

@@ -27,6 +27,34 @@ export function makeSyntheticCharacteristicTarget(key, label) {
   return target;
 }
 
+export function makeSyntheticProfessionTarget(professionKey) {
+  const key = String(professionKey ?? "").trim();
+  return {
+    dataset: {
+      professionKey: key,
+      actionId: key,
+      id: key,
+      itemId: key,
+    },
+    professionKey: key,
+    id: key,
+    actionId: key,
+    closest: (selector) => {
+      const sel = String(selector ?? "");
+      if (!sel) return null;
+      if (
+        sel.includes("[data-profession-key]") ||
+        sel.includes(".profession-roll-target") ||
+        sel.includes(".item") ||
+        sel.includes(".npc-item")
+      ) {
+        return { dataset: { professionKey: key, itemId: key } };
+      }
+      return null;
+    },
+  };
+}
+
 export function makeSyntheticEvent(target, { shiftKey = false } = {}) {
   const ev = new MouseEvent("click", {
     bubbles: true,

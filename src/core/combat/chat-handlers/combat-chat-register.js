@@ -5,7 +5,7 @@
  * Replaces the monolithic initializeChatHandlers() in legacy.js.
  */
 
-import { getChatMessageRoot } from "./render/render-chat-message.js";
+import { resolveHtmlRoot } from "./render/render-chat-message.js";
 import { augmentChatMessageHTML } from "./combat-chat-render.js";
 import { onCreateChatMessageOpposed, onUpdateChatMessageOpposed } from "./combat-chat-opposed.js";
 import { registerCombatChatClickHandler } from "./combat-chat-actions.js";
@@ -43,7 +43,7 @@ export function initializeChatHandlers() {
 
   if (!_renderHookRegistered) {
     Hooks.on("renderChatMessageHTML", (message, html) => {
-      const root = getChatMessageRoot(html);
+      const root = resolveHtmlRoot(html);
       if (!root) return;
       augmentChatMessageHTML(message, root);
     });

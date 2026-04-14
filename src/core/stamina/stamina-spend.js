@@ -7,6 +7,7 @@ import { SYSTEM_ID } from "../constants.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { getStaminaIcon } from "./stamina-options.js";
+import { buildEffectChange } from "../../utils/compat.js";
 
 function esc(value) {
   const raw = String(value ?? "");
@@ -177,21 +178,21 @@ async function spendPersistentEffect(actor, option, cost, spAmount) {
       effectData.flags[FLAG_SCOPE].description = "+3 damage per SP spent (max +9), spend before damage roll";
     }
     effectData.flags[FLAG_SCOPE].damageBonus = damageBonus;
-    effectData.changes.push({
+    effectData.changes.push(buildEffectChange({
       key: "system.modifiers.combat.damage.dealt",
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD,
+      type: "add",
       value: String(damageBonus),
       priority: 20
-    });
+    }));
   }
 
   if (option.id === "physical-exertion") {
-    effectData.changes.push({
+    effectData.changes.push(buildEffectChange({
       key: "system.modifiers.skills.physicalExertion",
-      mode: CONST.ACTIVE_EFFECT_MODES.ADD,
+      type: "add",
       value: "20",
       priority: 20
-    });
+    }));
   }
 
   await createOrUpdateStatusEffect(actor, effectData);

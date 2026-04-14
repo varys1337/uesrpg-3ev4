@@ -1,8 +1,8 @@
 /**
  * src/core/conditions/index.js
  *
- * Stage-06: registers conditionsHudUpgradeV2Done world setting so the ready-hook
- * upgrade sweep in status-hud.js runs only once per world.
+ * Stage-06: registers conditionsHudUpgradeV2Done world setting so the startup
+ * maintenance sweep in status-hud.js runs only once per world after it completes.
  */
 
 import { registerConditionHooks, ConditionsAPI, auditConditionRegistry } from "./condition-engine.js";
@@ -20,7 +20,7 @@ export function registerConditions() {
   _conditionsRegistered = true;
 
   // Hidden rollback/internal flag: gates the one-time Token HUD status-effect upgrade sweep.
-  // Must be registered before ready so game.settings.get/set works in the ready hook.
+  // Must be registered before ready so startup maintenance can read/write completion state.
   try {
     game.settings.register(getSystemId(), "conditionsHudUpgradeV2Done", {
       name: "Conditions HUD Upgrade v2 Done",

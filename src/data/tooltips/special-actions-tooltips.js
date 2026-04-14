@@ -7,6 +7,7 @@ import {
   buildPlaceholderShortText,
   composeTooltipText,
 } from "./shared-tooltips.js";
+import { buildTooltipHeader, localizeTooltipEntry } from "./tooltip-i18n.js";
 
 export const DEFAULT_SPECIAL_ACTION_TOOLTIP_POINTER = "See UESRPG Rules: Chapter 5 (Special Actions).";
 
@@ -47,12 +48,19 @@ export function buildSpecialActionTooltipText({ name, id, actionType }) {
   const normalizedName = String(name ?? "").trim() || normalizedId || "Unknown";
   const normalizedActionType = String(actionType ?? "primary/secondary").trim() || "primary/secondary";
   const entry = getSpecialActionTooltipEntry(normalizedId);
-  const pointer = entry?.pointer ?? DEFAULT_SPECIAL_ACTION_TOOLTIP_POINTER;
-  const shortText = entry?.shortText ?? buildPlaceholderShortText({ domain: "specialAction", id: normalizedId || "unknown" });
+  const localized = localizeTooltipEntry("SpecialActions", normalizedId || "unknown", entry, {
+    label: normalizedName,
+    pointerId: "SpecialAction",
+  });
+  const shortText = localized.shortText || buildPlaceholderShortText({ domain: "specialAction", id: normalizedId || "unknown" });
   return composeTooltipText({
-    header: `Special Action: ${normalizedName} (${normalizedId}) - ${normalizedActionType}.`,
+    header: buildTooltipHeader("SpecialAction", {
+      label: localized.label,
+      key: normalizedId,
+      actionType: normalizedActionType,
+    }, `Special Action: ${localized.label} (${normalizedId}) - ${normalizedActionType}.`),
     shortText,
-    pointer,
+    pointer: localized.pointer || DEFAULT_SPECIAL_ACTION_TOOLTIP_POINTER,
   });
 }
 
@@ -60,6 +68,15 @@ export function buildSpecialActionHelpText({ name, id }) {
   const normalizedId = String(id ?? "").trim();
   const normalizedName = String(name ?? "").trim() || normalizedId || "Unknown";
   const entry = getSpecialActionTooltipEntry(normalizedId);
-  const helpText = entry?.helpText ?? buildPlaceholderLongText({ domain: "specialAction", id: normalizedId || "unknown" });
-  return `${normalizedName} (${normalizedId}): ${helpText}`;
+  const localized = localizeTooltipEntry("SpecialActions", normalizedId || "unknown", entry, {
+    label: normalizedName,
+    pointerId: "SpecialAction",
+  });
+  const helpText = localized.helpText || buildPlaceholderLongText({ domain: "specialAction", id: normalizedId || "unknown" });
+  const header = buildTooltipHeader("SpecialAction", {
+    label: localized.label,
+    key: normalizedId,
+    actionType: "primary/secondary",
+  }, `Special Action: ${localized.label} (${normalizedId}) - primary/secondary.`);
+  return [header, helpText].filter(Boolean).join(" ");
 }

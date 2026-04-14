@@ -24,8 +24,6 @@ export function registerInitRuntimeApi({
   buildBaseRollOptions,
   buildRollContext,
   compileConditionsToPredicate,
-  getRuleElementRuntimeSupport,
-  selfTestRuleElementRuntime,
   applyDamage,
   applyHealing,
   applyDamageResolved,
@@ -40,6 +38,7 @@ export function registerInitRuntimeApi({
   CharOpposedWorkflow,
   runCombatLegacyReadinessScan,
   tokenActionHudApi,
+  applicationApi = null,
 } = {}) {
   const root = ensureRootNamespace();
   const rules = ensureChildNamespace(root, "rules");
@@ -61,10 +60,6 @@ export function registerInitRuntimeApi({
   };
   rules.conditions = {
     compileToPredicate: compileConditionsToPredicate,
-  };
-  rules.ruleElements = {
-    getSupportMatrix: getRuleElementRuntimeSupport,
-    selfTestRuntime: selfTestRuleElementRuntime,
   };
 
   combat.applyDamage = applyDamage;
@@ -89,6 +84,10 @@ export function registerInitRuntimeApi({
     api.tokenActionHud = tokenActionHudApi;
   }
 
+  if (applicationApi && typeof applicationApi === "object") {
+    Object.assign(ensureChildNamespace(root, "application"), applicationApi);
+  }
+
   return root;
 }
 
@@ -104,6 +103,7 @@ export function registerReadyRuntimeApi({
   modifierRegistry = null,
   dumpAEKeys = null,
   rootApi = null,
+  applicationApi = null,
 } = {}) {
   const root = ensureRootNamespace();
 
@@ -129,6 +129,10 @@ export function registerReadyRuntimeApi({
 
   if (talentsApi && typeof talentsApi === "object") {
     Object.assign(ensureChildNamespace(root, "talents"), talentsApi);
+  }
+
+  if (applicationApi && typeof applicationApi === "object") {
+    Object.assign(ensureChildNamespace(root, "application"), applicationApi);
   }
 
   return root;

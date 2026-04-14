@@ -35,11 +35,11 @@
  * The legacy path (default, `compositeBoundaryTickEnabled = false`) is
  * unchanged and is extracted into `_handleBoundaryLegacy()` for clarity.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.359+
  */
 
 import { getOriginAEs } from "../effects/origin-effect.js";
-import { getActiveSpellZones, getTokensInTemplate, hasActiveZones } from "../spell-runtime.js";
+import { getActiveSpellZones, getTokensInArea, hasActiveZones } from "../spell-runtime.js";
 import { createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { SYSTEM_ID } from "../../system/namespace.js";
@@ -258,7 +258,7 @@ export function initializeSpellTickEngine() {
 
 /**
  * Register the built-in zone damage tick handler.
- * This handler iterates all active spell zones and collects tokens within templates.
+ * This handler iterates all active spell zones and collects tokens within linked areas.
  * It emits `uesrpg.spell.zoneTick` for each zone, allowing other subsystems
  * to react (e.g., applying damage, conditions, etc.).
  *
@@ -278,8 +278,8 @@ export function registerZoneTickHandler() {
       if (!zones.length) return;
 
       for (const zone of zones) {
-        for (const tplUuid of zone.templateUuids) {
-          const tokens = getTokensInTemplate(tplUuid);
+        for (const areaUuid of (zone.areaUuids ?? [])) {
+          const tokens = getTokensInArea(areaUuid);
           if (!tokens.length) continue;
 
           _debug("Zone tick:", zone.spellName, "tokens:", tokens.map(t => t.name));
@@ -291,7 +291,8 @@ export function registerZoneTickHandler() {
               spellName: zone.spellName,
               spellUuid: zone.spellUuid,
               casterUuid: zone.casterUuid,
-              templateUuid: tplUuid,
+              areaUuid,
+              regionUuid: zone.regionUuids?.includes?.(areaUuid) ? areaUuid : null,
               tokens,
               trigger: ctx.trigger,
               round: ctx.round,

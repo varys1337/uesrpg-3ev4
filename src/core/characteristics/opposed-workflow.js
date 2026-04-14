@@ -35,7 +35,6 @@ import {
 } from "./opposed/resolver-cache.js";
 import { maybeResolveBothCritSuccessRollOff as _maybeResolveBothCritSuccessRollOffImpl } from "./opposed/rolloff.js";
 import { buildRollContext } from "../rules/roll-context.js";
-import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../traits/features/rule-element-runtime.js";
 import { verifyAutoRollClaim } from "../opposed/shared/auto-roll-claim.js";
 import { perfStart, perfEnd } from "../../utils/debug.js";
 
@@ -374,16 +373,6 @@ export const CharOpposedWorkflow = {
       data[side].declared = { manualMod: choices.manualMod, circumstanceMod: choices.circumstanceMod };
 
       const tn = computeCharacteristicTN(actor, choices.charKey, choices.manualMod, choices.circumstanceMod, ssModifier);
-      applyRuntimePreRollToTN({
-        actor,
-        targetActor: _resolveActorCached(crossData?.actorUuid, resolver),
-        targetToken: _resolveTokenCached(crossData?.tokenUuid, resolver),
-        rollContext: data?.context?.rollContext,
-        workflow: "characteristic",
-        side,
-        characteristicKey: choices.charKey,
-        tn
-      });
       data[side].tn = tn;
       data[side].committedAt = Date.now();
       data[side].committedBy = game.user.id;
@@ -396,17 +385,6 @@ export const CharOpposedWorkflow = {
     if (sideData.committedAt && !sideData.result) {
       const target = Number(sideData.tn?.finalTN ?? 0);
       const result = await doTestRoll(actor, { rollFormula: "1d100", target, allowLucky: true, allowUnlucky: true });
-      await applyRuntimePostRollToResult({
-        actor,
-        targetActor: _resolveActorCached(crossData?.actorUuid, resolver),
-        targetToken: _resolveTokenCached(crossData?.tokenUuid, resolver),
-        rollContext: data?.context?.rollContext,
-        workflow: "characteristic",
-        side,
-        characteristicKey: sideData?.charKey ?? data?.context?.charKey ?? "",
-        result,
-        allowPrompt: true
-      });
 
       data[side].result = {
         rollTotal: result.rollTotal,
@@ -640,18 +618,6 @@ export const CharOpposedWorkflow = {
       const targetToken = (sideRole === "attacker")
         ? _resolveTokenCached(data?.defender?.tokenUuid, resolver)
         : (sideRole === "defender" ? _resolveTokenCached(data?.attacker?.tokenUuid, resolver) : null);
-
-      await applyRuntimePostRollToResult({
-        actor,
-        targetActor,
-        targetToken,
-        rollContext: data?.context?.rollContext,
-        workflow: "characteristic",
-        side: sideRole,
-        characteristicKey: side?.charKey ?? data?.context?.charKey ?? "",
-        result: res,
-        allowPrompt: true
-      });
 
       return {
         rollTotal: res.rollTotal,

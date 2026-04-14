@@ -1,5 +1,6 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
+import { localizeSettingConfig } from "../../../utils/i18n.js";
 import {
   TALENT_LEARNING_MODE,
   TALENT_NO_GOVERNING_COST_RULE,
@@ -11,7 +12,7 @@ function _reg(key, config) {
     console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
     return;
   }
-  game.settings.register(SYSTEM_ID, key, config);
+  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Talents", key, config));
 }
 
 export function registerTalentsSettings() {
@@ -41,6 +42,11 @@ export function registerTalentsSettings() {
     config: false,
     default: "original",
     type: String,
+    choices: {
+      disabled: "Disabled",
+      original: "Original (Make)",
+      updated: "Updated (Can)",
+    },
   });
 
   _reg("talentLearningMode", {
@@ -169,15 +175,6 @@ export function registerTalentsSettings() {
   });
 
   // Rule-element runtime master switch (phase-gated substrate rollout).
-  _reg("enableRuleElementsRuntime", {
-    name: "Rule Elements Runtime (Experimental)",
-    hint: "Enable runtime evaluation of Rule Elements (experimental).",
-    scope: "world",
-    config: false,
-    default: true,
-    type: Boolean,
-  });
-
   // Spell Recipes (Experimental) — hidden by default
   _reg("enableSpellRecipes", {
     name: "Spell Recipes (Experimental)",

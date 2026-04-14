@@ -10,7 +10,8 @@ import { isMultiDefender } from "./schema.js";
 import { computeSpellMagickaCost, rollSpellDamage } from "../magicka-utils.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { computeElementalDamageBonus } from "../magic-modifiers.js";
-import { canTokenEscapeTemplate } from "../../../utils/aoe-utils.js";
+import { canTokenEscapeArea } from "../../../utils/aoe-utils.js";
+import { getCoreRollMode, isPublicChatMessageMode } from "../../../utils/chat-roll-mode.js";
 import { canUserRollActor } from "../../../utils/permissions.js";
 import { resolveToken } from "./schema.js";
 
@@ -19,9 +20,7 @@ export function emitSuppressedOpposedSubRollDice(roll, { rollMode = null } = {})
   const dsn = game?.dice3d;
   if (!dsn || typeof dsn.showForRoll !== "function") return null;
 
-  const mode = String(rollMode ?? game?.settings?.get?.("core", "rollMode") ?? "roll").toLowerCase();
-  const isPublic = mode === "roll" || mode === "publicroll";
-  const sync = Boolean(isPublic);
+  const sync = isPublicChatMessageMode(rollMode ?? getCoreRollMode());
 
   try {
     const primary = dsn.showForRoll(roll, game.user, sync);
@@ -280,11 +279,11 @@ export async function maybeResolveAoEEvadeEscape({ data, defenderEntry, defender
   if (defenderEntry.aoeEvadeEscaped === true) return true;
   if (defenderEntry.aoeEvadeEscaped === false) return false;
 
-  const templateUuid = data?.context?.aoe?.templateUuid ?? null;
-  const templateId = data?.context?.aoe?.templateId ?? null;
+  const areaUuid = data?.context?.aoe?.areaUuid ?? data?.context?.aoe?.regionUuid ?? data?.context?.aoe?.templateUuid ?? null;
+  const areaId = data?.context?.aoe?.areaId ?? data?.context?.aoe?.regionId ?? data?.context?.aoe?.templateId ?? null;
   const token = resolveToken(defenderEntry?.tokenUuid ?? defenderActor?.uuid);
 
-  let canEscape = canTokenEscapeTemplate({ templateUuid, templateId, token, stepMeters: 1 });
+  let canEscape = canTokenEscapeArea({ areaUuid, areaId, token, stepMeters: 1 });
   if (canEscape == null) {
     const canPrompt = game.user?.isGM || (defenderActor && canUserRollActor(game.user, defenderActor));
     if (canPrompt) {

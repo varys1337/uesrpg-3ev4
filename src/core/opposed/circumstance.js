@@ -4,6 +4,7 @@
  */
 
 import { CIRCUMSTANCE_MOD_LABELS } from "../config/label-catalog.js";
+import { t } from "../../utils/i18n.js";
 
 /**
  * Valid circumstance modifier values (ordered for dropdown rendering).
@@ -19,7 +20,8 @@ export function normalizeCircumstanceMod(value, fallback = 0) {
 
 export function circumstanceLabel(value) {
   const normalized = normalizeCircumstanceMod(value, 0);
-  return CIRCUMSTANCE_MOD_LABELS[normalized] ?? "\u2014";
+  const fallback = CIRCUMSTANCE_MOD_LABELS[normalized] ?? "\u2014";
+  return t(`UESRPG.Choices.Circumstance.${normalized}`, fallback);
 }
 
 export function buildCircumstanceOptionsHtml(selectedValue = 0) {

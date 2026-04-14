@@ -45,8 +45,8 @@ export function getActorCapabilityFlag(actor, key, { fallback = false } = {}) {
       const next = _toBoolean(change?.value);
       if (next === null) continue;
 
-      if (_isOverrideMode(change?.mode)) value = next;
-      else if (_isAddMode(change?.mode) && next === true) value = true;
+      if (_isOverrideMode(change)) value = next;
+      else if (_isAddMode(change) && next === true) value = true;
     }
   }
 

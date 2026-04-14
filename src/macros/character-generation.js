@@ -20,11 +20,10 @@ export async function openCharGenWizard(opts = {}) {
   const existing = findOpenAppInstance(CharGenWizardAppV2);
   if (existing) return focusOpenApp(existing, { maximize: true });
 
-  const app = new CharGenWizardAppV2({
+  return CharGenWizardAppV2.prompt({
     actorUuid: actor.uuid,
     name: opts.name ?? "",
   });
-  await app.render(true);
 }
 
 export async function runRawChargenFlow(actorOrOpts = {}) {

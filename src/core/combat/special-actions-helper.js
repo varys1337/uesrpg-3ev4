@@ -22,6 +22,7 @@ import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { _resolveActorViaToken } from "./opposed/helpers/docs.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
+import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
 import { SYSTEM_ID } from "../system/namespace.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
@@ -815,7 +816,7 @@ async function _createBashAcrobaticsTest(target) {
   await result.roll.toMessage({
     speaker: ChatMessage.getSpeaker({ actor: target, token: targetToken?.document ?? null }),
     flavor: `Acrobatics — Bash Follow-Up (avoid Prone)`,
-    rollMode: game.settings.get("core", "rollMode")
+    rollMode: getCoreRollMode()
   });
 
   // Apply Prone if they failed

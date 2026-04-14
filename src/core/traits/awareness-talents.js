@@ -38,7 +38,7 @@ function _isSenseLossMod(mod) {
  * Rules:
  *  - One with All: penalty becomes 0.
  *  - Honed Senses: penalty is halved, rounding toward 0.
- *  - Rule Element senseLossReduction: "negate" → 0, "halve" → half.
+ *  - Legacy sense-loss overrides: "negate" → 0, "halve" → half.
  *  - Otherwise unchanged.
  *
  * @param {number} penalty
@@ -52,7 +52,6 @@ export function adjustSensePenalty(penalty, actor) {
   if (hasTalent(actor, "onewithall")) return 0;
   if (hasTalent(actor, "honedsenses")) return Math.trunc(p / 2);
 
-  // Rule Element: senseLossReduction via passive RE override.
   const reMode = actor?.system?._reOverrides?.["system.senses.lossReduction"] ?? null;
   if (reMode === "negate") return 0;
   if (reMode === "halve") return Math.trunc(p / 2);
@@ -76,7 +75,6 @@ export function applySenseLossPenaltyAdjustments(situationalMods, actor) {
 
   const hasAll = hasTalent(actor, "onewithall");
   const hasHoned = !hasAll && hasTalent(actor, "honedsenses");
-  // Rule Element: senseLossReduction via passive RE override.
   const reMode = actor?.system?._reOverrides?.["system.senses.lossReduction"] ?? null;
   const hasRE = (reMode === "negate" || reMode === "halve");
   if (!hasAll && !hasHoned && !hasRE) return;
@@ -104,7 +102,6 @@ export function applySenseLossPenaltyAdjustments(situationalMods, actor) {
     if (label) {
       if (hasAll && !/one with all/i.test(label)) mod.label = `${label} (One with All)`;
       else if (hasHoned && !/honed senses/i.test(label)) mod.label = `${label} (Honed Senses)`;
-      else if (hasRE && !/rule element/i.test(label)) mod.label = `${label} (Rule Element)`;
     }
 
     // Normalize source for consistent downstream categorization.

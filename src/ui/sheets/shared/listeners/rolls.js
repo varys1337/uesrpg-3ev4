@@ -26,6 +26,8 @@ import { applyIntellectualTalentDoSOverrides } from "../../../../core/traits/int
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { safeUpdateChatMessage } from "../../../../utils/chat-message-socket.js";
+import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
+import { isAddMode } from "../../../../core/active-effects/reducers.js";
 import { getEffectChanges } from "../../../../utils/compat.js";
 import { MagicOpposedWorkflow } from "../../../../core/magic/opposed-workflow.js";
 import { consumeInspireHeroismEffect } from "../../../../core/combat/opposed/effects.js";
@@ -393,7 +395,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
       <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
     </div>`;
 
-  const rollMode = game.settings.get("core", "rollMode");
+  const rollMode = getCoreRollMode();
   const dosOverride = res?.uesrpgDosOverride ?? null;
   const skillTest = {
     actorUuid: this.actor.uuid,
@@ -626,7 +628,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
             for (const ch of changes) {
               if (!ch) continue;
               if (ch.key !== "system.modifiers.combat.attackTN") continue;
-              if (ch.mode !== (CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2)) continue;
+              if (!isAddMode(ch)) continue;
               v += Number(ch.value) || 0;
             }
             if (v) {
@@ -646,7 +648,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
               for (const ch of changes) {
                 if (!ch) continue;
                 if (ch.key !== "system.modifiers.combat.attackTN") continue;
-                if (ch.mode !== (CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2)) continue;
+                if (!isAddMode(ch)) continue;
                 v += Number(ch.value) || 0;
               }
               if (v) {
@@ -702,7 +704,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
             user: game.user.id,
             speaker: ChatMessage.getSpeaker({ actor: this.actor }),
             flavor,
-            rollMode: game.settings.get("core", "rollMode")
+            rollMode: getCoreRollMode()
           });
 
           await consumeInspireHeroismEffect(this.actor);
@@ -770,7 +772,7 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
             speaker: ChatMessage.getSpeaker(),
             content: contentString,
             flavor: `<div class="tag-container">${tags.join("")}</div>`,
-            rollMode: game.settings.get("core", "rollMode"),
+            rollMode: getCoreRollMode(),
           });
       },
     },
@@ -906,8 +908,7 @@ export const onDamageRoll = asyncGuardSheet(async function onDamageRoll(event, t
     speaker: ChatMessage.getSpeaker(),
     content: contentString,
     rolls: rollsToSend,
-    rollMode: game.settings.get("core", "rollMode"),
+    rollMode: getCoreRollMode(),
     style: CONST.CHAT_MESSAGE_STYLES.OTHER,
   });
 })
-

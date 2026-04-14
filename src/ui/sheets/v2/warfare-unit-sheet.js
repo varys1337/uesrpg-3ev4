@@ -17,11 +17,13 @@ import {
   requestCreateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments,
 } from "../../../utils/authority-proxy.js";
+import { buildEffectChangesData } from "../../../utils/compat.js";
 import { readDropData } from "../../../utils/drop-data.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
 import { postItemToChat } from "../shared-handlers.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
+import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import {
   buildAllowedChangePatch,
   buildAllowedSubmitPatch,
@@ -45,6 +47,7 @@ import {
 } from "../../../core/mass-warfare/index.js";
 import { maybeInitializeWarfareCondition } from "../../../core/mass-warfare/condition-target.js";
 import { areTokensInBaseContact } from "../../../core/mass-warfare/battlefield/geometry.js";
+import { t, tf } from "../../../utils/i18n.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -253,22 +256,22 @@ async function promptClashContactSides({
     .join("");
 
   return customDialog({
-    title: `${actorName} - Contact Sides`,
+    title: tf("UESRPG.Dialogs.Warfare.ContactSidesTitle", { actor: actorName }),
     content: `
       <div class="warfare-clash-commit-dialog">
-        <p>Track clash position manually for <b>${foundry.utils.escapeHTML(actorName)}</b> and <b>${foundry.utils.escapeHTML(targetName)}</b>.</p>
+        <p>${tf("UESRPG.Dialogs.Warfare.ContactSidesContent", { attacker: foundry.utils.escapeHTML(actorName), defender: foundry.utils.escapeHTML(targetName) })}</p>
         <div class="form-group">
-          <label>Attacker Position vs Defender</label>
+          <label>${t("UESRPG.Dialogs.Warfare.AttackerPosition")}</label>
           <select name="attackerContactSide">${buildOptions(selectedAttackerSide)}</select>
         </div>
         <div class="form-group">
-          <label>Defender Position vs Attacker</label>
+          <label>${t("UESRPG.Dialogs.Warfare.DefenderPosition")}</label>
           <select name="defenderContactSide">${buildOptions(selectedDefenderSide)}</select>
         </div>
       </div>`,
     buttons: {
       confirm: {
-        label: "Confirm",
+        label: t("UESRPG.UI.Apply"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           return {
@@ -277,7 +280,7 @@ async function promptClashContactSides({
           };
         },
       },
-      cancel: { label: "Cancel" },
+      cancel: { label: t("UESRPG.UI.Cancel") },
     },
     defaultButton: "confirm",
     width: 460,
@@ -639,16 +642,16 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     if (!this.isEditable) return;
     const actor = await fromUuid(data.uuid);
     if (!actor) {
-      ui.notifications.warn("Could not find actor.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.CouldNotFindActor"));
       return;
     }
 
     if (actor.type === "Group") {
-      ui.notifications.warn("Groups cannot be assigned as commanders.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.GroupsCannotBeCommanders"));
       return;
     }
     if (actor.type === "Warfare Unit") {
-      ui.notifications.warn("Warfare Units cannot be assigned as commanders.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.UnitsCannotBeCommanders"));
       return;
     }
 
@@ -665,7 +668,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
       "system.commanderAttachment.leaderTokenUuid": "",
       "system.commanderAttachment.sceneId": "",
     });
-    ui.notifications.info(`${actor.name} assigned as commander.`);
+    ui.notifications.info(tf("UESRPG.Notifications.Warfare.AssignedCommander", { actor: actor.name }));
   }
 
   // ── Action Handlers ───────────────────────────────────────────────────────
@@ -674,8 +677,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     event?.preventDefault?.();
     if (!this.isEditable) return;
     const current = String(this.document?.img ?? "");
-    const picker = new FilePicker({
-      type: "imagevideo",
+    const picker = createImageVideoFilePicker({
       current,
       callback: async (path) => {
         if (!path || path === current) return;
@@ -690,7 +692,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     if (!uuid) return;
     const actor = await fromUuid(uuid);
     if (actor) actor.sheet.render(true);
-    else ui.notifications.warn("Commander actor not found.");
+    else ui.notifications.warn(t("UESRPG.Notifications.Warfare.CommanderNotFound"));
   }
 
   async _onClearCommander(_event, _target) {
@@ -706,14 +708,14 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     if (!this.isEditable) return;
     const traditionKey = String(this.document.system.doctrine?.tradition ?? "").toLowerCase();
     if (!TRADITIONS[traditionKey]) {
-      ui.notifications.warn("No Provincial Tradition is selected.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.NoProvincialTradition"));
       return;
     }
     await requestUpdateDocument(this.document, {
       "system.identity.ancestry": traditionKey,
       "system.classification.ancestry": traditionKey,
     });
-    ui.notifications.info(`Synchronized ${traditionKey} to the legacy ancestry lane.`);
+    ui.notifications.info(tf("UESRPG.Notifications.Warfare.SyncedTradition", { tradition: traditionKey }));
   }
 
   // ── Trait array management (legacy system.traits[]) ───────────────────────
@@ -801,47 +803,47 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
   async _onInitiateClash(_event, _target) {
     const actor = this.document;
     if (actor?.system?.status?.battle?.broken || actor?.system?.status?.battle?.defeated) {
-      ui.notifications.warn("Broken or defeated warfare units cannot initiate clashes.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.CannotClashBroken"));
       return;
     }
     const targets = [...(game.user.targets ?? [])];
     if (targets.length !== 1) {
-      ui.notifications.warn("Select exactly one target Warfare Unit token before initiating a Clash.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.SelectOneTargetUnit"));
       return;
     }
     const targetActor = targets[0].actor;
     if (!targetActor || targetActor.type !== "Warfare Unit") {
-      ui.notifications.warn("The targeted token must be a Warfare Unit.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.TargetMustBeUnit"));
       return;
     }
     if (targetActor?.system?.status?.battle?.defeated) {
-      ui.notifications.warn("The targeted warfare unit is defeated.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.TargetDefeated"));
       return;
     }
     if (targetActor.id === actor.id) {
-      ui.notifications.warn("A unit cannot clash with itself.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.CannotClashSelf"));
       return;
     }
 
     // Choose attack type before creating the clash card
     const attackType = await customDialog({
-      title: `${actor.name} — Initiate Clash`,
+      title: tf("UESRPG.Dialogs.Warfare.InitiateClashTitle", { actor: actor.name }),
       content: `<div class="warfare-clash-commit-dialog">
         <div class="form-group">
-          <label>Attack Type</label>
+          <label>${t("UESRPG.Dialogs.Warfare.AttackType")}</label>
           <select name="attackType">
-            <option value="melee">Melee</option>
-            <option value="ranged">Ranged</option>
+            <option value="melee">${t("UESRPG.UI.Melee")}</option>
+            <option value="ranged">${t("UESRPG.UI.Ranged")}</option>
           </select>
-          <p class="notes">Ranged attacks waive Skirmisher Melee Penalties for the attacker.</p>
+          <p class="notes">${t("UESRPG.Dialogs.Warfare.RangedPenaltyNote")}</p>
         </div>
       </div>`,
       buttons: {
         confirm: {
-          label: "Initiate",
+          label: t("UESRPG.Dialogs.Warfare.Initiate"),
           callback: (html) => html.querySelector('[name="attackType"]')?.value ?? "melee",
         },
-        cancel: { label: "Cancel" },
+        cancel: { label: t("UESRPG.UI.Cancel") },
       },
       defaultButton: "confirm",
     });
@@ -849,7 +851,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     const attackerTokenDoc = actor.token?.document ?? actor.getActiveTokens?.()[0]?.document ?? null;
     const defenderTokenDoc = targets[0]?.document ?? null;
     if (attackType === "melee" && attackerTokenDoc && defenderTokenDoc && !areTokensInBaseContact(attackerTokenDoc, defenderTokenDoc)) {
-      ui.notifications.warn("A melee clash requires the two warfare tokens to be in base contact on the scene.");
+      ui.notifications.warn(t("UESRPG.Notifications.Warfare.MeleeRequiresBaseContact"));
       return;
     }
 
@@ -920,8 +922,9 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
   async _onCreateEffect(_event, _target) {
     if (!this.isEditable) return;
     await requestCreateEmbeddedDocuments(this.document, "ActiveEffect", [{
-      name: "New Effect",
+      name: t("UESRPG.Dialogs.Warfare.NewEffect"),
       img: "icons/svg/aura.svg",
+      ...buildEffectChangesData([]),
     }]);
   }
 
@@ -939,8 +942,8 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     const effect = this.document.effects.get(id);
     if (!effect) return;
     const confirmed = await confirmDialog({
-      title: "Delete Effect",
-      content: `<p>Delete <strong>${effect.name}</strong>?</p>`,
+      title: t("UESRPG.Dialogs.Warfare.DeleteEffectTitle"),
+      content: `<p>${tf("UESRPG.Dialogs.Warfare.DeleteEffectContent", { effect: effect.name })}</p>`,
     });
     if (!confirmed) return;
     await requestDeleteEmbeddedDocuments(this.document, "ActiveEffect", [id]);
@@ -973,8 +976,8 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     const item = this.document.items.get(itemId);
     if (!item) return;
     const confirmed = await confirmDialog({
-      title: "Delete Item",
-      content: `<p>Delete <strong>${item.name}</strong>?</p>`,
+      title: t("UESRPG.Dialogs.Warfare.DeleteItemTitle"),
+      content: `<p>${tf("UESRPG.Dialogs.Warfare.DeleteItemContent", { item: item.name })}</p>`,
     });
     if (!confirmed) return;
     await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId]);

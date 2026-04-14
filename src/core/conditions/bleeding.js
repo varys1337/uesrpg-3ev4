@@ -16,13 +16,9 @@
  * This module does not mutate documents directly; it uses embedded document APIs.
  */
 
-import { hasCondition } from "./condition-engine.js";
+import { adjustConditionValue, getConditionValue, hasCondition, removeCondition, setConditionValue } from "./condition-engine.js";
 import { applyDamage } from "../combat/damage-automation.js";
-import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
-import { FLAG_SCOPE } from "../system/namespace.js";
-import { normalizeKey } from "../../utils/coerce.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
-const FLAG_PATH = `flags.${FLAG_SCOPE}`;
 const CONDITION_KEY = "bleeding";
 
 let _registered = false;
@@ -83,98 +79,6 @@ function _setState(combat) {
   });
 }
 
-function _effectsOf(actor) {
-  const e = actor?.effects;
-  if (!e) return [];
-  if (Array.isArray(e)) return e;
-  return Array.isArray(e.contents) ? e.contents : [];
-}
-
-function _readBleedingValue(effect) {
-  // Prefer canonical flag value; fall back to parsing the name "Bleeding (X)".
-  try {
-    const flagged = effect?.getFlag?.(FLAG_SCOPE, "condition") ?? effect?.flags?.[FLAG_SCOPE]?.condition;
-    const v = Number(flagged?.value ?? flagged?.x ?? 0);
-    if (Number.isFinite(v) && v > 0) return Math.floor(v);
-  } catch (_err) {}
-
-  try {
-    const name = String(effect?.name ?? "");
-    const m = name.match(/\((\d+)\)/);
-    if (m) {
-      const v = Number(m[1]);
-      if (Number.isFinite(v) && v > 0) return Math.floor(v);
-    }
-  } catch (_err) {}
-
-  return 1; // default for HUD-toggled bleeding with no parameter
-}
-
-function _isBleedingEffect(effect) {
-  if (!effect) return false;
-  const k = normalizeKey(effect?.getFlag?.(FLAG_SCOPE, "condition")?.key ?? effect?.flags?.[FLAG_SCOPE]?.condition?.key);
-  if (k === CONDITION_KEY) return true;
-
-  const coreId = normalizeKey(effect?.getFlag?.("core", "statusId") ?? effect?.flags?.core?.statusId);
-  if (coreId === CONDITION_KEY) return true;
-
-  try {
-    if (effect.statuses && typeof effect.statuses?.has === "function" && effect.statuses.has(CONDITION_KEY)) return true;
-  } catch (_err) {}
-
-  const nm = normalizeKey(effect.name);
-  return nm.startsWith(CONDITION_KEY);
-}
-
-async function _consolidateBleedingEffects(actor) {
-  const effects = _effectsOf(actor).filter(_isBleedingEffect);
-  if (!effects.length) return { effect: null, value: 0 };
-
-  let total = 0;
-  for (const ef of effects) total += Math.max(0, _readBleedingValue(ef));
-
-  const primary = effects[0];
-  const toDelete = effects.slice(1).map(e => e.id).filter(Boolean);
-
-  if (toDelete.length) {
-    try {
-      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", toDelete);
-    } catch (err) {
-      console.warn("UESRPG | Bleeding | failed to delete duplicate effects", err);
-    }
-  }
-
-  // Ensure the primary effect carries the consolidated value + stable flags + name.
-  await _setBleedingValue(primary, total);
-  return { effect: primary, value: total };
-}
-
-async function _setBleedingValue(effect, value) {
-  if (!effect) return;
-  const v = Math.max(0, Math.floor(Number(value) || 0));
-  const name = v > 0 ? `Bleeding (${v})` : "Bleeding";
-  const update = {
-    name,
-    [`${FLAG_PATH}.condition`]: { key: CONDITION_KEY, value: v },
-    "flags.core.statusId": CONDITION_KEY
-  };
-
-  try {
-    await requestUpdateDocument(effect, update);
-  } catch (err) {
-    console.warn("UESRPG | Bleeding | failed to update effect value", err);
-  }
-}
-
-async function _removeBleeding(actor, effect) {
-  if (!actor || !effect?.id) return;
-  try {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", [effect.id]);
-  } catch (err) {
-    console.warn("UESRPG | Bleeding | failed to delete effect", err);
-  }
-}
-
 /**
  * Apply Bleeding (X) to an actor, stacking with any existing Bleeding.
  *
@@ -186,43 +90,7 @@ async function _removeBleeding(actor, effect) {
 export async function applyBleeding(actor, x, { source = "Bleeding" } = {}) {
   const amt = Math.floor(Number(x) || 0);
   if (!actor || amt <= 0) return null;
-
-  // If the actor already has bleeding, consolidate and increase X.
-  const existing = hasCondition(actor, CONDITION_KEY);
-  if (existing) {
-    const { effect, value } = await _consolidateBleedingEffects(actor);
-    const next = Math.max(0, Math.floor(Number(value) || 0) + amt);
-    await _setBleedingValue(effect, next);
-    return effect;
-  }
-
-  // Create a fresh bleeding effect with canonical flags.
-  const effectData = {
-    name: `Bleeding (${amt})`,
-    icon: "systems/uesrpg-3ev4/images/Icons/bleeding.webp",
-    disabled: false,
-    flags: {
-      core: { statusId: CONDITION_KEY },
-      [FLAG_SCOPE]: {
-        condition: { key: CONDITION_KEY, value: amt },
-        owner: "system",
-        effectGroup: `condition.${CONDITION_KEY}`,
-        stackRule: "refresh",
-        source: "condition"
-      }
-    },
-    origin: null,
-    duration: {},
-    changes: []
-  };
-
-  try {
-    const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData]);
-    return created?.[0] ?? null;
-  } catch (err) {
-    console.warn("UESRPG | Bleeding | failed to create effect", err);
-    return null;
-  }
+  return adjustConditionValue(actor, CONDITION_KEY, amt, { source });
 }
 
 /**
@@ -234,13 +102,11 @@ export async function applyBleeding(actor, x, { source = "Bleeding" } = {}) {
 export async function reduceBleeding(actor, amount) {
   const amt = Math.floor(Number(amount) || 0);
   if (!actor || amt <= 0) return;
-
-  const { effect, value } = await _consolidateBleedingEffects(actor);
-  if (!effect || value <= 0) return;
-
-  const next = Math.max(0, value - amt);
-  if (next <= 0) return _removeBleeding(actor, effect);
-  return _setBleedingValue(effect, next);
+  const current = Math.max(0, Number(getConditionValue(actor, CONDITION_KEY) ?? 0) || 0);
+  if (current <= 0) return;
+  const next = Math.max(0, current - amt);
+  if (next <= 0) return removeCondition(actor, CONDITION_KEY);
+  return setConditionValue(actor, CONDITION_KEY, next);
 }
 
 /**
@@ -248,9 +114,8 @@ export async function reduceBleeding(actor, amount) {
  */
 export async function tickBleedingStartTurn(actor) {
   if (!actor) return;
-
-  const { effect, value } = await _consolidateBleedingEffects(actor);
-  if (!effect || value <= 0) return;
+  const value = Math.max(0, Number(getConditionValue(actor, CONDITION_KEY) ?? 0) || 0);
+  if (value <= 0) return;
 
   // Apply X damage, bypassing all reductions.
   try {
@@ -264,8 +129,8 @@ export async function tickBleedingStartTurn(actor) {
   }
 
   const next = Math.max(0, value - 1);
-  if (next <= 0) return _removeBleeding(actor, effect);
-  return _setBleedingValue(effect, next);
+  if (next <= 0) return removeCondition(actor, CONDITION_KEY);
+  return setConditionValue(actor, CONDITION_KEY, next);
 }
 
 /**

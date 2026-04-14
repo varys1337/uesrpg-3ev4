@@ -8,6 +8,7 @@
 import { collectTraitDamageModifiers, getResistanceKeyForTraitType } from "../../traits/trait-registry.js";
 import { getFeatureConfig } from "../../traits/features/feature-config.js";
 import { isShieldItem } from "../../items/shield-utils.js";
+import { getCachedItemAggregation, setCachedItemAggregation } from "../derived-cache/actor-derived-cache.js";
 
 /**
  * Check whether a passive feature item (trait/talent/power) is currently
@@ -45,9 +46,8 @@ export function aggregateItemStats(actor, actorData) {
 
   // Return cached result if the cache is still valid.
   // Cache is nulled by item create/update/delete hooks; combat state guards feature gating.
-  if (actor._aggCache?.agg && actor._aggCache.combatState === combatState) {
-    return actor._aggCache.agg;
-  }
+  const cached = getCachedItemAggregation(actor, combatState);
+  if (cached) return cached;
 
   const itemsRaw = actorData?.items;
   const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
@@ -332,8 +332,7 @@ export function aggregateItemStats(actor, actorData) {
     stats.totalEnc += Math.floor(stats.zeroEncItemCount / 10);
   }
 
-  actor._aggCache = { agg: stats, combatState };
-  return stats;
+  return setCachedItemAggregation(actor, stats, combatState);
 }
 
 /**

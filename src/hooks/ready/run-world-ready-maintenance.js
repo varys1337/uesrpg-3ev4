@@ -3,6 +3,7 @@ import { alertDialog } from "../../utils/dialog-v2-helper.js";
 import { initSettingsCache } from "../../core/config/settings-cache.js";
 import { SYSTEM_ID } from "../../core/system/namespace.js";
 import { initializePerfApi } from "../../utils/perf-tracker.js";
+import { runTokenHudStatusUpgradeMaintenance } from "../../core/conditions/status-hud.js";
 
 const TIME_SETTINGS_MIGRATION_KEY = "timeDefaultsCompositeOrchestratorV1";
 
@@ -132,6 +133,7 @@ export async function runWorldReadyMaintenance() {
   await migrateTimeDefaultsSafely();
   await startupHandler();
   initSettingsCache();
+  await runTokenHudStatusUpgradeMaintenance();
 
   try {
     initializePerfApi();

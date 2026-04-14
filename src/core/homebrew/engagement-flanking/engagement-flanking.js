@@ -301,6 +301,20 @@ function _drawDebugError(err) {
   } catch (_e) {}
 }
 
+function _ensureDebouncedRefresh() {
+  if (_debouncedRefresh) return;
+  const debounce = foundry?.utils?.debounce;
+  _debouncedRefresh = (typeof debounce === "function")
+    ? debounce(() => {
+        const context = consumePendingRefreshContext();
+        void refreshEngagementFlanking(context).catch(_drawDebugError);
+      }, 80)
+    : (() => {
+        const context = consumePendingRefreshContext();
+        void refreshEngagementFlanking(context).catch(_drawDebugError);
+      });
+}
+
 function _computeThreatMaps(tokens, caches) {
   const threatenedBy = new Map();
   const threatens = new Map();
@@ -726,19 +740,16 @@ export async function refreshEngagementFlanking(options = {}) {
 }
 
 export function scheduleEngagementFlankingRefresh(options = {}) {
-  _queueRefreshContextState(options);
-  if (!_debouncedRefresh) {
-    const debounce = foundry?.utils?.debounce;
-    _debouncedRefresh = (typeof debounce === "function")
-      ? debounce(() => {
-          const context = consumePendingRefreshContext();
-          void refreshEngagementFlanking(context).catch(_drawDebugError);
-        }, 80)
-      : (() => {
-          const context = consumePendingRefreshContext();
-          void refreshEngagementFlanking(context).catch(_drawDebugError);
-        });
+  if (options?.reasons instanceof Set) {
+    const reasons = Array.from(options.reasons);
+    if (!reasons.length) reasons.push("hook");
+    for (const reason of reasons) {
+      _queueRefreshContextState({ ...options, reason });
+    }
+  } else {
+    _queueRefreshContextState(options);
   }
+  _ensureDebouncedRefresh();
   _debouncedRefresh();
 }
 

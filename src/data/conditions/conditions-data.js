@@ -382,7 +382,7 @@ export const CONDITIONS_DATASET = Object.freeze([
     img: "icons/svg/falling.svg",
     hudVisible: true,
     description:
-      `<p>The character is prone, and every 1 meter that they move while prone costs 2 meters of their movement for the round. They also suffer a -20 penalty to all combat related tests and count any full armor they are wearing as partial (to represent that it is easier for characters to take advantage of gaps in their defenses while they are down).</p>` +
+      `<p>The character is prone, and every 1 meter that they move while prone costs 2 meters of their movement for the round. They also suffer a -20 penalty to all combat related tests and count any full armor they are wearing as partial. This does not affect AR.</p>` +
       `<p>Dropping prone costs no movement, but standing up requires that a character spend movement equal to half of their base Speed. If the character does not have this much movement left over to use, then they cannot get up unless they take the Arise action.</p>`,
     rulesRef: { chapter: "Chapter 5 - Advanced Mechanics", section: "Conditions" }
   },

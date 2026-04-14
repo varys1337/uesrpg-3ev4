@@ -16,7 +16,7 @@
  *
  * @see docs/Coding/MAGIC_FOLDER_ARCHITECTURE.md (if created)
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.359+
  */
 
 // ──────────────────────────────────────────────
@@ -157,6 +157,8 @@ export {
   debugMagicRoutingLog,
   getSpellReflectThreshold,
   trySpellReflect,
+  linkAreaToOriginAE,
+  getTokensInArea,
   linkTemplateToOriginAE,
   getTokensInTemplate,
   getActiveSpellZones,

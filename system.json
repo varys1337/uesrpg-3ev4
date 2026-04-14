@@ -8,6 +8,18 @@
   "styles": [
     "styles/uesrpg.css"
   ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    },
+    {
+      "lang": "ru",
+      "name": "Русский",
+      "path": "lang/ru.json"
+    }
+  ],
   "packs": [
     {
       "name": "roll-tables",
@@ -186,9 +198,122 @@
     }
   ],
   "compatibility": {
-    "minimum": "14",
-    "verified": "14.359",
-    "maximum": "14"
+    "minimum": "14.359",
+    "verified": "14.361",
+    "maximum": "14.361"
+  },
+  "documentTypes": {
+    "Actor": {
+      "Player Character": {
+        "htmlFields": [
+          "bio",
+          "journal",
+          "notes"
+        ]
+      },
+      "NPC": {
+        "htmlFields": [
+          "bio",
+          "journal",
+          "notes"
+        ]
+      },
+      "Group": {
+        "htmlFields": [
+          "description",
+          "notes"
+        ]
+      },
+      "Warfare Unit": {
+        "htmlFields": [
+          "description",
+          "notes"
+        ]
+      }
+    },
+    "Item": {
+      "equipment": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "item": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "container": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "armor": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "shield": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "weapon": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "spell": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "trait": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "power": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "talent": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "combatStyle": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "skill": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "magicSkill": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "ammunition": {
+        "htmlFields": [
+          "description"
+        ]
+      },
+      "invocation": {
+        "htmlFields": [
+          "description",
+          "effect"
+        ]
+      },
+      "scroll": {
+        "htmlFields": [
+          "description"
+        ]
+      }
+    }
   },
   "socket": true
 }

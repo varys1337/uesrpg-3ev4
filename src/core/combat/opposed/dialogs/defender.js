@@ -12,6 +12,7 @@ import { buildSpecialActionsForActor } from "../../combat-style-utils.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { canUseExploitAdvantage as _canUseExploitAdvantage } from "../helpers/workflow.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { t, tf } from "../../../../utils/i18n.js";
 import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../../data/tooltips/index.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
 
@@ -64,7 +65,9 @@ export async function promptDefenderAdvantage({
     const tooltip = buildSpecialActionTooltipText({ name: label, id, actionType: typ || "primary/secondary" });
     const helpText = buildSpecialActionHelpText({ name: label, id });
     const chipClass = typ === "primary" ? "uesrpg-adv-chip--primary" : "uesrpg-adv-chip--secondary";
-    const chipLabel = typ === "primary" ? "Primary" : "Secondary";
+    const chipLabel = typ === "primary"
+      ? t("UESRPG.Sheets.Combat.Primary", "Primary")
+      : t("UESRPG.Sheets.Combat.Secondary", "Secondary");
     return `
       <label class="uesrpg-adv-choice" title="${_escapeHtml(tooltip)}" data-uesrpg-inline-help="true" data-uesrpg-inline-help-label="${_escapeHtml(label)}" data-uesrpg-inline-help-text="${_escapeHtml(tooltip)}" data-uesrpg-inline-help-dialog-text="${_escapeHtml(helpText)}">
         <input type="checkbox" name="sa_${id}" />
@@ -79,49 +82,49 @@ export async function promptDefenderAdvantage({
   const content = `
     <div class="uesrpg-adv-dialog uesrpg-adv-dialog--defender">
       <div class="uesrpg-adv-summary">
-        <div><b>Advantage</b>: ${max} available</div>
+        <div><b>${t("UESRPG.Dialogs.Opposed.Advantage", "Advantage")}</b>: ${tf("UESRPG.Dialogs.Opposed.AvailableCount", { count: max }, `${max} available`)}</div>
         <div class="uesrpg-adv-count" aria-live="polite"></div>
       </div>
       <div class="uesrpg-adv-grid">
         <label class="uesrpg-adv-choice">
           <input type="checkbox" name="overextend" />
           <span class="uesrpg-adv-choice__label">
-            <span class="uesrpg-adv-choice__title">Overextend</span>
-            <span class="uesrpg-adv-choice__desc">Opponent's next attack within 1 round suffers -10.</span>
+            <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.Overextend", "Overextend")}</span>
+            <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.OverextendDesc", "Opponent's next attack within 1 round suffers -10.")}</span>
           </span>
         </label>
         <label class="uesrpg-adv-choice">
           <input type="checkbox" name="overwhelm" />
           <span class="uesrpg-adv-choice__label">
-            <span class="uesrpg-adv-choice__title">Overwhelm</span>
-            <span class="uesrpg-adv-choice__desc">Opponent cannot make Attacks of Opportunity until your next turn.</span>
+            <span class="uesrpg-adv-choice__title">${t("UESRPG.Dialogs.Opposed.Overwhelm", "Overwhelm")}</span>
+            <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.OverwhelmDesc", "Opponent cannot make Attacks of Opportunity until your next turn.")}</span>
           </span>
         </label>
         ${hasExploitTalent ? `
         <div class="uesrpg-adv-section">
-          <p class="hint" style="margin:0;">${exploitEligible ? "Exploit Advantage: Overextend is doubled (-20) (isolated duel)." : "Exploit Advantage: requires an isolated duel to double Overextend."}</p>
+          <p class="hint" style="margin:0;">${exploitEligible ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendEligible", "Exploit Advantage: Overextend is doubled (-20) (isolated duel).") : t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendRequiresDuel", "Exploit Advantage: requires an isolated duel to double Overextend.")}</p>
         </div>
         ` : ``}
         ${knownSpecial.length ? `
           <div class="uesrpg-adv-section">
-            <div class="uesrpg-adv-section__title"><b>Known Special Actions</b></div>
+            <div class="uesrpg-adv-section__title"><b>${t("UESRPG.Dialogs.Opposed.KnownSpecialActions", "Known Special Actions")}</b></div>
           </div>
           ${knownSpecial.map(renderSpecialOpt).join("\n")}
         ` : ``}
       </div>
-      <p class="hint">Select up to ${max} option(s).</p>
+      <p class="hint">${tf("UESRPG.Dialogs.Opposed.SelectUpToOptions", { count: max }, `Select up to ${max} option(s).`)}</p>
     </div>
   `;
 
   const tooltipScope = { kind: "adv-dialog", domain: "defender-advantage" };
   try {
     return await customDialog({
-      title: "Resolve Defender Advantage",
+      title: t("UESRPG.Dialogs.Opposed.ResolveDefenderAdvantage", "Resolve Defender Advantage"),
       content,
       classes: ["uesrpg-attack-declare"],
       buttons: {
         apply: {
-          label: "Apply",
+          label: t("UESRPG.UI.Apply", "Apply"),
           callback: (html) => {
             const root = html instanceof HTMLElement ? html : html?.element ?? html;
             const form = root?.querySelector(".uesrpg-adv-dialog--defender") ?? root;
@@ -141,14 +144,14 @@ export async function promptDefenderAdvantage({
 
             const selectedCount = [overextend, overwhelm].filter(Boolean).length + selectedSpecial.length;
             if (selectedCount > max) {
-              ui.notifications.warn(`You only have ${max} Advantage to spend.`);
+              ui.notifications.warn(tf("UESRPG.Notifications.Opposed.OnlyHaveAdvantage", { count: max }, `You only have ${max} Advantage to spend.`));
               return null;
             }
 
             return { overextend, overextendDouble, overwhelm, specialActionsSelected: selectedSpecial };
           }
         },
-        skip: { label: "Skip", callback: () => ({ overextend: false, overextendDouble: false, overwhelm: false, specialActionsSelected: [] }) }
+        skip: { label: t("UESRPG.UI.Skip", "Skip"), callback: () => ({ overextend: false, overextendDouble: false, overwhelm: false, specialActionsSelected: [] }) }
       },
       defaultButton: "apply",
 
@@ -164,7 +167,7 @@ export async function promptDefenderAdvantage({
       const updateUi = () => {
         const count = computeSelectedCount();
         const c = form.querySelector(".uesrpg-adv-count");
-        if (c) c.textContent = `${count} / ${max} selected`;
+        if (c) c.textContent = tf("UESRPG.Dialogs.Opposed.SelectedCount", { count, max }, `${count} / ${max} selected`);
 
         for (const el of listAllCheckboxes()) {
           
@@ -185,7 +188,7 @@ export async function promptDefenderAdvantage({
           const count = computeSelectedCount();
           if (count > max) {
             ev.currentTarget.checked = false;
-            ui.notifications.warn(`You only have ${max} Advantage to spend.`);
+            ui.notifications.warn(tf("UESRPG.Notifications.Opposed.OnlyHaveAdvantage", { count: max }, `You only have ${max} Advantage to spend.`));
           }
           updateUi();
         });

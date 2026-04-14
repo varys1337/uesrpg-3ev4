@@ -27,12 +27,14 @@ import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/edi
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
+import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
 import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
 import { pickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import { openArmyCampaignApp } from "../../apps/v2/army-campaign-app.js";
+import { t, tf } from "../../../utils/i18n.js";
 import {
   buildAllowedChangePatch,
   buildAllowedSubmitPatch,
@@ -495,8 +497,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /** Show confirmation and duplicate an item */
   async #duplicateItem(item) {
     const confirmed = await confirmDialog({
-      title: "Duplicate Item",
-      content: `<p>Create a duplicate of <strong>${item.name}</strong>?</p>`,
+      title: t("UESRPG.Dialogs.GroupSheet.DuplicateItemTitle"),
+      content: `<p>${tf("UESRPG.Dialogs.GroupSheet.DuplicateItemContent", { item: item.name })}</p>`,
     });
     if (confirmed) {
       const dupData = item.toObject();
@@ -509,21 +511,21 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   async #onDropActor(data) {
     const actor = await fromUuid(data.uuid);
     if (!actor) {
-      ui.notifications.warn("Could not find actor.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.CouldNotFindActor"));
       return;
     }
     if (actor.type === "Group") {
-      ui.notifications.warn("Cannot add a group to a group.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.CannotAddGroupToGroup"));
       return;
     }
     const members = this.document.system.members || [];
     if (members.some(m => m.id === actor.uuid)) {
-      ui.notifications.warn("This actor is already a member.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.ActorAlreadyMember"));
       return;
     }
     members.push({ id: actor.uuid, uuid: actor.uuid, sortOrder: members.length });
     await requestUpdateDocument(this.document, { "system.members": members });
-    ui.notifications.info(`${actor.name} added to group.`);
+    ui.notifications.info(tf("UESRPG.Notifications.Group.ActorAdded", { actor: actor.name }));
   }
 
   /** Handle Item drag-drop (add to group inventory, route into container, or reorder) */
@@ -599,7 +601,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
     const effectiveType = inferDroppedItemType(item);
     if (!ALLOWED_ITEM_TYPES.includes(effectiveType)) {
-      ui.notifications.warn(`Cannot add ${effectiveType} items to group inventory.`);
+      ui.notifications.warn(tf("UESRPG.Notifications.Group.CannotAddItemType", { type: effectiveType }));
       return;
     }
 
@@ -617,7 +619,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
         createdId: created?.id ?? null,
         createdType: created?.type ?? null,
       }, { traceId });
-      ui.notifications.info(`${item.name} added to group inventory.`);
+      ui.notifications.info(tf("UESRPG.Notifications.Group.ItemAdded", { item: item.name }));
       return;
     } catch (err) {
       dndDebug("sheet.drop.externalCreate.failed", {
@@ -657,8 +659,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (!this.isEditable) return;
 
     const current = String(this.document?.img ?? "");
-    const picker = new FilePicker({
-      type: "imagevideo",
+    const picker = createImageVideoFilePicker({
       current,
       callback: async (path) => {
         if (!path || path === current) return;
@@ -719,7 +720,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     const visibleMembers = members.filter(m => m.canView && m.actor);
 
     if (!visibleMembers.length) {
-      ui.notifications.warn("No members available for rest.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.NoMembersForRest"));
       return;
     }
 
@@ -748,11 +749,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     });
     await this.render(false);
     if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
-      ui.notifications.warn(`Short rest completed. ${timeForward.reason}`);
+      ui.notifications.warn(tf("UESRPG.Notifications.Group.ShortRestCompletedReason", { reason: timeForward.reason }));
     } else if (timeForward.applied) {
-      ui.notifications.info("Short rest completed. Time advanced by 1 hour.");
+      ui.notifications.info(t("UESRPG.Notifications.Group.ShortRestAdvancedHour"));
     } else {
-      ui.notifications.info("Short rest completed.");
+      ui.notifications.info(t("UESRPG.Notifications.Group.ShortRestCompleted"));
     }
   }
 
@@ -764,7 +765,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     const visibleMembers = members.filter(m => m.canView && m.actor);
 
     if (!visibleMembers.length) {
-      ui.notifications.warn("No members available for rest.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.NoMembersForRest"));
       return;
     }
 
@@ -793,24 +794,24 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     });
     await this.render(false);
     if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
-      ui.notifications.warn(`Long rest completed. ${timeForward.reason}`);
+      ui.notifications.warn(tf("UESRPG.Notifications.Group.LongRestCompletedReason", { reason: timeForward.reason }));
     } else if (timeForward.applied && timeForward.mode === "sunrise") {
-      ui.notifications.info("Long rest completed. Time advanced to sunrise.");
+      ui.notifications.info(t("UESRPG.Notifications.Group.LongRestAdvancedSunrise"));
     } else if (timeForward.applied) {
-      ui.notifications.info("Long rest completed. Time advanced by 8 hours.");
+      ui.notifications.info(t("UESRPG.Notifications.Group.LongRestAdvancedHours"));
     } else {
-      ui.notifications.info("Long rest completed.");
+      ui.notifications.info(t("UESRPG.Notifications.Group.LongRestCompleted"));
     }
   }
 
   /** Deploy group members as tokens on the active canvas (GM only) */
   async _onDeployGroup(_event, _target) {
     if (!game.user.isGM) {
-      ui.notifications.warn("Only GMs can deploy groups.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.OnlyGmDeploy"));
       return;
     }
     if (!canvas.ready || !canvas.scene) {
-      ui.notifications.warn("Canvas is not ready or no scene is active.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.CanvasNotReady"));
       return;
     }
 
@@ -820,7 +821,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     const deployable = members.filter(m => m.actor && !m.missing);
 
     if (!deployable.length) {
-      ui.notifications.warn("No members to deploy.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.NoMembersToDeploy"));
       return;
     }
 
@@ -841,7 +842,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
           const tokenWidth = Math.max(1, Number(tokenData.width) || 1);
           const tokenHeight = Math.max(1, Number(tokenData.height) || 1);
           const picked = await pickCanvasLocation({
-            label: `Place ${actor.name} (${i + 1}/${deployable.length}). Right-click or Escape to cancel.`,
+            label: tf("UESRPG.Dialogs.GroupSheet.PlaceActor", {
+              actor: actor.name,
+              current: i + 1,
+              total: deployable.length,
+            }),
             tokenWidth,
             tokenHeight,
             timeout: 60_000,
@@ -860,7 +865,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
           placedCount += 1;
         } catch (err) {
           console.error(`UESRPG | Failed to deploy token for ${actor.name}`, err);
-          ui.notifications.warn(`Could not deploy token for ${actor.name}.`);
+          ui.notifications.warn(tf("UESRPG.Notifications.Group.CouldNotDeployToken", { actor: actor.name }));
         }
       }
     } finally {
@@ -871,11 +876,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     }
 
     if (placedCount > 0 && cancelled) {
-      ui.notifications.info(`Group deployment stopped after placing ${placedCount} member(s).`);
+      ui.notifications.info(tf("UESRPG.Notifications.Group.DeploymentStopped", { count: placedCount }));
     } else if (placedCount > 0) {
-      ui.notifications.info(`Deployed ${placedCount} group member(s).`);
+      ui.notifications.info(tf("UESRPG.Notifications.Group.DeployedMembers", { count: placedCount }));
     } else {
-      ui.notifications.warn("No tokens could be deployed.");
+      ui.notifications.warn(t("UESRPG.Notifications.Group.NoTokensDeployed"));
     }
   }
 
@@ -887,15 +892,15 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /** Show item creation dialog with type selection */
   async _onItemCreate(_event, _target) {
     const type = await customDialog({
-      title: "Create Group Item",
-      content: `<p>Select item type to create:</p>`,
+      title: t("UESRPG.Dialogs.GroupSheet.CreateItemTitle"),
+      content: `<p>${t("UESRPG.Dialogs.GroupSheet.SelectItemType")}</p>`,
       buttons: {
-        weapon: { label: "Weapon" },
-        armor: { label: "Armor" },
-        shield: { label: "Shield" },
-        ammunition: { label: "Ammunition" },
-        container: { label: "Container" },
-        equipment: { label: "Equipment" },
+        weapon: { label: t("TYPES.Item.weapon") },
+        armor: { label: t("TYPES.Item.armor") },
+        shield: { label: t("TYPES.Item.shield") },
+        ammunition: { label: t("TYPES.Item.ammunition") },
+        container: { label: t("TYPES.Item.container") },
+        equipment: { label: t("TYPES.Item.equipment") },
       },
     });
     if (!type) return;
@@ -935,7 +940,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (!item) return;
     const qty = Number(item.system.quantity ?? 0);
     const next = Math.max(qty - 1, 0);
-    if (next === 0 && qty > 0) ui.notifications.info(`You have used your last ${item.name}!`);
+    if (next === 0 && qty > 0) ui.notifications.info(tf("UESRPG.Notifications.Group.UsedLastItem", { item: item.name }));
     await requestUpdateDocument(item, { "system.quantity": next });
   }
 
@@ -956,8 +961,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       .replace(/'/g, "&#039;");
 
     const confirmed = await confirmDialog({
-      title: "Delete Item",
-      content: `<p>Are you sure you want to delete <strong>${escaped}</strong>?</p>`,
+      title: t("UESRPG.Dialogs.GroupSheet.DeleteItemTitle"),
+      content: `<p>${tf("UESRPG.Dialogs.GroupSheet.DeleteItemContent", { item: escaped })}</p>`,
     });
     if (!confirmed) return;
 
@@ -969,7 +974,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     }
 
     await requestDeleteEmbeddedDocuments(this.document, "Item", [itemId]);
-    ui.notifications.info(`${item.name} deleted from group inventory.`);
+    ui.notifications.info(tf("UESRPG.Notifications.Group.ItemDeleted", { item: item.name }));
   }
 
   /** Open an item's sheet */

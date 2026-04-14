@@ -1,5 +1,6 @@
 import { SYSTEM_ID } from "../../constants.js";
 import { getRegionWarfareFeatureState } from "../siege/state.js";
+import { testAreaPoint } from "../../aoe/containment.js";
 
 const TERRAIN_TYPES = new Set(["normal", "difficult", "impassable", "fortification", "hazard"]);
 
@@ -55,12 +56,7 @@ export function getWarfareTerrainAtPoint(scene, point) {
 
   const regions = Array.from(scene?.regions?.contents ?? [])
     .filter((region) => {
-      if (typeof region?.testPoint !== "function") return false;
-      try {
-        return region.testPoint(elevatedPoint);
-      } catch (_err) {
-        return false;
-      }
+      return testAreaPoint(region, elevatedPoint, { elevation: elevatedPoint.elevation });
     })
     .map((region) => ({
       region,

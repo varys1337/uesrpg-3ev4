@@ -4,13 +4,15 @@
  * src/core/magic/spell-range.js
  *
  * Range gating and spell range utilities.
- * Target: Foundry VTT v13.351.
+ * Target: Foundry VTT v14.359+.
  *
- * AoE template placement has been moved to src/core/aoe/ (AoEService).
+ * Active AoE placement has been moved to src/core/aoe/ (AoEService) and now
+ * resolves to Region-backed area placement.
  * This module retains range configuration helpers and target-by-range filtering.
  */
 
 import { _str, _num as _numBase } from "./_primitives.js";
+import { getAoeOriginMeasurementMode, measurePointDistance, measureTokenToPointDistance } from "../combat/opposed/range.js";
 
 /** @private Coerce to number with null fallback (unique to spell-range). */
 function _num(v, fallback = null) {
@@ -36,9 +38,9 @@ export function parseMeters(text) {
 /**
  * Canonical spell range type.
  *
- * This is consumed by actor-sheet.js and npc-sheet.js to decide whether to:
+ * This is consumed by actor sheet listeners to decide whether to:
  *  - filter explicit targets by range (ranged/melee), or
- *  - initiate AoE template placement (aoe).
+ *  - initiate AoE area placement (aoe).
  *
  * Accepted values: "none" | "ranged" | "melee" | "aoe"
  *
@@ -55,9 +57,9 @@ export function getSpellRangeType(spell) {
   // Conservative fallback: do NOT attempt to infer range type from free-text.
   // Legacy spells will behave as "none" until configured explicitly.
   // The only exception is when AoE configuration is explicitly and meaningfully present
-  // (shape alone is not enough — the default schema has aoeShape="circle" for every spell).
+  // (shape alone is not enough; the default schema has aoeShape="circle" for every spell).
   const hasAoEShape = Boolean(_str(sys.aoeShape).trim()) || Boolean(_str(sys.aoe?.shape).trim());
-  const hasAoESize  = _num(sys.aoeSize ?? sys.aoe?.size, 0) > 0;
+  const hasAoESize = _num(sys.aoeSize ?? sys.aoe?.size, 0) > 0;
   if (hasAoEShape && hasAoESize) return "aoe";
 
   return "none";
@@ -99,7 +101,7 @@ export function getSpellMaxRangeMeters(spell) {
 /**
  * AoE config read (tolerant).
  * Expected data (new fields):
- *  - system.aoeShape: "circle"|"cone"|"rect"|"ray" (stored as measured template types: "circle","cone","rect","ray")
+ *  - system.aoeShape: "circle"|"cone"|"rect"|"ray"
  *  - system.aoeSize: number (meters)
  *  - system.aoeWidth: number (meters) for ray/rect
  *  - system.aoePulse: boolean (centered on caster)
@@ -118,12 +120,12 @@ export function getSpellAoEConfig(spell) {
 
   // Pulse is a modifier (centered on caster), not a measured-template type.
   // For backwards compatibility with earlier prototypes, accept aoeShape="pulse".
-  const pulseFromShape = (shapeRaw === "pulse");
+  const pulseFromShape = shapeRaw === "pulse";
   const pulseFromFlag = Boolean(sys.aoePulse ?? sys.aoe?.pulse);
   const pulse = pulseFromShape || pulseFromFlag;
   const includeCaster = Boolean(sys.aoeIncludeCaster ?? sys.aoe?.includeCaster);
 
-  // MeasuredTemplate types
+  // Canonical area shape types accepted by the Region-backed AoE pipeline
   const normalizedShape = ["circle", "cone", "rect", "ray"].includes(shapeRaw)
     ? shapeRaw
     : (pulse ? "circle" : null);
@@ -137,80 +139,8 @@ export function getSpellAoEConfig(spell) {
     sizeMeters: Number.isFinite(sizeMeters) ? sizeMeters : null,
     widthMeters: Number.isFinite(widthMeters) ? widthMeters : null,
     pulse,
-    includeCaster
+    includeCaster,
   };
-}
-
-/**
- * Measure distance in meters between two canvas points using grid measurement.
- * @param {{x:number,y:number}} a
- * @param {{x:number,y:number}} b
- * @returns {number}
- */
-function measureDistanceMeters(a, b) {
-  if (!canvas?.grid || !a || !b) return 0;
-
-  // Use v13 measurePath API with fallback to deprecated measureDistances
-  if (typeof canvas.grid.measurePath === "function") {
-    const path = canvas.grid.measurePath([a, b], { gridSpaces: true });
-    // API may return object with distance property or array of distances
-    const d = path?.distance ?? (Array.isArray(path) && path.length > 0 ? path[0] : null);
-    if (Number.isFinite(d)) return d;
-  } else {
-    // Fallback for compatibility
-    const distances = canvas.grid.measureDistances([a, b], { gridSpaces: true });
-    const d = Array.isArray(distances) ? distances[0] : 0;
-    if (Number.isFinite(d)) return d;
-  }
-
-  const pixels = Math.hypot(b.x - a.x, b.y - a.y);
-  const gridSize = Number(canvas.grid.size ?? 0) || 0;
-  const gridDistance = Number(canvas.scene.grid?.distance ?? 0) || 0;
-  if (gridSize > 0 && gridDistance > 0) return (pixels / gridSize) * gridDistance;
-
-  return 0;
-}
-
-/**
- * Resolve the origin point for spell range measurement, respecting
- * the aoeOriginMeasurement setting.
- *
- * For "edge" (or "match-token" when tokenRangeMeasurement=edge), returns
- * the nearest bounding-box edge point of the caster token toward the
- * targets' general direction.  Since we don't know the specific target
- * yet (this is called before the per-target loop), we return the center
- * and let large-token edge adjustment happen per-target when needed.
- *
- * In practice, for single-target spells the difference is negligible
- * (< half a grid cell).  For true edge-to-edge, the per-target loop
- * would need to be restructured.  This provides a clean opt-in point
- * for future enhancement without breaking existing behavior.
- *
- * @param {Token} casterToken
- * @returns {{x: number, y: number}|null}
- */
-function _resolveSpellRangeOrigin(casterToken) {
-  const center = casterToken?.center ?? casterToken?.object?.center ?? null;
-  if (!center) return null;
-
-  let useEdge = false;
-  try {
-    const mode = game.settings?.get?.("uesrpg-3ev4", "aoeOriginMeasurement") ?? "center";
-    if (mode === "edge") {
-      useEdge = true;
-    } else if (mode === "match-token") {
-      const tokenMode = game.settings?.get?.("uesrpg-3ev4", "tokenRangeMeasurement") ?? "center";
-      useEdge = (tokenMode === "edge");
-    }
-  } catch (_e) { /* settings not ready yet */ }
-
-  if (!useEdge) return center;
-
-  // For edge mode: shift origin to the nearest edge of the caster token
-  // toward "outward" (we approximate by returning center for now —
-  // the per-target distance check below uses center-to-center which is
-  // generous for large tokens, matching the existing behavior).
-  return center;
 }
 
 /**
@@ -225,7 +155,8 @@ function _resolveSpellRangeOrigin(casterToken) {
  */
 export function filterTargetsBySpellRange({ casterToken, targets, spell } = {}) {
   const maxRange = getSpellMaxRangeMeters(spell);
-  const origin = _resolveSpellRangeOrigin(casterToken);
+  const origin = casterToken?.center ?? casterToken?.object?.center ?? null;
+  const originMode = getAoeOriginMeasurementMode();
 
   // If there is no usable range, do not filter.
   if (!Number.isFinite(maxRange) || maxRange <= 0 || !origin) {
@@ -236,7 +167,7 @@ export function filterTargetsBySpellRange({ casterToken, targets, spell } = {}) 
       maxRange,
       // Back-compat aliases
       inRange: all,
-      outOfRange: []
+      outOfRange: [],
     };
   }
 
@@ -245,7 +176,13 @@ export function filterTargetsBySpellRange({ casterToken, targets, spell } = {}) 
   for (const tok of (targets ?? [])) {
     const c = tok?.center ?? tok?.object?.center ?? null;
     if (!c) continue;
-    const d = measureDistanceMeters(origin, c);
+    const d = casterToken
+      ? (
+        measureTokenToPointDistance(casterToken, c, { mode: originMode })
+        ?? measurePointDistance(origin, c, { gridSpaces: true })
+        ?? 0
+      )
+      : (measurePointDistance(origin, c, { gridSpaces: true }) ?? 0);
     if (d <= maxRange) inRange.push(tok);
     else outOfRange.push({ token: tok, distance: d, maxRange });
   }
@@ -256,6 +193,6 @@ export function filterTargetsBySpellRange({ casterToken, targets, spell } = {}) 
     maxRange,
     // Back-compat aliases
     inRange,
-    outOfRange
+    outOfRange,
   };
 }

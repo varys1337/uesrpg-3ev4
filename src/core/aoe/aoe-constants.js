@@ -1,8 +1,8 @@
 /**
  * src/core/aoe/aoe-constants.js
  *
- * Constants for the universal AoE template placement pipeline.
- * Target: Foundry VTT v13.351
+ * Constants for the AoE placement pipeline.
+ * Target: Foundry VTT v14.359+
  */
 
 import { FLAG_SCOPE } from "../system/namespace.js";
@@ -11,7 +11,9 @@ import { FLAG_SCOPE } from "../system/namespace.js";
 export const FLAG_NAMESPACE = FLAG_SCOPE;
 
 /**
- * Canonical MeasuredTemplate shape types accepted by Foundry.
+ * Canonical AoE shape identifiers accepted by the system.
+ * These names are reused by both legacy template compatibility helpers and the
+ * Region-backed placement/runtime path.
  * Maps system vocabulary → Foundry `t` field values.
  */
 export const TEMPLATE_SHAPES = Object.freeze({

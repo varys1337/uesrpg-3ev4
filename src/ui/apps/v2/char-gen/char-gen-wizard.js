@@ -20,21 +20,22 @@ import {
   extractConfiguredLuckyNumbers,
   extractConfiguredUnluckyNumbers,
 } from "../../../../core/luck/lucky-numbers.js";
+import { t, tf } from "../../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 const STAGES = ["actor", "race", "stats", "birthsign", "resources", "combatstyle", "spendxp", "spells", "luck", "finish"];
 const STAGE_LABELS = {
-  actor: "Actor",
-  race: "Race",
-  stats: "Characteristics",
-  birthsign: "Birthsign",
-  resources: "Resources",
-  combatstyle: "Combat Style",
-  spells: "Spells",
-  spendxp: "Spend XP",
-  luck: "Lucky Numbers",
-  finish: "Finish",
+  actor: "UESRPG.UI.Actor",
+  race: "UESRPG.UI.Race",
+  stats: "UESRPG.Dialogs.CharGen.StageCharacteristics",
+  birthsign: "UESRPG.Dialogs.CharGen.StageBirthsign",
+  resources: "UESRPG.Dialogs.CharGen.StageResources",
+  combatstyle: "UESRPG.Dialogs.CharGen.StageCombatStyle",
+  spells: "UESRPG.Dialogs.CharGen.StageSpells",
+  spendxp: "UESRPG.Dialogs.CharGen.StageSpendXp",
+  luck: "UESRPG.Dialogs.CharGen.StageLuckyNumbers",
+  finish: "UESRPG.UI.Finish",
 };
 const RANK_OPTIONS = ["untrained", "novice", "apprentice", "journeyman", "adept", "expert", "master"];
 
@@ -77,8 +78,11 @@ function _asNum(value, fallback = 0) {
 }
 
 export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
+  static #openByKey = new Map();
+
   constructor(options = {}) {
     super(options);
+    this._openKey = String(options.actorUuid ?? "global");
     this._resumeKey = `uesrpg.charGen.v1.${game.user?.id ?? "unknown"}`;
     this._ws = _defaultWizardState(options.name ?? "");
     this._resumeCandidate = this.#readResumeCandidate();
@@ -96,7 +100,6 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     tag: "form",
     position: { width: 780, height: 680 },
     window: {
-      title: "Character Generation Wizard",
       resizable: true,
     },
     form: {
@@ -133,6 +136,36 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     },
   };
 
+  static getOpenInstance(key = "global") {
+    return this.#openByKey.get(String(key)) ?? null;
+  }
+
+  static findOpenInstance(predicate = null) {
+    const matcher = typeof predicate === "function" ? predicate : () => true;
+    for (const app of this.#openByKey.values()) {
+      if (app?.rendered && matcher(app)) return app;
+    }
+    return null;
+  }
+
+  static async prompt(options = {}) {
+    const key = String(options.actorUuid ?? "global");
+    const existing = this.getOpenInstance(key);
+    if (existing?.rendered) {
+      if (typeof existing.maximize === "function") await existing.maximize();
+      existing.bringToTop?.();
+      return existing;
+    }
+    const app = new CharGenWizardAppV2(options);
+    this.#openByKey.set(key, app);
+    await app.render(true);
+    return app;
+  }
+
+  get title() {
+    return t("UESRPG.Dialogs.CharGen.WizardTitle", "Character Generation Wizard");
+  }
+
   async _prepareContext(options) {
     const base = await super._prepareContext(options);
     const actor = await this.#resolveActor();
@@ -142,7 +175,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const clickable = this.#isStageUnlocked(id);
       return {
       id,
-      label: STAGE_LABELS[id],
+      label: t(STAGE_LABELS[id]),
       complete: Boolean(this._ws.completion[id]),
       active: id === stage,
       clickable,
@@ -152,59 +185,59 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
     const stageMeta = {
       actor: {
-        title: "Create or Select an Actor",
-        body: "Start by creating a new Player Character, or use your assigned/selected actor.",
+        title: t("UESRPG.Dialogs.CharGen.ActorStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.ActorStageBody"),
       },
       race: {
-        title: "Choose Race",
-        body: "Open the existing race selection menu and commit your race choice.",
+        title: t("UESRPG.Dialogs.CharGen.RaceStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.RaceStageBody"),
       },
       stats: {
-        title: "Set Characteristics",
-        body: "Open the characteristics dialog and assign starting values and favored characteristics.",
+        title: t("UESRPG.Dialogs.CharGen.StatsStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.StatsStageBody"),
       },
       birthsign: {
-        title: "Determine Birthsign",
-        body: "Roll by charge (RAW default) or switch to manual Birthsign selection.",
+        title: t("UESRPG.Dialogs.CharGen.BirthsignStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.BirthsignStageBody"),
       },
       resources: {
-        title: "Set Starting Resources",
-        body: "Set starting drakes, total XP, and unspent XP for chargen.",
+        title: t("UESRPG.Dialogs.CharGen.ResourcesStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.ResourcesStageBody"),
       },
       combatstyle: {
-        title: "Configure Combat Style",
-        body: "Create/select a combat style, set rank, define trained equipment, and pick a starting special advantage.",
+        title: t("UESRPG.Dialogs.CharGen.CombatStyleStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.CombatStyleStageBody"),
       },
       spells: {
-        title: "Learn Spells",
-        body: "Learn conventional/unconventional spells by RAW chargen costs and gating.",
+        title: t("UESRPG.Dialogs.CharGen.SpellsStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.SpellsStageBody"),
       },
       spendxp: {
-        title: "Spend XP (RAW)",
-        body: "Open the RAW spend XP app to buy characteristics, ranks, talents, and spells.",
+        title: t("UESRPG.Dialogs.CharGen.SpendXpStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.SpendXpStageBody"),
       },
       luck: {
-        title: "Lucky and Unlucky Numbers",
-        body: "Roll Lucky/Unlucky numbers by RAW (with manual override before submit).",
+        title: t("UESRPG.Dialogs.CharGen.LuckStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.LuckStageBody"),
       },
       finish: {
-        title: "Finish Character Generation",
-        body: "Finalizes chargen, sets milestone flags, and opens the actor sheet.",
+        title: t("UESRPG.Dialogs.CharGen.FinishStageTitle"),
+        body: t("UESRPG.Dialogs.CharGen.FinishStageBody"),
       },
     };
 
     const canBack = STAGES.indexOf(stage) > 0;
     const canNext = STAGES.indexOf(stage) < (STAGES.length - 1) && this.#canAdvanceFromStage(stage);
-    const resumeActorName = this._resumeCandidate?.actorName ?? "Unknown Actor";
+    const resumeActorName = this._resumeCandidate?.actorName ?? t("UESRPG.Dialogs.CharGen.UnknownActor");
 
     return {
       ...base,
       ws: this._ws,
       actor,
-      actorName: actor?.name ?? "None Selected",
+      actorName: actor?.name ?? t("UESRPG.Dialogs.CharGen.NoneSelected"),
       stage,
       stageData,
-      stageTitle: stageMeta[stage]?.title ?? "Character Generation",
+      stageTitle: stageMeta[stage]?.title ?? t("UESRPG.Dialogs.CharGen.WizardTitle"),
       stageBody: stageMeta[stage]?.body ?? "",
       canBack,
       canNext,
@@ -218,6 +251,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
   async close(options = {}) {
     this.#persistState();
+    CharGenWizardAppV2.#openByKey.delete(this._openKey);
     return super.close(options);
   }
 
@@ -389,7 +423,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       await this.render();
       return;
     }
-    ui.notifications?.warn?.("That stage is not unlocked yet.");
+    ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.StageLocked"));
   }
 
   static async _onCancel(event, target) {
@@ -417,10 +451,10 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   static async _onRestart(event, target) {
     event?.preventDefault?.();
     const confirmed = await confirmDialog({
-      title: "Restart Character Generation",
-      content: "<p>Discard the saved wizard progress and start from the Actor step?</p>",
-      yesLabel: "Restart",
-      noLabel: "Cancel",
+      title: t("UESRPG.Dialogs.CharGen.RestartTitle"),
+      content: `<p>${t("UESRPG.Dialogs.CharGen.RestartContent")}</p>`,
+      yesLabel: t("UESRPG.Apps.CharGen.Restart"),
+      noLabel: t("UESRPG.UI.Cancel"),
     });
     if (!confirmed) return;
 
@@ -435,7 +469,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = game.user?.character ?? null;
     if (!actor) {
-      ui.notifications?.warn?.("No assigned character found for your user.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.NoAssignedCharacter"));
       return;
     }
     this.#setActor(actor, { tokenActorFreeNavigation: false });
@@ -446,12 +480,12 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const controlled = canvas?.tokens?.controlled ?? [];
     if (controlled.length !== 1) {
-      ui.notifications?.warn?.("Select exactly one token.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOneToken"));
       return;
     }
     const actor = controlled[0]?.actor ?? null;
     if (!actor) {
-      ui.notifications?.warn?.("The selected token has no actor.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectedTokenNoActor"));
       return;
     }
     this.#setActor(actor, { tokenActorFreeNavigation: true });
@@ -464,7 +498,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     this._ws.newActorName = requestedName;
 
     const actor = await requestCreateActor({
-      name: requestedName || "New Character",
+      name: requestedName || t("UESRPG.Apps.CharGen.NewCharacter"),
       type: "Player Character",
       flags: {
         uesrpg: {
@@ -477,7 +511,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     });
 
     if (!actor) {
-      ui.notifications?.error?.("Failed to create actor.");
+      ui.notifications?.error?.(t("UESRPG.Notifications.CharGen.CreateActorFailed"));
       return;
     }
 
@@ -490,7 +524,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
@@ -510,7 +544,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
@@ -533,30 +567,30 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
     const choice = await customDialog({
-      title: "Birthsign (RAW)",
+      title: t("UESRPG.Dialogs.CharGen.BirthsignRawTitle"),
       content: `<div style="display:flex; flex-direction:column; gap:8px;">
-        <p style="margin:0;">Choose a charge and roll d5 (RAW), or switch to manual selection.</p>
+        <p style="margin:0;">${t("UESRPG.Dialogs.CharGen.BirthsignRawContent")}</p>
         <label style="display:flex; flex-direction:column; gap:4px;">
-          <span>Charge</span>
+          <span>${t("UESRPG.Dialogs.CharGen.Charge")}</span>
           <select id="uesrpgBirthsignCharge">
-            <option value="warrior">Warrior</option>
-            <option value="mage">Mage</option>
-            <option value="thief">Thief</option>
+            <option value="warrior">${t("UESRPG.Dialogs.CharGen.ChargeWarrior")}</option>
+            <option value="mage">${t("UESRPG.Dialogs.CharGen.ChargeMage")}</option>
+            <option value="thief">${t("UESRPG.Dialogs.CharGen.ChargeThief")}</option>
           </select>
         </label>
         <label style="display:flex; align-items:center; gap:6px;">
           <input type="checkbox" id="uesrpgLuckCostToggle">
-          <span>Use optional rule: spend 5 Luck to choose sign manually</span>
+          <span>${t("UESRPG.Dialogs.CharGen.OptionalLuckRule")}</span>
         </label>
       </div>`,
       buttons: {
         roll: {
-          label: "Roll",
+          label: t("UESRPG.Dialogs.CharGen.Roll"),
           callback: (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
             return {
@@ -567,7 +601,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           },
         },
         manual: {
-          label: "Manual Menu",
+          label: t("UESRPG.Dialogs.CharGen.ManualMenu"),
           callback: (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
             return {
@@ -576,7 +610,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             };
           },
         },
-        cancel: { label: "Cancel" },
+        cancel: { label: t("UESRPG.UI.Cancel") },
       },
       default: "roll",
     });
@@ -587,10 +621,10 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       let pendingLuckCost = 0;
       if (choice.luckCostToggle) {
         const spendLuck = await confirmDialog({
-          title: "Optional Rule",
-          content: "<p>Spend 5 Luck and choose your Birthsign manually?</p>",
-          yesLabel: "Spend 5 Luck",
-          noLabel: "No Luck Cost",
+          title: t("UESRPG.Dialogs.CharGen.OptionalRuleTitle"),
+          content: `<p>${t("UESRPG.Dialogs.CharGen.OptionalRuleContent")}</p>`,
+          yesLabel: t("UESRPG.Dialogs.CharGen.Spend5Luck"),
+          noLabel: t("UESRPG.Dialogs.CharGen.NoLuckCost"),
         });
         if (spendLuck) pendingLuckCost = 5;
       }
@@ -609,16 +643,16 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const rollResult = rollBirthsignSelection(choice.charge);
       if (!rollResult?.signKey) return;
       const review = await customDialog({
-        title: "Birthsign Roll Result",
+        title: t("UESRPG.Dialogs.CharGen.BirthsignRollResultTitle"),
         content: `<div style="display:flex; flex-direction:column; gap:8px;">
-          <p style="margin:0;">Charge: <b>${rollResult.charge}</b></p>
-          <p style="margin:0;">d5 roll: <b>${rollResult.d5Roll}</b>${rollResult.d5Roll === 5 ? ` (star-cursed reroll ${rollResult.resolvedRoll})` : ""}</p>
-          <p style="margin:0;">Result: <b>${rollResult.signKey}</b>${rollResult.starCursed ? " (Star-Cursed)" : ""}</p>
+          <p style="margin:0;">${tf("UESRPG.Dialogs.CharGen.RollResultCharge", { charge: rollResult.charge })}</p>
+          <p style="margin:0;">${tf("UESRPG.Dialogs.CharGen.RollResultD5", { roll: rollResult.d5Roll, extra: rollResult.d5Roll === 5 ? ` (${t("UESRPG.Dialogs.CharGen.StarCursedReroll")} ${rollResult.resolvedRoll})` : "" })}</p>
+          <p style="margin:0;">${tf("UESRPG.Dialogs.CharGen.RollResultSelected", { sign: rollResult.signKey, suffix: rollResult.starCursed ? ` (${t("UESRPG.Dialogs.CharGen.StarCursed")})` : "" })}</p>
         </div>`,
         buttons: {
-          accept: { label: "Accept" },
-          manual: { label: "Manual Instead" },
-          cancel: { label: "Cancel" },
+          accept: { label: t("UESRPG.Dialogs.CharGen.Accept") },
+          manual: { label: t("UESRPG.Dialogs.CharGen.ManualInstead") },
+          cancel: { label: t("UESRPG.UI.Cancel") },
         },
         default: "accept",
       });
@@ -645,7 +679,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
@@ -676,7 +710,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
@@ -705,7 +739,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
     const styles = actor.items.filter((it) => it.type === "combatStyle");
     const styleOptions = [
-      `<option value="__new__">Create New Combat Style</option>`,
+      `<option value="__new__">${t("UESRPG.Dialogs.CharGen.CreateNewCombatStyle")}</option>`,
       ...styles.map((it) => `<option value="${it.id}">${it.name}</option>`),
     ].join("");
     const rankOptions = RANK_OPTIONS.map((rank) => {
@@ -719,13 +753,13 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
     const computeCombatSetupCost = (input) => {
       if (!input || !RANK_OPTIONS.includes(input.rank)) {
-        return { ok: false, reason: "Invalid combat style rank." };
+        return { ok: false, reason: t("UESRPG.Notifications.CharGen.InvalidCombatStyleRank") };
       }
 
       const styleIsNew = input.styleId === "__new__";
       const style = styleIsNew ? null : (actor.items.get(input.styleId) ?? null);
       if (!styleIsNew && !style) {
-        return { ok: false, reason: "Selected combat style no longer exists." };
+        return { ok: false, reason: t("UESRPG.Notifications.CharGen.CombatStyleMissing") };
       }
 
       const currentRank = styleIsNew ? "untrained" : normalizeRank(style.system?.rank ?? "untrained");
@@ -733,7 +767,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const currentIdx = SKILL_RANK_ORDER.indexOf(currentRank);
       const targetIdx = SKILL_RANK_ORDER.indexOf(targetRank);
       if (targetIdx < currentIdx) {
-        return { ok: false, reason: "Combat Style setup cannot decrease rank." };
+        return { ok: false, reason: t("UESRPG.Notifications.CharGen.CombatStyleCannotDecrease") };
       }
 
       const favored = styleIsNew
@@ -807,24 +841,24 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     });
 
     const result = await customDialog({
-      title: "Combat Style Setup",
+      title: t("UESRPG.Dialogs.CharGen.CombatStyleSetupTitle"),
       width: 820,
       classes: ["uesrpg-cg-compact-dialog"],
       content: `<div class="uesrpg-cg-dialog">
-        <div class="uesrpg-cg-dialog__note">Configure one Combat Style for chargen. First 5 trained equipment are free when learning a style. Extra slots (6-10) are RAW expansions and cost XP.</div>
+        <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.CombatStyleSetupNote")}</div>
         <label style="display:flex; flex-direction:column; gap:4px;">
-          <span>Combat Style</span>
+          <span>${t("UESRPG.Dialogs.CharGen.CombatStyle")}</span>
           <select id="cgCombatStyleSelect">${styleOptions}</select>
         </label>
         <label style="display:flex; flex-direction:column; gap:4px;">
-          <span>New Style Name (if creating)</span>
-          <input type="text" id="cgCombatStyleName" value="Combat Style Name">
+          <span>${t("UESRPG.Dialogs.CharGen.NewStyleName")}</span>
+          <input type="text" id="cgCombatStyleName" value="${t("UESRPG.Dialogs.CharGen.CombatStyleName")}">
         </label>
         <label style="display:flex; flex-direction:column; gap:4px;">
-          <span>Rank</span>
+          <span>${t("UESRPG.Dialogs.CharGen.Rank")}</span>
           <select id="cgCombatStyleRank">${rankOptions}</select>
         </label>
-        <div class="uesrpg-cg-dialog__note">Trained Equipment (1-5 setup)</div>
+        <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.TrainedEquipmentSetup")}</div>
         <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:6px;">
           <input type="text" id="cgTe1" placeholder="e.g., Long Blade">
           <input type="text" id="cgTe2" placeholder="e.g., Shield">
@@ -832,7 +866,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           <input type="text" id="cgTe4" placeholder="e.g., Dagger">
           <input type="text" id="cgTe5" placeholder="e.g., Unarmed">
         </div>
-        <div class="uesrpg-cg-dialog__note">Combat Style Expansions (6-10, 25 XP each before favored discount)</div>
+        <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.CombatStyleExpansions")}</div>
         <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:6px;">
           <input type="text" id="cgTe6" placeholder="Expansion slot 6">
           <input type="text" id="cgTe7" placeholder="Expansion slot 7">
@@ -840,29 +874,29 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           <input type="text" id="cgTe9" placeholder="Expansion slot 9">
           <input type="text" id="cgTe10" placeholder="Expansion slot 10">
         </div>
-        <div class="uesrpg-cg-dialog__note">Special Advantages (pick at least 1). First is free on a new style; extras cost 25 XP each before favored discount.</div>
+        <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.SpecialAdvantagesNote")}</div>
         <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;">
           ${saChecks}
         </div>
-        <div class="uesrpg-cg-dialog__note"><b>Estimated Cost:</b> <span id="cgCombatStyleCost">0</span> XP <span id="cgCombatStyleCostBreakdown"></span></div>
+        <div class="uesrpg-cg-dialog__note"><b>${t("UESRPG.Dialogs.CharGen.EstimatedCost")}:</b> <span id="cgCombatStyleCost">0</span> XP <span id="cgCombatStyleCostBreakdown"></span></div>
         <label style="display:flex; align-items:center; gap:6px;">
           <input type="checkbox" id="cgFreeCombatStyle">
-          <span>Free Combat Style</span>
+          <span>${t("UESRPG.Dialogs.CharGen.FreeCombatStyle")}</span>
         </label>
         <label style="display:flex; align-items:center; gap:6px;">
           <input type="checkbox" id="cgSetActiveStyle" checked>
-          <span>Set as Active Combat Style</span>
+          <span>${t("UESRPG.Dialogs.CharGen.SetActiveCombatStyle")}</span>
         </label>
       </div>`,
       buttons: {
         submit: {
-          label: "Submit",
+          label: t("UESRPG.UI.Submit"),
           callback: (html) => {
             const root = _dialogRoot(html);
             return readCombatFormState(root);
           },
         },
-        cancel: { label: "Cancel" },
+        cancel: { label: t("UESRPG.UI.Cancel") },
       },
       default: "submit",
       render: (_event, html) => {
@@ -909,9 +943,9 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           if (breakEl) {
             breakEl.textContent = out.ok
               ? (out.freeCombatStyle
-                ? `(Free Combat Style: waived ${out.actualXpCost} XP)`
-                : `(Rank ${out.breakdown.rankCost} + TE ${out.breakdown.teCost} + SA ${out.breakdown.saCost})`)
-              : `(${out.reason ?? "Invalid"})`;
+                ? tf("UESRPG.Dialogs.CharGen.FreeCombatStyleBreakdown", { xp: out.actualXpCost })
+                : tf("UESRPG.Dialogs.CharGen.CombatStyleCostBreakdown", { rank: out.breakdown.rankCost, te: out.breakdown.teCost, sa: out.breakdown.saCost }))
+              : `(${out.reason ?? t("UESRPG.UI.Invalid")})`;
           }
         };
 
@@ -949,23 +983,23 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     });
     if (!result || result === "cancel") return;
     if (!Array.isArray(result.specialAdvantages) || result.specialAdvantages.length < 1) {
-      ui.notifications?.warn?.("Select at least one starting special advantage.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectStartingSpecialAdvantage"));
       return;
     }
     if (!RANK_OPTIONS.includes(result.rank)) {
-      ui.notifications?.warn?.("Invalid combat style rank.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.InvalidCombatStyleRank"));
       return;
     }
 
     const computed = computeCombatSetupCost(result);
     if (!computed.ok) {
-      ui.notifications?.warn?.(computed.reason ?? "Invalid combat style setup.");
+      ui.notifications?.warn?.(computed.reason ?? t("UESRPG.Notifications.CharGen.InvalidCombatStyleSetup"));
       return;
     }
 
     let style = computed.style;
     if (result.styleId === "__new__") {
-      const name = result.styleName || "Combat Style";
+      const name = result.styleName || t("UESRPG.Dialogs.CharGen.CombatStyleName");
       const seed = {
         name,
         type: "combatStyle",
@@ -982,7 +1016,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const created = await requestCreateEmbeddedDocuments(actor, "Item", [seed]);
       style = created?.[0] ?? null;
       if (!style) {
-        ui.notifications?.error?.("Failed to create Combat Style.");
+        ui.notifications?.error?.(t("UESRPG.Notifications.CharGen.CreateCombatStyleFailed"));
         return;
       }
     }
@@ -995,7 +1029,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
     const currentXp = _asNum(actor.system?.xp, 0);
     if (!freeCombatStyle && xpCost > currentXp) {
-      ui.notifications?.warn?.(`Not enough XP for combat style setup. Required ${xpCost}, available ${currentXp}.`);
+      ui.notifications?.warn?.(tf("UESRPG.Notifications.CharGen.NotEnoughXpCombatStyle", { required: xpCost, available: currentXp }));
       return;
     }
 
@@ -1050,7 +1084,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
@@ -1080,7 +1114,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
@@ -1104,7 +1138,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
     if (!actor) {
-      ui.notifications?.warn?.("Select or create an actor first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectOrCreateActorFirst"));
       return;
     }
 
@@ -1139,4 +1173,3 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     actor.sheet?.render?.(true);
   }
 }
-

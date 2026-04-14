@@ -1,4 +1,4 @@
-﻿import { LANGUAGE_CHOICES, FACTION_CHOICES } from "../../sheets/shared/data/social-choices.js";
+import { FACTION_CHOICES, getChoiceLabel, LANGUAGE_CHOICES } from "../../sheets/shared/data/social-choices.js";
 import {
   buildKnownLanguagesStringFromEntries,
   formatLanguageSlotSummary,
@@ -9,6 +9,7 @@ import {
 } from "../../../core/social/social-data.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -29,7 +30,7 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
     id: "uesrpg-language-selector",
     classes: ["worldbuilding", "uesrpg", "uesrpg-social-selector"],
     position: { width: 760, height: 640 },
-    window: { title: "Language Selection", resizable: true },
+    window: { resizable: true },
     actions: {
       addLanguage: LanguageSelectorAppV2.prototype._onAddLanguage,
       addCustomLanguage: LanguageSelectorAppV2.prototype._onAddCustomLanguage,
@@ -45,6 +46,10 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
       scrollable: [".social-choice-list", ".social-selected-list"],
     },
   };
+
+  get title() {
+    return t("UESRPG.Apps.LanguageSelector.Title", "Language Selection");
+  }
 
   static async prompt(actor) {
     const app = new LanguageSelectorAppV2(actor);
@@ -62,10 +67,12 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
       maxSlots: state.languages.max,
       slotSummary: formatLanguageSlotSummary(state.languages.max),
       choices: LANGUAGE_CHOICES
-        .filter((name) => name.toLowerCase() !== "cyrodilic")
-        .map((name) => ({
-          name,
-          disabled: selected.has(name.toLowerCase()),
+        .filter((choice) => choice.name.toLowerCase() !== "cyrodilic")
+        .map((choice) => ({
+          id: choice.id,
+          label: getChoiceLabel(choice),
+          name: choice.name,
+          disabled: selected.has(choice.name.toLowerCase()),
         })),
       entries: this.#entries,
     };
@@ -156,7 +163,7 @@ export class LanguageSelectorAppV2 extends HandlebarsApplicationMixin(Applicatio
       this.#resolveAndClose(true);
     } catch (err) {
       console.error("uesrpg-3ev4 | Failed to save language selection", err);
-      ui.notifications?.error("Failed to save language selection.");
+      ui.notifications?.error(t("UESRPG.Notifications.LanguageSelectionSaveFailed", "Failed to save language selection."));
       this.#isSaving = false;
       if (saveButton) saveButton.disabled = false;
     }
@@ -203,7 +210,7 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
     id: "uesrpg-faction-selector",
     classes: ["worldbuilding", "uesrpg", "uesrpg-social-selector"],
     position: { width: 860, height: 660 },
-    window: { title: "Faction Selection", resizable: true },
+    window: { resizable: true },
     actions: {
       addFaction: FactionSelectorAppV2.prototype._onAddFaction,
       removeFaction: FactionSelectorAppV2.prototype._onRemoveFaction,
@@ -219,6 +226,10 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
       scrollable: [".social-choice-list", ".social-selected-list"],
     },
   };
+
+  get title() {
+    return t("UESRPG.Apps.FactionSelector.Title", "Faction Selection");
+  }
 
   static async prompt(actor) {
     const app = new FactionSelectorAppV2(actor);
@@ -242,13 +253,15 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
   async _prepareContext(options) {
     const selected = new Set(this.#entries.map((f) => f.name.toLowerCase()));
     const choices = FACTION_CHOICES
-      .filter((c) => {
+      .filter((choice) => {
         if (!this.#search) return true;
-        return c.name.toLowerCase().includes(this.#search);
+        const label = getChoiceLabel(choice).toLowerCase();
+        return choice.name.toLowerCase().includes(this.#search) || label.includes(this.#search);
       })
-      .map((c) => ({
-        ...c,
-        disabled: selected.has(c.name.toLowerCase()),
+      .map((choice) => ({
+        ...choice,
+        label: getChoiceLabel(choice),
+        disabled: selected.has(choice.name.toLowerCase()),
       }));
 
     return {
@@ -337,7 +350,7 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
       this.#resolveAndClose(true);
     } catch (err) {
       console.error("uesrpg-3ev4 | Failed to save faction selection", err);
-      ui.notifications?.error("Failed to save faction selection.");
+      ui.notifications?.error(t("UESRPG.Notifications.FactionSelectionSaveFailed", "Failed to save faction selection."));
       this.#isSaving = false;
       if (saveButton) saveButton.disabled = false;
     }
@@ -365,4 +378,3 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
     this.close();
   }
 }
-

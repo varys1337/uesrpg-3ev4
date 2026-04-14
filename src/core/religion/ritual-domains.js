@@ -16,6 +16,7 @@ import {
   getOrthodoxFaithBonus,
   getSplinterFaithPrimaryForDomain,
 } from "./clerical-talents.js";
+import { getLocalizedInvocationName } from "./religion-i18n.js";
 
 const RANK_TO_NUMBER = Object.freeze({
   untrained: 0,
@@ -196,7 +197,7 @@ export function buildInvocationGroupEntries(actor) {
       item,
       id: item.id,
       key: domainKey,
-      label: item.name,
+      label: getLocalizedInvocationName(item),
       tnDomainKey: getInvocationTNDomainKey(item),
       tnDomainLabel: (() => {
         const tnDomainKey = getInvocationTNDomainKey(item);

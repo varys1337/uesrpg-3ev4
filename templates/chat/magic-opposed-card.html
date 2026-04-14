@@ -4,16 +4,16 @@
     <h3>🔮 {{spell.name}} {{#if spell.school}}({{spell.school}} {{spell.level}}){{/if}}</h3>
     <div class="opposed-participants">
       <span class="attacker">{{attacker.name}}</span>
-      <span class="vs">vs</span>
+      <span class="vs">{{localize "UESRPG.Chat.Opposed.Vs"}}</span>
       <span class="defender">{{defender.name}}</span>
     </div>
   </div>
 
   {{#if (eq state "pending")}}
   <div class="opposed-state-pending">
-    <h4>⏳ Awaiting Caster Roll</h4>
+    <h4>⏳ {{localize "UESRPG.Chat.Magic.AwaitingCasterRoll"}}</h4>
     <div class="tn-breakdown">
-      <div class="tn-line"><b>Casting TN:</b> {{attackerTN}}</div>
+      <div class="tn-line"><b>{{localize "UESRPG.Chat.Magic.CastingTN"}}:</b> {{attackerTN}}</div>
       {{#each tnBreakdown}}
       <div class="tn-detail">{{this.label}}: {{#if (ge this.value 0)}}+{{/if}}{{this.value}}</div>
       {{/each}}
@@ -21,47 +21,47 @@
     {{#if spellOptions}}
     <div class="spell-options">
       {{#if spellOptions.isRestrained}}
-      <div class="spell-option">✓ Spell Restraint (-{{spellOptions.restraintValue}} MP, min 1)</div>
+      <div class="spell-option">✓ {{localize "UESRPG.Chat.Magic.SpellRestraint" value=spellOptions.restraintValue}}</div>
       {{/if}}
       {{#if spellOptions.isOverloaded}}
-      <div class="spell-option">⚡ Overload (2x MP cost, bonus effect)</div>
+      <div class="spell-option">⚡ {{localize "UESRPG.Chat.Magic.OverloadOption"}}</div>
       {{/if}}
     </div>
     {{/if}}
     <button class="uesrpg-magic-opposed-roll" data-action="attacker-roll">
-      Cast Spell (Roll 1d100)
+      {{localize "UESRPG.Chat.Magic.CastSpellRoll"}}
     </button>
   </div>
   {{/if}}
 
   {{#if (eq state "awaiting-defense")}}
   <div class="opposed-state-defense">
-    <h4>🎲 Caster Rolled: {{attackerRoll}}</h4>
+    <h4>🎲 {{localize "UESRPG.Chat.Magic.CasterRolled"}}: {{attackerRoll}}</h4>
     <div class="degrees-result">
       {{#if attackerCrit}}
-      <span class="crit-success">⭐ CRITICAL SUCCESS!</span>
+      <span class="crit-success">⭐ {{localize "UESRPG.Chat.Magic.CriticalSuccess"}}</span>
       {{/if}}
-      <span class="dos">{{attackerDoS}} Degrees of Success</span>
+      <span class="dos">{{attackerDoS}} {{localize "UESRPG.Chat.Magic.DegreesOfSuccess"}}</span>
     </div>
     
     <div class="defender-options">
-      <h4>🛡️ Defender: Choose Defense</h4>
-      <p class="hint">Spells can only be Block or Evade (no Parry/Counter per RAW)</p>
+      <h4>🛡️ {{localize "UESRPG.Chat.Magic.DefenderChooseDefense"}}</h4>
+      <p class="hint">{{localize "UESRPG.Chat.Magic.DefenseHint"}}</p>
       <div class="defense-buttons">
         <button class="uesrpg-magic-opposed-defend" data-action="defender-roll" data-defense="block">
-          Block ({{defenderBlockTN}})
+          {{localize "UESRPG.Chat.Opposed.Block"}} ({{defenderBlockTN}})
         </button>
         <button class="uesrpg-magic-opposed-defend" data-action="defender-roll" data-defense="evade">
-          Evade ({{defenderEvadeTN}})
+          {{localize "UESRPG.Chat.Opposed.Evade"}} ({{defenderEvadeTN}})
         </button>
         <button class="uesrpg-magic-opposed-defend" data-action="defender-no-defense">
-          No Defense
+          {{localize "UESRPG.Chat.Opposed.NoDefense"}}
         </button>
       </div>
       
       {{#if defenderAdvantages}}
       <div class="advantages-section">
-        <h5>Available Advantages (Defender Only)</h5>
+        <h5>{{localize "UESRPG.Chat.Magic.AvailableAdvantagesDefenderOnly"}}</h5>
         {{#each defenderAdvantages}}
         <div class="advantage-option">
           <label>
@@ -80,21 +80,21 @@
   <div class="opposed-state-resolved">
     <div class="opposed-results">
       <div class="result-row">
-        <span class="label">Caster Roll:</span>
-        <span class="value">{{attackerRoll}} ({{attackerDoS}} DoS)</span>
+        <span class="label">{{localize "UESRPG.Chat.Magic.CasterRoll"}}:</span>
+        <span class="value">{{attackerRoll}} ({{attackerDoS}} {{localize "UESRPG.Chat.Common.DoS"}})</span>
       </div>
       <div class="result-row">
-        <span class="label">Defender {{defenseType}}:</span>
-        <span class="value">{{defenderRoll}} ({{defenderDoS}} DoS)</span>
+        <span class="label">{{localize "UESRPG.Chat.Opposed.Defender"}} {{defenseType}}:</span>
+        <span class="value">{{defenderRoll}} ({{defenderDoS}} {{localize "UESRPG.Chat.Common.DoS"}})</span>
       </div>
       <div class="result-outcome {{#if attackerWins}}result-outcome--hit{{else}}result-outcome--defended{{/if}}">
         {{#if attackerWins}}
-        <h4 class="outcome-hit">✅ Spell Hit!</h4>
+        <h4 class="outcome-hit">✅ {{localize "UESRPG.Chat.Magic.SpellHit"}}</h4>
         {{#if damage}}
         <div class="damage-info">
-          <b>Damage:</b> {{damage}} {{damageType}}
+          <b>{{localize "UESRPG.Chat.Common.Damage"}}:</b> {{damage}} {{damageType}}
           {{#if attackerCrit}}
-          <span class="crit-note">(MAX damage from critical)</span>
+          <span class="crit-note">({{localize "UESRPG.Chat.Magic.MaxDamageFromCritical"}})</span>
           {{/if}}
         </div>
         {{/if}}
@@ -104,11 +104,11 @@
         </div>
         {{/if}}
         {{else}}
-        <h4 class="outcome-miss">🛡️ Spell Defended!</h4>
+        <h4 class="outcome-miss">🛡️ {{localize "UESRPG.Chat.Magic.SpellDefended"}}</h4>
         {{/if}}
       </div>
       <div class="mp-consumed">
-        <b>MP Consumed:</b> {{mpConsumed}} ({{mpRemaining}} MP remaining)
+        <b>{{localize "UESRPG.Chat.Magic.MPConsumed"}}:</b> {{mpConsumed}} ({{mpRemaining}} {{localize "UESRPG.Chat.Magic.MPRemaining"}})
       </div>
     </div>
   </div>

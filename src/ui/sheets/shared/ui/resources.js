@@ -9,6 +9,7 @@ import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { getDefaultPietyMax } from "../../../../core/religion/worship-store.js";
 import { getOrthodoxFaithBonus } from "../../../../core/religion/clerical-talents.js";
+import { t } from "../../../../utils/i18n.js";
 
 function getWorshipPrimaryDomainKey(actor) {
   return String(actor?.system?.worship?.primaryDomainKey ?? "").trim().toLowerCase();
@@ -46,7 +47,7 @@ export const onIncrementResource = asyncGuardSheet(async function onIncrementRes
   if (resourceKey === "worship") {
     const { domainKey, state } = getWorshipPrimaryState(this.actor);
     if (!domainKey || !state) {
-      ui.notifications?.warn?.("Set a primary ritual domain in Manage Piety Points first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Worship.SetPrimaryDomainFirst"));
       return;
     }
 
@@ -87,7 +88,7 @@ export const onResetResource = asyncGuardSheet(async function onResetResource(ev
   if (resourceLabel === "worship") {
     const { domainKey, state } = getWorshipPrimaryState(this.actor);
     if (!domainKey || !state) {
-      ui.notifications?.warn?.("Set a primary ritual domain in Manage Piety Points first.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Worship.SetPrimaryDomainFirst"));
       return;
     }
 
@@ -113,12 +114,12 @@ export const onShortRest = asyncGuardSheet(async function onShortRest(event, tar
   event.preventDefault();
   if (!this.actor) return;
   if (!this.actor.isOwner && !game.user.isGM) {
-    ui.notifications.warn("You do not have permission to rest this actor.");
+    ui.notifications.warn(t("UESRPG.Notifications.Resources.NoPermissionRestActor"));
     return;
   }
 
   const { line } = await applyShortRest(this.actor);
-  const content = buildRestChatContent("Short Rest (1 hour)", [line]);
+  const content = buildRestChatContent(t("UESRPG.Chat.Resources.ShortRest"), [line]);
 
   await ChatMessage.create({
     user: game.user.id,
@@ -128,7 +129,7 @@ export const onShortRest = asyncGuardSheet(async function onShortRest(event, tar
   });
 
   await this.render(false);
-  ui.notifications.info("Short rest completed.");
+  ui.notifications.info(t("UESRPG.Notifications.Resources.ShortRestCompleted"));
 });
 
 /**
@@ -142,12 +143,12 @@ export const onLongRest = asyncGuardSheet(async function onLongRest(event, targe
   event.preventDefault();
   if (!this.actor) return;
   if (!this.actor.isOwner && !game.user.isGM) {
-    ui.notifications.warn("You do not have permission to rest this actor.");
+    ui.notifications.warn(t("UESRPG.Notifications.Resources.NoPermissionRestActor"));
     return;
   }
 
   const { line } = await applyLongRest(this.actor);
-  const content = buildRestChatContent("Long Rest (8 hours)", [line]);
+  const content = buildRestChatContent(t("UESRPG.Chat.Resources.LongRest"), [line]);
 
   await ChatMessage.create({
     user: game.user.id,
@@ -157,7 +158,7 @@ export const onLongRest = asyncGuardSheet(async function onLongRest(event, targe
   });
 
   await this.render(false);
-  ui.notifications.info("Long rest completed.");
+  ui.notifications.info(t("UESRPG.Notifications.Resources.LongRestCompleted"));
 });
 
 /**

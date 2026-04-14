@@ -26,6 +26,7 @@ import { registerLinkedEntity } from "../effects/origin-effect.js";
 import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { ensureIndex, getDocumentById, normalizeCompendiumName } from "../../compendium/access-service.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -52,14 +53,14 @@ async function _resolveProfileFromCompendium(profileName, conjureType) {
     if (pack.documentName !== "Item") continue;
 
     try {
-      const index = await pack.getIndex();
+      const index = await ensureIndex(pack.collection, { fields: ["name", "type"] });
       for (const entry of index) {
-        const entryName = String(entry.name ?? "").toLowerCase().trim();
+        const entryName = normalizeCompendiumName(entry.name);
         // Match by exact name or "Bound" prefix + profile name
         if (entryName === normalizedName ||
             entryName === `bound ${normalizedName}` ||
             entryName === `daedric ${normalizedName}`) {
-          const doc = await pack.getDocument(entry._id);
+          const doc = await getDocumentById(pack.collection, entry._id);
           if (doc && (doc.type === packType || doc.type === "item")) {
             return doc;
           }

@@ -12,6 +12,7 @@
  */
 
 import { SYSTEM_ID } from "../../../core/constants.js";
+import { resolveHtmlRoot } from "../../combat/chat-handlers/render/render-chat-message.js";
 import { CLASH_FLAG_KEY } from "./pending.js";
 import { handleClashCommit } from "./commit.js";
 import { maybeAutoRollClash } from "./auto-roll.js";
@@ -33,7 +34,7 @@ function _registerRenderHook() {
   _renderHookRegistered = true;
 
   Hooks.on("renderChatMessageHTML", (message, html) => {
-    const root = _resolveRoot(html);
+    const root = resolveHtmlRoot(html);
     if (!root) return;
     if (!_isClashCard(message)) return;
 
@@ -76,18 +77,4 @@ function _registerUpdateHook() {
 
 function _isClashCard(message) {
   return Boolean(message?.flags?.[SYSTEM_ID]?.[CLASH_FLAG_KEY]);
-}
-
-/**
- * Normalize the html parameter from renderChatMessageHTML to an HTMLElement.
- * Handles both raw Element (v13) and jQuery array.
- *
- * @param {HTMLElement|DocumentFragment|jQuery} html
- * @returns {HTMLElement|null}
- */
-function _resolveRoot(html) {
-  if (html instanceof HTMLElement) return html;
-  if (html instanceof DocumentFragment) return html;
-  if (html?.length) return html[0]; // jQuery fallback
-  return null;
 }

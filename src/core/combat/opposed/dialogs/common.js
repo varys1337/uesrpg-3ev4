@@ -6,11 +6,11 @@
 
 import { hasTalent } from "../../../traits/talents-api.js";
 import { buildSpecialActionsForActor } from "../../combat-style-utils.js";
-import { canTokenEscapeTemplate } from "../../../../utils/aoe-utils.js";
 import { getContextAttackMode, isIsolatedDuelByTokens } from "../helpers/workflow.js";
 import { _resolveToken } from "../helpers/docs.js";
 import { _canControlActor } from "../helpers/util.js";
 import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { t, tf } from "../../../../utils/i18n.js";
 import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../../data/tooltips/index.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
 import { promptWeaponAndAdvantages as _promptWeaponAndAdvantagesImpl } from "./attacker.js";
@@ -69,12 +69,12 @@ function _listEquippedWeapons(actor) {
 /**
  * Generic Yes/No confirmation dialog
  */
-export async function promptYesNo({ title, content, yesLabel = "Yes", noLabel = "No" } = {}) {
+export async function promptYesNo({ title, content, yesLabel = null, noLabel = null } = {}) {
   const result = await confirmDialog({
-    title: title ?? "Confirm",
+    title: title ?? t("UESRPG.UI.Confirm", "Confirm"),
     content: `<div style="min-width:340px;">${content ?? ""}</div>`,
-    yesLabel,
-    noLabel,
+    yesLabel: yesLabel ?? t("UESRPG.UI.Yes", "Yes"),
+    noLabel: noLabel ?? t("UESRPG.UI.No", "No"),
   });
   // confirmDialog returns true/false/null; coerce null (close) to false for callers
   return result === true;
@@ -93,23 +93,23 @@ export async function promptSelectToken({ title, prompt, tokens = [] } = {}) {
     .join("");
   const content = `
     <div style="min-width:360px;">
-      <p style="margin:0 0 0.5em 0;">${prompt ?? "Select a target."}</p>
+      <p style="margin:0 0 0.5em 0;">${prompt ?? t("UESRPG.Dialogs.Opposed.SelectTargetPrompt", "Select a target.")}</p>
       <select name="tokenId" style="width:100%;">${options}</select>
     </div>`;
 
   return customDialog({
-    title: title ?? "Select Target",
+    title: title ?? t("UESRPG.Dialogs.Opposed.SelectTarget", "Select Target"),
     content,
     buttons: {
       ok: {
-        label: "OK",
+        label: t("UESRPG.UI.OK", "OK"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           const tokenId = root?.querySelector("select[name='tokenId']")?.value ?? null;
           return choices.find(t => t.id === tokenId) ?? null;
         }
       },
-      cancel: { label: "Cancel", callback: () => null }
+      cancel: { label: t("UESRPG.UI.Cancel", "Cancel"), callback: () => null }
     },
     defaultButton: "ok",
   });
@@ -122,22 +122,22 @@ export async function promptSelectToken({ title, prompt, tokens = [] } = {}) {
  */
 export async function promptUnstoppableMightUsage({ actorName = "Actor", purpose = "attack" } = {}) {
   const details = purpose === "defense"
-    ? "<p>If yes, Parry and Counter-Attack are unavailable while wielding this way.</p>"
-    : "<p>If yes, two-handed damage will be used for this attack.</p>";
+    ? `<p>${t("UESRPG.Dialogs.Opposed.UnstoppableDefenseDetail", "If yes, Parry and Counter-Attack are unavailable while wielding this way.")}</p>`
+    : `<p>${t("UESRPG.Dialogs.Opposed.UnstoppableAttackDetail", "If yes, two-handed damage will be used for this attack.")}</p>`;
   return await promptYesNo({
-    title: "Unstoppable Might",
+    title: t("UESRPG.Dialogs.Opposed.UnstoppableMight", "Unstoppable Might"),
     content: `
       <div class="uesrpg">
-        <p><b>${actorName}</b> is using a special wield mode?</p>
+        <p>${tf("UESRPG.Dialogs.Opposed.UnstoppableBody", { actor: _escapeHtml(actorName) }, `<b>${_escapeHtml(actorName)}</b> is using a special wield mode?`)}</p>
         <ul>
-          <li>Dual wielding hand-and-a-half weapons (use two-handed damage)</li>
-          <li>Wielding a two-handed weapon in one hand</li>
+          <li>${t("UESRPG.Dialogs.Opposed.UnstoppableDualWield", "Dual wielding hand-and-a-half weapons (use two-handed damage)")}</li>
+          <li>${t("UESRPG.Dialogs.Opposed.UnstoppableOneHandTwoHanded", "Wielding a two-handed weapon in one hand")}</li>
         </ul>
         ${details}
       </div>
     `,
-    yesLabel: "Using Special Wield",
-    noLabel: "Normal Wield"
+    yesLabel: t("UESRPG.Dialogs.Opposed.UsingSpecialWield", "Using Special Wield"),
+    noLabel: t("UESRPG.Dialogs.Opposed.NormalWield", "Normal Wield")
   });
 }
 
@@ -147,10 +147,10 @@ export async function promptUnstoppableMightUsage({ actorName = "Actor", purpose
 export async function promptAoEEvadeEscape({ defenderName = "Defender", attackLabel = "the attack" } = {}) {
   try {
     return await confirmDialog({
-      title: "AoE Evade",
-      content: `<p>${defenderName} successfully evaded ${attackLabel}. Can they move 1m to exit the area?</p>`,
-      yesLabel: "Escapes AoE",
-      noLabel: "Still in AoE",
+      title: t("UESRPG.Dialogs.Opposed.AoeEvade", "AoE Evade"),
+      content: `<p>${tf("UESRPG.Dialogs.Opposed.AoeEvadeBody", { defender: _escapeHtml(defenderName), attack: _escapeHtml(attackLabel) }, `${_escapeHtml(defenderName)} successfully evaded ${_escapeHtml(attackLabel)}. Can they move 1m to exit the area?`)}</p>`,
+      yesLabel: t("UESRPG.Dialogs.Opposed.EscapesAoe", "Escapes AoE"),
+      noLabel: t("UESRPG.Dialogs.Opposed.StillInAoe", "Still in AoE"),
     });
   } catch (_e) {
     return null;

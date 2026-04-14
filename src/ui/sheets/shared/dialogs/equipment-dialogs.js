@@ -18,6 +18,7 @@ import {
   getActorRitualDomainItems,
 } from "../../../../core/religion/ritual-domains.js";
 import { RELIGION_INVOCATION_DOMAIN_UNIVERSAL } from "../../../../core/religion/constants.js";
+import { t, tf } from "../../../../utils/i18n.js";
 
 /**
  * Handle item creation from sheet "+" buttons.
@@ -53,55 +54,55 @@ export async function onItemCreate(sheet, event, {
   // Special case: createSelect opens a type picker dialog
   if (type === "createSelect") {
     await customDialog({
-      title: "Create Item",
+      title: t("UESRPG.Dialogs.CharGen.CreateItemTitle"),
       content: `<div style="padding: 10px 0;">
-                  <h2>Select an Item Type</h2>
-                  <label>Create an item on this sheet</label>
+                  <h2>${t("UESRPG.Dialogs.CharGen.SelectItemType")}</h2>
+                  <label>${t("UESRPG.Dialogs.CharGen.CreateItemOnSheet")}</label>
                 </div>`,
       buttons: {
         equipment: {
-          label: "Equipment",
+          label: t("TYPES.Item.equipment"),
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "equipment", type: "equipment" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
         scroll: {
-          label: "Scroll",
+          label: t("TYPES.Item.scroll"),
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "scroll", type: "scroll" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
         ammunition: {
-          label: "Ammunition",
+          label: t("TYPES.Item.ammunition"),
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "ammunition", type: "ammunition" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
         armor: {
-          label: "Armor",
+          label: t("TYPES.Item.armor"),
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "armor", type: "armor" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
         shield: {
-          label: "Shield",
+          label: t("TYPES.Item.shield"),
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "shield", type: "shield" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
         weapon: {
-          label: "Weapon",
+          label: t("TYPES.Item.weapon"),
           callback: async () => {
             const created = await requestCreateEmbeddedDocuments(sheet.actor, "Item", [{ name: "weapon", type: "weapon" }]);
             await created?.[0]?.sheet?.render?.(true);
           },
         },
-        cancel: { label: "Cancel" },
+        cancel: { label: t("UESRPG.UI.Cancel") },
       },
       defaultButton: "equipment",
     });
@@ -125,17 +126,17 @@ export async function onItemCreate(sheet, event, {
 
   if (includeMagicSkillSeed && type === "magicSkill" && isReligionWorshipEnabled()) {
     createType = await customDialog({
-      title: "Create Magic Skill",
+      title: t("UESRPG.Dialogs.CharGen.CreateMagicSkillTitle"),
       content: `<div class="uesrpg-cast-magic-form">
         <div class="form-group">
-          <label><b>Choose Entry Type</b></label>
-          <p style="margin:6px 0 0 0;">Create a standard magic skill or a ritual domain.</p>
+          <label><b>${t("UESRPG.Dialogs.CharGen.ChooseEntryType")}</b></label>
+          <p style="margin:6px 0 0 0;">${t("UESRPG.Dialogs.CharGen.CreateMagicSkillBody")}</p>
         </div>
       </div>`,
       buttons: {
-        magicSkill: { label: "Magic Skill", callback: () => "magicSkill" },
-        ritualDomain: { label: "Ritual Domain", callback: () => "ritualDomain" },
-        cancel: { label: "Cancel", callback: () => "" },
+        magicSkill: { label: t("UESRPG.Dialogs.CharGen.MagicSkill"), callback: () => "magicSkill" },
+        ritualDomain: { label: t("UESRPG.Dialogs.CharGen.RitualDomain"), callback: () => "ritualDomain" },
+        cancel: { label: t("UESRPG.UI.Cancel"), callback: () => "" },
       },
       defaultButton: "magicSkill",
       width: 360,
@@ -160,14 +161,14 @@ export async function onItemCreate(sheet, event, {
 
   if (createType === "ritualDomain") {
     if (!isReligionWorshipEnabled()) {
-      ui.notifications?.warn?.("Religion & Worship is disabled in Homebrew Settings.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Worship.Disabled"));
       return;
     }
 
     const ownedDomains = new Set(Object.keys(getActorRitualDomainItems(sheet.actor)));
     const choices = getReligionDomains().filter((domain) => !ownedDomains.has(domain.key));
     if (!choices.length) {
-      ui.notifications?.info?.(`${sheet.actor.name} already has every ritual domain.`);
+      ui.notifications?.info?.(tf("UESRPG.Notifications.Worship.AlreadyHasEveryRitualDomain", { actor: sheet.actor.name }));
       return;
     }
 
@@ -176,22 +177,22 @@ export async function onItemCreate(sheet, event, {
     ).join("");
 
     const selectedDomainKey = await customDialog({
-      title: "Create Ritual Domain",
+      title: t("UESRPG.Dialogs.Worship.CreateRitualDomainTitle"),
       content: `<div class="uesrpg-cast-magic-form">
         <div class="form-group">
-          <label><b>Select Ritual Domain</b></label>
+          <label><b>${t("UESRPG.Dialogs.Worship.SelectRitualDomain")}</b></label>
           <select name="domainKey" style="width:100%;">${options}</select>
         </div>
       </div>`,
       buttons: {
         create: {
-          label: "Create",
+          label: t("UESRPG.UI.Create"),
           callback: (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
             return root?.querySelector('select[name="domainKey"]')?.value ?? "";
           },
         },
-        cancel: { label: "Cancel", callback: () => "" },
+        cancel: { label: t("UESRPG.UI.Cancel"), callback: () => "" },
       },
       defaultButton: "create",
       width: 360,
@@ -203,7 +204,7 @@ export async function onItemCreate(sheet, event, {
 
   if (createType === "invocation") {
     if (!isReligionWorshipEnabled()) {
-      ui.notifications?.warn?.("Religion & Worship is disabled in Homebrew Settings.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Worship.Disabled"));
       return;
     }
 
@@ -254,22 +255,22 @@ export async function onProfessionCreate(sheet, event) {
   let fieldName = null;
   try {
     fieldName = await customDialog({
-      title: "Add Profession Field",
+      title: t("UESRPG.Dialogs.CharGen.AddProfessionFieldTitle"),
       content: `<div class="uesrpg-skill-roll">
         <div class="form-group">
-          <label><b>Field Name</b></label>
-          <input type="text" name="fieldName" placeholder="e.g. Smithing" style="width:100%;" autofocus />
+          <label><b>${t("UESRPG.Dialogs.CharGen.FieldName")}</b></label>
+          <input type="text" name="fieldName" placeholder="${t("UESRPG.Dialogs.CharGen.FieldNamePlaceholder")}" style="width:100%;" autofocus />
         </div>
       </div>`,
       buttons: {
         ok: {
-          label: "Create",
+          label: t("UESRPG.UI.Create"),
           callback: (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
             return root?.querySelector('input[name="fieldName"]')?.value?.trim() || null;
           }
         },
-        cancel: { label: "Cancel", callback: () => null }
+        cancel: { label: t("UESRPG.UI.Cancel"), callback: () => null }
       },
       default: "ok",
       width: 360
@@ -315,7 +316,7 @@ export async function onEquipItems(sheet, event) {
   });
 
   if (itemList.length === 0) {
-    return ui.notifications.info(`${sheet.actor.name} does not have any items of this type to equip.`);
+    return ui.notifications.info(tf("UESRPG.Notifications.CharGen.NoItemsToEquipType", { actor: sheet.actor.name }));
   }
 
   const itemEntries = [];
@@ -506,10 +507,10 @@ export async function onEquipItems(sheet, event) {
   }
 
   await customDialog({
-    title: "Item List",
+    title: t("UESRPG.Dialogs.CharGen.ItemListTitle"),
     content: tableHeader,
     yes: {
-      label: "Submit",
+      label: t("UESRPG.UI.Submit"),
       callback: async (dialogHtml) => {
         const root = dialogHtml instanceof HTMLElement ? dialogHtml : dialogHtml?.[0];
         const selected = [...(root?.querySelectorAll(".itemSelect") ?? [])];
@@ -526,7 +527,7 @@ export async function onEquipItems(sheet, event) {
         await requestUpdateEmbeddedDocuments(sheet.actor, "Item", updates);
       },
     },
-    no: { label: "Cancel" },
+    no: { label: t("UESRPG.UI.Cancel") },
     defaultButton: "yes",
     width: 500,
   });

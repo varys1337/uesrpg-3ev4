@@ -3,13 +3,14 @@ import {
   scheduleEngagementFlankingRefresh,
   clearFlankedConditions,
 } from "../../../core/homebrew/engagement-flanking/index.js";
+import { localizeSettingConfig } from "../../../utils/i18n.js";
 
 function _reg(key, config) {
   if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
     console.warn(`UESRPG | Settings: duplicate key "${key}" вЂ” skipping.`);
     return;
   }
-  game.settings.register(SYSTEM_ID, key, config);
+  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Homebrew", key, config));
 }
 
 export function registerHomebrewSettings() {

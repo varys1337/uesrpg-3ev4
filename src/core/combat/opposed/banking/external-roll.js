@@ -11,7 +11,6 @@
  */
 
 import { computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
-import { applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
 import { cloneFlagState, clonePlain } from "../../../../utils/clone.js";
 
@@ -266,17 +265,6 @@ export async function applyExternalRollMessage(rollMessage, deps) {
     const dActor = resolveActor(data?.defender?.actorUuid);
     const aTok = resolveToken(data?.attacker?.tokenUuid);
     const dTok = resolveToken(data?.defender?.tokenUuid);
-    const runtimeWeapon = (() => {
-      const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
-      if (!weaponUuid) return null;
-      try {
-        const doc = _resolveItemViaActor(weaponUuid, aActor);
-        return doc?.documentName === "Item" ? doc : null;
-      } catch (_e) {
-        return null;
-      }
-    })();
-
     if (stage === "attacker-roll" && data?.attacker?.result && aActor && dActor) {
       const storedChoice = meta?.commit?.attacker?.talentDoSChoice ?? null;
       const storedSource = meta?.commit?.attacker?.talentDoSChoiceSource ?? null;
@@ -298,22 +286,6 @@ export async function applyExternalRollMessage(rollMessage, deps) {
       });
       if (adj?.changed) dirty = true;
       if (Array.isArray(adj?.notes) && adj.notes.length) data.attacker.result.talentNotes = adj.notes;
-
-      const runtimeAdj = await applyRuntimePostRollToResult({
-        actor: aActor,
-        targetActor: dActor,
-        targetToken: dTok,
-        item: runtimeWeapon,
-        rollContext: data?.context?.rollContext,
-        workflow: "combat",
-        side: "attacker",
-        attackMode: String(data?.context?.attackMode ?? ""),
-        attackVariant: String(data?.attacker?.variant ?? ""),
-        testLabel: String(data?.attacker?.label ?? data?.attacker?.testLabel ?? ""),
-        result: data.attacker.result,
-        allowPrompt: false
-      });
-      if (runtimeAdj?.changed) dirty = true;
     }
 
     if (stage === "defender-roll" && data?.defender?.result && aActor && dActor) {
@@ -345,22 +317,6 @@ export async function applyExternalRollMessage(rollMessage, deps) {
         }
         await applyHyperAwarenessToResult(dActor, "Evade", data.defender.result, { allowPrompt: false });
       }
-
-      const runtimeAdj = await applyRuntimePostRollToResult({
-        actor: dActor,
-        targetActor: aActor,
-        targetToken: aTok,
-        item: runtimeWeapon,
-        rollContext: data?.context?.rollContext,
-        workflow: "combat",
-        side: "defender",
-        attackMode: String(data?.context?.attackMode ?? ""),
-        defenseType: String(data?.defender?.defenseType ?? ""),
-        testLabel: String(data?.defender?.testLabel ?? data?.defender?.label ?? ""),
-        result: data.defender.result,
-        allowPrompt: false
-      });
-      if (runtimeAdj?.changed) dirty = true;
     }
   } catch (err) {
     console.warn("UESRPG | combat talent DoS adjustment (external roll commit) failed", err);

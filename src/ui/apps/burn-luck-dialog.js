@@ -6,13 +6,14 @@ import {
   getBurnLuckTotals,
   getManualBurnLuckOptions,
 } from "../../core/luck/luck-workflow.js";
+import { t, tf } from "../../utils/i18n.js";
 
 async function _buildDialogContent(actor) {
   const { currentLuck, totalLuck } = getBurnLuckTotals(actor);
   const options = getManualBurnLuckOptions(actor);
 
   return renderDialogContent(templatePath("v2/dialogs/burn-luck-dialog.hbs"), {
-    actorName: actor?.name ?? "Actor",
+    actorName: actor?.name ?? t("UESRPG.UI.Actor"),
     currentLuck,
     totalLuck,
     options,
@@ -26,12 +27,12 @@ async function _confirmBurn(actor, option) {
   return confirmDialog({
     title: option.confirmTitle ?? option.title,
     content: `<div class="uesrpg">
-      <p><b>${actor?.name ?? "Actor"}</b> will permanently burn <b>${option.cost} Luck</b>.</p>
+      <p>${tf("UESRPG.Dialogs.BurnLuck.ConfirmActorCost", { actor: actor?.name ?? t("UESRPG.UI.Actor"), cost: option.cost })}</p>
       <p>${option.confirmText ?? option.effectText}</p>
-      <p>Current Luck: <b>${currentLuck}</b> -> Remaining Luck: <b>${nextLuck}</b></p>
+      <p>${tf("UESRPG.Dialogs.BurnLuck.CurrentRemainingLuck", { current: currentLuck, remaining: nextLuck })}</p>
     </div>`,
     yesLabel: option.confirmLabel ?? option.title,
-    noLabel: "Cancel",
+    noLabel: t("UESRPG.UI.Cancel"),
     yesIcon: "fas fa-fire",
     rejectClose: false,
   });
@@ -44,13 +45,13 @@ export class BurnLuckDialog {
     const content = await _buildDialogContent(actor);
     let completed = false;
     const result = await customDialog({
-      title: `Burn Luck - ${actor?.name ?? "Actor"}`,
+      title: tf("UESRPG.Dialogs.BurnLuck.Title", { actor: actor?.name ?? t("UESRPG.UI.Actor") }),
       content,
       classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--burn-luck"],
       width: 600,
       buttons: {
         cancel: {
-          label: "Cancel",
+          label: t("UESRPG.UI.Cancel"),
           icon: "fas fa-times",
           callback: () => false,
         },

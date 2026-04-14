@@ -4,6 +4,7 @@
  */
 
 import { _esc, _fmtDegree } from "./util.js";
+import { t } from "../../../../utils/i18n.js";
 
 export function _renderDeclared(declared, tnObj) {
   if (!declared) return "";
@@ -46,24 +47,24 @@ export function _renderBreakdown(tnObj, { inline = false } = {}) {
   if (inline) {
     return `
       <details style="display:inline-block; margin-left:6px; vertical-align:baseline;">
-        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="TN breakdown">&#9654;</summary>
+        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}">&#9654;</summary>
         <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
       </details>`;
   }
   return `
     <details style="margin-top:4px;">
-      <summary style="cursor:pointer; user-select:none; white-space:nowrap; overflow-wrap:normal; word-break:keep-all;">TN breakdown</summary>
+      <summary style="cursor:pointer; user-select:none; white-space:nowrap; overflow-wrap:normal; word-break:keep-all;">${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}</summary>
       <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
     </details>`;
 }
 
 function _renderTNLine(tnLabel, tnObj = null) {
   const rows = _buildBreakdownRows(tnObj);
-  if (!rows) return `<div><b>TN:</b> ${tnLabel}</div>`;
+  if (!rows) return `<div><b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${tnLabel}</div>`;
   return `
     <details style="margin:0;">
       <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;">
-        <b>TN:</b> ${tnLabel} &#9654;
+        <b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${tnLabel} &#9654;
       </summary>
       <div style="margin:4px 0 0 0; padding-left:8px; width:100%; box-sizing:border-box; font-size:12px; opacity:0.9;">${rows}</div>
     </details>
@@ -79,7 +80,7 @@ function _renderRollLine(result) {
   if (!result) return "";
   const total = _extractRollTotal(result);
   const totalText = total == null ? "??" : String(total);
-  return `<div><b>Roll:</b> ${totalText} - ${_fmtDegree(result)}</div>`;
+  return `<div><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> ${totalText} - ${_fmtDegree(result)}</div>`;
 }
 
 export function _renderCard(data, messageId) {
@@ -100,27 +101,27 @@ export function _renderCard(data, messageId) {
 
   const attackerActions = (() => {
     if (a.result) return "";
-    if (!a.committedAt) return `<div style="margin-top:6px;">${_btn("Commit Choices", "attacker-roll")}</div>`;
+    if (!a.committedAt) return `<div style="margin-top:6px;">${_btn(t("UESRPG.Chat.Opposed.CommitChoices", "Commit Choices"), "attacker-roll")}</div>`;
     // Committed; awaiting GM auto-roll or resolution.
-    return `<div style="margin-top:6px; opacity:0.85;"><i>Choices committed</i></div>`;
+    return `<div style="margin-top:6px; opacity:0.85;"><i>${t("UESRPG.Chat.Opposed.ChoicesCommitted", "Choices committed")}</i></div>`;
   })();
 
   const defenderActions = (() => {
     if (d.result) return "";
-    if (!d.committedAt) return `<div style="margin-top:6px;">${_btn("Commit Choices", "defender-roll")}</div>`;
-    return `<div style="margin-top:6px; opacity:0.85;"><i>Choices committed</i></div>`;
+    if (!d.committedAt) return `<div style="margin-top:6px;">${_btn(t("UESRPG.Chat.Opposed.CommitChoices", "Commit Choices"), "defender-roll")}</div>`;
+    return `<div style="margin-top:6px; opacity:0.85;"><i>${t("UESRPG.Chat.Opposed.ChoicesCommitted", "Choices committed")}</i></div>`;
   })();
 
   const unresolved = !data.outcome && String(data?.status ?? "").toLowerCase() !== "resolved";
   const beginRollActions = (bankMode && bothCommitted && unresolved && !a.result && !d.result)
-    ? `<div style="margin-top:8px;" data-ues-gm-only="true">${_btn("Begin Opposed Roll", "begin-banked-roll")}</div>`
+    ? `<div style="margin-top:8px;" data-ues-gm-only="true">${_btn(t("UESRPG.Chat.Opposed.BeginOpposedRoll", "Begin Opposed Roll"), "begin-banked-roll")}</div>`
     : "";
 
   const outcomeLine = data.outcome
-    ? `<div style="margin-top:10px;"><b>Outcome:</b> ${_esc(data.outcome.text ?? "")}</div>`
+    ? `<div style="margin-top:10px;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${_esc(data.outcome.text ?? "")}</div>`
     : (() => {
         if (bankMode && !bothCommitted) {
-          return `<div style="margin-top:10px;"><i>Waiting for both sides to commit choices...</i></div>`;
+          return `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
         }
         const phase = String(data?.context?.phase ?? "pending");
         const waitingSince = Number(data?.context?.waitingSince ?? 0);
@@ -129,30 +130,30 @@ export function _renderCard(data, messageId) {
         const isStale = isWaiting && ageMs > 60_000;
         const note = isStale
           ? `<div style="margin-top:6px; font-size:12px; opacity:0.85;">
-               Still waiting on the defender result. If this persists, ensure the defender roll message was posted, and have the attacker refresh the page to re-render the card.
+               ${t("UESRPG.Chat.Opposed.StillWaitingDefenderResult", "Still waiting on the defender result. If this persists, ensure the defender roll message was posted, and have the attacker refresh the page to re-render the card.")}
              </div>`
           : "";
-        return `<div style="margin-top:10px;"><i>Pending</i></div>${note}`;
+        return `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Status.Pending", "Pending")}</i></div>${note}`;
       })();
 
   return `
   <div class="ues-skill-opposed-card" data-message-id="${messageId}" style="padding:6px 6px; max-width:100%; overflow:hidden;">
     <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; align-items:start;">
       <div style="min-width:0; padding-right:10px; border-right:1px solid rgba(0,0,0,0.12);">
-        <div style="font-size:16px; font-weight:700; line-height:1.1;">Actor</div>
+        <div style="font-size:16px; font-weight:700; line-height:1.1;">${t("UESRPG.UI.Actor", "Actor")}</div>
         <div style="margin-top:2px; font-size:13px; font-weight:700; line-height:1.2; overflow-wrap:anywhere; word-break:break-word;">${aName}</div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div style="overflow-wrap:anywhere; word-break:break-word;"><b>Skill:</b> ${aSkillLabel}</div>
+          <div style="overflow-wrap:anywhere; word-break:break-word;"><b>${t("UESRPG.UI.Skill", "Skill")}:</b> ${aSkillLabel}</div>
           ${_renderTNLine(aTNLabel, revealDetails ? a.tn : null)}
           ${_renderRollLine(a.result)}
         </div>
         ${attackerActions}
       </div>
       <div style="min-width:0; padding-left:2px;">
-        <div style="font-size:16px; font-weight:700; line-height:1.1;">Target</div>
+        <div style="font-size:16px; font-weight:700; line-height:1.1;">${t("UESRPG.Chat.Common.Target", "Target")}</div>
         <div style="margin-top:2px; font-size:13px; font-weight:700; line-height:1.2; overflow-wrap:anywhere; word-break:break-word;">${dName}</div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div style="overflow-wrap:anywhere; word-break:break-word;"><b>Skill:</b> ${dSkillLabel}</div>
+          <div style="overflow-wrap:anywhere; word-break:break-word;"><b>${t("UESRPG.UI.Skill", "Skill")}:</b> ${dSkillLabel}</div>
           ${_renderTNLine(dTNLabel, revealDetails ? d.tn : null)}
           ${_renderRollLine(d.result)}
         </div>
@@ -162,4 +163,3 @@ export function _renderCard(data, messageId) {
     ${outcomeLine}
   </div>`;
 }
-

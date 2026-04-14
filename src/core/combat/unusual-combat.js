@@ -8,6 +8,7 @@ import { hasTalent } from "../traits/talents-api.js";
 import { swashbucklerIgnoresCombatSkillRankLimits } from "../traits/mobility-talents.js";
 import { computeSkillTN } from "../skills/skill-tn.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
+import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
 import { applyCondition, hasCondition } from "../conditions/condition-engine.js";
 
 const UNUSUAL_MOVEMENT_RULES = Object.freeze({
@@ -244,7 +245,7 @@ export async function maybeHandleUnusualCombatAttackFailure({
   await result.roll.toMessage({
     speaker: ChatMessage.getSpeaker({ actor: attacker, token: attackerToken?.document ?? null }),
     flavor: `Acrobatics - ${rule.label} Follow-Up`,
-    rollMode: game.settings.get("core", "rollMode"),
+    rollMode: getCoreRollMode(),
   });
 
   let summary = `${attacker.name} keeps their footing.`;

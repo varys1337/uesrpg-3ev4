@@ -1,4 +1,5 @@
 import { getCombatRollModeMessageOptions } from "./settings.js";
+import { isPublicChatMessageMode } from "../../../utils/chat-roll-mode.js";
 
 export async function emitDynamicInitiativeRoundSummary(summary, { combatId = null, round = null } = {}) {
   void combatId;
@@ -51,8 +52,7 @@ export async function emitDynamicInitiativeRoundSummary(summary, { combatId = nu
 
   const dsn = game?.dice3d;
   if (!dsn || typeof dsn.showForRoll !== "function") return;
-  const isPublic = modeOpts.rollMode === "roll" || modeOpts.rollMode === "publicroll";
-  const sync = Boolean(isPublic);
+  const sync = isPublicChatMessageMode(modeOpts.rollMode);
   const rolls = sorted.map((r) => r?.roll).filter(Boolean);
   await Promise.allSettled(rolls.map(async (roll) => {
     try {

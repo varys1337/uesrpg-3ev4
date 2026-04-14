@@ -5,6 +5,7 @@
  */
 
 import { evaluateAEModifierKeys, evaluateAEModifierKeysDetailed } from "../../../active-effects/modifier-evaluator.js";
+import { isAddMode, isOverrideMode } from "../../../active-effects/reducers.js";
 import { isTransferEffectActive } from "../../../active-effects/transfer.js";
 import { getEffectChanges } from "../../../../utils/compat.js";
 
@@ -106,9 +107,6 @@ export function getAETwitterMods(attackerActor, defenderActor) {
  * @returns {{byType: Record<string, {total:number, entries:Array<{label:string,value:number,mode:string,priority:number,effectId?:string}>}>}}
  */
 export function collectTypedBonusDamage(attackerActor) {
-  const ADD = CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
-  const OVERRIDE = CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
-
   const parseTyped = (raw) => {
     if (raw == null) return null;
     const s = String(raw).trim();
@@ -150,13 +148,12 @@ export function collectTypedBonusDamage(attackerActor) {
       const typed = parseTyped(ch.value);
       if (!typed) continue;
 
-      const mode = (typeof ch.mode === "number") ? ch.mode : (String(ch.mode ?? "").toUpperCase() === "OVERRIDE" ? OVERRIDE : ADD);
       const dtype = typed.dtype;
       collected[dtype] ??= [];
       collected[dtype].push({
         label,
         value: typed.amount,
-        mode: (mode === OVERRIDE ? "OVERRIDE" : "ADD"),
+        mode: isOverrideMode(ch) ? "override" : (isAddMode(ch) ? "add" : "custom"),
         priority,
         effectId: effect.id,
       });
@@ -167,7 +164,7 @@ export function collectTypedBonusDamage(attackerActor) {
   const byType = {};
 
   for (const [dtype, entries] of Object.entries(collected)) {
-    const overrides = entries.filter(e => e.mode === "OVERRIDE" && Number.isFinite(e.value));
+    const overrides = entries.filter(e => e.mode === "override" && Number.isFinite(e.value));
     if (overrides.length) {
       overrides.sort((a, b) => (b.priority - a.priority) || String(b.effectId ?? "").localeCompare(String(a.effectId ?? "")));
       const chosen = overrides[0];
@@ -175,7 +172,7 @@ export function collectTypedBonusDamage(attackerActor) {
       continue;
     }
     // ADD
-    const addEntries = entries.filter(e => e.mode === "ADD" && Number.isFinite(e.value) && e.value !== 0);
+    const addEntries = entries.filter(e => e.mode === "add" && Number.isFinite(e.value) && e.value !== 0);
     const total = addEntries.reduce((s, e) => s + e.value, 0);
     byType[dtype] = { total, entries: addEntries };
   }

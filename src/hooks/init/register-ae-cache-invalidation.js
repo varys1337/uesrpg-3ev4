@@ -1,9 +1,9 @@
 import { registerOnce } from "../_internal/hook-registry.js";
+import { invalidateActorDerivedCache } from "../../core/actors/derived-cache/actor-derived-cache.js";
 
 function clearActorAECache(actor) {
   if (!actor || actor.documentName !== "Actor") return;
-  if (Object.prototype.hasOwnProperty.call(actor, "_aeApplicableCache")) actor._aeApplicableCache = null;
-  if (Object.prototype.hasOwnProperty.call(actor, "_aeTotalsMap")) actor._aeTotalsMap = null;
+  invalidateActorDerivedCache(actor, { lanes: ["ae"] });
 }
 
 function invalidateAECacheFromEffect(effect) {

@@ -4,7 +4,7 @@ Canonical entrypoints:
 - `index.js` is the public barrel.
 - `talents-api.js` owns talent lookup and normalization.
 - `trait-registry.js` owns trait-state queries and resistance/immunity helpers.
-- `features/` owns passive FeatureMod collection plus Rule Element authoring/runtime.
+- `features/` owns passive FeatureMod collection and stacking/application utilities.
 
 Ownership boundaries:
 - Pure rule evaluation stays in the talent/feature helpers.

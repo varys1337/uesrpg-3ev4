@@ -20,7 +20,9 @@ import { getSpecialActionById } from "../../config/index.js";
 import {
   invokeSheetOrHandler,
   makeSyntheticCharacteristicTarget,
+  makeSyntheticEvent,
   makeSyntheticItemTarget,
+  makeSyntheticProfessionTarget,
   makeSyntheticTarget,
   result,
   routeFeatureActivation,
@@ -133,6 +135,29 @@ export function createTokenActionHudApi() {
         successPathSheet: "sheet._onClickCharacteristic",
         successPathHandler: "shared.listeners.onClickCharacteristic",
       });
+    },
+
+    /**
+     * Execute an NPC profession roll through the owning AppV2 sheet workflow.
+     * @param {{actor: Actor, professionKey: string, shiftKey?: boolean}} params
+     * @returns {Promise<{ok:boolean,path:string,reason?:string}>}
+     */
+    async executeProfessionRoll({ actor, professionKey, shiftKey = false } = {}) {
+      if (!actor || !professionKey) return result(false, "none", { reason: "bad-args" });
+      const sheet = actor?.sheet ?? null;
+      if (!sheet || typeof sheet._onProfessionsRoll !== "function") {
+        return result(false, "none", { reason: "no-profession-handler" });
+      }
+
+      const target = makeSyntheticProfessionTarget(professionKey);
+      const event = makeSyntheticEvent(target, { shiftKey });
+      try {
+        Object.defineProperty(event, "target", { writable: false, value: target });
+      } catch (_err) {
+        // currentTarget is sufficient for the normal synthetic path; target is a compatibility hint.
+      }
+      await sheet._onProfessionsRoll(event, target);
+      return result(true, "sheet._onProfessionsRoll");
     },
 
     /**

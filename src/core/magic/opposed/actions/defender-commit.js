@@ -20,11 +20,11 @@ function _readMagicOpposedFlagState(fm) {
   return state ? cloneFlagState(state) : null;
 }
 import { computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
-import { applyRuntimePreRollToTN } from "../../../traits/features/rule-element-runtime.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
+import { t } from "../../../../utils/i18n.js";
 
 /** @private */
 function syncDefenderToData(data, defender, defenderIndex) {
@@ -39,27 +39,27 @@ async function promptDefenseCommitChoice(defenderActor) {
   const canBlock = hasEquippedShield(defenderActor);
   const canWard = hasActiveWard(defenderActor);
   return await customDialog({
-    title: "Commit Defense",
+    title: t("UESRPG.Dialogs.Opposed.CommitDefense", "Commit Defense"),
     content: `
       <div class="uesrpg defense-dialog uesrpg-adv-dialog uesrpg-adv-dialog--magic-commit">
-        <div class="uesrpg-dialog-section-header">Defense Response</div>
+        <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.Opposed.DefenseResponse", "Defense Response")}</div>
         <div class="uesrpg-adv-grid uesrpg-defense-grid">
           <label class="uesrpg-adv-choice def-opt">
             <input type="radio" name="defenseType" value="evade" checked/>
             <span class="uesrpg-adv-choice__label def-opt__card">
               <span class="uesrpg-defense-card__head">
-                <span class="uesrpg-adv-choice__title">Evade</span>
+                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Evade", "Evade")}</span>
               </span>
-              <span class="uesrpg-adv-choice__desc">Use Evade TN.</span>
+              <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.UseEvadeTN", "Use Evade TN.")}</span>
             </span>
           </label>
           <label class="uesrpg-adv-choice def-opt ${canBlock ? "" : "is-disabled"}"${canBlock ? "" : ' style="pointer-events:none;"'}>
             <input type="radio" name="defenseType" value="block" ${canBlock ? "" : "disabled"}/>
             <span class="uesrpg-adv-choice__label def-opt__card">
               <span class="uesrpg-defense-card__head">
-                <span class="uesrpg-adv-choice__title">Block</span>
+                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Block", "Block")}</span>
               </span>
-              <span class="uesrpg-adv-choice__desc">${canBlock ? "Use Block TN." : "Requires equipped shield."}</span>
+              <span class="uesrpg-adv-choice__desc">${canBlock ? t("UESRPG.Dialogs.Opposed.UseBlockTN", "Use Block TN.") : t("UESRPG.Dialogs.Opposed.RequiresEquippedShield", "Requires equipped shield.")}</span>
             </span>
           </label>
           ${canWard ? `
@@ -67,20 +67,20 @@ async function promptDefenseCommitChoice(defenderActor) {
             <input type="radio" name="defenseType" value="ward"/>
             <span class="uesrpg-adv-choice__label def-opt__card">
               <span class="uesrpg-defense-card__head">
-                <span class="uesrpg-adv-choice__title">Ward</span>
+                <span class="uesrpg-adv-choice__title">${t("UESRPG.Chat.Opposed.Ward", "Ward")}</span>
               </span>
-              <span class="uesrpg-adv-choice__desc">BR = Spell Strength. Power Block incompatible.</span>
+              <span class="uesrpg-adv-choice__desc">${t("UESRPG.Dialogs.Opposed.WardDefenseDesc", "BR = Spell Strength. Power Block incompatible.")}</span>
             </span>
           </label>` : ""}
         </div>
         <div class="form-group">
-          <label><b>Circumstance Modifier</b></label>
+          <label><b>${t("UESRPG.Dialogs.Opposed.CircumstanceModifier", "Circumstance Modifier")}</b></label>
           <select name="circumstanceMod" style="width:100%;">
             ${buildCircumstanceOptionsHtml(0)}
           </select>
         </div>
         <div class="form-group">
-          <label><b>Manual Modifier</b></label>
+          <label><b>${t("UESRPG.Chat.Common.ManualModifier", "Manual modifier")}</b></label>
           <input type="number" name="manualMod" value="0" step="1" />
         </div>
       </div>
@@ -89,7 +89,7 @@ async function promptDefenseCommitChoice(defenderActor) {
     buttons: {
       confirm: {
         icon: '<i class="fas fa-check"></i>',
-        label: "Commit",
+        label: t("UESRPG.Chat.Opposed.CommitChoices", "Commit"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           const defenseTypeRaw = String(root?.querySelector('[name="defenseType"]:checked')?.value ?? "evade");
@@ -105,7 +105,7 @@ async function promptDefenseCommitChoice(defenderActor) {
       },
       cancel: {
         icon: '<i class="fas fa-times"></i>',
-        label: "Cancel",
+        label: t("UESRPG.UI.Cancel", "Cancel"),
         callback: () => null
       }
     },
@@ -164,18 +164,6 @@ export async function handleDefenderCommit(ctx, action) {
     if (spell) {
       const tnData = computeCharacteristicDefenseTN(defenderActor, spell);
       if (tnData) {
-        applyRuntimePreRollToTN({
-          actor: defenderActor,
-          targetActor: attacker,
-          targetToken: resolveToken(data?.attacker?.tokenUuid),
-          item: spell,
-          rollContext: data?.context?.rollContext,
-          workflow: "magic",
-          side: "defender",
-          attackMode: "magic",
-          defenseType: "characteristic-save",
-          tn: tnData
-        });
         defender.tn = {
           finalTN: tnData.finalTN,
           baseTN: tnData.baseTN,

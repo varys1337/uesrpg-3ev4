@@ -11,6 +11,7 @@ import { panicOutcome, horrorOutcome } from "./panic-horror-tables.js";
 import { showFearTestDialog } from "./fear-dialogs.js";
 import { attemptSnapOut } from "./snap-out.js";
 import { registerFearSystemHooks } from "./combat-boundary.js";
+import { t, tf } from "../../utils/i18n.js";
 
 export { getFearActionRestrictions } from "./effects-and-restrictions.js";
 export { attemptSnapOut } from "./snap-out.js";
@@ -87,26 +88,26 @@ export async function promptFearTest({ actor, type = "panic", modifier = 0, sour
 export async function promptFearTestForSelection({ type = null, modifier = null, source = null } = {}) {
   const controlled = canvas?.tokens?.controlled ?? [];
   if (!controlled.length) {
-    ui.notifications.warn("Fear Test: No tokens selected. Select one or more tokens to run a fear test.");
+    ui.notifications.warn(t("UESRPG.Notifications.Fear.NoTokensSelected"));
     return { ok: false, reason: "no-tokens" };
   }
 
   const actors = controlled.map((token) => token.actor).filter(Boolean);
   if (!actors.length) {
-    ui.notifications.warn("Fear Test: No actors found for the selected tokens.");
+    ui.notifications.warn(t("UESRPG.Notifications.Fear.NoActorsSelected"));
     return { ok: false, reason: "no-actors" };
   }
 
   const config = await showFearTestDialog({
     defaultType: type ?? "panic",
     defaultModifier: modifier ?? 0,
-    defaultSource: source ?? "Fear Source",
+    defaultSource: source ?? t("UESRPG.Dialogs.Fear.Source"),
   });
   if (!config) return { ok: false, reason: "cancelled" };
 
   const testType = String(config.type ?? "panic").toLowerCase() === "horror" ? "horror" : "panic";
   const testModifier = Number(config.modifier ?? 0) || 0;
-  const testSource = String(config.source ?? "Fear Source").trim() || "Fear Source";
+  const testSource = String(config.source ?? t("UESRPG.Dialogs.Fear.Source")).trim() || t("UESRPG.Dialogs.Fear.Source");
   const results = [];
 
   for (const actor of actors) {

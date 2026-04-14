@@ -19,7 +19,7 @@ export async function preloadHandlebarsTemplates() {
   ];
 
   try {
-    // Foundry v13: use the namespaced template loader.
+    // Foundry v14: use the namespaced template loader.
     // Avoid touching the deprecated global loadTemplates to keep the console clean.
     const loader = foundry?.applications?.handlebars?.loadTemplates;
     if (typeof loader !== "function") {

@@ -1,84 +1,84 @@
 {{!-- templates/v2/apps/reach-visualizer-settings.hbs --}}
 <section class="uesrpg-settings uesrpg-settings-panel">
   <header class="uesrpg-settings__header">
-    <h2>Configure Visualiser</h2>
-    <p class="setting-help">Visualize active melee reach on the canvas. Grid-aware mode supports square and hex grids and falls back to smooth rings on gridless scenes.</p>
+    <h2>{{localize "UESRPG.Apps.ReachVisualizer.Title"}}</h2>
+    <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.Description"}}</p>
   </header>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Behaviour</legend>
+    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.Behaviour"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-reach-enabled">Enabled</label>
+        <label class="setting-row__label" for="uesrpg-reach-enabled">{{localize "UESRPG.Apps.ReachVisualizer.Enabled"}}</label>
       </div>
       <input id="uesrpg-reach-enabled" type="checkbox" name="enabled" {{checked settings.enabled}} />
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-behaviour" title="Which tokens get an overlay drawn.">Display on</label>
+      <label class="setting-row__label" for="uesrpg-reach-behaviour" title="{{localize "UESRPG.Apps.ReachVisualizer.DisplayOnTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.DisplayOn"}}</label>
       <select id="uesrpg-reach-behaviour" name="behaviour">
         {{selectOptions behaviourChoices selected=settings.behaviour}}
       </select>
-      <p class="setting-help">Controls which tokens qualify for an overlay. Visibility rules are applied afterwards.</p>
+      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.DisplayOnHint"}}</p>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-visibility" title="When the overlay is shown for qualifying tokens.">Visibility</label>
+      <label class="setting-row__label" for="uesrpg-reach-visibility" title="{{localize "UESRPG.Apps.ReachVisualizer.VisibilityTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.Visibility"}}</label>
       <select id="uesrpg-reach-visibility" name="visibility">
         {{selectOptions visibilityChoices selected=settings.visibility}}
       </select>
-      <p class="setting-help"><strong>Dynamic</strong> shows all qualifying tokens at Passive Opacity and highlights the hovered token at Active Opacity.</p>
+      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.VisibilityHint"}}</p>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Source of Truth</legend>
+    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.SourceOfTruth"}}</legend>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-source" title="How the active melee reach is determined for an actor.">Active reach source</label>
+      <label class="setting-row__label" for="uesrpg-reach-source" title="{{localize "UESRPG.Apps.ReachVisualizer.ActiveReachSourceTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.ActiveReachSource"}}</label>
       <select id="uesrpg-reach-source" name="reachSource">
         {{selectOptions reachSourceChoices selected=settings.reachSource}}
       </select>
-      <p class="setting-help">Last-used is stored per user and updates when you initiate a melee attack from a sheet. It falls back to max equipped reach when unknown.</p>
+      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ActiveReachSourceHint"}}</p>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Appearance</legend>
+    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.Appearance"}}</legend>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-shape" title="How the reach boundary is drawn.">Shape</label>
+      <label class="setting-row__label" for="uesrpg-reach-shape" title="{{localize "UESRPG.Apps.ReachVisualizer.ShapeTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.Shape"}}</label>
       <select id="uesrpg-reach-shape" name="shape">
         {{selectOptions shapeChoices selected=settings.shape}}
       </select>
-      <p class="setting-help">Grid-aware boundaries are outlined on the grid, use AoE-style emanation on hex scenes, and fall back to smooth rings on gridless scenes.</p>
+      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ShapeHint"}}</p>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-grid-diagonal-mode" title="Controls how diagonal distance is counted on square grids.">Grid diagonals</label>
+      <label class="setting-row__label" for="uesrpg-grid-diagonal-mode" title="{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonalsTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonals"}}</label>
       <select id="uesrpg-grid-diagonal-mode" name="gridDiagonalMode">
         {{selectOptions gridDiagonalChoices selected=settings.gridDiagonalMode}}
       </select>
-      <p class="setting-help"><strong>Ignore diagonal rule</strong> uses equal-cost diagonals regardless of scene movement. <strong>Respect scene rule</strong> matches Foundry's configured diagonal movement rule. This only applies to Grid-aware shape on square grids, and flanking checks use the same setting.</p>
+      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonalsHint"}}</p>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-color-mode" title="Color scheme for multi-token readability.">Color mode</label>
+      <label class="setting-row__label" for="uesrpg-reach-color-mode" title="{{localize "UESRPG.Apps.ReachVisualizer.ColorModeTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.ColorMode"}}</label>
       <select id="uesrpg-reach-color-mode" name="colorMode">
         {{selectOptions colorModeChoices selected=settings.colorMode}}
       </select>
-      <p class="setting-help">Disposition mode color-codes friendly, neutral, and hostile tokens.</p>
+      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ColorModeHint"}}</p>
     </div>
 
     <div class="setting-row setting-row--select rv-uniform-color-row">
-      <label class="setting-row__label" for="uesrpg-reach-uniform-color" title="Used when Color mode is set to Uniform color.">Uniform color</label>
+      <label class="setting-row__label" for="uesrpg-reach-uniform-color" title="{{localize "UESRPG.Apps.ReachVisualizer.UniformColorTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.UniformColor"}}</label>
       <input id="uesrpg-reach-uniform-color" type="color" name="uniformColor" value="{{settings.uniformColor}}" />
-      <p class="setting-help">Applies to all overlays when Uniform color is selected.</p>
+      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.UniformColorHint"}}</p>
     </div>
 
     <div class="setting-row setting-row--slider rv-opacity-single">
-      <label class="setting-row__label" for="uesrpg-reach-opacity" title="Opacity applied to the overlay rings.">Opacity</label>
+      <label class="setting-row__label" for="uesrpg-reach-opacity" title="{{localize "UESRPG.Apps.ReachVisualizer.OpacityTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.Opacity"}}</label>
       <div class="form-fields">
         <input id="uesrpg-reach-opacity" type="range" name="opacity" min="0.05" max="1" step="0.05" value="{{settings.opacity}}" data-range-value="opacity" />
         <span class="range-value" data-range-value="opacity">{{settings.opacity}}</span>
@@ -87,7 +87,7 @@
 
     <div class="rv-opacity-dynamic">
       <div class="setting-row setting-row--slider">
-        <label class="setting-row__label" for="uesrpg-reach-passive-opacity" title="Opacity for non-hovered tokens in Dynamic mode.">Passive opacity</label>
+        <label class="setting-row__label" for="uesrpg-reach-passive-opacity" title="{{localize "UESRPG.Apps.ReachVisualizer.PassiveOpacityTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.PassiveOpacity"}}</label>
         <div class="form-fields">
           <input id="uesrpg-reach-passive-opacity" type="range" name="passiveOpacity" min="0.05" max="1" step="0.05" value="{{settings.passiveOpacity}}" data-range-value="passiveOpacity" />
           <span class="range-value" data-range-value="passiveOpacity">{{settings.passiveOpacity}}</span>
@@ -95,7 +95,7 @@
       </div>
 
       <div class="setting-row setting-row--slider">
-        <label class="setting-row__label" for="uesrpg-reach-active-opacity" title="Opacity for the hovered token in Dynamic mode.">Active opacity</label>
+        <label class="setting-row__label" for="uesrpg-reach-active-opacity" title="{{localize "UESRPG.Apps.ReachVisualizer.ActiveOpacityTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.ActiveOpacity"}}</label>
         <div class="form-fields">
           <input id="uesrpg-reach-active-opacity" type="range" name="activeOpacity" min="0.05" max="1" step="0.05" value="{{settings.activeOpacity}}" data-range-value="activeOpacity" />
           <span class="range-value" data-range-value="activeOpacity">{{settings.activeOpacity}}</span>
@@ -104,45 +104,45 @@
     </div>
 
     <div class="setting-row setting-row--slider">
-      <label class="setting-row__label" for="uesrpg-reach-line-width" title="Line thickness in pixels.">Line width</label>
+      <label class="setting-row__label" for="uesrpg-reach-line-width" title="{{localize "UESRPG.Apps.ReachVisualizer.LineWidthTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.LineWidth"}}</label>
       <div class="form-fields">
         <input id="uesrpg-reach-line-width" type="range" name="lineWidth" min="1" max="12" step="1" value="{{settings.lineWidth}}" data-range-value="lineWidth" />
         <span class="range-value" data-range-value="lineWidth">{{settings.lineWidth}}</span>
       </div>
     </div>
 
-    <p class="setting-note">Minimum reach is always shown when present as a dashed inner boundary. Maximum reach is shown as a solid boundary.</p>
+    <p class="setting-note">{{localize "UESRPG.Apps.ReachVisualizer.AppearanceNote"}}</p>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Labels</legend>
+    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.Labels"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-show-reach-label">Show reach label</label>
-        <p class="setting-help">Shows the active melee reach value above the token.</p>
+        <label class="setting-row__label" for="uesrpg-show-reach-label">{{localize "UESRPG.Apps.ReachVisualizer.ShowReachLabel"}}</label>
+        <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ShowReachLabelHint"}}</p>
       </div>
       <input id="uesrpg-show-reach-label" type="checkbox" name="showLabel" {{checked settings.showLabel}} />
     </div>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-show-target-distance" title="When you have exactly one target, show distance to that target on the controlled token(s).">Show target distance</label>
-        <p class="setting-help">Only shown when exactly one target is set and the token is controlled.</p>
+        <label class="setting-row__label" for="uesrpg-show-target-distance" title="{{localize "UESRPG.Apps.ReachVisualizer.ShowTargetDistanceTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.ShowTargetDistance"}}</label>
+        <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ShowTargetDistanceHint"}}</p>
       </div>
       <input id="uesrpg-show-target-distance" type="checkbox" name="showTargetDistance" {{checked settings.showTargetDistance}} />
     </div>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-include-elevation" title="If enabled, includes vertical elevation in the target distance (3D).">Include elevation (3D)</label>
-        <p class="setting-help">Uses token elevation combined with Foundry's horizontal grid-distance rules.</p>
+        <label class="setting-row__label" for="uesrpg-include-elevation" title="{{localize "UESRPG.Apps.ReachVisualizer.IncludeElevationTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.IncludeElevation"}}</label>
+        <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.IncludeElevationHint"}}</p>
       </div>
       <input id="uesrpg-include-elevation" type="checkbox" name="includeElevation" {{checked settings.includeElevation}} />
     </div>
   </fieldset>
 
   <footer class="uesrpg-settings__footer">
-    <button type="submit"><i class="fas fa-save"></i> Save</button>
+    <button type="submit"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
   </footer>
 </section>

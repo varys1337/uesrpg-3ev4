@@ -65,10 +65,6 @@ import {
   applySpellcastingTalentModifiers,
   applyTalentSummaryToProfile
 } from "../traits/spellcasting-talents.js";
-import {
-  isRuleElementRuntimeEnabled,
-  evaluateRuleElementsRuntime
-} from "../traits/features/rule-element-runtime.js";
 import { normalizeSpellConfig } from "./spell-config.js";
 import { _num, _strTrim as _str } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
@@ -507,58 +503,6 @@ export function resolveSpellProfile(spell, actor, options = {}) {
     }
   } catch (err) {
     console.error("UESRPG | spell-profile | Talent modifier stage error:", err);
-  }
-
-  // ── Rule Element spellModifier Stage ──
-  // Evaluate Rule Elements of type `spellModifier` and feed their deltas
-  // into the profile. Runs after the interceptor-based talent stage so
-  // that RE-authoritative talents (which skipped the interceptor above)
-  // still inject their modifiers.
-  try {
-    if (isRuleElementRuntimeEnabled({ workflow: "magic" })) {
-      const reRuntime = evaluateRuleElementsRuntime({
-        actor,
-        item: spell,
-        workflow: "magic",
-        phase: "preRoll",
-        testType: "spell",
-        attackMode: "magic"
-      });
-      const sm = reRuntime?.spellModifiers;
-      if (sm) {
-        const wbDelta = _num(sm.restraintWbDelta, 0);
-        const effectDelta = _num(sm.effectDelta, 0);
-        const costDelta = _num(sm.costDelta, 0);
-
-        // Apply restraint WB delta (same path as talent summary)
-        if (wbDelta !== 0 && profile.cost) {
-          profile.cost.restraintWbDelta = _num(profile.cost.restraintWbDelta) + wbDelta;
-          _recomputeRestrainedReduction(profile, actor, spell, options);
-        }
-
-        // Apply effect delta (Reinforce bonus)
-        if (effectDelta !== 0 && profile.talentModifiers) {
-          profile.talentModifiers.reinforceBonusDelta =
-            _num(profile.talentModifiers.reinforceBonusDelta) + effectDelta;
-        }
-
-        // Apply cost delta
-        if (costDelta !== 0 && profile.cost) {
-          profile.cost.attempt = Math.max(0, _num(profile.cost.attempt) + costDelta);
-          _recomputeRestrainedReduction(profile, actor, spell, options);
-        }
-
-        // Stamp RE modifiers on profile for downstream inspection
-        profile.ruleElementSpellModifiers = {
-          restraintWbDelta: wbDelta,
-          effectDelta,
-          costDelta,
-          applied: reRuntime.applied
-        };
-      }
-    }
-  } catch (err) {
-    console.error("UESRPG | spell-profile | Rule Element spellModifier stage error:", err);
   }
 
   return profile;

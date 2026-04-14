@@ -3,19 +3,19 @@
 
     <div class="skillContainer">
       <div class="section-header">
-        <span class="section-header__label">Skills</span>
-        <button type="button" data-action="itemCreate" class="section-header__action" id="skill" title="Add Skill">+</button>
+        <span class="section-header__label">{{localize "UESRPG.UI.Skills"}}</span>
+        <button type="button" data-action="itemCreate" class="section-header__action" id="skill" title="{{localize "UESRPG.UI.AddSkill"}}">+</button>
       </div>
       <ul class="skillList">
         {{#each actor.skill as |item id|}}
           <li class="item" data-item-id="{{item._id}}">
             <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
-              <img class="item-img" src="{{item.img}}" title="Send to Chat"/>
+              <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
               <div class="item-name skill-open-item">{{item.name}}</div>
             </div>
             <div class="item-controls">
               <div class="item-value">{{item.system.value}}%</div>
-              <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+              <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
             </div>
           </li>
         {{/each}}
@@ -25,22 +25,22 @@
     <div class="three-column-flex-container">
       <div class="trait-container">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="traits" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Traits</span>
-          <button type="button" data-action="itemCreate" class="section-header__action" id="trait" title="Add Trait">+</button>
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="traits" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Traits"}}</span>
+          <button type="button" data-action="itemCreate" class="section-header__action" id="trait" title="{{localize "UESRPG.UI.AddTrait"}}">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.trait as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" title="Activate"/>
+                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
                 {{#with (lookup @root.actor.ui.traitStackingById item._id) as |stack|}}
                   <i class="fas fa-layer-group" title="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}"></i>
                 {{/with}}
                 <div data-action="itemOpen" class="item-name">{{item.name}}</div>
               </div>
               <div class="item-controls">
-                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
               </div>
             </li>
           {{/each}}
@@ -49,19 +49,19 @@
 
       <div class="talent-container">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="talents" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Talents</span>
-          <button type="button" data-action="itemCreate" class="section-header__action" id="talent" title="Add Talent">+</button>
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="talents" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Talents"}}</span>
+          <button type="button" data-action="itemCreate" class="section-header__action" id="talent" title="{{localize "UESRPG.UI.AddTalent"}}">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.talent as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" title="Activate"/>
+                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
                 <div data-action="itemOpen" class="item-name">{{item.name}}</div>
               </div>
               <div class="item-controls">
-                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
               </div>
             </li>
           {{/each}}
@@ -70,19 +70,19 @@
 
       <div class="power-container">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="powers" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Powers</span>
-          <button type="button" data-action="itemCreate" class="section-header__action" id="power" title="Add Power">+</button>
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="powers" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Powers"}}</span>
+          <button type="button" data-action="itemCreate" class="section-header__action" id="power" title="{{localize "UESRPG.UI.AddPower"}}">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.power as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" title="Activate"/>
+                <img data-action="postItemToChat" class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
                 <div data-action="itemOpen" class="item-name">{{item.name}}</div>
               </div>
               <div class="item-controls">
-                <a data-action="itemDelete" class="item-control item-delete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
               </div>
             </li>
           {{/each}}
@@ -93,21 +93,21 @@
     <div class="social-section">
       <div class="social-field">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="languages" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Languages</span>
-          <button type="button" data-action="openLanguageSelector" class="section-header__action" title="Configure Languages"><i class="fas fa-pen"></i></button>
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="languages" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Languages"}}</span>
+          <button type="button" data-action="openLanguageSelector" class="section-header__action" title="{{localize "UESRPG.UI.ConfigureLanguages"}}"><i class="fas fa-pen"></i></button>
         </div>
         <div class="social-field__body">
           <div class="social-chip-wrap">
-            <span class="social-chip social-chip--fixed">Cyrodilic</span>
+            <span class="social-chip social-chip--fixed">{{localize "UESRPG.Choices.Languages.cyrodilic"}}</span>
             {{#each actor.system.socialDisplay.languages.preview as |lang|}}
               <span class="social-chip">{{lang}}</span>
             {{/each}}
             {{#if actor.system.socialDisplay.languages.hiddenCount}}
-              <span class="social-chip social-chip--muted">+{{actor.system.socialDisplay.languages.hiddenCount}} more</span>
+              <span class="social-chip social-chip--muted">{{localize "UESRPG.UI.MoreCount" count=actor.system.socialDisplay.languages.hiddenCount}}</span>
             {{/if}}
             {{#unless actor.system.socialDisplay.languages.preview.length}}
-              <span class="social-chip social-chip--muted">No additional languages selected</span>
+              <span class="social-chip social-chip--muted">{{localize "UESRPG.UI.NoAdditionalLanguagesSelected"}}</span>
             {{/unless}}
           </div>
         </div>
@@ -115,9 +115,9 @@
 
       <div class="social-field">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="factions" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Factions</span>
-          <button type="button" data-action="openFactionSelector" class="section-header__action" title="Configure Factions"><i class="fas fa-pen"></i></button>
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="factions" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Factions"}}</span>
+          <button type="button" data-action="openFactionSelector" class="section-header__action" title="{{localize "UESRPG.UI.ConfigureFactions"}}"><i class="fas fa-pen"></i></button>
         </div>
         <div class="social-field__body">
           {{#if actor.system.socialDisplay.factions.preview.length}}
@@ -131,10 +131,10 @@
               {{/each}}
             </ul>
             {{#if actor.system.socialDisplay.factions.hiddenCount}}
-              <p class="social-empty">+{{actor.system.socialDisplay.factions.hiddenCount}} more factions</p>
+              <p class="social-empty">{{localize "UESRPG.UI.MoreFactionsCount" count=actor.system.socialDisplay.factions.hiddenCount}}</p>
             {{/if}}
           {{else}}
-            <p class="social-empty">No factions selected.</p>
+            <p class="social-empty">{{localize "UESRPG.UI.NoFactionsSelected"}}</p>
           {{/if}}
         </div>
       </div>
@@ -145,8 +145,8 @@
 
     <div class="bioPage">
       <div class="section-header">
-        <span class="section-header__label">Biography</span>
-        <button type="button" class="section-header__action" data-action="openBioEditor" title="Edit Biography">
+        <span class="section-header__label">{{localize "UESRPG.UI.Biography"}}</span>
+        <button type="button" class="section-header__action" data-action="openBioEditor" title="{{localize "UESRPG.UI.EditBiography"}}">
           <i class="fas fa-pen"></i>
         </button>
       </div>

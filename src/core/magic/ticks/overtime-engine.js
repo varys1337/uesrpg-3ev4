@@ -15,7 +15,7 @@
  * ```
  * {
  *   key:   "flags.uesrpg-3ev4.OverTime",           // or ".OverTime.<id>"
- *   mode:  CONST.ACTIVE_EFFECT_MODES.CUSTOM (0),
+ *   mode:  "custom",
  *   value: JSON.stringify({ trigger, cadenceEvery, cadenceUnit, payloadType, … })
  * }
  * ```
@@ -41,7 +41,7 @@
  * OverTime payloads do not fire while the upkeep decision is pending.  Once upkeep is
  * confirmed the flag is cleared and the effect resumes ticking.
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14 runtime
  */
 
 import { registerSpellTickHandler } from "./spell-tick-engine.js";
@@ -53,6 +53,7 @@ import { DAMAGE_TYPES } from "../../combat/damage/types.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
 import { isMissingDocError as _isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
+import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -255,7 +256,7 @@ function _ensureIndex() {
  * @param {number|null} [config.maxTicks=null]
  * @param {string}  [config.label=""]
  * @param {boolean} [config.chatLog=true]
- * @returns {{ key: string, mode: number, value: string, priority: number }}
+ * @returns {{ key: string, mode: string, value: string, priority: number }}
  */
 export function buildOverTimeChange(config = {}) {
   const normalized = {
@@ -274,12 +275,12 @@ export function buildOverTimeChange(config = {}) {
     chatLog:      config.chatLog !== false
   };
 
-  return {
+  return buildEffectChange({
     key: OVERTIME_CHANGE_KEY,
-    mode: CONST.ACTIVE_EFFECT_MODES.CUSTOM,
+    type: "custom",
     value: JSON.stringify(normalized),
     priority: 20
-  };
+  });
 }
 
 /**
@@ -1437,4 +1438,3 @@ export function getOverTimeConfig(effect) {
   const configs = _getAllOverTimeConfigs(effect);
   return configs.length ? configs[0] : null;
 }
-import { getEffectChanges } from "../../../utils/compat.js";

@@ -1,111 +1,104 @@
 {{!-- templates/v2/apps/talents-settings.hbs --}}
 <section class="uesrpg-settings uesrpg-settings-panel">
   <fieldset class="uesrpg-settings__section">
-    <legend>Talents</legend>
+    <legend>{{localize "UESRPG.Apps.TalentsSettings.Sections.Talents"}}</legend>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-gladiator-automation-mode">Gladiator - Automation Mode</label>
+      <label class="setting-row__label" for="uesrpg-gladiator-automation-mode">{{settings.gladiatorAutomationMode.name}}</label>
       <select id="uesrpg-gladiator-automation-mode" name="gladiatorAutomationMode">
-        <option value="disabled" {{#if (eq gladiatorAutomationMode "disabled")}}selected{{/if}}>Disabled</option>
-        <option value="original" {{#if (eq gladiatorAutomationMode "original")}}selected{{/if}}>Original (Make)</option>
-        <option value="updated" {{#if (eq gladiatorAutomationMode "updated")}}selected{{/if}}>Updated (Can)</option>
+        {{selectOptions settings.gladiatorAutomationMode.choices selected=settings.gladiatorAutomationMode.value}}
       </select>
     </div>
 
     <div class="setting-note">
-      <p><strong>Original (Make):</strong> If the character is the target of a melee attack while within the melee range of at least two opponents, then they make a free defensive reaction against that attack, but only once per round.</p>
-      <p><strong>Updated (Can):</strong> If the character is the target of a melee attack while within the melee range of at least two opponents, then they can make a free defensive reaction against that attack, but only once per round.</p>
-      <p><strong>Disabled:</strong> Gladiator automation is not applied.</p>
+      <p>{{localize "UESRPG.Apps.TalentsSettings.Gladiator.Original"}}</p>
+      <p>{{localize "UESRPG.Apps.TalentsSettings.Gladiator.Updated"}}</p>
+      <p>{{localize "UESRPG.Apps.TalentsSettings.Gladiator.Disabled"}}</p>
     </div>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-enable-mighty-cleave">Enable Mighty Cleave Automation</label>
+        <label class="setting-row__label" for="uesrpg-enable-mighty-cleave">{{settings.enableMightyCleave.name}}</label>
+        <p class="setting-help">{{settings.enableMightyCleave.hint}}</p>
       </div>
-      <input id="uesrpg-enable-mighty-cleave" type="checkbox" name="enableMightyCleave" {{checked enableMightyCleave}}>
+      <input id="uesrpg-enable-mighty-cleave" type="checkbox" name="enableMightyCleave" {{checked settings.enableMightyCleave.value}}>
     </div>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-enable-follow-up-strike">Enable Follow-up Strike Automation</label>
+        <label class="setting-row__label" for="uesrpg-enable-follow-up-strike">{{settings.enableFollowUpStrike.name}}</label>
+        <p class="setting-help">{{settings.enableFollowUpStrike.hint}}</p>
       </div>
-      <input id="uesrpg-enable-follow-up-strike" type="checkbox" name="enableFollowUpStrike" {{checked enableFollowUpStrike}}>
+      <input id="uesrpg-enable-follow-up-strike" type="checkbox" name="enableFollowUpStrike" {{checked settings.enableFollowUpStrike.value}}>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-talent-learning-mode">Talent Learning Mode</label>
+      <label class="setting-row__label" for="uesrpg-talent-learning-mode">{{settings.talentLearningMode.name}}</label>
       <select id="uesrpg-talent-learning-mode" name="talentLearningMode">
-        <option value="off" {{#if (eq talentLearningMode "off")}}selected{{/if}}>Off</option>
-        <option value="warn" {{#if (eq talentLearningMode "warn")}}selected{{/if}}>Warn</option>
-        <option value="enforce" {{#if (eq talentLearningMode "enforce")}}selected{{/if}}>Enforce</option>
+        {{selectOptions settings.talentLearningMode.choices selected=settings.talentLearningMode.value}}
       </select>
-      <p class="setting-help"><strong>Off:</strong> no checks. <strong>Warn:</strong> report RAW violations but allow acquisition. <strong>Enforce:</strong> block invalid acquisitions and auto-deduct XP.</p>
+      <p class="setting-help">{{settings.talentLearningMode.hint}}</p>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-no-governing-xp-rule">No-Governing XP Rule</label>
+      <label class="setting-row__label" for="uesrpg-no-governing-xp-rule">{{settings.talentNoGoverningCostRule.name}}</label>
       <select id="uesrpg-no-governing-xp-rule" name="talentNoGoverningCostRule">
-        <option value="discounted" {{#if (eq talentNoGoverningCostRule "discounted")}}selected{{/if}}>Discounted (75%)</option>
-        <option value="base" {{#if (eq talentNoGoverningCostRule "base")}}selected{{/if}}>Base Cost</option>
+        {{selectOptions settings.talentNoGoverningCostRule.choices selected=settings.talentNoGoverningCostRule.value}}
       </select>
-      <p class="setting-help">Controls how talents with no governing characteristic are priced for learning checks.</p>
+      <p class="setting-help">{{settings.talentNoGoverningCostRule.hint}}</p>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-talent-learning-notice-mode">Talent Learning Notifications</label>
+      <label class="setting-row__label" for="uesrpg-talent-learning-notice-mode">{{settings.talentLearningNoticeMode.name}}</label>
       <select id="uesrpg-talent-learning-notice-mode" name="talentLearningNoticeMode">
-        <option value="off" {{#if (eq talentLearningNoticeMode "off")}}selected{{/if}}>Off</option>
-        <option value="problems" {{#if (eq talentLearningNoticeMode "problems")}}selected{{/if}}>Problems Only</option>
-        <option value="verbose" {{#if (eq talentLearningNoticeMode "verbose")}}selected{{/if}}>Verbose (includes successful checks)</option>
+        {{selectOptions settings.talentLearningNoticeMode.choices selected=settings.talentLearningNoticeMode.value}}
       </select>
-      <p class="setting-help">Controls notification verbosity when talent-learning validation runs.</p>
+      <p class="setting-help">{{settings.talentLearningNoticeMode.hint}}</p>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Chapter 4 Compliance</legend>
+    <legend>{{localize "UESRPG.Apps.TalentsSettings.Sections.Chapter4"}}</legend>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-chapter4-audit-startup">Chapter 4 Audit at Startup</label>
+      <label class="setting-row__label" for="uesrpg-chapter4-audit-startup">{{settings.chapter4AuditStartupMode.name}}</label>
       <select id="uesrpg-chapter4-audit-startup" name="chapter4AuditStartupMode">
-        <option value="off" {{#if (eq chapter4AuditStartupMode "off")}}selected{{/if}}>Off</option>
-        <option value="summary" {{#if (eq chapter4AuditStartupMode "summary")}}selected{{/if}}>Summary</option>
-        <option value="full" {{#if (eq chapter4AuditStartupMode "full")}}selected{{/if}}>Full (include entries + console log)</option>
+        {{selectOptions settings.chapter4AuditStartupMode.choices selected=settings.chapter4AuditStartupMode.value}}
       </select>
-      <p class="setting-help">Runs <code>game.uesrpg.auditChapter4()</code> on world startup for GMs and posts a summary notification.</p>
+      <p class="setting-help">{{settings.chapter4AuditStartupMode.hint}}</p>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Character Generation</legend>
+    <legend>{{localize "UESRPG.Apps.TalentsSettings.Sections.CharacterGeneration"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-enforce-char-gen-milestones">Enforce Character Generation Milestones</label>
-        <p class="setting-help">When enabled, Imperial racial talent automation applies only if the actor has completed character generation.</p>
+        <label class="setting-row__label" for="uesrpg-enforce-char-gen-milestones">{{settings.enforceCharGenMilestones.name}}</label>
+        <p class="setting-help">{{settings.enforceCharGenMilestones.hint}}</p>
       </div>
-      <input id="uesrpg-enforce-char-gen-milestones" type="checkbox" name="enforceCharGenMilestones" {{checked enforceCharGenMilestones}}>
+      <input id="uesrpg-enforce-char-gen-milestones" type="checkbox" name="enforceCharGenMilestones" {{checked settings.enforceCharGenMilestones.value}}>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-spell-learning-log-cap">Spell Learning Log Cap</label>
-      <input id="uesrpg-spell-learning-log-cap" type="number" name="chargenSpellLearningLogCap" value="{{chargenSpellLearningLogCap}}" min="0" max="5000" step="10">
-      <p class="setting-help">0 means unlimited. Otherwise, keep only the most recent N spell-learning log entries per actor.</p>
+      <label class="setting-row__label" for="uesrpg-spell-learning-log-cap">{{settings.chargenSpellLearningLogCap.name}}</label>
+      <input id="uesrpg-spell-learning-log-cap" type="number" name="chargenSpellLearningLogCap" value="{{settings.chargenSpellLearningLogCap.value}}" min="0" max="5000" step="10">
+      <p class="setting-help">{{settings.chargenSpellLearningLogCap.hint}}</p>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Active Effects</legend>
+    <legend>{{localize "UESRPG.Apps.TalentsSettings.Sections.ActiveEffects"}}</legend>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-passive-transfer-item-types">Passive Transfer Item Types</label>
-      <input id="uesrpg-passive-transfer-item-types" type="text" name="passiveTransferItemTypes" value="{{passiveTransferItemTypes}}" placeholder="talent,trait,power,skill">
-      <p class="setting-help">Comma-separated item types whose transfer Active Effects apply passively while the item remains in inventory.</p>
-      <p class="setting-note">Changing this requires a reload.</p>
+      <label class="setting-row__label" for="uesrpg-passive-transfer-item-types">{{settings.passiveTransferItemTypes.name}}</label>
+      <input id="uesrpg-passive-transfer-item-types" type="text" name="passiveTransferItemTypes" value="{{settings.passiveTransferItemTypes.value}}" placeholder="talent,trait,power,skill">
+      <p class="setting-help">{{settings.passiveTransferItemTypes.hint}}</p>
+      <p class="setting-note">{{localize "UESRPG.Apps.TalentsSettings.RequiresReload"}}</p>
     </div>
   </fieldset>
 
   <footer class="uesrpg-settings__footer">
-    <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+    <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
   </footer>
 </section>

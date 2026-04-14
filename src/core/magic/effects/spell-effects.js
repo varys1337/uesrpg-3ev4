@@ -18,7 +18,7 @@ import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, request
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback } from "../../system/flags.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
-import { getEffectChanges } from "../../../utils/compat.js";
+import { buildEffectChange, buildEffectChangesData, getEffectChanges } from "../../../utils/compat.js";
 
 const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellEffects]");
 
@@ -209,15 +209,14 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
       validateAEChanges(clonedChanges, { context: `spell "${spell.name}" effect "${ef.name}"` });
     }
 
-    const effectData = {
-      name: ef.name || spell.name,
-      img: ef.img || spell.img,
-      origin: spellUuid,
-      disabled: false,
-      duration: _buildEffectDuration(),
-      changes: clonedChanges,
-      flags: {
-        [FLAG_SCOPE]: {
+      const effectData = {
+        name: ef.name || spell.name,
+        img: ef.img || spell.img,
+        origin: spellUuid,
+        disabled: false,
+        duration: _buildEffectDuration(),
+        flags: {
+          [FLAG_SCOPE]: {
           spellEffect: true,
           spellUuid,
           spellName: spell.name,
@@ -234,8 +233,9 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
           stackRule: "override",
           source: "spell"
         }
-      }
-    };
+      },
+      ...buildEffectChangesData(clonedChanges)
+      };
 
     // Inject OverTime changes entries (midi-qol / DAE style) if the spell has OverTime configuration.
     // Supports both the new overTimeEntries array and legacy single overTime object.
@@ -329,12 +329,12 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
       if (_isSpellAbsorptionSpell(spell)) {
         const absKey = "system.modifiers.magic.spellAbsorption";
         if (!trackerChanges.some(c => c.key === absKey)) {
-          trackerChanges.push({
+          trackerChanges.push(buildEffectChange({
             key: absKey,
-            mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE,
+            type: "override",
             value: String(ss),
             priority: 20
-          });
+          }));
         }
         trackerFlags.spellDefense = { type: "absorption", ss };
         // Legacy flag path consumed by _applySpellAbsorption
@@ -344,12 +344,12 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
       if (_isReflectSpell(spell)) {
         const refKey = "system.modifiers.magic.spellReflect";
         if (!trackerChanges.some(c => c.key === refKey)) {
-          trackerChanges.push({
+          trackerChanges.push(buildEffectChange({
             key: refKey,
-            mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE,
+            type: "override",
             value: String(ss),
             priority: 20
-          });
+          }));
         }
         trackerFlags.spellDefense = { type: "reflect", ss };
       }
@@ -360,8 +360,8 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
         origin: spellUuid,
         disabled: false,
         duration: _buildEffectDuration(),
-        changes: trackerChanges,
-        flags: { [FLAG_SCOPE]: trackerFlags }
+        flags: { [FLAG_SCOPE]: trackerFlags },
+        ...buildEffectChangesData(trackerChanges)
       });
     }
   }
@@ -535,4 +535,3 @@ async function removeOpposingSpellEffects(targetActor, spell) {
     ui.notifications.info(`${opposing} was overridden by ${spell.name}.`);
   }
 }
-

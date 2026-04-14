@@ -1,67 +1,62 @@
 {{!-- templates/v2/apps/combat-settings.hbs --}}
 <section class="uesrpg-settings uesrpg-settings-panel">
   <fieldset class="uesrpg-settings__section">
-    <legend>Combat</legend>
+    <legend>{{localize "UESRPG.Apps.CombatSettings.Sections.Combat"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-action-economy-ui">Combat Sheet: Action Economy UI</label>
+        <label class="setting-row__label" for="uesrpg-action-economy-ui">{{settings.enableActionEconomyUI.name}}</label>
+        <p class="setting-help">{{settings.enableActionEconomyUI.hint}}</p>
       </div>
-      <input id="uesrpg-action-economy-ui" type="checkbox" name="enableActionEconomyUI" {{checked enableActionEconomyUI}}>
+      <input id="uesrpg-action-economy-ui" type="checkbox" name="enableActionEconomyUI" {{checked settings.enableActionEconomyUI.value}}>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-action-point-automation">Action Point Automation</label>
+      <label class="setting-row__label" for="uesrpg-action-point-automation">{{settings.actionPointAutomation.name}}</label>
       <select id="uesrpg-action-point-automation" name="actionPointAutomation">
-        <option value="round" {{#if (eq actionPointAutomation "round")}}selected{{/if}}>Round-Based</option>
-        <option value="turn" {{#if (eq actionPointAutomation "turn")}}selected{{/if}}>Turn-Based</option>
-        <option value="none" {{#if (eq actionPointAutomation "none")}}selected{{/if}}>None</option>
+        {{selectOptions settings.actionPointAutomation.choices selected=settings.actionPointAutomation.value}}
       </select>
-      <p class="setting-help">Round-Based sets AP to max each round. Turn-Based sets AP to max at each turn start, except round one where everyone starts at max. None disables automation.</p>
+      <p class="setting-help">{{settings.actionPointAutomation.hint}}</p>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-token-range-mode">Token Range Measurement Mode</label>
+      <label class="setting-row__label" for="uesrpg-token-range-mode">{{settings.tokenRangeMeasurement.name}}</label>
       <select id="uesrpg-token-range-mode" name="tokenRangeMeasurement">
-        <option value="center" {{#if (eq tokenRangeMeasurement "center")}}selected{{/if}}>Center Point (Legacy)</option>
-        <option value="edge" {{#if (eq tokenRangeMeasurement "edge")}}selected{{/if}}>Edge to Edge (D&amp;D/PF2e)</option>
+        {{selectOptions settings.tokenRangeMeasurement.choices selected=settings.tokenRangeMeasurement.value}}
       </select>
-      <p class="setting-help">Center Point always measures center-to-center and treats all tokens as 1x1. Edge to Edge measures from the nearest token edges for larger token footprints.</p>
+      <p class="setting-help">{{settings.tokenRangeMeasurement.hint}}</p>
     </div>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-dynamic-initiative">Dynamic Initiative</label>
-        <p class="setting-help">Rerolls initiative each new round and commits together with round advance. This changes upkeep and timing behavior.</p>
+        <label class="setting-row__label" for="uesrpg-dynamic-initiative">{{settings.dynamicInitiativeEnabled.name}}</label>
+        <p class="setting-help">{{settings.dynamicInitiativeEnabled.hint}}</p>
       </div>
-      <input id="uesrpg-dynamic-initiative" type="checkbox" name="dynamicInitiativeEnabled" {{checked dynamicInitiativeEnabled}}>
+      <input id="uesrpg-dynamic-initiative" type="checkbox" name="dynamicInitiativeEnabled" {{checked settings.dynamicInitiativeEnabled.value}}>
     </div>
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>Area of Effect</legend>
+    <legend>{{localize "UESRPG.Apps.CombatSettings.Sections.AreaOfEffect"}}</legend>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-aoe-containment-mode">AoE Containment Mode</label>
+      <label class="setting-row__label" for="uesrpg-aoe-containment-mode">{{settings.aoeContainmentMode.name}}</label>
       <select id="uesrpg-aoe-containment-mode" name="aoeContainmentMode">
-        <option value="true-radius" {{#if (eq aoeContainmentMode "true-radius")}}selected{{/if}}>True Radius (Geometric)</option>
-        <option value="grid-aware" {{#if (eq aoeContainmentMode "grid-aware")}}selected{{/if}}>Grid-Aware (Cell Overlap)</option>
+        {{selectOptions settings.aoeContainmentMode.choices selected=settings.aoeContainmentMode.value}}
       </select>
-      <p class="setting-help">True Radius affects tokens when any part of their space falls inside the template. Grid-Aware affects a token when the template overlaps any occupied grid cell.</p>
+      <p class="setting-help">{{settings.aoeContainmentMode.hint}}</p>
     </div>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-aoe-origin-measurement">AoE Range Origin</label>
+      <label class="setting-row__label" for="uesrpg-aoe-origin-measurement">{{settings.aoeOriginMeasurement.name}}</label>
       <select id="uesrpg-aoe-origin-measurement" name="aoeOriginMeasurement">
-        <option value="center" {{#if (eq aoeOriginMeasurement "center")}}selected{{/if}}>Center Point</option>
-        <option value="edge" {{#if (eq aoeOriginMeasurement "edge")}}selected{{/if}}>Nearest Edge</option>
-        <option value="match-token" {{#if (eq aoeOriginMeasurement "match-token")}}selected{{/if}}>Match Token Range Setting</option>
+        {{selectOptions settings.aoeOriginMeasurement.choices selected=settings.aoeOriginMeasurement.value}}
       </select>
-      <p class="setting-help">Controls how range is measured from the caster to the AoE placement or target. Match Token uses the Token Range Measurement mode above.</p>
+      <p class="setting-help">{{settings.aoeOriginMeasurement.hint}}</p>
     </div>
   </fieldset>
 
   <footer class="uesrpg-settings__footer">
-    <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+    <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
   </footer>
 </section>

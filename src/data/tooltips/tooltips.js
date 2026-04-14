@@ -10,6 +10,7 @@ import {
   buildPlaceholderShortText,
   composeTooltipText,
 } from "./shared-tooltips.js";
+import { buildTooltipHeader, localizeTooltipEntry } from "./tooltip-i18n.js";
 
 const DEFAULT_ACTION_TOOLTIP_POINTER = "See UESRPG Rules: Chapter 5 (Combat Actions).";
 
@@ -68,12 +69,18 @@ export function buildCombatActionTooltipText({ label, actionId }) {
   const normalizedId = String(actionId ?? "").trim();
   const normalizedLabel = String(label ?? "").trim() || normalizedId || "Action";
   const entry = getCombatActionTooltipEntry(normalizedId);
-  const pointer = entry?.pointer ?? DEFAULT_ACTION_TOOLTIP_POINTER;
-  const shortText = entry?.shortText ?? buildPlaceholderShortText({ domain: "combatAction", id: normalizedId || "unknown" });
+  const localized = localizeTooltipEntry("Actions", normalizedId || "unknown", entry, {
+    label: normalizedLabel,
+    pointerId: "Action",
+  });
+  const shortText = localized.shortText || buildPlaceholderShortText({ domain: "combatAction", id: normalizedId || "unknown" });
   return composeTooltipText({
-    header: `${normalizedLabel} (${normalizedId}).`,
+    header: buildTooltipHeader("Action", {
+      label: localized.label,
+      key: normalizedId,
+    }, `${localized.label} (${normalizedId}).`),
     shortText,
-    pointer,
+    pointer: localized.pointer || DEFAULT_ACTION_TOOLTIP_POINTER,
   });
 }
 
@@ -81,6 +88,14 @@ export function buildCombatActionHelpText({ label, actionId }) {
   const normalizedId = String(actionId ?? "").trim();
   const normalizedLabel = String(label ?? "").trim() || normalizedId || "Action";
   const entry = getCombatActionTooltipEntry(normalizedId);
-  const helpText = entry?.helpText ?? buildPlaceholderLongText({ domain: "combatAction", id: normalizedId || "unknown" });
-  return `${normalizedLabel} (${normalizedId}): ${helpText}`;
+  const localized = localizeTooltipEntry("Actions", normalizedId || "unknown", entry, {
+    label: normalizedLabel,
+    pointerId: "Action",
+  });
+  const helpText = localized.helpText || buildPlaceholderLongText({ domain: "combatAction", id: normalizedId || "unknown" });
+  const header = buildTooltipHeader("Action", {
+    label: localized.label,
+    key: normalizedId,
+  }, `${localized.label} (${normalizedId}).`);
+  return [header, helpText].filter(Boolean).join(" ");
 }

@@ -1,10 +1,28 @@
 import { isPerfEnabled, perfRecord } from "../../../../utils/perf-tracker.js";
+import { localizeChoiceObject, t } from "../../../../utils/i18n.js";
+
+export function localizeSheetChoiceLabels(source, prefix) {
+  return localizeChoiceObject(source, prefix);
+}
+
+export function resolveCarryRatingDisplayLabel(carryRating) {
+  const fallback = String(carryRating?.label ?? "").trim();
+  const key = fallback.toLowerCase();
+  const normalizedKey = {
+    minimal: "minimal",
+    moderate: "moderate",
+    severe: "severe",
+    crushing: "crushing",
+  }[key];
+  if (!normalizedKey) return fallback;
+  return t(`UESRPG.Choices.CarryRating.${normalizedKey}`, fallback);
+}
 
 export function resolveWeaponDistanceHeaderLabel(weaponBuckets) {
   const equipped = Array.isArray(weaponBuckets?.equipped) ? weaponBuckets.equipped : [];
   const unequipped = Array.isArray(weaponBuckets?.unequipped) ? weaponBuckets.unequipped : [];
   const weapons = [...equipped, ...unequipped];
-  if (!weapons.length) return "Distance";
+  if (!weapons.length) return t("UESRPG.Sheets.Equipment.Distance", "Distance");
 
   let hasRanged = false;
   let hasMelee = false;
@@ -12,12 +30,12 @@ export function resolveWeaponDistanceHeaderLabel(weaponBuckets) {
     const mode = String(weapon?.system?.attackMode ?? "").toLowerCase();
     if (mode === "ranged") hasRanged = true;
     else hasMelee = true;
-    if (hasRanged && hasMelee) return "Distance";
+    if (hasRanged && hasMelee) return t("UESRPG.Sheets.Equipment.Distance", "Distance");
   }
 
-  if (hasRanged) return "Range";
-  if (hasMelee) return "Reach";
-  return "Distance";
+  if (hasRanged) return t("UESRPG.Sheets.Equipment.Range", "Range");
+  if (hasMelee) return t("UESRPG.Sheets.Equipment.Reach", "Reach");
+  return t("UESRPG.Sheets.Equipment.Distance", "Distance");
 }
 
 export function renderedPartsSet(options) {
@@ -31,6 +49,18 @@ export function partRendered(options, part) {
   return rendered.has(part);
 }
 
+function normalizeRenderParts(sheet, parts = []) {
+  const validParts = sheet?.constructor?.PARTS ? new Set(Object.keys(sheet.constructor.PARTS)) : null;
+  const out = [];
+  for (const part of parts) {
+    const key = String(part ?? "").trim();
+    if (!key) continue;
+    if (validParts && !validParts.has(key)) return null;
+    if (!out.includes(key)) out.push(key);
+  }
+  return out;
+}
+
 export async function queueRenderParts(sheet, parts = []) {
   if (!Array.isArray(parts) || !parts.length) return;
   if (!sheet._uesrpgQueuedParts) sheet._uesrpgQueuedParts = new Set();
@@ -41,10 +71,14 @@ export async function queueRenderParts(sheet, parts = []) {
       sheet._uesrpgRenderPartsResolvers.push(resolve);
     });
     sheet._uesrpgRenderPartsRafId = requestAnimationFrame(async () => {
-      const queued = Array.from(sheet._uesrpgQueuedParts ?? []);
+      const queued = normalizeRenderParts(sheet, Array.from(sheet._uesrpgQueuedParts ?? []));
       sheet._uesrpgQueuedParts = new Set();
       try {
-        if (queued.length) await sheet.render({ parts: queued });
+        if (queued === null) await sheet.render(true);
+        else if (queued.length) await sheet.render({ parts: queued });
+      } catch (err) {
+        console.warn("UESRPG | Partial sheet render failed; falling back to full render.", err);
+        await sheet.render(true);
       } finally {
         const resolvers = sheet._uesrpgRenderPartsResolvers.splice(0);
         for (const resolve of resolvers) resolve();

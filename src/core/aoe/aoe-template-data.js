@@ -1,11 +1,12 @@
 /**
  * src/core/aoe/aoe-template-data.js
  *
- * Pure data normalization layer.
- * Converts a system AoE spec into MeasuredTemplateDocument source data.
+ * Legacy template data normalization layer.
+ * Converts a system AoE spec into MeasuredTemplateDocument source data for
+ * compatibility callers and old-data handling.
  *
  * This module is PURE — no canvas reads, no document mutation.
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.359+.
  */
 
 import {
@@ -41,8 +42,9 @@ function _positiveNum(v) {
 }
 
 /**
- * Build a plain MeasuredTemplateDocument source data object suitable for
- * `scene.createEmbeddedDocuments("MeasuredTemplate", [data])`.
+ * Build legacy MeasuredTemplateDocument source data.
+ * New live AoE placement is Region-backed; this builder remains for backwards-safe
+ * compatibility and migration-adjacent readers.
  *
  * @param {object} params
  * @param {{x: number, y: number}} params.origin        - Canvas pixel coordinates for initial placement

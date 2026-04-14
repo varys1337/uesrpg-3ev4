@@ -4,7 +4,7 @@
  * Tiny event delegation helper for ApplicationV2 sheets.
  *
  * We prefer delegation over per-element listeners to reduce `_onRender`
- * overhead for large lists (rule elements, recipes, etc.).
+ * overhead for large lists (recipes and other repeated controls).
  */
 
 /**

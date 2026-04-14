@@ -6,44 +6,44 @@
   {{else}}
   <header class="uesrpg-warfare-encounter__header warfare-sheet-content">
     <div class="warfare-callout warfare-callout--notice">
-      <p><strong>Scene:</strong> {{scene.name}}</p>
-      <p><strong>Encounter:</strong> {{#if state.active}}Active{{else}}Inactive{{/if}}</p>
-      <p><strong>Round:</strong> {{state.round}} | <strong>Phase:</strong> {{phaseLabel}}</p>
-      <p><strong>Priority Side:</strong> {{prioritySideLabel}}</p>
+      <p><strong>{{localize "UESRPG.Apps.WarfareEncounter.Scene"}}:</strong> {{scene.name}}</p>
+      <p><strong>{{localize "UESRPG.Apps.WarfareEncounter.Encounter"}}:</strong> {{#if state.active}}{{localize "UESRPG.Apps.WarfareEncounter.Active"}}{{else}}{{localize "UESRPG.Apps.WarfareEncounter.Inactive"}}{{/if}}</p>
+      <p><strong>{{localize "UESRPG.Apps.WarfareEncounter.Round"}}:</strong> {{state.round}} | <strong>{{localize "UESRPG.Apps.WarfareEncounter.Phase"}}:</strong> {{phaseLabel}}</p>
+      <p><strong>{{localize "UESRPG.Apps.WarfareEncounter.PrioritySide"}}:</strong> {{prioritySideLabel}}</p>
       {{#if isStrategicPhase}}
-      <p><strong>Current Side:</strong> {{currentSideLabel}}</p>
+      <p><strong>{{localize "UESRPG.Apps.WarfareEncounter.CurrentSide"}}:</strong> {{currentSideLabel}}</p>
       {{/if}}
     </div>
 
     <div class="warfare-action-column__list" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;">
       {{#if state.active}}
       <button type="button" class="warfare-action-btn" data-action="advanceEncounter">Advance to {{nextPhaseLabel}}</button>
-      <button type="button" class="warfare-action-btn" data-action="passStrategic" {{#unless isStrategicPhase}}disabled{{/unless}}>Pass Side</button>
-      <button type="button" class="warfare-action-btn" data-action="endEncounter">End Encounter</button>
+      <button type="button" class="warfare-action-btn" data-action="passStrategic" {{#unless isStrategicPhase}}disabled{{/unless}}>{{localize "UESRPG.Apps.WarfareEncounter.PassSide"}}</button>
+      <button type="button" class="warfare-action-btn" data-action="endEncounter">{{localize "UESRPG.Apps.WarfareEncounter.EndEncounter"}}</button>
       {{else}}
-      <button type="button" class="warfare-action-btn" data-action="startEncounter">Start Encounter</button>
+      <button type="button" class="warfare-action-btn" data-action="startEncounter">{{localize "UESRPG.Apps.WarfareEncounter.StartEncounter"}}</button>
       {{/if}}
     </div>
   </header>
 
   <div class="uesrpg-warfare-encounter__body warfare-sheet-content" style="display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,0.8fr); gap:16px; align-items:start;">
     <fieldset class="warfare-fieldset">
-      <legend>Tracker</legend>
+      <legend>{{localize "UESRPG.Apps.WarfareEncounter.Tracker"}}</legend>
       <div class="warfare-callout warfare-callout--notice">
-        <p>Use Warfare Unit actor sheets to declare charges, resolve strategic actions, and initiate clashes. This tracker only rotates the round phase and strategic side turn.</p>
+        <p>{{localize "UESRPG.Apps.WarfareEncounter.TrackerHint"}}</p>
       </div>
 
       <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
         <div class="warfare-effect-row">
-          <div><strong>Declared Charges This Round</strong></div>
+          <div><strong>{{localize "UESRPG.Apps.WarfareEncounter.DeclaredChargesThisRound"}}</strong></div>
           <div>{{declaredChargeCount}}</div>
         </div>
         <div class="warfare-effect-row">
-          <div><strong>Strategic Activations This Round</strong></div>
+          <div><strong>{{localize "UESRPG.Apps.WarfareEncounter.StrategicActivationsThisRound"}}</strong></div>
           <div>{{activationCount}}</div>
         </div>
         <div class="warfare-effect-row">
-          <div><strong>Recent Clash Cards</strong></div>
+          <div><strong>{{localize "UESRPG.Apps.WarfareEncounter.RecentClashCards"}}</strong></div>
           <div>{{latestClashCount}}</div>
         </div>
       </div>
@@ -55,32 +55,32 @@
           <div style="font-size:12px; opacity:0.8;">Round {{this.round}} | {{this.attackType}} | {{this.status}}</div>
         </div>
         {{else}}
-        <p class="warfare-hint">No clash cards have been created for this encounter yet.</p>
+        <p class="warfare-hint">{{localize "UESRPG.Apps.WarfareEncounter.NoClashes"}}</p>
         {{/each}}
       </div>
     </fieldset>
 
     <fieldset class="warfare-fieldset">
-      <legend>Scene Units</legend>
+      <legend>{{localize "UESRPG.Apps.WarfareEncounter.SceneUnits"}}</legend>
       <div style="display:flex; flex-direction:column; gap:8px;">
         <div class="warfare-effect-row">
-          <div><strong>Total Warfare Tokens</strong></div>
+          <div><strong>{{localize "UESRPG.Apps.WarfareEncounter.TotalWarfareTokens"}}</strong></div>
           <div>{{unitSummary.total}}</div>
         </div>
         <div class="warfare-effect-row">
-          <div><strong>Allies</strong></div>
+          <div><strong>{{localize "UESRPG.Apps.WarfareEncounter.Allies"}}</strong></div>
           <div>{{unitSummary.allies}}</div>
         </div>
         <div class="warfare-effect-row">
-          <div><strong>Enemies</strong></div>
+          <div><strong>{{localize "UESRPG.Apps.WarfareEncounter.Enemies"}}</strong></div>
           <div>{{unitSummary.enemies}}</div>
         </div>
         <div class="warfare-effect-row">
-          <div><strong>Neutral</strong></div>
+          <div><strong>{{localize "UESRPG.Apps.WarfareEncounter.Neutral"}}</strong></div>
           <div>{{unitSummary.neutral}}</div>
         </div>
         <div class="warfare-effect-row">
-          <div><strong>Defeated</strong></div>
+          <div><strong>{{localize "UESRPG.Apps.WarfareEncounter.Defeated"}}</strong></div>
           <div>{{unitSummary.defeated}}</div>
         </div>
       </div>

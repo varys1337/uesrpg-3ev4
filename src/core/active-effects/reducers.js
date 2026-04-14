@@ -1,19 +1,19 @@
+import { getActiveEffectChangeTypes, getEffectChangeTypeValue } from "../../utils/compat.js";
+
 export function createModifierTotal() {
   return { add: 0, override: null };
 }
 
-export function getModifierModeValue(modeName, fallback) {
-  const modes = globalThis?.CONST?.ACTIVE_EFFECT_MODES;
-  const runtimeValue = modes?.[modeName];
-  return Number.isFinite(runtimeValue) ? runtimeValue : fallback;
+export function isAddMode(changeOrType) {
+  return getEffectChangeTypeValue(changeOrType) === "add";
 }
 
-export function isAddMode(mode) {
-  return mode === "ADD" || mode === getModifierModeValue("ADD", 2);
+export function isOverrideMode(changeOrType) {
+  return getEffectChangeTypeValue(changeOrType) === "override";
 }
 
-export function isOverrideMode(mode) {
-  return mode === "OVERRIDE" || mode === getModifierModeValue("OVERRIDE", 5);
+export function isCustomMode(changeOrType) {
+  return getEffectChangeTypeValue(changeOrType) === "custom";
 }
 
 export function toNumericEffectValue(value) {
@@ -33,13 +33,13 @@ export function applyNumericModifierChange(total, change) {
   const value = toNumericEffectValue(change.value);
   if (value === null) return total;
 
-  if (isOverrideMode(change.mode)) {
+  if (isOverrideMode(change)) {
     total.override = value;
     total.add = 0;
     return total;
   }
 
-  if (isAddMode(change.mode) && total.override == null && value !== 0) {
+  if (isAddMode(change) && total.override == null && value !== 0) {
     total.add += value;
   }
 
@@ -68,14 +68,10 @@ export function getEffectChangePriority(change) {
   const explicit = Number(change?.priority);
   if (Number.isFinite(explicit)) return explicit;
 
-  const defaults = globalThis?.ActiveEffectConfig?.DEFAULT_PRIORITIES;
-  if (defaults && typeof defaults === "object") {
-    const mode = change?.mode;
-    if (typeof mode === "number" && Number.isFinite(mode) && mode in defaults) {
-      const numeric = Number(defaults[mode]);
-      if (Number.isFinite(numeric)) return numeric;
-    }
-  }
+  const defaults = getActiveEffectChangeTypes();
+  const type = getEffectChangeTypeValue(change);
+  const numeric = Number(defaults?.[type]);
+  if (Number.isFinite(numeric)) return numeric;
 
   return 0;
 }

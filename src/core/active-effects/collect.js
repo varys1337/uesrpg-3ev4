@@ -1,4 +1,5 @@
 import { isItemEffectActive } from "./transfer.js";
+import { getCachedApplicableEffects, setCachedApplicableEffects } from "../actors/derived-cache/actor-derived-cache.js";
 
 /**
  * Collect currently-applicable effects from actor + transferable embedded item effects.
@@ -65,9 +66,8 @@ export function collectApplicableEffects(actor, { dedupeByOrigin = true, debug =
  * @returns {any[]} Array of ActiveEffect-like objects
  */
 export function getApplicableEffectsCached(actor) {
-  const cache = actor?._aeApplicableCache;
-  if (cache?.effects) return cache.effects;
+  const cache = getCachedApplicableEffects(actor);
+  if (cache) return cache;
   const effects = collectApplicableEffects(actor, { dedupeByOrigin: true, debug: false });
-  if (actor) actor._aeApplicableCache = { effects };
-  return effects;
+  return setCachedApplicableEffects(actor, effects);
 }

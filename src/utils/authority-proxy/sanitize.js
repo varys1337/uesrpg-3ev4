@@ -1,4 +1,5 @@
 import { channelSystemId } from "./shared.js";
+import { normalizeActiveEffectOrigin } from "../compat.js";
 
 function deepClonePlain(obj) {
   try {
@@ -175,6 +176,7 @@ export function sanitizeGenericUpdatePayload(doc, payload) {
     for (const [k, v] of Object.entries(payload)) {
       if (allowed.has(k)) {
         if (k === "icon" && payload.img === undefined) out.img = deepClonePlain(v);
+        else if (k === "origin") out.origin = normalizeActiveEffectOrigin(v);
         else out[k] = deepClonePlain(v);
         continue;
       }
@@ -212,6 +214,10 @@ export function sanitizeEmbeddedDocData(embeddedName, data) {
       if (!allowed.has(k) && !k.startsWith("flags.") && !k.startsWith("duration.")) continue;
       if (k === "icon") {
         if (out.img === undefined && data.img === undefined) out.img = deepClonePlain(v);
+        continue;
+      }
+      if (k === "origin") {
+        out.origin = normalizeActiveEffectOrigin(v);
         continue;
       }
       out[k] = deepClonePlain(v);

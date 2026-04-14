@@ -2,7 +2,7 @@ import { systemRootPath } from "../core/constants.js";
 import { renderDialogContent, customDialog } from "../utils/dialog-v2-helper.js";
 
 /**
- * Startup dialog (Foundry VTT v13.351, DialogV2).
+ * Startup dialog (Foundry VTT v14.359+, DialogV2 helper).
  *
  * Goals:
  * - Use DialogV2 via the system's dialog-v2-helper.

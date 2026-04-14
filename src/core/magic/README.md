@@ -11,4 +11,5 @@ Implementation rules:
 
 - Reuse the shared UUID cache helpers instead of calling `fromUuidSync()` directly in hot paths.
 - Reuse `settings.js`, `opposed/cast-source.js`, and `opposed/subrolls.js` for repeated settings, cast-source, and sub-roll behavior.
-- Keep Foundry v13.351 behavior stable. Do not repurpose spell flags, chat payloads, or effect schema here without a dedicated migration.
+- Keep Foundry v14.359+ behavior stable. Do not repurpose spell flags, chat payloads, effect schema, or area-link storage here without a dedicated migration.
+- New live spell zones and AoE targeting are Region-first. Template-oriented names may remain only as backwards-safe compatibility aliases for old data.

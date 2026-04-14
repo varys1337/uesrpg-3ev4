@@ -16,6 +16,7 @@ import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { announceDeathTest, queueDeathPromptCard, updateDeathPromptMessage } from "./death-test-chat.js";
 import { buildDifficultyOptionsHtml } from "./shared.js";
+import { getStatusEffectConfigMap, getStatusEffectConfigs } from "../conditions/status-effects-registry.js";
 
 const FLAG_KEY = "chapter5.deathState";
 
@@ -132,12 +133,8 @@ function _normalizeStatusId(value) {
 }
 
 function _resolveNpcDeadStatusDescriptor() {
-  const effects = Array.isArray(CONFIG?.statusEffects) ? CONFIG.statusEffects : [];
-  const byId = new Map(
-    effects
-      .map((e) => [_normalizeStatusId(e?.id), e])
-      .filter(([id]) => id.length > 0)
-  );
+  const effects = getStatusEffectConfigs();
+  const byId = getStatusEffectConfigMap();
 
   const preferred = [];
   const preferredRaw = [];

@@ -65,25 +65,19 @@ async function pickGroupActorDialog(groupActors) {
 }
 
 function findOpenGroupFromSheets() {
-  const windows = Object.values(ui.windows ?? {});
-  for (let i = windows.length - 1; i >= 0; i -= 1) {
-    const win = windows[i];
-    const actor = win?.document ?? win?.actor ?? null;
+  const actors = Array.from(game.actors ?? []);
+  for (let i = actors.length - 1; i >= 0; i -= 1) {
+    const actor = actors[i];
+    if (!actor?.sheet?.rendered) continue;
     if (isGroupActor(actor)) return actor;
   }
   return null;
 }
 
-function findOpenTravelPlannerGroupUuid() {
-  const windows = Object.values(ui.windows ?? {});
-  for (let i = windows.length - 1; i >= 0; i -= 1) {
-    const win = windows[i];
-    const appId = String(win?.id ?? win?.options?.id ?? "");
-    if (appId !== "uesrpg-travel-planner") continue;
-    const uuid = String(win?._groupUuid ?? "");
-    if (uuid) return uuid;
-  }
-  return "";
+async function findOpenTravelPlannerGroupUuid() {
+  const { TravelPlannerAppV2 } = await import("../../ui/apps/v2/travel-planner-app.js");
+  const app = TravelPlannerAppV2.findOpenInstance?.() ?? null;
+  return String(app?._groupUuid ?? "");
 }
 
 export async function resolveGroupActorForTravel(opts = {}) {
@@ -106,7 +100,7 @@ export async function resolveGroupActorForTravel(opts = {}) {
   }
 
   if (opts?.reuseOpenWindow !== false) {
-    const openPlannerGroupUuid = findOpenTravelPlannerGroupUuid();
+    const openPlannerGroupUuid = await findOpenTravelPlannerGroupUuid();
     if (openPlannerGroupUuid) {
       const actor = await fromUuid(openPlannerGroupUuid);
       if (canObserveGroup(actor)) {

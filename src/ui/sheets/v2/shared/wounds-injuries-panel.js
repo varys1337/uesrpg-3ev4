@@ -1,6 +1,7 @@
 import { requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { canonicalizeShockKind, isShockKind } from "../../../../core/wounds/wound-schema.js";
 import { getBloodLossStatus } from "../../../../core/wounds/engine/state.js";
+import { t, tf } from "../../../../utils/i18n.js";
 
 const FLAG_SCOPE = "uesrpg-3ev4";
 
@@ -35,7 +36,7 @@ function _buildWoundRecord(effect, wf) {
   const progress = Math.max(0, Number(wf?.progress ?? 0) || 0);
   return {
     id: String(effect?.id ?? ""),
-    hitLocation: String(wf?.hitLocation ?? "Body"),
+    hitLocation: String(wf?.hitLocation ?? t("UESRPG.Sheets.Wounds.Body", "Body")),
     damage: Number(wf?.damage ?? 0) || 0,
     progress,
     treated: wf?.treated === true,
@@ -57,7 +58,7 @@ function _buildInjuryRecord(effect, wf, kind) {
   return {
     id: String(effect?.id ?? ""),
     kind,
-    name: String(effect?.name ?? (kind || "Marker")),
+    name: String(effect?.name ?? (kind || t("UESRPG.Sheets.Wounds.Marker", "Marker"))),
     hitLocation,
     applicationId: String(wf?.applicationId ?? ""),
     permanent: wf?.permanent === true || wf?.maimed === true,
@@ -65,12 +66,12 @@ function _buildInjuryRecord(effect, wf, kind) {
 }
 
 function _kindChip(kind, injury) {
-  if (kind === "shockCripple" || kind === "shockCrippledLimb") return _chip("crippled", "Crippled", injury.permanent ? "danger" : "warn");
-  if (kind === "shockCrippleBody") return _chip("crippled-body", injury.permanent ? "Maimed Body" : "Crippled Body", injury.permanent ? "danger" : "warn");
-  if (kind === "shockLostLimb") return _chip("lost-limb", "Lost Limb", "danger");
-  if (kind === "shockLostEye") return _chip("lost-eye", "Lost Eye", "danger");
-  if (kind === "shockLostEar") return _chip("lost-ear", "Lost Ear", "danger");
-  if (kind === "shockStunned") return _chip("stunned", "Stunned", "warn");
+  if (kind === "shockCripple" || kind === "shockCrippledLimb") return _chip("crippled", t("UESRPG.Sheets.Wounds.Crippled", "Crippled"), injury.permanent ? "danger" : "warn");
+  if (kind === "shockCrippleBody") return _chip("crippled-body", injury.permanent ? t("UESRPG.Sheets.Wounds.MaimedBody", "Maimed Body") : t("UESRPG.Sheets.Wounds.CrippledBody", "Crippled Body"), injury.permanent ? "danger" : "warn");
+  if (kind === "shockLostLimb") return _chip("lost-limb", t("UESRPG.Sheets.Wounds.LostLimb", "Lost Limb"), "danger");
+  if (kind === "shockLostEye") return _chip("lost-eye", t("UESRPG.Sheets.Wounds.LostEye", "Lost Eye"), "danger");
+  if (kind === "shockLostEar") return _chip("lost-ear", t("UESRPG.Sheets.Wounds.LostEar", "Lost Ear"), "danger");
+  if (kind === "shockStunned") return _chip("stunned", t("UESRPG.Sheets.Wounds.Stunned", "Stunned"), "warn");
   return _chip(kind, injury.name, "neutral");
 }
 
@@ -87,7 +88,7 @@ function _pushGlobalChip(rowsByApp, type, label, tone = "neutral") {
     rowsByApp.set(key, {
       rowType: "synthetic",
       applicationId: "",
-      hitLocation: "Global",
+      hitLocation: t("UESRPG.Sheets.Wounds.Global", "Global"),
       wound: null,
       injuries: [],
       chips: [],
@@ -105,17 +106,17 @@ function _finalizeRow(row, { isGM = false } = {}) {
   if (row?.wound) {
     const w = row.wound;
     const shockLabel = !w.shockResolved
-      ? "Shock Pending"
-      : (w.shockPassed === false ? "Shock Failed" : "Shock Passed");
+      ? t("UESRPG.Sheets.Wounds.ShockPending", "Shock Pending")
+      : (w.shockPassed === false ? t("UESRPG.Sheets.Wounds.ShockFailed", "Shock Failed") : t("UESRPG.Sheets.Wounds.ShockPassed", "Shock Passed"));
     const shockTone = !w.shockResolved
       ? "warn"
       : (w.shockPassed === false ? "danger" : "ok");
     chips.push(_chip("shock", shockLabel, shockTone));
-    if (w.maimed) chips.push(_chip("maimed", "Maimed", "danger"));
-    else chips.push(_chip(w.treated ? "treated" : "untreated", w.treated ? "Treated" : "Untreated", w.treated ? "ok" : "warn"));
+    if (w.maimed) chips.push(_chip("maimed", t("UESRPG.Sheets.Wounds.Maimed", "Maimed"), "danger"));
+    else chips.push(_chip(w.treated ? "treated" : "untreated", w.treated ? t("UESRPG.Sheets.Wounds.Treated", "Treated") : t("UESRPG.Sheets.Wounds.Untreated", "Untreated"), w.treated ? "ok" : "warn"));
 
-    actions.push({ type: "treat", label: "Treat", wiAction: "treatWound", effectId: w.id, disabled: w.treated === true, gmOnly: false });
-    actions.push({ type: "remove-wound", label: "Remove", wiAction: "removeWound", effectId: w.id, disabled: false, gmOnly: false });
+    actions.push({ type: "treat", label: t("UESRPG.Sheets.Wounds.Treat", "Treat"), wiAction: "treatWound", effectId: w.id, disabled: w.treated === true, gmOnly: false });
+    actions.push({ type: "remove-wound", label: t("UESRPG.UI.Remove", "Remove"), wiAction: "removeWound", effectId: w.id, disabled: false, gmOnly: false });
   }
 
   for (const injury of row.injuries) {
@@ -124,12 +125,12 @@ function _finalizeRow(row, { isGM = false } = {}) {
     const gmOnly = LOST_KINDS.has(injury.kind);
     actions.push({
       type: "remove-marker",
-      label: "Remove",
+      label: t("UESRPG.UI.Remove", "Remove"),
       wiAction: "removeMarker",
       effectId: injury.id,
       disabled: gmOnly && !isGM,
       gmOnly,
-      title: gmOnly && !isGM ? "GM only" : "",
+      title: gmOnly && !isGM ? t("UESRPG.Sheets.Wounds.GmOnly", "GM only") : "",
     });
   }
 
@@ -169,7 +170,7 @@ export function buildWoundsInjuriesPanelContext(actor, { enabled } = {}) {
         actions: [],
       };
       existing.wound = record;
-      existing.hitLocation = record.hitLocation || existing.hitLocation || "Body";
+      existing.hitLocation = record.hitLocation || existing.hitLocation || t("UESRPG.Sheets.Wounds.Body", "Body");
       rowsByApp.set(appId, existing);
       continue;
     }
@@ -178,22 +179,22 @@ export function buildWoundsInjuriesPanelContext(actor, { enabled } = {}) {
       const status = getBloodLossStatus(actor);
       const rounds = Math.max(0, Number(status?.remainingRounds ?? 0) || 0);
       if (status?.paused) {
-        const reason = String(status?.pauseLabel ?? "").trim() || "Suppressed";
-        _pushGlobalChip(rowsByApp, "blood-loss", `Blood Loss Paused (${reason}, ${rounds} rounds left)`, "warn");
+        const reason = String(status?.pauseLabel ?? "").trim() || t("UESRPG.Sheets.Wounds.Suppressed", "Suppressed");
+        _pushGlobalChip(rowsByApp, "blood-loss", tf("UESRPG.Sheets.Wounds.BloodLossPaused", { reason, rounds }, `Blood Loss Paused (${reason}, ${rounds} rounds left)`), "warn");
       } else {
-        _pushGlobalChip(rowsByApp, "blood-loss", `Blood Loss (${rounds} rounds)`, "danger");
+        _pushGlobalChip(rowsByApp, "blood-loss", tf("UESRPG.Sheets.Wounds.BloodLossRounds", { rounds }, `Blood Loss (${rounds} rounds)`), "danger");
       }
       continue;
     }
     if (rawKind === "forestall") {
-      _pushGlobalChip(rowsByApp, "forestall", "Forestall", "ok");
+      _pushGlobalChip(rowsByApp, "forestall", t("UESRPG.Sheets.Wounds.Forestall", "Forestall"), "ok");
       continue;
     }
     if (rawKind === "firstAid") {
-      _pushGlobalChip(rowsByApp, "first-aid", "First Aid", "ok");
+      _pushGlobalChip(rowsByApp, "first-aid", t("UESRPG.UI.FirstAid", "First Aid"), "ok");
       const status = getBloodLossStatus(actor);
       if (!status?.hasEffect) {
-        _pushGlobalChip(rowsByApp, "blood-loss", "Blood Loss Stopped (First Aid)", "ok");
+        _pushGlobalChip(rowsByApp, "blood-loss", t("UESRPG.Sheets.Wounds.BloodLossStoppedFirstAid", "Blood Loss Stopped (First Aid)"), "ok");
       }
       continue;
     }
@@ -266,7 +267,7 @@ export async function onWoundsInjuriesControl(event, target) {
   const isOwner = Boolean(actor?.isOwner);
   const isGM = Boolean(game?.user?.isGM);
   if (!isOwner && !isGM) {
-    ui.notifications?.warn?.("You do not have permission to manage this actor's wounds or injuries.");
+    ui.notifications?.warn?.(t("UESRPG.Notifications.Sheets.NoWoundsPermission", "You do not have permission to manage this actor's wounds or injuries."));
     return;
   }
 
@@ -282,14 +283,14 @@ export async function onWoundsInjuriesControl(event, target) {
         } else {
           const reason = String(result?.reason ?? "").trim();
           const fallbackByReason = {
-            invalidWound: "Invalid wound target.",
-            missingKit: "Missing healer's kit/supplies.",
-            invalidTestTarget: "No valid Profession[Medicine] / Survival test target.",
-            longRestLimit: "This cripple-related wound can only be treated once per long rest.",
-            failedTest: "Treat Wound test failed.",
-            dramaticFailure: "Dramatic failure: body part immediately maimed."
+            invalidWound: t("UESRPG.Notifications.Sheets.InvalidWoundTarget", "Invalid wound target."),
+            missingKit: t("UESRPG.Notifications.Sheets.MissingHealersKit", "Missing healer's kit/supplies."),
+            invalidTestTarget: t("UESRPG.Notifications.Sheets.InvalidMedicineTarget", "No valid Profession[Medicine] / Survival test target."),
+            longRestLimit: t("UESRPG.Notifications.Sheets.WoundLongRestLimit", "This cripple-related wound can only be treated once per long rest."),
+            failedTest: t("UESRPG.Notifications.Sheets.TreatWoundFailedTest", "Treat Wound test failed."),
+            dramaticFailure: t("UESRPG.Notifications.Sheets.TreatWoundDramaticFailure", "Dramatic failure: body part immediately maimed.")
           };
-          const msg = fallbackByReason[reason] ?? "Treat Wound failed.";
+          const msg = fallbackByReason[reason] ?? t("UESRPG.Notifications.Sheets.TreatWoundFailed", "Treat Wound failed.");
           ui.notifications?.warn?.(msg);
         }
       }
@@ -302,7 +303,7 @@ export async function onWoundsInjuriesControl(event, target) {
 
   if (action === "setProgress") {
     if (!isGM) {
-      ui.notifications?.warn?.("Only the GM can edit wound progress.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Sheets.OnlyGmEditWoundProgress", "Only the GM can edit wound progress."));
       return;
     }
     const rowEl = target?.closest?.("tr") ?? null;
@@ -313,14 +314,14 @@ export async function onWoundsInjuriesControl(event, target) {
     const fn = game?.uesrpg?.wounds?.setWoundProgress;
     if (typeof fn === "function") {
       const result = await fn(actor, effectId, next, { by: game?.user?.id ?? "gm", reason: "panel-edit" });
-      if (result?.ok === false) ui.notifications?.warn?.("Failed to set wound progress.");
+      if (result?.ok === false) ui.notifications?.warn?.(t("UESRPG.Notifications.Sheets.SetWoundProgressFailed", "Failed to set wound progress."));
     }
     return;
   }
 
   if (action === "setDamage") {
     if (!isGM) {
-      ui.notifications?.warn?.("Only the GM can edit wound damage.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Sheets.OnlyGmEditWoundDamage", "Only the GM can edit wound damage."));
       return;
     }
     const rowEl = target?.closest?.("tr") ?? null;
@@ -331,7 +332,7 @@ export async function onWoundsInjuriesControl(event, target) {
     const fn = game?.uesrpg?.wounds?.setWoundDamage;
     if (typeof fn === "function") {
       const result = await fn(actor, effectId, next, { by: game?.user?.id ?? "gm", reason: "panel-edit" });
-      if (result?.ok === false) ui.notifications?.warn?.("Failed to set wound damage.");
+      if (result?.ok === false) ui.notifications?.warn?.(t("UESRPG.Notifications.Sheets.SetWoundDamageFailed", "Failed to set wound damage."));
     }
     return;
   }
@@ -352,7 +353,7 @@ export async function onWoundsInjuriesControl(event, target) {
   if (!kind) return;
 
   if (kind.startsWith("shockLost") && !isGM) {
-    ui.notifications?.warn?.("Only the GM can remove lost injury markers.");
+    ui.notifications?.warn?.(t("UESRPG.Notifications.Sheets.OnlyGmRemoveLostInjuryMarkers", "Only the GM can remove lost injury markers."));
     return;
   }
 

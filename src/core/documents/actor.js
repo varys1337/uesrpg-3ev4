@@ -39,6 +39,8 @@ import {
   applyWoundThresholdAEs
 } from "../actors/ae/modifiers.js";
 import { FLAG_SCOPE } from "../constants.js";
+import { ensureIndex, getDocumentsByIds } from "../compendium/access-service.js";
+import { getCachedPrepareContext, invalidateActorDerivedCache, setCachedPrepareContext } from "../actors/derived-cache/actor-derived-cache.js";
 import { buildActorPrepareContext, hasTalentCached } from "./actor/prepare-context.js";
 import {
   calculateAddedHalfSpeed,
@@ -60,13 +62,13 @@ async function _getCoreSkillSourcesSorted() {
   if (_coreSkillsCachePromise) return _coreSkillsCachePromise;
 
   _coreSkillsCachePromise = (async () => {
-    const skillPack = game.packs.get("uesrpg-3ev4.core-skills");
-    if (!skillPack) {
+    const index = await ensureIndex("uesrpg-3ev4.core-skills", { fields: ["name"] });
+    if (!index.length) {
       console.warn("uesrpg-3ev4 | Core skills compendium pack not found; skipping skill pre-population.");
       return [];
     }
-    const collection = await skillPack.getDocuments();
-    collection.sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = [...index].sort((a, b) => String(a?.name ?? "").localeCompare(String(b?.name ?? "")));
+    const collection = await getDocumentsByIds("uesrpg-3ev4.core-skills", sorted.map((entry) => entry?._id));
     return collection.map(i => i.toObject());
   })();
 
@@ -144,7 +146,7 @@ export class SimpleActor extends Actor {
   prepareBaseData() {
     // Ensure minimum scaffolding before base prep to tolerate partial/corrupt actor payloads.
     this._ensureSystemData();
-    this._uesrpgPrepareCtx = null;
+    invalidateActorDerivedCache(this, { lanes: ["prepare"] });
     super.prepareBaseData();
   }
 
@@ -198,9 +200,9 @@ export class SimpleActor extends Actor {
   }
 
   _getPrepareCtx() {
-    if (this._uesrpgPrepareCtx) return this._uesrpgPrepareCtx;
-    this._uesrpgPrepareCtx = buildActorPrepareContext(this);
-    return this._uesrpgPrepareCtx;
+    const cached = getCachedPrepareContext(this);
+    if (cached) return cached;
+    return setCachedPrepareContext(this, buildActorPrepareContext(this));
   }
 
   _hasTalentCached(key) {
@@ -513,9 +515,8 @@ export class SimpleActor extends Actor {
    * @returns {Promise<Object>} - Damage application result
    */
   async applyDamage(damage, damageType = 'physical', options = {}) {
-    // Import damage automation module dynamically to avoid circular dependencies
-    const { applyDamage: applyDamageFunc } = await import('../combat/damage-automation.js');
-    return await applyDamageFunc(this, damage, damageType, options);
+    const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+    return ApplyDamageService.applySimple(this, damage, damageType, options);
   }
 
   /**
@@ -525,8 +526,8 @@ export class SimpleActor extends Actor {
    * @returns {Promise<Object>} - Healing result
    */
   async applyHealing(healing, options = {}) {
-    const { applyHealing: applyHealingFunc } = await import('../combat/damage-automation.js');
-    return await applyHealingFunc(this, healing, options);
+    const { ApplyDamageService } = await import('../../application/combat/apply-damage-service.js');
+    return ApplyDamageService.applyHealing(this, healing, options);
   }
 
   /**

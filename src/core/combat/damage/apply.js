@@ -11,6 +11,7 @@ import { DAMAGE_TYPES } from "./types.js";
 import { isItemMagicSource } from "./reduction.js";
 import { isActorImmuneToDamageType, isActorIncorporeal } from "../../traits/trait-registry.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { normalizeActiveEffectOrigin } from "../../../utils/compat.js";
 import { isAnyDebugEnabled } from "../../../utils/debug.js";
 import { shouldTriggerWound } from "../../wounds/wound-rules.js";
 import { isShieldItem } from "../../items/shield-utils.js";
@@ -329,9 +330,12 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
   await applyPostDamageUpdate(actor, { newHP, newTempHP });
 
   // Emit damage-applied hook for downstream automation (wounds, conditions, etc.)
+  const damageOrigin = normalizeActiveEffectOrigin(options?.origin)
+    ?? normalizeActiveEffectOrigin(options?.weapon?.uuid)
+    ?? null;
   dispatchDamageAppliedHook(updateTarget, {
     applicationId: options?.applicationId ?? crypto?.randomUUID?.() ?? foundry?.utils?.randomID?.() ?? null,
-    origin: options?.origin ?? null,
+    origin: damageOrigin,
     source,
     weapon: options?.weapon ?? null,
     ammo: options?.ammo ?? null,
@@ -737,9 +741,10 @@ export async function applyHealing(actor, healing, options = {}) {
   }
   // Emit healing-applied hook for downstream automation (wounds treatment, etc.)
   try {
+    const healingOrigin = normalizeActiveEffectOrigin(options?.origin);
     Hooks.callAll("uesrpgHealingApplied", updateTarget, {
       applicationId: options?.applicationId ?? crypto?.randomUUID?.() ?? foundry?.utils?.randomID?.() ?? null,
-      origin: options?.origin ?? null,
+      origin: healingOrigin,
       source: options?.source ?? "Healing",
       // Backwards-compatible: keep amountApplied as the effective HP restored.
       amountApplied: effectiveHealed,

@@ -15,11 +15,12 @@
  */
 
 import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
+import { t, tf } from "../../../../utils/i18n.js";
 
 import { applySenseLossPenaltyAdjustments } from "../../../traits/awareness-talents.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { anyOtherTokensInMeleeOfEither, getMeleeReachMeters } from "../../../traits/combat-proximity.js";
-import { canTokenEscapeTemplate } from "../../../../utils/aoe-utils.js";
+import { canTokenEscapeArea } from "../../../../utils/aoe-utils.js";
 import { getAttackModeFromWeapon, getEffectiveWeaponHands, getTokenDashContext } from "../../combat-utils.js";
 import { isActorUndead } from "../../../traits/trait-registry.js";
 import { getWeaponReachBoundsEffective } from "../../../homebrew/reach-length/weapon.js";
@@ -182,12 +183,12 @@ export function measurePointDistance(a, b) {
 /**
  * Prompt user for yes/no confirmation.
  */
-export async function promptYesNo({ title, content, yesLabel = "Yes", noLabel = "No" } = {}) {
+export async function promptYesNo({ title, content, yesLabel = null, noLabel = null } = {}) {
   const result = await confirmDialog({
-    title: title ?? "Confirm",
+    title: title ?? t("UESRPG.UI.Confirm", "Confirm"),
     content: `<div style="min-width:340px;">${content ?? ""}</div>`,
-    yesLabel,
-    noLabel,
+    yesLabel: yesLabel ?? t("UESRPG.UI.Yes", "Yes"),
+    noLabel: noLabel ?? t("UESRPG.UI.No", "No"),
   });
   // confirmDialog returns true/false/null; coerce null (close) to false for callers
   return result === true;
@@ -206,23 +207,23 @@ export async function promptSelectToken({ title, prompt, tokens = [] } = {}) {
     .join("");
   const content = `
     <div style="min-width:360px;">
-      <p style="margin:0 0 0.5em 0;">${prompt ?? "Select a target."}</p>
+      <p style="margin:0 0 0.5em 0;">${prompt ?? t("UESRPG.Dialogs.Opposed.SelectTargetPrompt", "Select a target.")}</p>
       <select name="tokenId" style="width:100%;">${options}</select>
     </div>`;
 
   return customDialog({
-    title: title ?? "Select Target",
+    title: title ?? t("UESRPG.Dialogs.Opposed.SelectTarget", "Select Target"),
     content,
     buttons: {
       ok: {
-        label: "OK",
+        label: t("UESRPG.UI.OK", "OK"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           const tokenId = root?.querySelector("select[name='tokenId']")?.value ?? null;
           return choices.find(t => t.id === tokenId) ?? null;
         }
       },
-      cancel: { label: "Cancel", callback: () => null }
+      cancel: { label: t("UESRPG.UI.Cancel", "Cancel"), callback: () => null }
     },
     defaultButton: "ok",
   });
@@ -482,10 +483,10 @@ export function canControlActor(actor) {
 export async function promptAoEEvadeEscape({ defenderName = "Defender", attackLabel = "the attack" } = {}) {
   try {
     return await confirmDialog({
-      title: "AoE Evade",
-      content: `<p>${defenderName} successfully evaded ${attackLabel}. Can they move 1m to exit the area?</p>`,
-      yesLabel: "Escapes AoE",
-      noLabel: "Still in AoE",
+      title: t("UESRPG.Dialogs.Opposed.AoeEvade", "AoE Evade"),
+      content: `<p>${tf("UESRPG.Dialogs.Opposed.AoeEvadeBody", { defender: foundry.utils.escapeHTML(defenderName), attack: foundry.utils.escapeHTML(attackLabel) }, `${foundry.utils.escapeHTML(defenderName)} successfully evaded ${foundry.utils.escapeHTML(attackLabel)}. Can they move 1m to exit the area?`)}</p>`,
+      yesLabel: t("UESRPG.Dialogs.Opposed.EscapesAoe", "Escapes AoE"),
+      noLabel: t("UESRPG.Dialogs.Opposed.StillInAoe", "Still in AoE"),
     });
   } catch (_e) {
     return null;
@@ -507,11 +508,11 @@ export async function maybeSetAoEEvadeEscape(data, defenderEntry, defenderActor)
   if (defenderEntry.aoeEvadeEscaped === true) return true;
   if (defenderEntry.aoeEvadeEscaped === false) return false;
 
-  const templateUuid = data?.context?.aoe?.templateUuid ?? null;
-  const templateId = data?.context?.aoe?.templateId ?? null;
+  const areaUuid = data?.context?.aoe?.areaUuid ?? data?.context?.aoe?.regionUuid ?? data?.context?.aoe?.templateUuid ?? null;
+  const areaId = data?.context?.aoe?.areaId ?? data?.context?.aoe?.regionId ?? data?.context?.aoe?.templateId ?? null;
   const token = resolveToken(defenderEntry?.tokenUuid ?? defenderActor?.uuid);
 
-  let canEscape = canTokenEscapeTemplate({ templateUuid, templateId, token, stepMeters: 1 });
+  let canEscape = canTokenEscapeArea({ areaUuid, areaId, token, stepMeters: 1 });
   if (canEscape == null) {
     const canPrompt = game.user?.isGM || (defenderActor && canControlActor(defenderActor));
     if (canPrompt) {

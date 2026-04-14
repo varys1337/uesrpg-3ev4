@@ -6,6 +6,7 @@
 
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
+import { getSettingPresentation, t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
@@ -34,17 +35,21 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
     },
   };
 
+  get title() {
+    return t("UESRPG.Apps.Menus.homebrewSettings.Name", "Homebrew");
+  }
+
   async _prepareContext(options) {
     return {
-      homebrewSpeedFormulaSBAB: game.settings.get(NAMESPACE, "homebrew.speedFormulaSBAB"),
-      homebrew: {
-        reachLengthEnabled: game.settings.get(NAMESPACE, "homebrew.reachLength.enabled"),
-        reachLengthModel:   game.settings.get(NAMESPACE, "homebrew.reachLength.reachModel"),
-        reachLengthAttackerAdvantageOnly: game.settings.get(NAMESPACE, "homebrew.reachLength.attackerAdvantageOnly"),
-        engagementFlankingEnabled: game.settings.get(NAMESPACE, "homebrew.engagementFlanking.enabled"),
-        engagementFlankingOnlyInCombat: game.settings.get(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat"),
-        massCombatEnabled: game.settings.get(NAMESPACE, "homebrew.massCombat.enabled"),
-        religionWorshipEnabled: game.settings.get(NAMESPACE, "homebrew.religionWorship.enabled"),
+      settings: {
+        homebrewSpeedFormulaSBAB: getSettingPresentation(NAMESPACE, "homebrew.speedFormulaSBAB"),
+        reachLengthEnabled: getSettingPresentation(NAMESPACE, "homebrew.reachLength.enabled"),
+        reachLengthModel: getSettingPresentation(NAMESPACE, "homebrew.reachLength.reachModel"),
+        reachLengthAttackerAdvantageOnly: getSettingPresentation(NAMESPACE, "homebrew.reachLength.attackerAdvantageOnly"),
+        engagementFlankingEnabled: getSettingPresentation(NAMESPACE, "homebrew.engagementFlanking.enabled"),
+        engagementFlankingOnlyInCombat: getSettingPresentation(NAMESPACE, "homebrew.engagementFlanking.onlyInCombat"),
+        massCombatEnabled: getSettingPresentation(NAMESPACE, "homebrew.massCombat.enabled"),
+        religionWorshipEnabled: getSettingPresentation(NAMESPACE, "homebrew.religionWorship.enabled"),
       },
     };
   }
@@ -99,10 +104,10 @@ export class HomebrewSettingsAppV2 extends HandlebarsApplicationMixin(Applicatio
     // Reload prompt
     if (needsReload) {
       const reload = await confirmDialog({
-        title: "Reload Required",
-        content: "<p>One or more changed settings require a world reload to apply consistently.</p><p>Reload now?</p>",
-        yesLabel: "Reload Now",
-        noLabel: "Later",
+        title: t("UESRPG.Dialogs.ReloadRequired.Title", "Reload Required"),
+        content: `<p>${t("UESRPG.Dialogs.ReloadRequired.Content", "One or more changed settings require a world reload to apply consistently.")}</p><p>${t("UESRPG.Dialogs.ReloadRequired.Question", "Reload now?")}</p>`,
+        yesLabel: t("UESRPG.UI.ReloadNow", "Reload Now"),
+        noLabel: t("UESRPG.UI.Later", "Later"),
         yesIcon: "fas fa-sync",
         noIcon: "fas fa-clock",
       });

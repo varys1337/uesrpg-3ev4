@@ -1,3 +1,5 @@
+import { getCoreMessageMode, normalizeChatMessageMode } from "../../utils/chat-roll-mode.js";
+
 let _chatCommandsRegistered = false;
 
 function _parseCharCommand(input) {
@@ -36,37 +38,25 @@ function _shouldHandle() {
   }
 }
 
-function _normalizeRollMode(mode) {
-  const raw = String(mode ?? "").trim().toLowerCase();
-  if (!raw) return null;
-  if (raw === "roll" || raw === "public" || raw === "publicroll") return "roll";
-  if (raw === "gmroll" || raw === "private" || raw === "whisper") return "gmroll";
-  if (raw === "blind" || raw === "blindroll") return "blindroll";
-  if (raw === "self" || raw === "selfroll") return "selfroll";
-  if (raw.includes("blind")) return "blindroll";
-  if (raw.includes("self")) return "selfroll";
-  if (raw.includes("private") || raw.includes("gm")) return "gmroll";
-  if (raw.includes("public")) return "roll";
-  return null;
-}
-
 function _extractModeFromElement(el) {
   if (!el) return null;
   const data = el.dataset ?? {};
-  const direct = _normalizeRollMode(
+  const direct = normalizeChatMessageMode(
     data.rollMode
     ?? data.mode
     ?? data.value
     ?? el.getAttribute?.("value")
     ?? el.getAttribute?.("data-roll-mode")
     ?? el.getAttribute?.("data-mode")
-    ?? el.value
+    ?? el.value,
+    { fallback: null }
   );
   if (direct) return direct;
-  const attr = _normalizeRollMode(
+  const attr = normalizeChatMessageMode(
     el.getAttribute?.("aria-label")
     ?? el.getAttribute?.("title")
-    ?? el.textContent
+    ?? el.textContent,
+    { fallback: null }
   );
   return attr;
 }
@@ -74,9 +64,9 @@ function _extractModeFromElement(el) {
 function _resolveRollModeFromUi(chatLog) {
   const root = chatLog?.element?.[0] ?? document;
   const controls = root?.querySelector?.("#chat-controls");
-  if (!controls) return _normalizeRollMode(game.settings.get("core", "rollMode")) ?? "roll";
+  if (!controls) return getCoreMessageMode();
 
-  const named = controls.querySelector?.('[name="rollMode"]');
+  const named = controls.querySelector?.('[name="messageMode"], [name="rollMode"]');
   const namedMode = _extractModeFromElement(named);
   if (namedMode) return namedMode;
 
@@ -96,7 +86,7 @@ function _resolveRollModeFromUi(chatLog) {
     }
   }
 
-  return _normalizeRollMode(game.settings.get("core", "rollMode")) ?? "roll";
+  return getCoreMessageMode();
 }
 
 export function registerChatCommands() {

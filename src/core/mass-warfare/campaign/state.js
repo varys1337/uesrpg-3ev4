@@ -38,6 +38,16 @@ export function createDefaultArmyCampaignState() {
   };
 }
 
+export function createArmyCampaignHistoryEntry(label, summary, extra = {}) {
+  return {
+    id: foundry.utils.randomID(),
+    at: Date.now(),
+    label: String(label ?? "").trim() || "Army Action",
+    summary: String(summary ?? "").trim(),
+    ...extra,
+  };
+}
+
 export function migrateArmyCampaignState(rawState) {
   const base = createDefaultArmyCampaignState();
   if (!rawState || typeof rawState !== "object") return base;

@@ -13,12 +13,6 @@
 import { normalizeItemFormData, validateSpellScaling } from "../item/normalize-item-form-data.js";
 import { prepareItemSheetData } from "../item/prepare.js";
 import {
-  renderFieldsForElement, renderConditionFieldsForElement,
-  onReAdd, onReDelete, onReAddCondition, onReConditionDelete,
-  onReToggle, onReLabelChange, onRePredicateChange, onReWorkflowToggle,
-  onReConditionFieldChange, onReReorder,
-} from "../item/listeners/rule-elements.js";
-import {
   onAddToContainer, onBulkAddToContainer, onBulkRemoveFromContainer,
   onBulkDeleteContained, onRemoveContainedItem, onDeleteContainedItem,
   onOpenContainedItem, updateContainedItemsList, pushContainedItemData,
@@ -54,6 +48,7 @@ import {
 } from "../item/item-sheet-spellcasting.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
+import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { buildAdvancementPlan } from "../item/advancement-plan.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { createDebugLogger, traceSheetPerf } from "../../../utils/debug.js";
@@ -298,12 +293,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       removeContainedItem: SimpleItemSheetV2.prototype._onRemoveContainedItem,
       deleteContainedItem: SimpleItemSheetV2.prototype._onDeleteContainedItem,
       openContainedItem: SimpleItemSheetV2.prototype._onOpenContainedItem,
-      // Rule Element actions
-      reAdd: SimpleItemSheetV2.prototype._onReAdd,
-      reDelete: SimpleItemSheetV2.prototype._onReDelete,
-      reExpand: SimpleItemSheetV2.prototype._onReExpand,
-      reAddCondition: SimpleItemSheetV2.prototype._onReAddCondition,
-      reConditionDelete: SimpleItemSheetV2.prototype._onReConditionDelete,
       // Alchemy ingredient actions
       enableAlchemyIngredient: SimpleItemSheetV2.prototype._onEnableAlchemyIngredient,
       clearAlchemyIngredient: SimpleItemSheetV2.prototype._onClearAlchemyIngredient,
@@ -551,8 +540,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         }
       }
 
-      prepared.enableRuleElements = Boolean(game.settings.get(SYSTEM_ID, "enableRuleElementsRuntime"));
-
       return prepared;
     } finally {
       traceSheetPerf({
@@ -708,8 +695,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (!this.isEditable) return;
 
     const current = String(this.document?.img ?? "");
-    const picker = new FilePicker({
-      type: "imagevideo",
+    const picker = createImageVideoFilePicker({
       current,
       callback: async (path) => {
         if (!path || path === current) return;
@@ -1065,52 +1051,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   /** Open a contained item's sheet. */
   async _onOpenContainedItem(event, target) { await onOpenContainedItem(this, target); }
 
-  /* Rule Element Action Handlers */
-
-  /** Create a new rule element from the type-select dropdown. */
-  async _onReAdd(event, target) { await onReAdd(this.document, this.element); }
-
-  /** Delete a rule element by id. */
-  async _onReDelete(event, target) {
-    const li = target.closest(".re-item");
-    await onReDelete(this.document, li?.dataset?.reId);
-  }
-
-  /** Expand/collapse a rule element's body (client-only, no persistence). */
-  _onReExpand(event, target) {
-    const li = target.closest(".re-item");
-    if (!li) return;
-    const body = li.querySelector(".re-item-body");
-    const icon = target.querySelector("i") || target.closest(".re-item-expand")?.querySelector("i");
-    if (!body) return;
-
-    if (body.style.display !== "none") {
-      body.style.display = "none";
-      if (icon) { icon.classList.remove("fa-chevron-up"); icon.classList.add("fa-chevron-down"); }
-    } else {
-      body.style.display = "";
-      if (icon) { icon.classList.remove("fa-chevron-down"); icon.classList.add("fa-chevron-up"); }
-      // Render fields on first expand
-      renderFieldsForElement(li, this.document);
-      renderConditionFieldsForElement(li, this.document);
-    }
-  }
-
-  /** Add a condition to a rule element via dialog prompt. */
-  async _onReAddCondition(event, target) {
-    const reId = target.dataset.reId || target.closest(".re-item")?.dataset?.reId;
-    await onReAddCondition(this.document, reId);
-  }
-
-  /** Delete a condition from a rule element. */
-  async _onReConditionDelete(event, target) {
-    const condDiv = target.closest(".re-condition");
-    const condIdx = condDiv ? Number(condDiv.dataset.condIdx) : undefined;
-    const li = target.closest(".re-item");
-    const reId = li?.dataset?.reId;
-    await onReConditionDelete(this.document, reId, condIdx);
-  }
-
   /* Alchemy Ingredient Handlers */
 
   async _onEnableAlchemyIngredient(event) { return onEnableAlchemyIngredient(this, event); }
@@ -1363,70 +1303,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     registerScrollListeners(this, el);
   }
 
-  /**
-   * Rule Element change/drag listeners for trait/talent/power sheets.
-   * @param {HTMLElement} el
-   */
-  _registerRuleElementListeners(el) {
-    const item = this.document;
-
-    // Delegate change handling to the list container to minimize
-    // per-render listener churn.
-    const reList = el.querySelector(".re-list");
-    if (!reList) return;
-
-    bindDelegated(reList, "change", ".re-item-toggle input[type=\"checkbox\"]", (ev, cb) => {
-      const li = cb.closest(".re-item");
-      onReToggle(item, li?.dataset?.reId, cb.checked);
-    });
-
-    bindDelegated(reList, "change", ".re-item-label", (ev, inp) => {
-      const li = inp.closest(".re-item");
-      onReLabelChange(item, li?.dataset?.reId, inp.value);
-    });
-
-    bindDelegated(reList, "change", ".re-predicate-input", (ev, ta) => {
-      const li = ta.closest(".re-item");
-      onRePredicateChange(item, li?.dataset?.reId, ta.value);
-    });
-
-    bindDelegated(reList, "change", ".re-workflow-toggle", (ev, cb) => {
-      const li = cb.closest(".re-item");
-      const workflow = String(cb.dataset.workflow ?? "").trim();
-      onReWorkflowToggle(item, li?.dataset?.reId, workflow, cb.checked);
-    });
-
-    bindDelegated(reList, "change", ".re-condition-input", (ev, input) => {
-      const li = input.closest(".re-item");
-      const reId = li?.dataset?.reId;
-      const condIdx = Number(input.dataset.condIdx);
-      const condField = String(input.dataset.condField ?? "").trim();
-
-      let value;
-      if (input.type === "checkbox") value = input.checked;
-      else if (input.type === "number") value = Number(input.value) || 0;
-      else value = input.value;
-
-      onReConditionFieldChange(item, reId, condIdx, condField, value, input.type);
-    });
-
-    // Drag-drop reorder (delegated)
-    bindDelegated(reList, "dragstart", ".re-item", (ev, li) => {
-      ev.dataTransfer?.setData("text/plain", String(li.dataset.reId ?? ""));
-    });
-
-    bindDelegated(reList, "dragover", ".re-item", (ev) => {
-      ev.preventDefault();
-    });
-
-    bindDelegated(reList, "drop", ".re-item", async (ev, li) => {
-      ev.preventDefault();
-      const sourceId = ev.dataTransfer?.getData("text/plain");
-      const targetId = li.dataset.reId;
-      await onReReorder(item, sourceId, targetId);
-    });
-  }
-
   /* UI State Preservation */
 
   /**
@@ -1441,19 +1317,9 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (!el) return;
 
     const state = {
-      expandedREIds: new Set(),
       openDetails: new Set(),
       sheetBodyScrollTop: 0,
     };
-
-    // Expanded Rule Element items
-    el.querySelectorAll(".re-item").forEach(li => {
-      const body = li.querySelector(".re-item-body");
-      if (body && body.style.display !== "none") {
-        const reId = li.dataset.reId;
-        if (reId) state.expandedREIds.add(reId);
-      }
-    });
 
     // <details> open state (spell scaling / advanced options)
     el.querySelectorAll("details").forEach(d => {
@@ -1492,20 +1358,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       // Restore saved UI state only when the body part is present.
       const state = this._savedState;
       if (state && bodyRendered) {
-        state.expandedREIds?.forEach(reId => {
-          const li = el.querySelector(`.re-item[data-re-id="${reId}"]`);
-          if (!li) return;
-          const body = li.querySelector(".re-item-body");
-          const icon = li.querySelector(".re-item-expand i");
-          if (body) body.style.display = "";
-          if (icon) {
-            icon.classList.remove("fa-chevron-down");
-            icon.classList.add("fa-chevron-up");
-          }
-          renderFieldsForElement(li, this.document);
-          renderConditionFieldsForElement(li, this.document);
-        });
-
         state.openDetails?.forEach(key => {
           const d =
             el.querySelector(`details[data-uesrpg="${key}"]`) ||
@@ -1581,9 +1433,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (type === "scroll") this._registerScrollListeners(el);
     if (type === "equipment" || type === "item") registerAlchemyProductListeners(this, el);
     if (type === "container") this._registerContainmentListeners(el);
-
-    const featureTypes = new Set(["trait", "talent", "power"]);
-    if (featureTypes.has(type)) this._registerRuleElementListeners(el);
 
     if (type === "container" && this.document.isOwned) {
       void updateContainedItemsList(this);

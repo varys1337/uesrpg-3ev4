@@ -84,6 +84,7 @@ import {
   resolveStaminaPaths as _resolveStaminaPaths,
   rollEnduranceTest as _rollEnduranceTest,
 } from "./runtime/resource-updates.js";
+import { buildEffectChange, buildEffectChangesData } from "../../utils/compat.js";
 
 // ── Flag namespace constant (delegated to canonical FLAG_SCOPE from namespace.js) ──
 const _ALCHEMY_ON_HIT_IN_FLIGHT = new Set();
@@ -428,7 +429,6 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
     duration: combatActive
       ? { rounds: durationRounds, combat: game.combat.id }
       : { seconds: durationRounds * 6 },
-    changes,
     flags: {
       [FLAG_NS]: {
         spellEffect: true,
@@ -437,6 +437,7 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
         potionSL: sl,
       },
     },
+    ...buildEffectChangesData(changes),
   };
 }
 
@@ -447,11 +448,11 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
 function _buildAEChanges(effectKey, magnitude) {
   switch (effectKey) {
     case "shieldSpell":
-      return [{ key: "magic_ar", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(magnitude) }];
+      return [buildEffectChange({ key: "magic_ar", type: "add", value: String(magnitude) })];
     case "fortifyAttribute":
       return [];
     case "feather":
-      return [{ key: "system.encumbrance.bonus", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(-magnitude * 5) }];
+      return [buildEffectChange({ key: "system.encumbrance.bonus", type: "add", value: String(-magnitude * 5) })];
     default:
       return [];
   }
@@ -712,7 +713,7 @@ export async function resolvePoisonResistanceFromChat({ messageId, action } = {}
       hitLocation: "Body",
       source: `Poison (Level ${state?.poisonLevel ?? 1})`,
       weapon: weaponItem ?? null,
-      origin: weaponItem ?? null,
+      origin: weaponItem?.uuid ?? null,
       rollHTML: await damageRoll.render(),
       chatContext: {
         parentMessageId: String(state?.parentMessageId ?? "").trim() || null,
@@ -775,8 +776,8 @@ function _buildConditionAEData(conditionName, aeName, durationRounds, combatActi
     duration: combatActive
       ? { rounds: durationRounds, combat: game.combat.id }
       : { seconds: durationRounds * 6 },
-    changes: [],
     flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true } },
+    ...buildEffectChangesData([]),
   };
 }
 
@@ -843,8 +844,8 @@ async function _applyCatalogToxinEffect(targetActor, effectEntry, {
       duration: combatActive
         ? { rounds: durationRounds, combat: game.combat.id }
         : { seconds: durationRounds * 6 },
-      changes: [{ key: "system.encumbrance.penalty", mode: CONST.ACTIVE_EFFECT_MODES.ADD, value: String(sl * 5) }],
       flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true } },
+      ...buildEffectChangesData([buildEffectChange({ key: "system.encumbrance.penalty", type: "add", value: String(sl * 5) })]),
     });
     noteRows.push(_alchemyNoteHtml(effectDef.label, `Encumbrance penalty +${sl * 5} for ${durationRounds} rounds.`));
   } else {
@@ -854,8 +855,8 @@ async function _applyCatalogToxinEffect(targetActor, effectEntry, {
       duration: combatActive
         ? { rounds: durationRounds, combat: game.combat.id }
         : { seconds: durationRounds * 6 },
-      changes: [],
       flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true, toxinEffectKey: key, toxinSL: sl } },
+      ...buildEffectChangesData([]),
     });
     noteRows.push(_alchemyNoteHtml(effectDef.label, `Applied as a toxin effect for ${durationRounds} rounds.`));
   }

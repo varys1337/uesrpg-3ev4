@@ -11,6 +11,7 @@ import { applySenseLossPenaltyAdjustments } from "../traits/awareness-talents.js
 import { canUseWardDefense, getPreferredWardDefenseSpell } from "./ward-defense.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../opposed/circumstance.js";
+import { t } from "../../utils/i18n.js";
 
 function asNumber(v) {
   if (v == null) return 0;
@@ -26,7 +27,7 @@ function _renderDefenseChoice({ value, title, checked, disabled, tnKey, desc = "
       <span class="uesrpg-adv-choice__label def-opt__card">
         <span class="uesrpg-defense-card__head">
           <span class="uesrpg-adv-choice__title">${title}</span>
-          <span class="tn-pill">TN: <span data-tn-for="${tnKey}">\u2014</span></span>
+          <span class="tn-pill">${t("UESRPG.Chat.Common.TN", "TN")}: <span data-tn-for="${tnKey}">\u2014</span></span>
         </span>
         ${desc ? `<span class="uesrpg-adv-choice__desc">${Handlebars.escapeExpression(String(desc))}</span>` : ``}
         ${extraHtml || ""}
@@ -41,10 +42,10 @@ function _renderBlockSourceSelect({ show, shieldOk, wardOk, defaultBlockSource =
   return `
     <span class="uesrpg-adv-choice__desc" style="display:block; margin-top:6px;">
       <label style="display:flex; align-items:center; gap:8px;">
-        <span>Source</span>
+        <span>${t("UESRPG.Dialogs.Opposed.Source", "Source")}</span>
         <select name="blockSource" ${disabled ? "disabled" : ""} style="min-width:120px;">
-          ${shieldOk ? `<option value="shield" ${selected === "shield" ? "selected" : ""}>Shield</option>` : ""}
-          ${wardOk ? `<option value="ward" ${selected === "ward" ? "selected" : ""}>Ward</option>` : ""}
+          ${shieldOk ? `<option value="shield" ${selected === "shield" ? "selected" : ""}>${t("UESRPG.Dialogs.Opposed.Shield", "Shield")}</option>` : ""}
+          ${wardOk ? `<option value="ward" ${selected === "ward" ? "selected" : ""}>${t("UESRPG.Chat.Opposed.Ward", "Ward")}</option>` : ""}
         </select>
       </label>
     </span>
@@ -90,18 +91,18 @@ function _renderContent({
   const showBlockSourceSelect = blockSourceShield && blockSourceWard;
 
   const notes = [];
-  if (gates.isRangedAttack) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Ranged:</b> Ranged attacks cannot be parried or counter-attacked.</p>`);
-  if (gates.attackerHasFlail) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Flail:</b> Attacks with a flail cannot be parried or counter-attacked.</p>`);
-  if (gates.attackerHasEntangling) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Entangling:</b> Attacks with an entangling weapon cannot be parried or blocked.</p>`);
-  if (gates.smallVsTwoHandedGate) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>Small:</b> A Small weapon cannot be used to Parry or Counter-Attack against a two-handed weapon.</p>`);
+  if (gates.isRangedAttack) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>${t("UESRPG.UI.Ranged", "Ranged")}:</b> ${t("UESRPG.Dialogs.Opposed.RangedDefenseNote", "Ranged attacks cannot be parried or counter-attacked.")}</p>`);
+  if (gates.attackerHasFlail) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>${t("UESRPG.Dialogs.Opposed.Flail", "Flail")}:</b> ${t("UESRPG.Dialogs.Opposed.FlailDefenseNote", "Attacks with a flail cannot be parried or counter-attacked.")}</p>`);
+  if (gates.attackerHasEntangling) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>${t("UESRPG.Dialogs.Opposed.Entangling", "Entangling")}:</b> ${t("UESRPG.Dialogs.Opposed.EntanglingDefenseNote", "Attacks with an entangling weapon cannot be parried or blocked.")}</p>`);
+  if (gates.smallVsTwoHandedGate) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>${t("UESRPG.Dialogs.Opposed.Small", "Small")}:</b> ${t("UESRPG.Dialogs.Opposed.SmallWeaponDefenseNote", "A Small weapon cannot be used to Parry or Counter-Attack against a two-handed weapon.")}</p>`);
 
   const sensoryFlags = [
-    hasBlinded ? `<label class="uesrpg-inline-check"><input type="checkbox" name="applyBlinded" ${defaultApplyBlinded ? "checked" : ""} /> <span>Blinded (-30, sight-based)</span></label>` : ``,
-    hasDeafened ? `<label class="uesrpg-inline-check"><input type="checkbox" name="applyDeafened" ${defaultApplyDeafened ? "checked" : ""} /> <span>Deafened (-30, hearing-based)</span></label>` : ``
+    hasBlinded ? `<label class="uesrpg-inline-check"><input type="checkbox" name="applyBlinded" ${defaultApplyBlinded ? "checked" : ""} /> <span>${t("UESRPG.Dialogs.Opposed.BlindedPenalty", "Blinded (-30, sight-based)")}</span></label>` : ``,
+    hasDeafened ? `<label class="uesrpg-inline-check"><input type="checkbox" name="applyDeafened" ${defaultApplyDeafened ? "checked" : ""} /> <span>${t("UESRPG.Dialogs.Opposed.DeafenedPenalty", "Deafened (-30, hearing-based)")}</span></label>` : ``
   ].filter(Boolean);
   const sensoryRow = sensoryFlags.length ? `
   <div class="uesrpg-defense-flags">
-    <span class="uesrpg-defense-flags__label">Apply if relevant:</span>
+    <span class="uesrpg-defense-flags__label">${t("UESRPG.Dialogs.Opposed.ApplyIfRelevant", "Apply if relevant:")}</span>
     <div class="uesrpg-defense-flags__items">
       ${sensoryFlags.join("")}
     </div>
@@ -113,49 +114,49 @@ function _renderContent({
   const showGladiator = gladiatorTriggered && gladiatorMode !== "disabled";
   const gladiatorBlock = showGladiator ? `
   <div class="uesrpg-defense-flags">
-    <span class="uesrpg-defense-flags__label">Gladiator</span>
+    <span class="uesrpg-defense-flags__label">${t("UESRPG.Dialogs.Opposed.Gladiator", "Gladiator")}</span>
     <div class="uesrpg-defense-flags__items">
       ${gladiatorMode === "updated"
         ? `
         <label class="uesrpg-inline-check">
           <input type="checkbox" name="gladiatorFree" ${gladiatorAvailable ? "" : "disabled"} />
-          <span>Make this defense free (1/round)</span>
+          <span>${t("UESRPG.Dialogs.Opposed.MakeDefenseFree", "Make this defense free (1/round)")}</span>
         </label>
-        ${gladiatorAvailable ? `` : `<span class="uesrpg-sensory-hint">Already used this round.</span>`}
+        ${gladiatorAvailable ? `` : `<span class="uesrpg-sensory-hint">${t("UESRPG.Dialogs.Opposed.AlreadyUsedThisRound", "Already used this round.")}</span>`}
         `
         : `
-        <span class="uesrpg-sensory-hint">${gladiatorAvailable ? "This defense is free (1/round)." : "Already used this round."}</span>
+        <span class="uesrpg-sensory-hint">${gladiatorAvailable ? t("UESRPG.Dialogs.Opposed.DefenseIsFree", "This defense is free (1/round).") : t("UESRPG.Dialogs.Opposed.AlreadyUsedThisRound", "Already used this round.")}</span>
         `}
     </div>
   </div>` : ``;
 
   return `
 <div class="uesrpg defense-dialog uesrpg-adv-dialog uesrpg-adv-dialog--defense">
-  <div class="uesrpg-dialog-section-header">Defense Response</div>
+  <div class="uesrpg-dialog-section-header">${t("UESRPG.Dialogs.Opposed.DefenseResponse", "Defense Response")}</div>
   <div class="uesrpg-adv-grid uesrpg-defense-grid">
     ${_renderDefenseChoice({
       value: "evade",
-      title: "Evade",
+      title: t("UESRPG.Chat.Opposed.Evade", "Evade"),
       checked: defaultDefenseType === "evade",
       disabled: !allowed.evade,
       tnKey: "evade",
-      desc: allowed.evade ? "" : (reasons?.evade?.[0] ?? "Not available for this attack.")
+      desc: allowed.evade ? "" : (reasons?.evade?.[0] ?? t("UESRPG.Dialogs.Opposed.NotAvailableForAttack", "Not available for this attack."))
     })}
     ${_renderDefenseChoice({
       value: "parry",
-      title: "Parry",
+      title: t("UESRPG.Dialogs.Opposed.Parry", "Parry"),
       checked: defaultDefenseType === "parry",
       disabled: !allowed.parry,
       tnKey: "parry",
-      desc: allowed.parry ? "" : (reasons?.parry?.[0] ?? "Not available for this attack.")
+      desc: allowed.parry ? "" : (reasons?.parry?.[0] ?? t("UESRPG.Dialogs.Opposed.NotAvailableForAttack", "Not available for this attack."))
     })}
     ${_renderDefenseChoice({
       value: "block",
-      title: "Block",
+      title: t("UESRPG.Chat.Opposed.Block", "Block"),
       checked: defaultDefenseType === "block",
       disabled: !allowed.block,
       tnKey: "block",
-      desc: allowed.block ? "" : (reasons?.block?.[0] ?? "Not available for this attack."),
+      desc: allowed.block ? "" : (reasons?.block?.[0] ?? t("UESRPG.Dialogs.Opposed.NotAvailableForAttack", "Not available for this attack.")),
       extraHtml: _renderBlockSourceSelect({
         show: showBlockSourceSelect,
         shieldOk: blockSourceShield,
@@ -166,23 +167,23 @@ function _renderContent({
     })}
     ${_renderDefenseChoice({
       value: "counter",
-      title: "Counter-Attack",
+      title: t("UESRPG.Dialogs.Opposed.CounterAttack", "Counter-Attack"),
       checked: defaultDefenseType === "counter",
       disabled: !allowed.counter,
       tnKey: "counter",
-      desc: allowed.counter ? "" : (reasons?.counter?.[0] ?? "Not available for this attack.")
+      desc: allowed.counter ? "" : (reasons?.counter?.[0] ?? t("UESRPG.Dialogs.Opposed.NotAvailableForAttack", "Not available for this attack."))
     })}
   </div>
 
   <div class="form-group">
-    <label><b>Circumstance Modifier</b></label>
+    <label><b>${t("UESRPG.Dialogs.Opposed.CircumstanceModifier", "Circumstance Modifier")}</b></label>
     <select name="circMod" style="width: 100%;">
       ${buildCircumstanceOptionsHtml(defaultCircMod)}
     </select>
   </div>
 
   <div class="form-group">
-    <label><b>Manual Modifier</b></label>
+    <label><b>${t("UESRPG.Chat.Common.ManualModifier", "Manual modifier")}</b></label>
     <input type="number" name="manualMod" value="${asNumber(defaultManualMod)}" step="1" />
   </div>
 
@@ -345,27 +346,27 @@ export async function showDefenseDialog(defender, options = {}) {
     const defenseType = normalizeDefenseType(rawDefenseType, currentAvailability, "evade");
     const styleUuid = getSelectedStyleUuid();
 
-    if (defenseType === "evade") return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "evade") return { defenseType: "evade", label: t("UESRPG.Chat.Opposed.Evade", "Evade"), manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
     if (defenseType === "block") {
       const blockSourceRaw = root.querySelector('select[name="blockSource"]')?.value ?? "shield";
       const blockSource = _normalizeBlockSource(blockSourceRaw, currentAvailability);
-      const label = blockSource === "ward" ? "Ward" : "Block";
+      const label = blockSource === "ward" ? t("UESRPG.Chat.Opposed.Ward", "Ward") : t("UESRPG.Chat.Opposed.Block", "Block");
       return { defenseType: "block", blockSource, label, manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
     }
-    if (defenseType === "parry") return { defenseType: "parry", label: "Parry", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
-    if (defenseType === "counter") return { defenseType: "counter", label: "Counter", manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
-    return { defenseType: "evade", label: "Evade", manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "parry") return { defenseType: "parry", label: t("UESRPG.Dialogs.Opposed.Parry", "Parry"), manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
+    if (defenseType === "counter") return { defenseType: "counter", label: t("UESRPG.Dialogs.Opposed.CounterAttack", "Counter-Attack"), manualMod, circumstanceMod, styleUuid, applyBlinded, applyDeafened, gladiatorFree };
+    return { defenseType: "evade", label: t("UESRPG.Chat.Opposed.Evade", "Evade"), manualMod, circumstanceMod, styleUuid: null, applyBlinded, applyDeafened, gladiatorFree };
   }
 
   return await customDialog({
-    title: "Defender Response",
+    title: t("UESRPG.Dialogs.Opposed.DefenderResponse", "Defender Response"),
     content,
     classes: ["uesrpg-attack-declare"],
     width: 460,
     buttons: {
       confirm: {
         icon: '<i class="fas fa-check"></i>',
-        label: "Confirm",
+        label: t("UESRPG.UI.Confirm", "Confirm"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.element ?? html;
           return readSelection(root);
@@ -373,7 +374,7 @@ export async function showDefenseDialog(defender, options = {}) {
       },
       cancel: {
         icon: '<i class="fas fa-times"></i>',
-        label: "Cancel",
+        label: t("UESRPG.UI.Cancel", "Cancel"),
         callback: () => null
       }
     },

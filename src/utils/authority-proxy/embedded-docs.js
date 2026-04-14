@@ -13,7 +13,9 @@ export function getEmbeddedCollection(parent, embeddedName) {
   if (embeddedName === "ActiveEffect") return parent.effects ?? null;
   if (embeddedName === "Item") return parent.items ?? null;
   if (embeddedName === "Token") return parent.tokens ?? null;
+  // MeasuredTemplate remains legacy compatibility only; new active area lifecycle is Region-first.
   if (embeddedName === "MeasuredTemplate") return parent.templates ?? parent.measuredTemplates ?? null;
+  if (embeddedName === "Region") return parent.regions ?? null;
   return null;
 }
 

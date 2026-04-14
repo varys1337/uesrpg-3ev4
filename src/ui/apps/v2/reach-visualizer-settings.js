@@ -20,6 +20,7 @@ import {
 } from "../../canvas/reach-visualizer-config.js";
 import { scheduleEngagementFlankingRefresh } from "../../../core/homebrew/engagement-flanking/index.js";
 import { isEngagementFlankingHomebrewEnabled } from "../../../core/system/homebrew.js";
+import { localizeChoiceObject, t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -47,35 +48,39 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     },
   };
 
+  get title() {
+    return t("UESRPG.Apps.Menus.reachVisualizerMenu.Label", "Configure Visualiser");
+  }
+
   async _prepareContext(options) {
     const settings = getReachVisualizerSettings();
     return {
       settings,
-      behaviourChoices: {
+      behaviourChoices: localizeChoiceObject({
         [REACH_BEHAVIOUR.VISIBLE]: "Show on visible tokens (for the active user)",
         [REACH_BEHAVIOUR.EVERYONE]: "Show on everyone",
-      },
-      visibilityChoices: {
+      }, "UESRPG.Choices.ReachVisualizer.Behaviour"),
+      visibilityChoices: localizeChoiceObject({
         [REACH_VISIBILITY.ALWAYS]: "Show always",
         [REACH_VISIBILITY.HOVER]: "Show on hover",
         [REACH_VISIBILITY.DYNAMIC]: "Dynamic (passive + hover highlight)",
-      },
-      reachSourceChoices: {
+      }, "UESRPG.Choices.ReachVisualizer.Visibility"),
+      reachSourceChoices: localizeChoiceObject({
         [REACH_SOURCE.MAX_EQUIPPED]: "Max equipped melee reach",
         [REACH_SOURCE.LAST_USED]: "Last-used melee weapon (per user)",
-      },
-      shapeChoices: {
+      }, "UESRPG.Choices.ReachVisualizer.ReachSource"),
+      shapeChoices: localizeChoiceObject({
         [REACH_SHAPE.CIRCLE]: "Smooth rings",
         [REACH_SHAPE.GRID]: "Grid-aware (shape matches grid)",
-      },
-      colorModeChoices: {
+      }, "UESRPG.Choices.ReachVisualizer.Shape"),
+      colorModeChoices: localizeChoiceObject({
         [REACH_COLOR_MODE.DISPOSITION]: "Color by token disposition",
         [REACH_COLOR_MODE.UNIFORM]: "Uniform color",
-      },
-      gridDiagonalChoices: {
+      }, "UESRPG.Choices.ReachVisualizer.ColorMode"),
+      gridDiagonalChoices: localizeChoiceObject({
         [REACH_GRID_DIAGONAL.CHEBYSHEV]: "Ignore diagonal rule (equal-cost)",
         [REACH_GRID_DIAGONAL.SCENE]: "Respect scene diagonal rule",
-      },
+      }, "UESRPG.Choices.ReachVisualizer.GridDiagonalMode"),
     };
   }
 

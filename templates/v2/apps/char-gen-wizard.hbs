@@ -1,7 +1,7 @@
 <div class="uesrpg-char-gen__root">
   <section class="uesrpg-char-gen__layout">
     <aside class="uesrpg-char-gen__stages">
-      <h3>Stages</h3>
+      <h3>{{localize "UESRPG.Apps.CharGen.Stages"}}</h3>
       <ol>
         {{#each stageData}}
           <li class="{{#if active}}is-active{{/if}} {{#if complete}}is-complete{{/if}} {{#if locked}}is-locked{{/if}}">
@@ -23,11 +23,11 @@
     <main class="uesrpg-char-gen__content">
       {{#if hasResumeCandidate}}
         <div class="uesrpg-char-gen__resume">
-          <p>Found saved progress for <strong>{{resumeActorName}}</strong>.</p>
+          <p>{{localize "UESRPG.Apps.CharGen.FoundSavedProgress" actor=resumeActorName}}</p>
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="resume">Resume</button>
-            <button type="button" class="dialog-button" data-action="restart">Restart</button>
-            <button type="button" class="dialog-button" data-action="dismissResume">Dismiss</button>
+            <button type="button" class="dialog-button" data-action="resume">{{localize "UESRPG.Apps.CharGen.Resume"}}</button>
+            <button type="button" class="dialog-button" data-action="restart">{{localize "UESRPG.Apps.CharGen.Restart"}}</button>
+            <button type="button" class="dialog-button" data-action="dismissResume">{{localize "UESRPG.Apps.CharGen.Dismiss"}}</button>
           </div>
         </div>
       {{/if}}
@@ -35,20 +35,20 @@
       <header class="uesrpg-char-gen__header">
         <h2>{{stageTitle}}</h2>
         <p>{{stageBody}}</p>
-        <div class="actor-pill">Actor: {{actorName}}</div>
+        <div class="actor-pill">{{localize "UESRPG.Apps.CharGen.ActorLabel" actor=actorName}}</div>
       </header>
 
       {{#if isStage.actor}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
-          <label>New Actor Name</label>
-          <input type="text" name="newActorName" value="{{ws.newActorName}}" placeholder="New Character">
+          <label>{{localize "UESRPG.Apps.CharGen.NewActorName"}}</label>
+          <input type="text" name="newActorName" value="{{ws.newActorName}}" placeholder="{{localize "UESRPG.Apps.CharGen.NewCharacter"}}">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="createActor">Create New PC</button>
+            <button type="button" class="dialog-button" data-action="createActor">{{localize "UESRPG.Apps.CharGen.CreateNewPC"}}</button>
             {{#if hasAssignedCharacter}}
-              <button type="button" class="dialog-button" data-action="useAssignedCharacter">Use Assigned Character</button>
+              <button type="button" class="dialog-button" data-action="useAssignedCharacter">{{localize "UESRPG.Apps.CharGen.UseAssignedCharacter"}}</button>
             {{/if}}
             {{#if hasSingleControlledToken}}
-              <button type="button" class="dialog-button" data-action="useSelectedTokenActor">Use Selected Token Actor</button>
+              <button type="button" class="dialog-button" data-action="useSelectedTokenActor">{{localize "UESRPG.Apps.CharGen.UseSelectedTokenActor"}}</button>
             {{/if}}
           </div>
         </section>
@@ -57,7 +57,7 @@
       {{#if isStage.race}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="chooseRace">Open Race Menu</button>
+            <button type="button" class="dialog-button" data-action="chooseRace">{{localize "UESRPG.Apps.CharGen.OpenRaceMenu"}}</button>
           </div>
         </section>
       {{/if}}
@@ -65,7 +65,7 @@
       {{#if isStage.stats}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="openStats">Open Characteristics Menu</button>
+            <button type="button" class="dialog-button" data-action="openStats">{{localize "UESRPG.Apps.CharGen.OpenCharacteristicsMenu"}}</button>
           </div>
         </section>
       {{/if}}
@@ -73,7 +73,7 @@
       {{#if isStage.birthsign}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="chooseBirthsign">Roll/Choose Birthsign</button>
+            <button type="button" class="dialog-button" data-action="chooseBirthsign">{{localize "UESRPG.Apps.CharGen.RollChooseBirthsign"}}</button>
           </div>
         </section>
       {{/if}}
@@ -81,7 +81,7 @@
       {{#if isStage.resources}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="openStartingResources">Open Starting Resources</button>
+            <button type="button" class="dialog-button" data-action="openStartingResources">{{localize "UESRPG.Apps.CharGen.OpenStartingResources"}}</button>
           </div>
         </section>
       {{/if}}
@@ -89,7 +89,7 @@
       {{#if isStage.combatstyle}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="openCombatStyleSetup">Open Combat Style Setup</button>
+            <button type="button" class="dialog-button" data-action="openCombatStyleSetup">{{localize "UESRPG.Apps.CharGen.OpenCombatStyleSetup"}}</button>
           </div>
         </section>
       {{/if}}
@@ -97,7 +97,7 @@
       {{#if isStage.spendxp}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="openSpendXp">Open Spend XP (RAW)</button>
+            <button type="button" class="dialog-button" data-action="openSpendXp">{{localize "UESRPG.Apps.CharGen.OpenSpendXp"}}</button>
           </div>
         </section>
       {{/if}}
@@ -105,7 +105,7 @@
       {{#if isStage.spells}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="openSpellLearning">Open Spell Learning Menu</button>
+            <button type="button" class="dialog-button" data-action="openSpellLearning">{{localize "UESRPG.Apps.CharGen.OpenSpellLearningMenu"}}</button>
           </div>
         </section>
       {{/if}}
@@ -113,7 +113,7 @@
       {{#if isStage.luck}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="openLuckyNumbers">Roll/Set Lucky Numbers</button>
+            <button type="button" class="dialog-button" data-action="openLuckyNumbers">{{localize "UESRPG.Apps.CharGen.RollSetLuckyNumbers"}}</button>
           </div>
         </section>
       {{/if}}
@@ -121,7 +121,7 @@
       {{#if isStage.finish}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button default bright" data-action="finish">Finish</button>
+            <button type="button" class="dialog-button default bright" data-action="finish">{{localize "UESRPG.Apps.CharGen.Finish"}}</button>
           </div>
         </section>
       {{/if}}
@@ -129,8 +129,8 @@
   </section>
 
   <footer class="uesrpg-char-gen__footer">
-    <button type="button" class="dialog-button" data-action="back" {{#unless canBack}}disabled{{/unless}}>Back</button>
-    <button type="button" class="dialog-button" data-action="next" {{#unless canNext}}disabled{{/unless}}>Next</button>
+    <button type="button" class="dialog-button" data-action="back" {{#unless canBack}}disabled{{/unless}}>{{localize "UESRPG.Apps.CharGen.Back"}}</button>
+    <button type="button" class="dialog-button" data-action="next" {{#unless canNext}}disabled{{/unless}}>{{localize "UESRPG.Apps.CharGen.Next"}}</button>
     <button type="button" class="dialog-button" data-action="cancel">Cancel</button>
   </footer>
 </div>

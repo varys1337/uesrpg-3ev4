@@ -1,11 +1,12 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
+import { localizeSettingConfig } from "../../../utils/i18n.js";
 
 function _reg(key, config) {
   if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
     console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
     return;
   }
-  game.settings.register(SYSTEM_ID, key, config);
+  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("UI", key, config));
 }
 
 /** Shared onChange handler: re-render all open actor and NPC sheets. */

@@ -7,6 +7,7 @@ import { SKILL_DIFFICULTIES } from "../../skills/skill-tn.js";
 import { resolveSpellProfile } from "../spell-profile.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../../opposed/circumstance.js";
+import { t, tf } from "../../../utils/i18n.js";
 
 /**
  * Show spell options dialog for Restraint/Overload.
@@ -37,30 +38,30 @@ export async function showSpellOptionsDialog(actor, spell) {
     <div class="uesrpg-spell-options">
       <h3>${spell.name}</h3>
       <div class="form-group">
-        <label>Base MP Cost: <b>${baseCost}</b></label>
+        <label>${tf("UESRPG.Dialogs.SpellOptions.BaseMpCost", { cost: baseCost }, `Base MP Cost: ${baseCost}`)}</label>
       </div>
       ${hasScaling ? `
       <div class="form-group" style="margin-bottom:8px; margin-top:8px;">
-        <label style="display:block;"><b>Cast at Level</b></label>
+        <label style="display:block;"><b>${t("UESRPG.Dialogs.SpellOptions.CastAtLevel", "Cast at Level")}</b></label>
         <select name="castLevel" id="castLevelSelect" style="width:100%;">
-          <option value="base">Base (Level ${baseLevel}, ${baseCost} MP)</option>
+          <option value="base">${tf("UESRPG.Dialogs.SpellOptions.BaseLevelOption", { level: baseLevel, cost: baseCost }, `Base (Level ${baseLevel}, ${baseCost} MP)`)}</option>
           ${scalingLevels.map((entry, idx) => {
             const lvl = entry.level ?? 1;
             const cost = entry.cost ?? baseCost;
             const dmg = entry.damageFormula ? `, ${entry.damageFormula}` : "";
             const desc = entry.description ? ` - ${entry.description}` : "";
-            return `<option value="${lvl}" data-scaling-index="${idx}">Level ${lvl} (${cost} MP${dmg})${desc}</option>`;
+            return `<option value="${lvl}" data-scaling-index="${idx}">${tf("UESRPG.Dialogs.SpellOptions.LevelOption", { level: lvl, cost, extra: `${dmg}${desc}` }, `Level ${lvl} (${cost} MP${dmg})${desc}`)}</option>`;
           }).join("")}
         </select>
       </div>
       <div id="profilePreview" class="form-group" style="background:#f0f0f0; padding:8px; border-radius:4px; font-size:0.9em;">
-        <strong>Profile Preview:</strong><br/>
-        <span id="previewCost">Cost: ${baseCost} MP</span><br/>
-        <span id="previewDamage">Damage: ${spell.system.damageFormula || "N/A"}</span><br/>
-        <span id="previewDuration">Duration: ${spell.system.duration?.value || 0} ${spell.system.duration?.unit || "instant"}</span>
+        <strong>${t("UESRPG.Dialogs.SpellOptions.ProfilePreview", "Profile Preview")}:</strong><br/>
+        <span id="previewCost">${tf("UESRPG.Dialogs.SpellOptions.CostMp", { cost: baseCost }, `Cost: ${baseCost} MP`)}</span><br/>
+        <span id="previewDamage">${tf("UESRPG.Dialogs.SpellOptions.Damage", { damage: spell.system.damageFormula || t("UESRPG.UI.NotAvailable", "N/A") }, `Damage: ${spell.system.damageFormula || "N/A"}`)}</span><br/>
+        <span id="previewDuration">${tf("UESRPG.Dialogs.SpellOptions.Duration", { value: spell.system.duration?.value || 0, unit: spell.system.duration?.unit || t("UESRPG.Dialogs.SpellOptions.Instant", "instant") }, `Duration: ${spell.system.duration?.value || 0} ${spell.system.duration?.unit || "instant"}`)}</span>
       </div>` : ""}
       <div class="form-group" style="margin-bottom:8px; margin-top:8px;">
-        <label style="display:block;"><b>Difficulty</b></label>
+        <label style="display:block;"><b>${t("UESRPG.Dialogs.SpellOptions.Difficulty", "Difficulty")}</b></label>
         <select name="difficultyKey" style="width:100%;">
           ${SKILL_DIFFICULTIES.map(df => {
             const sign = df.mod >= 0 ? "+" : "";
@@ -70,52 +71,52 @@ export async function showSpellOptionsDialog(actor, spell) {
         </select>
       </div>
       <div class="form-group" style="margin-bottom:8px;">
-        <label style="display:block;"><b>Circumstance Modifier</b></label>
+        <label style="display:block;"><b>${t("UESRPG.Dialogs.Opposed.CircumstanceModifier", "Circumstance Modifier")}</b></label>
         <select name="circumstanceMod" style="width:100%;">
           ${buildCircumstanceOptionsHtml(0)}
         </select>
       </div>
       <div class="form-group" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <label style="margin:0;"><b>Manual Modifier</b></label>
+        <label style="margin:0;"><b>${t("UESRPG.Chat.Common.ManualModifier", "Manual modifier")}</b></label>
         <input type="number" name="manualModifier" value="0" style="width:120px; text-align:center;" />
       </div>
       <hr style="margin: 10px 0;"/>
       <div class="form-group" id="restrainGroup" style="margin-top: 8px;">
         <label style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" name="restrain" id="restrainCheckbox" ${!hasOverload ? "checked" : ""} />
-          <span><b>Spell Restraint</b> (reduce cost by ${baseRestraintReduction} to min 1)</span>
+          <span><b>${t("UESRPG.Dialogs.SpellOptions.SpellRestraint", "Spell Restraint")}</b> ${tf("UESRPG.Dialogs.SpellOptions.ReduceCostMin", { value: baseRestraintReduction }, `(reduce cost by ${baseRestraintReduction} to min 1)`)}</span>
         </label>
       </div>
       ${hasOverload ? `
       <div class="form-group" id="overloadGroup" style="margin-top: 8px;">
         <label style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" name="overload" id="overloadCheckbox" />
-          <span><b>Overload</b> (${spell.system.overloadEffect || "double cost for enhanced effect"})</span>
+          <span><b>${t("UESRPG.Dialogs.SpellOptions.Overload", "Overload")}</b> (${spell.system.overloadEffect || t("UESRPG.Dialogs.SpellOptions.OverloadDefault", "double cost for enhanced effect")})</span>
         </label>
       </div>` : ""}
       ${hasOverchargeTalent ? `
       <div class="form-group" style="margin-top: 8px;">
         <label style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" name="overcharge" />
-          <span><b>Overcharge</b> (talent option)</span>
+          <span><b>${t("UESRPG.Dialogs.SpellOptions.Overcharge", "Overcharge")}</b> ${t("UESRPG.Dialogs.SpellOptions.TalentOption", "(talent option)")}</span>
         </label>
       </div>` : ""}
       ${hasMagickaCyclingTalent ? `
       <div class="form-group" style="margin-top: 8px;">
         <label style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" name="magickaCycling" />
-          <span><b>Magicka Cycling</b> (talent option)</span>
+          <span><b>${t("UESRPG.Dialogs.SpellOptions.MagickaCycling", "Magicka Cycling")}</b> ${t("UESRPG.Dialogs.SpellOptions.TalentOption", "(talent option)")}</span>
         </label>
       </div>` : ""}
     </div>
   `;
 
   return await customDialog({
-    title: "Spell Options",
+    title: t("UESRPG.Dialogs.SpellOptions.Title", "Spell Options"),
     content,
     buttons: {
       cast: {
-        label: "Cast",
+        label: t("UESRPG.Sheets.Item.Cast", "Cast"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
 
@@ -147,7 +148,7 @@ export async function showSpellOptionsDialog(actor, spell) {
         }
       },
       cancel: {
-        label: "Cancel",
+        label: t("UESRPG.UI.Cancel", "Cancel"),
         callback: () => null
       }
     },
@@ -202,9 +203,13 @@ export async function showSpellOptionsDialog(actor, spell) {
             });
 
             const refundValue = Number(profile?.cost?.effectiveRestraintReduction ?? profile?.cost?.restrained?.reduction ?? 0) || 0;
-            if (previewCost) previewCost.textContent = `Cost: ${profile.cost.final} MP${isRestrained ? ` (refund on success: ${refundValue} MP)` : ""}${isOverloaded ? " (2x overload)" : ""}`;
-            if (previewDamage) previewDamage.textContent = `Damage: ${profile.damage.formula || "N/A"}`;
-            if (previewDuration) previewDuration.textContent = `Duration: ${profile.duration.value || 0} ${profile.duration.unit || "instant"}`;
+            if (previewCost) {
+              const refund = isRestrained ? tf("UESRPG.Dialogs.SpellOptions.RefundOnSuccess", { value: refundValue }, ` (refund on success: ${refundValue} MP)`) : "";
+              const overload = isOverloaded ? t("UESRPG.Dialogs.SpellOptions.OverloadCostSuffix", " (2x overload)") : "";
+              previewCost.textContent = tf("UESRPG.Dialogs.SpellOptions.CostMpWithSuffix", { cost: profile.cost.final, suffix: `${refund}${overload}` }, `Cost: ${profile.cost.final} MP${refund}${overload}`);
+            }
+            if (previewDamage) previewDamage.textContent = tf("UESRPG.Dialogs.SpellOptions.Damage", { damage: profile.damage.formula || t("UESRPG.UI.NotAvailable", "N/A") }, `Damage: ${profile.damage.formula || "N/A"}`);
+            if (previewDuration) previewDuration.textContent = tf("UESRPG.Dialogs.SpellOptions.Duration", { value: profile.duration.value || 0, unit: profile.duration.unit || t("UESRPG.Dialogs.SpellOptions.Instant", "instant") }, `Duration: ${profile.duration.value || 0} ${profile.duration.unit || "instant"}`);
           } catch (err) {
             console.warn("UESRPG | Failed to update spell profile preview", err);
           }

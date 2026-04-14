@@ -17,7 +17,7 @@ import { findOpenAppInstance, focusOpenApp, resolveMacroActor } from "./shared.j
  *   - The first controlled token's actor
  *   - Falling back to game.user.character
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.359+
  */
 
 const NAMESPACE = "uesrpg-3ev4";
@@ -44,12 +44,10 @@ export async function openEnchantingWorkshop(opts = {}) {
   );
   if (existing) return focusOpenApp(existing);
 
-  const app = new EnchantingWorkshopAppV2({
+  return EnchantingWorkshopAppV2.prompt({
     actorUuid,
     mode: opts.mode ?? "cast",
   });
-
-  await app.render(true);
 }
 
 /**

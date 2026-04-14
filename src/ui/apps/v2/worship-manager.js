@@ -13,6 +13,7 @@ import {
   setWorshipPrimaryDomain,
 } from "../../../core/religion/worship-service.js";
 import { getWorshipDomainState } from "../../../core/religion/worship-store.js";
+import { t, tf } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -40,15 +41,15 @@ async function promptPreparedInvocations(actor, domainEntry) {
       }))
   );
   if (!rows.length) {
-    ui.notifications?.info?.(`No invocations are available for ${domainEntry.label}.`);
+    ui.notifications?.info?.(tf("UESRPG.Notifications.Worship.NoInvocationsAvailable", { domain: domainEntry.label }));
     return;
   }
 
   const prepLimit = getDomainPreparationLimit(actor, domainKey);
   const picked = await customDialog({
-    title: `Prepare Invocations: ${domainEntry.label}`,
+    title: tf("UESRPG.Dialogs.Worship.PrepareInvocationsTitle", { domain: domainEntry.label }),
     content: `<div style="display:flex; flex-direction:column; gap:8px;">
-      <p style="margin:0;">Preparation limit: <b>${prepLimit}</b></p>
+      <p style="margin:0;">${tf("UESRPG.Dialogs.Worship.PreparationLimit", { limit: prepLimit })}</p>
       <div style="max-height:420px; overflow:auto;">${rows.map((row) => `
         <label style="display:flex; gap:8px; align-items:flex-start; padding:4px 0;">
           <input type="checkbox" name="invocationId" value="${row.id}" ${row.prepared ? "checked" : ""} />
@@ -58,20 +59,20 @@ async function promptPreparedInvocations(actor, domainEntry) {
     </div>`,
     buttons: {
       save: {
-        label: "Save",
+        label: t("UESRPG.UI.Save"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           return Array.from(root?.querySelectorAll('input[name="invocationId"]:checked') ?? []).map((el) => el.value);
         },
       },
-      cancel: { label: "Cancel", callback: () => null },
+      cancel: { label: t("UESRPG.UI.Cancel"), callback: () => null },
     },
     defaultButton: "save",
     width: 520,
   });
   if (!picked) return;
   if (picked.length > prepLimit) {
-    ui.notifications?.warn?.(`You can only prepare ${prepLimit} invocation(s) for ${domainEntry.label}.`);
+    ui.notifications?.warn?.(tf("UESRPG.Notifications.Worship.PreparationLimitExceeded", { limit: prepLimit, domain: domainEntry.label }));
     return;
   }
   await setPreparedInvocations(actor, domainKey, picked);
@@ -90,7 +91,7 @@ export class WorshipManagerAppV2 extends HandlebarsApplicationMixin(ApplicationV
     id: "uesrpg-worship-manager-v2",
     classes: ["worldbuilding", "uesrpg", "uesrpg-worship-manager"],
     position: { width: 640, height: 460 },
-    window: { title: "Manage Piety Points", resizable: true },
+    window: { resizable: true },
     actions: {
       close: WorshipManagerAppV2.prototype._onCloseClick,
       saveDomainPiety: WorshipManagerAppV2.prototype._onSaveDomainPiety,
@@ -108,7 +109,7 @@ export class WorshipManagerAppV2 extends HandlebarsApplicationMixin(ApplicationV
 
   static async prompt(actor, options = {}) {
     if (!isReligionWorshipEnabled()) {
-      ui.notifications?.warn?.("Religion & Worship is disabled in Homebrew Settings.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Worship.Disabled"));
       return null;
     }
     const key = String(actor?.uuid ?? actor?.id ?? "");
@@ -126,6 +127,10 @@ export class WorshipManagerAppV2 extends HandlebarsApplicationMixin(ApplicationV
 
   get actor() {
     return this.#actor;
+  }
+
+  get title() {
+    return t("UESRPG.Dialogs.Worship.ManagePietyTitle", "Manage Piety Points");
   }
 
   async close(options = {}) {
@@ -155,7 +160,7 @@ export class WorshipManagerAppV2 extends HandlebarsApplicationMixin(ApplicationV
     });
     return {
       ...context,
-      actorName: this.actor?.name ?? "Unknown",
+      actorName: this.actor?.name ?? t("UESRPG.UI.Unknown"),
       actorType: this.actor?.type ?? "",
       trackedDomainKey,
       trackedDomainLabel: getReligionDomain(trackedDomainKey)?.label ?? "",

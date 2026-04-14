@@ -5,6 +5,7 @@
 
 import { canAttackerRoll, markAttackFromHidden, applyPostAttackState, markDefenderIneligibleForHidden } from "./eligibility.js";
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
+import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { ensureBurningTurnActionAllowed } from "../../../conditions/condition-engine.js";
 import { hasTalent } from "../../../traits/talents-api.js";
 import { listCombatStyles, computeTN, variantMod as computeVariantMod } from "../../tn.js";
@@ -50,7 +51,6 @@ import {
 } from "../effects.js";
 import { markWeaponNeedsReload as _markWeaponNeedsReload } from "../damage/ammunition.js";
 import { rollWeaponDamage as _rollWeaponDamage } from "../damage/roller.js";
-import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../../../traits/features/rule-element-runtime.js";
 import { applyLengthPenaltyToTN } from "../../../homebrew/reach-length/weapon.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit.js";
@@ -656,7 +656,7 @@ export async function handleAttackerAction(action, ctx) {
   const attackerTn = (data.attacker?.tn && typeof data.attacker.tn === "object")
     ? data.attacker.tn
     : { finalTN };
-  const runtimeWeapon = (() => {
+  const attackWeapon = (() => {
     const weaponUuid = String(data?.context?.weaponUuid ?? "").trim();
     if (!weaponUuid) return null;
     try {
@@ -666,19 +666,6 @@ export async function handleAttackerAction(action, ctx) {
       return null;
     }
   })();
-
-  applyRuntimePreRollToTN({
-    actor: attacker,
-    targetActor: defender ?? null,
-    targetToken: dToken ?? null,
-    item: runtimeWeapon,
-    rollContext: data?.context?.rollContext,
-    workflow: "combat",
-    side: "attacker",
-    attackMode: String(data?.context?.attackMode ?? ""),
-    attackVariant: String(data?.attacker?.variant ?? ""),
-    tn: attackerTn
-  });
   data.attacker.tn = attackerTn;
   finalTN = Number(attackerTn?.finalTN ?? finalTN) || finalTN;
   data.attacker.target = finalTN;
@@ -777,27 +764,12 @@ export async function handleAttackerAction(action, ctx) {
     console.warn("UESRPG | combat talent DoS adjustment (attacker) failed", err);
   }
 
-  await applyRuntimePostRollToResult({
-    actor: attacker,
-    targetActor: defender ?? null,
-    targetToken: dToken ?? null,
-    item: runtimeWeapon,
-    rollContext: data?.context?.rollContext,
-    workflow: "combat",
-    side: "attacker",
-    attackMode: String(data?.context?.attackMode ?? ""),
-    attackVariant: String(data?.attacker?.variant ?? ""),
-    testLabel: String(data?.attacker?.label ?? ""),
-    result: res,
-    allowPrompt: true
-  });
-
   const postSubRolls = _safeGetSetting("uesrpg-3ev4", "opposedPostSubRollMessages", true);
   if (postSubRolls) {
     await res.roll.toMessage({
       speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
       flavor: `${data.attacker.label} \u2014 Attacker Roll`,
-      rollMode: game.settings.get("core", "rollMode"),
+      rollMode: getCoreRollMode(),
       flags: _opposedFlags(message.id, "attacker-roll", {
         commit: {
           attacker: {
@@ -821,13 +793,13 @@ export async function handleAttackerAction(action, ctx) {
       })
     });
   } else {
-    _emitSuppressedSubRollDice(res.roll, { rollMode: game.settings.get("core", "rollMode") });
+    _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
   }
 
   // Flail (Chapter 7): a critical failure with a flail attack hits the attacker.
   if (res.isCriticalFailure === true) {
     try {
-      const flailWeapon = runtimeWeapon
+      const flailWeapon = attackWeapon
         ?? (String(data?.context?.weaponUuid ?? "").trim()
           ? _resolveItemViaActor(String(data.context.weaponUuid).trim(), attacker)
           : null);

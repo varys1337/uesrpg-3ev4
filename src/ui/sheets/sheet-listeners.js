@@ -2,7 +2,8 @@
  * Shared listener binding for Actor sheets (PC + NPC).
  * Keeps templates unchanged; consolidates common click handlers to reduce duplication and regressions.
  *
- * Target: Foundry VTT v13 (AppV1 ActorSheet).
+ * Legacy jQuery listener bridge retained for non-AppV2 compatibility surfaces.
+ * Target runtime: Foundry VTT v14.359+.
  */
 
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "./sheet-containers.js";
@@ -11,7 +12,7 @@ import { SYSTEM_ID, NPC_KNOWN_FLAG, getNpcSpecialActionsKnownMap } from "../../c
 /**
  * Bind non-destructive, shared listeners that should exist for both PC and NPC sheets.
  *
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {JQuery} html
  */
 export function bindCommonSheetListeners(sheet, html) {
@@ -169,7 +170,7 @@ export function bindCommonSheetListeners(sheet, html) {
 /**
  * Bind shared inventory click handlers that should only be available when the sheet is editable.
  *
- * @param {foundry.appv1.sheets.ActorSheet} sheet
+ * @param {object} sheet
  * @param {JQuery} html
  */
 export function bindCommonEditableInventoryListeners(sheet, html) {

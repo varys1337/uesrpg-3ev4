@@ -1,17 +1,17 @@
 import { CombatSettingsAppV2 } from "./v2/combat-settings.js";
+import { localizeMenuConfig } from "../../utils/i18n.js";
 
 const NAMESPACE = "uesrpg-3ev4";
 
 export function registerCombatSettingsMenu() {
   if (game.settings?.menus?.get(`${NAMESPACE}.combatSettings`)) return;
 
-  game.settings.registerMenu(NAMESPACE, "combatSettings", {
+  game.settings.registerMenu(NAMESPACE, "combatSettings", localizeMenuConfig("Menus", "combatSettings", {
     name: "Combat",
     label: "Configure Combat",
     hint: "Combat UI settings.",
     icon: "fas fa-swords",
     restricted: true,
     type: CombatSettingsAppV2,
-  });
+  }));
 }
-

@@ -1,4 +1,5 @@
 import { RELIGION_DOMAIN_KEYS } from "./constants.js";
+import { localizeReligionDomain } from "./religion-i18n.js";
 
 const DOMAIN_DEFINITIONS = [
   {
@@ -146,14 +147,14 @@ export const DOMAIN_FAVORED_MAGIC_SCHOOLS = Object.freeze(
 );
 
 export function getReligionDomain(domainKey) {
-  return RELIGION_DOMAIN_REGISTRY[String(domainKey ?? "").trim().toLowerCase()] ?? null;
+  const domain = RELIGION_DOMAIN_REGISTRY[String(domainKey ?? "").trim().toLowerCase()] ?? null;
+  return localizeReligionDomain(domain);
 }
 
 export function getReligionDomains() {
-  return RELIGION_DOMAINS;
+  return RELIGION_DOMAINS.map((domain) => localizeReligionDomain(domain));
 }
 
 export function getDomainFavoredMagicSchool(domainKey) {
   return DOMAIN_FAVORED_MAGIC_SCHOOLS[String(domainKey ?? "").trim().toLowerCase()] || "";
 }
-

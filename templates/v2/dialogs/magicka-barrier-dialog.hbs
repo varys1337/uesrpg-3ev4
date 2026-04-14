@@ -1,23 +1,22 @@
 <div class="uesrpg-resource-dialog__layout">
   <div class="uesrpg-resource-dialog__body uesrpg-magicka-barrier-dialog">
     <div class="uesrpg-resource-dialog__group form-group">
-      <label class="uesrpg-resource-dialog__label">Magicka</label>
+      <label class="uesrpg-resource-dialog__label">{{localize "UESRPG.Dialogs.MagickaBarrier.Magicka"}}</label>
       <input type="number" name="magicka" value="{{currentMP}}" min="0" max="{{maxMP}}" />
-      <span class="uesrpg-resource-dialog__hint hint">Max: {{maxMP}}</span>
+      <span class="uesrpg-resource-dialog__hint hint">{{localize "UESRPG.Dialogs.MagickaBarrier.Max" max=maxMP}}</span>
     </div>
 
     <p class="uesrpg-resource-dialog__hint uesrpg-resource-dialog__hint--copy">
-      Barrier buffers absorb damage before Temp HP and HP. Physical blocks physical/silver/sunlight,
-      Magical blocks magic damage, Elemental blocks fire/frost/shock/poison.
+      {{localize "UESRPG.Dialogs.MagickaBarrier.Copy"}}
     </p>
 
     {{#if hasBarrierEffects}}
     <div class="uesrpg-resource-dialog__group form-group">
-      <label class="uesrpg-resource-dialog__label">Active Barrier Sources</label>
+      <label class="uesrpg-resource-dialog__label">{{localize "UESRPG.Dialogs.MagickaBarrier.ActiveSources"}}</label>
       <ul class="uesrpg-magicka-barrier-dialog__sources">
         {{#each barrierEffects}}
         <li>
-          <strong>{{this.name}}</strong> - {{this.typeLabel}} {{this.originalValue}}{{#if this.hasUpkeep}} <span class="hint">(upkeep)</span>{{/if}}
+          <strong>{{this.name}}</strong> - {{this.typeLabel}} {{this.originalValue}}{{#if this.hasUpkeep}} <span class="hint">({{localize "UESRPG.UI.Upkeep"}})</span>{{/if}}
         </li>
         {{/each}}
       </ul>
@@ -26,35 +25,35 @@
 
     <div class="uesrpg-resource-dialog__group form-group">
       <label class="uesrpg-resource-dialog__label">
-        Physical Buffer
+        {{localize "UESRPG.Dialogs.MagickaBarrier.PhysicalBuffer"}}
         {{#if physicalSourceCount}}
-        <span class="buffer-source-indicator" title="{{physicalSourceCount}} source(s): {{physicalSourceTitle}}">({{physicalSourceCount}})</span>
+        <span class="buffer-source-indicator" title="{{localize "UESRPG.Dialogs.MagickaBarrier.SourceCount" count=physicalSourceCount title=physicalSourceTitle}}">({{physicalSourceCount}})</span>
         {{/if}}
       </label>
       <input type="number" name="bufferPhysical" value="{{physBuf}}" min="0" />
-      <span class="uesrpg-resource-dialog__hint hint">Physical / Silver / Sunlight</span>
+      <span class="uesrpg-resource-dialog__hint hint">{{localize "UESRPG.Dialogs.MagickaBarrier.PhysicalHint"}}</span>
     </div>
 
     <div class="uesrpg-resource-dialog__group form-group">
       <label class="uesrpg-resource-dialog__label">
-        Magical Buffer
+        {{localize "UESRPG.Dialogs.MagickaBarrier.MagicalBuffer"}}
         {{#if magicalSourceCount}}
-        <span class="buffer-source-indicator" title="{{magicalSourceCount}} source(s): {{magicalSourceTitle}}">({{magicalSourceCount}})</span>
+        <span class="buffer-source-indicator" title="{{localize "UESRPG.Dialogs.MagickaBarrier.SourceCount" count=magicalSourceCount title=magicalSourceTitle}}">({{magicalSourceCount}})</span>
         {{/if}}
       </label>
       <input type="number" name="bufferMagical" value="{{magBuf}}" min="0" />
-      <span class="uesrpg-resource-dialog__hint hint">Magic damage</span>
+      <span class="uesrpg-resource-dialog__hint hint">{{localize "UESRPG.Dialogs.MagickaBarrier.MagicalHint"}}</span>
     </div>
 
     <div class="uesrpg-resource-dialog__group form-group">
       <label class="uesrpg-resource-dialog__label">
-        Elemental Buffer
+        {{localize "UESRPG.Dialogs.MagickaBarrier.ElementalBuffer"}}
         {{#if elementalSourceCount}}
-        <span class="buffer-source-indicator" title="{{elementalSourceCount}} source(s): {{elementalSourceTitle}}">({{elementalSourceCount}})</span>
+        <span class="buffer-source-indicator" title="{{localize "UESRPG.Dialogs.MagickaBarrier.SourceCount" count=elementalSourceCount title=elementalSourceTitle}}">({{elementalSourceCount}})</span>
         {{/if}}
       </label>
       <input type="number" name="bufferElemental" value="{{elemBuf}}" min="0" />
-      <span class="uesrpg-resource-dialog__hint hint">Fire / Frost / Shock / Poison</span>
+      <span class="uesrpg-resource-dialog__hint hint">{{localize "UESRPG.Dialogs.MagickaBarrier.ElementalHint"}}</span>
     </div>
   </div>
 </div>

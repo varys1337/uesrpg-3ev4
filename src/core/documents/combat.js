@@ -6,6 +6,7 @@ import { hasTalent } from "../traits/talents-api.js";
 import { listTacticianInitiativeProvidersForActor } from "../traits/intellectual-talents.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { resolveSurpriseState } from "../combat/surprise-state.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
@@ -568,7 +569,7 @@ export class SystemCombat extends Combat {
 	        await finalRoll.toMessage({
 	          speaker,
 	          flavor: `${actor.name} \u2014 ${flavorParts.join(" ")}`,
-	          rollMode: game.settings.get("core", "rollMode"),
+	          rollMode: getCoreRollMode(),
 	          ...messageOptions
 	        });
 	      } catch (err) {

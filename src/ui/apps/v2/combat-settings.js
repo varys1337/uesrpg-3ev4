@@ -5,6 +5,8 @@
  * ApplicationV2 combat settings panel.
  */
 
+import { getSettingPresentation, t } from "../../../utils/i18n.js";
+
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
 
@@ -32,14 +34,20 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
     },
   };
 
+  get title() {
+    return t("UESRPG.Apps.Menus.combatSettings.Name", "Combat");
+  }
+
   async _prepareContext(options) {
     return {
-      enableActionEconomyUI: game.settings.get(NAMESPACE, "enableActionEconomyUI"),
-      actionPointAutomation: game.settings.get(NAMESPACE, "actionPointAutomation"),
-      tokenRangeMeasurement: game.settings.get(NAMESPACE, "tokenRangeMeasurement"),
-      aoeContainmentMode: game.settings.get(NAMESPACE, "aoeContainmentMode"),
-      aoeOriginMeasurement: game.settings.get(NAMESPACE, "aoeOriginMeasurement"),
-      dynamicInitiativeEnabled: game.settings.get(NAMESPACE, "dynamicInitiativeEnabled"),
+      settings: {
+        enableActionEconomyUI: getSettingPresentation(NAMESPACE, "enableActionEconomyUI"),
+        actionPointAutomation: getSettingPresentation(NAMESPACE, "actionPointAutomation"),
+        tokenRangeMeasurement: getSettingPresentation(NAMESPACE, "tokenRangeMeasurement"),
+        aoeContainmentMode: getSettingPresentation(NAMESPACE, "aoeContainmentMode"),
+        aoeOriginMeasurement: getSettingPresentation(NAMESPACE, "aoeOriginMeasurement"),
+        dynamicInitiativeEnabled: getSettingPresentation(NAMESPACE, "dynamicInitiativeEnabled"),
+      },
     };
   }
 
@@ -54,4 +62,3 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
     if ("dynamicInitiativeEnabled" in data) await game.settings.set(NAMESPACE, "dynamicInitiativeEnabled", toBool(data.dynamicInitiativeEnabled));
   }
 }
-

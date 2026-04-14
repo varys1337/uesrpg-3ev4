@@ -61,8 +61,10 @@ export async function prepareAttackActivationContext({
   let rangeType = item ? getSpellRangeType(item) : "none";
   const attackerToken = resolveTokenForActor(actor);
   let workingTargets = getTargetsFromContext(context);
-  let aoeTemplateUuid = null;
-  let aoeTemplateId = null;
+  let aoeAreaUuid = null;
+  let aoeAreaId = null;
+  let aoeRegionUuid = null;
+  let aoeRegionId = null;
 
   if (item?.type === "power") {
     const targetPolicy = featureConfig?.targetPolicy;
@@ -110,12 +112,14 @@ export async function prepareAttackActivationContext({
       options: { maxRange: maxRange ?? undefined, collectTargets: true }
     });
     if (!placed) return { ok: false };
-    aoeTemplateId = placed.templateId ?? null;
-    aoeTemplateUuid = placed.templateUuid ?? null;
+    aoeAreaId = placed.areaId ?? placed.regionId ?? null;
+    aoeAreaUuid = placed.areaUuid ?? placed.regionUuid ?? null;
+    aoeRegionId = placed.regionId ?? null;
+    aoeRegionUuid = placed.regionUuid ?? null;
     if (placed.targets?.length) {
       workingTargets = placed.targets;
     } else if (!workingTargets.length) {
-      ui.notifications?.info?.("No tokens are affected by the template.");
+      ui.notifications?.info?.("No tokens are affected by the area.");
       workingTargets = [];
     }
   } else if (rangeType === "ranged" || rangeType === "melee") {
@@ -161,7 +165,15 @@ export async function prepareAttackActivationContext({
 
   const attackMode = getAttackModeFromActivation(activation);
   const aoeConfig = hasValidAoe
-    ? { ...(aoeSpec ?? {}), isAoE: true, templateUuid: aoeTemplateUuid, templateId: aoeTemplateId }
+    ? {
+        ...(aoeSpec ?? {}),
+        isAoE: true,
+        areaType: "region",
+        areaUuid: aoeAreaUuid ?? aoeRegionUuid,
+        areaId: aoeAreaId ?? aoeRegionId,
+        regionUuid: aoeRegionUuid,
+        regionId: aoeRegionId
+      }
     : null;
 
   return {

@@ -19,6 +19,7 @@ import { getLoadoutsForActor } from "../sheet-ui-state.js";
 import { isReachLengthHomebrewEnabled } from "../../../core/homebrew/reach-length/weapon.js";
 import { hasCondition } from "../../../core/conditions/condition-engine.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
+import { t } from "../../../utils/i18n.js";
 import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../data/tooltips/index.js";
 import { SYSTEM_ID } from "../../constants.js";
 const _FLAG_NS = SYSTEM_ID;
@@ -146,12 +147,12 @@ export function buildCombatActionsContext(actor) {
     const specialActions = buildSpecialActionsForActor(actor).map(sa => ({
       ...sa,
       description: buildSpecialActionTooltipText({
-        name: sa?.name ?? sa?.id ?? "Special Action",
+        name: sa?.name ?? sa?.id ?? t("UESRPG.Sheets.Combat.SpecialAction", "Special Action"),
         id: sa?.id ?? "",
         actionType: sa?.actionType ?? "primary/secondary",
       }),
       helpText: buildSpecialActionHelpText({
-        name: sa?.name ?? sa?.id ?? "Special Action",
+        name: sa?.name ?? sa?.id ?? t("UESRPG.Sheets.Combat.SpecialAction", "Special Action"),
         id: sa?.id ?? "",
       }),
       usableNow: isSpecialActionUsableNow(actor, sa.actionType),
@@ -213,7 +214,10 @@ export function applyDefensiveStanceDisabling(actor, combatQuickContext) {
     const hasDefensiveStance = actor?.effects?.some((e) => !e.disabled && e?.flags?.uesrpg?.key === "defensiveStance");
     if (hasDefensiveStance && combatQuickContext) {
       combatQuickContext.quickAttacksDisabled = true;
-      combatQuickContext.quickAttacksDisabledReason = "Defensive Stance: attacks disabled until your next Turn.";
+      combatQuickContext.quickAttacksDisabledReason = t(
+        "UESRPG.Sheets.Combat.DefensiveStanceDisabledReason",
+        "Defensive Stance: attacks disabled until your next Turn.",
+      );
     }
   } catch (_e) {
     /* no-op */

@@ -5,6 +5,8 @@
  * ApplicationV2 talents settings panel.
  */
 
+import { getSettingPresentation, t } from "../../../utils/i18n.js";
+
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
 
@@ -32,18 +34,24 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
     },
   };
 
+  get title() {
+    return t("UESRPG.Apps.Menus.talentsSettings.Name", "Talents");
+  }
+
   async _prepareContext(options) {
     return {
-      enableMightyCleave: game.settings.get(NAMESPACE, "enableMightyCleave"),
-      enableFollowUpStrike: game.settings.get(NAMESPACE, "enableFollowUpStrike"),
-      gladiatorAutomationMode: game.settings.get(NAMESPACE, "gladiatorAutomationMode"),
-      talentLearningMode: game.settings.get(NAMESPACE, "talentLearningMode"),
-      talentNoGoverningCostRule: game.settings.get(NAMESPACE, "talentNoGoverningCostRule"),
-      talentLearningNoticeMode: game.settings.get(NAMESPACE, "talentLearningNoticeMode"),
-      chapter4AuditStartupMode: game.settings.get(NAMESPACE, "chapter4AuditStartupMode"),
-      enforceCharGenMilestones: game.settings.get(NAMESPACE, "enforceCharGenMilestones"),
-      chargenSpellLearningLogCap: game.settings.get(NAMESPACE, "chargenSpellLearningLogCap"),
-      passiveTransferItemTypes: game.settings.get(NAMESPACE, "passiveTransferItemTypes"),
+      settings: {
+        enableMightyCleave: getSettingPresentation(NAMESPACE, "enableMightyCleave"),
+        enableFollowUpStrike: getSettingPresentation(NAMESPACE, "enableFollowUpStrike"),
+        gladiatorAutomationMode: getSettingPresentation(NAMESPACE, "gladiatorAutomationMode"),
+        talentLearningMode: getSettingPresentation(NAMESPACE, "talentLearningMode"),
+        talentNoGoverningCostRule: getSettingPresentation(NAMESPACE, "talentNoGoverningCostRule"),
+        talentLearningNoticeMode: getSettingPresentation(NAMESPACE, "talentLearningNoticeMode"),
+        chapter4AuditStartupMode: getSettingPresentation(NAMESPACE, "chapter4AuditStartupMode"),
+        enforceCharGenMilestones: getSettingPresentation(NAMESPACE, "enforceCharGenMilestones"),
+        chargenSpellLearningLogCap: getSettingPresentation(NAMESPACE, "chargenSpellLearningLogCap"),
+        passiveTransferItemTypes: getSettingPresentation(NAMESPACE, "passiveTransferItemTypes"),
+      },
     };
   }
 

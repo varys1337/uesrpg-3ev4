@@ -23,7 +23,7 @@ import { FLAG_SCOPE } from "../system/namespace.js";
 import { _num, _num as _asNumber, normalizeKey } from "../../utils/coerce.js";
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
-const MODE_ADD = (globalThis.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2);
+import { buildEffectChange, buildEffectChangesData, getEffectChanges } from "../../utils/compat.js";
 
 /* -------------------------------------------- */
 /* Condition template helpers                    */
@@ -70,32 +70,32 @@ function _formatValueName(key, value) {
  */
 function _ensureConditionAEChanges(data, key) {
   if (!data || typeof data !== "object") return data;
-  if (Array.isArray(data.changes) && data.changes.length) return data;
+  if (getEffectChanges(data).length) return data;
 
   /** @type {Array<{key:string, mode:number, value:string, priority:number}>} */
   const changes = [];
 
   // RAW: Prone => -20 to all combat-related tests (attacks + all defenses).
   if (key === "prone") {
-    changes.push({ key: "system.modifiers.combat.attackTN", mode: MODE_ADD, value: "-20", priority: 20 });
-    changes.push({ key: "system.modifiers.combat.defenseTN.total", mode: MODE_ADD, value: "-20", priority: 20 });
+    changes.push(buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: "-20", priority: 20 }));
+    changes.push(buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: "-20", priority: 20 }));
   }
 
   // RAW: Entangled => -20 to Combat Style tests; defense penalty should apply to parry/counter/block, not evade.
   if (key === "entangled") {
-    changes.push({ key: "system.modifiers.combat.attackTN", mode: MODE_ADD, value: "-20", priority: 20 });
-    changes.push({ key: "system.modifiers.combat.defenseTN.parry", mode: MODE_ADD, value: "-20", priority: 20 });
-    changes.push({ key: "system.modifiers.combat.defenseTN.counter", mode: MODE_ADD, value: "-20", priority: 20 });
-    changes.push({ key: "system.modifiers.combat.defenseTN.block", mode: MODE_ADD, value: "-20", priority: 20 });
+    changes.push(buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: "-20", priority: 20 }));
+    changes.push(buildEffectChange({ key: "system.modifiers.combat.defenseTN.parry", type: "add", value: "-20", priority: 20 }));
+    changes.push(buildEffectChange({ key: "system.modifiers.combat.defenseTN.counter", type: "add", value: "-20", priority: 20 }));
+    changes.push(buildEffectChange({ key: "system.modifiers.combat.defenseTN.block", type: "add", value: "-20", priority: 20 }));
   }
 
   // Bleeding: reduce Wound Threshold by 1.
   if (key === "bleeding") {
-    changes.push({ key: "system.wound_threshold.bonus", mode: MODE_ADD, value: "-1", priority: 20 });
+    changes.push(buildEffectChange({ key: "system.wound_threshold.bonus", type: "add", value: "-1", priority: 20 }));
   }
 
   if (!changes.length) return data;
-  return { ...data, changes };
+  return { ...data, ...buildEffectChangesData(changes) };
 }
 
 /* -------------------------------------------- */

@@ -21,7 +21,7 @@ import {
   normalizeEmbeddedDocumentIds
 } from "./authority-proxy/embedded-docs.js";
 import { claimRecentEmbeddedDeletes, settleRecentEmbeddedDeletes } from "./embedded-delete-guard.js";
-import { getEffectChanges, buildEffectChangesUpdate } from "./compat.js";
+import { getEffectChanges, buildEffectChangesData, buildEffectChangesUpdate, normalizeActiveEffectOrigin } from "./compat.js";
 import { resolveUuidSync } from "./uuid-cache.js";
 
 /**
@@ -224,7 +224,10 @@ export async function applyGroupedEffect(actor, effectData, { timeout = 5000 } =
     
     // If no stackRule is defined, use legacy behavior (create normally)
     if (!stackRule || !effectGroup) {
-      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData], { timeout });
+      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
+        ...effectData,
+        ...buildEffectChangesData(getEffectChanges(effectData))
+      }], { timeout });
       return Array.isArray(created) ? (created[0] ?? null) : null;
     }
     
@@ -245,7 +248,10 @@ export async function applyGroupedEffect(actor, effectData, { timeout = 5000 } =
       }
       
       // Create the new effect
-      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData], { timeout });
+      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
+        ...effectData,
+        ...buildEffectChangesData(getEffectChanges(effectData))
+      }], { timeout });
       return Array.isArray(created) ? (created[0] ?? null) : null;
     }
     
@@ -263,7 +269,7 @@ export async function applyGroupedEffect(actor, effectData, { timeout = 5000 } =
           flags: effectData.flags ?? existing.flags,
           duration: effectData.duration ?? existing.duration,
           disabled: effectData.disabled ?? false,
-          origin: effectData.origin ?? existing.origin,
+          origin: normalizeActiveEffectOrigin(effectData.origin) ?? normalizeActiveEffectOrigin(existing.origin),
           statuses: effectData.statuses ?? existing.statuses,
           tint: effectData.tint ?? existing.tint,
           transfer: effectData.transfer ?? existing.transfer
@@ -282,19 +288,28 @@ export async function applyGroupedEffect(actor, effectData, { timeout = 5000 } =
       }
       
       // No existing effect found, create new
-      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData], { timeout });
+      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
+        ...effectData,
+        ...buildEffectChangesData(getEffectChanges(effectData))
+      }], { timeout });
       return Array.isArray(created) ? (created[0] ?? null) : null;
     }
     
     if (stackRule === "stack") {
       // No special behavior, create normally
-      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData], { timeout });
+      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
+        ...effectData,
+        ...buildEffectChangesData(getEffectChanges(effectData))
+      }], { timeout });
       return Array.isArray(created) ? (created[0] ?? null) : null;
     }
     
     // Unknown stackRule value, fall back to legacy behavior
     console.warn(`UESRPG | ae-grouping | Unknown stackRule value: ${stackRule}. Using legacy behavior.`);
-    const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [effectData], { timeout });
+    const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
+      ...effectData,
+      ...buildEffectChangesData(getEffectChanges(effectData))
+    }], { timeout });
     return Array.isArray(created) ? (created[0] ?? null) : null;
   } catch (err) {
     console.error("UESRPG | ae-grouping | applyGroupedEffect failed", { actorUuid: actor?.uuid, err });

@@ -15,7 +15,7 @@ import { findOpenAppInstance, focusOpenApp, resolveMacroActor } from "./shared.j
  * De-duplication: if the workshop is already open for this actor, bring it
  * to the front instead of opening a second instance (mirrors enchanting workshop).
  *
- * Target: Foundry VTT v13.351
+ * Target: Foundry VTT v14.359+
  *
  * Note: registerAlchemyApi() lives in src/core/alchemy/index.js and is called
  * once by system.js during the init hook. This file is responsible only for
@@ -46,9 +46,8 @@ export async function openAlchemyWorkshop({ actorUuid = null, mode = "potion" } 
   );
   if (existing) return focusOpenApp(existing);
 
-  const app = new AlchemyWorkshopAppV2({
+  return AlchemyWorkshopAppV2.prompt({
     actorUuid: resolvedActor.uuid,
     mode,
   });
-  await app.render(true);
 }

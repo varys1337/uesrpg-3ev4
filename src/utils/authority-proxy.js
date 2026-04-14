@@ -14,7 +14,7 @@
  *  - ChatMessage updates (sanitized): content + flags[systemId].opposed / skillOpposed
  *  - Actor embedded ActiveEffect creation
  *  - Generic document updates (Actor / Item / ActiveEffect / TokenDocument / Combatant / Scene / Region)
- *  - Actor embedded document create/update/delete (ActiveEffect / Item)
+ *  - Embedded document create/update/delete for direct-owner paths, with actor proxy support for ActiveEffect / Item
  *
  * Concurrency hardening:
  *  - The authority writer serializes mutations per-target (ChatMessage / Actor / Document)
@@ -1048,23 +1048,29 @@ export async function requestCreateActor(actorData, { timeout = 5000 } = {}) {
 }
 
 /**
- * Permission-safe Actor embedded docs create/update/delete.
+ * Permission-safe embedded docs create/update/delete.
  *
- * Supported embedded types: ActiveEffect, Item.
+ * Supported proxy embedded types: ActiveEffect, Item.
+ * Direct-owner paths also support scene-owned Token, MeasuredTemplate, and Region.
  */
 export async function requestCreateEmbeddedDocuments(actor, embeddedName, docsData, { timeout = 5000 } = {}) {
   if (!actor || !embeddedName || !Array.isArray(docsData) || !docsData.length) return [];
-  if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return [];
 
-  const cleanedList = docsData
-    .map((d) => _sanitizeEmbeddedDocData(embeddedName, d))
-    .filter((d) => d && typeof d === "object" && Object.keys(d).length > 0);
+  const cleanedList = (embeddedName === "ActiveEffect" || embeddedName === "Item")
+    ? docsData
+      .map((d) => _sanitizeEmbeddedDocData(embeddedName, d))
+      .filter((d) => d && typeof d === "object" && Object.keys(d).length > 0)
+    : docsData
+      .map((d) => foundry.utils.deepClone(d))
+      .filter((d) => d && typeof d === "object" && Object.keys(d).length > 0);
   if (!cleanedList.length) return [];
 
   // Direct path.
   if (game.user?.isGM || actor.isOwner) {
     return await actor.createEmbeddedDocuments(embeddedName, cleanedList);
   }
+
+  if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return [];
 
   const applier = _selectActiveGM() ?? _selectActorOwner(actor);
   if (!applier) {
@@ -1149,7 +1155,6 @@ export async function requestUpdateEmbeddedDocuments(actor, embeddedName, update
 
 export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, { timeout = 5000 } = {}) {
   if (!actor || !embeddedName || !Array.isArray(ids) || !ids.length) return false;
-  if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return false;
 
   if (isPerfEnabled()) {
     perfRecord({
@@ -1167,6 +1172,8 @@ export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, {
     const result = await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids);
     return !!result?.ok;
   }
+
+  if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") return false;
 
   const applier = _selectActiveGM() ?? _selectActorOwner(actor);
   if (!applier) {

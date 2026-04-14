@@ -46,9 +46,14 @@ export async function resolveMacroActorInput(actorOrOpts = {}) {
 export function findOpenAppInstance(AppCtor, predicate = null) {
   if (typeof AppCtor !== "function") return null;
   const matcher = typeof predicate === "function" ? predicate : () => true;
-  return Object.values(ui.windows ?? {}).find(
-    (app) => app instanceof AppCtor && matcher(app),
-  ) ?? null;
+  if (typeof AppCtor.findOpenInstance === "function") {
+    return AppCtor.findOpenInstance(matcher) ?? null;
+  }
+  if (typeof AppCtor.getOpenInstance === "function") {
+    const app = AppCtor.getOpenInstance();
+    return app && matcher(app) ? app : null;
+  }
+  return null;
 }
 
 export async function focusOpenApp(app, { maximize = false } = {}) {

@@ -9,11 +9,13 @@
  *  - When a spell with duration/upkeep/zones/summons creates persistent effects,
  *    an Origin AE is created on the **caster** that links all downstream entities.
  *  - The Origin AE stores: spell UUID, caster UUID, cost paid, scaling choices,
- *    target snapshot, and a list of linked entity UUIDs (target AEs, templates, summons).
+ *    target snapshot, and a list of linked entity UUIDs (target AEs, regions, summons).
  *  - Ending/removing the Origin AE deterministically cleans all linked entities.
  *  - Teardown is idempotent — safe to call multiple times.
  *
- * Target: Foundry VTT v13.351
+ * v14-safe lifecycle contract:
+ *  - Origin AEs are deterministic teardown trackers on the caster.
+ *  - Linked cleanup must stay idempotent and tolerate already-missing docs.
  */
 
 import { requestUpdateDocument, requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
@@ -21,8 +23,9 @@ import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
 import { isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
-import { getEffectChanges } from "../../../utils/compat.js";
+import { buildEffectChangesData, getEffectChanges } from "../../../utils/compat.js";
 import { createUuidResolver, resolveUuidSync } from "../../../utils/uuid-cache.js";
+import { getLinkedAreaEntities } from "../region-links.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -113,7 +116,6 @@ export async function createOriginAE(casterActor, spell, options = {}) {
     origin: spell.uuid,
     disabled: false,
     duration,
-    changes: [], // Origin AE has no modifier changes — it's a lifecycle tracker
     flags: {
       [_FLAG_NS]: {
         isOriginAE: true,
@@ -129,7 +131,7 @@ export async function createOriginAE(casterActor, spell, options = {}) {
         scalingChoices: options.scalingChoices ?? null,
         spellOptions: options.spellOptions ?? null,
         targetUuids: Array.isArray(options.targetUuids) ? [...options.targetUuids] : [],
-        linkedEntities: [], // Will be populated as target AEs / templates / summons are created
+        linkedEntities: [], // Will be populated as target AEs / regions / summons are created
         hasUpkeep: Boolean(spell.system?.hasUpkeep),
         upkeep: Boolean(spell.system?.hasUpkeep) ? {
           originalCost: _num(options.costPaid, _num(spell.system?.cost, 0)),
@@ -145,7 +147,8 @@ export async function createOriginAE(casterActor, spell, options = {}) {
         stackRule: "replace",
         source: "spell-origin"
       }
-    }
+    },
+    ...buildEffectChangesData([])
   };
 
   _originDebug("Creating Origin AE", {
@@ -182,11 +185,11 @@ export async function createOriginAE(casterActor, spell, options = {}) {
 // ─── Linking ─────────────────────────────────────────────────────────────────
 
 /**
- * Register a linked entity (target AE, template, summon) with an Origin AE.
+ * Register a linked entity (target AE, region, summon) with an Origin AE.
  *
  * @param {ActiveEffect} originEffect - The Origin AE on the caster
  * @param {object} link - Link descriptor
- * @param {string} link.type - "targetAE" | "template" | "summon"
+ * @param {string} link.type - "targetAE" | "region" | "template" | "summon"
  * @param {string} link.uuid - UUID of the linked entity
  * @param {string} [link.actorUuid] - UUID of the target actor (for targetAE type)
  * @param {string} [link.label] - Human-readable label
@@ -280,6 +283,16 @@ export async function teardownOriginAE(originEffect, options = {}) {
       const msg = `Failed to delete linked ${link.type} ${link.uuid}: ${err.message}`;
       errors.push(msg);
       _originDebug("Teardown error:", msg);
+    }
+  }
+
+  for (const areaLink of getLinkedAreaEntities(originEffect)) {
+    if (linked.includes(areaLink)) continue;
+    try {
+      const result = await _deleteLinkedEntity(areaLink);
+      if (result) deletedCount++;
+    } catch (err) {
+      errors.push(`Failed to delete linked ${areaLink.type} ${areaLink.uuid}: ${err.message}`);
     }
   }
 
@@ -547,7 +560,7 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
     const mirrorVal = Number.isFinite(numVal) ? -numVal : c.value;
     return {
       key: c.key,
-      mode: c.mode,
+      type: c.type,
       value: String(mirrorVal),
       priority: c.priority ?? 20
     };
@@ -566,7 +579,6 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
     origin: spell.uuid,
     disabled: false,
     duration,
-    changes: mirroredChanges,
     flags: {
       "uesrpg-3ev4": {
         spellEffect: true,
@@ -581,7 +593,8 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
         stackRule: "override",
         source: "spell-paired"
       }
-    }
+    },
+    ...buildEffectChangesData(mirroredChanges)
   };
 }
 
@@ -765,12 +778,23 @@ async function _deleteLinkedEntity(link) {
         });
       }
       case "template": {
-        // MeasuredTemplate deletion
+        // Legacy compatibility cleanup for old template-linked worlds only.
         if (doc.documentName === "MeasuredTemplate") {
           const scene = doc.parent;
           if (scene) {
             return await safeDeleteEmbeddedDocument(scene, "MeasuredTemplate", doc.id, {
               context: "UESRPG | origin-effect | delete linked template"
+            });
+          }
+        }
+        return false;
+      }
+      case "region": {
+        if (doc.documentName === "Region") {
+          const scene = doc.parent;
+          if (scene) {
+            return await safeDeleteEmbeddedDocument(scene, "Region", doc.id, {
+              context: "UESRPG | origin-effect | delete linked region"
             });
           }
         }

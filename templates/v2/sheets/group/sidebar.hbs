@@ -4,11 +4,11 @@
           <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" title="{{actor.name}}">
         </div>
         <nav class="sheet-tabs tabs" data-group="primary">
-          <a class="item" data-action="tab" data-group="primary" data-tab="members">Members</a>
-          <a class="item" data-action="tab" data-group="primary" data-tab="inventory">Inventory</a>
-          <a class="item" data-action="tab" data-group="primary" data-tab="travel">Travel</a>
-          <a class="item" data-action="tab" data-group="primary" data-tab="details">Details</a>
+          <a class="item" data-action="tab" data-group="primary" data-tab="members">{{localize "UESRPG.UI.Members"}}</a>
+          <a class="item" data-action="tab" data-group="primary" data-tab="inventory">{{localize "UESRPG.UI.Inventory"}}</a>
+          <a class="item" data-action="tab" data-group="primary" data-tab="travel">{{localize "UESRPG.UI.Travel"}}</a>
+          <a class="item" data-action="tab" data-group="primary" data-tab="details">{{localize "UESRPG.UI.Details"}}</a>
         </nav>
-        <h1 class="charname"><input type="text" name="name" value="{{actor.name}}" placeholder="Group Name"></h1>
+        <h1 class="charname"><input type="text" name="name" value="{{actor.name}}" placeholder="{{localize "UESRPG.UI.GroupName"}}"></h1>
       </div>
     </div>

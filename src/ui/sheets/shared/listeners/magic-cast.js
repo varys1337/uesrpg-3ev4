@@ -18,6 +18,8 @@ import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { ensureBurningTurnActionAllowed } from "../../../../core/conditions/condition-engine.js";
 import { castScrollFromItem, getCastableScrollCandidates } from "../../../../core/magic/scroll-casting.js";
 import { castFromEnchantedItem } from "../../../../core/enchanting/runtime/cast-enchantment-runtime.js";
+import { t, tf } from "../../../../utils/i18n.js";
+import { CastSpellService } from "../../../../application/magic/cast-spell-service.js";
 
 const _FLAG_NS = "uesrpg-3ev4";
 const _EQUIPMENT_TYPES = new Set(["weapon", "armor", "ammunition", "equipment", "container", "scroll"]);
@@ -102,13 +104,13 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
     const _preCheckActionGate = async () => {
       const surprise = resolveSurpriseState(actor, { combatContext: game.combat });
       if (surprise.onlyReactions) {
-        ui.notifications.warn(`${actor.name} is surprised and may only take reactions until their first turn passes.`);
+        ui.notifications.warn(tf("UESRPG.Notifications.Magic.ActorSurprisedReactionsOnly", { actor: actor.name }));
         return false;
       }
 
       const fear = getFearActionRestrictions(actor);
       if (fear?.blockActions === true) {
-        ui.notifications.warn(`${actor.name} cannot cast due to fear effects.`);
+        ui.notifications.warn(tf("UESRPG.Notifications.Magic.ActorCannotCastFear", { actor: actor.name }));
         return false;
       }
 
@@ -116,7 +118,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         actionId: castActionType === "secondary" ? "cast-magic-instant" : "cast-magic"
       });
       if (!burning.allowed) {
-        ui.notifications.warn(`${actor.name} fails to cast while burning.`);
+        ui.notifications.warn(tf("UESRPG.Notifications.Magic.ActorFailsCastBurning", { actor: actor.name }));
         return false;
       }
 
@@ -124,18 +126,6 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
     };
 
     if (!(await _preCheckActionGate())) return;
-
-    const _preCheckAP = () => {
-      const requiredAP = 1;
-      const ap = Number(actor?.system?.action_points?.value ?? 0);
-      if (ap < requiredAP) {
-        ui.notifications.warn(
-          `Insufficient Action Points to cast magic. Required: ${requiredAP} AP, Available: ${ap} AP.`
-        );
-        return false;
-      }
-      return true;
-    };
 
     let spell = preselectedSpell;
     let selectedItemSpellcast = null;
@@ -163,8 +153,8 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
 
       if (!spells.length && !scrollCandidates.length && !itemSpellCandidates.length) {
         ui.notifications.warn(castActionType === "secondary"
-          ? "No castable Instant spells, scrolls, or item slots available."
-          : "No castable spells, scrolls, or item slots available.");
+          ? t("UESRPG.Notifications.Magic.NoCastableInstantSources")
+          : t("UESRPG.Notifications.Magic.NoCastableSources"));
         return;
       }
 
@@ -185,23 +175,23 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
       const content = `
         <div class="uesrpg-cast-magic-form">
           <div class="form-group">
-            <label><b>Select Spell, Scroll, or Item Slot</b></label>
+            <label><b>${t("UESRPG.Dialogs.CastMagic.SelectSource")}</b></label>
             <select name="spellId" style="width:100%;">${spellOptions}</select>
           </div>
         </div>`;
 
       const selectedCastId = await customDialog({
-        title: castActionType === "secondary" ? "Cast Magic (Instant)" : "Cast Magic",
+        title: castActionType === "secondary" ? t("UESRPG.Dialogs.CastMagic.TitleInstant") : t("UESRPG.Dialogs.CastMagic.Title"),
         content,
         buttons: {
           cast: {
-            label: "Cast",
+            label: t("UESRPG.Dialogs.CastMagic.Cast"),
             callback: (html) => {
               const root = html instanceof HTMLElement ? html : html?.[0];
               return root?.querySelector('select[name="spellId"]')?.value;
             }
           },
-          cancel: { label: "Cancel", callback: () => null }
+          cancel: { label: t("UESRPG.UI.Cancel"), callback: () => null }
         },
         default: "cast",
         width: 360
@@ -225,7 +215,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
           return;
         }
         if (scrollResult?.consumed === true && Number(scrollResult.newQty ?? 1) === 0) {
-          ui.notifications.info(`${scroll.name} has been used up.`);
+          ui.notifications.info(tf("UESRPG.Notifications.Magic.ScrollUsedUp", { item: scroll.name }));
         }
         return;
       }
@@ -238,7 +228,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         if (!slot) return;
         const spellDoc = await _resolveSpellFromSlot(slot);
         if (!spellDoc) {
-          ui.notifications.warn("Stored item spell could not be resolved.");
+          ui.notifications.warn(t("UESRPG.Notifications.Magic.StoredItemSpellUnresolved"));
           return;
         }
         spell = spellDoc;
@@ -247,7 +237,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         spell = actor.items.get(sourceId);
         if (!spell) return;
         if (!canActorCastSpell(actor, spell)) {
-          ui.notifications.warn(`${actor.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
+          ui.notifications.warn(tf("UESRPG.Notifications.Magic.ActorUntrainedSchool", { actor: actor.name, school: getSpellCastingSchool(spell) || t("UESRPG.UI.Unknown"), spell: spell.name }));
           return;
         }
       }
@@ -262,13 +252,15 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
     const hasValidAoe = aoeSpec && (aoeSpec.sizeMeters > 0 || aoeSpec.pulse);
 
     if ((rangeType === "ranged" || rangeType === "melee" || rangeType === "aoe" || hasValidAoe) && !attackerToken) {
-      ui.notifications.warn("You must have an active token selected to cast this spell (range-gated).");
+      ui.notifications.warn(t("UESRPG.Notifications.Magic.ActiveTokenRequired"));
       return;
     }
 
     let workingTargets = Array.from(targets ?? []);
-    let aoeTemplateUuid = null;
-    let aoeTemplateId = null;
+    let aoeAreaUuid = null;
+    let aoeAreaId = null;
+    let aoeRegionUuid = null;
+    let aoeRegionId = null;
 
     if (hasValidAoe) {
       const maxRange = getSpellMaxRangeMeters(spell);
@@ -287,12 +279,14 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         options: { maxRange: maxRange ?? undefined, collectTargets: true },
       });
       if (!placed) return;
-      aoeTemplateId = placed.templateId ?? null;
-      aoeTemplateUuid = placed.templateUuid ?? null;
+      aoeAreaId = placed.areaId ?? placed.regionId ?? null;
+      aoeAreaUuid = placed.areaUuid ?? placed.regionUuid ?? null;
+      aoeRegionId = placed.regionId ?? null;
+      aoeRegionUuid = placed.regionUuid ?? null;
 
       if (placed.targets?.length) workingTargets = placed.targets;
       if (!workingTargets.length) {
-        ui.notifications?.info?.("No tokens are affected by the spell template.");
+        ui.notifications?.info?.(t("UESRPG.Notifications.Magic.NoTargetsInArea"));
         workingTargets = [];
       }
     } else if (rangeType === "ranged" || rangeType === "melee") {
@@ -311,7 +305,7 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
           const names = rejected
             .map(r => `${r.token?.name ?? "?"} (${Math.round((r.distance ?? 0) * 10) / 10}m)`)
             .join(", ");
-          ui.notifications.warn(`Out of range: ${names}${maxRange ? ` (max ${maxRange}m)` : ""}.`);
+          ui.notifications.warn(tf("UESRPG.Notifications.Magic.OutOfRangeTargets", { names, maxRange: maxRange ? ` (max ${maxRange}m)` : "" }));
         }
 
         workingTargets = validTargets;
@@ -328,8 +322,11 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
         ? {
             ...(aoeSpec ?? {}),
             isAoE: true,
-            templateUuid: aoeTemplateUuid ?? null,
-            templateId: aoeTemplateId ?? null
+            areaType: "region",
+            areaUuid: aoeAreaUuid ?? null,
+            areaId: aoeAreaId ?? null,
+            regionUuid: aoeRegionUuid ?? null,
+            regionId: aoeRegionId ?? null
           }
         : null;
       const spellOptions = await showSpellOptionsDialog(actor, spell);
@@ -348,51 +345,38 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
 
     const spellCls = classifySpellForRouting(spell);
 
-    if (spellCls.isDirect && !spellCls.isCharacteristicDefense && workingTargets.length > 0) {
-      if (!_preCheckAP()) return;
-      const spellOpts = await showSpellOptionsDialog(actor, spell);
-      if (spellOpts === null) return;
-      for (const target of workingTargets) {
-        const defUuid = target?.document?.uuid ?? target?.uuid;
-        await MagicOpposedWorkflow.castDirectTargeted({
-          attackerTokenUuid: attackerToken?.document?.uuid ?? attackerToken?.uuid ?? null,
-          attackerActorUuid: actor.uuid,
-          defenderTokenUuid: defUuid,
-          spellUuid: spell.uuid,
-          spellOptions: spellOpts,
-          castActionType
-        });
-      }
-    } else if (shouldUseTargetedSpellWorkflow(spell, workingTargets)) {
-      const isCharDef = spellCls.isCharacteristicDefense;
-      let spellOpts = null;
-      if (isCharDef) {
-        spellOpts = await showSpellOptionsDialog(actor, spell);
-        if (spellOpts === null) return;
-      }
-      await castAttackSpell(this, spell, workingTargets, spellOpts, castActionType, {
-        aoeTemplateUuid,
-        aoeTemplateId,
-        deferSpellChoice: !isCharDef
-      });
-    } else if (shouldUseModernSpellWorkflow(spell)) {
-      if (!_preCheckAP()) return;
-      const spellOptions = await showSpellOptionsDialog(actor, spell);
-      if (spellOptions === null) return;
-      await MagicOpposedWorkflow.castUnopposed({
-        attackerActorUuid: actor.uuid,
-        attackerTokenUuid: this.token?.document?.uuid ?? this.token?.uuid ?? null,
+    if (spellCls.isDirect || shouldUseTargetedSpellWorkflow(spell, workingTargets) || shouldUseModernSpellWorkflow(spell)) {
+      const castResult = await CastSpellService.cast({
         spellUuid: spell.uuid,
-        spellOptions,
-        castActionType
+        casterActorUuid: actor.uuid,
+        casterTokenUuid: attackerToken?.document?.uuid ?? attackerToken?.uuid ?? null,
+        targetTokenUuids: workingTargets
+          .map((targetToken) => targetToken?.document?.uuid ?? targetToken?.uuid)
+          .filter(Boolean),
+        castActionType,
+        aoeConfig: hasValidAoe
+          ? {
+              ...(aoeSpec ?? {}),
+              isAoE: true,
+              areaType: "region",
+              areaUuid: aoeAreaUuid ?? null,
+              areaId: aoeAreaId ?? null,
+              regionUuid: aoeRegionUuid ?? null,
+              regionId: aoeRegionId ?? null
+            }
+          : null,
       });
+      if (castResult?.error && castResult.error !== "Casting cancelled by user") {
+        ui.notifications.warn(castResult.error);
+      }
+      return;
     } else {
       const fakeEvent = { currentTarget: { closest: () => ({ dataset: { itemId: spell.id } }) } };
       await this._onSpellRoll.call(this, fakeEvent);
     }
   } catch (err) {
     console.error("UESRPG | onCastMagicAction failed:", err);
-    ui.notifications.error("Magic casting failed - see console (F12) for details.");
+    ui.notifications.error(t("UESRPG.Notifications.Magic.CastingFailed"));
   }
 });
 
@@ -405,22 +389,25 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
  * @param {string} castActionType
  * @param {object} opts
  */
-export async function castAttackSpell(sheet, spell, targets, spellOptions = null, castActionType = "primary", { aoeTemplateUuid = null, aoeTemplateId = null, deferSpellChoice = false } = {}) {
+export async function castAttackSpell(sheet, spell, targets, spellOptions = null, castActionType = "primary", { aoeAreaUuid = null, aoeAreaId = null, aoeRegionUuid = null, aoeRegionId = null, deferSpellChoice = false } = {}) {
   const attackerToken = canvas?.tokens?.controlled?.find(t => t.actor?.id === sheet.actor.id)
     ?? sheet.actor.getActiveTokens?.()?.[0];
 
   if (!attackerToken) {
-    ui.notifications.warn("No attacker token found. Select your token and try again.");
+    ui.notifications.warn(t("UESRPG.Notifications.Magic.NoAttackerToken"));
     return;
   }
 
-  const hasAoeTemplate = Boolean(aoeTemplateUuid || aoeTemplateId);
-  const aoeConfig = (spell && hasAoeTemplate)
+  const hasAoeArea = Boolean(aoeAreaUuid || aoeAreaId || aoeRegionUuid || aoeRegionId);
+  const aoeConfig = (spell && hasAoeArea)
     ? {
         ...(getSpellAoEConfig(spell) ?? {}),
         isAoE: true,
-        templateUuid: aoeTemplateUuid ?? null,
-        templateId: aoeTemplateId ?? null
+        areaType: "region",
+        areaUuid: aoeAreaUuid ?? aoeRegionUuid ?? null,
+        areaId: aoeAreaId ?? aoeRegionId ?? null,
+        regionUuid: aoeRegionUuid ?? null,
+        regionId: aoeRegionId ?? null
       }
     : null;
 
@@ -436,7 +423,6 @@ export async function castAttackSpell(sheet, spell, targets, spellOptions = null
     deferSpellChoice: Boolean(deferSpellChoice),
     castActionType,
     aoe: aoeConfig,
-    isAoE: hasAoeTemplate
+    isAoE: hasAoeArea
   });
 }
-

@@ -19,6 +19,7 @@ import {
 } from "../../core/time/index.js";
 import { isDebugEnabled } from "../../utils/debug.js";
 import { registerReadyRuntimeApi } from "../../api/runtime-registration.js";
+import { ApplyDamageService } from "../../application/combat/apply-damage-service.js";
 
 function buildStaminaApi() {
   return {
@@ -43,7 +44,8 @@ export async function registerSystemRuntimeApi() {
     { AoEService },
     { LuckAPI },
     { resolveSpellProfile, summarizeSpellProfile },
-    { SpellCastingService },
+    { CastSpellService },
+    { AdvanceCampaignTurnService },
     { spawnSummon, getSummonedTokens, showSummonActorPicker },
     { enumerateDispellableEffects, dispelEffects, showDispelDialog },
     { applyDamagedQuality },
@@ -53,7 +55,8 @@ export async function registerSystemRuntimeApi() {
     import("../../core/aoe/index.js"),
     import("../../core/luck/luck-workflow.js"),
     import("../../core/magic/spell-profile.js"),
-    import("../../core/magic/casting-service.js"),
+    import("../../application/magic/cast-spell-service.js"),
+    import("../../application/campaign/advance-campaign-turn-service.js"),
     import("../../core/magic/conjuration/summon-service.js"),
     import("../../core/magic/services/dispel-service.js"),
     import("../../core/magic/services/disintegrate-service.js"),
@@ -64,7 +67,7 @@ export async function registerSystemRuntimeApi() {
   const magicApi = {
     resolveProfile: resolveSpellProfile,
     summarizeProfile: summarizeSpellProfile,
-    cast: SpellCastingService.cast.bind(SpellCastingService),
+    cast: CastSpellService.cast.bind(CastSpellService),
     spawnSummon,
     getSummonedTokens,
     showSummonActorPicker,
@@ -110,6 +113,19 @@ export async function registerSystemRuntimeApi() {
           }
         }
       : null,
+    applicationApi: {
+      damage: {
+        apply: ApplyDamageService.applyResolved.bind(ApplyDamageService),
+        applySimple: ApplyDamageService.applySimple.bind(ApplyDamageService),
+        applyHealing: ApplyDamageService.applyHealing.bind(ApplyDamageService),
+      },
+      magic: {
+        cast: CastSpellService.cast.bind(CastSpellService),
+      },
+      campaign: {
+        advanceTurn: AdvanceCampaignTurnService.advanceTurn.bind(AdvanceCampaignTurnService),
+      },
+    },
     rootApi: game.user?.isGM
       ? {
           auditSpellPack: async (...args) => {

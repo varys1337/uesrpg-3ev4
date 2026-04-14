@@ -42,6 +42,7 @@ import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { getMovementActionLegality } from "../../../../core/combat/movement-rules.js";
 import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../../core/alchemy/runtime.js";
 import { getActorCapabilityFlag } from "../../../../core/active-effects/modifier-evaluator.js";
+import { buildEffectChange } from "../../../../utils/compat.js";
 
 const _specialActionLaunchLocks = new Set();
 
@@ -145,8 +146,6 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
     if (!ef) return;
     await _deleteEffect(ef);
   };
-
-  const ADD = globalThis?.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
 
   const resolveCombatStyleForAttack = () => {
     const preferred = getExplicitActiveCombatStyleItem(actor)?.uuid ?? null;
@@ -614,7 +613,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         statusId: "uesrpg-action-defensive-stance",
         duration,
         changes: [
-          { key: "system.modifiers.combat.defenseTN.total", mode: ADD, value: 10, priority: 20 },
+          buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: 10, priority: 20 }),
         ],
         flags: {
           uesrpg: {
@@ -776,7 +775,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         statusId: "uesrpg-action-aim",
         duration,
         changes: [
-          { key: "system.modifiers.combat.attackTN", mode: ADD, value: nextBonus, priority: 20 },
+          buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: nextBonus, priority: 20 }),
         ],
         flags: {
           uesrpg: {

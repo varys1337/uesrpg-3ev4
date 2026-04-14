@@ -24,6 +24,7 @@ import { hasTalent } from "../../../traits/talents-api.js";
 import { getMeleeReachMeters, countOpponentsInMeleeRange } from "../../../traits/combat-proximity.js";
 import { _safeGetSetting, _getSystemId } from "./util.js";
 import { promptYesNo, promptSelectToken } from "../dialogs/common.js";
+import { t, tf } from "../../../../utils/i18n.js";
 import { _measureTokenDistance } from "./docs.js";
 import { getOtherDualWieldWeaponUuid } from "./combat.js";
 import { peekFreeNextDefenseCommit } from "../../activation-state-flags.js";
@@ -248,22 +249,22 @@ export function _hasUnstoppableMightEligibleWeapons(actor) {
  */
 export async function _promptUnstoppableMightUsage({ actorName = "Actor", purpose = "attack" } = {}) {
   const details = purpose === "defense"
-    ? "<p>If yes, Parry and Counter-Attack are unavailable while wielding this way.</p>"
-    : "<p>If yes, two-handed damage will be used for this attack.</p>";
+    ? `<p>${t("UESRPG.Dialogs.Opposed.UnstoppableDefenseDetail", "If yes, Parry and Counter-Attack are unavailable while wielding this way.")}</p>`
+    : `<p>${t("UESRPG.Dialogs.Opposed.UnstoppableAttackDetail", "If yes, two-handed damage will be used for this attack.")}</p>`;
   return await promptYesNo({
-    title: "Unstoppable Might",
+    title: t("UESRPG.Dialogs.Opposed.UnstoppableMight", "Unstoppable Might"),
     content: `
       <div class="uesrpg">
-        <p><b>${actorName}</b> is using a special wield mode?</p>
+        <p>${tf("UESRPG.Dialogs.Opposed.UnstoppableBody", { actor: foundry.utils.escapeHTML(actorName) }, `<b>${foundry.utils.escapeHTML(actorName)}</b> is using a special wield mode?`)}</p>
         <ul>
-          <li>Dual wielding hand-and-a-half weapons (use two-handed damage)</li>
-          <li>Wielding a two-handed weapon in one hand</li>
+          <li>${t("UESRPG.Dialogs.Opposed.UnstoppableDualWield", "Dual wielding hand-and-a-half weapons (use two-handed damage)")}</li>
+          <li>${t("UESRPG.Dialogs.Opposed.UnstoppableOneHandTwoHanded", "Wielding a two-handed weapon in one hand")}</li>
         </ul>
         ${details}
       </div>
     `,
-    yesLabel: "Using Special Wield",
-    noLabel: "Normal Wield"
+    yesLabel: t("UESRPG.Dialogs.Opposed.UsingSpecialWield", "Using Special Wield"),
+    noLabel: t("UESRPG.Dialogs.Opposed.NormalWield", "Normal Wield")
   });
 }
 
@@ -368,16 +369,16 @@ export async function _maybeApplyMightyCleave({ data, attacker, attackerToken, p
   if (pool.length === 0) return false;
 
   const use = await promptYesNo({
-    title: "Mighty Cleave",
-    content: `<p>Use <b>Mighty Cleave</b> to add a second target within 2m of ${primary.name}?</p>`,
-    yesLabel: "Use Mighty Cleave",
-    noLabel: "No"
+    title: t("UESRPG.Dialogs.Opposed.MightyCleave", "Mighty Cleave"),
+    content: `<p>${tf("UESRPG.Dialogs.Opposed.MightyCleaveBody", { target: foundry.utils.escapeHTML(primary.name) }, `Use <b>Mighty Cleave</b> to add a second target within 2m of ${foundry.utils.escapeHTML(primary.name)}?`)}</p>`,
+    yesLabel: t("UESRPG.Dialogs.Opposed.UseMightyCleave", "Use Mighty Cleave"),
+    noLabel: t("UESRPG.UI.No", "No")
   });
   if (!use) return false;
 
   const chosen = await promptSelectToken({
-    title: "Mighty Cleave",
-    prompt: "Choose the second target (must be within melee reach and within 2m of the first target).",
+    title: t("UESRPG.Dialogs.Opposed.MightyCleave", "Mighty Cleave"),
+    prompt: t("UESRPG.Dialogs.Opposed.MightyCleaveChooseSecondTarget", "Choose the second target (must be within melee reach and within 2m of the first target)."),
     tokens: pool
   });
   if (!chosen) return false;
@@ -385,12 +386,12 @@ export async function _maybeApplyMightyCleave({ data, attacker, attackerToken, p
   // Final validation (distance + reach).
   const between = _measureTokenDistance(primary, chosen);
   if (!Number.isFinite(between) || between > distanceLimit) {
-    ui.notifications?.warn?.("Mighty Cleave requires the two targets to be within 2 meters of each other.");
+    ui.notifications?.warn?.(t("UESRPG.Notifications.Opposed.MightyCleaveTargetDistance", "Mighty Cleave requires the two targets to be within 2 meters of each other."));
     return false;
   }
   const reachCtx2 = computeMeleeReachContext({ attackerToken, defenderToken: chosen, weapon });
   if (!reachCtx2?.inRange) {
-    ui.notifications?.warn?.("Second target is not within melee reach for Mighty Cleave.");
+    ui.notifications?.warn?.(t("UESRPG.Notifications.Opposed.MightyCleaveTargetReach", "Second target is not within melee reach for Mighty Cleave."));
     return false;
   }
 

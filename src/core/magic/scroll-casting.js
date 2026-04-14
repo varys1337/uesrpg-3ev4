@@ -58,8 +58,8 @@ export async function castScrollFromItem({
     .map((t) => t?.document?.uuid ?? t?.uuid)
     .filter(Boolean);
 
-  const { SpellCastingService } = await import("./casting-service.js");
-  const castResult = await SpellCastingService.cast({
+  const { CastSpellService } = await import("../../application/magic/cast-spell-service.js");
+  const castResult = await CastSpellService.cast({
     spellUuid: resolved.spellUuid,
     casterActorUuid: actor.uuid,
     casterTokenUuid,

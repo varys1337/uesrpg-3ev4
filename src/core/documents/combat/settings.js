@@ -1,4 +1,5 @@
 import { getCachedSetting } from "../../config/settings-cache.js";
+import { getChatMessageModeOptions } from "../../../utils/chat-roll-mode.js";
 
 export function getActionPointAutomationSetting() {
   const value = getCachedSetting("actionPointAutomation");
@@ -10,12 +11,5 @@ export function isDynamicInitiativeEnabledSetting() {
 }
 
 export function getCombatRollModeMessageOptions() {
-  let rollMode = "roll";
-  try { rollMode = String(game.settings.get("core", "rollMode") ?? "roll").toLowerCase(); }
-  catch (_e) { rollMode = "roll"; }
-
-  if (rollMode === "gmroll") return { rollMode, whisper: ChatMessage.getWhisperRecipients("GM") };
-  if (rollMode === "blindroll") return { rollMode, whisper: ChatMessage.getWhisperRecipients("GM"), blind: true };
-  if (rollMode === "selfroll") return { rollMode, whisper: [game.user.id] };
-  return { rollMode };
+  return getChatMessageModeOptions();
 }

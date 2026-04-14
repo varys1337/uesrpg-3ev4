@@ -3,15 +3,15 @@
     <div class="about-buttons">
       <div class="npc-button-stats">
         <div>
-          <div class="styled-font">Soul Energy</div>
-          <input type="text" name="system.soul_energy" placeholder="Soul Energy" value="{{actor.system.soul_energy}}">
+          <div class="styled-font">{{localize "UESRPG.UI.SoulEnergy"}}</div>
+          <input type="text" name="system.soul_energy" placeholder="{{localize "UESRPG.UI.SoulEnergy"}}" value="{{actor.system.soul_energy}}">
         </div>
         <div>
-          <div class="styled-font">Race</div>
-          <input type="text" name="system.race" placeholder="Race" value="{{actor.system.race}}">
+          <div class="styled-font">{{localize "UESRPG.UI.Race"}}</div>
+          <input type="text" name="system.race" placeholder="{{localize "UESRPG.UI.Race"}}" value="{{actor.system.race}}">
         </div>
         <div>
-          <div class="styled-font">Threat</div>
+          <div class="styled-font">{{localize "UESRPG.UI.Threat"}}</div>
           <select name="system.threat" data-type="String">
             {{selectOptions actor.system.threatCategory selected=actor.system.threat localize=true}}
           </select>
@@ -21,13 +21,13 @@
 
     <div class="skillContainer">
       <div class="section-header">
-        <span class="section-header__label">Professions</span>
+        <span class="section-header__label">{{localize "UESRPG.UI.Professions"}}</span>
       </div>
       <ul class="skillList">
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="combat" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/melee/weapons-crossed-swords-yellow.webp" title="Send to Chat"/>
-            <div class="skill-name">Combat</div>
+            <img class="item-img" src="icons/skills/melee/weapons-crossed-swords-yellow.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Combat"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.professions.combat" value="{{actor.system.professions.combat}}"/>%</div>
@@ -35,8 +35,8 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="evade" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/movement/arrow-upward-yellow.webp" title="Send to Chat"/>
-            <div class="skill-name">Evade</div>
+            <img class="item-img" src="icons/skills/movement/arrow-upward-yellow.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Evade"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.professions.evade" value="{{actor.system.professions.evade}}"/>%</div>
@@ -44,8 +44,8 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="knowledge" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/trades/academics-study-reading-book.webp" title="Send to Chat"/>
-            <div class="skill-name">Knowledge</div>
+            <img class="item-img" src="icons/skills/trades/academics-study-reading-book.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Knowledge"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.professions.knowledge" value="{{actor.system.professions.knowledge}}"/>%</div>
@@ -53,8 +53,8 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="magic" role="button" tabindex="0">
-            <img class="item-img" src="icons/sundries/books/book-open-purple.webp" title="Send to Chat"/>
-            <div class="skill-name">Magic</div>
+            <img class="item-img" src="icons/sundries/books/book-open-purple.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Magic"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.professions.magic" value="{{actor.system.professions.magic}}"/>%</div>
@@ -62,8 +62,8 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="observe" role="button" tabindex="0">
-            <img class="item-img" src="icons/magic/perception/eye-ringed-green.webp" title="Send to Chat"/>
-            <div class="skill-name">Observe</div>
+            <img class="item-img" src="icons/magic/perception/eye-ringed-green.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Observe"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.professions.observe" value="{{actor.system.professions.observe}}"/>%</div>
@@ -71,8 +71,8 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="physical" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/melee/unarmed-punch-fist.webp" title="Send to Chat"/>
-            <div class="skill-name">Physical</div>
+            <img class="item-img" src="icons/skills/melee/unarmed-punch-fist.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Physical"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.professions.physical" value="{{actor.system.professions.physical}}"/>%</div>
@@ -80,8 +80,8 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="social" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/social/diplomacy-peace-alliance.webp" title="Send to Chat"/>
-            <div class="skill-name">Social</div>
+            <img class="item-img" src="icons/skills/social/diplomacy-peace-alliance.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Social"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.professions.social" value="{{actor.system.professions.social}}"/>%</div>
@@ -89,8 +89,8 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="stealth" role="button" tabindex="0">
-            <img class="item-img" src="systems/uesrpg-3ev4/images/Icons/invisible.webp" title="Send to Chat"/>
-            <div class="skill-name">Stealth</div>
+            <img class="item-img" src="systems/uesrpg-3ev4/images/Icons/invisible.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Stealth"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.professions.stealth" value="{{actor.system.professions.stealth}}"/>%</div>
@@ -98,8 +98,8 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="commerce" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
-            <div class="skill-name">Commerce</div>
+            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+            <div class="skill-name">{{localize "UESRPG.UI.Commerce"}}</div>
           </div>
           <div class="item-controls">
             <div class="item-value profession"><input type="number" name="system.skills.commerce.tn" value="{{actor.system.skills.commerce.tn}}"/>%</div>
@@ -107,9 +107,9 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="profession1" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
+            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
             <div class="skill-name">
-              <input type="text" placeholder="Profession 1" name="system.skills.profession1.specialization" value="{{actor.system.skills.profession1.specialization}}">
+              <input type="text" placeholder="{{localize "UESRPG.UI.Profession1"}}" name="system.skills.profession1.specialization" value="{{actor.system.skills.profession1.specialization}}">
             </div>
           </div>
           <div class="item-controls">
@@ -118,9 +118,9 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="profession2" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
+            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
             <div class="skill-name">
-              <input type="text" placeholder="Profession 2" name="system.skills.profession2.specialization" value="{{actor.system.skills.profession2.specialization}}">
+              <input type="text" placeholder="{{localize "UESRPG.UI.Profession2"}}" name="system.skills.profession2.specialization" value="{{actor.system.skills.profession2.specialization}}">
             </div>
           </div>
           <div class="item-controls">
@@ -129,9 +129,9 @@
         </li>
         <li class="npc-item">
           <div class="itemInfo profession-roll-target" data-action="professionsRoll" data-profession-key="profession3" role="button" tabindex="0">
-            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="Send to Chat"/>
+            <img class="item-img" src="icons/skills/social/trading-justice-scale-yellow.webp" title="{{localize "UESRPG.UI.PostToChat"}}"/>
             <div class="skill-name">
-              <input type="text" placeholder="Profession 3" name="system.skills.profession3.specialization" value="{{actor.system.skills.profession3.specialization}}">
+              <input type="text" placeholder="{{localize "UESRPG.UI.Profession3"}}" name="system.skills.profession3.specialization" value="{{actor.system.skills.profession3.specialization}}">
             </div>
           </div>
           <div class="item-controls">
@@ -144,22 +144,22 @@
     <div class="three-column-flex-container">
       <div class="trait-container">
         <div class="section-header">
-          <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="traits" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Traits</span>
+          <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="traits" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Traits"}}</span>
           <button type="button" class="section-header__action" data-action="itemCreate" id="trait">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.trait as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img class="item-img" src="{{item.img}}" title="Activate" data-action="postItemToChat"/>
+                <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}" data-action="postItemToChat"/>
                 {{#with (lookup @root.actor.ui.traitStackingById item._id) as |stack|}}
                   <i class="fas fa-layer-group" title="Trait stacking: key '{{stack.key}}' appears {{stack.count}} times{{#if stack.highest}}. Highest X: {{stack.highest}}{{#if stack.unit}} {{stack.unit}}{{/if}}{{/if}}"></i>
                 {{/with}}
                 <div class="item-name" data-action="itemOpen">{{item.name}}</div>
               </div>
               <div class="item-controls">
-                <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                <a class="item-control item-delete" data-action="itemDelete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
               </div>
             </li>
           {{/each}}
@@ -167,19 +167,19 @@
       </div>
       <div class="talent-container">
         <div class="section-header">
-          <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="talents" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Talents</span>
+          <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="talents" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Talents"}}</span>
           <button type="button" class="section-header__action" data-action="itemCreate" id="talent">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.talent as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img class="item-img" src="{{item.img}}" title="Activate" data-action="postItemToChat"/>
+                <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}" data-action="postItemToChat"/>
                 <div class="item-name" data-action="itemOpen">{{item.name}}</div>
               </div>
               <div class="item-controls">
-                <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                <a class="item-control item-delete" data-action="itemDelete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
               </div>
             </li>
           {{/each}}
@@ -187,18 +187,18 @@
       </div>
       <div class="power-container">
         <div class="section-header">
-          <span class="section-header__label">Powers</span>
+          <span class="section-header__label">{{localize "UESRPG.UI.Powers"}}</span>
           <button type="button" class="section-header__action" data-action="itemCreate" id="power">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.power as |item id|}}
             <li class="item" data-item-id="{{item._id}}">
               <div class="itemInfo">
-                <img class="item-img" src="{{item.img}}" title="Activate" data-action="postItemToChat"/>
+                <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}" data-action="postItemToChat"/>
                 <div class="item-name" data-action="itemOpen">{{item.name}}</div>
               </div>
               <div class="item-controls">
-                <a class="item-control item-delete" data-action="itemDelete" title="Delete Item"><i class="fas fa-trash"></i></a>
+                <a class="item-control item-delete" data-action="itemDelete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
               </div>
             </li>
           {{/each}}
@@ -209,21 +209,21 @@
     <div class="social-section">
       <div class="social-field">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="languages" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Languages</span>
-          <button type="button" data-action="openLanguageSelector" class="section-header__action" title="Configure Languages"><i class="fas fa-pen"></i></button>
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="languages" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Languages"}}</span>
+          <button type="button" data-action="openLanguageSelector" class="section-header__action" title="{{localize "UESRPG.UI.ConfigureLanguages"}}"><i class="fas fa-pen"></i></button>
         </div>
         <div class="social-field__body">
           <div class="social-chip-wrap">
-            <span class="social-chip social-chip--fixed">Cyrodilic</span>
+            <span class="social-chip social-chip--fixed">{{localize "UESRPG.Choices.Languages.cyrodilic"}}</span>
             {{#each actor.system.socialDisplay.languages.preview as |lang|}}
               <span class="social-chip">{{lang}}</span>
             {{/each}}
             {{#if actor.system.socialDisplay.languages.hiddenCount}}
-              <span class="social-chip social-chip--muted">+{{actor.system.socialDisplay.languages.hiddenCount}} more</span>
+              <span class="social-chip social-chip--muted">{{localize "UESRPG.UI.MoreCount" count=actor.system.socialDisplay.languages.hiddenCount}}</span>
             {{/if}}
             {{#unless actor.system.socialDisplay.languages.preview.length}}
-              <span class="social-chip social-chip--muted">No additional languages selected</span>
+              <span class="social-chip social-chip--muted">{{localize "UESRPG.UI.NoAdditionalLanguagesSelected"}}</span>
             {{/unless}}
           </div>
         </div>
@@ -231,9 +231,9 @@
 
       <div class="social-field">
         <div class="section-header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="factions" title="Collapse/Expand"><i class="fas fa-chevron-down"></i></a>
-          <span class="section-header__label">Factions</span>
-          <button type="button" data-action="openFactionSelector" class="section-header__action" title="Configure Factions"><i class="fas fa-pen"></i></button>
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="factions" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <span class="section-header__label">{{localize "UESRPG.UI.Factions"}}</span>
+          <button type="button" data-action="openFactionSelector" class="section-header__action" title="{{localize "UESRPG.UI.ConfigureFactions"}}"><i class="fas fa-pen"></i></button>
         </div>
         <div class="social-field__body">
           {{#if actor.system.socialDisplay.factions.preview.length}}
@@ -247,10 +247,10 @@
               {{/each}}
             </ul>
             {{#if actor.system.socialDisplay.factions.hiddenCount}}
-              <p class="social-empty">+{{actor.system.socialDisplay.factions.hiddenCount}} more factions</p>
+              <p class="social-empty">{{localize "UESRPG.UI.MoreFactionsCount" count=actor.system.socialDisplay.factions.hiddenCount}}</p>
             {{/if}}
           {{else}}
-            <p class="social-empty">No factions selected.</p>
+            <p class="social-empty">{{localize "UESRPG.UI.NoFactionsSelected"}}</p>
           {{/if}}
         </div>
       </div>
@@ -261,8 +261,8 @@
 
     <div class="bioPage">
       <div class="section-header">
-        <span class="section-header__label">Biography</span>
-        <button type="button" class="section-header__action" data-action="openBioEditor" title="Edit Biography">
+        <span class="section-header__label">{{localize "UESRPG.UI.Biography"}}</span>
+        <button type="button" class="section-header__action" data-action="openBioEditor" title="{{localize "UESRPG.UI.EditBiography"}}">
           <i class="fas fa-pen"></i>
         </button>
       </div>
@@ -273,4 +273,3 @@
 
   </div>
 </div>
-

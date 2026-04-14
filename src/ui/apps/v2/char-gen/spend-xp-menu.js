@@ -29,6 +29,7 @@ import {
 import { campaignRankFromXpTotal } from "../../../sheets/shared/dialogs/character-menus.js";
 import { appendChargenAudit } from "./audit-log.js";
 import { SYSTEM_ID, templatePath } from "../../../constants.js";
+import { t, tf } from "../../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -103,7 +104,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     id: "uesrpg-spend-xp-menu-v2",
     classes: ["worldbuilding", "uesrpg", "uesrpg-spendxp-app"],
     position: { width: 980, height: 760 },
-    window: { title: "Spend XP (Chargen)", resizable: true },
+    window: { resizable: true },
     actions: {
       close: SpendXpMenuAppV2.prototype._onCloseClick,
       advanceCharacteristic: SpendXpMenuAppV2.prototype._onAdvanceCharacteristic,
@@ -130,6 +131,10 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const app = new SpendXpMenuAppV2(actor, options);
     await app.render(true);
     return app;
+  }
+
+  get title() {
+    return t("UESRPG.Dialogs.SpendXp.Title", "Spend XP (Chargen)");
   }
 
   #buildLiveFingerprint() {
@@ -376,7 +381,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     this.#draftEntries.push({
       id: this.#nextEntryId(),
       kind: String(op.kind ?? "unknown"),
-      label: String(op.label ?? "Staged operation"),
+      label: String(op.label ?? t("UESRPG.Dialogs.SpendXp.StagedOperation")),
       costXp: _asNumber(op.costXp, 0),
       costWealth: _asNumber(op.costWealth, 0),
       payload: foundry.utils.deepClone(op.payload ?? {}),
@@ -403,10 +408,10 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   async #confirmDiscardIfDirty() {
     if (!this.#dirty) return true;
     return confirmDialog({
-      title: "Discard Unconfirmed Purchases",
-      content: "<p>Discard all staged purchases and close?</p>",
-      yesLabel: "Discard",
-      noLabel: "Keep Editing",
+      title: t("UESRPG.Dialogs.SpendXp.DiscardUnconfirmedTitle"),
+      content: `<p>${t("UESRPG.Dialogs.SpendXp.DiscardUnconfirmedContent")}</p>`,
+      yesLabel: t("UESRPG.UI.Discard"),
+      noLabel: t("UESRPG.UI.KeepEditing"),
     });
   }
 
@@ -435,7 +440,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     if (this.#isDrifted()) {
       return {
         ok: false,
-        reason: "Actor data changed while this menu was open. Reopen Spend XP and stage again.",
+        reason: t("UESRPG.Notifications.SpendXp.ActorChangedReopen"),
       };
     }
 
@@ -577,7 +582,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
 
     return {
       ...context,
-      actorName: this.#sessionBase?.actorName ?? this.#actor?.name ?? "Unknown",
+      actorName: this.#sessionBase?.actorName ?? this.#actor?.name ?? t("UESRPG.UI.Unknown"),
       xp: _asNumber(this.#sessionBase?.xp, 0),
       xpProjected: _asNumber(derived?.xp, 0),
       xpTotal: _asNumber(this.#sessionBase?.xpTotal, 0),
@@ -610,7 +615,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       const tempId = `sk-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
       await this.#stageOperation({
         kind: "addSkillLikeItem",
-        label: `Add ${item.type}: ${item.name}`,
+        label: tf("UESRPG.Dialogs.SpendXp.AddItemLikeLabel", { type: item.type, name: item.name }),
         costXp: 0,
         costWealth: 0,
         payload: { tempId, itemData: item.toObject() },
@@ -635,13 +640,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
 
       const xpCost = Math.max(0, _asNumber(validation.xpCost, 0));
       if (xpCost > _asNumber(derived?.xp, 0)) {
-        ui.notifications?.warn?.(`Not enough XP. Required ${xpCost}, available ${_asNumber(derived?.xp, 0)}.`);
+        ui.notifications?.warn?.(tf("UESRPG.Notifications.SpendXp.NotEnoughXp", { required: xpCost, available: _asNumber(derived?.xp, 0) }));
         return;
       }
 
       await this.#stageOperation({
         kind: "talentLearn",
-        label: `Learn talent: ${item.name}`,
+        label: tf("UESRPG.Dialogs.SpendXp.LearnTalentLabel", { name: item.name }),
         costXp: xpCost,
         costWealth: 0,
         payload: { itemData: item.toObject(), mode },
@@ -661,18 +666,18 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
         : `${spellType === "unconventional" ? "Unconventional" : "Conventional"} (XP ${costs.xpCost})`;
 
       if (!xpValidation.ok && !drakesValidation.ok) {
-        ui.notifications?.warn?.(xpValidation.reason || drakesValidation.reason || "Spell learning blocked.");
+        ui.notifications?.warn?.(xpValidation.reason || drakesValidation.reason || t("UESRPG.Notifications.SpendXp.SpellLearningBlocked"));
         return;
       }
 
       const answer = await customDialog({
-        title: `Stage Spell Learn: ${item.name}`,
-        content: `<div style="display:flex; flex-direction:column; gap:8px;"><p style="margin:0;">Type: <b>${spellType}</b> | Level <b>${costs.level}</b>.</p><p style="margin:0;">Choose payment mode for staged purchase.</p></div>`,
-        buttons: {
-          ...(xpValidation.ok ? { xp: { label: xpLabel } } : {}),
-          ...(drakesValidation.ok ? { drakes: { label: `Learn (${costs.drakesCost} Drakes)` } } : {}),
-          cancel: { label: "Cancel" },
-        },
+      title: tf("UESRPG.Dialogs.SpendXp.StageSpellLearnTitle", { name: item.name }),
+      content: `<div style="display:flex; flex-direction:column; gap:8px;"><p style="margin:0;">${tf("UESRPG.Dialogs.SpendXp.StageSpellLearnInfo", { type: spellType, level: costs.level })}</p><p style="margin:0;">${t("UESRPG.Dialogs.SpendXp.ChoosePaymentMode")}</p></div>`,
+      buttons: {
+        ...(xpValidation.ok ? { xp: { label: xpLabel } } : {}),
+        ...(drakesValidation.ok ? { drakes: { label: tf("UESRPG.Dialogs.SpendXp.LearnDrakesLabel", { cost: costs.drakesCost }) } } : {}),
+        cancel: { label: t("UESRPG.UI.Cancel") },
+      },
         default: xpValidation.ok ? "xp" : "drakes",
       });
 
@@ -680,13 +685,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       const paymentMode = answer === "drakes" ? "drakes" : "xp";
       const validation = validateSpellLearningPurchase(actorMock, item, paymentMode, { knownSpellIndex });
       if (!validation.ok) {
-        ui.notifications?.warn?.(validation.reason ?? "Spell learning blocked.");
+        ui.notifications?.warn?.(validation.reason ?? t("UESRPG.Notifications.SpendXp.SpellLearningBlocked"));
         return;
       }
 
       await this.#stageOperation({
         kind: "spellLearn",
-        label: `Learn spell: ${item.name} (${paymentMode.toUpperCase()})`,
+        label: tf("UESRPG.Dialogs.SpendXp.LearnSpellLabel", { name: item.name, paymentMode: paymentMode.toUpperCase() }),
         costXp: paymentMode === "xp" ? _asNumber(validation.costs?.xpCost, 0) : 0,
         costWealth: paymentMode === "drakes" ? _asNumber(validation.costs?.drakesCost, 0) : 0,
         payload: { itemData: item.toObject(), paymentMode },
@@ -694,7 +699,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       return;
     }
 
-    ui.notifications?.warn?.(`Unsupported drop type: ${item.type}`);
+    ui.notifications?.warn?.(tf("UESRPG.Notifications.SpendXp.UnsupportedDropType", { type: item.type }));
   }
 
   _onCloseClick(event) {
@@ -736,7 +741,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     event?.preventDefault?.();
     const itemRef = String(target?.dataset?.itemId ?? "").trim();
     if (!itemRef || itemRef.startsWith("temp:")) {
-      ui.notifications?.info?.("This item is staged and not yet created.");
+      ui.notifications?.info?.(t("UESRPG.Notifications.SpendXp.StagedItemNotCreated"));
       return;
     }
     const itemId = itemRef.startsWith("id:") ? itemRef.slice(3) : itemRef;
@@ -751,7 +756,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const key = String(select?.value ?? "").trim().toLowerCase();
     if (key) this.#selectedCharacteristic = key;
     if (!key || key === "lck") {
-      ui.notifications?.warn?.("Luck cannot be advanced in this menu.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpendXp.LuckCannotAdvance"));
       return;
     }
 
@@ -765,13 +770,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const xpCost = discountCostIfFavored(baseCost, favored);
     const currentXp = _asNumber(derived?.xp, 0);
     if (xpCost > currentXp) {
-      ui.notifications?.warn?.(`Not enough XP. Required ${xpCost}, available ${currentXp}.`);
+      ui.notifications?.warn?.(tf("UESRPG.Notifications.SpendXp.NotEnoughXp", { required: xpCost, available: currentXp }));
       return;
     }
 
     await this.#stageOperation({
       kind: "characteristicAdvance",
-      label: `Advance ${_chaLabel(key)} (+1)`,
+      label: tf("UESRPG.Dialogs.SpendXp.AdvanceCharacteristicLabel", { key: _chaLabel(key) }),
       costXp: xpCost,
       costWealth: 0,
       payload: { key, favored, baseCost, bonus },
@@ -787,14 +792,14 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const currentRank = normalizeRank(skill.system?.rank);
     const nextRank = _nextRank(currentRank);
     if (!nextRank) {
-      ui.notifications?.warn?.("Rank is already at maximum.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpendXp.RankAtMaximum"));
       return;
     }
     if (!this.#rankGateOverride) {
       const xpTotal = _asNumber(this.#draftDerived?.xpTotal, 0);
       const maxIdx = getMaxPurchasableRankIndexFromXpTotal(xpTotal);
       if (SKILL_RANK_ORDER.indexOf(nextRank) > maxIdx) {
-        ui.notifications?.warn?.(`Total XP gating blocks rank ${nextRank}. Enable override to bypass.`);
+        ui.notifications?.warn?.(tf("UESRPG.Notifications.SpendXp.TotalXpGatesRank", { rank: nextRank }));
         return;
       }
     }
@@ -802,13 +807,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const flatData = { "system.rank": nextRank };
     const plan = this.#planSkillChange(skill, flatData, this.#draftDerived);
     if (!plan.ok) {
-      ui.notifications?.warn?.(plan.reason ?? "Unable to stage rank advance.");
+      ui.notifications?.warn?.(plan.reason ?? t("UESRPG.Notifications.SpendXp.UnableStageRank"));
       return;
     }
 
     await this.#stageOperation({
       kind: "skillRankAdvance",
-      label: `${skill.name}: ${currentRank} -> ${nextRank}`,
+      label: tf("UESRPG.Dialogs.SpendXp.AdvanceRankLabel", { name: skill.name, current: currentRank, next: nextRank }),
       costXp: _asNumber(plan.xpCost, 0),
       costWealth: 0,
       payload: { itemRef: skill.key, flatData },
@@ -826,7 +831,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const skill = this.#getProjectedSkill(String(target?.dataset?.itemId ?? ""));
     if (!skill) return;
     if (!["skill", "magicSkill"].includes(skill.type)) {
-      ui.notifications?.warn?.("Specializations are only supported for skills and magic skills.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpendXp.SpecializationsOnlySkills"));
       return;
     }
 
@@ -836,20 +841,20 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     if (!spec) return;
     const specs = parseSpecializations(skill.system?.trainedItems ?? "");
     if (specs.some((s) => s.toLowerCase() === spec.toLowerCase())) {
-      ui.notifications?.warn?.("Specialization already exists.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpendXp.SpecializationExists"));
       return;
     }
 
     const flatData = { "system.trainedItems": [...specs, spec].join(", ") };
     const plan = this.#planSkillChange(skill, flatData, this.#draftDerived);
     if (!plan.ok) {
-      ui.notifications?.warn?.(plan.reason ?? "Unable to stage specialization.");
+      ui.notifications?.warn?.(plan.reason ?? t("UESRPG.Notifications.SpendXp.UnableStageSpecialization"));
       return;
     }
 
     await this.#stageOperation({
       kind: "skillAddSpec",
-      label: `${skill.name}: Add specialization "${spec}"`,
+      label: tf("UESRPG.Dialogs.SpendXp.AddSpecializationLabel", { name: skill.name, spec }),
       costXp: _asNumber(plan.xpCost, 0),
       costWealth: 0,
       payload: { itemRef: skill.key, flatData },
@@ -868,14 +873,14 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
 
     const current = Array.isArray(skill.system?.trainedEquipment) ? [...skill.system.trainedEquipment] : [];
     if (current.some((v) => String(v ?? "").trim().toLowerCase() === equipmentLabel.toLowerCase())) {
-      ui.notifications?.warn?.("That equipment entry already exists.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.SpendXp.EquipmentEntryExists"));
       return;
     }
     if (current.length < 10) current.push(equipmentLabel);
     else {
       const idx = current.findIndex((v) => !String(v ?? "").trim());
       if (idx === -1) {
-        ui.notifications?.warn?.("Combat Style trained equipment is capped at 10 entries.");
+        ui.notifications?.warn?.(t("UESRPG.Notifications.SpendXp.CombatStyleEquipmentCapped"));
         return;
       }
       current[idx] = equipmentLabel;
@@ -884,13 +889,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const flatData = { "system.trainedEquipment": current };
     const plan = this.#planSkillChange(skill, flatData, this.#draftDerived);
     if (!plan.ok) {
-      ui.notifications?.warn?.(plan.reason ?? "Unable to stage equipment entry.");
+      ui.notifications?.warn?.(plan.reason ?? t("UESRPG.Notifications.SpendXp.UnableStageEquipment"));
       return;
     }
 
     await this.#stageOperation({
       kind: "combatStyleAddEquipment",
-      label: `${skill.name}: Add trained equipment "${equipmentLabel}"`,
+      label: tf("UESRPG.Dialogs.SpendXp.AddEquipmentLabel", { name: skill.name, equipment: equipmentLabel }),
       costXp: _asNumber(plan.xpCost, 0),
       costWealth: 0,
       payload: { itemRef: skill.key, flatData },
@@ -908,10 +913,10 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     event?.preventDefault?.();
     if (!this.#dirty) return;
     const yes = await confirmDialog({
-      title: "Discard Staged Purchases",
-      content: "<p>Discard all staged purchases?</p>",
-      yesLabel: "Discard",
-      noLabel: "Cancel",
+      title: t("UESRPG.Dialogs.SpendXp.DiscardStagedTitle"),
+      content: `<p>${t("UESRPG.Dialogs.SpendXp.DiscardStagedContent")}</p>`,
+      yesLabel: t("UESRPG.UI.Discard"),
+      noLabel: t("UESRPG.UI.Cancel"),
     });
     if (!yes) return;
     await this.#clearDraft();
@@ -920,15 +925,15 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   async _onConfirmDraft(event, _target) {
     event?.preventDefault?.();
     if (!this.#draftEntries.length) {
-      ui.notifications?.info?.("No staged purchases to confirm.");
+      ui.notifications?.info?.(t("UESRPG.Notifications.SpendXp.NoStagedPurchases"));
       return;
     }
     const out = await this.#finalizeDraft();
     if (!out.ok) {
-      ui.notifications?.error?.(out.reason ?? "Failed to confirm staged purchases.");
+      ui.notifications?.error?.(out.reason ?? t("UESRPG.Notifications.SpendXp.ConfirmFailed"));
       return;
     }
-    ui.notifications?.info?.(`Confirmed ${out.applied} staged purchase(s).`);
+    ui.notifications?.info?.(tf("UESRPG.Notifications.SpendXp.ConfirmedPurchases", { count: out.applied }));
     await this.render();
   }
 
@@ -984,4 +989,3 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     this.#dropZonesBound = true;
   }
 }
-

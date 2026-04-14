@@ -18,6 +18,8 @@ import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
+import { buildEffectChangesData } from "../../../utils/compat.js";
+import { getCoreRollMode } from "../../../utils/chat-roll-mode.js";
 import { customDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
@@ -61,6 +63,7 @@ import { buildSocialDisplay } from "../../../core/social/social-data.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
+import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { enableResizeMotionGuard, disableResizeMotionGuard } from "./shared/resize-motion-guard.js";
 import { annotateEncumbranceHighlights, openEncumbranceBreakdownDialog } from "./shared/encumbrance-ui.js";
 import { openItemRowQuickMenu, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
@@ -122,6 +125,8 @@ import {
   partRendered,
   queueRenderParts,
   renderedPartsSet,
+  localizeSheetChoiceLabels,
+  resolveCarryRatingDisplayLabel,
   resolveWeaponDistanceHeaderLabel,
   traceSheetPerf,
   traceSheetPerfPhase,
@@ -613,8 +618,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       context.limited = actor.limited;
       context.cssClass = this.isEditable ? "editable" : "locked";
       context.options = { editable: this.isEditable };
-      context.sizeOptions = ACTOR_SIZE_LABELS;
-      context.armorClassOptions = ACTOR_ARMOR_CLASS_LABELS;
+      context.sizeOptions = localizeSheetChoiceLabels(ACTOR_SIZE_LABELS, "UESRPG.Choices.ActorSizes");
+      context.armorClassOptions = localizeSheetChoiceLabels(ACTOR_ARMOR_CLASS_LABELS, "UESRPG.Choices.ActorArmorClasses");
+      context.carryRatingLabel = resolveCarryRatingDisplayLabel(context.actor.system?.carry_rating);
       context.supplyOptions = SUPPLY_DICE_LABELS;
       context.skillRankOptions = TRAINING_RANK_LABELS;
 
@@ -1132,8 +1138,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (!this.isEditable) return;
 
     const current = String(this.document?.img ?? "");
-    const picker = new FilePicker({
-      type: "imagevideo",
+    const picker = createImageVideoFilePicker({
       current,
       callback: async (path) => {
         if (!path || path === current) return;
@@ -1717,7 +1722,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
       </div>`;
 
-    const rollMode = game.settings.get("core", "rollMode");
+    const rollMode = getCoreRollMode();
 
     const skillTest = {
       actorUuid: this.document.uuid,
@@ -1997,10 +2002,10 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       const effectData = {
         name: "New Effect",
         img: "icons/svg/aura.svg",
-        changes: [],
         disabled: false,
         transfer: false,
         duration: {},
+        ...buildEffectChangesData([]),
       };
       const created = await requestCreateEmbeddedDocuments(this.document, "ActiveEffect", [effectData]);
       const eff = created?.[0] ?? null;

@@ -25,6 +25,7 @@ import {
   resolveAlchemyEffectDescriptor,
 } from "../../../core/alchemy/workflow.js";
 import { resolveDroppedItem } from "../../../utils/drop-data.js";
+import { t, tf } from "../../../utils/i18n.js";
 
 const MAX_SLOTS = 3;
 const TEMPLATE_PATH = templatePath("v2/apps/alchemy-workshop.hbs");
@@ -134,9 +135,9 @@ function _getStoredTrialBonus(actor, recipe) {
 }
 
 function _formatDurationLabel(duration) {
-  if (!duration) return "Instant";
+  if (!duration) return t("UESRPG.Dialogs.AlchemyWorkshop.Instant");
   const unit = String(duration.unit ?? "").trim();
-  if (!unit || unit === "instant") return "Instant";
+  if (!unit || unit === "instant") return t("UESRPG.Dialogs.AlchemyWorkshop.Instant");
   return `${Number(duration.value ?? 0)} ${unit}`;
 }
 
@@ -200,7 +201,7 @@ function _buildCurrentEffectDetail(actor, ingredient, slot, mode = "potion") {
 }
 
 function _findViableSpellLevel(actor, ingredient, spellEntry) {
-  if (!ingredient || !spellEntry) return { ok: false, reason: "Choose an ingredient first." };
+  if (!ingredient || !spellEntry) return { ok: false, reason: t("UESRPG.Notifications.Alchemy.ChooseIngredientFirst") };
 
   const levels = Array.isArray(spellEntry.levelOptions) && spellEntry.levelOptions.length
     ? spellEntry.levelOptions
@@ -220,11 +221,11 @@ function _findViableSpellLevel(actor, ingredient, spellEntry) {
     if (!descriptor) continue;
     if (!firstDescriptor) firstDescriptor = descriptor;
     if (descriptor.compatible === false || !descriptor.directPayload) {
-      invalidReason = descriptor.invalidReason || invalidReason || "That spell cannot be serialized into a direct alchemy effect.";
+      invalidReason = descriptor.invalidReason || invalidReason || t("UESRPG.Notifications.Alchemy.SpellCannotSerialize");
       continue;
     }
     if (String(descriptor.school ?? "").toLowerCase() !== String(ingredient.school ?? "").toLowerCase()) {
-      mismatchReason = `${descriptor.effectLabel || spellEntry.label || "That effect"} requires a ${String(descriptor.school ?? "matching").toLowerCase()} ingredient.`;
+      mismatchReason = tf("UESRPG.Notifications.Alchemy.RequiresIngredientSchool", { effect: descriptor.effectLabel || spellEntry.label || t("UESRPG.Dialogs.AlchemyWorkshop.ThatEffect"), school: String(descriptor.school ?? t("UESRPG.Dialogs.AlchemyWorkshop.Matching")).toLowerCase() });
       continue;
     }
     if (Array.isArray(descriptor.levelOptions) && descriptor.levelOptions.length && !descriptor.levelOptions.includes(spellLevel)) continue;
@@ -243,10 +244,12 @@ function _findViableSpellLevel(actor, ingredient, spellEntry) {
   if (cheapestLevel > ingredient.depthBase) {
     return { ok: false, reason: `Minimum SL ${cheapestLevel} exceeds depth ${ingredient.depthBase}.` };
   }
-  return { ok: false, reason: "No valid spell level for this ingredient." };
+    return { ok: false, reason: t("UESRPG.Notifications.Alchemy.NoValidSpellLevel") };
 }
 
 export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
+  static #openByActor = new Map();
+
   static DEFAULT_OPTIONS = {
     id: "alchemy-workshop",
     classes: ["uesrpg", "alchemy-workshop"],
@@ -254,7 +257,6 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     position: { width: 760, height: "auto" },
     window: {
       resizable: true,
-      title: "Alchemy Workshop",
     },
     form: {
       submitOnChange: false,
@@ -270,6 +272,36 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     workshop: { template: TEMPLATE_PATH },
   };
 
+  static getOpenInstance(actorUuid = "") {
+    return this.#openByActor.get(String(actorUuid ?? "").trim()) ?? null;
+  }
+
+  static findOpenInstance(predicate = null) {
+    const matcher = typeof predicate === "function" ? predicate : () => true;
+    for (const app of this.#openByActor.values()) {
+      if (app?.rendered && matcher(app)) return app;
+    }
+    return null;
+  }
+
+  static async prompt({ actorUuid = null, mode = "potion" } = {}) {
+    const key = String(actorUuid ?? "").trim();
+    if (key) {
+      const existing = this.getOpenInstance(key);
+      if (existing?.rendered) {
+        existing._ws = _defaultState(mode);
+        await existing.render(true);
+        existing.bringToTop?.();
+        return existing;
+      }
+    }
+
+    const app = new AlchemyWorkshopAppV2({ actorUuid, mode });
+    if (key) this.#openByActor.set(key, app);
+    await app.render(true);
+    return app;
+  }
+
   constructor(options = {}) {
     super(options);
     this._actorUuid = options.actorUuid ?? null;
@@ -278,10 +310,20 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     this._boundTray = false;
   }
 
+  get title() {
+    return t("UESRPG.Dialogs.AlchemyWorkshop.Title", "Alchemy Workshop");
+  }
+
+  async close(options = {}) {
+    const key = String(this._actorUuid ?? "").trim();
+    if (key) AlchemyWorkshopAppV2.#openByActor.delete(key);
+    return super.close(options);
+  }
+
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
     const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
-    if (!actor) return { ...context, error: "Actor not found." };
+    if (!actor) return { ...context, error: t("UESRPG.Notifications.Alchemy.ActorNotFound") };
 
     const ws = this._ws;
     const skill = getAlchemySkill(actor);
@@ -329,7 +371,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
         ingredient,
         currentEffectDetail,
         missingEffectLabel: slot.spellUuid && !currentEffectDetail
-          ? String(knownEffect?.label ?? "Selected effect no longer resolves")
+          ? String(knownEffect?.label ?? t("UESRPG.Notifications.Alchemy.SelectedEffectUnresolved"))
           : "",
       };
     });
@@ -383,7 +425,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
       qualityTiers: Object.entries(QUALITY_TIERS).map(([key, value]) => ({ key, ...value })),
       maxSlots: MAX_SLOTS,
       hasBlockingErrors: (validation.errors?.length ?? 0) > 0,
-      hardError: skillSnapshot.found ? null : "No valid Alchemy skill found on the acting character.",
+      hardError: skillSnapshot.found ? null : t("UESRPG.Notifications.Alchemy.NoValidSkill"),
     };
   }
 
@@ -517,7 +559,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
   async _handleDroppedSpell(event, slotIdx) {
     const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
     if (!actor) {
-      ui.notifications.error("UESRPG | Alchemy Workshop: Actor not found.");
+      ui.notifications.error(t("UESRPG.Notifications.Alchemy.ActorNotFound"));
       return;
     }
 
@@ -526,34 +568,34 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
 
     const spell = await resolveDroppedItem(dropData);
     if (!spell || spell.type !== "spell") {
-      ui.notifications.warn("Drop a spell item into the slot.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.DropSpellIntoSlot"));
       return;
     }
 
     if (spell.pack) {
-      ui.notifications.warn("Compendium spells are not supported here. Use an actor-owned spell or a world spell item.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.CompendiumSpellsUnsupported"));
       return;
     }
 
     if (String(spell.parent?.documentName ?? "") === "Actor" && String(spell.parent.uuid ?? "") !== String(actor.uuid ?? "")) {
-      ui.notifications.warn("Only spells owned by this actor or world spell items can be used.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.OnlyActorOrWorldSpells"));
       return;
     }
 
     if (String(spell.parent?.documentName ?? "") && String(spell.parent?.documentName ?? "") !== "Actor") {
-      ui.notifications.warn("That drop source is not supported for alchemy.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.DropSourceUnsupported"));
       return;
     }
 
     const slot = _cloneSlot(this._ws.slots[slotIdx]);
     if (!slot.ingredientId) {
-      ui.notifications.warn("Choose an ingredient for the slot before dropping a spell.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.ChooseIngredientBeforeSpell"));
       return;
     }
 
     const ingredientItem = actor.items.get(slot.ingredientId);
     if (!ingredientItem) {
-      ui.notifications.warn("That ingredient could not be found on the actor.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.IngredientMissingOnActor"));
       return;
     }
 
@@ -565,13 +607,13 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     };
 
     if (this._ws.slots.some((otherSlot, idx) => idx !== slotIdx && String(otherSlot?.spellUuid ?? "") === String(spell.uuid ?? ""))) {
-      ui.notifications.warn("Each spell effect may only be selected once per brew.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.EachSpellEffectOnce"));
       return;
     }
 
     const spellEntry = _buildSpellEntryFromDocument(actor, spell, this._ws.mode);
     if (!spellEntry) {
-      ui.notifications.warn("Only actor-owned spells for this actor or world spell items can be used.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.OnlyActorOrWorldSpells"));
       return;
     }
 
@@ -584,7 +626,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     if (!actor.flags?.["uesrpg-3ev4"]?.alchemy?.knownEffects?.some?.((entry) => String(entry?.spellUuid ?? "") === String(spell.uuid ?? ""))) {
       const learned = await addActorKnownAlchemyEffect(actor, spell);
       if (!learned?.ok) {
-        ui.notifications.warn(learned?.reason ?? "Could not add that spell to Known Effects.");
+        ui.notifications.warn(learned?.reason ?? t("UESRPG.Notifications.Alchemy.CouldNotAddKnownEffect"));
         return;
       }
     }
@@ -604,7 +646,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
   async _handleDroppedKnownEffect(event) {
     const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
     if (!actor) {
-      ui.notifications.error("UESRPG | Alchemy Workshop: Actor not found.");
+      ui.notifications.error(t("UESRPG.Notifications.Alchemy.ActorNotFound"));
       return;
     }
 
@@ -613,32 +655,32 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
 
     const spell = await resolveDroppedItem(dropData);
     if (!spell || spell.type !== "spell") {
-      ui.notifications.warn("Drop a spell item into Known Effects.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.DropSpellIntoKnownEffects"));
       return;
     }
 
     if (spell.pack) {
-      ui.notifications.warn("Compendium spells are not supported here. Drag an actor-owned spell or a world spell item.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.CompendiumSpellsKnownEffectsUnsupported"));
       return;
     }
 
     if (String(spell.parent?.documentName ?? "") === "Actor" && String(spell.parent.uuid ?? "") !== String(actor.uuid ?? "")) {
-      ui.notifications.warn("Only spells owned by this actor or world spell items can be added to Known Effects.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.OnlyActorOrWorldSpellsKnownEffects"));
       return;
     }
 
     if (String(spell.parent?.documentName ?? "") && String(spell.parent?.documentName ?? "") !== "Actor") {
-      ui.notifications.warn("That drop source is not supported for Known Effects.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.KnownEffectsDropSourceUnsupported"));
       return;
     }
 
     const result = await addActorKnownAlchemyEffect(actor, spell);
     if (!result?.ok) {
-      ui.notifications.warn(result?.reason ?? "Could not add that spell to Known Effects.");
+      ui.notifications.warn(result?.reason ?? t("UESRPG.Notifications.Alchemy.CouldNotAddKnownEffect"));
       return;
     }
 
-    if (result.added) ui.notifications.info(`${spell.name} added to Known Effects.`);
+    if (result.added) ui.notifications.info(tf("UESRPG.Notifications.Alchemy.AddedToKnownEffects", { spell: spell.name }));
     await this.render();
   }
 
@@ -700,13 +742,13 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
   static async _onCommit() {
     const actor = this._actorUuid ? await fromUuid(this._actorUuid) : null;
     if (!actor) {
-      ui.notifications.error("UESRPG | Alchemy Workshop: Actor not found.");
+      ui.notifications.error(t("UESRPG.Notifications.Alchemy.ActorNotFound"));
       return;
     }
 
     const skillSnapshot = getAlchemySkillSnapshot(actor);
     if (!skillSnapshot.found) {
-      ui.notifications.warn("This actor has no valid Alchemy skill entry.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NoValidSkill"));
       return;
     }
 
@@ -719,12 +761,12 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     const validation = validateBrewRecipe(actor, recipe);
 
     if ((validation.errors?.length ?? 0) > 0) {
-      ui.notifications.warn(`Cannot brew:\n- ${validation.errors.join("\n- ")}`);
+      ui.notifications.warn(`${t("UESRPG.Notifications.Alchemy.CannotBrew")}\n- ${validation.errors.join("\n- ")}`);
       return;
     }
 
     await createPendingBrewMessage(actor, recipe, { nothingVentured: this._ws.nothingVentured });
-    ui.notifications.info(`${actor.name}: Brew pending - roll Alchemy in chat.`);
+    ui.notifications.info(tf("UESRPG.Notifications.Alchemy.BrewPending", { actor: actor.name }));
     await this.close();
   }
 
@@ -739,7 +781,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     const school = this._ws.gatherSchool;
 
     if (!skillSnapshot.found) {
-      ui.notifications.warn("Actor has no valid Alchemy skill to roll.");
+      ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NoValidSkillToRoll"));
       return;
     }
 

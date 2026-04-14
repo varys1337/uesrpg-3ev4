@@ -1,12 +1,13 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
+import { localizeSettingConfig } from "../../../utils/i18n.js";
 
 function _reg(key, config) {
   if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
     console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
     return;
   }
-  game.settings.register(SYSTEM_ID, key, config);
+  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Combat", key, config));
 }
 
 export function registerCombatSettings() {
@@ -64,7 +65,7 @@ export function registerCombatSettings() {
 
   _reg("aoeOriginMeasurement", {
     name: "Combat: AoE Range Origin",
-    hint: "How to measure range from the caster to an AoE placement or spell target. 'Center': from token center (legacy). 'Nearest Edge': from the closest edge of the caster token. 'Match Token': use the Token Range Measurement setting.",
+    hint: "How to measure range from the caster to an AoE placement or spell target. 'Center': from token center. 'Nearest Edge': from the closest edge of the caster token on square/gridless scenes, with center fallback on hex grids. 'Match Token': use the Token Range Measurement setting.",
     scope: "world",
     config: false,
     default: "center",

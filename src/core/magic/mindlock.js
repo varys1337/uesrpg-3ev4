@@ -15,13 +15,13 @@
  *   applyMindlockEffects({…}) — create/link the Mindlock AE; idempotent
  *   initializeMindlockHook()  — register the castResolved listener once
  *
- * Target: Foundry VTT v13.351
  */
 
 import { registerLinkedEntity } from "./effects/origin-effect.js";
 import { requestCreateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { createDebugLogger } from "./_primitives.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
+import { buildEffectChange, buildEffectChangesData } from "../../utils/compat.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -85,14 +85,6 @@ export async function applyMindlockEffects({ caster, spell, originAE = null, con
     origin: spell.uuid,
     disabled: false,
     duration: originDuration,
-    changes: [
-      {
-        key: "system.modifiers.action_points.max",
-        mode: CONST.ACTIVE_EFFECT_MODES.ADD,
-        value: String(-mindlockValue),
-        priority: 20
-      }
-    ],
     flags: {
       [_FLAG_NS]: {
         spellEffect: true,
@@ -106,7 +98,15 @@ export async function applyMindlockEffects({ caster, spell, originAE = null, con
         stackRule: "override",
         source: "spell-mindlock"
       }
-    }
+    },
+    ...buildEffectChangesData([
+      buildEffectChange({
+        key: "system.modifiers.action_points.max",
+        type: "add",
+        value: String(-mindlockValue),
+        priority: 20
+      })
+    ])
   };
 
   try {

@@ -1,7 +1,7 @@
 import { collectApplicableEffects, getApplicableEffectsCached } from "./collect.js";
 import { createEvaluationMemo, effectMatchesContext } from "./conditions.js";
 import { getEffectChangePriority, isAddMode, isOverrideMode, toNumericEffectValue } from "./reducers.js";
-import { getEffectChanges } from "../../utils/compat.js";
+import { getEffectChanges, getEffectChangeTypeValue } from "../../utils/compat.js";
 
 /**
  * @typedef {object} AEEvaluateOptions
@@ -99,7 +99,7 @@ function _evaluateCore(actor, keys, options = {}) {
       const key = change?.key;
       if (!keySet.has(key)) continue;
 
-      const mode = change?.mode;
+      const mode = getEffectChangeTypeValue(change);
       const rawValue = change?.value;
 
       const numeric = toNumericEffectValue(rawValue);
@@ -163,7 +163,7 @@ function _evaluateCore(actor, keys, options = {}) {
         contributions.push({
           label: entry?.label ?? "Active Effect",
           value: n,
-          mode: "ADD",
+          mode: "add",
           effectId: entry?.effectId,
           effectUuid: entry?.effectUuid
         });
@@ -178,7 +178,7 @@ function _evaluateCore(actor, keys, options = {}) {
       contributions.push({
         label: entry?.label ?? "Active Effect",
         value: overrideTotal,
-        mode: "OVERRIDE",
+        mode: "override",
         priority: Number(bestOverride.priority) || 0,
         effectId: entry?.effectId,
         effectUuid: entry?.effectUuid

@@ -6,6 +6,7 @@
 
 import { SPECIAL_ACTIONS, SPECIAL_ACTIONS_BY_ID, getSpecialActionById } from "../config/special-actions.js";
 import { SYSTEM_ID } from "../constants.js";
+import { t, tf } from "../../utils/i18n.js";
 
 // Backward-compat re-exports: all callers that import from this module continue to work unchanged.
 export { SPECIAL_ACTIONS, SPECIAL_ACTIONS_BY_ID, getSpecialActionById } from "../config/special-actions.js";
@@ -105,6 +106,24 @@ export const SPECIAL_ACTION_TEST_OPTIONS = Object.freeze({
     defender: ["combatStyleUnarmed", "athletics", "evade"]
   }
 });
+
+export function localizeSpecialActionName(action) {
+  const id = String(action?.id ?? "").trim();
+  const fallback = String(action?.name ?? id ?? "").trim();
+  if (!id) return t("UESRPG.Sheets.Combat.SpecialAction", fallback || "Special Action");
+  return t(`UESRPG.Choices.SpecialActions.${id}`, fallback || id);
+}
+
+function _localizeSpecialActionTestOptionLabel(option) {
+  const key = String(option?.key ?? "").trim();
+  const fallback = String(option?.label ?? key ?? "").trim();
+  if (!key) return fallback;
+  return t(`UESRPG.Choices.SpecialActionTests.${key}`, fallback);
+}
+
+function _localizeProfessionSuffix(label) {
+  return tf("UESRPG.Choices.SpecialActionTests.ProfessionSuffix", { label }, `${label} (Profession)`);
+}
 
 export const NPC_KNOWN_FLAG = "npcSpecialActionsKnown";
 const ACTIVE_STYLE_FLAG = "activeCombatStyleId";
@@ -303,7 +322,7 @@ export function buildSpecialActionsForActor(actor, { styleUuidOrId = null, legac
     .filter((sa) => sa?.id !== "grapple")
     .map((sa) => ({
     id: sa.id,
-    name: sa.name,
+    name: localizeSpecialActionName(sa),
     actionType: sa.actionType,
     known: knownIds.has(sa.id),
   }));
@@ -329,6 +348,7 @@ export function buildSpecialActionTestChoicesForActor(actor, { specialActionId, 
   for (const key of optionKeys) {
     const opt = getSpecialActionTestOption(key);
     if (!opt) continue;
+    const optLabel = _localizeSpecialActionTestOptionLabel(opt);
 
     if (opt.kind === "combatStyle") {
       const styles = _listOwnedCombatStyles(actor);
@@ -343,7 +363,7 @@ export function buildSpecialActionTestChoicesForActor(actor, { specialActionId, 
           optionKey: key,
           testType: "combatStyle",
           skillUuid,
-          label: `${style.name} (${opt.label})`,
+          label: tf("UESRPG.Choices.SpecialActionTests.StyleOption", { style: style.name, option: optLabel }, `${style.name} (${optLabel})`),
           kind: "combatStyle"
         });
       }
@@ -357,7 +377,7 @@ export function buildSpecialActionTestChoicesForActor(actor, { specialActionId, 
             optionKey: key,
             testType: "combatProfession",
             skillUuid: profUuid,
-            label: "Combat (Profession)",
+            label: t("UESRPG.Choices.SpecialActionTests.CombatProfession", "Combat (Profession)"),
             kind: "profession"
           });
         }
@@ -374,7 +394,7 @@ export function buildSpecialActionTestChoicesForActor(actor, { specialActionId, 
           optionKey: key,
           testType: opt.skillName,
           skillUuid: skill.uuid,
-          label: opt.label,
+          label: optLabel,
           kind: "skill"
         });
         continue;
@@ -388,7 +408,7 @@ export function buildSpecialActionTestChoicesForActor(actor, { specialActionId, 
             optionKey: key,
             testType: opt.skillName,
             skillUuid: profUuid,
-            label: `${opt.label} (Profession)`,
+            label: _localizeProfessionSuffix(optLabel),
             kind: "profession"
           });
         }
@@ -483,7 +503,7 @@ function _buildCombatProfessionStyle(actor) {
     uuid: "prof:combat",
     id: "prof:combat",
     type: "combatStyle",
-    name: "Combat (Profession)",
+    name: t("UESRPG.Choices.SpecialActionTests.CombatProfession", "Combat (Profession)"),
     system: { value: base, bonus: 0, miscValue: 0 },
     _professionKey: "combat"
   };
@@ -496,7 +516,7 @@ function _buildStyleContext(actor, styleItem, { source, isProfessionFallback } =
   return {
     styleUuid,
     styleId: styleItem?.id ? String(styleItem.id) : null,
-    styleName: String(styleItem?.name ?? "Combat Style"),
+    styleName: String(styleItem?.name ?? t("UESRPG.Choices.SpecialActionTests.combatStyle", "Combat Style")),
     styleItem,
     base,
     isProfessionFallback: Boolean(isProfessionFallback),

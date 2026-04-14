@@ -27,7 +27,6 @@ import { normalizeSpellConfig } from "./spell-config.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { applyCondition } from "../conditions/condition-engine.js";
 import { _num, _strTrim as _str, createDebugLogger } from "./_primitives.js";
-import { applyRuntimePreRollToTN, applyRuntimePostRollToResult } from "../traits/features/rule-element-runtime.js";
 
 const _CHA_LABELS = {
   str: "Strength", end: "Endurance", agi: "Agility", int: "Intelligence",
@@ -176,38 +175,11 @@ export async function executeCharacteristicDefense(defender, spell, opts = {}) {
     ]
   };
 
-  applyRuntimePreRollToTN({
-    actor: defender,
-    targetActor: opts?.caster ?? null,
-    targetToken: opts?.targetToken ?? null,
-    item: spell,
-    rollContext: opts?.rollContext ?? null,
-    workflow: "magic",
-    side: "defender",
-    attackMode: "magic",
-    defenseType: "characteristic-save",
-    tn: tnData
-  });
-
   // Roll the defense test
   const result = await doTestRoll(defender, {
     target: Number(tnData?.finalTN ?? effectiveTN) || effectiveTN,
     allowLucky: true,
     allowUnlucky: true
-  });
-
-  await applyRuntimePostRollToResult({
-    actor: defender,
-    targetActor: opts?.caster ?? null,
-    targetToken: opts?.targetToken ?? null,
-    item: spell,
-    rollContext: opts?.rollContext ?? null,
-    workflow: "magic",
-    side: "defender",
-    attackMode: "magic",
-    defenseType: "characteristic-save",
-    result,
-    allowPrompt: true
   });
 
   // Post roll to chat (optional - disabled for opposed workflow integration)

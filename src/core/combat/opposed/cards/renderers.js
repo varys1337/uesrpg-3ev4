@@ -22,11 +22,12 @@ import { AttackTracker } from "../../attack-tracker.js";
 import { canAttackerRoll } from "../actions/eligibility.js";
 import { _resolveActor, _resolveActorViaToken } from "../helpers/docs.js";
 import { _isBankAutoRollInProgress } from "../banking/state.js";
+import { t } from "../../../../utils/i18n.js";
 
 function _attackerTestLabel(value) {
-  const raw = String(value ?? "Attack").trim();
+  const raw = String(value ?? t("UESRPG.Chat.Opposed.Attack", "Attack")).trim();
   const stripped = raw.replace(/^attack\s*-\s*/i, "").trim();
-  return _shortenTestLabel(stripped || "Attack");
+  return _shortenTestLabel(stripped || t("UESRPG.Chat.Opposed.Attack", "Attack"));
 }
 
 function _isHybridWarfareDefender(data, defender) {
@@ -51,7 +52,7 @@ function _shortenTestLabel(value) {
 
 function _getAttackerCommitGate(data) {
   const attacker = _resolveActorViaToken(data?.attacker?.actorUuid, data?.attacker?.tokenUuid);
-  if (!attacker) return { allowed: false, reason: "Attacker unavailable" };
+  if (!attacker) return { allowed: false, reason: t("UESRPG.Chat.Opposed.AttackerUnavailable", "Attacker unavailable") };
 
   const eligibility = canAttackerRoll(attacker, data?.context ?? {});
   if (!eligibility?.allowed) {
@@ -67,7 +68,7 @@ function _getAttackerCommitGate(data) {
   }
 
   if (AttackTracker.hasExceededLimit(attacker, { attackMode: String(data?.context?.attackMode ?? "").toLowerCase() })) {
-    return { allowed: false, reason: AttackTracker.getLimitWarning(attacker) || "Attack limit reached" };
+    return { allowed: false, reason: AttackTracker.getLimitWarning(attacker) || t("UESRPG.Chat.Opposed.AttackLimitReached", "Attack limit reached") };
   }
 
   return { allowed: true };
@@ -75,7 +76,7 @@ function _getAttackerCommitGate(data) {
 
 function _getDefenderCommitGate(defenderData) {
   const defender = _resolveActorViaToken(defenderData?.actorUuid, defenderData?.tokenUuid);
-  if (!defender) return { allowed: false, reason: "Defender unavailable" };
+  if (!defender) return { allowed: false, reason: t("UESRPG.Chat.Opposed.DefenderUnavailable", "Defender unavailable") };
   if (!game?.combat) return { allowed: true };
 
   const apCost = Number(defenderData?.apCost ?? 1) || 1;
@@ -92,7 +93,7 @@ function _renderAdvantageMarkers(data) {
   const visible = markers.filter((marker) => marker && typeof marker === "object");
   if (!visible.length) return "";
   return `<div style="margin-top:8px; display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
-    ${visible.map((marker) => `<div style="color:#1c8f45; font-size:12px; line-height:1.2;"><b>&#10003;</b> ${foundry.utils.escapeHTML(String(marker.label ?? "Advantage Resolved"))}</div>`).join("")}
+    ${visible.map((marker) => `<div style="color:#1c8f45; font-size:12px; line-height:1.2;"><b>&#10003;</b> ${foundry.utils.escapeHTML(String(marker.label ?? t("UESRPG.Chat.Opposed.AdvantageResolved", "Advantage Resolved")))}</div>`).join("")}
   </div>`;
 }
 
@@ -146,7 +147,7 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
     : (revealAttacker ? `${baseA}` : "??");
 
   const aVariantText = (revealAttacker && a.hasDeclared)
-    ? (a.variantLabel ?? "Attack")
+      ? (a.variantLabel ?? t("UESRPG.Chat.Opposed.Attack", "Attack"))
     : "??";
 
   const aRollLine = _renderRollLine({ result: a.result, noDefense: false });
@@ -180,10 +181,10 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
       : (d.noDefense ? "0" : (d.targetLabel ?? (d.target ?? "??")));
     const dTestLabel = (!revealDefender)
       ? "??"
-      : _shortenTestLabel(d.testLabel ?? "(choose)");
+      : _shortenTestLabel(d.testLabel ?? t("UESRPG.Chat.Common.Choose", "(choose)"));
     const dDefenseLabel = (!revealDefender)
       ? "??"
-      : (d.defenseLabel ?? d.label ?? "(choose)");
+      : (d.defenseLabel ?? d.label ?? t("UESRPG.Chat.Common.Choose", "(choose)"));
 
     const dRollLine = _renderRollLine({ result: d.result, noDefense: (d.noDefense === true) });
     const defenderCommitLine = _buildDefenderStatusLine({
@@ -254,12 +255,12 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
     return `
       <div style="padding:6px; border:1px solid rgba(0,0,0,0.12); border-radius:6px; max-width:100%; overflow:hidden; box-sizing:border-box;">
         <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
-          <div style="font-size:14px; font-weight:700; flex-shrink:0;">Defender</div>
+          <div style="font-size:14px; font-weight:700; flex-shrink:0;">${t("UESRPG.Chat.Opposed.Defender", "Defender")}</div>
           <div style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${d.tokenName ?? d.name}</b></div>
         </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Test:</b> ${dTestLabel}</div>
-          <div><b>Defense:</b> ${dDefenseLabel}</div>
+          <div><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${dTestLabel}</div>
+          <div><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefenseLabel}</div>
           ${_renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null })}
           ${dRollLine}
           ${defenderCommitLine}
@@ -283,8 +284,8 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
             <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${a.tokenName ?? a.name}</b></div>
           </div>
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-            <div><b>Test:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
-            <div><b>Attack:</b> ${aVariantText}</div>
+            <div><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
+            <div><b>${t("UESRPG.Chat.Opposed.Attack", "Attack")}:</b> ${aVariantText}</div>
             ${_renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null })}
             ${aRollLine}
             ${attackerCommitLine}
@@ -348,7 +349,7 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
     : (revealAttacker ? `${baseA}` : "??");
 
   const aVariantText = (revealAttacker && a.hasDeclared)
-    ? (a.variantLabel ?? "Attack")
+    ? (a.variantLabel ?? t("UESRPG.Chat.Opposed.Attack", "Attack"))
     : "??";
 
   const dTargetLabel = (!revealDefender)
@@ -357,11 +358,11 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
 
   const dTestLabel = (!revealDefender)
     ? "??"
-    : _shortenTestLabel(d.testLabel ?? "(choose)");
+    : _shortenTestLabel(d.testLabel ?? t("UESRPG.Chat.Common.Choose", "(choose)"));
 
   const dDefenseLabel = (!revealDefender)
     ? "??"
-    : (d.defenseLabel ?? d.label ?? "(choose)");
+    : (d.defenseLabel ?? d.label ?? t("UESRPG.Chat.Common.Choose", "(choose)"));
 
   // Roll summaries: use a single formatter for parity across banked and non-banked modes.
   const aRollLine = _renderRollLine({ result: a.result, noDefense: false });
@@ -452,8 +453,8 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
           <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${a.tokenName ?? a.name}</b></div>
         </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Test:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
-          <div><b>Attack:</b> ${aVariantText}</div>
+          <div><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
+          <div><b>${t("UESRPG.Chat.Opposed.Attack", "Attack")}:</b> ${aVariantText}</div>
           ${_renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null })}
           ${aRollLine}
           ${attackerCommitLine}
@@ -466,8 +467,8 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
           <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${d.tokenName ?? d.name}</b></div>
         </div>
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>Test:</b> ${dTestLabel}</div>
-          <div><b>Defense:</b> ${dDefenseLabel}</div>
+          <div><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${dTestLabel}</div>
+          <div><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefenseLabel}</div>
           ${_renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null })}
           ${dRollLine}
           ${defenderCommitLine}
