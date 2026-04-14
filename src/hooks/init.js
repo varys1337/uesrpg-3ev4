@@ -4,6 +4,7 @@ import { SimpleItem } from "../core/documents/item.js";
 import { registerPolyglotLanguages } from "../core/integrations/polyglot.js";
 
 import { preloadHandlebarsTemplates } from "./init/register-templates.js";
+import { preloadHandlebarsTemplatesOptimized } from "./init/register-templates-optimized.js";
 import { registerSettings } from "./init/register-settings.js";
 import { registerSheets } from "./init/register-sheets.js";
 import { registerHandlebarsHelpers } from "./init/register-handlebars.js";
@@ -17,8 +18,21 @@ import { registerDevTools } from "./init/register-devtools.js";
 import { registerFeatureHooks } from "./init/features/register-feature-hooks.js";
 import { registerCreateTypeGuards } from "./init/register-create-type-guards.js";
 import { registerAECacheInvalidation } from "./init/register-ae-cache-invalidation.js";
+import { registerItemPrepareCacheInvalidation } from "./init/register-item-prepare-cache-invalidation.js";
+import { registerMemoizationCacheInvalidation } from "./init/register-memoization-cache-invalidation.js";
 import { registerInCloseAutoPrune } from "./init/register-in-close-auto-prune.js";
 import { registerCoreSubsystems } from "./init/register-core-subsystems.js";
+import { registerHookThrottling } from "./init/register-hook-throttling.js";
+import { initializeHookThrottler } from "../utils/hook-throttler.js";
+import { initializeHookWrapper } from "../utils/hook-wrapper.js";
+import { initializeCanvasOptimization } from "../utils/canvas/canvas-optimization.js";
+import { initializeMemoryMonitoring } from "../utils/memory-monitor.js";
+
+// Combat optimization systems
+import { initializeCombatUpdateScheduler } from "../core/combat/optimization/combat-update-scheduler.js";
+import { registerInitiativeCacheInvalidation } from "../core/combat/optimization/initiative-cache.js";
+import { initializeCombatTrackerDOMOptimization } from "../ui/apps/combat-tracker-dom-optimizer.js";
+import { initializeCombatHookThrottling } from "../utils/combat-throttler.js";
 
 import { SystemCombat, getInitiativeTieBreakTuple } from "../core/documents/combat.js";
 import { registerCombatChatHandlers } from "../core/combat/chat-handlers/index.js";
@@ -147,9 +161,20 @@ export default async function initHandler() {
   CONFIG.Item.documentClass = SimpleItem;
 
   registerHandlebarsHelpers();
-  Hooks.once("setup", preloadHandlebarsTemplates);
-
+  
   await registerSettings();
+  
+  // Use optimized template loading if enabled, otherwise fallback to original
+  const useOptimizedTemplates = isAnyDebugEnabled(["perfDebug", "templateDebug"]) ||
+    game.settings.get(SYSTEM_ID, "templateOptimization") !== false;
+  
+  if (useOptimizedTemplates) {
+    Hooks.once("setup", preloadHandlebarsTemplatesOptimized);
+    console.debug("UESRPG | Using optimized template loading");
+  } else {
+    Hooks.once("setup", preloadHandlebarsTemplates);
+    console.debug("UESRPG | Using standard template loading");
+  }
   registerTypeDataModels();
   registerCreateTypeGuards();
   registerStaleEmbeddedDeleteSuppression();
@@ -191,7 +216,83 @@ export default async function initHandler() {
 
   registerInCloseAutoPrune();
   registerAECacheInvalidation();
+  registerItemPrepareCacheInvalidation();
+  registerMemoizationCacheInvalidation();
   registerCoreSubsystems();
+
+  // Initialize hook throttling system for performance optimization
+  try {
+    initializeHookThrottler({
+      enabled: true,
+      debug: isAnyDebugEnabled(["perfDebug", "hookDebug"])
+    });
+    initializeHookWrapper();
+    registerHookThrottling();
+    console.debug("UESRPG | Hook throttling system initialized");
+  } catch (err) {
+    console.warn("UESRPG | Failed to initialize hook throttling system", err);
+  }
+
+  // Initialize canvas optimization system for token performance
+  try {
+    initializeCanvasOptimization({
+      enabled: true,
+      debug: isAnyDebugEnabled(["perfDebug", "canvasDebug"])
+    });
+    console.debug("UESRPG | Canvas optimization system initialized");
+  } catch (err) {
+    console.warn("UESRPG | Failed to initialize canvas optimization system", err);
+  }
+
+  // Initialize memory monitoring system for leak detection
+  try {
+    initializeMemoryMonitoring({
+      enabled: true,
+      debug: isAnyDebugEnabled(["perfDebug", "memoryDebug"]),
+      warningThresholds: {
+        templateCache: 500,
+        memoizationCache: 1000,
+        tokenQueryCache: 500,
+        spatialIndexCache: 2000,
+        handlebarsHelperCache: 200,
+        sheetCache: 300,
+      }
+    });
+    console.debug("UESRPG | Memory monitoring system initialized");
+  } catch (err) {
+    console.warn("UESRPG | Failed to initialize memory monitoring system", err);
+  }
+
+  // Initialize combat optimization systems
+  // DISABLED: Combat optimizations causing issues with token actor initiative addition
+  // Re-enable by setting COMBAT_OPTIMIZATIONS_ENABLED = true
+  const COMBAT_OPTIMIZATIONS_ENABLED = false;
+  
+  if (COMBAT_OPTIMIZATIONS_ENABLED) {
+    try {
+      // Combat update scheduler for deferred non-critical updates
+      initializeCombatUpdateScheduler();
+      console.debug("UESRPG | Combat update scheduler initialized");
+      
+      // Initiative calculation cache
+      registerInitiativeCacheInvalidation();
+      console.debug("UESRPG | Initiative cache invalidation hooks registered");
+      
+      // Combat tracker DOM optimization
+      initializeCombatTrackerDOMOptimization();
+      console.debug("UESRPG | Combat tracker DOM optimization initialized");
+      
+      // Combat hook throttling
+      initializeCombatHookThrottling();
+      console.debug("UESRPG | Combat hook throttling initialized");
+      
+      console.info("UESRPG | Combat performance optimizations fully initialized");
+    } catch (err) {
+      console.warn("UESRPG | Failed to initialize combat optimization systems", err);
+    }
+  } else {
+    console.info("UESRPG | Combat performance optimizations DISABLED (token actor initiative issue)");
+  }
 
   if (isTypeDataModelsEnabled()) {
     console.info("UESRPG | TypeDataModel diagnostics", getTypeDataModelDiagnosticsReport());

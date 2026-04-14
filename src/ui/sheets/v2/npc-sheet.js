@@ -13,7 +13,7 @@
  * - Delegates to existing shared handler modules for rolls, combat, magic, & inventory.
  */
 
-import { prepareCharacterItems } from "../sheet-prepare-items.js";
+import { prepareCharacterItemsHybrid } from "../sheet-prepare-items-optimized.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
@@ -686,7 +686,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           context.items = buildActorSheetItems(actor);
 
           // This mutates `context.actor` with categorized buckets used by templates.
-          prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: true });
+          await prepareCharacterItemsHybrid(context, { includeSkills: false, includeMagicSkills: true });
 
           // Cache only the derived patch fields that prepareCharacterItems attaches.
           const ui = context.actor.ui ?? {};

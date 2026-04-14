@@ -10,7 +10,7 @@
  * - Explicit AppV2 form pipeline for deterministic minimal actor updates
  */
 
-import { prepareCharacterItems } from "../sheet-prepare-items.js";
+import { prepareCharacterItemsHybrid } from "../sheet-prepare-items-optimized.js";
 import { collectSkillAEModifiers } from "../../../core/actors/ae/modifiers.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
@@ -523,7 +523,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
           this._traceSheetPerfPhase("items:cache-hit", perfItemsStart, { size: context.items.length });
         } else {
           context.items = buildActorSheetItems(actor);
-          prepareCharacterItems(context, { includeSkills: true, includeMagicSkills: true });
+          await prepareCharacterItemsHybrid(context, { includeSkills: true, includeMagicSkills: true });
           normalizeItemRanks(context.items);
 
           // Apply AE modifiers for custom skill items (non-persistent, sheet-only).

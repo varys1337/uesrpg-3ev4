@@ -90,6 +90,15 @@ export function registerDebugSettings() {
     default: false,
   });
 
+  _reg("templateDebug", {
+    name: "Template Optimization Debug",
+    hint: "Log template compilation caching and rendering performance diagnostics.",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
   _reg("timePerformanceDebug", {
     name: "Time/Combat: Round-Boundary Performance Recording",
     hint: "Record structured timing events for round-boundary phases: TimeService fan-out, spell tick dispatch, OverTime collect/process, turn-ticker sub-phases, and authority-proxy write counts. Access results via game.uesrpg.perf. Independent of the debug master gate.",

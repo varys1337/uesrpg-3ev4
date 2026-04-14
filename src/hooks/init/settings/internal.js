@@ -59,4 +59,14 @@ export function registerInternalSettings() {
     default: false,
     type: Boolean,
   });
+
+  // Template optimization setting
+  _reg("templateOptimization", {
+    name: "Template Optimization",
+    hint: "Enables template compilation caching and optimization for improved performance.",
+    scope: "world",
+    config: false,
+    default: true,
+    type: Boolean,
+  });
 }

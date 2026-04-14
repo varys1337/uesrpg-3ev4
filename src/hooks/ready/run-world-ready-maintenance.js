@@ -129,17 +129,14 @@ async function runStartupAuditIfEnabled() {
 }
 
 export async function runWorldReadyMaintenance() {
+  // Critical path - must complete before world is usable
   await ensureWorldVersionStamp();
   await migrateTimeDefaultsSafely();
-  await startupHandler();
   initSettingsCache();
-  await runTokenHudStatusUpgradeMaintenance();
-
-  try {
-    initializePerfApi();
-  } catch (err) {
-    console.warn("UESRPG | Failed to initialize perf API", err);
-  }
-
-  await runStartupAuditIfEnabled();
+  
+  // Deferrable tasks are now scheduled via registerSystemDeferredTasks()
+  // They will run after the critical path completes
 }
+
+// Keep the audit function export for deferred scheduling
+export { runStartupAuditIfEnabled };

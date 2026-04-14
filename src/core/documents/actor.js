@@ -146,7 +146,8 @@ export class SimpleActor extends Actor {
   prepareBaseData() {
     // Ensure minimum scaffolding before base prep to tolerate partial/corrupt actor payloads.
     this._ensureSystemData();
-    invalidateActorDerivedCache(this, { lanes: ["prepare"] });
+    // Prepare-lane invalidation is now handled by targeted hooks (Patch 1)
+    // This allows prepare-context to persist across renders until relevant changes occur
     super.prepareBaseData();
   }
 

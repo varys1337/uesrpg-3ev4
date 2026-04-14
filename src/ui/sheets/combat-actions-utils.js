@@ -29,6 +29,7 @@
 import { ActionEconomy } from "../../core/combat/action-economy.js";
 import { isShieldItem } from "../../core/items/shield-utils.js";
 import { t } from "../../utils/i18n.js";
+import { getTokensByActorId } from "../../utils/canvas/token-query.js";
 export function buildCombatQuickContext(actorData) {
   const combatStyleName = (actorData?.combatStyle?.[0]?.name) ?? null;
 
@@ -103,9 +104,17 @@ export function resolveTokenForActor(actor) {
   const controlledMatch = controlled.find(t => t?.actor?.id === actor.id) ?? null;
   if (controlledMatch) return controlledMatch;
 
-  const placeables = Array.isArray(canvas.tokens.placeables) ? canvas.tokens.placeables : [];
-  const owned = placeables.find(t => t?.actor?.id === actor.id && t.isOwner) ?? null;
-  return owned;
+  try {
+    const tokens = getTokensByActorId(actor.id);
+    const owned = tokens.find(t => t.isOwner) ?? null;
+    return owned;
+  } catch (err) {
+    // Fallback to direct iteration if token query fails
+    console.debug("UESRPG | Token query failed, falling back to direct iteration", err);
+    const placeables = Array.isArray(canvas.tokens.placeables) ? canvas.tokens.placeables : [];
+    const owned = placeables.find(t => t?.actor?.id === actor.id && t.isOwner) ?? null;
+    return owned;
+  }
 }
 
 /**
@@ -130,11 +139,19 @@ export function resolveRangeGatedTokenForActor(actor) {
   const controlledMatch = controlled.find(t => t?.actor?.id === actor.id) ?? null;
   if (controlledMatch) return controlledMatch;
 
-  const placeables = Array.isArray(canvas.tokens.placeables) ? canvas.tokens.placeables : [];
-  const owned = placeables.filter(t => t?.actor?.id === actor.id && t.isOwner);
-  if (owned.length === 1) return owned[0] ?? null;
-
-  return null;
+  try {
+    const tokens = getTokensByActorId(actor.id);
+    const owned = tokens.filter(t => t.isOwner);
+    if (owned.length === 1) return owned[0] ?? null;
+    return null;
+  } catch (err) {
+    // Fallback to direct iteration if token query fails
+    console.debug("UESRPG | Token query failed, falling back to direct iteration", err);
+    const placeables = Array.isArray(canvas.tokens.placeables) ? canvas.tokens.placeables : [];
+    const owned = placeables.filter(t => t?.actor?.id === actor.id && t.isOwner);
+    if (owned.length === 1) return owned[0] ?? null;
+    return null;
+  }
 }
 
 

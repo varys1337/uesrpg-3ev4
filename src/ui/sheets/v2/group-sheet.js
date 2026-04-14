@@ -10,7 +10,7 @@
  * - Integrated container-safe item deletion (fixes V1 dual-handler race)
  */
 
-import { prepareCharacterItems } from "../sheet-prepare-items.js";
+import { prepareCharacterItemsHybrid } from "../sheet-prepare-items-optimized.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "../rest-workflow.js";
 import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding.js";
@@ -235,7 +235,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
           return obj;
         }),
       };
-      prepareCharacterItems(sheetData);
+      await prepareCharacterItemsHybrid(sheetData);
 
       context.gear = sheetData.actor.gear ?? { equipped: [], unequipped: [] };
       context.weapon = sheetData.actor.weapon ?? { equipped: [], unequipped: [] };

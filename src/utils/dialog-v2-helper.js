@@ -9,6 +9,7 @@
  */
 import { resolveDialogClasses } from "./dialog-v2/classes.js";
 import { renderWithDialogEnhancements as _renderWithEnhancements } from "./dialog-v2/enhancements.js";
+import { renderTemplate } from "./template-renderer.js";
 
 const DialogV2 = foundry.applications.api.DialogV2;
 
@@ -278,5 +279,5 @@ export async function customDialog({
  * @returns {Promise<string>} Rendered HTML string
  */
 export async function renderDialogContent(templatePath, data = {}) {
-  return foundry.applications.handlebars.renderTemplate(templatePath, data);
+  return renderTemplate(templatePath, data);
 }
