@@ -7,11 +7,8 @@ export * from "./rules.js";
 export * from "./rolls.js";
 export * from "./events.js";
 
-export function registerTravelApi() {
-  if (!game.uesrpg) game.uesrpg = {};
-  if (game.uesrpg.travel) return;
-
-  game.uesrpg.travel = {
+export function buildTravelApi() {
+  return {
     openPlanner: async (opts = {}) => {
       const { openTravelPlanner } = await import("../../macros/travel-planner.js");
       return openTravelPlanner(opts);
@@ -27,4 +24,8 @@ export function registerTravelApi() {
       return resetTravelPlannerState(group, { keepTables: opts?.keepTables !== false });
     },
   };
+}
+
+export function registerTravelApi() {
+  return buildTravelApi();
 }

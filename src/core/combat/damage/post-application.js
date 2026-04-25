@@ -84,3 +84,19 @@ export function dispatchDamageAppliedHook(
     else console.error(logPrefix, err);
   }
 }
+
+export function dispatchDamageLifecycleHook(
+  stage,
+  payload,
+  { logPrefix = "UESRPG | Damage lifecycle hook failed", logLevel = "warn" } = {}
+) {
+  const key = String(stage ?? "").trim();
+  if (!key) return;
+  try {
+    Hooks.callAll(`uesrpg.damage.${key}`, payload);
+  } catch (err) {
+    const logger = console?.[logLevel];
+    if (typeof logger === "function") logger(`${logPrefix}: ${key}`, err);
+    else console.warn(`${logPrefix}: ${key}`, err);
+  }
+}

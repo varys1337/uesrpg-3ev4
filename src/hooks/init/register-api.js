@@ -25,6 +25,7 @@ export function registerApi({
   getActionEligibility,
   CharOpposedWorkflow,
   runCombatLegacyReadinessScan,
+  automationPolicyApi,
   tokenActionHudApi,
   applicationApi,
 } = {}) {
@@ -49,6 +50,7 @@ export function registerApi({
     getActionEligibility,
     CharOpposedWorkflow,
     runCombatLegacyReadinessScan,
+    automationPolicyApi,
     tokenActionHudApi,
     applicationApi,
   });

@@ -197,6 +197,7 @@ export async function openItemRowQuickMenu(sheet, item, { anchorEl } = {}) {
     content,
     buttons,
     default: "open",
+    width: 560,
     classes: ["uesrpg-item-quickmenu-dialog"],
   });
 }

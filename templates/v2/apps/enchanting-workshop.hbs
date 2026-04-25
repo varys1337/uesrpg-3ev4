@@ -41,117 +41,120 @@
 <fieldset class="enchanting-section">
   <legend>Cast Enchantment — Stored Spell</legend>
 
-  {{!-- Item selector --}}
-  <div class="form-group">
-    <label>Item to Enchant</label>
-    <select name="targetItemUuid">
-      <option value="">-- Select Item --</option>
-      {{#each enchantableItems}}
-        <option value="{{id}}">{{name}} ({{type}}, EL {{el}}){{#if enchanted}} [already enchanted]{{/if}}</option>
-      {{/each}}
-    </select>
+  <div class="enchanting-summary-strip">
+    <div class="enchanting-summary-strip__card">
+      <span class="enchanting-summary-strip__label">Crafter</span>
+      <strong>{{workshopSummary.actorName}}</strong>
+    </div>
+    <div class="enchanting-summary-strip__card">
+      <span class="enchanting-summary-strip__label">Enchant Skill</span>
+      <strong>TN {{workshopSummary.enchantTN}} / Rank {{workshopSummary.enchantRank}}</strong>
+    </div>
+    <div class="enchanting-summary-strip__card">
+      <span class="enchanting-summary-strip__label">Soul Gems</span>
+      <strong>{{workshopSummary.gemCount}} available</strong>
+    </div>
+    <div class="enchanting-summary-strip__card">
+      <span class="enchanting-summary-strip__label">Pool Preview</span>
+      <strong>{{workshopSummary.poolRule}}</strong>
+    </div>
+    <div class="enchanting-summary-strip__card">
+      <span class="enchanting-summary-strip__label">Stored Slots</span>
+      <strong>{{workshopSummary.slotCount}}</strong>
+    </div>
   </div>
 
-  {{!-- Soul Gem selector --}}
-  <div class="form-group">
-    <label>Soul Gem</label>
-    <select name="gemUuid">
-      <option value="">-- Select Soul Gem --</option>
-      {{#each gemOptions}}
-        <option value="{{id}}">{{label}}</option>
-      {{/each}}
-    </select>
-    {{#unless gemOptions.length}}<p class="notes warning">No filled soul gems in inventory.</p>{{/unless}}
-  </div>
-
-  <hr>
-
-  {{!-- Spell Slot 0 (always shown) --}}
-  <fieldset class="spell-slot">
-    <legend>Spell Slot 1</legend>
-    <div class="form-group">
-      <label>Source</label>
-      <select name="spell_source_0">
-        <option value="conventional">Conventional (existing spell item)</option>
-        <option value="unconventional">Unconventional (custom blueprint)</option>
+  <div class="enchanting-cast-setup">
+    <label class="enchanting-cast-setup__field">
+      <span>Item to Enchant</span>
+      <select name="targetItemUuid">
+        <option value="">-- Select Item --</option>
+        {{#each enchantableItems}}
+          <option value="{{id}}">{{name}} ({{type}}, EL {{el}}){{#if enchanted}} [already enchanted]{{/if}}</option>
+        {{/each}}
       </select>
-    </div>
-    <div class="form-group">
-      <label>Label / Name</label>
-      <input type="text" name="spell_label_0" placeholder="e.g. Fireball">
-    </div>
-    <div class="form-group">
-      <label>Spell Level (1-7)</label>
-      <input type="number" name="spell_level_0" min="1" max="7" value="1">
-    </div>
-    <div class="form-group">
-      <label>Soul Energy Cost</label>
-      <input type="number" name="spell_cost_0" min="0" value="10" placeholder="0">
-    </div>
-    <div class="form-group">
-      <label>Spell UUID (conventional)</label>
-      <input type="text" name="spell_uuid_0" placeholder="Drag a spell here or paste UUID">
-    </div>
-    <div class="form-group">
-      <label>Attributes (comma-separated)</label>
-      <input type="text" name="spell_attributes_0" placeholder="e.g. upkeep, mindlock">
-    </div>
-  </fieldset>
+    </label>
 
-  {{!-- Spell Slots 1 and 2 (Manifold Enchanter only) --}}
-  {{#if hasManifold}}
-  <fieldset class="spell-slot">
-    <legend>Spell Slot 2 <em>(Manifold Enchanter)</em></legend>
-    <div class="form-group">
-      <label>Label / Name</label>
-      <input type="text" name="spell_label_1" placeholder="Leave empty to skip">
-    </div>
-    <div class="form-group">
-      <label>Spell Level (1-7)</label>
-      <input type="number" name="spell_level_1" min="0" max="7" value="0">
-    </div>
-    <div class="form-group">
-      <label>Soul Energy Cost</label>
-      <input type="number" name="spell_cost_1" min="0" value="0">
-    </div>
-    <div class="form-group">
-      <label>Spell UUID (optional)</label>
-      <input type="text" name="spell_uuid_1" placeholder="UUID or leave empty">
-    </div>
-    <div class="form-group">
-      <label>Attributes</label>
-      <input type="text" name="spell_attributes_1" placeholder="e.g. upkeep">
-    </div>
-  </fieldset>
+    <label class="enchanting-cast-setup__field">
+      <span>Soul Gem</span>
+      <select name="gemUuid">
+        <option value="">-- Select Soul Gem --</option>
+        {{#each gemOptions}}
+          <option value="{{id}}">{{label}}</option>
+        {{/each}}
+      </select>
+      {{#unless gemOptions.length}}<span class="u-text-muted u-text-xs">No filled soul gems in inventory.</span>{{/unless}}
+    </label>
+  </div>
 
-  <fieldset class="spell-slot">
-    <legend>Spell Slot 3 <em>(Manifold Enchanter)</em></legend>
-    <div class="form-group">
-      <label>Label / Name</label>
-      <input type="text" name="spell_label_2" placeholder="Leave empty to skip">
-    </div>
-    <div class="form-group">
-      <label>Spell Level (1-7)</label>
-      <input type="number" name="spell_level_2" min="0" max="7" value="0">
-    </div>
-    <div class="form-group">
-      <label>Soul Energy Cost</label>
-      <input type="number" name="spell_cost_2" min="0" value="0">
-    </div>
-    <div class="form-group">
-      <label>Spell UUID (optional)</label>
-      <input type="text" name="spell_uuid_2" placeholder="UUID or leave empty">
-    </div>
-    <div class="form-group">
-      <label>Attributes</label>
-      <input type="text" name="spell_attributes_2" placeholder="e.g. upkeep">
-    </div>
-  </fieldset>
-  {{/if}}
+  <div class="enchanting-cast-slots">
+    {{#each castSpellSlots as |slot|}}
+    <section class="enchanting-cast-slot">
+      <div class="enchanting-cast-slot__head">
+        <div>
+          <strong>Spell Slot {{slot.number}}</strong>
+          {{#if slot.isManifold}}<span class="u-text-muted u-text-xs">Manifold Enchanter</span>{{/if}}
+        </div>
+        <span class="uesrpg-tag uesrpg-tag--info">{{slot.availableSpellCount}} known spell{{#unless (eq slot.availableSpellCount 1)}}s{{/unless}}</span>
+      </div>
+
+      <div class="enchanting-cast-slot__grid">
+        <label class="enchanting-cast-slot__field">
+          <span>Source</span>
+          <select name="spell_source_{{slot.index}}">
+            <option value="conventional">Conventional</option>
+            <option value="unconventional">Unconventional</option>
+          </select>
+        </label>
+
+        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--wide">
+          <span>Stored Spell</span>
+          <select name="spell_select_uuid_{{slot.index}}">
+            <option value="">-- Select spell --</option>
+            {{#each slot.spellOptions as |option|}}
+              <option value="{{option.value}}">{{option.label}}</option>
+            {{/each}}
+          </select>
+          {{#unless slot.availableSpellCount}}
+          <span class="u-text-muted u-text-xs">No actor-owned spells available. Use Advanced to preserve a legacy UUID.</span>
+          {{/unless}}
+        </label>
+
+        <label class="enchanting-cast-slot__field">
+          <span>Label</span>
+          <input type="text" name="spell_label_{{slot.index}}" placeholder="e.g. Fireball">
+        </label>
+
+        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--number">
+          <span>Level</span>
+          <input type="number" name="spell_level_{{slot.index}}" min="0" max="7" value="{{slot.level}}">
+        </label>
+
+        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--number">
+          <span>Soul Energy Cost</span>
+          <input type="number" name="spell_cost_{{slot.index}}" min="0" value="{{slot.cost}}" placeholder="0">
+        </label>
+
+        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--wide">
+          <span>Attributes</span>
+          <input type="text" name="spell_attributes_{{slot.index}}" placeholder="e.g. upkeep, mindlock">
+        </label>
+      </div>
+
+      <details class="enchanting-cast-slot__advanced">
+        <summary>Advanced / Legacy UUID</summary>
+        <label class="enchanting-cast-slot__field enchanting-cast-slot__field--wide">
+          <span>Spell UUID</span>
+          <input type="text" name="spell_uuid_{{slot.index}}" placeholder="Actor.x.Item.y or Compendium.x.y">
+        </label>
+      </details>
+    </section>
+    {{/each}}
+  </div>
 
   <p class="notes">
-    RAW: One Enchant test per spell slot. Pool max = min(Item EL, Gem Soul Energy).
-    {{#if hasProcedural}}Procedural Enchanting: on success, you may choose DoS or Enchant rank as Binding Strength. The chat card will show both options.{{/if}}
+    RAW: One Enchant test per spell slot. {{workshopSummary.poolRule}}
+    {{#if hasProcedural}}Procedural Enchanting: on success, choose DoS or Enchant rank as Binding Strength.{{/if}}
     {{#if hasSalvage}}Salvage Energy: on failure, a follow-up test may preserve the soul gem.{{/if}}
   </p>
 </fieldset>

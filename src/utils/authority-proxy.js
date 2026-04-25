@@ -548,6 +548,7 @@ export function registerAuthorityProxy() {
       }
       try {
         const ids = Array.isArray(queryData?.ids) ? queryData.ids : null;
+        const deleteOptions = (queryData?.deleteOptions && typeof queryData.deleteOptions === "object") ? queryData.deleteOptions : {};
         if (!actorUuid || !embeddedName || !ids) return { ok: false, error: "Missing actorUuid/embeddedName/ids" };
 
         if (embeddedName !== "ActiveEffect" && embeddedName !== "Item") {
@@ -558,7 +559,7 @@ export function registerAuthorityProxy() {
         if (!actor || actor.documentName !== "Actor") return { ok: false, error: `Actor not found for uuid=${actorUuid}` };
         if (!(game.user?.isGM || actor.isOwner)) return { ok: false, error: "Not authorized to delete embedded documents on target Actor" };
 
-        return await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids);
+        return await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids, deleteOptions);
       } catch (err) {
         console.error("UESRPG | authority-proxy | deleteEmbeddedDocuments query handler failed", err);
         return { ok: false, error: err?.message ?? String(err) };
@@ -1153,7 +1154,7 @@ export async function requestUpdateEmbeddedDocuments(actor, embeddedName, update
   }
 }
 
-export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, { timeout = 5000 } = {}) {
+export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, { timeout = 5000, deleteOptions = {} } = {}) {
   if (!actor || !embeddedName || !Array.isArray(ids) || !ids.length) return false;
 
   if (isPerfEnabled()) {
@@ -1169,7 +1170,7 @@ export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, {
 
   // Direct path.
   if (game.user?.isGM || actor.isOwner) {
-    const result = await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids);
+    const result = await _deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids, deleteOptions);
     return !!result?.ok;
   }
 
@@ -1183,7 +1184,7 @@ export async function requestDeleteEmbeddedDocuments(actor, embeddedName, ids, {
 
   _dlog("proxy deleteEmbeddedDocuments requested", { actorUuid: actor.uuid, embeddedName, applierUserId: applier.id, requestedBy: game.user?.id ?? null });
   try {
-    const resp = await applier.query(QUERY_DELETE_EMBEDDED_DOCS_V1, { actorUuid: actor.uuid, embeddedName, ids }, { timeout });
+    const resp = await applier.query(QUERY_DELETE_EMBEDDED_DOCS_V1, { actorUuid: actor.uuid, embeddedName, ids, deleteOptions }, { timeout });
     if (!resp?.ok) {
       _dwarn("proxy deleteEmbeddedDocuments rejected", { actorUuid: actor.uuid, embeddedName, resp });
       ui.notifications?.warn?.(`Failed to delete embedded documents: ${resp?.error ?? "unknown error"}`);

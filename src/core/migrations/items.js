@@ -14,10 +14,21 @@ import { applyDefaults } from "./apply-defaults.js";
 import { DEFAULTS } from "./item-defaults.generated.js";
 import { SYSTEM_ID, UESRPG } from "../constants.js";
 import { getWeaponBaseReachState } from "../homebrew/reach-length/weapon.js";
-import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
+import {
+  getMigrationState,
+  isMigrationRevisionApplied,
+  markMigrationRevisionApplied,
+  setMigrationState
+} from "./state.js";
 import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
 
 const MODULE_ID = SYSTEM_ID;
+const _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION = 1;
+const _ITEM_LEGACY_REPAIR_REVISION = 1;
+const _RULE_ELEMENT_RETIREMENT_CLEANUP_REVISION = 1;
+const _ITEMS_MIGRATION_REVISION = 1;
+const _SCROLL_CASTING_CONTROLS_REVISION = 1;
+const _SCROLL_CONSUME_ON_CAST_REVISION = 1;
 const _RETIRED_SOCIAL_ITEM_TYPES = new Set(["language", "faction"]);
 const _RETIRED_RULE_ELEMENT_ITEM_TYPES = new Set(["trait", "talent", "power"]);
 const _combatLegacyItemStats = {
@@ -879,16 +890,22 @@ function _readScrollCastingDefaults() {
   return { defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast };
 }
 
-async function _runLegacyItemRepairPasses({ state, currentVersion }) {
+async function _runLegacyItemRepairPasses({ state }) {
   try {
     const socialCleanup = await _cleanupRetiredSocialItems();
     const repaired = await _repairLegacyItemTypeCutoverIfNeeded();
-    if (!repaired.attempted && socialCleanup.totalDeleted === 0) return;
+    const needsSocialStamp = !isMigrationRevisionApplied("socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, state);
+    const needsRepairStamp = !isMigrationRevisionApplied("itemLegacyRepair", _ITEM_LEGACY_REPAIR_REVISION, state);
+    if (!repaired.attempted && socialCleanup.totalDeleted === 0 && !needsSocialStamp && !needsRepairStamp) return;
 
-    if (socialCleanup.totalDeleted > 0 || state.socialItemRetirementCleanup !== currentVersion) {
-      state.socialItemRetirementCleanup = currentVersion;
+    if (socialCleanup.totalDeleted > 0 || needsSocialStamp) {
+      markMigrationRevisionApplied(state, "socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, socialCleanup);
     }
-    state.itemLegacyRepair = currentVersion;
+    markMigrationRevisionApplied(state, "itemLegacyRepair", _ITEM_LEGACY_REPAIR_REVISION, {
+      attempted: repaired.attempted,
+      beforeCount: repaired.beforeCount,
+      afterCount: repaired.afterCount
+    });
     await setMigrationState(state);
 
     if (repaired.afterCount > 0 && _debugEnabled()) {
@@ -917,13 +934,13 @@ async function _runLegacyItemRepairPasses({ state, currentVersion }) {
   }
 }
 
-async function _runSocialRetirementCleanupPass({ state, currentVersion }) {
+async function _runSocialRetirementCleanupPass({ state }) {
   const cleanup = await _cleanupRetiredSocialItems();
   console.log(`${MODULE_ID} | Social item retirement cleanup`, cleanup);
-  state.socialItemRetirementCleanup = currentVersion;
+  markMigrationRevisionApplied(state, "socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, cleanup);
 }
 
-async function _runVersionedItemMigrationPass({ state, currentVersion }) {
+async function _runVersionedItemMigrationPass({ state }) {
   _combatLegacyItemStats.weaponsEnhancedFromQualities = 0;
   _combatLegacyItemStats.weaponsEnhancedFromRange = 0;
 
@@ -954,12 +971,11 @@ async function _runVersionedItemMigrationPass({ state, currentVersion }) {
     });
   }
 
-  state.items = currentVersion;
+  markMigrationRevisionApplied(state, "items", _ITEMS_MIGRATION_REVISION, migrationTelemetry);
 }
 
 async function _runScrollCastingBackfillPass({
   state,
-  currentVersion,
   defaults,
   needsScrollCastingBackfill,
   needsScrollConsumeOnCastBackfill,
@@ -969,25 +985,25 @@ async function _runScrollCastingBackfillPass({
   await _backfillScrollCastingControlsActorItems(defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast);
 
   if (needsScrollCastingBackfill) {
-    state.scrollCastingControls = currentVersion;
+    markMigrationRevisionApplied(state, "scrollCastingControls", _SCROLL_CASTING_CONTROLS_REVISION);
   }
   if (needsScrollConsumeOnCastBackfill) {
-    state.scrollConsumeOnCast = currentVersion;
+    markMigrationRevisionApplied(state, "scrollConsumeOnCast", _SCROLL_CONSUME_ON_CAST_REVISION);
   }
 }
 
 export async function migrateItemsIfNeeded() {
   // Lightweight normalization pass; safe to run on every startup.
   if (!game.user.isGM) return;
-  const currentVersion = getSystemVersionString();
   const state = getMigrationState();
-  const needsSocialRetirementCleanup = state?.socialItemRetirementCleanup !== currentVersion;
-  const needsRuleElementRetirementCleanup = state?.ruleElementRetirementCleanup !== currentVersion;
-  const needsItemMigration = state?.items !== currentVersion;
-  const needsScrollCastingBackfill = state?.scrollCastingControls !== currentVersion;
-  const needsScrollConsumeOnCastBackfill = state?.scrollConsumeOnCast !== currentVersion;
-  if (!needsSocialRetirementCleanup && !needsRuleElementRetirementCleanup && !needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) {
-    await _runLegacyItemRepairPasses({ state, currentVersion });
+  const needsSocialRetirementCleanup = !isMigrationRevisionApplied("socialItemRetirementCleanup", _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION, state);
+  const needsItemLegacyRepair = !isMigrationRevisionApplied("itemLegacyRepair", _ITEM_LEGACY_REPAIR_REVISION, state);
+  const needsRuleElementRetirementCleanup = !isMigrationRevisionApplied("ruleElementRetirementCleanup", _RULE_ELEMENT_RETIREMENT_CLEANUP_REVISION, state);
+  const needsItemMigration = !isMigrationRevisionApplied("items", _ITEMS_MIGRATION_REVISION, state);
+  const needsScrollCastingBackfill = !isMigrationRevisionApplied("scrollCastingControls", _SCROLL_CASTING_CONTROLS_REVISION, state);
+  const needsScrollConsumeOnCastBackfill = !isMigrationRevisionApplied("scrollConsumeOnCast", _SCROLL_CONSUME_ON_CAST_REVISION, state);
+  if (!needsSocialRetirementCleanup && !needsItemLegacyRepair && !needsRuleElementRetirementCleanup && !needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) {
+    await _runLegacyItemRepairPasses({ state });
     return;
   }
 
@@ -995,23 +1011,26 @@ export async function migrateItemsIfNeeded() {
 
   try {
     if (needsSocialRetirementCleanup) {
-      await _runSocialRetirementCleanupPass({ state, currentVersion });
+      await _runSocialRetirementCleanupPass({ state });
     }
 
     if (needsRuleElementRetirementCleanup) {
       const cleanup = await _cleanupRetiredRuleElementFlags();
       console.log(`${MODULE_ID} | retired feature cleanup`, cleanup);
-      state.ruleElementRetirementCleanup = currentVersion;
+      markMigrationRevisionApplied(state, "ruleElementRetirementCleanup", _RULE_ELEMENT_RETIREMENT_CLEANUP_REVISION, cleanup);
     }
 
     if (needsItemMigration) {
-      await _runVersionedItemMigrationPass({ state, currentVersion });
+      await _runVersionedItemMigrationPass({ state });
+    }
+
+    if (needsItemLegacyRepair) {
+      await _runLegacyItemRepairPasses({ state });
     }
 
     if (needsScrollCastingBackfill || needsScrollConsumeOnCastBackfill) {
       await _runScrollCastingBackfillPass({
         state,
-        currentVersion,
         defaults,
         needsScrollCastingBackfill,
         needsScrollConsumeOnCastBackfill,

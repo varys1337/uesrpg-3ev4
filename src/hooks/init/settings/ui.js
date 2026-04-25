@@ -1,4 +1,5 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
+import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
 import { localizeSettingConfig } from "../../../utils/i18n.js";
 
 function _reg(key, config) {
@@ -55,6 +56,11 @@ function _reRenderAllSheets() {
   }
 }
 
+function _invalidateEnableLoadoutsAndReRenderSheets() {
+  invalidateCachedSetting("enableLoadouts");
+  _reRenderAllSheets();
+}
+
 export function registerUiSettings() {
   _reg("changeUiFont", {
     name: "System Font",
@@ -95,15 +101,6 @@ export function registerUiSettings() {
     requiresReload: true,
     default: true,
     type: Boolean,
-  });
-
-  _reg("autoResizeSheets", {
-    name: "Auto-resize Actor/Item Sheets",
-    hint: "Automatically resize AppV2 actor and item sheets to fit content (clamped to screen height). Disable to restore fixed sizing behavior.",
-    scope: "client",
-    config: false,
-    type: Boolean,
-    default: true,
   });
 
   _reg("enableInlineRulesTooltips", {
@@ -176,6 +173,7 @@ export function registerUiSettings() {
     config: false,
     default: false,
     type: Boolean,
+    onChange: _invalidateEnableLoadoutsAndReRenderSheets,
   });
 
   _reg("opposedShowStatusLine", {
@@ -187,16 +185,6 @@ export function registerUiSettings() {
     type: Boolean,
   });
 
-  // Hidden GM policy: controls chat verbosity for live opposed workflow sub-rolls.
-  _reg("opposedPostSubRollMessages", {
-    name: "Opposed Rolls: Post Sub-Roll Chat Messages",
-    hint: "When enabled, opposed workflows also post separate chat roll cards for attacker/defender sub-rolls. Disable to keep only the parent opposed card in chat.",
-    scope: "world",
-    config: false,
-    default: true,
-    type: Boolean,
-  });
-
   // Items tab: per-user loadouts (equipment snapshots)
   _reg("enableLoadouts", {
     name: "Sheets: Enable Equipment Loadouts",
@@ -205,16 +193,7 @@ export function registerUiSettings() {
     config: false,
     default: false,
     type: Boolean,
-  });
-
-  _reg("sortAlpha", {
-    name: "Sort Actor Items Alphabetically",
-    hint: "If checked, Actor items are automatically sorted alphabetically. Otherwise, items are not sorted and are organized manually.",
-    scope: "world",
-    config: false,
-    default: true,
-    type: Boolean,
-    requiresReload: true,
+    onChange: _invalidateEnableLoadoutsAndReRenderSheets,
   });
 
   // Hidden diagnostics: client-only actor sheet inspection lane.

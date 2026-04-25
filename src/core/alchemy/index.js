@@ -89,14 +89,11 @@ export {
 // ── API registration ──────────────────────────────────────────────────────────
 
 /**
- * Expose the alchemy subsystem on game.uesrpg.alchemy.
- * Call once from the init hook (settings already registered at that point).
+ * Build the public alchemy runtime API.
+ * Publishing is owned by startup runtime registrars.
  */
-export function registerAlchemyApi() {
-  if (!game.uesrpg) game.uesrpg = {};
-  if (game.uesrpg.alchemy) return; // idempotent
-
-  game.uesrpg.alchemy = {
+export function buildAlchemyApi() {
+  return {
     // Lazy workshop opener — AppV2 class not imported until first call.
     openWorkshop: async (opts = {}) => {
       const { openAlchemyWorkshop } = await import("../../macros/alchemy-workshop.js");
@@ -108,4 +105,8 @@ export function registerAlchemyApi() {
     pickCoatingTarget: pickAlchemyCoatingTarget,
     effects: { listPotionEffects, listToxinEffects, getEffectByKey, computeEffectCost },
   };
+}
+
+export function registerAlchemyApi() {
+  return buildAlchemyApi();
 }

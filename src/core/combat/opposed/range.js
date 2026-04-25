@@ -4,11 +4,11 @@
  * Supports both center-to-center and edge-to-edge measurement modes
  */
 
-import { SYSTEM_ID } from "./constants.js";
+import { getCachedSetting } from "../../config/settings-cache.js";
 
 export function getTokenRangeMeasurementMode() {
   try {
-    return game.settings.get(SYSTEM_ID, "tokenRangeMeasurement") ?? "center";
+    return getCachedSetting("tokenRangeMeasurement") ?? "center";
   } catch (_err) {
     return "center";
   }
@@ -16,7 +16,7 @@ export function getTokenRangeMeasurementMode() {
 
 export function getAoeOriginMeasurementMode() {
   try {
-    const mode = game.settings.get(SYSTEM_ID, "aoeOriginMeasurement") ?? "center";
+    const mode = getCachedSetting("aoeOriginMeasurement") ?? "center";
     if (mode === "edge") return "edge";
     if (mode === "match-token") return getTokenRangeMeasurementMode();
     return "center";

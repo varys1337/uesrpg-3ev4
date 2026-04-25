@@ -12,8 +12,10 @@ export function registerWounds() {
   _woundsRegistered = true;
   registerWoundHooks();
   registerDeathTestHooks();
-  game.uesrpg = game.uesrpg || {};
-  game.uesrpg.wounds = {
+}
+
+export function buildWoundsApi() {
+  return {
     ...WoundsAPI,
     tickDeathTestsEndTurn
   };

@@ -8,7 +8,7 @@
  * Backfire tables from Chapter 6 p.156-159.
  */
 
-import { getMagicSkillLevel } from "./magicka-utils.js";
+import { getMagicSkillLevel, getSpellLevel } from "./magicka-utils.js";
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { actorHasTalent } from "./magic-modifiers.js";
 import { confirmDialog } from "../../utils/dialog-v2-helper.js";
@@ -125,7 +125,7 @@ export function shouldBackfire(spell, actor, isCriticalFailure, isFailure) {
   // No backfire if spell succeeded
   if (!isFailure) return false;
   
-  const spellLevel = Number(spell.system?.level ?? 1);
+  const spellLevel = Number(getSpellLevel(spell) ?? 1) || 1;
   const spellcastingLevel = getMagicSkillLevel(actor, spell.system?.school);
   const isUnconventional = String(spell.system?.spellType ?? "").toLowerCase() === "unconventional";
   
@@ -168,7 +168,7 @@ function _lookupBackfireEffect(school, rollResult) {
  * @returns {Promise<void>}
  */
 export async function triggerBackfire(actor, spell) {
-  const spellLevel = Number(spell.system?.level ?? 1);
+  const spellLevel = Number(getSpellLevel(spell) ?? 1) || 1;
   const school = String(spell.system?.school ?? "Unknown");
   const severityModifier = getBackfireSeverityModifier(actor);
   

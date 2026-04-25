@@ -1022,7 +1022,10 @@ export function inflateSharedDamage(shared) {
     rollA: shared.rollA ?? null,
     rollB: shared.rollB ?? null,
     damagedValue: shared.damagedValue ?? 0,
-    rerollMode: shared.rerollMode ?? null
+    rerollMode: shared.rerollMode ?? null,
+    weaponComponent: shared.weaponComponent ?? null,
+    ammoComponent: null,
+    ammoMetadata: shared.ammoMetadata ?? null,
   };
 }
 
@@ -1038,7 +1041,9 @@ export function buildSharedDamagePayload({ mode, dmg, weaponUuid = null, damageT
     rollATotal: dmg.rollA?.total ?? null,
     rollBTotal: dmg.rollB?.total ?? null,
     damagedValue: dmg.damagedValue ?? 0,
-    rerollMode: dmg.rerollMode ?? null
+    rerollMode: dmg.rerollMode ?? null,
+    weaponComponent: dmg.weaponComponent ?? null,
+    ammoMetadata: dmg.ammoMetadata ?? null,
   };
 }
 

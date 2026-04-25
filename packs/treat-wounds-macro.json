@@ -1,8 +1,0 @@
-{
-  "name": "Treat Wounds",
-  "type": "script",
-  "img": "icons/tools/hand/medical-bandage.webp",
-  "command": "game.uesrpg.wounds.openTreatWoundsMacroDialog();",
-  "ownership": { "default": 0 },
-  "flags": {}
-}

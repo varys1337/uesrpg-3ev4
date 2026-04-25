@@ -8,6 +8,7 @@ import { OpposedWorkflow } from "./opposed-workflow.js";
 import { DefenseDialog } from "./defense-dialog.js";
 import { resolveStyleForCombatTest } from "./combat-style-utils.js";
 import { isWarfareUnitActorType } from "../actors/types.js";
+import { t, tf } from "../../utils/i18n.js";
 
 /**
  * Perform a weapon attack
@@ -19,12 +20,12 @@ import { isWarfareUnitActorType } from "../actors/types.js";
  */
 export async function performWeaponAttack(attackerToken, defenderToken, weapon, options = {}) {
   if (!attackerToken || !defenderToken) {
-    ui.notifications.warn("Both attacker and defender tokens must be selected");
+    ui.notifications.warn(t("UESRPG.Notifications.Combat.TokensNotSelected"));
     return null;
   }
 
   if (!weapon) {
-    ui.notifications.warn("No weapon specified");
+    ui.notifications.warn(t("UESRPG.Notifications.Combat.NoWeaponSpecified"));
     return null;
   }
 
@@ -48,13 +49,13 @@ export async function performWeaponAttack(attackerToken, defenderToken, weapon, 
         : weapon?.system?.damage);
 
   if (!damageRoll) {
-    ui.notifications.warn(`Weapon "${weapon.name}" has no damage formula configured.`);
+    ui.notifications.warn(tf("UESRPG.Notifications.Combat.WeaponNoDamageFormula", { weapon: weapon.name }));
   }
 
   const attackerTokenUuid = attackerToken?.document?.uuid ?? attackerToken?.uuid ?? null;
   const defenderTokenUuid = defenderToken?.document?.uuid ?? defenderToken?.uuid ?? null;
   if (!attackerTokenUuid || !defenderTokenUuid) {
-    ui.notifications.warn("Unable to resolve token UUIDs for attack workflow.");
+    ui.notifications.warn(t("UESRPG.Notifications.Combat.UnableToResolveTokenUUIDs"));
     return null;
   }
 
@@ -120,7 +121,7 @@ export async function quickAttack(weaponName, options = {}) {
   // Get controlled token
   const controlled = canvas.tokens.controlled;
   if (controlled.length === 0) {
-    ui.notifications.warn("Please select your token");
+    ui.notifications.warn(t("UESRPG.Notifications.Combat.SelectYourToken"));
     return;
   }
   const attackerToken = controlled[0];
@@ -128,7 +129,7 @@ export async function quickAttack(weaponName, options = {}) {
   // Get targeted token
   const targets = game.user.targets;
   if (targets.size === 0) {
-    ui.notifications.warn("Please target an enemy");
+    ui.notifications.warn(t("UESRPG.Notifications.Combat.TargetEnemy"));
     return;
   }
   const defenderToken = Array.from(targets)[0];
@@ -139,7 +140,7 @@ export async function quickAttack(weaponName, options = {}) {
   );
 
   if (!weapon) {
-    ui.notifications.warn(`Weapon "${weaponName}" not found`);
+    ui.notifications.warn(tf("UESRPG.Notifications.Combat.WeaponNotFound", { weapon: weaponName }));
     return;
   }
 

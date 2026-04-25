@@ -22,6 +22,7 @@ import { AttackTracker } from "../../attack-tracker.js";
 import { canAttackerRoll } from "../actions/eligibility.js";
 import { _resolveActor, _resolveActorViaToken } from "../helpers/docs.js";
 import { _isBankAutoRollInProgress } from "../banking/state.js";
+import { getPendingAttackApCost } from "../helpers/workflow.js";
 import { t } from "../../../../utils/i18n.js";
 
 function _attackerTestLabel(value) {
@@ -50,6 +51,19 @@ function _shortenTestLabel(value) {
   return shortened || raw;
 }
 
+function _getAttackerTrackerContext(data, attacker) {
+  const explicitTokenUuid = String(data?.attacker?.tokenUuid ?? attacker?.token?.document?.uuid ?? attacker?.token?.uuid ?? "").trim();
+  return {
+    combatantId: String(data?.attacker?.combatantId ?? "").trim() || null,
+    tokenUuid: explicitTokenUuid || null,
+    source: "combat-opposed-card",
+    sourceTag: "combat-opposed-card",
+    attackTraceId: String(data?.context?.attackTraceId ?? "").trim() || null,
+    attackMode: String(data?.context?.attackMode ?? "").trim().toLowerCase() || "melee",
+    phase: "render-gate"
+  };
+}
+
 function _getAttackerCommitGate(data) {
   const attacker = _resolveActorViaToken(data?.attacker?.actorUuid, data?.attacker?.tokenUuid);
   if (!attacker) return { allowed: false, reason: t("UESRPG.Chat.Opposed.AttackerUnavailable", "Attacker unavailable") };
@@ -61,14 +75,20 @@ function _getAttackerCommitGate(data) {
 
   if (!game?.combat) return { allowed: true };
 
-  const baseApCost = (String(data?.mode ?? "attack") === "attack" && !data?.context?.isFreeActionAttack) ? 1 : 0;
+  const baseApCost = getPendingAttackApCost(data);
   const currentAP = Number(foundry.utils.getProperty(attacker, "system.action_points.value") ?? 0);
   if (currentAP < baseApCost) {
     return { allowed: false, reason: `${currentAP}/${baseApCost} AP` };
   }
 
-  if (AttackTracker.hasExceededLimit(attacker, { attackMode: String(data?.context?.attackMode ?? "").toLowerCase() })) {
-    return { allowed: false, reason: AttackTracker.getLimitWarning(attacker) || t("UESRPG.Chat.Opposed.AttackLimitReached", "Attack limit reached") };
+  const trackerContext = _getAttackerTrackerContext(data, attacker);
+  const attackMode = String(data?.context?.attackMode ?? "").toLowerCase();
+  if (AttackTracker.hasExceededLimit(attacker, { attackMode }, trackerContext)) {
+    return {
+      allowed: false,
+      reason: AttackTracker.getLimitWarning(attacker, { attackMode }, trackerContext)
+        || t("UESRPG.Chat.Opposed.AttackLimitReached", "Attack limit reached")
+    };
   }
 
   return { allowed: true };

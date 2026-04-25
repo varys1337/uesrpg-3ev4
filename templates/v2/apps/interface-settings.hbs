@@ -29,14 +29,6 @@
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-sort-alpha">{{settings.sortAlpha.name}}</label>
-        <p class="setting-help">{{settings.sortAlpha.hint}}</p>
-      </div>
-      <input id="uesrpg-sort-alpha" type="checkbox" name="sortAlpha" {{checked settings.sortAlpha.value}}>
-    </div>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
         <label class="setting-row__label" for="uesrpg-enable-loadouts">{{settings.enableLoadouts.name}}</label>
         <p class="setting-help">{{settings.enableLoadouts.hint}}</p>
       </div>
@@ -49,14 +41,6 @@
         <p class="setting-help">{{settings.customCursor.hint}}</p>
       </div>
       <input id="uesrpg-custom-cursor" type="checkbox" name="customCursor" {{checked settings.customCursor.value}}>
-    </div>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-auto-resize-sheets">{{settings.autoResizeSheets.name}}</label>
-        <p class="setting-help">{{settings.autoResizeSheets.hint}}</p>
-      </div>
-      <input id="uesrpg-auto-resize-sheets" type="checkbox" name="autoResizeSheets" {{checked settings.autoResizeSheets.value}}>
     </div>
 
     <div class="setting-row setting-row--toggle">
@@ -91,13 +75,6 @@
       <input id="uesrpg-item-row-quick-menu" type="checkbox" name="enableItemRowQuickMenu" {{checked settings.enableItemRowQuickMenu.value}}>
     </div>
 
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-opposed-sub-rolls">{{settings.opposedPostSubRollMessages.name}}</label>
-        <p class="setting-help">{{settings.opposedPostSubRollMessages.hint}}</p>
-      </div>
-      <input id="uesrpg-opposed-sub-rolls" type="checkbox" name="opposedPostSubRollMessages" {{checked settings.opposedPostSubRollMessages.value}}>
-    </div>
   </fieldset>
 
   <footer class="uesrpg-settings__footer">

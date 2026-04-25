@@ -18,6 +18,7 @@ import { registerWoundCombatTicker } from "./wound-ticker.js";
 import { normalizeHitLocation, isActiveGMUser } from "./wound-schema.js";
 import { SYSTEM_ID, FLAG_SCOPE } from "../constants.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { t } from "../../utils/i18n.js";
 import { deleteOwnedEffects, getCurrentWorldTimeSeconds } from "./shared.js";
 import {
   collectHealingTestCandidates,

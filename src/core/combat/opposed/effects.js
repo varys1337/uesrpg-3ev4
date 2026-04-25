@@ -19,6 +19,8 @@ import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getFlagValueWithFallback, getSystemFlagsWithFallback } from "../../system/flags.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
 import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
+import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
+import { createEvaluationMemo, effectMatchesContext } from "../../active-effects/conditions.js";
 
 // ====== ACTIVE EFFECT CREATION ======
 
@@ -57,6 +59,27 @@ export function isAdvantageEffect(effect) {
   if (!f || f.category !== "advantage") return false;
   const key = String(f.key ?? "");
   return _ADVANTAGE_KEYS.has(key);
+}
+
+function _advantageEffectData({
+  name,
+  img,
+  origin,
+  duration,
+  changes,
+  flags,
+} = {}) {
+  return buildGenericAEData({
+    name,
+    img,
+    origin,
+    disabled: false,
+    duration,
+    changes,
+    source: "combat",
+    stack: { policy: "none" },
+    flags,
+  });
 }
 
 export function isAdvantageEffectExpired(effect, { worldTime = null, combat = null } = {}) {
@@ -270,11 +293,10 @@ export async function applyPressAdvantageEffect(attacker, defender, { attackerTo
   const canDouble = Boolean(doubleEffect && await _canUseExploitAdvantage(attacker, { actorTokenUuid: attackerTokenUuid, opponentTokenUuid: defenderTokenUuid }));
   const tnDelta = canDouble ? 20 : 10;
 
-  const effectData = {
+  const effectData = _advantageEffectData({
     name: "Press Advantage",
     img: "icons/svg/upgrade.svg",
     origin: attacker.uuid,
-    disabled: false,
     duration,
     changes: [
       buildEffectChange({ key: "system.modifiers.combat.opposed.attackTN", type: "add", value: tnDelta, priority: 20 })
@@ -299,7 +321,7 @@ export async function applyPressAdvantageEffect(attacker, defender, { attackerTo
         }
       }
     }
-  };
+  });
 
   return await createTemporaryEffect(attacker, effectData);
 }
@@ -312,11 +334,10 @@ export async function applyOverextendEffect(opponent, { defenderUuid = null, def
   const canDouble = Boolean(doubleEffect && defenderActor && await _canUseExploitAdvantage(defenderActor, { actorTokenUuid: defenderTokenUuid, opponentTokenUuid }));
   const tnDelta = canDouble ? -20 : -10;
 
-  const effectData = {
+  const effectData = _advantageEffectData({
     name: "Overextended",
     img: "icons/svg/downgrade.svg",
     origin: opponent.uuid,
-    disabled: false,
     duration,
     changes: [
       buildEffectChange({ key: "system.modifiers.combat.opposed.attackTN", type: "add", value: tnDelta, priority: 20 })
@@ -341,7 +362,7 @@ export async function applyOverextendEffect(opponent, { defenderUuid = null, def
         }
       }
     }
-  };
+  });
 
   return await createTemporaryEffect(opponent, effectData);
 }
@@ -351,11 +372,10 @@ export async function applyOverwhelmEffect(opponent, { defenderUuid = null } = {
   const duration = advantageDurationData(opponent, 1);
 
   // Marker effect: AoO suppression is enforced elsewhere (action pipeline milestone).
-  const effectData = {
+  const effectData = _advantageEffectData({
     name: "Overwhelmed",
     img: "icons/svg/daze.svg",
     origin: opponent.uuid,
-    disabled: false,
     duration,
     changes: [
       buildEffectChange({ key: `flags.${FLAG_SCOPE}.combat.noAoO`, type: "override", value: true, priority: 20 })
@@ -367,12 +387,12 @@ export async function applyOverwhelmEffect(opponent, { defenderUuid = null } = {
         meta: defenderUuid ? { defenderUuid } : {}
       }
     }
-  };
+  });
 
   return await createTemporaryEffect(opponent, effectData);
 }
 
-export async function consumeOneShotAdvantageEffects(actor, { opponentUuid = null, attackMode = "melee" } = {}) {
+export async function consumeOneShotAdvantageEffects(actor, { opponentUuid = null, opponentTokenUuid = null, attackMode = "melee" } = {}) {
   // RAW:
   // - Press Advantage: next MELEE attack test against the specified opponent within 1 round.
   // - Overextend: opponent's next attack test within 1 round at -10 (NOT target-scoped).
@@ -380,6 +400,7 @@ export async function consumeOneShotAdvantageEffects(actor, { opponentUuid = nul
   if (!actor) return;
   try {
     const aMode = getContextAttackMode({ attackMode });
+    const memo = createEvaluationMemo();
     const toDelete = [];
 
     for (const ef of (actor.effects ?? [])) {
@@ -392,8 +413,8 @@ export async function consumeOneShotAdvantageEffects(actor, { opponentUuid = nul
       const cond = f.conditions ?? {};
       // Press Advantage is opponent-scoped; Overextend is not.
       if (key === "pressAdvantage") {
-        if (!opponentUuid) continue;
-        if (cond.opponentUuid && String(cond.opponentUuid) !== String(cond.opponentUuid)) continue;
+        if (!opponentUuid && !opponentTokenUuid) continue;
+        if (!effectMatchesContext(ef, { opponentUuid, opponentTokenUuid, attackMode: aMode }, memo)) continue;
       }
 
       // Press Advantage is melee-only; Overextend applies to the next attack test of any type.

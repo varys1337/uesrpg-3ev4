@@ -39,7 +39,7 @@ export function hasEmbeddedDocument(parent, embeddedName, docId) {
   return Boolean(collection.get(docId));
 }
 
-export async function deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids) {
+export async function deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids, deleteOptions = {}) {
   const requestedIds = normalizeEmbeddedDocumentIds(ids);
   if (!requestedIds.length) return { ok: false, error: "No valid ids" };
 
@@ -63,7 +63,7 @@ export async function deleteEmbeddedDocumentsIdempotent(actor, embeddedName, ids
   }
 
   try {
-    await actor.deleteEmbeddedDocuments(embeddedName, liveIds);
+    await actor.deleteEmbeddedDocuments(embeddedName, liveIds, deleteOptions);
     return { ok: true, requestedIds, deletedIds: liveIds, skippedIds };
   } catch (err) {
     const survivingIds = liveIds.filter((id) => hasEmbeddedDocument(actor, embeddedName, id));

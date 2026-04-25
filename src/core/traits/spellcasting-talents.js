@@ -699,15 +699,8 @@ export function applyTalentSummaryToProfile(profile, summary) {
     applied: true
   };
 
-  // Apply cost multiplier (Overcharge: double cost after restraint)
-  if (summary.costMultiplier > 1 && profile.cost) {
-    if (summary.costMultiplierAfterRestraint) {
-      profile.cost.final = Math.max(1, Math.floor(_num(profile.cost.final) * summary.costMultiplier));
-    } else {
-      profile.cost.attempt = Math.max(0, Math.floor(_num(profile.cost.attempt) * summary.costMultiplier));
-      profile.cost.final = Math.max(1, Math.floor(_num(profile.cost.final) * summary.costMultiplier));
-    }
-  }
+  // Cost multipliers are applied only by resolveSpellCostSnapshot(). This stage
+  // records talent intent for damage/UI consumers and must not mutate cost again.
 
   return profile;
 }

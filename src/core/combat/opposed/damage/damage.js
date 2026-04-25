@@ -8,7 +8,7 @@ import { normalizeDiceExpression, safeEvaluateRoll } from "../rolls.js";
 import { weaponHasQuality as _weaponHasQuality } from "../helpers/workflow.js";
 import { _normalizeKey } from "../helpers/util.js";
 import { hasTalent } from "../../../traits/talents-api.js";
-import { getEffectiveWeaponHands } from "../../combat-utils.js";
+import { getDamageTypeFromWeapon, getEffectiveWeaponHands, getWeaponCombatCapabilities } from "../../combat-utils.js";
 
 // ====== DAMAGE CALCULATION ======
 
@@ -85,28 +85,18 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
 
   /** @type {{ammoUuid:string, qtyAfter:number, ammoName:string}|null} */
   let pendingAmmo = null;
+  let ammoBonusApplied = 0;
+  let ammoTypeApplied = "physical";
+  let ammoUuidApplied = null;
+  let ammoNameApplied = null;
 
   // Ranged: add ammunition contribution (damage bonus) from the selected ammunition item.
   // Ammunition quantity is consumed at ATTACK TIME (before the attack roll), not here.
   // This function only reads ammo data for damage expression enrichment and gates legacy/stale cards defensively.
-  if (String(weapon.system?.attackMode ?? "melee").toLowerCase() === "ranged" && weapon.actor) {
-    // Do not involve ammunition for thrown attacks.
-    const injected = Array.isArray(weapon.system?.qualitiesStructuredInjected)
-      ? weapon.system.qualitiesStructuredInjected
-      : Array.isArray(weapon.system?.qualitiesStructured)
-        ? weapon.system.qualitiesStructured
-        : [];
-    const traits = Array.isArray(weapon.system?.qualitiesTraits) ? weapon.system.qualitiesTraits : [];
-    const hasThrown = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "thrown")
-      || traits.some(t => String(t ?? "").toLowerCase() === "thrown")
-      || (String(weapon.system?.rangeBandsDerivedEffective?.kind ?? weapon.system?.rangeBandsDerived?.kind ?? "") === "thrown");
-    const hasSling = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "sling")
-      || traits.some(t => String(t ?? "").toLowerCase() === "sling")
-      || _weaponHasTraitText(weapon, "sling");
-    if (hasThrown) {
-      // Leave pendingAmmo null and do not gate on ammo.
-    } else {
-      const shouldConsume = weapon.system?.consumeAmmo !== false;
+  const capabilities = getWeaponCombatCapabilities(weapon);
+  if (capabilities.usesAmmo && weapon.actor) {
+      const hasSling = _weaponHasQuality(weapon, "sling") || _weaponHasTraitText(weapon, "sling");
+      const shouldConsume = capabilities.consumesAmmo;
       const ammoId = String(weapon.system?.ammoId ?? "").trim();
 
       const preConsumedMatches = !!(preConsumedAmmo
@@ -144,6 +134,10 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
           } catch (err) {
             console.warn("UESRPG | Failed to evaluate ammunition damage expression", { ammoId, ammoExpr, err });
           }
+          ammoBonusApplied = ammoBonus;
+          ammoTypeApplied = String(ammo.system?.damageTypeEffective ?? ammo.system?.damageType ?? "physical").trim().toLowerCase() || "physical";
+          ammoUuidApplied = String(ammo.uuid ?? "") || null;
+          ammoNameApplied = String(ammo.name ?? "") || null;
           damageString = _addFlatBonus(damageString, ammoBonus);
         }
 
@@ -161,10 +155,13 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
           } catch (err) {
             console.warn("UESRPG | Failed to evaluate ammunition damage expression", { ammoId, ammoExpr, err });
           }
+          ammoBonusApplied = ammoBonus;
+          ammoTypeApplied = String(ammo.system?.damageTypeEffective ?? ammo.system?.damageType ?? "physical").trim().toLowerCase() || "physical";
+          ammoUuidApplied = String(ammo.uuid ?? "") || null;
+          ammoNameApplied = String(ammo.name ?? "") || null;
           damageString = _addFlatBonus(damageString, ammoBonus);
         }
       }
-    }
   }
 
   const structured = Array.isArray(weapon.system.qualitiesStructuredInjected)
@@ -206,7 +203,25 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
     }
   }
 
-  return { damageString, rollA: a, rollB: b, finalDamage: total, pendingAmmo, rerollMode, damagedValue };
+  const weaponComponent = {
+    source: "weapon",
+    sourceLabel: String(weapon?.name ?? "Weapon"),
+    sourceItemUuid: String(weapon?.uuid ?? "") || null,
+    damageType: String(getDamageTypeFromWeapon(weapon) ?? "physical").toLowerCase() || "physical",
+    amount: Math.max(0, Number(total ?? 0) || 0),
+  };
+  const ammoMetadata = Number(ammoBonusApplied || 0) > 0
+    ? {
+        source: "ammo",
+        sourceLabel: String(ammoNameApplied ?? "Ammunition"),
+        sourceItemUuid: ammoUuidApplied,
+        damageType: ammoTypeApplied,
+        amount: Math.max(0, Number(ammoBonusApplied || 0)),
+        merged: true,
+      }
+    : null;
+
+  return { damageString, rollA: a, rollB: b, finalDamage: total, pendingAmmo, rerollMode, damagedValue, weaponComponent, ammoComponent: null, ammoMetadata };
 }
 
 /**

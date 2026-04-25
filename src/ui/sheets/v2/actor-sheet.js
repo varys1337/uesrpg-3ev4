@@ -16,13 +16,15 @@ import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
-import { buildEffectChangesData } from "../../../utils/compat.js";
+import { buildGenericAEData } from "../../../core/active-effects/modifier-evaluator.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
 import { AttackTracker } from "../../../core/combat/attack-tracker.js";
+import { buildSheetAttackTrackerContext } from "./shared/attack-tracker-sheet-context.js";
+import { buildCombatTabAttackTrackerView } from "./shared/attack-tracker-view.js";
 import { cancelOriginAEUpkeep } from "../../../core/magic/effects/origin-effect.js";
 import { buildEncumbranceBreakdown } from "../../../core/actors/rules/item-aggregation.js";
 
@@ -48,6 +50,7 @@ import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { enableResizeMotionGuard, disableResizeMotionGuard } from "./shared/resize-motion-guard.js";
 import { annotateEncumbranceHighlights, openEncumbranceBreakdownDialog } from "./shared/encumbrance-ui.js";
 import { openItemRowQuickMenu, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
+import { registerCombatTrackerSheetRefresh, unregisterCombatTrackerSheetRefresh } from "./shared/combat-tracker-refresh.js";
 import {
   buildWoundsInjuriesPanelContext,
   isWoundsOrShockEffect,
@@ -173,18 +176,10 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   _uesrpgQueuedParts = null;
 
   _buildItemsSignature(actor) {
-    const sortAlpha = (() => {
-      try {
-        return Boolean(game?.settings?.get?.(SYSTEM_ID, "sortAlpha"));
-      } catch (_e) {
-        return false;
-      }
-    })();
-
     const parts = [
       actor?.id ?? "",
       actor?.type ?? "",
-      sortAlpha ? "A" : "a",
+      "A",
       actor?.system?.worship ? JSON.stringify(actor.system.worship) : "",
       String(actor?.items?.size ?? 0),
     ];
@@ -396,8 +391,9 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     if (path === ATTACK_TRACKER_CURRENT_PATH || path === ATTACK_TRACKER_MAX_PATH) {
       const raw = Number(target?.value ?? NaN);
       if (!Number.isFinite(raw)) return;
-      if (path === ATTACK_TRACKER_MAX_PATH) await AttackTracker.setAttackLimitOverride(this.document, raw);
-      else await AttackTracker.setCurrentAttacks(this.document, raw);
+      const trackerContext = buildSheetAttackTrackerContext(this, this.document);
+      if (path === ATTACK_TRACKER_MAX_PATH) await AttackTracker.setAttackLimitOverride(this.document, raw, trackerContext);
+      else await AttackTracker.setCurrentAttacks(this.document, raw, trackerContext);
       return;
     }
 
@@ -422,13 +418,14 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onFormSubmit(_event, _form, formData) {
     if (!this.isEditable || !this.document?.isOwner) return;
     const flat = foundry.utils.flattenObject(formData?.object ?? {});
+    const trackerContext = buildSheetAttackTrackerContext(this, this.document);
     if (Object.prototype.hasOwnProperty.call(flat, ATTACK_TRACKER_MAX_PATH)) {
       const raw = Number(flat[ATTACK_TRACKER_MAX_PATH] ?? NaN);
-      if (Number.isFinite(raw)) await AttackTracker.setAttackLimitOverride(this.document, raw);
+      if (Number.isFinite(raw)) await AttackTracker.setAttackLimitOverride(this.document, raw, trackerContext);
     }
     if (Object.prototype.hasOwnProperty.call(flat, ATTACK_TRACKER_CURRENT_PATH)) {
       const raw = Number(flat[ATTACK_TRACKER_CURRENT_PATH] ?? NaN);
-      if (Number.isFinite(raw)) await AttackTracker.setCurrentAttacks(this.document, raw);
+      if (Number.isFinite(raw)) await AttackTracker.setCurrentAttacks(this.document, raw, trackerContext);
     }
 
     const patch = buildAllowedSubmitPatch({
@@ -506,7 +503,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         let signature = null;
         return () => {
           if (signature === null) {
-            signature = buildCombatSignature(actor, getItemsSignature(), getEffectsSignature());
+            signature = buildCombatSignature(actor, getItemsSignature(), getEffectsSignature(), buildSheetAttackTrackerContext(this, actor));
           }
           return signature;
         };
@@ -594,11 +591,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
           context.actor.sheetCombatQuick = buildCombatQuickContext(context.actor);
           context.actor.sheetCombatActions = buildCombatActionsContext(actor);
           context.actor.woundManager = game?.uesrpg?.wounds?.getWoundManagerData?.(actor) ?? null;
-          context.actor.attackTrackerUi = {
-            current: AttackTracker.getAttackCount(actor),
-            max: AttackTracker.getAttackLimit(actor),
-            overrides: AttackTracker.getOverrides(actor),
-          };
+          const trackerView = buildCombatTabAttackTrackerView(this, actor, { emitDiagnostics: true });
+          context.actor.attackTrackerUi = trackerView.view;
           applyDefensiveStanceDisabling(actor, context.actor.sheetCombatQuick);
           this._uesrpgCombatCache = {
             signature: combatSignature,
@@ -772,6 +766,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         },
       });
       clearItemDescriptionTooltip(this);
+      registerCombatTrackerSheetRefresh(this);
 
       const expectedPrimary = this.tabGroups.primary ?? "core";
       const activePrimary = el.querySelector('.tab[data-group="primary"].active')?.dataset?.tab ?? null;
@@ -1421,6 +1416,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       this._uesrpgEncumbranceCache = null;
       this._uesrpgSheetUiCache = null;
       disableResizeMotionGuard(this);
+      unregisterCombatTrackerSheetRefresh(this);
       clearItemDescriptionTooltip(this);
       return super._onClose(options);
     } finally {
@@ -1440,14 +1436,14 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     if (!this.document || !this.document.effects) return;
 
     if (action === "create") {
-      const effectData = {
+      const effectData = buildGenericAEData({
         name: "New Effect",
         img: "icons/svg/aura.svg",
         disabled: false,
         transfer: false,
         duration: {},
-        ...buildEffectChangesData([]),
-      };
+        changes: [],
+      });
       const created = await requestCreateEmbeddedDocuments(this.document, "ActiveEffect", [effectData]);
       const eff = created?.[0] ?? null;
       if (eff?.sheet) eff.sheet.render(true);
@@ -1471,4 +1467,5 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         break;
     }
   }
+
 }

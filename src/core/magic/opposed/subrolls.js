@@ -1,8 +1,5 @@
-import { FLAG_SCOPE } from "../../system/namespace.js";
-import { getMagicOpposedPostSubRollMessagesEnabled, getMagicSubRollMode } from "../settings.js";
+import { getMagicSubRollMode } from "../settings.js";
 import { emitSuppressedOpposedSubRollDice } from "./spell-helpers.js";
-
-const _FLAG_NS = FLAG_SCOPE;
 
 export async function postMagicOpposedSubRoll({
   roll,
@@ -14,22 +11,10 @@ export async function postMagicOpposedSubRoll({
 }) {
   if (!roll) return;
 
-  if (getMagicOpposedPostSubRollMessagesEnabled()) {
-    await roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor }),
-      flavor,
-      flags: {
-        [_FLAG_NS]: {
-          magicOpposedMeta: {
-            parentMessageId,
-            stage,
-            defenderIndex,
-          },
-        },
-      },
-    });
-    return;
-  }
-
+  void actor;
+  void flavor;
+  void parentMessageId;
+  void stage;
+  void defenderIndex;
   emitSuppressedOpposedSubRollDice(roll, { rollMode: getMagicSubRollMode() });
 }

@@ -11,8 +11,6 @@
 import { isDebugEnabled } from "./debug.js";
 import { FLAG_SCOPE } from "../core/constants.js";
 import {
-  requestCreateEmbeddedDocuments,
-  requestUpdateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments
 } from "./authority-proxy.js";
 import {
@@ -21,8 +19,8 @@ import {
   normalizeEmbeddedDocumentIds
 } from "./authority-proxy/embedded-docs.js";
 import { claimRecentEmbeddedDeletes, settleRecentEmbeddedDeletes } from "./embedded-delete-guard.js";
-import { getEffectChanges, buildEffectChangesData, buildEffectChangesUpdate, normalizeActiveEffectOrigin } from "./compat.js";
 import { resolveUuidSync } from "./uuid-cache.js";
+import { applyGenericStackPolicy } from "../core/active-effects/stack-policy.js";
 
 /**
  * Safely retrieve an Active Effect by ID from an actor, returning null if not found.
@@ -126,7 +124,7 @@ export function isMissingDocError(err) {
   return isMissingDocumentError(err);
 }
 
-export async function safeDeleteEmbeddedDocuments(parent, embeddedName, docIds, { context = "AE Lifecycle", logUnexpected = true } = {}) {
+export async function safeDeleteEmbeddedDocuments(parent, embeddedName, docIds, { context = "AE Lifecycle", logUnexpected = true, deleteOptions = {} } = {}) {
   if (!parent || !embeddedName) return false;
   const normalizedIds = normalizeEmbeddedDocumentIds(docIds);
   if (!normalizedIds.length) return false;
@@ -137,7 +135,7 @@ export async function safeDeleteEmbeddedDocuments(parent, embeddedName, docIds, 
   if (!claimedIds.length) return false;
 
   try {
-    const deleted = await requestDeleteEmbeddedDocuments(parent, embeddedName, claimedIds);
+    const deleted = await requestDeleteEmbeddedDocuments(parent, embeddedName, claimedIds, { deleteOptions });
     if (deleted) return true;
   } catch (err) {
     if (isMissingDocError(err)) return false;
@@ -167,9 +165,9 @@ export async function safeDeleteEmbeddedDocuments(parent, embeddedName, docIds, 
   return false;
 }
 
-export async function safeDeleteEmbeddedDocument(parent, embeddedName, docId, { context = "AE Lifecycle", logUnexpected = true } = {}) {
+export async function safeDeleteEmbeddedDocument(parent, embeddedName, docId, { context = "AE Lifecycle", logUnexpected = true, deleteOptions = {} } = {}) {
   if (!parent || !embeddedName || !docId) return false;
-  return safeDeleteEmbeddedDocuments(parent, embeddedName, [docId], { context, logUnexpected });
+  return safeDeleteEmbeddedDocuments(parent, embeddedName, [docId], { context, logUnexpected, deleteOptions });
 }
 
 // ── Effect Grouping & Stacking (merged from ae-grouping.js) ─────────────────
@@ -214,105 +212,5 @@ export function getEffectGroup(effect) {
  * @returns {Promise<ActiveEffect|null>} - The created or updated effect, or null on failure
  */
 export async function applyGroupedEffect(actor, effectData, { timeout = 5000 } = {}) {
-  if (!actor || !effectData) return null;
-  
-  try {
-    const flags = effectData?.flags ?? {};
-    const scopeFlags = flags[FLAG_SCOPE] ?? {};
-    const stackRule = scopeFlags?.stackRule;
-    const effectGroup = scopeFlags?.effectGroup;
-    
-    // If no stackRule is defined, use legacy behavior (create normally)
-    if (!stackRule || !effectGroup) {
-      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
-        ...effectData,
-        ...buildEffectChangesData(getEffectChanges(effectData))
-      }], { timeout });
-      return Array.isArray(created) ? (created[0] ?? null) : null;
-    }
-    
-    // Find existing effects with the same group
-    const existingEffects = actor.effects?.filter((e) => {
-      if (!e || e.disabled) return false;
-      const existingGroup = getEffectGroup(e);
-      return existingGroup === effectGroup;
-    }) ?? [];
-    
-    if (stackRule === "override") {
-      // Remove or disable all existing effects in the group
-      if (existingEffects.length > 0) {
-        const idsToDelete = existingEffects.map((e) => e.id).filter(Boolean);
-        if (idsToDelete.length > 0) {
-          await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", idsToDelete, { timeout });
-        }
-      }
-      
-      // Create the new effect
-      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
-        ...effectData,
-        ...buildEffectChangesData(getEffectChanges(effectData))
-      }], { timeout });
-      return Array.isArray(created) ? (created[0] ?? null) : null;
-    }
-    
-    if (stackRule === "refresh") {
-      // Update existing effect if found, otherwise create new
-      if (existingEffects.length > 0) {
-        const existing = existingEffects[0];
-        
-        // Prepare update data (merge with existing where appropriate)
-        const updateData = {
-          _id: existing.id,
-          name: effectData.name ?? existing.name,
-          img: effectData.img ?? effectData.icon ?? existing.img,
-          ...buildEffectChangesUpdate(Array.isArray(effectData.changes) ? effectData.changes : getEffectChanges(existing)),
-          flags: effectData.flags ?? existing.flags,
-          duration: effectData.duration ?? existing.duration,
-          disabled: effectData.disabled ?? false,
-          origin: normalizeActiveEffectOrigin(effectData.origin) ?? normalizeActiveEffectOrigin(existing.origin),
-          statuses: effectData.statuses ?? existing.statuses,
-          tint: effectData.tint ?? existing.tint,
-          transfer: effectData.transfer ?? existing.transfer
-        };
-        
-        const updated = await requestUpdateEmbeddedDocuments(actor, "ActiveEffect", [updateData], { timeout });
-        if (updated) {
-          // Reload the effect to return the updated document
-          try {
-            return actor.effects?.get?.(existing.id) ?? existing;
-          } catch (_e) {
-            return existing;
-          }
-        }
-        return existing;
-      }
-      
-      // No existing effect found, create new
-      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
-        ...effectData,
-        ...buildEffectChangesData(getEffectChanges(effectData))
-      }], { timeout });
-      return Array.isArray(created) ? (created[0] ?? null) : null;
-    }
-    
-    if (stackRule === "stack") {
-      // No special behavior, create normally
-      const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
-        ...effectData,
-        ...buildEffectChangesData(getEffectChanges(effectData))
-      }], { timeout });
-      return Array.isArray(created) ? (created[0] ?? null) : null;
-    }
-    
-    // Unknown stackRule value, fall back to legacy behavior
-    console.warn(`UESRPG | ae-grouping | Unknown stackRule value: ${stackRule}. Using legacy behavior.`);
-    const created = await requestCreateEmbeddedDocuments(actor, "ActiveEffect", [{
-      ...effectData,
-      ...buildEffectChangesData(getEffectChanges(effectData))
-    }], { timeout });
-    return Array.isArray(created) ? (created[0] ?? null) : null;
-  } catch (err) {
-    console.error("UESRPG | ae-grouping | applyGroupedEffect failed", { actorUuid: actor?.uuid, err });
-    return null;
-  }
+  return await applyGenericStackPolicy(actor, effectData, { timeout });
 }

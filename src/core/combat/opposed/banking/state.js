@@ -112,6 +112,62 @@ export function _allDefendersCommitted(data) {
   });
 }
 
+function _hasUnresolvedBankedLanes(data) {
+  if (!data?.attacker?.result) return true;
+  const defenders = _getDefenderEntries(data);
+  return defenders.some(def => Boolean(def) && !def.result && def.noDefense !== true);
+}
+
+/**
+ * Reconcile banked auto-roll request state from the current live card state.
+ *
+ * This helper is intentionally idempotent. It only sets a missing request flag
+ * once every participant has committed and there is still work to roll. It never
+ * clears request/start/claim metadata.
+ *
+ * @param {Object} data - Opposed test data object (mutated only at data.context).
+ * @param {Object} [options]
+ * @param {number} [options.now]
+ * @param {string} [options.userId]
+ * @returns {{eligible:boolean, requested:boolean, alreadyRequested:boolean, reason:string}}
+ */
+export function reconcileBankedAutoRollRequest(data, options = {}) {
+  if (!data || typeof data !== "object") {
+    return { eligible: false, requested: false, alreadyRequested: false, reason: "missing-data" };
+  }
+  if (!_isBankChoicesEnabledForData(data)) {
+    return { eligible: false, requested: false, alreadyRequested: false, reason: "banking-disabled" };
+  }
+
+  data.context = data.context ?? {};
+  const ctx = data.context;
+
+  if (data.status === "resolved" || ctx.phase === "resolved") {
+    return { eligible: false, requested: false, alreadyRequested: ctx.autoRollRequested === true, reason: "resolved" };
+  }
+  if (ctx.autoRollStarted === true) {
+    return { eligible: false, requested: false, alreadyRequested: ctx.autoRollRequested === true, reason: "started" };
+  }
+  if (ctx.autoRollClaimId) {
+    return { eligible: false, requested: false, alreadyRequested: ctx.autoRollRequested === true, reason: "claimed" };
+  }
+
+  if (!_allDefendersCommitted(data)) {
+    return { eligible: false, requested: false, alreadyRequested: ctx.autoRollRequested === true, reason: "not-committed" };
+  }
+  if (!_hasUnresolvedBankedLanes(data)) {
+    return { eligible: false, requested: false, alreadyRequested: ctx.autoRollRequested === true, reason: "fully-rolled" };
+  }
+  if (ctx.autoRollRequested === true) {
+    return { eligible: true, requested: false, alreadyRequested: true, reason: "already-requested" };
+  }
+
+  ctx.autoRollRequested = true;
+  ctx.autoRollRequestedAt = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
+  ctx.autoRollRequestedBy = String(options.userId ?? globalThis.game?.user?.id ?? "system");
+  return { eligible: true, requested: true, alreadyRequested: false, reason: "requested" };
+}
+
 /**
  * Get commit state for a specific defender.
  * 

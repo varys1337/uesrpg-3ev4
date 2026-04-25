@@ -6,6 +6,7 @@
  */
 
 import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
+import { getCachedSetting } from "../../../../core/config/settings-cache.js";
 import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
 import { doTestRoll, formatDegree, formatResultSummary } from "../../../../utils/degree-roll-helper.js";
@@ -19,6 +20,7 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
+import { t, tf } from "../../../../utils/i18n.js";
 import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
 import {
   LUCKY_SLOT_KEYS,
@@ -162,29 +164,29 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
   }
 
   await customDialog({
-    title: "Set Base Characteristics",
+    title: t("UESRPG.Dialogs.SetBaseCharacteristics.Title"),
     width: 800,
     classes: ["uesrpg-cg-compact-dialog"],
     content: `<div class="uesrpg-cg-dialog">
       <div class="uesrpg-cg-dialog__note">
-        RAW: Roll 2d10 seven times for non-luck and assign on top of racial baseline. Luck is 2d10 + 30 (max 50). Optional manual point-buy: distribute exactly 80 points (max 20 per non-luck characteristic).
+        ${t("UESRPG.Dialogs.SetBaseCharacteristics.RawNote")}
       </div>
       <div class="uesrpg-cg-dialog__tools">
-        <button type="button" id="cgRollAssign">Roll + Assign</button>
-        <button type="button" id="cgRollDistribute">Roll + Distribute</button>
-        <button type="button" id="cgUsePointBuy">Use Point Buy Mode</button>
-        <button type="button" id="cgReroll" title="Optional RAW reroll pool (max 3)">Reroll Pool</button>
-        <span class="uesrpg-cg-dialog__small">Mode: <b id="cgModeLabel">Roll</b></span>
-        <span class="uesrpg-cg-dialog__small">Pool: <span id="cgRollPool">Stand by</span></span>
-        <span class="uesrpg-cg-dialog__small">Rerolls: <span id="cgRerollCount">0/3</span></span>
+        <button type="button" id="cgRollAssign">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollAssignButton")}</button>
+        <button type="button" id="cgRollDistribute">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollDistributeButton")}</button>
+        <button type="button" id="cgUsePointBuy">${t("UESRPG.Dialogs.SetBaseCharacteristics.UsePointBuyButton")}</button>
+        <button type="button" id="cgReroll" title="${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolTitle")}">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolButton")}</button>
+        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.ModeLabel")} <b id="cgModeLabel">Roll</b></span>
+        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.PoolLabel")} <span id="cgRollPool">Stand by</span></span>
+        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollsLabel")} <span id="cgRerollCount">0/3</span></span>
       </div>
-      <div id="cgRollSection" class="uesrpg-cg-dialog__note">Fields are editable and typed values are used on submit. Roll assignment mode controls how the 7 rolled values map to STR/END/AGI/INT/WP/PRC/PRS.</div>
+      <div id="cgRollSection" class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollSectionNote")}</div>
       <div id="cgManualAssignSection" style="display:none;">
-        <div class="uesrpg-cg-dialog__note">Manual Assignment (use each roll exactly once):</div>
+        <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.ManualAssignmentNote")}</div>
         <div id="cgManualAssignWrap" style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px;"></div>
       </div>
       <div id="cgPointBuySection" style="display:none;">
-        <div class="uesrpg-cg-dialog__note">Point Buy Allocation: <b id="cgPointBuyTotal">0/80</b> (max 20 each)</div>
+        <div class="uesrpg-cg-dialog__note">${tf("UESRPG.Dialogs.SetBaseCharacteristics.PointBuyAllocationNote", { total: "0/80" })}</div>
         <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px;">
           ${CHA_KEYS.map((k) => `<label style="display:flex; flex-direction:column; gap:2px;"><span>${k.toUpperCase()}</span><input type="number" id="pb-${k}" min="0" max="20" value="0"></label>`).join("")}
         </div>
@@ -192,7 +194,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       <table class="uesrpg-cg-dialog__table">
         <tr><th></th><th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th><th>LCK</th></tr>
         <tr>
-          <th scope="row">Current</th>
+          <th scope="row">${t("UESRPG.Dialogs.SetBaseCharacteristics.CurrentLabel")}</th>
           <td><input type="number" value="${baseline.str}" readonly disabled></td>
           <td><input type="number" value="${baseline.end}" readonly disabled></td>
           <td><input type="number" value="${baseline.agi}" readonly disabled></td>
@@ -203,7 +205,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           <td><input type="number" value="${_num(current?.lck?.base, 0)}" readonly disabled></td>
         </tr>
         <tr>
-          <th scope="row">Result</th>
+          <th scope="row">${t("UESRPG.Dialogs.SetBaseCharacteristics.ResultLabel")}</th>
           <td><input type="number" id="strInput"></td>
           <td><input type="number" id="endInput"></td>
           <td><input type="number" id="agiInput"></td>
@@ -214,7 +216,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           <td><input type="number" id="lckInput" value=""></td>
         </tr>
       </table>
-      <div class="uesrpg-cg-dialog__note">Select exactly two favored characteristics.</div>
+      <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.SelectExactlyTwoFavored")}</div>
       <table class="uesrpg-cg-dialog__table">
         <tr><th>STR</th><th>END</th><th>AGI</th><th>INT</th><th>WP</th><th>PRC</th><th>PRS</th><th>LCK</th></tr>
         <tr>
@@ -240,12 +242,12 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           const map = currentAssignMap(root);
           const idxValues = Object.values(map);
           if (idxValues.some((v) => v < 0 || v >= state.rollPool.length)) {
-            ui.notifications?.warn?.("Invalid roll assignment.");
+            ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.InvalidRollAssignment"));
             return;
           }
           if (state.assignmentMode === "manual") {
             if (new Set(idxValues).size !== idxValues.length) {
-              ui.notifications?.warn?.("Manual assignment must use each rolled value only once.");
+              ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.ManualAssignmentDuplicate"));
               return;
             }
           }
@@ -256,14 +258,14 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           for (const key of CHA_KEYS) {
             const raw = _num(root.querySelector(`#pb-${key}`)?.value, 0);
             if (raw < 0 || raw > 20) {
-              ui.notifications?.warn?.("Each point-buy allocation must be between 0 and 20.");
+              ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.PointBuyAllocationRange"));
               return;
             }
             total += raw;
             pointBuyAllocation[key] = raw;
           }
           if (total !== 80) {
-            ui.notifications?.warn?.(`Point buy must total exactly 80 (currently ${total}).`);
+            ui.notifications?.warn?.(tf("UESRPG.Notifications.CharGen.PointBuyTotalExact", { total: String(total) }));
             return;
           }
         }
@@ -292,7 +294,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
 
         const favoredCount = Object.values(favored).filter(Boolean).length;
         if (favoredCount !== 2) {
-          ui.notifications?.warn?.("Select exactly 2 favored characteristics.");
+          ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.SelectExactlyTwoFavored"));
           return;
         }
 
@@ -439,7 +441,7 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
       return;
     }
 
-    const quickShift = Boolean(event.shiftKey) && game.settings.get("uesrpg-3ev4", "skillRollQuickShift");
+    const quickShift = Boolean(event.shiftKey) && getCachedSetting("skillRollQuickShift");
 
     for (const defenderToken of targets) {
       const msg = await SkillOpposedWorkflow.createPending({
@@ -591,7 +593,7 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
       ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
       <div style="margin-top:4px;">${degreeLine}</div>
       <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
-      <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
+      <div class="tag-container">${tags.join("")}</div>
     </div>`;
 
   const rollMode = getCoreRollMode();

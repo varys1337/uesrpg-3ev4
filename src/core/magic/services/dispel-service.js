@@ -227,7 +227,9 @@ async function _dispelSingleEffect(targetActor, entry) {
   }
 
   if (toDelete.length) {
-    await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", toDelete);
+    await requestDeleteEmbeddedDocuments(targetActor, "ActiveEffect", toDelete, {
+      deleteOptions: { uesrpgExpirationSweep: true }
+    });
     _debug("Dispelled via direct AE deletion:", entry.name, toDelete.length, "effects");
     return true;
   }

@@ -65,6 +65,9 @@
                                                     {{/if}}
                                                     <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td class="ues-col-stat" title="{{localize "UESRPG.Sheets.Equipment.ContainerOwnEnc"}}">{{item.system.enc}}</td>
@@ -106,6 +109,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td class="damage-entry">{{item.system.damage3}}</td>
@@ -146,6 +152,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td class="damage-entry">{{item.system.damage3}}</td>
@@ -199,6 +208,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td>{{item.system.damage}}</td>
@@ -220,6 +232,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td>{{item.system.damage}}</td>
@@ -254,6 +269,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
@@ -275,6 +293,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td>{{#if item.system.blockRatingEffective}}{{item.system.blockRatingEffective}}{{else}}{{item.system.blockRating}}{{/if}}</td>
@@ -310,6 +331,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
@@ -331,6 +355,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td>{{#if item.system.armorEffective}}{{item.system.armorEffective}}{{else}}{{item.system.armor}}{{/if}}</td>
@@ -368,6 +395,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td class="ues-col-stat">
@@ -397,6 +427,9 @@
                                                         <i title="{{localize "UESRPG.Sheets.Equipment.OpenContainer"}}" data-action="openContainer" class="fa-solid fa-backpack" data-container-id="{{item.system.containerStats.container_id}}"></i>
                                                     {{/if}}
                                                     <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                                                    {{#if item.system.uiCastEnchantmentCharge}}
+                                                        <span class="uesrpg-cast-charge-pill" title="{{localize "UESRPG.Sheets.Equipment.CastEnchantmentCharge"}}">{{item.system.uiCastEnchantmentCharge}}</span>
+                                                    {{/if}}
                                                 </div>
                                             </td>
                                             <td class="ues-col-stat">
@@ -429,7 +462,16 @@
                             {{#each effects as |effect|}}
                                 <li class="effect flexrow" data-effect-id="{{effect._id}}">
                                     <img class="effect-icon" src="{{effect.img}}" />
-                                    <h4 class="effect-name">{{effect.name}}</h4>
+                                    <div class="effect-summary">
+                                        <h4 class="effect-name">{{effect.name}}</h4>
+                                        {{#if effect.badges.length}}
+                                        <div class="effect-badges">
+                                            {{#each effect.badges as |badge|}}
+                                            <span class="effect-meta-badge {{badge.class}}" title="{{badge.title}}">{{badge.label}}</span>
+                                            {{/each}}
+                                        </div>
+                                        {{/if}}
+                                    </div>
                                     <div class="effect-controls flexrow">
                                         <a data-action="effectControl" class="effect-control" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.ToggleEffect"}}">
                                             <i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i>

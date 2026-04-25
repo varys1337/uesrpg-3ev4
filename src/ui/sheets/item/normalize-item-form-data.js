@@ -285,6 +285,17 @@ export function normalizeItemFormData(item, formData) {
       }
     }
 
+    const targetingMode = String(formData["system.engine.targeting.mode"] ?? item?.system?.engine?.targeting?.mode ?? "").trim().toLowerCase();
+    const currentRangeType = String(formData["system.rangeType"] ?? item?.system?.rangeType ?? "").trim().toLowerCase();
+    const rangeText = String(formData["system.range"] ?? item?.system?.range ?? "").trim();
+    if (targetingMode === "template") {
+      formData["system.rangeType"] = "aoe";
+    } else if (targetingMode === "self") {
+      formData["system.rangeType"] = "none";
+    } else if (currentRangeType === "aoe") {
+      formData["system.rangeType"] = rangeText ? "ranged" : "none";
+    }
+
     const diPrefix = "system.damageInstances.";
     const diIndices = new Set();
     const diEntries = new Map();
@@ -383,6 +394,15 @@ export function normalizeItemFormData(item, formData) {
           entry.level = Number(entry.level) || 0;
         if (Object.prototype.hasOwnProperty.call(entry, "cost"))
           entry.cost = Number(entry.cost) || 0;
+        entry.known = entry.known !== false && entry.known !== "false";
+        entry.spellStrengthFormula = String(
+          entry.spellStrengthFormula
+          ?? entry.spellStrength
+          ?? entry.spell_str
+          ?? entry.strength
+          ?? entry.value
+          ?? ""
+        ).trim();
         if (Object.prototype.hasOwnProperty.call(entry.duration, "value"))
           entry.duration.value = Number(entry.duration.value) || 0;
         return entry;

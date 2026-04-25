@@ -3,6 +3,8 @@ import { requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmb
 import { SYSTEM_ID } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
 import { buildEffectChange, getEffectChanges } from "../../utils/compat.js";
+import { buildGenericAEExpiry } from "../active-effects/expiry.js";
+import { buildGenericAEMetadata } from "../active-effects/metadata.js";
 
 export const FEAR_FLAG = "fear";
 export const FEAR_GROUP_PREFIX = "fear.";
@@ -58,26 +60,12 @@ export function isFearImmune(actor, type) {
 }
 
 export function buildStartOfNextTurnExpiry(actor) {
-  const combat = game.combat ?? null;
-  const combatant = combat?.combatants?.find?.((c) => c?.actor?.id === actor?.id) ?? null;
-  if (!(combat && combat.started && combatant)) return {};
-
-  const turns = Array.isArray(combat.turns) ? combat.turns : [];
-  const idx = turns.findIndex((t) => String(t?.id ?? "") === String(combatant.id ?? ""));
-  const currentTurn = Number(combat.turn ?? 0);
-  const currentRound = Number(combat.round ?? 0);
-  const expiresTurn = idx >= 0 ? idx : currentTurn;
-  const expiresRound = (idx >= 0 && Number.isFinite(currentTurn) && Number.isFinite(currentRound) && idx <= currentTurn)
-    ? (currentRound + 1)
-    : currentRound;
-
-  return {
-    expiresOnTurnStart: true,
-    expiresCombatId: String(combat.id ?? ""),
-    expiresRound,
-    expiresTurn,
-    expiresCombatantId: String(combatant.id ?? ""),
-  };
+  return buildGenericAEExpiry({
+    mode: "target-next-turn-start",
+    targetActor: actor,
+    actor,
+    source: "combat",
+  })?.metadata ?? null;
 }
 
 export function nameWithRounds(baseName, rounds) {
@@ -139,6 +127,7 @@ export async function createFearEffect(actor, {
   encounterScoped = true,
   applyAfterSnapPenalty = 0,
   extraFlags = {},
+  genericAE = null,
 } = {}) {
   const fearKey = String(key ?? "generic").trim() || "generic";
   const group = `${FEAR_GROUP_PREFIX}${fearKey}`;
@@ -164,8 +153,10 @@ export async function createFearEffect(actor, {
       [SYSTEM_ID]: {
         owner: "system",
         source: "fear",
-        effectGroup: group,
-        stackRule: "override",
+        ae: genericAE ?? buildGenericAEMetadata({
+          source: "combat",
+          stack: { policy: "replace", group, max: null, strengthKey: null },
+        }),
         [FEAR_FLAG]: {
           key: fearKey,
           blockActions: blockActions === true,
@@ -184,15 +175,21 @@ export async function createFearEffect(actor, {
 }
 
 export async function createOneTurnFearEffect(actor, opts = {}) {
-  const nextTurnExpiry = buildStartOfNextTurnExpiry(actor);
-  const hasTurnExpiry = Object.keys(nextTurnExpiry).length > 0;
+  const genericExpiry = buildGenericAEExpiry({
+    mode: "target-next-turn-start",
+    targetActor: actor,
+    actor,
+    source: "combat",
+    stack: { policy: "replace", group: `${FEAR_GROUP_PREFIX}${String(opts.key ?? "generic").trim() || "generic"}`, max: null, strengthKey: null },
+  });
+  const hasTurnExpiry = Boolean(genericExpiry?.expiry);
   const combat = game.combat ?? null;
   const fallbackFixedRound = !hasTurnExpiry && combat?.started ? { fixedRounds: 1 } : {};
   await createFearEffect(actor, {
     ...opts,
+    genericAE: genericExpiry?.metadata ?? null,
     extraFlags: {
       ...opts.extraFlags,
-      ...nextTurnExpiry,
       ...fallbackFixedRound,
     }
   });

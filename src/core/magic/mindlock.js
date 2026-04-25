@@ -21,7 +21,8 @@ import { registerLinkedEntity } from "./effects/origin-effect.js";
 import { requestCreateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { createDebugLogger } from "./_primitives.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
-import { buildEffectChange, buildEffectChangesData } from "../../utils/compat.js";
+import { buildEffectChange } from "../../utils/compat.js";
+import { buildGenericAEData } from "../active-effects/modifier-evaluator.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -79,7 +80,15 @@ export async function applyMindlockEffects({ caster, spell, originAE = null, con
     ? foundry.utils.deepClone(originAE.duration)
     : {};
 
-  const effectData = {
+  const effectGroup = `spell.mindlock.${spell.id || spell.uuid}`;
+  const effectData = buildGenericAEData({
+    source: "spell",
+    stack: {
+      policy: "replace",
+      group: effectGroup,
+      max: null,
+      strengthKey: null,
+    },
     name: `Mindlock (${spell.name})`,
     img: spell.img || "icons/magic/control/debuff-chains-ropes-purple.webp",
     origin: spell.uuid,
@@ -94,20 +103,18 @@ export async function applyMindlockEffects({ caster, spell, originAE = null, con
         spellName: spell.name,
         casterUuid: caster.uuid,
         owner: "system",
-        effectGroup: `spell.mindlock.${spell.id || spell.uuid}`,
-        stackRule: "override",
         source: "spell-mindlock"
       }
     },
-    ...buildEffectChangesData([
+    changes: [
       buildEffectChange({
         key: "system.modifiers.action_points.max",
         type: "add",
         value: String(-mindlockValue),
         priority: 20
       })
-    ])
-  };
+    ]
+  });
 
   try {
     const results = await requestCreateEmbeddedDocuments(caster, "ActiveEffect", [effectData]);

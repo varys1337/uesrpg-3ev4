@@ -8,10 +8,10 @@
  */
 
 import { resolveOpposed } from "../../../utils/degree-roll-helper.js";
-import { getSpellDamageFormula, getSpellDamageType, rollSpellHealing } from "../magicka-utils.js";
+import { getSpellCost, getSpellDamageFormula, getSpellDamageType, rollSpellHealing } from "../magicka-utils.js";
 
 import { getHitLocationFromRoll } from "../../combat/combat-utils.js";
-import { getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsEffectApplication, isHealingType, isTemporaryHealingType, maybeResolveAoEEvadeEscape } from "./spell-helpers.js";
+import { getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsDeferredDirectApplication, spellNeedsEffectApplication, isHealingType, isTemporaryHealingType, maybeResolveAoEEvadeEscape } from "./spell-helpers.js";
 import { setDefenderOutcome, markResolutionPhase, setMagicDefenderDamage } from "./schema.js";
 import { trySpellReflect } from "../spell-runtime.js";
 import { isCharacteristicDefense, executeCharacteristicDefense, processCharacteristicDefenseOutcome } from "../characteristic-defense-service.js";
@@ -81,9 +81,16 @@ function _buildMagicDamageData({
   wardResult = null,
 }) {
   const isHealing = mode === "healing";
-  const actualCost = Number(data?.attacker?.mpSpent ?? data?.context?.mpSpent ?? spell?.system?.cost ?? 0);
+  const hasBuffer = Boolean(spell?.system?.hasBuffer && spell?.system?.buffer?.type && spell.system.buffer.type !== "none");
+  const actualCost = Number(
+    data?.attacker?.mpSpent
+    ?? data?.context?.mpSpent
+    ?? getSpellCost(spell, data?.attacker?.spellOptions?.castLevel ?? null)
+    ?? spell?.system?.cost
+    ?? 0
+  );
   const originalCastWorldTime = Number(data?.context?.originalCastWorldTime ?? game?.time?.worldTime ?? 0) || 0;
-  const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell);
+  const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell, { actor: attacker });
 
   return {
     rolled: true,
@@ -127,10 +134,125 @@ function _buildMagicDamageData({
       isDamaging,
       isHealing,
       isTemporary,
-      needsEffects: Boolean(spell && spellNeedsEffectApplication(spell)),
+      needsEffects: Boolean(spell && (spellNeedsEffectApplication(spell) || hasBuffer)),
       castContext,
+      spellOptions: data?.attacker?.spellOptions ?? null,
+      scalingChoices: data?.attacker?.spellOptions?.castLevel ? { level: data.attacker.spellOptions.castLevel } : null,
+      castSource: data?.attacker?.castSource ?? null,
+      itemCastContext: data?.context?.itemCastContext ?? null,
+      magickaSpend: {
+        consumed: Number(data?.attacker?.mpSpent ?? actualCost ?? 0) || 0,
+        remaining: Number(data?.context?.mpRemaining ?? 0) || 0,
+        refund: Number(data?.context?.mpRefund ?? 0) || 0
+      },
     },
   };
+}
+
+async function _buildDeferredDirectApplicationData({
+  message,
+  data,
+  attacker,
+  defender,
+  defenderEntry,
+  spell,
+  isCritical = false,
+  defenseType = "",
+}) {
+  if (!spellNeedsDeferredDirectApplication(spell)) return null;
+
+  const damageType = getSpellDamageType(spell);
+  const effectiveDefenseType = String(defenseType ?? defenderEntry?.defenseType ?? "").trim().toLowerCase();
+
+  if (isHealingType(damageType)) {
+    const healRoll = await rollSpellHealing(spell, { isCritical });
+    const healValue = Number(healRoll.total) || 0;
+    const rollHTML = await healRoll.render();
+    const isTemporaryHealing = isTemporaryHealingType(damageType);
+
+    const healDmgData = _buildMagicDamageData({
+      mode: "healing",
+      finalDamage: healValue,
+      damageString: rollHTML,
+      hitLocation: "Body",
+      spell,
+      target: defender,
+      attacker,
+      data,
+      isCritical,
+      damageType,
+      isTemporary: isTemporaryHealing,
+      defenseType: effectiveDefenseType,
+      isDamaging: false,
+    });
+    setMagicDefenderDamage(data, defenderEntry, healDmgData);
+
+    return {
+      healingApplied: isTemporaryHealing ? null : healValue,
+      healingRollHTML: isTemporaryHealing ? null : rollHTML,
+      tempHealingApplied: isTemporaryHealing ? healValue : null,
+      tempHealingRollHTML: isTemporaryHealing ? rollHTML : null,
+    };
+  }
+
+  const damageFormula = getSpellDamageFormula(spell);
+  const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
+  if (isDamaging) {
+    const spellOptions = data.attacker.spellOptions ?? {};
+    const sharedDamage = await getOrCreateSharedSpellDamage({
+      data,
+      attacker,
+      spell,
+      spellOptions,
+      isCritical,
+      damageType,
+      parentMessageId: message.id
+    });
+    const damageInfo = sharedDamage ?? await computeSpellDamageShared({
+      attacker,
+      spell,
+      spellOptions,
+      isCritical,
+      damageType,
+      parentMessageId: message.id
+    });
+    const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
+    const rollHTML = damageInfo?.rollHTML ?? "";
+
+    const dmgData = _buildMagicDamageData({
+      finalDamage: damageValue,
+      damageString: rollHTML,
+      hitLocation: "Body",
+      spell,
+      target: defender,
+      attacker,
+      data,
+      isCritical,
+      damageType,
+      damageInfo,
+      defenseType: effectiveDefenseType,
+      isDamaging: true,
+    });
+    setMagicDefenderDamage(data, defenderEntry, dmgData);
+    return null;
+  }
+
+  const effectsOnlyData = _buildMagicDamageData({
+    finalDamage: 0,
+    damageString: "",
+    hitLocation: "Body",
+    spell,
+    target: defender,
+    attacker,
+    data,
+    isCritical,
+    damageType,
+    defenseType: effectiveDefenseType,
+    isDamaging: false,
+  });
+  effectsOnlyData.effectsOnly = true;
+  setMagicDefenderDamage(data, defenderEntry, effectsOnlyData);
+  return null;
 }
 
 /**
@@ -447,6 +569,92 @@ export async function resolveHealingDirect(ctx) {
   await _updateCard(message, data);
 }
 
+async function _resolveDirectDeferred(ctx, { textBuilder } = {}) {
+  const { message, data, attacker, defender, defenderEntry, spell, _updateCard } = ctx;
+  const aResult = data.attacker.result;
+  const isCritical = Boolean(aResult?.isCriticalSuccess);
+  const castOk = Boolean(aResult?.isSuccess);
+
+  const outcome = {
+    winner: castOk ? "attacker" : "defender",
+    attackerDegree: aResult?.degree ?? 0,
+    defenderDegree: 0,
+    attackerWins: castOk,
+    damageApplied: castOk,
+    text: typeof textBuilder === "function"
+      ? textBuilder({ castOk, attacker, defender, spell })
+      : (castOk
+        ? `${attacker.name} casts ${spell.name} directly on ${defender.name}.`
+        : `${attacker.name} fails to cast ${spell.name}.`)
+  };
+  setDefenderOutcome(data, defenderEntry, outcome);
+
+  if (!castOk) {
+    markResolutionPhase(data);
+    await _updateCard(message, data);
+    return;
+  }
+
+  const reflectResult = await trySpellReflect(defender, spell, attacker);
+  if (reflectResult.reflected) {
+    outcome.spellReflected = true;
+    if (reflectResult.behavior === "cancel") {
+      outcome.text = `${attacker.name} casts ${spell.name} on ${defender.name}, but the spell is reflected and has no net effect.`;
+      markResolutionPhase(data);
+      await _updateCard(message, data);
+      return;
+    }
+  }
+
+  const effectiveTarget = reflectResult.reflected && reflectResult.behavior === "redirect" ? attacker : defender;
+  const appliedMeta = await _buildDeferredDirectApplicationData({
+    message,
+    data,
+    attacker,
+    defender: effectiveTarget,
+    defenderEntry,
+    spell,
+    isCritical,
+    defenseType: defenderEntry?.defenseType ?? ""
+  });
+
+  if (appliedMeta?.healingApplied != null) {
+    outcome.healingApplied = appliedMeta.healingApplied;
+    outcome.healingRollHTML = appliedMeta.healingRollHTML;
+  }
+  if (appliedMeta?.tempHealingApplied != null) {
+    outcome.tempHealingApplied = appliedMeta.tempHealingApplied;
+    outcome.tempHealingRollHTML = appliedMeta.tempHealingRollHTML;
+  }
+
+  markResolutionPhase(data);
+  await _updateCard(message, data);
+}
+
+async function resolveDirectUndefendableDeferred(ctx) {
+  return _resolveDirectDeferred(ctx, {
+    textBuilder: ({ castOk, attacker, defender, spell }) => castOk
+      ? `${attacker.name} casts ${spell.name} directly on ${defender.name}.`
+      : `${attacker.name} fails to cast ${spell.name}.`
+  });
+}
+
+async function resolveDirectNoTestDeferred(ctx) {
+  return _resolveDirectDeferred(ctx, {
+    textBuilder: ({ castOk, attacker, defender, spell }) => castOk
+      ? `${attacker.name} casts ${spell.name} directly on ${defender.name}.`
+      : `${attacker.name} fails to cast ${spell.name}.`
+  });
+}
+
+async function resolveHealingDirectDeferred(ctx) {
+  return _resolveDirectDeferred(ctx, {
+    textBuilder: ({ castOk, attacker, defender, spell }) => castOk
+      ? `${attacker.name} successfully casts ${spell.name} on ${defender.name}.`
+      : `${attacker.name} fails to cast ${spell.name}.`
+  });
+}
+
 /**
  * Resolve opposed test outcome.
  * @param {object} ctx - Context object
@@ -744,7 +952,12 @@ async function resolveWithCharacteristicDefense(ctx) {
       roll: defenderEntry.result.roll
     };
   } else {
-    defResult = await executeCharacteristicDefense(defender, spell, { caster: attacker, postToChat: false });
+    defResult = await executeCharacteristicDefense(defender, spell, {
+      caster: attacker,
+      attacker: data?.attacker ?? {},
+      castContext: buildMagicCastContextRows(data?.attacker ?? {}, spell, { actor: attacker }),
+      postToChat: false
+    });
     if (defResult) {
       // Store the actual defense result and TN on the defender entry so the
       // chat card re-renders with correct data instead of stale placeholders.
@@ -925,15 +1138,15 @@ export async function resolveOutcome(ctx) {
   }
 
   if (Boolean(data.context?.directUndefendable)) {
-    return await resolveDirectUndefendable(ctx);
+    return await resolveDirectUndefendableDeferred(ctx);
   }
 
   if (Boolean(data.context?.directNoTest)) {
-    return await resolveDirectNoTest(ctx);
+    return await resolveDirectNoTestDeferred(ctx);
   }
 
   if (Boolean(data.context?.healingDirect)) {
-    return await resolveHealingDirect(ctx);
+    return await resolveHealingDirectDeferred(ctx);
   }
 
   // Default: opposed test

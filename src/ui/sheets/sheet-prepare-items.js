@@ -3,6 +3,7 @@ import { isShieldItem } from "../../core/items/shield-utils.js";
 import { TRAINING_RANK_LABELS } from "../../core/config/label-catalog.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { buildWeaponAmmoControlState } from "./shared/weapon-ammo-control.js";
+import { getWeaponCombatCapabilities } from "../../core/combat/combat-utils.js";
 import { isReligionWorshipEnabled } from "../../core/homebrew/settings.js";
 import { getReligionDomain } from "../../core/religion/domain-registry.js";
 import {
@@ -21,13 +22,21 @@ import { getOrthodoxFaithBonus } from "../../core/religion/clerical-talents.js";
 const _debug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][PrepareItems]");
 
 function _resolveWeaponDistanceDisplay(system = {}) {
-  const mode = String(system?.attackMode ?? "").toLowerCase();
-  if (mode === "ranged") {
+  const capabilities = getWeaponCombatCapabilities({ type: "weapon", system });
+  if (capabilities.rangedCapable) {
     const range = String(system?.rangeBandsDerivedEffective?.display ?? system?.range ?? "").trim();
     return range || "-";
   }
   const reach = String(system?.reachResolvedLabel ?? system?.reach ?? "").trim();
   return reach || "-";
+}
+
+function _buildCastEnchantmentChargeDisplay(item) {
+  const systemCharge = item?.system?.charge ?? {};
+  const value = Math.max(0, Number(systemCharge?.value ?? 0) || 0);
+  const max = Math.max(0, Number(systemCharge?.max ?? 0) || 0);
+  if (max <= 0) return "";
+  return `${value}/${max}`;
 }
 
 /**
@@ -124,6 +133,9 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
       && workshopCast.spells.some((s) => s?.enabled !== false);
 
     i.system.uiHasCastEnchantment = extensionCanCast || workshopCanCast;
+    i.system.uiCastEnchantmentCharge = i.system.uiHasCastEnchantment
+      ? _buildCastEnchantmentChargeDisplay(i)
+      : "";
 
     // If an item is inside a container, hide it from the main inventory lists.
     // Contained items remain owned by the Actor and are surfaced through the container sheet UI.
@@ -196,69 +208,67 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   }
 
   // Alphabetically sort all item lists
-  if (game.settings.get("uesrpg-3ev4", "sortAlpha")) {
-    /** @type {Array<Array<object>>} */
-    const itemCats = [
-      gear.equipped,
-      gear.unequipped,
-      weapon.equipped,
-      weapon.unequipped,
-      armor.equipped,
-      armor.unequipped,
-      shield.equipped,
-      shield.unequipped,
-      power,
-      trait,
-      talent,
-      combatStyle,
-      spell,
-      ammunition.equipped,
-      ammunition.unequipped,
-      container,
-    ];
+  /** @type {Array<Array<object>>} */
+  const itemCats = [
+    gear.equipped,
+    gear.unequipped,
+    weapon.equipped,
+    weapon.unequipped,
+    armor.equipped,
+    armor.unequipped,
+    shield.equipped,
+    shield.unequipped,
+    power,
+    trait,
+    talent,
+    combatStyle,
+    spell,
+    ammunition.equipped,
+    ammunition.unequipped,
+    container,
+  ];
 
-    if (includeSkills) itemCats.push(skill);
-    if (includeMagicSkills) itemCats.push(magicSkill);
-    if (ritualDomain) itemCats.push(ritualDomain);
-    if (invocation) itemCats.push(invocation);
+  if (includeSkills) itemCats.push(skill);
+  if (includeMagicSkills) itemCats.push(magicSkill);
+  if (ritualDomain) itemCats.push(ritualDomain);
+  if (invocation) itemCats.push(invocation);
 
-    for (const category of itemCats) {
-      if (!Array.isArray(category) || category.length <= 1) continue;
+  for (const category of itemCats) {
+    if (!Array.isArray(category) || category.length <= 1) continue;
 
-      // Spells sort by school; everything else by name.
-      if (category === spell) {
-        category.sort((a, b) => {
-          const nameA = a?.system?.school ?? "";
-          const nameB = b?.system?.school ?? "";
-          if (nameA > nameB) return 1;
-          if (nameA < nameB) return -1;
-          return 0;
-        });
-      } else if (category === invocation) {
-        category.sort((a, b) => {
-          const circleA = Number(a?.system?.circle ?? 1);
-          const circleB = Number(b?.system?.circle ?? 1);
-          if (circleA !== circleB) return circleA - circleB;
-          const nameA = (a?.name ?? "").toLowerCase();
-          const nameB = (b?.name ?? "").toLowerCase();
-          if (nameA > nameB) return 1;
-          if (nameA < nameB) return -1;
-          return 0;
-        });
-      } else {
-        category.sort((a, b) => {
-          const nameA = (a?.name ?? "").toLowerCase();
-          const nameB = (b?.name ?? "").toLowerCase();
-          if (nameA > nameB) return 1;
-          if (nameA < nameB) return -1;
-          return 0;
-        });
-      }
+    // Spells sort by school; everything else by name.
+    if (category === spell) {
+      category.sort((a, b) => {
+        const nameA = a?.system?.school ?? "";
+        const nameB = b?.system?.school ?? "";
+        if (nameA > nameB) return 1;
+        if (nameA < nameB) return -1;
+        return 0;
+      });
+    } else if (category === invocation) {
+      category.sort((a, b) => {
+        const circleA = Number(a?.system?.circle ?? 1);
+        const circleB = Number(b?.system?.circle ?? 1);
+        if (circleA !== circleB) return circleA - circleB;
+        const nameA = (a?.name ?? "").toLowerCase();
+        const nameB = (b?.name ?? "").toLowerCase();
+        if (nameA > nameB) return 1;
+        if (nameA < nameB) return -1;
+        return 0;
+      });
+    } else {
+      category.sort((a, b) => {
+        const nameA = (a?.name ?? "").toLowerCase();
+        const nameB = (b?.name ?? "").toLowerCase();
+        if (nameA > nameB) return 1;
+        if (nameA < nameB) return -1;
+        return 0;
+      });
     }
   }
 
   for (const weaponItem of [...weapon.equipped, ...weapon.unequipped]) {
-    if (String(weaponItem?.system?.attackMode ?? "").toLowerCase() !== "ranged") continue;
+    if (!getWeaponCombatCapabilities(weaponItem).usesAmmo) continue;
     const ammoSource = sheetData?.document ?? sheetData?.actorDocument ?? { items: sheetData.items ?? [] };
     const ammoControl = buildWeaponAmmoControlState(ammoSource, weaponItem);
     weaponItem.system.inlineAmmoLabel = ammoControl.currentAmmoLabel;
@@ -274,17 +284,15 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     spellsBySchool[school].push(s);
   }
 
-  // Sort spells within each school if sortAlpha enabled
-  if (game.settings.get("uesrpg-3ev4", "sortAlpha")) {
-    for (const schoolKey in spellsBySchool) {
-      spellsBySchool[schoolKey].sort((a, b) => {
-        const nameA = (a?.name ?? "").toLowerCase();
-        const nameB = (b?.name ?? "").toLowerCase();
-        if (nameA > nameB) return 1;
-        if (nameA < nameB) return -1;
-        return 0;
-      });
-    }
+  // Sort spells within each school.
+  for (const schoolKey in spellsBySchool) {
+    spellsBySchool[schoolKey].sort((a, b) => {
+      const nameA = (a?.name ?? "").toLowerCase();
+      const nameB = (b?.name ?? "").toLowerCase();
+      if (nameA > nameB) return 1;
+      if (nameA < nameB) return -1;
+      return 0;
+    });
   }
 
   // Convert spellsBySchool object to array for proper Handlebars iteration
@@ -375,7 +383,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
           ...ritualDomainEntries,
         ]
       : null;
-    if (Array.isArray(combinedMagicSkills) && combinedMagicSkills.length > 1 && game.settings.get("uesrpg-3ev4", "sortAlpha")) {
+    if (Array.isArray(combinedMagicSkills) && combinedMagicSkills.length > 1) {
       combinedMagicSkills.sort((a, b) => {
         const labelA = String(a?.name ?? "").toLowerCase();
         const labelB = String(b?.name ?? "").toLowerCase();

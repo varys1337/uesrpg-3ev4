@@ -1,4 +1,5 @@
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { t, tf } from "../../utils/i18n.js";
 import {
   clearLegacyAlchemyCarrierFlag,
   consumeOwnedItem,
@@ -76,7 +77,7 @@ function _alchemyApplyResult({ ok = false, targetType = null, carrierItem = null
 async function _createCoatedAmmoItem(actor, ammoItem, alchemyFlags) {
   const sourceQty = Math.max(0, Number(ammoItem?.system?.quantity ?? 0) || 0);
   if (sourceQty <= 0) {
-    ui.notifications.warn(`${ammoItem?.name ?? "Ammunition"}: no ammunition remaining.`);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.NoAmmunitionRemaining", { item: ammoItem?.name ?? "Ammunition" }));
     return null;
   }
 
@@ -99,7 +100,7 @@ async function _createCoatedAmmoItem(actor, ammoItem, alchemyFlags) {
   const created = await createOwnedItem(actor, itemData);
   const coatedAmmo = created.data ?? null;
   if (!coatedAmmo) {
-    ui.notifications.warn(`Failed to create coated ammunition from ${ammoItem?.name ?? "ammunition"}.`);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.FailedCreateCoatedAmmunition", { item: ammoItem?.name ?? "ammunition" }));
     return null;
   }
   return coatedAmmo;
@@ -136,18 +137,18 @@ export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
     return _alchemyApplyResult({ reason: "Missing actor, alchemy item, or weapon." });
   }
   if (!actor.isOwner && !game.user.isGM) {
-    ui.notifications.warn("You do not own this actor.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotOwner"));
     return _alchemyApplyResult({ targetType: "weapon", reason: "You do not own this actor." });
   }
 
   const algData = getAlchemyFlags(alchemyItem);
   if (!algData || (algData.kind !== "poison" && algData.kind !== "toxin")) {
-    ui.notifications.warn("That item is not a brewed poison or toxin.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotPoisonOrToxin"));
     return _alchemyApplyResult({ targetType: "weapon", reason: "That item is not a brewed poison or toxin." });
   }
 
   if (!isAlchemyWeaponTarget(weaponItem)) {
-    ui.notifications.warn("Poisons and toxins can only be applied to equipped weapons.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.OnlyAppliedToEquippedWeapons"));
     return _alchemyApplyResult({ targetType: "weapon", reason: "Poisons and toxins can only be applied to equipped weapons." });
   }
 
@@ -165,7 +166,7 @@ export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
   const createdEffect = await _applyAlchemyToCarrierItem(weaponItem, alchemyItem, effectData);
   if (!createdEffect) {
     const reason = `Could not apply ${alchemyItem.name ?? "alchemy item"} to ${weaponItem.name ?? "weapon"}.`;
-    ui.notifications.warn(reason);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.CouldNotApplyToWeapon", { alchemyItem: alchemyItem?.name ?? "alchemy item", weapon: weaponItem?.name ?? "weapon" }));
     return _alchemyApplyResult({ targetType: "weapon", carrierItem: weaponItem, reason });
   }
 
@@ -179,7 +180,7 @@ export async function applyAlchemyToWeapon(actor, alchemyItem, weaponItem) {
     }
     const reason = `${alchemyItem.name ?? "Alchemy item"} could not be consumed after coating ${weaponItem.name ?? "weapon"}.`;
     console.error("UESRPG | Failed to consume alchemy item after weapon coating", { actor: actor?.uuid, item: alchemyItem?.uuid, weapon: weaponItem?.uuid, err });
-    ui.notifications.warn(reason);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.CouldNotConsumeAfterCoating", { alchemyItem: alchemyItem?.name ?? "Alchemy item", ammunition: weaponItem?.name ?? "weapon" }));
     return _alchemyApplyResult({ targetType: "weapon", carrierItem: weaponItem, reason });
   }
 
@@ -192,18 +193,18 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
     return _alchemyApplyResult({ reason: "Missing actor, alchemy item, or ammunition." });
   }
   if (!isAlchemyAmmoTarget(ammoItem)) {
-    ui.notifications.warn("Poisons and toxins can only be applied to ammunition with quantity remaining.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.OnlyAppliedToAmmunitionWithQuantity"));
     return _alchemyApplyResult({ targetType: "ammunition", reason: "Poisons and toxins can only be applied to ammunition with quantity remaining." });
   }
 
   if (!actor.isOwner && !game.user.isGM) {
-    ui.notifications.warn("You do not own this actor.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotOwner"));
     return _alchemyApplyResult({ targetType: "ammunition", reason: "You do not own this actor." });
   }
 
   const algData = getAlchemyFlags(alchemyItem);
   if (!algData || (algData.kind !== "poison" && algData.kind !== "toxin")) {
-    ui.notifications.warn("That item is not a brewed poison or toxin.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotPoisonOrToxin"));
     return _alchemyApplyResult({ targetType: "ammunition", reason: "That item is not a brewed poison or toxin." });
   }
 
@@ -231,7 +232,7 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
       // no-op
     }
     const reason = `Could not apply ${alchemyItem.name ?? "alchemy item"} to ${ammoItem.name ?? "ammunition"}.`;
-    ui.notifications.warn(reason);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.CouldNotApplyToWeapon", { alchemyItem: alchemyItem?.name ?? "alchemy item", weapon: ammoItem?.name ?? "ammunition" }));
     return _alchemyApplyResult({ targetType: "ammunition", carrierItem: ammoItem, reason });
   }
 
@@ -250,7 +251,7 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
       // no-op
     }
     const reason = `Failed to split ${ammoItem?.name ?? "ammunition"} for coating.`;
-    ui.notifications.warn(reason);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.FailedSplitForCoating", { item: ammoItem?.name ?? "ammunition" }));
     return _alchemyApplyResult({ targetType: "ammunition", carrierItem: ammoItem, reason });
   }
 
@@ -284,7 +285,7 @@ export async function applyAlchemyToAmmo(actor, alchemyItem, ammoItem) {
       // no-op
     }
     const reason = `${alchemyItem.name ?? "Alchemy item"} could not be consumed after coating ${ammoItem.name ?? "ammunition"}.`;
-    ui.notifications.warn(reason);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.CouldNotConsumeAfterCoating", { alchemyItem: alchemyItem?.name ?? "Alchemy item", ammunition: ammoItem?.name ?? "ammunition" }));
     return _alchemyApplyResult({ targetType: "ammunition", carrierItem: ammoItem, reason });
   }
 
@@ -297,24 +298,24 @@ export async function applyAlchemyToTarget(actor, alchemyItem, targetItem) {
   if (targetType === "weapon") return applyAlchemyToWeapon(actor, alchemyItem, targetItem);
   if (targetType === "ammunition") return applyAlchemyToAmmo(actor, alchemyItem, targetItem);
   const reason = "Poisons and toxins can only be applied to equipped weapons or ammunition.";
-  ui.notifications.warn(reason);
+  ui.notifications.warn(t("UESRPG.Notifications.Alchemy.OnlyAppliedToWeaponsOrAmmunition"));
   return _alchemyApplyResult({ reason });
 }
 
 export async function pickAlchemyWeapon(actor) {
   const weapons = getActorItemsArray(actor).filter((item) => isAlchemyWeaponTarget(item));
   if (weapons.length === 0) {
-    ui.notifications.warn("No equipped weapons found.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NoEquippedWeaponsFound"));
     return null;
   }
 
   if (weapons.length === 1) return weapons[0];
 
   const options = weapons.map((item) => `<option value="${item.id}">${item.name}</option>`).join("");
-  const content = `<p>Select a weapon to coat:</p><select name="weaponId" style="width:100%;">${options}</select>`;
+  const content = `<p>${t("UESRPG.Dialogs.ApplyToWeapon.Prompt")}</p><select name="weaponId" style="width:100%;">${options}</select>`;
 
   const result = await customDialog({
-    title: "Apply to Weapon",
+    title: t("UESRPG.Dialogs.ApplyToWeapon.Title"),
     content,
     buttons: {
       ok: {
@@ -337,7 +338,7 @@ export async function pickAlchemyWeapon(actor) {
 export async function pickAlchemyCoatingTarget(actor) {
   const targets = getAlchemyCoatingTargets(actor);
   if (targets.length === 0) {
-    ui.notifications.warn("No valid equipped weapons or ammunition found.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NoValidEquippedWeaponsOrAmmunition"));
     return null;
   }
 
@@ -349,7 +350,7 @@ export async function pickAlchemyCoatingTarget(actor) {
   const content = `<p>Select a weapon or ammunition item to coat:</p><select name="targetId" style="width:100%;">${options}</select>`;
 
   const result = await customDialog({
-    title: "Apply Poison/Toxin",
+    title: t("UESRPG.Dialogs.ApplyPoisonToxin.Title"),
     content,
     buttons: {
       ok: {

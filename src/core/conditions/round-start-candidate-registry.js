@@ -14,9 +14,9 @@
 
 import { getActorTraitValue } from "../traits/trait-registry.js";
 import { hasCondition } from "./condition-engine.js";
-import { SYSTEM_ID } from "../system/namespace.js";
 import { getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { resolveUuidSync } from "../../utils/uuid-cache.js";
+import { isRoundStartCandidateRegistryEnabled } from "../config/automation-policy.js";
 
 /** @typedef {{ actorId: string, actorUuid: string, regenValue: number }} CandidateEntry */
 
@@ -37,13 +37,7 @@ function _toCollectionArray(collection) {
 }
 
 function _isRegistryEnabled() {
-  try {
-    const value = game?.settings?.get?.(SYSTEM_ID, "useRoundStartCandidateRegistry");
-    return value !== false;
-  } catch (_e) {
-    // Fail-open to preserve optimized path when setting registration is unavailable.
-    return true;
-  }
+  return isRoundStartCandidateRegistryEnabled();
 }
 
 function _makeEntry(actor, regenValue = 0) {

@@ -7,22 +7,18 @@
  *  - id:          Stable canonical key (lowercase, kebab-case).
  *  - name:        Localized display name.
  *  - img:        Foundry core SVG icon path.
- *  - description: **Verbatim RAW rules text** from the UESRPG 3ev4 rulebook chapters,
- *                 minimally wrapped in HTML for Foundry rendering.
+ *  - description: **Verbatim RAW rules text** from the UESRPG 3ev4 rulebook chapters, minimally wrapped in HTML for Foundry rendering.
  *  - rulesRef:    Chapter + section for traceability.
  *  - hudVisible:  Whether this condition appears on the Token HUD status palette.
  *
  * Rules for maintenance:
- *  1. Do NOT paraphrase — copy the exact text from the rulebook chapters.
- *  2. Preserve bullet structure as <ul>/<li> and tables as <table>.
- *  3. Keep `id` stable; renaming breaks flag-keyed lookups across saved worlds.
- *  4. When updating RAW text, update the `description` here — the sync pipeline
- *     and the condition engine both import from this module.
+ *  1. Preserve bullet structure as <ul>/<li> and tables as <table>.
+ *  2. Keep `id` stable; renaming breaks flag-keyed lookups across saved worlds.
+ *  3. When updating RAW text, update the `description` here — the sync pipeline and the condition engine both import from this module.
  *
  * How to add a new condition:
  *  1. Add an entry to CONDITIONS_DATASET below with all required fields.
- *  2. If it should appear on the Token HUD, set `hudVisible: true` and add the id
- *     to TOKEN_HUD_CONDITION_ORDER in condition-engine.js.
+ *  2. If it should appear on the Token HUD, set `hudVisible: true` and add the id to TOKEN_HUD_CONDITION_ORDER in condition-engine.js.
  *  3. If it needs AE modifier automation, add a corresponding entry to
  *     STATIC_CONDITIONS in condition-engine.js with the `changes` array.
  * How to update RAW text safely:

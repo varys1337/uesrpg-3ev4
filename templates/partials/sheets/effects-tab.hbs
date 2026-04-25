@@ -8,23 +8,32 @@
     - transfer: false → Activation: transferred to targeted actors on use.
 --}}
 <header class="effects-header flexrow">
-    <h3>Effects</h3>
-    <a class="effect-control" data-action="effectControl" data-effect-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
+    <h3>{{localize "UESRPG.Sheets.Equipment.Effects"}}</h3>
+    <a class="effect-control" data-action="effectControl" data-effect-action="create" title="{{localize "UESRPG.Sheets.Equipment.CreateEffect"}}"><i class="fas fa-plus"></i></a>
 </header>
 <ol class="effects-list">
     {{#each effects as |effect|}}
     <li class="effect flexrow" data-effect-id="{{effect._id}}">
         <img class="effect-icon" src="{{effect.img}}" />
-        <h4 class="effect-name">{{effect.name}}</h4>
+        <div class="effect-summary">
+            <h4 class="effect-name">{{effect.name}}</h4>
+            {{#if effect.badges.length}}
+            <div class="effect-badges">
+                {{#each effect.badges as |badge|}}
+                <span class="effect-meta-badge {{badge.class}}" title="{{badge.title}}">{{badge.label}}</span>
+                {{/each}}
+            </div>
+            {{/if}}
+        </div>
         {{#if effect.transfer}}
-        <span class="effect-mode-badge passive" title="Passive: applies to the owning actor automatically">Passive</span>
+        <span class="effect-mode-badge passive" title="{{localize "UESRPG.ActiveEffects.Hints.Passive"}}">{{localize "UESRPG.ActiveEffects.Fields.Passive"}}</span>
         {{else}}
-        <span class="effect-mode-badge activation" title="Activation: transferred to targeted actors when this feature is used">Activation</span>
+        <span class="effect-mode-badge activation" title="{{localize "UESRPG.ActiveEffects.Hints.Activation"}}">{{localize "UESRPG.ActiveEffects.Fields.Activation"}}</span>
         {{/if}}
         <div class="effect-controls flexrow">
-            <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
-            <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
-            <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
+            <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.ToggleEffect"}}"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
+            <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.EditEffect"}}"><i class="fas fa-edit"></i></a>
+            <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.DeleteEffect"}}"><i class="fas fa-trash"></i></a>
         </div>
     </li>
     {{/each}}

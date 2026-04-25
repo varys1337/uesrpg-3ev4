@@ -1,5 +1,6 @@
 import { isItemEffectActive } from "./transfer.js";
 import { getCachedApplicableEffects, setCachedApplicableEffects } from "../actors/derived-cache/actor-derived-cache.js";
+import { isGenericAESuppressed } from "./metadata.js";
 
 /**
  * Collect currently-applicable effects from actor + transferable embedded item effects.
@@ -12,7 +13,7 @@ import { getCachedApplicableEffects, setCachedApplicableEffects } from "../actor
 export function collectApplicableEffects(actor, { dedupeByOrigin = true, debug = false } = {}) {
   // Filter out disabled actor effects — a disabled effect must not contribute
   // changes to modifier totals (matches actors/ae/modifiers.js behavior).
-  const actorEffects = Array.from(actor.effects ?? []).filter(e => e && !e.disabled);
+  const actorEffects = Array.from(actor.effects ?? []).filter(e => e && !e.disabled && !isGenericAESuppressed(e));
 
   // Index origins already present directly on the actor.
   const actorOrigins = new Set(
@@ -37,6 +38,7 @@ export function collectApplicableEffects(actor, { dedupeByOrigin = true, debug =
       }
 
       if (!isActive) continue;
+      if (effect.disabled || isGenericAESuppressed(effect)) continue;
 
       if (dedupeByOrigin) {
         const origin = effect?.origin;

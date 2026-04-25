@@ -22,6 +22,7 @@
 
 import { setOwnedItemQuantityOrDelete } from "../../../items/owned-item-quantity.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
+import { getWeaponCombatCapabilities } from "../../combat-utils.js";
 
 /**
  * Resolve an actor from a UUID, handling token/actor edge cases.
@@ -118,8 +119,7 @@ export async function consumePendingAmmo(pendingAmmo) {
  */
 export async function markWeaponNeedsReload(weapon) {
   if (!weapon || weapon.type !== "weapon") return false;
-  if (String(weapon.system?.attackMode ?? "").toLowerCase() !== "ranged") return false;
-  if (!weapon.system?.reloadState?.requiresReload) return false;
+  if (!getWeaponCombatCapabilities(weapon).requiresReload) return false;
 
   try {
     const success = await requestUpdateDocument(weapon, {

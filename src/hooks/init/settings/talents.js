@@ -90,20 +90,6 @@ export function registerTalentsSettings() {
     },
   });
 
-  _reg("chapter4AuditStartupMode", {
-    name: "Talents: Chapter 4 Audit at Startup",
-    hint: "Run catalog-based Chapter 4 compliance audit when world loads for GMs.",
-    scope: "world",
-    config: false,
-    default: "off",
-    type: String,
-    choices: {
-      off: "Off",
-      summary: "Summary",
-      full: "Full (include entries + console log)",
-    },
-  });
-
   _reg("enforceCharGenMilestones", {
     name: "Enforce Character Generation Milestones",
     hint: "When enabled, Imperial racial talent automation (Red Diamond / Imperial Luck) applies only if the actor has flags.uesrpg.charGen.completed = true.",
@@ -183,6 +169,7 @@ export function registerTalentsSettings() {
     config: false,
     default: false,
     type: Boolean,
+    onChange: () => invalidateCachedSetting("enableSpellRecipes"),
   });
 
   // Skill roll UI QoL (client-scoped)
@@ -197,7 +184,8 @@ export function registerTalentsSettings() {
       manualMod: 0,
       useSpec: false,
       lastSkillUuidByActor: {}
-    }
+    },
+    onChange: () => invalidateCachedSetting("skillRollLastOptions"),
   });
 
   _reg("skillRollQuickShift", {
@@ -206,6 +194,7 @@ export function registerTalentsSettings() {
     scope: "client",
     config: false,
     type: Boolean,
-    default: true
+    default: true,
+    onChange: () => invalidateCachedSetting("skillRollQuickShift"),
   });
 }

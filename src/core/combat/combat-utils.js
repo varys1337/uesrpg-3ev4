@@ -15,6 +15,7 @@
 import { DAMAGE_TYPES, itemHasToken } from "./damage-automation.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
+import { t } from "../../utils/i18n.js";
 
 const _KNOWN_DAMAGE_TYPES = new Set(Object.values(DAMAGE_TYPES).map((v) => String(v).toLowerCase()));
 // Source-capability tags that should not override physical weapon damage type.
@@ -128,6 +129,100 @@ export function getWeaponDamageInstances(weapon) {
   return instances;
 }
 
+function _normalizeWeaponMode(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw.includes("ranged")) return "ranged";
+  if (raw.includes("melee")) return "melee";
+  return "";
+}
+
+function _hasWeaponTokenOrText(weapon, token) {
+  if (!weapon || !token) return false;
+  if (itemHasToken(weapon, token)) return true;
+
+  const target = String(token).toLowerCase().replace(/[\s._-]+/g, "");
+  const sys = weapon.system ?? {};
+  const rawValues = [
+    sys.qualities,
+    sys.traits,
+    sys.quality,
+  ].filter(Boolean);
+
+  for (const raw of rawValues) {
+    const text = Array.isArray(raw)
+      ? raw.map((entry) => String(entry?.key ?? entry?.name ?? entry?.label ?? entry ?? "")).join(" ")
+      : String(raw ?? "");
+    const cleaned = text
+      .replace(/@Compendium\[[^\]]+\]\{([^}]+)\}/g, "$1")
+      .replace(/@UUID\[[^\]]+\]\{([^}]+)\}/g, "$1")
+      .replace(/<[^>]*>/g, " ")
+      .toLowerCase()
+      .replace(/[\s._-]+/g, "");
+    if (cleaned.includes(target)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Resolve combat-facing weapon capabilities from one canonical source.
+ *
+ * @param {Item|null} weapon
+ * @returns {{
+ *   isWeapon: boolean,
+ *   explicitAttackMode: "melee"|"ranged"|"",
+ *   attackMode: "melee"|"ranged"|"",
+ *   meleeCapable: boolean,
+ *   rangedCapable: boolean,
+ *   thrown: boolean,
+ *   usesAmmo: boolean,
+ *   consumesAmmo: boolean,
+ *   requiresReload: boolean
+ * }}
+ */
+export function getWeaponCombatCapabilities(weapon) {
+  const isWeapon = weapon?.type === "weapon";
+  if (!isWeapon) {
+    return {
+      isWeapon: false,
+      explicitAttackMode: "",
+      attackMode: "",
+      meleeCapable: false,
+      rangedCapable: false,
+      thrown: false,
+      usesAmmo: false,
+      consumesAmmo: false,
+      requiresReload: false,
+    };
+  }
+
+  const sys = weapon.system ?? {};
+  const explicitAttackMode = _normalizeWeaponMode(sys.attackMode ?? sys.weaponType ?? sys.type);
+  const rangeKind = String(sys.rangeBandsDerivedEffective?.kind ?? sys.rangeBandsDerived?.kind ?? "").trim().toLowerCase();
+  const thrown = _hasWeaponTokenOrText(weapon, "thrown") || rangeKind === "thrown";
+  const meleeCapable = explicitAttackMode !== "ranged";
+  const rangedCapable = explicitAttackMode === "ranged" || thrown;
+  const attackMode = rangedCapable ? "ranged" : (meleeCapable ? "melee" : "");
+
+  const ammoId = String(sys.ammoId ?? "").trim();
+  const usesAmmo = rangedCapable && (!thrown || !!ammoId);
+  const consumesAmmo = usesAmmo && sys.consumeAmmo !== false;
+  const requiresReload = rangedCapable && sys.reloadState?.requiresReload === true;
+
+  return {
+    isWeapon: true,
+    explicitAttackMode,
+    attackMode,
+    meleeCapable,
+    rangedCapable,
+    thrown,
+    usesAmmo,
+    consumesAmmo,
+    requiresReload,
+  };
+}
+
 /**
  * Infer attack mode from a weapon item.
  *
@@ -135,14 +230,7 @@ export function getWeaponDamageInstances(weapon) {
  * @returns {"melee"|"ranged"|""}
  */
 export function getAttackModeFromWeapon(weapon) {
-  if (!weapon) return "";
-  const sys = weapon.system ?? {};
-  const modeRaw = String(sys.attackMode ?? sys.weaponType ?? sys.type ?? "").toLowerCase();
-  if (modeRaw.includes("melee")) return "melee";
-  if (modeRaw.includes("ranged")) return "ranged";
-  // Legacy fallback only when explicit mode is absent.
-  if (itemHasToken(weapon, "thrown")) return "ranged";
-  return "melee";
+  return getWeaponCombatCapabilities(weapon).attackMode;
 }
 
 /**
@@ -375,4 +463,16 @@ export function resolveHitLocationForTarget(_targetActor, raw) {
 
   // Final fallback.
   return "Body";
+}
+
+/**
+ * Localize a hit-location value for display without changing stored canonical data.
+ *
+ * @param {string|number|null} raw
+ * @param {string|null} fallback
+ * @returns {string}
+ */
+export function localizeHitLocation(raw, fallback = null) {
+  const canonical = resolveHitLocationForTarget(null, raw);
+  return t(`UESRPG.Sheets.Item.HitLocation.${canonical}`, fallback ?? canonical);
 }

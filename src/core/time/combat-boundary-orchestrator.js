@@ -6,8 +6,8 @@
  * internal fan-out to happen through one ordered dispatch lane.
  */
 
-import { SYSTEM_ID } from "../system/namespace.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
+import { isCombatBoundaryOrchestratorPolicyEnabled } from "../config/automation-policy.js";
 
 /** @type {Array<{id: string, order: number, handle: Function}>} */
 const _consumers = [];
@@ -18,11 +18,7 @@ const _seenBoundaryKeys = new Set();
 let _registered = false;
 
 export function isCombatBoundaryOrchestratorEnabled() {
-  try {
-    return Boolean(game?.settings?.get?.(SYSTEM_ID, "useCombatBoundaryOrchestrator"));
-  } catch (_e) {
-    return false;
-  }
+  return isCombatBoundaryOrchestratorPolicyEnabled();
 }
 
 export function registerCombatBoundaryConsumer(consumer) {

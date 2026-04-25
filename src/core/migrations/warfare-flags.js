@@ -1,10 +1,16 @@
 import { SYSTEM_ID } from "../constants.js";
-import { getMigrationState, getSystemVersionString, setMigrationState } from "./state.js";
+import {
+  getMigrationState,
+  isMigrationRevisionApplied,
+  markMigrationRevisionApplied,
+  setMigrationState
+} from "./state.js";
 import { migrateArmyCampaignState } from "../mass-warfare/campaign/state.js";
 import { migrateWarfareSiegeState, migrateWarfareFeatureState } from "../mass-warfare/siege/state.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _WARFARE_FLAGS_MIGRATION_KEY = "warfareFlagsV1";
+const _WARFARE_FLAGS_MIGRATION_REVISION = 1;
 
 function _same(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -13,9 +19,8 @@ function _same(a, b) {
 export async function migrateWarfareFlagDocumentsIfNeeded() {
   if (!game.user?.isGM) return;
 
-  const currentVersion = getSystemVersionString();
   const state = getMigrationState();
-  if (state?.[_WARFARE_FLAGS_MIGRATION_KEY]) return;
+  if (isMigrationRevisionApplied(_WARFARE_FLAGS_MIGRATION_KEY, _WARFARE_FLAGS_MIGRATION_REVISION, state)) return;
 
   try {
     let updatedCount = 0;
@@ -50,11 +55,9 @@ export async function migrateWarfareFlagDocumentsIfNeeded() {
       }
     }
 
-    state[_WARFARE_FLAGS_MIGRATION_KEY] = {
-      appliedAt: Date.now(),
+    markMigrationRevisionApplied(state, _WARFARE_FLAGS_MIGRATION_KEY, _WARFARE_FLAGS_MIGRATION_REVISION, {
       updatedCount,
-      systemVersion: currentVersion,
-    };
+    });
     await setMigrationState(state);
     console.log(`${MODULE_ID} | Warfare flag migration complete (${updatedCount} document(s) updated)`);
   } catch (err) {

@@ -1,8 +1,0 @@
-{
-  "name": "Fear Test (Selection)",
-  "type": "script",
-  "img": "icons/magic/control/fear-fright-mask-yellow.webp",
-  "command": "game.uesrpg.fear.promptFearTestForSelection();",
-  "ownership": { "default": 0 },
-  "flags": {}
-}

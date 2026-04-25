@@ -54,6 +54,11 @@ import { FLAG_SCOPE } from "../../system/namespace.js";
 import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
 import { isMissingDocError as _isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
 import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
+import {
+  doesCadenceMatch,
+  normalizeOverTimeCadence,
+  OVERTIME_VALID_TRIGGERS,
+} from "./overtime-cadence.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -63,9 +68,7 @@ const _FLAG_NS = FLAG_SCOPE;
 export const OVERTIME_CHANGE_KEY = `flags.${_FLAG_NS}.OverTime`;
 
 /** @type {ReadonlySet<string>} Valid trigger values. */
-const VALID_TRIGGERS = Object.freeze(new Set([
-  "turnStart", "turnEnd", "roundStart", "roundEnd", "worldTime"
-]));
+const VALID_TRIGGERS = OVERTIME_VALID_TRIGGERS;
 
 /** @type {ReadonlySet<string>} Payload types that map to the heal executor. */
 const HEAL_TYPES = Object.freeze(new Set(["heal", "healing"]));
@@ -80,6 +83,25 @@ function _warn(/** @type {...any} */ ...args) {
 
 function _error(/** @type {...any} */ ...args) {
   try { console.error("[UESRPG][OverTime][ERROR]", ...args); } catch (_e) { /* no-op */ }
+}
+
+function _trace(debug, event, data = {}) {
+  if (!debug) return;
+  _debug(event, data);
+}
+
+function _provenanceBase(actor, effect, config, cadence, ctx) {
+  return {
+    actor: actor?.name ?? null,
+    actorUuid: actor?.uuid ?? null,
+    effect: effect?.name ?? null,
+    effectId: effect?.id ?? null,
+    trigger: ctx?.trigger ?? cadence?.trigger ?? config?.trigger ?? null,
+    cadenceKey: cadence?.key ?? null,
+    payloadType: config?.payloadType ?? null,
+    tickCount: _num(effect ? _getTickState(effect).tickCount : 0, 0),
+    maxTicks: _numOrNull(config?.maxTicks, null),
+  };
 }
 
 /**
@@ -112,6 +134,13 @@ async function _deleteEffectIfAlive(parent, effect, { context = "delete" } = {})
     });
     if (deleted) {
       _indexDirty = true;
+      _debug("effectDeleted", {
+        context,
+        effect: effect?.name ?? null,
+        effectId: effect?.id ?? null,
+        parent: parent?.name ?? null,
+        parentUuid: parent?.uuid ?? null
+      });
       return true;
     }
   } catch (err) {
@@ -194,13 +223,15 @@ function _rebuildIndex() {
     for (const ef of actor.effects) {
       const configs = _getAllOverTimeConfigs(ef);
       if (!configs.length) continue;
+      const entries = _buildRuntimeEntries(configs);
+      if (!entries.length) continue;
 
       let actorMap = _effectIndex.get(uuid);
       if (!actorMap) {
         actorMap = new Map();
         _effectIndex.set(uuid, actorMap);
       }
-      actorMap.set(ef.id, configs);
+      actorMap.set(ef.id, entries);
     }
   };
 
@@ -388,6 +419,18 @@ function _getAllOverTimeConfigs(effect) {
  * @param {ActiveEffect} effect
  * @returns {{ lastTickRound?: number, lastTickTurn?: number, lastTickWorldTime?: number, tickCount?: number }}
  */
+function _buildRuntimeEntries(configs) {
+  const entries = [];
+  for (const config of configs ?? []) {
+    if (!config || typeof config !== "object") continue;
+    entries.push({
+      config,
+      cadence: normalizeOverTimeCadence(config)
+    });
+  }
+  return entries;
+}
+
 function _getTickState(effect) {
   const st = effect?.flags?.[_FLAG_NS]?.overTimeState;
   if (st && typeof st === "object") return st;
@@ -479,7 +522,7 @@ async function _onTick(ctx) {
   if (debug) _debug(`Processing ${candidates.length} OverTime effect(s) for trigger "${trigger}"`);
 
   let _processedCount = 0;
-  for (const { actor, effect, config, tickState } of candidates) {
+  for (const { actor, effect, config, cadence, tickState } of candidates) {
     const _tp = _perf ? monoMs() : 0;
     try {
       // Guard: if a prior candidate's payload deleted this effect, skip it
@@ -488,7 +531,7 @@ async function _onTick(ctx) {
         continue;
       }
       if (debug) _debug(`├─ Processing: "${effect.name}" on ${actor.name}`);
-      await _processEffect(actor, effect, config, tickState, ctx, debug);
+      await _processEffect(actor, effect, config, cadence, tickState, ctx, debug);
       _processedCount++;
     } catch (err) {
       _error(`Failed to process effect "${effect.name}" on ${actor.name}`, err);
@@ -604,7 +647,7 @@ async function _onBoundaryTick(boundaryCtx) {
     if (debug) _debug(`Boundary [${phase}]: Processing ${candidates.length} effect(s)`);
     const _tPhaseProcess = _perf ? monoMs() : 0;
 
-    for (const { actor, effect, config, tickState } of candidates) {
+    for (const { actor, effect, config, cadence, tickState } of candidates) {
       const _tp = _perf ? monoMs() : 0;
       try {
         if (!_isEffectAlive(actor, effect)) {
@@ -612,7 +655,7 @@ async function _onBoundaryTick(boundaryCtx) {
           continue;
         }
         if (debug) _debug(`├─ Processing: "${effect.name}" on ${actor.name}`);
-        await _processEffect(actor, effect, config, tickState, phaseCtx, debug);
+        await _processEffect(actor, effect, config, cadence, tickState, phaseCtx, debug);
       } catch (err) {
         _error(`Failed to process effect "${effect.name}" on ${actor.name}`, err);
       }
@@ -660,6 +703,7 @@ async function _onBoundaryTick(boundaryCtx) {
  * @property {Actor}        actor     — The owning actor.
  * @property {ActiveEffect} effect    — The AE carrying the OverTime config.
  * @property {object}       config    — Parsed OverTime configuration.
+ * @property {object}       cadence   — Normalized runtime cadence descriptor.
  * @property {object}       tickState — Current mutable tick state.
  */
 
@@ -700,7 +744,7 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
     const actor = resolveActorFromUuidSync(actorUuid, { cache: uuidCache });
     if (!actor?.effects) continue;
 
-    for (const [effectId, cachedConfigs] of effectMap) {
+    for (const [effectId, cachedEntries] of effectMap) {
       totalEffects++;
 
       // Look up live effect on the actor
@@ -713,23 +757,44 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
       // Gate 1: disabled
       if (ef.disabled) {
         skippedDisabled++;
+        for (const entry of cachedEntries) {
+          _trace(debug, "skip", {
+            ..._provenanceBase(actor, ef, entry.config, entry.cadence, ctx),
+            reason: "disabled"
+          });
+        }
         continue;
       }
 
       // Gate 2: upkeep awaiting — do not tick while upkeep decision is pending
       if (ef.flags?.[_FLAG_NS]?.upkeepAwaiting) {
         skippedUpkeep++;
+        for (const entry of cachedEntries) {
+          _trace(debug, "skip", {
+            ..._provenanceBase(actor, ef, entry.config, entry.cadence, ctx),
+            reason: "upkeepAwaiting"
+          });
+        }
         continue;
       }
 
       // Read live tick state (mutable — must be fresh, not cached)
       const tickState = _getTickState(ef);
 
-      // Iterate configs (usually 1, but stacked effects may have multiple)
-      for (const config of cachedConfigs) {
+      // Iterate entries (usually 1, but stacked effects may have multiple)
+      for (const entry of cachedEntries) {
+        const config = entry.config;
+        const cadence = entry.cadence;
+        const base = _provenanceBase(actor, ef, config, cadence, ctx);
+        _trace(debug, "candidateFound", base);
+
         // Gate 3: trigger match
-        if (_str(config.trigger) !== trigger) {
+        if (!cadence.valid || cadence.trigger !== trigger) {
           skippedWrongTrigger++;
+          _trace(debug, "skip", {
+            ...base,
+            reason: cadence.valid ? "wrongTrigger" : "invalidTrigger"
+          });
           continue;
         }
 
@@ -737,21 +802,36 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
         if ((trigger === "turnStart" || trigger === "turnEnd") && ctx.actor) {
           if (actor.uuid !== ctx.actor.uuid) {
             skippedWrongActor++;
+            _trace(debug, "skip", { ...base, reason: "wrongActor" });
             continue;
           }
         }
 
         // Gate 5: cadence
-        if (!_isCadenceMet(config, tickState, ctx)) {
+        const cadenceResult = doesCadenceMatch(cadence, tickState, ctx);
+        if (!cadenceResult.matched) {
           skippedCadence++;
+          _trace(debug, "skip", {
+            ...base,
+            reason: cadenceResult.reason,
+            elapsed: cadenceResult.elapsed,
+            required: cadenceResult.required
+          });
           continue;
         }
+        _trace(debug, "cadenceMatched", {
+          ...base,
+          reason: cadenceResult.reason,
+          elapsed: cadenceResult.elapsed,
+          required: cadenceResult.required
+        });
 
         // Gate 6: max ticks
         const maxTicks = _numOrNull(config.maxTicks, null);
         const currentTicks = _num(tickState.tickCount, 0);
         if (maxTicks !== null && currentTicks >= maxTicks) {
           skippedMaxTicks++;
+          _trace(debug, "skip", { ...base, reason: "maxTicksReached" });
           continue;
         }
 
@@ -765,7 +845,7 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
           });
         }
 
-        results.push({ actor, effect: ef, config, tickState });
+        results.push({ actor, effect: ef, config, cadence, tickState });
       }
     }
   }
@@ -783,6 +863,7 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
  * @property {string} actorUuid
  * @property {string} effectId
  * @property {object} config
+ * @property {object} cadence
  */
 
 /**
@@ -809,9 +890,10 @@ function _buildBoundaryCandidateBuckets(boundaryCtx, debug) {
   if (turnEndCtx?.actor?.uuid) turnActorByTrigger.set("turnEnd", String(turnEndCtx.actor.uuid));
 
   for (const [actorUuid, effectMap] of _effectIndex) {
-    for (const [effectId, cachedConfigs] of effectMap) {
-      for (const config of cachedConfigs) {
-        const trigger = _str(config?.trigger);
+    for (const [effectId, cachedEntries] of effectMap) {
+      for (const entry of cachedEntries) {
+        const { config, cadence } = entry;
+        const trigger = cadence?.trigger;
         if (!activeTriggers.has(trigger)) continue;
 
         // Static-safe actor narrowing for turn phases only when actor is known.
@@ -823,7 +905,7 @@ function _buildBoundaryCandidateBuckets(boundaryCtx, debug) {
           triggerBucket = [];
           buckets.set(trigger, triggerBucket);
         }
-        triggerBucket.push({ actorUuid, effectId, config });
+        triggerBucket.push({ actorUuid, effectId, config, cadence });
       }
     }
   }
@@ -869,6 +951,8 @@ function _resolveBoundaryCandidates(trigger, ctx, refs, debug) {
       continue;
     }
 
+    const config = ref.config;
+    const cadence = ref.cadence ?? normalizeOverTimeCadence(config);
     const ef = actor.effects.get(ref.effectId);
     if (!ef) {
       skippedNoEffect++;
@@ -877,39 +961,67 @@ function _resolveBoundaryCandidates(trigger, ctx, refs, debug) {
 
     if (ef.disabled) {
       skippedDisabled++;
+      _trace(debug, "skip", {
+        ..._provenanceBase(actor, ef, config, cadence, ctx),
+        reason: "disabled"
+      });
       continue;
     }
 
     if (ef.flags?.[_FLAG_NS]?.upkeepAwaiting) {
       skippedUpkeep++;
+      _trace(debug, "skip", {
+        ..._provenanceBase(actor, ef, config, cadence, ctx),
+        reason: "upkeepAwaiting"
+      });
       continue;
     }
 
     // Defensive check: should be guaranteed by bucket build.
-    const config = ref.config;
-    if (_str(config?.trigger) !== trigger) {
+    const base = _provenanceBase(actor, ef, config, cadence, ctx);
+    _trace(debug, "candidateFound", base);
+    if (!cadence.valid || cadence.trigger !== trigger) {
       skippedWrongTrigger++;
+      _trace(debug, "skip", {
+        ...base,
+        reason: cadence.valid ? "wrongTrigger" : "invalidTrigger"
+      });
       continue;
     }
 
     if ((trigger === "turnStart" || trigger === "turnEnd") && ctx.actor) {
       if (actor.uuid !== ctx.actor.uuid) {
         skippedWrongActor++;
+        _trace(debug, "skip", { ...base, reason: "wrongActor" });
         continue;
       }
     }
 
     const tickState = _getTickState(ef);
 
-    if (!_isCadenceMet(config, tickState, ctx)) {
+    const cadenceResult = doesCadenceMatch(cadence, tickState, ctx);
+    if (!cadenceResult.matched) {
       skippedCadence++;
+      _trace(debug, "skip", {
+        ...base,
+        reason: cadenceResult.reason,
+        elapsed: cadenceResult.elapsed,
+        required: cadenceResult.required
+      });
       continue;
     }
+    _trace(debug, "cadenceMatched", {
+      ...base,
+      reason: cadenceResult.reason,
+      elapsed: cadenceResult.elapsed,
+      required: cadenceResult.required
+    });
 
     const maxTicks = _numOrNull(config.maxTicks, null);
     const currentTicks = _num(tickState.tickCount, 0);
     if (maxTicks !== null && currentTicks >= maxTicks) {
       skippedMaxTicks++;
+      _trace(debug, "skip", { ...base, reason: "maxTicksReached" });
       continue;
     }
 
@@ -923,7 +1035,7 @@ function _resolveBoundaryCandidates(trigger, ctx, refs, debug) {
       });
     }
 
-    results.push({ actor, effect: ef, config, tickState });
+    results.push({ actor, effect: ef, config, cadence, tickState });
   }
 
   if (debug) {
@@ -932,35 +1044,6 @@ function _resolveBoundaryCandidates(trigger, ctx, refs, debug) {
   }
 
   return results;
-}
-
-/**
- * Check whether the cadence requirement is met for this tick.
- *
- * @param {object} config  — OverTime config.
- * @param {object} tickState — Mutable tick state.
- * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
- * @returns {boolean}
- */
-function _isCadenceMet(config, tickState, ctx) {
-  const every = _num(config.cadenceEvery, 1);
-  if (every <= 0) return true; // cadenceEvery ≤ 0 means "every tick"
-
-  const unit = _str(config.cadenceUnit || "rounds").toLowerCase();
-
-  if (unit === "rounds") {
-    const lastRound = _numOrNull(tickState.lastTickRound, null);
-    if (lastRound === null) return true; // First tick
-    return (_num(ctx.round, 0) - lastRound) >= every;
-  }
-
-  if (unit === "seconds") {
-    const lastTime = _numOrNull(tickState.lastTickWorldTime, null);
-    if (lastTime === null) return true; // First tick
-    return (_num(ctx.worldTime, 0) - lastTime) >= every;
-  }
-
-  return true; // Unknown unit — allow
 }
 
 // ─── Effect Processing ───────────────────────────────────────────────────────
@@ -976,8 +1059,9 @@ function _isCadenceMet(config, tickState, ctx) {
  * @param {import("./spell-tick-engine.js").SpellTickContext} ctx
  * @param {boolean}      debug     — Whether debug logging is active.
  */
-async function _processEffect(actor, effect, config, tickState, ctx, debug) {
+async function _processEffect(actor, effect, config, cadence, tickState, ctx, debug) {
   const payloadType = _str(config.payloadType || "damage");
+  const base = _provenanceBase(actor, effect, config, cadence, ctx);
 
   // Determine targets
   const isOrigin = effect.flags?.[_FLAG_NS]?.isOriginAE === true;
@@ -1003,9 +1087,30 @@ async function _processEffect(actor, effect, config, tickState, ctx, debug) {
     if (debug) _debug(`    │   ├─ Executing payload for ${target.name}...`);
     try {
       const content = await _executePayload(payloadType, target, effect, config, ctx);
-      if (content) chatParts.push(content);
+      if (content) {
+        chatParts.push(content);
+        _trace(debug, "payloadExecuted", {
+          ...base,
+          target: target?.name ?? null,
+          targetUuid: target?.uuid ?? null,
+          contentLength: String(content).length
+        });
+      } else {
+        _trace(debug, "payloadSkipped", {
+          ...base,
+          target: target?.name ?? null,
+          targetUuid: target?.uuid ?? null,
+          reason: "emptyResult"
+        });
+      }
     } catch (err) {
       _error(`Failed to execute ${payloadType} payload for ${target.name}`, err);
+      _trace(debug, "payloadSkipped", {
+        ...base,
+        target: target?.name ?? null,
+        targetUuid: target?.uuid ?? null,
+        reason: "error"
+      });
     }
   }
 
@@ -1018,8 +1123,13 @@ async function _processEffect(actor, effect, config, tickState, ctx, debug) {
   if (effectAlive) {
     // Update tick state (single batched write)
     if (debug) _debug(`    │   Updating tick state...`);
-    await _updateTickState(effect, config, tickState, ctx);
-  } else if (debug) {
+    const stateResult = await _updateTickState(effect, config, tickState, ctx);
+    _trace(debug, stateResult?.updated ? "stateUpdated" : "stateSkipped", {
+      ...base,
+      ...(stateResult ?? { updated: false, reason: "stateUpdateUnknown" })
+    });
+  } else {
+    _trace(debug, "stateSkipped", { ...base, reason: "effectDeleted" });
     _debug(`    │   ⚠ Effect "${effect.name}" no longer exists — skipping state update`);
   }
 
@@ -1060,6 +1170,14 @@ async function _executePayload(type, target, effect, config, ctx) {
   if (type === "endEffect")           return _executeEndEffectPayload(target, effect, config, ctx);
   if (type === "saveThenApply")       return _executeSaveThenApplyPayload(target, effect, config, ctx);
   _warn(`Unknown payload type: ${type}`);
+  _debug("payloadSkipped", {
+    reason: "unknownPayloadType",
+    payloadType: type,
+    effect: effect?.name ?? null,
+    effectId: effect?.id ?? null,
+    target: target?.name ?? null,
+    targetUuid: target?.uuid ?? null
+  });
   return "";
 }
 
@@ -1376,7 +1494,7 @@ async function _updateTickState(effect, config, tickState, ctx) {
   const parent = effect?.parent;
   if (!parent || !_isEffectAlive(parent, effect)) {
     _debug(`Skipping tick state update — effect "${effect?.name}" no longer exists`);
-    return;
+    return { updated: false, reason: "effectMissingBeforeStateUpdate" };
   }
 
   const newTickCount = _num(tickState.tickCount, 0) + 1;
@@ -1389,8 +1507,14 @@ async function _updateTickState(effect, config, tickState, ctx) {
   if (shouldAutoEnd) {
     // Max ticks reached — delete effect directly, no need to update state first
     _debug(`Max ticks reached for "${effect.name}" (${newTickCount}/${maxTicks}), auto-ending`);
-    await _deleteEffectIfAlive(parent, effect, { context: `MaxTicks auto-end on ${parent?.name ?? "actor"}` });
-    return;
+    const deleted = await _deleteEffectIfAlive(parent, effect, { context: `MaxTicks auto-end on ${parent?.name ?? "actor"}` });
+    return {
+      updated: false,
+      reason: "maxTicks",
+      tickCount: newTickCount,
+      maxTicks,
+      deleted
+    };
   }
 
   // Write updated tick state
@@ -1403,17 +1527,37 @@ async function _updateTickState(effect, config, tickState, ctx) {
 
   try {
     await requestUpdateDocument(effect, updates);
+    return {
+      updated: true,
+      reason: "stateUpdated",
+      tickCount: newTickCount,
+      updates
+    };
   } catch (err) {
-    if (_isMissingDocError(err) || !_isEffectAlive(parent, effect)) return;
+    if (_isMissingDocError(err) || !_isEffectAlive(parent, effect)) {
+      return { updated: false, reason: "effectMissingDuringStateUpdate", tickCount: newTickCount };
+    }
     // Fallback: direct update (if authority proxy fails for owned effects)
     if (_isEffectAlive(parent, effect)) {
-      try { await effect.update(updates); }
+      try {
+        await effect.update(updates);
+        return {
+          updated: true,
+          reason: "stateUpdatedFallback",
+          tickCount: newTickCount,
+          updates
+        };
+      }
       catch (_e) {
-        if (_isMissingDocError(_e) || !_isEffectAlive(parent, effect)) return;
+        if (_isMissingDocError(_e) || !_isEffectAlive(parent, effect)) {
+          return { updated: false, reason: "effectMissingDuringStateUpdate", tickCount: newTickCount };
+        }
         _warn(`Failed to update tick state for "${effect.name}"`, _e);
+        return { updated: false, reason: "stateUpdateFailed", tickCount: newTickCount };
       }
     }
   }
+  return { updated: false, reason: "stateUpdateFailed", tickCount: newTickCount };
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

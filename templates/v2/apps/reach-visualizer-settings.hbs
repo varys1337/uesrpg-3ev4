@@ -10,17 +10,19 @@
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-reach-enabled">{{localize "UESRPG.Apps.ReachVisualizer.Enabled"}}</label>
+        <label class="setting-row__label" for="uesrpg-armor-coverage-enabled">Armor Coverage Overlay</label>
+        <p class="setting-help">Show compact armor coverage badges beside hovered or targeted tokens.</p>
       </div>
-      <input id="uesrpg-reach-enabled" type="checkbox" name="enabled" {{checked settings.enabled}} />
+      <input id="uesrpg-armor-coverage-enabled" type="checkbox" name="armorCoverageEnabled" {{checked armorCoverageEnabled}} />
     </div>
 
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-behaviour" title="{{localize "UESRPG.Apps.ReachVisualizer.DisplayOnTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.DisplayOn"}}</label>
-      <select id="uesrpg-reach-behaviour" name="behaviour">
-        {{selectOptions behaviourChoices selected=settings.behaviour}}
-      </select>
-      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.DisplayOnHint"}}</p>
+    <div class="setting-row setting-row--slider" id="uesrpg-armor-coverage-transparency-row">
+      <label class="setting-row__label" for="uesrpg-armor-coverage-transparency">Armor Coverage Transparency</label>
+      <div class="form-fields">
+        <input id="uesrpg-armor-coverage-transparency" type="range" name="armorCoverageTransparency" min="0" max="100" step="5" value="{{armorCoverageTransparency}}" data-range-value="armorCoverageTransparency" />
+        <span class="range-value" data-range-value="armorCoverageTransparency">{{armorCoverageTransparency}}%</span>
+      </div>
+      <p class="setting-help">Transparency of armor coverage overlay badges (0 = fully transparent, 100 = fully opaque).</p>
     </div>
 
     <div class="setting-row setting-row--select">
@@ -33,27 +35,7 @@
   </fieldset>
 
   <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.SourceOfTruth"}}</legend>
-
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-source" title="{{localize "UESRPG.Apps.ReachVisualizer.ActiveReachSourceTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.ActiveReachSource"}}</label>
-      <select id="uesrpg-reach-source" name="reachSource">
-        {{selectOptions reachSourceChoices selected=settings.reachSource}}
-      </select>
-      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ActiveReachSourceHint"}}</p>
-    </div>
-  </fieldset>
-
-  <fieldset class="uesrpg-settings__section">
     <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.Appearance"}}</legend>
-
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-shape" title="{{localize "UESRPG.Apps.ReachVisualizer.ShapeTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.Shape"}}</label>
-      <select id="uesrpg-reach-shape" name="shape">
-        {{selectOptions shapeChoices selected=settings.shape}}
-      </select>
-      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ShapeHint"}}</p>
-    </div>
 
     <div class="setting-row setting-row--select">
       <label class="setting-row__label" for="uesrpg-grid-diagonal-mode" title="{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonalsTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonals"}}</label>
@@ -61,20 +43,6 @@
         {{selectOptions gridDiagonalChoices selected=settings.gridDiagonalMode}}
       </select>
       <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonalsHint"}}</p>
-    </div>
-
-    <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-color-mode" title="{{localize "UESRPG.Apps.ReachVisualizer.ColorModeTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.ColorMode"}}</label>
-      <select id="uesrpg-reach-color-mode" name="colorMode">
-        {{selectOptions colorModeChoices selected=settings.colorMode}}
-      </select>
-      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ColorModeHint"}}</p>
-    </div>
-
-    <div class="setting-row setting-row--select rv-uniform-color-row">
-      <label class="setting-row__label" for="uesrpg-reach-uniform-color" title="{{localize "UESRPG.Apps.ReachVisualizer.UniformColorTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.UniformColor"}}</label>
-      <input id="uesrpg-reach-uniform-color" type="color" name="uniformColor" value="{{settings.uniformColor}}" />
-      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.UniformColorHint"}}</p>
     </div>
 
     <div class="setting-row setting-row--slider rv-opacity-single">
@@ -112,34 +80,6 @@
     </div>
 
     <p class="setting-note">{{localize "UESRPG.Apps.ReachVisualizer.AppearanceNote"}}</p>
-  </fieldset>
-
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.Labels"}}</legend>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-show-reach-label">{{localize "UESRPG.Apps.ReachVisualizer.ShowReachLabel"}}</label>
-        <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ShowReachLabelHint"}}</p>
-      </div>
-      <input id="uesrpg-show-reach-label" type="checkbox" name="showLabel" {{checked settings.showLabel}} />
-    </div>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-show-target-distance" title="{{localize "UESRPG.Apps.ReachVisualizer.ShowTargetDistanceTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.ShowTargetDistance"}}</label>
-        <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ShowTargetDistanceHint"}}</p>
-      </div>
-      <input id="uesrpg-show-target-distance" type="checkbox" name="showTargetDistance" {{checked settings.showTargetDistance}} />
-    </div>
-
-    <div class="setting-row setting-row--toggle">
-      <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-include-elevation" title="{{localize "UESRPG.Apps.ReachVisualizer.IncludeElevationTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.IncludeElevation"}}</label>
-        <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.IncludeElevationHint"}}</p>
-      </div>
-      <input id="uesrpg-include-elevation" type="checkbox" name="includeElevation" {{checked settings.includeElevation}} />
-    </div>
   </fieldset>
 
   <footer class="uesrpg-settings__footer">

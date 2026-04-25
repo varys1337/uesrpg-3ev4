@@ -16,6 +16,7 @@ import { hasTalent } from "../../../traits/talents-api.js";
 import { 
   getContextAttackMode, 
   canUseExploitAdvantage as _canUseExploitAdvantage,
+  getPendingAttackApCost,
   getPreferredWeaponUuid as _getPreferredWeaponUuid
 } from "../helpers/workflow.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
@@ -52,7 +53,7 @@ function _hitLocationLabel(location) {
  * Returns selected options or null if canceled.
  */
 export async function attackerDeclareDialog(attackerActor, attackerLabel, { styles = [], selectedStyleUuid = null, defaultWeaponUuid = null,
-    defaultVariant = "normal", defaultManual = 0, defaultCirc = 0, attackerToken = null, defenderToken = null } = {}) {
+    defaultVariant = "normal", defaultManual = 0, defaultCirc = 0, attackerToken = null, defenderToken = null, prepaidBaseAttackAP = false } = {}) {
   const showStyleSelect = Array.isArray(styles) && styles.length >= 2;
   const showEyeOfNight = Boolean(attackerActor && hasTalent(attackerActor, "eyeofnight") && hasCondition(attackerActor, "hidden"));
   const hasThunderCharge = Boolean(attackerActor && hasTalent(attackerActor, "thundercharge"));
@@ -219,9 +220,14 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
             const coupMode = root.querySelector('input[name="coupMode"]:checked')?.value ?? "lethal";
 
             // AP calculation - will be validated and Thunder Charge applied in workflow
-            const baseApCost = 1;
             const apCost = (variant === "allOut") ? 1 : 0;
-            const totalApCost = baseApCost + apCost;
+            const totalApCost = getPendingAttackApCost({
+              mode: "attack",
+              context: {
+                isFreeActionAttack: false,
+                activationPrepaidBaseAttackAP: prepaidBaseAttackAP === true
+              }
+            }, { extraApCost: apCost });
 
             const ap = Number(foundry.utils.getProperty(attackerActor, "system.action_points.value") ?? 0);
             if (!Number.isFinite(ap) || ap < totalApCost) {
@@ -329,7 +335,7 @@ export async function promptWeaponAndAdvantages({
 }) {
   const weapons = _listEquippedWeapons(attackerActor);
   if (!weapons.length && !allowNoWeapon) {
-    ui.notifications.warn("No equipped weapons found.");
+    ui.notifications.warn(t("UESRPG.Notifications.Opposed.NoEquippedWeaponsFound"));
     return null;
   }
 

@@ -47,12 +47,9 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
         dialogKeyboardEnhancements: getSettingPresentation(NAMESPACE, "dialogKeyboardEnhancements"),
         enableItemRowQuickMenu: getSettingPresentation(NAMESPACE, "enableItemRowQuickMenu"),
         noStartUpDialog: getSettingPresentation(NAMESPACE, "noStartUpDialog"),
-        sortAlpha: getSettingPresentation(NAMESPACE, "sortAlpha"),
         enableLoadouts: getSettingPresentation(NAMESPACE, "enableLoadouts"),
         customCursor: getSettingPresentation(NAMESPACE, "customCursor"),
-        autoResizeSheets: getSettingPresentation(NAMESPACE, "autoResizeSheets"),
         enableInlineRulesTooltips: getSettingPresentation(NAMESPACE, "enableInlineRulesTooltips"),
-        opposedPostSubRollMessages: getSettingPresentation(NAMESPACE, "opposedPostSubRollMessages"),
       },
     };
   }
@@ -68,11 +65,8 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     if ("dialogKeyboardEnhancements" in data) await game.settings.set(NAMESPACE, "dialogKeyboardEnhancements", toBool(data.dialogKeyboardEnhancements));
     if ("enableItemRowQuickMenu" in data) await game.settings.set(NAMESPACE, "enableItemRowQuickMenu", toBool(data.enableItemRowQuickMenu));
     if ("noStartUpDialog" in data) await game.settings.set(NAMESPACE, "noStartUpDialog", toBool(data.noStartUpDialog));
-    if ("sortAlpha" in data) await game.settings.set(NAMESPACE, "sortAlpha", toBool(data.sortAlpha));
     if ("enableLoadouts" in data) await game.settings.set(NAMESPACE, "enableLoadouts", toBool(data.enableLoadouts));
     if ("customCursor" in data) await game.settings.set(NAMESPACE, "customCursor", toBool(data.customCursor));
-    if ("autoResizeSheets" in data) await game.settings.set(NAMESPACE, "autoResizeSheets", toBool(data.autoResizeSheets));
     if ("enableInlineRulesTooltips" in data) await game.settings.set(NAMESPACE, "enableInlineRulesTooltips", toBool(data.enableInlineRulesTooltips));
-    if ("opposedPostSubRollMessages" in data) await game.settings.set(NAMESPACE, "opposedPostSubRollMessages", toBool(data.opposedPostSubRollMessages));
   }
 }

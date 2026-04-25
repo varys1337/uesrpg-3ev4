@@ -3,7 +3,7 @@
  * Handle banked roll trigger action
  */
 
-import { _getBankCommitState } from "../banking/state.js";
+import { _allDefendersCommitted, reconcileBankedAutoRollRequest } from "../banking/state.js";
 import { _anyActiveGMOnline } from "../helpers/util.js";
 
 /**
@@ -15,18 +15,13 @@ export async function handleBankedRoll(ctx, workflow) {
 
   if (!bankMode) return;
 
-  const bank = _getBankCommitState(data);
-  if (!bank.bothCommitted) {
-    ui.notifications.warn("Both sides must commit their choices before rolling.");
+  if (!_allDefendersCommitted(data)) {
+    ui.notifications.warn("All participants must commit their choices before rolling.");
     return;
   }
 
-  data.context = data.context ?? {};
-  if (!data.context.autoRollRequested) {
-    data.context.autoRollRequested = true;
-    data.context.autoRollRequestedAt = Date.now();
-    data.context.autoRollRequestedBy = game.user.id;
-  }
+  const reconciled = reconcileBankedAutoRollRequest(data);
+  if (!reconciled.eligible) return;
 
   await _updateCard(message, data);
 

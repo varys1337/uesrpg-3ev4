@@ -33,37 +33,41 @@
 
 <section class="sheet-body">
   <div class="tab" data-group="primary" data-tab="description">
-    <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+    <div class="item-description-container">
+      <div class="basic-padding">
+        <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+      </div>
+    </div>
   </div>
 
   <div class="tab" data-group="primary" data-tab="attributes">
     <div class="attribute-tab-container uesrpg-feature-sheet">
       <fieldset class="attr-fieldset uesrpg-feature-section">
-        <legend>Flags &amp; Overrides</legend>
+        <legend>{{localize "UESRPG.Sheets.Feature.FlagsOverrides"}}</legend>
         <div class="uesrpg-feature-row">
-          <label title="Replace initiative with 3x characteristic">
-            Replace INI
+          <label title="{{localize "UESRPG.Sheets.Feature.ReplaceIniTitle"}}">
+            {{localize "UESRPG.Sheets.Feature.ReplaceIni"}}
             <select name="system.replace.ini.characteristic" data-type="String">
-              {{selectOptions item.system.characteristics selected=item.system.replace.ini.characteristic localize=true}}
+              {{selectOptions characteristicOptions selected=item.system.replace.ini.characteristic}}
             </select>
           </label>
-          <label title="Replace Wound Threshold with 3x characteristic">
-            Replace WT
+          <label title="{{localize "UESRPG.Sheets.Feature.ReplaceWtTitle"}}">
+            {{localize "UESRPG.Sheets.Feature.ReplaceWt"}}
             <select name="system.replace.wt.characteristic" data-type="String">
-              {{selectOptions item.system.characteristics selected=item.system.replace.wt.characteristic localize=true}}
+              {{selectOptions characteristicOptions selected=item.system.replace.wt.characteristic}}
             </select>
           </label>
         </div>
 
         <div class="uesrpg-feature-row">
-          <label><input class="checkbox" type="checkbox" name="system.halfFatiguePenalty" {{checked item.system.halfFatiguePenalty}}> &frac12; Fatigue Penalty</label>
-          <label><input class="checkbox" type="checkbox" name="system.halfWoundPenalty" {{checked item.system.halfWoundPenalty}}> &frac12; Wound Penalty</label>
-          <label><input class="checkbox" type="checkbox" name="system.untrainedException" {{checked item.system.untrainedException}}> No Untrained Penalty</label>
-          <label><input class="checkbox" type="checkbox" name="system.addHalfSpeed" {{checked item.system.addHalfSpeed}}> Add &frac12; Speed</label>
-          <label><input class="checkbox" type="checkbox" name="system.doubleSwimSpeed" {{checked item.system.doubleSwimSpeed}}> Double Swim Speed</label>
+          <label><input class="checkbox" type="checkbox" name="system.halfFatiguePenalty" {{checked item.system.halfFatiguePenalty}}> {{localize "UESRPG.Sheets.Feature.HalfFatiguePenalty"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.halfWoundPenalty" {{checked item.system.halfWoundPenalty}}> {{localize "UESRPG.Sheets.Feature.HalfWoundPenalty"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.untrainedException" {{checked item.system.untrainedException}}> {{localize "UESRPG.Sheets.Feature.NoUntrainedPenalty"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.addHalfSpeed" {{checked item.system.addHalfSpeed}}> {{localize "UESRPG.Sheets.Feature.AddHalfSpeed"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.doubleSwimSpeed" {{checked item.system.doubleSwimSpeed}}> {{localize "UESRPG.Sheets.Feature.DoubleSwimSpeed"}}</label>
           <label class="attr-combo-field">
-            <input class="checkbox" type="checkbox" name="system.addIBToMP" {{checked item.system.addIBToMP}}> Add IB &rarr; MP
-            <input type="number" name="system.addIntToMPMultiplier" value="{{item.system.addIntToMPMultiplier}}" class="attr-tiny-num" title="Multiplier">
+            <input class="checkbox" type="checkbox" name="system.addIBToMP" {{checked item.system.addIBToMP}}> {{localize "UESRPG.Sheets.Feature.AddIbToMp"}}
+            <input type="number" name="system.addIntToMPMultiplier" value="{{item.system.addIntToMPMultiplier}}" class="attr-tiny-num" title="{{localize "UESRPG.Sheets.Feature.Multiplier"}}">
           </label>
         </div>
       </fieldset>

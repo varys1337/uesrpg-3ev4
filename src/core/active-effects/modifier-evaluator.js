@@ -15,3 +15,15 @@ export {
   evaluateAEModifierKeysDetailed,
   buildAEBreakdownEntries
 } from "./evaluate.js";
+export {
+  applyGenericAEExpiryAction,
+  applyGenericStackPolicy,
+  buildGenericAEData,
+  buildGenericAEExpiry,
+  buildGenericAEMetadata,
+  toLegacyStartTurnExpiryFlags
+} from "./lifecycle.js";
+export {
+  getGenericAEMetadata,
+  isGenericAESuppressed
+} from "./metadata.js";

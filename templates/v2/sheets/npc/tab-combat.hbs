@@ -21,7 +21,8 @@
                                 </div>
                             </div>
                             <div class="combat-stat">
-                                <div class="stat-value-label {{#if (gte actor.attackTrackerUi.current actor.attackTrackerUi.max)}}attack-limit-warning{{/if}}">
+                                <div class="stat-value-label {{#if actor.attackTrackerUi.authoritative}}{{#if (gte actor.attackTrackerUi.current actor.attackTrackerUi.max)}}attack-limit-warning{{/if}}{{/if}}">
+                                    {{#if actor.attackTrackerUi.authoritative}}
                                     {{#if isGM}}
                                     <div class="flex-container-input">
                                         <input type="number" class="uesrpg-attack-input" name="flags.uesrpg-3ev4.combat.attackTrackerOverrides.current" data-kind="current" value="{{actor.attackTrackerUi.current}}" min="0" step="1">
@@ -31,10 +32,16 @@
                                     {{else}}
                                     {{actor.attackTrackerUi.current}}/{{actor.attackTrackerUi.max}}
                                     {{/if}}
+                                    {{else}}
+                                    --/--
+                                    {{/if}}
                                 </div>
                                 <div class="flex-container">
                                     <div class="small-text-label">{{localize "UESRPG.Sheets.Combat.Attacks"}}</div>
                                 </div>
+                                {{#unless actor.attackTrackerUi.authoritative}}
+                                <div class="actions-help-small">{{actor.attackTrackerUi.notice}}</div>
+                                {{/unless}}
                             </div>
                             <div class="combat-stat">
                                 <div class="stat-value-label">

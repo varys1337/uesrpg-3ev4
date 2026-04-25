@@ -17,6 +17,7 @@ import {
 
 import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
+import { t } from "../../utils/i18n.js";
 import {
   consumeOwnedItem,
   createAlchemyChatMessage,
@@ -401,7 +402,7 @@ export async function handleBrewChatAction(messageId) {
   const flags = message.flags?.[FLAG_NS]?.alchemy;
   if (!flags || flags.type !== "brewPending") return;
   if (flags.resolved || flags.resolving) {
-    ui.notifications.info("This brew has already been resolved.");
+    ui.notifications.info(t("UESRPG.Notifications.Alchemy.BrewAlreadyResolved"));
     return;
   }
 
@@ -411,20 +412,20 @@ export async function handleBrewChatAction(messageId) {
   const freshFlags = freshMsg?.flags?.[FLAG_NS]?.alchemy;
   if (freshFlags?.resolved) {
     await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
-    ui.notifications.info("This brew has already been resolved.");
+    ui.notifications.info(t("UESRPG.Notifications.Alchemy.BrewAlreadyResolved"));
     return;
   }
 
   const actor = await fromUuid(flags.actorUuid);
   if (!actor) {
     await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
-    ui.notifications.error("UESRPG | Alchemy: Actor not found.");
+    ui.notifications.error(t("UESRPG.Notifications.Alchemy.ActorNotFoundWithPrefix"));
     return;
   }
 
   if (!actor.isOwner && !game.user.isGM) {
     await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
-    ui.notifications.warn("You do not own this actor and cannot resolve this brew.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotOwnerCannotResolveBrew"));
     return;
   }
 
@@ -432,7 +433,7 @@ export async function handleBrewChatAction(messageId) {
   const skill = getAlchemySkill(actor, { items: itemSnapshot.items });
   if (!skill) {
     await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
-    ui.notifications.warn("This actor has no valid Alchemy skill entry.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NoValidAlchemySkillEntry"));
     return;
   }
 
@@ -480,7 +481,7 @@ export async function handleBrewChatAction(messageId) {
   } catch (err) {
     await message.update({ [`flags.${FLAG_NS}.alchemy.resolving`]: false });
     console.error("UESRPG | Brew resolution failed", err);
-    ui.notifications.error("Brew resolution failed - see console.");
+    ui.notifications.error(t("UESRPG.Notifications.Alchemy.BrewResolutionFailed"));
     return;
   }
 
@@ -672,23 +673,23 @@ async function _consumeIngredients(actor, recipe) {
 
 async function _postBrewResultMessage(actor, recipe, roll, rollTotal, adjustedTN, success, criticalSuccess, criticalFail, result) {
   const outcomeLabel = criticalSuccess
-    ? "Critical Success"
+    ? t("UESRPG.Alchemy.CriticalSuccess")
     : success
-    ? "Success"
+    ? t("UESRPG.Alchemy.Success")
     : criticalFail
-    ? "Critical Failure"
-    : "Failure";
+    ? t("UESRPG.Alchemy.CriticalFailure")
+    : t("UESRPG.Alchemy.Failure");
 
   const outcomeColor = success ? "#388e3c" : "#c62828";
 
   const backfireHtml = result.backfireResult
-    ? `<div class="uesrpg-alchemy-note is-danger"><div class="label">Backfire</div><div class="text">${formatCreationBackfire(result.backfireResult)}</div></div>`
+    ? `<div class="uesrpg-alchemy-note is-danger"><div class="label">${t("UESRPG.Alchemy.BackfireLabel")}</div><div class="text">${formatCreationBackfire(result.backfireResult)}</div></div>`
     : "";
 
   const itemHtml = result.item
-    ? `<div class="uesrpg-alchemy-note"><div class="label">Created</div><div class="text">${result.item.name}</div></div>`
+    ? `<div class="uesrpg-alchemy-note"><div class="label">${t("UESRPG.Alchemy.CreatedLabel")}</div><div class="text">${result.item.name}</div></div>`
     : !success
-    ? `<div class="uesrpg-alchemy-note is-warning"><div class="label">Result</div><div class="text">Nothing created - materials consumed.</div></div>`
+    ? `<div class="uesrpg-alchemy-note is-warning"><div class="label">${t("UESRPG.Alchemy.ResultLabel")}</div><div class="text">${t("UESRPG.Alchemy.NothingCreated")}</div></div>`
     : "";
 
   let drinkButtonHtml = "";

@@ -20,7 +20,7 @@
             </div>
             <div class="item-stat">
                 <select name="system.baseCha" data-type="String">
-                    {{selectOptions item.system.characteristics selected=item.system.baseCha localize=true}}
+                    {{selectOptions characteristicOptions selected=item.system.baseCha}}
                 </select>
                 <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.SelectedChar"}}</span>
             </div>
@@ -43,7 +43,11 @@
 
             {{!-- Description Tab --}}
             <div class="tab" data-group="primary" data-tab="description">
-                <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+                <div class="item-description-container">
+                    <div class="basic-padding">
+                        <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+                    </div>
+                </div>
             </div>
         
 

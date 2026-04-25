@@ -7,7 +7,7 @@
  * from actor-sheet.js for better maintainability and performance.
  */
 
-import { buildCollapsedActionCardHtml, getAimStateFromEffect, getEnabledEffectByKey, resolveTokenForActor, spendActionPoints } from "../../combat-actions-utils.js";
+import { buildCollapsedActionCardHtml, getAimStateFromEffect, getEnabledEffectByKey, resolveTokenForActor, resolveTokenForCombatActor, spendActionPoints } from "../../combat-actions-utils.js";
 import { createOrUpdateStatusEffect } from "../../../../core/active-effects/status-effect.js";
 import { buildEffectDuration } from "../../../../core/time/effect-duration.js";
 import { executeActivation, buildSpecialActionActivation } from "../../../../core/system/activation/index.js";
@@ -21,7 +21,7 @@ import {
 import { OpposedWorkflow } from "../../../../core/combat/opposed-workflow.js";
 import { setLastMeleeWeaponForActor } from "../../../canvas/reach-visualizer-state.js";
 import { hasOpponentWithTalentInMeleeRange } from "../../../../core/traits/combat-proximity.js";
-import { recordDashStart } from "../../../../core/combat/combat-utils.js";
+import { getWeaponCombatCapabilities, recordDashStart } from "../../../../core/combat/combat-utils.js";
 import { hasTalent } from "../../../../core/traits/talents-api.js";
 import { AimAudit } from "../../../../core/combat/aim-audit.js";
 import { isActorBlockedFromAoOAgainstTarget } from "../../../../core/traits/mobility-talents.js";
@@ -42,6 +42,7 @@ import { getFearActionRestrictions } from "../../../../core/fear/index.js";
 import { getMovementActionLegality } from "../../../../core/combat/movement-rules.js";
 import { drinkPotion, applyAlchemyToTarget, pickAlchemyCoatingTarget } from "../../../../core/alchemy/runtime.js";
 import { getActorCapabilityFlag } from "../../../../core/active-effects/modifier-evaluator.js";
+import { buildGenericAEExpiry } from "../../../../core/active-effects/expiry.js";
 import { buildEffectChange } from "../../../../utils/compat.js";
 
 const _specialActionLaunchLocks = new Set();
@@ -489,9 +490,12 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         return;
       }
 
-      const attackerToken = resolveTokenForActor(actor);
+      const attackerToken = resolveTokenForCombatActor(actor, {
+        sheetToken: this.token ?? null,
+        requireUnambiguous: true
+      });
       if (!attackerToken) {
-        ui.notifications.warn("Please place and select a token for this actor.");
+        ui.notifications.warn("Select the acting token for this sheet or reduce the actor to one owned token before attacking.");
         return;
       }
 
@@ -518,7 +522,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       const explicitAttackMode = String(btn?.dataset?.attackMode ?? "").trim().toLowerCase();
       const attackMode = (explicitAttackMode === "melee" || explicitAttackMode === "ranged")
         ? explicitAttackMode
-        : String(weaponItem?.system?.attackMode ?? "melee").toLowerCase();
+        : String(getWeaponCombatCapabilities(weaponItem).attackMode || "melee").toLowerCase();
 
       if (attackMode === "melee") {
         try { void setLastMeleeWeaponForActor(actor.id, weaponId); } catch (_e) { /* no-op */ }
@@ -581,30 +585,9 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       );
 
       const combat = game.combat ?? null;
-      const combatant = combat?.combatants?.find?.((c) => c?.actor?.id === actor.id) ?? null;
-      const expiresFlags = (() => {
-        if (!(combat && combat.started && combatant)) return {};
-        const combatId = String(combat.id ?? "");
-        const combatantId = String(combatant.id ?? "");
-        const turns = Array.isArray(combat.turns) ? combat.turns : [];
-        const idx = turns.findIndex((t) => String(t?.id ?? "") === combatantId);
-        const currentTurn = Number(combat.turn ?? 0);
-        const currentRound = Number(combat.round ?? 0);
-
-        const expiresTurn = idx >= 0 ? idx : currentTurn;
-        const expiresRound =
-          (idx >= 0 && Number.isFinite(currentTurn) && Number.isFinite(currentRound) && idx <= currentTurn)
-            ? (currentRound + 1)
-            : currentRound;
-
-        return {
-          expiresOnTurnStart: true,
-          expiresCombatId: combatId,
-          expiresRound,
-          expiresTurn,
-          expiresCombatantId: combatantId
-        };
-      })();
+      const expiry = combat?.started
+        ? buildGenericAEExpiry({ mode: "source-next-turn-start", sourceActor: actor, targetActor: actor, combat })
+        : null;
       const duration = {};
       await upsertSimpleEffect({
         key: "defensiveStance",
@@ -618,7 +601,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         flags: {
           uesrpg: {
             source: "action",
-            ...expiresFlags
+            ...(expiry?.metadata ? { ae: expiry.metadata } : {})
           }
         }
       });
@@ -631,67 +614,11 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       try {
         const weapons = (actor.itemTypes?.weapon ?? []).filter((w) => Boolean(w?.system?.equipped));
 
-        const isThrownWeapon = (w) => {
-          try {
-            const kind = String(w?.system?.rangeBandsDerivedEffective?.kind ?? w?.system?.rangeBandsDerived?.kind ?? "").toLowerCase();
-            if (kind === "thrown") return true;
-
-            const norm = (v) => String(v ?? "").toLowerCase().replace(/[\s_-]+/g, "");
-            const target = "thrown";
-
-            const structured = Array.isArray(w?.system?.qualitiesStructuredInjected)
-              ? w.system.qualitiesStructuredInjected
-              : Array.isArray(w?.system?.qualitiesStructured)
-                ? w.system.qualitiesStructured
-                : null;
-            if (structured) {
-              for (const q of structured) {
-                const k = norm(q?.key ?? q);
-                if (k && k == target) return true;
-              }
-            }
-
-            const traits = Array.isArray(w?.system?.qualitiesTraitsInjected)
-              ? w.system.qualitiesTraitsInjected
-              : Array.isArray(w?.system?.qualitiesTraits)
-                ? w.system.qualitiesTraits
-                : null;
-            if (traits) {
-              for (const t of traits) {
-                const k = norm(t);
-                if (k && k == target) return true;
-              }
-            }
-
-            const legacy = Array.isArray(w?.system?.qualities) ? w.system.qualities : null;
-            if (legacy) {
-              for (const q of legacy) {
-                const k = norm(q?.key ?? q);
-                if (k && k == target) return true;
-              }
-            }
-
-            const legacyTraits = Array.isArray(w?.system?.qualitiesTraitsLegacy) ? w.system.qualitiesTraitsLegacy : null;
-            if (legacyTraits) {
-              for (const t of legacyTraits) {
-                const k = norm(t);
-                if (k && k == target) return true;
-              }
-            }
-          } catch (_e) {
-            // no-op
-          }
-          return false;
-        };
-
-        const rangedOrThrownWeapons = weapons.filter((w) => {
-          const mode = String(w?.system?.attackMode ?? "").toLowerCase();
-          if (mode === "ranged") return true;
-          return isThrownWeapon(w);
-        });
+        const rangedOrThrownWeapons = weapons.filter((w) => getWeaponCombatCapabilities(w).rangedCapable);
 
         for (const w of rangedOrThrownWeapons) {
-          const labelPrefix = isThrownWeapon(w) && String(w?.system?.attackMode ?? "").toLowerCase() !== "ranged" ? "Weapon (Thrown)" : "Weapon";
+          const capabilities = getWeaponCombatCapabilities(w);
+          const labelPrefix = capabilities.thrown && capabilities.explicitAttackMode !== "ranged" ? "Weapon (Thrown)" : "Weapon";
           candidates.push({ uuid: w.uuid, label: `${labelPrefix}: ${w.name}`, kind: "weapon" });
         }
       } catch (_e) {
@@ -907,7 +834,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       const rangedWeapon = actor.items.find(i =>
         i.type === "weapon" &&
         i.system?.equipped === true &&
-        String(i.system?.attackMode ?? "").toLowerCase() === "ranged"
+        getWeaponCombatCapabilities(i).requiresReload
       );
 
       if (!rangedWeapon) {
@@ -1095,9 +1022,12 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         return;
       }
 
-      const attackerToken = resolveTokenForActor(actor);
+      const attackerToken = resolveTokenForCombatActor(actor, {
+        sheetToken: this.token ?? null,
+        requireUnambiguous: true
+      });
       if (!attackerToken) {
-        ui.notifications.warn("Please place and select a token for this actor.");
+        ui.notifications.warn("Select the acting token for this sheet or reduce the actor to one owned token before attacking.");
         return;
       }
 

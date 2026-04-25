@@ -16,7 +16,7 @@ import {
 } from "../../magic/opposed/schema.js";
 import { renderCard as renderMagicCard } from "../../magic/opposed/render.js";
 import { applyMagicDamage, applyMagicHealing } from "../../magic/damage-application.js";
-import { applySpellEffectsToTarget } from "../../magic/effects/spell-effects.js";
+import { applyResolvedSpellEffects } from "../../magic/effects/spell-effects.js";
 import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
 import {
   _isMultiDefender, _getDefenderDamage, _setDefenderDamage,
@@ -315,11 +315,7 @@ async function _onApplyMagicDamage(ev, message, btn) {
   if (mp.isDamaging === false && !mp.isHealing) {
     if (mp.needsEffects && spell) {
       try {
-        await applySpellEffectsToTarget(casterActor, targetActor, spell, {
-          actualCost: Number(mp.actualCost ?? 0),
-          originalCastWorldTime: Number(mp.originalCastWorldTime ?? 0),
-          casterTokenUuid: mp.casterTokenUuid ?? null,
-        });
+        await applyResolvedSpellEffects({ casterActor, targetActor, spell, payload: mp });
       } catch (err) {
         console.error("UESRPG | Failed to apply spell effects (effects-only):", err);
       }
@@ -363,11 +359,7 @@ async function _onApplyMagicDamage(ev, message, btn) {
 
   if (mp.needsEffects && spell) {
     try {
-      await applySpellEffectsToTarget(casterActor, targetActor, spell, {
-        actualCost: Number(mp.actualCost ?? 0),
-        originalCastWorldTime: Number(mp.originalCastWorldTime ?? 0),
-        casterTokenUuid: mp.casterTokenUuid ?? null,
-      });
+      await applyResolvedSpellEffects({ casterActor, targetActor, spell, payload: mp });
     } catch (err) {
       console.error("UESRPG | Failed to apply deferred spell effects:", err);
     }
@@ -443,11 +435,7 @@ async function _onApplyMagicHealing(ev, message, btn) {
 
   if (mp.needsEffects && spell) {
     try {
-      await applySpellEffectsToTarget(casterActor, targetActor, spell, {
-        actualCost: Number(mp.actualCost ?? 0),
-        originalCastWorldTime: Number(mp.originalCastWorldTime ?? 0),
-        casterTokenUuid: mp.casterTokenUuid ?? null,
-      });
+      await applyResolvedSpellEffects({ casterActor, targetActor, spell, payload: mp });
     } catch (err) {
       console.error("UESRPG | Failed to apply deferred spell effects after healing:", err);
     }

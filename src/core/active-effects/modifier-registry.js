@@ -94,6 +94,7 @@ _reg("system.modifiers.damage.fromSilver", "Damage from Silver", "damage", "nume
 _reg("system.modifiers.damage.fromMagic", "Damage from Magic", "damage", "numeric", true);
 
 _reg("system.modifiers.combat.armorRating", "Armor Rating (Global)", "armor", "numeric", true);
+_reg("system.modifiers.combat.magicArmorRating", "Magic Armor Rating (Global)", "armor", "numeric", true);
 
 const _RES_TYPES = Object.freeze([
   ["fireR", "Fire"],
@@ -285,6 +286,7 @@ export function isKnownModifierKey(key) {
   if (typeof key !== "string") return false;
   if (key.startsWith("system.modifiers.skills.")) return true;
   if (key.startsWith("system.modifiers.combat.armorRating.")) return true;
+  if (key.startsWith("system.modifiers.combat.magicArmorRating.")) return true;
   if (key.startsWith("system.modifiers.degrees.success.skills.")) return true;
   if (key.startsWith("system.modifiers.degrees.success.minimum.skills.")) return true;
   if (key.startsWith("system.modifiers.degrees.failure.skills.")) return true;

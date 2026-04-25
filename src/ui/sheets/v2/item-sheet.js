@@ -42,8 +42,9 @@ import {
 import {
   onCastScroll, onToggleSpellcastingEnable,
   onAddSpellcastingSlot, onRemoveSpellcastingSlot,
+  onClearSpellcastingStoredSpell,
   onEditSpellcastingSlot, onPickSpellcastingSlotSpell,
-  registerScrollListeners,
+  registerItemSpellcastingListeners, registerScrollListeners,
   resolveAndValidateScrollSpell, applyScrollSpellLink,
 } from "../item/item-sheet-spellcasting.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
@@ -57,24 +58,25 @@ import { resolveUuidSync } from "../../../utils/uuid-cache.js";
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
 const ITEM_SHEET_TEMPLATE_BASE = templatePath("v2/sheets");
-const SUPPORTED_ITEM_SHEET_TYPES = new Set([
-  "ammunition",
-  "armor",
-  "shield",
-  "combatStyle",
-  "container",
-  "equipment",
-  "item",
-  "invocation",
-  "magicSkill",
-  "power",
-  "scroll",
-  "skill",
-  "spell",
-  "talent",
-  "trait",
-  "weapon",
-]);
+const ITEM_SHEET_TEMPLATE_MAP = Object.freeze({
+  ammunition: `${ITEM_SHEET_TEMPLATE_BASE}/ammunition-sheet.hbs`,
+  armor: `${ITEM_SHEET_TEMPLATE_BASE}/armor-sheet.hbs`,
+  shield: `${ITEM_SHEET_TEMPLATE_BASE}/shield-sheet.hbs`,
+  combatStyle: `${ITEM_SHEET_TEMPLATE_BASE}/combatStyle-sheet.hbs`,
+  container: `${ITEM_SHEET_TEMPLATE_BASE}/container-sheet.hbs`,
+  equipment: `${ITEM_SHEET_TEMPLATE_BASE}/equipment-sheet.hbs`,
+  item: `${ITEM_SHEET_TEMPLATE_BASE}/item-sheet.hbs`,
+  invocation: `${ITEM_SHEET_TEMPLATE_BASE}/invocation-sheet.hbs`,
+  magicSkill: `${ITEM_SHEET_TEMPLATE_BASE}/magicSkill-sheet.hbs`,
+  power: `${ITEM_SHEET_TEMPLATE_BASE}/power-sheet.hbs`,
+  scroll: `${ITEM_SHEET_TEMPLATE_BASE}/scroll-sheet.hbs`,
+  skill: `${ITEM_SHEET_TEMPLATE_BASE}/skill-sheet.hbs`,
+  spell: `${ITEM_SHEET_TEMPLATE_BASE}/spell-sheet.hbs`,
+  talent: `${ITEM_SHEET_TEMPLATE_BASE}/talent-sheet.hbs`,
+  trait: `${ITEM_SHEET_TEMPLATE_BASE}/trait-sheet.hbs`,
+  weapon: `${ITEM_SHEET_TEMPLATE_BASE}/weapon-sheet.hbs`,
+});
+const DEFAULT_ITEM_SHEET_TEMPLATE = ITEM_SHEET_TEMPLATE_MAP.equipment;
 
 const _ARMOR_TYPED_NUMERIC_FIELDS = new Set(["magic_ar", "special_ar", "armor", "blockRating"]);
 const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][ItemSheet]");
@@ -250,6 +252,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       ],
       initial: "description",
     },
+    secondary: {
+      tabs: [
+        { id: "attributes" },
+        { id: "effect" },
+      ],
+      initial: "attributes",
+    },
   };
 
   /* Static Configuration */
@@ -308,6 +317,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       toggleSpellcastingEnable: SimpleItemSheetV2.prototype._onToggleSpellcastingEnable,
       addSpellcastingSlot: SimpleItemSheetV2.prototype._onAddSpellcastingSlot,
       removeSpellcastingSlot: SimpleItemSheetV2.prototype._onRemoveSpellcastingSlot,
+      clearSpellcastingStoredSpell: SimpleItemSheetV2.prototype._onClearSpellcastingStoredSpell,
       editSpellcastingSlot: SimpleItemSheetV2.prototype._onEditSpellcastingSlot,
       pickSpellcastingSlotSpell: SimpleItemSheetV2.prototype._onPickSpellcastingSlotSpell,
     },
@@ -358,8 +368,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   _configureRenderParts(options) {
     const parts = super._configureRenderParts(options);
     const type = this.document.type;
-    const resolvedType = SUPPORTED_ITEM_SHEET_TYPES.has(type) ? type : "equipment";
-    const template = `${ITEM_SHEET_TEMPLATE_BASE}/${resolvedType}-sheet.hbs`;
+    const template = ITEM_SHEET_TEMPLATE_MAP[type] ?? DEFAULT_ITEM_SHEET_TEMPLATE;
     this._uesrpgResolvedItemSheetTemplate = template;
     parts.header = { ...(parts.header ?? {}), template };
     parts.tabs = { ...(parts.tabs ?? {}), template };
@@ -411,7 +420,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    */
   async _renderHTML(context, options) {
     this._configureRenderParts(options);
-    const templatePath = this._uesrpgResolvedItemSheetTemplate ?? `${ITEM_SHEET_TEMPLATE_BASE}/equipment-sheet.hbs`;
+    const templatePath = this._uesrpgResolvedItemSheetTemplate ?? DEFAULT_ITEM_SHEET_TEMPLATE;
 
     // Use per-part context preparation (preserves mixin lifecycle)
     const partContext = await this._preparePartContext("body", context, options);
@@ -419,13 +428,18 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     try {
       htmlString = await foundry.applications.handlebars.renderTemplate(templatePath, partContext);
     } catch (err) {
-      const fallback = `${ITEM_SHEET_TEMPLATE_BASE}/equipment-sheet.hbs`;
-      console.warn("UESRPG | Item sheet template missing, using fallback", {
+      const fallback = DEFAULT_ITEM_SHEET_TEMPLATE;
+      const isMappedType = Object.prototype.hasOwnProperty.call(ITEM_SHEET_TEMPLATE_MAP, this.document.type);
+      console.error("UESRPG | Item sheet template render failed", {
         type: this.document.type,
         templatePath,
         fallback,
+        mappedType: isMappedType,
         error: err?.message ?? err,
+        contextKeys: Object.keys(partContext ?? {}),
+        itemSystemKeys: Object.keys(partContext?.item?.system ?? {}),
       });
+      if (isMappedType) throw err;
       htmlString = await foundry.applications.handlebars.renderTemplate(fallback, partContext);
     }
 
@@ -843,7 +857,9 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
       const newLevel = {
         level: nextLevel,
+        known: true,
         cost: 0,
+        spellStrengthFormula: "",
         damageFormula: "",
         duration: { value: 0, unit: fallbackUnit },
         description: ""
@@ -1083,6 +1099,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   async _onToggleSpellcastingEnable(event, target) { return onToggleSpellcastingEnable(this, event, target); }
   async _onAddSpellcastingSlot(event, target) { return onAddSpellcastingSlot(this, event, target); }
   async _onRemoveSpellcastingSlot(event, target) { return onRemoveSpellcastingSlot(this, event, target); }
+  async _onClearSpellcastingStoredSpell(event, target) { return onClearSpellcastingStoredSpell(this, event, target); }
   async _onEditSpellcastingSlot(event, target) { return onEditSpellcastingSlot(this, event, target); }
   async _onPickSpellcastingSlotSpell(event, target) { return onPickSpellcastingSlotSpell(this, event, target); }
 
@@ -1377,6 +1394,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       const targetTab = hasTab ? desiredTab
         : (el.querySelector('.tabs [data-group="primary"]')?.dataset?.tab ?? "description");
       this.changeTab(targetTab, "primary", { force: true });
+      const desiredSecondaryTab = this.tabGroups.secondary ?? "attributes";
+      const hasSecondaryTab = el.querySelector(`.tabs [data-group="secondary"][data-tab="${desiredSecondaryTab}"]`);
+      if (hasSecondaryTab || el.querySelector('.tabs [data-group="secondary"]')) {
+        const targetSecondaryTab = hasSecondaryTab
+          ? desiredSecondaryTab
+          : (el.querySelector('.tabs [data-group="secondary"]')?.dataset?.tab ?? "attributes");
+        this.changeTab(targetSecondaryTab, "secondary", { force: true });
+      }
 
       if (state && bodyRendered) {
         const restoreScrollTop = Number(state.sheetBodyScrollTop) || 0;
@@ -1397,6 +1422,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         startedAtMs: perfStart,
         details: {
           tab: this.tabGroups?.primary ?? null,
+          subtab: this.tabGroups?.secondary ?? null,
           hasElement: Boolean(el),
         },
         warnThresholdMs: 32,
@@ -1430,6 +1456,9 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (partId !== "body") return;
 
     if (type === "combatStyle" && this.document.isOwned && this.document.actor) this._registerCombatStyleListeners(el);
+    if (["item", "ammunition", "armor", "scroll", "weapon"].includes(type)) {
+      registerItemSpellcastingListeners(this, el);
+    }
     if (type === "scroll") this._registerScrollListeners(el);
     if (type === "equipment" || type === "item") registerAlchemyProductListeners(this, el);
     if (type === "container") this._registerContainmentListeners(el);

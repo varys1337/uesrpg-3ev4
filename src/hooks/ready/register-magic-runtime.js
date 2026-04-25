@@ -37,8 +37,8 @@ export async function registerMagicRuntime() {
     import("../../core/magic/spell-runtime.js")
   ]);
 
-  initializeUpkeepSystem();
   initializeSpellEffectExpirationSystem();
+  initializeUpkeepSystem();
   initializeOriginAELifecycle();
   initializeSpellTickEngine();
   registerZoneTickHandler();

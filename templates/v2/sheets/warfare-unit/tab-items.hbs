@@ -123,22 +123,30 @@
       {{/if}}
 
       <fieldset class="warfare-fieldset">
-        <legend>Active Effects</legend>
+        <legend>{{localize "UESRPG.Sheets.Equipment.Effects"}}</legend>
         {{#each effects}}
-        <div class="warfare-effect-row">
+        <div class="warfare-effect-row" data-effect-id="{{this.id}}">
           <img src="{{this.img}}" alt="{{this.name}}" width="24" height="24">
           <span>{{this.name}}</span>
+          {{#if this.badges.length}}
+          <span class="effect-badges">
+            {{#each this.badges as |badge|}}
+            <span class="effect-meta-badge {{badge.class}}" title="{{badge.title}}">{{badge.label}}</span>
+            {{/each}}
+          </span>
+          {{else}}
           <span class="warfare-effect-row__status">{{#if this.disabled}}(Disabled){{/if}}</span>
+          {{/if}}
           <button type="button" data-action="editEffect" data-effect-id="{{this.id}}" class="warfare-btn warfare-btn--icon" title="Edit"><i class="fas fa-edit"></i></button>
           {{#if ../editable}}
           <button type="button" data-action="deleteEffect" data-effect-id="{{this.id}}" class="warfare-btn warfare-btn--icon" title="Delete"><i class="fas fa-trash"></i></button>
           {{/if}}
         </div>
         {{else}}
-        <p class="warfare-hint">No active effects.</p>
+        <p class="warfare-hint">{{localize "UESRPG.Sheets.Equipment.NoActiveEffects"}}</p>
         {{/each}}
         {{#if editable}}
-        <button type="button" data-action="createEffect" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> Add Effect</button>
+        <button type="button" data-action="createEffect" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> {{localize "UESRPG.Sheets.Equipment.CreateEffect"}}</button>
         {{/if}}
       </fieldset>
 

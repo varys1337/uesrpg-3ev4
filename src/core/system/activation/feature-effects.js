@@ -15,7 +15,8 @@ import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "
 import { createSeverityDebugLogger } from "../../../utils/debug.js";
 import { SYSTEM_ID } from "../system-id.js";
 import { getRoundTimeSecondsSafe } from "../time/round-time.js";
-import { buildEffectChangesData, getEffectChanges } from "../../../utils/compat.js";
+import { getEffectChanges } from "../../../utils/compat.js";
+import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
 
 const _featureEffectsDebug = createSeverityDebugLogger("activationDebug", "", "debug");
 
@@ -185,7 +186,14 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
       const effectKey = ef.name || ef.id || String(toCreate.length);
       const effectGroup = `feature.effect.${item.id || itemUuid}.${effectKey}`;
 
-      const effectData = {
+      const effectData = buildGenericAEData({
+        source: "feature",
+        stack: {
+          policy: "replace",
+          group: effectGroup,
+          max: null,
+          strengthKey: null,
+        },
         name: ef.name || item.name,
         img: ef.img || item.img,
         origin: itemUuid,
@@ -199,13 +207,11 @@ export async function applyFeatureEffectsToTargets(activatorActor, item, targetA
             sourceItemType: itemType,
             activatorUuid: activatorActor.uuid,
             owner: "system",
-            effectGroup,
-            stackRule: "override",
             source: "feature",
           },
         },
-        ...buildEffectChangesData(foundry.utils.deepClone(getEffectChanges(ef))),
-      };
+        changes: foundry.utils.deepClone(getEffectChanges(ef)),
+      });
       toCreate.push(effectData);
     }
 

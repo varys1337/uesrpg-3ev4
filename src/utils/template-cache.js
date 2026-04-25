@@ -173,6 +173,7 @@ export class TemplateCache {
         'systems/uesrpg-3ev4/templates/partials/sheets/fixed-header.hbs',
         'systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs',
         'systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs',
+        'systems/uesrpg-3ev4/templates/partials/sheets/item-spellcasting-config.hbs',
         
         // Core item sheet
         'systems/uesrpg-3ev4/templates/v2/sheets/item-sheet.hbs',

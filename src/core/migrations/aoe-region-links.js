@@ -1,8 +1,14 @@
 import { SYSTEM_ID } from "../constants.js";
-import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
+import {
+  getMigrationState,
+  isMigrationRevisionApplied,
+  markMigrationRevisionApplied,
+  setMigrationState
+} from "./state.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _AOE_REGION_LINK_MIGRATION_KEY = "aoeRegionLinks";
+const _AOE_REGION_LINK_MIGRATION_REVISION = 1;
 
 function _getContents(collectionLike) {
   if (Array.isArray(collectionLike?.contents)) return collectionLike.contents;
@@ -49,9 +55,8 @@ function _buildOriginPatch(effect) {
 export async function migrateAoeRegionLinksIfNeeded() {
   if (!game.user?.isGM) return;
 
-  const currentVersion = getSystemVersionString();
   const state = getMigrationState();
-  if (state?.[_AOE_REGION_LINK_MIGRATION_KEY] === currentVersion) return;
+  if (isMigrationRevisionApplied(_AOE_REGION_LINK_MIGRATION_KEY, _AOE_REGION_LINK_MIGRATION_REVISION, state)) return;
 
   try {
     let updatedActorEffects = 0;
@@ -67,7 +72,9 @@ export async function migrateAoeRegionLinksIfNeeded() {
       }
     }
 
-    state[_AOE_REGION_LINK_MIGRATION_KEY] = currentVersion;
+    markMigrationRevisionApplied(state, _AOE_REGION_LINK_MIGRATION_KEY, _AOE_REGION_LINK_MIGRATION_REVISION, {
+      updatedActorEffects
+    });
     await setMigrationState(state);
 
     console.log(`${MODULE_ID} | AoE region link migration complete`, { updatedActorEffects });

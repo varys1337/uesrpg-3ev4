@@ -10,6 +10,8 @@ import { _renderCard } from "./render.js";
 import { _findEnabledEffectByUesrpgKey, _logDebug } from "./helpers/util.js";
 import { buildRollContext } from "../../rules/roll-context.js";
 import { applyHybridPendingState, getCombatDomain, prepareHybridPendingData } from "./hybrid.js";
+import { createAttackTraceId } from "../attack-tracker-diagnostics.js";
+import { resolveCombatantForActor } from "../../../utils/document-resolution.js";
 
 export async function createPending(cfg = {}) {
     const aDoc = _resolveDoc(cfg.attackerTokenUuid) ?? _resolveDoc(cfg.attackerActorUuid) ?? _resolveDoc(cfg.attackerUuid);
@@ -50,6 +52,11 @@ export async function createPending(cfg = {}) {
       defenderEntries.push({
         actorUuid: dActor.uuid,
         tokenUuid: dToken?.document?.uuid ?? null,
+        combatantId: resolveCombatantForActor(game?.combat ?? null, dActor, {
+          tokenUuid: dToken?.document?.uuid ?? dToken?.uuid ?? null,
+          actorUuid: dActor.uuid,
+          combatId: game?.combat?.id ?? null
+        })?.id ?? null,
         tokenName: dToken?.name ?? null,
         name: dActor.name,
         label: null,
@@ -125,6 +132,7 @@ export async function createPending(cfg = {}) {
 
     const data = {
         context: {
+          attackTraceId: String(cfg?.attackTraceId ?? "").trim() || createAttackTraceId("opposed"),
           schemaVersion: 1,
           createdAt: Date.now(),
           createdBy: game.user.id,
@@ -138,6 +146,7 @@ export async function createPending(cfg = {}) {
           aoe: cfg?.aoe ? foundry.utils.deepClone(cfg.aoe) : undefined,
           isAoE: cfg?.isAoE ?? undefined,
           activation: cfg.activation ?? null,
+          activationPrepaidBaseAttackAP: Boolean(cfg?.activationPrepaidBaseAttackAP),
           skipAttackerAPDeduction: skipApDeduction,
           skipAttackCountIncrement,
           isFreeActionAttack,
@@ -166,6 +175,11 @@ export async function createPending(cfg = {}) {
       attacker: {
         actorUuid: attacker.uuid,
         tokenUuid: aToken?.document?.uuid ?? null,
+        combatantId: resolveCombatantForActor(game?.combat ?? null, attacker, {
+          tokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
+          actorUuid: attacker.uuid,
+          combatId: game?.combat?.id ?? null
+        })?.id ?? null,
         tokenName: aToken?.name ?? null,
         name: attacker.name,
         combatDomain: getCombatDomain(attacker),

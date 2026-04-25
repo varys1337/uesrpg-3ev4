@@ -17,8 +17,15 @@ import {
   initializeTimeService,
   initializeCombatBoundaryOrchestrator
 } from "../../core/time/index.js";
+import { buildAlchemyApi } from "../../core/alchemy/index.js";
+import { buildTravelApi } from "../../core/travel/index.js";
+import { buildFearApi } from "../../core/fear/index.js";
+import { buildWoundsApi } from "../../core/wounds/index.js";
+import { buildReachVisualizerApi } from "../../ui/canvas/reach-visualizer.js";
+import { buildArmorCoverageOverlayApi } from "../../ui/canvas/armor-coverage-controller.js";
+import { FrenziedAPI } from "../../core/conditions/frenzied.js";
 import { isDebugEnabled } from "../../utils/debug.js";
-import { registerReadyRuntimeApi } from "../../api/runtime-registration.js";
+import { registerInitRuntimeApi, registerReadyRuntimeApi } from "../../api/runtime-registration.js";
 import { ApplyDamageService } from "../../application/combat/apply-damage-service.js";
 
 function buildStaminaApi() {
@@ -37,8 +44,21 @@ function buildStaminaApi() {
 }
 
 export async function registerSystemRuntimeApi() {
-  initializeTimeService();
+  const timeApi = initializeTimeService();
   initializeCombatBoundaryOrchestrator();
+
+  registerInitRuntimeApi({
+    alchemyApi: buildAlchemyApi(),
+    travelApi: buildTravelApi(),
+    fearApi: buildFearApi(),
+    woundsApi: buildWoundsApi(),
+    timeApi,
+    reachVisualizerApi: buildReachVisualizerApi(),
+    armorCoverageOverlayApi: buildArmorCoverageOverlayApi(),
+    conditionsApi: {
+      frenzied: FrenziedAPI,
+    },
+  });
 
   const [
     { AoEService },

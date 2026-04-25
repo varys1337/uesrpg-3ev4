@@ -9,8 +9,8 @@
                             {{#each actor.magicSkill as |item|}}
                                 <li class="item" data-item-id="{{item._id}}">
                                     <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
-                                        <img class="item-img" src="{{item.img}}" data-action="itemOpen" title="{{localize "UESRPG.UI.OpenItem"}}"/>
-                                        <div class="item-name skill-open-item" data-action="itemOpen">
+                                        <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+                                        <div class="item-name skill-open-item">
                                             {{item.name}}
                                         </div>
                                     </div>

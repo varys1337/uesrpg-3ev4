@@ -1,4 +1,3 @@
-import { SYSTEM_ID } from "../constants.js";
 import { ACTOR_TYPE_MODEL_SEEDS, ITEM_TYPE_MODEL_SEEDS } from "./defaults.generated.js";
 
 export const ACTOR_DOCUMENT_TYPES = [
@@ -277,22 +276,11 @@ function getConfigRegistry(documentName) {
 }
 
 export function isTypeDataModelsEnabled() {
-  try {
-    return game.settings.get(SYSTEM_ID, "enableTypeDataModels") === true;
-  } catch (_err) {
-    return false;
-  }
+  // Compatibility helper for older internal callers/macros. TypeDataModels are now unconditional.
+  return true;
 }
 
 export function registerTypeDataModels() {
-  if (!isTypeDataModelsEnabled()) {
-    return {
-      enabled: false,
-      actorTypes: [],
-      itemTypes: [],
-    };
-  }
-
   const actorRegistry = getConfigRegistry("Actor");
   const itemRegistry = getConfigRegistry("Item");
 

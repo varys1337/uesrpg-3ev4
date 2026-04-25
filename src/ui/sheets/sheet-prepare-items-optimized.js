@@ -27,6 +27,14 @@ const DEFAULT_THRESHOLDS = {
   large: 500,     // Use incremental processing with requestIdleCallback
 };
 
+function _buildCastEnchantmentChargeDisplay(item) {
+  const systemCharge = item?.system?.charge ?? {};
+  const value = Math.max(0, Number(systemCharge?.value ?? 0) || 0);
+  const max = Math.max(0, Number(systemCharge?.max ?? 0) || 0);
+  if (max <= 0) return "";
+  return `${value}/${max}`;
+}
+
 /**
  * Process a single item for categorization (optimized version).
  * 
@@ -54,6 +62,9 @@ function processItemForCategories(i, categories, options = {}) {
     && workshopCast.spells.some((s) => s?.enabled !== false);
 
   i.system.uiHasCastEnchantment = extensionCanCast || workshopCanCast;
+  i.system.uiCastEnchantmentCharge = i.system.uiHasCastEnchantment
+    ? _buildCastEnchantmentChargeDisplay(i)
+    : "";
 
   // If an item is inside a container, hide it from the main inventory lists.
   // Contained items remain owned by the Actor and are surfaced through the container sheet UI.
@@ -139,10 +150,10 @@ function sortCategory(category, categoryType = 'default') {
  * Sort all item categories alphabetically if the setting is enabled.
  * 
  * @param {Object} categories - All categorized items
- * @param {boolean} sortAlpha - Whether to sort alphabetically
+ * @param {boolean} alphabetic - Whether to sort alphabetically
  */
-function sortAllCategories(categories, sortAlpha) {
-  if (!sortAlpha) return;
+function sortAllCategories(categories, alphabetic) {
+  if (!alphabetic) return;
   
   // Sort each category
   sortCategory(categories.gear.equipped);
@@ -183,7 +194,7 @@ export async function prepareCharacterItemsOptimized(sheetData, options = {}) {
   const actorData = sheetData.actor;
   const actorDoc = sheetData?.document ?? null;
   const religionEnabled = isReligionWorshipEnabled();
-  const sortAlpha = game.settings.get("uesrpg-3ev4", "sortAlpha");
+  const alphabeticSort = true;
 
   // Initialize categories
   const categories = {
@@ -284,7 +295,7 @@ export async function prepareCharacterItemsOptimized(sheetData, options = {}) {
   }
 
   // Sort categories if needed
-  sortAllCategories(categories, sortAlpha);
+  sortAllCategories(categories, alphabeticSort);
 
   // Attach categorized items to actorData for template use
   actorData.gear = categories.gear;

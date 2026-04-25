@@ -10,12 +10,16 @@ import { getActorTraitValue } from "../traits/trait-registry.js";
 import { postRegenerationPrompt, postRegenPromptBatch } from "../traits/trait-automation.js";
 import { requestUpdateDocument, requestDeleteEmbeddedDocuments, requestBatchUpdateDocuments } from "../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "./constants.js";
-import { getSystemFlagsWithFallback } from "../system/flags.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
-import { SYSTEM_ID } from "../system/namespace.js";
 import { scheduleBoundaryWork } from "../time/boundary-work-scheduler.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../time/combat-boundary-orchestrator.js";
 import { getRegenerationCandidatesForCombat, getSilencedCandidatesForCombat } from "./round-start-candidate-registry.js";
+import { isAggregateRegenPromptsEnabled, isAggregateSilencedChecksEnabled } from "../config/automation-policy.js";
+import {
+  applyGenericAEExpiryAction,
+  effectMatchesGenericExpiry,
+  getEffectExpiryAction,
+} from "../active-effects/expiry.js";
 
 let _registered = false;
 
@@ -55,13 +59,11 @@ function _getPreviousCombatant(combat, changed) {
 }
 
 function _isAggregateRegenEnabled() {
-  try { return Boolean(game?.settings?.get?.(SYSTEM_ID, "aggregateRegenPrompts")); }
-  catch (_e) { return false; }
+  return isAggregateRegenPromptsEnabled();
 }
 
 function _isAggregateSilencedEnabled() {
-  try { return Boolean(game?.settings?.get?.(SYSTEM_ID, "aggregateSilencedChecks")); }
-  catch (_e) { return false; }
+  return isAggregateSilencedChecksEnabled();
 }
 
 async function _expireStartOfTurnEffects(combat, changed) {
@@ -78,36 +80,31 @@ async function _expireStartOfTurnEffects(combat, changed) {
 
   const currentTurn = Number(combat.turn ?? 0);
   const currentRound = Number(combat.round ?? 0);
-  const currentCombatantId = String(current?.id ?? "");
-  const combatId = String(combat.id ?? "");
-
   const effects = actor?.effects?.contents ?? [];
-  const toRemove = effects.filter((e) => {
-    if (!e || e.disabled) return false;
-    const flags = getSystemFlagsWithFallback(e) ?? null;
-    if (!flags) return false;
-    if (flags.expiresOnTurnStart !== true) return false;
+  const toDelete = [];
+  const toSuppress = [];
 
-    const eCombatId = String(flags.expiresCombatId ?? "");
-    if (eCombatId && combatId && eCombatId !== combatId) return false;
+  for (const effect of effects) {
+    if (!effectMatchesGenericExpiry(effect, {
+      mode: "turn-start",
+      combat,
+      combatant: current,
+      round: currentRound,
+      turn: currentTurn,
+      includeLegacy: true,
+    })) continue;
 
-    const eCombatantId = String(flags.expiresCombatantId ?? "");
-    if (eCombatantId && currentCombatantId && eCombatantId !== currentCombatantId) return false;
+    if (getEffectExpiryAction(effect) === "suppress") toSuppress.push(effect);
+    else toDelete.push(effect);
+  }
 
-    const hasRoundTurn = (flags.expiresRound !== undefined || flags.expiresTurn !== undefined);
-    if (hasRoundTurn) {
-      const eRound = Number(flags.expiresRound ?? NaN);
-      const eTurn = Number(flags.expiresTurn ?? NaN);
-      if (Number.isFinite(eRound) && Number.isFinite(currentRound) && eRound !== currentRound) return false;
-      if (Number.isFinite(eTurn) && Number.isFinite(currentTurn) && eTurn !== currentTurn) return false;
-    }
+  for (const effect of toSuppress) {
+    await applyGenericAEExpiryAction(actor, effect, { reason: "turn-start", combat });
+  }
 
-    return true;
-  });
+  if (toDelete.length === 0) return;
 
-  if (toRemove.length === 0) return;
-
-  const uniqueIds = Array.from(new Set(toRemove.map((e) => e?.id).filter(Boolean)));
+  const uniqueIds = Array.from(new Set(toDelete.map((e) => e?.id).filter(Boolean)));
   const existingIds = uniqueIds.filter((id) => actor.effects?.get?.(id));
   if (existingIds.length === 0) return;
 
@@ -128,6 +125,57 @@ async function _expireStartOfTurnEffects(combat, changed) {
 
     if (!msg.includes("does not exist")) {
       console.warn("UESRPG | Start-of-turn effect expiry failed", err);
+    }
+  }
+}
+
+async function _expireEndOfTurnEffects(combat, changed, previousCombatant) {
+  if (!combat || !previousCombatant) return;
+  if (!((changed ?? {}) && ("turn" in changed || "round" in changed))) return;
+
+  const actor = previousCombatant?.actor ?? null;
+  if (!actor) return;
+
+  const turns = combat.turns ?? [];
+  const turnArray = Array.isArray(turns) ? turns : Array.from(turns ?? []);
+  const previousTurn = turnArray.findIndex((turn) => String(turn?.id ?? "") === String(previousCombatant.id ?? ""));
+  const currentTurn = Number(combat.turn ?? 0);
+  const currentRound = Number(combat.round ?? 0);
+  const previousRound = ("round" in (changed ?? {}) && currentTurn === 0)
+    ? Math.max(0, currentRound - 1)
+    : currentRound;
+
+  const toDelete = [];
+  const toSuppress = [];
+
+  for (const effect of actor?.effects?.contents ?? []) {
+    if (!effectMatchesGenericExpiry(effect, {
+      mode: "turn-end",
+      combat,
+      combatant: previousCombatant,
+      round: previousRound,
+      turn: previousTurn >= 0 ? previousTurn : null,
+      includeLegacy: false,
+    })) continue;
+
+    if (getEffectExpiryAction(effect) === "suppress") toSuppress.push(effect);
+    else toDelete.push(effect);
+  }
+
+  for (const effect of toSuppress) {
+    await applyGenericAEExpiryAction(actor, effect, { reason: "turn-end", combat });
+  }
+
+  const ids = Array.from(new Set(toDelete.map((effect) => effect?.id).filter(Boolean)))
+    .filter((id) => actor.effects?.get?.(id));
+  if (ids.length) {
+    try {
+      await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
+    } catch (err) {
+      const msg = String(err?.message ?? "");
+      if (!msg.includes("does not exist")) {
+        console.warn("UESRPG | End-of-turn effect expiry failed", err);
+      }
     }
   }
 }
@@ -299,6 +347,7 @@ async function _handleCombatBoundaryTick(payload) {
 
     const _tEndTurn = _perf ? monoMs() : 0;
     if (actor) await tickConditionsEndTurn(actor);
+    await _expireEndOfTurnEffects(combat, changed, prevCombatant);
     if (_perf) {
       perfRecord({
         event: "turnTicker.endTurnTick",

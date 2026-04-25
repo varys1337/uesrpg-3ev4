@@ -18,6 +18,7 @@ const CRITICAL_TEMPLATES = [
   "systems/uesrpg-3ev4/templates/partials/sheets/fixed-header.hbs",
   "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs",
   "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs",
+  "systems/uesrpg-3ev4/templates/partials/sheets/item-spellcasting-config.hbs",
   
   // Core item sheet that definitely exists
   "systems/uesrpg-3ev4/templates/v2/sheets/item-sheet.hbs",
@@ -540,6 +541,7 @@ async function preloadHandlebarsTemplatesFallback() {
       "systems/uesrpg-3ev4/templates/partials/sheets/fixed-header.hbs",
       "systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs",
       "systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs",
+      "systems/uesrpg-3ev4/templates/partials/sheets/item-spellcasting-config.hbs",
       "systems/uesrpg-3ev4/templates/partials/sheets/feature-config-tab.hbs",
       "systems/uesrpg-3ev4/templates/partials/sheets/automation-tab.hbs",
       "systems/uesrpg-3ev4/templates/partials/sheets/feature-stat-sections.hbs",

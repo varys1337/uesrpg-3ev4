@@ -10,7 +10,7 @@
  */
 
 import { hasTalent } from "../../../traits/talents-api.js";
-import { getEffectiveWeaponHands, getDamageTypeFromWeapon } from "../../combat-utils.js";
+import { getEffectiveWeaponHands, getDamageTypeFromWeapon, getWeaponCombatCapabilities } from "../../combat-utils.js";
 import { normalizeDiceExpression, safeEvaluateRoll } from "../rolls.js";
 import { itemHasToken } from "../../damage/tokens.js";
 
@@ -99,24 +99,10 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
   // Ranged: add ammunition contribution (damage bonus) from the selected ammunition item.
   // Ammunition quantity is consumed at ATTACK TIME (before the attack roll), not here.
   // This function only reads ammo data for damage expression enrichment and gates legacy/stale cards defensively.
-  if (String(weapon.system?.attackMode ?? "melee").toLowerCase() === "ranged" && weapon.actor) {
-    // Do not involve ammunition for thrown attacks.
-    const injected = Array.isArray(weapon.system?.qualitiesStructuredInjected)
-      ? weapon.system.qualitiesStructuredInjected
-      : Array.isArray(weapon.system?.qualitiesStructured)
-        ? weapon.system.qualitiesStructured
-        : [];
-    const traits = Array.isArray(weapon.system?.qualitiesTraits) ? weapon.system.qualitiesTraits : [];
-    const hasThrown = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "thrown")
-      || traits.some(t => String(t ?? "").toLowerCase() === "thrown")
-      || (String(weapon.system?.rangeBandsDerivedEffective?.kind ?? weapon.system?.rangeBandsDerived?.kind ?? "") === "thrown");
-    const hasSling = injected.some(q => String(q?.key ?? q ?? "").toLowerCase() === "sling")
-      || traits.some(t => String(t ?? "").toLowerCase() === "sling")
-      || _weaponHasTraitText(weapon, "sling");
-    if (hasThrown) {
-      // Leave pendingAmmo null and do not gate on ammo.
-    } else {
-    const shouldConsume = weapon.system?.consumeAmmo !== false;
+  const capabilities = getWeaponCombatCapabilities(weapon);
+  if (capabilities.usesAmmo && weapon.actor) {
+    const hasSling = itemHasToken(weapon, "sling") || _weaponHasTraitText(weapon, "sling");
+    const shouldConsume = capabilities.consumesAmmo;
     const ammoId = String(weapon.system?.ammoId ?? "").trim();
 
 
@@ -183,7 +169,6 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
         damageString = addFlatBonus(damageString, ammoBonus);
       }
     }
-    }
   }
 
   const structured = Array.isArray(weapon.system.qualitiesStructuredInjected)
@@ -225,9 +210,7 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
     }
   }
 
-  let ammoComponentAmount = Math.max(0, Number(ammoBonusApplied || 0));
-  if (ammoComponentAmount > total) ammoComponentAmount = Math.max(0, total);
-  const weaponComponentAmount = Math.max(0, total - ammoComponentAmount);
+  const ammoComponentAmount = Math.max(0, Number(ammoBonusApplied || 0));
   const weaponDamageType = String(getDamageTypeFromWeapon(weapon) ?? "physical").toLowerCase() || "physical";
 
   const weaponComponent = {
@@ -235,15 +218,16 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
     sourceLabel: String(weapon?.name ?? "Weapon"),
     sourceItemUuid: String(weapon?.uuid ?? "") || null,
     damageType: weaponDamageType,
-    amount: weaponComponentAmount,
+    amount: Math.max(0, Number(total ?? 0) || 0),
   };
-  const ammoComponent = ammoComponentAmount > 0
+  const ammoMetadata = ammoComponentAmount > 0
     ? {
         source: "ammo",
         sourceLabel: String(ammoNameApplied ?? "Ammunition"),
         sourceItemUuid: ammoUuidApplied,
         damageType: ammoTypeApplied,
         amount: ammoComponentAmount,
+        merged: true,
       }
     : null;
 
@@ -256,7 +240,8 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
     rerollMode,
     damagedValue,
     weaponComponent,
-    ammoComponent,
+    ammoComponent: null,
+    ammoMetadata,
   };
 }
 

@@ -6,7 +6,7 @@
 
 import { getDefenderOutcome, setMagicDefenderDamage } from "../schema.js";
 import { getOrCreateSharedSpellDamage, computeSpellDamageShared, spellNeedsEffectApplication } from "../spell-helpers.js";
-import { getSpellDamageType } from "../../magicka-utils.js";
+import { getSpellCost, getSpellDamageType } from "../../magicka-utils.js";
 import { getBlockValue } from "../../../combat/mitigation.js";
 import { resolveHitLocationForTarget } from "../../../combat/combat-utils.js";
 import { getActiveWardSpell } from "../../../combat/ward-defense.js";
@@ -44,6 +44,12 @@ function buildMagicDamageComponents(spell, damageType, damageInfo = null) {
     });
   }
   return components;
+}
+
+function _getResolvedMagicCost(data, spell) {
+  const castLevel = data?.attacker?.spellOptions?.castLevel ?? null;
+  const fallbackCost = Number(getSpellCost(spell, castLevel) ?? 0) || 0;
+  return Number(data?.attacker?.mpSpent ?? data?.context?.mpSpent ?? fallbackCost) || 0;
 }
 
 /**
@@ -115,7 +121,7 @@ export async function handleBlockResolve(ctx) {
       hitLocation: resolvedShieldArm,
       isCritical,
       source: spell.name,
-      magicCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0),
+      magicCost: _getResolvedMagicCost(data, spell),
       rollHTML,
       isOverloaded: Boolean(damageInfo?.isOverloaded),
       overloadBonus: Number(damageInfo?.overloadBonus ?? 0) || 0,
@@ -123,12 +129,21 @@ export async function handleBlockResolve(ctx) {
       overchargeTotals: Array.isArray(damageInfo?.overchargeTotals) ? damageInfo.overchargeTotals : null,
       elementalBonus: Number(damageInfo?.elementalBonus ?? 0) || 0,
       elementalBonusLabel: String(damageInfo?.elementalBonusLabel ?? ""),
-      actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0),
+      actualCost: _getResolvedMagicCost(data, spell),
       originalCastWorldTime: Number(data.context?.originalCastWorldTime ?? game?.time?.worldTime ?? 0) || 0,
       defenseType: "block",
       isDamaging: !blocked,
       needsEffects: !blocked && Boolean(spellNeedsEffectApplication(spell)),
       castContext,
+      spellOptions: data?.attacker?.spellOptions ?? null,
+      scalingChoices: data?.attacker?.spellOptions?.castLevel ? { level: data.attacker.spellOptions.castLevel } : null,
+      castSource: data?.attacker?.castSource ?? null,
+      itemCastContext: data?.context?.itemCastContext ?? null,
+      magickaSpend: {
+        consumed: _getResolvedMagicCost(data, spell),
+        remaining: Number(data?.context?.mpRemaining ?? 0) || 0,
+        refund: Number(data?.context?.mpRefund ?? 0) || 0
+      },
     },
   };
   setMagicDefenderDamage(data, defender, dmgData);
@@ -210,7 +225,7 @@ export async function handleWardResolve(ctx) {
       hitLocation: resolvedWardArm,
       isCritical,
       source: spell.name,
-      magicCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0),
+      magicCost: _getResolvedMagicCost(data, spell),
       rollHTML,
       isOverloaded: Boolean(damageInfo?.isOverloaded),
       overloadBonus: Number(damageInfo?.overloadBonus ?? 0) || 0,
@@ -218,12 +233,21 @@ export async function handleWardResolve(ctx) {
       overchargeTotals: Array.isArray(damageInfo?.overchargeTotals) ? damageInfo.overchargeTotals : null,
       elementalBonus: Number(damageInfo?.elementalBonus ?? 0) || 0,
       elementalBonusLabel: String(damageInfo?.elementalBonusLabel ?? ""),
-      actualCost: Number(data.attacker?.mpSpent ?? data.context?.mpSpent ?? spell.system?.cost ?? 0),
+      actualCost: _getResolvedMagicCost(data, spell),
       originalCastWorldTime: Number(data.context?.originalCastWorldTime ?? game?.time?.worldTime ?? 0) || 0,
       defenseType: "ward",
       isDamaging: !blocked,
       needsEffects: !blocked && Boolean(spellNeedsEffectApplication(spell)),
       castContext,
+      spellOptions: data?.attacker?.spellOptions ?? null,
+      scalingChoices: data?.attacker?.spellOptions?.castLevel ? { level: data.attacker.spellOptions.castLevel } : null,
+      castSource: data?.attacker?.castSource ?? null,
+      itemCastContext: data?.context?.itemCastContext ?? null,
+      magickaSpend: {
+        consumed: _getResolvedMagicCost(data, spell),
+        remaining: Number(data?.context?.mpRemaining ?? 0) || 0,
+        refund: Number(data?.context?.mpRefund ?? 0) || 0
+      },
     },
   };
   setMagicDefenderDamage(data, defender, dmgData);

@@ -1,5 +1,6 @@
 import { systemRootPath } from "../core/constants.js";
 import { renderDialogContent, customDialog } from "../utils/dialog-v2-helper.js";
+import { t } from "../utils/i18n.js";
 
 /**
  * Startup dialog (Foundry VTT v14.359+, DialogV2 helper).
@@ -22,7 +23,7 @@ export default async function startupHandler() {
   });
 
   await customDialog({
-    title: "Welcome to the UESRPG Foundry System!",
+    title: t("UESRPG.Dialogs.Startup.Title"),
     content: startupDialogHtml,
     classes: ["uesrpg-dialog", "uesrpg-startup-dialog"],
     width: 860,

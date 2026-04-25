@@ -133,6 +133,7 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
   const base = { armor: 0, resistance: 0, toughness };
   const ae = {
     armorRating: {
+      lane: damageType === DAMAGE_TYPES.PHYSICAL ? "physical" : "magic",
       global: { total: 0, entries: [] },
       location: { key: propertyName, total: 0, entries: [] },
     },
@@ -247,17 +248,22 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
   // --- Active Effects: Armor Rating & Resistance modifiers (ADD/OVERRIDE)
   // These are applied deterministically as modifier totals (not absolute armor/resistance replacement).
   // Keys:
-  //  - Armor: system.modifiers.combat.armorRating and optional per-location system.modifiers.combat.armorRating.<LocationKey>
+  //  - Armor:
+  //      physical -> system.modifiers.combat.armorRating[.<LocationKey>]
+  //      magical  -> system.modifiers.combat.magicArmorRating[.<LocationKey>]
   //  - Resistance: system.modifiers.resistance.<resKey> (fireR, frostR, shockR, poisonR, magicR, diseaseR, silverR, sunlightR)
   //  - Nat Toughness: system.modifiers.resistance.natToughness
   try {
+    const armorKeyBase = damageType === DAMAGE_TYPES.PHYSICAL
+      ? "system.modifiers.combat.armorRating"
+      : "system.modifiers.combat.magicArmorRating";
     const armorKeys = [
-      "system.modifiers.combat.armorRating",
-      `system.modifiers.combat.armorRating.${propertyName}`,
+      armorKeyBase,
+      `${armorKeyBase}.${propertyName}`,
     ];
     const armorResult = evaluateAEModifierKeysDetailed(actor, armorKeys);
-    const gKey = "system.modifiers.combat.armorRating";
-    const lKey = `system.modifiers.combat.armorRating.${propertyName}`;
+    const gKey = armorKeyBase;
+    const lKey = `${armorKeyBase}.${propertyName}`;
     const gTotal = Number(armorResult.totalsByKey[gKey] ?? 0) || 0;
     const lTotal = Number(armorResult.totalsByKey[lKey] ?? 0) || 0;
     const gDetail = armorResult.detailsByKey[gKey] ?? { total: 0, contributions: [] };

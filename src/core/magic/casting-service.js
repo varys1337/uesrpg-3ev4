@@ -60,21 +60,15 @@ export const SpellCastingService = {
         return { success: false, messageId: null, error: "Invalid caster actor" };
       }
       
-      // 2. Resolve spell profile (for validation and routing)
-      const profile = resolveSpellProfile(spell, actor, {
+      // 2. Resolve initial spell profile (for dialog and routing hints)
+      let profile = resolveSpellProfile(spell, actor, {
         level: cfg.spellOptions?.castLevel ?? null, // Use selected variant level if provided
         isRestrained: cfg.spellOptions?.isRestrained ?? false,
-        isOverloaded: cfg.spellOptions?.isOverloaded ?? false
+        isOverloaded: cfg.spellOptions?.isOverloaded ?? false,
+        useOvercharge: cfg.spellOptions?.useOvercharge ?? false
       });
-      
-      // 3. Validate prerequisites
-      const validationResult = await this._validateCastPrerequisites(actor, spell, profile, cfg);
-      if (!validationResult.valid) {
-        ui.notifications.warn(validationResult.reason);
-        return { success: false, messageId: null, error: validationResult.reason };
-      }
-      
-      // 4. Show spell options dialog if needed
+
+      // 3. Show spell options dialog if needed
       let spellOptions = cfg.spellOptions;
       if (!cfg.skipDialog && !spellOptions) {
         const dialogResult = await this._showSpellOptionsDialog(actor, spell, profile, cfg);
@@ -91,6 +85,20 @@ export const SpellCastingService = {
         difficultyKey: "average",
         manualModifier: 0
       };
+
+      profile = resolveSpellProfile(spell, actor, {
+        level: spellOptions?.castLevel ?? spellOptions?.level ?? null,
+        isRestrained: spellOptions?.isRestrained ?? false,
+        isOverloaded: spellOptions?.isOverloaded ?? false,
+        useOvercharge: spellOptions?.useOvercharge ?? false
+      });
+      
+      // 4. Validate prerequisites after final options are known.
+      const validationResult = await this._validateCastPrerequisites(actor, spell, profile, { ...cfg, spellOptions });
+      if (!validationResult.valid) {
+        ui.notifications.warn(validationResult.reason);
+        return { success: false, messageId: null, error: validationResult.reason };
+      }
       
       // 5. Fire preCast hook (cancellable)
       const preCastAllowed = emitPreCast({
@@ -191,17 +199,19 @@ export const SpellCastingService = {
     }
     
     // Transform the result into the format expected by casting workflows
-    return {
-      options: {
-        isRestrained: result.isRestrained ?? false,
-        isOverloaded: result.isOverloaded ?? false,
-        difficultyKey: result.difficultyKey ?? "average",
-        manualModifier: result.manualModifier ?? 0,
-        useOvercharge: result.useOvercharge ?? false,
-        useMagickaCycling: result.useMagickaCycling ?? false
-      },
-      cancelled: false
-    };
+      return {
+        options: {
+          isRestrained: result.isRestrained ?? false,
+          isOverloaded: result.isOverloaded ?? false,
+          difficultyKey: result.difficultyKey ?? "average",
+          manualModifier: result.manualModifier ?? 0,
+          castLevel: result.castLevel ?? null,
+          level: result.castLevel ?? null,
+          useOvercharge: result.useOvercharge ?? false,
+          useMagickaCycling: result.useMagickaCycling ?? false
+        },
+        cancelled: false
+      };
   },
   
   /**
@@ -226,6 +236,7 @@ export const SpellCastingService = {
     const hasTargets = targetTokenUuids && targetTokenUuids.length > 0;
     const isAoE = profile.range.type === "aoe";
     const isDirect = profile.classification.isDirect;
+    const isCharacteristicDefense = String(profile?.engine?.defenseModel ?? "").trim().toLowerCase() === "characteristic";
 
     // Get target tokens
     let targetTokens = [];
@@ -237,7 +248,11 @@ export const SpellCastingService = {
     }
 
     // Route to appropriate workflow
-    if (isDirect) {
+    if (isDirect && !isCharacteristicDefense) {
+      const targetingMode = String(profile?.engine?.targeting?.mode ?? "").trim().toLowerCase();
+      if (targetingMode === "self" && !hasTargets) {
+        return await this._castUnopposed(actor, spell, profile, effectiveSpellOptions, cfg);
+      }
       // Direct spells (no opposed test)
       return await this._castDirect(actor, spell, profile, effectiveSpellOptions, cfg);
     } else if (hasTargets || isAoE) {

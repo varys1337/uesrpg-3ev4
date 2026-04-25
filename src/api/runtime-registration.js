@@ -37,8 +37,17 @@ export function registerInitRuntimeApi({
   getActionEligibility,
   CharOpposedWorkflow,
   runCombatLegacyReadinessScan,
+  automationPolicyApi = null,
   tokenActionHudApi,
   applicationApi = null,
+  alchemyApi = null,
+  travelApi = null,
+  fearApi = null,
+  woundsApi = null,
+  timeApi = null,
+  reachVisualizerApi = null,
+  armorCoverageOverlayApi = null,
+  conditionsApi = null,
 } = {}) {
   const root = ensureRootNamespace();
   const rules = ensureChildNamespace(root, "rules");
@@ -46,39 +55,52 @@ export function registerInitRuntimeApi({
   const characteristics = ensureChildNamespace(root, "characteristics");
   const api = ensureChildNamespace(root, "api");
 
-  rules.predicate = {
-    isPredicate,
-    evaluatePredicate,
-    selfTest: selfTestPredicate,
-  };
-  rules.rollOptions = {
-    normalize: normalizeRollOption,
-    buildBase: buildBaseRollOptions,
-  };
-  rules.rollContext = {
-    build: buildRollContext,
-  };
-  rules.conditions = {
-    compileToPredicate: compileConditionsToPredicate,
-  };
+  if (isPredicate || evaluatePredicate || selfTestPredicate) {
+    rules.predicate = {
+      isPredicate,
+      evaluatePredicate,
+      selfTest: selfTestPredicate,
+    };
+  }
+  if (normalizeRollOption || buildBaseRollOptions) {
+    rules.rollOptions = {
+      normalize: normalizeRollOption,
+      buildBase: buildBaseRollOptions,
+    };
+  }
+  if (buildRollContext) {
+    rules.rollContext = {
+      build: buildRollContext,
+    };
+  }
+  if (compileConditionsToPredicate) {
+    rules.conditions = {
+      compileToPredicate: compileConditionsToPredicate,
+    };
+  }
 
-  combat.applyDamage = applyDamage;
-  combat.applyDamageResolved = applyDamageResolved;
-  combat.DAMAGE_TYPES = DAMAGE_TYPES;
-  combat.applyHealing = async (actor, amount, options = {}) => {
-    const source = options?.source ?? "Healing";
-    return applyHealing(actor, amount, { ...options, source });
-  };
-  combat.resolveSurpriseState = resolveSurpriseState;
-  combat.setActorSurprised = setActorSurprised;
-  combat.clearActorSurpriseState = clearActorSurpriseState;
-  combat.markSurprisedFirstTurnPassed = markSurprisedFirstTurnPassed;
-  combat.getInitiativeTieBreakTuple = getInitiativeTieBreakTuple;
-  combat.getSizeToHitModifier = getSizeToHitModifier;
-  combat.getActionEligibility = getActionEligibility;
-  combat.scanLegacyReadiness = runCombatLegacyReadinessScan;
+  if (applyDamage) combat.applyDamage = applyDamage;
+  if (applyDamageResolved) combat.applyDamageResolved = applyDamageResolved;
+  if (DAMAGE_TYPES) combat.DAMAGE_TYPES = DAMAGE_TYPES;
+  if (applyHealing) {
+    combat.applyHealing = async (actor, amount, options = {}) => {
+      const source = options?.source ?? "Healing";
+      return applyHealing(actor, amount, { ...options, source });
+    };
+  }
+  if (resolveSurpriseState) combat.resolveSurpriseState = resolveSurpriseState;
+  if (setActorSurprised) combat.setActorSurprised = setActorSurprised;
+  if (clearActorSurpriseState) combat.clearActorSurpriseState = clearActorSurpriseState;
+  if (markSurprisedFirstTurnPassed) combat.markSurprisedFirstTurnPassed = markSurprisedFirstTurnPassed;
+  if (getInitiativeTieBreakTuple) combat.getInitiativeTieBreakTuple = getInitiativeTieBreakTuple;
+  if (getSizeToHitModifier) combat.getSizeToHitModifier = getSizeToHitModifier;
+  if (getActionEligibility) combat.getActionEligibility = getActionEligibility;
+  if (runCombatLegacyReadinessScan) combat.scanLegacyReadiness = runCombatLegacyReadinessScan;
+  if (automationPolicyApi && typeof automationPolicyApi === "object") {
+    combat.automationPolicy = automationPolicyApi;
+  }
 
-  characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
+  if (CharOpposedWorkflow) characteristics.CharOpposedWorkflow = CharOpposedWorkflow;
 
   if (tokenActionHudApi) {
     api.tokenActionHud = tokenActionHudApi;
@@ -86,6 +108,17 @@ export function registerInitRuntimeApi({
 
   if (applicationApi && typeof applicationApi === "object") {
     Object.assign(ensureChildNamespace(root, "application"), applicationApi);
+  }
+
+  if (alchemyApi && typeof alchemyApi === "object") root.alchemy = alchemyApi;
+  if (travelApi && typeof travelApi === "object") root.travel = travelApi;
+  if (fearApi && typeof fearApi === "object") root.fear = fearApi;
+  if (woundsApi && typeof woundsApi === "object") root.wounds = woundsApi;
+  if (timeApi && typeof timeApi === "object") root.time = timeApi;
+  if (reachVisualizerApi && typeof reachVisualizerApi === "object") root.reachVisualizer = reachVisualizerApi;
+  if (armorCoverageOverlayApi && typeof armorCoverageOverlayApi === "object") root.armorCoverageOverlay = armorCoverageOverlayApi;
+  if (conditionsApi && typeof conditionsApi === "object") {
+    Object.assign(ensureChildNamespace(root, "conditions"), conditionsApi);
   }
 
   return root;

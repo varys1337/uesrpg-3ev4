@@ -7,7 +7,7 @@
  */
 
 import { isMultiDefender } from "./schema.js";
-import { computeSpellMagickaCost, rollSpellDamage } from "../magicka-utils.js";
+import { computeSpellMagickaCost, getSpellDamageFormula, getSpellDamageType, rollSpellDamage } from "../magicka-utils.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { computeElementalDamageBonus } from "../magic-modifiers.js";
 import { canTokenEscapeArea } from "../../../utils/aoe-utils.js";
@@ -96,6 +96,27 @@ export function spellNeedsEffectApplication(spell) {
   if (Boolean(spell.system?.hasOverTime)) return true;
   if ((spell.effects?.size ?? 0) > 0) return true;
   return spellHasFiniteDuration(spell);
+}
+
+/**
+ * Check if a successful direct spell should create a deferred application panel.
+ * Covers damage, healing, effects-only, and buffer-only direct spells.
+ * @param {Item} spell
+ * @returns {boolean}
+ */
+export function spellNeedsDeferredDirectApplication(spell) {
+  if (!spell) return false;
+  if (spellNeedsEffectApplication(spell)) return true;
+
+  const damageType = getSpellDamageType(spell);
+  if (isHealingType(damageType)) return true;
+
+  const damageFormula = String(getSpellDamageFormula(spell) ?? "").trim();
+  if (damageFormula && damageFormula !== "0" && String(damageType ?? "").trim().toLowerCase() !== "none") {
+    return true;
+  }
+
+  return Boolean(spell.system?.hasBuffer && spell.system?.buffer?.type && spell.system.buffer.type !== "none");
 }
 
 /**

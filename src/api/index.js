@@ -39,6 +39,18 @@ export { SimpleItem } from "../core/documents/item.js";
 export { AttackTracker } from "../core/combat/attack-tracker.js";
 export { DAMAGE_TYPES } from "../core/combat/damage-automation.js";
 
+export {
+  AUTOMATION_DEFAULTS,
+  isAggregateRegenPromptsEnabled,
+  isAggregateSilencedChecksEnabled,
+  isBoundaryWorkDeferEnabled,
+  isRoundStartCandidateRegistryEnabled,
+  isAttackTrackerEagerResetSkipped,
+  isCombatBoundaryOrchestratorPolicyEnabled,
+  isCompositeBoundaryTickEnabled,
+  isDamageAftermathBundlingEnabled
+} from "../core/config/automation-policy.js";
+
 // ─── Stamina ───────────────────────────────────────────────────────────────
 export {
   openStaminaDialog,

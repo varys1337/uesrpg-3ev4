@@ -102,7 +102,7 @@ function _resolveSpellcastingConfig(item, spellSlotId = null) {
   return extension;
 }
 
-function _buildTemporarySpellFromSnapshot(snapshot, fallbackLabel = "Stored Spell") {
+function _buildTemporarySpellFromSnapshot(snapshot, fallbackLabel = "Stored Spell", actor = null) {
   if (!snapshot || typeof snapshot !== "object") return null;
   try {
     const data = foundry.utils.deepClone(snapshot);
@@ -110,13 +110,22 @@ function _buildTemporarySpellFromSnapshot(snapshot, fallbackLabel = "Stored Spel
     if (!String(data.name ?? "").trim()) data.name = fallbackLabel;
     if (!data.system || typeof data.system !== "object") data.system = {};
     const ItemCls = CONFIG?.Item?.documentClass ?? Item;
-    return new ItemCls(data, { temporary: true });
+    return new ItemCls(data, { temporary: true, parent: actor ?? undefined });
   } catch (_err) {
     return null;
   }
 }
 
-async function _resolveSpellFromSlot(slot) {
+async function _resolveSpellFromSlot(item, slot) {
+  const actor = item?.actor ?? null;
+  const actorSpellItemId = String(slot?.actorSpellItemId ?? "").trim();
+  if (actor && actorSpellItemId) {
+    const embedded = actor.items?.get?.(actorSpellItemId) ?? null;
+    if (embedded?.documentName === "Item" && embedded.type === "spell") {
+      return { spell: embedded, spellUuid: String(slot?.spellUuid ?? embedded.uuid ?? "") || null, fromSnapshot: false };
+    }
+  }
+
   const uuid = String(slot?.spellUuid ?? "").trim();
   if (uuid) {
     try {
@@ -128,7 +137,7 @@ async function _resolveSpellFromSlot(slot) {
       // Fallback to snapshot.
     }
   }
-  const snap = _buildTemporarySpellFromSnapshot(slot?.snapshot, String(slot?.label ?? "Stored Spell"));
+  const snap = _buildTemporarySpellFromSnapshot(slot?.snapshot, String(slot?.label ?? "Stored Spell"), actor);
   if (snap) {
     return { spell: snap, spellUuid: String(snap?.uuid ?? "") || null, fromSnapshot: true };
   }
@@ -168,7 +177,9 @@ function _buildCastSource({ item, slot, sourceLane, pool }) {
     enchantSpellSlotId: String(slot?.id ?? ""),
     costMode: _normalizeCostMode(slot?.costMode),
     cost: _asNum(slot?.cost, 0),
+    level: Math.max(1, _asNum(slot?.level, 1)),
     bindingStrength: _asNum(slot?.bindingStrength, 0),
+    skipCastingTest: slot?.skipCastingTest !== false,
     pool: { value: _asNum(pool?.value, 0), max: _asNum(pool?.max, 0) }
   };
 }
@@ -211,7 +222,7 @@ export async function castFromEnchantedItem({
     return null;
   }
 
-  const { spell, spellUuid } = await _resolveSpellFromSlot(slot);
+  const { spell, spellUuid } = await _resolveSpellFromSlot(ownedItem, slot);
   if (!spell || !spellUuid) {
     _warn("Stored spell reference could not be resolved to a castable spell UUID.");
     return null;

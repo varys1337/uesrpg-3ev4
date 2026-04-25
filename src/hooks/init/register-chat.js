@@ -20,6 +20,7 @@ export function registerChat({
   registerChatMessageSocket,
   registerAuthorityProxy,
   registerReachVisualizer,
+  registerArmorCoverageOverlay,
   registerClashChatActions,
 } = {}) {
   _chatDebug("start");
@@ -67,6 +68,15 @@ export function registerChat({
   } catch (err) {
     console.error("UESRPG | registerChat reachVisualizer failed", err);
     _chatDebug("registrar:fail", { name: "reachVisualizer", error: String(err?.message ?? err) });
+  }
+
+  try {
+    _chatDebug("registrar:start", { name: "armorCoverageOverlay" });
+    registerArmorCoverageOverlay?.();
+    _chatDebug("registrar:ok", { name: "armorCoverageOverlay" });
+  } catch (err) {
+    console.error("UESRPG | registerChat armorCoverageOverlay failed", err);
+    _chatDebug("registrar:fail", { name: "armorCoverageOverlay", error: String(err?.message ?? err) });
   }
 
   try {

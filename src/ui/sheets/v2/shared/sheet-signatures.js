@@ -14,7 +14,10 @@
  */
 
 import { SYSTEM_ID } from "../../../../core/system/namespace.js";
+import { resolveDamageUpdateTarget } from "../../../../core/combat/damage/post-application.js";
+import { resolveAttackTrackerActor } from "../../../../core/combat/attack-tracker-context.js";
 import { getEffectChanges } from "../../../../utils/compat.js";
+import { AttackTracker } from "../../../../core/combat/attack-tracker.js";
 
 /**
  * Build a cache-key string representing the actor's active-effect collection.
@@ -79,16 +82,41 @@ export function buildWoundsSignature(actor) {
  * @param {string} effectsSignature - Pre-built effects signature.
  * @returns {string}
  */
-export function buildCombatSignature(actor, itemsSignature, effectsSignature) {
-  const combatTracking = actor?.system?.combat_tracking ?? {};
-  const attackOverrides = actor?.flags?.[SYSTEM_ID]?.combat?.attackTrackerOverrides ?? {};
+export function buildCombatSignature(actor, itemsSignature, effectsSignature, trackerContext = {}) {
+  const trackerViewState = AttackTracker.getTrackerViewState(actor, {}, trackerContext);
+  const trackedActor = trackerViewState?.trackerContext?.trackerDocument
+    ?? trackerViewState?.trackedActor
+    ?? resolveAttackTrackerActor(actor, trackerContext)
+    ?? resolveDamageUpdateTarget(actor)
+    ?? actor;
+  const trackerOwner = trackerViewState?.trackerContext?.trackerOwner
+    ?? trackerViewState?.trackerCombatant
+    ?? trackedActor;
+  const combatTracking = trackerViewState ? {
+    attacks_this_round: trackerViewState.rawCurrent,
+    attacks_this_turn: trackerViewState.rawTurnCurrent,
+    attack_limit: trackerViewState.rawMax,
+    last_reset_round: trackerViewState.rawLastResetRound,
+    last_reset_turn: trackerViewState.rawLastResetTurn,
+    weapon_uses_this_round: trackerViewState.rawWeaponUses
+  } : (trackedActor?.system?.combat_tracking ?? {});
+  const attackOverrides = trackerOwner?.flags?.[SYSTEM_ID]?.combat?.attackTrackerOverrides ?? {};
   const activeCombat = game?.combat ?? null;
+  const current = trackerViewState?.current ?? AttackTracker.getAttackCount(actor, trackerContext);
+  const max = trackerViewState?.max ?? AttackTracker.getAttackLimit(actor, {}, trackerContext);
   const parts = [
     actor?.id ?? "",
+    trackedActor?.uuid ?? "",
+    String(trackerOwner?.uuid ?? trackerViewState?.trackerContext?.trackerDocument?.uuid ?? ""),
+    String(trackerViewState?.trackerContext?.trackerCombatant?.id ?? ""),
+    String(trackerContext?.tokenUuid ?? ""),
+    String(trackerContext?.combatantId ?? ""),
+    String(trackerContext?.authorityState ?? ""),
+    String(trackerContext?.ambiguityState ?? ""),
     itemsSignature ?? "",
     effectsSignature ?? "",
-    String(actor?.system?.action_points?.value ?? ""),
-    String(actor?.system?.action_points?.max ?? ""),
+    String(trackedActor?.system?.action_points?.value ?? ""),
+    String(trackedActor?.system?.action_points?.max ?? ""),
     String(combatTracking?.attacks_this_round ?? ""),
     String(combatTracking?.attacks_this_turn ?? ""),
     String(combatTracking?.last_reset_round ?? ""),
@@ -96,6 +124,13 @@ export function buildCombatSignature(actor, itemsSignature, effectsSignature) {
     JSON.stringify(combatTracking?.weapon_uses_this_round ?? {}),
     String(attackOverrides?.current ?? ""),
     String(attackOverrides?.max ?? ""),
+    String(trackerViewState?.rawCurrent ?? ""),
+    String(trackerViewState?.rawTurnCurrent ?? ""),
+    String(trackerViewState?.rawMax ?? ""),
+    String(trackerViewState?.rawOverrideCurrent ?? ""),
+    String(trackerViewState?.rawOverrideMax ?? ""),
+    String(current ?? ""),
+    String(max ?? ""),
     String(activeCombat?.id ?? ""),
     String(activeCombat?.round ?? ""),
     String(activeCombat?.turn ?? ""),

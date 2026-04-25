@@ -21,7 +21,7 @@ import { applySenseLossPenaltyAdjustments } from "../../../traits/awareness-tale
 import { hasTalent } from "../../../traits/talents-api.js";
 import { anyOtherTokensInMeleeOfEither, getMeleeReachMeters } from "../../../traits/combat-proximity.js";
 import { canTokenEscapeArea } from "../../../../utils/aoe-utils.js";
-import { getAttackModeFromWeapon, getEffectiveWeaponHands, getTokenDashContext } from "../../combat-utils.js";
+import { getAttackModeFromWeapon, getEffectiveWeaponHands, getTokenDashContext, getWeaponCombatCapabilities } from "../../combat-utils.js";
 import { isActorUndead } from "../../../traits/trait-registry.js";
 import { getWeaponReachBoundsEffective } from "../../../homebrew/reach-length/weapon.js";
 import { normalizeDiceExpression } from "../rolls.js";
@@ -237,10 +237,9 @@ export function getEquippedOneHandMeleeWeapons(actor) {
   for (const it of (actor?.items ?? [])) {
     if (!it || it.type !== "weapon") continue;
     if (it.system?.equipped !== true) continue;
-    const mode = getAttackModeFromWeapon(it);
-    if (String(mode ?? "").toLowerCase() !== "melee") continue;
+    if (!getWeaponCombatCapabilities(it).meleeCapable) continue;
     const hands = getEffectiveWeaponHands(it);
-    if (Number(hands) !== 1) continue;
+    if (Number(hands?.effectiveHands ?? 0) !== 1) continue;
     weapons.push(it);
   }
   return weapons;
@@ -290,6 +289,32 @@ export function getContextAttackMode(ctx) {
 }
 
 /**
+ * Compute the canonical base AP cost for an attack workflow.
+ */
+export function getBaseAttackApCost(data) {
+  const isAttack = String(data?.mode ?? "attack") === "attack";
+  return (isAttack && !data?.context?.isFreeActionAttack) ? 1 : 0;
+}
+
+/**
+ * Compute how much of the base attack AP has already been paid upstream.
+ */
+export function getPrepaidBaseAttackApCost(data) {
+  const baseCost = getBaseAttackApCost(data);
+  if (baseCost <= 0) return 0;
+  return data?.context?.activationPrepaidBaseAttackAP ? baseCost : 0;
+}
+
+/**
+ * Compute how much AP remains payable at attacker-roll time.
+ */
+export function getPendingAttackApCost(data, { extraApCost = 0 } = {}) {
+  const dueBaseCost = Math.max(0, getBaseAttackApCost(data) - getPrepaidBaseAttackApCost(data));
+  const surcharge = Math.max(0, Number(extraApCost ?? 0) || 0);
+  return dueBaseCost + surcharge;
+}
+
+/**
  * Resolve document from UUID (sync).
  */
 export function resolveDoc(uuid) {
@@ -303,17 +328,7 @@ export function getPreferredWeaponUuid(actor, { meleeOnly = false } = {}) {
   const items = Array.from(actor?.items ?? []);
   const weapons = items.filter((it) => it?.type === "weapon");
 
-  const isRangedWeapon = (w) => {
-    const mode = String(w?.system?.attackMode ?? w?.system?.weaponType ?? w?.system?.type ?? "").toLowerCase();
-    // Thrown weapons are commonly melee-capable (e.g., throwing knife) and should remain eligible for
-    // melee-only contexts (parry/counter defaults). Treat them as NOT purely ranged.
-    const isThrown = weaponHasQuality(w, "thrown") ||
-      (String(w?.system?.rangeBandsDerivedEffective?.kind ?? w?.system?.rangeBandsDerived?.kind ?? "") === "thrown");
-    if (isThrown) return false;
-    return mode.includes("ranged");
-  };
-
-  const filtered = meleeOnly ? weapons.filter((w) => !isRangedWeapon(w)) : weapons;
+  const filtered = meleeOnly ? weapons.filter((w) => getWeaponCombatCapabilities(w).meleeCapable) : weapons;
 
   // Prefer the system's equipped weapon binding if present (primary -> secondary).
   const ew = actor?.system?.equippedWeapons;
@@ -327,7 +342,7 @@ export function getPreferredWeaponUuid(actor, { meleeOnly = false } = {}) {
   for (const id of boundIds) {
     const bound = actor?.items?.get?.(id);
     if (!bound || bound.type !== "weapon") continue;
-    if (meleeOnly && isRangedWeapon(bound)) continue;
+    if (meleeOnly && !getWeaponCombatCapabilities(bound).meleeCapable) continue;
     if (filtered.some((w) => w.id === bound.id)) return bound.uuid;
   }
 
@@ -357,44 +372,36 @@ export async function preConsumeAttackAmmo(attacker, data) {
     const weapon = _resolveItemViaActor(weaponUuid, attacker);
     if (!weapon || weapon.type !== "weapon") return true;
 
-    // Do not consume ammunition for thrown attacks.
-    const isThrown = weaponHasQuality(weapon, "thrown") ||
-      (String(weapon.system?.rangeBandsDerivedEffective?.kind ?? weapon.system?.rangeBandsDerived?.kind ?? "") === "thrown");
-    if (isThrown) return true;
+    const capabilities = getWeaponCombatCapabilities(weapon);
+    if (!capabilities.consumesAmmo) return true;
 
-    // Only enforce on ranged weapons.
-    if (String(weapon.system?.attackMode ?? "melee").toLowerCase() !== "ranged") return true;
-
-    const shouldConsume = weapon.system?.consumeAmmo !== false;
     const ammoId = String(weapon.system?.ammoId ?? "").trim();
-    const ammo = (shouldConsume && ammoId) ? (attacker.items.get(ammoId) ?? null) : null;
+    const ammo = ammoId ? (attacker.items.get(ammoId) ?? null) : null;
 
     // Canonical gate: block unloaded weapons and invalid ammo *before* committing ammunition.
     const gate = gateRangedAttackAmmoAndLoad({ actor: attacker, weapon, ammoItem: ammo });
     if (!gate.ok) {
       const msg =
-        gate.code === "AMMO_MISSING" ? `${weapon.name}: selected ammunition could not be resolved.`
-        : gate.code === "AMMO_EMPTY" ? `${ammo?.name ?? "Ammunition"}: no ammunition remaining.`
+        gate.code === "AMMO_MISSING" ? tf("UESRPG.Notifications.Dynamic.WeaponAmmunitionCouldNotBeResolved", { weapon: weapon.name })
+        : gate.code === "AMMO_EMPTY" ? tf("UESRPG.Notifications.Dynamic.AmmunitionNoRemaining", { ammunition: ammo?.name ?? "Ammunition" })
         : gate.reason;
       ui.notifications.warn(msg);
       return false;
     }
 
-    if (!shouldConsume) return true;
-
     if (!ammoId) {
-      ui.notifications.warn(`${weapon.name}: no ammunition selected.`);
+      ui.notifications.warn(tf("UESRPG.Notifications.Dynamic.WeaponNoAmmunitionSelected", { weapon: weapon.name }));
       return false;
     }
 
     if (!ammo || ammo.type !== "ammunition") {
-      ui.notifications.warn(`${weapon.name}: selected ammunition could not be resolved.`);
+      ui.notifications.warn(tf("UESRPG.Notifications.Dynamic.WeaponAmmunitionCouldNotBeResolved", { weapon: weapon.name }));
       return false;
     }
 
     const qty = Number(ammo.system?.quantity ?? 0);
     if (!(qty > 0)) {
-      ui.notifications.warn(`${ammo.name}: no ammunition remaining.`);
+      ui.notifications.warn(tf("UESRPG.Notifications.Dynamic.AmmunitionNoRemaining", { ammunition: ammo.name }));
       return false;
     }
 
@@ -416,7 +423,7 @@ export async function preConsumeAttackAmmo(attacker, data) {
     return true;
   } catch (err) {
     console.error("UESRPG | Pre-consume attack ammo failed", err);
-    ui.notifications.error("Failed to consume ammunition for this attack. See console for details.");
+    ui.notifications.error(t("UESRPG.Notifications.Dynamic.FailedToConsumeAmmunition"));
     return false;
   }
 }

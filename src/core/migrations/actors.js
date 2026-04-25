@@ -11,11 +11,17 @@
  */
 
 import { SYSTEM_ID } from "../constants.js";
-import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
+import {
+  getMigrationState,
+  isMigrationRevisionApplied,
+  markMigrationRevisionApplied,
+  setMigrationState
+} from "./state.js";
 import { buildDefaultWorshipData, buildDefaultWorshipDomainState } from "../religion/worship-store.js";
 import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
 
 const MODULE_ID = SYSTEM_ID;
+const _ACTORS_MIGRATION_REVISION = 1;
 const WARFARE_CONDITION_INIT_FLAG_PATH = `flags.${SYSTEM_ID}.warfareConditionInitialized`;
 
 function _buildResistanceDefaults() {
@@ -214,9 +220,8 @@ function _buildActorMigrationPatch(actor) {
 export async function migrateActorsIfNeeded() {
   if (!game.user.isGM) return;
 
-  const currentVersion = getSystemVersionString();
   const state = getMigrationState();
-  if (state?.actors === currentVersion) return;
+  if (isMigrationRevisionApplied("actors", _ACTORS_MIGRATION_REVISION, state)) return;
 
   try {
     const updates = [];
@@ -232,7 +237,9 @@ export async function migrateActorsIfNeeded() {
     }
 
     // Record migration version after a successful pass (even if no updates were needed).
-    state.actors = currentVersion;
+    markMigrationRevisionApplied(state, "actors", _ACTORS_MIGRATION_REVISION, {
+      updatedCount: updates.length
+    });
     await setMigrationState(state);
   } catch (err) {
     console.error(`${MODULE_ID} | Actor migration failed`, err);
@@ -623,6 +630,7 @@ export async function normalizeActors() {
 // ---------------------------------------------------------------------------
 
 const _WF_NEUTRAL_LANE_MIGRATION_KEY = "warfareUnitNeutralLanesV1";
+const _WF_NEUTRAL_LANE_MIGRATION_REVISION = 1;
 
 /**
  * Copies legacy Warfare Unit fields into canonical neutral lanes.
@@ -764,9 +772,8 @@ function _buildWarfareNeutralLanePatch(sys) {
 export async function migrateWarfareUnitNeutralLanesIfNeeded() {
   if (!game.user?.isGM) return;
 
-  const currentVersion = getSystemVersionString();
   const state = getMigrationState();
-  if (state?.[_WF_NEUTRAL_LANE_MIGRATION_KEY]) return;
+  if (isMigrationRevisionApplied(_WF_NEUTRAL_LANE_MIGRATION_KEY, _WF_NEUTRAL_LANE_MIGRATION_REVISION, state)) return;
 
   try {
     const updates = [];
@@ -787,7 +794,9 @@ export async function migrateWarfareUnitNeutralLanesIfNeeded() {
     }
 
     // Stamp migration as done regardless of update count (0 actors = no migration needed).
-    state[_WF_NEUTRAL_LANE_MIGRATION_KEY] = { appliedAt: Date.now(), updatedCount: updates.length, systemVersion: currentVersion };
+    markMigrationRevisionApplied(state, _WF_NEUTRAL_LANE_MIGRATION_KEY, _WF_NEUTRAL_LANE_MIGRATION_REVISION, {
+      updatedCount: updates.length
+    });
     await setMigrationState(state);
     console.log(`${MODULE_ID} | Warfare Unit neutral lane migration complete (${updates.length} actor(s) updated)`);
   } catch (err) {

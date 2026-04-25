@@ -28,6 +28,12 @@ const HOT_SETTING_KEYS = [
   "useRawChargenWizard",
   "actionPointAutomation",
   "dynamicInitiativeEnabled",
+  "tokenRangeMeasurement",
+  "aoeOriginMeasurement",
+  "skillRollQuickShift",
+  "skillRollLastOptions",
+  "enableSpellRecipes",
+  "enableLoadouts",
 ];
 
 /**

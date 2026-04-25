@@ -17,7 +17,7 @@ import {
   requestCreateEmbeddedDocuments,
   requestDeleteEmbeddedDocuments,
 } from "../../../utils/authority-proxy.js";
-import { buildEffectChangesData } from "../../../utils/compat.js";
+import { buildGenericAEData } from "../../../core/active-effects/modifier-evaluator.js";
 import { readDropData } from "../../../utils/drop-data.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
 import { postItemToChat } from "../shared-handlers.js";
@@ -48,6 +48,7 @@ import {
 import { maybeInitializeWarfareCondition } from "../../../core/mass-warfare/condition-target.js";
 import { areTokensInBaseContact } from "../../../core/mass-warfare/battlefield/geometry.js";
 import { t, tf } from "../../../utils/i18n.js";
+import { buildActorSheetEffectView } from "./shared/sheet-context.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -576,12 +577,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     }
 
     // ── Effects list ──────────────────────────────────────────────────────
-    context.effects = Array.from(actor.effects ?? []).map((e) => ({
-      id: e.id,
-      name: e.name,
-      img: e.img,
-      disabled: e.disabled,
-    }));
+    context.effects = Array.from(actor.effects ?? []).map(buildActorSheetEffectView);
 
     // ── Rich text ─────────────────────────────────────────────────────────
     const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
@@ -921,11 +917,13 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
 
   async _onCreateEffect(_event, _target) {
     if (!this.isEditable) return;
-    await requestCreateEmbeddedDocuments(this.document, "ActiveEffect", [{
+    const created = await requestCreateEmbeddedDocuments(this.document, "ActiveEffect", [buildGenericAEData({
       name: t("UESRPG.Dialogs.Warfare.NewEffect"),
       img: "icons/svg/aura.svg",
-      ...buildEffectChangesData([]),
-    }]);
+      changes: [],
+    })]);
+    const effect = created?.[0] ?? null;
+    if (effect?.sheet) effect.sheet.render(true);
   }
 
   async _onEditEffect(_event, target) {

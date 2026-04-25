@@ -9,6 +9,19 @@ import { getSettingPresentation, t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
+const COMBAT_SETTINGS_KEYS = Object.freeze([
+  "enableActionEconomyUI",
+  "actionPointAutomation",
+  "tokenRangeMeasurement",
+  "aoeContainmentMode",
+  "aoeOriginMeasurement",
+  "dynamicInitiativeEnabled",
+]);
+
+function _getRegisteredSettingPresentation(namespace, key) {
+  if (!game.settings?.settings?.has?.(`${namespace}.${key}`)) return null;
+  return getSettingPresentation(namespace, key);
+}
 
 export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
@@ -39,15 +52,13 @@ export class CombatSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV
   }
 
   async _prepareContext(options) {
+    const settings = {};
+    for (const key of COMBAT_SETTINGS_KEYS) {
+      const presentation = _getRegisteredSettingPresentation(NAMESPACE, key);
+      if (presentation) settings[key] = presentation;
+    }
     return {
-      settings: {
-        enableActionEconomyUI: getSettingPresentation(NAMESPACE, "enableActionEconomyUI"),
-        actionPointAutomation: getSettingPresentation(NAMESPACE, "actionPointAutomation"),
-        tokenRangeMeasurement: getSettingPresentation(NAMESPACE, "tokenRangeMeasurement"),
-        aoeContainmentMode: getSettingPresentation(NAMESPACE, "aoeContainmentMode"),
-        aoeOriginMeasurement: getSettingPresentation(NAMESPACE, "aoeOriginMeasurement"),
-        dynamicInitiativeEnabled: getSettingPresentation(NAMESPACE, "dynamicInitiativeEnabled"),
-      },
+      settings,
     };
   }
 

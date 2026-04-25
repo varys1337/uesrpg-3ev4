@@ -15,6 +15,8 @@
  *   (Note: Master Alchemist prevents backfires unless Nothing Ventured is used.)
  */
 
+import { t, tf } from "../../utils/i18n.js";
+
 // ── Trigger evaluation ────────────────────────────────────────────────────────
 
 /**
@@ -338,11 +340,11 @@ export async function rollMinorEffects() {
  * @returns {string}
  */
 export function formatCreationBackfire(backfireResult) {
-  if (!backfireResult?.entry) return "Unknown backfire result.";
+  if (!backfireResult?.entry) return t("UESRPG.Alchemy.UnknownBackfireResult");
   const { d4, highestSL, total, entry, minorEffect } = backfireResult;
-  let text = `<strong>Backfire (${d4} + SL${highestSL} = ${total}):</strong> ${entry.label} — ${entry.description}`;
+  let text = `<strong>${tf("UESRPG.Alchemy.CreationBackfireFormat", { d4, highestSL, total, label: entry.label, description: entry.description })}</strong>`;
   if (minorEffect?.entry) {
-    text += `<br><em>Minor Effect (2d8 = ${minorEffect.roll}):</em> ${minorEffect.entry.label} — ${minorEffect.entry.description}`;
+    text += `<br><em>${tf("UESRPG.Alchemy.MinorEffectFormat", { roll: minorEffect.roll, label: minorEffect.entry.label, description: minorEffect.entry.description })}</em>`;
   }
   return text;
 }

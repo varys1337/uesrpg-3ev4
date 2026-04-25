@@ -18,7 +18,9 @@ import {
   applySpellRestraintRefund,
   isHealingSpell,
   canActorCastSpell,
-  getSpellCastingSchool
+  getSpellCastingSchool,
+  getSpellCost,
+  getSpellLevel
 } from "./magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "./backfire.js";
 import { canUserRollActor } from "../../utils/permissions.js";
@@ -27,7 +29,7 @@ import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { ActionEconomy } from "../combat/action-economy.js";
 import { AttackTracker } from "../combat/attack-tracker.js";
 import { classifySpellForRouting, getUserSpellTargets, emitCastResolved } from "./spell-runtime.js";
-import { getBlockingNoDurationUpkeep, spellNeedsEffectApplication } from "./opposed/spell-helpers.js";
+import { getBlockingNoDurationUpkeep, spellNeedsDeferredDirectApplication, spellNeedsEffectApplication } from "./opposed/spell-helpers.js";
 import { isCharacteristicDefense } from "./characteristic-defense-service.js";
 import { normalizeSpellConfig } from "./spell-config.js";
 import { resolveActor, resolveToken, resolveDoc } from "./opposed/schema.js";
@@ -36,21 +38,35 @@ import { renderCard, renderUnopposedCard } from "./opposed/render.js";
 import { dispatchAction, autoRollBanked } from "./opposed/actions.js";
 import { resolveOutcome } from "./opposed/outcome-resolution.js";
 import { updateCard as magicUpdateCard } from "./opposed/updater.js";
-import { applySpellEffectsToTarget } from "./effects/spell-effects.js";
-import { spellRequiresOriginAE, createOriginAE } from "./effects/origin-effect.js";
+import { applyResolvedSpellEffects } from "./effects/spell-effects.js";
+import { spellRequiresOriginAE, createOriginAE, replaceEnchantmentUpkeepOrigin } from "./effects/origin-effect.js";
 import { buildRollContext } from "../rules/roll-context.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import {
+  buildAutomaticEnchantmentCastResult,
   normalizeCastSourceCostMode,
   resolveItemContextFromCastSource,
   getItemSoulPoolSnapshot,
   spendItemSoulCost,
 } from "./opposed/cast-source.js";
+import { createAttackTraceId } from "../combat/attack-tracker-diagnostics.js";
+import { resolveCombatantForActor } from "../../utils/document-resolution.js";
+import { buildMagicCastContext } from "./opposed/cast-context.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 const _FLAG_KEY = "magicOpposed";
 const _CARD_VERSION = 2;
 const _magicAutoRollLocalLocks = new Set();
+
+function _getResolvedSpellLevel(spell) {
+  return Number(getSpellLevel(spell) ?? 1) || 1;
+}
+
+function _getResolvedSpellCost(spell, spellOptions = null, spent = null) {
+  const castLevel = spellOptions?.castLevel ?? null;
+  const fallbackCost = Number(getSpellCost(spell, castLevel) ?? 0) || 0;
+  return Number(spent ?? fallbackCost) || 0;
+}
 
 function _ignoreTraining(cfg = {}) {
   return cfg?.ignoreTraining === true || cfg?.spellOptions?.ignoreTraining === true;
@@ -58,6 +74,59 @@ function _ignoreTraining(cfg = {}) {
 
 function _ignoreActionPoints(cfg = {}) {
   return cfg?.ignoreActionPoints === true || cfg?.spellOptions?.ignoreActionPoints === true;
+}
+
+function _isEnchantmentCastSource(castSource = null) {
+  return castSource?.type === "enchantment";
+}
+
+function _isAutomaticEnchantmentCast(castSource = null) {
+  return _isEnchantmentCastSource(castSource) && castSource?.skipCastingTest !== false;
+}
+
+function _getEnchantmentConfiguredCost(castSource = null) {
+  return Math.max(0, Number(castSource?.cost ?? 0) || 0);
+}
+
+async function _spendActorMagickaFixed(actor, cost) {
+  const current = Number(actor?.system?.magicka?.value ?? 0) || 0;
+  const fixedCost = Math.max(0, Number(cost ?? 0) || 0);
+  if (current < fixedCost) return { ok: false, consumed: 0, remaining: current, refund: 0 };
+  const next = Math.max(0, current - fixedCost);
+  const ok = await requestUpdateDocument(actor, { "system.magicka.value": next });
+  if (!ok) return { ok: false, consumed: 0, remaining: current, refund: 0 };
+  return { ok: true, consumed: fixedCost, remaining: next, refund: 0, source: "enchantmentMagicka" };
+}
+
+async function _syncEnchantmentUpkeepPointer(attacker, castSource = null, itemCastContext = null, spell = null, originEffect = null) {
+  if (!spell?.system?.hasUpkeep) return;
+  if (!_isEnchantmentCastSource(castSource)) return;
+  const itemCtx = resolveItemContextFromCastSource(castSource, itemCastContext);
+  if (!itemCtx?.item || !itemCtx?.slotId) return;
+  await replaceEnchantmentUpkeepOrigin(attacker, {
+    item: itemCtx.item,
+    sourceLane: itemCtx.sourceLane,
+    slotId: itemCtx.slotId,
+    excludeOriginUuid: originEffect?.uuid ?? originEffect?.id ?? ""
+  });
+}
+
+function _buildMagicAttackTrackerContext(attacker, explicitTokenUuid = null, source = "magic-opposed-workflow", extras = {}) {
+  const tokenUuid = String(explicitTokenUuid ?? attacker?.token?.document?.uuid ?? attacker?.token?.uuid ?? "").trim();
+  const combatantId = String(extras?.combatantId ?? resolveCombatantForActor(game?.combat ?? null, attacker, {
+    tokenUuid: tokenUuid || null,
+    actorUuid: attacker?.uuid ?? null,
+    combatId: game?.combat?.id ?? null
+  })?.id ?? "").trim();
+  return {
+    combatantId: combatantId || null,
+    tokenUuid: tokenUuid || null,
+    source,
+    sourceTag: source,
+    attackTraceId: String(extras?.attackTraceId ?? "").trim() || null,
+    attackMode: "magic",
+    phase: String(extras?.phase ?? "").trim() || null
+  };
 }
 
 /**
@@ -162,14 +231,20 @@ export const MagicOpposedWorkflow = {
 
       if (game?.combat) {
         const cls = classifySpellForRouting(spell);
-        if (cls?.isAttack && AttackTracker.hasExceededLimit(attacker)) {
-          ui.notifications.warn(AttackTracker.getLimitWarning(attacker) || "Attack limit reached.");
+        const trackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-pending", {
+          attackTraceId: cfg?.attackTraceId ?? null,
+          phase: "pending-gate"
+        });
+        if (cls?.isAttack && AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+          ui.notifications.warn(
+            AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext) || "Attack limit reached."
+          );
           return null;
         }
       }
 
       // Direct spells resolve immediately (no casting/defense tests).
-      if (Boolean(spell?.system?.isDirect)) {
+      if (Boolean(spell?.system?.isDirect) && !isCharacteristicDefense(spell)) {
         for (const def of defenderEntries) {
           await this.castDirectTargeted({
             attackerTokenUuid: cfg.attackerTokenUuid,
@@ -189,7 +264,7 @@ export const MagicOpposedWorkflow = {
       }
 
       tn = computeMagicCastingTN(attacker, spell, spellOptions);
-      healingDirect = isHealingSpell(spell);
+      healingDirect = isHealingSpell(spell) && Boolean(spell?.system?.isDirect);
     } else if (requestedSpellUuid) {
       spell = await fromUuid(requestedSpellUuid);
     }
@@ -232,6 +307,7 @@ export const MagicOpposedWorkflow = {
 
     const data = {
       context: {
+        attackTraceId: String(cfg?.attackTraceId ?? "").trim() || createAttackTraceId("magic-opposed"),
         schemaVersion: _CARD_VERSION,
         createdAt: Date.now(),
         createdBy: game.user.id,
@@ -253,6 +329,11 @@ export const MagicOpposedWorkflow = {
       attacker: {
         actorUuid: attacker.uuid,
         tokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
+        combatantId: resolveCombatantForActor(game?.combat ?? null, attacker, {
+          tokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
+          actorUuid: attacker.uuid,
+          combatId: game?.combat?.id ?? null
+        })?.id ?? null,
         tokenName: aToken?.name ?? null,
         name: attacker.name,
         spellUuid: deferSpellChoice ? null : (spell?.uuid ?? null),
@@ -260,8 +341,8 @@ export const MagicOpposedWorkflow = {
         pendingSpellChoice: deferSpellChoice,
         spellName: deferSpellChoice ? null : (spell?.name ?? null),
         spellSchool: deferSpellChoice ? null : (spell?.system?.school ?? ""),
-        spellLevel: deferSpellChoice ? null : Number(spell?.system?.level ?? 1),
-        spellCost: deferSpellChoice ? null : Number(spell?.system?.cost ?? 0),
+        spellLevel: deferSpellChoice ? null : _getResolvedSpellLevel(spell),
+        spellCost: deferSpellChoice ? null : _getResolvedSpellCost(spell, spellOptions),
         spellOptions: deferSpellChoice ? null : spellOptions,
         castActionType: String(cfg.castActionType ?? "primary"),
         apCost: 1,
@@ -310,11 +391,10 @@ export const MagicOpposedWorkflow = {
     const dDoc = resolveDoc(cfg.defenderTokenUuid) ?? resolveDoc(cfg.defenderActorUuid) ?? resolveDoc(cfg.defenderUuid);
 
     const aToken = resolveToken(aDoc);
-    const dToken = resolveToken(dDoc);
     const attacker = resolveActor(aDoc);
-    const defender = resolveActor(dDoc);
-
-    if (!attacker || !defender) {
+    let dToken = resolveToken(dDoc);
+    let defender = resolveActor(dDoc);
+    if (!attacker) {
       ui.notifications.warn("Direct spell requires both a caster and a target.");
       return null;
     }
@@ -330,6 +410,15 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
+    if (!defender && String(spell?.system?.engine?.targeting?.mode ?? "").trim().toLowerCase() === "self") {
+      defender = attacker;
+      dToken = aToken;
+    }
+    if (!defender) {
+      ui.notifications.warn("Direct spell requires both a caster and a target.");
+      return null;
+    }
+
     if (!_ignoreTraining(cfg) && !canActorCastSpell(attacker, spell)) {
       ui.notifications.warn(`${attacker.name} is untrained in ${getSpellCastingSchool(spell) || "that school"} and cannot cast ${spell.name}.`);
       return null;
@@ -341,6 +430,7 @@ export const MagicOpposedWorkflow = {
     }
 
     const spellOptions = cfg.spellOptions ?? {};
+    const spellClassification = classifySpellForRouting(spell);
     const castSource = cfg?.castSource ? foundry.utils.deepClone(cfg.castSource) : null;
     const itemCastContext = cfg?.itemCastContext ? foundry.utils.deepClone(cfg.itemCastContext) : null;
     const castSourceMode = normalizeCastSourceCostMode(castSource);
@@ -354,6 +444,20 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
+    if (spellClassification.isAttack && game.combat) {
+      const trackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-direct", {
+        attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-direct"),
+        phase: "direct-gate"
+      });
+      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+        ui.notifications.warn(
+          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+            || "Attack limit reached for this round."
+        );
+        return null;
+      }
+    }
+
     // Preflight: check ALL resources before consuming ANY.
     const apCost = 1;
     const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
@@ -363,18 +467,31 @@ export const MagicOpposedWorkflow = {
     }
 
     let itemCtx = null;
+    let magickaCostSnapshot = null;
     if (isEnchantmentSource) itemCtx = resolveItemContextFromCastSource(castSource, itemCastContext);
+    if (isEnchantmentSource && !itemCtx?.item) {
+      ui.notifications.warn("Stored enchantment source is missing its item context.");
+      return null;
+    }
+    const configuredEnchantmentCost = isEnchantmentSource ? _getEnchantmentConfiguredCost(castSource) : 0;
     let enchantSoulCost = 0;
     if (isEnchantmentSource && castSourceMode === "soul") {
-      enchantSoulCost = Math.max(0, Number(castSource?.cost ?? 0) || 0);
+      enchantSoulCost = configuredEnchantmentCost;
       const pool = getItemSoulPoolSnapshot(itemCtx);
       if (pool.value < enchantSoulCost) {
         ui.notifications.warn(`${attacker.name} does not have enough Soul Energy (${pool.value}/${enchantSoulCost}) to cast.`);
         return null;
       }
+    } else if (isEnchantmentSource && castSourceMode === "magicka") {
+      const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+      if (currentMagicka < configuredEnchantmentCost) {
+        ui.notifications.warn(`${attacker.name} does not have enough Magicka (${currentMagicka}/${configuredEnchantmentCost}) to cast.`);
+        return null;
+      }
     } else if (!(isEnchantmentSource && castSourceMode === "none")) {
       const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
       const magickaInfo = computeSpellAttemptMagickaCost(attacker, spell, spellOptions);
+      magickaCostSnapshot = magickaInfo?.costSnapshot ?? null;
       const attemptCost = Number(magickaInfo?.attemptCost ?? magickaInfo?.cost ?? 0) || 0;
       if (currentMagicka < attemptCost) {
         ui.notifications.warn(`${attacker.name} does not have enough Magicka (${currentMagicka}/${attemptCost}) to cast.`);
@@ -402,8 +519,18 @@ export const MagicOpposedWorkflow = {
       }
       magickaSpend.consumed = Number(soulSpend.spent ?? enchantSoulCost ?? 0) || 0;
       magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+    } else if (isEnchantmentSource && castSourceMode === "magicka") {
+      magickaSpend = await _spendActorMagickaFixed(attacker, configuredEnchantmentCost);
+      if (!magickaSpend?.ok) {
+        if (!ignoreAP) {
+          try {
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) { /* best-effort */ }
+        }
+        return null;
+      }
     } else if (!(isEnchantmentSource && castSourceMode === "none")) {
-      magickaSpend = await consumeSpellMagicka(attacker, spell, spellOptions);
+      magickaSpend = await consumeSpellMagicka(attacker, spell, { ...spellOptions, costSnapshot: magickaCostSnapshot });
       if (!magickaSpend?.ok) {
         // Rollback AP on magicka failure
         if (!ignoreAP) {
@@ -415,24 +542,44 @@ export const MagicOpposedWorkflow = {
       }
     }
 
-    const result = await doTestRoll(attacker, {
-      target: tn.finalTN,
-      allowLucky: true,
-      allowUnlucky: true
-    });
+    const result = _isAutomaticEnchantmentCast(castSource)
+      ? buildAutomaticEnchantmentCastResult(castSource)
+      : await doTestRoll(attacker, {
+          target: tn.finalTN,
+          allowLucky: true,
+          allowUnlucky: true
+        });
 
-    await result.roll.toMessage({
+    if (spellClassification.isAttack && game.combat) {
+      try {
+        const trackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-direct", {
+          attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-direct"),
+          phase: "direct-increment"
+        });
+        await AttackTracker.incrementAttacks(attacker, trackerContext);
+        const warning = AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext);
+        if (warning) ui.notifications.warn(warning);
+      } catch (err) {
+        console.error("UESRPG | Failed to increment attack counter", { actor: attacker?.uuid, err });
+      }
+    }
+
+    if (!result?.noRoll && result?.roll) {
+      await result.roll.toMessage({
       speaker: ChatMessage.getSpeaker({ actor: attacker }),
       flavor: `<b>${spell.name}</b> — Casting Test (Direct)`,
       flags: { [_FLAG_NS]: { magicOpposedMeta: { stage: "direct-casting" } } }
-    });
+      });
+    }
 
-    const needsBackfire = shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
+    const needsBackfire = _isAutomaticEnchantmentCast(castSource)
+      ? false
+      : shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
     if (needsBackfire) {
       await triggerBackfire(attacker, spell);
     }
 
-    const refundInfo = (isEnchantmentSource && castSourceMode !== "magicka")
+    const refundInfo = isEnchantmentSource
       ? { finalCost: Number(magickaSpend?.consumed ?? 0) || 0, refund: 0 }
       : await applySpellRestraintRefund(attacker, spell, spellOptions, result, magickaSpend);
 
@@ -452,19 +599,30 @@ export const MagicOpposedWorkflow = {
     // Create Origin AE on the caster for persistent spells (only on success)
     let originEffect = null;
     if (result.isSuccess && spellRequiresOriginAE(spell)) {
+      const castContext = buildMagicCastContext({
+        spellLevel: Number(spell?.system?.level ?? 1),
+        spellOptions,
+        scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null
+      }, spell);
       try {
         originEffect = await createOriginAE(attacker, spell, {
           costPaid: Number(refundInfo?.finalCost ?? magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
           spellOptions,
+          castContext,
           targetUuids: defender ? [defender.uuid] : [],
           castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
           castSource: castSource ?? null,
+          itemCastContext: itemCastContext ?? null,
+          magickaSpend: foundry.utils.deepClone(magickaSpend ?? null),
           casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? cfg.attackerTokenUuid ?? null
         });
       } catch (_e) {
         console.warn("UESRPG | Failed to create Origin AE for direct spell", _e);
       }
+    }
+    if (result.isSuccess) {
+      await _syncEnchantmentUpkeepPointer(attacker, castSource, itemCastContext, spell, originEffect);
     }
 
     const directRollContext = buildRollContext({
@@ -483,6 +641,7 @@ export const MagicOpposedWorkflow = {
         originalCastWorldTime: Number(game.time?.worldTime ?? 0) || 0,
         phase: "resolved",
         directUndefendable: true,
+        noDefenseUnopposed: true,
         rollContext: directRollContext,
         rollOptions: Array.isArray(directRollContext?.rollOptions) ? directRollContext.rollOptions.slice() : [],
         itemCastContext: itemCastContext ?? null
@@ -495,8 +654,8 @@ export const MagicOpposedWorkflow = {
         spellUuid: spell.uuid,
         spellName: spell.name,
         spellSchool: spell.system?.school ?? "",
-        spellLevel: Number(spell.system?.level ?? 1),
-        spellCost: Number(spell.system?.cost ?? 0),
+        spellLevel: _getResolvedSpellLevel(spell),
+        spellCost: _getResolvedSpellCost(spell, spellOptions, refundInfo?.finalCost ?? magickaSpend?.consumed ?? null),
         actionType: cfg.castActionType ?? "primary",
         apCost,
         tn,
@@ -614,17 +773,30 @@ export const MagicOpposedWorkflow = {
     }
 
     let itemCtx = null;
+    let magickaCostSnapshot = null;
     if (isEnchantmentSource) itemCtx = resolveItemContextFromCastSource(castSource, itemCastContext);
+    if (isEnchantmentSource && !itemCtx?.item) {
+      ui.notifications.warn("Stored enchantment source is missing its item context.");
+      return null;
+    }
+    const configuredEnchantmentCost = isEnchantmentSource ? _getEnchantmentConfiguredCost(castSource) : 0;
     let enchantSoulCost = 0;
     if (isEnchantmentSource && castSourceMode === "soul") {
-      enchantSoulCost = Math.max(0, Number(castSource?.cost ?? 0) || 0);
+      enchantSoulCost = configuredEnchantmentCost;
       const pool = getItemSoulPoolSnapshot(itemCtx);
       if (pool.value < enchantSoulCost) {
         ui.notifications.warn(`Not enough Soul Energy to cast ${spell?.name ?? "spell"}. Required: ${enchantSoulCost}, Available: ${pool.value}.`);
         return null;
       }
+    } else if (isEnchantmentSource && castSourceMode === "magicka") {
+      const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+      if (currentMagicka < configuredEnchantmentCost) {
+        ui.notifications.warn(`Not enough Magicka to cast ${spell?.name ?? "spell"}. Required: ${configuredEnchantmentCost}, Available: ${currentMagicka}.`);
+        return null;
+      }
     } else if (!(isEnchantmentSource && castSourceMode === "none")) {
       const magickaInfo = computeSpellAttemptMagickaCost(attacker, spell, spellOptions);
+      magickaCostSnapshot = magickaInfo?.costSnapshot ?? null;
       const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
       if (currentMagicka < magickaInfo.cost) {
         ui.notifications.warn(`Not enough Magicka to cast ${spell?.name ?? "spell"}. Required: ${magickaInfo.cost}, Available: ${currentMagicka}.`);
@@ -635,8 +807,15 @@ export const MagicOpposedWorkflow = {
     // Gate attack limit BEFORE consuming resources.
     const spellClassification = classifySpellForRouting(spell);
     if (spellClassification.isAttack && game.combat) {
-      if (AttackTracker.hasExceededLimit(attacker)) {
-        ui.notifications.warn(AttackTracker.getLimitWarning(attacker) || "Attack limit reached for this round.");
+      const trackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-cast", {
+        attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-cast"),
+        phase: "cast-gate"
+      });
+      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+        ui.notifications.warn(
+          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+            || "Attack limit reached for this round."
+        );
         return null;
       }
     }
@@ -650,7 +829,13 @@ export const MagicOpposedWorkflow = {
 
     if (spellClassification.isAttack) {
       try {
-        await AttackTracker.incrementAttacks(attacker);
+        await AttackTracker.incrementAttacks(
+          attacker,
+          _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-cast", {
+            attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-cast"),
+            phase: "cast-increment"
+          })
+        );
       } catch (err) {
         console.error("UESRPG | Failed to increment attack counter", { actor: attacker?.uuid, err });
       }
@@ -671,8 +856,20 @@ export const MagicOpposedWorkflow = {
       }
       magickaSpend.consumed = Number(soulSpend.spent ?? enchantSoulCost ?? 0) || 0;
       magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+    } else if (isEnchantmentSource && castSourceMode === "magicka") {
+      magickaSpend = await _spendActorMagickaFixed(attacker, configuredEnchantmentCost);
+      if (!magickaSpend?.ok) {
+        if (!ignoreAP) {
+          try {
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) {
+            // best-effort
+          }
+        }
+        return null;
+      }
     } else if (!(isEnchantmentSource && castSourceMode === "none")) {
-      magickaSpend = await consumeSpellMagicka(attacker, spell, spellOptions);
+      magickaSpend = await consumeSpellMagicka(attacker, spell, { ...spellOptions, costSnapshot: magickaCostSnapshot });
       if (!magickaSpend?.ok) {
         if (!ignoreAP) {
           try {
@@ -685,14 +882,16 @@ export const MagicOpposedWorkflow = {
       }
     }
 
-    const result = await doTestRoll(attacker, {
-      target: tn.finalTN,
-      allowLucky: true,
-      allowUnlucky: true
-    });
+    const result = _isAutomaticEnchantmentCast(castSource)
+      ? buildAutomaticEnchantmentCastResult(castSource)
+      : await doTestRoll(attacker, {
+          target: tn.finalTN,
+          allowLucky: true,
+          allowUnlucky: true
+        });
 
     try {
-      const refundInfo = (isEnchantmentSource && castSourceMode !== "magicka")
+      const refundInfo = isEnchantmentSource
         ? { finalCost: Number(magickaSpend?.consumed ?? 0) || 0, refund: 0, breakdown: [] }
         : await applySpellRestraintRefund(attacker, spell, spellOptions, result, magickaSpend);
       if (refundInfo?.refund > 0) {
@@ -718,13 +917,17 @@ export const MagicOpposedWorkflow = {
       });
     } catch (_e) { /* no-op */ }
 
-    await result.roll.toMessage({
+    if (!result?.noRoll && result?.roll) {
+      await result.roll.toMessage({
       speaker: ChatMessage.getSpeaker({ actor: attacker }),
       flavor: `<b>${spell.name}</b> — Casting Test`,
       flags: { [_FLAG_NS]: { magicOpposedMeta: { stage: "unopposed" } } }
-    });
+      });
+    }
 
-    const needsBackfire = shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
+    const needsBackfire = _isAutomaticEnchantmentCast(castSource)
+      ? false
+      : shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
     if (needsBackfire) {
       await triggerBackfire(attacker, spell);
     }
@@ -732,19 +935,127 @@ export const MagicOpposedWorkflow = {
     // Create Origin AE on the caster for persistent spells (only on success)
     let originEffect = null;
     if (result.isSuccess && spellRequiresOriginAE(spell)) {
+      const castContext = buildMagicCastContext({
+        spellLevel: _getResolvedSpellLevel(spell),
+        spellOptions,
+        scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null
+      }, spell);
       try {
         originEffect = await createOriginAE(attacker, spell, {
           costPaid: Number(magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
           spellOptions,
+          castContext,
           targetUuids: [],
           castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
           castSource: castSource ?? null,
+          itemCastContext: itemCastContext ?? null,
+          magickaSpend: foundry.utils.deepClone(magickaSpend ?? null),
           casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null
         });
       } catch (_e) {
         console.warn("UESRPG | Failed to create Origin AE for unopposed spell", _e);
       }
+    }
+    if (result.isSuccess) {
+      await _syncEnchantmentUpkeepPointer(attacker, castSource, itemCastContext, spell, originEffect);
+    }
+
+    const targetingMode = String(spell?.system?.engine?.targeting?.mode ?? "").trim().toLowerCase();
+    const isDirectSelf = Boolean(spell?.system?.isDirect) && targetingMode === "self";
+    const needsDeferredDirect = isDirectSelf && spellNeedsDeferredDirectApplication(spell);
+
+    if (needsDeferredDirect) {
+      const note = "Self-target direct cast resolved with no defense.";
+      const unopposedRollContext = buildRollContext({
+        actor: attacker,
+        targetActor: attacker,
+        item: spell,
+        testType: "spell",
+        attackMode: "magic"
+      });
+
+      const data = {
+        context: {
+          schemaVersion: _CARD_VERSION,
+          createdAt: Date.now(),
+          createdBy: game.user.id,
+          originalCastWorldTime: Number(game.time?.worldTime ?? 0) || 0,
+          updatedAt: Date.now(),
+          updatedBy: game.user.id,
+          phase: "resolved",
+          unopposed: true,
+          noDefenseUnopposed: true,
+          directUndefendable: true,
+          note,
+          rollContext: unopposedRollContext,
+          rollOptions: Array.isArray(unopposedRollContext?.rollOptions) ? unopposedRollContext.rollOptions.slice() : [],
+          itemCastContext: itemCastContext ?? null
+        },
+        status: "resolved",
+        mode: "magic",
+        attacker: {
+          actorUuid: attacker.uuid,
+          tokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
+          tokenName: aToken?.name ?? null,
+          name: attacker.name,
+          spellUuid: spell.uuid,
+          spellName: spell.name,
+          spellSchool: spell.system?.school ?? "",
+          spellLevel: _getResolvedSpellLevel(spell),
+          spellCost: _getResolvedSpellCost(spell, spellOptions, magickaSpend?.consumed ?? null),
+          spellOptions,
+          castActionType,
+          apCost: 1,
+          result,
+          tn,
+          mpSpent: magickaSpend.consumed,
+          mpRemaining: magickaSpend.remaining,
+          mpRefund: Number(magickaSpend.refund ?? 0) || 0,
+          mpRestraintBreakdown: magickaSpend.restraintBreakdown ?? [],
+          backfire: needsBackfire,
+          ignoreTraining: _ignoreTraining(cfg),
+          ignoreActionPoints: ignoreAP,
+          castSource: castSource ?? null
+        },
+        defender: {
+          actorUuid: attacker.uuid,
+          name: attacker.name,
+          tokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null,
+          tokenName: aToken?.name ?? aToken?.document?.name ?? attacker.name,
+          defenseType: "Cannot Defend",
+          tn: null,
+          result: null,
+          noDefense: true,
+          spellOptions: {}
+        },
+        outcome: null
+      };
+
+      const message = await ChatMessage.create({
+        user: game.user.id,
+        speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? aToken ?? null }),
+        content: renderCard(data, ""),
+        flags: { [_FLAG_NS]: { [_FLAG_KEY]: { version: _CARD_VERSION, state: data } } },
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER
+      });
+
+      await safeUpdateChatMessage(message, { content: renderCard(data, message.id) });
+
+      const defenderEntry = selectDefenderEntry(data, {}).defender;
+      await resolveOutcome({
+        message,
+        data,
+        attacker,
+        defender: attacker,
+        defenderEntry,
+        spell,
+        isAoE: false,
+        forcedHitLocation: "",
+        _updateCard: (msg, d) => magicUpdateCard(msg, d, renderCard)
+      });
+
+      return message;
     }
 
     // Apply spell effects to caster for self-targeting spells
@@ -770,11 +1081,27 @@ export const MagicOpposedWorkflow = {
         }
 
         for (const effectTarget of effectTargets) {
+          const castContext = buildMagicCastContext({
+            spellLevel: _getResolvedSpellLevel(spell),
+            spellOptions,
+            scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null
+          }, spell);
           try {
-            await applySpellEffectsToTarget(attacker, effectTarget, spell, {
-              actualCost: Number(magickaSpend?.consumed ?? 0) || 0,
-              originalCastTime: Number(game.time?.worldTime ?? 0) || 0,
-              casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null
+            await applyResolvedSpellEffects({
+              casterActor: attacker,
+              targetActor: effectTarget,
+              spell,
+              payload: {
+                actualCost: Number(magickaSpend?.consumed ?? 0) || 0,
+                originalCastTime: Number(game.time?.worldTime ?? 0) || 0,
+                spellOptions,
+                scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
+                castContext,
+                castSource: castSource ?? null,
+                itemCastContext: itemCastContext ?? null,
+                magickaSpend: foundry.utils.deepClone(magickaSpend ?? null),
+                casterTokenUuid: aToken?.document?.uuid ?? aToken?.uuid ?? null
+              }
             });
           } catch (err) {
             console.error("UESRPG | Failed to apply spell effects to", effectTarget?.name ?? "unknown", err);
@@ -817,8 +1144,8 @@ export const MagicOpposedWorkflow = {
         spellUuid: spell.uuid,
         spellName: spell.name,
         spellSchool: spell.system?.school ?? "",
-        spellLevel: Number(spell.system?.level ?? 1),
-        spellCost: Number(spell.system?.cost ?? 0),
+        spellLevel: _getResolvedSpellLevel(spell),
+        spellCost: _getResolvedSpellCost(spell, spellOptions, magickaSpend?.consumed ?? null),
         spellOptions,
         castActionType,
         apCost: 1,
@@ -919,6 +1246,7 @@ export const MagicOpposedWorkflow = {
 
       // Guard: another runner already claimed this auto-roll.
       if (data.context?.autoRollStarted) return;
+      if (data.context?.autoRollAborted) return;
 
       ensureBankedScaffold(data);
       if (!allDefendersCommitted(data)) return;
@@ -947,6 +1275,7 @@ export const MagicOpposedWorkflow = {
 
       // Guard: another runner already claimed this auto-roll.
       if (data.context?.autoRollStarted) return;
+      if (data.context?.autoRollAborted) return;
 
       ensureBankedScaffold(data);
       if (!allDefendersCommitted(data)) return;

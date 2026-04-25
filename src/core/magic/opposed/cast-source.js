@@ -10,6 +10,21 @@ export function normalizeCastSourceCostMode(castSource = null) {
   return "soul";
 }
 
+export function buildAutomaticEnchantmentCastResult(castSource = null) {
+  const floor = Math.max(0, Number(castSource?.bindingStrength ?? 0) || 0);
+  return {
+    noRoll: true,
+    roll: null,
+    rollTotal: null,
+    total: null,
+    isSuccess: true,
+    degree: floor,
+    degrees: floor,
+    isCriticalSuccess: false,
+    isCriticalFailure: false
+  };
+}
+
 export function resolveItemContextFromCastSource(castSource = null, itemCastContext = null) {
   const itemUuid = String(itemCastContext?.itemUuid ?? castSource?.itemUuid ?? "").trim();
   const sourceLane = String(itemCastContext?.sourceLane ?? castSource?.sourceLane ?? "workshop").trim().toLowerCase();

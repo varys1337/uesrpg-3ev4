@@ -95,6 +95,35 @@ export function registerHomebrewSettings() {
   });
 
   // ── Mass Combat (Warfare Unit) ────────────────────────────────────────
+  _reg("armorCoverageOverlayMode", {
+    name: "Armor Coverage Overlay",
+    hint: "Shows compact armor coverage badges beside hovered or targeted tokens. Disabled by default.",
+    scope: "world",
+    config: false,
+    type: String,
+    default: "disabled",
+    choices: {
+      disabled: "Disabled",
+      compact: "Compact"
+    },
+    onChange: () => game?.uesrpg?.armorCoverageOverlay?.applySettings?.(),
+  });
+
+  _reg("armorCoverageOverlayTransparency", {
+    name: "Armor Coverage Transparency",
+    hint: "Transparency of armor coverage overlay badges (0 = fully transparent, 100 = fully opaque).",
+    scope: "world",
+    config: false,
+    type: Number,
+    default: 90,
+    range: {
+      min: 0,
+      max: 100,
+      step: 5
+    },
+    onChange: () => game?.uesrpg?.armorCoverageOverlay?.applySettings?.(),
+  });
+
   _reg("homebrew.massCombat.enabled", {
     name: "Homebrew: Mass Combat System",
     hint: "Enables the Warfare Unit actor type and mass combat UI. When disabled, existing Warfare Unit actors remain openable but new ones cannot be created.",

@@ -20,6 +20,7 @@ function _readMagicOpposedFlagState(fm) {
   return state ? cloneFlagState(state) : null;
 }
 import { computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
+import { buildMagicCastContext } from "../cast-context.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
@@ -162,7 +163,10 @@ export async function handleDefenderCommit(ctx, action) {
 
     const spell = ctx.spell ?? (data.attacker?.spellUuid ? await ctx._uuidResolver.resolve(data.attacker.spellUuid) : null);
     if (spell) {
-      const tnData = computeCharacteristicDefenseTN(defenderActor, spell);
+      const tnData = computeCharacteristicDefenseTN(defenderActor, spell, {
+        attacker: data?.attacker ?? {},
+        castContext: buildMagicCastContext(data?.attacker ?? {}, spell)
+      });
       if (tnData) {
         defender.tn = {
           finalTN: tnData.finalTN,

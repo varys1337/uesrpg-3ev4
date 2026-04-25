@@ -7,6 +7,7 @@ import { _esc } from "./util.js";
 import { CHARACTERISTICS } from "./constants.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../../opposed/circumstance.js";
+import { t } from "../../../utils/i18n.js";
 
 /**
  * Show a dialog for choosing characteristic and manual modifier.
@@ -20,7 +21,7 @@ import { buildCircumstanceOptionsHtml } from "../../opposed/circumstance.js";
  * @returns {Promise<{charKey: string, manualMod: number}|null>}
  */
 export async function _charTestDialog({
-  title = "Characteristic Test",
+  title = t("UESRPG.Dialogs.CharacteristicTest.Title"),
   defaultCharKey = "wp",
   defaultCircumstanceMod = 0,
   defaultManualMod = 0,
@@ -34,7 +35,7 @@ export async function _charTestDialog({
   const charSelect = showCharSelect
     ? `
       <div class="form-group">
-        <label><b>Characteristic</b></label>
+        <label><b>${t("UESRPG.Dialogs.CharacteristicTest.Characteristic")}</b></label>
         <select name="charKey" style="width:100%;">${charOptions}</select>
       </div>`
     : `<input type="hidden" name="charKey" value="${_esc(defaultCharKey)}" />`;
@@ -43,11 +44,11 @@ export async function _charTestDialog({
     <div class="uesrpg-char-declare">
       ${charSelect}
       <div class="form-group" style="margin-top:8px;">
-        <label><b>Circumstance Modifier</b></label>
+        <label><b>${t("UESRPG.Dialogs.CharacteristicTest.CircumstanceModifier")}</b></label>
         <select name="circumstanceMod" style="width:100%;">${buildCircumstanceOptionsHtml(defaultCircumstanceMod)}</select>
       </div>
       <div class="form-group" style="margin-top:8px;">
-        <label><b>Manual Modifier</b></label>
+        <label><b>${t("UESRPG.Dialogs.CharacteristicTest.ManualModifier")}</b></label>
         <input name="manualMod" type="number" value="${Number(defaultManualMod) || 0}" style="width:100%;" />
       </div>
     </div>`;
@@ -59,7 +60,7 @@ export async function _charTestDialog({
       classes: ["uesrpg-attack-declare"],
       buttons: {
         ok: {
-          label: "Roll",
+          label: t("UESRPG.Buttons.Roll"),
           callback: (html) => {
             const root = html instanceof HTMLElement ? html : html?.[0];
             const charKey = root?.querySelector('select[name="charKey"]')?.value
@@ -72,7 +73,7 @@ export async function _charTestDialog({
             return { charKey, circumstanceMod, manualMod };
           }
         },
-        cancel: { label: "Cancel", callback: () => null }
+        cancel: { label: t("UESRPG.Buttons.Cancel"), callback: () => null }
       },
       default: "ok",
       width: 350

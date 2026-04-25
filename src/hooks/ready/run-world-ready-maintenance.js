@@ -1,11 +1,12 @@
-import startupHandler from "../startup.js";
-import { alertDialog } from "../../utils/dialog-v2-helper.js";
 import { initSettingsCache } from "../../core/config/settings-cache.js";
+import { AUTOMATION_DEFAULTS } from "../../core/config/automation-policy.js";
+import { STARTUP_PENDING_MIGRATION_KEYS } from "../../core/migrations/revisions.js";
+import { getMigrationState, getPendingMigrationKeys } from "../../core/migrations/state.js";
 import { SYSTEM_ID } from "../../core/system/namespace.js";
-import { initializePerfApi } from "../../utils/perf-tracker.js";
-import { runTokenHudStatusUpgradeMaintenance } from "../../core/conditions/status-hud.js";
 
 const TIME_SETTINGS_MIGRATION_KEY = "timeDefaultsCompositeOrchestratorV1";
+const AUTOMATION_PROFILE_REMOVAL_MIGRATION_KEY = "automationProfileRemovalDefaultsV1";
+let _startupAttackTrackerPolicyLogged = false;
 
 function hasStoredWorldSetting(key) {
   try {
@@ -55,6 +56,109 @@ async function migrateTimeDefaultsSafely() {
   }
 }
 
+async function migrateAutomationDefaultsAfterProfileRemoval() {
+  if (!game.user?.isGM) return;
+
+  let state = {};
+  try {
+    const raw = String(game.settings.get(SYSTEM_ID, "migrationState") ?? "{}");
+    const parsed = JSON.parse(raw);
+    state = (parsed && typeof parsed === "object") ? parsed : {};
+  } catch (_e) {
+    state = {};
+  }
+
+  if (state?.[AUTOMATION_PROFILE_REMOVAL_MIGRATION_KEY]) return;
+
+  const changed = [];
+  for (const [key, value] of Object.entries(AUTOMATION_DEFAULTS)) {
+    try {
+      await game.settings.set(SYSTEM_ID, key, value);
+      changed.push(key);
+    } catch (err) {
+      console.warn(`UESRPG | Failed automation default reset for "${key}"`, err);
+    }
+  }
+
+  state[AUTOMATION_PROFILE_REMOVAL_MIGRATION_KEY] = {
+    appliedAt: Date.now(),
+    changedKeys: changed
+  };
+
+  try {
+    await game.settings.set(SYSTEM_ID, "migrationState", JSON.stringify(state));
+  } catch (err) {
+    console.warn("UESRPG | Failed to persist automation profile removal migration state", err);
+  }
+}
+
+function readSettingIfRegistered(key, fallback = null) {
+  try {
+    const settingKey = `${SYSTEM_ID}.${String(key ?? "").trim()}`;
+    if (game?.settings?.settings?.has?.(settingKey) !== true) return fallback;
+    return game.settings.get(SYSTEM_ID, key);
+  } catch (_e) {
+    return fallback;
+  }
+}
+
+function logAttackTrackerPolicyDiagnosticsOnce() {
+  if (_startupAttackTrackerPolicyLogged) return;
+  if (!game.user?.isGM) return;
+
+  const debugEnabled = Boolean(readSettingIfRegistered("debugEnabled", false));
+  const effectsProxyDebug = Boolean(readSettingIfRegistered("effectsProxyDebug", false));
+  if (!debugEnabled || !effectsProxyDebug) return;
+
+  const automationProfileRegistered = game?.settings?.settings?.has?.(`${SYSTEM_ID}.automationProfile`) === true;
+  const enableActionEconomyUI = readSettingIfRegistered("enableActionEconomyUI", null);
+  const actionPointAutomation = readSettingIfRegistered("actionPointAutomation", null);
+  const dynamicInitiativeEnabled = readSettingIfRegistered("dynamicInitiativeEnabled", null);
+  const skipAttackTrackerEagerReset = Boolean(
+    readSettingIfRegistered("skipAttackTrackerEagerReset", AUTOMATION_DEFAULTS.skipAttackTrackerEagerReset)
+  );
+  const useCombatBoundaryOrchestrator = Boolean(
+    readSettingIfRegistered("useCombatBoundaryOrchestrator", AUTOMATION_DEFAULTS.useCombatBoundaryOrchestrator)
+  );
+  const compositeBoundaryTickEnabled = Boolean(
+    readSettingIfRegistered("compositeBoundaryTickEnabled", AUTOMATION_DEFAULTS.compositeBoundaryTickEnabled)
+  );
+  const deferNonCriticalRoundBoundaryWork = Boolean(
+    readSettingIfRegistered("deferNonCriticalRoundBoundaryWork", AUTOMATION_DEFAULTS.deferNonCriticalRoundBoundaryWork)
+  );
+  const payload = {
+    automationProfileRegistered,
+    automationProfileStoredValue: automationProfileRegistered
+      ? readSettingIfRegistered("automationProfile", null)
+      : null,
+    registeredSettings: {
+      skipAttackTrackerEagerReset: game?.settings?.settings?.has?.(`${SYSTEM_ID}.skipAttackTrackerEagerReset`) === true,
+      useCombatBoundaryOrchestrator: game?.settings?.settings?.has?.(`${SYSTEM_ID}.useCombatBoundaryOrchestrator`) === true,
+      compositeBoundaryTickEnabled: game?.settings?.settings?.has?.(`${SYSTEM_ID}.compositeBoundaryTickEnabled`) === true,
+      deferNonCriticalRoundBoundaryWork: game?.settings?.settings?.has?.(`${SYSTEM_ID}.deferNonCriticalRoundBoundaryWork`) === true,
+      enableActionEconomyUI: game?.settings?.settings?.has?.(`${SYSTEM_ID}.enableActionEconomyUI`) === true,
+      actionPointAutomation: game?.settings?.settings?.has?.(`${SYSTEM_ID}.actionPointAutomation`) === true,
+      dynamicInitiativeEnabled: game?.settings?.settings?.has?.(`${SYSTEM_ID}.dynamicInitiativeEnabled`) === true,
+    },
+    enableActionEconomyUI,
+    actionPointAutomation,
+    dynamicInitiativeEnabled,
+    skipAttackTrackerEagerReset,
+    useCombatBoundaryOrchestrator,
+    compositeBoundaryTickEnabled,
+    deferNonCriticalRoundBoundaryWork,
+    effectiveAttackTrackerPolicy: {
+      eagerResetEnabled: !skipAttackTrackerEagerReset,
+      boundaryOrchestratorEnabled: useCombatBoundaryOrchestrator,
+      compositeBoundaryTickEnabled,
+      deferNonCriticalRoundBoundaryWork,
+    }
+  };
+
+  _startupAttackTrackerPolicyLogged = true;
+  console.log("[UESRPG][AttackTracker][Policy] startup", payload);
+}
+
 async function ensureWorldVersionStamp() {
   const currentVersion = game.system?.version ?? "";
   const stampedVersion = game.settings.get(SYSTEM_ID, "worldDataVersion");
@@ -71,24 +175,7 @@ async function ensureWorldVersionStamp() {
 
   if (stampedVersion === currentVersion) return;
 
-  if (game.user?.isGM) {
-    ui.notifications.warn(
-      `UESRPG | This world was created with system version ${stampedVersion} ` +
-      `but the current system version is ${currentVersion}. ` +
-      `Continuing with startup and available migrations.`,
-      { permanent: true }
-    );
-    alertDialog({
-      title: "UESRPG - Version Mismatch",
-      content: `<p>This world was last used with system version <strong>${stampedVersion}</strong>, ` +
-        `but the current system is <strong>${currentVersion}</strong>.</p>` +
-        `<p>Automatic compatibility migrations will run where available.</p>`,
-      buttonLabel: "Understood",
-      buttonIcon: "fas fa-check",
-    });
-  }
-
-  console.warn(`UESRPG | World version mismatch: stamped=${stampedVersion}, current=${currentVersion}. Continuing with migrations.`);
+  console.log(`UESRPG | World version stamp update: ${stampedVersion} -> ${currentVersion}`);
   if (!game.user?.isGM) return;
 
   try {
@@ -99,44 +186,27 @@ async function ensureWorldVersionStamp() {
   }
 }
 
-async function runStartupAuditIfEnabled() {
-  try {
-    if (!game.user?.isGM) return;
-    const auditMode = String(game.settings.get(SYSTEM_ID, "chapter4AuditStartupMode") ?? "off");
-    if (auditMode === "off") return;
+function notifyPendingMigrationsIfNeeded() {
+  if (!game.user?.isGM) return;
 
-    const { auditChapter4 } = await import("../../utils/dev/chapter4-audit.js");
-    const includeEntries = auditMode === "full";
-    const report = auditChapter4({ includeEntries, log: includeEntries });
-    const gaps = report?.gaps ?? {};
-    const gapCount =
-      (Array.isArray(gaps.missingFromCatalog) ? gaps.missingFromCatalog.length : 0) +
-      (Array.isArray(gaps.unknownAutomation) ? gaps.unknownAutomation.length : 0) +
-      (Array.isArray(gaps.notAutomated) ? gaps.notAutomated.length : 0) +
-      (Array.isArray(gaps.blocked) ? gaps.blocked.length : 0) +
-      (Array.isArray(gaps.stubs) ? gaps.stubs.length : 0) +
-      (gaps.traitsCatalogMissing ? 1 : 0) +
-      (gaps.powersCatalogMissing ? 1 : 0);
+  const pendingKeys = getPendingMigrationKeys(STARTUP_PENDING_MIGRATION_KEYS, getMigrationState());
+  if (!pendingKeys.length) return;
 
-    if (gapCount > 0) {
-      ui.notifications?.warn?.(`Chapter 4 audit found ${gapCount} compliance gap(s). Use game.uesrpg.auditChapter4({ includeEntries: true, log: true }) for details.`);
-    } else {
-      ui.notifications?.info?.("Chapter 4 audit: no compliance gaps detected.");
-    }
-  } catch (err) {
-    console.warn("UESRPG | Chapter 4 startup audit failed", err);
-  }
+  ui.notifications?.warn?.(
+    `UESRPG | World has ${pendingKeys.length} pending targeted data migration(s). Review/run them from System Settings -> Migration.`,
+    { permanent: true }
+  );
 }
 
 export async function runWorldReadyMaintenance() {
   // Critical path - must complete before world is usable
   await ensureWorldVersionStamp();
   await migrateTimeDefaultsSafely();
+  await migrateAutomationDefaultsAfterProfileRemoval();
+  notifyPendingMigrationsIfNeeded();
   initSettingsCache();
+  logAttackTrackerPolicyDiagnosticsOnce();
   
   // Deferrable tasks are now scheduled via registerSystemDeferredTasks()
   // They will run after the critical path completes
 }
-
-// Keep the audit function export for deferred scheduling
-export { runStartupAuditIfEnabled };

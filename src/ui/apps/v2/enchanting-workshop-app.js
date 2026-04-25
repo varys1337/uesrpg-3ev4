@@ -45,6 +45,11 @@ import {
 } from "../../../data/spell-i18n.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t } from "../../../utils/i18n.js";
+import {
+  buildActorStoredSpellOptions,
+  buildStoredSpellSnapshot,
+  resolveStoredSpellDocument,
+} from "../../shared/stored-spell-options.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
@@ -211,6 +216,35 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     });
 
     const spellFormsCatalog = getLocalizedSpellFormsCatalog();
+    const actorSpellOptions = buildActorStoredSpellOptions(actor);
+    const castSlotCount = hasManifold ? 3 : 1;
+    const castSpellSlots = Array.from({ length: castSlotCount }, (_, index) => ({
+      index,
+      number: index + 1,
+      isPrimary: index === 0,
+      isManifold: index > 0,
+      source: "conventional",
+      spellOptions: actorSpellOptions,
+      availableSpellCount: actorSpellOptions.length,
+      selectedSpellUuid: "",
+      selectedSpellSummary: "",
+      level: index === 0 ? 1 : 0,
+      cost: index === 0 ? 10 : 0,
+      bindingStrength: 1,
+      attributesText: "",
+      label: "",
+      manualSpellUuid: "",
+    }));
+    const workshopSummary = {
+      actorName: actor?.name ?? "No actor selected",
+      enchantTN,
+      enchantRank,
+      itemCount: enchantableItems.length,
+      gemCount: gemOptions.length,
+      slotCount: castSlotCount,
+      poolRule: t("UESRPG.Apps.EnchantingWorkshop.PoolRule", "Pool max = min(Item EL, Soul Gem Energy)."),
+      spellOptionCount: actorSpellOptions.length,
+    };
 
     // Settings
     const enableCursed = game.settings.get(NAMESPACE, "enchanting.enableCursedConstant") ?? false;
@@ -256,6 +290,9 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
 
       enableCursed,
       enableChargedStrike,
+      actorSpellOptions,
+      castSpellSlots,
+      workshopSummary,
 
       preview: this._previewResult,
     };
@@ -333,7 +370,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       }
 
       if (mode === "cast") {
-        const spells = EnchantingWorkshopAppV2._parseSpellsFromForm(data, actor);
+        const spells = await EnchantingWorkshopAppV2._parseSpellsFromForm(data, actor);
         if (!spells.length) {
           ui.notifications?.error("Enchanting Workshop: Add at least one spell.");
           return;
@@ -462,49 +499,28 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
    * @param {Actor} actor
    * @returns {object[]}
    */
-  static _parseSpellsFromForm(data, actor) {
+  static async _parseSpellsFromForm(data, actor) {
     const spells = [];
     // Scan for spell slot indices (max 3)
     for (let i = 0; i < 3; i++) {
       const level = Number(data[`spell_level_${i}`] ?? 0);
       const cost = Number(data[`spell_cost_${i}`] ?? 0);
-      if (!level && !cost) continue;
+      const source = String(data[`spell_source_${i}`] ?? "conventional").trim().toLowerCase() === "unconventional"
+        ? "unconventional"
+        : "conventional";
+      const selectedSpellUuid = String(data[`spell_select_uuid_${i}`] ?? "").trim();
+      const manualSpellUuid = String(data[`spell_uuid_${i}`] ?? "").trim();
+      if (!level && !cost && !selectedSpellUuid && !manualSpellUuid) continue;
 
-      const source = String(data[`spell_source_${i}`] ?? "conventional");
       const label = String(data[`spell_label_${i}`] ?? `Spell ${i + 1}`);
-      const spellUuid = String(data[`spell_uuid_${i}`] ?? "");
+      const spellUuid = selectedSpellUuid || manualSpellUuid;
       const attributes = String(data[`spell_attributes_${i}`] ?? "").split(",").map(s => s.trim()).filter(Boolean);
       let snapshot = null;
 
-      if (source === "conventional" && spellUuid) {
-        try {
-          const spellDoc = fromUuidSync(spellUuid);
-          if (spellDoc?.documentName === "Item" && spellDoc?.type === "spell") {
-            snapshot = {
-              name: spellDoc.name,
-              type: "spell",
-              img: spellDoc.img,
-              system: {
-                school: spellDoc.system?.school ?? "",
-                level: Number((spellDoc.system?.level ?? level ?? 1)),
-                cost: Number((spellDoc.system?.cost ?? cost ?? 0)),
-                isDirect: Boolean(spellDoc.system?.isDirect),
-                hasUpkeep: Boolean(spellDoc.system?.hasUpkeep),
-                duration: foundry.utils.deepClone(spellDoc.system?.duration ?? { value: 0, unit: "instant" }),
-                rangeType: String(spellDoc.system?.rangeType ?? "none"),
-                aoeShape: spellDoc.system?.aoeShape ?? null,
-                aoeSize: spellDoc.system?.aoeSize ?? null,
-                aoeWidth: spellDoc.system?.aoeWidth ?? null,
-                hasBuffer: Boolean(spellDoc.system?.hasBuffer),
-                buffer: foundry.utils.deepClone(spellDoc.system?.buffer ?? {}),
-                engine: foundry.utils.deepClone(spellDoc.system?.engine ?? {}),
-                damageFormula: String(spellDoc.system?.damageFormula ?? ""),
-                damageType: String(spellDoc.system?.damageType ?? "")
-              }
-            };
-          }
-        } catch (_err) {
-          snapshot = null;
+      if (spellUuid) {
+        const spellDoc = await resolveStoredSpellDocument(spellUuid);
+        if (spellDoc?.type === "spell") {
+          snapshot = buildStoredSpellSnapshot(spellDoc);
         }
       }
 

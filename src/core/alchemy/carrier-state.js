@@ -5,6 +5,7 @@ import {
 } from "../../utils/authority-proxy.js";
 import { ALCHEMY_DEFAULT_ICON, cloneAlchemyData, FLAG_NS } from "./shared.js";
 import { getActorItemsArray } from "./utils.js";
+import { buildGenericAEData } from "../active-effects/modifier-evaluator.js";
 
 export const ALCHEMY_WEAPON_AE_KEY = "alchemyWeaponApplied";
 
@@ -92,7 +93,14 @@ export function buildWeaponAlchemyAEData(alchemyItem, alchemyFlags) {
     } : {}),
   };
 
-  return {
+  return buildGenericAEData({
+    source: "alchemy",
+    stack: {
+      policy: "replace",
+      group: `alchemy.weapon.${alchemyItem?.uuid ?? alchemyItem?.id ?? payload.kind}`,
+      max: null,
+      strengthKey: null,
+    },
     name: alchemyFlags.kind === "poison"
       ? `Applied Poison (${payload.poisonLevel ?? 1})`
       : `Applied Toxin (${payload.hitsRemaining ?? 3} hits)`,
@@ -108,7 +116,7 @@ export function buildWeaponAlchemyAEData(alchemyItem, alchemyFlags) {
         [ALCHEMY_WEAPON_AE_KEY]: payload,
       },
     },
-  };
+  });
 }
 
 export function isAppliedAlchemyExpired(applied) {

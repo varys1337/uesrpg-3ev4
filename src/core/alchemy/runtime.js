@@ -25,6 +25,7 @@ import {
   requestUpdateChatMessage,
   requestUpdateDocument,
 } from "../../utils/authority-proxy.js";
+import { t, tf } from "../../utils/i18n.js";
 import { applyDamage, applyHealing } from "../combat/damage/apply.js";
 import { applyDamageResolved } from "../combat/damage-resolver.js";
 import { renderPoisonResistanceCard, renderToxinResistanceCard } from "./render.js";
@@ -85,6 +86,7 @@ import {
   rollEnduranceTest as _rollEnduranceTest,
 } from "./runtime/resource-updates.js";
 import { buildEffectChange, buildEffectChangesData } from "../../utils/compat.js";
+import { buildGenericAEData } from "../active-effects/modifier-evaluator.js";
 
 // ── Flag namespace constant (delegated to canonical FLAG_SCOPE from namespace.js) ──
 const _ALCHEMY_ON_HIT_IN_FLIGHT = new Set();
@@ -236,13 +238,13 @@ export async function drinkPotion(actor, potionItem) {
   if (!actor || !potionItem) return;
   const algData = getAlchemyFlags(potionItem);
   if (!algData || algData.kind !== "potion") {
-    ui.notifications.warn("That item is not a brewed potion.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotBrewedPotion"));
     return;
   }
 
   // Only owner or GM may act.
   if (!actor.isOwner && !game.user.isGM) {
-    ui.notifications.warn("You do not own this actor.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.NotOwner"));
     return;
   }
 
@@ -314,7 +316,7 @@ export async function drinkPotion(actor, potionItem) {
 
     const normalized = await _normalizeStoredSpellEffect(rawEffect, { mode: "potion" });
     if (!normalized?.ok) {
-      ui.notifications.warn(normalized?.reason ?? `${_effectLabel(rawEffect)} must be re-brewed before it can be consumed.`);
+      ui.notifications.warn(normalized?.reason ?? tf("UESRPG.Notifications.Alchemy.MustReBrewBeforeConsume", { effect: _effectLabel(rawEffect) }));
       return;
     }
     normalizedEffects.push(normalized.effectEntry);
@@ -332,7 +334,7 @@ export async function drinkPotion(actor, potionItem) {
         noteLabelSuffix: "Spell",
       });
       if (!resolved?.ok) {
-        ui.notifications.warn(resolved?.reason ?? "That potion effect could not be resolved.");
+        ui.notifications.warn(resolved?.reason ?? t("UESRPG.Notifications.Alchemy.PotionEffectNotResolved"));
         return;
       }
       effectResultRows.push(
@@ -422,7 +424,14 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
   const changes = _buildAEChanges(effectDef.key, magnitude);
   const combatActive = !!game.combat?.active;
 
-  return {
+  return buildGenericAEData({
+    source: "alchemy",
+    stack: {
+      policy: "replace",
+      group: `alchemy.potion.${actor?.id ?? actor?.uuid ?? "actor"}.${effectDef.key}`,
+      max: null,
+      strengthKey: null,
+    },
     name: `${effectDef.label} (Potion SL${sl})`,
     icon: ALCHEMY_DEFAULT_ICON,
     origin: actor.uuid,
@@ -437,8 +446,8 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
         potionSL: sl,
       },
     },
-    ...buildEffectChangesData(changes),
-  };
+    changes,
+  });
 }
 
 /**
@@ -545,7 +554,7 @@ async function _onDamageApplied(targetActor, context) {
 async function _postPoisonResistanceCard(targetActor, weaponItem, applied, context = {}) {
   const endTN = _getEnduranceTN(targetActor);
   if (endTN <= 0) {
-    ui.notifications.warn(`${targetActor?.name ?? "Target"} has no valid Endurance TN.`);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.NoEnduranceTN", { target: targetActor?.name ?? t("UESRPG.UI.Target") }));
     return null;
   }
 
@@ -602,7 +611,7 @@ export async function resolvePoisonResistanceFromChat({ messageId, action } = {}
 
   const targetActor = await fromUuid(String(state?.targetActorUuid ?? "").trim()).catch(() => null);
   if (!targetActor) {
-    ui.notifications.warn("Poison resistance: target actor not found.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.PoisonResistanceNoTarget"));
     return;
   }
 
@@ -619,7 +628,7 @@ export async function resolvePoisonResistanceFromChat({ messageId, action } = {}
       rollTotal: null,
       passed: null,
       damageApplied: 0,
-      statusNote: `${targetActor.name} has no valid Endurance TN.`,
+      statusNote: tf("UESRPG.Notifications.Alchemy.NoEnduranceTN", { target: targetActor.name }),
     };
     await requestUpdateChatMessage(message, {
       content: renderPoisonResistanceCard({
@@ -838,26 +847,40 @@ async function _applyCatalogToxinEffect(targetActor, effectEntry, {
     aeCreates.push(_buildConditionAEData("Frightened", `Demoralize Toxin SL${sl}`, durationRounds, combatActive));
     noteRows.push(_alchemyNoteHtml(effectDef.label, `Frightened for ${durationRounds} rounds.`, "is-danger"));
   } else if (key === "burden") {
-    aeCreates.push({
+    aeCreates.push(buildGenericAEData({
+      source: "alchemy",
+      stack: {
+        policy: "replace",
+        group: `alchemy.toxin.burden.${sl}`,
+        max: null,
+        strengthKey: null,
+      },
       name: `Burden Toxin SL${sl}`,
       icon: "icons/equipment/back/pack-heavy.webp",
       duration: combatActive
         ? { rounds: durationRounds, combat: game.combat.id }
         : { seconds: durationRounds * 6 },
       flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true } },
-      ...buildEffectChangesData([buildEffectChange({ key: "system.encumbrance.penalty", type: "add", value: String(sl * 5) })]),
-    });
+      changes: [buildEffectChange({ key: "system.encumbrance.penalty", type: "add", value: String(sl * 5) })],
+    }));
     noteRows.push(_alchemyNoteHtml(effectDef.label, `Encumbrance penalty +${sl * 5} for ${durationRounds} rounds.`));
   } else {
-    aeCreates.push({
+    aeCreates.push(buildGenericAEData({
+      source: "alchemy",
+      stack: {
+        policy: "replace",
+        group: `alchemy.toxin.${key}.${sl}`,
+        max: null,
+        strengthKey: null,
+      },
       name: `${_effectLabel(effectEntry)} (Toxin SL${sl})`,
       icon: "icons/magic/death/undead-ghost-strike-green.webp",
       duration: combatActive
         ? { rounds: durationRounds, combat: game.combat.id }
         : { seconds: durationRounds * 6 },
       flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true, toxinEffectKey: key, toxinSL: sl } },
-      ...buildEffectChangesData([]),
-    });
+      changes: [],
+    }));
     noteRows.push(_alchemyNoteHtml(effectDef.label, `Applied as a toxin effect for ${durationRounds} rounds.`));
   }
 
@@ -941,7 +964,7 @@ async function _applyFailedToxinEffect(targetActor, effectEntry, {
 async function _postToxinResistanceCard(targetActor, weaponItem, applied, context = {}, saveEffects = [], directNotesHtml = "") {
   const endTN = _getEnduranceTN(targetActor);
   if (endTN <= 0) {
-    ui.notifications.warn(`${targetActor?.name ?? "Target"} has no valid Endurance TN.`);
+    ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.NoEnduranceTN", { target: targetActor?.name ?? t("UESRPG.UI.Target") }));
     return null;
   }
 
@@ -1080,7 +1103,7 @@ export async function resolveToxinResistanceFromChat({ messageId, action } = {})
 
   const targetActor = await fromUuid(String(state?.targetActorUuid ?? "").trim()).catch(() => null);
   if (!targetActor) {
-    ui.notifications.warn("Toxin resistance: target actor not found.");
+    ui.notifications.warn(t("UESRPG.Notifications.Alchemy.ToxinResistanceNoTarget"));
     return;
   }
 

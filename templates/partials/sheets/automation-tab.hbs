@@ -3,35 +3,35 @@
 <div class="automation-tab-container">
 
   <fieldset class="re-section re-section--global">
-    <legend><i class="fas fa-gear"></i> Global Settings</legend>
+    <legend><i class="fas fa-gear"></i> {{localize "UESRPG.UI.Feature.GlobalSettings"}}</legend>
     <div class="re-global-grid">
-      <label class="re-inline-field" title="When unchecked, advanced automation is disabled. Basic activation and transfer behavior still use the native system paths.">
+      <label class="re-inline-field" title="{{localize "UESRPG.UI.Feature.EnableAutomationTooltip"}}">
         <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.featureConfig.enabled" {{checked featureConfig.enabled}} />
-        <span>Enable Automation</span>
+        <span>{{localize "UESRPG.UI.Feature.EnableAutomation"}}</span>
       </label>
       <div class="re-inline-field">
-        <span>Apply</span>
+        <span>{{localize "UESRPG.UI.Feature.Apply"}}</span>
         <select name="flags.uesrpg-3ev4.featureConfig.applyMode" data-type="String">
           {{selectOptions featureOptions.applyModeOptions selected=featureConfig.applyMode localize=false}}
         </select>
       </div>
       <div class="re-inline-field">
-        <span>Prompt</span>
+        <span>{{localize "UESRPG.UI.Feature.Prompt"}}</span>
         <select name="flags.uesrpg-3ev4.featureConfig.promptMode" data-type="String">
           {{selectOptions featureOptions.promptModeOptions selected=featureConfig.promptMode localize=false}}
         </select>
       </div>
       <label class="re-inline-field">
         <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.featureConfig.combatOnly" {{checked featureConfig.combatOnly}} />
-        <span>Combat Only</span>
+        <span>{{localize "UESRPG.UI.Feature.CombatOnly"}}</span>
       </label>
       <label class="re-inline-field">
         <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.featureConfig.outOfCombatAllowed" {{checked featureConfig.outOfCombatAllowed}} />
-        <span>Out of Combat</span>
+        <span>{{localize "UESRPG.UI.Feature.OutOfCombat"}}</span>
       </label>
       {{#if featureCapabilities.showTargeting}}
       <div class="re-inline-field">
-        <span>Targeting</span>
+        <span>{{localize "UESRPG.UI.Feature.Targeting"}}</span>
         <select name="flags.uesrpg-3ev4.featureConfig.targetPolicy" data-type="String">
           {{selectOptions featureOptions.targetPolicyOptions selected=featureConfig.targetPolicy localize=false}}
         </select>
@@ -39,7 +39,7 @@
       {{/if}}
       {{#if featureCapabilities.showVisibility}}
       <div class="re-inline-field">
-        <span>Visibility</span>
+        <span>{{localize "UESRPG.UI.Feature.Visibility"}}</span>
         <select name="flags.uesrpg-3ev4.featureConfig.visibility" data-type="String">
           {{selectOptions featureOptions.visibilityOptions selected=featureConfig.visibility localize=false}}
         </select>
@@ -50,10 +50,10 @@
 
   {{#if featureCapabilities.showStacking}}
   <fieldset class="re-section re-section--extra">
-    <legend><i class="fas fa-layer-group"></i> Stacking Override</legend>
+    <legend><i class="fas fa-layer-group"></i> {{localize "UESRPG.UI.Feature.StackingOverride"}}</legend>
     <div class="re-global-grid">
       <div class="re-inline-field">
-        <span>Rule</span>
+        <span>{{localize "UESRPG.UI.Feature.Rule"}}</span>
         <select name="flags.uesrpg-3ev4.featureConfig.stackingOverride" data-type="String">
           {{selectOptions featureOptions.stackingOverrideOptions selected=featureConfig.stackingOverride localize=false}}
         </select>
@@ -64,11 +64,11 @@
 
   {{#if isGM}}
   <fieldset class="re-section re-section--debug">
-    <legend><i class="fas fa-bug"></i> Debug</legend>
+    <legend><i class="fas fa-bug"></i> {{localize "UESRPG.UI.Feature.Debug"}}</legend>
     <div class="re-global-grid">
       <label class="re-inline-field">
         <input class="checkbox" type="checkbox" name="flags.uesrpg-3ev4.featureConfig.debug.showInInspector" {{checked featureConfig.debug.showInInspector}} />
-        <span>Show in Inspector</span>
+        <span>{{localize "UESRPG.UI.Feature.ShowInInspector"}}</span>
       </label>
     </div>
   </fieldset>

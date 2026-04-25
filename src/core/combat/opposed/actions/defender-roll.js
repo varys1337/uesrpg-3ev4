@@ -12,7 +12,7 @@ import {
   _setDefenderOutcome, 
   _setDefenderAdvantage 
 } from "../schema.js";
-import { _canControlActor, _emitSuppressedSubRollDice, _logDebug, _opposedFlags, _safeGetSetting } from "../helpers/util.js";
+import { _canControlActor, _emitSuppressedSubRollDice, _logDebug, _opposedFlags } from "../helpers/util.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { t, tf } from "../../../../utils/i18n.js";
@@ -633,39 +633,7 @@ export async function handleDefenderRoll(ctx) {
       console.warn("UESRPG | combat talent DoS adjustment (defender) failed", err);
     }
 
-    const postSubRolls = _safeGetSetting("uesrpg-3ev4", "opposedPostSubRollMessages", true);
-    if (postSubRolls) {
-      // IMPORTANT: The defender may not have permission to update the parent opposed card
-      // (ChatMessage authored by the attacker). We therefore include the computed TN and
-      // defense choice metadata in the roll message flags so the GM/author banking hook can
-      // accurately commit the defender lane into the parent card.
-      await res.roll.toMessage({
-        speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
-        flavor: `${data.defender.label} \u2014 Defender Roll`,
-        rollMode: getCoreRollMode(),
-        flags: _opposedFlags(message.id, "defender-roll", {
-          defenderIndex,
-          commit: {
-            defender: {
-              defenseType: data.defender.defenseType,
-              blockSource: data.defender.blockSource ?? null,
-              styleUuid: data.defender.styleUuid ?? null,
-              label: data.defender.label,
-              defenseLabel: data.defender.defenseLabel,
-              testLabel: data.defender.testLabel,
-              target: data.defender.target,
-              targetLabel: data.defender.targetLabel,
-              tn: data.defender.tn,
-              talentDoSChoice: res?.talentDoSChoice ?? null,
-              talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
-              hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
-            }
-          }
-        })
-      });
-    } else {
-      _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
-    }
+    _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
 
     data.defender.result = {
       rollTotal: res.rollTotal,

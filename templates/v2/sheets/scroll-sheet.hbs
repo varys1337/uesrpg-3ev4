@@ -115,71 +115,7 @@
             {{/if}}
 
             {{#if uiSpellcastingConfig}}
-            <div class="item-selection-container">
-                <h2>{{localize "UESRPG.Sheets.Item.SpellcastingConfiguration"}}</h2>
-                <div class="selection-container">
-                    <p class="u-text-muted u-text-sm">
-                        {{localize "UESRPG.Sheets.Item.SpellcastingConfigurationScrollHelp"}}
-                    </p>
-                    <div class="grid-container">
-                        <div>{{localize "UESRPG.Sheets.Item.EnableSpellcasting"}}</div>
-                        <div class="right-align-content">
-                            <button type="button" data-action="toggleSpellcastingEnable">
-                                {{#if uiSpellcastingConfig.enabled}}{{localize "UESRPG.Sheets.Item.Disable"}}{{else}}{{localize "UESRPG.Sheets.Item.Enable"}}{{/if}}
-                            </button>
-                        </div>
-                    </div>
-                    {{#if uiSpellcastingConfig.enabled}}
-                    <div class="grid-container">
-                        <div>{{localize "UESRPG.Sheets.Item.ChargePoolSoul"}}</div>
-                        <div class="right-align-content u-text-muted">{{localize "UESRPG.Sheets.Item.ChargePoolSoulHelp"}}</div>
-                    </div>
-                    <div class="grid-container">
-                        <div>{{localize "UESRPG.Sheets.Item.ChargeCurrentMax"}}</div>
-                        <div class="right-align-content">
-                            <input type="number" data-spellcasting-charge="value" value="{{uiSpellcastingConfig.poolValue}}" min="0" step="1" class="u-w-50" />
-                            <span>/</span>
-                            <input type="number" data-spellcasting-charge="max" value="{{uiSpellcastingConfig.poolMax}}" min="0" step="1" class="u-w-50" />
-                        </div>
-                    </div>
-                    <div class="grid-container">
-                        <div>{{localize "UESRPG.Sheets.Item.SpellSlots"}}</div>
-                        <div class="right-align-content">
-                            <button type="button" data-action="addSpellcastingSlot">{{localize "UESRPG.Sheets.Item.AddSlot"}}</button>
-                            <button type="button" data-action="editSpellcastingSlot">{{localize "UESRPG.UI.Save"}}</button>
-                        </div>
-                    </div>
-                    {{#each uiSpellcastingConfig.slots as |slot|}}
-                    <div class="grid-container" data-spellcasting-slot-id="{{slot.id}}">
-                        <div>
-                            <input type="text" data-spellcasting-field="label" value="{{slot.label}}" placeholder="{{localize "UESRPG.Sheets.Item.Label"}}" />
-                            <div class="u-text-muted u-text-xs">{{slot.spellUuid}}</div>
-                        </div>
-                        <div class="right-align-content">
-                            <input type="number" data-spellcasting-field="cost" value="{{slot.cost}}" min="0" step="1" class="u-w-50" />
-                            <input type="number" data-spellcasting-field="bindingStrength" value="{{slot.bindingStrength}}" min="0" max="10" step="1" class="u-w-50" />
-                            <select data-spellcasting-field="costMode" class="u-w-50">
-                                <option value="soul" {{#if (eq slot.costMode "soul")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.Soul"}}</option>
-                                <option value="magicka" {{#if (eq slot.costMode "magicka")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.Magicka"}}</option>
-                                <option value="none" {{#if (eq slot.costMode "none")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.NoCost"}}</option>
-                            </select>
-                            <label><input type="checkbox" data-spellcasting-field="enabled" {{checked slot.enabled}} /> {{localize "UESRPG.Sheets.Item.On"}}</label>
-                            <button type="button" data-action="pickSpellcastingSlotSpell" data-slot-id="{{slot.id}}">{{localize "UESRPG.Sheets.Item.Pick"}}</button>
-                            <button type="button" data-action="removeSpellcastingSlot" data-slot-id="{{slot.id}}">{{localize "UESRPG.UI.Remove"}}</button>
-                        </div>
-                    </div>
-                    {{/each}}
-                    {{#if uiSpellcastingConfig.canCast}}
-                    <div class="grid-container">
-                        <div>{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</div>
-                        <div class="right-align-content">
-                            <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
-                        </div>
-                    </div>
-                    {{/if}}
-                    {{/if}}
-                </div>
-            </div>
+            {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-spellcasting-config.hbs" helpKey="UESRPG.Sheets.Item.SpellcastingConfigurationScrollHelp" uiSpellcastingConfig=uiSpellcastingConfig}}
             {{/if}}
         </div>
     </div>

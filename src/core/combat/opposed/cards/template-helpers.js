@@ -5,7 +5,8 @@
  */
 
 import { formatResultSummary } from "../../../../utils/degree-roll-helper.js";
-import { t, tf } from "../../../../utils/i18n.js";
+import { maybeT, t, tf } from "../../../../utils/i18n.js";
+import { localizeHitLocation } from "../../combat-utils.js";
 
 /**
  * Format degree of success/failure for display.
@@ -54,6 +55,22 @@ function _buildBreakdownRows(tnObj) {
     const label = String(b.label ?? "Modifier");
     return `<div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:start;"><span style="overflow-wrap:anywhere; word-break:normal; text-align:left;">${label}</span><span style="white-space:nowrap; text-align:right;">${sign}${v}</span></div>`;
   }).join("");
+}
+
+function _escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function _localizeDamageType(value) {
+  const key = String(value ?? "").trim();
+  if (!key) return "";
+  const normalized = key.toLowerCase();
+  return t(`UESRPG.Labels.DAMAGE_TYPE.${normalized}`, maybeT(key, key));
 }
 
 /**
@@ -194,7 +211,7 @@ export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _s
       fus?.eligible === true && fus?.used !== true &&
       attacker.result?.isSuccess === false
     ) {
-      return `<div style="margin-top:6px;">${_btn("Follow-up Strike (1 SP)", "followup-strike", { "defender-index": 0 })}</div>`;
+      return `<div style="margin-top:6px;">${_btn(t("UESRPG.Chat.Opposed.FollowUpStrike1SP", "Follow-up Strike (1 SP)"), "followup-strike", { "defender-index": 0 })}</div>`;
     }
     return "";
   }
@@ -347,7 +364,7 @@ export function _buildResolutionDetails({ showResolutionDetails, outcome, attack
   lines.push(`<div><b>${t("UESRPG.Chat.Common.Advantage", "Advantage")}:</b> ${tf("UESRPG.Chat.Opposed.AdvantageSplit", { attacker: advA, defender: advD }, `Attacker ${advA} / Defender ${advD}`)}</div>`);
   lines.push(`<div><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefense}</div>`);
   if (Number(defender?.result?.duelingBonus ?? 0) > 0) {
-    lines.push(`<div><b>Dueling Weapon:</b> +${Number(defender.result.duelingBonus)} DoS</div>`);
+    lines.push(`<div><b>${t("UESRPG.Chat.Opposed.DuelingWeapon", "Dueling Weapon")}:</b> +${Number(defender.result.duelingBonus)} DoS</div>`);
   }
 
   return `
@@ -475,21 +492,22 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
   if (mode === "block" && damageData.blockResult) {
     const br = damageData.blockResult;
     if (br.blocked) {
-      statusBadge = `<span class="dmg-status dmg-status--blocked">\u{1F6E1} Blocked (BR ${br.blockRating}${br.shieldSplitter ? ", SS" : ""})</span>`;
+      const suffix = br.shieldSplitter ? ", SS" : "";
+      statusBadge = `<span class="dmg-status dmg-status--blocked">\u{1F6E1} ${tf("UESRPG.Chat.DamagePanel.Blocked", { br: br.blockRating, suffix }, `Blocked (BR ${br.blockRating}${suffix})`)}</span>`;
     } else if (br.isAoE) {
-      statusBadge = `<span class="dmg-status dmg-status--aoe">\u{1F6E1} AoE Blocked \u2192 ${br.reducedDamage ?? damageData.finalDamage} dmg</span>`;
+      statusBadge = `<span class="dmg-status dmg-status--aoe">\u{1F6E1} ${tf("UESRPG.Chat.DamagePanel.AoeBlocked", { damage: br.reducedDamage ?? damageData.finalDamage }, `AoE Blocked \u2192 ${br.reducedDamage ?? damageData.finalDamage} dmg`)}</span>`;
     } else {
-      statusBadge = `<span class="dmg-status dmg-status--penetrated">\u26A0 Block Penetrated (${damageData.finalDamage} &gt; BR ${br.blockRating})</span>`;
+      statusBadge = `<span class="dmg-status dmg-status--penetrated">\u26A0 ${tf("UESRPG.Chat.DamagePanel.BlockPenetrated", { damage: damageData.finalDamage, br: br.blockRating }, `Block Penetrated (${damageData.finalDamage} > BR ${br.blockRating})`)}</span>`;
     }
   }
   if (mode === "ward" && damageData.wardResult) {
     const wr = damageData.wardResult;
     if (wr.blocked) {
-      statusBadge = `<span class="dmg-status dmg-status--blocked">\u{1F6E1} Warded (BR ${wr.wardBR})</span>`;
+      statusBadge = `<span class="dmg-status dmg-status--blocked">\u{1F6E1} ${tf("UESRPG.Chat.DamagePanel.Warded", { br: wr.wardBR }, `Warded (BR ${wr.wardBR})`)}</span>`;
     } else if (wr.isAoE) {
-      statusBadge = `<span class="dmg-status dmg-status--aoe">\u{1F6E1} AoE Warded \u2192 ${wr.reducedDamage ?? damageData.finalDamage} dmg</span>`;
+      statusBadge = `<span class="dmg-status dmg-status--aoe">\u{1F6E1} ${tf("UESRPG.Chat.DamagePanel.AoeWarded", { damage: wr.reducedDamage ?? damageData.finalDamage }, `AoE Warded \u2192 ${wr.reducedDamage ?? damageData.finalDamage} dmg`)}</span>`;
     } else {
-      statusBadge = `<span class="dmg-status dmg-status--penetrated">\u26A0 Ward Penetrated (${damageData.finalDamage} &gt; BR ${wr.wardBR})</span>`;
+      statusBadge = `<span class="dmg-status dmg-status--penetrated">\u26A0 ${tf("UESRPG.Chat.DamagePanel.WardPenetrated", { damage: damageData.finalDamage, br: wr.wardBR }, `Ward Penetrated (${damageData.finalDamage} > BR ${wr.wardBR})`)}</span>`;
     }
   }
 
@@ -505,20 +523,22 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
   const damageComponents = Array.isArray(damageData.damageComponents) ? damageData.damageComponents : [];
   const componentsHtml = damageComponents.length
     ? `<div class="dmg-components">${damageComponents.map((c) => {
-      const label = String(c?.sourceLabel ?? c?.source ?? "Source");
+      const label = maybeT(c?.sourceLabel ?? c?.source, t("UESRPG.Chat.DamagePanel.Source", "Source"));
       const amount = Number(c?.amount ?? 0) || 0;
       const dtype = String(c?.damageType ?? "").trim();
-      return `<div class="dmg-component-line"><span class="dmg-component-source">${label}</span><span class="dmg-component-value"><b>${amount}</b>${dtype ? ` <span class="type-tag">${dtype}</span>` : ""}</span></div>`;
+      const dtypeLabel = dtype ? _localizeDamageType(dtype) : "";
+      return `<div class="dmg-component-line"><span class="dmg-component-source">${_escapeHtml(label)}</span><span class="dmg-component-value"><b>${amount}</b>${dtypeLabel ? ` <span class="type-tag">${_escapeHtml(dtypeLabel)}</span>` : ""}</span></div>`;
     }).join("")}</div>`
     : "";
 
   // ── Combined header row: icon + name + hit location on one line ──
+  const hitLocationDisplay = localizeHitLocation(damageData.hitLocation, t("UESRPG.Sheets.Item.HitLocation.Body", "Body"));
   const hdrRowHtml = fullyBlocked
     ? `<div class="dmg-hdr">${headerImg}</div>`
-    : `<div class="dmg-hdr" style="display:grid; grid-template-columns:${headerImg ? "auto " : ""}minmax(0,1fr) auto; gap:6px 16px; align-items:center;">${headerImg}<div class="dmg-title" style="font-weight:700;">${headerLabel}</div><div class="dmg-hitloc"><b>Hit Loc.</b> ${damageData.hitLocation ?? "Body"}</div></div>`;
+    : `<div class="dmg-hdr" style="display:grid; grid-template-columns:${headerImg ? "auto " : ""}minmax(0,1fr) auto; gap:6px 16px; align-items:center;">${headerImg}<div class="dmg-title" style="font-weight:700;">${headerLabel}</div><div class="dmg-hitloc"><b>${t("UESRPG.Chat.DamagePanel.HitLocationShort", "Hit Loc.")}</b> ${hitLocationDisplay}</div></div>`;
   const pillsHtml = pills ? `<div class="val-pills">${pills}</div>` : "";
   const metadataHtml = metadataRows.length
-    ? `<div class="dmg-meta" style="display:grid; gap:2px; margin:6px 0 2px 0;">${metadataRows.map((row) => `<div><b>${foundry.utils.escapeHTML(String(row.label ?? "Info"))}:</b> ${foundry.utils.escapeHTML(String(row.value ?? ""))}</div>`).join("")}</div>`
+    ? `<div class="dmg-meta" style="display:grid; gap:2px; margin:6px 0 2px 0;">${metadataRows.map((row) => `<div><b>${_escapeHtml(maybeT(row.label, t("UESRPG.Chat.DamagePanel.Info", "Info")))}:</b> ${_escapeHtml(maybeT(row.value, row.value ?? ""))}</div>`).join("")}</div>`
     : "";
   const damageDisplayHtml = fullyBlocked ? "" : `
     <div class="dmg-kv">
@@ -551,7 +571,7 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
     ? markers.filter((marker) => marker && typeof marker === "object")
     : [];
   const markerHtml = visibleMarkers.length
-    ? visibleMarkers.map((marker) => `<span class="damage-applied-label">${String.raw`\u2713`} ${foundry.utils.escapeHTML(String(marker.label ?? "Advantage Resolved"))}</span>`).join("")
+    ? visibleMarkers.map((marker) => `<span class="damage-applied-label">${String.raw`\u2713`} ${_escapeHtml(maybeT(marker.label, t("UESRPG.Chat.Opposed.AdvantageResolved", "Advantage Resolved")))}</span>`).join("")
     : "";
 
   let actionSection = "";

@@ -54,13 +54,14 @@ export function registerSystemDeferredTasks() {
     await runTokenHudStatusUpgradeMaintenance();
   });
 
+  scheduleDeferredReadyTask("active-effect-integrity", async () => {
+    const { runActiveEffectIntegrityNormalization } = await import("../../core/active-effects/integrity.js");
+    await runActiveEffectIntegrityNormalization();
+  });
+
   scheduleDeferredReadyTask("perf-api-init", async () => {
     const { initializePerfApi } = await import("../../utils/perf-tracker.js");
     initializePerfApi();
   });
 
-  scheduleDeferredReadyTask("startup-audit", async () => {
-    const { runStartupAuditIfEnabled } = await import("./run-world-ready-maintenance.js");
-    await runStartupAuditIfEnabled();
-  });
 }

@@ -17,7 +17,8 @@ import {
   _allDefendersCommitted,
   _getBankCommitState,
   _cleanupAutoRollContext,
-  _anyActiveGMOnline
+  _anyActiveGMOnline,
+  reconcileBankedAutoRollRequest
 } from "./state.js";
 import { verifyAutoRollClaim } from "../../../opposed/shared/auto-roll-claim.js";
 import { perfStart, perfEnd } from "../../../../utils/debug.js";
@@ -40,9 +41,10 @@ import { resolveActorFromUuidSync } from "../../../../utils/uuid-cache.js";
  * 
  * @param {ChatMessage} message - The opposed test chat message.
  * @param {Object} workflow - The workflow instance (for calling _autoRollBanked).
+ * @param {Function} _updateCard - Card update function (injected dependency).
  * @returns {Promise<void>}
  */
-export async function maybeAutoRollBanked(message, workflow) {
+export async function maybeAutoRollBanked(message, workflow, _updateCard) {
   try {
     if (!message) return;
 
@@ -53,11 +55,14 @@ export async function maybeAutoRollBanked(message, workflow) {
     const data = foundry.utils.deepClone(opposed);
     _ensureBankedScaffold(data);
 
-    // Only proceed when a roll has been requested and has not started.
-    if (!data?.context?.autoRollRequested) return;
     if (data?.context?.autoRollStarted) return;
 
-    const defenders = _getDefenderEntries(data);
+    const reconciled = reconcileBankedAutoRollRequest(data);
+    if (!reconciled.eligible) return;
+    if (reconciled.requested && typeof _updateCard === "function") {
+      await _updateCard(message, data);
+    }
+
     // For banking: require ALL defenders to be committed before rolling
     const allCommitted = _allDefendersCommitted(data);
     if (!allCommitted) return;
@@ -68,7 +73,7 @@ export async function maybeAutoRollBanked(message, workflow) {
     if (activeGM && game.user.id !== activeGM.id) return;
     if (!game.user.isGM) return;
 
-    await autoRollBanked(message.id, { trigger: "hook" }, workflow);
+    await autoRollBanked(message.id, { trigger: "hook" }, workflow, _updateCard);
   } catch (err) {
     console.error("UESRPG | maybeAutoRollBanked failed", err);
   }
@@ -101,19 +106,16 @@ export async function maybeAutoRollBankedNoGM(message, workflow, _updateCard) {
     const data = foundry.utils.deepClone(opposed);
     _ensureBankedScaffold(data);
 
+    const reconciled = reconcileBankedAutoRollRequest(data);
+    if (!reconciled.eligible) return;
+    if (reconciled.requested) {
+      await _updateCard(message, data);
+    }
+
     const defenders = _getDefenderEntries(data);
     // For banking: require ALL defenders to be committed before rolling
     const allCommitted = _allDefendersCommitted(data);
     if (!allCommitted) return;
-
-    data.context = data.context ?? {};
-    if (!data.context.autoRollRequested) {
-      // Compatibility: older cards may not set this in commit handlers.
-      data.context.autoRollRequested = true;
-      data.context.autoRollRequestedAt = Date.now();
-      data.context.autoRollRequestedBy = game.user.id;
-      await _updateCard(message, data);
-    }
 
     const userId = game.user?.id ?? null;
     if (!userId) return;

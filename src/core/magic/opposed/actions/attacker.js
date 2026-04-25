@@ -8,15 +8,16 @@
 
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
-import { applySpellRestraintRefund, canActorCastSpell, computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, getSpellCastingSchool, getSpellScalingLevels, isHealingSpell } from "../../magicka-utils.js";
+import { applySpellRestraintRefund, canActorCastSpell, computeMagicCastingTN, computeSpellAttemptMagickaCost, consumeSpellMagicka, getKnownSpellScalingLevels, getSpellCastingSchool, getSpellCost, getSpellLevel, isHealingSpell } from "../../magicka-utils.js";
 import { shouldBackfire, triggerBackfire } from "../../backfire.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
 import { AttackTracker } from "../../../combat/attack-tracker.js";
 import { classifySpellForRouting, emitCastResolved } from "../../spell-runtime.js";
 import { ensureBankedScaffold, getDefenderEntries } from "../schema.js";
 import { SKILL_DIFFICULTIES } from "../../../skills/skill-tn.js";
-import { spellRequiresOriginAE, createOriginAE, registerLinkedEntity } from "../../effects/origin-effect.js";
+import { spellRequiresOriginAE, createOriginAE, registerLinkedEntity, replaceEnchantmentUpkeepOrigin } from "../../effects/origin-effect.js";
 import { isCharacteristicDefense, computeCharacteristicDefenseTN } from "../../characteristic-defense-service.js";
+import { buildMagicCastContext } from "../cast-context.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { FLAG_SCOPE } from "../../../system/namespace.js";
 import { getActorFromResolvedDocument, resolveUuidSync } from "../../../../utils/uuid-cache.js";
@@ -26,11 +27,13 @@ import { commitLaneToFreshCardState } from "../../../opposed/shared/fresh-commit
 import { resolveSpellProfile } from "../../spell-profile.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import {
+  buildAutomaticEnchantmentCastResult,
   normalizeCastSourceCostMode,
   resolveItemContextFromCastSource,
   getItemSoulPoolSnapshot,
 } from "../cast-source.js";
 import { postMagicOpposedSubRoll } from "../subrolls.js";
+import { resolveCombatantForActor } from "../../../../utils/document-resolution.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -40,6 +43,29 @@ function _ignoreTraining(data = {}) {
 
 function _ignoreActionPoints(data = {}) {
   return data?.attacker?.ignoreActionPoints === true || data?.attacker?.spellOptions?.ignoreActionPoints === true;
+}
+
+function _buildMagicAttackTrackerContext(attacker, attackerData = null, source = "magic-opposed-action", extras = {}) {
+  const tokenUuid = String(attackerData?.tokenUuid ?? attacker?.token?.document?.uuid ?? attacker?.token?.uuid ?? "").trim();
+  const combatantId = String(
+    attackerData?.combatantId
+    ?? extras?.combatantId
+    ?? resolveCombatantForActor(game?.combat ?? null, attacker, {
+      tokenUuid: tokenUuid || null,
+      actorUuid: attacker?.uuid ?? null,
+      combatId: game?.combat?.id ?? null
+    })?.id
+    ?? ""
+  ).trim();
+  return {
+    combatantId: combatantId || null,
+    tokenUuid: tokenUuid || null,
+    source,
+    sourceTag: source,
+    attackTraceId: String(extras?.attackTraceId ?? "").trim() || null,
+    attackMode: "magic",
+    phase: String(extras?.phase ?? "").trim() || null
+  };
 }
 
 /** @private — Clone current magic opposed state from a live message for lane-commit merging. */
@@ -107,24 +133,30 @@ function _resolveItemContextFromState(data = {}) {
   return resolveItemContextFromCastSource(castSource, itemCtx);
 }
 
+function _getEnchantmentConfiguredCost(castSource = null) {
+  return Math.max(0, Number(castSource?.cost ?? 0) || 0);
+}
+
 function _resolveCastResourceSpec(attacker, data, spell) {
   const castSource = data?.attacker?.castSource ?? null;
   if (castSource?.type !== "enchantment") {
+    const costInfo = computeSpellAttemptMagickaCost(attacker, spell, data?.attacker?.spellOptions ?? {});
     return {
       type: "normal",
       mode: "magicka",
-      cost: Number(computeSpellAttemptMagickaCost(attacker, spell, data?.attacker?.spellOptions ?? {})?.cost ?? 0) || 0,
+      cost: Number(costInfo?.cost ?? 0) || 0,
+      costSnapshot: costInfo?.costSnapshot ?? null,
       castSource,
       itemCtx: null
     };
   }
   const mode = normalizeCastSourceCostMode(castSource);
   const itemCtx = _resolveItemContextFromState(data);
-  if (mode === "soul") {
+  if (mode === "soul" || mode === "magicka") {
     return {
       type: "enchantment",
       mode,
-      cost: Math.max(0, Number(castSource?.cost ?? 0) || 0),
+      cost: _getEnchantmentConfiguredCost(castSource),
       castSource,
       itemCtx
     };
@@ -145,15 +177,22 @@ function _applyBindingStrengthFloorIfNeeded(data, result) {
   if (current < floor) result.degree = floor;
 }
 
-async function _setEnchantmentUpkeepPointerIfNeeded(data, spell) {
+function _isAutomaticEnchantmentCast(data = {}) {
+  const castSource = data?.attacker?.castSource ?? null;
+  return castSource?.type === "enchantment" && castSource?.skipCastingTest !== false;
+}
+
+async function _setEnchantmentUpkeepPointerIfNeeded(attacker, data, spell, originEffect = null) {
   if (!spell?.system?.hasUpkeep) return;
   const itemCtx = _resolveItemContextFromState(data);
   if (!itemCtx?.item) return;
   if (!itemCtx?.slotId) return;
-  const upkeepPath = itemCtx.sourceLane === "extension"
-    ? `flags.${_FLAG_NS}.itemSpellcasting.activeUpkeepSlotId`
-    : `flags.${_FLAG_NS}.enchanting.cast.activeUpkeepSpellId`;
-  await requestUpdateDocument(itemCtx.item, { [upkeepPath]: itemCtx.slotId });
+  await replaceEnchantmentUpkeepOrigin(attacker ?? null, {
+    item: itemCtx.item,
+    sourceLane: itemCtx.sourceLane,
+    slotId: itemCtx.slotId,
+    excludeOriginUuid: originEffect?.uuid ?? originEffect?.id ?? ""
+  });
 }
 
 function _buildCommitSpellPool(attacker, castActionType = "primary") {
@@ -211,8 +250,8 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
 
   const spellOptions = spells.map((s) => {
     const school = String(s?.system?.school ?? "");
-    const level = Number(s?.system?.level ?? 1) || 1;
-    const cost = Number(s?.system?.cost ?? 0) || 0;
+    const level = Number(getSpellLevel(s) ?? 1) || 1;
+    const cost = Number(getSpellCost(s, level) ?? 0) || 0;
     return `<option value="${String(s.id)}">${s.name} (${school} ${t("UESRPG.Dialogs.SpellOptions.LevelAbbrev", "L")}${level}, ${cost} MP)</option>`;
   }).join("");
 
@@ -278,7 +317,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
               return null;
             }
 
-            const baseLevel = Number(selectedSpell?.system?.level ?? 1) || 1;
+            const baseLevel = Number(getSpellLevel(selectedSpell) ?? 1) || 1;
             const levelRaw = String(root?.querySelector('select[name="castLevel"]')?.value ?? "base");
             const castLevel = (levelRaw !== "base" && Number.isFinite(Number(levelRaw))) ? Number(levelRaw) : null;
             const hasOverload = Boolean(selectedSpell?.system?.hasOverload);
@@ -300,7 +339,8 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
                   ? (Number(resolveSpellProfile(selectedSpell, attacker, {
                       level: castLevel,
                       isRestrained: true,
-                      isOverloaded: false
+                      isOverloaded: false,
+                      useOvercharge: Boolean(root?.querySelector('input[name="overcharge"]')?.checked)
                     })?.cost?.effectiveRestraintReduction ?? 0) || 0)
                   : 0
               }
@@ -328,9 +368,9 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
           const selectedSpell = byId.get(String(spellSelect?.value ?? "")) ?? spells[0];
           if (!selectedSpell) return;
           
-          const baseCost = Number(selectedSpell.system?.cost ?? 0) || 0;
-          const baseLevel = Number(selectedSpell.system?.level ?? 1) || 1;
-          const rawScalingLevels = getSpellScalingLevels(selectedSpell);
+          const rawScalingLevels = getKnownSpellScalingLevels(selectedSpell);
+          const baseLevel = Number(rawScalingLevels[0]?.level ?? getSpellLevel(selectedSpell)) || 1;
+          const baseCost = Number(getSpellCost(selectedSpell, baseLevel) ?? 0) || 0;
           const restraintLabel = root?.querySelector('#ues-restrain-group span');
           const restraintProfile = resolveSpellProfile(selectedSpell, attacker, {
             isRestrained: true,
@@ -354,7 +394,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
               validScalingLevels.push({
                 level: lvl,
                 cost: Number(entry.cost ?? baseCost) || baseCost,
-                damageFormula: String(entry.damageFormula || ""),
+                spellStrengthFormula: String(entry.spellStrengthFormula || ""),
                 description: String(entry.description || "")
               });
             }
@@ -365,13 +405,11 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
           // Build dropdown options
           if (castLevelSelect) {
             const options = [];
-            options.push(`<option value="base">${tf("UESRPG.Dialogs.SpellOptions.BaseLevelOption", { level: baseLevel, cost: baseCost }, `Base (Level ${baseLevel}, ${baseCost} MP)`)}</option>`);
-            
             for (let i = 0; i < validScalingLevels.length; i++) {
               const entry = validScalingLevels[i];
-              const dmgText = entry.damageFormula ? `, ${entry.damageFormula}` : "";
+              const strengthText = entry.spellStrengthFormula ? `, SS ${entry.spellStrengthFormula}` : ", SS WB";
               const descText = entry.description ? ` — ${entry.description}` : "";
-              options.push(`<option value="${entry.level}" data-scaling-index="${i}">${tf("UESRPG.Dialogs.SpellOptions.LevelOption", { level: entry.level, cost: entry.cost, extra: `${dmgText}${descText}` }, `Level ${entry.level} (${entry.cost} MP${dmgText})${descText}`)}</option>`);
+              options.push(`<option value="${entry.level}" data-scaling-index="${i}" ${i === 0 ? "selected" : ""}>${tf("UESRPG.Dialogs.SpellOptions.LevelOption", { level: entry.level, cost: entry.cost, extra: `${strengthText}${descText}` }, `Level ${entry.level} (${entry.cost} MP${strengthText})${descText}`)}</option>`);
             }
             
             castLevelSelect.innerHTML = options.join("");
@@ -452,8 +490,15 @@ export async function handleAttackerCommit(ctx) {
     // Commit-time preflight: prevent dead commits that would certainly fail on roll.
     const spellClassification = classifySpellForRouting(spell);
     if (spellClassification.isAttack && game.combat) {
-      if (AttackTracker.hasExceededLimit(attacker)) {
-        ui.notifications.warn(AttackTracker.getLimitWarning(attacker) || "Attack limit reached for this round.");
+      const trackerContext = _buildMagicAttackTrackerContext(attacker, data?.attacker, "magic-opposed-commit", {
+        attackTraceId: data?.context?.attackTraceId ?? null,
+        phase: "commit-gate"
+      });
+      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+        ui.notifications.warn(
+          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+            || "Attack limit reached for this round."
+        );
         return;
       }
     }
@@ -491,15 +536,18 @@ export async function handleAttackerCommit(ctx) {
     data.attacker.spellUuid = spell.uuid;
     data.attacker.spellName = spell.name;
     data.attacker.spellSchool = spell.system?.school ?? "";
-    data.attacker.spellLevel = Number(spell.system?.level ?? 1);
-    data.attacker.spellCost = Number(spell.system?.cost ?? 0);
+    const selectedCastLevel = spellOptions?.castLevel ?? null;
+    data.attacker.spellLevel = Number(getSpellLevel(spell) ?? 1) || 1;
+    data.attacker.spellCost = Number(getSpellCost(spell, selectedCastLevel) ?? 0) || 0;
     data.attacker.spellOptions = spellOptions;
     data.attacker.tn = tn;
     data.attacker.pendingSpellChoice = false;
     data.attacker.preferredSpellUuid = spell.uuid;
 
     data.context = data.context ?? {};
-    data.context.healingDirect = isHealingSpell(spell);
+    const isCharDefenseSpell = isCharacteristicDefense(spell);
+    data.context.healingDirect = isHealingSpell(spell) && Boolean(spell?.system?.isDirect) && !isCharDefenseSpell;
+    data.context.noDefenseUnopposed = Boolean(data.context.healingDirect) || (Boolean(spell?.system?.isDirect) && !isCharDefenseSpell);
 
     // When the deferred spell uses characteristic defense, tag all defender
     // entries so the card shows the correct characteristic commit/roll buttons.
@@ -519,7 +567,10 @@ export async function handleAttackerCommit(ctx) {
         // Pre-calculate TN for card display using canonical TN computation
         const defActor = def?.actorUuid ? await fromUuid(def.actorUuid) : null;
         if (defActor) {
-          const tnData = computeCharacteristicDefenseTN(defActor, spell);
+          const tnData = computeCharacteristicDefenseTN(defActor, spell, {
+            attacker: data?.attacker ?? {},
+            castContext: buildMagicCastContext(data?.attacker ?? {}, spell, { actor: attacker })
+          });
           if (tnData) {
             def.tn = {
               finalTN: tnData.finalTN,
@@ -590,8 +641,15 @@ export async function handleAttackerRoll(ctx) {
     // Preflight: gate attack limit BEFORE any resource consumption.
     const spellClassification = classifySpellForRouting(spell);
     if (spellClassification.isAttack && game.combat) {
-      if (AttackTracker.hasExceededLimit(attacker)) {
-        ui.notifications.warn(AttackTracker.getLimitWarning(attacker) || "Attack limit reached for this round.");
+      const trackerContext = _buildMagicAttackTrackerContext(attacker, workingData?.attacker, "magic-opposed-roll", {
+        attackTraceId: workingData?.context?.attackTraceId ?? null,
+        phase: "roll-gate"
+      });
+      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+        ui.notifications.warn(
+          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+            || "Attack limit reached for this round."
+        );
         return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
       }
     }
@@ -606,6 +664,10 @@ export async function handleAttackerRoll(ctx) {
     }
 
     const resourceSpec = _resolveCastResourceSpec(attacker, workingData, spell);
+    if (resourceSpec?.type === "enchantment" && !resourceSpec?.itemCtx?.item) {
+      ui.notifications.warn("Stored enchantment source is missing its item context.");
+      return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+    }
     if (_isMagickaCommitRequired(resourceSpec)) {
       const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
       if (currentMagicka < Number(resourceSpec?.cost ?? 0)) {
@@ -630,7 +692,13 @@ export async function handleAttackerRoll(ctx) {
 
     if (spellClassification.isAttack) {
       try {
-        await AttackTracker.incrementAttacks(attacker);
+        await AttackTracker.incrementAttacks(
+          attacker,
+          _buildMagicAttackTrackerContext(attacker, workingData?.attacker, "magic-opposed-action", {
+            attackTraceId: workingData?.context?.attackTraceId ?? null,
+            phase: "roll-increment"
+          })
+        );
       } catch (err) {
         console.error("UESRPG | Failed to increment attack counter", { actor: attacker?.uuid, err });
       }
@@ -658,11 +726,33 @@ export async function handleAttackerRoll(ctx) {
       }
       magickaSpend.consumed = Number(resourceSpec?.cost ?? 0) || 0;
       magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+    } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "magicka") {
+      const currentMagicka = Number(attacker?.system?.magicka?.value ?? 0) || 0;
+      const fixedCost = Math.max(0, Number(resourceSpec?.cost ?? 0) || 0);
+      const nextMagicka = Math.max(0, currentMagicka - fixedCost);
+      const ok = currentMagicka >= fixedCost
+        ? await requestUpdateDocument(attacker, { "system.magicka.value": nextMagicka })
+        : false;
+      if (!ok) {
+        if (!ignoreAP) {
+          try {
+            await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
+          } catch (_e) {
+            // best-effort
+          }
+        }
+        ui.notifications.warn("Failed to spend Magicka for enchanted item.");
+        return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
+      }
+      magickaSpend = { ok: true, consumed: fixedCost, remaining: nextMagicka, refund: 0, source: "enchantmentMagicka" };
     } else if (resourceSpec?.type === "enchantment" && resourceSpec?.mode === "none") {
       magickaSpend.consumed = 0;
       magickaSpend.remaining = Number(attacker?.system?.magicka?.value ?? 0) || 0;
     } else {
-      magickaSpend = await consumeSpellMagicka(attacker, spell, workingData.attacker?.spellOptions ?? {});
+      magickaSpend = await consumeSpellMagicka(attacker, spell, {
+        ...(workingData.attacker?.spellOptions ?? {}),
+        costSnapshot: resourceSpec?.costSnapshot ?? null
+      });
       if (!magickaSpend?.ok) {
         if (!ignoreAP) {
           try {
@@ -693,30 +783,37 @@ export async function handleAttackerRoll(ctx) {
     workingData.attacker.tn = castingTn;
 
     // Roll casting test
-    const result = await doTestRoll(attacker, {
-      target: Number(castingTn.finalTN ?? 0) || 0,
-      allowLucky: true,
-      allowUnlucky: true
-    });
+    const automaticEnchantmentCast = _isAutomaticEnchantmentCast(workingData);
+    const result = automaticEnchantmentCast
+      ? buildAutomaticEnchantmentCastResult(resourceSpec?.castSource ?? workingData.attacker?.castSource ?? null)
+      : await doTestRoll(attacker, {
+          target: Number(castingTn.finalTN ?? 0) || 0,
+          allowLucky: true,
+          allowUnlucky: true
+        });
     _applyBindingStrengthFloorIfNeeded(workingData, result);
 
-    await postMagicOpposedSubRoll({
+    if (!result?.noRoll && result?.roll) {
+      await postMagicOpposedSubRoll({
     roll: result.roll,
     actor: attacker,
     flavor: `<b>${spell.name}</b> — Casting Test`,
     parentMessageId: message.id,
     stage: "attacker"
   });
+    }
 
     // Backfire (RAW / system rules)
-    const needsBackfire = shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
+    const needsBackfire = automaticEnchantmentCast
+      ? false
+      : shouldBackfire(spell, attacker, result.isCriticalFailure, !result.isSuccess);
     if (needsBackfire) {
       await triggerBackfire(attacker, spell);
     }
 
     // RAW: Spell Restraint reduces Magicka cost only on a successful spellcast.
     try {
-      const refundInfo = (resourceSpec?.type === "enchantment" && resourceSpec?.mode !== "magicka")
+      const refundInfo = resourceSpec?.type === "enchantment"
         ? { finalCost: Number(magickaSpend?.consumed ?? 0) || 0, refund: 0, breakdown: [] }
         : await applySpellRestraintRefund(attacker, spell, workingData.attacker?.spellOptions ?? {}, result, magickaSpend);
       if (refundInfo?.refund > 0) {
@@ -743,16 +840,19 @@ export async function handleAttackerRoll(ctx) {
     } catch (_e) { /* no-op */ }
 
     // Create Origin AE on the caster for persistent spells (only on success)
+    let originAE = null;
     if (result.isSuccess && spellRequiresOriginAE(spell)) {
       try {
         const defUuids = defenders.map((d) => d?.actorUuid).filter(Boolean);
-        const originAE = await createOriginAE(attacker, spell, {
+        originAE = await createOriginAE(attacker, spell, {
           costPaid: Number(workingData.attacker.mpSpent ?? magickaSpend?.consumed ?? 0) || 0,
           scalingChoices: (workingData.attacker?.spellOptions?.castLevel) ? { level: workingData.attacker.spellOptions.castLevel } : null,
           spellOptions: workingData.attacker?.spellOptions ?? {},
           targetUuids: defUuids,
           castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
           castSource: workingData.attacker?.castSource ?? null,
+          itemCastContext: workingData?.context?.itemCastContext ?? null,
+          magickaSpend: foundry.utils.deepClone(magickaSpend ?? null),
           casterTokenUuid: workingData.attacker?.tokenUuid ?? null
         });
 
@@ -785,7 +885,7 @@ export async function handleAttackerRoll(ctx) {
     workingData.attacker.result = result;
     workingData.attacker.backfire = needsBackfire;
     if (result.isSuccess) {
-      await _setEnchantmentUpkeepPointerIfNeeded(workingData, spell);
+      await _setEnchantmentUpkeepPointerIfNeeded(attacker, workingData, spell, originAE);
     }
 
   // Direct and healing spells skip the standard Block/Evade/Ward defense step
@@ -794,7 +894,7 @@ export async function handleAttackerRoll(ctx) {
   // (either via the chat card button or automatically in banked mode).
     workingData.context = workingData.context ?? {};
     workingData.context.attackerRollInFlight = null;
-    const directNoDefense = Boolean(workingData.context?.healingDirect) || Boolean(spell?.system?.isDirect);
+    const directNoDefense = Boolean(workingData.context?.healingDirect) || (Boolean(spell?.system?.isDirect) && !isCharacteristicDefense(spell));
     if (directNoDefense) {
       for (const def of defenders) {
       def.noDefense = true;
@@ -802,7 +902,17 @@ export async function handleAttackerRoll(ctx) {
       def.tn = def.tn ?? null;
       def.result = def.result ?? { rollTotal: 0, isSuccess: false, degree: 0, isCriticalSuccess: false, isCriticalFailure: false };
       }
+      workingData.context.noDefenseUnopposed = true;
       workingData.context.phase = "resolved";
+      for (let i = 0; i < defenders.length; i += 1) {
+        const defActor = ctx.resolveActor(defenders[i]?.actorUuid);
+        if (!defActor) continue;
+        await workflow._resolveOutcome(message, workingData, attacker, defActor, { defenderIndex: i, batchedUpdate, spell });
+      }
+      return workingData;
+    }
+
+    if (!result.isSuccess) {
       for (let i = 0; i < defenders.length; i += 1) {
         const defActor = ctx.resolveActor(defenders[i]?.actorUuid);
         if (!defActor) continue;

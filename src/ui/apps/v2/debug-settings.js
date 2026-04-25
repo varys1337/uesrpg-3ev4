@@ -21,6 +21,15 @@ function _settingExists(key) {
   }
 }
 
+function _readSettingValue(key, fallback = null) {
+  try {
+    if (!_settingExists(key)) return fallback;
+    return game.settings.get(NAMESPACE, key);
+  } catch (_e) {
+    return fallback;
+  }
+}
+
 export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
     id: "uesrpg-debug-settings",

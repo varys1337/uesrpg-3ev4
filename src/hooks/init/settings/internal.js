@@ -41,25 +41,6 @@ export function registerInternalSettings() {
     type: Boolean,
   });
 
-  // Startup migration gate (manual-first default).
-  _reg("autoRunMigrationsOnStartup", {
-    name: "Auto-Run Migrations on Startup",
-    hint: "When enabled, migrations run automatically on GM world startup.",
-    scope: "world",
-    config: false,
-    default: false,
-    type: Boolean,
-  });
-
-  _reg("enableTypeDataModels", {
-    name: "Enable TypeDataModels",
-    hint: "Enables conservative Actor and Item TypeDataModel registration for v14 runtime validation.",
-    scope: "world",
-    config: false,
-    default: false,
-    type: Boolean,
-  });
-
   // Template optimization setting
   _reg("templateOptimization", {
     name: "Template Optimization",

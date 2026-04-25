@@ -26,7 +26,7 @@ import {
 } from "./reach-visualizer-config.js";
 import { setLastMeleeWeaponForActor } from "./reach-visualizer-state.js";
 import { getActiveMeleeWeapon } from "./reach-visualizer-weapons.js";
-import { computeSquareGridOutline, computeHexGridOutline, measureGridDistanceUnits } from "./reach-visualizer-geometry.js";
+import { computeSquareGridOutline, computeHexGridOutline } from "./reach-visualizer-geometry.js";
 import {
   drawDashedCircle,
   drawSolidGridSegments,
@@ -48,8 +48,6 @@ let _hoveredToken = null;
 let _debouncedRedraw = null;
 let _hooksRegistered = false;
 let _pendingOverlayWork = null;
-let _lastControlledTokenIds = new Set();
-let _lastTargetedTokenIds = new Set();
 
 /** @type {Map<string, {container: PIXI.Container, maxG: PIXI.Graphics, minG: PIXI.Graphics, label?: PIXI.Text, distLabel?: PIXI.Text, lastKey?: string, gridCache?: {max?: any, min?: any}}>} */
 const _tokenOverlays = new Map();
@@ -112,24 +110,6 @@ function _isHexGrid() {
   } catch (_e) {
     return (canvas?.grid?.constructor?.name ?? "").toLowerCase().includes("hex");
   }
-}
-
-function _getElevationUnits(token) {
-  const e = token?.document?.elevation;
-  const n = Number(e);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function _measure3dDistanceUnits(fromToken, toToken) {
-  const a = fromToken?.center;
-  const b = toToken?.center;
-  if (!a || !b) return 0;
-
-  const horizontal = measureGridDistanceUnits(a, b);
-  if (!_settings.includeElevation) return horizontal;
-
-  const dz = _getElevationUnits(toToken) - _getElevationUnits(fromToken);
-  return Math.sqrt((horizontal * horizontal) + (dz * dz));
 }
 
 function _getOverlayContainer() {
@@ -312,14 +292,6 @@ function _shouldShowEngagementLabel(token) {
 
   const allowedDispositions = _collectViewerDispositions(user);
   return allowedDispositions.has(disp);
-}
-
-function _currentControlledTokenIds() {
-  return new Set((canvas?.tokens?.controlled ?? []).map((token) => String(token?.id ?? "")).filter(Boolean));
-}
-
-function _currentTargetedTokenIds() {
-  return new Set(Array.from(game.user?.targets ?? []).map((token) => String(token?.id ?? "")).filter(Boolean));
 }
 
 function _mergeTokenIdSet(target, values) {
@@ -510,32 +482,20 @@ function _positionOverlay(token, entry) {
 }
 
 function _updateLabels(token, entry, bounds) {
-  const units = _getSceneUnitsLabel();
-
   if (entry.label) {
     if (isEngagementFlankingHomebrewEnabled()) {
       const es = getEngagementScore(token.actor);
       entry.label.text = `ES ${es}`;
-      entry.label.visible = Boolean(_settings.showLabel && _shouldShowEngagementLabel(token));
+      entry.label.visible = Boolean(_shouldShowEngagementLabel(token));
     } else {
-      entry.label.text = bounds.max > 0 ? `${bounds.max} ${units}`.trim() : "";
-      entry.label.visible = Boolean(_settings.showLabel && bounds.max > 0);
+      entry.label.text = "";
+      entry.label.visible = false;
     }
   }
 
   if (entry.distLabel) {
-    // Only show when exactly one target and the token is controlled (matches prior behavior).
-    const controlled = Boolean(token?.controlled);
-    const targets = Array.from(game.user?.targets ?? []);
-    if (!_settings.showTargetDistance || !controlled || targets.length !== 1) {
-      entry.distLabel.text = "";
-      entry.distLabel.visible = false;
-    } else {
-      const target = targets[0];
-      const d = _measure3dDistanceUnits(token, target);
-      entry.distLabel.text = `${Math.round(d * 10) / 10} ${units}`.trim();
-      entry.distLabel.visible = true;
-    }
+    entry.distLabel.text = "";
+    entry.distLabel.visible = false;
   }
 }
 
@@ -730,8 +690,6 @@ function _registerHooks() {
 
   const debounce = foundry?.utils?.debounce;
   _pendingOverlayWork = _createOverlayWork();
-  _lastControlledTokenIds = _currentControlledTokenIds();
-  _lastTargetedTokenIds = _currentTargetedTokenIds();
   _debouncedRedraw = (typeof debounce === "function")
     ? debounce(() => redrawReachOverlays(_consumeReachOverlayWork()), 25)
     : (() => redrawReachOverlays(_consumeReachOverlayWork()));
@@ -746,8 +704,6 @@ function _registerHooks() {
   Hooks.on("canvasTearDown", () => {
     _destroyOverlayContainer();
     _pendingOverlayWork = _createOverlayWork();
-    _lastControlledTokenIds = new Set();
-    _lastTargetedTokenIds = new Set();
   });
 
   Hooks.on("hoverToken", (token, hovered) => {
@@ -777,15 +733,10 @@ function _registerHooks() {
   Hooks.on("updateToken", (doc, _changes, _opts, _userId) => {
     if (!_enabled || !_settings.enabled) return;
     const tokenId = String(doc?.id ?? "").trim();
-    const related = new Set([tokenId]);
-    if (_settings.showTargetDistance) {
-      _mergeTokenIdSet(related, _currentControlledTokenIds());
-      _mergeTokenIdSet(related, _currentTargetedTokenIds());
-    }
     _queueReachOverlayWork({
       reason: "updateToken",
       geometryTokenIds: [tokenId],
-      labelTokenIds: Array.from(related),
+      labelTokenIds: [tokenId],
     });
     _debouncedRedraw();
   });
@@ -821,28 +772,6 @@ function _registerHooks() {
       }
     } catch (_e) {
       // no-op
-    }
-  });
-
-  Hooks.on("controlToken", () => {
-    if (!_enabled || !_settings.enabled) return;
-    const nextControlled = _currentControlledTokenIds();
-    const changed = new Set([..._lastControlledTokenIds, ...nextControlled, ..._currentTargetedTokenIds()]);
-    _lastControlledTokenIds = nextControlled;
-    if (_settings.showTargetDistance) {
-      _queueReachOverlayWork({ reason: "controlToken", labelTokenIds: Array.from(changed) });
-      _debouncedRedraw();
-    }
-  });
-
-  Hooks.on("targetToken", () => {
-    if (!_enabled || !_settings.enabled) return;
-    const nextTargets = _currentTargetedTokenIds();
-    const changed = new Set([..._lastTargetedTokenIds, ...nextTargets, ..._currentControlledTokenIds()]);
-    _lastTargetedTokenIds = nextTargets;
-    if (_settings.showTargetDistance) {
-      _queueReachOverlayWork({ reason: "targetToken", labelTokenIds: Array.from(changed) });
-      _debouncedRedraw();
     }
   });
 
@@ -926,16 +855,17 @@ function _registerHooks() {
 /* Registration                                 */
 /* -------------------------------------------- */
 
-export function registerReachVisualizer() {
-  _registerHooks();
-  applySettings();
-
-  // Public API
-  game.uesrpg = game.uesrpg || {};
-  game.uesrpg.reachVisualizer = {
+export function buildReachVisualizerApi() {
+  return {
     toggle: toggleReachVisualizer,
     applySettings,
     redraw: redrawReachOverlays,
     get settings() { return _settings; },
   };
+}
+
+export function registerReachVisualizer() {
+  _registerHooks();
+  applySettings();
+  return buildReachVisualizerApi();
 }

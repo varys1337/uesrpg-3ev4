@@ -2,11 +2,11 @@
 <header class="item-compact-header">
     <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
     <div class="item-header-fields">
-        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
         <div class="item-stats-row">
             <div class="item-stat">
                 <input type="number" name="system.enc" value="{{item.system.enc}}"/>
-                <span class="item-stat-label">ENC</span>
+                <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.ENC"}}</span>
             </div>
             <div class="item-stat">
                 <div class="item-charge-row">
@@ -22,11 +22,11 @@
                         <input type="number" name="system.container_enc.max" value="0"/>
                     {{/if}}
                 </div>
-                <span class="item-stat-label">Capacity</span>
+                <span class="item-stat-label">{{localize "UESRPG.Sheets.Container.Capacity"}}</span>
             </div>
             <div class="item-stat">
                 <input type="number" name="system.price" value="{{item.system.price}}"/>
-                <span class="item-stat-label">Price</span>
+                <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Price"}}</span>
             </div>
         </div>
     </div>
@@ -34,8 +34,8 @@
 
 {{!-- Sheet Tab Navigation --}}
 <nav class="sheet-tabs tabs" data-group="primary">
-    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Contents</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">{{localize "UESRPG.Sheets.Container.Contents"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
 </nav>
 
     {{!-- Sheet Body --}}
@@ -50,16 +50,16 @@
             <div class="tab" data-group="primary" data-tab="attributes">
                 <div class="attribute-tab-container">
                     <div class="item-selection-container">
-                        <h2>Contents</h2>
+                        <h2>{{localize "UESRPG.Sheets.Container.Contents"}}</h2>
                             <table>
                             <thead>
                                 <tr>
-                                    <th class="item-name-cell item-create addToContainer" data-action="addToContainer" title="Left-click: Select items to add. Right-click: Add all eligible items.">+ Item</th>
-                                    <th>Qty</th>
-                                    <th>ENC</th>
+                                    <th class="item-name-cell item-create addToContainer" data-action="addToContainer" title="{{localize "UESRPG.Sheets.Container.AddItemTooltip"}}">{{localize "UESRPG.Sheets.Container.AddItem"}}</th>
+                                    <th>{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
+                                    <th>{{localize "UESRPG.Sheets.Equipment.ENC"}}</th>
                                     <th class="u-ellipsis">
-                                        <a class="item-control bulk-remove-all" data-action="bulkRemoveAll" title="Remove all items from container (does not delete)"><i class="fas fa-box-open"></i></a>&nbsp;
-                                        <a class="item-control bulk-delete-all" data-action="bulkDeleteAll" title="Delete all items in container (destructive)"><i class="fas fa-trash"></i></a>
+                                        <a class="item-control bulk-remove-all" data-action="bulkRemoveAll" title="{{localize "UESRPG.Sheets.Container.RemoveAllTooltip"}}"><i class="fas fa-box-open"></i></a>&nbsp;
+                                        <a class="item-control bulk-delete-all" data-action="bulkDeleteAll" title="{{localize "UESRPG.Sheets.Container.DeleteAllTooltip"}}"><i class="fas fa-trash"></i></a>
                                     </th>
                                 </tr>
                             </thead>
@@ -70,7 +70,7 @@
                                             <td>
                                                 <div class="tableItemNameCell">
                                                     {{#if item.item}}
-                                                        <img class="item-img" src="{{item.item.img}}" title="Send to Chat"/>
+                                                        <img class="item-img" src="{{item.item.img}}" title="{{localize "UESRPG.Sheets.Container.SendToChat"}}"/>
                                                         <div class="item-name" data-action="openContainedItem">{{item.item.name}}</div>
                                                     {{/if}}
                                                 </div>
@@ -78,15 +78,15 @@
                                             <td>{{#if item.item.system}}{{item.item.system.quantity}}{{else}}0{{/if}}</td>
                                             <td>{{#if item.item.system}}{{item.item.system.enc}}{{else}}0{{/if}}</td>
                                             <td>
-                                                <a class="item-control remove-contained-item" data-action="removeContainedItem" title="Remove from Container"><i class="fas fa-box-open"></i></a>
-                                                <a class="item-control delete-contained-item" data-action="deleteContainedItem" title="Delete Item"><i class="fas fa-trash"></i></a>
+                                                <a class="item-control remove-contained-item" data-action="removeContainedItem" title="{{localize "UESRPG.Sheets.Container.RemoveFromContainer"}}"><i class="fas fa-box-open"></i></a>
+                                                <a class="item-control delete-contained-item" data-action="deleteContainedItem" title="{{localize "UESRPG.Sheets.Container.DeleteItem"}}"><i class="fas fa-trash"></i></a>
                                             </td>
                                         </tr>
                                     {{/each}}
                                 {{else}}
                                     <tr>
                                         <td colspan="4" class="u-text-center u-text-muted container-empty-hint">
-                                            <i>Container is empty. Click + to add items.</i>
+                                            <i>{{localize "UESRPG.Sheets.Container.EmptyMessage"}}</i>
                                         </td>
                                     </tr>
                                 {{/if}}
@@ -99,8 +99,8 @@
         {{!-- Effects Tab --}}
         <div class="tab effects" data-group="primary" data-tab="effects">
             <header class="effects-header flexrow">
-                <h3>Effects</h3>
-                <a class="effect-control" data-action="effectControl" data-effect-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
+                <h3>{{localize "UESRPG.Sheets.Equipment.Effects"}}</h3>
+                <a class="effect-control" data-action="effectControl" data-effect-action="create" title="{{localize "UESRPG.Sheets.Equipment.CreateEffect"}}"><i class="fas fa-plus"></i></a>
             </header>
             <ol class="effects-list">
                 {{#each effects as |effect|}}
@@ -108,9 +108,9 @@
                     <img class="effect-icon" src="{{effect.img}}" />
                     <h4 class="effect-name">{{effect.name}}</h4>
                     <div class="effect-controls flexrow">
-                        <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="Toggle"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
-                        <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
-                        <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
+                        <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.ToggleEffect"}}"><i class="fas {{#if effect.disabled}}fa-toggle-off{{else}}fa-toggle-on{{/if}}"></i></a>
+                        <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.EditEffect"}}"><i class="fas fa-edit"></i></a>
+                        <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="{{localize "UESRPG.Sheets.Equipment.DeleteEffect"}}"><i class="fas fa-trash"></i></a>
                     </div>
                 </li>
                 {{/each}}

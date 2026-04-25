@@ -17,7 +17,9 @@
 
 import { buildWeaponPillsInline as _buildWeaponPillsInline } from "../helpers/weapon-quality-display.js";
 import { _opposedFlags } from "../helpers/util.js";
+import { localizeHitLocation } from "../../combat-utils.js";
 import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
+import { t } from "../../../../utils/i18n.js";
 
 /**
  * Post a weapon damage chat card showing damage, hit location, and weapon qualities.
@@ -55,6 +57,12 @@ export async function postWeaponDamageChatCard({
   const pillsInline = _buildWeaponPillsInline(weapon);
 
   const altTag = dmg?.usedAltDamage ? ` <span style="opacity:0.85; font-size:12px;">(2H)</span>` : "";
+  const damageLabel = t("UESRPG.Chat.Common.Damage", "Damage");
+  const resultLabel = t("UESRPG.Chat.DamagePanel.Result", "Result");
+  const detailLabel = t("UESRPG.Chat.DamagePanel.Detail", "Detail");
+  const hitLocationLabel = t("UESRPG.UI.HitLocation", "Hit Location");
+  const hitLocationDisplay = localizeHitLocation(hitLocation, hitLocation);
+  const fromAttackRollLabel = t("UESRPG.Chat.DamagePanel.FromAttackRoll", "from attack roll");
 
   const cardHtml = `
     <div class="uesrpg-weapon-damage-card">
@@ -66,14 +74,14 @@ export async function postWeaponDamageChatCard({
       <table class="uesrpg-weapon-damage-table">
         <thead>
           <tr>
-            <th>Damage</th>
-            <th class="tableCenterText">Result</th>
-            <th class="tableCenterText">Detail</th>
+            <th>${damageLabel}</th>
+            <th class="tableCenterText">${resultLabel}</th>
+            <th class="tableCenterText">${detailLabel}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td class="tableAttribute">Damage</td>
+            <td class="tableAttribute">${damageLabel}</td>
             <td class="tableCenterText">${dmg.finalDamage}${altTag}</td>
             <td class="tableCenterText">
               <div>${dmg.damageString}</div>
@@ -81,9 +89,9 @@ export async function postWeaponDamageChatCard({
             </td>
           </tr>
           <tr>
-            <td class="tableAttribute">Hit Location</td>
-            <td class="tableCenterText">${hitLocation}</td>
-            <td class="tableCenterText">from attack roll</td>
+            <td class="tableAttribute">${hitLocationLabel}</td>
+            <td class="tableCenterText">${hitLocationDisplay}</td>
+            <td class="tableCenterText">${fromAttackRollLabel}</td>
           </tr>
         </tbody>
       </table>
@@ -149,7 +157,13 @@ export async function postManualEffectChatCard({
   if (!attacker || !dmg) return;
 
   const headerImg = itemImg ? `<img src="${itemImg}" style="height:32px;width:32px;">` : "";
-  const headerLabel = itemLabel ?? "Effect";
+  const headerLabel = itemLabel ?? t("UESRPG.Chat.DamagePanel.Effect", "Effect");
+  const localizedEffectLabel = t(effectLabel, effectLabel);
+  const resultLabel = t("UESRPG.Chat.DamagePanel.Result", "Result");
+  const detailLabel = t("UESRPG.Chat.DamagePanel.Detail", "Detail");
+  const hitLocationLabel = t("UESRPG.UI.HitLocation", "Hit Location");
+  const hitLocationDisplay = localizeHitLocation(hitLocation, hitLocation);
+  const fromAttackRollLabel = t("UESRPG.Chat.DamagePanel.FromAttackRoll", "from attack roll");
 
   const cardHtml = `
     <div class="uesrpg-weapon-damage-card">
@@ -161,14 +175,14 @@ export async function postManualEffectChatCard({
       <table class="uesrpg-weapon-damage-table">
         <thead>
           <tr>
-            <th>${effectLabel}</th>
-            <th class="tableCenterText">Result</th>
-            <th class="tableCenterText">Detail</th>
+            <th>${localizedEffectLabel}</th>
+            <th class="tableCenterText">${resultLabel}</th>
+            <th class="tableCenterText">${detailLabel}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td class="tableAttribute">${effectLabel}</td>
+            <td class="tableAttribute">${localizedEffectLabel}</td>
             <td class="tableCenterText">${dmg.finalDamage}</td>
             <td class="tableCenterText">
               <div>${dmg.damageString}</div>
@@ -177,9 +191,9 @@ export async function postManualEffectChatCard({
           </tr>
           ${hitLocation ? `
           <tr>
-            <td class="tableAttribute">Hit Location</td>
-            <td class="tableCenterText">${hitLocation}</td>
-            <td class="tableCenterText">from attack roll</td>
+            <td class="tableAttribute">${hitLocationLabel}</td>
+            <td class="tableCenterText">${hitLocationDisplay}</td>
+            <td class="tableCenterText">${fromAttackRollLabel}</td>
           </tr>` : ""}
         </tbody>
       </table>

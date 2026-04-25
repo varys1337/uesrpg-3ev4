@@ -49,6 +49,9 @@ export function parseMeters(text) {
  */
 export function getSpellRangeType(spell) {
   const sys = spell?.system ?? {};
+  const targetingMode = _str(sys?.engine?.targeting?.mode).trim().toLowerCase();
+  if (targetingMode === "template") return "aoe";
+  if (targetingMode === "self") return "none";
 
   // Primary lane: explicit selector field used by the spell sheet.
   const t = _str(sys.rangeType).trim().toLowerCase();
@@ -79,7 +82,7 @@ export function getSpellMaxRangeMeters(spell) {
   const sys = spell?.system ?? {};
 
   // New: explicit range type/value fields (as implemented in prior patches).
-  const rangeType = _str(sys.rangeType).toLowerCase();
+  const rangeType = getSpellRangeType(spell);
   const rangeValue = _num(sys.rangeValue, null);
 
   if (rangeType === "ranged" && Number.isFinite(rangeValue) && rangeValue > 0) return rangeValue;
@@ -112,6 +115,7 @@ export function getSpellMaxRangeMeters(spell) {
  */
 export function getSpellAoEConfig(spell) {
   const sys = spell?.system ?? {};
+  const targetingMode = _str(sys?.engine?.targeting?.mode).trim().toLowerCase();
 
   // New structured fields
   const shapeRaw = _str(sys.aoeShape || sys.aoe?.shape || "").toLowerCase();
@@ -132,7 +136,7 @@ export function getSpellAoEConfig(spell) {
 
   // If the spell is not configured as AoE, do not return an AoE config.
   // NOTE: We do not infer shape/size from free-text range because it becomes ambiguous quickly.
-  if (!normalizedShape && _str(sys.rangeType).toLowerCase() !== "aoe") return null;
+  if (!normalizedShape && targetingMode !== "template" && _str(sys.rangeType).toLowerCase() !== "aoe") return null;
 
   return {
     shape: normalizedShape,

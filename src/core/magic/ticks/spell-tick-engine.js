@@ -42,8 +42,8 @@ import { getOriginAEs } from "../effects/origin-effect.js";
 import { getActiveSpellZones, getTokensInArea, hasActiveZones } from "../spell-runtime.js";
 import { createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
-import { SYSTEM_ID } from "../../system/namespace.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../../utils/perf-tracker.js";
+import { isCompositeBoundaryTickEnabled } from "../../config/automation-policy.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -127,11 +127,7 @@ function _getState(combat) {
  * @returns {boolean}
  */
 function _isCompositeBoundaryEnabled() {
-  try {
-    return Boolean(game?.settings?.get?.(SYSTEM_ID, "compositeBoundaryTickEnabled"));
-  } catch (_e) {
-    return false;
-  }
+  return isCompositeBoundaryTickEnabled();
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────

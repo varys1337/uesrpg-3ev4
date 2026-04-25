@@ -13,6 +13,7 @@ export { getChatMessageAuthorUser } from "../../../../utils/authority-proxy.js";
 import { cloneFlagState } from "../../../../utils/clone.js";
 import { perfStart, perfEnd } from "../../../../utils/debug.js";
 import { createMessageQueue } from "../../../opposed/shared/message-queue.js";
+import { reconcileBankedAutoRollRequest } from "../banking/state.js";
 
 const _enqueueCardUpdate = createMessageQueue();
 
@@ -137,12 +138,15 @@ export async function updateCard(message, data, _renderCard) {
  * @private
  */
 async function _updateCardCore(message, data, _renderCard) {
+  const messageId = message?.id ?? message?._id ?? "";
+  const liveMessage = (messageId ? (globalThis.game?.messages?.get?.(messageId) ?? null) : null) ?? message;
+
   // Re-read live state from the message to prevent concurrent overwrites.
   // Handlers clone state at dispatch time, mutate their fields, then call this function.
   // If another user committed in the meantime, the clone is stale.
   // By merging the handler's mutations onto the current live state, we preserve
   // fields that this handler didn't touch (e.g. the other side's commit).
-  const liveRaw = message?.flags?.["uesrpg-3ev4"]?.opposed;
+  const liveRaw = liveMessage?.flags?.["uesrpg-3ev4"]?.opposed;
   let merged;
   if (liveRaw && typeof liveRaw === "object") {
     const freshState = cloneFlagState(liveRaw);
@@ -158,6 +162,8 @@ async function _updateCardCore(message, data, _renderCard) {
   } else {
     merged = data;
   }
+
+  reconcileBankedAutoRollRequest(merged);
 
   // No-op short-circuit: skip render/persist when the semantic card state is unchanged.
   try {
@@ -177,10 +183,10 @@ async function _updateCardCore(message, data, _renderCard) {
   const handlerSeq = Number(data?.context?.updatedSeq ?? 0);
   merged.context.updatedSeq = Math.max(liveSeq, handlerSeq) + 1;
 
-  const msgId = message?.id ?? message?._id ?? "unknown";
+  const msgId = liveMessage?.id ?? liveMessage?._id ?? messageId ?? "unknown";
   const renderLabel = `card.update.render:combat:${msgId}`;
   perfStart(renderLabel);
-  const content = _renderCard(merged, message.id);
+  const content = _renderCard(merged, liveMessage?.id ?? messageId);
   perfEnd(renderLabel);
 
   const payload = {
@@ -192,7 +198,7 @@ async function _updateCardCore(message, data, _renderCard) {
   // If lacking permission, ask the active GM to apply the update via socket.
   const persistLabel = `card.update.persist:combat:${msgId}`;
   perfStart(persistLabel);
-  await safeUpdateChatMessage(message, payload);
+  await safeUpdateChatMessage(liveMessage ?? message, payload);
   perfEnd(persistLabel);
 }
 

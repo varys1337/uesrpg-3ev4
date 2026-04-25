@@ -1,4 +1,5 @@
 import { getExplicitActiveCombatStyleItem } from "../../combat/combat-style-utils.js";
+import { getWeaponCombatCapabilities } from "../../combat/combat-utils.js";
 import { _num } from "../../../utils/coerce.js";
 import { resolveUuidSync } from "../../../utils/uuid-cache.js";
 
@@ -66,8 +67,8 @@ export function buildActivationActorSnapshot(actor) {
     items,
     equippedWeapons,
     hasEquippedWeapon: equippedWeapons.length > 0,
-    hasEquippedMeleeWeapon: equippedWeapons.some((item) => String(item?.system?.attackMode ?? "melee").toLowerCase() !== "ranged"),
-    hasEquippedRangedWeapon: equippedWeapons.some((item) => String(item?.system?.attackMode ?? "").toLowerCase() === "ranged"),
+    hasEquippedMeleeWeapon: equippedWeapons.some((item) => getWeaponCombatCapabilities(item).meleeCapable),
+    hasEquippedRangedWeapon: equippedWeapons.some((item) => getWeaponCombatCapabilities(item).rangedCapable),
     activeCombatStyle: getExplicitActiveCombatStyleItem(actor) ?? combatStyles[0] ?? null,
     fatiguePenalty: Number(actor?.system?.fatigue?.penalty ?? 0) || 0,
     carryPenalty: Number(actor?.system?.carry_rating?.penalty ?? 0) || 0,

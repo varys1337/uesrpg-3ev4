@@ -8,6 +8,7 @@
 import { doTestRoll, formatResultOutcomeLabel } from "../../../utils/degree-roll-helper.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateChatMessage, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { createSeverityDebugLogger } from "../../../utils/debug.js";
+import { t, tf } from "../../../utils/i18n.js";
 import { createUuidResolver } from "../../../utils/uuid-cache.js";
 import { isActorUndead, isActorUndeadBloodless } from "../../traits/trait-registry.js";
 import { hasTalent } from "../../traits/talents-api.js";
@@ -39,28 +40,31 @@ const esc = (s) => foundry.utils.escapeHTML(String(s ?? ""));
 const _debugWounds = createSeverityDebugLogger("woundsDebug", "[UESRPG][Wounds]", "debug");
 
 async function _promptShockRollOptions(actor, baseTn) {
+  const baseTNLabel = t("UESRPG.Dialogs.ShockTest.BaseTNEND");
+  const difficultyLabel = t("UESRPG.UI.Difficulty");
+  const manualModifierLabel = t("UESRPG.UI.ManualModifier");
   const content = `
     <div class="uesrpg-skill-roll">
       <div class="form-group">
-        <label><b>Base TN (END)</b></label>
+        <label><b>${baseTNLabel}</b></label>
         <input type="number" value="${Number(baseTn) || 0}" disabled style="width:100%;" />
       </div>
       <div class="form-group" style="margin-top:8px;">
-        <label><b>Difficulty</b></label>
+        <label><b>${difficultyLabel}</b></label>
         <select name="difficultyKey" style="width:100%;">${buildDifficultyOptionsHtml("average")}</select>
       </div>
       <div class="form-group" style="margin-top:8px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <label style="margin:0;"><b>Manual Modifier</b></label>
+        <label style="margin:0;"><b>${manualModifierLabel}</b></label>
         <input name="manualMod" type="number" value="0" style="width:120px;" />
       </div>
     </div>
   `;
   const picked = await customDialog({
-    title: `Shock Test - ${esc(actor?.name ?? "Actor")} Roll Options`,
+    title: tf("UESRPG.Dialogs.ShockTest.Title", { actor: esc(actor?.name ?? "Actor") }),
     content,
     buttons: {
       roll: {
-        label: "Roll",
+        label: t("UESRPG.UI.Roll"),
         callback: (html) => {
           const root = html instanceof HTMLElement ? html : html?.[0];
           const difficultyKey = String(root?.querySelector('select[name="difficultyKey"]')?.value ?? "average");
@@ -68,7 +72,7 @@ async function _promptShockRollOptions(actor, baseTn) {
           return { difficultyKey, manualMod };
         }
       },
-      cancel: { label: "Cancel", callback: () => null }
+      cancel: { label: t("UESRPG.UI.Cancel"), callback: () => null }
     },
     default: "roll",
     width: 420
@@ -296,7 +300,7 @@ export async function applyShockFailConsequence(actor, { hitLocation, applicatio
         applicationId: appId,
         kind: "shockCrippleBody",
         hitLocation: hitLocationLabel ?? "Body",
-        name: `Crippled Body (${hitLocationLabel ?? "Body"})`,
+        name: tf("UESRPG.Chat.Shock.EffectCrippledBody", { location: hitLocationLabel ?? "Body" }),
         img: "icons/svg/skull.svg"
       });
     }
@@ -304,13 +308,13 @@ export async function applyShockFailConsequence(actor, { hitLocation, applicatio
     const cur = Number(actor.system?.action_points?.value ?? 0) || 0;
     if (cur > 0) {
       await requestUpdateDocument(actor, { "system.action_points.value": Math.max(0, cur - 1) });
-      return { note: "Lost AP (1), Crippled Body" };
+      return { note: t("UESRPG.Chat.Shock.LostAPCrippledBody") };
     }
 
     const debtRaw = Number(actor.getFlag(FLAG_SCOPE, "wounds.apDebtNextRefresh") ?? 0);
     const debt = Number.isFinite(debtRaw) ? debtRaw : 0;
     await requestUpdateDocument(actor, { [`${FLAG_PATH}.wounds.apDebtNextRefresh`]: debt + 1 });
-    return { note: "AP Debt (1), Crippled Body" };
+    return { note: t("UESRPG.Chat.Shock.APDebtCrippledBody") };
   }
 
   if (region === "limb") {
@@ -318,19 +322,19 @@ export async function applyShockFailConsequence(actor, { hitLocation, applicatio
       applicationId: appId,
       kind: "shockLostLimb",
       hitLocation: hitLocationLabel,
-      name: `Lost Limb (${hitLocationLabel})`,
+      name: tf("UESRPG.Chat.Shock.EffectLostLimb", { location: hitLocationLabel }),
       img: "icons/svg/skull.svg"
     });
-    return { note: "Lost Limb" };
+    return { note: t("UESRPG.Chat.Shock.LostLimb") };
   }
 
   if (region === "head") {
     const choice = await customDialog({
-      title: "Head Wound: Lost Sense",
-      content: `<p>Failed Shock test on a head wound. Choose which sense is lost (permanently).</p>`,
+      title: t("UESRPG.Dialogs.ShockTest.HeadWoundLostSenseTitle"),
+      content: `<p>${t("UESRPG.Dialogs.ShockTest.HeadWoundLostSenseContent")}</p>`,
       buttons: {
-        ear: { label: "Ear", callback: () => "ear" },
-        eye: { label: "Eye", callback: () => "eye" }
+        ear: { label: t("UESRPG.Dialogs.ShockTest.HeadWoundLostSenseEar"), callback: () => "ear" },
+        eye: { label: t("UESRPG.Dialogs.ShockTest.HeadWoundLostSenseEye"), callback: () => "eye" }
       },
       default: "eye"
     });
@@ -340,20 +344,20 @@ export async function applyShockFailConsequence(actor, { hitLocation, applicatio
         applicationId: appId,
         kind: "shockLostEar",
         hitLocation: hitLocationLabel ?? "Head",
-        name: `Lost Ear (${hitLocationLabel ?? "Head"})`,
+        name: tf("UESRPG.Chat.Shock.EffectLostEar", { location: hitLocationLabel ?? "Head" }),
         img: "icons/svg/skull.svg"
       });
-      return { note: "Lost Ear" };
+      return { note: t("UESRPG.Chat.Shock.LostEar") };
     }
 
     await _upsertShockMarker(actor, {
       applicationId: appId,
       kind: "shockLostEye",
       hitLocation: hitLocationLabel ?? "Head",
-      name: `Lost Eye (${hitLocationLabel ?? "Head"})`,
+      name: tf("UESRPG.Chat.Shock.EffectLostEye", { location: hitLocationLabel ?? "Head" }),
       img: "icons/svg/eye.svg"
     });
-    return { note: "Lost Eye" };
+    return { note: t("UESRPG.Chat.Shock.LostEye") };
   }
 
   return { note: null };
@@ -372,23 +376,23 @@ export async function applyShockMagicSideEffect(actor, { chosenType, damageAppli
       const cur = Number(actor.system?.magicka?.value ?? 0) || 0;
       await requestUpdateDocument(actor, { "system.magicka.value": Math.max(0, cur - loss) });
     }
-    return { note: loss > 0 ? `Lost Magicka (${loss})` : "Lost Magicka" };
+    return { note: loss > 0 ? tf("UESRPG.Chat.Shock.LostMagicka", { loss }) : t("UESRPG.Chat.Shock.LostMagicka", "Lost Magicka") };
   }
 
   if (type === "magic" || type === "frost" || type === "poison") {
     const cur = Number(actor.system?.stamina?.value ?? 0) || 0;
     await requestUpdateDocument(actor, { "system.stamina.value": Math.max(0, cur - 1) });
-    return { note: "Lost Stamina (1)" };
+    return { note: t("UESRPG.Chat.Shock.LostStamina") };
   }
 
   if (type === "fire") {
     // Chapter 5: choose STR or AGI to avoid Burning(1).
     const choose = await customDialog({
-      title: "Fire Wound: Avoid Burning",
-      content: `<p>This wound includes fire damage. Choose a Strength or Agility test to avoid gaining Burning (1).</p>`,
+      title: t("UESRPG.Dialogs.ShockTest.FireWoundAvoidBurningTitle"),
+      content: `<p>${t("UESRPG.Dialogs.ShockTest.FireWoundAvoidBurningContent")}</p>`,
       buttons: {
-        str: { label: "Roll STR", callback: () => "str" },
-        agi: { label: "Roll AGI", callback: () => "agi" }
+        str: { label: t("UESRPG.Dialogs.ShockTest.FireWoundAvoidBurningRollSTR"), callback: () => "str" },
+        agi: { label: t("UESRPG.Dialogs.ShockTest.FireWoundAvoidBurningRollAGI"), callback: () => "agi" }
       },
       default: "str"
     });
@@ -402,7 +406,7 @@ export async function applyShockMagicSideEffect(actor, { chosenType, damageAppli
     try {
       await result.roll.toMessage({
         speaker: ChatMessage.getSpeaker({ actor }),
-        flavor: `Fire Wound — ${actor.name} rolls ${key.toUpperCase()} to avoid Burning (1)`,
+        flavor: tf("UESRPG.Chat.Shock.FireWoundAvoidBurningFlavor", { actor: actor.name, key: key.toUpperCase() }),
         rollMode: "blindroll"
       });
     } catch (_e) {
@@ -416,10 +420,10 @@ export async function applyShockMagicSideEffect(actor, { chosenType, damageAppli
       } else if (api?.setConditionValue) {
         await api.setConditionValue(actor, "burning", 1);
       }
-      return { note: "Burning (1)" };
+      return { note: t("UESRPG.Chat.Shock.Burning") };
     }
 
-    return { note: "Avoided Burning" };
+    return { note: t("UESRPG.Chat.Shock.AvoidedBurning") };
   }
 
   return { note: null };
@@ -518,33 +522,33 @@ function _renderShockTestCard({
   const hasRollTotal = rollTotal !== null && rollTotal !== undefined && String(rollTotal) !== "";
   const pendingRows = `
     <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 10px; align-items:start;">
-      <div><strong>Target:</strong></div><div>${actorName}</div>
-      <div><strong>Location:</strong></div><div>${safeHitLocationLabel}</div>
-      ${resolving ? `<div><strong>Status:</strong></div><div>Resolving...</div>` : ``}
+      <div><strong>${t("UESRPG.Chat.Shock.Target")}</strong></div><div>${actorName}</div>
+      <div><strong>${t("UESRPG.Chat.Shock.Location")}</strong></div><div>${safeHitLocationLabel}</div>
+      ${resolving ? `<div><strong>${t("UESRPG.Chat.Shock.Status")}</strong></div><div>${t("UESRPG.Chat.Shock.Resolving")}</div>` : ``}
     </div>`;
 
   const resolvedRows = `
     <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:6px 12px; align-items:start;">
-      <div><strong>Target:</strong> ${actorName}</div>
-      <div><strong>Location:</strong> ${safeHitLocationLabel}</div>
-      ${hasFinalTn ? `<div><strong>TN:</strong> ${Number(finalTN)}</div>` : ``}
-      ${hasRollTotal ? `<div><strong>Roll:</strong> ${Number(rollTotal)}</div>` : ``}
-      <div><strong>Result:</strong> ${formatResultOutcomeLabel({ isSuccess: outcomeSuccess, isCriticalSuccess, isCriticalFailure })}</div>
-      ${dieHardRerolled ? `<div><strong>Die-Hard:</strong> Reroll used</div>` : ``}
-      ${failNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>Consequence:</strong><span style="overflow-wrap:anywhere;">${esc(failNote)}</span></div>` : ``}
-      ${magicNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>Magic:</strong><span style="overflow-wrap:anywhere;">${esc(magicNote)}</span></div>` : ``}
+      <div><strong>${t("UESRPG.Chat.Shock.Target")}</strong> ${actorName}</div>
+      <div><strong>${t("UESRPG.Chat.Shock.Location")}</strong> ${safeHitLocationLabel}</div>
+      ${hasFinalTn ? `<div><strong>${t("UESRPG.Chat.Shock.TN")}</strong> ${Number(finalTN)}</div>` : ``}
+      ${hasRollTotal ? `<div><strong>${t("UESRPG.Chat.Shock.Roll")}</strong> ${Number(rollTotal)}</div>` : ``}
+      <div><strong>${t("UESRPG.Chat.Shock.Result")}</strong> ${formatResultOutcomeLabel({ isSuccess: outcomeSuccess, isCriticalSuccess, isCriticalFailure })}</div>
+      ${dieHardRerolled ? `<div><strong>${t("UESRPG.Chat.Shock.DieHard")}</strong> ${t("UESRPG.Chat.Shock.RerollUsed")}</div>` : ``}
+      ${failNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>${t("UESRPG.Chat.Shock.Consequence")}</strong><span style="overflow-wrap:anywhere;">${esc(failNote)}</span></div>` : ``}
+      ${magicNote ? `<div style="grid-column:1 / -1; display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; align-items:start;"><strong>${t("UESRPG.Chat.Shock.Magic")}</strong><span style="overflow-wrap:anywhere;">${esc(magicNote)}</span></div>` : ``}
     </div>`;
 
   return `
   <div class="uesrpg-chat-card" data-card="shock">
     <header class="card-header">
-      <h3>${resolved ? "Shock Result" : "Shock Test"}</h3>
+      <h3>${resolved ? t("UESRPG.Chat.Shock.HeaderResult") : t("UESRPG.Chat.Shock.HeaderTest")}</h3>
     </header>
     <div class="card-content">
       ${resolved ? resolvedRows : pendingRows}
     </div>
     ${resolved ? "" : `<footer class="card-footer">
-      <button type="button" data-ues-shock-action="shock-roll" data-actor-uuid="${actorUuid}" data-wound-effect-id="${safeWoundEffectId}" ${resolving ? "disabled" : ""}>${resolving ? "Resolving..." : "Roll Shock (END)"}</button>
+      <button type="button" data-ues-shock-action="shock-roll" data-actor-uuid="${actorUuid}" data-wound-effect-id="${safeWoundEffectId}" ${resolving ? "disabled" : ""}>${resolving ? t("UESRPG.Chat.Shock.ButtonResolving") : t("UESRPG.Chat.Shock.ButtonRollShockEND")}</button>
     </footer>`}
   </div>`;
 }
@@ -1209,31 +1213,31 @@ export async function resolveShockTestFromChat(...args) {
   try {
     const actor = await resolver.resolve(String(actorUuid));
     if (!actor) {
-      ui.notifications?.warn?.("Shock: actor not found.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Shock.ActorNotFound"));
       return;
     }
 
     woundEf = actor.effects?.get?.(String(woundEffectId)) ?? null;
     if (!woundEf) {
-      ui.notifications?.warn?.("Shock: wound effect not found.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Shock.WoundEffectNotFound"));
       return;
     }
 
     const w = woundEf.getFlag?.(FLAG_SCOPE, "wounds") ?? {};
     if (w.shockResolved === true) {
-      ui.notifications?.info?.("Shock test already resolved for this wound.");
+      ui.notifications?.info?.(t("UESRPG.Notifications.Shock.AlreadyResolved"));
       return;
     }
 
     if (w.shockResolving === true) {
-      ui.notifications?.info?.("Shock test already resolving.");
+      ui.notifications?.info?.(t("UESRPG.Notifications.Shock.AlreadyResolving"));
       return;
     }
 
     const hitLocation = normalizeHitLocation(w.hitLocation ?? "Body");
     const endTN = Number(actor.system?.characteristics?.end?.total ?? 0) || 0;
     if (endTN <= 0) {
-      ui.notifications?.warn?.("Shock: invalid Endurance TN.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.Shock.InvalidEnduranceTN"));
       return;
     }
 
@@ -1318,11 +1322,11 @@ export async function resolveShockTestFromChat(...args) {
       const dieHardUsed = (w?.dieHardUsed === true);
       if (hasDieHard && !dieHardUsed && !passed) {
         const wants = await customDialog({
-          title: "Die-Hard",
-          content: `<p><b>${esc(actor.name ?? "Actor")}</b> failed the Shock Test. Use <b>Die-Hard</b> to reroll (once per test)?</p>`,
+          title: t("UESRPG.Dialogs.ShockTest.DieHardTitle"),
+          content: `<p>${tf("UESRPG.Dialogs.ShockTest.DieHardContent", { actor: esc(actor.name ?? "Actor") })}</p>`,
           buttons: {
-            reroll: { label: "Reroll", callback: () => true },
-            keep: { label: "Keep Failure", callback: () => false }
+            reroll: { label: t("UESRPG.Dialogs.ShockTest.DieHardReroll"), callback: () => true },
+            keep: { label: t("UESRPG.Dialogs.ShockTest.DieHardKeepFailure"), callback: () => false }
           },
           default: "reroll"
         });
@@ -1365,8 +1369,8 @@ export async function resolveShockTestFromChat(...args) {
           buttons[c] = { label: c.toUpperCase(), callback: () => c };
         }
         chosen = await customDialog({
-          title: "Magic Shock Side Effect (Tie)",
-          content: `<p>Multiple magic types contributed equally to this wound. Choose which side effect applies.</p>`,
+          title: t("UESRPG.Dialogs.ShockTest.MagicShockSideEffectTitle"),
+          content: `<p>${t("UESRPG.Dialogs.ShockTest.MagicShockSideEffectContent")}</p>`,
           buttons,
           default: dom.candidates[0]
         });

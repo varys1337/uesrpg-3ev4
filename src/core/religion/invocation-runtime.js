@@ -211,7 +211,7 @@ function buildInvocationFlavor({
       ${potencyValue ? `<div style="margin-top:4px;"><b>Potency:</b> ${potencyValue}</div>` : ""}
       <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
       ${effectText ? `<details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">Effect</summary><div style="margin-top:4px; font-size:12px; opacity:0.95;">${formatTextBlock(effectText)}</div></details>` : ""}
-      <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
+      <div class="tag-container">${tags.join("")}</div>
     </div>`;
 }
 

@@ -18,9 +18,7 @@
  * Current v1 rules:
  *  - talent / trait / power: always active (passive features)
  *  - weapon / armor / shield: active only when item.system.equipped === true
- *  - spell: inactive unless the item is explicitly marked active via one of:
- *      item.system.active, item.system.isActive, item.flags.uesrpg?.activeSpell
- *    (these fields can be introduced later without rewriting this function)
+ *  - spell: inactive by default; spell AEs are cast-applied, not passively transferred
  *  - other item types: inactive by default (conservative; we whitelist types deliberately)
  */
 
@@ -83,17 +81,11 @@ export function isTransferEffectActive(actor, item, effect) {
   if (type === "weapon") return _isWeaponEquippedForActor(actor, item);
   if (type === "armor" || type === "shield") return equipped === true;
   
-  // SPELL EFFECTS: EXPLICIT ACTIVATION ONLY
-  // Spells may carry Item Active Effects, but they should not be implicitly "always on".
-  // We activate spell transfer effects only when the spell is explicitly marked active.
-  // Supported activation lanes (non-migrating):
-  //  - item.flags.<systemId>.activeSpell (preferred; sheet checkbox)
-  //  - item.system.active / item.system.isActive (legacy/compat)
+  // SPELL EFFECTS: NEVER PASSIVE
+  // Spell item AEs are applied during cast resolution. Legacy flags are preserved
+  // in data for backward compatibility, but no longer activate passive transfer.
   if (type === "spell") {
-    const scope = getRuntimeSystemId();
-    const flagActive = item.getFlag?.(scope, "activeSpell") ?? foundry.utils.getProperty(item, `flags.${scope}.activeSpell`);
-    const sysActive = item?.system?.active ?? item?.system?.isActive;
-    return flagActive === true || sysActive === true;
+    return false;
   }
 
 

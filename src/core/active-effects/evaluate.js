@@ -102,7 +102,8 @@ function _evaluateCore(actor, keys, options = {}) {
       const mode = getEffectChangeTypeValue(change);
       const rawValue = change?.value;
 
-      const numeric = toNumericEffectValue(rawValue);
+      const item = effect?.parent?.documentName === "Item" ? effect.parent : (effect?.item ?? null);
+      const numeric = toNumericEffectValue(rawValue, { actor, item, effect, debug });
       if (numeric === null) {
         if (debug) console.debug("[UESRPG|AE] Ignoring non-numeric AE change", { change, effect });
         continue;

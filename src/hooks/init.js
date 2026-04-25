@@ -22,9 +22,6 @@ import { registerItemPrepareCacheInvalidation } from "./init/register-item-prepa
 import { registerMemoizationCacheInvalidation } from "./init/register-memoization-cache-invalidation.js";
 import { registerInCloseAutoPrune } from "./init/register-in-close-auto-prune.js";
 import { registerCoreSubsystems } from "./init/register-core-subsystems.js";
-import { registerHookThrottling } from "./init/register-hook-throttling.js";
-import { initializeHookThrottler } from "../utils/hook-throttler.js";
-import { initializeHookWrapper } from "../utils/hook-wrapper.js";
 import { initializeCanvasOptimization } from "../utils/canvas/canvas-optimization.js";
 import { initializeMemoryMonitoring } from "../utils/memory-monitor.js";
 
@@ -50,6 +47,7 @@ import { applyDamageResolved } from "../core/combat/damage-resolver.js";
 import { registerChatMessageSocket } from "../utils/chat-message-socket.js";
 import { registerAuthorityProxy } from "../utils/authority-proxy.js";
 import { registerReachVisualizer } from "../ui/canvas/reach-visualizer.js";
+import { registerArmorCoverageOverlay } from "../ui/canvas/armor-coverage-controller.js";
 import { registerRacialTalentsAutomation } from "../core/traits/racial-talents.js";
 import { registerSpellcastingTalentHooks } from "../core/traits/spellcasting-talents.js";
 import { registerActivationStateHooks } from "../core/combat/activation-state-flags.js";
@@ -64,6 +62,7 @@ import { migrateItemsIfNeeded, normalizeItems } from "../core/migrations/items.j
 import { migrateActorsIfNeeded, normalizeActors } from "../core/migrations/actors.js";
 import { migrateCombatLegacyIfNeeded } from "../core/migrations/combat-legacy.js";
 import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
+import * as automationPolicyApi from "../core/config/automation-policy.js";
 import { registerShieldDebugObservers } from "../utils/dev/shield-debug.js";
 import { registerStaleEmbeddedDeleteSuppression } from "../utils/embedded-delete-guard.js";
 import { registerClashChatActions } from "../core/mass-warfare/clash/chat-actions.js";
@@ -122,6 +121,7 @@ export default async function initHandler() {
     getActionEligibility,
     CharOpposedWorkflow,
     runCombatLegacyReadinessScan,
+    automationPolicyApi,
     tokenActionHudApi: createTokenActionHudApi(),
     applicationApi: {
       damage: {
@@ -209,6 +209,7 @@ export default async function initHandler() {
     registerChatMessageSocket,
     registerAuthorityProxy,
     registerReachVisualizer,
+    registerArmorCoverageOverlay,
     registerClashChatActions,
   });
   registerChatCommands();
@@ -219,19 +220,6 @@ export default async function initHandler() {
   registerItemPrepareCacheInvalidation();
   registerMemoizationCacheInvalidation();
   registerCoreSubsystems();
-
-  // Initialize hook throttling system for performance optimization
-  try {
-    initializeHookThrottler({
-      enabled: true,
-      debug: isAnyDebugEnabled(["perfDebug", "hookDebug"])
-    });
-    initializeHookWrapper();
-    registerHookThrottling();
-    console.debug("UESRPG | Hook throttling system initialized");
-  } catch (err) {
-    console.warn("UESRPG | Failed to initialize hook throttling system", err);
-  }
 
   // Initialize canvas optimization system for token performance
   try {

@@ -53,7 +53,7 @@ export const DEFAULT_REACH_VISUALIZER_SETTINGS = Object.freeze({
   reachSource: REACH_SOURCE.MAX_EQUIPPED,
 
   // Rendering
-  shape: REACH_SHAPE.CIRCLE,
+  shape: REACH_SHAPE.GRID,
   lineWidth: 2,
 
   // Visibility opacities
@@ -73,9 +73,9 @@ export const DEFAULT_REACH_VISUALIZER_SETTINGS = Object.freeze({
   gridDiagonalMode: REACH_GRID_DIAGONAL.CHEBYSHEV,
 
   // Labels
-  showLabel: true,
-  showTargetDistance: true,
-  includeElevation: false,
+  showLabel: false,
+  showTargetDistance: false,
+  includeElevation: true,
 });
 
 function _deepClone(obj) {
@@ -127,21 +127,16 @@ export function normalizeReachVisualizerSettings(raw) {
 
   merged.enabled = Boolean(merged.enabled);
 
-  const behaviour = String(merged.behaviour ?? "");
-  if (behaviour === REACH_BEHAVIOUR.SELECTED) merged.behaviour = REACH_BEHAVIOUR.VISIBLE;
-  else if (![REACH_BEHAVIOUR.VISIBLE, REACH_BEHAVIOUR.EVERYONE].includes(behaviour)) merged.behaviour = DEFAULT_REACH_VISUALIZER_SETTINGS.behaviour;
+  // Removed menu options are pinned here so old client settings cannot keep
+  // obsolete behavior after the simplified settings UI.
+  merged.behaviour = REACH_BEHAVIOUR.VISIBLE;
 
   const visibility = String(merged.visibility ?? "");
   if (!Object.values(REACH_VISIBILITY).includes(visibility)) merged.visibility = DEFAULT_REACH_VISUALIZER_SETTINGS.visibility;
 
-  const shape = String(merged.shape ?? "");
-  if (!Object.values(REACH_SHAPE).includes(shape)) merged.shape = DEFAULT_REACH_VISUALIZER_SETTINGS.shape;
-
-  const reachSource = String(merged.reachSource ?? "");
-  if (!Object.values(REACH_SOURCE).includes(reachSource)) merged.reachSource = DEFAULT_REACH_VISUALIZER_SETTINGS.reachSource;
-
-  const colorMode = String(merged.colorMode ?? "");
-  if (!Object.values(REACH_COLOR_MODE).includes(colorMode)) merged.colorMode = DEFAULT_REACH_VISUALIZER_SETTINGS.colorMode;
+  merged.shape = REACH_SHAPE.GRID;
+  merged.reachSource = REACH_SOURCE.MAX_EQUIPPED;
+  merged.colorMode = REACH_COLOR_MODE.DISPOSITION;
 
   const gridDiagonalMode = String(merged.gridDiagonalMode ?? "");
   if (!Object.values(REACH_GRID_DIAGONAL).includes(gridDiagonalMode)) merged.gridDiagonalMode = DEFAULT_REACH_VISUALIZER_SETTINGS.gridDiagonalMode;
@@ -161,9 +156,9 @@ export function normalizeReachVisualizerSettings(raw) {
     merged.passiveOpacity = tmp;
   }
 
-  merged.showLabel = Boolean(merged.showLabel);
-  merged.showTargetDistance = Boolean(merged.showTargetDistance);
-  merged.includeElevation = Boolean(merged.includeElevation);
+  merged.showLabel = false;
+  merged.showTargetDistance = false;
+  merged.includeElevation = true;
 
   return merged;
 }

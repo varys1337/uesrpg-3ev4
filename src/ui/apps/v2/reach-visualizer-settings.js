@@ -5,15 +5,11 @@
  * Uses native DOM event binding via _onRender.
  */
 
-import { templatePath } from "../../constants.js";
+import { SYSTEM_ID, templatePath } from "../../constants.js";
 import {
   DEFAULT_REACH_VISUALIZER_SETTINGS,
-  REACH_BEHAVIOUR,
   REACH_GRID_DIAGONAL,
   REACH_VISIBILITY,
-  REACH_SHAPE,
-  REACH_SOURCE,
-  REACH_COLOR_MODE,
   getReachVisualizerSettings,
   setReachVisualizerSettings,
   normalizeReachVisualizerSettings,
@@ -23,6 +19,8 @@ import { isEngagementFlankingHomebrewEnabled } from "../../../core/system/homebr
 import { localizeChoiceObject, t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+const ARMOR_COVERAGE_MODE_SETTING = "armorCoverageOverlayMode";
+const ARMOR_COVERAGE_TRANSPARENCY_SETTING = "armorCoverageOverlayTransparency";
 
 export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
@@ -54,29 +52,29 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
 
   async _prepareContext(options) {
     const settings = getReachVisualizerSettings();
+    const armorCoverageMode = (() => {
+      try {
+        return String(game?.settings?.get?.(SYSTEM_ID, ARMOR_COVERAGE_MODE_SETTING) ?? "disabled");
+      } catch (_e) {
+        return "disabled";
+      }
+    })();
+    const armorCoverageTransparency = (() => {
+      try {
+        return Number(game?.settings?.get?.(SYSTEM_ID, ARMOR_COVERAGE_TRANSPARENCY_SETTING) ?? 90);
+      } catch (_e) {
+        return 90;
+      }
+    })();
     return {
       settings,
-      behaviourChoices: localizeChoiceObject({
-        [REACH_BEHAVIOUR.VISIBLE]: "Show on visible tokens (for the active user)",
-        [REACH_BEHAVIOUR.EVERYONE]: "Show on everyone",
-      }, "UESRPG.Choices.ReachVisualizer.Behaviour"),
+      armorCoverageEnabled: armorCoverageMode === "compact",
+      armorCoverageTransparency,
       visibilityChoices: localizeChoiceObject({
         [REACH_VISIBILITY.ALWAYS]: "Show always",
         [REACH_VISIBILITY.HOVER]: "Show on hover",
         [REACH_VISIBILITY.DYNAMIC]: "Dynamic (passive + hover highlight)",
       }, "UESRPG.Choices.ReachVisualizer.Visibility"),
-      reachSourceChoices: localizeChoiceObject({
-        [REACH_SOURCE.MAX_EQUIPPED]: "Max equipped melee reach",
-        [REACH_SOURCE.LAST_USED]: "Last-used melee weapon (per user)",
-      }, "UESRPG.Choices.ReachVisualizer.ReachSource"),
-      shapeChoices: localizeChoiceObject({
-        [REACH_SHAPE.CIRCLE]: "Smooth rings",
-        [REACH_SHAPE.GRID]: "Grid-aware (shape matches grid)",
-      }, "UESRPG.Choices.ReachVisualizer.Shape"),
-      colorModeChoices: localizeChoiceObject({
-        [REACH_COLOR_MODE.DISPOSITION]: "Color by token disposition",
-        [REACH_COLOR_MODE.UNIFORM]: "Uniform color",
-      }, "UESRPG.Choices.ReachVisualizer.ColorMode"),
       gridDiagonalChoices: localizeChoiceObject({
         [REACH_GRID_DIAGONAL.CHEBYSHEV]: "Ignore diagonal rule (equal-cost)",
         [REACH_GRID_DIAGONAL.SCENE]: "Respect scene diagonal rule",
@@ -98,25 +96,20 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
       range.addEventListener("input", () => { out.textContent = range.value; });
     }
 
-    // Conditional visibility for dynamic vs single opacity and uniform color.
+    // Conditional visibility for dynamic vs single opacity.
     const syncConditionalVisibility = () => {
       const visibilitySelect = el.querySelector("select[name='visibility']");
-      const colorModeSelect = el.querySelector("select[name='colorMode']");
 
       const isDynamic = visibilitySelect?.value === REACH_VISIBILITY.DYNAMIC;
-      const isUniform = colorModeSelect?.value === REACH_COLOR_MODE.UNIFORM;
 
       const singleOpacity = el.querySelector(".rv-opacity-single");
       const dynamicOpacity = el.querySelector(".rv-opacity-dynamic");
-      const uniformColor = el.querySelector(".rv-uniform-color-row");
 
       if (singleOpacity) singleOpacity.style.display = isDynamic ? "none" : "";
       if (dynamicOpacity) dynamicOpacity.style.display = isDynamic ? "" : "none";
-      if (uniformColor) uniformColor.style.display = isUniform ? "" : "none";
     };
 
     el.querySelector("select[name='visibility']")?.addEventListener("change", syncConditionalVisibility);
-    el.querySelector("select[name='colorMode']")?.addEventListener("change", syncConditionalVisibility);
     syncConditionalVisibility();
   }
 
@@ -129,28 +122,31 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
     const lineWidth = Math.max(1, Math.min(12, Number(data.lineWidth ?? DEFAULT_REACH_VISUALIZER_SETTINGS.lineWidth)));
 
     const partial = normalizeReachVisualizerSettings({
-      enabled: Boolean(data.enabled),
-      behaviour: String(data.behaviour ?? DEFAULT_REACH_VISUALIZER_SETTINGS.behaviour),
+      enabled: getReachVisualizerSettings().enabled,
       visibility: String(data.visibility ?? DEFAULT_REACH_VISUALIZER_SETTINGS.visibility),
-      reachSource: String(data.reachSource ?? DEFAULT_REACH_VISUALIZER_SETTINGS.reachSource),
-      shape: String(data.shape ?? DEFAULT_REACH_VISUALIZER_SETTINGS.shape),
-      colorMode: String(data.colorMode ?? DEFAULT_REACH_VISUALIZER_SETTINGS.colorMode),
-      uniformColor: String(data.uniformColor ?? DEFAULT_REACH_VISUALIZER_SETTINGS.uniformColor),
       gridDiagonalMode: String(data.gridDiagonalMode ?? DEFAULT_REACH_VISUALIZER_SETTINGS.gridDiagonalMode),
       opacity,
       passiveOpacity,
       activeOpacity,
       lineWidth,
-      showLabel: Boolean(data.showLabel),
-      showTargetDistance: Boolean(data.showTargetDistance),
-      includeElevation: Boolean(data.includeElevation),
     });
 
     await setReachVisualizerSettings(partial);
 
+    if ("armorCoverageEnabled" in data) {
+      await game.settings.set(SYSTEM_ID, ARMOR_COVERAGE_MODE_SETTING, Boolean(data.armorCoverageEnabled) ? "compact" : "disabled");
+    }
+
+    if ("armorCoverageTransparency" in data) {
+      const rawTransparency = Number(data.armorCoverageTransparency);
+      const transparency = Number.isFinite(rawTransparency) ? Math.max(0, Math.min(100, rawTransparency)) : 90;
+      await game.settings.set(SYSTEM_ID, ARMOR_COVERAGE_TRANSPARENCY_SETTING, transparency);
+    }
+
     // Apply immediately if the overlay controller is present.
     try {
       game?.uesrpg?.reachVisualizer?.applySettings?.(partial);
+      game?.uesrpg?.armorCoverageOverlay?.applySettings?.();
     } catch (_e) {
       // no-op
     }

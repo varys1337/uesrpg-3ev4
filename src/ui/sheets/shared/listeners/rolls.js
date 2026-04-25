@@ -8,6 +8,7 @@
  */
 
 import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
+import { getCachedSetting } from "../../../../core/config/settings-cache.js";
 import { isLucky, isUnlucky } from "../../../../utils/skillCalcHelper.js";
 import { getDamageTypeFromWeapon, getHitLocationFromRoll } from "../../../../core/combat/combat-utils.js";
 import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
@@ -82,11 +83,11 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
     return;
   }
 
-  const quickShift = Boolean(event.shiftKey) && game.settings.get("uesrpg-3ev4", "skillRollQuickShift");
+  const quickShift = Boolean(event.shiftKey) && getCachedSetting("skillRollQuickShift");
 
   const getLast = () => {
     try {
-      const saved = game.settings.get("uesrpg-3ev4", "skillRollLastOptions") ?? {};
+      const saved = foundry.utils.deepClone(getCachedSetting("skillRollLastOptions") ?? {});
       delete saved.selectedCharacteristicKey;
       return saved;
     } catch (_e) { return {}; }
@@ -330,7 +331,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
 
   if (tn?.difficulty?.mod) tags.push(`<span class="tag modifier-tag">${tn.difficulty.label} ${tn.difficulty.mod >= 0 ? "+" : ""}${tn.difficulty.mod}</span>`);
   if (decl.selectedCharacteristicKey) {
-    tags.push(`<span class="tag modifier-tag">Characteristic ${getCharacteristicLabel(decl.selectedCharacteristicKey) || String(decl.selectedCharacteristicKey).toUpperCase()}</span>`);
+    tags.push(`<span class="tag modifier-tag">${getCharacteristicLabel(decl.selectedCharacteristicKey) || String(decl.selectedCharacteristicKey).toUpperCase()}</span>`);
   }
   if (hasSpec && decl.useSpec) tags.push(`<span class="tag modifier-tag">Specialization +10</span>`);
   if (decl.isInterrogationTest) tags.push(`<span class="tag modifier-tag">Interrogation</span>`);
@@ -392,7 +393,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
       ${declaredParts.length ? `<div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>` : ""}
       <div style="margin-top:4px;">${degreeLine}</div>
       <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
-      <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
+      <div class="tag-container">${tags.join("")}</div>
     </div>`;
 
   const rollMode = getCoreRollMode();
@@ -697,7 +698,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
               <div style="margin-top:2px; font-size:12px; opacity:0.85;"><b>Options:</b> ${declaredParts.join("; ")}</div>
               <div style="margin-top:4px;">${degreeLine}</div>
               <details style="margin-top:6px;"><summary style="cursor:pointer; user-select:none;">TN breakdown</summary><div style="margin-top:4px; font-size:12px; opacity:0.9;">${breakdownRows}</div></details>
-              <div class="tag-container" style="margin-top:6px;">${tags.join("")}</div>
+              <div class="tag-container">${tags.join("")}</div>
             </div>`;
 
           await res.roll.toMessage({

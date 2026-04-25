@@ -2,30 +2,92 @@
  * Canonical spell options dialog used by core and UI casting flows.
  */
 
-import { getSpellScalingLevels } from "../magicka-utils.js";
+import { getKnownSpellScalingLevels, getSpellCost, getSpellLevel } from "../magicka-utils.js";
 import { SKILL_DIFFICULTIES } from "../../skills/skill-tn.js";
 import { resolveSpellProfile } from "../spell-profile.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { buildCircumstanceOptionsHtml } from "../../opposed/circumstance.js";
 import { t, tf } from "../../../utils/i18n.js";
 
+function _getCastSourceResourcePresentation(castContext = null, spell = null) {
+  const castSource = castContext?.castSource ?? castContext ?? null;
+  const mode = String(castSource?.costMode ?? "").trim().toLowerCase();
+  if (castSource?.type !== "enchantment") {
+    const defaultLevel = castContext?.castLevel ?? null;
+    return {
+      mode: "magicka",
+      fixedCost: null,
+      baseCost: getSpellCost(spell, defaultLevel),
+      label: t("UESRPG.UI.Magicka", "Magicka"),
+      baseCostText: (cost) => tf("UESRPG.Dialogs.SpellOptions.BaseMpCost", { cost }, `Base MP Cost: ${cost}`),
+      costPreviewText: (cost, suffix = "") => tf("UESRPG.Dialogs.SpellOptions.CostMpWithSuffix", { cost, suffix }, `Cost: ${cost} MP${suffix}`)
+    };
+  }
+
+  if (mode === "none") {
+    return {
+      mode,
+      fixedCost: 0,
+      baseCost: 0,
+      label: t("UESRPG.Sheets.Item.NoCost", "No Cost"),
+      baseCostText: () => `${t("UESRPG.Sheets.Item.NoCost", "No Cost")}: 0`,
+      costPreviewText: () => `${t("UESRPG.Sheets.Item.NoCost", "No Cost")}: 0`
+    };
+  }
+
+  if (mode === "soul") {
+    const fixedCost = Math.max(0, Number(castSource?.cost ?? 0) || 0);
+    return {
+      mode,
+      fixedCost,
+      baseCost: fixedCost,
+      label: t("UESRPG.UI.SoulEnergy", "Soul Energy"),
+      baseCostText: (cost) => `${t("UESRPG.UI.SoulEnergy", "Soul Energy")}: ${cost}`,
+      costPreviewText: (cost) => `${t("UESRPG.UI.SoulEnergy", "Soul Energy")}: ${cost}`
+    };
+  }
+
+  if (mode === "magicka") {
+    const fixedCost = Math.max(0, Number(castSource?.cost ?? 0) || 0);
+    return {
+      mode,
+      fixedCost,
+      baseCost: fixedCost,
+      label: t("UESRPG.UI.Magicka", "Magicka"),
+      baseCostText: (cost) => tf("UESRPG.Dialogs.SpellOptions.BaseMpCost", { cost }, `Base MP Cost: ${cost}`),
+      costPreviewText: (cost, suffix = "") => tf("UESRPG.Dialogs.SpellOptions.CostMpWithSuffix", { cost, suffix }, `Cost: ${cost} MP${suffix}`)
+    };
+  }
+
+  return {
+    mode: "magicka",
+    fixedCost: null,
+    baseCost: Number(getSpellCost(spell, castContext?.castLevel ?? null) ?? 0) || 0,
+    label: t("UESRPG.UI.Magicka", "Magicka"),
+    baseCostText: (cost) => tf("UESRPG.Dialogs.SpellOptions.BaseMpCost", { cost }, `Base MP Cost: ${cost}`),
+    costPreviewText: (cost, suffix = "") => tf("UESRPG.Dialogs.SpellOptions.CostMpWithSuffix", { cost, suffix }, `Cost: ${cost} MP${suffix}`)
+  };
+}
+
 /**
  * Show spell options dialog for Restraint/Overload.
  * @param {Actor} actor
  * @param {Item} spell
+ * @param {object|null} castContext
  * @returns {Promise<object|null>}
  */
-export async function showSpellOptionsDialog(actor, spell) {
+export async function showSpellOptionsDialog(actor, spell, castContext = null) {
   const hasOverload = Boolean(spell.system?.hasOverload);
   const hasOverchargeTalent = actor.items?.some(i => i.type === "talent" && i.name === "Overcharge") ?? false;
   const hasMagickaCyclingTalent = actor.items?.some(i => i.type === "talent" && i.name === "Magicka Cycling") ?? false;
-  const baseCost = Number(spell.system?.cost ?? 0);
-  const baseLevel = spell.system?.level ?? 1;
+  const resourcePresentation = _getCastSourceResourcePresentation(castContext, spell);
+  const learnedScalingLevels = getKnownSpellScalingLevels(spell);
+  const baseLevel = Number(learnedScalingLevels[0]?.level ?? getSpellLevel(spell)) || 1;
+  const baseCost = Number(resourcePresentation.baseCost ?? getSpellCost(spell, baseLevel) ?? 0);
   const baseProfile = resolveSpellProfile(spell, actor, { isRestrained: true, isOverloaded: false });
   const baseRestraintReduction = Number(baseProfile?.cost?.effectiveRestraintReduction ?? baseProfile?.cost?.restrained?.reduction ?? 0) || 0;
 
-  const allScalingLevels = getSpellScalingLevels(spell);
-  const scalingLevels = (Array.isArray(allScalingLevels) ? allScalingLevels : [])
+  const scalingLevels = (Array.isArray(learnedScalingLevels) ? learnedScalingLevels : [])
     .filter(entry => {
       if (!entry || typeof entry !== "object") return false;
       const lvl = Number(entry.level ?? 0);
@@ -33,31 +95,39 @@ export async function showSpellOptionsDialog(actor, spell) {
     });
 
   const hasScaling = scalingLevels.length > 0;
+  const formatLevelCostText = (cost) => {
+    if (resourcePresentation.fixedCost != null) {
+      return resourcePresentation.mode === "none"
+        ? t("UESRPG.Sheets.Item.NoCost", "No Cost")
+        : `${cost} ${resourcePresentation.label}`;
+    }
+    return `${cost} MP`;
+  };
 
   const content = `
     <div class="uesrpg-spell-options">
       <h3>${spell.name}</h3>
       <div class="form-group">
-        <label>${tf("UESRPG.Dialogs.SpellOptions.BaseMpCost", { cost: baseCost }, `Base MP Cost: ${baseCost}`)}</label>
+        <label>${resourcePresentation.baseCostText(baseCost)}</label>
       </div>
       ${hasScaling ? `
       <div class="form-group" style="margin-bottom:8px; margin-top:8px;">
         <label style="display:block;"><b>${t("UESRPG.Dialogs.SpellOptions.CastAtLevel", "Cast at Level")}</b></label>
         <select name="castLevel" id="castLevelSelect" style="width:100%;">
-          <option value="base">${tf("UESRPG.Dialogs.SpellOptions.BaseLevelOption", { level: baseLevel, cost: baseCost }, `Base (Level ${baseLevel}, ${baseCost} MP)`)}</option>
           ${scalingLevels.map((entry, idx) => {
             const lvl = entry.level ?? 1;
-            const cost = entry.cost ?? baseCost;
-            const dmg = entry.damageFormula ? `, ${entry.damageFormula}` : "";
+            const cost = resourcePresentation.fixedCost ?? entry.cost ?? baseCost;
+            const strength = String(entry.spellStrengthFormula ?? "").trim();
+            const strengthText = strength ? `, SS ${strength}` : ", SS WB";
             const desc = entry.description ? ` - ${entry.description}` : "";
-            return `<option value="${lvl}" data-scaling-index="${idx}">${tf("UESRPG.Dialogs.SpellOptions.LevelOption", { level: lvl, cost, extra: `${dmg}${desc}` }, `Level ${lvl} (${cost} MP${dmg})${desc}`)}</option>`;
+            return `<option value="${lvl}" data-scaling-index="${idx}" ${idx === 0 ? "selected" : ""}>Level ${lvl} (${formatLevelCostText(cost)}${strengthText})${desc}</option>`;
           }).join("")}
         </select>
       </div>
       <div id="profilePreview" class="form-group" style="background:#f0f0f0; padding:8px; border-radius:4px; font-size:0.9em;">
         <strong>${t("UESRPG.Dialogs.SpellOptions.ProfilePreview", "Profile Preview")}:</strong><br/>
-        <span id="previewCost">${tf("UESRPG.Dialogs.SpellOptions.CostMp", { cost: baseCost }, `Cost: ${baseCost} MP`)}</span><br/>
-        <span id="previewDamage">${tf("UESRPG.Dialogs.SpellOptions.Damage", { damage: spell.system.damageFormula || t("UESRPG.UI.NotAvailable", "N/A") }, `Damage: ${spell.system.damageFormula || "N/A"}`)}</span><br/>
+        <span id="previewCost">${resourcePresentation.costPreviewText(baseCost)}</span><br/>
+        <span id="previewDamage">Formula: ${spell.system.damageFormula || t("UESRPG.UI.NotAvailable", "N/A")}</span><br/>
         <span id="previewDuration">${tf("UESRPG.Dialogs.SpellOptions.Duration", { value: spell.system.duration?.value || 0, unit: spell.system.duration?.unit || t("UESRPG.Dialogs.SpellOptions.Instant", "instant") }, `Duration: ${spell.system.duration?.value || 0} ${spell.system.duration?.unit || "instant"}`)}</span>
       </div>` : ""}
       <div class="form-group" style="margin-bottom:8px; margin-top:8px;">
@@ -124,8 +194,8 @@ export async function showSpellOptionsDialog(actor, spell) {
           const circumstanceMod = Number.parseInt(String(root?.querySelector('[name="circumstanceMod"]')?.value ?? "0"), 10) || 0;
           const manualModifierRaw = root?.querySelector('[name="manualModifier"]')?.value ?? "0";
           const manualModifier = Number.parseInt(String(manualModifierRaw ?? "0"), 10) || 0;
-          const castLevelRaw = root?.querySelector('[name="castLevel"]')?.value ?? "base";
-          const castLevel = hasScaling && castLevelRaw !== "base" ? (Number.parseInt(String(castLevelRaw), 10) || null) : null;
+          const castLevelRaw = root?.querySelector('[name="castLevel"]')?.value ?? String(baseLevel);
+          const castLevel = hasScaling ? (Number.parseInt(String(castLevelRaw), 10) || baseLevel) : baseLevel;
 
           return {
             isRestrained: root?.querySelector('[name="restrain"]')?.checked ?? false,
@@ -135,12 +205,13 @@ export async function showSpellOptionsDialog(actor, spell) {
             difficultyKey,
             circumstanceMod,
             manualModifier,
-            restraintValue: Number(root?.querySelector('[name="restrain"]')?.checked ?? false)
-              ? (Number(resolveSpellProfile(spell, actor, {
-                  level: castLevel,
-                  isRestrained: true,
-                  isOverloaded: false
-                })?.cost?.effectiveRestraintReduction ?? 0) || 0)
+                restraintValue: Number(root?.querySelector('[name="restrain"]')?.checked ?? false)
+                  ? (Number(resolveSpellProfile(spell, actor, {
+                      level: castLevel,
+                      isRestrained: true,
+                      isOverloaded: false,
+                      useOvercharge: Boolean(root?.querySelector('[name="overcharge"]')?.checked)
+                    })?.cost?.effectiveRestraintReduction ?? 0) || 0)
               : 0,
             baseCost,
             castLevel
@@ -186,29 +257,37 @@ export async function showSpellOptionsDialog(actor, spell) {
         const castLevelSelect = root?.querySelector("#castLevelSelect");
         const restrainCheckbox = root?.querySelector("#restrainCheckbox");
         const overloadCheckbox = root?.querySelector("#overloadCheckbox");
+        const overchargeCheckbox = root?.querySelector('input[name="overcharge"]');
         const previewCost = root?.querySelector("#previewCost");
         const previewDamage = root?.querySelector("#previewDamage");
         const previewDuration = root?.querySelector("#previewDuration");
 
         const updatePreview = () => {
-          const selectedLevel = parseInt(castLevelSelect?.value ?? baseLevel);
+          const selectedLevel = parseInt(castLevelSelect?.value ?? baseLevel, 10) || baseLevel;
           const isRestrained = restrainCheckbox?.checked ?? false;
           const isOverloaded = overloadCheckbox?.checked ?? false;
+          const useOvercharge = overchargeCheckbox?.checked ?? false;
 
           try {
             const profile = resolveSpellProfile(spell, actor, {
               level: selectedLevel,
               isRestrained,
-              isOverloaded
+              isOverloaded,
+              useOvercharge
             });
 
             const refundValue = Number(profile?.cost?.effectiveRestraintReduction ?? profile?.cost?.restrained?.reduction ?? 0) || 0;
             if (previewCost) {
-              const refund = isRestrained ? tf("UESRPG.Dialogs.SpellOptions.RefundOnSuccess", { value: refundValue }, ` (refund on success: ${refundValue} MP)`) : "";
-              const overload = isOverloaded ? t("UESRPG.Dialogs.SpellOptions.OverloadCostSuffix", " (2x overload)") : "";
-              previewCost.textContent = tf("UESRPG.Dialogs.SpellOptions.CostMpWithSuffix", { cost: profile.cost.final, suffix: `${refund}${overload}` }, `Cost: ${profile.cost.final} MP${refund}${overload}`);
+              if (resourcePresentation.fixedCost != null) {
+                previewCost.textContent = resourcePresentation.costPreviewText(resourcePresentation.fixedCost);
+              } else {
+                const refund = isRestrained ? tf("UESRPG.Dialogs.SpellOptions.RefundOnSuccess", { value: refundValue }, ` (refund on success: ${refundValue} MP)`) : "";
+                const overload = isOverloaded ? t("UESRPG.Dialogs.SpellOptions.OverloadCostSuffix", " (2x overload)") : "";
+                const overcharge = profile?.cost?.overcharge?.enabled ? " (2x overcharge)" : "";
+                previewCost.textContent = resourcePresentation.costPreviewText(profile.cost.attempt, `${refund}${overload}${overcharge}`);
+              }
             }
-            if (previewDamage) previewDamage.textContent = tf("UESRPG.Dialogs.SpellOptions.Damage", { damage: profile.damage.formula || t("UESRPG.UI.NotAvailable", "N/A") }, `Damage: ${profile.damage.formula || "N/A"}`);
+            if (previewDamage) previewDamage.textContent = `Formula: ${profile.damage.formula || t("UESRPG.UI.NotAvailable", "N/A")}`;
             if (previewDuration) previewDuration.textContent = tf("UESRPG.Dialogs.SpellOptions.Duration", { value: profile.duration.value || 0, unit: profile.duration.unit || t("UESRPG.Dialogs.SpellOptions.Instant", "instant") }, `Duration: ${profile.duration.value || 0} ${profile.duration.unit || "instant"}`);
           } catch (err) {
             console.warn("UESRPG | Failed to update spell profile preview", err);
@@ -218,6 +297,7 @@ export async function showSpellOptionsDialog(actor, spell) {
         if (castLevelSelect) castLevelSelect.addEventListener("change", updatePreview);
         if (restrainCheckbox) restrainCheckbox.addEventListener("change", updatePreview);
         if (overloadCheckbox) overloadCheckbox.addEventListener("change", updatePreview);
+        if (overchargeCheckbox) overchargeCheckbox.addEventListener("change", updatePreview);
         updatePreview();
       }
     },

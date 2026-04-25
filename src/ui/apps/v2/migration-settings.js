@@ -1,34 +1,40 @@
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import {
+  getAppliedMigrationRevision,
   getMigrationState,
   getSystemVersionString,
+  isMigrationRevisionApplied,
 } from "../../../core/migrations/state.js";
+import { MIGRATION_REVISIONS } from "../../../core/migrations/revisions.js";
 import {
   isSystemMigrationRunning,
   runSystemMigrations,
 } from "../../../core/migrations/runner.js";
-import { getSettingPresentation, t } from "../../../utils/i18n.js";
+import { t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const NAMESPACE = SYSTEM_ID;
 
-function _stateSummary(state, key, currentVersion) {
-  const value = String(state?.[key] ?? "").trim();
+function _stateSummary(state, key) {
+  const requiredRevision = MIGRATION_REVISIONS[key] ?? 0;
+  const appliedRevision = getAppliedMigrationRevision(key, state);
+  const raw = state?.[key];
+  let version = t("UESRPG.UI.None", "(none)");
+  if (appliedRevision > 0) {
+    version = (raw && typeof raw === "object" && Number.isFinite(Number(raw.revision)))
+      ? `r${appliedRevision}`
+      : "legacy";
+  }
   return {
-    version: value || t("UESRPG.UI.None", "(none)"),
-    upToDate: value === currentVersion,
+    version,
+    upToDate: isMigrationRevisionApplied(key, requiredRevision, state),
   };
 }
 
 export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
     id: "uesrpg-migration-settings",
-    tag: "form",
-    form: {
-      handler: MigrationSettingsAppV2._onSubmit,
-      closeOnSubmit: false,
-      submitOnChange: false,
-    },
+    tag: "section",
     window: {
       title: "UESRPG - Migration",
     },
@@ -56,23 +62,14 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     const state = getMigrationState();
 
     return {
-      autoRunMigrationsOnStartup: game.settings.get(NAMESPACE, "autoRunMigrationsOnStartup") === true,
-      autoRunMigrationsOnStartupSetting: getSettingPresentation(NAMESPACE, "autoRunMigrationsOnStartup"),
       isRunning: isSystemMigrationRunning(),
       currentVersion,
       status: {
-        actors: _stateSummary(state, "actors", currentVersion),
-        items: _stateSummary(state, "items", currentVersion),
-        combatLegacy: _stateSummary(state, "combatLegacy", currentVersion),
+        actors: _stateSummary(state, "actors"),
+        items: _stateSummary(state, "items"),
+        combatLegacy: _stateSummary(state, "combatLegacy"),
       },
     };
-  }
-
-  static async _onSubmit(event, form, formData) {
-    const data = formData.object ?? {};
-    const next = Boolean(data.autoRunMigrationsOnStartup);
-    await game.settings.set(NAMESPACE, "autoRunMigrationsOnStartup", next);
-    ui.notifications?.info?.(t("UESRPG.Notifications.MigrationStartupSaved", "Migration startup setting saved."));
   }
 
   async _onRunMigrations(event, target) {

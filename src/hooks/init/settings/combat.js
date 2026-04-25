@@ -47,7 +47,8 @@ export function registerCombatSettings() {
     choices: {
       "center": "Center Point (Legacy)",
       "edge": "Edge to Edge (D&D/PF2e)"
-    }
+    },
+    onChange: () => invalidateCachedSetting("tokenRangeMeasurement"),
   });
 
   _reg("aoeContainmentMode", {
@@ -74,7 +75,8 @@ export function registerCombatSettings() {
       "center": "Center Point",
       "edge": "Nearest Edge",
       "match-token": "Match Token Range Setting"
-    }
+    },
+    onChange: () => invalidateCachedSetting("aoeOriginMeasurement"),
   });
 
   _reg("woundsMode", {
@@ -98,5 +100,14 @@ export function registerCombatSettings() {
     type: Boolean,
     default: false,
     onChange: () => invalidateCachedSetting("dynamicInitiativeEnabled"),
+  });
+
+  _reg("damageAftermathBundlingEnabled", {
+    name: "Damage: Aftermath Bundling",
+    hint: "Custom automation profile only. When enabled, selected non-critical post-damage aftermath operations in the canonical resolved damage path are staged and committed in one ordered final pass. Rules-critical HP, wound, death, and damage hook writes remain immediate.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false,
   });
 }

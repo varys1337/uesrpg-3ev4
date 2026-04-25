@@ -8,7 +8,7 @@
 import { getUserSpellTargets, shouldUseTargetedSpellWorkflow, shouldUseModernSpellWorkflow, classifySpellForRouting, debugMagicRoutingLog } from "../../../../core/magic/spell-runtime.js";
 import { filterTargetsBySpellRange, getSpellRangeType, getSpellAoEConfig, getSpellMaxRangeMeters } from "../../../../core/magic/spell-range.js";
 import { AoEService, AOE_SOURCE_TYPES } from "../../../../core/aoe/index.js";
-import { canActorCastSpell, getSpellCastingSchool } from "../../../../core/magic/magicka-utils.js";
+import { canActorCastSpell, getSpellCastingSchool, getSpellCost, getSpellLevel } from "../../../../core/magic/magicka-utils.js";
 import { showSpellOptionsDialog } from "../../../../core/magic/dialogs/spell-options-dialog.js";
 import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
@@ -160,10 +160,10 @@ export const onCastMagicAction = asyncGuardSheet(async function onCastMagicActio
 
       const spellOptions = [
         ...spells.map((s) =>
-          `<option value="spell:${s.id}">Spell: ${s.name} (${getSpellCastingSchool(s)} L${s.system.level}, ${s.system.cost} MP)</option>`
+          `<option value="spell:${s.id}">Spell: ${s.name} (${getSpellCastingSchool(s)} L${Number(getSpellLevel(s) ?? 1) || 1}, ${Number(getSpellCost(s, getSpellLevel(s)) ?? 0) || 0} MP)</option>`
         ),
         ...scrollCandidates.map(({ scroll, spell: linkedSpell }) =>
-          `<option value="scroll:${scroll.id}">Scroll: ${scroll.name} -> ${linkedSpell.name} (${linkedSpell.system?.school ?? "Unknown"} L${linkedSpell.system?.level ?? 1}, Qty ${Number(scroll.system?.quantity ?? 0)})</option>`
+          `<option value="scroll:${scroll.id}">Scroll: ${scroll.name} -> ${linkedSpell.name} (${linkedSpell.system?.school ?? "Unknown"} L${Number(getSpellLevel(linkedSpell) ?? 1) || 1}, Qty ${Number(scroll.system?.quantity ?? 0)})</option>`
         ),
         ...itemSpellCandidates.map((slot) => {
           const item = slot.sourceItem;

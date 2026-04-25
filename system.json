@@ -13,163 +13,132 @@
       "lang": "en",
       "name": "English",
       "path": "lang/en.json"
-    },
-    {
-      "lang": "ru",
-      "name": "Русский",
-      "path": "lang/ru.json"
     }
   ],
   "packs": [
     {
-      "name": "roll-tables",
-      "label": "Roll Tables",
-      "system": "uesrpg-3ev4",
-      "path": "packs/roll-tables",
-      "type": "RollTable",
-      "private": false,
-      "flags": {}
-    },
-    {
       "name": "core-skills",
       "label": "Core Skills",
-      "system": "uesrpg-3ev4",
-      "path": "packs/core-skills",
-      "type": "Item",
+      "path": "./packs/rules-compendium/core-skills",
       "private": false,
+      "type": "Item",
+      "system": "uesrpg-3ev4",
       "flags": {}
     },
     {
       "name": "signs",
       "label": "Birth Signs",
-      "system": "uesrpg-3ev4",
-      "path": "packs/signs",
-      "type": "Item",
+      "path": "./packs/rules-compendium/signs",
       "private": false,
+      "type": "Item",
+      "system": "uesrpg-3ev4",
       "flags": {}
     },
     {
       "name": "items-revised",
       "label": "Items Revised",
-      "path": "./packs/items-revised",
+      "path": "./packs/rules-compendium/items-revised",
       "private": false,
       "type": "Item",
-      "system": "uesrpg-3ev4"
+      "system": "uesrpg-3ev4",
+      "flags": {}
     },
     {
-      "name": "advanced-skills",
-      "label": "Advanced Skills",
-      "path": "./packs/advanced-skills",
+      "name": "powers-talents-traits",
+      "label": "Powers, Talents and Traits",
+      "path": "./packs/rules-compendium/powers-talents-traits",
       "private": false,
       "type": "Item",
-      "system": "uesrpg-3ev4"
+      "system": "uesrpg-3ev4",
+      "flags": {}
     },
     {
-      "name": "traits-revised",
-      "label": "Traits Revised",
-      "path": "./packs/traits-revised",
+      "name": "roll-tables",
+      "label": "Roll Tables",
+      "path": "./packs/rules-compendium/roll-tables",
       "private": false,
-      "type": "Item",
-      "system": "uesrpg-3ev4"
-    },
-    {
-      "name": "powers-revised",
-      "label": "Powers Revised",
-      "path": "./packs/powers-revised",
-      "private": false,
-      "type": "Item",
-      "system": "uesrpg-3ev4"
-    },
-    {
-      "name": "talents-revised",
-      "label": "Talents Revised",
-      "path": "./packs/talents-revised",
-      "private": false,
-      "type": "Item",
-      "system": "uesrpg-3ev4"
-    },
-    {
-      "name": "spells-revised",
-      "label": "Spells Revised",
-      "path": "./packs/spells-revised",
-      "private": false,
-      "type": "Item",
-      "system": "uesrpg-3ev4"
-    },
-    {
-      "name": "religion-invocations",
-      "label": "Religion Invocations",
-      "path": "./packs/religion-invocations",
-      "private": false,
-      "type": "Item",
-      "system": "uesrpg-3ev4"
-    },
-    {
-      "name": "religion-domain-spells",
-      "label": "Religion Domain Spells",
-      "path": "./packs/religion-domain-spells",
-      "private": false,
-      "type": "Item",
-      "system": "uesrpg-3ev4"
-    },
-    {
-      "name": "journal",
-      "label": "Reference Revised",
-      "path": "./packs/reference-revised-v1",
-      "private": false,
-      "type": "JournalEntry",
-      "system": "uesrpg-3ev4"
+      "type": "RollTable",
+      "flags": {}
     },
     {
       "name": "rules-reference",
       "label": "Rules Reference",
-      "path": "./packs/rules-reference",
+      "path": "./packs/rules-compendium/rules-reference",
       "private": false,
       "type": "JournalEntry",
-      "system": "uesrpg-3ev4"
+      "system": "uesrpg-3ev4",
+      "flags": {}
     },
     {
-      "name": "inhabitants-of-tamriel",
-      "label": "Inhabitants of Tamriel",
-      "path": "./packs/inhabitants-of-tamriel",
+      "name": "spells-revised",
+      "label": "Spells Revised",
+      "path": "./packs/rules-compendium/spells-revised",
       "private": false,
-      "type": "Actor",
-      "system": "uesrpg-3ev4"
+      "type": "Item",
+      "system": "uesrpg-3ev4",
+      "flags": {}
     },
     {
       "name": "system-macros",
       "label": "System Macros",
-      "path": "./packs/system-macros",
+      "path": "./packs/rules-compendium/system-macros",
       "private": false,
       "type": "Macro",
-      "system": "uesrpg-3ev4"
+      "flags": {}
+    },
+    {
+      "name": "inhabitants-of-tamriel",
+      "label": "Inhabitants of Tamriel",
+      "path": "./packs/inhabitants-of-tamriel/inhabitants-of-tamriel",
+      "private": false,
+      "type": "Actor",
+      "system": "uesrpg-3ev4",
+      "flags": {}
+    },
+    {
+      "name": "tpk-homebrew",
+      "label": "TPK's Homebrew",
+      "path": "./packs/homebrew/tpk-homebrew",
+      "private": false,
+      "type": "JournalEntry",
+      "system": "uesrpg-3ev4",
+      "flags": {}
     }
   ],
   "packFolders": [
     {
-      "name": "UESRPG 3ev4",
-      "sorting": "a",
-      "color": "#000000",
-      "ownership": {
-        "PLAYER": "observer"
-      },
+      "name": "Rules Compendium",
+      "sorting": "m",
+      "color": "#6f7893",
       "packs": [
         "core-skills",
-        "advanced-skills",
         "signs",
         "items-revised",
-        "spells-revised",
-        "religion-invocations",
-        "religion-domain-spells",
-        "talents-revised",
-        "traits-revised",
-        "powers-revised",
-        "system-macros",
-        "inhabitants-of-tamriel",
+        "powers-talents-traits",
+        "roll-tables",
         "rules-reference",
-        "journal",
-        "roll-tables"
-      ]
+        "spells-revised",
+        "system-macros"
+      ],
+      "folders": []
+    },
+    {
+      "name": "Inhabitants of Tamriel",
+      "sorting": "m",
+      "color": "#8a6d3b",
+      "packs": [
+        "inhabitants-of-tamriel"
+      ],
+      "folders": []
+    },
+    {
+      "name": "Homebrew",
+      "sorting": "m",
+      "color": "#5f7a61",
+      "packs": [
+        "tpk-homebrew"
+      ],
+      "folders": []
     }
   ],
   "grid": {
@@ -200,7 +169,7 @@
   "compatibility": {
     "minimum": "14.359",
     "verified": "14.361",
-    "maximum": "14.361"
+    "maximum": "14.399"
   },
   "documentTypes": {
     "Actor": {

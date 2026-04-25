@@ -1,8 +1,0 @@
-{
-  "name": "Alchemy Workshop",
-  "type": "script",
-  "img": "icons/svg/item-bag.svg",
-  "command": "game.uesrpg.alchemy.openWorkshop();",
-  "ownership": { "default": 0 },
-  "flags": {}
-}

@@ -16,18 +16,19 @@ import { AttackTracker } from "../../attack-tracker.js";
 import { ActionEconomy } from "../../action-economy.js";
 import { isActorSkeletal } from "../../../traits/trait-registry.js";
 import { applyDamageResolved } from "../../damage-resolver.js";
-import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget } from "../../combat-utils.js";
+import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget, getWeaponCombatCapabilities } from "../../combat-utils.js";
 
 // Internal helpers from various opposed modules
-import { _canControlActor, _emitSuppressedSubRollDice, _findEnabledEffectByUesrpgKey, _logDebug, _opposedFlags, _safeGetSetting } from "../helpers/util.js";
+import { _canControlActor, _emitSuppressedSubRollDice, _findEnabledEffectByUesrpgKey, _logDebug } from "../helpers/util.js";
 import { _resolveItemViaActor } from "../helpers/docs.js";
-import { _getBankCommitState, _allDefendersCommitted, _getDefenderEntries } from "../banking/state.js";
+import { _getBankCommitState, _getDefenderEntries, reconcileBankedAutoRollRequest } from "../banking/state.js";
 import { 
   collectSensorySituationalMods as _collectSensorySituationalMods,
   weaponHasQuality as _weaponHasQuality,
   getPreferredWeaponUuid as _getPreferredWeaponUuid,
   getTokenMovementAction as _getTokenMovementAction,
   getContextAttackMode,
+  getPendingAttackApCost,
   inferAttackModeFromPreferredWeapon as _inferAttackModeFromPreferredWeapon,
   preConsumeAttackAmmo as _preConsumeAttackAmmo
 } from "../helpers/workflow.js";
@@ -91,6 +92,14 @@ function _readCombatOpposedFlagState(fm) {
  */
 export async function handleAttackerAction(action, ctx) {
   const { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, batchedUpdate, opts, _updateCard } = ctx;
+  const baseTrackerContext = {
+    combatantId: data?.attacker?.combatantId ?? null,
+    tokenUuid: data?.attacker?.tokenUuid ?? aToken?.document?.uuid ?? null,
+    source: "opposed-attacker",
+    sourceTag: "opposed-attacker",
+    attackTraceId: String(data?.context?.attackTraceId ?? "").trim() || null,
+    attackMode: String(data?.context?.attackMode ?? "").trim().toLowerCase() || "melee",
+  };
 
   const isCommit = action === "attacker-commit";
   const isRollCommitted = action === "attacker-roll-committed";
@@ -168,17 +177,13 @@ export async function handleAttackerAction(action, ctx) {
         data.attacker.banked.committed = true;
         data.attacker.banked.committedAt = Date.now();
         data.attacker.banked.committedBy = game.user.id;
-        if (hybridBank?.dCommitted || (hybridBank?.bothCommitted && _allDefendersCommitted(data))) {
-          data.context.autoRollRequested = true;
-          data.context.autoRollRequestedAt = Date.now();
-          data.context.autoRollRequestedBy = game.user.id;
-        }
         await commitLaneToFreshCardState({
           message,
           readState: _readCombatOpposedFlagState,
           mutate: (_t) => {
             _t.attacker = foundry.utils.mergeObject(_t.attacker ?? {}, data.attacker, { overwrite: true, insertKeys: true });
             _t.context = foundry.utils.mergeObject(_t.context ?? {}, data.context, { overwrite: true, insertKeys: true });
+            reconcileBankedAutoRollRequest(_t);
           },
           updateCard: _updateCard,
           fallbackData: data,
@@ -246,7 +251,7 @@ export async function handleAttackerAction(action, ctx) {
   // - Do not offer/accept dead commits when base AP is unavailable.
   // - Do not allow commit when attack limit is already reached this round.
   if (isCommit && game.combat) {
-    const baseApCost = (String(data.mode ?? "attack") === "attack" && !data?.context?.isFreeActionAttack) ? 1 : 0;
+    const baseApCost = getPendingAttackApCost(data);
     const currentAP = Number(foundry.utils.getProperty(attacker, "system.action_points.value") ?? 0);
     if (currentAP < baseApCost) {
       ui.notifications.warn(`Not enough Action Points to commit attack (${currentAP}/${baseApCost}).`);
@@ -259,8 +264,9 @@ export async function handleAttackerAction(action, ctx) {
         followUpStrikeActive: Boolean(data?.context?.followUpStrike?.active),
         ignoreRoundLimit: Boolean(data?.context?.followUpStrike?.ignoresRoundLimit)
       };
-      if (AttackTracker.hasExceededLimit(attacker, attackLimitContext)) {
-        const warning = AttackTracker.getLimitWarning(attacker, attackLimitContext)
+      const commitTrackerContext = { ...baseTrackerContext, phase: "commit-gate" };
+      if (AttackTracker.hasExceededLimit(attacker, attackLimitContext, commitTrackerContext)) {
+        const warning = AttackTracker.getLimitWarning(attacker, attackLimitContext, commitTrackerContext)
           || "Attack limit reached for this round.";
         ui.notifications.warn(warning);
         return;
@@ -315,7 +321,8 @@ export async function handleAttackerAction(action, ctx) {
       defaultManual: data.attacker.manualMod ?? 0,
       defaultCirc: data.attacker.circumstanceMod ?? 0,
       attackerToken: aToken ?? null,
-      defenderToken: dToken ?? null
+      defenderToken: dToken ?? null,
+      prepaidBaseAttackAP: Boolean(data?.context?.activationPrepaidBaseAttackAP)
     });
     if (!decl) return;
 
@@ -351,9 +358,9 @@ export async function handleAttackerAction(action, ctx) {
     }
 
     // Early gate: block unloaded ranged weapons before committing the attack.
-    if (declaredWeapon && data.context.attackMode === "ranged") {
+    if (declaredWeapon && getWeaponCombatCapabilities(declaredWeapon).requiresReload) {
       const reloadState = declaredWeapon.system?.reloadState;
-      if (reloadState?.requiresReload && !reloadState?.isLoaded) {
+      if (!reloadState?.isLoaded) {
         ui.notifications.warn(`${declaredWeapon.name} must be reloaded before attacking.`);
         return;
       }
@@ -362,9 +369,9 @@ export async function handleAttackerAction(action, ctx) {
     // Unstoppable Might (Chapter 4): prompt for special wield usage (explicit confirmation).
     data.context.unstoppableMight = null;
     if (declaredWeapon && hasTalent(attacker, "unstoppablemight")) {
-      const attackMode = String(declaredWeapon.system?.attackMode ?? "melee").toLowerCase();
+      const attackMode = String(getWeaponCombatCapabilities(declaredWeapon).meleeCapable ? "melee" : data.context?.attackMode ?? "melee").toLowerCase();
       const wCtx = _getUnstoppableMightWeaponEligibility(declaredWeapon);
-      if (attackMode === "melee" && wCtx.eligible) {
+      if (String(data.context?.attackMode ?? "melee").toLowerCase() === "melee" && attackMode === "melee" && wCtx.eligible) {
         const useSpecial = await _promptUnstoppableMightUsage({ actorName: attacker.name, purpose: "attack" });
         data.context.unstoppableMight = { active: Boolean(useSpecial), weaponUuid: declaredWeapon.uuid };
       }
@@ -375,9 +382,8 @@ export async function handleAttackerAction(action, ctx) {
     // IMPORTANT: Do not spend AP until after we have produced a real roll message.
     // This prevents AP loss if the workflow fails before resolving the roll.
     // AP: any attack costs 1 AP; variant AP cost is additive (e.g., All Out Attack is +1 AP).
-    const baseApCost = (String(data.mode ?? "attack") === "attack" && !data?.context?.isFreeActionAttack) ? 1 : 0;
     const extraApCost = Number(decl.apCost ?? 0) || 0;
-    pendingApCost = baseApCost + extraApCost;
+    pendingApCost = getPendingAttackApCost(data, { extraApCost });
 
     // Thunder Charge (simplified): talent-driven dialog toggle waives All Out AP surcharge.
     try {
@@ -523,6 +529,8 @@ export async function handleAttackerAction(action, ctx) {
       context: {
         opponentUuid: defender?.uuid ?? null,
         opponentActor: defender ?? null,
+        opponentTokenUuid: dToken?.document?.uuid ?? defenderData?.tokenUuid ?? null,
+        actorTokenUuid: aToken?.document?.uuid ?? data.attacker?.tokenUuid ?? null,
         opponentSize: defender?.system?.size ?? null,
         attackMode: data.context?.attackMode ?? "melee",
         itemUuid: data.context?.weaponUuid ?? null,
@@ -557,14 +565,14 @@ export async function handleAttackerAction(action, ctx) {
     if (
       String(data.context?.attackMode ?? "melee").toLowerCase() === "melee"
       && declaredWeapon?.type === "weapon"
-      && String(declaredWeapon?.system?.attackMode ?? "melee").toLowerCase() === "melee"
+      && getWeaponCombatCapabilities(declaredWeapon).meleeCapable
     ) {
       let defenderWeaponForLP = null;
       try {
         for (const item of (defender?.items ?? [])) {
           if (item.type !== "weapon") continue;
           if (!item.system?.equipped) continue;
-          if (String(item.system?.attackMode ?? "").toLowerCase() === "melee") {
+          if (getWeaponCombatCapabilities(item).meleeCapable) {
             defenderWeaponForLP = item;
             break;
           }
@@ -608,17 +616,6 @@ export async function handleAttackerAction(action, ctx) {
         }
       }
 
-      // Auto-request GM roll when ALL participants have committed (banking workflow)
-      const b = _getBankCommitState(data, data.defender);
-      if (b.bothCommitted && _allDefendersCommitted(data)) {
-        data.context = data.context ?? {};
-        if (!data.context.autoRollRequested) {
-          data.context.autoRollRequested = true;
-          data.context.autoRollRequestedAt = Date.now();
-          data.context.autoRollRequestedBy = game.user.id;
-        }
-      }
-
       // Fresh-state re-read: apply only attacker lane + context onto live state to preserve
       // any defender-side commit that arrived while the dialog was open.
       await commitLaneToFreshCardState({
@@ -634,6 +631,7 @@ export async function handleAttackerAction(action, ctx) {
               }
             }
           }
+          reconcileBankedAutoRollRequest(_t);
         },
         updateCard: _updateCard,
         fallbackData: data,
@@ -701,10 +699,11 @@ export async function handleAttackerAction(action, ctx) {
       followUpStrikeActive: Boolean(data?.context?.followUpStrike?.active),
       ignoreRoundLimit: Boolean(data?.context?.followUpStrike?.ignoresRoundLimit)
     };
-    const limit = AttackTracker.getAttackLimit(attacker, attackLimitContext);
-    const count = AttackTracker.getAttackCount(attacker);
+    const limitTrackerContext = { ...baseTrackerContext, phase: "limit-check" };
+    const limit = AttackTracker.getAttackLimit(attacker, attackLimitContext, limitTrackerContext);
+    const count = AttackTracker.getAttackCount(attacker, limitTrackerContext);
     if (count >= limit) {
-      const warning = AttackTracker.getLimitWarning(attacker, attackLimitContext);
+      const warning = AttackTracker.getLimitWarning(attacker, attackLimitContext, limitTrackerContext);
       if (warning) ui.notifications?.warn?.(warning);
       return;
     }
@@ -764,37 +763,7 @@ export async function handleAttackerAction(action, ctx) {
     console.warn("UESRPG | combat talent DoS adjustment (attacker) failed", err);
   }
 
-  const postSubRolls = _safeGetSetting("uesrpg-3ev4", "opposedPostSubRollMessages", true);
-  if (postSubRolls) {
-    await res.roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor: attacker, token: aToken?.document ?? null }),
-      flavor: `${data.attacker.label} \u2014 Attacker Roll`,
-      rollMode: getCoreRollMode(),
-      flags: _opposedFlags(message.id, "attacker-roll", {
-        commit: {
-          attacker: {
-            hasDeclared: true,
-            variant: data.attacker.variant,
-            variantLabel: data.attacker.variantLabel,
-            variantMod: data.attacker.variantMod,
-            manualMod: data.attacker.manualMod,
-            circumstanceMod: data.attacker.circumstanceMod,
-            circumstanceLabel: data.attacker.circumstanceLabel,
-            totalMod: data.attacker.totalMod,
-            baseTarget: data.attacker.baseTarget,
-            target: data.attacker.target,
-            tn: data.attacker.tn,
-            itemUuid: data.attacker.itemUuid,
-            label: data.attacker.label,
-            talentDoSChoice: res?.talentDoSChoice ?? null,
-            talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null
-          }
-        }
-      })
-    });
-  } else {
-    _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
-  }
+  _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
 
   // Flail (Chapter 7): a critical failure with a flail attack hits the attacker.
   if (res.isCriticalFailure === true) {
@@ -841,6 +810,7 @@ export async function handleAttackerAction(action, ctx) {
   // RAW: Press Advantage / Overextend apply to the next attack test within 1 round.
   await _consumeOneShotAdvantageEffects(attacker, {
     opponentUuid: defender?.uuid ?? null,
+    opponentTokenUuid: dToken?.document?.uuid ?? defenderData?.tokenUuid ?? null,
     attackMode: String(data?.context?.attackMode ?? "melee")
   });
 
@@ -868,20 +838,22 @@ export async function handleAttackerAction(action, ctx) {
   }
   
   // Increment attack counter after AP is spent successfully
-  // This ensures attacks only count if they were properly resourced
+    // This ensures attacks only count if they were properly resourced
   if (apOk && !data?.context?.skipAttackCountIncrement) {
     try {
-      await AttackTracker.incrementAttacks(attacker);
+      const writeTrackerContext = { ...baseTrackerContext, phase: "increment-write" };
+      await AttackTracker.incrementAttacks(attacker, writeTrackerContext);
       const usedWeaponId = await AttackTracker.recordWeaponUse(
         attacker,
-        data?.context?.weaponUuid ?? data?.attacker?.preConsumedAmmo?.weaponUuid ?? null
+        data?.context?.weaponUuid ?? data?.attacker?.preConsumedAmmo?.weaponUuid ?? null,
+        { ...baseTrackerContext, phase: "weapon-use-write" }
       );
 
       // Post-attack limit warnings (uses current AttackTracker limits and GM overrides).
       const warn = AttackTracker.getLimitWarning(attacker, {
         attackMode,
         weaponId: usedWeaponId
-      });
+      }, { ...baseTrackerContext, phase: "post-write-limit-check" });
       if (warn) ui.notifications?.warn?.(warn);
     } catch (err) {
       console.error("UESRPG | Failed to increment attack counter", { actor: attacker?.uuid, err });

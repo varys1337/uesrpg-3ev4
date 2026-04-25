@@ -2,33 +2,37 @@
 <header class="item-compact-header">
   <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
   <div class="item-header-fields">
-    <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+    <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
   </div>
 </header>
 
 <nav class="sheet-tabs tabs" data-group="primary">
-  <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
-  <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
-  {{#if enableRuleElements}}<a class="item" data-action="tab" data-group="primary" data-tab="automation">Automation</a>{{/if}}
-  <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="description">{{localize "UESRPG.UI.Description"}}</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="attributes">{{localize "UESRPG.Sheets.Item.Attributes"}}</a>
+  {{#if enableRuleElements}}<a class="item" data-action="tab" data-group="primary" data-tab="automation">{{localize "UESRPG.Sheets.Feature.Automation"}}</a>{{/if}}
+  <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
 </nav>
 
 <section class="sheet-body">
   <div class="tab" data-group="primary" data-tab="description">
-    <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+    <div class="item-description-container">
+      <div class="basic-padding">
+        <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+      </div>
+    </div>
   </div>
 
   <div class="tab" data-group="primary" data-tab="attributes">
     <div class="attribute-tab-container uesrpg-feature-sheet">
       <fieldset class="attr-fieldset uesrpg-feature-section">
-        <legend>Flags</legend>
+        <legend>{{localize "UESRPG.Sheets.Feature.Flags"}}</legend>
         <div class="uesrpg-feature-row">
-          <label title="Shift in and out of Centurion Ball Form">
+          <label title="{{localize "UESRPG.Sheets.Feature.ShiftCenturionFormTitle"}}">
             <input class="checkbox" type="checkbox" name="system.shiftForm" {{checked item.system.shiftForm}}>
-            Shift Centurion Form
+            {{localize "UESRPG.Sheets.Feature.ShiftCenturionForm"}}
           </label>
           <label>
-            Form Shift
+            {{localize "UESRPG.Sheets.Feature.FormShift"}}
             <select name="system.shiftFormStyle" data-type="String">
               {{selectOptions item.system.shiftStyles selected=item.system.shiftFormStyle localize=true}}
             </select>

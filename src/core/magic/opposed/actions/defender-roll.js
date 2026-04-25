@@ -16,6 +16,7 @@ import { getActiveWardSpell } from "../../../combat/ward-defense.js";
 import { computeSpellAttemptMagickaCost, consumeSpellMagicka } from "../../magicka-utils.js";
 import { resolveToken } from "../schema.js";
 import { executeCharacteristicDefense } from "../../characteristic-defense-service.js";
+import { buildMagicCastContext } from "../cast-context.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
 import { isWarfareUnitActorType } from "../../../actors/types.js";
@@ -266,6 +267,8 @@ export async function handleDefenderCharacteristicTest(ctx) {
   // Execute the characteristic defense test WITHOUT posting to chat (handled by opposed card)
   const defResult = await executeCharacteristicDefense(defenderActor, spell, {
     caster: attacker,
+    attacker: data?.attacker ?? {},
+    castContext: buildMagicCastContext(data?.attacker ?? {}, spell, { actor: attacker }),
     targetToken: resolveToken(data?.attacker?.tokenUuid),
     rollContext: data?.context?.rollContext,
     postToChat: false

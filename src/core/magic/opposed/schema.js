@@ -229,6 +229,21 @@ export function ensureBankedScaffold(data) {
   return data;
 }
 
+function _attackerEffectivelyCommitted(data) {
+  return Boolean(data?.attacker?.banked?.committed || data?.attacker?.result);
+}
+
+function _defenderEffectivelyCommitted(data, defender = null) {
+  const def = defender ?? data?.defender;
+  if (!def) return false;
+  return Boolean(
+    def?.banked?.committed ||
+    def?.noDefense ||
+    def?.result ||
+    getDefenderOutcome(data, def)
+  );
+}
+
 /**
  * Get bank commit state for attacker and defender.
  * @param {object} data
@@ -238,14 +253,11 @@ export function ensureBankedScaffold(data) {
 export function getBankCommitState(data, defender = null) {
   ensureBankedScaffold(data);
   
-  const aCommitted = Boolean(data.attacker?.banked?.committed);
+  const aCommitted = _attackerEffectivelyCommitted(data);
   const def = defender ?? data.defender;
   // Use explicit commit flag and noDefense — NOT defenseType, which may
   // be pre-populated at card creation (e.g. characteristic-save).
-  const dCommitted = Boolean(
-    def?.banked?.committed ||
-    def?.noDefense
-  );
+  const dCommitted = _defenderEffectivelyCommitted(data, def);
   
   return {
     aCommitted,
@@ -267,16 +279,13 @@ export function allDefendersCommitted(data) {
   }
   
   // Multi-defender: attacker must be committed AND all defenders must be committed
-  const aCommitted = Boolean(data.attacker?.banked?.committed);
+  const aCommitted = _attackerEffectivelyCommitted(data);
   if (!aCommitted) return false;
   
   const defenders = getDefenderEntries(data);
   return defenders.every(def => {
     if (!def) return true; // Skip null entries
-    return Boolean(
-      def?.banked?.committed ||
-      def?.noDefense
-    );
+    return _defenderEffectivelyCommitted(data, def);
   });
 }
 

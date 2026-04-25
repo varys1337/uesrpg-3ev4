@@ -80,6 +80,7 @@ export {
   getSpellDamageType,
   isHealingSpell,
   getActorMagicka,
+  resolveSpellCostSnapshot,
   computeSpellMagickaCost,
   computeSpellAttemptMagickaCost,
   applySpellRestraintRefund,

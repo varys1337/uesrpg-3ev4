@@ -82,6 +82,26 @@ function _resolveCombatantByActor(combat, actor, anchor = null) {
   return best ?? matches[0];
 }
 
+export function findCombatantsForActor(combat, actor) {
+  if (!combat || !actor) return [];
+  return _getCombatTurns(combat).filter((combatant) => {
+    const combatantActor = _getCombatantActor(combatant);
+    if (!combatantActor) return false;
+    if (_getActorId(combatantActor) && _getActorId(combatantActor) === _getActorId(actor)) return true;
+    if (_getActorUuid(combatantActor) && _getActorUuid(combatantActor) === _getActorUuid(actor)) return true;
+    return false;
+  });
+}
+
+function _normalizeCombatantResolutionAnchor(anchor = {}) {
+  return {
+    casterUuid: _str(anchor?.casterUuid ?? anchor?.actorUuid),
+    casterTokenUuid: _str(anchor?.casterTokenUuid ?? anchor?.tokenUuid),
+    casterCombatantId: _str(anchor?.casterCombatantId ?? anchor?.combatantId),
+    combatId: _str(anchor?.combatId)
+  };
+}
+
 function _explainResolution(combat, normalized, { cache } = {}) {
   const explanation = {
     source: "unresolved",
@@ -239,4 +259,24 @@ export function resolveSpellAnchorCombatant(combat, anchor, { cache } = {}) {
 
 export function resolveSpellAnchorTurnIndex(combat, anchor, { cache } = {}) {
   return explainSpellAnchorResolution(combat, anchor, { cache }).turnIndex;
+}
+
+export function explainCombatantResolutionForActor(combat, actor, anchor = {}, { cache } = {}) {
+  const normalizedAnchor = _normalizeCombatantResolutionAnchor(anchor);
+  const matches = findCombatantsForActor(combat, actor);
+  const normalized = {
+    ...normalizedAnchor,
+    casterUuid: normalizedAnchor.casterUuid || _getActorUuid(actor),
+  };
+  const explanation = _explainResolution(combat, normalized, { cache });
+  explanation.matchCount = matches.length;
+  explanation.ambiguous = matches.length > 1 && !normalizedAnchor.casterCombatantId && !normalizedAnchor.casterTokenUuid;
+  return explanation;
+}
+
+export function resolveCombatantForActor(combat, actor, anchor = {}, { cache } = {}) {
+  if (!combat || !actor) return null;
+  const explanation = explainCombatantResolutionForActor(combat, actor, anchor, { cache });
+  if (!explanation?.combatantId) return null;
+  return combat.combatants?.get?.(explanation.combatantId) ?? null;
 }

@@ -16,9 +16,9 @@ import { MagicTimekeeping } from "./timekeeping-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
 import { getDifficultyByKey } from "../skills/skill-tn.js";
-import { evaluateAEModifierKeysDetailed, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
+import { evaluateAEModifierKeysDetailed, buildAEBreakdownEntries, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { hasGrandmasterForSkill } from "../traits/general-talents.js";
-import { computeSpellRestraintReduction, getActorWillpowerBonus, getSpellRestraintReduction } from "./magic-modifiers.js";
+import { getActorWillpowerBonus, getSpellRestraintReduction } from "./magic-modifiers.js";
 import { _num, _strTrim as _str, isDebugEnabled } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
@@ -127,7 +127,22 @@ function _evaluateSpellCostAEModifier(actor, spell) {
   try {
     const keys = _collectSpellCostModifierKeys(spell);
     if (!keys.length) return { total: 0, breakdown: [] };
-    return evaluateAEModifierKeysDetailed(actor, keys, { labelPrefix: "Magic Cost" });
+    const result = evaluateAEModifierKeysDetailed(actor, keys, {
+      context: {
+        attackMode: "magic",
+        itemUuid: String(spell?.uuid ?? "")
+      },
+      enforceConditions: true,
+      dedupeByOrigin: true
+    });
+    const totalsByKey = result?.totalsByKey ?? {};
+    const total = keys.reduce((sum, key) => sum + (_num(totalsByKey?.[key], 0) || 0), 0);
+    return {
+      total,
+      breakdown: buildAEBreakdownEntries(result?.detailsByKey ?? {}),
+      detailsByKey: result?.detailsByKey ?? {},
+      keys
+    };
   } catch (_e) {
     return { total: 0, breakdown: [] };
   }
@@ -143,14 +158,227 @@ function _computeSpellBaseCost(actor, spell, options = {}) {
   return { baseCost, baseCostRaw, aeModifier, aeBreakdown: breakdown };
 }
 
+function _spellHasDamage(spell, options = {}) {
+  const formula = getSpellDamageFormula(spell, options.level ?? null);
+  return Boolean(formula && formula !== "0" && getSpellDamageType(spell) !== "healing");
+}
+
+function _normalizeCostOptions(actor, spell, options = {}) {
+  const isRestrained = _bool(options?.isRestrained);
+  const isOverloaded = _bool(options?.isOverloaded) && _bool(spell?.system?.hasOverload);
+  const wantsOvercharge = _bool(options?.useOvercharge) || _bool(options?.isOvercharged);
+  const isOvercharged = wantsOvercharge && hasTalent(actor, "overcharge") && _spellHasDamage(spell, options);
+  const level = options?.level ?? options?.castLevel ?? null;
+  return {
+    ...options,
+    level,
+    isRestrained,
+    isOverloaded,
+    isOvercharged,
+    useOvercharge: wantsOvercharge
+  };
+}
+
+function _buildCostDebugPayload(actor, spell, snapshot, stage, extra = {}) {
+  if (!isDebugEnabled("spellCastingDebug")) return;
+  try {
+    console.log("[UESRPG][SpellCost]", stage, {
+      actorId: actor?.id ?? actor?.uuid ?? null,
+      spellId: spell?.id ?? spell?.uuid ?? null,
+      baseRaw: snapshot?.baseRaw ?? 0,
+      base: snapshot?.base ?? 0,
+      aeModifier: snapshot?.aeModifier ?? 0,
+      aeBreakdown: snapshot?.aeBreakdown ?? [],
+      restraint: snapshot?.restrained ?? {},
+      overload: snapshot?.overload ?? {},
+      overcharge: snapshot?.overcharge ?? {},
+      attempt: snapshot?.attempt ?? 0,
+      finalOnSuccess: snapshot?.finalOnSuccess ?? 0,
+      finalOnFailure: snapshot?.finalOnFailure ?? 0,
+      ...extra
+    });
+  } catch (_e) {
+    // no-op
+  }
+}
+
+/**
+ * Resolve the canonical spell-cost snapshot for preview, validation, spend, and refund.
+ *
+ * Duplicate AE runtime policy: `dedupeByOrigin: true` suppresses actor/transfer
+ * duplicates produced by refresh/update flows, while separate authored modifier keys
+ * still stack because totals are summed per distinct key.
+ *
+ * @param {Actor} actor
+ * @param {Item} spell
+ * @param {object} options
+ * @returns {object}
+ */
+export function resolveSpellCostSnapshot(actor, spell, options = {}) {
+  if (options?.consumeMagicka === false) {
+    return {
+      baseRaw: 0,
+      aeModifier: 0,
+      aeBreakdown: [],
+      base: 0,
+      restrained: {
+        enabled: false,
+        normalReduction: 0,
+        criticalReduction: 0,
+        refundOnSuccess: 0,
+        breakdown: []
+      },
+      overload: { enabled: false, multiplier: 1 },
+      overcharge: { enabled: false, multiplier: 1 },
+      multipliers: { total: 1 },
+      attempt: 0,
+      finalOnSuccess: 0,
+      finalOnFailure: 0,
+      flags: {
+        isRestrained: false,
+        isOverloaded: false,
+        isOvercharged: false,
+        useOvercharge: false
+      }
+    };
+  }
+
+  const normalized = _normalizeCostOptions(actor, spell, options);
+  const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, normalized);
+  const base = Math.max(0, Math.floor(baseCost));
+
+  const isDamaging = _spellHasDamage(spell, normalized);
+  const normalRestraint = normalized.isRestrained && base > 0
+    ? getSpellRestraintReduction(actor, spell, {
+        ...normalized,
+        isCritical: false,
+        isDamaging,
+        baseCost: base,
+        minCost: 1
+      })
+    : { reduction: 0, baseWB: 0, adjustedWB: 0, minCost: 1, stunted: false, breakdown: [] };
+  const criticalRestraint = normalized.isRestrained && base > 0
+    ? getSpellRestraintReduction(actor, spell, {
+        ...normalized,
+        isCritical: true,
+        isDamaging,
+        baseCost: base,
+        minCost: 1
+      })
+    : normalRestraint;
+
+  const normalReduction = Math.max(0, Math.floor(_num(normalRestraint?.reduction, 0)));
+  const criticalReduction = Math.max(0, Math.floor(_num(criticalRestraint?.reduction, normalReduction)));
+  const overloadMultiplier = normalized.isOverloaded ? 2 : 1;
+  const overchargeMultiplier = normalized.isOvercharged ? 2 : 1;
+  const totalMultiplier = overloadMultiplier * overchargeMultiplier;
+  const attempt = Math.max(0, Math.floor(base * totalMultiplier));
+  const successBase = base > 0
+    ? Math.max(1, base - normalReduction)
+    : 0;
+  const finalOnSuccess = Math.max(0, Math.floor(successBase * totalMultiplier));
+  const finalOnFailure = attempt;
+  const refundOnSuccess = Math.max(0, attempt - finalOnSuccess);
+
+  const snapshot = {
+    baseRaw: baseCostRaw,
+    aeModifier,
+    aeBreakdown,
+    base,
+    restrained: {
+      enabled: normalized.isRestrained,
+      normalReduction,
+      criticalReduction,
+      refundOnSuccess,
+      baseWB: _num(normalRestraint?.baseWB, 0),
+      adjustedWB: _num(normalRestraint?.adjustedWB, 0),
+      minCost: _num(normalRestraint?.minCost, 1),
+      stunted: Boolean(normalRestraint?.stunted),
+      breakdown: Array.isArray(normalRestraint?.breakdown) ? normalRestraint.breakdown : []
+    },
+    overload: {
+      enabled: normalized.isOverloaded,
+      multiplier: overloadMultiplier
+    },
+    overcharge: {
+      enabled: normalized.isOvercharged,
+      multiplier: overchargeMultiplier
+    },
+    multipliers: {
+      total: totalMultiplier
+    },
+    attempt,
+    finalOnSuccess,
+    finalOnFailure,
+    flags: {
+      isRestrained: normalized.isRestrained,
+      isOverloaded: normalized.isOverloaded,
+      isOvercharged: normalized.isOvercharged,
+      useOvercharge: normalized.useOvercharge
+    }
+  };
+
+  _buildCostDebugPayload(actor, spell, snapshot, "resolve");
+  return snapshot;
+}
+
 /**
  * Return the spell level (1..7).
  * @param {Item} spell
  * @returns {number}
  */
 export function getSpellLevel(spell) {
+  const scalingLevel = _num(getSpellBaseScalingEntry(spell)?.level, 0);
+  if (scalingLevel > 0) return Math.max(1, Math.min(7, scalingLevel));
   const lvl = _num(spell?.system?.level, 1);
   return Math.max(1, Math.min(7, lvl));
+}
+
+function _normalizeScalingDuration(rawDuration, fallbackUnit = "instant") {
+  if (rawDuration && typeof rawDuration === "object") {
+    return {
+      value: _num(rawDuration.value, 0),
+      unit: _str(rawDuration.unit || fallbackUnit).toLowerCase() || fallbackUnit
+    };
+  }
+  return {
+    value: _num(rawDuration, 0),
+    unit: _str(fallbackUnit).toLowerCase() || "instant"
+  };
+}
+
+function _normalizeScalingRow(entry, idx = 0, fallbackDurationUnit = "instant") {
+  if (!entry || typeof entry !== "object") return null;
+  const explicit = Number(entry?.level);
+  const inferredLevel = idx + 1;
+  const level = Number.isFinite(explicit) && explicit > 0 ? explicit : inferredLevel;
+  return {
+    ...entry,
+    level,
+    known: entry.known !== false && entry.known !== "false",
+    cost: _num(entry.cost, 0),
+    damageFormula: _str(entry.damageFormula),
+    spellStrengthFormula: _str(
+      entry.spellStrengthFormula
+      ?? entry.spellStrength
+      ?? entry.spell_str
+      ?? entry.strength
+      ?? entry.value
+      ?? ""
+    ),
+    description: _str(entry.description),
+    duration: _normalizeScalingDuration(entry.duration, fallbackDurationUnit),
+    __inferredLevel: !(Number.isFinite(explicit) && explicit > 0),
+  };
+}
+
+export function getSpellBaseScalingEntry(spell) {
+  const levels = getSpellScalingLevels(spell);
+  return levels[0] ?? null;
+}
+
+export function getKnownSpellScalingLevels(spell) {
+  return getSpellScalingLevels(spell).filter((row) => row?.known !== false);
 }
 
 /**
@@ -161,6 +389,7 @@ export function getSpellLevel(spell) {
  * @returns {Array<object>}
  */
 export function getSpellScalingLevels(spell) {
+  const fallbackDurationUnit = _str(spell?.system?.duration?.unit || "instant").toLowerCase() || "instant";
   const candidates = [
     spell?.system?.scaling?.levels,
     spell?.system?.scalingLevels,
@@ -174,20 +403,16 @@ export function getSpellScalingLevels(spell) {
 
     if (Array.isArray(node)) {
       node.forEach((entry, idx) => {
-        if (!entry || typeof entry !== "object") return;
-        const explicit = Number(entry?.level);
-        const level = Number.isFinite(explicit) && explicit > 0 ? explicit : (idx + 2);
-        rows.push({ ...entry, level, __inferredLevel: !(Number.isFinite(explicit) && explicit > 0) });
+        const normalized = _normalizeScalingRow(entry, idx, fallbackDurationUnit);
+        if (normalized) rows.push(normalized);
       });
       return;
     }
 
     if (typeof node?.values === "function") {
       Array.from(node.values()).forEach((entry, idx) => {
-        if (!entry || typeof entry !== "object") return;
-        const explicit = Number(entry?.level);
-        const level = Number.isFinite(explicit) && explicit > 0 ? explicit : (idx + 2);
-        rows.push({ ...entry, level, __inferredLevel: !(Number.isFinite(explicit) && explicit > 0) });
+        const normalized = _normalizeScalingRow(entry, idx, fallbackDurationUnit);
+        if (normalized) rows.push(normalized);
       });
       return;
     }
@@ -200,11 +425,15 @@ export function getSpellScalingLevels(spell) {
 
       Object.entries(node).forEach(([key, entry], idx) => {
         if (!entry || typeof entry !== "object") return;
-        const explicit = Number(entry?.level);
         const keyNum = Number(key);
-        const inferred = Number.isFinite(keyNum) ? (keyNum + 1) : (idx + 2);
-        const level = Number.isFinite(explicit) && explicit > 0 ? explicit : inferred;
-        rows.push({ ...entry, level, __inferredLevel: !(Number.isFinite(explicit) && explicit > 0) });
+        const normalized = _normalizeScalingRow(
+          Number.isFinite(keyNum) && !(Number.isFinite(Number(entry?.level)) && Number(entry?.level) > 0)
+            ? { ...entry, level: keyNum + 1 }
+            : entry,
+          idx,
+          fallbackDurationUnit
+        );
+        if (normalized) rows.push(normalized);
       });
     }
   };
@@ -250,7 +479,7 @@ export function getSpellScalingEntry(spell, level = null) {
     return null;
   }
 
-  const targetLevel = level == null ? getSpellLevel(spell) : _num(level, getSpellLevel(spell));
+  const targetLevel = level == null ? _num(getSpellBaseScalingEntry(spell)?.level, getSpellLevel(spell)) : _num(level, getSpellLevel(spell));
   
   if (DEBUG) {
     console.log(`  Target level resolved to: ${targetLevel}`);
@@ -261,6 +490,12 @@ export function getSpellScalingEntry(spell, level = null) {
   if (byLevel) {
     if (DEBUG) console.log(`  ✅ Found entry by level match:`, byLevel);
     return byLevel;
+  }
+
+  const firstKnown = levels.find((entry) => entry?.known !== false) ?? null;
+  if (level == null && firstKnown) {
+    if (DEBUG) console.log("  ℹ️ No explicit level requested, using first known scaling entry", firstKnown);
+    return firstKnown;
   }
 
   const allInferred = levels.every((l) => l?.__inferredLevel === true);
@@ -318,7 +553,7 @@ export function getSpellCost(spell, level = null) {
 export function getSpellDamageFormula(spell, level = null) {
   const DEBUG = isDebugEnabled("spellCastingDebug");
   
-  // Check scaling entry first if level is specified
+  // Damage formula stays in the dedicated damage lane. Scaling rows override when authored.
   const scaling = getSpellScalingEntry(spell, level);
   const scaledDamage = scaling ? _str(scaling.damageFormula) : "";
   
@@ -347,6 +582,75 @@ export function getSpellDamageFormula(spell, level = null) {
   if (DEBUG) console.log(`  ⚠️ No scaled or primary damage, using legacy: ${legacy || "0"}`);
   // Return "0" for spells without damage (used in isDamaging checks)
   return legacy || "0";
+}
+
+function _firstUsableSpellStrengthCandidate(candidates = []) {
+  for (const candidate of candidates) {
+    const normalized = _str(candidate);
+    if (!normalized) continue;
+    // "0" is a valid damage sentinel, but not a usable spell-strength value.
+    if (normalized === "0") continue;
+    return normalized;
+  }
+  return "";
+}
+
+/**
+ * Canonical spell-strength/value formula getter.
+ *
+ * Spell strength is used by metadata-driven Active Effects and other strength-aware
+ * spell workflows. It must not inherit the damage helper's "0" sentinel behavior,
+ * because non-damaging spells such as Armor often store their effective strength in
+ * the same UI lane as damage/scaling while still needing a positive numeric result.
+ *
+ * Resolution order:
+ *   1. Scaling row for the requested level (explicit strength-like keys first, then current sheet lane)
+ *   2. Base spell fields (explicit strength-like keys first, then current sheet lane)
+ *   3. Legacy spell_str / damage fallback
+ *
+ * @param {Item} spell
+ * @param {number|null} level
+ * @returns {string} Spell strength/value formula, or an empty string when none is configured
+ */
+export function getSpellStrengthFormula(spell, level = null) {
+  const DEBUG = isDebugEnabled("spellCastingDebug");
+  const scaling = getSpellScalingEntry(spell, level);
+
+  const scaledStrength = _firstUsableSpellStrengthCandidate([
+    scaling?.spellStrengthFormula,
+    scaling?.spellStrength,
+    scaling?.spell_str,
+    scaling?.strength,
+    scaling?.value
+  ]);
+
+  const baseStrength = _firstUsableSpellStrengthCandidate([
+    spell?.system?.spellStrengthFormula,
+    spell?.system?.spellStrength,
+    spell?.system?.spell_str,
+    spell?.system?.strength,
+    spell?.system?.value
+  ]);
+
+  const legacyStrength = _firstUsableSpellStrengthCandidate([
+    scaling?.damageFormula,
+    spell?.system?.damageFormula,
+    spell?.system?.damage
+  ]);
+
+  const resolved = scaledStrength || baseStrength || legacyStrength || "";
+
+  if (DEBUG) {
+    console.log(`\n[UESRPG][SpellStrength] getSpellStrengthFormula for "${spell?.name}":`, {
+      requestedLevel: level,
+      scalingEntry: scaling,
+      scaledStrength,
+      baseStrength,
+      resolved: resolved || ""
+    });
+  }
+
+  return resolved;
 }
 
 /**
@@ -451,42 +755,19 @@ export function getActorMagicka(actor) {
  * @returns {{ cost:number, baseCost:number, wpBonus:number, restraintReduction:number, isRestrained:boolean, isOverloaded:boolean, isOvercharged:boolean }}
  */
 export function computeSpellMagickaCost(actor, spell, options = {}) {
-  const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, options);
-
-  const isRestrained = _bool(options.isRestrained);
-  const isOverloaded = _bool(options.isOverloaded);
-  const isOvercharged = _bool(options.isOvercharged);
-
-  let cost = baseCost;
-  let wpBonus = 0;
-  let restraintReduction = 0;
-
-  // NOTE: This helper assumes the cast succeeded. If you need the cost to *attempt* a cast,
-  // use computeSpellAttemptMagickaCost().
-  if (isRestrained && baseCost > 0) {
-    wpBonus = getActorWillpowerBonus(actor);
-    const restraintInfo = getSpellRestraintReduction(actor, spell, {
-      ...options,
-      baseCost,
-      baseWB: wpBonus,
-      minCost: 1
-    });
-    restraintReduction = Number(restraintInfo?.reduction ?? 0) || 0;
-    cost = Math.max(1, baseCost - restraintReduction);
-  }
-
-  cost = Math.max(0, Math.floor(cost));
+  const snapshot = resolveSpellCostSnapshot(actor, spell, options);
   return {
-    cost,
-    baseCost,
-    baseCostRaw,
-    aeModifier,
-    aeBreakdown,
-    wpBonus,
-    restraintReduction,
-    isRestrained,
-    isOverloaded,
-    isOvercharged
+    cost: snapshot.finalOnSuccess,
+    baseCost: snapshot.base,
+    baseCostRaw: snapshot.baseRaw,
+    aeModifier: snapshot.aeModifier,
+    aeBreakdown: snapshot.aeBreakdown,
+    wpBonus: snapshot.restrained.adjustedWB,
+    restraintReduction: snapshot.restrained.normalReduction,
+    isRestrained: snapshot.flags.isRestrained,
+    isOverloaded: snapshot.flags.isOverloaded,
+    isOvercharged: snapshot.flags.isOvercharged,
+    costSnapshot: snapshot
   };
 }
 
@@ -502,14 +783,18 @@ export function computeSpellMagickaCost(actor, spell, options = {}) {
  * @returns {{ cost:number, baseCost:number }}
  */
 export function computeSpellAttemptMagickaCost(actor, spell, options = {}) {
-  // Scroll mode: bypass magicka cost entirely.
-  if (options?.consumeMagicka === false) {
-    return { cost: 0, baseCost: 0, baseCostRaw: 0, aeModifier: 0, aeBreakdown: [], overloadMultiplier: 1 };
-  }
-  const { baseCost, baseCostRaw, aeModifier, aeBreakdown } = _computeSpellBaseCost(actor, spell, options);
-  const overloadMultiplier = _bool(options?.isOverloaded) ? 2 : 1;
-  const cost = Math.max(0, Math.floor(baseCost * overloadMultiplier));
-  return { cost, baseCost, baseCostRaw, aeModifier, aeBreakdown, overloadMultiplier };
+  const snapshot = resolveSpellCostSnapshot(actor, spell, options);
+  return {
+    cost: snapshot.attempt,
+    attemptCost: snapshot.attempt,
+    baseCost: snapshot.base,
+    baseCostRaw: snapshot.baseRaw,
+    aeModifier: snapshot.aeModifier,
+    aeBreakdown: snapshot.aeBreakdown,
+    overloadMultiplier: snapshot.overload.multiplier,
+    overchargeMultiplier: snapshot.overcharge.multiplier,
+    costSnapshot: snapshot
+  };
 }
 
 /**
@@ -530,7 +815,8 @@ export function computeSpellAttemptMagickaCost(actor, spell, options = {}) {
  * @returns {Promise<{ refund:number, finalCost:number, breakdown:string }>}
  */
 export async function applySpellRestraintRefund(actor, spell, options = {}, result = {}, spendInfo = {}) {
-  const isRestrained = _bool(options.isRestrained);
+  const snapshot = spendInfo?.costSnapshot ?? resolveSpellCostSnapshot(actor, spell, options);
+  const isRestrained = _bool(snapshot?.flags?.isRestrained);
   const spent = Number(spendInfo?.consumed ?? 0) || 0;
 
   if (!isRestrained) return { refund: 0, finalCost: spent, breakdown: "" };
@@ -544,49 +830,42 @@ export async function applySpellRestraintRefund(actor, spell, options = {}, resu
 
   if (!isSuccess) return { refund: 0, finalCost: spent, breakdown: "" };
 
-  const { baseCost } = _computeSpellBaseCost(actor, spell, options);
-  if (baseCost <= 0) return { refund: 0, finalCost: 0, breakdown: "" };
-
-  // Determine whether this spell is "damaging" for the critical success clause.
-  // Healing and effect-only spells are treated as non-damaging.
-  const formula = getSpellDamageFormula(spell, options.level ?? null);
-  const isDamaging = Boolean(formula && formula !== "0" && getSpellDamageType(spell) !== "healing");
-
   const isCriticalSuccess = Boolean(result?.isCriticalSuccess ?? result?.criticalSuccess ?? result?.isCritSuccess);
+  const reduction = isCriticalSuccess
+    ? Math.max(0, Number(snapshot?.restrained?.criticalReduction ?? 0) || 0)
+    : Math.max(0, Number(snapshot?.restrained?.normalReduction ?? 0) || 0);
+  const finalBase = snapshot.base > 0 ? Math.max(1, snapshot.base - reduction) : 0;
+  const finalCost = Math.max(0, Math.floor(finalBase * (Number(snapshot?.multipliers?.total ?? 1) || 1)));
+  const refund = Math.min(Math.max(0, spent - finalCost), spent);
 
-  // Use talent-aware restraint reduction (Creative, Methodical, Magicka Cycling, Stunted Magicka)
-  const restraintInfo = computeSpellRestraintReduction(actor, spell, {
-    isCritical: isCriticalSuccess,
-    isDamaging,
-    baseCost,
-    minCost: 1
-  });
-  const reduction = Math.max(0, Number(restraintInfo?.reduction ?? 0));
-
-  if (reduction <= 0) return { refund: 0, finalCost: baseCost, breakdown: "" };
+  if (refund <= 0) return { refund: 0, finalCost: spent, breakdown: "" };
 
   const current = getActorMagicka(actor);
   const max = _num(actor?.system?.magicka?.max, 0);
-  const next = (max > 0) ? Math.min(max, current + reduction) : (current + reduction);
+  const next = (max > 0) ? Math.min(max, current + refund) : (current + refund);
   await requestUpdateDocument(actor, { "system.magicka.value": next });
 
-  const finalCost = baseCost - reduction;
-  const breakdownParts = restraintInfo.breakdown;
+  const breakdownParts = snapshot?.restrained?.breakdown ?? [];
   const breakdown = breakdownParts.length > 0
-    ? `Spell Restraint: -${reduction} (${breakdownParts.join(", ")}), min 1`
-    : `Spell Restraint: -${reduction} (WPB), min 1`;
+    ? `Spell Restraint: -${refund} (${breakdownParts.join(", ")}), min 1`
+    : `Spell Restraint: -${refund} (WPB), min 1`;
 
-  // If the spendInfo differs from baseCost for any reason, treat the refund as best-effort.
-  const refund = Math.min(reduction, spent > 0 ? spent : reduction);
+  _buildCostDebugPayload(actor, spell, snapshot, "refund", {
+    refunded: refund,
+    magickaBeforeRefund: current,
+    magickaAfterRefund: next
+  });
   return { refund, finalCost, breakdown };
 }
 export async function consumeSpellMagicka(actor, spell, options = {}) {
   // Scroll mode: skip magicka deduction entirely.
   if (options?.consumeMagicka === false) {
     const current = getActorMagicka(actor);
-    return { ok: true, consumed: 0, remaining: current, previous: current, required: 0, baseCost: 0 };
+    return { ok: true, consumed: 0, remaining: current, previous: current, required: 0, baseCost: 0, costSnapshot: resolveSpellCostSnapshot(actor, spell, options) };
   }
-  const { cost: attemptCost, baseCost } = computeSpellAttemptMagickaCost(actor, spell, options);
+  const costSnapshot = options?.costSnapshot ?? resolveSpellCostSnapshot(actor, spell, options);
+  const attemptCost = costSnapshot.attempt;
+  const baseCost = costSnapshot.base;
 
   // RAW: if you are currently maintaining (Upkeep) a spell with no listed duration, you cannot cast a different spell.
   // We enforce this at cast-time so the restriction is deterministic across all cast entry points.
@@ -621,7 +900,7 @@ if (activeNoDuration) {
           `You cannot cast another spell while maintaining ${activeNoDuration?.name ?? "an upkept spell"} (no listed duration).`
         );
         const current = getActorMagicka(actor);
-        return { ok: false, consumed: 0, remaining: current, previous: current, required: attemptCost, baseCost };
+        return { ok: false, consumed: 0, remaining: current, previous: current, required: attemptCost, baseCost, costSnapshot };
       }
     }
   } catch (_e) {
@@ -643,11 +922,17 @@ if (activeNoDuration) {
       remaining: current,
       previous: current,
       required: attemptCost,
-      baseCost
+      baseCost,
+      costSnapshot
     };
   }
 
   await requestUpdateDocument(actor, { "system.magicka.value": remaining });
+  _buildCostDebugPayload(actor, spell, costSnapshot, "consume", {
+    consumed: attemptCost,
+    magickaBefore: current,
+    magickaAfter: remaining
+  });
 
   // Track the most recent spell cast for RAW upkeep restrictions.
   // Best-effort only: this flag is used by the upkeep workflow to enforce
@@ -666,7 +951,8 @@ if (activeNoDuration) {
     consumed: attemptCost,
     remaining,
     previous: current,
-    baseCost
+    baseCost,
+    costSnapshot
   };
 }
 

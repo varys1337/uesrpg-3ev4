@@ -132,27 +132,15 @@ function renderRollLine(result, { noRollText = t("UESRPG.Chat.Common.Automatic",
 function getCostPresentation(attacker = {}) {
   const castSource = attacker?.castSource ?? null;
   const costMode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
-  const spentCost = Number(attacker?.mpSpent ?? attacker?.spellCost ?? 0) || 0;
 
   if (castSource?.type === "enchantment") {
-    if (costMode === "none") {
-      return {
-        label: t("UESRPG.Chat.Magic.NoResourceCost", "No Resource Cost"),
-        value: "0",
-        isNoCost: true
-      };
-    }
-    if (costMode === "magicka") {
-      return {
-        label: t("UESRPG.Chat.Magic.MPCost", "MP Cost"),
-        value: String(spentCost),
-        isNoCost: false
-      };
-    }
+    const bindingStrength = Math.max(0, Number(castSource?.bindingStrength ?? 0) || 0);
+    const degree = Math.max(0, Number(attacker?.result?.degree ?? attacker?.result?.degrees ?? bindingStrength) || 0);
     return {
-      label: t("UESRPG.Chat.Magic.SoulEnergyCost", "Soul Energy Cost"),
-      value: `${spentCost} (pool: ${Number(castSource?.pool?.value ?? 0)}/${Number(castSource?.pool?.max ?? 0)})`,
-      isNoCost: false
+      label: t("UESRPG.Chat.Magic.DoS", "DoS"),
+      value: tf("UESRPG.Chat.Magic.BindingStrengthDoSValue", { degree, bindingStrength }, `${degree} (Binding Strength ${bindingStrength})`),
+      isNoCost: costMode === "none",
+      isEnchantmentDoS: true
     };
   }
 
@@ -282,6 +270,19 @@ function resolveItemFromUuid(uuid, ctx) {
   return item;
 }
 
+function buildMagicTrackerContext(data, attacker, source = "magic-opposed-render") {
+  const tokenUuid = String(data?.attacker?.tokenUuid ?? attacker?.token?.document?.uuid ?? attacker?.token?.uuid ?? "").trim();
+  return {
+    combatantId: String(data?.attacker?.combatantId ?? "").trim() || null,
+    tokenUuid: tokenUuid || null,
+    source,
+    sourceTag: source,
+    attackTraceId: String(data?.context?.attackTraceId ?? "").trim() || null,
+    attackMode: "magic",
+    phase: "render-gate"
+  };
+}
+
 function getMagicAttackerCommitGate(data, ctx) {
   const attacker = resolveActorFromUuid(data?.attacker?.actorUuid, ctx);
   if (!attacker) return { allowed: false, reason: t("UESRPG.Chat.Magic.CasterUnavailable", "Caster unavailable") };
@@ -299,8 +300,13 @@ function getMagicAttackerCommitGate(data, ctx) {
     const isEnchantSource = castSource?.type === "enchantment";
     if (game?.combat) {
       const cls = classifySpellForRouting(spell);
-      if (cls?.isAttack && AttackTracker.hasExceededLimit(attacker)) {
-        return { allowed: false, reason: AttackTracker.getLimitWarning(attacker) || t("UESRPG.Chat.Opposed.AttackLimitReached", "Attack limit reached") };
+      const trackerContext = buildMagicTrackerContext(data, attacker);
+      if (cls?.isAttack && AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+        return {
+          allowed: false,
+          reason: AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+            || t("UESRPG.Chat.Opposed.AttackLimitReached", "Attack limit reached")
+        };
       }
     }
     if (isEnchantSource && castMode === "soul") {
@@ -313,6 +319,10 @@ function getMagicAttackerCommitGate(data, ctx) {
         ? Number(item.system?.charge?.value ?? item.flags?.["uesrpg-3ev4"]?.itemSpellcasting?.pool?.value ?? 0) || 0
         : Number(item.flags?.["uesrpg-3ev4"]?.enchanting?.cast?.pool?.value ?? 0) || 0;
       if (poolValue < needed) return { allowed: false, reason: `${poolValue}/${needed} Soul` };
+    } else if (isEnchantSource && castMode === "magicka") {
+      const needed = Number(castSource?.cost ?? 0) || 0;
+      const currentMagicka = Number(foundry.utils.getProperty(attacker, "system.magicka.value") ?? 0);
+      if (currentMagicka < needed) return { allowed: false, reason: `${currentMagicka}/${needed} MP` };
     } else if (!(isEnchantSource && castMode === "none")) {
       const costInfo = computeSpellAttemptMagickaCost(attacker, spell, data?.attacker?.spellOptions ?? {});
       const needed = Number(costInfo?.cost ?? 0) || 0;
@@ -494,9 +504,9 @@ function renderMultiDefenderCard(data, messageId, ctx) {
         <div style="margin-top:10px;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${summarizeOutcomeText(outcome)}</div>
         ${blockResolveButton}
       `;
-    } else if (bankMode && !bothCommitted) {
+    } else if (bankMode && !bothCommitted && !a.result && !d.result && !d.noDefense) {
       outcomeLine = `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
-    } else if (a.result && !d.result && !d.noDefense) {
+    } else if (a.result?.isSuccess && !d.result && !d.noDefense) {
       outcomeLine = `
         <div style="margin-top:10px; padding:8px; background:rgba(0,0,0,0.05); border-left:3px solid #666;">
           <div style="font-weight:700;">${t("UESRPG.Chat.Magic.AwaitingDefenseSelection", "Awaiting defense selection")}</div>
@@ -574,7 +584,8 @@ function renderSingleDefenderCard(data, messageId, ctx) {
       : t("UESRPG.Chat.Magic.StandardDefenseNote", "Defender may choose Block, Evade, or No Defense."));
   
   const phase = String(data?.context?.phase ?? data?.status ?? "pending");
-  const resolved = phase === "resolved";
+  const hasOutcome = Boolean(data.outcome);
+  const resolved = phase === "resolved" || hasOutcome;
   
   // Hide choices until both committed
   const revealChoices = !bankMode || bothCommitted || resolved;
@@ -708,7 +719,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   })();
 
   let outcomeLine = "";
-  if (resolved && data.outcome) {
+  if (data.outcome) {
     const defType = String(d.defenseType ?? "").toLowerCase();
     const resolveLabel = defType === "ward" ? t("UESRPG.Chat.Opposed.ResolveWard", "Resolve Ward") : t("UESRPG.Chat.Opposed.ResolveBlock", "Resolve Block");
     const resolveAction = defType === "ward" ? "ward-resolve" : "block-resolve";
@@ -721,9 +732,9 @@ function renderSingleDefenderCard(data, messageId, ctx) {
       <div style="margin-top:10px;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${summarizeOutcomeText(data.outcome)}</div>
       ${blockResolveButton}
     `;
-  } else if (bankMode && !bothCommitted) {
+  } else if (bankMode && !bothCommitted && !a.result && !d.result && !d.noDefense) {
     outcomeLine = `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
-  } else if (awaitingDefense) {
+  } else if (awaitingDefense && a.result?.isSuccess) {
     outcomeLine = `
       <div style="margin-top:10px; padding:8px; background:rgba(0,0,0,0.05); border-left:3px solid #666;">
         <div style="font-weight:700;">${t("UESRPG.Chat.Magic.AwaitingDefenseSelection", "Awaiting defense selection")}</div>
@@ -799,10 +810,10 @@ export function renderUnopposedCard(data, messageId) {
   const costLabel = cost.label;
   const isEnchantmentCast = castSource?.type === "enchantment";
   const isNoCost = cost.isNoCost === true;
-  const costDetail = isNoCost
-    ? "0"
-    : (isEnchantmentCast
-      ? cost.value
+  const costDetail = isEnchantmentCast
+    ? cost.value
+    : (isNoCost
+      ? "0"
       : `${spellCost}${spellMpSpent ? ` <span class="muted" style="opacity:0.8;">(paid: ${spellMpSpent}${spellMpRefund ? `, refunded: ${spellMpRefund}` : ""})</span>` : ""}`);
   const aTN = a.tn?.finalTN != null ? String(a.tn.finalTN) : "-";
   const aRollLine = a.result
@@ -819,6 +830,14 @@ export function renderUnopposedCard(data, messageId) {
          <div style="font-weight:700;">${note}</div>
        </div>`
     : "";
+  const targetName = String(data?.defender?.tokenName ?? data?.defender?.name ?? "").trim();
+  const targetLine = targetName
+    ? `<div><b>${t("UESRPG.Chat.Common.Target", "Target")}:</b> ${targetName}</div>`
+    : "";
+  const targetDamagePanel = data?.defender ? _buildDamagePanel(getMagicDefenderDamage(data, data.defender)) : "";
+  const outcomeLine = data?.outcome
+    ? `<div style="margin-top:10px;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${summarizeOutcomeText(data.outcome)}</div>`
+    : "";
 
   return `
     <div class="ues-opposed-card ues-magic-opposed-card" data-message-id="${String(messageId ?? "")}" style="padding:6px 6px;">
@@ -827,6 +846,7 @@ export function renderUnopposedCard(data, messageId) {
           <div style="font-size:18px; font-weight:800; margin-bottom:6px;">${spellName}</div>
           <div><b>${t("UESRPG.Chat.Magic.School", "School")}:</b> ${spellSchool || "-"}</div>
           <div><b>${t("UESRPG.Chat.Magic.Level", "Level")}:</b> ${spellLevel}</div>
+          ${targetLine}
           ${castContextRows}
           <div><b>${costLabel}:</b> ${costDetail}</div>
           <div style="margin-top:6px;"><b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${aTN}</div>
@@ -834,6 +854,8 @@ export function renderUnopposedCard(data, messageId) {
           ${aBreakdown}
         </div>
       </div>
+      ${outcomeLine}
+      ${targetDamagePanel}
       ${noteLine}
     </div>
   `;
@@ -848,6 +870,9 @@ export function renderUnopposedCard(data, messageId) {
  * @returns {string} Rendered HTML string
  */
 export function renderCard(data, messageId) {
+  if (Boolean(data?.context?.noDefenseUnopposed) || Boolean(data?.context?.unopposed)) {
+    return renderUnopposedCard(data, messageId);
+  }
   const ctx = createRenderContext();
   if (isMultiDefender(data)) {
     return renderMultiDefenderCard(data, messageId, ctx);

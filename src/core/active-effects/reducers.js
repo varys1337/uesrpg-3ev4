@@ -1,4 +1,5 @@
 import { getActiveEffectChangeTypes, getEffectChangeTypeValue } from "../../utils/compat.js";
+import { resolveNumericEffectValue } from "./value-resolver.js";
 
 export function createModifierTotal() {
   return { add: 0, override: null };
@@ -16,15 +17,8 @@ export function isCustomMode(changeOrType) {
   return getEffectChangeTypeValue(changeOrType) === "custom";
 }
 
-export function toNumericEffectValue(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value !== "string") return null;
-
-  const trimmed = value.trim();
-  if (!trimmed.length) return null;
-  const numeric = Number(trimmed);
-  return Number.isFinite(numeric) ? numeric : null;
+export function toNumericEffectValue(value, context = {}) {
+  return resolveNumericEffectValue(value, context);
 }
 
 export function applyNumericModifierChange(total, change) {

@@ -4,6 +4,7 @@
  */
 
 import { UESRPG } from "../../../core/constants.js";
+import { getCachedSetting } from "../../../core/config/settings-cache.js";
 import {
   WEAPON_QUALITY_LABELS,
   WEAPON_MATERIAL_LABELS,
@@ -46,6 +47,8 @@ import {
   getFeatureConfigCapabilities
 } from "../../../core/traits/features/feature-config.js";
 import { cachedEnrichHTML } from "../../../utils/enrich-cache.js";
+import { t } from "../../../utils/i18n.js";
+import { getAllCharacteristicOptions } from "../../../utils/maps/characteristics.js";
 import { STRIKE_ENCHANTMENTS_CATALOG } from "../../../data/strike-enchantments-catalog.js";
 import { localizeStrikeEnchantment } from "../../../data/spell-i18n.js";
 import { getEffectByKey } from "../../../core/alchemy/effects.js";
@@ -56,6 +59,31 @@ import {
   isReachLengthHomebrewEnabled,
   getReachLengthModel,
 } from "../../../core/homebrew/reach-length/weapon.js";
+import { buildActorSheetEffectView } from "../v2/shared/sheet-context.js";
+import { buildStoredSpellOptionState } from "../../shared/stored-spell-options.js";
+import { getKnownSpellScalingLevels } from "../../../core/magic/magicka-utils.js";
+
+function _buildStoredSpellLevelOptions(spellLike, currentLevel) {
+  const levels = Array.from(new Set(
+    (getKnownSpellScalingLevels(spellLike) ?? [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .sort((a, b) => a - b)
+  ));
+  if (!levels.length) return [];
+  const selected = Number(currentLevel) > 0 ? Number(currentLevel) : levels[0];
+  return levels.map((value) => ({ value, label: String(value), selected: value === selected }));
+}
+
+function _coerceStoredSpellLevel(currentLevel, levelOptions) {
+  const level = Number(currentLevel);
+  if (Array.isArray(levelOptions) && levelOptions.length > 0) {
+    const allowed = new Set(levelOptions.map((entry) => Number(entry?.value)).filter((value) => Number.isFinite(value) && value > 0));
+    if (allowed.has(level)) return level;
+    return Number(levelOptions[0]?.value ?? 1) || 1;
+  }
+  return Math.max(1, level || 1);
+}
 
 /**
  * Prepare item sheet data for rendering
@@ -110,7 +138,20 @@ export async function prepareItemSheetData(sheet, data) {
               value: Number(l.duration) || 0,
               unit: fallbackDurationUnit
             };
-        return { ...l, duration };
+        const spellStrengthFormula = String(
+          l.spellStrengthFormula
+          ?? l.spellStrength
+          ?? l.spell_str
+          ?? l.strength
+          ?? l.value
+          ?? ""
+        ).trim();
+        return {
+          ...l,
+          known: l.known !== false && l.known !== "false",
+          spellStrengthFormula,
+          duration
+        };
       });
 
     // ── Spell Engine configurator data ──
@@ -201,7 +242,7 @@ export async function prepareItemSheetData(sheet, data) {
 
     // ── Spell Recipes (Experimental) setting guard ──
     try {
-      data.enableSpellRecipes = game.settings.get("uesrpg-3ev4", "enableSpellRecipes") === true;
+      data.enableSpellRecipes = getCachedSetting("enableSpellRecipes") === true;
     } catch (_e) {
       data.enableSpellRecipes = false;
     }
@@ -298,49 +339,53 @@ export async function prepareItemSheetData(sheet, data) {
   data.shieldTypeOptions = SHIELD_TYPE_LABELS;
   data.spellSchoolOptions = SPELL_SCHOOL_LABELS;
   data.skillRankOptions = TRAINING_RANK_LABELS;
+  data.characteristicOptionList = getAllCharacteristicOptions(actorDoc);
+  data.characteristicOptions = Object.fromEntries(
+    data.characteristicOptionList.map(({ key, label }) => [key, label])
+  );
   
   // Activation options for traits/talents/powers
   data.talentActionTypeOptions = {
-    passive: "Passive",
-    action: "Action",
-    reaction: "Reaction"
+    passive: t("UESRPG.Sheets.Feature.ActionType.Passive", "Passive"),
+    action: t("UESRPG.Sheets.Feature.ActionType.Action", "Action"),
+    reaction: t("UESRPG.Sheets.Feature.ActionType.Reaction", "Reaction")
   };
   data.traitActionTypeOptions = {
-    passive: "Passive",
-    action: "Action",
-    reaction: "Reaction"
+    passive: t("UESRPG.Sheets.Feature.ActionType.Passive", "Passive"),
+    action: t("UESRPG.Sheets.Feature.ActionType.Action", "Action"),
+    reaction: t("UESRPG.Sheets.Feature.ActionType.Reaction", "Reaction")
   };
   data.powerActionTypeOptions = {
-    passive: "Passive",
-    action: "Action",
-    reaction: "Reaction"
+    passive: t("UESRPG.Sheets.Feature.ActionType.Passive", "Passive"),
+    action: t("UESRPG.Sheets.Feature.ActionType.Action", "Action"),
+    reaction: t("UESRPG.Sheets.Feature.ActionType.Reaction", "Reaction")
   };
   
   data.activationUsagePeriodOptions = {
-    "": "\u2014 Not Set \u2014",
-    encounter: "Encounter",
-    shortRest: "Short Rest",
-    longRest: "Long Rest",
-    day: "Day"
+    "": t("UESRPG.Sheets.Feature.UsagePeriod.NotSet", "\u2014 Not Set \u2014"),
+    encounter: t("UESRPG.Sheets.Feature.UsagePeriod.Encounter", "Encounter"),
+    shortRest: t("UESRPG.Sheets.Feature.UsagePeriod.ShortRest", "Short Rest"),
+    longRest: t("UESRPG.Sheets.Feature.UsagePeriod.LongRest", "Long Rest"),
+    day: t("UESRPG.Sheets.Feature.UsagePeriod.Day", "Day")
   };
   data.activationHitLocationModeOptions = {
-    roll: "Roll Location",
-    manual: "Manual Location"
+    roll: t("UESRPG.Sheets.Feature.HitLocationMode.Roll", "Roll Location"),
+    manual: t("UESRPG.Sheets.Feature.HitLocationMode.Manual", "Manual Location")
   };
   data.activationDamageModeOptions = {
-    none: "None",
-    manual: "Manual",
-    healing: "Healing",
-    temporary: "Temporary HP"
+    none: t("UESRPG.Sheets.Feature.DamageMode.None", "None"),
+    manual: t("UESRPG.Sheets.Feature.DamageMode.Manual", "Manual"),
+    healing: t("UESRPG.Sheets.Feature.DamageMode.Healing", "Healing"),
+    temporary: t("UESRPG.Sheets.Feature.DamageMode.Temporary", "Temporary HP")
   };
   data.activationDamageTypeOptions = {
-    physical: "Physical",
-    fire: "Fire",
-    frost: "Frost",
-    shock: "Shock",
-    poison: "Poison",
-    disease: "Disease",
-    magic: "Magic"
+    physical: t("UESRPG.Sheets.Feature.DamageType.Physical", "Physical"),
+    fire: t("UESRPG.Sheets.Feature.DamageType.Fire", "Fire"),
+    frost: t("UESRPG.Sheets.Feature.DamageType.Frost", "Frost"),
+    shock: t("UESRPG.Sheets.Feature.DamageType.Shock", "Shock"),
+    poison: t("UESRPG.Sheets.Feature.DamageType.Poison", "Poison"),
+    disease: t("UESRPG.Sheets.Feature.DamageType.Disease", "Disease"),
+    magic: t("UESRPG.Sheets.Feature.DamageType.Magic", "Magic")
   };
 
   // --------------------------------------------
@@ -450,7 +495,7 @@ export async function prepareItemSheetData(sheet, data) {
   }
 
   // Active Effects list for templates (plain objects)
-  data.effects = itemDoc?.effects ? itemDoc.effects.contents.map(e => e.toObject()) : [];
+  data.effects = itemDoc?.effects ? itemDoc.effects.contents.map(buildActorSheetEffectView) : [];
 
   // --------------------------------------------
   // Combat Style: Active status + Special Actions registry
@@ -502,14 +547,14 @@ export async function prepareItemSheetData(sheet, data) {
   // --------------------------------------------
   if (itemType === "weapon" || itemType === "armor" || itemType === "shield" || itemType === "ammunition" || itemType === "equipment" || itemType === "item") {
     const enc = itemDoc?.flags?.["uesrpg-3ev4"]?.enchanting ?? null;
-    data.uiSpellcastingConfig = _buildSpellcastingUiConfig(itemDoc);
+    data.uiSpellcastingConfig = await _buildSpellcastingUiConfig(itemDoc);
     if (enc?.version === 2 && enc.enchantType) {
       data.enchantmentDisplay = _buildEnchantmentDisplay(enc, itemDoc);
     } else {
       data.enchantmentDisplay = null;
     }
   } else if (itemType === "scroll") {
-    data.uiSpellcastingConfig = _buildSpellcastingUiConfig(itemDoc);
+    data.uiSpellcastingConfig = await _buildSpellcastingUiConfig(itemDoc);
   }
 
   // --------------------------------------------
@@ -640,6 +685,10 @@ function _normalizeCostMode(value) {
   return "soul";
 }
 
+function _normalizeSkipCastingTest(value) {
+  return value !== false;
+}
+
 function _formatSpellcastingCostSummary(slot) {
   const mode = _normalizeCostMode(slot?.costMode);
   if (mode === "magicka") return "MP";
@@ -647,7 +696,7 @@ function _formatSpellcastingCostSummary(slot) {
   return `Soul ${Number(slot?.cost ?? 0)}`;
 }
 
-function _buildSpellcastingUiConfig(item) {
+async function _buildSpellcastingUiConfig(item) {
   const flags = item?.flags?.["uesrpg-3ev4"] ?? {};
   const ext = flags?.itemSpellcasting ?? {};
   const legacy = flags?.enchanting?.cast ?? {};
@@ -669,6 +718,80 @@ function _buildSpellcastingUiConfig(item) {
     magicka: "Magicka",
     none: "No Cost"
   };
+  const actor = item?.actor ?? null;
+  const canSelectKnownSpells = !!actor;
+  const noSpellHint = canSelectKnownSpells
+    ? t("UESRPG.Sheets.Item.NoActorSpellsAvailable", "No actor-owned spells available.")
+    : t("UESRPG.Sheets.Item.StoredSpellSelectDisabledHint", "Attach this item to an actor to choose from owned spells.");
+  const preparedSlots = await Promise.all(slots.map(async (slot, index) => {
+    const snapshot = slot?.snapshot && typeof slot.snapshot === "object" ? slot.snapshot : null;
+    const spellState = await buildStoredSpellOptionState({
+      actor,
+      selectedUuid: String(slot?.spellUuid ?? "").trim(),
+      storedSpellSnapshot: snapshot,
+      slot
+    });
+    const spellLike = spellState?.resolvedSpell ?? snapshot ?? null;
+    const prevAttributes = Array.isArray(slot?.attributes) ? slot.attributes.join(", ") : String(slot?.attributes ?? "");
+    const levelOptions = _buildStoredSpellLevelOptions(spellLike, slot?.level ?? snapshot?.system?.level ?? 1);
+    const statusClass = String(spellState?.statusClass ?? "").trim() || (spellState?.hasStoredSpell ? "stored" : "unassigned");
+    const skipCastingTest = _normalizeSkipCastingTest(slot?.skipCastingTest);
+    return {
+      index,
+      id: String(slot?.id ?? ""),
+      enabled: slot?.enabled !== false,
+      skipCastingTest,
+      source: String(slot?.source ?? "conventional").trim().toLowerCase() === "unconventional" ? "unconventional" : "conventional",
+      label: String(slot?.label ?? spellState.selectedSpellName ?? snapshot?.name ?? "Stored Spell"),
+      spellUuid: String(slot?.spellUuid ?? ""),
+      actorSpellItemId: String(slot?.actorSpellItemId ?? ""),
+      spellOptions: spellState.options,
+      selectedSpellUuid: spellState.selectedUuid,
+      selectedSpellName: spellState.selectedSpellName,
+      selectedSpellLabel: spellState.selectedSpellLabel,
+      selectedSpellSummary: spellState.selectedSpellSummary,
+      hasSelectedSpellOption: Boolean(spellState.selectedOption),
+      level: _coerceStoredSpellLevel(slot?.level ?? snapshot?.system?.level ?? 1, levelOptions),
+      levelOptions,
+      hasLevelOptions: levelOptions.length > 0,
+      cost: Number(slot?.cost ?? snapshot?.system?.cost ?? 0),
+      bindingStrength: Number(slot?.bindingStrength ?? 0),
+      costMode: _normalizeCostMode(slot?.costMode),
+      costSummary: _formatSpellcastingCostSummary(slot),
+      castTestStatusLabel: skipCastingTest
+        ? t("UESRPG.Sheets.Item.SkipCastingTestStatus", "No test")
+        : t("UESRPG.Sheets.Item.CastingTestRequiredStatus", "Test required"),
+      castTestSummary: skipCastingTest
+        ? t("UESRPG.Sheets.Item.SkipCastingTestSummary", "Cast enchantment skips the casting test.")
+        : t("UESRPG.Sheets.Item.CastingTestRequiredSummary", "Cast enchantment uses the normal casting test."),
+      attributesText: prevAttributes,
+      isResolved: spellState.resolvedSpell != null,
+      isStored: statusClass === "stored",
+      isMissing: statusClass === "missing",
+      isUnassigned: statusClass === "unassigned",
+      isSelectable: spellState.canSelectKnownSpells,
+      canPick: spellState.canSelectKnownSpells,
+      availableSpellCount: spellState.availableSpellCount,
+      dropZoneHint: spellState.hasStoredSpell
+        ? t("UESRPG.Sheets.Item.StoredSpellReplaceHint", "Drop another spell here to replace it.")
+        : t("UESRPG.Sheets.Item.StoredSpellDropHint", "Drop a spell here to store it."),
+      storedSpellStatusLabel: spellState.statusLabel || (spellState.resolvedSpell
+        ? t("UESRPG.Sheets.Item.StoredSpellResolved", "Resolved")
+        : (statusClass === "missing"
+          ? t("UESRPG.Sheets.Item.StoredSpellMissing", "Missing / unresolved")
+          : (statusClass === "stored"
+            ? t("UESRPG.Sheets.Item.StoredSpellStored", "Stored snapshot")
+            : t("UESRPG.Sheets.Item.NoSpellSelectedYet", "No spell selected yet")))),
+      statusLabel: spellState.statusLabel || (spellState.resolvedSpell
+        ? t("UESRPG.Sheets.Item.StoredSpellResolved", "Resolved")
+        : (statusClass === "missing"
+          ? t("UESRPG.Sheets.Item.StoredSpellMissing", "Missing / unresolved")
+          : (statusClass === "stored"
+            ? t("UESRPG.Sheets.Item.StoredSpellStored", "Stored snapshot")
+            : t("UESRPG.Sheets.Item.NoSpellSelectedYet", "No spell selected yet")))),
+      noSpellHint,
+    };
+  }));
   return {
     canConfigure: true,
     enabled,
@@ -677,20 +800,15 @@ function _buildSpellcastingUiConfig(item) {
     poolValue,
     poolMax,
     modeOptions,
-    slots: slots.map((slot, index) => ({
-      index,
-      id: String(slot?.id ?? ""),
-      enabled: slot?.enabled !== false,
-      label: String(slot?.label ?? "Stored Spell"),
-      spellUuid: String(slot?.spellUuid ?? ""),
-      level: Number(slot?.level ?? 1),
-      cost: Number(slot?.cost ?? 0),
-      bindingStrength: Number(slot?.bindingStrength ?? 0),
-      costMode: _normalizeCostMode(slot?.costMode),
-      costSummary: _formatSpellcastingCostSummary(slot)
-    })),
+    sourceOptions: {
+      conventional: t("UESRPG.Sheets.Item.ConventionalStoredSpell", "Conventional"),
+      unconventional: t("UESRPG.Sheets.Item.UnconventionalStoredSpell", "Unconventional"),
+    },
+    slots: preparedSlots,
     hasSlots: slots.length > 0,
-    canCast: enabled && slots.some((s) => s?.enabled !== false)
+    canCast: enabled && slots.some((s) => s?.enabled !== false),
+    canSelectKnownSpells,
+    noSpellHint,
   };
 }
 
@@ -713,4 +831,3 @@ function _buildParamSummary(catalogEntry, effectEntry) {
   }
   return parts.join(", ");
 }
-

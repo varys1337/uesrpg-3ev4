@@ -10,7 +10,7 @@
  */
 
 import { getMessageState, allDefendersCommitted, getDefenderEntries, getDefenderOutcome, resolveActor } from "../schema.js";
-import { verifyAutoRollClaim } from "../../../opposed/shared/auto-roll-claim.js";
+import { verifyAutoRollClaim, cleanupAutoRollContext } from "../../../opposed/shared/auto-roll-claim.js";
 import { perfStart, perfEnd } from "../../../../utils/debug.js";
 import { createUuidResolver } from "../../../../utils/uuid-cache.js";
 
@@ -44,6 +44,9 @@ export async function autoRollBanked(message, workflow, _updateCard, { reason = 
   data.context.autoRollAttemptReason = String(reason ?? "hook");
 
   const claimId = foundry.utils.randomID();
+  data.context.autoRollAborted = false;
+  data.context.autoRollAbortedAt = null;
+  data.context.autoRollAbortReason = null;
   data.context.autoRollStarted = true;
   data.context.autoRollClaimId = claimId;
   data.context.autoRollStartedAt = Date.now();
@@ -74,6 +77,11 @@ export async function autoRollBanked(message, workflow, _updateCard, { reason = 
     console.warn("UESRPG | Magic opposed autoRollBanked aborted: attacker result missing after attacker-roll", {
       messageId: message?.id ?? null
     });
+    cleanupAutoRollContext(workingData.context);
+    workingData.context.autoRollAborted = true;
+    workingData.context.autoRollAbortedAt = Date.now();
+    workingData.context.autoRollAbortReason = "attacker-result-missing";
+    await _updateCard(message, workingData);
     return;
   }
 
@@ -85,6 +93,34 @@ export async function autoRollBanked(message, workflow, _updateCard, { reason = 
   const spellDoc = uuidResolver.resolveSync(String(currentData?.attacker?.spellUuid ?? "").trim());
   const spell = spellDoc?.documentName === "Item" ? spellDoc : null;
   const defenderCount = getDefenderEntries(currentData).length;
+  const attackerSucceeded = Boolean(currentData?.attacker?.result?.isSuccess);
+
+  if (!attackerSucceeded) {
+    for (let idx = 0; idx < defenderCount; idx++) {
+      const currentDefenders = getDefenderEntries(currentData);
+      const def = currentDefenders[idx];
+      if (!def || getDefenderOutcome(currentData, def)) continue;
+
+      const defActor = resolveActor(def?.actorUuid);
+      if (!defActor) continue;
+
+      const resolveLabel = `banked.resolve-cast-failure:magic:${messageId}:${idx}`;
+      perfStart(resolveLabel);
+      await workflow._resolveOutcome(message, currentData, attacker, defActor, {
+        defenderIndex: idx,
+        batchedUpdate: true,
+        spell
+      });
+      perfEnd(resolveLabel);
+    }
+
+    cleanupAutoRollContext(currentData.context);
+    const finalFailedCastLabel = `banked.final.write:magic:${messageId}`;
+    perfStart(finalFailedCastLabel);
+    await _updateCard(message, currentData);
+    perfEnd(finalFailedCastLabel);
+    return;
+  }
 
   for (let idx = 0; idx < defenderCount; idx++) {
     const currentDefenders = getDefenderEntries(currentData);
@@ -129,6 +165,7 @@ export async function autoRollBanked(message, workflow, _updateCard, { reason = 
   }
 
   const finalLabel = `banked.final.write:magic:${messageId}`;
+  cleanupAutoRollContext(currentData.context);
   perfStart(finalLabel);
   await _updateCard(message, currentData);
   perfEnd(finalLabel);

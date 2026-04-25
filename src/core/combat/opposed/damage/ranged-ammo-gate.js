@@ -7,16 +7,18 @@
  *  - reason: string (for user-facing notifications)
  *  - code: short code for debugging/telemetry
  */
+import { getWeaponCombatCapabilities } from "../../combat-utils.js";
+
 export function gateRangedAttackAmmoAndLoad({ actor, weapon, ammoItem } = {}) {
-  const mode = String(weapon?.system?.attackMode ?? "").toLowerCase();
-  if (mode !== "ranged") return { ok: true, reason: "", code: "NOT_RANGED" };
+  const capabilities = getWeaponCombatCapabilities(weapon);
+  if (!capabilities.rangedCapable) return { ok: true, reason: "", code: "NOT_RANGED" };
 
   // If weapon consumes ammo, ammoId should exist. Treat empty ammoId as "no ammo binding".
   const ammoId = String(weapon?.system?.ammoId ?? "").trim();
-  const consumeAmmo = weapon?.system?.consumeAmmo !== false;
+  const consumeAmmo = capabilities.consumesAmmo;
 
   // Reload requirement is derived from reloadAPCost > 0; require loaded state if so.
-  const requiresReload = weapon?.system?.reloadState?.requiresReload === true;
+  const requiresReload = capabilities.requiresReload;
   const isLoaded = weapon?.system?.reloadState?.isLoaded === true;
 
   if (requiresReload && !isLoaded) {
@@ -25,8 +27,11 @@ export function gateRangedAttackAmmoAndLoad({ actor, weapon, ammoItem } = {}) {
 
   // Ammo gating
   if (consumeAmmo) {
+    if (!ammoId) {
+      return { ok: false, reason: "No ammunition selected for this weapon.", code: "AMMO_MISSING" };
+    }
     // If there's a binding but ammo cannot be resolved, we must block.
-    if (ammoId && !ammoItem) {
+    if (!ammoItem) {
       return { ok: false, reason: "No ammunition available for this weapon.", code: "AMMO_MISSING" };
     }
     // If there's an ammo item but quantity is not enough, block.
@@ -38,4 +43,3 @@ export function gateRangedAttackAmmoAndLoad({ actor, weapon, ammoItem } = {}) {
 
   return { ok: true, reason: "", code: "OK" };
 }
-

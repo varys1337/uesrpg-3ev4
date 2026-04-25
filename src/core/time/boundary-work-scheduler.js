@@ -34,9 +34,9 @@
  * Target: Foundry VTT v13.351
  */
 
-import { SYSTEM_ID } from "../system/namespace.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
+import { isBoundaryWorkDeferEnabled } from "../config/automation-policy.js";
 
 const _debug = createDebugLogger("debugEnabled", "[UESRPG][BoundaryScheduler]");
 
@@ -57,11 +57,7 @@ let _rafScheduled = false;
 // ─── Setting reader ───────────────────────────────────────────────────────────
 
 function _isDeferEnabled() {
-  try {
-    return Boolean(game?.settings?.get?.(SYSTEM_ID, "deferNonCriticalRoundBoundaryWork"));
-  } catch (_e) {
-    return false;
-  }
+  return isBoundaryWorkDeferEnabled();
 }
 
 // ─── Queue management ─────────────────────────────────────────────────────────

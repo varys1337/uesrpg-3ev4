@@ -27,7 +27,7 @@
                 </div>
                 <div class="item-stat">
                     {{#if (eq item.system.attackMode "ranged")}}
-                    <input type="text" name="system.range" value="{{item.system.range}}" placeholder="X/Y/Z"/>
+                    <input type="text" name="system.range" value="{{item.system.range}}" placeholder="{{localize "UESRPG.Placeholders.RangeFormat"}}"/>
                     <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Range"}}</span>
                     {{else}}
                     <input type="number" value="{{weaponSheetHeaderReachValue}}" min="0" step="1" disabled class="u-input-disabled"/>
@@ -75,14 +75,14 @@
                                 <div class="weapon-field-row">
                                     <label>{{localize "UESRPG.Sheets.Item.Quality"}}</label>
                                     <select name="system.qualityLevel">
-                                        {{selectOptions weaponQualityOptions selected=item.system.qualityLevel}}
+                                        {{selectOptions weaponQualityOptions selected=item.system.qualityLevel localize=true}}
                                     </select>
                                 </div>
 
                                 <div class="weapon-field-row">
                                     <label>{{localize "UESRPG.Sheets.Item.Material"}}</label>
                                     <select name="system.material">
-                                        {{selectOptions weaponMaterialOptions selected=item.system.material}}
+                                        {{selectOptions weaponMaterialOptions selected=item.system.material localize=true}}
                                     </select>
                                 </div>
                             </div>
@@ -93,7 +93,7 @@
                                 <div class="weapon-field-row">
                                     <label>{{localize "UESRPG.Sheets.Item.Handedness"}}</label>
                                     <select name="system.hands">
-                                        {{selectOptions weaponHandednessOptions selected=item.system.hands}}
+                                        {{selectOptions weaponHandednessOptions selected=item.system.hands localize=true}}
                                     </select>
                                 </div>
 
@@ -150,7 +150,7 @@
                                 <div class="weapon-field-row">
                                     <label>{{localize "UESRPG.Sheets.Item.AttackMode"}}</label>
                                     <select name="system.attackMode">
-                                        {{selectOptions attackModeOptions selected=item.system.attackMode}}
+                                        {{selectOptions attackModeOptions selected=item.system.attackMode localize=true}}
                                     </select>
                                 </div>
                             </div>
@@ -260,12 +260,12 @@
                     <div class="structured-qualities-grid">
                         {{#each coreQualitiesCatalog}}
                             <div class="structured-qualities-cell">
-                                <div>{{this.label}}</div>
+                                <div>{{localize this.label}}</div>
                                 <div class="right-align-content">
                                     {{#if this.optionalValue}}
                                         <div class="structured-optional-value">
                                             <input class="checkbox" type="checkbox" name="qualitiesStructured.toggle.{{this.key}}" {{checked (lookup ../qualitiesSelectedToggle this.key)}} />
-                                            <input class="structured-value structured-value--opt" type="number" name="qualitiesStructured.value.{{this.key}}" value="{{lookup ../qualitiesSelectedValue this.key}}" min="0" step="1" placeholder="X" />
+                                            <input class="structured-value structured-value--opt" type="number" name="qualitiesStructured.value.{{this.key}}" value="{{lookup ../qualitiesSelectedValue this.key}}" min="0" step="1" placeholder="{{localize "UESRPG.Placeholders.NumericValue"}}" />
                                         </div>
                                     {{else}}
                                         {{#if this.hasValue}}
@@ -286,7 +286,7 @@
                             {{#each traitsCatalog}}
                                 <label class="uesrpg-pill {{#if this.selected}}is-selected{{/if}}">
                                     <input type="checkbox" name="qualitiesTraits.toggle.{{this.key}}" {{checked this.selected}} />
-                                    <span>{{this.label}}</span>
+                                    <span>{{localize this.label}}</span>
                                 </label>
                             {{/each}}
                         </div>
@@ -294,84 +294,7 @@
                 </div>
 
                 {{#if uiSpellcastingConfig}}
-                <div class="quality-container">
-                    <div class="flex-container">
-                        <h2>{{localize "UESRPG.Sheets.Item.SpellcastingConfiguration"}}</h2>
-                    </div>
-                    <div class="selection-container">
-                        <p class="u-text-muted u-text-sm">
-                            {{localize "UESRPG.Sheets.Item.SpellcastingConfigurationWeaponHelp"}}
-                        </p>
-                        <div class="weapon-field-row">
-                            <label>{{localize "UESRPG.Sheets.Item.EnableSpellcasting"}}</label>
-                            <button type="button" data-action="toggleSpellcastingEnable">
-                                {{#if uiSpellcastingConfig.enabled}}{{localize "UESRPG.Sheets.Item.Disable"}}{{else}}{{localize "UESRPG.Sheets.Item.Enable"}}{{/if}}
-                            </button>
-                        </div>
-                        {{#if uiSpellcastingConfig.enabled}}
-                        <div class="weapon-field-row">
-                            <label>{{localize "UESRPG.Sheets.Item.ChargePoolSoul"}}</label>
-                            <span class="u-text-muted">{{localize "UESRPG.Sheets.Item.ChargePoolSoulHelp"}}</span>
-                        </div>
-                        <div class="weapon-field-row">
-                            <label>{{localize "UESRPG.Sheets.Item.ChargeCurrentMax"}}</label>
-                            <div class="right-align-content">
-                                <input type="number" data-spellcasting-charge="value" value="{{uiSpellcastingConfig.poolValue}}" min="0" step="1" class="u-w-50" />
-                                <span>/</span>
-                                <input type="number" data-spellcasting-charge="max" value="{{uiSpellcastingConfig.poolMax}}" min="0" step="1" class="u-w-50" />
-                            </div>
-                        </div>
-                        <div class="weapon-field-row">
-                            <button type="button" data-action="addSpellcastingSlot">{{localize "UESRPG.Sheets.Item.AddSpellSlot"}}</button>
-                            <button type="button" data-action="editSpellcastingSlot">{{localize "UESRPG.Sheets.Item.SaveSpellcastingConfig"}}</button>
-                        </div>
-                        {{#each uiSpellcastingConfig.slots as |slot|}}
-                        <div class="weapon-enchant-effect-row u-py-sm" data-spellcasting-slot-id="{{slot.id}}">
-                            <div class="weapon-field-row">
-                                <label>{{localize "UESRPG.Sheets.Item.SlotName"}}</label>
-                                <input type="text" data-spellcasting-field="label" value="{{slot.label}}" placeholder="{{localize "UESRPG.Sheets.Item.SlotNamePlaceholder"}}" />
-                            </div>
-                            <div class="weapon-field-row">
-                                <label>{{localize "UESRPG.Sheets.Item.ResourceCost"}}</label>
-                                <input type="number" data-spellcasting-field="cost" value="{{slot.cost}}" min="0" step="1" title="{{localize "UESRPG.Sheets.Item.ResourceCostValue"}}" />
-                            </div>
-                            <div class="weapon-field-row">
-                                <label>{{localize "UESRPG.Sheets.Item.BindingStrength"}}</label>
-                                <input type="number" data-spellcasting-field="bindingStrength" value="{{slot.bindingStrength}}" min="0" max="10" step="1" title="{{localize "UESRPG.Sheets.Item.AutoSuccessDosValue"}}" />
-                            </div>
-                            <div class="weapon-field-row">
-                                <label>{{localize "UESRPG.Sheets.Item.CostMode"}}</label>
-                                <select data-spellcasting-field="costMode">
-                                    <option value="soul" {{#if (eq slot.costMode "soul")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.SoulEnergy"}}</option>
-                                    <option value="magicka" {{#if (eq slot.costMode "magicka")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.Magicka"}}</option>
-                                    <option value="none" {{#if (eq slot.costMode "none")}}selected{{/if}}>{{localize "UESRPG.Sheets.Item.NoCost"}}</option>
-                                </select>
-                            </div>
-                            <div class="weapon-field-row">
-                                <label>{{localize "UESRPG.Sheets.Item.Enabled"}}</label>
-                                <label>
-                                    <input type="checkbox" data-spellcasting-field="enabled" {{checked slot.enabled}} />
-                                    {{localize "UESRPG.Sheets.Item.SlotActive"}}
-                                </label>
-                            </div>
-                            <div class="weapon-field-row">
-                                <label>{{localize "UESRPG.Sheets.Item.StoredSpellUUID"}}</label>
-                                <span class="enchant-effect-params u-text-muted">{{#if slot.spellUuid}}{{slot.spellUuid}}{{else}}{{localize "UESRPG.Sheets.Item.NoSpellSelectedYet"}}{{/if}}</span>
-                            </div>
-                            <div class="weapon-field-row">
-                                <button type="button" data-action="pickSpellcastingSlotSpell" data-slot-id="{{slot.id}}">{{localize "UESRPG.Sheets.Item.PickSpell"}}</button>
-                                <button type="button" data-action="removeSpellcastingSlot" data-slot-id="{{slot.id}}">{{localize "UESRPG.Sheets.Item.RemoveSlot"}}</button>
-                            </div>
-                        </div>
-                        {{/each}}
-                        {{#if uiSpellcastingConfig.canCast}}
-                        <div class="weapon-field-row">
-                            <button type="button" data-action="castEnchantment">{{localize "UESRPG.Sheets.Equipment.CastEnchantment"}}</button>
-                        </div>
-                        {{/if}}
-                        {{/if}}
-                    </div>
-                </div>
+                {{> "systems/uesrpg-3ev4/templates/partials/sheets/item-spellcasting-config.hbs" helpKey="UESRPG.Sheets.Item.SpellcastingConfigurationWeaponHelp" uiSpellcastingConfig=uiSpellcastingConfig}}
                 {{/if}}
             </div>
         </div>

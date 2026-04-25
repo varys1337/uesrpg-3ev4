@@ -2,44 +2,48 @@
 <header class="item-compact-header">
   <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
   <div class="item-header-fields">
-    <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
+    <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
   </div>
 </header>
 
 <nav class="sheet-tabs tabs" data-group="primary">
-  <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
-  <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
-  {{#if enableRuleElements}}<a class="item" data-action="tab" data-group="primary" data-tab="automation">Automation</a>{{/if}}
-  <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="description">{{localize "UESRPG.UI.Description"}}</a>
+  <a class="item" data-action="tab" data-group="primary" data-tab="attributes">{{localize "UESRPG.Sheets.Item.Attributes"}}</a>
+  {{#if enableRuleElements}}<a class="item" data-action="tab" data-group="primary" data-tab="automation">{{localize "UESRPG.Sheets.Feature.Automation"}}</a>{{/if}}
+  <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
 </nav>
 
 <section class="sheet-body">
   <div class="tab" data-group="primary" data-tab="description">
-    <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+    <div class="item-description-container">
+      <div class="basic-padding">
+        <prose-mirror name="system.description" value="{{item.system.description}}" data-document-uuid="{{item.uuid}}" toggled {{#unless editable}}disabled{{/unless}}>{{{item.system.enrichedDescription}}}</prose-mirror>
+      </div>
+    </div>
   </div>
 
   <div class="tab" data-group="primary" data-tab="attributes">
     <div class="attribute-tab-container uesrpg-feature-sheet">
       <fieldset class="attr-fieldset uesrpg-feature-section">
-        <legend>Flags</legend>
+        <legend>{{localize "UESRPG.Sheets.Feature.Flags"}}</legend>
         <div class="uesrpg-feature-row">
-          <label><input class="checkbox" type="checkbox" name="system.mechanical" {{checked item.system.mechanical}}> Mechanical</label>
-          <label><input class="checkbox" type="checkbox" name="system.halfFatiguePenalty" {{checked item.system.halfFatiguePenalty}}> &frac12; Fatigue Penalty</label>
-          <label><input class="checkbox" type="checkbox" name="system.halfWoundPenalty" {{checked item.system.halfWoundPenalty}}> &frac12; Wound Penalty</label>
-          <label><input class="checkbox" type="checkbox" name="system.painIntolerant" {{checked item.system.painIntolerant}}> Wound Penalty &rarr; -30</label>
-          <label><input class="checkbox" type="checkbox" name="system.halfSpeed" {{checked item.system.halfSpeed}}> &frac12; Speed</label>
-          <label><input class="checkbox" type="checkbox" name="system.addHalfSpeed" {{checked item.system.addHalfSpeed}}> Add &frac12; Speed</label>
+          <label><input class="checkbox" type="checkbox" name="system.mechanical" {{checked item.system.mechanical}}> {{localize "UESRPG.Sheets.Feature.Mechanical"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.halfFatiguePenalty" {{checked item.system.halfFatiguePenalty}}> {{localize "UESRPG.Sheets.Feature.HalfFatiguePenalty"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.halfWoundPenalty" {{checked item.system.halfWoundPenalty}}> {{localize "UESRPG.Sheets.Feature.HalfWoundPenalty"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.painIntolerant" {{checked item.system.painIntolerant}}> {{localize "UESRPG.Sheets.Feature.WoundPenaltyToMinus30"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.halfSpeed" {{checked item.system.halfSpeed}}> {{localize "UESRPG.Sheets.Feature.HalfSpeed"}}</label>
+          <label><input class="checkbox" type="checkbox" name="system.addHalfSpeed" {{checked item.system.addHalfSpeed}}> {{localize "UESRPG.Sheets.Feature.AddHalfSpeed"}}</label>
         </div>
 
-        <div class="uesrpg-feature-subheading">Structured Data (Optional)</div>
+        <div class="uesrpg-feature-subheading">{{localize "UESRPG.Sheets.Feature.StructuredDataOptional"}}</div>
         <div class="attr-struct-grid">
-          <label>Key <input type="text" name="system.traitKey" value="{{item.system.traitKey}}" placeholder="e.g., resistance.fire" /></label>
-          <label>Param <input type="text" name="system.traitParam" value="{{item.system.traitParam}}" placeholder="e.g., Fire" /></label>
-          <label>Value <input type="number" name="system.traitValue" value="{{item.system.traitValue}}" step="1" /></label>
-          <label>Unit <input type="text" name="system.traitUnit" value="{{item.system.traitUnit}}" placeholder="%, flat" /></label>
+          <label>{{localize "UESRPG.Sheets.Feature.Key"}} <input type="text" name="system.traitKey" value="{{item.system.traitKey}}" placeholder="{{localize "UESRPG.Sheets.Feature.TraitKeyPlaceholder"}}" /></label>
+          <label>{{localize "UESRPG.Sheets.Feature.Param"}} <input type="text" name="system.traitParam" value="{{item.system.traitParam}}" placeholder="{{localize "UESRPG.Sheets.Feature.TraitParamPlaceholder"}}" /></label>
+          <label>{{localize "UESRPG.Sheets.Feature.Value"}} <input type="number" name="system.traitValue" value="{{item.system.traitValue}}" step="1" /></label>
+          <label>{{localize "UESRPG.Sheets.Feature.Unit"}} <input type="text" name="system.traitUnit" value="{{item.system.traitUnit}}" placeholder="{{localize "UESRPG.Sheets.Feature.TraitUnitPlaceholder"}}" /></label>
         </div>
         <div class="attr-struct-grid u-mt-xs">
-          <label class="u-grid-span-full">Notes <input type="text" name="system.traitNotes" value="{{item.system.traitNotes}}" /></label>
+          <label class="u-grid-span-full">{{localize "UESRPG.UI.Notes"}} <input type="text" name="system.traitNotes" value="{{item.system.traitNotes}}" /></label>
         </div>
       </fieldset>
 

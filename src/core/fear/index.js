@@ -125,13 +125,6 @@ export async function promptFearTestForSelection({ type = null, modifier = null,
 
 export function registerFearSystem() {
   registerFearSystemHooks();
-  game.uesrpg = game.uesrpg || {};
-  game.uesrpg.fear = {
-    promptFearTest,
-    promptFearTestForSelection,
-    attemptSnapOut,
-    getFearActionRestrictions,
-  };
 }
 
 export const FearAPI = {
@@ -140,3 +133,7 @@ export const FearAPI = {
   attemptSnapOut,
   getFearActionRestrictions,
 };
+
+export function buildFearApi() {
+  return FearAPI;
+}

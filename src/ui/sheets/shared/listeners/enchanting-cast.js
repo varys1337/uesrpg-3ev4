@@ -61,7 +61,45 @@ function _slotCostSummary(slot) {
   return `Soul ${Number(slot?.cost ?? 0)}`;
 }
 
-async function _resolveSlotSpell(slot) {
+function _buildSpellOptionsCastContext(item, slot) {
+  const level = Math.max(1, Number(slot?.level ?? 1) || 1);
+  return {
+    castSource: {
+      type: "enchantment",
+      sourceLane: String(slot?.sourceLane ?? "extension"),
+      itemUuid: item?.uuid ?? null,
+      enchantedItemUuid: item?.uuid ?? null,
+      itemName: item?.name ?? "",
+      spellSlotId: String(slot?.id ?? ""),
+      enchantSpellSlotId: String(slot?.id ?? ""),
+      costMode: String(slot?.costMode ?? "soul"),
+      cost: Number(slot?.cost ?? 0) || 0,
+      bindingStrength: Number(slot?.bindingStrength ?? 0) || 0,
+      skipCastingTest: slot?.skipCastingTest !== false,
+      level
+    },
+    castLevel: level,
+    level
+  };
+}
+
+function _buildAutomaticSpellOptions(slot) {
+  const level = Math.max(1, Number(slot?.level ?? 1) || 1);
+  return {
+    enchantmentCast: true,
+    castLevel: level,
+    level
+  };
+}
+
+async function _resolveSlotSpell(item, slot) {
+  const actor = item?.actor ?? null;
+  const actorSpellItemId = String(slot?.actorSpellItemId ?? "").trim();
+  if (actor && actorSpellItemId) {
+    const embedded = actor.items?.get?.(actorSpellItemId) ?? null;
+    if (embedded?.documentName === "Item" && embedded.type === "spell") return embedded;
+  }
+
   const uuid = String(slot?.spellUuid ?? "").trim();
   if (uuid) {
     try {
@@ -78,7 +116,7 @@ async function _resolveSlotSpell(slot) {
       data.type = "spell";
       if (!String(data.name ?? "").trim()) data.name = String(slot?.label ?? "Stored Spell");
       const ItemCls = CONFIG?.Item?.documentClass ?? Item;
-      return new ItemCls(data, { temporary: true });
+      return new ItemCls(data, { temporary: true, parent: actor ?? undefined });
     } catch (_err) {
       return null;
     }
@@ -182,12 +220,14 @@ export const onCastEnchantmentAction = asyncGuardSheet(async function onCastEnch
   };
   if (!(await _preCheckActionGate())) return;
 
-  const spell = await _resolveSlotSpell(slot);
+  const spell = await _resolveSlotSpell(item, slot);
   if (!spell) {
     ui.notifications?.warn?.("Stored spell reference could not be resolved.");
     return;
   }
-  const spellOptions = await showSpellOptionsDialog(actor, spell);
+  const spellOptions = slot?.skipCastingTest !== false
+    ? _buildAutomaticSpellOptions(slot)
+    : await showSpellOptionsDialog(actor, spell, _buildSpellOptionsCastContext(item, slot));
   if (spellOptions === null) return;
 
   const rangeType = getSpellRangeType(spell);

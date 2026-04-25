@@ -1,4 +1,5 @@
 import { FLAG_SCOPE } from "../../../core/constants.js";
+import { buildGenericAEMetadata } from "../../../core/active-effects/metadata.js";
 import { registerOnce } from "../../_internal/hook-registry.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 
@@ -25,6 +26,14 @@ export function registerDefaultItemAETransferHook() {
         const itemUuid = parent?.uuid ?? parent?.id ?? "";
         const effectName = String(data?.name ?? "").trim().toLowerCase().replace(/\s+/g, "-") || "effect";
         const effectGroup = `enchantment.${itemUuid}.${effectName}`;
+        const legacyGroup = String(scopeFlags.effectGroup ?? "").trim();
+        const canonical = scopeFlags.ae ?? buildGenericAEMetadata({
+          source: "manual",
+          stack: {
+            policy: scopeFlags.stackRule ?? "replace",
+            group: legacyGroup || effectGroup,
+          },
+        });
 
         const enhancedFlags = {
           ...existingFlags,
@@ -32,10 +41,11 @@ export function registerDefaultItemAETransferHook() {
             ...scopeFlags,
             constant: true,
             owner: scopeFlags.owner ?? "item",
-            effectGroup: scopeFlags.effectGroup ?? effectGroup,
-            stackRule: scopeFlags.stackRule ?? "override",
+            ...(scopeFlags.effectGroup ? { effectGroup: scopeFlags.effectGroup } : {}),
+            ...(scopeFlags.stackRule ? { stackRule: scopeFlags.stackRule } : {}),
             source: scopeFlags.source ?? "enchantment",
-            cursed: scopeFlags.cursed ?? false
+            cursed: scopeFlags.cursed ?? false,
+            ae: canonical,
           }
         };
 

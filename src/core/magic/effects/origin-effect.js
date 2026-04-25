@@ -23,9 +23,12 @@ import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.js";
 import { isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
-import { buildEffectChangesData, getEffectChanges } from "../../../utils/compat.js";
+import { getEffectChanges } from "../../../utils/compat.js";
 import { createUuidResolver, resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { getLinkedAreaEntities } from "../region-links.js";
+import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
+import { buildSpellEffectMetadataFlags, parseUpkeepGroupKey } from "./spell-effect-metadata.js";
+import { getSpellCost, getSpellLevel, getSpellScalingEntry } from "../magicka-utils.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -45,6 +48,14 @@ function _isNoListedDuration(spell) {
   const unit = _str(dur.unit).toLowerCase();
   const value = _num(dur.value, 0);
   return (unit === "instant") || (value <= 0);
+}
+
+function _buildManagedUpkeepLiveDuration(durationData) {
+  const live = foundry.utils.deepClone(durationData ?? {});
+  live.seconds = 0;
+  live.rounds = 0;
+  live.turns = 0;
+  return live;
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────────
@@ -108,9 +119,22 @@ export async function createOriginAE(casterActor, spell, options = {}) {
   });
 
   // Build duration for the Origin AE (mirrors what spell-effects.js does for target AEs)
-  const duration = options.durationOverride ?? _buildOriginDuration(spell);
+  const canonicalDuration = options.durationOverride ?? _buildOriginDuration(spell, options);
+  const duration = spell.system?.hasUpkeep
+    ? _buildManagedUpkeepLiveDuration(canonicalDuration)
+    : canonicalDuration;
+  const castLevel = Number(options?.castContext?.castLevel ?? options?.scalingChoices?.level ?? null) || null;
+  const resolvedCost = _num(options.costPaid, _num(getSpellCost(spell, castLevel), _num(spell.system?.cost, 0)));
 
-  const effectData = {
+  const originGroup = `spell.origin.${spell.id ?? spell.uuid}`;
+  const effectData = buildGenericAEData({
+    source: "spell",
+    stack: {
+      policy: "replace",
+      group: originGroup,
+      max: null,
+      strengthKey: null,
+    },
     name: `[Origin] ${spell.name}`,
     img: spell.img,
     origin: spell.uuid,
@@ -118,38 +142,41 @@ export async function createOriginAE(casterActor, spell, options = {}) {
     duration,
     flags: {
       [_FLAG_NS]: {
+        ...buildSpellEffectMetadataFlags({
+          casterActor,
+          spell,
+          actualCost: resolvedCost,
+          costPaid: resolvedCost,
+          originalCastWorldTime: castWorldTime,
+          durationData: canonicalDuration,
+          spellOptions: options.spellOptions ?? null,
+          scalingChoices: options.scalingChoices ?? null,
+          castContext: options.castContext ?? null,
+          castSource: options.castSource ?? null,
+          itemCastContext: options.itemCastContext ?? null,
+          magickaSpend: options.magickaSpend ?? null,
+          casterTokenUuid: options.casterTokenUuid ?? null,
+          targetUuids: Array.isArray(options.targetUuids) ? [...options.targetUuids] : []
+        }),
         isOriginAE: true,
         spellEffect: true,
-        spellUuid: spell.uuid,
-        spellName: spell.name,
-        spellSchool: _str(spell.system?.school),
-        spellLevel: _num(spell.system?.level, 1),
-        casterUuid: casterActor.uuid,
         expirationAnchor,
-        originalCastWorldTime: castWorldTime,
-        costPaid: _num(options.costPaid, 0),
-        scalingChoices: options.scalingChoices ?? null,
-        spellOptions: options.spellOptions ?? null,
-        targetUuids: Array.isArray(options.targetUuids) ? [...options.targetUuids] : [],
         linkedEntities: [], // Will be populated as target AEs / regions / summons are created
         hasUpkeep: Boolean(spell.system?.hasUpkeep),
         upkeep: Boolean(spell.system?.hasUpkeep) ? {
-          originalCost: _num(options.costPaid, _num(spell.system?.cost, 0)),
+          originalCost: resolvedCost,
           refreshCount: 0,
           lastRefreshWorldTime: null,
           lastRefreshRound: null,
           targetLock: Array.isArray(options.targetUuids) ? [...options.targetUuids] : [],
           noListedDuration: _isNoListedDuration(spell)
         } : null,
-        castSource: options.castSource ?? null,
         owner: "system",
-        effectGroup: `spell.origin.${spell.id ?? spell.uuid}`,
-        stackRule: "replace",
         source: "spell-origin"
       }
     },
-    ...buildEffectChangesData([])
-  };
+    changes: []
+  });
 
   _originDebug("Creating Origin AE", {
     caster: casterActor.name,
@@ -384,6 +411,42 @@ export function getOriginAEs(actor) {
   );
 }
 
+export function findOriginAEByEnchantmentSlot(casterActor, { itemUuid = "", slotId = "", sourceLane = "workshop" } = {}) {
+  if (!casterActor || !itemUuid || !slotId) return null;
+  const wantedLane = _str(sourceLane || "workshop").toLowerCase();
+  for (const effect of (casterActor.effects ?? [])) {
+    const flags = effect?.flags?.[_FLAG_NS];
+    const castSource = flags?.castSource ?? null;
+    if (!flags?.isOriginAE || castSource?.type !== "enchantment") continue;
+    if (_str(castSource.enchantedItemUuid) !== _str(itemUuid)) continue;
+    if (_str(castSource.enchantSpellSlotId) !== _str(slotId)) continue;
+    if (_str(castSource.sourceLane || "workshop").toLowerCase() !== wantedLane) continue;
+    return effect;
+  }
+  return null;
+}
+
+export async function replaceEnchantmentUpkeepOrigin(casterActor, { item, sourceLane = "workshop", slotId = "", excludeOriginUuid = "" } = {}) {
+  if (!casterActor || !item || !slotId) return false;
+  const lane = _str(sourceLane || "workshop").toLowerCase();
+  const upkeepPath = lane === "extension"
+    ? `flags.${_FLAG_NS}.itemSpellcasting.activeUpkeepSlotId`
+    : `flags.${_FLAG_NS}.enchanting.cast.activeUpkeepSpellId`;
+  const excluded = _str(excludeOriginUuid);
+  for (const effect of getOriginAEs(casterActor)) {
+    const castSource = effect?.flags?.[_FLAG_NS]?.castSource ?? null;
+    if (castSource?.type !== "enchantment") continue;
+    if (_str(castSource.enchantedItemUuid) !== _str(item.uuid)) continue;
+    if (_str(castSource.enchantSpellSlotId) !== _str(slotId)) continue;
+    if (_str(castSource.sourceLane || "workshop").toLowerCase() !== lane) continue;
+    if (excluded && (_str(effect.uuid) === excluded || _str(effect.id) === excluded)) continue;
+    await cancelOriginAEUpkeep(effect);
+  }
+
+  await requestUpdateDocument(item, { [upkeepPath]: slotId });
+  return true;
+}
+
 /**
  * Check if an ActiveEffect is a linked target AE (has back-link to an Origin).
  *
@@ -419,6 +482,19 @@ export async function refreshOriginAEUpkeep(originEffect, opts = {}) {
     [`flags.${_FLAG_NS}.upkeep.refreshCount`]: refreshCount,
     [`flags.${_FLAG_NS}.upkeep.lastRefreshWorldTime`]: nowTime,
     [`flags.${_FLAG_NS}.upkeep.lastRefreshRound`]: nowRound,
+    [`flags.${_FLAG_NS}.upkeepAwaiting`]: null,
+    [`flags.${_FLAG_NS}.upkeepPromptMessageId`]: null,
+    [`flags.${_FLAG_NS}.upkeepPromptSignature`]: null,
+    [`flags.${_FLAG_NS}.upkeepPromptedAtWorldTime`]: null,
+    [`flags.${_FLAG_NS}.upkeepPromptedEndTime`]: null,
+    [`flags.${_FLAG_NS}.upkeepPromptedCombatRound`]: null,
+    [`flags.${_FLAG_NS}.upkeepPromptedCombatTurn`]: null,
+    [`flags.${_FLAG_NS}.upkeepBoundaryMode`]: null,
+    [`flags.${_FLAG_NS}.upkeepBoundaryEndTime`]: null,
+    [`flags.${_FLAG_NS}.upkeepBoundaryEndRound`]: null,
+    [`flags.${_FLAG_NS}.upkeepBoundaryEndTurn`]: null,
+    [`flags.${_FLAG_NS}.expiredAtWorldTime`]: null,
+    [`flags.${_FLAG_NS}.expiredAtCombatRound`]: null,
     [`flags.${_FLAG_NS}.expirationAnchor`]: buildSpellExpirationAnchor({
       casterActor: originEffect.parent,
       casterTokenUuid: flags?.expirationAnchor?.casterTokenUuid ?? null,
@@ -440,9 +516,27 @@ export async function refreshOriginAEUpkeep(originEffect, opts = {}) {
     updates["duration.startRound"] = _num(game.combat.round, 0);
     updates["duration.startTurn"] = _num(game.combat.turn, 0);
     updates["duration.combat"] = game.combat.id;
+  } else {
+    updates["duration.combat"] = null;
   }
   updates["duration.startTime"] = nowTime;
+  const durationSeconds = _num(flags?.durationSeconds, 0);
+  const durationRounds = _num(flags?.durationRounds, 0);
+  if (flags?.hasUpkeep) {
+    updates["duration.seconds"] = 0;
+    updates["duration.rounds"] = 0;
+  } else {
+    if (durationSeconds > 0) updates["duration.seconds"] = durationSeconds;
+    if (durationRounds > 0) updates["duration.rounds"] = durationRounds;
+  }
   updates["disabled"] = false;
+  updates[`flags.${_FLAG_NS}.ae.suppressed.expired`] = false;
+  updates[`flags.${_FLAG_NS}.ae.suppressed.atWorldTime`] = null;
+  updates[`flags.${_FLAG_NS}.ae.suppressed.atCombatRound`] = null;
+  updates[`flags.${_FLAG_NS}.ae.suppressed.reason`] = null;
+  updates[`flags.${_FLAG_NS}.durationStartTime`] = nowTime;
+  updates[`flags.${_FLAG_NS}.durationStartRound`] = game?.combat?.id ? _num(game.combat.round, 0) : null;
+  updates[`flags.${_FLAG_NS}.durationStartTurn`] = game?.combat?.id ? _num(game.combat.turn, 0) : null;
 
   _originDebug("Refreshing Origin AE upkeep", {
     originId: originEffect.id,
@@ -493,7 +587,8 @@ export async function cancelOriginAEUpkeep(originEffect) {
     if (!existing) return false;
 
     return await safeDeleteEmbeddedDocument(parent, "ActiveEffect", originEffect.id, {
-      context: "UESRPG | origin-effect | cancel upkeep"
+      context: "UESRPG | origin-effect | cancel upkeep",
+      deleteOptions: { uesrpgExpirationSweep: true }
     });
   } catch (err) {
     if (isMissingDocError(err)) return false;
@@ -511,10 +606,7 @@ export async function cancelOriginAEUpkeep(originEffect) {
  */
 export function findOriginAEByGroupKey(groupKey) {
   if (!groupKey) return null;
-  const parts = _str(groupKey).split("::");
-  const casterUuid = parts[0] || "";
-  const spellUuid = parts[1] || "";
-  const castTime = _num(parts[2], 0);
+  const { casterUuid, casterTokenUuid, spellUuid, originalCastWorldTime: castTime } = parseUpkeepGroupKey(groupKey);
   if (!casterUuid || !spellUuid) return null;
 
   const casterDoc = resolveUuidSync(casterUuid);
@@ -525,6 +617,7 @@ export function findOriginAEByGroupKey(groupKey) {
     const f = ef.flags?.[_FLAG_NS];
     if (!f?.isOriginAE) continue;
     if (_str(f.spellUuid) !== spellUuid) continue;
+    if (casterTokenUuid && _str(f.casterTokenUuid) !== casterTokenUuid) continue;
     if (castTime > 0 && _num(f.originalCastWorldTime, 0) !== castTime) continue;
     return ef;
   }
@@ -573,29 +666,69 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
   const spellName = String(spell.name ?? "");
   const buffName = spellName.replace("(Drain)", "(Buff)").replace(/\s*$/, " (Buff)");
 
-  return {
+  const pairedGroup = `spell.paired.${spell.id || spell.uuid}`;
+  const targetFlags = targetEffect?.flags?.[_FLAG_NS] ?? {};
+  const pairedSourceTargetUuids = Array.isArray(targetFlags.targetUuids)
+    ? foundry.utils.deepClone(targetFlags.targetUuids)
+    : [];
+
+  return buildGenericAEData({
+    source: "spell",
+    stack: {
+      policy: "replace",
+      group: pairedGroup,
+      max: null,
+      strengthKey: null,
+    },
     name: buffName,
     img: targetEffect.img || spell.img,
     origin: spell.uuid,
     disabled: false,
     duration,
     flags: {
-      "uesrpg-3ev4": {
+      [_FLAG_NS]: {
+        spellEffectMetadataVersion: targetFlags.spellEffectMetadataVersion ?? 1,
+        spellEffectMetadataTier: targetFlags.spellEffectMetadataTier ?? 2,
         spellEffect: true,
         pairedBuff: true,
         spellUuid: spell.uuid,
         spellName: spell.name,
-        spellSchool: spell.system?.school ?? "mysticism",
-        spellLevel: spell.system?.level ?? 1,
+        spellSchool: targetFlags.spellSchool ?? spell.system?.school ?? "mysticism",
+        spellLevel: targetFlags.spellLevel ?? getSpellLevel(spell) ?? 1,
+        castLevel: targetFlags.castLevel ?? targetFlags.spellLevel ?? getSpellLevel(spell) ?? 1,
+        hasHigherCastLevel: Boolean(targetFlags.hasHigherCastLevel),
+        spellStrengthValue: targetFlags.spellStrengthValue ?? null,
         casterUuid: casterActor.uuid,
+        casterTokenUuid: targetFlags.casterTokenUuid ?? null,
+        actualCost: targetFlags.actualCost ?? null,
+        costPaid: targetFlags.costPaid ?? targetFlags.actualCost ?? null,
+        originalCastWorldTime: targetFlags.originalCastWorldTime ?? null,
+        durationSeconds: targetFlags.durationSeconds ?? (duration?.seconds ?? null),
+        durationRounds: targetFlags.durationRounds ?? (duration?.rounds ?? null),
+        targetUuids: [casterActor.uuid],
+        pairedSourceTargetUuids,
+        upkeepGroupKey: targetFlags.upkeepGroupKey ?? null,
+        castContext: foundry.utils.deepClone(targetFlags.castContext ?? null),
+        spellOptions: foundry.utils.deepClone(targetFlags.spellOptions ?? null),
+        scalingChoices: foundry.utils.deepClone(targetFlags.scalingChoices ?? null),
+        castSource: foundry.utils.deepClone(targetFlags.castSource ?? null),
+        itemCastContext: foundry.utils.deepClone(targetFlags.itemCastContext ?? null),
+        magickaSpend: foundry.utils.deepClone(targetFlags.magickaSpend ?? null),
+        castSourceType: targetFlags.castSourceType ?? "spell",
+        castSourceCostMode: targetFlags.castSourceCostMode ?? null,
+        resourceMode: targetFlags.resourceMode ?? null,
+        resourceSource: targetFlags.resourceSource ?? null,
+        isEnchantmentCast: Boolean(targetFlags.isEnchantmentCast),
+        enchantmentId: targetFlags.enchantmentId ?? null,
+        enchantmentItemUuid: targetFlags.enchantmentItemUuid ?? null,
+        enchantmentSourceLane: targetFlags.enchantmentSourceLane ?? null,
+        enchantmentSlotId: targetFlags.enchantmentSlotId ?? null,
         owner: "system",
-        effectGroup: `spell.paired.${spell.id || spell.uuid}`,
-        stackRule: "override",
         source: "spell-paired"
       }
     },
-    ...buildEffectChangesData(mirroredChanges)
-  };
+    changes: mirroredChanges
+  });
 }
 
 /**
@@ -688,8 +821,14 @@ export function initializeOriginAELifecycle() {
  * @param {Item} spell
  * @returns {object}
  */
-function _buildOriginDuration(spell) {
-  const dur = spell?.system?.duration ?? {};
+function _buildOriginDuration(spell, options = {}) {
+  const scaling = getSpellScalingEntry(
+    spell,
+    options?.castContext?.castLevel
+    ?? options?.scalingChoices?.level
+    ?? null
+  );
+  const dur = scaling?.duration ?? spell?.system?.duration ?? {};
   const value = _num(dur.value, 0);
   const unit = _str(dur.unit || "rounds").toLowerCase();
   const nowTime = _num(game.time?.worldTime, 0);
@@ -774,7 +913,8 @@ async function _deleteLinkedEntity(link) {
         const existing = parent.effects?.get?.(doc.id);
         if (!existing) return false;
         return await safeDeleteEmbeddedDocument(parent, "ActiveEffect", doc.id, {
-          context: "UESRPG | origin-effect | delete linked targetAE"
+          context: "UESRPG | origin-effect | delete linked targetAE",
+          deleteOptions: { uesrpgExpirationSweep: true }
         });
       }
       case "template": {
@@ -819,7 +959,8 @@ async function _deleteLinkedEntity(link) {
         const existingBuff = buffParent.effects?.get?.(doc.id);
         if (!existingBuff) return false;
         return await safeDeleteEmbeddedDocument(buffParent, "ActiveEffect", doc.id, {
-          context: "UESRPG | origin-effect | delete linked casterBuff"
+          context: "UESRPG | origin-effect | delete linked casterBuff",
+          deleteOptions: { uesrpgExpirationSweep: true }
         });
       }
       case "boundItem": {
@@ -899,7 +1040,8 @@ async function _cleanOrphanTargetAEs(originEffect) {
         for (const effectId of toDelete) {
           const ok = await safeDeleteEmbeddedDocument(actor, "ActiveEffect", effectId, {
             context: "UESRPG | origin-effect | orphan target cleanup",
-            logUnexpected: false
+            logUnexpected: false,
+            deleteOptions: { uesrpgExpirationSweep: true }
           });
           if (ok) deleted += 1;
         }

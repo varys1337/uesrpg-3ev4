@@ -23,6 +23,7 @@ import { FLAG_SCOPE, SYSTEM_ID } from "../system/namespace.js";
 import { createUuidResolver, resolveUuidSync } from "../../utils/uuid-cache.js";
 import { getLinkedAreaEntities, getLinkedAreaUuids, getLinkedRegionUuids, buildRegionLink, resolveLinkedArea } from "./region-links.js";
 import { testAreaPoint } from "../aoe/containment.js";
+import { getSpellLevel } from "./magicka-utils.js";
 
 // ── Shared Private Helpers ───────────────────────────────────────────────────
 
@@ -247,7 +248,7 @@ export async function trySpellReflect(targetActor, spell, casterActor, options =
 
   if (threshold <= 0) return result;
 
-  const spellLevel = Number(spell.system?.level ?? 0) || 0;
+  const spellLevel = Number(getSpellLevel(spell) ?? 0) || 0;
   result.spellLevel = spellLevel;
 
   // RAW: Roll 1d10 — if roll ≤ threshold, the spell is reflected.

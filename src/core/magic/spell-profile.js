@@ -48,19 +48,18 @@
 
 import {
   getSpellLevel,
-  getSpellCost,
+  getSpellScalingLevels,
   getSpellDamageFormula,
   getSpellDamageType,
   isHealingSpell as _isHealingSpell,
-  getSpellScalingEntry
+  getSpellScalingEntry,
+  resolveSpellCostSnapshot
 } from "./magicka-utils.js";
-import { getSpellRestraintReduction } from "./magic-modifiers.js";
 import {
   getSpellRangeType,
   getSpellMaxRangeMeters,
   getSpellAoEConfig
 } from "./spell-range.js";
-import { evaluateAEModifierKeysDetailed } from "../active-effects/modifier-evaluator.js";
 import {
   applySpellcastingTalentModifiers,
   applyTalentSummaryToProfile
@@ -68,51 +67,6 @@ import {
 import { normalizeSpellConfig } from "./spell-config.js";
 import { _num, _strTrim as _str } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
-
-/**
- * Normalize a modifier lane key component to a safe, stable token.
- * @param {*} s
- * @returns {string}
- */
-function _normalizeKey(s) {
-  return String(s ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/[^a-z0-9_]/g, "");
-}
-
-/**
- * Collect Active Effect modifier keys for spell cost.
- * @param {Item} spell
- * @returns {string[]}
- */
-function _collectSpellCostModifierKeys(spell) {
-  const keySet = new Set([
-    "system.modifiers.magic.cost._all"
-  ]);
-
-  const schoolKey = _normalizeKey(spell?.system?.school);
-  if (schoolKey) keySet.add(`system.modifiers.magic.cost.${schoolKey}`);
-
-  return Array.from(keySet);
-}
-
-/**
- * Evaluate Active Effect modifiers for spell cost.
- * @param {Actor} actor
- * @param {Item} spell
- * @returns {{total: number, breakdown: Array}}
- */
-function _evaluateSpellCostAEModifier(actor, spell) {
-  try {
-    const keys = _collectSpellCostModifierKeys(spell);
-    if (!keys.length) return { total: 0, breakdown: [] };
-    return evaluateAEModifierKeysDetailed(actor, keys, { labelPrefix: "Magic Cost" });
-  } catch (_e) {
-    return { total: 0, breakdown: [] };
-  }
-}
 
 /**
  * Resolve spell duration configuration.
@@ -182,85 +136,37 @@ function _resolveClassification(spell) {
  * @param {object} options - { level, isRestrained, isOverloaded, isOvercharged }
  * @returns {{base: number, baseRaw: number, aeModifier: number, aeBreakdown: Array, wpBonus: number, restraintWbDelta: number, effectiveRestraintReduction: number, restrained: {enabled: boolean, reduction: number, appliesOnSuccess: boolean}, overload: {enabled: boolean, multiplier: number}, final: number, attempt: number}}
  */
-function _recomputeRestrainedReduction(profile, actor, spell, options = {}) {
-  if (!profile?.cost) return profile;
-
-  const baseCost = Math.max(0, _num(profile.cost.base, 0));
-  const baseWB = Math.max(0, _num(profile.cost.wpBonus, 0));
-  const restraintWbDelta = _num(profile.cost.restraintWbDelta, 0);
-  const isRestrained = Boolean(profile.cost.restrained?.enabled);
-
-  if (!isRestrained || baseCost <= 0) {
-    profile.cost.effectiveRestraintReduction = 0;
-    if (profile.cost.restrained) profile.cost.restrained.reduction = 0;
-    profile.cost.final = Math.max(1, _num(profile.cost.attempt, 0));
-    return profile;
-  }
-
-  const restraintInfo = getSpellRestraintReduction(actor, spell, {
-    ...options,
-    baseCost,
-    baseWB,
-    restraintWbDelta,
-    minCost: 1
-  });
-  const restrainedReduction = Math.max(0, _num(restraintInfo?.reduction, 0));
-  profile.cost.effectiveRestraintReduction = restrainedReduction;
-  if (profile.cost.restrained) profile.cost.restrained.reduction = restrainedReduction;
-  profile.cost.final = Math.max(1, _num(profile.cost.attempt, 0) - restrainedReduction);
-  return profile;
-}
-
 function _resolveCostProfile(actor, spell, options = {}) {
-  const baseCostRaw = getSpellCost(spell, options.level ?? null);
-  const { total: aeModifierRaw, breakdown: aeBreakdown } = _evaluateSpellCostAEModifier(actor, spell);
-  const aeModifier = _num(aeModifierRaw, 0);
-  
-  // Base cost after AE modifiers (before restrain/overload)
-  const baseCost = Math.max(0, Math.floor(baseCostRaw + aeModifier));
-  
-  const restraintInfo = getSpellRestraintReduction(actor, spell, {
-    ...options,
-    baseCost,
-    minCost: 1
-  });
-  const wpBonus = Math.max(0, _num(restraintInfo?.baseWB, 0));
-  const isRestrained = _bool(options.isRestrained);
-  const isOverloaded = _bool(options.isOverloaded);
-  const isOvercharged = _bool(options.isOvercharged);
-  const restrainedReduction = isRestrained ? Math.max(0, _num(restraintInfo?.reduction, 0)) : 0;
-  
-  // Overload: RAW doubles cost
-  const overloadMultiplier = isOverloaded ? 2 : 1;
-  
-  // Attempt cost (what's spent upfront)
-  const attemptCost = Math.max(0, Math.floor(baseCost * overloadMultiplier));
-  
-  // Final cost (after restrain refund on success)
-  const finalCost = Math.max(1, attemptCost - restrainedReduction);
+  const snapshot = resolveSpellCostSnapshot(actor, spell, options);
   
   return {
-    base: baseCost,
-    baseRaw: baseCostRaw,
-    aeModifier,
-    aeBreakdown,
-    wpBonus,
+    base: snapshot.base,
+    baseRaw: snapshot.baseRaw,
+    aeModifier: snapshot.aeModifier,
+    aeBreakdown: snapshot.aeBreakdown,
+    wpBonus: snapshot.restrained.adjustedWB,
     restraintWbDelta: 0,
-    effectiveRestraintReduction: restrainedReduction,
+    effectiveRestraintReduction: snapshot.restrained.refundOnSuccess,
     restrained: {
-      enabled: isRestrained,
-      reduction: restrainedReduction,
+      enabled: snapshot.restrained.enabled,
+      reduction: snapshot.restrained.refundOnSuccess,
+      baseReduction: snapshot.restrained.normalReduction,
       appliesOnSuccess: true // RAW: refund only on successful cast
     },
     overload: {
-      enabled: isOverloaded,
-      multiplier: overloadMultiplier
+      enabled: snapshot.overload.enabled,
+      multiplier: snapshot.overload.multiplier
     },
     overcharge: {
-      enabled: isOvercharged
+      enabled: snapshot.overcharge.enabled,
+      multiplier: snapshot.overcharge.multiplier
     },
-    final: finalCost,
-    attempt: attemptCost
+    multipliers: snapshot.multipliers,
+    final: snapshot.finalOnSuccess,
+    finalOnSuccess: snapshot.finalOnSuccess,
+    finalOnFailure: snapshot.finalOnFailure,
+    attempt: snapshot.attempt,
+    snapshot
   };
 }
 
@@ -369,7 +275,7 @@ function _resolveMetadata(spell) {
  * @returns {{levels: Array, currentLevel: object|null, hasScaling: boolean}}
  */
 function _resolveScaling(spell, options = {}) {
-  const levels = spell?.system?.scaling?.levels ?? [];
+  const levels = getSpellScalingLevels(spell);
   const hasScaling = Array.isArray(levels) && levels.length > 0;
   const currentLevel = getSpellScalingEntry(spell, options.level ?? null);
   
@@ -490,7 +396,7 @@ export function resolveSpellProfile(spell, actor, options = {}) {
       spellOptions: options,
       isRestrained: _bool(options.isRestrained),
       isOverloaded: _bool(options.isOverloaded),
-      isOvercharged: _bool(options.isOvercharged)
+      isOvercharged: _bool(options.isOvercharged) || _bool(options.useOvercharge)
     };
     const { modifiers, summary } = applySpellcastingTalentModifiers({
       actor,

@@ -353,7 +353,13 @@ async function _onAlchemyToxinAction(event, message) {
 async function _onUpkeepAction(event, message) {
   event.preventDefault();
   const el = event.currentTarget;
-  if (el instanceof HTMLButtonElement) el.disabled = true;
+  const state = message?.flags?.[_FLAG_NS]?.upkeepGroup ?? {};
+  if (state?.resolved === true || state?.resolving === true) return;
+  const card = el?.closest?.(".uesrpg-upkeep-card");
+  card?.querySelectorAll?.("[data-ues-upkeep-action]")?.forEach?.((btn) => {
+    if (btn instanceof HTMLButtonElement) btn.disabled = true;
+    else btn?.setAttribute?.("disabled", "disabled");
+  });
   const action = String(el?.dataset?.uesUpkeepAction ?? "").trim().toLowerCase();
   if (!action) return;
   const upkeep = await import("../../magic/upkeep-workflow.js");

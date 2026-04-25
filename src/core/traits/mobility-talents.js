@@ -15,6 +15,7 @@ import { _lower } from "./_primitives.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { evaluateAEModifierKeys, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
+import { buildGenericAEExpiry } from "../active-effects/expiry.js";
 
 function _asInt(v, d = 0) {
   const n = Number(v);
@@ -103,21 +104,14 @@ export async function activateHardTargetEffect(actor) {
     return null;
   }
 
-  // Expire at the start of the actor's next turn (system turn ticker cleanup).
-  let combatant = null;
-  try {
-    if (typeof combat.getCombatantsByActor === "function") {
-      const arr = combat.getCombatantsByActor(actor);
-      combatant = Array.isArray(arr) ? (arr[0] ?? null) : null;
-    } else {
-      const combatants = Array.from(combat.combatants ?? []);
-      combatant = combatants.find(c => c?.actor?.id === actor.id || c?.actorId === actor.id) ?? null;
-    }
-  } catch (_e) {
-    combatant = null;
-  }
-
-  if (!combatant?.id) {
+  const genericExpiry = buildGenericAEExpiry({
+    mode: "target-next-turn-start",
+    targetActor: actor,
+    actor,
+    source: "combat",
+    stack: { policy: "replace", group: "talent.hardTarget", max: null, strengthKey: null },
+  });
+  if (!genericExpiry?.expiry) {
     ui.notifications?.warn?.("Hard Target requires the actor to be a combatant in the active combat.");
     return null;
   }
@@ -132,9 +126,9 @@ export async function activateHardTargetEffect(actor) {
       uesrpg: {
         key: "hardTarget",
         source: "talent",
-        expiresOnTurnStart: true,
-        expiresCombatId: String(combat.id ?? ""),
-        expiresCombatantId: String(combatant.id ?? "")
+      },
+      [FLAG_SCOPE]: {
+        ae: genericExpiry.metadata
       }
     }
   });

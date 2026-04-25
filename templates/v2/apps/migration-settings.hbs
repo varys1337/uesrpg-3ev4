@@ -1,16 +1,6 @@
 {{!-- templates/v2/apps/migration-settings.hbs --}}
 <section class="uesrpg-settings">
 <fieldset>
-  <legend>{{localize "UESRPG.Apps.MigrationSettings.Sections.Startup"}}</legend>
-
-  <div class="form-group">
-    <label>{{autoRunMigrationsOnStartupSetting.name}}</label>
-    <input type="checkbox" name="autoRunMigrationsOnStartup" {{checked autoRunMigrationsOnStartup}}>
-    <p class="notes">{{autoRunMigrationsOnStartupSetting.hint}}</p>
-  </div>
-</fieldset>
-
-<fieldset>
   <legend>{{localize "UESRPG.Apps.MigrationSettings.Sections.ManualRun"}}</legend>
 
   <div class="form-group">
@@ -32,8 +22,4 @@
     <p class="notes">{{localize "UESRPG.Apps.MigrationSettings.RunHint"}}</p>
   </div>
 </fieldset>
-
-<footer class="sheet-footer flexrow">
-  <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
-</footer>
 </section>

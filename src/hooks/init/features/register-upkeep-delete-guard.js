@@ -7,10 +7,9 @@ export function registerUpkeepDeleteGuard() {
       try {
         const flags = effect?.flags?.[FLAG_SCOPE];
         if (!flags?.spellEffect || !flags?.hasUpkeep) return;
-        if (!flags?.upkeepAwaiting) return;
         if (options?.uesrpgAllowUpkeepDelete) return;
+        if (options?.uesrpgExpirationSweep) return;
 
-        if (!options?.uesrpgExpirationSweep) return;
         return false;
       } catch (err) {
         console.error("UESRPG | Upkeep delete guard failed", err);

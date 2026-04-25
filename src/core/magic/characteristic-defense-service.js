@@ -27,6 +27,8 @@ import { normalizeSpellConfig } from "./spell-config.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { applyCondition } from "../conditions/condition-engine.js";
 import { _num, _strTrim as _str, createDebugLogger } from "./_primitives.js";
+import { buildMagicCastContext } from "./opposed/cast-context.js";
+import { getSpellLevel, getSpellStrengthFormula } from "./magicka-utils.js";
 
 const _CHA_LABELS = {
   str: "Strength", end: "Endurance", agi: "Agility", int: "Intelligence",
@@ -44,11 +46,11 @@ const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][CharDefense]");
  */
 function _resolveSpellStrength(spell) {
   // Try numeric damage formula first (same pattern as disintegrate-service)
-  const formula = _str(spell.system?.damageFormula || spell.system?.spell_str || spell.system?.damage);
+  const formula = _str(getSpellStrengthFormula(spell));
   const n = Number(formula);
   if (Number.isFinite(n) && n > 0) return Math.floor(n);
   // Fallback: spell level × 10
-  const level = _num(spell.system?.level, 1);
+  const level = _num(getSpellLevel(spell), 1);
   return level * 10;
 }
 
@@ -68,6 +70,22 @@ function _resolveModifier(spell, charDefConfig) {
   }
   // Default: spellStrength
   return _resolveSpellStrength(spell);
+}
+
+function _resolveModifierFromCastContext(spell, charDefConfig, opts = {}) {
+  const mode = _str(charDefConfig.modifierMode);
+  if (mode === "formula") {
+    return _num(charDefConfig.modifierFormula, 0);
+  }
+
+  const castContext = opts?.castContext ?? buildMagicCastContext(opts?.attacker ?? {}, spell, {
+    actor: opts?.caster ?? null
+  });
+  const spellStrengthValue = Number(castContext?.spellStrengthValue ?? 0);
+  if (Number.isFinite(spellStrengthValue) && spellStrengthValue > 0) {
+    return Math.floor(spellStrengthValue);
+  }
+  return 0;
 }
 
 /**
@@ -90,7 +108,7 @@ export function isCharacteristicDefense(spell) {
  * @param {Item} spell - The spell being defended against
  * @returns {{finalTN: number, baseTN: number, totalMod: number, chaLabel: string, breakdown: Array}|null}
  */
-export function computeCharacteristicDefenseTN(defender, spell) {
+export function computeCharacteristicDefenseTN(defender, spell, opts = {}) {
   if (!defender || !spell) return null;
   const config = normalizeSpellConfig(spell);
   const charDef = config.characteristicDefense;
@@ -101,7 +119,7 @@ export function computeCharacteristicDefenseTN(defender, spell) {
     typeof charObj === "object" ? charObj?.total ?? charObj?.base : charObj,
     0
   );
-  const modifier = _resolveModifier(spell, charDef);
+  const modifier = _resolveModifierFromCastContext(spell, charDef, opts);
   const effectiveTN = Math.max(1, charTotal - modifier);
   const modLabel = charDef.modifierMode === "formula"
     ? "Modifier (formula)"
@@ -145,7 +163,7 @@ export async function executeCharacteristicDefense(defender, spell, opts = {}) {
   );
 
   // Resolve the modifier (spell strength or formula)
-  const modifier = _resolveModifier(spell, charDef);
+  const modifier = _resolveModifierFromCastContext(spell, charDef, opts);
 
   // Final TN = characteristic - modifier (harder save = lower TN)
   const effectiveTN = Math.max(1, charTotal - modifier);

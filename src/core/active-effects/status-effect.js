@@ -7,6 +7,7 @@ import { requestCreateEmbeddedDocuments, requestUpdateDocument } from "../../uti
 import { buildEffectChangesData, buildEffectChangesUpdate } from "../../utils/compat.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback, getCanonicalFlags, getLegacyFlags } from "../system/flags.js";
+import { buildGenericAEMetadata, isConditionEffect } from "./metadata.js";
 
 const COMBAT_ACTION_KEYS = new Set(["defensiveStance", "aim", "powerAttack", "powerBlock", "powerDraw"]);
 
@@ -51,8 +52,10 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
     }
   };
 
+  let defaultStackGroup = key ? `status.${key}` : null;
+
   // Add standardized metadata for combat action effects (identified by flags.uesrpg.key)
-  if (key && !mergedFlags[FLAG_SCOPE]?.effectGroup) {
+  if (key) {
     // Combat action effects: defensiveStance, aim, powerAttack, etc.
     // Stamina effects: stamina-power-attack, stamina-power-block, etc.
     const isStaminaEffect = key.startsWith("stamina-");
@@ -60,10 +63,23 @@ export async function createOrUpdateStatusEffect(actor, { statusId, name, img, d
     if (COMBAT_ACTION_KEYS.has(key) || isStaminaEffect) {
       if (!mergedFlags[FLAG_SCOPE]) mergedFlags[FLAG_SCOPE] = {};
       mergedFlags[FLAG_SCOPE].owner = "system";
-      mergedFlags[FLAG_SCOPE].effectGroup = `combat.${key}`;
-      mergedFlags[FLAG_SCOPE].stackRule = "override";
       mergedFlags[FLAG_SCOPE].source = "combat";
+      defaultStackGroup = `combat.${key}`;
     }
+  }
+
+  if (!isConditionEffect({ flags: mergedFlags }) && !mergedFlags[FLAG_SCOPE]?.ae) {
+    const source = String(mergedFlags[FLAG_SCOPE]?.source ?? mergedFlags.uesrpg?.source ?? "manual").trim() || "manual";
+    const stackGroup = String(mergedFlags[FLAG_SCOPE]?.effectGroup ?? "").trim() || defaultStackGroup;
+    mergedFlags[FLAG_SCOPE].ae = buildGenericAEMetadata({
+      source,
+      stack: {
+        policy: stackGroup ? "replace" : "none",
+        group: stackGroup,
+        max: null,
+        strengthKey: null,
+      },
+    });
   }
 
   if (sid) {

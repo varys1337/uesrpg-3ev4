@@ -7,6 +7,7 @@ import {
 } from "../../utils/authority-proxy.js";
 import { doTestRoll, formatResultOutcomeLabel } from "../../utils/degree-roll-helper.js";
 import { createOrUpdateStatusEffect } from "../active-effects/status-effect.js";
+import { buildGenericAEExpiry } from "../active-effects/expiry.js";
 import { buildEffectDuration } from "../time/effect-duration.js";
 import { buildWarfareDisciplineTN } from "./tn.js";
 import { applyWarfareConditionDelta } from "./condition-target.js";
@@ -234,6 +235,17 @@ async function upsertWarfareEffect(actor, {
   changes = [],
   extraFlags = {},
 } = {}) {
+  const wantsStartExpiry = extraFlags?.expiresOnTurnStart === true;
+  const expiry = wantsStartExpiry
+    ? buildGenericAEExpiry({
+      mode: "target-next-turn-start",
+      actor,
+      targetActor: actor,
+      source: "combat",
+      stack: { policy: "replace", group: `warfare.${key}`, max: null, strengthKey: null },
+    })
+    : null;
+  const { expiresOnTurnStart, expiresCombatId, expiresCombatantId, expiresRound, expiresTurn, ...cleanExtraFlags } = extraFlags ?? {};
   return createOrUpdateStatusEffect(actor, {
     statusId: `uesrpg-warfare-${key}`,
     name,
@@ -244,7 +256,8 @@ async function upsertWarfareEffect(actor, {
       [FLAG_SCOPE]: {
         key,
         warfare: true,
-        ...extraFlags,
+        ...cleanExtraFlags,
+        ...(expiry?.metadata ? { ae: expiry.metadata } : {}),
       },
     },
   });

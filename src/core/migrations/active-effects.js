@@ -1,9 +1,15 @@
 import { SYSTEM_ID } from "../constants.js";
-import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
+import {
+  getMigrationState,
+  isMigrationRevisionApplied,
+  markMigrationRevisionApplied,
+  setMigrationState
+} from "./state.js";
 import { normalizeEffectChanges } from "../../utils/compat.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _ACTIVE_EFFECT_MIGRATION_KEY = "activeEffectChangeTypes";
+const _ACTIVE_EFFECT_MIGRATION_REVISION = 1;
 
 function _getContents(collectionLike) {
   if (Array.isArray(collectionLike?.contents)) return collectionLike.contents;
@@ -55,9 +61,8 @@ async function _migrateEmbeddedEffects(parentDoc, embeddedCollection, embeddedNa
 export async function migrateActiveEffectsIfNeeded() {
   if (!game.user?.isGM) return;
 
-  const currentVersion = getSystemVersionString();
   const state = getMigrationState();
-  if (state?.[_ACTIVE_EFFECT_MIGRATION_KEY] === currentVersion) return;
+  if (isMigrationRevisionApplied(_ACTIVE_EFFECT_MIGRATION_KEY, _ACTIVE_EFFECT_MIGRATION_REVISION, state)) return;
 
   try {
     let updatedWorldEffects = 0;
@@ -87,7 +92,11 @@ export async function migrateActiveEffectsIfNeeded() {
       updatedItemEffects += await _migrateEmbeddedEffects(item, item?.effects, "ActiveEffect");
     }
 
-    state[_ACTIVE_EFFECT_MIGRATION_KEY] = currentVersion;
+    markMigrationRevisionApplied(state, _ACTIVE_EFFECT_MIGRATION_KEY, _ACTIVE_EFFECT_MIGRATION_REVISION, {
+      updatedWorldEffects,
+      updatedActorEffects,
+      updatedItemEffects
+    });
     await setMigrationState(state);
 
     console.log(`${MODULE_ID} | ActiveEffect change type migration complete`, {

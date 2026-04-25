@@ -14,6 +14,7 @@
 import { UESRPG } from "../../../constants.js";
 import { ITEM_QUALITY_LABELS } from "../../../config/label-catalog.js";
 import { buildQualityTooltipText } from "../../../../data/tooltips/index.js";
+import { maybeT } from "../../../../utils/i18n.js";
 
 let _qualityLabelIndexCache = null;
 
@@ -27,14 +28,30 @@ function _escapeHtml(value) {
 }
 
 function _buildQualityTagHtml({ label, key, value = null, className = "tag" } = {}) {
-  const normalizedLabel = String(label ?? "").trim() || String(key ?? "").trim();
   const normalizedKey = String(key ?? "").trim();
+  const normalizedLabel = _resolveDisplayLabel(label, normalizedKey);
   const numericValue = (value !== undefined && value !== null && value !== "") ? Number(value) : null;
   const display = numericValue != null && !Number.isNaN(numericValue)
     ? `${normalizedLabel} (${numericValue})`
     : normalizedLabel;
   const tooltip = buildQualityTooltipText({ label: normalizedLabel, key: normalizedKey, itemType: "weapon" });
   return `<span class="${_escapeHtml(className)}" title="${_escapeHtml(tooltip)}">${_escapeHtml(display)}</span>`;
+}
+
+function _humanizeKey(key) {
+  return String(key ?? "")
+    .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll(/[_-]+/g, " ")
+    .trim()
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function _resolveDisplayLabel(label, key) {
+  const rawLabel = String(label ?? "").trim();
+  const fallback = rawLabel && !rawLabel.startsWith("UESRPG.")
+    ? rawLabel
+    : (_humanizeKey(key) || String(key ?? "").trim());
+  return maybeT(rawLabel || key, fallback);
 }
 
 /**

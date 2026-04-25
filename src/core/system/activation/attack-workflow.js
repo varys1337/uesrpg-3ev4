@@ -250,6 +250,8 @@ export async function startAttackWorkflow({
         tags: activationTags
       }
     : null;
+  const activationApCost = Number(activation?.costs?.action_points ?? 0) || 0;
+  const activationPrepaidBaseAttackAP = Boolean(activation?.spendCosts && activationApCost > 0);
 
   await OpposedWorkflow.createPending({
     attackerTokenUuid: attackerToken.document?.uuid ?? attackerToken.uuid,
@@ -263,7 +265,8 @@ export async function startAttackWorkflow({
     forcedHitLocation: attackContext?.hitLocation ?? null,
     aoe: attackContext?.aoe ?? null,
     isAoE: Boolean(attackContext?.isAoE),
-    activation: activationContext
+    activation: activationContext,
+    activationPrepaidBaseAttackAP
   });
 
   return true;

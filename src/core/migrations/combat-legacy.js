@@ -7,11 +7,17 @@
  */
 
 import { SYSTEM_ID } from "../constants.js";
-import { getMigrationState, setMigrationState, getSystemVersionString } from "./state.js";
+import {
+  getMigrationState,
+  isMigrationRevisionApplied,
+  markMigrationRevisionApplied,
+  setMigrationState
+} from "./state.js";
 import { requestUpdateChatMessage } from "../../utils/authority-proxy.js";
 import { runCombatLegacyReadinessScan } from "../combat/legacy-readiness-scanner.js";
 
 const MODULE_ID = SYSTEM_ID;
+const _COMBAT_LEGACY_MIGRATION_REVISION = 1;
 
 const LEGACY_STAGE_MAP = Object.freeze({
   "attacker-roll": "attacker-commit",
@@ -91,9 +97,8 @@ export async function normalizeCombatLegacy() {
 export async function migrateCombatLegacyIfNeeded() {
   if (!game.user?.isGM) return;
 
-  const currentVersion = getSystemVersionString();
   const state = getMigrationState();
-  if (state?.combatLegacy === currentVersion) return;
+  if (isMigrationRevisionApplied("combatLegacy", _COMBAT_LEGACY_MIGRATION_REVISION, state)) return;
 
   try {
     const before = await runCombatLegacyReadinessScan({ notify: false });
@@ -109,11 +114,14 @@ export async function migrateCombatLegacyIfNeeded() {
     const summary = _buildSummary(before, after);
     ui.notifications?.info?.(`Combat legacy migration complete: ${summary}`);
 
-    state.combatLegacy = currentVersion;
+    markMigrationRevisionApplied(state, "combatLegacy", _COMBAT_LEGACY_MIGRATION_REVISION, {
+      result,
+      before: before?.counts ?? {},
+      after: after?.counts ?? {}
+    });
     await setMigrationState(state);
   } catch (err) {
     console.error(`${MODULE_ID} | Combat legacy migration failed`, err);
     ui.notifications?.warn?.("UESRPG combat legacy migration pass failed; check console for details.");
   }
 }
-

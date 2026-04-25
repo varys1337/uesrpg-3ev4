@@ -543,19 +543,10 @@ class TimeServiceImpl {
 export const TimeService = new TimeServiceImpl();
 
 /**
- * Initialize and expose the time API at game.uesrpg.time.
+ * Initialize and return the public time API.
  * @returns {object} The public API object.
  */
 export function initializeTimeService() {
   TimeService.initialize();
-
-  // Attach to system namespace for external consumers.
-  if (game?.uesrpg) {
-    game.uesrpg.time = TimeService.getPublicApi();
-  } else {
-    game.uesrpg = game.uesrpg ?? {};
-    game.uesrpg.time = TimeService.getPublicApi();
-  }
-
-  return game.uesrpg.time;
+  return TimeService.getPublicApi();
 }

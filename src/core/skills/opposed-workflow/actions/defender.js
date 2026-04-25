@@ -17,7 +17,7 @@ import { applyKeenIntuitionToResult, applyHyperAwarenessToResult } from "../../.
 import { applyIntellectualTalentDoSOverrides } from "../../../traits/intellectual-talents.js";
 import { _getMessageState } from "../core/schema.js";
 import { _getLastSkillRollOptions, _setLastSkillRollOptions, _mergeLastSkillRollOptions } from "../core/settings.js";
-import { _emitSuppressedSubRollDice, _esc, _safeGetSetting, _getCoreRollMode, _isQuickShiftRequested } from "../core/util.js";
+import { _emitSuppressedSubRollDice, _getCoreRollMode, _isQuickShiftRequested } from "../core/util.js";
 import { _updateCard } from "../core/card-updater.js";
 import { _listSkills } from "../core/skills.js";
 import { _skillRollDialog } from "../core/dialogs.js";
@@ -29,7 +29,6 @@ import {
 } from "../context.js";
 import { resolveSelectionAndComputeTN } from "../helpers/selection-and-tn.js";
 import { buildQuickDeclaration, commitDeclarationToCardState, readCommittedDeclaration } from "../helpers/declaration-state.js";
-import { buildSkillOpposedRollFlags } from "../helpers/roll-flags.js";
 import { commitLaneResult } from "../helpers/result-commit.js";
 
 /**
@@ -229,29 +228,7 @@ export async function handleDefenderRoll(ctx, action) {
 
   skillRollDebug("opposed defender result", { rollTotal: res.rollTotal, target: res.target, isSuccess: res.isSuccess, degree: res.degree, critS: res.isCriticalSuccess, critF: res.isCriticalFailure });
 
-  const rollFlags = buildSkillOpposedRollFlags({
-    side: "defender",
-    messageId: message.id,
-    request,
-    laneData: data.defender,
-    decl,
-    tn,
-    res,
-    actorUuid: defender.uuid,
-    skillLabel
-  });
-
-  const postSubRolls = _safeGetSetting("opposedPostSubRollMessages", true);
-  if (postSubRolls) {
-    await res.roll.toMessage({
-    speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
-    flavor: `${_esc(data.defender.skillLabel)} - Opposed Skill (Target)`,
-    flags: rollFlags,
-    rollMode
-    });
-  } else {
-    _emitSuppressedSubRollDice(res.roll, { rollMode });
-  }
+  _emitSuppressedSubRollDice(res.roll, { rollMode });
 
   if (defSkill) {
     await consumePhysicalExertionForSkill(defender, defSkill, {
@@ -281,4 +258,3 @@ export async function handleDefenderRoll(ctx, action) {
   await _updateCard(freshMsgDR, freshDataDR);
   return freshDataDR;
 }
-

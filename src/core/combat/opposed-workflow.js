@@ -378,49 +378,7 @@ async function _applyPressAdvantageEffect(attacker, defender, opts) {
 }
 
 async function _applyOverextendEffect(opponent, { defenderUuid = null, defenderTokenUuid = null, opponentTokenUuid = null, doubleEffect = false } = {}) {
-  if (!opponent) return null;
-  const duration = _advantageDurationData(opponent, 1);
-
-  const defenderActor = defenderUuid ? _resolveDoc(defenderUuid) : null;
-  const canDouble = Boolean(doubleEffect && defenderActor && _canUseExploitAdvantage(defenderActor, { actorTokenUuid: defenderTokenUuid, opponentTokenUuid }));
-  const tnDelta = canDouble ? -20 : -10;
-
-  const effectData = {
-    name: "Overextended",
-    img: "icons/svg/downgrade.svg",
-    origin: opponent.uuid,
-    disabled: false,
-    duration,
-    changes: [
-      buildEffectChange({
-        key: "system.modifiers.combat.opposed.attackTN",
-        type: "add",
-        value: tnDelta,
-        priority: 20
-      })
-    ],
-    flags: {
-  uesrpg: {
-    category: "advantage",
-    key: "overextend",
-    source: {
-      actorUuid: defenderUuid ?? null,
-      tokenUuid: defenderTokenUuid ?? null
-    },
-    target: {
-      actorUuid: opponent?.uuid ?? null,
-      tokenUuid: opponentTokenUuid ?? null
-    },
-    // Opponent-scoped: affects the target's next attack test (any attack type) against this defender.
-    // RAW: "The opponent’s next attack test within 1 round is made at a -10 penalty."
-    conditions: {
-      ...(defenderUuid ? { opponentUuid: defenderUuid } : {}),
-      ...(canDouble ? { requireIsolatedDuel: true } : {})
-    }
-  }
-}};
-
-  return await _createTemporaryEffect(opponent, effectData);
+  return applyOverextendEffect(opponent, { defenderUuid, defenderTokenUuid, opponentTokenUuid, doubleEffect });
 }
 
 async function _applyOverwhelmEffect(opponent, opts) {
@@ -646,35 +604,7 @@ export const OpposedWorkflow = {
    * Called from updateChatMessage (GM) to begin rolling once both sides have committed.
    */
   async maybeAutoRollBanked(message) {
-    try {
-      if (!message) return;
-
-      const opposed = message?.flags?.["uesrpg-3ev4"]?.opposed ?? null;
-      if (!opposed) return;
-      if (!_isBankChoicesEnabledForData(opposed)) return;
-
-      const data = foundry.utils.deepClone(opposed);
-      _ensureBankedScaffold(data);
-
-      // Only proceed when a roll has been requested and has not started.
-      if (!data?.context?.autoRollRequested) return;
-      if (data?.context?.autoRollStarted) return;
-
-      const defenders = _getDefenderEntries(data);
-      // For banking: require ALL defenders to be committed before rolling
-      const allCommitted = _allDefendersCommitted(data);
-      if (!allCommitted) return;
-
-      // Only the active GM should run the auto-roll.
-      if (!_anyActiveGMOnline()) return;
-      const activeGM = game.users.activeGM ?? null;
-      if (activeGM && game.user.id !== activeGM.id) return;
-      if (!game.user.isGM) return;
-
-      await this._autoRollBanked(message.id, { trigger: "hook" });
-    } catch (err) {
-      console.error("UESRPG | maybeAutoRollBanked failed", err);
-    }
+    return _maybeAutoRollBankedOrchestrator(message, this, _updateCard);
   },
 
   /**

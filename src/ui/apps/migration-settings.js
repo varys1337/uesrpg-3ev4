@@ -9,7 +9,7 @@ export function registerMigrationSettingsMenu() {
   game.settings.registerMenu(NAMESPACE, "migrationSettings", localizeMenuConfig("Menus", "migrationSettings", {
     name: "Migration",
     label: "Configure Migration",
-    hint: "Migration controls and startup gating.",
+    hint: "Review migration status and run migrations manually.",
     icon: "fas fa-shuffle",
     restricted: true,
     type: MigrationSettingsAppV2,

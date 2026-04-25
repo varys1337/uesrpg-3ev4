@@ -32,7 +32,18 @@ export function getScalingLevelsArray(item) {
  */
 export function normalizeScalingEntry(entry, fallbackDurationUnit = "instant") {
   const normalized = { ...(entry ?? {}) };
+  if (normalized.known == null) normalized.known = true;
+  normalized.known = normalized.known !== false && normalized.known !== "false";
   if (normalized.damageFormula == null) normalized.damageFormula = "";
+  if (normalized.spellStrengthFormula == null) {
+    normalized.spellStrengthFormula = String(
+      normalized.spellStrength
+      ?? normalized.spell_str
+      ?? normalized.strength
+      ?? normalized.value
+      ?? ""
+    );
+  }
   if (normalized.description == null) normalized.description = "";
   if (normalized.level == null || normalized.level === "") normalized.level = 1;
   if (normalized.cost == null || normalized.cost === "") normalized.cost = 0;

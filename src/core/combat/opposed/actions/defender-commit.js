@@ -6,10 +6,10 @@
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
 import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { _getDefenderOutcome, _setDefenderOutcome, _setDefenderAdvantage, _getDefenderEntries, _isMultiDefender } from "../schema.js";
-import { _getBankCommitState, _allDefendersCommitted, _cleanupAutoRollContext } from "../banking/state.js";
+import { _getBankCommitState, _allDefendersCommitted, _cleanupAutoRollContext, reconcileBankedAutoRollRequest } from "../banking/state.js";
 import { resolveOutcomeRAW as _resolveOutcomeRAW, computeAdvantageRAW as _computeAdvantageRAW } from "../outcome-resolution.js";
 import { applyAoEEvadeOutcome as _applyAoEEvadeOutcome, getTokenMovementAction as _getTokenMovementAction } from "../helpers/workflow.js";
-import { _canControlActor, _emitSuppressedSubRollDice, _logDebug, _opposedFlags, _safeGetSetting } from "../helpers/util.js";
+import { _canControlActor, _emitSuppressedSubRollDice, _logDebug } from "../helpers/util.js";
 import { removeCondition } from "../../../conditions/condition-engine.js";
 import { canDefenderRoll, markDefenderIneligibleForHidden, markDefenderNoDefense } from "./eligibility.js";
 import { getDefenseTalentOverrides, applyDefenderTalentTNMods, getEvadeOverrideContext } from "../../../traits/combat-talents.js";
@@ -67,6 +67,7 @@ function _applyDefenderLaneToFresh(freshData, data, defenderIndex) {
   if (Number.isFinite(di) && di >= 0 && Array.isArray(data.defenders) && Array.isArray(t.defenders) && t.defenders[di] && data.defenders[di]) {
     t.defenders[di] = foundry.utils.mergeObject(t.defenders[di], data.defenders[di], { overwrite: true, insertKeys: true });
   }
+  reconcileBankedAutoRollRequest(t);
   return t;
 }
 
@@ -185,17 +186,6 @@ export async function handleDefenderCommitNoDefense(ctx) {
     attackerUuid: data.attacker.actorUuid
   });
 
-  // Auto-request GM roll when ALL participants have committed (banking workflow)
-  const b = _getBankCommitState(data, data.defender);
-  if (b.bothCommitted && _allDefendersCommitted(data)) {
-    data.context = data.context ?? {};
-    if (!data.context.autoRollRequested) {
-      data.context.autoRollRequested = true;
-      data.context.autoRollRequestedAt = Date.now();
-      data.context.autoRollRequestedBy = game.user.id;
-    }
-  }
-
   // Fresh-state re-read: apply only defender lane + context onto live state to preserve
   // any attacker-side commit that arrived while this handler was running.
   await commitLaneToFreshCardState({
@@ -254,16 +244,6 @@ export async function handleDefenderCommit(ctx) {
       modifier: Number(choice.modifier ?? 0) || 0,
       holdActive: hasHoldNextDefend(defender),
     };
-
-    const b = _getBankCommitState(data, data.defender);
-    if (b.bothCommitted && _allDefendersCommitted(data)) {
-      data.context = data.context ?? {};
-      if (!data.context.autoRollRequested) {
-        data.context.autoRollRequested = true;
-        data.context.autoRollRequestedAt = Date.now();
-        data.context.autoRollRequestedBy = game.user.id;
-      }
-    }
 
     await commitLaneToFreshCardState({
       message,
@@ -361,17 +341,6 @@ export async function handleDefenderCommit(ctx) {
       markDefenderIneligibleForHidden(data.defender);
     } else {
       markDefenderNoDefense(data.defender, reason);
-    }
-
-    // Auto-request GM roll when ALL participants have committed (banking workflow)
-    const b = _getBankCommitState(data, data.defender);
-    if (b.bothCommitted && _allDefendersCommitted(data)) {
-      data.context = data.context ?? {};
-      if (!data.context.autoRollRequested) {
-        data.context.autoRollRequested = true;
-        data.context.autoRollRequestedAt = Date.now();
-        data.context.autoRollRequestedBy = game.user.id;
-      }
     }
 
     // Fresh-state re-read: apply only defender lane + context onto live state.
@@ -707,17 +676,6 @@ export async function handleDefenderCommit(ctx) {
   data.defender.banked.committedAt = Date.now();
   data.defender.banked.committedBy = game.user.id;
 
-  // Auto-request GM roll when ALL participants have committed (banking workflow)
-  const b = _getBankCommitState(data, data.defender);
-  if (b.bothCommitted && _allDefendersCommitted(data)) {
-    data.context = data.context ?? {};
-    if (!data.context.autoRollRequested) {
-      data.context.autoRollRequested = true;
-      data.context.autoRollRequestedAt = Date.now();
-      data.context.autoRollRequestedBy = game.user.id;
-    }
-  }
-
   // Fresh-state re-read: apply only defender lane + context onto live state to preserve
   // any attacker-side commit that arrived while the defense dialog was open.
   await commitLaneToFreshCardState({
@@ -862,36 +820,7 @@ export async function handleDefenderRollCommitted(ctx) {
     console.warn("UESRPG | combat talent DoS adjustment (defender) failed", err);
   }
 
-  const postSubRolls = _safeGetSetting("uesrpg-3ev4", "opposedPostSubRollMessages", true);
-  let rollMessage = null;
-  if (postSubRolls) {
-    rollMessage = await res.roll.toMessage({
-      speaker: ChatMessage.getSpeaker({ actor: defender, token: dToken?.document ?? null }),
-      flavor: `${data.defender.label} \u2014 Defender Roll`,
-      rollMode: getCoreRollMode(),
-      flags: _opposedFlags(message.id, "defender-roll", {
-        defenderIndex,
-        commit: {
-          defender: {
-            defenseType: data.defender.defenseType,
-            blockSource: data.defender.blockSource ?? null,
-            styleUuid: data.defender.styleUuid ?? null,
-            label: data.defender.label,
-            defenseLabel: data.defender.defenseLabel,
-            testLabel: data.defender.testLabel,
-            target: data.defender.target,
-            targetLabel: data.defender.targetLabel,
-            tn: data.defender.tn,
-            talentDoSChoice: res?.talentDoSChoice ?? null,
-            talentDoSChoiceSource: res?.talentDoSChoiceSource ?? null,
-            hyperAwarenessChoice: res?.hyperAwarenessChoice ?? null
-          }
-        }
-      })
-    });
-  } else {
-    _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
-  }
+  _emitSuppressedSubRollDice(res.roll, { rollMode: getCoreRollMode() });
 
   // NOTE: Mid-handler applyExternalRollMessage removed (race condition fix).
   // The handler writes data.defender.result directly below and calls _updateCard.
@@ -929,7 +858,6 @@ export async function handleDefenderRollCommitted(ctx) {
     }
   }
   data.defender.rolledAt = Date.now();
-  if (rollMessage?.id) data.defender.rollMessageId = rollMessage.id;
 
   if (batchedUpdate) return data;
   // Fresh-state re-read: apply defender result + context onto live state to preserve

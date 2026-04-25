@@ -14,6 +14,7 @@ import {
   applyLoadoutToActor
 } from "../../sheet-ui-state.js";
 import { setGroupCollapsedInDom } from "./collapsed-group-dom.js";
+import { getCachedSetting } from "../../../../core/config/settings-cache.js";
 import { promptDialog, confirmDialog } from "../../../../utils/dialog-v2-helper.js";
 
 /**
@@ -66,7 +67,7 @@ export function onItemSearch(sheet, event) {
 export async function onLoadoutSave(sheet, event) {
   event.preventDefault();
   if (!sheet.actor?.isOwner) return;
-  if (!game.settings.get("uesrpg-3ev4", "enableLoadouts")) return;
+  if (!getCachedSetting("enableLoadouts")) return;
 
   const equippedIds = sheet.actor.items
     .filter(i => typeof i?.system?.equipped === "boolean" && i.system.equipped)
@@ -95,7 +96,7 @@ export async function onLoadoutSave(sheet, event) {
 export async function onLoadoutApply(sheet, event) {
   event.preventDefault();
   if (!sheet.actor?.isOwner) return;
-  if (!game.settings.get("uesrpg-3ev4", "enableLoadouts")) return;
+  if (!getCachedSetting("enableLoadouts")) return;
 
   const select = sheet.element?.querySelector?.("#uesrpg-loadout-select");
   const loadoutId = select?.value;
@@ -116,7 +117,7 @@ export async function onLoadoutApply(sheet, event) {
 export async function onLoadoutDelete(sheet, event) {
   event.preventDefault();
   if (!sheet.actor?.isOwner) return;
-  if (!game.settings.get("uesrpg-3ev4", "enableLoadouts")) return;
+  if (!getCachedSetting("enableLoadouts")) return;
 
   const select = sheet.element?.querySelector?.("#uesrpg-loadout-select");
   const loadoutId = select?.value;

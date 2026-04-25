@@ -516,11 +516,12 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     // Armor Rating
     if ((ae.armorRating?.global?.total ?? 0) || (ae.armorRating?.location?.total ?? 0)) {
       const bits = [];
+      const laneLabel = String(ae.armorRating?.lane ?? "physical").toLowerCase() === "magic" ? "Magic AR" : "Physical AR";
       if (ae.armorRating?.global?.total) bits.push(`Global ${fmt(ae.armorRating.global.total)}`);
       if (ae.armorRating?.location?.total) bits.push(`${ae.armorRating.location.key} ${fmt(ae.armorRating.location.total)}`);
-      lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">AR AE: ${bits.join(" • ")}</span></div>`);
-      pushEntries("AR", ae.armorRating?.global?.entries);
-      pushEntries("AR", ae.armorRating?.location?.entries);
+      lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${laneLabel} AE: ${bits.join(" • ")}</span></div>`);
+      pushEntries(laneLabel, ae.armorRating?.global?.entries);
+      pushEntries(laneLabel, ae.armorRating?.location?.entries);
     }
 
     // Resistance

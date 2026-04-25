@@ -1,5 +1,5 @@
 import { channelSystemId } from "./shared.js";
-import { normalizeActiveEffectOrigin } from "../compat.js";
+import { normalizeActiveEffectOrigin, normalizeEffectChanges } from "../compat.js";
 
 function deepClonePlain(obj) {
   try {
@@ -11,6 +11,36 @@ function deepClonePlain(obj) {
       return obj;
     }
   }
+}
+
+function getNestedProperty(obj, path) {
+  if (!obj || typeof obj !== "object" || typeof path !== "string") return undefined;
+  return path.split(".").reduce((cur, part) => (cur && typeof cur === "object" ? cur[part] : undefined), obj);
+}
+
+function readActiveEffectChanges(data) {
+  const systemChanges = getNestedProperty(data, "system.changes");
+  if (Array.isArray(systemChanges)) return normalizeEffectChanges(systemChanges);
+  if (Array.isArray(data?.changes)) return normalizeEffectChanges(data.changes);
+  return null;
+}
+
+function assignActiveEffectChangesForCreate(out, dataOrChanges) {
+  const changes = Array.isArray(dataOrChanges) ? normalizeEffectChanges(dataOrChanges) : readActiveEffectChanges(dataOrChanges);
+  if (!changes) return;
+  out.changes = deepClonePlain(changes);
+  const existingSystem = out.system && typeof out.system === "object" ? out.system : {};
+  out.system = {
+    ...existingSystem,
+    changes: deepClonePlain(changes),
+  };
+}
+
+function assignActiveEffectChangesForUpdate(out, dataOrChanges) {
+  const changes = Array.isArray(dataOrChanges) ? normalizeEffectChanges(dataOrChanges) : readActiveEffectChanges(dataOrChanges);
+  if (!changes) return;
+  out.changes = deepClonePlain(changes);
+  out["system.changes"] = deepClonePlain(changes);
 }
 
 export function sanitizeChatMessageUpdatePayload(payload) {
@@ -174,6 +204,14 @@ export function sanitizeGenericUpdatePayload(doc, payload) {
   if (docName === "ActiveEffect") {
     const allowed = new Set(["changes", "duration", "disabled", "name", "img", "icon", "flags", "statuses", "tint", "origin", "transfer"]);
     for (const [k, v] of Object.entries(payload)) {
+      if (k === "changes" || k === "system.changes") {
+        assignActiveEffectChangesForUpdate(out, Array.isArray(v) ? v : []);
+        continue;
+      }
+      if (k === "system" && v && typeof v === "object") {
+        assignActiveEffectChangesForUpdate(out, { system: v });
+        continue;
+      }
       if (allowed.has(k)) {
         if (k === "icon" && payload.img === undefined) out.img = deepClonePlain(v);
         else if (k === "origin") out.origin = normalizeActiveEffectOrigin(v);
@@ -211,6 +249,14 @@ export function sanitizeEmbeddedDocData(embeddedName, data) {
     const allowed = new Set(["name", "img", "icon", "origin", "disabled", "duration", "changes", "flags", "statuses", "tint", "transfer"]);
     const out = {};
     for (const [k, v] of Object.entries(data)) {
+      if (k === "changes" || k === "system.changes") {
+        assignActiveEffectChangesForCreate(out, Array.isArray(v) ? v : []);
+        continue;
+      }
+      if (k === "system" && v && typeof v === "object") {
+        assignActiveEffectChangesForCreate(out, { system: v });
+        continue;
+      }
       if (!allowed.has(k) && !k.startsWith("flags.") && !k.startsWith("duration.")) continue;
       if (k === "icon") {
         if (out.img === undefined && data.img === undefined) out.img = deepClonePlain(v);
@@ -222,6 +268,7 @@ export function sanitizeEmbeddedDocData(embeddedName, data) {
       }
       out[k] = deepClonePlain(v);
     }
+    assignActiveEffectChangesForCreate(out, data);
     return out;
   }
 

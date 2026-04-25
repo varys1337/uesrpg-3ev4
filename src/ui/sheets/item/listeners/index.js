@@ -9,6 +9,7 @@ import { registerUsageListeners } from "./usage.js";
 import { registerEffectListeners } from "./effects.js";
 import { activateTalentFromItemSheet, activatePowerFromItemSheet, activateTraitFromItemSheet } from "../../shared-handlers.js";
 import { SPECIAL_ACTIONS } from "../../../../core/config/special-actions.js";
+import { getCachedSetting } from "../../../../core/config/settings-cache.js";
 import { isDebugEnabled } from "../../../../utils/debug.js";
 import { validateSpellConfig, formatSpellValidationMessage } from "../../../../core/magic/spell-config.js";
 
@@ -175,8 +176,10 @@ export function registerItemSheetListeners(sheet, html) {
       }
       
       const newLevel = {
+        known: true,
         level: nextLevel,
         cost: 0,
+        spellStrengthFormula: "",
         damageFormula: "",
         duration: { value: 0, unit: fallbackDurationUnit },
         description: ""
@@ -344,7 +347,7 @@ export function registerItemSheetListeners(sheet, html) {
     });
 
     // ── Effect Recipe CRUD (guarded by enableSpellRecipes setting) ──
-    const _recipesEnabled = (() => { try { return game.settings.get("uesrpg-3ev4", "enableSpellRecipes") === true; } catch (_e) { return false; } })();
+    const _recipesEnabled = getCachedSetting("enableSpellRecipes") === true;
 
     if (_recipesEnabled) {
     html.off("click.uesrpg", "[data-action='add-effect-recipe']").on("click.uesrpg", "[data-action='add-effect-recipe']", async (ev) => {
@@ -410,7 +413,8 @@ export function registerItemSheetListeners(sheet, html) {
 
       const RECIPE_PRESETS = {
         fortifyAttr: { key: "system.modifiers.characteristics.str", mode: "add", value: "10", target: "target", label: "Fortify Strength" },
-        arBuff: { key: "system.modifiers.combat.armorRating", mode: "add", value: "5", target: "target", label: "AR Buff" },
+        arBuff: { key: "system.modifiers.combat.armorRating", mode: "add", value: "5", target: "target", label: "Physical AR Buff" },
+        magicArBuff: { key: "system.modifiers.combat.magicArmorRating", mode: "add", value: "5", target: "target", label: "Magic AR Buff" },
         ward: { key: "system.modifiers.combat.mitigation.flat", mode: "add", value: "10", target: "self", label: "Flat Mitigation" }
       };
 

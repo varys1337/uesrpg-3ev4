@@ -53,9 +53,14 @@ import { getEffectChanges, normalizeActiveEffectOrigin } from "../../../../utils
 import {
   applyPostDamageUpdate,
   dispatchDamageAppliedHook,
+  dispatchDamageLifecycleHook,
   finalizeDamageTargetState,
   resolveDamageUpdateTarget
 } from "../post-application.js";
+import {
+  createDamageAftermathBundle,
+  isDamageAftermathBundlingEnabled
+} from "../aftermath-bundle.js";
 
 const PENDING_SNEAK_TTL_MS = 30000;
 const _isNpcActor = (actor) => String(actor?.type ?? "").trim().toLowerCase() === "npc";
@@ -202,6 +207,30 @@ function _isSunlightSource(item) {
   return itemHasToken(item, "sunlight");
 }
 
+async function _stageOrRunAftermath(bundle, operation) {
+  if (bundle) {
+    bundle.stage(operation);
+    return null;
+  }
+  return operation.run();
+}
+
+function _freezeObservationPayload(payload) {
+  try {
+    return Object.freeze(payload);
+  } catch (_e) {
+    return payload;
+  }
+}
+
+function _clonePlain(value, fallback) {
+  try {
+    return foundry.utils.deepClone(value);
+  } catch (_e) {
+    return fallback;
+  }
+}
+
 function _buildGmDamageReportPayload({
   targetActor,
   source,
@@ -249,9 +278,10 @@ function _buildGmDamageReportPayload({
     }
     if (ae?.armorRating && ((ae.armorRating.global?.total ?? 0) || (ae.armorRating.location?.total ?? 0))) {
       const bits = [];
+      const laneLabel = String(ae.armorRating?.lane ?? "physical").toLowerCase() === "magic" ? "Magic AR" : "Physical AR";
       if (ae.armorRating.global?.total) bits.push(`Global ${fmt(ae.armorRating.global.total)}`);
       if (ae.armorRating.location?.total) bits.push(`${ae.armorRating.location.key} ${fmt(ae.armorRating.location.total)}`);
-      reductionNotes.push(`AR AE: ${bits.join(" | ")}`);
+      reductionNotes.push(`${laneLabel} AE: ${bits.join(" | ")}`);
     }
     const resistanceBase = Number(red?.resistance ?? 0) || 0;
     if (r?.damageType && String(r.damageType) !== "physical" && resistanceBase) {
@@ -899,7 +929,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     remainingDamage -= tempHPAbsorbed;
   }
 
-  const newHP = Math.max(0, Number(currentHP) - remainingDamage);
+  let newHP = Math.max(0, Number(currentHP) - remainingDamage);
 
   const extraUpdates = {};
   if (bufferAbsorbed > 0) {
@@ -917,6 +947,48 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     const nextMP = Math.min(maxMP, currentMP + spellAbsorptionRestored);
     extraUpdates["system.magicka.value"] = nextMP;
   }
+  const damageOrigin = normalizeActiveEffectOrigin(ctx.options?.origin)
+    ?? normalizeActiveEffectOrigin(ctx.options?.weapon?.uuid)
+    ?? null;
+
+  /*
+   * Extension seam: uesrpg.damage.beforeCommit
+   * Timing: final damage, buffer, temp HP, and HP values have been computed;
+   * no actor HP/temp/buffer write has occurred yet.
+   * Mutation contract: listeners may synchronously adjust only `newHP`,
+   * `newTempHP`, `extraUpdates`, `woundThreshold`, and `traitNotes`.
+   * All document references, context, results, and damage composition fields
+   * are provided as context and must be treated as read-only.
+   */
+  const beforeCommitPayload = {
+    targetActor,
+    updateTarget,
+    applicationId,
+    ctx,
+    results,
+    damageAppliedByType,
+    source: ctx.options?.source ?? "Attack",
+    weapon: ctx.options?.weapon ?? null,
+    ammo: ctx.options?.ammo ?? null,
+    origin: damageOrigin,
+    extraUpdates,
+    newHP,
+    newTempHP,
+    woundThreshold,
+    traitNotes,
+  };
+  dispatchDamageLifecycleHook("beforeCommit", beforeCommitPayload);
+  newHP = Math.max(0, Number(beforeCommitPayload.newHP ?? newHP) || 0);
+  newTempHP = Math.max(0, Number(beforeCommitPayload.newTempHP ?? newTempHP) || 0);
+  woundThreshold = Math.max(0, Number(beforeCommitPayload.woundThreshold ?? woundThreshold) || 0);
+  if (beforeCommitPayload.extraUpdates && beforeCommitPayload.extraUpdates !== extraUpdates && typeof beforeCommitPayload.extraUpdates === "object") {
+    for (const key of Object.keys(extraUpdates)) delete extraUpdates[key];
+    Object.assign(extraUpdates, beforeCommitPayload.extraUpdates);
+  }
+  if (Array.isArray(beforeCommitPayload.traitNotes) && beforeCommitPayload.traitNotes !== traitNotes) {
+    traitNotes.splice(0, traitNotes.length, ...beforeCommitPayload.traitNotes.map((note) => String(note ?? "")));
+  }
+
   await applyPostDamageUpdate(targetActor, { newHP, newTempHP, extraUpdates });
 
   const woundEval = shouldTriggerWound({
@@ -928,9 +1000,39 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   woundTriggered = woundEval.triggered === true;
 
   // Emit canonical damage-applied hook for downstream automation (e.g. Chapter 5 wounds/shock).
-  const damageOrigin = normalizeActiveEffectOrigin(ctx.options?.origin)
-    ?? normalizeActiveEffectOrigin(ctx.options?.weapon?.uuid)
-    ?? null;
+  /*
+   * Extension seam: uesrpg.damage.resolved
+   * Timing: HP/temp/buffer writes and wound evaluation have completed, but the
+   * legacy uesrpgDamageApplied hook and aftermath operations have not run.
+   * Observation-only: listeners must not mutate this payload or referenced
+   * documents. Use uesrpg.damage.beforeCommit for supported commit changes.
+   */
+  dispatchDamageLifecycleHook("resolved", _freezeObservationPayload({
+    targetActor,
+    updateTarget,
+    applicationId,
+    oldHP: Number(currentHP || 0),
+    newHP,
+    oldTempHP: currentTempHP,
+    newTempHP,
+    tempHPAbsorbed,
+    bufferAbsorbed,
+    bufferAbsorbedDetail: _clonePlain(bufferAbsorbedDetail, []),
+    oldBuffers: _clonePlain(buffers, {}),
+    newBuffers: _clonePlain(newBuffers, {}),
+    woundTriggered,
+    woundMode: woundEval.mode,
+    woundTriggerReason: woundEval.reason,
+    woundThreshold,
+    amountApplied: Math.max(0, totalApplied),
+    damageAppliedByType: _clonePlain(damageAppliedByType, {}),
+    hitLocation,
+    source: ctx.options?.source ?? "Attack",
+    weapon: ctx.options?.weapon ?? null,
+    ammo: ctx.options?.ammo ?? null,
+    origin: damageOrigin,
+  }));
+
   dispatchDamageAppliedHook(updateTarget, {
     applicationId,
     woundTriggered,
@@ -952,73 +1054,124 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     logLevel: "warn"
   });
 
+  const aftermathBundle = isDamageAftermathBundlingEnabled()
+    ? createDamageAftermathBundle({
+        applicationId,
+        targetActor: updateTarget,
+        source: ctx.options?.source ?? "Attack",
+      })
+    : null;
+
   // Consume strike enchantment charge AFTER damage is applied and hooks have fired.
-  if (strikeEnchantComponents.chargeConsumptionNeeded && weaponCtx) {
-    try {
-      await consumeStrikeCharge(weaponCtx);
-    } catch (err) {
-      console.warn("UESRPG | Strike enchantment charge consume failed", err);
+  await _stageOrRunAftermath(aftermathBundle, {
+    key: "strikeChargeConsumption",
+    label: "Strike enchantment charge consumption",
+    run: async () => {
+      if (!strikeEnchantComponents.chargeConsumptionNeeded || !weaponCtx) return { skipped: true };
+      try {
+        await consumeStrikeCharge(weaponCtx);
+        return { consumed: true };
+      } catch (err) {
+        console.warn("UESRPG | Strike enchantment charge consume failed", err);
+        return { failed: true };
+      }
     }
-  }
+  });
 
   // Diseased (X): natural weapon damage > 0 triggers Endurance test.
-  try {
-    const diseasedValue = getActorTraitValue(attackerActor, "diseased", { mode: "sum" });
-    const hasDiseased = Number(diseasedValue || 0) !== 0;
-    if (hasDiseased && totalApplied > 0 && _isNaturalWeaponSource(sourceItem) && !hasActorTrait(updateTarget, "diseased") && !isActorUndead(updateTarget)) {
-      await postDiseasedCheckCard({
-        attacker: attackerActor,
-        defender: updateTarget,
-        traitValue: Number(diseasedValue || 0),
-        sourceItem
-      });
+  await _stageOrRunAftermath(aftermathBundle, {
+    key: "diseasedCheckCard",
+    label: "Diseased check card",
+    run: async () => {
+      try {
+        const diseasedValue = getActorTraitValue(attackerActor, "diseased", { mode: "sum" });
+        const hasDiseased = Number(diseasedValue || 0) !== 0;
+        if (hasDiseased && totalApplied > 0 && _isNaturalWeaponSource(sourceItem) && !hasActorTrait(updateTarget, "diseased") && !isActorUndead(updateTarget)) {
+          await postDiseasedCheckCard({
+            attacker: attackerActor,
+            defender: updateTarget,
+            traitValue: Number(diseasedValue || 0),
+            sourceItem
+          });
+          return { posted: true };
+        }
+        return { skipped: true };
+      } catch (err) {
+        console.warn("UESRPG | Diseased trait automation failed", err);
+        return { failed: true };
+      }
     }
-  } catch (err) {
-    console.warn("UESRPG | Diseased trait automation failed", err);
-  }
+  });
 
-  if (ctx.options?.forcefulImpact && String(ctx.damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL) {
-    const primaryApplied = results.find(r => r.kind === "primary")?.finalApplied ?? 0;
-    if (primaryApplied > 0) {
+  await _stageOrRunAftermath(aftermathBundle, {
+    key: "forcefulImpact",
+    label: "Forceful Impact armor damage",
+    run: async () => {
+      if (!(ctx.options?.forcefulImpact && String(ctx.damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL)) {
+        return { skipped: true };
+      }
+      const primaryApplied = results.find(r => r.kind === "primary")?.finalApplied ?? 0;
+      if (primaryApplied <= 0) return { skipped: true };
       try {
         await applyForcefulImpact(updateTarget, hitLocation);
+        return { applied: true };
       } catch (err) {
         console.warn("UESRPG | Forceful Impact armor update failed", err);
+        return { failed: true };
       }
     }
-  }
+  });
 
   // Weapon Expertise post-damage effects (Bleeding, SP loss notes, move options).
-  if (weaponCtx && attackerActor && updateTarget) {
-    try {
-      const wePostResult = await applyWeaponExpertisePostDamageEffects({
-        attacker: attackerActor,
-        target: updateTarget,
-        weapon: weaponCtx,
-        damageContext: talentContext,
-        damageApplied: Math.max(0, totalApplied),
-        woundTriggered
-      });
-      if (wePostResult?.notes?.length) {
-        for (const note of wePostResult.notes) {
-          traitNotes.push(note);
+  await _stageOrRunAftermath(aftermathBundle, {
+    key: "weaponExpertisePostDamage",
+    label: "Weapon Expertise post-damage effects",
+    run: async () => {
+      if (!(weaponCtx && attackerActor && updateTarget)) return { skipped: true };
+      try {
+        const wePostResult = await applyWeaponExpertisePostDamageEffects({
+          attacker: attackerActor,
+          target: updateTarget,
+          weapon: weaponCtx,
+          damageContext: talentContext,
+          damageApplied: Math.max(0, totalApplied),
+          woundTriggered
+        });
+        if (wePostResult?.notes?.length) {
+          for (const note of wePostResult.notes) {
+            traitNotes.push(note);
+          }
         }
+        return {
+          notes: Array.isArray(wePostResult?.notes) ? wePostResult.notes.length : 0,
+          bleedingApplied: wePostResult?.bleedingApplied === true
+        };
+      } catch (err) {
+        console.warn("UESRPG | Weapon Expertise post-damage effects failed", err);
+        return { failed: true };
       }
-    } catch (err) {
-      console.warn("UESRPG | Weapon Expertise post-damage effects failed", err);
     }
-  }
+  });
 
   await finalizeDamageTargetState(updateTarget, { newHP });
 
   // Entangling (Chapter 7): on hit, target makes STR or AGI test; failure applies Entangled.
-  try {
-    if (weaponCtx && itemHasToken(weaponCtx, "entangling")) {
-      await _runEntanglingEscapeCheck({ attacker: attackerActor, defender: updateTarget });
+  await _stageOrRunAftermath(aftermathBundle, {
+    key: "entanglingEscapeCheck",
+    label: "Entangling escape check",
+    run: async () => {
+      try {
+        if (weaponCtx && itemHasToken(weaponCtx, "entangling")) {
+          await _runEntanglingEscapeCheck({ attacker: attackerActor, defender: updateTarget });
+          return { prompted: true };
+        }
+        return { skipped: true };
+      } catch (err) {
+        console.warn("UESRPG | Entangling automation failed", err);
+        return { failed: true };
+      }
     }
-  } catch (err) {
-    console.warn("UESRPG | Entangling automation failed", err);
-  }
+  });
 
   // Consolidated GM-only damage report
   const gmIds = game.users?.filter(u => u.isGM).map(u => u.id) ?? [];
@@ -1072,11 +1225,12 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
     if (ae?.armorRating && ((ae.armorRating.global?.total ?? 0) || (ae.armorRating.location?.total ?? 0))) {
       const bits = [];
+      const laneLabel = String(ae.armorRating?.lane ?? "physical").toLowerCase() === "magic" ? "Magic AR" : "Physical AR";
       if (ae.armorRating.global?.total) bits.push(`Global ${fmt(ae.armorRating.global.total)}`);
       if (ae.armorRating.location?.total) bits.push(`${ae.armorRating.location.key} ${fmt(ae.armorRating.location.total)}`);
-      lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">AR AE: ${bits.join(" | ")}</span></div>`);
-      lines.push(renderEntryLines("AR", ae.armorRating.global?.entries));
-      lines.push(renderEntryLines("AR", ae.armorRating.location?.entries));
+      lines.push(`<div class="uesrpg-da-row"><span class="k"></span><span class="v muted">${laneLabel} AE: ${bits.join(" | ")}</span></div>`);
+      lines.push(renderEntryLines(laneLabel, ae.armorRating.global?.entries));
+      lines.push(renderEntryLines(laneLabel, ae.armorRating.location?.entries));
     }
 
     // --- Resistance ---
@@ -1193,71 +1347,80 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     return segs.join("\n");
   };
 
-  const traitNotesHtml = traitNotes.length
-    ? `<div class="uesrpg-da-row"><span class="k">Traits</span><span class="v">${traitNotes.join(" | ")}</span></div>`
-    : "";
+  let gmDamageReport = null;
+  await _stageOrRunAftermath(aftermathBundle, {
+    key: "gmDamageReportChat",
+    label: "GM damage report chat",
+    run: async () => {
+      const traitNotesHtml = traitNotes.length
+        ? `<div class="uesrpg-da-row"><span class="k">Traits</span><span class="v">${traitNotes.join(" | ")}</span></div>`
+        : "";
 
-  const _actorThumb = updateTarget.img ?? "icons/svg/mystery-man.svg";
-  const messageContent = `
-    <div class="uesrpg-damage-applied-card">
-      <div class="hdr">
-        <img class="actor-thumb" src="${_actorThumb}" alt="">
-        <div class="hdr-text">
-          <div class="title">${updateTarget.name}</div>
-          <div class="sub">${ctx.options.source ?? "Attack"}${hitLocation ? ` \u00B7 ${hitLocation}` : ""}</div>
+      const _actorThumb = updateTarget.img ?? "icons/svg/mystery-man.svg";
+      const messageContent = `
+        <div class="uesrpg-damage-applied-card">
+          <div class="hdr">
+            <img class="actor-thumb" src="${_actorThumb}" alt="">
+            <div class="hdr-text">
+              <div class="title">${updateTarget.name}</div>
+              <div class="sub">${ctx.options.source ?? "Attack"}${hitLocation ? ` \u00B7 ${hitLocation}` : ""}</div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="uesrpg-da-row"><span class="k">Total Damage</span><span class="v final">${Math.max(0, Number(totalApplied || 0))}</span></div>
+            <div class="uesrpg-da-row"><span class="k">HP</span><span class="v">${newHP} / ${maxHP}${hpDelta ? ` <span class="muted">(\u2212${hpDelta})</span>` : ""}</span></div>
+            ${tempHPAbsorbed > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed} absorbed)</span>` : ""}</span></div>` : (currentTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}</span></div>` : "")}
+            ${bufferAbsorbedDetail.map(b => `<div class="uesrpg-da-row"><span class="k">${b.pool.charAt(0).toUpperCase() + b.pool.slice(1)} Buffer</span><span class="v">${b.remaining} <span class="muted">(\u2212${b.absorbed} absorbed)</span></span></div>`).join("")}
+            ${traitNotesHtml}
+            ${woundTriggered ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}
+            ${newHP === 0 ? `<div class="status unconscious">\u{1F480} ${_isNpcActor(updateTarget) ? "DEAD" : "UNCONSCIOUS"}</div>` : ""}
+            <details>
+              <summary>Damage Breakdown</summary>
+              <div style="font-size:12px; opacity:0.95;">${renderDamageSegments()}</div>
+            </details>
+          </div>
         </div>
-      </div>
-      <div class="body">
-        <div class="uesrpg-da-row"><span class="k">Total Damage</span><span class="v final">${Math.max(0, Number(totalApplied || 0))}</span></div>
-        <div class="uesrpg-da-row"><span class="k">HP</span><span class="v">${newHP} / ${maxHP}${hpDelta ? ` <span class="muted">(\u2212${hpDelta})</span>` : ""}</span></div>
-        ${tempHPAbsorbed > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed} absorbed)</span>` : ""}</span></div>` : (currentTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}</span></div>` : "")}
-        ${bufferAbsorbedDetail.map(b => `<div class="uesrpg-da-row"><span class="k">${b.pool.charAt(0).toUpperCase() + b.pool.slice(1)} Buffer</span><span class="v">${b.remaining} <span class="muted">(\u2212${b.absorbed} absorbed)</span></span></div>`).join("")}
-        ${traitNotesHtml}
-        ${woundTriggered ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}
-        ${newHP === 0 ? `<div class="status unconscious">\u{1F480} ${_isNpcActor(updateTarget) ? "DEAD" : "UNCONSCIOUS"}</div>` : ""}
-        <details>
-          <summary>Damage Breakdown</summary>
-          <div style="font-size:12px; opacity:0.95;">${renderDamageSegments()}</div>
-        </details>
-      </div>
-    </div>
-  `;
-  const gmDamageReport = _buildGmDamageReportPayload({
-    targetActor: updateTarget,
-    source: ctx.options.source ?? "Attack",
-    hitLocation,
-    totalApplied,
-    newHP,
-    maxHP,
-    currentHP,
-    currentTempHP,
-    newTempHP,
-    tempHPAbsorbed,
-    bufferAbsorbedDetail,
-    traitNotes,
-    woundTriggered,
-    woundThreshold,
-    results,
-    attackerDealtEntries,
-    attackerPenEntries,
-    defenderTakenEntries,
-    defenderMitEntries
+      `;
+      gmDamageReport = _buildGmDamageReportPayload({
+        targetActor: updateTarget,
+        source: ctx.options.source ?? "Attack",
+        hitLocation,
+        totalApplied,
+        newHP,
+        maxHP,
+        currentHP,
+        currentTempHP,
+        newTempHP,
+        tempHPAbsorbed,
+        bufferAbsorbedDetail,
+        traitNotes,
+        woundTriggered,
+        woundThreshold,
+        results,
+        attackerDealtEntries,
+        attackerPenEntries,
+        defenderTakenEntries,
+        defenderMitEntries
+      });
+
+      const suppressStandaloneSummary = ctx.options?.chatContext?.suppressStandaloneSummary === true;
+      if (!suppressStandaloneSummary) {
+        await ChatMessage.create({
+          user: game.user.id,
+          speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
+          content: messageContent,
+          style: CONST.CHAT_MESSAGE_STYLES.OTHER,
+          whisper: gmIds,
+          blind: true,
+        });
+      }
+      return { posted: !suppressStandaloneSummary, suppressed: suppressStandaloneSummary };
+    }
   });
 
-  const suppressStandaloneSummary = ctx.options?.chatContext?.suppressStandaloneSummary === true;
-  if (!suppressStandaloneSummary) {
-    await ChatMessage.create({
-      user: game.user.id,
-      speaker: ChatMessage.getSpeaker({ actor: updateTarget }),
-      content: messageContent,
-      style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-      whisper: gmIds,
-      blind: true,
-    });
-  }
+  const aftermathSummary = aftermathBundle ? await aftermathBundle.commit() : null;
 
-  // Preserve expected return shape for callers.
-  return {
+  const result = {
     actor: updateTarget,
     damage: Math.max(0, Number(totalApplied || 0)),
     components: results,
@@ -1273,4 +1436,31 @@ export async function applyDamageResolved(targetActor, payload = {}) {
     woundStatus: (newHP === 0) ? (_isNpcActor(updateTarget) ? "dead" : "unconscious") : (woundTriggered ? "wounded" : "uninjured"),
     gmDamageReport,
   };
+  const resultObservation = {
+    ...result,
+    components: _clonePlain(results, []),
+    bufferAbsorbedDetail: _clonePlain(bufferAbsorbedDetail, []),
+    oldBuffers: _clonePlain(buffers, {}),
+    newBuffers: _clonePlain(newBuffers, {}),
+  };
+
+  /*
+   * Extension seam: uesrpg.damage.afterCommit
+   * Timing: legacy uesrpgDamageApplied, unconscious/death finalization, and
+   * immediate or bundled aftermath operations have completed.
+   * Observation-only: payload is a final summary for diagnostics and future
+   * read-only integrations. It must not be used to mutate committed state.
+   */
+  dispatchDamageLifecycleHook("afterCommit", _freezeObservationPayload({
+    targetActor,
+    updateTarget,
+    applicationId,
+    result: resultObservation,
+    gmDamageReport: _clonePlain(gmDamageReport, gmDamageReport),
+    woundStatus: result.woundStatus,
+    aftermathSummary: _clonePlain(aftermathSummary, aftermathSummary),
+  }));
+
+  // Preserve expected return shape for callers.
+  return result;
 }

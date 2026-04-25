@@ -28,8 +28,10 @@
  */
 import { ActionEconomy } from "../../core/combat/action-economy.js";
 import { isShieldItem } from "../../core/items/shield-utils.js";
+import { getWeaponCombatCapabilities } from "../../core/combat/combat-utils.js";
 import { t } from "../../utils/i18n.js";
 import { getTokensByActorId } from "../../utils/canvas/token-query.js";
+import { resolveCombatantForActor } from "../../utils/document-resolution.js";
 export function buildCombatQuickContext(actorData) {
   const combatStyleName = (actorData?.combatStyle?.[0]?.name) ?? null;
 
@@ -37,9 +39,8 @@ export function buildCombatQuickContext(actorData) {
     ? actorData.weapon.equipped
     : [];
 
-  const mode = (w) => String(w?.system?.attackMode ?? "").toLowerCase();
-  const meleeWeapon = equippedWeapons.find(w => mode(w) !== "ranged") ?? null;
-  const rangedWeapon = equippedWeapons.find(w => mode(w) === "ranged") ?? null;
+  const meleeWeapon = equippedWeapons.find(w => getWeaponCombatCapabilities(w).meleeCapable) ?? null;
+  const rangedWeapon = equippedWeapons.find(w => getWeaponCombatCapabilities(w).rangedCapable) ?? null;
 
   const equippedAmmoDocs = Array.isArray(actorData?.ammunition?.equipped)
     ? actorData.ammunition.equipped
@@ -98,22 +99,39 @@ export function buildCombatQuickContext(actorData) {
  * @returns {Token|null}
  */
 export function resolveTokenForActor(actor) {
+  return resolveTokenForCombatActor(actor);
+}
+
+export function resolveTokenForCombatActor(actor, { sheetToken = null, requireUnambiguous = false } = {}) {
   if (!actor || !canvas?.tokens) return null;
+
+  const directSheetToken = sheetToken?.object ?? sheetToken ?? null;
+  if (directSheetToken?.actor) return directSheetToken;
 
   const controlled = Array.isArray(canvas.tokens.controlled) ? canvas.tokens.controlled : [];
   const controlledMatch = controlled.find(t => t?.actor?.id === actor.id) ?? null;
   if (controlledMatch) return controlledMatch;
 
+  const combatant = resolveCombatantForActor(game?.combat ?? null, actor, {
+    tokenUuid: actor?.token?.document?.uuid ?? actor?.token?.uuid ?? null,
+    combatId: game?.combat?.id ?? null
+  });
+  const combatantToken = combatant?.token?.object ?? combatant?.token ?? null;
+  if (combatantToken?.actor) return combatantToken;
+
   try {
     const tokens = getTokensByActorId(actor.id);
-    const owned = tokens.find(t => t.isOwner) ?? null;
-    return owned;
+    const owned = tokens.filter(t => t.isOwner);
+    if (owned.length === 1) return owned[0] ?? null;
+    if (requireUnambiguous) return null;
+    return owned.find((t) => t?.actor?.token?.document?.uuid === t?.document?.uuid) ?? null;
   } catch (err) {
     // Fallback to direct iteration if token query fails
     console.debug("UESRPG | Token query failed, falling back to direct iteration", err);
     const placeables = Array.isArray(canvas.tokens.placeables) ? canvas.tokens.placeables : [];
-    const owned = placeables.find(t => t?.actor?.id === actor.id && t.isOwner) ?? null;
-    return owned;
+    const owned = placeables.filter(t => t?.actor?.id === actor.id && t.isOwner);
+    if (owned.length === 1) return owned[0] ?? null;
+    return null;
   }
 }
 

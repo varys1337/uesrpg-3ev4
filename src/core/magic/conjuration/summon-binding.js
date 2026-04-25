@@ -25,7 +25,8 @@ import { requestCreateEmbeddedDocuments } from "../../../utils/authority-proxy.j
 import { createDebugLogger } from "../_primitives.js";
 import { applyMindlockEffects } from "../mindlock.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
-import { buildEffectChange, buildEffectChangesData } from "../../../utils/compat.js";
+import { buildEffectChange } from "../../../utils/compat.js";
+import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -53,7 +54,15 @@ async function _applyRestrainedPenalty(tokenDoc, originAE, spell) {
   const creatureActor = tokenDoc.actor;
   if (!creatureActor) return null;
 
-  const effectData = {
+  const effectGroup = `spell.restrained.${spell.id || spell.uuid}`;
+  const effectData = buildGenericAEData({
+    source: "spell",
+    stack: {
+      policy: "replace",
+      group: effectGroup,
+      max: null,
+      strengthKey: null,
+    },
     name: `Restrained (${spell.name})`,
     img: "icons/magic/control/debuff-chains-ropes-red.webp",
     origin: spell.uuid,
@@ -66,20 +75,18 @@ async function _applyRestrainedPenalty(tokenDoc, originAE, spell) {
         spellUuid: spell.uuid,
         spellName: spell.name,
         owner: "system",
-        effectGroup: `spell.restrained.${spell.id || spell.uuid}`,
-        stackRule: "override",
         source: "spell-restrained"
       }
     },
-    ...buildEffectChangesData([
+    changes: [
       buildEffectChange({
         key: "system.modifiers.action_points.max",
         type: "add",
         value: "-1",
         priority: 20
       })
-    ])
-  };
+    ]
+  });
 
   try {
     const results = await requestCreateEmbeddedDocuments(creatureActor, "ActiveEffect", [effectData]);
