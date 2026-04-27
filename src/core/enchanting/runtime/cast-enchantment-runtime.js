@@ -231,7 +231,8 @@ export async function castFromEnchantedItem({
   const activeToken = _resolveActiveToken(actor, token);
   const spellOptions = {
     ...(options?.spellOptions && typeof options.spellOptions === "object" ? options.spellOptions : {}),
-    enchantmentCast: true
+    enchantmentCast: true,
+    ignoreTraining: true
   };
   const pool = _getPoolSnapshot(ownedItem, spellcastingCfg);
   const castSource = _buildCastSource({
@@ -251,6 +252,7 @@ export async function castFromEnchantedItem({
       spellUuid,
       spellOptions,
       castActionType,
+      ignoreTraining: true,
       aoe: options?.aoe ? foundry.utils.deepClone(options.aoe) : undefined,
       castSource,
       itemCastContext
@@ -263,6 +265,7 @@ export async function castFromEnchantedItem({
     spellUuid,
     spellOptions,
     castActionType,
+    ignoreTraining: true,
     castSource,
     itemCastContext
   });
