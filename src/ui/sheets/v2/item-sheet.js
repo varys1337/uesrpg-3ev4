@@ -23,7 +23,7 @@ import { activateTalentFromItemSheet, activatePowerFromItemSheet, activateTraitF
 import { getScalingLevelsArray, normalizeScalingEntry, logSpellDebug } from "../item/spell-scaling-helpers.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { activateProseMirrorEditors } from "../shared/editor-activation.js";
-import { DEFAULTS } from "../../../core/migrations/item-defaults.generated.js";
+import { ITEM_TYPE_MODEL_SEEDS } from "../../../core/data-models/defaults.generated.js";
 import { bindDelegated } from "./_delegated-bindings.js";
 import { readDropData, resolveDroppedItem } from "../../../utils/drop-data.js";
 import { onCastEnchantmentAction } from "../shared/listeners/enchanting-cast.js";
@@ -219,7 +219,7 @@ function _sanitizeNumericBySchema(node, schema, rootSystem, path = []) {
 
 function _buildSanitizedRenderSystem(itemType, systemData) {
   const cloned = _cloneForRender(systemData ?? {});
-  const schema = DEFAULTS?.itemSystem?.[itemType] ?? null;
+  const schema = ITEM_TYPE_MODEL_SEEDS?.[itemType] ?? null;
   if (!schema) return cloned;
   _sanitizeNumericBySchema(cloned, schema, cloned);
   return cloned;

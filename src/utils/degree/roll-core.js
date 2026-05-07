@@ -1,5 +1,13 @@
 import { SYSTEM_ROLL_FORMULA } from "../../core/constants.js";
 import { isNPC, resolveCriticalFlags } from "../../core/rules/npc-rules.js";
+import { getNpcThreatDegreeModifier } from "../../core/rules/npc-threat-templates.js";
+
+function applyThreatDegreeModifier(actor, isSuccess, degree, meta) {
+  if (!isSuccess) return degree;
+  const threatTemplateDegreeMod = getNpcThreatDegreeModifier(actor);
+  if (threatTemplateDegreeMod !== 0 && meta) meta.threatTemplateDegreeMod = threatTemplateDegreeMod;
+  return Math.max(1, degree + threatTemplateDegreeMod);
+}
 
 /**
  * Core DoS/DoF helper logic with minimal dependencies.
@@ -31,6 +39,13 @@ export async function doTestRoll(actor, { rollFormula = SYSTEM_ROLL_FORMULA, tar
     degree = 1 + Math.floor(diff / 10);
   }
 
+  const meta = {
+    actorId: actor?.id,
+    actorName: actor?.name,
+    actorIsNPC
+  };
+  degree = applyThreatDegreeModifier(actor, isSuccess, degree, meta);
+
   return {
     roll,
     rollTotal: total,
@@ -40,11 +55,7 @@ export async function doTestRoll(actor, { rollFormula = SYSTEM_ROLL_FORMULA, tar
     isCriticalFailure,
     degree,
     textual: isSuccess ? `${degree} DoS` : `${degree} DoF`,
-    meta: {
-      actorId: actor?.id,
-      actorName: actor?.name,
-      actorIsNPC
-    }
+    meta
   };
 }
 
@@ -75,6 +86,13 @@ export function computeResultFromRollTotal(actor, { rollTotal = 0, target = 0, a
     degree = 1 + Math.floor(diff / 10);
   }
 
+  const meta = {
+    actorId: actor?.id,
+    actorName: actor?.name,
+    actorIsNPC
+  };
+  degree = applyThreatDegreeModifier(actor, isSuccess, degree, meta);
+
   return {
     roll: null,
     rollTotal: total,
@@ -84,11 +102,7 @@ export function computeResultFromRollTotal(actor, { rollTotal = 0, target = 0, a
     isCriticalFailure,
     degree,
     textual: isSuccess ? `${degree} DoS` : `${degree} DoF`,
-    meta: {
-      actorId: actor?.id,
-      actorName: actor?.name,
-      actorIsNPC
-    }
+    meta
   };
 }
 

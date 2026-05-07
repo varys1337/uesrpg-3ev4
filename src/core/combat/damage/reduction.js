@@ -5,12 +5,13 @@
  * Handles armor, resistance, and toughness reduction based on damage type and hit location.
  */
 
-import { evaluateAEModifierKeys, evaluateAEModifierKeysDetailed } from "../../active-effects/modifier-evaluator.js";
+import { evaluateAEModifierKeysDetailed } from "../../active-effects/modifier-evaluator.js";
 import { collectItemTokens } from "./tokens.js";
 import { DAMAGE_TYPES } from "./types.js";
 import { getWallOfSteelArmorItemBonus } from "../../traits/resilience-talents.js";
 import { isShieldItem } from "../../items/shield-utils.js";
 import { getArmorCoverageState, getResolvedArmorValues, isArmorCoveringLocation } from "../armor-state.js";
+import { getActorCreatureTypeKeys, getCreatureTypeLabel } from "../../rules/creature-types.js";
 
 /**
  * Best-effort condition check without importing the condition engine.
@@ -44,6 +45,25 @@ function actorHasConditionKey(actor, key) {
   }
 
   return false;
+}
+
+function packResistanceEntries(detailsByKey, resistanceKeys) {
+  const entries = [];
+  for (const key of resistanceKeys) {
+    const detail = detailsByKey?.[key];
+    const contributions = detail?.contributions;
+    if (!Array.isArray(contributions) || !contributions.length) continue;
+    const conditionalMatch = String(key).match(/\.([a-z0-9-]+)$/);
+    const isConditional = /^system\.(?:modifiers\.)?resistance\.[a-zA-Z0-9]+\.[a-z0-9-]+$/.test(String(key));
+    const suffix = isConditional ? ` (vs ${getCreatureTypeLabel(conditionalMatch?.[1] ?? "")})` : "";
+    for (const entry of contributions) {
+      entries.push({
+        ...entry,
+        label: `${entry?.label ?? "Active Effect"}${suffix}`,
+      });
+    }
+  }
+  return entries;
 }
 
 /**
@@ -261,7 +281,9 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
       armorKeyBase,
       `${armorKeyBase}.${propertyName}`,
     ];
-    const armorResult = evaluateAEModifierKeysDetailed(actor, armorKeys);
+    const attackerActor = options?.attackerActor ?? null;
+    const aeContext = { opposingActor: attackerActor, attackerActor };
+    const armorResult = evaluateAEModifierKeysDetailed(actor, armorKeys, { context: aeContext });
     const gKey = armorKeyBase;
     const lKey = `${armorKeyBase}.${propertyName}`;
     const gTotal = Number(armorResult.totalsByKey[gKey] ?? 0) || 0;
@@ -292,26 +314,38 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
     const resKeyMap = (resKeyByType[damageType] ?? null);
     if (resKeyMap) {
       // Collect all applicable resistance AE keys
+      const attackerCreatureTypes = getActorCreatureTypeKeys(options?.attackerActor ?? null);
       const resistanceKeys = [];
+      const resistanceEntryKeys = [];
       
       // Legacy key (always check for backward compatibility)
       if (resKeyMap.legacy) {
+        resistanceKeys.push(`system.resistance.${resKeyMap.legacy}`);
         resistanceKeys.push(`system.modifiers.resistance.${resKeyMap.legacy}`);
+        resistanceEntryKeys.push(`system.resistance.${resKeyMap.legacy}`);
+        resistanceEntryKeys.push(`system.modifiers.resistance.${resKeyMap.legacy}`);
+        for (const type of attackerCreatureTypes) {
+          resistanceEntryKeys.push(`system.resistance.${resKeyMap.legacy}.${type}`);
+          resistanceEntryKeys.push(`system.modifiers.resistance.${resKeyMap.legacy}.${type}`);
+        }
       }
       
       // New system.resistances.* keys
       if (resKeyMap.resistances) {
         resistanceKeys.push(`system.resistances.${resKeyMap.resistances}`);
+        resistanceEntryKeys.push(`system.resistances.${resKeyMap.resistances}`);
       }
       
       // New system.traits.resistance.* keys
       if (resKeyMap.traits) {
         resistanceKeys.push(`system.traits.resistance.${resKeyMap.traits}`);
+        resistanceEntryKeys.push(`system.traits.resistance.${resKeyMap.traits}`);
       }
       
       // Evaluate all resistance keys and sum them
       if (resistanceKeys.length > 0) {
-        const resMods = evaluateAEModifierKeys(actor, resistanceKeys);
+        const resResult = evaluateAEModifierKeysDetailed(actor, resistanceKeys, { context: aeContext });
+        const resMods = resResult.totalsByKey ?? {};
         let totalResistance = 0;
         
         for (const rKey of resistanceKeys) {
@@ -322,14 +356,14 @@ export function getDamageReduction(actor, damageType = DAMAGE_TYPES.PHYSICAL, hi
         
         ae.resistance.key = resKeyMap.legacy || resKeyMap.resistances || resKeyMap.traits || "unknown";
         ae.resistance.total = totalResistance;
-        ae.resistance.entries = []; // Legacy structure preserved for compatibility
+        ae.resistance.entries = packResistanceEntries(resResult.detailsByKey, resistanceEntryKeys);
         resistance += totalResistance;
       }
     }
 
     // Natural Toughness modifier applies to all damage types (RAW).
     const tKey = "system.modifiers.resistance.natToughness";
-    const toughResult = evaluateAEModifierKeysDetailed(actor, [tKey]);
+    const toughResult = evaluateAEModifierKeysDetailed(actor, [tKey], { context: aeContext });
     const tTotal = Number(toughResult.totalsByKey[tKey] ?? 0) || 0;
     const tDetail = toughResult.detailsByKey[tKey] ?? { total: 0, contributions: [] };
     ae.natToughness.total = tTotal;

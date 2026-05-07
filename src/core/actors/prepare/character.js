@@ -13,7 +13,6 @@ import { prepareHumanoidData } from "./humanoid-common.js";
 export function prepareCharacterData(actorContext, actorData) {
   prepareHumanoidData(actorContext, actorData, {
     isNPC: false,
-    applyThreatLuckyNumbers: false,
     useDwemerSphereSpeedOverride: false,
     useActorSkillModifierCalc: false,
     applyFormShiftSkillBuffs: true,

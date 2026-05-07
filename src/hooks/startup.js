@@ -29,7 +29,7 @@ export default async function startupHandler() {
     width: 860,
     buttons: {
       close: {
-        label: "Close",
+        label: t("UESRPG.UI.Close", "Close"),
         icon: "fas fa-times",
       },
     },

@@ -87,18 +87,20 @@
       <div class="tabContainer">
         <div class="about-buttons">
           <div class="npc-button-stats">
-            <div>
+            <div class="npc-button-stats__field npc-button-stats__field--soul-energy">
               <div class="styled-font">{{localize "UESRPG.UI.SoulEnergy"}}</div>
               <input type="text" name="system.soul_energy" placeholder="{{localize "UESRPG.UI.SoulEnergy"}}" value="{{actor.system.soul_energy}}">
             </div>
-            <div>
-              <div class="styled-font">{{localize "UESRPG.UI.Race"}}</div>
-              <input type="text" name="system.race" placeholder="{{localize "UESRPG.UI.Race"}}" value="{{actor.system.race}}">
+            <div class="npc-button-stats__field npc-button-stats__field--creature-type">
+              <div class="styled-font">{{localize "UESRPG.UI.CreatureType"}}</div>
+              <select name="system.race" data-type="String">
+                {{selectOptions npcCreatureTypeOptions selected=npcCreatureTypeSelected localize=true}}
+              </select>
             </div>
-            <div>
+            <div class="npc-button-stats__field npc-button-stats__field--threat">
               <div class="styled-font">{{localize "UESRPG.UI.Threat"}}</div>
               <select name="system.threat" data-type="String">
-                {{selectOptions actor.system.threatCategory selected=actor.system.threat localize=true}}
+                {{selectOptions npcThreatTemplateOptions selected=actor.system.threat localize=true}}
               </select>
             </div>
           </div>

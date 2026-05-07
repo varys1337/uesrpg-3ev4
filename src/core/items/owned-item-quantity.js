@@ -18,11 +18,44 @@ function _resolveOwnedItemContext({ item = null, actor = null, itemId = null } =
     return { actor: null, item: null, itemId: "" };
   }
 
+  const liveItem = resolvedActor.items?.get?.(resolvedId) ?? null;
+  if (!liveItem) {
+    return { actor: null, item: null, itemId: "" };
+  }
+
   return {
     actor: resolvedActor,
-    item: resolvedItem,
+    item: liveItem,
     itemId: resolvedId,
   };
+}
+
+export async function updateOwnedItem({ item = null, actor = null, itemId = null, updates = {} } = {}) {
+  const ctx = _resolveOwnedItemContext({ item, actor, itemId });
+  if (!ctx.actor || !ctx.itemId || !updates || typeof updates !== "object") {
+    return { ok: false, item: null, itemId: "" };
+  }
+
+  const update = { _id: ctx.itemId, ...updates };
+  const ok = await requestUpdateEmbeddedDocuments(ctx.actor, "Item", [update]);
+  return { ok: Boolean(ok), item: ctx.item, itemId: ctx.itemId };
+}
+
+export async function setOwnedItemEquipped({ item = null, actor = null, itemId = null, equipped = null } = {}) {
+  const ctx = _resolveOwnedItemContext({ item, actor, itemId });
+  if (!ctx.actor || !ctx.item || !ctx.itemId) {
+    return { ok: false, item: null, itemId: "", equipped: null };
+  }
+
+  const next = equipped === null || equipped === undefined
+    ? !Boolean(ctx.item.system?.equipped)
+    : Boolean(equipped);
+  const result = await updateOwnedItem({
+    actor: ctx.actor,
+    itemId: ctx.itemId,
+    updates: { "system.equipped": next },
+  });
+  return { ...result, equipped: next };
 }
 
 export async function setOwnedItemQuantityOrDelete({ item = null, actor = null, itemId = null, quantity } = {}) {
@@ -37,6 +70,10 @@ export async function setOwnedItemQuantityOrDelete({ item = null, actor = null, 
     return { ok: Boolean(ok), deleted: Boolean(ok), quantity: 0 };
   }
 
-  const ok = await requestUpdateEmbeddedDocuments(ctx.actor, "Item", [{ _id: ctx.itemId, "system.quantity": next }]);
-  return { ok: Boolean(ok), deleted: false, quantity: next };
+  const result = await updateOwnedItem({
+    actor: ctx.actor,
+    itemId: ctx.itemId,
+    updates: { "system.quantity": next },
+  });
+  return { ok: Boolean(result.ok), deleted: false, quantity: next };
 }

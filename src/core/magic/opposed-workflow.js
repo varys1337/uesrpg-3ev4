@@ -263,7 +263,12 @@ export const MagicOpposedWorkflow = {
         return null;
       }
 
-      tn = computeMagicCastingTN(attacker, spell, spellOptions);
+      const firstDefenderForCasting = defenderEntries[0]?.actorUuid ? resolveActor(defenderEntries[0].actorUuid) : null;
+      tn = computeMagicCastingTN(attacker, spell, {
+        ...spellOptions,
+        opposingActor: firstDefenderForCasting,
+        targetActor: firstDefenderForCasting,
+      });
       healingDirect = isHealingSpell(spell) && Boolean(spell?.system?.isDirect);
     } else if (requestedSpellUuid) {
       spell = await fromUuid(requestedSpellUuid);
@@ -436,7 +441,11 @@ export const MagicOpposedWorkflow = {
     const castSourceMode = normalizeCastSourceCostMode(castSource);
     const isEnchantmentSource = castSource?.type === "enchantment";
     const ignoreAP = _ignoreActionPoints(cfg);
-    const tn = computeMagicCastingTN(attacker, spell, spellOptions);
+    const tn = computeMagicCastingTN(attacker, spell, {
+      ...spellOptions,
+      opposingActor: defender,
+      targetActor: defender,
+    });
 
     const blocking = getBlockingNoDurationUpkeep(attacker, spell?.uuid ?? null);
     if (blocking) {
@@ -757,7 +766,11 @@ export const MagicOpposedWorkflow = {
     const castSourceMode = normalizeCastSourceCostMode(castSource);
     const isEnchantmentSource = castSource?.type === "enchantment";
     const ignoreAP = _ignoreActionPoints(cfg);
-    const tn = computeMagicCastingTN(attacker, spell, spellOptions);
+    const tn = computeMagicCastingTN(attacker, spell, {
+      ...spellOptions,
+      opposingActor: defender,
+      targetActor: defender,
+    });
 
     const blocking = getBlockingNoDurationUpkeep(attacker, spell?.uuid ?? null);
     if (blocking) {

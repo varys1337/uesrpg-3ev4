@@ -161,7 +161,15 @@ async function _applySpellAbsorption(targetActor, { casterActor = null, magicCos
   //      Spell Absorption spell's tracker AE via changes[]
   const traitVal  = _maxTraitValue(targetActor, "spellAbsorption");
   const flagVal   = _maxEffectFlagNumber(targetActor, { flagPath: "flags.uesrpg.spellAbsorption" });
-  const aeResult  = evaluateAEModifierKeys(targetActor, ["system.modifiers.magic.spellAbsorption"]);
+  const aeResult  = evaluateAEModifierKeys(targetActor, ["system.modifiers.magic.spellAbsorption"], {
+    context: {
+      attackMode: "magic",
+      opposingActor: casterActor,
+      casterActor,
+    },
+    enforceConditions: true,
+    dedupeByOrigin: true,
+  });
   const modLane   = Number(aeResult["system.modifiers.magic.spellAbsorption"] ?? 0) || 0;
   const threshold = Math.max(traitVal, flagVal, modLane);
 
@@ -289,13 +297,13 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   
   if (isElementalSpell) {
     // Step 1: Get elemental mitigation (typed AR + resistance)
-    const elementalReduction = getDamageReduction(targetActor, dt, hitLocation);
+    const elementalReduction = getDamageReduction(targetActor, dt, hitLocation, { attackerActor: casterActor });
     const elementalAR = Number(elementalReduction.armor || 0);
     const elementalRes = Number(elementalReduction.resistance || 0);
     const elementalMitigation = elementalAR + elementalRes;
     
     // Step 2: Get magic mitigation (Magic AR + magic resistance)
-    const magicReduction = getDamageReduction(targetActor, DAMAGE_TYPES.MAGIC, hitLocation);
+    const magicReduction = getDamageReduction(targetActor, DAMAGE_TYPES.MAGIC, hitLocation, { attackerActor: casterActor });
     const magicAR = Number(magicReduction.armor || 0);
     const magicRes = Number(magicReduction.resistance || 0);
     const magicMitigation = magicAR + magicRes;
@@ -340,6 +348,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
       rollHTML,
       ignoreReduction: true,
       magicSource: true,
+      attackerActor: casterActor,
       skipChatMessage,
       extraBreakdownLines,
       woundThresholdDelta,
@@ -386,6 +395,7 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
     hitLocation,
     rollHTML,
     magicSource: true,
+    attackerActor: casterActor,
     skipChatMessage,
     extraBreakdownLines,
     woundThresholdDelta,

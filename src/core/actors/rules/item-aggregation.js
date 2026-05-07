@@ -114,6 +114,7 @@ export function aggregateItemStats(actor, actorData) {
     const isEquipped = isPassiveFeature
       ? _isFeatureActive(item)
       : (Object.prototype.hasOwnProperty.call(sys, 'equipped') ? sys.equipped : true);
+    const appliesPassiveItemStats = isPassiveFeature || isEquipped;
 
     // RAW Chapter 1 & 7: "Total ENC = sum of ENC of ALL equipment they are carrying"
     // Special cases:
@@ -153,8 +154,8 @@ export function aggregateItemStats(actor, actorData) {
       stats.armorEnc += itemWeight; // Store original weight before halving
     }
 
-    // Characteristic bonuses (only if equipped)
-    if (isEquipped && sys.characteristicBonus) {
+    // Characteristic bonuses: equipment is equip-gated; feature items are passive.
+    if (appliesPassiveItemStats && sys.characteristicBonus) {
       stats.charBonus.str += Number(sys.characteristicBonus.strChaBonus || 0);
       stats.charBonus.end += Number(sys.characteristicBonus.endChaBonus || 0);
       stats.charBonus.agi += Number(sys.characteristicBonus.agiChaBonus || 0);
@@ -165,8 +166,8 @@ export function aggregateItemStats(actor, actorData) {
       stats.charBonus.lck += Number(sys.characteristicBonus.lckChaBonus || 0);
     }
 
-    // Resource/resist bonuses (only if equipped)
-    if (isEquipped) {
+    // Resource/resist/stat bonuses: equipment is equip-gated; feature items are passive.
+    if (appliesPassiveItemStats) {
       stats.hpBonus += Number(sys.hpBonus || 0);
       stats.mpBonus += Number(sys.mpBonus || 0);
       stats.spBonus += Number(sys.spBonus || 0);

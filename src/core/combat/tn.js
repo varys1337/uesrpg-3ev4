@@ -775,7 +775,10 @@ export function computeTN({
 
   // --- Active Effects combat TN modifiers (from system.modifiers.combat.*)
   // Applied exactly once at this stage, and only to TN (not to base characteristics).
-  const ae = getCombatTNModifiers(actor, role, defenseType, context);
+  const ae = getCombatTNModifiers(actor, role, defenseType, {
+    ...context,
+    opposingActor: role === "attacker" ? opponentActor : (context?.attackerActor ?? null),
+  });
   for (const e of (ae.entries ?? [])) breakdown.push(e);
 
 

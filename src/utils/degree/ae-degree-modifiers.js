@@ -142,14 +142,14 @@ export function applyAEDegreeModifiers(actor, result, context = {}) {
   if (result.isSuccess === true) {
     const successKeys = _buildSuccessKeys(context);
     const allKeys = _unique([...successKeys.additiveKeys, ...successKeys.minimumKeys]);
-    const totals = allKeys.length ? evaluateAEModifierKeys(actor, allKeys) : {};
+    const totals = allKeys.length ? evaluateAEModifierKeys(actor, allKeys, { context }) : {};
     successDelta = _sumValues(totals, successKeys.additiveKeys);
     successMinimum = _maxFloor(totals, successKeys.minimumKeys);
     nextDegree = Math.max(1, currentDegree + successDelta);
     if (successMinimum > 0) nextDegree = Math.max(nextDegree, successMinimum);
   } else if (result.isSuccess === false) {
     const failureKeys = _buildFailureKeys(context);
-    const totals = failureKeys.length ? evaluateAEModifierKeys(actor, failureKeys) : {};
+    const totals = failureKeys.length ? evaluateAEModifierKeys(actor, failureKeys, { context }) : {};
     failureDelta = _sumValues(totals, failureKeys);
     nextDegree = Math.max(1, currentDegree + failureDelta);
   }

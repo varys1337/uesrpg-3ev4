@@ -524,9 +524,9 @@ export async function handleAttackerCommit(ctx) {
       }
     }
 
-    const tn = computeMagicCastingTN(attacker, spell, spellOptions);
     const primaryDef = getDefenderEntries(data)[0] ?? null;
     const targetActor = getActorFromResolvedDocument(resolveUuidSync(String(primaryDef?.actorUuid ?? "").trim()));
+    const tn = computeMagicCastingTN(attacker, spell, { ...spellOptions, opposingActor: targetActor, targetActor });
     const targetToken = (() => {
       const tokenUuid = String(primaryDef?.tokenUuid ?? "").trim();
       if (!tokenUuid) return null;

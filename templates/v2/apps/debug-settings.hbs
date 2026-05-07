@@ -2,27 +2,27 @@
 <section class="uesrpg-settings">
 {{#if isGM}}
 <fieldset>
-  <legend>World (GM)</legend>
+  <legend>{{localize "UESRPG.Apps.DebugSettings.Sections.World"}}</legend>
 
   <div class="form-group">
-    <label>Enable World Debug Logging</label>
-    <input type="checkbox" name="world.debugEnabled" {{checked world.debugEnabled}}>
-    <p class="notes">Enables all UESRPG world-level debug logging (opposed workflows, spell casting, talents, wounds, and more). Applies to all connected clients.</p>
+    <label>{{world.debugEnabled.name}}</label>
+    <input type="checkbox" name="world.debugEnabled" {{checked world.debugEnabled.value}}>
+    <p class="notes">{{world.debugEnabled.hint}}</p>
   </div>
 </fieldset>
 {{/if}}
 
 <fieldset>
-  <legend>Client</legend>
+  <legend>{{localize "UESRPG.Apps.DebugSettings.Sections.Client"}}</legend>
 
   <div class="form-group">
-    <label>Enable Client Debug Logging</label>
-    <input type="checkbox" name="client.debugClientEnabled" {{checked client.debugClientEnabled}}>
-    <p class="notes">Enables all UESRPG client-level debug logging for your session (AE lifecycle, aim, sheet diagnostics, performance traces, and more).</p>
+    <label>{{client.debugClientEnabled.name}}</label>
+    <input type="checkbox" name="client.debugClientEnabled" {{checked client.debugClientEnabled.value}}>
+    <p class="notes">{{client.debugClientEnabled.hint}}</p>
   </div>
 </fieldset>
 
 <footer class="sheet-footer flexrow">
-  <button type="submit" class="save"><i class="fas fa-save"></i> Save</button>
+  <button type="submit" class="save"><i class="fas fa-save"></i> {{localize "UESRPG.UI.Save"}}</button>
 </footer>
 </section>

@@ -206,6 +206,7 @@ async function _buildDeferredDirectApplicationData({
       spellOptions,
       isCritical,
       damageType,
+      targetActor: defender,
       parentMessageId: message.id
     });
     const damageInfo = sharedDamage ?? await computeSpellDamageShared({
@@ -214,6 +215,7 @@ async function _buildDeferredDirectApplicationData({
       spellOptions,
       isCritical,
       damageType,
+      targetActor: defender,
       parentMessageId: message.id
     });
     const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
@@ -359,7 +361,7 @@ export async function resolveDirectUndefendable(ctx) {
     if (isDamaging) {
       const spellOptions = data.attacker.spellOptions ?? {};
       const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
       const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
       const rollHTML = damageInfo?.rollHTML ?? "";
 
@@ -471,7 +473,7 @@ export async function resolveDirectNoTest(ctx) {
     if (isDamaging) {
       const spellOptions = data.attacker.spellOptions ?? {};
       const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
       const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
       const rollHTML = damageInfo?.rollHTML ?? "";
 
@@ -713,7 +715,7 @@ export async function resolveOpposedTest(ctx) {
     if (isDamaging) {
       const spellOptions = data.attacker.spellOptions ?? {};
       const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: message.id });
       const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
       const rollHTML = damageInfo?.rollHTML ?? "";
 
@@ -823,7 +825,7 @@ export async function resolveOpposedTest(ctx) {
     if (isDamaging) {
       const spellOptions = data.attacker.spellOptions ?? {};
       const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
-      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+      const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: defender, parentMessageId: message.id });
       const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
       const appliedDamage = applyOnBlock ? Math.ceil(damageValue / 2) : damageValue;
       const rollHTML = damageInfo?.rollHTML ?? "";
@@ -1091,7 +1093,7 @@ async function _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, o
   } else if (isDamaging) {
     const spellOptions = data.attacker.spellOptions ?? {};
     const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: ctx?.message?.id ?? null });
-    const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: ctx?.message?.id ?? null });
+    const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor: effectiveTarget, parentMessageId: ctx?.message?.id ?? null });
     const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
     const appliedDamage = halveDamage ? Math.ceil(damageValue / 2) : damageValue;
     const rollHTML = damageInfo?.rollHTML ?? "";

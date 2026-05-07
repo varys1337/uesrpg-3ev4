@@ -84,6 +84,7 @@
       "path": "./packs/rules-compendium/system-macros",
       "private": false,
       "type": "Macro",
+      "system": "uesrpg-3ev4",
       "flags": {}
     },
     {

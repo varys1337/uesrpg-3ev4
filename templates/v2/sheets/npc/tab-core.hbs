@@ -2,18 +2,20 @@
   <div class="tabContainer">
     <div class="about-buttons">
       <div class="npc-button-stats">
-        <div>
+        <div class="npc-button-stats__field npc-button-stats__field--soul-energy">
           <div class="styled-font">{{localize "UESRPG.UI.SoulEnergy"}}</div>
           <input type="text" name="system.soul_energy" placeholder="{{localize "UESRPG.UI.SoulEnergy"}}" value="{{actor.system.soul_energy}}">
         </div>
-        <div>
-          <div class="styled-font">{{localize "UESRPG.UI.Race"}}</div>
-          <input type="text" name="system.race" placeholder="{{localize "UESRPG.UI.Race"}}" value="{{actor.system.race}}">
+        <div class="npc-button-stats__field npc-button-stats__field--creature-type">
+          <div class="styled-font">{{localize "UESRPG.UI.CreatureType"}}</div>
+          <select name="system.race" data-type="String">
+            {{selectOptions npcCreatureTypeOptions selected=npcCreatureTypeSelected localize=true}}
+          </select>
         </div>
-        <div>
+        <div class="npc-button-stats__field npc-button-stats__field--threat">
           <div class="styled-font">{{localize "UESRPG.UI.Threat"}}</div>
           <select name="system.threat" data-type="String">
-            {{selectOptions actor.system.threatCategory selected=actor.system.threat localize=true}}
+            {{selectOptions npcThreatTemplateOptions selected=actor.system.threat localize=true}}
           </select>
         </div>
       </div>
@@ -146,7 +148,6 @@
         <div class="section-header">
           <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="traits" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
           <span class="section-header__label">{{localize "UESRPG.UI.Traits"}}</span>
-          <button type="button" class="section-header__action" data-action="itemCreate" id="trait">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.trait as |item id|}}
@@ -169,7 +170,6 @@
         <div class="section-header">
           <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="talents" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
           <span class="section-header__label">{{localize "UESRPG.UI.Talents"}}</span>
-          <button type="button" class="section-header__action" data-action="itemCreate" id="talent">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.talent as |item id|}}
@@ -187,8 +187,8 @@
       </div>
       <div class="power-container">
         <div class="section-header">
+          <a class="section-header__toggle uesrpg-group-toggle" data-action="groupToggle" data-group="powers" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
           <span class="section-header__label">{{localize "UESRPG.UI.Powers"}}</span>
-          <button type="button" class="section-header__action" data-action="itemCreate" id="power">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.power as |item id|}}
@@ -261,6 +261,7 @@
 
     <div class="bioPage">
       <div class="section-header">
+        <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="notes" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
         <span class="section-header__label">{{localize "UESRPG.UI.Biography"}}</span>
         <button type="button" class="section-header__action" data-action="openBioEditor" title="{{localize "UESRPG.UI.EditBiography"}}">
           <i class="fas fa-pen"></i>

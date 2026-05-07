@@ -1,6 +1,7 @@
 import { collectApplicableEffects, getApplicableEffectsCached } from "./collect.js";
 import { createEvaluationMemo, effectMatchesContext } from "./conditions.js";
 import { getEffectChangePriority, isAddMode, isOverrideMode, toNumericEffectValue } from "./reducers.js";
+import { expandCreatureTypeConditionalKeys } from "../rules/creature-types.js";
 import { getEffectChanges, getEffectChangeTypeValue } from "../../utils/compat.js";
 
 /**
@@ -48,10 +49,17 @@ function _evaluateCore(actor, keys, options = {}) {
     debug = false
   } = options ?? {};
 
-  const keySet = new Set(Array.isArray(keys) ? keys : []);
+  const requestedKeys = Array.isArray(keys) ? keys.map((key) => String(key ?? "").trim()).filter(Boolean) : [];
+  const {
+    keys: expandedKeys,
+    baseKeyByExpandedKey,
+  } = expandCreatureTypeConditionalKeys(requestedKeys, context, actor);
+  const keySet = new Set(expandedKeys);
+  const requestedKeySet = new Set(requestedKeys);
   /** @type {Record<string, number>} */
   const totalsByKey = {};
   for (const k of keySet) totalsByKey[k] = 0;
+  for (const k of requestedKeySet) totalsByKey[k] ??= 0;
 
   /** @type {Map<string, { label: string, order: number, value: number, effectId?: string, effectUuid?: string }>} */
   const entriesByEffect = new Map();
@@ -145,7 +153,7 @@ function _evaluateCore(actor, keys, options = {}) {
     }
   }
 
-  // Finalize totals by key and entries by effect (aggregate across all keys)
+  // Finalize totals by key and entries by effect (aggregate across all expanded keys)
   for (const key of keySet) {
     const addMap = addByKeyByEffect.get(key);
     const bestOverride = overrideByKey.get(key);
@@ -189,6 +197,26 @@ function _evaluateCore(actor, keys, options = {}) {
     const keyTotal = addTotal + overrideTotal;
     totalsByKey[key] = keyTotal;
     detailsByKey[key] = { total: keyTotal, contributions };
+  }
+
+  // Roll conditional creature-type keys back into the originally requested base key.
+  // This lets existing callers keep reading totalsByKey[baseKey] while detailsByKey
+  // still exposes the actual suffixed key for callers that need provenance.
+  for (const [expandedKey, baseKey] of baseKeyByExpandedKey.entries()) {
+    if (expandedKey === baseKey) continue;
+    if (!requestedKeySet.has(baseKey)) continue;
+    const total = Number(totalsByKey[expandedKey] ?? 0) || 0;
+    if (!total) continue;
+
+    totalsByKey[baseKey] = (Number(totalsByKey[baseKey] ?? 0) || 0) + total;
+    const baseDetail = detailsByKey[baseKey] ?? { total: 0, contributions: [] };
+    const expandedDetail = detailsByKey[expandedKey] ?? { total: 0, contributions: [] };
+    baseDetail.total = (Number(baseDetail.total ?? 0) || 0) + total;
+    baseDetail.contributions = [
+      ...(Array.isArray(baseDetail.contributions) ? baseDetail.contributions : []),
+      ...(Array.isArray(expandedDetail.contributions) ? expandedDetail.contributions : []),
+    ];
+    detailsByKey[baseKey] = baseDetail;
   }
 
   // Convert to ordered breakdown, omitting zero-value entries.

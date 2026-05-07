@@ -1,6 +1,6 @@
 import { shouldHideFromMainInventory } from "./sheet-inventory.js";
 import { isShieldItem } from "../../core/items/shield-utils.js";
-import { TRAINING_RANK_LABELS } from "../../core/config/label-catalog.js";
+import { NPC_MAGIC_RANK_LABELS } from "../../core/config/label-catalog.js";
 import { createDebugLogger } from "../../utils/debug.js";
 import { buildWeaponAmmoControlState } from "./shared/weapon-ammo-control.js";
 import { getWeaponCombatCapabilities } from "../../core/combat/combat-utils.js";
@@ -297,6 +297,11 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
 
   // Convert spellsBySchool object to array for proper Handlebars iteration
   const isNpc = actorData?.type === "NPC";
+  const normalizeNpcMagicRank = (rank) => {
+    const key = String(rank ?? "untrained").trim().toLowerCase();
+    if (key === "grandmaster" || key === "legendary") return "master";
+    return Object.prototype.hasOwnProperty.call(NPC_MAGIC_RANK_LABELS, key) ? key : "untrained";
+  };
   const spellSchools = Object.keys(spellsBySchool).map(school => {
     const spells = spellsBySchool[school];
     const entry = {
@@ -307,7 +312,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
     };
     // NPC-only: attach the per-school effective rank for the dropdown
     if (isNpc) {
-      entry.effectiveRank = actorData?.flags?.["uesrpg-3ev4"]?.npcMagicSchoolRanks?.[school] ?? "untrained";
+      entry.effectiveRank = normalizeNpcMagicRank(actorData?.flags?.["uesrpg-3ev4"]?.npcMagicSchoolRanks?.[school]);
     }
     return entry;
   });
@@ -316,7 +321,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
   if (isNpc) {
     actorData.ui = actorData.ui || {};
     if (!actorData.ui.npcMagicRankOptions) {
-      actorData.ui.npcMagicRankOptions = TRAINING_RANK_LABELS;
+      actorData.ui.npcMagicRankOptions = NPC_MAGIC_RANK_LABELS;
     }
   }
 

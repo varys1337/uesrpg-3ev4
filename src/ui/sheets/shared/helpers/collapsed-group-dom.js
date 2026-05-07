@@ -62,19 +62,33 @@ export function setGroupCollapsedInDom(toggleEl, collapsed) {
   if (collapsible) {
     const body = collapsible.querySelector(".uesrpg-collapse-body");
     if (body) body.style.display = collapsed ? "none" : "";
+    collapsible.classList.toggle("uesrpg-collapsed", collapsed);
     return;
   }
 
   const table = toggleEl.closest("table");
   if (table) {
     const tbody = table.querySelector("tbody");
-    if (tbody) tbody.style.display = collapsed ? "none" : "";
+    if (tbody) {
+      tbody.style.display = collapsed ? "none" : "";
+      tbody.classList.toggle("uesrpg-group-body-collapsed", collapsed);
+    }
+    table.classList.toggle("uesrpg-group-collapsed", collapsed);
+
+    const wrapper = table.closest(".containerList, .equipmentList");
+    if (wrapper) {
+      const collapsedTables = wrapper.querySelectorAll("table.uesrpg-group-collapsed").length;
+      wrapper.classList.toggle("uesrpg-has-collapsed-group", collapsedTables > 0);
+      if (wrapper.classList.contains("containerList")) {
+        wrapper.classList.toggle("uesrpg-group-collapsed", collapsed);
+      }
+    }
     return;
   }
 
-  const section = toggleEl.closest(".social-field, .trait-container, .talent-container, .power-container");
+  const section = toggleEl.closest(".social-field, .trait-container, .talent-container, .power-container, .bioPage");
   if (section) {
-    const body = section.querySelector(".social-field__body, ol, ul");
+    const body = section.querySelector(".social-field__body, .contentContainer, ol, ul");
     if (body) body.style.display = collapsed ? "none" : "";
   }
 }

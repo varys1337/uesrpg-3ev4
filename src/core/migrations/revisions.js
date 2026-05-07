@@ -9,6 +9,8 @@ export const MIGRATION_REVISIONS = Object.freeze({
   scrollConsumeOnCast: 1,
   combatLegacy: 1,
   aoeRegionLinks: 1,
+  npcThreatTemplateKeysV1: 2,
+  npcThreatTemplateOptionsV1: 2,
   warfareUnitNeutralLanesV1: 1,
   warfareFlagsV1: 1,
   timeDefaultsCompositeOrchestratorV1: 1
@@ -25,6 +27,8 @@ export const STARTUP_PENDING_MIGRATION_KEYS = Object.freeze([
   "scrollConsumeOnCast",
   "combatLegacy",
   "aoeRegionLinks",
+  "npcThreatTemplateKeysV1",
+  "npcThreatTemplateOptionsV1",
   "warfareUnitNeutralLanesV1",
   "warfareFlagsV1"
 ]);

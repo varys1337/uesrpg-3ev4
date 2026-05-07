@@ -151,6 +151,7 @@
       "InterfaceSettings": {
         "Sections": {
           "Interface": "Interface",
+          "Sheets": "Sheets",
           "RuleElements": "Rule Elements"
         }
       },
@@ -195,7 +196,9 @@
         "StatusCombatLegacyPrefix": "Combat Legacy: {version}",
         "RunNow": "Run Migrations Now",
         "Running": "Migration Running...",
-        "RunHint": "Runs version-gated actor, item, and combat legacy migrations manually."
+        "RunHint": "Runs version-gated actor, item, and combat legacy migrations manually.",
+        "Locked": "locked",
+        "Unlocked": "unlocked"
       },
       "ReachVisualizer": {
         "Title": "Configure Visualiser",
@@ -328,7 +331,11 @@
         "Title": "Travel Planner"
       },
       "DebugSettings": {
-        "Title": "Debug Settings"
+        "Title": "Debug Settings",
+        "Sections": {
+          "World": "World (GM)",
+          "Client": "Client"
+        }
       },
       "EnchantingWorkshop": {
         "Title": "Enchanting Workshop",
@@ -461,6 +468,7 @@
       "Skill": "Skill",
       "Skip": "Skip",
       "Submit": "Submit",
+      "Use": "Use",
       "KeepEditing": "Keep Editing",
       "Finish": "Finish",
       "OK": "OK",
@@ -491,12 +499,14 @@
       "ConfigureFactions": "Configure Factions",
       "MoreFactionsCount": "+{count} more factions",
       "NoFactionsSelected": "No factions selected.",
-      "Biography": "Biography",
-      "EditBiography": "Edit Biography",
+      "Biography": "Notes",
+      "EditBiography": "Edit Notes",
       "SoulEnergy": "Soul Energy",
       "Race": "Race",
+      "CreatureType": "Creature Type",
       "Threat": "Threat",
       "Professions": "Professions",
+      "Profession": "Profession",
       "Combat": "Combat",
       "Evade": "Evade",
       "Knowledge": "Knowledge",
@@ -520,6 +530,13 @@
       "Travel": "Travel",
       "Details": "Details",
       "GroupName": "Group Name",
+      "SkillsDebrief": "Skills Debrief",
+      "NoVisibleTrainableSkills": "No visible trainable skills.",
+      "NoRank": "No rank",
+      "VisibleMembers": "Visible members",
+      "PartyWealth": "Party wealth",
+      "GroupWealth": "Group wealth",
+      "GroupItemsEnc": "Group items",
       "DragActorsToGroup": "Drag actors here to add them to this group",
       "GroupMembers": "Group Members",
       "DeployGroup": "Deploy Group",
@@ -772,7 +789,7 @@
         "EditEffect": "Edit Effect",
         "Effects": "Effects",
         "EmptyContainerEncTitle": "ENC Value of the empty container / ENC Value applied to carry limit",
-        "EncDetails": "ENC Details",
+        "EncDetails": "Details",
         "Encumbrance": "Encumbrance",
         "Equipment": "Equipment",
         "ItemCount": "Item Count",
@@ -2736,13 +2753,187 @@
             "ultra": "Ultra Compact"
           }
         },
+        "useActorSheetV2": {
+          "Name": "Actor Sheet V2 Compatibility Flag",
+          "Hint": "Internal compatibility flag retained for migrated worlds. Actor sheets now use the AppV2 production path."
+        },
+        "useItemSheetV2": {
+          "Name": "Item Sheet V2 Compatibility Flag",
+          "Hint": "Internal compatibility flag retained for migrated worlds. Item sheets now use the AppV2 production path."
+        },
+        "sheetPerfTrace": {
+          "Name": "Sheet Performance Trace",
+          "Hint": "Log AppV2 sheet timing traces for _prepareContext, _onRender, _attachPartListeners, and _onClose."
+        },
+        "opposedShowResolutionDetails": {
+          "Name": "Opposed: Show Resolution Details",
+          "Hint": "When enabled, opposed-roll chat cards include an additional expandable section with detailed resolution data. Recommended for testing; disable for normal play."
+        },
+        "opposedShowStatusLine": {
+          "Name": "Opposed: Show Status Line",
+          "Hint": "When enabled, opposed-roll chat cards include Status lines (Committed/Rolled/Resolved). Intended for debugging/testing."
+        },
         "enableLoadouts": {
           "Name": "Sheets: Enable Equipment Loadouts",
           "Hint": "When enabled, the Items tab shows a per-user Loadout bar (save/apply equipped-state snapshots)."
         },
+        "sheetDiagnostics": {
+          "Name": "Debug: Sheet Diagnostics Panel",
+          "Hint": "When enabled, actor sheets show a small diagnostics panel (client only)."
+        },
         "enableRuleElementsRuntime": {
           "Name": "Rule Elements Runtime (Experimental)",
           "Hint": "Enable runtime evaluation of Rule Elements (experimental)."
+        }
+      },
+      "Debug": {
+        "dndDebugEnabled": {
+          "Name": "DnD Debug Logging",
+          "Hint": "Log detailed drag-and-drop payload parsing and resolution diagnostics for sheet item transfers."
+        },
+        "dndDebugVerbose": {
+          "Name": "DnD Debug Verbose Groups",
+          "Hint": "Use grouped console output for drag-and-drop diagnostics (requires DnD Debug Logging)."
+        },
+        "dndDebugNotifyOnFailure": {
+          "Name": "DnD Debug Failure Notifications",
+          "Hint": "Show user warnings for terminal drag-and-drop failures with correlation IDs."
+        },
+        "dndDebugDomEvents": {
+          "Name": "DnD Debug DOM Events",
+          "Hint": "Log low-level DOM dragstart/drop observer events (high volume)."
+        },
+        "dndDebugKeepRecentCount": {
+          "Name": "DnD Debug Recent Trace Count",
+          "Hint": "How many recent in-memory DnD trace events to keep for dumpDndTrace helpers."
+        },
+        "dndDebugCacheFallbackEnabled": {
+          "Name": "DnD Cache Fallback Enabled",
+          "Hint": "Allow last-drag payload cache fallback when drop payload parsing is incomplete."
+        },
+        "aeLifecycleDebug": {
+          "Name": "Active Effect Lifecycle Debug",
+          "Hint": "Log all AE fetch/delete operations (for troubleshooting only). Helps diagnose 'does not exist' errors."
+        },
+        "perfDebug": {
+          "Name": "Performance Profiling",
+          "Hint": "Log console.time/timeEnd markers for getData() and opposed resolution."
+        },
+        "templateDebug": {
+          "Name": "Template Optimization Debug",
+          "Hint": "Log template compilation caching and rendering performance diagnostics."
+        },
+        "timePerformanceDebug": {
+          "Name": "Time/Combat: Round-Boundary Performance Recording",
+          "Hint": "Record structured timing events for round-boundary phases: TimeService fan-out, spell tick dispatch, OverTime collect/process, turn-ticker sub-phases, and authority-proxy write counts. Access results via game.uesrpg.perf. Independent of the debug master gate."
+        },
+        "spellTickDebug": {
+          "Name": "Spell Tick Engine: Debug Logging",
+          "Hint": "When enabled, the spell tick engine logs turn/round/worldTime tick events and handler invocations."
+        },
+        "overTimeDebug": {
+          "Name": "OverTime Effects: Debug Logging",
+          "Hint": "When enabled, the OverTime effects engine logs effect collection, cadence gating, payload execution, and state updates."
+        },
+        "compositeBoundaryTickEnabled": {
+          "Name": "Spell Tick: Composite Round-Boundary Dispatch",
+          "Hint": "When enabled, the spell tick engine collapses the four sequential round-boundary dispatches (turnStart, turnEnd, roundStart, roundEnd) into a single composite pass. Handlers that register fnBoundary receive one call with the full boundary context instead of four separate calls. The OverTime engine uses this to call _ensureIndex() once per boundary instead of four times. Default: true."
+        },
+        "aggregateRegenPrompts": {
+          "Name": "Round Start: Aggregate Regeneration Prompts",
+          "Hint": "When enabled, all regeneration prompts for a round are batched into one chat message instead of one message per actor. Default: false."
+        },
+        "aggregateSilencedChecks": {
+          "Name": "Round Start: Parallelise Silenced Realization Checks",
+          "Hint": "When enabled, silenced realization checks for all affected combatants run concurrently instead of sequentially. Messages are unchanged. Default: false."
+        },
+        "useRoundStartCandidateRegistry": {
+          "Name": "Round Start: Candidate Registry",
+          "Hint": "When enabled, round-start Regeneration and Silenced candidate discovery uses an indexed registry instead of broad combatant scans each round boundary. Default: true."
+        },
+        "skipAttackTrackerEagerReset": {
+          "Name": "Round Start: Skip Eager Attack Tracker Reset",
+          "Hint": "When enabled, the attack tracker skips per-actor document writes at round start. Attack counts reset lazily on first read/use in the new round. Default: false."
+        },
+        "useZoneRegistry": {
+          "Name": "Timed Magic: Zone Registry",
+          "Hint": "When enabled, active spell zones are tracked in an indexed registry instead of scanning all actors on every turnEnd tick. Default: false."
+        },
+        "useRuneRegistry": {
+          "Name": "Timed Magic: Rune Registry",
+          "Hint": "When enabled, active rune Origin AEs are tracked in an indexed registry instead of scanning all actors on every turnEnd, worldTime tick, and token move. Default: false."
+        },
+        "useCloakRegistry": {
+          "Name": "Timed Magic: Cloak Actor Registry",
+          "Hint": "When enabled, actors with active Origin AEs are tracked in a Set so the cloak tick handler can skip actors that are not known cloak casters without calling getOriginAEs(). Default: false."
+        },
+        "deferNonCriticalRoundBoundaryWork": {
+          "Name": "Round Boundary: Defer Non-Critical Presentation Work",
+          "Hint": "When enabled, non-rules-critical round-boundary work is deferred until after the combat tracker UI has visibly updated. Rules-critical phases remain synchronous. Default: false."
+        },
+        "useCombatBoundaryOrchestrator": {
+          "Name": "Round Boundary: Use Internal Orchestrator (Optional)",
+          "Hint": "When enabled, selected internal post-boundary consumers run through one ordered orchestrator lane instead of separate direct uesrpg.combatTimeChanged listeners. Default: true."
+        },
+        "debugEnabled": {
+          "Name": "Enable World Debug Logging",
+          "Hint": "Enables all UESRPG world-level debug logging. Covers opposed workflows, spell casting, talents, wounds, and more."
+        },
+        "debugClientEnabled": {
+          "Name": "Enable Client Debug Logging",
+          "Hint": "Enables all UESRPG client-level debug logging for this user. Covers AE lifecycle, aim, sheet diagnostics, performance traces, and more."
+        },
+        "showFeatureInspector": {
+          "Name": "Show Feature Inspector",
+          "Hint": "When enabled, shows the Feature Inspector provenance panel on PC and NPC actor sheets. Debug tool hidden by default."
+        },
+        "opposedDebug": {
+          "Name": "Opposed Debug Logging",
+          "Hint": "When enabled, the opposed-roll workflow logs detailed diagnostic information to the browser console."
+        },
+        "effectsProxyDebug": {
+          "Name": "Effects/Proxy Debug Logging",
+          "Hint": "When enabled, the authority proxy logs concise diagnostics to the browser console."
+        },
+        "debugMagicRouting": {
+          "Name": "Magic: Routing Debug Logging",
+          "Hint": "When enabled, spell routing decisions are logged to the browser console. Recommended only for testing."
+        },
+        "opposedDebugFormula": {
+          "Name": "Opposed Debug: Formula Normalization",
+          "Hint": "When enabled, logs when a roll formula is normalized or rejected before evaluation."
+        },
+        "spellCastingDebug": {
+          "Name": "Spell Casting: Workflow Debug Logging",
+          "Hint": "When enabled, spell casting workflow logs comprehensive diagnostic information including spell data, dialog construction, and scaling level processing."
+        },
+        "activationDebug": {
+          "Name": "Activation/Talent: Debug Logging",
+          "Hint": "When enabled, activation and talent automation workflows log detailed diagnostics to the browser console."
+        },
+        "skillRollDebug": {
+          "Name": "Skill Roll Debug Logging",
+          "Hint": "When enabled, skill rolls and skill-opposed workflows log structured diagnostic information to the browser console."
+        },
+        "debugSkillTN": {
+          "Name": "Debug: Skill TN Macro",
+          "Hint": "When enabled, exposes game.uesrpg.debugSkillTN(...) for diagnosing skill TN computation."
+        },
+        "debugAim": {
+          "Name": "Aim: Debug Audit Logging",
+          "Hint": "When enabled, logs Aim apply/stack, break, and consume events to the browser console."
+        },
+        "debugActorSelect": {
+          "Name": "Actor Select: Debug Logging",
+          "Hint": "When enabled, logs TN-relevant actor context whenever you control a token."
+        },
+        "woundsDebug": {
+          "Name": "Wounds: Debug Logging",
+          "Hint": "When enabled, wound automation logs structured diagnostic information to the browser console."
+        },
+        "shieldDebug": {
+          "Name": "Shield: Visibility Debug Logging",
+          "Hint": "When enabled, logs shield lifecycle, updates, containment, and inventory visibility decisions to the browser console."
         }
       },
       "Combat": {
@@ -2797,6 +2988,18 @@
         "dynamicInitiativeEnabled": {
           "Name": "Dynamic Initiative",
           "Hint": "When enabled, initiative is rerolled at each new round and committed atomically with the round advance so timing effects resolve against the new order."
+        },
+        "woundsMode": {
+          "Name": "Wounds: Rules Mode",
+          "Hint": "Standard: wound when damage exceeds WT. Alternate: wound on critical-success damage or reducing target to 0 HP.",
+          "Choices": {
+            "standard": "Standard (Excess WT)",
+            "alternate": "Alternate (Critical / 0 HP)"
+          }
+        },
+        "damageAftermathBundlingEnabled": {
+          "Name": "Damage: Aftermath Bundling",
+          "Hint": "Custom automation profile only. When enabled, selected non-critical post-damage aftermath operations in the canonical resolved damage path are staged and committed in one ordered final pass."
         }
       },
       "Talents": {
@@ -2847,6 +3050,23 @@
           "Name": "Enforce Character Generation Milestones",
           "Hint": "When enabled, Imperial racial talent automation (Red Diamond / Imperial Luck) applies only if the actor has flags.uesrpg.charGen.completed = true."
         },
+        "enableCharGenSlashCommand": {
+          "Name": "Enable /char Slash Command",
+          "Hint": "When enabled, /char opens the Character Generation Wizard."
+        },
+        "useRawChargenWizard": {
+          "Name": "Character Generation: Use RAW Wizard Button",
+          "Hint": "When enabled, actor sheets show a Character Creation (RAW) button that runs the RAW chargen flow."
+        },
+        "chargenMagicPurchaseMode": {
+          "Name": "Character Generation: Spell Purchase Mode",
+          "Hint": "Controls allowed payment resources for spell learning in RAW chargen.",
+          "Choices": {
+            "both": "Both (XP or Drakes where available)",
+            "xpOnly": "XP Only",
+            "drakesOnly": "Drakes Only"
+          }
+        },
         "chargenSpellLearningLogCap": {
           "Name": "Character Generation: Spell Learning Log Cap",
           "Hint": "0 = unlimited. Otherwise, keep only the most recent N spell learning log entries."
@@ -2854,6 +3074,18 @@
         "passiveTransferItemTypes": {
           "Name": "Passive Transfer Item Types",
           "Hint": "Comma-separated item types whose transfer Active Effects apply passively while the item is in an actor's inventory."
+        },
+        "enableSpellRecipes": {
+          "Name": "Spell Recipes (Experimental)",
+          "Hint": "When enabled, shows the Effect Recipes UI on spell sheets. This feature is experimental and may not fully integrate with ActiveEffect creation."
+        },
+        "skillRollLastOptions": {
+          "Name": "Skill Roll: Remember Last Options",
+          "Hint": "Stores the last-used skill roll options for this user only."
+        },
+        "skillRollQuickShift": {
+          "Name": "Skill Roll: Shift Quick Roll",
+          "Hint": "When enabled, holding Shift will bypass the roll options dialog and use remembered/default options."
         }
       },
       "Crafting": {
@@ -2946,6 +3178,24 @@
         "reachVisualizer": {
           "Name": "Reach Visualizer Settings",
           "Hint": "Client-scoped settings backing the Reach Visualizer submenu."
+        }
+      },
+      "Internal": {
+        "worldDataVersion": {
+          "Name": "World Data Version",
+          "Hint": "Records the system version that last initialized this world. Used by the compatibility gate."
+        },
+        "migrationState": {
+          "Name": "Migration State",
+          "Hint": "Internal migration state payload."
+        },
+        "migrationDebug": {
+          "Name": "Migration Debug Logging",
+          "Hint": "When enabled, migrations log additional diagnostics."
+        },
+        "templateOptimization": {
+          "Name": "Template Optimization",
+          "Hint": "Enables template compilation caching and optimization for improved performance."
         }
       }
     },
@@ -3187,6 +3437,28 @@
       "ResultLabel": "Result",
       "Success": "Success",
       "UnknownBackfireResult": "Unknown backfire result"
+    },
+    "NPC": {
+      "CreatureTypes": {
+        "any": "Any / None",
+        "humanoid": "Humanoid",
+        "beast": "Beast",
+        "daedra": "Daedra",
+        "construct": "Construct",
+        "undead": "Undead",
+        "spirit": "Spirit",
+        "dragon": "Dragon",
+        "shadow": "Shadow"
+      },
+      "ThreatTemplates": {
+        "petty": "Petty",
+        "lesser": "Lesser",
+        "minor": "Minor",
+        "standard": "Standard",
+        "major": "Major",
+        "greater": "Greater",
+        "legendary": "Legendary"
+      }
     }
   },
   "TYPES": {

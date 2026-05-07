@@ -7,6 +7,7 @@
  */
 
 import { CHARACTERISTIC_KEYS, CHARACTERISTIC_LABELS, MAGIC_SCHOOL_KEYS } from "../domain/constants.js";
+import { isCreatureTypeConditionalKey, stripCreatureTypeSuffix } from "../rules/creature-types.js";
 
 /**
  * @typedef {object} ModifierKeyEntry
@@ -107,6 +108,7 @@ const _RES_TYPES = Object.freeze([
   ["sunlightR", "Sunlight"],
   ["physicalR", "Physical"]
 ]);
+const _RES_TYPE_KEYS = new Set(_RES_TYPES.map(([key]) => key));
 for (const [key, label] of _RES_TYPES) {
   _reg(`system.resistance.${key}`, `Resistance: ${label}`, "resistance", "numeric", true);
   _reg(`system.modifiers.resistance.${key}`, `Resistance Mod: ${label}`, "resistance", "numeric", true);
@@ -277,13 +279,7 @@ for (const [key, label, category, spellRelevant] of _CAPABILITY_FLAGS) {
   _reg(key, label, category, "boolean", spellRelevant);
 }
 
-/**
- * @param {string} key
- * @returns {boolean}
- */
-export function isKnownModifierKey(key) {
-  if (_BY_KEY.has(key)) return true;
-  if (typeof key !== "string") return false;
+function _isDynamicKnownNumericModifierKey(key) {
   if (key.startsWith("system.modifiers.skills.")) return true;
   if (key.startsWith("system.modifiers.combat.armorRating.")) return true;
   if (key.startsWith("system.modifiers.combat.magicArmorRating.")) return true;
@@ -291,6 +287,34 @@ export function isKnownModifierKey(key) {
   if (key.startsWith("system.modifiers.degrees.success.minimum.skills.")) return true;
   if (key.startsWith("system.modifiers.degrees.failure.skills.")) return true;
   return false;
+}
+
+function _isKnownNumericModifierKey(key) {
+  const entry = _BY_KEY.get(key);
+  if (entry) return entry.valueType === "numeric";
+
+  const conditionalResistance = key.match(/^system\.(?:modifiers\.)?resistance\.([a-zA-Z0-9]+)$/);
+  if (conditionalResistance && _RES_TYPE_KEYS.has(conditionalResistance[1])) return true;
+
+  return _isDynamicKnownNumericModifierKey(key);
+}
+
+/**
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function isKnownModifierKey(key) {
+  if (_BY_KEY.has(key)) return true;
+  if (typeof key !== "string") return false;
+
+  if (isCreatureTypeConditionalKey(key)) {
+    const baseKey = stripCreatureTypeSuffix(key);
+    if (baseKey !== key && _isKnownNumericModifierKey(baseKey)) return true;
+  }
+
+  const conditionalResistance = key.match(/^system\.(?:modifiers\.)?resistance\.([a-zA-Z0-9]+)\.[a-z0-9-]+$/);
+  if (conditionalResistance && _RES_TYPE_KEYS.has(conditionalResistance[1])) return true;
+  return _isDynamicKnownNumericModifierKey(key);
 }
 
 /**

@@ -13,6 +13,7 @@
 import { buildMagicCastContext } from "../opposed/cast-context.js";
 import { normalizeCastSourceCostMode, resolveItemContextFromCastSource } from "../opposed/cast-source.js";
 import { getSpellCost, getSpellLevel } from "../magicka-utils.js";
+import { SYSTEM_EFFECT_FLAG_KEYS } from "../../active-effects/effect-flags.js";
 
 function _str(value) {
   return String(value ?? "").trim();
@@ -35,6 +36,12 @@ function _positiveInt(value, fallback = null) {
   const n = Number(value);
   if (Number.isFinite(n) && n > 0) return Math.floor(n);
   return fallback;
+}
+
+function _staticSpellLevel(spell) {
+  const systemLevel = _positiveInt(spell?.system?.level, null);
+  if (systemLevel != null) return Math.max(1, Math.min(7, systemLevel));
+  return _positiveInt(getSpellLevel(spell), 1) ?? 1;
 }
 
 function _clone(value) {
@@ -175,22 +182,21 @@ export function buildSpellEffectMetadataFlags({
   originalCastWorldTime = null,
   castWorldTime = null
 } = {}) {
-  const spellLevel = _positiveInt(getSpellLevel(spell), 1) ?? 1;
+  const spellLevel = _staticSpellLevel(spell);
   const clonedSpellOptions = _clone(spellOptions);
   const clonedScalingChoices = _clone(scalingChoices);
 
-  const derivedCastContext = castContext && typeof castContext === "object"
-    ? _normalizeCastContext(castContext, spellLevel)
-    : buildMagicCastContext(
-      {
-        spellLevel,
-        actorUuid: _str(casterActor?.uuid),
-        spellOptions: clonedSpellOptions ?? null,
-        scalingChoices: clonedScalingChoices ?? null
-      },
-      spell,
-      { actor: casterActor }
-    );
+  const derivedCastContext = buildMagicCastContext(
+    {
+      spellLevel,
+      actorUuid: _str(casterActor?.uuid),
+      castContext: castContext && typeof castContext === "object" ? castContext : null,
+      spellOptions: clonedSpellOptions ?? null,
+      scalingChoices: clonedScalingChoices ?? null
+    },
+    spell,
+    { actor: casterActor }
+  );
 
   const normalizedCastContext = _normalizeCastContext(derivedCastContext, spellLevel);
   const resolvedActualCost = _num(actualCost ?? costPaid ?? getSpellCost(spell, normalizedCastContext.castLevel) ?? spell?.system?.cost ?? 0, 0);
@@ -203,7 +209,7 @@ export function buildSpellEffectMetadataFlags({
   const resolvedTargetUuids = _normalizeTargetUuids(targetUuids);
   const castSourceMeta = _buildCastSourceMetadata(castSource, itemCastContext);
 
-  return {
+  const metadata = {
     spellEffectMetadataVersion: 1,
     spellEffectMetadataTier: 2,
     spellUuid: _str(spell?.uuid),
@@ -238,5 +244,28 @@ export function buildSpellEffectMetadataFlags({
     itemCastContext: _clone(itemCastContext),
     magickaSpend: _normalizeMagickaSpend(magickaSpend, resolvedActualCost),
     ...castSourceMeta
+  };
+
+  return {
+    ...metadata,
+    [SYSTEM_EFFECT_FLAG_KEYS.spellEffectMetadata]: {
+      spellLevel: metadata.spellLevel,
+      baseLevel: metadata.baseLevel,
+      castLevel: metadata.castLevel,
+      hasHigherCastLevel: metadata.hasHigherCastLevel,
+      spellStrengthValue: metadata.spellStrengthValue,
+      actualCost: metadata.actualCost,
+      costPaid: metadata.costPaid,
+      originalCastWorldTime: metadata.originalCastWorldTime,
+      durationSeconds: metadata.durationSeconds,
+      durationRounds: metadata.durationRounds,
+      durationStartTime: metadata.durationStartTime,
+      durationStartRound: metadata.durationStartRound,
+      durationStartTurn: metadata.durationStartTurn,
+      upkeepGroupKey: metadata.upkeepGroupKey,
+      castSourceType: metadata.castSourceType,
+      resourceMode: metadata.resourceMode,
+      resourceSource: metadata.resourceSource,
+    }
   };
 }

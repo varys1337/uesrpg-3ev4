@@ -112,6 +112,47 @@ export function createSeverityDebugLogger(settingKey, prefix = "", method = "log
   return _createDebugLogger(settingKey, prefix, method);
 }
 
+/**
+ * Create a small subsystem logger. Routine debug output is gated; warnings and
+ * errors remain visible because they describe recoverable or blocking failures.
+ *
+ * @param {string} prefix
+ * @param {object} [options]
+ * @param {string|null} [options.debugSettingKey]
+ * @param {Function|null} [options.debugEnabled]
+ * @returns {{debug: Function, info: Function, warn: Function, error: Function}}
+ */
+export function createLogger(prefix, { debugSettingKey = null, debugEnabled = null } = {}) {
+  const label = String(prefix ?? "").trim();
+  const lead = label || "UESRPG";
+  const canDebug = () => {
+    if (typeof debugEnabled === "function") {
+      try {
+        return Boolean(debugEnabled());
+      } catch (_e) {
+        return false;
+      }
+    }
+    return isDebugEnabled(debugSettingKey);
+  };
+
+  return {
+    debug(...args) {
+      if (!canDebug()) return;
+      try { console.debug(lead, ...args); } catch (_e) { /* no-op */ }
+    },
+    info(...args) {
+      try { console.info(lead, ...args); } catch (_e) { /* no-op */ }
+    },
+    warn(...args) {
+      try { console.warn(lead, ...args); } catch (_e) { /* no-op */ }
+    },
+    error(...args) {
+      try { console.error(lead, ...args); } catch (_e) { /* no-op */ }
+    },
+  };
+}
+
 // ─── Performance profiling helpers ───────────────────────────────────
 // Gated behind the "perf" debug lane (requires master + perfDebug setting).
 // When disabled, these are zero-overhead no-ops.

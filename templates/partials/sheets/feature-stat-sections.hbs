@@ -1,7 +1,6 @@
 ﻿<div class="uesrpg-feature-stats{{#if twoColumn}} uesrpg-feature-stats--two{{/if}}">
   <fieldset class="attr-fieldset uesrpg-feature-section">
     <legend>{{localize "UESRPG.Sheets.Item.Characteristics"}}</legend>
-    {{#if item.system.characteristicBonus}}
     <div class="uesrpg-feature-grid">
       <label class="uesrpg-feature-stat">{{localize "UESRPG.Sheets.Feature.StatLabel.STR"}} <input type="number" name="system.characteristicBonus.strChaBonus" value="{{#if item.system.characteristicBonus.strChaBonus}}{{item.system.characteristicBonus.strChaBonus}}{{else}}0{{/if}}"></label>
       <label class="uesrpg-feature-stat">{{localize "UESRPG.Sheets.Feature.StatLabel.END"}} <input type="number" name="system.characteristicBonus.endChaBonus" value="{{#if item.system.characteristicBonus.endChaBonus}}{{item.system.characteristicBonus.endChaBonus}}{{else}}0{{/if}}"></label>
@@ -12,9 +11,6 @@
       <label class="uesrpg-feature-stat">{{localize "UESRPG.Sheets.Feature.StatLabel.PRS"}} <input type="number" name="system.characteristicBonus.prsChaBonus" value="{{#if item.system.characteristicBonus.prsChaBonus}}{{item.system.characteristicBonus.prsChaBonus}}{{else}}0{{/if}}"></label>
       <label class="uesrpg-feature-stat">{{localize "UESRPG.Sheets.Feature.StatLabel.LCK"}} <input type="number" name="system.characteristicBonus.lckChaBonus" value="{{#if item.system.characteristicBonus.lckChaBonus}}{{item.system.characteristicBonus.lckChaBonus}}{{else}}0{{/if}}"></label>
     </div>
-    {{else}}
-    <div class="attr-empty-hint">{{localize "UESRPG.Sheets.Item.NoCharacteristicBonuses"}}</div>
-    {{/if}}
   </fieldset>
 
   <fieldset class="attr-fieldset uesrpg-feature-section">

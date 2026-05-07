@@ -561,7 +561,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
   }
 
   // Typed bonus components
-  const typedBonusDamage = (attackerActor ? collectTypedBonusDamage(attackerActor) : null);
+  const typedBonusDamage = (attackerActor ? collectTypedBonusDamage(attackerActor, { targetActor }) : null);
   if (typedBonusDamage?.byType) {
     for (const [dtype, t] of Object.entries(typedBonusDamage.byType)) {
       const amt = Number(t?.total ?? 0);
@@ -569,7 +569,7 @@ export async function applyDamageResolved(targetActor, payload = {}) {
       components.push({
         kind: "typed",
         amount: Math.max(0, amt),
-        damageType: ctx.damageType,
+        damageType: dtype,
         applyDefenderAdjust: false,
         sourceLabel: `${ctx.options.source ?? "Attack"} - AE Bonus [${dtype}]`,
         breakdown: {

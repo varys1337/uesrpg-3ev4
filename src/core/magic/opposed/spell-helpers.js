@@ -180,7 +180,7 @@ export function shouldShareSpellDamage(data) {
  * @param {object} options - {attacker, spell, spellOptions, isCritical, damageType}
  * @returns {Promise<object>}
  */
-export async function computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId = null } = {}) {
+export async function computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, targetActor = null, parentMessageId = null } = {}) {
   // Map castLevel → level for downstream functions
   const normalizedOptions = {
     ...(spellOptions ?? {}),
@@ -221,7 +221,7 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
   }
 
   const baseDamage = Number(damageRoll.total) || 0;
-  const elemBonusInfo = computeElementalDamageBonus(attacker, damageType);
+  const elemBonusInfo = computeElementalDamageBonus(attacker, damageType, { opposingActor: targetActor, targetActor });
   const elementalBonus = Number(elemBonusInfo?.bonus ?? 0) || 0;
   const damageValue = baseDamage + overloadBonus + elementalBonus;
   const rollHTML = await damageRoll.render();

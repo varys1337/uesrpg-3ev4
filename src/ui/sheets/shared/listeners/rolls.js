@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Roll handlers shared across sheets.
  * 
  * Extracted from actor-sheet.js for better maintainability.
- * Handles skill rolls, combat rolls, resistance rolls, damage rolls, and spell rolls.
+ * Handles skill rolls, combat rolls, resistance rolls, and spell rolls.
  * 
  * Shared across actor sheet modules.
  */
@@ -10,7 +10,6 @@
 import { SYSTEM_ROLL_FORMULA } from "../../../../core/constants.js";
 import { getCachedSetting } from "../../../../core/config/settings-cache.js";
 import { isLucky, isUnlucky } from "../../../../utils/skillCalcHelper.js";
-import { getDamageTypeFromWeapon, getHitLocationFromRoll } from "../../../../core/combat/combat-utils.js";
 import { SkillOpposedWorkflow } from "../../../../core/skills/opposed-workflow/index.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../../../../core/skills/skill-tn.js";
 import { doTestRoll, formatDegree, formatResultOutcomeLabel, formatResultSummary, computeResultFromRollTotal } from "../../../../utils/degree-roll-helper.js";
@@ -38,10 +37,6 @@ import {
   getPreferredSkillCharacteristic,
   normalizeCharacteristicKey
 } from "../../../../utils/maps/characteristics.js";
-import {
-  buildInlineQualityTags,
-  collectWeaponInlineQualities,
-} from "../../../../core/combat/opposed/helpers/weapon-quality-display.js";
 
 /**
  * Handle skill roll from sheet.
@@ -228,7 +223,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
 
     try {
       decl = await customDialog({
-        title: `${skillItem.name} — Roll Options`,
+        title: `${skillItem.name} вЂ” Roll Options`,
         content,
         buttons: {
           ok: {
@@ -578,7 +573,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
 
   // No target -> manual roll dialog
   await customDialog({
-    title: `${item.name} — Roll Options`,
+    title: `${item.name} вЂ” Roll Options`,
     content: `<div>
                 <div class="form-group" style="margin-bottom:8px;">
                   <label style="display:block;"><b>Difficulty</b></label>
@@ -782,134 +777,3 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
   });
 });
 
-/**
- * Handle damage roll for weapons.
- * @param {object} sheet
- * @param {Event} event
- */
-export const onDamageRoll = asyncGuardSheet(async function onDamageRoll(event, target) {
-  event.preventDefault();
-
-  const button = target ?? event.currentTarget;
-  const li = button.closest(".item");
-  const weapon = this.actor.items.get(li?.dataset?.itemId);
-
-  if (!weapon) {
-    ui.notifications.warn("Weapon not found for damage roll.");
-    return;
-  }
-
-  const shortcutWeapon = weapon;
-
-  const hit = new Roll("1d10");
-  await hit.evaluate();
-  const hitResult = Number(hit.total);
-  const hit_loc = getHitLocationFromRoll(hitResult);
-
-  const damageString =
-    (shortcutWeapon.system.damage3Effective ?? shortcutWeapon.system.damage3 ?? shortcutWeapon.system.damage2Effective ?? shortcutWeapon.system.damage2 ?? shortcutWeapon.system.damageEffective ?? shortcutWeapon.system.damage) || "0";
-
-  const structured = Array.isArray(shortcutWeapon.system.qualitiesStructuredInjected)
-    ? shortcutWeapon.system.qualitiesStructuredInjected
-    : Array.isArray(shortcutWeapon.system.qualitiesStructured)
-      ? shortcutWeapon.system.qualitiesStructured
-      : [];
-  const hasQ = (key) => structured.some(q => String(q?.key ?? q ?? "").toLowerCase() === key);
-
-  const weaponRoll = new Roll(damageString);
-  await weaponRoll.evaluate();
-  let altRoll = null;
-  let baseDamage = Number(weaponRoll.total);
-
-  const wantsProven = hasQ("proven");
-  const wantsPrimitive = hasQ("primitive");
-  const wantsSuperior = !!shortcutWeapon.system.superior;
-
-  if (wantsSuperior || wantsProven || wantsPrimitive) {
-    altRoll = new Roll(damageString);
-    await altRoll.evaluate();
-    const altTotal = Number(altRoll.total);
-
-    if (wantsPrimitive && !wantsProven) baseDamage = Math.min(baseDamage, altTotal);
-    else baseDamage = Math.max(baseDamage, altTotal);
-  }
-
-  const finalDamage = baseDamage;
-
-  const supRollTag = altRoll
-    ? `<div style="margin-top:0.25rem;font-size:x-small;line-height:1.2;">Roll A: ${weaponRoll.total}<br>Roll B: ${altRoll.total}</div>`
-    : "";
-
-  const qualitiesHtml = buildInlineQualityTags(collectWeaponInlineQualities(shortcutWeapon));
-
-  const damageType = getDamageTypeFromWeapon(shortcutWeapon);
-
-  const targets = Array.from(game.user.targets ?? []);
-  const applyButtons = targets.length
-    ? `<div style="margin-top:0.75rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
-        ${targets.map(t => {
-          const uuid = t?.actor?.uuid;
-          if (!uuid) return "";
-          return `<button type="button" class="apply-damage-btn" 
-                    data-target-uuid="${uuid}"
-                    data-attacker-actor-uuid="${this.actor.uuid}"
-                    data-weapon-uuid="${shortcutWeapon.uuid}"
-                    data-damage="${finalDamage}"
-                    data-damage-type="${damageType}"
-                    data-hit-location="${hit_loc}"
-                    data-dos-bonus="0"
-                    data-penetration="0"
-                    data-source="${shortcutWeapon.name}">
-                    Apply Damage → ${t.name}
-                  </button>`;
-        }).join("")}
-      </div>`
-    : "";
-
-  const contentString = `
-    <div class="uesrpg-weapon-damage-card">
-      <h2 style="display:flex;gap:0.5rem;align-items:center;">
-        <img src="${shortcutWeapon.img}" style="height:32px;width:32px;">
-        <div>${shortcutWeapon.name}</div>
-      </h2>
-
-      <table class="uesrpg-weapon-damage-table">
-        <thead>
-          <tr>
-            <th>Damage</th>
-            <th class="tableCenterText">Result</th>
-            <th class="tableCenterText">Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td class="tableAttribute">Damage</td>
-            <td class="tableCenterText">${finalDamage}${supRollTag}</td>
-            <td class="tableCenterText">
-              <div>${damageString}</div>
-              <div style="margin-top:0.35rem;">${qualitiesHtml}</div>
-            </td>
-          </tr>
-          <tr>
-            <td class="tableAttribute">Hit Location</td>
-            <td class="tableCenterText">${hit_loc}</td>
-            <td class="tableCenterText">[[${hit.total}]]</td>
-          </tr>
-        </tbody>
-      </table>
-      ${applyButtons}
-    </div>
-  `;
-
-  const rollsToSend = [weaponRoll, hit];
-  if (altRoll) rollsToSend.push(altRoll);
-
-  await ChatMessage.create({
-    user: game.user.id,
-    speaker: ChatMessage.getSpeaker(),
-    content: contentString,
-    rolls: rollsToSend,
-    rollMode: getCoreRollMode(),
-    style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-  });
-})

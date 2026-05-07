@@ -3,7 +3,6 @@
                     <div class="magicSkillContainer">
                         <div class="section-header">
                             <span class="section-header__label">{{localize "UESRPG.Sheets.Magic.MagicSkills"}}</span>
-                            <button type="button" data-action="itemCreate" class="section-header__action" id="magicSkill">+</button>
                         </div>
                         <ol class="skillList">
                             {{#each actor.magicSkill as |item|}}
@@ -28,7 +27,7 @@
 
                     {{#if actor.ui.worship.enabled}}
                     <div class="spellListContainer">
-                        <div class="section-header" style="justify-content:flex-end;">
+                        <div class="section-header section-header--actions-end">
                             <button type="button" data-action="itemCreate" class="section-header__action" id="invocation">+</button>
                         </div>
                         <div class="spellList">
@@ -84,9 +83,9 @@
                                         <span class="school-name">{{schoolData.label}}</span>
                                         <span class="school-count">({{schoolData.count}})</span>
                                         <span class="npc-school-rank" onclick="event.stopPropagation();">
-                                            <label class="sr-only">{{localize "UESRPG.Sheets.Magic.EffectiveRank"}}</label>
+                                            <label class="npc-school-rank__label">{{localize "UESRPG.Sheets.Magic.EffectiveRank"}}</label>
                                             <select name="flags.uesrpg-3ev4.npcMagicSchoolRanks.{{schoolData.key}}" class="npc-school-rank-select">
-                                                {{selectOptions @root.actor.ui.npcMagicRankOptions selected=schoolData.effectiveRank}}
+                                                {{selectOptions @root.actor.ui.npcMagicRankOptions selected=schoolData.effectiveRank localize=true}}
                                             </select>
                                         </span>
                                     </h3>

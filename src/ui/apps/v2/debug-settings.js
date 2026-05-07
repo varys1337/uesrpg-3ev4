@@ -1,5 +1,5 @@
 import { SYSTEM_ID, templatePath } from "../../constants.js";
-import { t } from "../../../utils/i18n.js";
+import { getSettingPresentation, t } from "../../../utils/i18n.js";
 /**
  * src/ui/apps/v2/debug-settings.js
  *
@@ -18,15 +18,6 @@ function _settingExists(key) {
     return game.settings?.settings?.has?.(`${NAMESPACE}.${key}`) === true;
   } catch (_e) {
     return false;
-  }
-}
-
-function _readSettingValue(key, fallback = null) {
-  try {
-    if (!_settingExists(key)) return fallback;
-    return game.settings.get(NAMESPACE, key);
-  } catch (_e) {
-    return fallback;
   }
 }
 
@@ -60,10 +51,10 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     return {
       isGM: _isGM(),
       world: {
-        debugEnabled: game.settings.get(NAMESPACE, "debugEnabled"),
+        debugEnabled: getSettingPresentation(NAMESPACE, "debugEnabled"),
       },
       client: {
-        debugClientEnabled: game.settings.get(NAMESPACE, "debugClientEnabled"),
+        debugClientEnabled: getSettingPresentation(NAMESPACE, "debugClientEnabled"),
       },
     };
   }

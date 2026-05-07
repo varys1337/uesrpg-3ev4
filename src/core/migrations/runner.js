@@ -1,6 +1,6 @@
 import { SYSTEM_ID } from "../constants.js";
 import { migrateActiveEffectsIfNeeded } from "./active-effects.js";
-import { migrateActorsIfNeeded, migrateWarfareUnitNeutralLanesIfNeeded } from "./actors.js";
+import { migrateActorsIfNeeded, migrateNpcThreatTemplateKeysIfNeeded, migrateNpcThreatTemplateOptionsIfNeeded, migrateWarfareUnitNeutralLanesIfNeeded } from "./actors.js";
 import { migrateItemsIfNeeded } from "./items.js";
 import { migrateCombatLegacyIfNeeded } from "./combat-legacy.js";
 import { migrateWarfareFlagDocumentsIfNeeded } from "./warfare-flags.js";
@@ -42,6 +42,8 @@ export async function runSystemMigrations({
       await migrateItemsIfNeeded();
       await migrateCombatLegacyIfNeeded();
       await migrateAoeRegionLinksIfNeeded();
+      await migrateNpcThreatTemplateKeysIfNeeded();
+      await migrateNpcThreatTemplateOptionsIfNeeded();
       await migrateWarfareUnitNeutralLanesIfNeeded();
       await migrateWarfareFlagDocumentsIfNeeded();
 

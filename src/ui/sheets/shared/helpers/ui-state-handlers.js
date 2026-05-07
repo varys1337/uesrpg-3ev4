@@ -1,6 +1,6 @@
 /**
  * UI state management handlers.
- * Handles group collapse, item search, and loadout save/apply/delete.
+ * Handles group collapse and loadout save/apply/delete.
  *
  * Shared across actor sheet modules.
  */
@@ -34,29 +34,6 @@ export async function onToggleGroupCollapse(sheet, event, target) {
   const next = !Boolean(groups?.[groupKey]);
   await setGroupCollapsed(groupKey, next);
   setGroupCollapsedInDom(el, next);
-}
-
-/**
- * Filter items by search query.
- * @param {object} sheet
- * @param {Event} event
- */
-export function onItemSearch(sheet, event) {
-  const input = event.currentTarget;
-  const query = String(input?.value ?? "").trim().toLowerCase();
-  const root = sheet.element;
-  if (!root) return;
-
-  const tab = root.querySelector(".tab.equipment");
-  if (!tab) return;
-
-  const items = tab.querySelectorAll("tr.item, li.item");
-  for (const row of items) {
-    const nameEl = row.querySelector(".item-name");
-    const name = String(nameEl?.textContent ?? "").trim().toLowerCase();
-    const match = !query || name.includes(query);
-    row.style.display = match ? "" : "none";
-  }
 }
 
 /**

@@ -9,6 +9,7 @@ import { applyHumanoidDerivedStage } from "./shared/humanoid-derived.js";
 import { applyHumanoidFatigueStage } from "./shared/humanoid-fatigue.js";
 import { applyHumanoidMovementStage } from "./shared/humanoid-movement.js";
 import { applyHumanoidSocialStage } from "./shared/humanoid-social.js";
+import { applyNpcThreatTemplateStage } from "./shared/npc-threat-template.js";
 
 /**
  * Shared prepare pipeline for humanoid actors (character + npc).
@@ -32,7 +33,6 @@ export function prepareHumanoidData(actorContext, actorData, opts = {}) {
     agg,
     options: {
       isNPC: Boolean(opts.isNPC),
-      applyThreatLuckyNumbers: Boolean(opts.applyThreatLuckyNumbers),
       useDwemerSphereSpeedOverride: Boolean(opts.useDwemerSphereSpeedOverride),
       useActorSkillModifierCalc: Boolean(opts.useActorSkillModifierCalc),
       applyFormShiftSkillBuffs: Boolean(opts.applyFormShiftSkillBuffs),
@@ -49,4 +49,5 @@ export function prepareHumanoidData(actorContext, actorData, opts = {}) {
   applyHumanoidDerivedStage(stage);
   applyHumanoidMovementStage(stage);
   applyHumanoidFatigueStage(stage);
+  applyNpcThreatTemplateStage(stage);
 }

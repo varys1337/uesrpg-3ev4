@@ -1,14 +1,28 @@
-    <div class="sheet-fixed-container">
-      <div class="character-profile-container">
+    <div class="sheet-fixed-container group-sidebar">
+      <div class="character-profile-container group-profile-frame">
         <div class="profile-img-container">
           <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" title="{{actor.name}}">
         </div>
-        <nav class="sheet-tabs tabs" data-group="primary">
-          <a class="item" data-action="tab" data-group="primary" data-tab="members">{{localize "UESRPG.UI.Members"}}</a>
-          <a class="item" data-action="tab" data-group="primary" data-tab="inventory">{{localize "UESRPG.UI.Inventory"}}</a>
-          <a class="item" data-action="tab" data-group="primary" data-tab="travel">{{localize "UESRPG.UI.Travel"}}</a>
-          <a class="item" data-action="tab" data-group="primary" data-tab="details">{{localize "UESRPG.UI.Details"}}</a>
-        </nav>
-        <h1 class="charname"><input type="text" name="name" value="{{actor.name}}" placeholder="{{localize "UESRPG.UI.GroupName"}}"></h1>
       </div>
+      <h1 class="charname group-name-bar"><input type="text" name="name" value="{{actor.name}}" placeholder="{{localize "UESRPG.UI.GroupName"}}"></h1>
+      <section class="group-skill-debrief uesrpg-collapsible" aria-label="{{localize "UESRPG.UI.SkillsDebrief"}}">
+        <div class="group-skill-debrief__header">
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="group-skill-debrief" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <i class="fas fa-scroll"></i>
+          <span>{{localize "UESRPG.UI.SkillsDebrief"}}</span>
+        </div>
+        <div class="uesrpg-collapse-body">
+        {{#if skillDebrief.length}}
+        <ol class="group-skill-debrief__list">
+          {{#each skillDebrief as |entry|}}
+          <li class="group-skill-debrief__row" tabindex="0" data-debrief-tooltip="{{entry.tooltip}}">
+            <span class="group-skill-debrief__name">{{entry.label}}</span>
+          </li>
+          {{/each}}
+        </ol>
+        {{else}}
+        <p class="group-skill-debrief__empty">{{localize "UESRPG.UI.NoVisibleTrainableSkills"}}</p>
+        {{/if}}
+        </div>
+      </section>
     </div>

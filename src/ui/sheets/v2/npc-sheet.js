@@ -29,9 +29,14 @@ import { AttackTracker } from "../../../core/combat/attack-tracker.js";
 import { buildSheetAttackTrackerContext } from "./shared/attack-tracker-sheet-context.js";
 import { buildCombatTabAttackTrackerView } from "./shared/attack-tracker-view.js";
 import { buildEncumbranceBreakdown } from "../../../core/actors/rules/item-aggregation.js";
+import { NPC_THREAT_TEMPLATE_OPTIONS } from "../../../core/rules/npc-threat-templates.js";
+import {
+  NPC_CREATURE_TYPE_OPTIONS,
+  getNpcCreatureTypeSelectKey,
+} from "../../../core/rules/creature-types.js";
 
 // Shared roll handlers
-import { onSkillRoll, onCombatRoll, onDamageRoll } from "../shared/listeners/rolls.js";
+import { onSkillRoll, onCombatRoll } from "../shared/listeners/rolls.js";
 import { onCastMagicAction, castAttackSpell } from "../shared/listeners/magic-cast.js";
 import { showSpellOptionsDialog } from "../../../core/magic/dialogs/spell-options-dialog.js";
 import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
@@ -40,11 +45,11 @@ import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
 import { onSetBaseCharacteristics, onClickCharacteristic } from "../shared/listeners/characteristics-handlers.js";
 
 // Shared inventory / economy
-import { onToggle2H, onPlusQty, onMinusQty, onItemEquip, onWeaponAmmoSelect } from "../shared/listeners/inventory-handlers.js";
-import { onWealthCalc, onCarryBonus } from "../shared/listeners/economy-handlers.js";
+import { onToggle2H, onItemEquip, onWeaponAmmoSelect } from "../shared/listeners/inventory-handlers.js";
+import { onWealthCalc } from "../shared/listeners/economy-handlers.js";
 
-// Shared UI-state handlers (collapse, search, loadouts, item create)
-import { onToggleGroupCollapse, onItemSearch, onLoadoutSave, onLoadoutApply, onLoadoutDelete } from "../shared/helpers/ui-state-handlers.js";
+// Shared UI-state handlers (collapse, loadouts, item create)
+import { onToggleGroupCollapse, onLoadoutSave, onLoadoutApply, onLoadoutDelete } from "../shared/helpers/ui-state-handlers.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
 
 // Shared resource / rest handlers — authority-proxy safe
@@ -68,7 +73,7 @@ import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { enableResizeMotionGuard, disableResizeMotionGuard } from "./shared/resize-motion-guard.js";
 import { annotateEncumbranceHighlights, openEncumbranceBreakdownDialog } from "./shared/encumbrance-ui.js";
-import { openItemRowQuickMenu, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
+import { bindItemRowQuickMenus, openItemRowQuickMenu, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
 import { registerCombatTrackerSheetRefresh, unregisterCombatTrackerSheetRefresh } from "./shared/combat-tracker-refresh.js";
 import {
   buildWoundsInjuriesPanelContext,
@@ -89,12 +94,12 @@ import {
 } from "./shared/sheet-context.js";
 import { bindWindowRestoreGuard, warnIfDuplicateSidebar } from "./shared/window-restore-guard.js";
 import { createPartContextScope } from "./shared/part-context.js";
+import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
 import {
   buildAllowedChangePatch,
   buildAllowedSubmitPatch,
   createFormPathMatcher,
 } from "./shared/form-pipeline.js";
-import { setOwnedItemQuantityOrDelete } from "../../../core/items/owned-item-quantity.js";
 import {
   ACTOR_ARMOR_CLASS_LABELS,
   ACTOR_SIZE_LABELS,
@@ -155,7 +160,6 @@ const ALLOWED_NPC_FORM_PATH = createFormPathMatcher({
     "system.action_points.max",
     "system.size",
     "system.armor_class",
-    "system.wealth",
     "system.soul_energy",
     "system.race",
     "system.threat",
@@ -193,11 +197,8 @@ function normalizeNpcFormValue({ path, value, currentValue, rawValue }) {
 
 export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
-  /** @type {Function|null} Debounced item search (memoized) */
-  _uesrpgDebouncedSearch = null;
   _uesrpgTabContextMenuHandler = null;
   _uesrpgTabChangeHandler = null;
-  _uesrpgTabInputHandler = null;
   _uesrpgTabKeydownHandler = null;
   _uesrpgRestoreDblClickHandler = null;
   _uesrpgRestoreDblClickEl = null;
@@ -332,6 +333,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         { id: "combat" },
         { id: "magic" },
         { id: "equipment" },
+        { id: "effects" },
       ],
       initial: "core",
     },
@@ -350,7 +352,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "actor", "npc", "uesrpg-sheet-root"],
-    position: { width: 910, height: 960 },
+    position: { width: 910, height: 890 },
     window: { resizable: true },
     form: {
       handler: NpcSheetV2.prototype._onFormSubmit,
@@ -365,8 +367,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       // Shared rolls & combat
       castMagic: NpcSheetV2.prototype._onCastMagicAction,
       castInvocation: NpcSheetV2.prototype._onCastInvocationAction,
-      damageRoll: NpcSheetV2.prototype._onDamageRoll,
-      ammoRoll: NpcSheetV2.prototype._onAmmoRoll,
       skillRoll: NpcSheetV2.prototype._onSkillRoll,
       combatRoll: NpcSheetV2.prototype._onCombatRoll,
       combatQuickAction: NpcSheetV2.prototype._onCombatQuickAction,
@@ -398,7 +398,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       // Inventory
       toggle2H: NpcSheetV2.prototype._onToggle2H,
-      plusQty: NpcSheetV2.prototype._onPlusQty,
       itemEquip: NpcSheetV2.prototype._onItemEquip,
       itemCreate: NpcSheetV2.prototype._onItemCreate,
       itemOpen: NpcSheetV2.prototype._onItemOpen,
@@ -408,7 +407,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       // Economy
       wealthCalc: NpcSheetV2.prototype._onWealthCalc,
-      carryBonus: NpcSheetV2.prototype._onCarryBonus,
       encBreakdown: NpcSheetV2.prototype._onEncBreakdown,
 
       // UI state
@@ -455,6 +453,13 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     equipment: {
       template: templatePath("v2/sheets/npc/tab-equipment.hbs"),
       scrollable: [".equipmentTabContainer"],
+    },
+    effects: {
+      template: templatePath("v2/sheets/shared/tab-effects.hbs"),
+      scrollable: [".effectsTabContainer"],
+    },
+    bookmarkTabs: {
+      template: templatePath("partials/sheets/bookmark-tabs.hbs"),
     },
     limited: {
       template: templatePath("v2/sheets/limited-npc-sheet.hbs"),
@@ -553,7 +558,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   _normalizeNpcRenderParts(parts, { limited } = {}) {
     if (limited) return { parts: ["limited"], dropped: [] };
 
-    const canonical = ["sidebar", "core", "combat", "magic", "equipment"];
+    const canonical = ["sidebar", "core", "combat", "magic", "equipment", "effects", "bookmarkTabs"];
     const allowed = new Set(canonical);
     const incoming = Array.isArray(parts) ? parts : [];
     const normalized = [];
@@ -620,12 +625,15 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       context.carryRatingLabel = resolveCarryRatingDisplayLabel(context.actor.system?.carry_rating);
       context.supplyOptions = SUPPLY_DICE_LABELS;
       context.skillRankOptions = TRAINING_RANK_LABELS;
+      context.npcThreatTemplateOptions = { ...NPC_THREAT_TEMPLATE_OPTIONS };
+      context.npcCreatureTypeOptions = { ...NPC_CREATURE_TYPE_OPTIONS };
+      context.npcCreatureTypeSelected = getNpcCreatureTypeSelectKey(context.actor.system?.race);
 
       // Part-gating: skip expensive builders when AppV2 requests only specific parts.
       const partScope = createPartContextScope({
         options,
         partDefinitions: this.constructor.PARTS,
-        fallbackTotal: 6,
+        fallbackTotal: 7,
       });
       const _needs = partScope.needs;
 
@@ -815,7 +823,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         context.actor.system.socialDisplay = buildSocialDisplay(context.actor.system);
       }
 
-      if (_needs("equipment") || _needs("magic")) {
+      if (_needs("effects") || _needs("magic")) {
         const perfEffectsStart = performance.now();
         const effectsSignature = getEffectsSignature();
         if (this._uesrpgEffectsCache && this._uesrpgEffectsCache.signature === effectsSignature) {
@@ -872,6 +880,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       super._onRender(context, options);
       const el = this.element;
       if (!el) return;
+      syncBookmarkTabsActiveClass(this);
       applySheetDensityClass(el);
       bindWindowRestoreGuard(this, el);
       warnIfDuplicateSidebar(this, "NpcSheetV2", el, options);
@@ -891,12 +900,15 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       const expectedPrimary = this.tabGroups.primary ?? "core";
       const activePrimary = el.querySelector('.tab[data-group="primary"].active')?.dataset?.tab ?? null;
-      if (activePrimary !== expectedPrimary) {
+      const expectedPrimaryPane = el.querySelector(`.tab[data-group="primary"][data-tab="${expectedPrimary}"]`);
+      if (activePrimary !== expectedPrimary && expectedPrimaryPane) {
         this.changeTab(expectedPrimary, "primary", { force: true });
+        syncBookmarkTabsActiveClass(this);
       }
       const expectedActions = this.tabGroups.actions ?? "primary";
       const activeActions = el.querySelector('.tab[data-group="actions"].active')?.dataset?.tab ?? null;
-      if (activeActions !== expectedActions) {
+      const expectedActionsPane = el.querySelector(`.tab[data-group="actions"][data-tab="${expectedActions}"]`);
+      if (activeActions !== expectedActions && expectedActionsPane) {
         this.changeTab(expectedActions, "actions", { force: true });
       }
 
@@ -977,10 +989,11 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       const txt = String(nameEl?.textContent ?? "").trim();
       if (txt && !nameEl.getAttribute("title")) nameEl.setAttribute("title", txt);
     }
+    bindItemRowQuickMenus(this, el);
 
     if (!this._uesrpgTabContextMenuHandler) {
       this._uesrpgTabContextMenuHandler = async (ev) => {
-        if (await handleItemRowContextMenu(this, ev)) return;
+        if (handleItemRowContextMenu(this, ev)) return;
         const root = ev.currentTarget;
 
         const magicEl = ev.target?.closest?.(".magic-roll");
@@ -1005,11 +1018,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           return;
         }
 
-        const minusBtn = ev.target?.closest?.(".minusQty");
-        if (minusBtn && root?.contains?.(minusBtn)) {
-          ev.preventDefault();
-          this._onMinusQty(ev, minusBtn);
-        }
       };
     }
 
@@ -1025,18 +1033,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         if (styleSelect && root?.contains?.(styleSelect)) {
           this._onActiveCombatStyleChange(ev, styleSelect);
         }
-      };
-    }
-
-    if (!this._uesrpgTabInputHandler) {
-      this._uesrpgTabInputHandler = (ev) => {
-        const root = ev.currentTarget;
-        const searchInput = ev.target?.closest?.("#uesrpg-item-search");
-        if (!searchInput || !root?.contains?.(searchInput)) return;
-        if (!this._uesrpgDebouncedSearch) {
-          this._uesrpgDebouncedSearch = foundry.utils.debounce(this._onItemSearch.bind(this), 200);
-        }
-        this._uesrpgDebouncedSearch(ev);
       };
     }
 
@@ -1065,7 +1061,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
     el.addEventListener("contextmenu", this._uesrpgTabContextMenuHandler);
     el.addEventListener("change", this._uesrpgTabChangeHandler);
-    el.addEventListener("input", this._uesrpgTabInputHandler);
     el.addEventListener("keydown", this._uesrpgTabKeydownHandler);
 
   }
@@ -1119,7 +1114,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     return result;
   }
   async _onToggleGroupCollapse(event, target) { return onToggleGroupCollapse(this, event, target); }
-  _onItemSearch(event) { return onItemSearch(this, event); }
   async _onLoadoutSave(event) { return onLoadoutSave(this, event); }
   async _onLoadoutApply(event) { return onLoadoutApply(this, event); }
   async _onLoadoutDelete(event) { return onLoadoutDelete(this, event); }
@@ -1146,7 +1140,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   // Rolls
   async _onCombatRoll(event, target) { return onCombatRoll.call(this, event, target); }
   async _onSkillRoll(event, target) { return onSkillRoll.call(this, event, target); }
-  async _onDamageRoll(event, target) { return onDamageRoll.call(this, event, target); }
 
   // Magic
   async _onCastMagicAction(event, target, preselectedSpell = null) { return onCastMagicAction.call(this, event, target, preselectedSpell); }
@@ -1172,8 +1165,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   // Inventory
   async _onToggle2H(event, target) { return onToggle2H.call(this, event, target); }
-  async _onPlusQty(event, target) { return onPlusQty.call(this, event, target); }
-  async _onMinusQty(event, target) { return onMinusQty.call(this, event, target); }
   async _onItemEquip(event, target) { return onItemEquip.call(this, event, target); }
   async _onWeaponAmmoSelect(event, target) {
     const result = await onWeaponAmmoSelect.call(this, event, target);
@@ -1193,7 +1184,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   // Economy
   async _onWealthCalc(event, target) { return onWealthCalc.call(this, event, target); }
-  async _onCarryBonus(event, target) { return onCarryBonus.call(this, event, target); }
   async _onEncBreakdown(_event, _target) {
     if (!game?.settings?.get?.(SYSTEM_ID, "encumbranceUiEnhanced")) return;
     return openEncumbranceBreakdownDialog(this.document);
@@ -1243,7 +1233,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (!itemId) return;
     const item = this.document.items.get(itemId);
     if (!item) return;
-    await openItemRowQuickMenu(this, item, { anchorEl: target });
+    openItemRowQuickMenu(this, item, { anchorEl: target, event });
   }
 
   /** Delete inventory item (container-safe unlink + delete) */
@@ -1775,35 +1765,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (skillItem?.sheet) skillItem.sheet.render(true);
   }
 
-  /**
-   * Ammo roll handler.
-   */
-  async _onAmmoRoll(event, target) {
-    event.preventDefault();
-    const button = target ?? event.currentTarget;
-    const li = button.closest(".item");
-    const item = this.document.getEmbeddedDocument("Item", li?.dataset?.itemId);
-    if (!item) return;
-
-    const contentString = `<h2 style='font-size: large;'>${item.name}</h2><p>
-      <b>Damage Bonus:</b> ${item.system.damage}<p>
-      <b>Qualities</b> ${item.system.qualities}`;
-
-    const currentQty = Number(item.system?.quantity ?? 0);
-    if (currentQty > 0) {
-      await ChatMessage.create({
-        user: game.user.id,
-        speaker: ChatMessage.getSpeaker(),
-        content: contentString,
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER,
-      });
-    }
-
-    const newQty = Math.max(currentQty - 1, 0);
-    if (newQty === 0 && currentQty > 0) ui.notifications.info("Out of Ammunition!");
-    await setOwnedItemQuantityOrDelete({ item, quantity: newQty });
-  }
-
   /* ═══════════════════════ Drag & Drop ═══════════════════════════════ */
 
   /**
@@ -1954,11 +1915,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   _onClose(options) {
     const perfStart = performance.now();
     try {
-      this._uesrpgDebouncedSearch?.cancel?.();
-      this._uesrpgDebouncedSearch = null;
       this._uesrpgTabContextMenuHandler = null;
       this._uesrpgTabChangeHandler = null;
-      this._uesrpgTabInputHandler = null;
       this._uesrpgTabKeydownHandler = null;
       this._uesrpgBioCache = null;
       this._uesrpgItemsCache = null;

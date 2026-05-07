@@ -26,14 +26,23 @@ import { onDropItemIntoContainer } from "../item/listeners/containment.js";
 import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
+import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
+import { onToggleGroupCollapse } from "../shared/helpers/ui-state-handlers.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
 import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
+import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
 import { pickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import { openArmyCampaignApp } from "../../apps/v2/army-campaign-app.js";
+import { setOwnedItemEquipped, setOwnedItemQuantityOrDelete } from "../../../core/items/owned-item-quantity.js";
+import { isMassCombatEnabled } from "../../../core/homebrew/settings.js";
+import { TRAINING_RANK_LABELS } from "../../../core/config/label-catalog.js";
+import { computeSkillTN } from "../../../core/skills/skill-tn.js";
+import { _listProfessions } from "../../../core/skills/opposed-workflow/core/skills.js";
+import { SYSTEM_ID } from "../../../core/constants.js";
 import { t, tf } from "../../../utils/i18n.js";
 import {
   buildAllowedChangePatch,
@@ -46,6 +55,189 @@ const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
 const ALLOWED_GROUP_FORM_PATH = createFormPathMatcher({
   exact: ["name", "system.description", "system.notes"],
 });
+const GROUP_DEBRIEF_ITEM_TYPES = Object.freeze(["skill", "magicSkill"]);
+const GROUP_DEBRIEF_TYPE_ORDER = Object.freeze({
+  skill: 0,
+  magicSkill: 1,
+  profession: 2,
+});
+
+function normalizeDebriefKey(value) {
+  return String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
+function humanizeKey(value) {
+  return String(value ?? "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toLocaleUpperCase());
+}
+
+function localizeTypeLabel(type) {
+  if (type === "profession") return t("UESRPG.UI.Profession", "Profession");
+  return t(`TYPES.Item.${type}`, humanizeKey(type));
+}
+
+function localizeRankLabel(rank) {
+  const key = String(rank ?? "").trim();
+  if (!key) return t("UESRPG.UI.NoRank", "No rank");
+  const normalized = normalizeDebriefKey(key).replace(/\s+/g, "");
+  const labelKey = TRAINING_RANK_LABELS[normalized];
+  return labelKey ? t(labelKey, humanizeKey(key)) : humanizeKey(key);
+}
+
+function getActorItemsByType(actor, type) {
+  const typed = actor?.itemTypes?.[type];
+  if (Array.isArray(typed)) return typed;
+  return Array.from(actor?.items ?? []).filter((item) => item?.type === type);
+}
+
+function collectTrainableEntries(actor) {
+  const entries = [];
+  for (const type of GROUP_DEBRIEF_ITEM_TYPES) {
+    for (const item of getActorItemsByType(actor, type)) {
+      entries.push({
+        type,
+        label: String(item?.name ?? "").trim(),
+        skillItem: item,
+        rankLabel: localizeRankLabel(item?.system?.rank),
+        typeLabel: localizeTypeLabel(type),
+      });
+    }
+  }
+
+  for (const profession of _listProfessions(actor)) {
+    entries.push({
+      type: "profession",
+      label: String(profession?.name ?? "").trim(),
+      skillItem: profession,
+      rankLabel: t("UESRPG.UI.NoRank", "No rank"),
+      typeLabel: localizeTypeLabel("profession"),
+    });
+  }
+
+  return entries.filter((entry) => entry.label);
+}
+
+function computeDebriefTN(actor, skillItem) {
+  try {
+    const tn = computeSkillTN({ actor, skillItem })?.finalTN;
+    return Number.isFinite(Number(tn)) ? Number(tn) : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function buildSkillDebrief(resolvedMembers) {
+  const rows = new Map();
+
+  for (const member of resolvedMembers ?? []) {
+    const actor = member?.canView ? member.actor : null;
+    if (!actor) continue;
+    const memberName = String(member.name ?? actor.name ?? "").trim() || t("UESRPG.UI.Unknown", "Unknown");
+
+    for (const entry of collectTrainableEntries(actor)) {
+      const tn = computeDebriefTN(actor, entry.skillItem);
+      if (tn == null) continue;
+
+      const key = `${entry.type}::${normalizeDebriefKey(entry.label)}`;
+      if (!rows.has(key)) {
+        rows.set(key, {
+          key,
+          sortType: entry.type,
+          label: entry.label,
+          typeLabel: entry.typeLabel,
+          bestTN: tn,
+          bestMemberName: memberName,
+          memberCount: 0,
+          members: [],
+        });
+      }
+
+      const row = rows.get(key);
+      row.memberCount += 1;
+      row.members.push({
+        name: memberName,
+        rankLabel: entry.rankLabel,
+        tn,
+      });
+      if (tn > row.bestTN) {
+        row.bestTN = tn;
+        row.bestMemberName = memberName;
+      }
+    }
+  }
+
+  return Array.from(rows.values())
+    .map((row) => {
+      row.members.sort((a, b) => a.name.localeCompare(b.name));
+      row.tooltip = [
+        `${row.label} (${row.typeLabel})`,
+        ...row.members.map((member) => `${member.name} - ${member.rankLabel} - TN ${member.tn}`),
+      ].join("\n");
+      return row;
+    })
+    .sort((a, b) => {
+      const typeCompare = (GROUP_DEBRIEF_TYPE_ORDER[a.sortType] ?? 99) - (GROUP_DEBRIEF_TYPE_ORDER[b.sortType] ?? 99);
+      if (typeCompare !== 0) return typeCompare;
+      return a.label.localeCompare(b.label);
+    });
+}
+
+function asFiniteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function formatGroupNumber(value) {
+  const number = asFiniteNumber(value, 0);
+  return Number.isInteger(number) ? String(number) : number.toFixed(1);
+}
+
+function getItemEncumbrance(item) {
+  const system = item?.system ?? {};
+  const total = Number(system.totalENC);
+  if (Number.isFinite(total)) return total;
+  const enc = asFiniteNumber(system.enc, 0);
+  const quantity = Math.max(1, asFiniteNumber(system.quantity, 1));
+  return enc * quantity;
+}
+
+function getGroupEncumbranceLabel(current, max) {
+  if (max <= 0) return t("UESRPG.UI.Unknown", "Unknown");
+  if (current > max * 3) return "Crushing";
+  if (current > max * 2) return "Severe";
+  if (current > max) return "Moderate";
+  return "Minimal";
+}
+
+function buildGroupInventorySummary({ groupActor, resolvedMembers }) {
+  const visibleActors = (resolvedMembers ?? [])
+    .filter((member) => member?.canView && member.actor)
+    .map((member) => member.actor);
+  const partyWealth = visibleActors.reduce((sum, actor) => sum + asFiniteNumber(actor?.system?.wealth, 0), 0);
+  const groupWealth = asFiniteNumber(groupActor?.flags?.[SYSTEM_ID]?.groupWealth, 0);
+  const carryCurrent = visibleActors.reduce((sum, actor) => sum + asFiniteNumber(actor?.system?.carry_rating?.current, 0), 0);
+  const carryMax = visibleActors.reduce((sum, actor) => sum + asFiniteNumber(actor?.system?.carry_rating?.max, 0), 0);
+  const groupItemsEnc = Array.from(groupActor?.items ?? [])
+    .filter((item) => !item?.system?.containerStats?.contained)
+    .reduce((sum, item) => sum + getItemEncumbrance(item), 0);
+  const label = getGroupEncumbranceLabel(carryCurrent, carryMax);
+
+  return {
+    memberCount: visibleActors.length,
+    partyWealth: formatGroupNumber(partyWealth),
+    groupWealth: formatGroupNumber(groupWealth),
+    totalWealth: formatGroupNumber(partyWealth + groupWealth),
+    currentEnc: formatGroupNumber(carryCurrent),
+    maxEnc: formatGroupNumber(carryMax),
+    groupItemsEnc: formatGroupNumber(groupItemsEnc),
+    label,
+    penalty: label === "Crushing" ? -40 : label === "Severe" ? -20 : label === "Moderate" ? -10 : 0,
+  };
+}
 
 export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
@@ -54,6 +246,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   _uesrpgContextMenuHandler = null;
   _uesrpgRestoreDblClickHandler = null;
   _uesrpgRestoreDblClickEl = null;
+  _uesrpgDebriefTooltipEl = null;
+  _uesrpgDebriefTooltipHandlers = null;
 
   _isSheetPerfTraceEnabled() {
     try {
@@ -107,7 +301,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "actor", "group", "uesrpg-sheet-root"],
-    position: { width: 780, height: 900 },
+    position: { width: 860, height: 900 },
     window: { resizable: true },
     form: {
       handler: GroupSheetV2.prototype._onFormSubmit,
@@ -131,6 +325,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       itemDelete: GroupSheetV2.prototype._onItemDelete,
       itemShow: GroupSheetV2.prototype._onItemShow,
       itemEquip: GroupSheetV2.prototype._onItemEquip,
+      wealthCalc: GroupSheetV2.prototype._onWealthCalc,
+      groupToggle: GroupSheetV2.prototype._onToggleGroupCollapse,
       plusQty: GroupSheetV2.prototype._onPlusQty,
       minusQty: GroupSheetV2.prototype._onMinusQty,
       duplicateItem: GroupSheetV2.prototype._onDuplicateItem,
@@ -147,6 +343,9 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     body: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/group/body.hbs",
       scrollable: [""],
+    },
+    bookmarkTabs: {
+      template: "systems/uesrpg-3ev4/templates/partials/sheets/bookmark-tabs.hbs",
     },
     limited: {
       template: "systems/uesrpg-3ev4/templates/v2/sheets/group/limited.hbs",
@@ -196,7 +395,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (this.document.limited && !game.user.isGM) {
       options.parts = ["limited"];
     } else {
-      options.parts = ["sidebar", "body"];
+      options.parts = ["sidebar", "body", "bookmarkTabs"];
     }
   }
 
@@ -216,8 +415,12 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       context.editable = this.isEditable;
       context.limited = !game.user.isGM && actor.limited;
       context.owner = actor.isOwner;
+      context.showArmyCampaign = isMassCombatEnabled();
+      context.skillDebrief = [];
+      context.groupInventorySummary = buildGroupInventorySummary({ groupActor: actor, resolvedMembers: [] });
 
       context.resolvedMembers = await this.#resolveMembers(actor.system.members || []);
+      context.groupInventorySummary = buildGroupInventorySummary({ groupActor: actor, resolvedMembers: context.resolvedMembers });
 
       const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
       const _enrich = (raw) => enrichFn(raw || "");
@@ -226,6 +429,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
         context.enrichedDescription = await _enrich(actor.system.description ?? "");
         return context;
       }
+
+      context.skillDebrief = buildSkillDebrief(context.resolvedMembers);
 
       const sheetData = {
         actor: actor.toObject(),
@@ -243,6 +448,10 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       context.shield = sheetData.actor.shield ?? { equipped: [], unequipped: [] };
       context.ammunition = sheetData.actor.ammunition ?? { equipped: [], unequipped: [] };
       context.container = sheetData.actor.container ?? [];
+      context.sheetUi = {
+        groupInventorySummary: context.groupInventorySummary,
+        weaponDistanceHeaderLabel: t("UESRPG.Sheets.Equipment.Range", "Range"),
+      };
 
       const speeds = context.resolvedMembers
         .filter(m => m.canView && m.speed)
@@ -281,9 +490,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     try {
       super._onRender(context, options);
       const el = this.element;
+      syncBookmarkTabsActiveClass(this);
       applySheetDensityClass(el);
       bindWindowRestoreGuard(this, el);
       clearItemDescriptionTooltip(this);
+      this._hideSkillDebriefTooltip();
 
       if (!this.#memberUpdateHook) {
         this.#memberUpdateHook = Hooks.on("updateActor", (updatedActor) => {
@@ -298,11 +509,16 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
       const expectedPrimary = this.tabGroups.primary ?? "members";
       const activePrimary = el?.querySelector('.tab[data-group="primary"].active')?.dataset?.tab ?? null;
-      if (activePrimary !== expectedPrimary) {
+      const expectedPrimaryPane = el?.querySelector(`.tab[data-group="primary"][data-tab="${expectedPrimary}"]`);
+      if (activePrimary !== expectedPrimary && expectedPrimaryPane) {
         this.changeTab(expectedPrimary, "primary", { force: true });
+        syncBookmarkTabsActiveClass(this);
       }
 
       activateProseMirrorEditors(this, el);
+      if (el?.querySelector?.(".uesrpg-group-toggle, [data-action='groupToggle']")) {
+        applyCollapsedGroups(el);
+      }
     } finally {
       this._traceSheetPerf("_onRender", perfStart, {
         limited: Boolean(context?.limited),
@@ -354,9 +570,97 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
           });
         }
       }
+      if (partId === "sidebar") {
+        this._bindSkillDebriefTooltip(htmlElement);
+      }
     } finally {
       this._traceSheetPerf("_attachPartListeners", perfStart, { partId });
     }
+  }
+
+  _bindSkillDebriefTooltip(rootEl) {
+    if (!(rootEl instanceof HTMLElement)) return;
+    const debrief = rootEl.querySelector(".group-skill-debrief");
+    if (!(debrief instanceof HTMLElement) || debrief.dataset.debriefTooltipBound === "1") return;
+    debrief.dataset.debriefTooltipBound = "1";
+
+    if (!this._uesrpgDebriefTooltipHandlers) {
+      this._uesrpgDebriefTooltipHandlers = {
+        pointerEnter: (event) => this._showSkillDebriefTooltipForEvent(event),
+        pointerLeave: (event) => this._hideSkillDebriefTooltipForEvent(event),
+        focusIn: (event) => this._showSkillDebriefTooltipForEvent(event),
+        focusOut: (event) => this._hideSkillDebriefTooltipForEvent(event),
+      };
+    }
+
+    debrief.addEventListener("pointerenter", this._uesrpgDebriefTooltipHandlers.pointerEnter, true);
+    debrief.addEventListener("pointerleave", this._uesrpgDebriefTooltipHandlers.pointerLeave, true);
+    debrief.addEventListener("focusin", this._uesrpgDebriefTooltipHandlers.focusIn);
+    debrief.addEventListener("focusout", this._uesrpgDebriefTooltipHandlers.focusOut);
+  }
+
+  _getSkillDebriefRowFromEvent(event) {
+    const target = event?.target instanceof Element ? event.target : null;
+    const row = target?.closest?.(".group-skill-debrief__row[data-debrief-tooltip]");
+    if (!(row instanceof HTMLElement)) return null;
+    const root = event?.currentTarget instanceof Element ? event.currentTarget : null;
+    return root?.contains?.(row) ? row : null;
+  }
+
+  _ensureSkillDebriefTooltip() {
+    if (this._uesrpgDebriefTooltipEl instanceof HTMLElement) return this._uesrpgDebriefTooltipEl;
+    const tooltip = document.createElement("div");
+    tooltip.className = "uesrpg-group-debrief-tooltip";
+    tooltip.hidden = true;
+    document.body.appendChild(tooltip);
+    this._uesrpgDebriefTooltipEl = tooltip;
+    return tooltip;
+  }
+
+  _showSkillDebriefTooltipForEvent(event) {
+    const row = this._getSkillDebriefRowFromEvent(event);
+    const text = row?.dataset?.debriefTooltip ?? "";
+    if (!row || !text.trim()) return this._hideSkillDebriefTooltip();
+
+    const tooltip = this._ensureSkillDebriefTooltip();
+    tooltip.textContent = text;
+    tooltip.hidden = false;
+    tooltip.style.left = "0px";
+    tooltip.style.top = "0px";
+
+    const rowRect = row.getBoundingClientRect();
+    const tipRect = tooltip.getBoundingClientRect();
+    const gap = 8;
+    const margin = 8;
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth || 0;
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight || 0;
+
+    let left = rowRect.right + gap;
+    if (left + tipRect.width > viewportWidth - margin) left = rowRect.left - tipRect.width - gap;
+    left = Math.min(Math.max(left, margin), Math.max(margin, viewportWidth - tipRect.width - margin));
+
+    let top = rowRect.top + (rowRect.height / 2) - (tipRect.height / 2);
+    top = Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - tipRect.height - margin));
+
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(top)}px`;
+  }
+
+  _hideSkillDebriefTooltipForEvent(event) {
+    const row = this._getSkillDebriefRowFromEvent(event);
+    const related = event?.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (row && related && row.contains(related)) return;
+    this._hideSkillDebriefTooltip();
+  }
+
+  _hideSkillDebriefTooltip() {
+    if (!(this._uesrpgDebriefTooltipEl instanceof HTMLElement)) return;
+    this._uesrpgDebriefTooltipEl.hidden = true;
+  }
+
+  _destroySkillDebriefTooltip() {
+    this._uesrpgDebriefTooltipEl?.remove?.();
+    this._uesrpgDebriefTooltipEl = null;
   }
 
   /** @override */
@@ -375,6 +679,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       this._uesrpgContextMenuHandler = null;
       this._uesrpgRestoreDblClickHandler = null;
       this._uesrpgRestoreDblClickEl = null;
+      this._uesrpgDebriefTooltipHandlers = null;
+      this._destroySkillDebriefTooltip();
       return super._onClose(options);
     } finally {
       this._traceSheetPerf("_onClose", perfStart, {});
@@ -917,7 +1223,41 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     const item = this.document.items.get(itemId);
     if (!item) return;
     const next = target instanceof HTMLInputElement ? Boolean(target.checked) : !Boolean(item.system?.equipped);
-    await requestUpdateDocument(item, { "system.equipped": next });
+    await setOwnedItemEquipped({ item, equipped: next });
+  }
+
+  async _onToggleGroupCollapse(event, target) {
+    this._hideSkillDebriefTooltip();
+    return onToggleGroupCollapse(this, event, target);
+  }
+
+  async _onWealthCalc(event, _target) {
+    event?.preventDefault?.();
+    if (!this.document?.isOwner) return;
+
+    await customDialog({
+      title: t("UESRPG.Sheets.Equipment.AddSubtract"),
+      content: `<div class="dialogForm">
+        <div class="form-group">
+          <label><i class="fas fa-coins"></i> <b>${t("UESRPG.Sheets.Equipment.Wealth")}</b></label>
+          <input name="wealthDelta" placeholder="ex. -20, +10" value="0" type="text" style="text-align:center;width:50%;">
+        </div>
+      </div>`,
+      buttons: {
+        cancel: { label: t("UESRPG.UI.Cancel", "Cancel") },
+        submit: {
+          label: t("UESRPG.UI.Submit", "Submit"),
+          icon: "fas fa-check",
+          callback: async (html) => {
+            const el = html instanceof HTMLElement ? html : html?.[0];
+            const delta = parseInt(el?.querySelector?.("[name='wealthDelta']")?.value, 10) || 0;
+            const wealth = Number(this.document?.flags?.[SYSTEM_ID]?.groupWealth ?? 0);
+            await requestUpdateDocument(this.document, { [`flags.${SYSTEM_ID}.groupWealth`]: wealth + delta });
+          },
+        },
+      },
+      default: "submit",
+    });
   }
 
   async _onPlusQty(event, target) {
@@ -928,7 +1268,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     const item = this.document.items.get(itemId);
     if (!item) return;
     const qty = Number(item.system.quantity ?? 0);
-    await requestUpdateDocument(item, { "system.quantity": qty + 1 });
+    await setOwnedItemQuantityOrDelete({ item, quantity: qty + 1 });
   }
 
   async _onMinusQty(event, target) {
@@ -941,7 +1281,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     const qty = Number(item.system.quantity ?? 0);
     const next = Math.max(qty - 1, 0);
     if (next === 0 && qty > 0) ui.notifications.info(tf("UESRPG.Notifications.Group.UsedLastItem", { item: item.name }));
-    await requestUpdateDocument(item, { "system.quantity": next });
+    await setOwnedItemQuantityOrDelete({ item, quantity: next });
   }
 
   /** Delete an item with confirmation and container safety */

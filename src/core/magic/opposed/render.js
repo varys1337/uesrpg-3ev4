@@ -77,15 +77,20 @@ function renderMagicCastContextRows(attacker, spell = null) {
 }
 
 function getMagicTestLabel(a, revealed) {
-  if (!revealed) return "-";
+  if (!revealed) return "??";
   return String(a?.spellSchool ?? a?.spellName ?? t("UESRPG.Chat.Magic.Spell", "Spell"));
 }
 
-function getMagicAttackLabel(a, revealed) {
-  if (!revealed) return "-";
+function getMagicAttackLabel(a, revealed, spell = null) {
+  if (!revealed) return "??";
   const spellName = String(a?.spellName ?? t("UESRPG.Chat.Magic.Spell", "Spell"));
-  const spellLevel = Number(a?.spellLevel ?? 1);
-  return `${spellName} (${spellLevel})`;
+  const castContext = buildMagicCastContextRows(a, spell);
+  const baseLevel = Math.max(1, Number(castContext?.baseLevel ?? a?.spellLevel ?? 1) || 1);
+  const castLevel = Math.max(1, Number(castContext?.castLevel ?? a?.spellOptions?.castLevel ?? baseLevel) || baseLevel);
+  const spellStrength = Number(castContext?.spellStrengthValue ?? NaN);
+  const details = [`L${castLevel}`];
+  if (Number.isFinite(spellStrength) && spellStrength > 0) details.push(`SS ${Math.floor(spellStrength)}`);
+  return `${spellName} (${details.join(", ")})`;
 }
 
 function shouldShowAttackRow(data, a, revealed) {
@@ -118,6 +123,16 @@ function renderTNLine(tnValue, entries) {
       </summary>
       <div style="margin:4px 0 0 0; padding-left:8px; width:100%; box-sizing:border-box; font-size:12px; opacity:0.95;">${rows}</div>
     </details>
+  `;
+}
+
+function renderLaneHeader({ icon = "", name = "", title = "" } = {}) {
+  const safeTitle = String(title ?? "").replaceAll('"', "&quot;");
+  return `
+    <div class="ues-magic-opposed-lane-header" ${safeTitle ? `title="${safeTitle}"` : ""}>
+      <span class="ues-magic-opposed-lane-icon" aria-hidden="true">${icon}</span>
+      <span class="ues-magic-opposed-lane-name"><b>${name}</b></span>
+    </div>
   `;
 }
 
@@ -349,8 +364,6 @@ function getMagicDefenderCommitDefenseGate(defenderData, ctx) {
 function renderMultiDefenderCard(data, messageId, ctx) {
   const defenders = getDefenderEntries(data);
   const a = data.attacker ?? {};
-  const cost = getCostPresentation(a);
-  const attackerCostLine = renderRow(cost.label, cost.value);
   const bankMode = isBankChoicesEnabledForData(data);
   const anyOutcome = defenders.some(d => getDefenderOutcome(data, d));
   const { aCommitted } = getBankCommitState(data, defenders[0] ?? null);
@@ -364,12 +377,11 @@ function renderMultiDefenderCard(data, messageId, ctx) {
       : t("UESRPG.Chat.Magic.StandardDefenseNote", "Defender may choose Block, Evade, or No Defense."));
 
   const aTestLabel = getMagicTestLabel(a, revealAttacker);
-  const aAttackLabel = getMagicAttackLabel(a, revealAttacker);
-  const showAttackRow = shouldShowAttackRow(data, a, revealAttacker);
   const attackerSpell = revealAttacker ? resolveSpellFromUuid(a.spellUuid, ctx) : null;
-  const attackerCastContextRows = revealAttacker ? renderMagicCastContextRows(a, attackerSpell) : "";
+  const aAttackLabel = getMagicAttackLabel(a, revealAttacker, attackerSpell);
+  const showAttackRow = shouldShowAttackRow(data, a, revealAttacker);
 
-  const aTN = revealAttacker ? String(extractTN(a.tn)) : "-";
+  const aTN = revealAttacker ? String(extractTN(a.tn)) : "??";
   const aRollLine = renderRollLine(a.result);
 
   const attackerCommitLine = (() => {
@@ -405,12 +417,12 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     // For characteristic saves, TN is deterministic and should be revealed immediately
     const revealDefender = !bankMode || bothCommitted || Boolean(outcome) || isCharSave;
 
-    const dTN = revealDefender ? String(extractTN(d.tn)) : "-";
+    const dTN = revealDefender ? String(extractTN(d.tn)) : "??";
     const dTestLabel = !revealDefender
-      ? "-"
+      ? "??"
       : (isCharSave ? t("UESRPG.Chat.Magic.Characteristic", "Characteristic") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? t("UESRPG.Chat.Common.Choose", "(choose)"))));
     const dDefenseLabel = !revealDefender
-      ? "-"
+      ? "??"
       : (isCharSave ? t("UESRPG.Chat.Magic.CharacteristicSave", "Characteristic Save") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? "-")));
     const dRollLine = isCharSave
       ? (d.result ? renderRollLine(d.result) : renderRow(`${t("UESRPG.Chat.Common.Roll", "Roll")}:`, `<i style="opacity:0.8;">${t("UESRPG.Chat.Magic.AwaitingTest", "Awaiting test...")}</i>`, { nowrapValue: true }))
@@ -518,11 +530,12 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     const damagePanel = _buildDamagePanel(getMagicDefenderDamage(data, d));
 
     return `
-      <div style="padding:6px; border:1px solid rgba(0,0,0,0.12); border-radius:6px;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
-          <div style="font-size:14px; font-weight:700;">${t("UESRPG.Chat.Common.Target", "Target")}</div>
-          <div style="font-size:12px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
-        </div>
+      <div class="ues-magic-opposed-defender-card">
+        ${renderLaneHeader({
+          icon: "&#128737;",
+          name: d.tokenName ?? d.name ?? "",
+          title: t("UESRPG.Chat.Common.Target", "Target")
+        })}
         <div style="margin-top:4px; font-size:13px; line-height:1.25;">
           ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, dTestLabel)}
           ${renderRow(`${t("UESRPG.Chat.Opposed.Defense", "Defense")}:`, dDefenseLabel)}
@@ -541,15 +554,14 @@ function renderMultiDefenderCard(data, messageId, ctx) {
     <div class="ues-opposed-card ues-magic-opposed-card" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1" style="padding:6px 6px;">
       <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
         <div style="padding-bottom:8px; border-bottom:1px solid rgba(0,0,0,0.12);">
-          <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">${t("UESRPG.Chat.Magic.Caster", "Caster")}</div>
-            <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
-          </div>
+          ${renderLaneHeader({
+            icon: "&#10022;",
+            name: a.tokenName ?? a.name ?? "",
+            title: t("UESRPG.Chat.Magic.Caster", "Caster")
+          })}
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
             ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, aTestLabel)}
             ${showAttackRow ? renderRow(`${t("UESRPG.Chat.Opposed.Attack", "Attack")}:`, aAttackLabel) : ""}
-            ${attackerCastContextRows}
-            ${attackerCostLine}
             ${renderTNLine(aTN, revealAttacker ? (a.tn?.breakdown ?? a.tn?.modifiers) : null)}
             ${aRollLine}
             ${attackerCommitLine}
@@ -570,8 +582,6 @@ function renderMultiDefenderCard(data, messageId, ctx) {
 function renderSingleDefenderCard(data, messageId, ctx) {
   const a = data.attacker;
   const d = data.defender;
-  const cost = getCostPresentation(a);
-  const attackerCostLine = renderRow(cost.label, cost.value);
 
   const bankMode = isBankChoicesEnabledForData(data);
   const { aCommitted, dCommitted, bothCommitted } = getBankCommitState(data);
@@ -591,19 +601,18 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   const revealChoices = !bankMode || bothCommitted || resolved;
   
   const aTestLabel = getMagicTestLabel(a, revealChoices);
-  const aAttackLabel = getMagicAttackLabel(a, revealChoices);
-  const showAttackRow = shouldShowAttackRow(data, a, revealChoices);
   const attackerSpell = revealChoices ? resolveSpellFromUuid(a.spellUuid, ctx) : null;
-  const attackerCastContextRows = revealChoices ? renderMagicCastContextRows(a, attackerSpell) : "";
+  const aAttackLabel = getMagicAttackLabel(a, revealChoices, attackerSpell);
+  const showAttackRow = shouldShowAttackRow(data, a, revealChoices);
 
-  const aTN = revealChoices ? String(extractTN(a.tn)) : "-";
-  const dTN = revealChoices ? String(extractTN(d.tn)) : "-";
+  const aTN = revealChoices ? String(extractTN(a.tn)) : "??";
+  const dTN = revealChoices ? String(extractTN(d.tn)) : "??";
   // isCharSave already declared above at line 353
   const dTestLabel = !revealChoices
-    ? "-"
+    ? "??"
     : (isCharSave ? t("UESRPG.Chat.Magic.ChaSave", "CHA Save") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? t("UESRPG.Chat.Common.Choose", "(choose)"))));
   const dDefenseLabel = !revealChoices
-    ? "-"
+    ? "??"
     : (isCharSave ? t("UESRPG.Chat.Magic.CharacteristicSave", "Characteristic Save") : (d.noDefense ? t("UESRPG.Chat.Opposed.NoDefense", "No Defense") : (d.defenseType ?? "-")));
 
   const aRollLine = renderRollLine(a.result);
@@ -746,29 +755,29 @@ function renderSingleDefenderCard(data, messageId, ctx) {
   const singleDamagePanel = _buildDamagePanel(getMagicDefenderDamage(data, d));
   return `
     <div class="ues-opposed-card ues-magic-opposed-card" data-message-id="${String(messageId ?? "")}" data-ues-magic-opposed="1" style="padding:6px 6px;">
-      <div style="display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:stretch;">
-        <div style="min-width:0; padding-right:8px; border-right:1px solid rgba(0,0,0,0.12); box-sizing:border-box; display:flex; flex-direction:column;">
-          <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">${t("UESRPG.Chat.Magic.Caster", "Caster")}</div>
-            <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${a.tokenName ?? a.name ?? ""}</b></div>
+      <div class="ues-magic-opposed-duel-grid">
+        <div class="ues-magic-opposed-lane ues-magic-opposed-lane--attacker">
+          ${renderLaneHeader({
+            icon: "&#10022;",
+            name: a.tokenName ?? a.name ?? "",
+            title: t("UESRPG.Chat.Magic.Caster", "Caster")
+          })}
+          <div style="margin-top:4px; font-size:13px; line-height:1.25;">
+            ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, aTestLabel)}
+            ${showAttackRow ? renderRow(`${t("UESRPG.Chat.Opposed.Attack", "Attack")}:`, aAttackLabel) : ""}
+            ${renderTNLine(aTN, aBreakdownEntries)}
+            ${aRollLine}
+            ${attackerCommitLine}
           </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, aTestLabel)}
-          ${showAttackRow ? renderRow(`${t("UESRPG.Chat.Opposed.Attack", "Attack")}:`, aAttackLabel) : ""}
-          ${attackerCastContextRows}
-          ${attackerCostLine}
-          ${renderTNLine(aTN, aBreakdownEntries)}
-          ${aRollLine}
-          ${attackerCommitLine}
-          </div>
-          <div style="margin-top:auto;">${attackerControls}</div>
+          ${attackerControls}
         </div>
 
-        <div style="min-width:0; padding-left:8px; box-sizing:border-box; display:flex; flex-direction:column;">
-          <div style="display:flex; justify-content:space-between; align-items:baseline;">
-            <div style="font-size:14px; font-weight:700;">${t("UESRPG.Chat.Common.Target", "Target")}</div>
-            <div style="font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><b>${d.tokenName ?? d.name ?? ""}</b></div>
-          </div>
+        <div class="ues-magic-opposed-lane ues-magic-opposed-lane--defender">
+          ${renderLaneHeader({
+            icon: "&#128737;",
+            name: d.tokenName ?? d.name ?? "",
+            title: t("UESRPG.Chat.Common.Target", "Target")
+          })}
           <div style="margin-top:4px; font-size:13px; line-height:1.25;">
             ${renderRow(`${t("UESRPG.Chat.Common.Test", "Test")}:`, dTestLabel)}
             ${renderRow(`${t("UESRPG.Chat.Opposed.Defense", "Defense")}:`, dDefenseLabel)}
@@ -776,7 +785,7 @@ function renderSingleDefenderCard(data, messageId, ctx) {
             ${dRollLine}
             ${defenderCommitLine}
           </div>
-          <div style="margin-top:auto;">${defenderControls}</div>
+          ${defenderControls}
         </div>
       </div>
       ${outcomeLine}

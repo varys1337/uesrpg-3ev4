@@ -1,0 +1,14 @@
+<nav class="uesrpg-bookmark-tabs tabs" data-group="primary" aria-label="Tabs">
+  {{#if (eq actor.type "Group")}}
+    <a class="item" data-action="tab" data-group="primary" data-tab="members">{{localize "UESRPG.UI.Members"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="inventory">{{localize "UESRPG.UI.Inventory"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="travel">{{localize "UESRPG.UI.Travel"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="details">{{localize "UESRPG.UI.Details"}}</a>
+  {{else}}
+    <a class="item" data-action="tab" data-group="primary" data-tab="core">{{localize "UESRPG.UI.Core"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="combat">{{localize "UESRPG.UI.Combat"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="magic">{{localize "UESRPG.UI.Magic"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="equipment">{{localize "UESRPG.UI.Items"}}</a>
+    <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
+  {{/if}}
+</nav>

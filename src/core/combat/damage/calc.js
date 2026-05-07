@@ -247,7 +247,7 @@ export function calculateDamage(rawDamage, damageType, targetActor, options = {}
   const ignoreNonMagicArmor = attackerIncorporeal && String(damageType ?? "").toLowerCase() === DAMAGE_TYPES.PHYSICAL;
 
   if (!ignoreArmor) {
-    reductions = getDamageReduction(targetActor, damageType, hitLocation, { ignoreNonMagicArmor });
+    reductions = getDamageReduction(targetActor, damageType, hitLocation, { ignoreNonMagicArmor, attackerActor });
 
     // Penetration reduces ARMOR only (not resistance/toughness)
     originalArmor = Number(reductions.armor ?? 0);

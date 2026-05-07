@@ -4,9 +4,10 @@
  * Active Effect modifier aggregation utilities for damage resolution.
  */
 
-import { evaluateAEModifierKeys, evaluateAEModifierKeysDetailed } from "../../../active-effects/modifier-evaluator.js";
+import { evaluateAEModifierKeysDetailed } from "../../../active-effects/modifier-evaluator.js";
 import { isAddMode, isOverrideMode } from "../../../active-effects/reducers.js";
 import { isTransferEffectActive } from "../../../active-effects/transfer.js";
+import { getActorCreatureTypeKeys, getCreatureTypeLabel } from "../../../rules/creature-types.js";
 import { getEffectChanges } from "../../../../utils/compat.js";
 
 /**
@@ -32,11 +33,18 @@ import { getEffectChanges } from "../../../../utils/compat.js";
  * }}
  */
 export function getAETwitterMods(attackerActor, defenderActor) {
+  const defenderCreatureTypes = getActorCreatureTypeKeys(defenderActor);
+  const conditionalDamageKeys = defenderCreatureTypes
+    .map((type) => `system.modifiers.combat.damage.dealt.${type}`);
   const atkKeys = ["system.modifiers.combat.damage.dealt", "system.modifiers.combat.penetration"];
   const defKeys = ["system.modifiers.combat.damage.taken", "system.modifiers.combat.mitigation.flat"];
 
-  const atkResult = attackerActor ? evaluateAEModifierKeysDetailed(attackerActor, atkKeys) : null;
-  const defResult = evaluateAEModifierKeysDetailed(defenderActor, defKeys);
+  const atkResult = attackerActor ? evaluateAEModifierKeysDetailed(attackerActor, atkKeys, {
+    context: { opposingActor: defenderActor, defenderActor },
+  }) : null;
+  const defResult = evaluateAEModifierKeysDetailed(defenderActor, defKeys, {
+    context: { opposingActor: attackerActor, attackerActor },
+  });
 
   // Extract plain totals for numeric calculations
   const atkResolved = atkResult?.totalsByKey ?? null;
@@ -46,14 +54,16 @@ export function getAETwitterMods(attackerActor, defenderActor) {
     const out = [];
     if (!detailedResult) return out;
     const detailsByKey = detailedResult.detailsByKey ?? {};
-    for (const [key, target] of Object.entries(mapping)) {
+    for (const [key, config] of Object.entries(mapping)) {
+      const target = typeof config === "string" ? config : config?.target;
       const detail = detailsByKey[key];
       const contribs = detail?.contributions;
       if (!Array.isArray(contribs) || !contribs.length) continue;
       for (const e of contribs) {
+        const labelSuffix = typeof config === "object" && config?.labelSuffix ? ` ${config.labelSuffix}` : "";
         out.push({
           key: `ae-${target}-${e.effectId ?? foundry.utils.randomID()}`,
-          label: e.label,
+          label: `${e.label}${labelSuffix}`,
           value: e.value,
           effectId: e.effectId ?? null,
           target,
@@ -65,8 +75,21 @@ export function getAETwitterMods(attackerActor, defenderActor) {
     return out;
   };
 
-  const attackerDamageDealt = atkResolved ? (atkResolved["system.modifiers.combat.damage.dealt"] ?? 0) : 0;
+  const attackerDamageDealt = atkResolved
+    ? (Number(atkResolved["system.modifiers.combat.damage.dealt"] ?? 0) || 0)
+    : 0;
   const attackerPen = atkResolved ? (atkResolved["system.modifiers.combat.penetration"] ?? 0) : 0;
+
+  const attackerEntryMap = {
+    "system.modifiers.combat.damage.dealt": "damage.dealt",
+    "system.modifiers.combat.penetration": "penetration",
+  };
+  for (const type of defenderCreatureTypes) {
+    attackerEntryMap[`system.modifiers.combat.damage.dealt.${type}`] = {
+      target: "damage.dealt",
+      labelSuffix: `(vs ${getCreatureTypeLabel(type)})`,
+    };
+  }
 
   const defenderDamageTaken = defResolved["system.modifiers.combat.damage.taken"] ?? 0;
   const defenderMitFlat = defResolved["system.modifiers.combat.mitigation.flat"] ?? 0;
@@ -76,10 +99,7 @@ export function getAETwitterMods(attackerActor, defenderActor) {
       damageDealt: attackerDamageDealt,
       penetration: attackerPen,
       entries: [
-        ...packEntries(atkResult, {
-          "system.modifiers.combat.damage.dealt": "damage.dealt",
-          "system.modifiers.combat.penetration": "penetration",
-        }),
+        ...packEntries(atkResult, attackerEntryMap),
       ],
     },
     defender: {
@@ -104,9 +124,20 @@ export function getAETwitterMods(attackerActor, defenderActor) {
  *  - Otherwise, ADD entries stack.
  *
  * @param {Actor} attackerActor
+ * @param {{targetActor?: Actor|null}} [options]
  * @returns {{byType: Record<string, {total:number, entries:Array<{label:string,value:number,mode:string,priority:number,effectId?:string}>}>}}
  */
-export function collectTypedBonusDamage(attackerActor) {
+export function collectTypedBonusDamage(attackerActor, options = {}) {
+  const targetCreatureTypes = getActorCreatureTypeKeys(options?.targetActor ?? null);
+  const allowedKeys = new Set([
+    "system.modifiers.combat.damage.dealt",
+    ...targetCreatureTypes.map((type) => `system.modifiers.combat.damage.dealt.${type}`),
+  ]);
+  const labelSuffixByKey = new Map(targetCreatureTypes.map((type) => [
+    `system.modifiers.combat.damage.dealt.${type}`,
+    `(vs ${getCreatureTypeLabel(type)})`,
+  ]));
+
   const parseTyped = (raw) => {
     if (raw == null) return null;
     const s = String(raw).trim();
@@ -143,15 +174,16 @@ export function collectTypedBonusDamage(attackerActor) {
 
     for (const ch of getEffectChanges(effect)) {
       if (!ch) continue;
-      if (ch.key !== "system.modifiers.combat.damage.dealt") continue;
+      if (!allowedKeys.has(ch.key)) continue;
 
       const typed = parseTyped(ch.value);
       if (!typed) continue;
 
       const dtype = typed.dtype;
+      const labelSuffix = labelSuffixByKey.get(ch.key);
       collected[dtype] ??= [];
       collected[dtype].push({
-        label,
+        label: labelSuffix ? `${label} ${labelSuffix}` : label,
         value: typed.amount,
         mode: isOverrideMode(ch) ? "override" : (isAddMode(ch) ? "add" : "custom"),
         priority,

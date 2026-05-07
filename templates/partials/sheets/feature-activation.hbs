@@ -135,7 +135,7 @@
       <div class="structured-qualities-grid">
         {{#each activationDamageQualitiesCatalog}}
           <div class="structured-qualities-cell">
-            <div>{{this.label}}</div>
+            <div>{{localize this.label}}</div>
             <div class="right-align-content">
               {{#if this.optionalValue}}
                 <div class="structured-optional-value">
@@ -159,7 +159,7 @@
           {{#each activationDamageTraitsCatalog}}
             <label class="uesrpg-pill {{#if this.selected}}is-selected{{/if}}">
               <input type="checkbox" name="activationDamageQualitiesTraits.toggle.{{this.key}}" {{checked this.selected}} />
-              <span>{{this.label}}</span>
+              <span>{{localize this.label}}</span>
             </label>
           {{/each}}
         </div>

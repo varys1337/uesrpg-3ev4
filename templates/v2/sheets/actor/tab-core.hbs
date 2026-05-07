@@ -4,7 +4,6 @@
     <div class="skillContainer">
       <div class="section-header">
         <span class="section-header__label">{{localize "UESRPG.UI.Skills"}}</span>
-        <button type="button" data-action="itemCreate" class="section-header__action" id="skill" title="{{localize "UESRPG.UI.AddSkill"}}">+</button>
       </div>
       <ul class="skillList">
         {{#each actor.skill as |item id|}}
@@ -27,7 +26,6 @@
         <div class="section-header">
           <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="traits" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
           <span class="section-header__label">{{localize "UESRPG.UI.Traits"}}</span>
-          <button type="button" data-action="itemCreate" class="section-header__action" id="trait" title="{{localize "UESRPG.UI.AddTrait"}}">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.trait as |item id|}}
@@ -51,7 +49,6 @@
         <div class="section-header">
           <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="talents" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
           <span class="section-header__label">{{localize "UESRPG.UI.Talents"}}</span>
-          <button type="button" data-action="itemCreate" class="section-header__action" id="talent" title="{{localize "UESRPG.UI.AddTalent"}}">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.talent as |item id|}}
@@ -72,7 +69,6 @@
         <div class="section-header">
           <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="powers" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
           <span class="section-header__label">{{localize "UESRPG.UI.Powers"}}</span>
-          <button type="button" data-action="itemCreate" class="section-header__action" id="power" title="{{localize "UESRPG.UI.AddPower"}}">+</button>
         </div>
         <ol class="single-column-list">
           {{#each actor.power as |item id|}}
@@ -145,6 +141,7 @@
 
     <div class="bioPage">
       <div class="section-header">
+        <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="notes" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
         <span class="section-header__label">{{localize "UESRPG.UI.Biography"}}</span>
         <button type="button" class="section-header__action" data-action="openBioEditor" title="{{localize "UESRPG.UI.EditBiography"}}">
           <i class="fas fa-pen"></i>

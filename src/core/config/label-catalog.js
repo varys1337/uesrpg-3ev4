@@ -204,6 +204,16 @@ export const TRAINING_RANK_LABELS = Object.freeze({
   legendary: "UESRPG.Labels.TRAINING_RANK.legendary"
 });
 
+export const NPC_MAGIC_RANK_LABELS = Object.freeze({
+  untrained: "UESRPG.Labels.TRAINING_RANK.untrained",
+  novice: "UESRPG.Labels.TRAINING_RANK.novice",
+  apprentice: "UESRPG.Labels.TRAINING_RANK.apprentice",
+  journeyman: "UESRPG.Labels.TRAINING_RANK.journeyman",
+  adept: "UESRPG.Labels.TRAINING_RANK.adept",
+  expert: "UESRPG.Labels.TRAINING_RANK.expert",
+  master: "UESRPG.Labels.TRAINING_RANK.master"
+});
+
 // ── Religion domains ──────────────────────────────────────────────────────────
 
 export const RELIGION_DOMAIN_LABELS = Object.freeze({

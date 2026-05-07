@@ -3,7 +3,6 @@
                     <div class="magicSkillContainer">
                         <div class="section-header">
                             <span class="section-header__label">{{localize "UESRPG.Sheets.Magic.MagicSkills"}}</span>
-                            <button type="button" data-action="itemCreate" class="section-header__action" id="magicSkill">+</button>
                         </div>
                         <ol class="skillList">
                             {{#each actor.magicSkill as |item id|}}
@@ -28,7 +27,7 @@
 
                     {{#if actor.ui.worship.enabled}}
                     <div class="spellListContainer">
-                        <div class="section-header" style="justify-content:flex-end;">
+                        <div class="section-header section-header--actions-end">
                             <button type="button" data-action="itemCreate" class="section-header__action" id="invocation">+</button>
                         </div>
                         <div class="spellList">

@@ -208,11 +208,18 @@ export function debugMagicRoutingLog({ source, actor, spell, targets }) {
  * @param {Actor} actor
  * @returns {number} The highest spell level that can be reflected (0 = no reflect)
  */
-export function getSpellReflectThreshold(actor) {
+export function getSpellReflectThreshold(actor, options = {}) {
   if (!actor) return 0;
 
   // AE-based spellReflect value (aggregated from all active effects)
-  const aeResult = evaluateAEModifierKeys(actor, ["system.modifiers.magic.spellReflect"]);
+  const aeResult = evaluateAEModifierKeys(actor, ["system.modifiers.magic.spellReflect"], {
+    context: {
+      attackMode: "magic",
+      opposingActor: options?.opposingActor ?? options?.casterActor ?? options?.attackerActor ?? null,
+    },
+    enforceConditions: true,
+    dedupeByOrigin: true,
+  });
   const aeValue = Number(aeResult["system.modifiers.magic.spellReflect"] ?? 0) || 0;
 
   // Direct data path fallback (for manually set values or non-AE sources)
@@ -243,7 +250,10 @@ export async function trySpellReflect(targetActor, spell, casterActor, options =
   // Don't reflect self-targeted spells
   if (casterActor && targetActor.uuid === casterActor.uuid) return result;
 
-  const threshold = getSpellReflectThreshold(targetActor);
+  const threshold = getSpellReflectThreshold(targetActor, {
+    opposingActor: casterActor,
+    casterActor,
+  });
   result.threshold = threshold;
 
   if (threshold <= 0) return result;

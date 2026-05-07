@@ -1,4 +1,5 @@
 import { isPerfEnabled, monoMs, perfRecord } from "../../utils/perf-tracker.js";
+import { registerOnce } from "../_internal/hook-registry.js";
 
 function scheduleDeferredReadyTask(label, task, options = {}) {
   const scheduler = typeof requestIdleCallback === 'function'
@@ -22,46 +23,47 @@ function scheduleDeferredReadyTask(label, task, options = {}) {
 }
 
 export function registerSystemDeferredTasks() {
-  // Existing deferred tasks (unchanged)
-  scheduleDeferredReadyTask("utility-spells", async () => {
-    const { initializeUtilitySpellsService } = await import("../../core/magic/services/utility-spells-service.js");
-    initializeUtilitySpellsService();
-  });
+  registerOnce("hooks:ready-deferred-tasks", () => {
+    // Existing deferred tasks (unchanged)
+    scheduleDeferredReadyTask("utility-spells", async () => {
+      const { initializeUtilitySpellsService } = await import("../../core/magic/services/utility-spells-service.js");
+      initializeUtilitySpellsService();
+    });
 
-  scheduleDeferredReadyTask("characteristic-defense", async () => {
-    const { initializeCharacteristicDefenseService } = await import("../../core/magic/characteristic-defense-service.js");
-    initializeCharacteristicDefenseService();
-  });
+    scheduleDeferredReadyTask("characteristic-defense", async () => {
+      const { initializeCharacteristicDefenseService } = await import("../../core/magic/characteristic-defense-service.js");
+      initializeCharacteristicDefenseService();
+    });
 
-  scheduleDeferredReadyTask("alchemy-runtime", async () => {
-    const { initializeAlchemyRuntime } = await import("../../core/alchemy/runtime.js");
-    initializeAlchemyRuntime();
-  });
+    scheduleDeferredReadyTask("alchemy-runtime", async () => {
+      const { initializeAlchemyRuntime } = await import("../../core/alchemy/runtime.js");
+      initializeAlchemyRuntime();
+    });
 
-  scheduleDeferredReadyTask("strike-runtime", async () => {
-    const { initializeStrikeOnHitRuntime } = await import("../../core/enchanting/runtime/strike-on-hit.js");
-    initializeStrikeOnHitRuntime();
-  });
+    scheduleDeferredReadyTask("strike-runtime", async () => {
+      const { initializeStrikeOnHitRuntime } = await import("../../core/enchanting/runtime/strike-on-hit.js");
+      initializeStrikeOnHitRuntime();
+    });
 
-  // New deferred tasks from Patch 3: Ready-Path Deferral
-  scheduleDeferredReadyTask("startup-dialog", async () => {
-    const startupHandler = await import("../startup.js");
-    await startupHandler.default();
-  });
+    // New deferred tasks from Patch 3: Ready-Path Deferral
+    scheduleDeferredReadyTask("startup-dialog", async () => {
+      const startupHandler = await import("../startup.js");
+      await startupHandler.default();
+    });
 
-  scheduleDeferredReadyTask("token-hud-upgrade", async () => {
-    const { runTokenHudStatusUpgradeMaintenance } = await import("../../core/conditions/status-hud.js");
-    await runTokenHudStatusUpgradeMaintenance();
-  });
+    scheduleDeferredReadyTask("token-hud-upgrade", async () => {
+      const { runTokenHudStatusUpgradeMaintenance } = await import("../../core/conditions/status-hud.js");
+      await runTokenHudStatusUpgradeMaintenance();
+    });
 
-  scheduleDeferredReadyTask("active-effect-integrity", async () => {
-    const { runActiveEffectIntegrityNormalization } = await import("../../core/active-effects/integrity.js");
-    await runActiveEffectIntegrityNormalization();
-  });
+    scheduleDeferredReadyTask("active-effect-integrity", async () => {
+      const { runActiveEffectIntegrityNormalization } = await import("../../core/active-effects/integrity.js");
+      await runActiveEffectIntegrityNormalization();
+    });
 
-  scheduleDeferredReadyTask("perf-api-init", async () => {
-    const { initializePerfApi } = await import("../../utils/perf-tracker.js");
-    initializePerfApi();
+    scheduleDeferredReadyTask("perf-api-init", async () => {
+      const { initializePerfApi } = await import("../../utils/perf-tracker.js");
+      initializePerfApi();
+    });
   });
-
 }

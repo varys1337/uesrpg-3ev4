@@ -13,7 +13,6 @@ import {
 import { t } from "../../../utils/i18n.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-const NAMESPACE = SYSTEM_ID;
 
 function _stateSummary(state, key) {
   const requiredRevision = MIGRATION_REVISIONS[key] ?? 0;

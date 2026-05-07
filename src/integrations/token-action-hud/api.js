@@ -16,6 +16,7 @@ import { LuckAPI } from "../../core/luck/luck-workflow.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "../../ui/sheets/rest-workflow.js";
 import { LanguageSelectorAppV2, FactionSelectorAppV2 } from "../../ui/apps/v2/social-selectors.js";
 import { buildSpecialActionsForActor } from "../../core/combat/combat-style-utils.js";
+import { setOwnedItemEquipped } from "../../core/items/owned-item-quantity.js";
 import { getSpecialActionById } from "../../config/index.js";
 import {
   invokeSheetOrHandler,
@@ -274,8 +275,9 @@ export function createTokenActionHudApi() {
      */
     async setItemEquipped({ item, equipped } = {}) {
       if (!item) return result(false, "none", { reason: "no-item" });
-      await item.update({ "system.equipped": Boolean(equipped) });
-      return result(true, "item.update.system.equipped");
+      const updated = await setOwnedItemEquipped({ item, equipped: Boolean(equipped) });
+      if (!updated.ok) return result(false, "none", { reason: "item-update-failed" });
+      return result(true, "ownedItem.updateEmbedded.system.equipped");
     },
 
     /**

@@ -156,6 +156,26 @@ export function registerUiSettings() {
     onChange: _reRenderAllSheets,
   });
 
+  _reg("useActorSheetV2", {
+    name: "Actor Sheet V2 Compatibility Flag",
+    hint: "Internal compatibility flag retained for migrated worlds. Actor sheets now use the AppV2 production path.",
+    scope: "world",
+    config: false,
+    requiresReload: true,
+    default: true,
+    type: Boolean,
+  });
+
+  _reg("useItemSheetV2", {
+    name: "Item Sheet V2 Compatibility Flag",
+    hint: "Internal compatibility flag retained for migrated worlds. Item sheets now use the AppV2 production path.",
+    scope: "world",
+    config: false,
+    requiresReload: true,
+    default: true,
+    type: Boolean,
+  });
+
   // Hidden diagnostics: client-only tracing for AppV2 sheet lifecycle timings.
   _reg("sheetPerfTrace", {
     name: "Sheet Performance Trace",

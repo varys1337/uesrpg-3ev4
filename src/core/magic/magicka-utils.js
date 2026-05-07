@@ -27,6 +27,7 @@ import { isShieldItem } from "../items/shield-utils.js";
 import { isWarfareUnitActorType } from "../actors/types.js";
 import { hasTalent } from "../traits/talents-api.js";
 import { canActorAccessDomainSpell, isDomainSpellItem } from "../religion/ritual-domains.js";
+import { getNpcThreatDamageModifier } from "../rules/npc-threat-templates.js";
 
 // Re-export for backward compatibility - canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
@@ -123,14 +124,15 @@ function _collectSpellCostModifierKeys(spell) {
   return Array.from(keySet);
 }
 
-function _evaluateSpellCostAEModifier(actor, spell) {
+function _evaluateSpellCostAEModifier(actor, spell, options = {}) {
   try {
     const keys = _collectSpellCostModifierKeys(spell);
     if (!keys.length) return { total: 0, breakdown: [] };
     const result = evaluateAEModifierKeysDetailed(actor, keys, {
       context: {
         attackMode: "magic",
-        itemUuid: String(spell?.uuid ?? "")
+        itemUuid: String(spell?.uuid ?? ""),
+        opposingActor: options?.opposingActor ?? options?.targetActor ?? options?.defenderActor ?? null,
       },
       enforceConditions: true,
       dedupeByOrigin: true
@@ -150,7 +152,7 @@ function _evaluateSpellCostAEModifier(actor, spell) {
 
 function _computeSpellBaseCost(actor, spell, options = {}) {
   const baseCostRaw = getSpellCost(spell, options.level ?? null);
-  const { total: aeModifierRaw, breakdown } = _evaluateSpellCostAEModifier(actor, spell);
+  const { total: aeModifierRaw, breakdown } = _evaluateSpellCostAEModifier(actor, spell, options);
   const aeModifier = _num(aeModifierRaw, 0);
 
   // Costs are integers in this system; treat AE modifiers as additive then clamp.
@@ -968,6 +970,7 @@ export async function rollSpellDamage(spell, options = {}) {
     return await new Roll("0").evaluate();
   }
 
+  const actor = options.actor ?? options.attacker ?? spell?.actor ?? null;
   const roll = await new Roll(damageFormula).evaluate();
 
   // Critical success: return max damage instead
@@ -982,6 +985,15 @@ export async function rollSpellDamage(spell, options = {}) {
   if (_bool(options.isOverloaded)) {
     const b = _num(options.overloadBonus, 0);
     if (b) roll._total = _num(roll._total, roll.total) + b;
+  }
+
+  const damageType = getSpellDamageType(spell);
+  const isHealingDamageType = damageType === "temporaryhealing" || damageType === "temporary healing";
+  if (!isHealingSpell(spell) && !isHealingDamageType) {
+    const threatDamageMod = getNpcThreatDamageModifier(actor);
+    if (threatDamageMod !== 0) {
+      roll._total = Math.max(0, _num(roll.total ?? roll._total, 0) + threatDamageMod);
+    }
   }
 
   return roll;
@@ -1274,7 +1286,8 @@ export function computeMagicCastingTN(actor, spell, options = {}) {
   const aeResult = evaluateAEModifierKeysDetailed(actor, aeKeys, {
     context: {
       attackMode: "magic",
-      itemUuid: String(spell?.uuid ?? "")
+      itemUuid: String(spell?.uuid ?? ""),
+      opposingActor: options?.opposingActor ?? options?.targetActor ?? options?.defenderActor ?? null,
     },
     enforceConditions: true,
     dedupeByOrigin: true,

@@ -5,8 +5,8 @@
  * Shared across actor sheet modules.
  */
 
-import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
-import { setOwnedItemQuantityOrDelete } from "../../../../core/items/owned-item-quantity.js";
+import { requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import { setOwnedItemEquipped, setOwnedItemQuantityOrDelete, updateOwnedItem } from "../../../../core/items/owned-item-quantity.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 
 /**
@@ -20,7 +20,7 @@ export const onToggle2H = asyncGuardSheet(async function onToggle2H(event, targe
   const item = this.actor.getEmbeddedDocument("Item", li?.dataset?.itemId);
   if (!item) return;
 
-  await requestUpdateDocument(item, { "system.weapon2H": !item.system.weapon2H });
+  await updateOwnedItem({ item, updates: { "system.weapon2H": !item.system.weapon2H } });
 });
 
 /**
@@ -35,7 +35,7 @@ export const onPlusQty = asyncGuardSheet(async function onPlusQty(event, target)
   if (!item) return;
 
   const currentQty = Number(item.system.quantity ?? 0);
-  await requestUpdateDocument(item, { "system.quantity": currentQty + 1 });
+  await updateOwnedItem({ item, updates: { "system.quantity": currentQty + 1 } });
 });
 
 /**
@@ -61,7 +61,7 @@ export const onMinusQty = asyncGuardSheet(async function onMinusQty(event, targe
     return;
   }
 
-  await requestUpdateDocument(item, { "system.quantity": newQty });
+  await setOwnedItemQuantityOrDelete({ item, quantity: newQty });
 });
 
 /**
@@ -78,8 +78,8 @@ export const onItemEquip = asyncGuardSheet(async function onItemEquip(event, tar
   const item = this.actor.getEmbeddedDocument("Item", itemId);
   if (!item) return;
 
-  const current = Boolean(item?.system?.equipped);
-  await requestUpdateDocument(item, { "system.equipped": !current });
+  const checked = target instanceof HTMLInputElement ? Boolean(target.checked) : null;
+  await setOwnedItemEquipped({ item, equipped: checked });
 });
 
 export const onWeaponAmmoSelect = asyncGuardSheet(async function onWeaponAmmoSelect(event, target) {

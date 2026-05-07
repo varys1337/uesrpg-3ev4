@@ -13,6 +13,7 @@ import { hasTalent } from "../../../traits/talents-api.js";
 import { getEffectiveWeaponHands, getDamageTypeFromWeapon, getWeaponCombatCapabilities } from "../../combat-utils.js";
 import { normalizeDiceExpression, safeEvaluateRoll } from "../rolls.js";
 import { itemHasToken } from "../../damage/tokens.js";
+import { getNpcThreatDamageModifier } from "../../../rules/npc-threat-templates.js";
 
 function _stepUpNaturalWeaponDice(expr) {
   const s = String(expr ?? "").trim();
@@ -192,20 +193,25 @@ export async function rollWeaponDamage({ weapon, preConsumedAmmo = null, context
     damageString = addFlatBonus(damageString, -damagedValue);
   }
 
+  const threatDamageMod = getNpcThreatDamageModifier(weapon?.actor ?? null);
+  if (threatDamageMod !== 0) {
+    damageString = addFlatBonus(damageString, threatDamageMod);
+  }
+
   const a = await safeEvaluateRoll(damageString);
   damageString = a.formula;
   let b = null;
-  let total = Number(a.total);
+  let total = Math.max(0, Number(a.total) || 0);
 
   let rerollMode = null;
   if (wantsSuperior || wantsProven || wantsPrimitive) {
     b = await safeEvaluateRoll(damageString);
     const alt = Number(b.total);
     if (wantsPrimitive && !wantsProven) {
-      total = Math.min(total, alt);
+      total = Math.max(0, Math.min(total, alt));
       rerollMode = "primitive";
     } else {
-      total = Math.max(total, alt);
+      total = Math.max(0, Math.max(total, alt));
       rerollMode = (wantsSuperior || wantsProven) ? "proven" : null;
     }
   }

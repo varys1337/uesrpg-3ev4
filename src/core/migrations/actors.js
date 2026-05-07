@@ -19,9 +19,14 @@ import {
 } from "./state.js";
 import { buildDefaultWorshipData, buildDefaultWorshipDomainState } from "../religion/worship-store.js";
 import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
+import { NPC_THREAT_LEGACY_KEY_MAP } from "../rules/npc-threat-templates.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _ACTORS_MIGRATION_REVISION = 1;
+const _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_KEY = "npcThreatTemplateKeysV1";
+const _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_REVISION = 2;
+const _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_KEY = "npcThreatTemplateOptionsV1";
+const _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_REVISION = 2;
 const WARFARE_CONDITION_INIT_FLAG_PATH = `flags.${SYSTEM_ID}.warfareConditionInitialized`;
 
 function _buildResistanceDefaults() {
@@ -60,6 +65,18 @@ function _applySystemPathUpdates(system, updateObject = {}) {
     if (!key.startsWith("system.")) continue;
     foundry.utils.setProperty(system, key.slice("system.".length), value);
   }
+}
+
+function _debugEnabled() {
+  try {
+    return !!game.settings.get(MODULE_ID, "migrationDebug");
+  } catch (_err) {
+    return false;
+  }
+}
+
+function _hasPersistedNpcThreatCategory(actor) {
+  return actor?.system?.threatCategory !== undefined;
 }
 
 function _ensureResistanceDefaults(sys) {
@@ -244,6 +261,87 @@ export async function migrateActorsIfNeeded() {
   } catch (err) {
     console.error(`${MODULE_ID} | Actor migration failed`, err);
     ui.notifications?.error?.("UESRPG actor migration failed; check console for details.");
+  }
+}
+
+export async function migrateNpcThreatTemplateKeysIfNeeded() {
+  if (!game.user?.isGM) return;
+
+  const state = getMigrationState();
+  if (isMigrationRevisionApplied(_NPC_THREAT_TEMPLATE_KEYS_MIGRATION_KEY, _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_REVISION, state)) return;
+
+  try {
+    const updates = [];
+
+    for (const actor of game.actors.contents) {
+      if (actor.type !== "NPC") continue;
+
+      const threat = String(actor.system?.threat ?? "").trim();
+      if (!threat) continue;
+
+      const mappedThreat = NPC_THREAT_LEGACY_KEY_MAP[threat];
+      if (mappedThreat) {
+        updates.push({
+          _id: actor.id,
+          "system.threat": mappedThreat,
+        });
+      } else if (_debugEnabled()) {
+        console.warn(`${MODULE_ID} | Unknown NPC threat key left unchanged`, {
+          actorId: actor.id,
+          actorName: actor.name,
+          threat,
+        });
+      }
+    }
+
+    if (updates.length) {
+      console.log(`${MODULE_ID} | Migrating ${updates.length} NPC threat template key(s)`);
+      await Actor.implementation.updateDocuments(updates, { diff: false });
+    }
+
+    markMigrationRevisionApplied(state, _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_KEY, _NPC_THREAT_TEMPLATE_KEYS_MIGRATION_REVISION, {
+      updatedCount: updates.length
+    });
+    await setMigrationState(state);
+  } catch (err) {
+    console.error(`${MODULE_ID} | NPC threat template key migration failed`, err);
+    ui.notifications?.error?.("UESRPG NPC threat template migration failed; check console for details.");
+  }
+}
+
+export async function migrateNpcThreatTemplateOptionsIfNeeded() {
+  if (!game.user?.isGM) return;
+
+  const state = getMigrationState();
+  if (isMigrationRevisionApplied(_NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_KEY, _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_REVISION, state)) return;
+
+  try {
+    const updates = [];
+
+    for (const actor of game.actors.contents) {
+      if (actor.type !== "NPC") continue;
+      if (!_hasPersistedNpcThreatCategory(actor)) continue;
+      const system = _cloneData(actor.system);
+      if (!_isPlainObject(system)) continue;
+      delete system.threatCategory;
+      updates.push({
+        _id: actor.id,
+        system,
+      });
+    }
+
+    if (updates.length) {
+      console.log(`${MODULE_ID} | Removing persisted NPC threat template option map(s) from ${updates.length} actor(s)`);
+      await Actor.implementation.updateDocuments(updates, { diff: false });
+    }
+
+    markMigrationRevisionApplied(state, _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_KEY, _NPC_THREAT_TEMPLATE_OPTIONS_MIGRATION_REVISION, {
+      updatedCount: updates.length
+    });
+    await setMigrationState(state);
+  } catch (err) {
+    console.error(`${MODULE_ID} | NPC threat template option migration failed`, err);
+    ui.notifications?.error?.("UESRPG NPC threat template option migration failed; check console for details.");
   }
 }
 

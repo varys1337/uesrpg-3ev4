@@ -148,7 +148,11 @@ export function getSpellRestraintReduction(actor, spell, options = {}) {
   const minCost = Number.isFinite(Number(options.minCost)) ? Math.max(0, Math.floor(Number(options.minCost))) : 1;
   const restraintBonus = Number(
     evaluateAEModifierKeys(actor, ["system.modifiers.magic.spellRestraintBonus"], {
-      context: { attackMode: "magic", itemUuid: String(spell?.uuid ?? "") },
+      context: {
+        attackMode: "magic",
+        itemUuid: String(spell?.uuid ?? ""),
+        opposingActor: options?.opposingActor ?? options?.targetActor ?? options?.defenderActor ?? null,
+      },
       enforceConditions: true,
       dedupeByOrigin: true
     })?.["system.modifiers.magic.spellRestraintBonus"] ?? 0
@@ -241,13 +245,16 @@ export function canOverloadWhileRestrained(actor) {
  * - Cryomancer: +1 to frost spells
  * - Electromancer: +1 to shock spells
  */
-export function computeElementalDamageBonus(actor, damageType) {
+export function computeElementalDamageBonus(actor, damageType, options = {}) {
   const dt = _str(damageType).toLowerCase();
   if (!dt) return { bonus: 0, label: "" };
   const aeKey = `system.modifiers.magic.damage.${dt}`;
   const aeBonus = Number(
     evaluateAEModifierKeys(actor, [aeKey], {
-      context: { attackMode: "magic" },
+      context: {
+        attackMode: "magic",
+        opposingActor: options?.opposingActor ?? options?.targetActor ?? options?.defenderActor ?? null,
+      },
       enforceConditions: true,
       dedupeByOrigin: true
     })?.[aeKey] ?? 0
