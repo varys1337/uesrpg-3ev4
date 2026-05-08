@@ -15,7 +15,8 @@ import { prepareItemSheetData } from "../item/prepare.js";
 import {
   onAddToContainer, onBulkAddToContainer, onBulkRemoveFromContainer,
   onBulkDeleteContained, onRemoveContainedItem, onDeleteContainedItem,
-  onOpenContainedItem, updateContainedItemsList, pushContainedItemData,
+  onOpenContainedItem, onDropItemIntoContainer,
+  buildContainerContainedItemsSnapshot,
 } from "../item/listeners/containment.js";
 import { onEffectControl } from "../item/listeners/effects.js";
 import { onChargePlus, onChargeMinus } from "../item/listeners/usage.js";
@@ -50,6 +51,9 @@ import {
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { createImageVideoFilePicker } from "./shared/file-picker.js";
+import { buildItemDragPayload } from "../../../utils/drag-payload.js";
+import { dndDebug, makeDndTraceId } from "../../../utils/dnd-debugger.js";
+import { containerDebug, containerWarn } from "../../../utils/dev/container-debug.js";
 import { buildAdvancementPlan } from "../item/advancement-plan.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { createDebugLogger, traceSheetPerf } from "../../../utils/debug.js";
@@ -494,7 +498,10 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       const docId = this.document.id;
       const modifiedTime = this.document._stats?.modifiedTime ?? null;
       const cache = this._renderSystemCache;
-      if (cache && cache.docId === docId && modifiedTime !== null && cache.modifiedTime === modifiedTime) {
+      if (this.document.type === "container") {
+        this._renderSystemCache = null;
+        context.item.system = _buildSanitizedRenderSystem(this.document?.type, this.document?.system);
+      } else if (cache && cache.docId === docId && modifiedTime !== null && cache.modifiedTime === modifiedTime) {
         context.item.system = cache.sanitizedSystem;
       } else {
         const sanitizedSystem = _buildSanitizedRenderSystem(this.document?.type, this.document?.system);
@@ -512,6 +519,36 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
       // Shared data preparation (enriches description, derives computed values, etc.)
       const prepared = await prepareItemSheetData(this, context);
+
+      if (this.document.type === "container" && this.document.isOwned && this.document.actor) {
+        const containedItems = buildContainerContainedItemsSnapshot(this.document.actor, this.document);
+        const staleSnapshotCount = Array.isArray(this.document.system?.contained_items)
+          ? this.document.system.contained_items.length
+          : 0;
+        containerDebug("sheet.context.container", {
+          actor: this.document.actor?.uuid ?? null,
+          container: this.document?.uuid ?? null,
+          containerId: this.document?.id ?? null,
+          derivedCount: containedItems.length,
+          snapshotCount: staleSnapshotCount,
+          derivedItemIds: containedItems.map((entry) => entry?._id ?? ""),
+        });
+        if (!containedItems.length && staleSnapshotCount > 0) {
+          containerWarn("sheet.context.container.empty-derived-with-stale-snapshot", {
+            actor: this.document.actor?.uuid ?? null,
+            container: this.document?.uuid ?? null,
+            containerId: this.document?.id ?? null,
+            snapshotCount: staleSnapshotCount,
+          });
+        }
+        prepared.containedItems = containedItems;
+        prepared.hasContainedItems = containedItems.length > 0;
+        prepared.item.system = {
+          ...(prepared.item.system ?? {}),
+          contained_items: containedItems,
+        };
+        prepared.data = prepared.item.system;
+      }
 
       if (this.document.type === "scroll") {
         prepared.scrollLinkedSpell = null;
@@ -1463,13 +1500,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (type === "equipment" || type === "item") registerAlchemyProductListeners(this, el);
     if (type === "container") this._registerContainmentListeners(el);
 
-    if (type === "container" && this.document.isOwned) {
-      void updateContainedItemsList(this);
-    }
-    if (this.document.system?.containerStats && type !== "container") {
-      void pushContainedItemData(this);
-    }
-
     // Legacy class-based modifier controls used by some item templates.
     if (Object.prototype.hasOwnProperty.call(this.document.system ?? {}, "skillArray")) {
       bindDelegated(el, "click", ".modifier-create", (ev) => onModifierCreate(this, ev));
@@ -1487,10 +1517,40 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
   /* Drag & Drop */
 
   /**
+   * Container sheets render contained item rows with data-item-id values for
+   * actor-owned child items. Resolve those rows to the child item so dragging
+   * out of a container moves the contained item, not the container document.
+   * @override
+   */
+  _onDragStart(event) {
+    if (this.document.type !== "container") return super._onDragStart(event);
+
+    const existing = String(event?.dataTransfer?.getData?.("text/plain") ?? "").trim();
+    if (existing) return;
+
+    const row = event.target?.closest?.("[data-item-id]") ?? event.currentTarget;
+    const itemId = row?.dataset?.itemId;
+    if (!itemId || itemId === this.document.id) return super._onDragStart(event);
+
+    const item = this.document.actor?.items?.get?.(itemId);
+    if (!item) return super._onDragStart(event);
+
+    const traceId = makeDndTraceId("container-drag");
+    const payload = buildItemDragPayload(item, { traceId });
+    event.dataTransfer?.setData("text/plain", JSON.stringify(payload));
+    dndDebug("sheet.dragstart.containerContent", {
+      sheet: "SimpleItemSheetV2",
+      container: this.document?.uuid ?? null,
+      item: item?.uuid ?? null,
+      itemId: item?.id ?? null,
+    }, { traceId });
+  }
+
+  /**
    * @override
    * Handle item drops. Scroll sheets accept spell drops to fill spellUuid;
-   * container sheets do not accept drag/drop insertion; all others forward to
-   * the parent class.
+   * container sheets accept Item drops as contents; all others forward to the
+   * parent class.
    */
   async _onDrop(event) {
     event.preventDefault();
@@ -1544,7 +1604,9 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (this.document.type !== "container") {
       return super._onDrop?.(event);
     }
-    ui.notifications?.info("Container drag-and-drop is disabled. Use + Item to add contents.");
-    return;
+
+    const data = readDropData(event);
+    if (data?.type !== "Item") return super._onDrop?.(event);
+    return onDropItemIntoContainer(this, data);
   }
 }

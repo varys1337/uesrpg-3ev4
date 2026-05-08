@@ -44,7 +44,7 @@ function _buildCastEnchantmentChargeDisplay(item) {
  * @returns {Object} - Updated categories
  */
 function processItemForCategories(i, categories, options = {}) {
-  const { includeSkills = false, includeMagicSkills = false, religionEnabled = false } = options;
+  const { includeSkills = false, includeMagicSkills = false, religionEnabled = false, actor = null, items = null } = options;
   
   // Ensure rendering has an image fallback (safe: sheet-only object)
   i.img = i.img || CONST.DEFAULT_TOKEN;
@@ -68,7 +68,7 @@ function processItemForCategories(i, categories, options = {}) {
 
   // If an item is inside a container, hide it from the main inventory lists.
   // Contained items remain owned by the Actor and are surfaced through the container sheet UI.
-  if (shouldHideFromMainInventory(i)) {
+  if (shouldHideFromMainInventory(i, { actor, items })) {
     return categories;
   }
 
@@ -223,7 +223,7 @@ export async function prepareCharacterItemsOptimized(sheetData, options = {}) {
   if (sizeCategory === 'tiny' || sizeCategory === 'small') {
     // Small dataset: process synchronously
     for (const i of items) {
-      processItemForCategories(i, categories, { includeSkills, includeMagicSkills, religionEnabled });
+      processItemForCategories(i, categories, { includeSkills, includeMagicSkills, religionEnabled, actor: actorDoc, items });
     }
   } else if (sizeCategory === 'medium') {
     // Medium dataset: process in batches synchronously
@@ -231,7 +231,7 @@ export async function prepareCharacterItemsOptimized(sheetData, options = {}) {
     for (let i = 0; i < items.length; i += batchSize) {
       const batch = items.slice(i, i + batchSize);
       for (const item of batch) {
-        processItemForCategories(item, categories, { includeSkills, includeMagicSkills, religionEnabled });
+        processItemForCategories(item, categories, { includeSkills, includeMagicSkills, religionEnabled, actor: actorDoc, items });
       }
     }
   } else {
@@ -254,7 +254,7 @@ export async function prepareCharacterItemsOptimized(sheetData, options = {}) {
       const processor = new IncrementalProcessor(
         items,
         (item) => {
-          processItemForCategories(item, categories, { includeSkills, includeMagicSkills, religionEnabled });
+          processItemForCategories(item, categories, { includeSkills, includeMagicSkills, religionEnabled, actor: actorDoc, items });
           return true;
         },
         {
@@ -284,7 +284,7 @@ export async function prepareCharacterItemsOptimized(sheetData, options = {}) {
       console.error('Error in incremental processing:', error);
       // Fallback to synchronous processing
       for (const i of items) {
-        processItemForCategories(i, categories, { includeSkills, includeMagicSkills, religionEnabled });
+        processItemForCategories(i, categories, { includeSkills, includeMagicSkills, religionEnabled, actor: actorDoc, items });
       }
     } finally {
       // Ensure progress indicator is removed if still showing

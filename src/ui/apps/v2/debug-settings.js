@@ -86,7 +86,7 @@ export class DebugSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       "aeLifecycleDebug", "perfDebug", "debugSkillTN",
       "debugAim", "debugActorSelect", "sheetDiagnostics", "sheetPerfTrace",
       "dndDebugEnabled", "dndDebugVerbose", "dndDebugNotifyOnFailure",
-      "dndDebugDomEvents", "dndDebugCacheFallbackEnabled",
+      "dndDebugDomEvents", "dndDebugCacheFallbackEnabled", "containerDebug",
     ];
     for (const key of clientKeys) {
       if (!_settingExists(key)) continue;

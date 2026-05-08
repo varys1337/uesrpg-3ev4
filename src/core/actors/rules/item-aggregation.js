@@ -51,6 +51,10 @@ export function aggregateItemStats(actor, actorData) {
 
   const itemsRaw = actorData?.items;
   const items = Array.isArray(itemsRaw) ? itemsRaw : (itemsRaw ? Array.from(itemsRaw) : []);
+  const containerIds = new Set(items
+    .filter((candidate) => candidate?.type === "container")
+    .map((candidate) => String(candidate?._id ?? candidate?.id ?? "").trim())
+    .filter(Boolean));
 
   const stats = {
     charBonus: { str:0, end:0, agi:0, int:0, wp:0, prc:0, prs:0, lck:0 },
@@ -124,7 +128,8 @@ export function aggregateItemStats(actor, actorData) {
     
     const isShield = isShieldItem(item, { allowLegacy: true });
     const isWornArmor = (item?.type === 'armor' && isEquipped && !isShield);
-    const isContained = (sys?.containerStats?.contained === true);
+    const containerId = String(sys?.containerStats?.container_id ?? "").trim();
+    const isContained = Boolean(containerId && containerId !== String(id) && containerIds.has(containerId));
 
     // Calculate contributed weight according to RAW
     let contributedWeight = itemWeight; // Default: all items contribute full weight
@@ -355,6 +360,10 @@ export function buildEncumbranceBreakdown(actor) {
   };
 
   const items = Array.from(actor?.items?.contents ?? []);
+  const containerIds = new Set(items
+    .filter((candidate) => candidate?.type === "container")
+    .map((candidate) => String(candidate?._id ?? candidate?.id ?? "").trim())
+    .filter(Boolean));
   for (const item of items) {
     const sys = item?.system ?? {};
     const itemType = String(item?.type ?? "").trim();
@@ -367,7 +376,9 @@ export function buildEncumbranceBreakdown(actor) {
 
     const isShield = isShieldItem(item, { allowLegacy: true });
     const isWornArmor = (itemType === "armor" && isEquipped && !isShield);
-    const isContained = (sys?.containerStats?.contained === true);
+    const itemId = String(item?._id ?? item?.id ?? "").trim();
+    const containerId = String(sys?.containerStats?.container_id ?? "").trim();
+    const isContained = Boolean(containerId && containerId !== itemId && containerIds.has(containerId));
     let contributedEnc = itemWeight;
     if (isContained) contributedEnc = contributedEnc / 2;
     if (isWornArmor) contributedEnc = contributedEnc / 2;

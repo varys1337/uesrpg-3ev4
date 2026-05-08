@@ -139,7 +139,7 @@ export function prepareCharacterItems(sheetData, { includeSkills = false, includ
 
     // If an item is inside a container, hide it from the main inventory lists.
     // Contained items remain owned by the Actor and are surfaced through the container sheet UI.
-    if (shouldHideFromMainInventory(i)) {
+    if (shouldHideFromMainInventory(i, { actor: actorDoc, items: sheetData.items ?? [] })) {
       if (String(i?.type ?? "").toLowerCase() === "shield" || isShieldItem(i, { allowLegacy: true })) {
         const cs = i?.system?.containerStats ?? {};
         _debug("shield filtered from main inventory", {

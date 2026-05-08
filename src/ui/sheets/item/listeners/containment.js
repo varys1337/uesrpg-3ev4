@@ -1,518 +1,875 @@
 /**
  * src/ui/sheets/item/listeners/containment.js
  *
- * Container and containment business-logic handlers for item sheets.
+ * Actor-owned container handling.
  *
- * Click-action handlers are wired via SimpleItemSheetV2's `actions` map.
- * Non-click listeners (contextmenu, drag visual feedback) are registered
- * natively in `_registerContainmentListeners` on the sheet class.
- * Side-effect calls (updateContainedItemsList, pushContainedItemData)
- * are invoked from `_onRender`.
+ * Canonical containment state is stored on the contained Item:
+ * - system.containerStats.contained
+ * - system.containerStats.container_id
+ * - system.containerStats.container_name
+ *
+ * Container system.contained_items is maintained only as a compatibility
+ * snapshot. Runtime reads derive contents from actor.items, matching DND5E's
+ * pointer-derived container model while preserving UESRPG stored fields.
  */
 import { confirmDialog, customDialog } from "../../../../utils/dialog-v2-helper.js";
-import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestUpdateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
+import {
+  requestCreateEmbeddedDocuments,
+  requestDeleteEmbeddedDocuments,
+  requestUpdateDocument,
+  requestUpdateEmbeddedDocuments,
+} from "../../../../utils/authority-proxy.js";
 import { resolveDroppedItem } from "../../../../utils/drop-data.js";
-import { createDebugLogger } from "../../../../utils/debug.js";
+import { containerDebug, containerWarn } from "../../../../utils/dev/container-debug.js";
 
-const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][Containment]");
+export const MAX_CONTAINER_DEPTH = 5;
+
+const CLEAR_CONTAINER_STATS = Object.freeze({
+  "system.containerStats.contained": false,
+  "system.containerStats.container_id": "",
+  "system.containerStats.container_name": "",
+});
 
 /**
- * Return the set of item types that are allowed to be placed into containers.
- * We intentionally exclude non-physical "character build" items (skills, talents, traits, powers, etc).
- *
+ * Physical inventory item types that may be stored in containers.
  * @returns {Set<string>}
  */
 export function getContainerAllowedTypes() {
-  return new Set(["equipment", "scroll", "weapon", "armor", "shield", "ammunition"]);
+  return new Set(["item", "equipment", "scroll", "weapon", "armor", "shield", "ammunition", "container"]);
+}
+
+export function isContainableItemType(type) {
+  return getContainerAllowedTypes().has(String(type ?? ""));
+}
+
+function _getItemDataModelSchema(type) {
+  try {
+    const model = CONFIG?.Item?.dataModels?.[String(type ?? "")] ?? null;
+    if (!model) return null;
+
+    const schema = model.schema?.fields ?? model.schema ?? null;
+    if (schema) return schema;
+
+    return model.defineSchema?.() ?? null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function _schemaHasContainerStats(schema) {
+  return Boolean(schema?.containerStats ?? schema?.fields?.containerStats);
+}
+
+function _supportsContainmentState(item) {
+  const type = String(item?.type ?? "");
+  if (!isContainableItemType(type)) return false;
+  if (Object.prototype.hasOwnProperty.call(item?.system ?? {}, "containerStats")) return true;
+  return _schemaHasContainerStats(_getItemDataModelSchema(type));
+}
+
+function _warnUnsupportedContainmentState(item, action = "stored in containers") {
+  const message = `${item?.type ?? "Unknown"} items cannot be ${action} because their Item system data model does not expose system.containerStats.`;
+  containerWarn(message, {
+    itemUuid: item?.uuid ?? null,
+    itemId: _itemId(item),
+    itemType: item?.type ?? null,
+    systemKeys: Object.keys(item?.system ?? {}),
+  });
+  ui.notifications?.warn?.(message);
+}
+
+function _delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function _itemId(item) {
+  return String(item?.id ?? item?._id ?? "").trim();
+}
+
+function _getActorItems(actor) {
+  return Array.from(actor?.items?.contents ?? actor?.items ?? []);
+}
+
+function _getContainerId(item) {
+  return String(item?.system?.containerStats?.container_id ?? "").trim();
+}
+
+function _isContainedBy(item, containerId) {
+  return _getContainerId(item) === String(containerId ?? "").trim();
+}
+
+function _hasContainerPointer(item) {
+  return Boolean(_getContainerId(item));
+}
+
+function _getItemEnc(item) {
+  const enc = Number(item?.system?.enc ?? 0);
+  const qty = Number(item?.system?.quantity ?? 1);
+  return (Number.isFinite(enc) ? enc : 0) * Math.max(1, Number.isFinite(qty) ? qty : 1);
 }
 
 function _resolveContainmentContext(sheetLike) {
-  if (!sheetLike) return null;
-  const document = sheetLike.document ?? sheetLike.item ?? null;
-  const actor = sheetLike.actor ?? document?.actor ?? null;
-  const isEditable = sheetLike.isEditable ?? false;
+  const document = sheetLike?.document ?? sheetLike?.item ?? null;
+  const actor = sheetLike?.actor ?? document?.actor ?? null;
+  const isEditable = sheetLike?.isEditable ?? false;
   if (!document || document.type !== "container" || !actor) return null;
   return { document, actor, isEditable };
 }
 
-/**
- * Basic permission gate for modifying containment from an ItemSheet context.
- * Containers are only meaningful when embedded on an Actor.
- */
-export function canModifyContainment(sheet) {
-  const ctx = _resolveContainmentContext(sheet);
-  return !!(ctx?.isEditable && ctx.document?.isOwned && ctx.actor?.isOwner);
+function _buildSetContainerStatsUpdate(container, item) {
+  const update = {
+    "system.containerStats.contained": true,
+    "system.containerStats.container_id": _itemId(container),
+    "system.containerStats.container_name": container.name ?? "",
+  };
+  if (typeof item?.system?.equipped === "boolean") update["system.equipped"] = false;
+  return update;
 }
 
-/**
- * Build a normalized, de-duplicated, actor-authoritative contained_items list for this container.
- * - Removes missing/deleted item ids
- * - De-duplicates ids
- * - Adds any actor items which claim they are contained in this container but are missing from the list
- * - Stores a plain-object snapshot (toObject) for stable rendering and diffs
- *
- * @param {ItemSheet} sheet
- * @returns {Promise<boolean>} whether an update was applied
- */
-export async function repairContainerContainedItems(sheet) {
-  if (!sheet.document || sheet.document.type !== "container") return false;
-  if (!sheet.document.actor) return false;
+function _buildClearContainerStatsUpdate() {
+  return { ...CLEAR_CONTAINER_STATS };
+}
 
-  const containerId = sheet.document.id;
-  const current = Array.isArray(sheet.document.system?.contained_items) ? sheet.document.system.contained_items : [];
+async function _updateOwnedItemContainment(actor, item, updateData) {
+  const itemId = _itemId(item);
+  if (!actor || !itemId || !updateData || typeof updateData !== "object") return false;
+  return requestUpdateEmbeddedDocuments(actor, "Item", [{ _id: itemId, ...updateData }]);
+}
 
-  // Phase 1: collect valid sources (Item documents) without serializing yet.
-  const byId = new Map(); // id → Item document
+async function _waitForLiveContainerPointer(actor, item, expectedContainerId, { attempts = 4, delayMs = 25 } = {}) {
+  const itemId = _itemId(item);
+  const expected = String(expectedContainerId ?? "").trim();
+  let liveItem = itemId ? (actor?.items?.get?.(itemId) ?? item) : item;
+  let liveContainerId = _getContainerId(liveItem);
 
-  // Seed from current list (validate against actor items + containerStats)
-  for (const entry of current) {
-    const id = entry?._id;
-    if (!id) continue;
-    if (byId.has(id)) continue;
-
-    const source = sheet.document.actor.items.get(id);
-    if (!source) continue;
-
-    const cs = source.system?.containerStats;
-    const isInThis = !!cs?.contained && (cs?.container_id === containerId);
-    if (!isInThis) continue;
-
-    byId.set(id, source);
+  for (let i = 0; i < attempts; i += 1) {
+    liveItem = itemId ? (actor?.items?.get?.(itemId) ?? liveItem ?? item) : (liveItem ?? item);
+    liveContainerId = _getContainerId(liveItem);
+    if (liveContainerId === expected) return { liveItem, liveContainerId };
+    if (i < attempts - 1) await _delay(delayMs);
   }
 
-  // Add actor items that claim they are in this container but are missing from list
-  for (const source of sheet.document.actor.items) {
-    if (!source) continue;
-    if (source.type === "container") continue;
-    const cs = source.system?.containerStats;
-    const isInThis = !!cs?.contained && (cs?.container_id === containerId);
-    if (!isInThis) continue;
-    if (byId.has(source.id)) continue;
-    byId.set(source.id, source);
+  return { liveItem, liveContainerId };
+}
+
+function _warnContainmentFailure(message, details = {}) {
+  containerWarn(message, {
+    actorUuid: details.actor?.uuid ?? null,
+    itemUuid: details.item?.uuid ?? null,
+    itemId: _itemId(details.item),
+    containerUuid: details.container?.uuid ?? null,
+    containerId: _itemId(details.container),
+    previousContainerId: details.previousContainerId ?? null,
+    updateData: details.updateData ?? null,
+    updateResult: details.updateResult ?? null,
+    snapshotResult: details.snapshotResult ?? null,
+    liveContainerStats: details.liveItem?.system?.containerStats ?? null,
+  });
+}
+
+function _renderDocumentSheet(document) {
+  try {
+    const sheet = document?.sheet;
+    const element = sheet?.element ?? null;
+    const isOpen = sheet?.rendered === true || element?.isConnected === true;
+    if (isOpen) sheet.render(true);
+  } catch (err) {
+    console.warn("UESRPG | Failed to rerender containment sheet", { uuid: document?.uuid ?? null, err });
   }
+}
 
-  const nextIds = Array.from(byId.keys());
-
-  // Phase 2: detect structural changes (membership / order) with no serialization.
-  const curIds = current.map(e => e?._id).filter(Boolean);
-  const changedIds = (curIds.length !== nextIds.length) || curIds.some((id, idx) => id !== nextIds[idx]);
-
-  // Also check modifiedTime for snapshot staleness (lightweight _stats access).
-  let changedSnapshot = false;
-  if (!changedIds) {
-    for (const [id, source] of byId) {
-      const cur = current.find(e => e?._id === id);
-      const curMT = cur?.item?._stats?.modifiedTime;
-      const srcMT = source._stats?.modifiedTime;
-      if (curMT !== srcMT) { changedSnapshot = true; break; }
+function _renderContainmentSheets(actor, containers = []) {
+  const rendered = new Set();
+  if (actor?.sheet) {
+    try {
+      if ("_uesrpgItemsCache" in actor.sheet) actor.sheet._uesrpgItemsCache = null;
+      if ("_uesrpgEncumbranceCache" in actor.sheet) actor.sheet._uesrpgEncumbranceCache = null;
+    } catch (_e) {
+      /* no-op */
     }
   }
+  const renderedContainers = [];
+  for (const container of containers) {
+    const id = _itemId(container);
+    if (!id || rendered.has(`item:${id}`)) continue;
+    rendered.add(`item:${id}`);
+    renderedContainers.push(container?.uuid ?? id);
+    _renderDocumentSheet(container);
+  }
+  _renderDocumentSheet(actor);
+  containerDebug("containment.rerender", {
+    actor: actor?.uuid ?? null,
+    containers: renderedContainers,
+  });
+}
 
-  if (!changedIds && !changedSnapshot) return false;
+export function getContainedItems(actor, container, { direct = true } = {}) {
+  if (!actor || !container) return [];
+  const containerId = _itemId(container);
+  if (!containerId) return [];
 
-  // Phase 3: serialize only when an update is confirmed necessary.
-  const next = nextIds.map(id => ({ _id: id, item: byId.get(id).toObject() }));
-  await requestUpdateDocument(sheet.document, { "system.contained_items": next });
+  const directChildren = _getActorItems(actor).filter((item) => _isContainedBy(item, containerId));
+  if (direct) return directChildren;
+
+  const out = [];
+  const visited = new Set([containerId]);
+  const walk = (parent) => {
+    for (const child of getContainedItems(actor, parent, { direct: true })) {
+      const id = _itemId(child);
+      if (!id || visited.has(id)) continue;
+      visited.add(id);
+      out.push(child);
+      if (child.type === "container") walk(child);
+    }
+  };
+  walk(container);
+  return out;
+}
+
+export function getItemTotalContainedEnc(item, actor, visited = new Set()) {
+  if (!item) return 0;
+  const id = _itemId(item);
+  if (id && visited.has(id)) return 0;
+  if (id) visited.add(id);
+
+  let total = _getItemEnc(item);
+  if (item.type === "container") {
+    for (const child of getContainedItems(actor, item, { direct: true })) {
+      total += getItemTotalContainedEnc(child, actor, visited);
+    }
+  }
+  return total;
+}
+
+function _getSnapshotTotalEncAndDepth(itemData, visited = new Set()) {
+  if (!itemData) return { enc: 0, depth: 0, count: 0 };
+  const id = String(itemData?._id ?? itemData?.id ?? "").trim();
+  if (id && visited.has(id)) return { enc: 0, depth: 0, count: 0 };
+  if (id) visited.add(id);
+
+  let enc = _getItemEnc(itemData);
+  let depth = itemData?.type === "container" ? 1 : 0;
+  let count = 1;
+
+  if (itemData?.type === "container") {
+    for (const entry of itemData?.system?.contained_items ?? []) {
+      const totals = _getSnapshotTotalEncAndDepth(entry?.item ?? entry, visited);
+      enc += totals.enc;
+      count += totals.count;
+      depth = Math.max(depth, 1 + totals.depth);
+    }
+  }
+  return { enc, depth, count };
+}
+
+function _getDropItemTotalEnc(item, targetActor) {
+  const actor = item?.actor ?? targetActor;
+  const actorTotal = getItemTotalContainedEnc(item, actor);
+  if (item?.type !== "container") return actorTotal;
+  const snapshotTotal = _getSnapshotTotalEncAndDepth(item?.toObject?.() ?? item).enc;
+  return Math.max(actorTotal, snapshotTotal);
+}
+
+export function getContainerContentsEnc(actor, container, { excludeItemId = "" } = {}) {
+  const exclude = String(excludeItemId ?? "");
+  return getContainedItems(actor, container, { direct: true })
+    .filter((item) => _itemId(item) !== exclude)
+    .reduce((sum, item) => sum + getItemTotalContainedEnc(item, actor), 0);
+}
+
+export function getContainerContentsCount(actor, container, visited = new Set()) {
+  if (!actor || !container) return 0;
+  const containerId = _itemId(container);
+  if (!containerId || visited.has(containerId)) return 0;
+  visited.add(containerId);
+
+  let count = 0;
+  for (const child of getContainedItems(actor, container, { direct: true })) {
+    count += 1;
+    if (child.type === "container") count += getContainerContentsCount(actor, child, visited);
+  }
+  return count;
+}
+
+function _getContainerAncestors(actor, item) {
+  const ancestors = [];
+  const visited = new Set([_itemId(item)]);
+  let current = item;
+
+  for (let i = 0; i < MAX_CONTAINER_DEPTH + 2; i += 1) {
+    const parentId = _getContainerId(current);
+    if (!parentId || visited.has(parentId)) break;
+    const parent = actor?.items?.get?.(parentId) ?? null;
+    if (!parent || parent.type !== "container") break;
+    ancestors.push(parent);
+    visited.add(parentId);
+    current = parent;
+  }
+
+  return ancestors;
+}
+
+function _getContainerDepth(actor, container) {
+  if (!container || container.type !== "container") return 0;
+  return 1 + _getContainerAncestors(actor, container).length;
+}
+
+function _getContainerSubtreeDepth(actor, container, visited = new Set()) {
+  if (!container || container.type !== "container") return 0;
+  const id = _itemId(container);
+  if (id && visited.has(id)) return 0;
+  if (id) visited.add(id);
+
+  let depth = 1;
+  for (const child of getContainedItems(actor, container, { direct: true })) {
+    if (child.type !== "container") continue;
+    depth = Math.max(depth, 1 + _getContainerSubtreeDepth(actor, child, visited));
+  }
+  return depth;
+}
+
+function _validateContainerNesting(actor, droppedItem, targetContainer, { notify = true, subtreeDepth = null } = {}) {
+  if (!droppedItem || droppedItem.type !== "container") return true;
+
+  if (_itemId(droppedItem) === _itemId(targetContainer)) {
+    if (notify) ui.notifications?.warn?.("A container cannot contain itself.");
+    return false;
+  }
+
+  const targetAncestors = _getContainerAncestors(actor, targetContainer);
+  if (targetAncestors.some((ancestor) => _itemId(ancestor) === _itemId(droppedItem))) {
+    if (notify) ui.notifications?.warn?.("A container cannot be placed inside one of its own contents.");
+    return false;
+  }
+
+  const sourceDepth = subtreeDepth ?? _getContainerSubtreeDepth(actor, droppedItem);
+  if ((_getContainerDepth(actor, targetContainer) + sourceDepth) > MAX_CONTAINER_DEPTH) {
+    if (notify) ui.notifications?.warn?.(`Containers can only be nested ${MAX_CONTAINER_DEPTH} levels deep.`);
+    return false;
+  }
+
   return true;
 }
 
-/**
- * Keep this container's contained_items snapshot in sync with owned items.
- * This is intentionally conservative to avoid render-loop churn.
- *
- * @param {ItemSheet} sheet
- */
-export async function updateContainedItemsList(sheet) {
-  if (!sheet.document || sheet.document.type !== "container") return;
-  if (!sheet.document.actor) return;
+function _buildContainedSnapshot(actor, item, visited = new Set()) {
+  const data = item?.toObject?.() ?? foundry.utils.deepClone(item ?? {});
+  const id = String(data?._id ?? data?.id ?? "").trim();
+  if (id && visited.has(id)) return data;
+  if (id) visited.add(id);
 
-  // Repair first (removes ghost ids / dedupes / adds missing)
-  const repaired = await repairContainerContainedItems(sheet);
-  if (repaired) return;
-
-  const current = Array.isArray(sheet.document.system?.contained_items) ? sheet.document.system.contained_items : [];
-
-  // Phase 1: change detection using lightweight _stats access — no toObject() yet.
-  let changed = false;
-  const valid = []; // [{id, source}] — items confirmed to exist on actor
-
-  for (const entry of current) {
-    const id = entry?._id;
-    if (!id) { changed = true; continue; }
-    const source = sheet.document.actor.items.get(id);
-    if (!source) { changed = true; continue; }
-
-    // _stats.modifiedTime is readable without serialization
-    const curMT = entry?.item?._stats?.modifiedTime;
-    const srcMT = source._stats?.modifiedTime;
-    if (curMT !== srcMT) changed = true;
-
-    valid.push({ id, source });
+  if (data.type === "container") {
+    data.system = data.system ?? {};
+    data.system.contained_items = getContainedItems(actor, item, { direct: true }).map((child) => ({
+      _id: _itemId(child),
+      item: _buildContainedSnapshot(actor, child, new Set(visited)),
+    }));
   }
 
-  if (!changed) return;
-
-  // Phase 2: serialize only when we know an update is needed.
-  const next = valid.map(({ id, source }) => ({ _id: id, item: source.toObject() }));
-  await requestUpdateDocument(sheet.document, { "system.contained_items": next });
+  return data;
 }
 
-/**
- * Push contained item data updates to parent container
- *
- * @param {ItemSheet} sheet
- */
-export async function pushContainedItemData(sheet) {
-  if (!sheet.document.actor) return;
-  if (!sheet.document?.system?.containerStats) return;
-  if (sheet.document.type === "container") return;
+export function buildContainerContainedItemsSnapshot(actor, container) {
+  const snapshot = getContainedItems(actor, container, { direct: true }).map((item) => ({
+    _id: _itemId(item),
+    item: _buildContainedSnapshot(actor, item),
+  }));
+  containerDebug("snapshot.derive", {
+    actor: actor?.uuid ?? null,
+    container: container?.uuid ?? null,
+    containerId: _itemId(container),
+    count: snapshot.length,
+    itemIds: snapshot.map((entry) => entry._id),
+  });
+  return snapshot;
+}
 
-  const containerId = sheet.document.system.containerStats.container_id;
-  if (!containerId) return;
+function _sameContainedSnapshot(current, next) {
+  const currentIds = (Array.isArray(current) ? current : []).map((entry) => String(entry?._id ?? ""));
+  const nextIds = next.map((entry) => String(entry?._id ?? ""));
+  if (currentIds.length !== nextIds.length) return false;
+  for (let i = 0; i < currentIds.length; i += 1) {
+    if (currentIds[i] !== nextIds[i]) return false;
+  }
+  return JSON.stringify(current ?? []) === JSON.stringify(next ?? []);
+}
 
-  const containerItem = sheet.document.actor.items.get(containerId);
-  if (!containerItem) return;
-
-  const current = Array.isArray(containerItem.system?.contained_items) ? containerItem.system.contained_items : [];
-  const itemId = sheet.document.id;
-
-  const nextEntry = { _id: itemId, item: sheet.document.toObject() };
-
-  const next = current.filter(ci => ci?._id !== itemId).concat([nextEntry]);
-  if (String(sheet?.document?.type ?? "").toLowerCase() === "shield") {
-    _shieldDebug("pushContainedItemData", {
-      itemId,
-      itemName: sheet?.document?.name ?? null,
-      actorId: sheet?.document?.actor?.id ?? null,
-      containerId,
-      nextCount: next.length,
-      containerName: containerItem?.name ?? null,
+export async function rebuildContainerSnapshot(actor, container) {
+  if (!actor || !container || container.type !== "container") return false;
+  const next = buildContainerContainedItemsSnapshot(actor, container);
+  const current = Array.isArray(container.system?.contained_items) ? container.system.contained_items : [];
+  if (_sameContainedSnapshot(current, next)) return true;
+  const updateResult = await requestUpdateDocument(container, { "system.contained_items": next });
+  containerDebug("snapshot.rebuild", {
+    actor: actor?.uuid ?? null,
+    container: container?.uuid ?? null,
+    containerId: _itemId(container),
+    previousCount: current.length,
+    nextCount: next.length,
+    updateResult,
+  });
+  if (!updateResult) {
+    _warnContainmentFailure("Container snapshot rebuild failed", {
+      actor,
+      container,
+      updateData: { "system.contained_items": next },
+      updateResult,
     });
   }
-  await requestUpdateDocument(containerItem, { "system.contained_items": next });
+  return updateResult;
 }
 
-/**
- * Handler: Drop an item into this container (drag-and-drop support)
- *
- * @param {ItemSheet} sheet
- * @param {object} dropData - The dropped item data (type: "Item", uuid: ...)
- */
-export async function onDropItemIntoContainer(sheet, dropData) {
-  const ctx = _resolveContainmentContext(sheet);
-  if (!ctx) return;
-  if (!canModifyContainment(ctx)) {
-    ui.notifications?.warn("You do not have permission to modify this container.");
-    return;
+export async function rebuildAffectedContainerSnapshots(actor, containers = []) {
+  const ids = new Set(containers.map((container) => _itemId(container)).filter(Boolean));
+  for (const container of containers) {
+    for (const ancestor of _getContainerAncestors(actor, container)) ids.add(_itemId(ancestor));
   }
 
-  // Resolve the dropped item (supports actor/world/compendium payload variants)
-  let droppedItem = await resolveDroppedItem(dropData);
+  let ok = true;
+  for (const id of ids) {
+    const container = actor?.items?.get?.(id);
+    if (container?.type === "container") ok = (await rebuildContainerSnapshot(actor, container)) && ok;
+  }
+  return ok;
+}
 
-  if (!droppedItem) {
-    ui.notifications?.warn("Could not find the dropped item.");
-    return;
+export async function repairContainerContainedItems(sheetOrContext) {
+  const ctx = _resolveContainmentContext(sheetOrContext);
+  if (!ctx) return false;
+  return rebuildContainerSnapshot(ctx.actor, ctx.document);
+}
+
+export function canModifyContainment(sheetLike) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  return !!(ctx?.isEditable && ctx.document?.isOwned && ctx.actor?.isOwner);
+}
+
+async function _placeOwnedItemInContainer(actor, item, container) {
+  const previousContainer = actor?.items?.get?.(_getContainerId(item));
+  const updateData = _buildSetContainerStatsUpdate(container, item);
+  containerDebug("drop.update.request", {
+    actor: actor?.uuid ?? null,
+    item: item?.uuid ?? null,
+    itemId: _itemId(item),
+    container: container?.uuid ?? null,
+    containerId: _itemId(container),
+    previousContainerId: _getContainerId(item),
+    updateData,
+  });
+  if (!_supportsContainmentState(item)) {
+    _warnUnsupportedContainmentState(item);
+    return false;
   }
 
-  // If item is from a different actor, create a copy on this actor first
-  if (droppedItem.actor?.id !== ctx.actor.id) {
-    const itemData = droppedItem.toObject();
-    delete itemData._id;
-    const created = await requestCreateEmbeddedDocuments(ctx.actor, "Item", [itemData]);
-    droppedItem = created?.[0];
-    if (!droppedItem) {
-      ui.notifications?.error("Failed to create item copy.");
-      return;
-    }
-  }
-
-  // Prevent self-containment (container cannot contain itself)
-  if (droppedItem.id === ctx.document.id) {
-    ui.notifications?.warn("A container cannot contain itself.");
-    return;
-  }
-
-  // Never allow containers inside containers (prevents cycles)
-  if (droppedItem.type === "container") {
-    ui.notifications?.warn("Containers cannot be placed inside other containers.");
-    return;
-  }
-
-  // Only physical inventory items are allowed
-  const allowedTypes = getContainerAllowedTypes();
-  if (!allowedTypes.has(droppedItem.type)) {
-    ui.notifications?.warn(`${droppedItem.type} items cannot be stored in containers.`);
-    return;
-  }
-
-  const containerId = ctx.document.id;
-  const containerMaxEnc = Number(ctx.document.system?.container_enc?.max ?? 0);
-  const itemEnc = Number(droppedItem.system?.enc ?? 0);
-
-  // Check capacity (warn but allow if already in this container)
-  const cs = droppedItem.system?.containerStats ?? {};
-  const isInThis = !!cs?.contained && (cs?.container_id === containerId);
-
-  if (!isInThis && itemEnc > containerMaxEnc && containerMaxEnc > 0) {
-    ui.notifications?.warn(
-      `Item ENC (${itemEnc}) exceeds container capacity (${containerMaxEnc}). ` +
-      `Item was not added.`
-    );
-    return;
-  }
-
-  // If item belongs to another container, remove it from that container's list first
-  const currentContainerId = cs?.container_id || "";
-  if (currentContainerId && currentContainerId !== containerId) {
-    const oldContainer = ctx.actor.items.get(currentContainerId);
-    if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
-      const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== droppedItem.id);
-      await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
-    }
-  }
-
-  // Update the item's containerStats
-  const updateData = {
-    "system.containerStats.contained": true,
-    "system.containerStats.container_id": containerId,
-    "system.containerStats.container_name": ctx.document.name
-  };
-
-  // Force unequip if equipped
-  if (typeof droppedItem.system?.equipped === "boolean") {
-    updateData["system.equipped"] = false;
-  }
-
-  await requestUpdateDocument(droppedItem, updateData);
-  if (String(droppedItem?.type ?? "").toLowerCase() === "shield") {
-    _shieldDebug("onDropItemIntoContainer applied", {
-      itemId: droppedItem?.id ?? null,
-      itemName: droppedItem?.name ?? null,
-      actorId: ctx.actor?.id ?? null,
-      containerId,
+  const updateResult = await _updateOwnedItemContainment(actor, item, updateData);
+  const { liveItem, liveContainerId } = await _waitForLiveContainerPointer(actor, item, _itemId(container));
+  containerDebug("drop.update.result", {
+    actor: actor?.uuid ?? null,
+    item: liveItem?.uuid ?? item?.uuid ?? null,
+    itemId: _itemId(liveItem ?? item),
+    container: container?.uuid ?? null,
+    intendedContainerId: _itemId(container),
+    liveContainerId,
+    updateResult,
+    liveContainerStats: liveItem?.system?.containerStats ?? null,
+  });
+  if (!updateResult) {
+    _warnContainmentFailure("Container item update failed", {
+      actor,
+      item,
+      container,
       updateData,
+      updateResult,
+      previousContainerId: _itemId(previousContainer),
+      liveItem,
     });
+    return false;
+  }
+  if (liveContainerId !== _itemId(container)) {
+    _warnContainmentFailure("Container item update did not persist expected pointer", {
+      actor,
+      item,
+      container,
+      updateData,
+      updateResult,
+      previousContainerId: _itemId(previousContainer),
+      liveItem,
+    });
+    return false;
   }
 
-  // Rebuild container list
-  await repairContainerContainedItems(ctx);
-
-  ui.notifications?.info(`${droppedItem.name} added to ${ctx.document.name}.`);
+  const affected = [container, previousContainer].filter(Boolean);
+  const snapshotResult = await rebuildAffectedContainerSnapshots(actor, affected);
+  if (!snapshotResult) {
+    _warnContainmentFailure("Container snapshot update failed after item placement", {
+      actor,
+      item,
+      container,
+      updateData,
+      updateResult,
+      snapshotResult,
+      previousContainerId: _itemId(previousContainer),
+      liveItem,
+    });
+  }
+  _renderContainmentSheets(actor, affected);
+  return true;
 }
 
 export async function removeItemFromContainer(actor, item) {
   if (!actor || !item) return false;
-  const cs = item.system?.containerStats ?? {};
-  const currentContainerId = String(cs?.container_id ?? "").trim();
-  const isContained = cs?.contained === true && currentContainerId.length > 0;
-  if (!isContained) return false;
+  const previousContainer = actor.items?.get?.(_getContainerId(item)) ?? null;
+  if (!previousContainer && !_getContainerId(item)) return false;
 
-  const oldContainer = actor.items.get(currentContainerId);
-  if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
-    const nextOld = oldContainer.system.contained_items.filter((ci) => ci?._id !== item.id);
-    await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
+  containerDebug("remove.update.request", {
+    actor: actor?.uuid ?? null,
+    item: item?.uuid ?? null,
+    itemId: _itemId(item),
+    previousContainerId: _getContainerId(item),
+  });
+  if (!_supportsContainmentState(item)) {
+    _warnUnsupportedContainmentState(item, "removed from containers");
+    return false;
   }
 
-  await requestUpdateDocument(item, {
-    "system.containerStats.contained": false,
-    "system.containerStats.container_id": "",
-    "system.containerStats.container_name": ""
-  });
+  const updated = await _updateOwnedItemContainment(actor, item, _buildClearContainerStatsUpdate());
+  const { liveItem } = await _waitForLiveContainerPointer(actor, item, "");
+  const affected = [previousContainer, item].filter(Boolean);
+  const snapshotResult = await rebuildAffectedContainerSnapshots(actor, affected);
+  if (!updated) {
+    _warnContainmentFailure("Container item removal update failed", {
+      actor,
+      item,
+      container: previousContainer,
+      updateData: _buildClearContainerStatsUpdate(),
+      updateResult: updated,
+      previousContainerId: _itemId(previousContainer),
+      liveItem,
+    });
+    return false;
+  }
+  if (!snapshotResult) {
+    _warnContainmentFailure("Container snapshot update failed after item removal", {
+      actor,
+      item,
+      container: previousContainer,
+      snapshotResult,
+    });
+  }
+  _renderContainmentSheets(actor, affected);
+  return updated;
+}
+
+export async function clearAllItemsFromContainer(actor, container) {
+  if (!actor || !container || container.type !== "container") return false;
+  const children = getContainedItems(actor, container, { direct: false });
+  if (!children.length) {
+    await rebuildContainerSnapshot(actor, container);
+    _renderContainmentSheets(actor, [container]);
+    return false;
+  }
+
+  const updates = children.map((item) => ({ _id: _itemId(item), ..._buildClearContainerStatsUpdate() }));
+  const updateResult = await requestUpdateEmbeddedDocuments(actor, "Item", updates);
+  if (!updateResult) {
+    _warnContainmentFailure("Container bulk clear update failed", {
+      actor,
+      container,
+      updateData: updates,
+      updateResult,
+    });
+    return false;
+  }
+  const affected = [container, ...children.filter((item) => item.type === "container")];
+  const snapshotResult = await rebuildAffectedContainerSnapshots(actor, affected);
+  if (!snapshotResult) {
+    _warnContainmentFailure("Container snapshot update failed after bulk clear", {
+      actor,
+      container,
+      snapshotResult,
+    });
+  }
+  _renderContainmentSheets(actor, affected);
   return true;
 }
 
-/**
- * Handler: Bulk add all eligible items to this container
- *
- * @param {ItemSheet} sheet
- */
-export async function onBulkAddToContainer(sheet) {
-  if (!canModifyContainment(sheet)) {
-    return ui.notifications?.warn("You do not have permission to modify this container.");
+export async function onDropItemIntoContainer(sheetLike, dropData) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx) return;
+  containerDebug("drop.received", {
+    container: ctx.document?.uuid ?? null,
+    containerId: _itemId(ctx.document),
+    actor: ctx.actor?.uuid ?? null,
+    dropData,
+  });
+  if (!canModifyContainment(ctx)) {
+    ui.notifications?.warn?.("You do not have permission to modify this container.");
+    return;
   }
 
-  const allowedTypes = getContainerAllowedTypes();
-  const containerId = sheet.document.id;
-  const containerMaxEnc = Number(sheet.document.system?.container_enc?.max ?? 0);
+  let droppedItem = await resolveDroppedItem(dropData);
+  if (!droppedItem) {
+    ui.notifications?.warn?.("Could not find the dropped item.");
+    return;
+  }
 
+  if (!isContainableItemType(droppedItem.type)) {
+    ui.notifications?.warn?.(`${droppedItem.type} items cannot be stored in containers.`);
+    return;
+  }
+
+  if (!_supportsContainmentState(droppedItem)) {
+    _warnUnsupportedContainmentState(droppedItem);
+    return;
+  }
+
+  const targetContainer = ctx.document;
+  const targetActor = ctx.actor;
+  const isExternal = droppedItem.actor?.id !== targetActor.id;
+  const alreadyInTarget = !isExternal && _isContainedBy(droppedItem, _itemId(targetContainer));
+  containerDebug("drop.target.resolved", {
+    actor: targetActor?.uuid ?? null,
+    container: targetContainer?.uuid ?? null,
+    droppedItem: droppedItem?.uuid ?? null,
+    droppedItemId: _itemId(droppedItem),
+    droppedItemType: droppedItem?.type ?? null,
+    isExternal,
+    alreadyInTarget,
+    hasContainerPointer: _hasContainerPointer(droppedItem),
+  });
+
+  const sourceDepth = droppedItem.type === "container"
+    ? Math.max(
+        _getContainerSubtreeDepth(droppedItem.actor ?? targetActor, droppedItem),
+        _getSnapshotTotalEncAndDepth(droppedItem.toObject?.() ?? droppedItem).depth
+      )
+    : 0;
+  if (!_validateContainerNesting(targetActor, droppedItem, targetContainer, { subtreeDepth: sourceDepth })) return;
+
+  const maxEnc = Number(targetContainer.system?.container_enc?.max ?? 0);
+  const currentEnc = getContainerContentsEnc(targetActor, targetContainer, {
+    excludeItemId: alreadyInTarget ? _itemId(droppedItem) : "",
+  });
+  const itemEnc = _getDropItemTotalEnc(droppedItem, targetActor);
+  if (maxEnc > 0 && (currentEnc + itemEnc) > maxEnc) {
+    ui.notifications?.warn?.(
+      `Item ENC (${itemEnc}) exceeds remaining container capacity (${Math.max(maxEnc - currentEnc, 0)}). Item was not added.`
+    );
+    return;
+  }
+
+  if (isExternal) {
+    const itemData = droppedItem.toObject();
+    delete itemData._id;
+    itemData.system = itemData.system ?? {};
+    itemData.system.containerStats = {
+      ...(itemData.system.containerStats ?? {}),
+      contained: false,
+      container_id: "",
+      container_name: "",
+    };
+    const created = await requestCreateEmbeddedDocuments(targetActor, "Item", [itemData]);
+    droppedItem = created?.[0] ?? null;
+    const liveCreated = droppedItem ? targetActor.items?.get?.(_itemId(droppedItem)) : null;
+    containerDebug("drop.external.created", {
+      actor: targetActor?.uuid ?? null,
+      sourceItem: itemData?.name ?? null,
+      createdItem: droppedItem?.uuid ?? null,
+      createdItemId: _itemId(droppedItem),
+      liveCreated: liveCreated?.uuid ?? null,
+    });
+    if (!droppedItem || !liveCreated) {
+      ui.notifications?.error?.("Failed to create item copy.");
+      return;
+    }
+    droppedItem = liveCreated;
+  }
+
+  const placed = await _placeOwnedItemInContainer(targetActor, droppedItem, targetContainer);
+  if (!placed) {
+    ui.notifications?.warn?.("Item was not added to the container. Check console diagnostics.");
+    return;
+  }
+  ui.notifications?.info?.(`${droppedItem.name} added to ${targetContainer.name}.`);
+}
+
+export async function onBulkAddToContainer(sheetLike) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx || !canModifyContainment(ctx)) {
+    ui.notifications?.warn?.("You do not have permission to modify this container.");
+    return;
+  }
+
+  const maxEnc = Number(ctx.document.system?.container_enc?.max ?? 0);
   const eligible = [];
-  for (const item of sheet.document.actor.items) {
-    if (!item) continue;
-    if (item.id === containerId) continue;
-    if (item.type === "container") continue;
-    if (!allowedTypes.has(item.type)) continue;
+  let projectedEnc = getContainerContentsEnc(ctx.actor, ctx.document);
 
-    const cs = item.system?.containerStats ?? {};
-    const isInThis = !!cs?.contained && (cs?.container_id === containerId);
-    if (isInThis) continue; // Already in this container
+  for (const item of _getActorItems(ctx.actor)) {
+    if (!item || _itemId(item) === _itemId(ctx.document)) continue;
+    if (!isContainableItemType(item.type)) continue;
+    if (!_supportsContainmentState(item)) continue;
+    if (_isContainedBy(item, _itemId(ctx.document))) continue;
+    if (!_validateContainerNesting(ctx.actor, item, ctx.document, { notify: false })) continue;
 
-    const itemEnc = Number(item.system?.enc ?? 0);
-    if (containerMaxEnc > 0 && itemEnc > containerMaxEnc) continue; // Too large
+    const itemEnc = getItemTotalContainedEnc(item, ctx.actor);
+    if (maxEnc > 0 && (projectedEnc + itemEnc) > maxEnc) continue;
 
     eligible.push(item);
+    projectedEnc += itemEnc;
   }
 
   if (!eligible.length) {
-    return ui.notifications?.info("No eligible items to add.");
+    ui.notifications?.info?.("No eligible items to add.");
+    return;
   }
 
   const confirmed = await confirmDialog({
-    title: `Add All Items to ${sheet.document.name}`,
+    title: `Add All Items to ${ctx.document.name}`,
     content: `<p>Add <strong>${eligible.length}</strong> eligible items to this container?</p>`,
   });
-
   if (!confirmed) return;
 
-  // Add each item
-  for (const item of eligible) {
-    const cs = item.system?.containerStats ?? {};
-    const currentContainerId = cs?.container_id || "";
-
-    // Remove from old container if needed
-    if (currentContainerId) {
-      const oldContainer = sheet.document.actor.items.get(currentContainerId);
-      if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
-        const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== item.id);
-        await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
-      }
-    }
-
-    const updateData = {
-      "system.containerStats.contained": true,
-      "system.containerStats.container_id": containerId,
-      "system.containerStats.container_name": sheet.document.name
-    };
-
-    if (typeof item.system?.equipped === "boolean") {
-      updateData["system.equipped"] = false;
-    }
-
-    await requestUpdateDocument(item, updateData);
+  const updates = eligible.map((item) => ({
+    _id: _itemId(item),
+    ..._buildSetContainerStatsUpdate(ctx.document, item),
+  }));
+  const updateResult = await requestUpdateEmbeddedDocuments(ctx.actor, "Item", updates);
+  if (!updateResult) {
+    _warnContainmentFailure("Container bulk add update failed", {
+      actor: ctx.actor,
+      container: ctx.document,
+      updateData: updates,
+      updateResult,
+    });
+    ui.notifications?.warn?.("Items were not added to the container. Check console diagnostics.");
+    return;
   }
-
-  await repairContainerContainedItems(sheet);
-  ui.notifications?.info(`Added ${eligible.length} items to ${sheet.document.name}.`);
-}
-
-/**
- * Handler: Bulk remove all items from this container (does not delete)
- *
- * @param {ItemSheet} sheet
- */
-export async function onBulkRemoveFromContainer(sheet) {
-  if (!canModifyContainment(sheet)) {
-    return ui.notifications?.warn("You do not have permission to modify this container.");
-  }
-
-  const contained = Array.isArray(sheet.document.system?.contained_items)
-    ? sheet.document.system.contained_items
-    : [];
-
-  if (!contained.length) {
-    return ui.notifications?.info("Container is already empty.");
-  }
-
-  const confirmed = await confirmDialog({
-    title: `Remove All Items from ${sheet.document.name}`,
-    content: `<p>Remove <strong>${contained.length}</strong> items from this container? Items will not be deleted.</p>`,
-  });
-
-  if (!confirmed) return;
-
-  const updates = [];
-  for (const entry of contained) {
-    const itemId = entry?._id;
-    if (!itemId) continue;
-    const item = sheet.document.actor.items.get(itemId);
-    if (!item) continue;
-
-    updates.push({
-      _id: itemId,
-      "system.containerStats.contained": false,
-      "system.containerStats.container_id": "",
-      "system.containerStats.container_name": ""
+  const affected = [ctx.document, ...eligible.filter((item) => item.type === "container")];
+  const snapshotResult = await rebuildAffectedContainerSnapshots(ctx.actor, affected);
+  if (!snapshotResult) {
+    _warnContainmentFailure("Container snapshot update failed after bulk add", {
+      actor: ctx.actor,
+      container: ctx.document,
+      snapshotResult,
     });
   }
-
-  if (updates.length) {
-    await requestUpdateEmbeddedDocuments(sheet.document.actor, "Item", updates);
-  }
-
-  await repairContainerContainedItems(sheet);
-  ui.notifications?.info(`Removed ${updates.length} items from ${sheet.document.name}.`);
+  _renderContainmentSheets(ctx.actor, affected);
+  ui.notifications?.info?.(`Added ${eligible.length} items to ${ctx.document.name}.`);
 }
 
-/**
- * Handler: Bulk delete all items in this container (destructive)
- *
- * @param {ItemSheet} sheet
- */
-export async function onBulkDeleteContained(sheet) {
-  if (!canModifyContainment(sheet)) {
-    return ui.notifications?.warn("You do not have permission to modify this container.");
+export async function onBulkRemoveFromContainer(sheetLike) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx || !canModifyContainment(ctx)) {
+    ui.notifications?.warn?.("You do not have permission to modify container contents.");
+    return;
   }
 
-  const contained = Array.isArray(sheet.document.system?.contained_items)
-    ? sheet.document.system.contained_items
-    : [];
-
-  if (!contained.length) {
-    return ui.notifications?.info("Container is already empty.");
+  const directChildren = getContainedItems(ctx.actor, ctx.document, { direct: true });
+  if (!directChildren.length) {
+    ui.notifications?.info?.("Container is already empty.");
+    return;
   }
 
   const confirmed = await confirmDialog({
-    title: `Delete All Items in ${sheet.document.name}`,
-    content: `<p><strong>WARNING:</strong> Permanently delete <strong>${contained.length}</strong> items? This cannot be undone.</p>`,
+    title: `Remove All Items from ${ctx.document.name}`,
+    content: `<p>Remove <strong>${directChildren.length}</strong> items from this container? Items will not be deleted.</p>`,
   });
-
   if (!confirmed) return;
 
-  const ids = contained.map(e => e?._id).filter(Boolean);
-  if (ids.length) {
-    await requestDeleteEmbeddedDocuments(sheet.document.actor, "Item", ids);
+  const updates = directChildren.map((item) => ({ _id: _itemId(item), ..._buildClearContainerStatsUpdate() }));
+  const updateResult = await requestUpdateEmbeddedDocuments(ctx.actor, "Item", updates);
+  if (!updateResult) {
+    _warnContainmentFailure("Container bulk remove update failed", {
+      actor: ctx.actor,
+      container: ctx.document,
+      updateData: updates,
+      updateResult,
+    });
+    ui.notifications?.warn?.("Items were not removed from the container. Check console diagnostics.");
+    return;
   }
-
-  await repairContainerContainedItems(sheet);
-  ui.notifications?.info(`Deleted ${ids.length} items from ${sheet.document.name}.`);
+  const affected = [ctx.document, ...directChildren.filter((item) => item.type === "container")];
+  const snapshotResult = await rebuildAffectedContainerSnapshots(ctx.actor, affected);
+  if (!snapshotResult) {
+    _warnContainmentFailure("Container snapshot update failed after bulk remove", {
+      actor: ctx.actor,
+      container: ctx.document,
+      snapshotResult,
+    });
+  }
+  _renderContainmentSheets(ctx.actor, affected);
+  ui.notifications?.info?.(`Removed ${directChildren.length} items from ${ctx.document.name}.`);
 }
 
-/**
- * Create container list dialog for adding/removing items
- *
- * @param {ItemSheet} sheet
- * @param {Array} bagListItems
- * @param {boolean} tooLarge
- */
-export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
-  const tableEntries = [];
-  for (const bagItem of bagListItems) {
-    const cs = bagItem?.system?.containerStats ?? { contained: false, container_id: "" };
-    const isContained = !!cs.contained;
-    const isInThisContainer = isContained && (cs.container_id === sheet.document._id);
+export async function onBulkDeleteContained(sheetLike) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx || !canModifyContainment(ctx)) {
+    ui.notifications?.warn?.("You do not have permission to modify container contents.");
+    return;
+  }
 
+  const children = getContainedItems(ctx.actor, ctx.document, { direct: false });
+  if (!children.length) {
+    ui.notifications?.info?.("Container is already empty.");
+    return;
+  }
+
+  const confirmed = await confirmDialog({
+    title: `Delete All Items in ${ctx.document.name}`,
+    content: `<p><strong>WARNING:</strong> Permanently delete <strong>${children.length}</strong> items? This cannot be undone.</p>`,
+  });
+  if (!confirmed) return;
+
+  const ids = children.map(_itemId).filter(Boolean);
+  const updateResult = await requestDeleteEmbeddedDocuments(ctx.actor, "Item", ids);
+  if (!updateResult) {
+    _warnContainmentFailure("Container bulk delete failed", {
+      actor: ctx.actor,
+      container: ctx.document,
+      updateData: ids,
+      updateResult,
+    });
+    ui.notifications?.warn?.("Items were not deleted from the container. Check console diagnostics.");
+    return;
+  }
+  const snapshotResult = await rebuildContainerSnapshot(ctx.actor, ctx.document);
+  if (!snapshotResult) {
+    _warnContainmentFailure("Container snapshot update failed after bulk delete", {
+      actor: ctx.actor,
+      container: ctx.document,
+      snapshotResult,
+    });
+  }
+  _renderContainmentSheets(ctx.actor, [ctx.document]);
+  ui.notifications?.info?.(`Deleted ${ids.length} items from ${ctx.document.name}.`);
+}
+
+export async function createContainerListDialog(sheetLike, bagListItems, tooLarge) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx) return;
+
+  const tableEntries = bagListItems.map((bagItem) => {
+    const isInThisContainer = _isContainedBy(bagItem, _itemId(ctx.document));
     const img = bagItem?.img || CONST.DEFAULT_TOKEN;
     const qty = bagItem?.system?.quantity ?? 0;
     const enc = bagItem?.system?.enc ?? 0;
-
     const safeName = foundry.utils.escapeHTML(bagItem.name);
     const safeType = foundry.utils.escapeHTML(bagItem.type);
-    const entry = `<tr data-item-id="${bagItem._id}">
-      <td class="uesrpg-container-picker__name" data-item-id="${bagItem._id}">
+    return `<tr data-item-id="${bagItem.id}">
+      <td class="uesrpg-container-picker__name" data-item-id="${bagItem.id}">
         <img class="item-img" src="${img}" height="24" width="24">
-        ${isContained ? '<i class="fa-solid fa-backpack"></i>' : ""}
+        ${_getContainerId(bagItem) ? '<i class="fa-solid fa-backpack"></i>' : ""}
         ${safeName}
       </td>
       <td class="uesrpg-container-picker__cell">${safeType}</td>
       <td class="uesrpg-container-picker__cell">${qty}</td>
       <td class="uesrpg-container-picker__cell">${enc}</td>
       <td class="uesrpg-container-picker__cell">
-        <input type="checkbox" class="itemSelect container-select" data-item-id="${bagItem._id}" ${isInThisContainer ? "checked" : ""}>
+        <input type="checkbox" class="itemSelect container-select" data-item-id="${bagItem.id}" ${isInThisContainer ? "checked" : ""}>
       </td>
     </tr>`;
-    tableEntries.push(entry);
-  }
+  });
 
-  const safeContainerName = foundry.utils.escapeHTML(sheet.document.name);
+  const safeContainerName = foundry.utils.escapeHTML(ctx.document.name);
   const content = `<div class="uesrpg-container-picker">
       <div class="uesrpg-container-picker__intro">
         <label>Select items to add to <strong>${safeContainerName}</strong>.</label>
@@ -521,13 +878,7 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
       <div class="uesrpg-container-picker__table-wrap">
         <table class="uesrpg-container-picker__table">
           <thead>
-            <tr>
-              <th>Name</th>
-              <th>TYPE</th>
-              <th>QTY</th>
-              <th>ENC</th>
-              <th>Add</th>
-            </tr>
+            <tr><th>Name</th><th>TYPE</th><th>QTY</th><th>ENC</th><th>Add</th></tr>
           </thead>
           <tbody>${tableEntries.join("")}</tbody>
         </table>
@@ -535,234 +886,177 @@ export async function createContainerListDialog(sheet, bagListItems, tooLarge) {
     </div>`;
 
   await customDialog({
-    title: `Add Items to ${sheet.document.name}`,
+    title: `Add Items to ${ctx.document.name}`,
     content,
     classes: ["uesrpg-container-picker-dialog"],
     width: 760,
     yes: {
       label: "Apply",
       callback: async (html) => {
-          if (!canModifyContainment(sheet)) {
-            ui.notifications.warn("You do not have permission to modify container contents.");
-            return;
-          }
+        if (!canModifyContainment(ctx)) {
+          ui.notifications?.warn?.("You do not have permission to modify container contents.");
+          return;
+        }
 
-          const root = html instanceof HTMLElement ? html : html?.[0] ?? document;
-          const selectedInputs = [...root.querySelectorAll(".itemSelect")];
+        const root = html instanceof HTMLElement ? html : html?.[0] ?? document;
+        const updates = [];
+        const affectedContainers = [ctx.document];
+        const maxEnc = Number(ctx.document.system?.container_enc?.max ?? 0);
+        let projectedEnc = getContainerContentsEnc(ctx.actor, ctx.document);
+        let skippedForCapacity = 0;
 
-          const allowedTypes = getContainerAllowedTypes();
-          const containerId = sheet.document.id;
+        for (const input of root.querySelectorAll(".itemSelect")) {
+          const item = ctx.actor.items.get(input?.dataset?.itemId);
+          if (!item || !isContainableItemType(item.type)) continue;
+          if (!_supportsContainmentState(item)) continue;
+          if (!_validateContainerNesting(ctx.actor, item, ctx.document)) continue;
 
-          // Apply changes per checkbox:
-          // - checked: set this container as owner; unlink from any previous container list
-          // - unchecked: only un-contain if currently in this container
-          for (const input of selectedInputs) {
-            const itemId = input?.dataset?.itemId;
-            if (!itemId) continue;
-
-            const thisItem = sheet.document.actor.items.get(itemId);
-            if (!thisItem) continue;
-
-            // Defensive: never allow containers to be contained (prevents cycles)
-            if (thisItem.type === "container") continue;
-
-            // Defensive: only allow physical inventory items
-            if (!allowedTypes.has(thisItem.type)) continue;
-            const thisCS = thisItem.system?.containerStats ?? {};
-            const currentContainerId = thisCS.container_id || "";
-            const isInThis = !!thisCS.contained && (currentContainerId === containerId);
-
-            if (input.checked) {
-              // Already in this container; nothing to do beyond ensuring fields are consistent
-              if (!isInThis) {
-                // If the item belongs to another container, remove it from that container's list first
-                if (currentContainerId) {
-                  const oldContainer = sheet.document.actor.items.get(currentContainerId);
-                  if (oldContainer && Array.isArray(oldContainer.system?.contained_items)) {
-                    const nextOld = oldContainer.system.contained_items.filter(ci => ci?._id !== thisItem.id);
-                    await requestUpdateDocument(oldContainer, { "system.contained_items": nextOld });
-                  }
-                }
-              }
-
-              const updateData = {};
-
-              const csObj = thisItem.system?.containerStats;
-              const csValid = !!(csObj && typeof csObj === "object");
-
-              if (csValid) {
-                updateData["system.containerStats.contained"] = true;
-                updateData["system.containerStats.container_id"] = containerId;
-                updateData["system.containerStats.container_name"] = sheet.document.name;
-              } else {
-                // Backfill full object if legacy items lack containerStats
-                updateData["system.containerStats"] = {
-                  contained: true,
-                  container_id: containerId,
-                  container_name: sheet.document.name
-                };
-              }
-
-              // Storing an equipped item is not meaningful; force unequipped if boolean field exists
-              if (typeof thisItem.system?.equipped === "boolean") updateData["system.equipped"] = false;
-
-              await requestUpdateDocument(thisItem, updateData);
-            } else {
-              // Unchecked: only remove if currently in this container
-              if (isInThis) {
-                await requestUpdateDocument(thisItem, {
-                  "system.containerStats.contained": false,
-                  "system.containerStats.container_id": "",
-                  "system.containerStats.container_name": ""
-                });
-              }
+          const isInThis = _isContainedBy(item, _itemId(ctx.document));
+          if (input.checked && !isInThis) {
+            const itemEnc = getItemTotalContainedEnc(item, ctx.actor);
+            if (maxEnc > 0 && (projectedEnc + itemEnc) > maxEnc) {
+              skippedForCapacity += 1;
+              continue;
             }
+            const previous = ctx.actor.items.get(_getContainerId(item));
+            if (previous) affectedContainers.push(previous);
+            updates.push({ _id: _itemId(item), ..._buildSetContainerStatsUpdate(ctx.document, item) });
+            projectedEnc += itemEnc;
+          } else if (!input.checked && isInThis) {
+            updates.push({ _id: _itemId(item), ..._buildClearContainerStatsUpdate() });
           }
 
-          // Rebuild container list authoritatively from actor item.containerStats
-          await repairContainerContainedItems(sheet);
-      }
+          if (item.type === "container") affectedContainers.push(item);
+        }
+
+        let updateResult = true;
+        if (updates.length) updateResult = await requestUpdateEmbeddedDocuments(ctx.actor, "Item", updates);
+        if (!updateResult) {
+          _warnContainmentFailure("Container picker update failed", {
+            actor: ctx.actor,
+            container: ctx.document,
+            updateData: updates,
+            updateResult,
+          });
+          ui.notifications?.warn?.("Container contents were not updated. Check console diagnostics.");
+          return;
+        }
+        const snapshotResult = await rebuildAffectedContainerSnapshots(ctx.actor, affectedContainers);
+        if (!snapshotResult) {
+          _warnContainmentFailure("Container snapshot update failed after picker changes", {
+            actor: ctx.actor,
+            container: ctx.document,
+            snapshotResult,
+          });
+        }
+        _renderContainmentSheets(ctx.actor, affectedContainers);
+        if (skippedForCapacity) ui.notifications?.warn?.(`${skippedForCapacity} item(s) were not added because they exceed container capacity.`);
+      },
     },
     no: { label: "Cancel" },
-    defaultButton: "yes"
+    defaultButton: "yes",
   });
 }
 
-/**
- * Handler: Add items to container
- *
- * @param {ItemSheet} sheet
- */
-export function onAddToContainer(sheet) {
-  if (!canModifyContainment(sheet)) {
-    return ui.notifications.warn("Containers must be owned by an Actor and you must have permission to modify them.");
+export function onAddToContainer(sheetLike) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx || !canModifyContainment(ctx)) {
+    ui.notifications?.warn?.("Containers must be owned by an Actor and you must have permission to modify them.");
+    return;
   }
 
+  const maxEnc = Number(ctx.document.system?.container_enc?.max ?? 0);
   const bagListItems = [];
   let tooLarge = false;
 
-  const allowedTypes = getContainerAllowedTypes();
-  const itemList = sheet.document.actor.items;
+  for (const item of _getActorItems(ctx.actor)) {
+    if (!item || _itemId(item) === _itemId(ctx.document)) continue;
+    if (!isContainableItemType(item.type)) continue;
+    if (!_supportsContainmentState(item)) continue;
+    if (!_validateContainerNesting(ctx.actor, item, ctx.document, { notify: false }) && !_isContainedBy(item, _itemId(ctx.document))) continue;
 
-  const containerMaxEnc =
-    (sheet.document.system?.container_enc?.max != null)
-      ? Number(sheet.document.system.container_enc.max)
-      : 0;
-
-  for (const i of itemList) {
-    if (!i) continue;
-    if (i.id === sheet.document.id) continue;
-
-    // Never allow containers inside containers (prevents cycles)
-    if (i.type === "container") continue;
-
-    // Only physical inventory items
-    if (!allowedTypes.has(i.type)) continue;
-    const itemEnc = Number(i.system?.enc ?? 0);
-    const cs = i.system?.containerStats ?? {};
-    const isInThis = !!cs?.contained && (cs?.container_id === sheet.document.id);
-
-    // Always show items already in this container (even if over capacity) so the user can remove them.
-    if (isInThis) {
-      bagListItems.push(i);
+    if (_isContainedBy(item, _itemId(ctx.document))) {
+      bagListItems.push(item);
       continue;
     }
 
-    if (itemEnc > containerMaxEnc) {
+    const currentEnc = getContainerContentsEnc(ctx.actor, ctx.document);
+    const itemEnc = getItemTotalContainedEnc(item, ctx.actor);
+    if (maxEnc > 0 && (currentEnc + itemEnc) > maxEnc) {
       tooLarge = true;
       continue;
     }
 
-    bagListItems.push(i);
+    bagListItems.push(item);
   }
 
-  createContainerListDialog(sheet, bagListItems, tooLarge);
+  createContainerListDialog(ctx, bagListItems, tooLarge);
 }
 
-/**
- * Handler: Open a contained item's sheet.
- *
- * @param {ItemSheet} sheet
- * @param {HTMLElement} target  The clicked element (from AppV2 action dispatch)
- */
-export async function onOpenContainedItem(sheet, target) {
-  if (!sheet.document.actor) {
-    ui.notifications.info("Containers must be on Actor Sheets in order to open the contents.");
+export async function onOpenContainedItem(sheetLike, target) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx) {
+    ui.notifications?.info?.("Containers must be on Actor Sheets in order to open the contents.");
     return;
   }
-  const row = target.closest(".item");
-  if (!row) return;
-  const item = sheet.document.actor.items.get(row.dataset.itemId);
+
+  const itemId = target?.closest?.(".item")?.dataset?.itemId;
+  const item = itemId ? ctx.actor.items.get(itemId) : null;
+  item?.sheet?.render?.(true);
+}
+
+export async function onRemoveContainedItem(sheetLike, target) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx || !canModifyContainment(ctx)) {
+    ui.notifications?.warn?.("You do not have permission to modify container contents.");
+    return;
+  }
+
+  const itemId = target?.closest?.(".item")?.dataset?.itemId;
+  const item = itemId ? ctx.actor.items.get(itemId) : null;
   if (!item) return;
-  item.sheet.render(true);
-  await requestUpdateDocument(item, { "system.value": item.system.value });
+  await removeItemFromContainer(ctx.actor, item);
 }
 
-/**
- * Handler: Remove an item from this container (does not delete it)
- *
- * @param {ItemSheet} sheet
- * @param {HTMLElement} target  The clicked element (from AppV2 action dispatch)
- */
-export async function onRemoveContainedItem(sheet, target) {
-  if (!canModifyContainment(sheet)) {
-    ui.notifications.warn("You do not have permission to modify container contents.");
+export async function onDeleteContainedItem(sheetLike, target) {
+  const ctx = _resolveContainmentContext(sheetLike);
+  if (!ctx || !canModifyContainment(ctx)) {
+    ui.notifications?.warn?.("You do not have permission to modify container contents.");
     return;
   }
 
-  const row = target.closest(".item");
-  const removedItemId = row?.dataset?.itemId;
-  if (!removedItemId) return;
-  if (!sheet.document.actor) return;
-
-  const itemToUpdate = sheet.document.actor.items.get(removedItemId);
-  if (itemToUpdate) {
-    if (String(itemToUpdate?.type ?? "").toLowerCase() === "shield") {
-      _shieldDebug("onRemoveContainedItem", {
-        itemId: itemToUpdate?.id ?? null,
-        itemName: itemToUpdate?.name ?? null,
-        actorId: sheet?.document?.actor?.id ?? null,
-        containerId: sheet?.document?.id ?? null,
-      });
-    }
-    await requestUpdateDocument(itemToUpdate, {
-      "system.containerStats.contained": false,
-      "system.containerStats.container_id": "",
-      "system.containerStats.container_name": ""
-    });
-  }
-
-  await repairContainerContainedItems(sheet);
-}
-
-/**
- * Handler: Delete a contained item from the Actor (destructive)
- *
- * @param {ItemSheet} sheet
- * @param {HTMLElement} target  The clicked element (from AppV2 action dispatch)
- */
-export async function onDeleteContainedItem(sheet, target) {
-  if (!canModifyContainment(sheet)) {
-    ui.notifications.warn("You do not have permission to modify container contents.");
-    return;
-  }
-
-  const row = target.closest(".item");
-  const deletedItemId = row?.dataset?.itemId;
-  if (!deletedItemId) return;
-  if (!sheet.document.actor) return;
-
-  const itemDoc = sheet.document.actor.items.get(deletedItemId);
-  const itemName = itemDoc?.name || "this item";
+  const itemId = target?.closest?.(".item")?.dataset?.itemId;
+  const item = itemId ? ctx.actor.items.get(itemId) : null;
+  if (!item) return;
 
   const confirmed = await confirmDialog({
     title: "Delete Item",
-    content: `<p>Delete <strong>${itemName}</strong>? This cannot be undone.</p>`,
+    content: `<p>Delete <strong>${foundry.utils.escapeHTML(item.name ?? "this item")}</strong>? This cannot be undone.</p>`,
   });
+  if (!confirmed) return;
 
-  if (confirmed) {
-    await requestDeleteEmbeddedDocuments(sheet.document.actor, "Item", [deletedItemId]);
-    await repairContainerContainedItems(sheet);
+  const contained = item.type === "container" ? getContainedItems(ctx.actor, item, { direct: false }).map(_itemId) : [];
+  const ids = [_itemId(item), ...contained].filter(Boolean);
+  const updateResult = await requestDeleteEmbeddedDocuments(ctx.actor, "Item", ids);
+  if (!updateResult) {
+    _warnContainmentFailure("Contained item delete failed", {
+      actor: ctx.actor,
+      item,
+      container: ctx.document,
+      updateData: ids,
+      updateResult,
+    });
+    ui.notifications?.warn?.("Item was not deleted. Check console diagnostics.");
+    return;
   }
+  const snapshotResult = await rebuildContainerSnapshot(ctx.actor, ctx.document);
+  if (!snapshotResult) {
+    _warnContainmentFailure("Container snapshot update failed after contained item delete", {
+      actor: ctx.actor,
+      item,
+      container: ctx.document,
+      snapshotResult,
+    });
+  }
+  _renderContainmentSheets(ctx.actor, [ctx.document]);
 }
-

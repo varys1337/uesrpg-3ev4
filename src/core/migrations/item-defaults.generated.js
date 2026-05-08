@@ -453,6 +453,25 @@ export const DEFAULTS = deepFreeze(
         "sourcePath": "",
         "importVersion": 1
       }
+    },
+    "scroll": {
+      "isPhysicalObject": true,
+      "containerStats": {
+        "contained": false,
+        "container_id": "",
+        "container_name": ""
+      },
+      "gmOverride": {
+        "enabled": false
+      },
+      "description": "",
+      "quantity": 1,
+      "enc": 0,
+      "spellUuid": "",
+      "requireSchoolTraining": false,
+      "consumeMagicka": false,
+      "consumeOnCast": true,
+      "spellData": {}
     }
   },
   "__meta": {

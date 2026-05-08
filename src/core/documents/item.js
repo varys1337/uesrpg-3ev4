@@ -138,7 +138,7 @@ export class SimpleItem extends Item {
   }
 
 _prepareContainerItem(actorData, itemData) {
-  return prepareContainerItem(actorData, itemData);
+  return prepareContainerItem(this, actorData, itemData);
 }
 
 async _duplicateContainedItemsOnActor(actorData, itemData) {

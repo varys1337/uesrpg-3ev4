@@ -64,6 +64,7 @@ import { migrateCombatLegacyIfNeeded } from "../core/migrations/combat-legacy.js
 import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
 import * as automationPolicyApi from "../core/config/automation-policy.js";
 import { registerShieldDebugObservers } from "../utils/dev/shield-debug.js";
+import { registerContainerDebugObservers } from "../utils/dev/container-debug.js";
 import { registerStaleEmbeddedDeleteSuppression } from "../utils/embedded-delete-guard.js";
 import { registerClashChatActions } from "../core/mass-warfare/clash/chat-actions.js";
 import { registerWarfareAttachmentHooks } from "../core/mass-warfare/actions.js";
@@ -198,6 +199,12 @@ export default async function initHandler() {
     } catch (err) {
       console.warn("UESRPG | Failed to register shield debug observers", err);
     }
+  }
+
+  try {
+    registerContainerDebugObservers();
+  } catch (err) {
+    console.warn("UESRPG | Failed to register container diagnostics observers", err);
   }
 
   await registerSheets();

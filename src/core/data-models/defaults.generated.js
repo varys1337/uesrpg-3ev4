@@ -1005,6 +1005,15 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "objectArrays",
       "physicalObject"
     ],
+    "isPhysicalObject": true,
+    "containerStats": {
+      "contained": false,
+      "container_id": "",
+      "container_name": ""
+    },
+    "gmOverride": {
+      "enabled": false
+    },
     "description": "",
     "quantity": 1,
     "enc": 0,
@@ -1035,6 +1044,15 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "objectArrays",
       "physicalObject"
     ],
+    "isPhysicalObject": true,
+    "containerStats": {
+      "contained": false,
+      "container_id": "",
+      "container_name": ""
+    },
+    "gmOverride": {
+      "enabled": false
+    },
     "description": "",
     "quantity": 1,
     "enc": 0,
@@ -1065,6 +1083,15 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "objectArrays",
       "physicalObject"
     ],
+    "isPhysicalObject": true,
+    "containerStats": {
+      "contained": false,
+      "container_id": "",
+      "container_name": ""
+    },
+    "gmOverride": {
+      "enabled": false
+    },
     "description": "",
     "quantity": 1,
     "enc": 0,
@@ -1091,6 +1118,15 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "objectArrays",
       "physicalObject"
     ],
+    "isPhysicalObject": true,
+    "containerStats": {
+      "contained": false,
+      "container_id": "",
+      "container_name": ""
+    },
+    "gmOverride": {
+      "enabled": false
+    },
     "description": "",
     "quantity": 1,
     "enc": 0,
@@ -1167,6 +1203,15 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "objectArrays",
       "physicalObject"
     ],
+    "isPhysicalObject": true,
+    "containerStats": {
+      "contained": false,
+      "container_id": "",
+      "container_name": ""
+    },
+    "gmOverride": {
+      "enabled": false
+    },
     "description": "",
     "quantity": 1,
     "enc": 0,
@@ -1207,6 +1252,15 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "objectArrays",
       "physicalObject"
     ],
+    "isPhysicalObject": true,
+    "containerStats": {
+      "contained": false,
+      "container_id": "",
+      "container_name": ""
+    },
+    "gmOverride": {
+      "enabled": false
+    },
     "description": "",
     "quantity": 1,
     "enc": 0,
@@ -1841,6 +1895,15 @@ export const ITEM_TYPE_MODEL_SEEDS = {
       "replaceAttributesArray",
       "physicalObject"
     ],
+    "isPhysicalObject": true,
+    "containerStats": {
+      "contained": false,
+      "container_id": "",
+      "container_name": ""
+    },
+    "gmOverride": {
+      "enabled": false
+    },
     "description": "",
     "quantity": 1,
     "enc": 0,
@@ -1890,6 +1953,9 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     }
   },
   "scroll": {
+    "templates": [
+      "physicalObject"
+    ],
     "description": "",
     "quantity": 1,
     "enc": 0,
@@ -1897,6 +1963,15 @@ export const ITEM_TYPE_MODEL_SEEDS = {
     "requireSchoolTraining": false,
     "consumeMagicka": false,
     "consumeOnCast": true,
-    "spellData": {}
+    "spellData": {},
+    "isPhysicalObject": true,
+    "containerStats": {
+      "contained": false,
+      "container_id": "",
+      "container_name": ""
+    },
+    "gmOverride": {
+      "enabled": false
+    }
   }
 };

@@ -11,15 +11,18 @@ const _debug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][Inventory
  * Item types which represent physical inventory and are eligible for containment.
  * @type {Set<string>}
  */
-const CONTAINABLE_ITEM_TYPES = new Set(["item", "equipment", "scroll", "weapon", "armor", "shield", "ammunition"]);
+const CONTAINABLE_ITEM_TYPES = new Set(["item", "equipment", "scroll", "weapon", "armor", "shield", "ammunition", "container"]);
 
-function _resolveOwnedContainer(item) {
+function _resolveOwnedContainer(item, { actor = null, items = null } = {}) {
   const cs = item?.system?.containerStats;
   const containerId = String(cs?.container_id ?? "").trim();
   if (!containerId) return null;
 
-  const actor = item?.actor ?? item?.parent ?? null;
-  const container = actor?.items?.get?.(containerId) ?? null;
+  const owner = actor ?? item?.actor ?? item?.parent ?? null;
+  const container = owner?.items?.get?.(containerId)
+    ?? (Array.isArray(items)
+      ? items.find((candidate) => String(candidate?.id ?? candidate?._id ?? "").trim() === containerId)
+      : null);
   if (!container) return null;
   if (container.type !== "container") return null;
   if (container.id === item?.id || container._id === item?._id) return null;
@@ -30,12 +33,15 @@ function _resolveOwnedContainer(item) {
 /**
  * Determine whether an item is marked as contained in a valid owned container.
  * @param {Item|object} item
+ * @param {object} [options]
+ * @param {Actor|null} [options.actor]
+ * @param {Array<object>|null} [options.items]
  * @returns {boolean}
  */
-function isContainedItem(item) {
+function isContainedItem(item, options = {}) {
   const cs = item?.system?.containerStats;
-  if (cs?.contained !== true) return false;
-  return Boolean(_resolveOwnedContainer(item));
+  if (!String(cs?.container_id ?? "").trim()) return false;
+  return Boolean(_resolveOwnedContainer(item, options));
 }
 
 /**
@@ -52,11 +58,14 @@ function isContainableType(item) {
  * Contained items remain owned by the Actor and are surfaced via the container sheet UI.
  *
  * @param {Item|object} item
+ * @param {object} [options]
+ * @param {Actor|null} [options.actor]
+ * @param {Array<object>|null} [options.items]
  * @returns {boolean}
  */
-export function shouldHideFromMainInventory(item) {
+export function shouldHideFromMainInventory(item, options = {}) {
   const containable = isContainableType(item);
-  const contained = isContainedItem(item);
+  const contained = isContainedItem(item, options);
   const shouldHide = containable && contained;
 
   const type = String(item?.type ?? "").trim().toLowerCase();

@@ -39,6 +39,7 @@ import { onToggle2H, onItemEquip, onWeaponAmmoSelect } from "../shared/listeners
 import { onWealthCalc } from "../shared/listeners/economy-handlers.js";
 import { onToggleGroupCollapse, onLoadoutSave, onLoadoutApply, onLoadoutDelete } from "../shared/helpers/ui-state-handlers.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
+import { onDropItemIntoContainer, removeItemFromContainer } from "../item/listeners/containment.js";
 
 import { registerResourceButtonHandlers } from "../shared/listeners/resource-button-handlers.js";
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
@@ -518,6 +519,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
           this._traceSheetPerfPhase("items:cache-hit", perfItemsStart, { size: context.items.length });
         } else {
           context.items = buildActorSheetItems(actor);
+          context.document = actor;
           await prepareCharacterItemsHybrid(context, { includeSkills: true, includeMagicSkills: true });
           normalizeItemRanks(context.items);
 
@@ -1254,6 +1256,28 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       }
 
       const isExternalItem = item.actor?.id !== this.document.id;
+
+      const containerRow =
+        event.currentTarget?.dataset?.itemType === "container"
+          ? event.currentTarget
+          : event.target.closest?.("[data-item-type='container']");
+
+      if (containerRow?.dataset?.itemId) {
+        const containerItem = this.document.items.get(containerRow.dataset.itemId);
+        if (containerItem?.type === "container") {
+          dndDebug("sheet.drop.route.container", {
+            sheet: "PCActorSheetV2",
+            actor: this.document?.uuid ?? null,
+            container: containerItem?.uuid ?? null,
+            data,
+          }, { traceId });
+          return onDropItemIntoContainer(
+            { item: containerItem, actor: this.document, isEditable: this.isEditable },
+            data
+          );
+        }
+      }
+
       if (!isExternalItem) {
         dndDebug("sheet.drop.sameActor", {
           sheet: "PCActorSheetV2",
@@ -1261,6 +1285,9 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
           item: item?.uuid ?? null,
           sourceKind: resolved.sourceKind,
         }, { traceId });
+        if (String(item.system?.containerStats?.container_id ?? "").trim()) {
+          await removeItemFromContainer(this.document, item);
+        }
         return super._onDrop(event);
       }
 

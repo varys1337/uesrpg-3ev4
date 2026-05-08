@@ -70,6 +70,15 @@ export function registerDebugSettings() {
 
   // в”Ђв”Ђ Active Effect diagnostics в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 
+  _reg("containerDebug", {
+    name: "Container Bugtracker",
+    hint: "Record container pointer, snapshot, drop, and render diagnostics. Exposes game.uesrpg.debug.auditContainers(actorOrUuid).",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false,
+  });
+
   _reg("aeLifecycleDebug", {
     name: "Active Effect Lifecycle Debug",
     hint: "Log all AE fetch/delete operations (for troubleshooting only). Helps diagnose 'does not exist' errors.",

@@ -64,8 +64,8 @@
                                 </tr>
                             </thead>
                             <tbody class="container-drop-zone container-drop-body">
-                                {{#if item.system.contained_items}}
-                                    {{#each item.system.contained_items as |item id|}}
+                                {{#if hasContainedItems}}
+                                    {{#each containedItems as |item id|}}
                                         <tr class="item active" data-item-id="{{item._id}}" data-item-type="{{#if item.item}}{{item.item.type}}{{/if}}">
                                             <td>
                                                 <div class="tableItemNameCell">

@@ -51,6 +51,7 @@ import { onWealthCalc } from "../shared/listeners/economy-handlers.js";
 // Shared UI-state handlers (collapse, loadouts, item create)
 import { onToggleGroupCollapse, onLoadoutSave, onLoadoutApply, onLoadoutDelete } from "../shared/helpers/ui-state-handlers.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
+import { onDropItemIntoContainer, removeItemFromContainer } from "../item/listeners/containment.js";
 
 // Shared resource / rest handlers — authority-proxy safe
 import {
@@ -689,6 +690,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           this._traceSheetPerfPhase("items:cache-hit", perfItemsStart, { size: context.items.length });
         } else {
           context.items = buildActorSheetItems(actor);
+          context.document = actor;
 
           // This mutates `context.actor` with categorized buckets used by templates.
           await prepareCharacterItemsHybrid(context, { includeSkills: false, includeMagicSkills: true });
@@ -1840,6 +1842,27 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       }
 
       const isExternalItem = resolved.item.actor?.id !== this.document.id;
+      const containerRow =
+        event.currentTarget?.dataset?.itemType === "container"
+          ? event.currentTarget
+          : event.target.closest?.("[data-item-type='container']");
+
+      if (containerRow?.dataset?.itemId) {
+        const containerItem = this.document.items.get(containerRow.dataset.itemId);
+        if (containerItem?.type === "container") {
+          dndDebug("sheet.drop.route.container", {
+            sheet: "NpcSheetV2",
+            actor: this.document?.uuid ?? null,
+            container: containerItem?.uuid ?? null,
+            data,
+          }, { traceId });
+          return onDropItemIntoContainer(
+            { item: containerItem, actor: this.document, isEditable: this.isEditable },
+            data
+          );
+        }
+      }
+
       if (!isExternalItem) {
         dndDebug("sheet.drop.sameActor", {
           sheet: "NpcSheetV2",
@@ -1847,6 +1870,9 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           item: resolved.item?.uuid ?? null,
           sourceKind: resolved.sourceKind,
         }, { traceId });
+        if (String(resolved.item.system?.containerStats?.container_id ?? "").trim()) {
+          await removeItemFromContainer(this.document, resolved.item);
+        }
         return super._onDrop(event);
       }
 

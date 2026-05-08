@@ -22,7 +22,7 @@ import {
   requestDeleteEmbeddedDocuments,
 } from "../../../utils/authority-proxy.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
-import { onDropItemIntoContainer } from "../item/listeners/containment.js";
+import { onDropItemIntoContainer, removeItemFromContainer } from "../item/listeners/containment.js";
 import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
@@ -44,6 +44,7 @@ import { computeSkillTN } from "../../../core/skills/skill-tn.js";
 import { _listProfessions } from "../../../core/skills/opposed-workflow/core/skills.js";
 import { SYSTEM_ID } from "../../../core/constants.js";
 import { t, tf } from "../../../utils/i18n.js";
+import { shouldHideFromMainInventory } from "../sheet-inventory.js";
 import {
   buildAllowedChangePatch,
   buildAllowedSubmitPatch,
@@ -221,8 +222,9 @@ function buildGroupInventorySummary({ groupActor, resolvedMembers }) {
   const groupWealth = asFiniteNumber(groupActor?.flags?.[SYSTEM_ID]?.groupWealth, 0);
   const carryCurrent = visibleActors.reduce((sum, actor) => sum + asFiniteNumber(actor?.system?.carry_rating?.current, 0), 0);
   const carryMax = visibleActors.reduce((sum, actor) => sum + asFiniteNumber(actor?.system?.carry_rating?.max, 0), 0);
-  const groupItemsEnc = Array.from(groupActor?.items ?? [])
-    .filter((item) => !item?.system?.containerStats?.contained)
+  const groupItems = Array.from(groupActor?.items ?? []);
+  const groupItemsEnc = groupItems
+    .filter((item) => !shouldHideFromMainInventory(item, { actor: groupActor, items: groupItems }))
     .reduce((sum, item) => sum + getItemEncumbrance(item), 0);
   const label = getGroupEncumbranceLabel(carryCurrent, carryMax);
 
@@ -434,6 +436,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
       const sheetData = {
         actor: actor.toObject(),
+        document: actor,
         items: actor.items.map(i => {
           const obj = i.toObject();
           obj.system = i.system;
@@ -902,6 +905,9 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
         item: item?.uuid ?? null,
         sourceKind: resolved.sourceKind,
       }, { traceId });
+      if (String(item.system?.containerStats?.container_id ?? "").trim()) {
+        await removeItemFromContainer(this.document, item);
+      }
       return super._onDrop(event);
     }
 

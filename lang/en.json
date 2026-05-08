@@ -2811,6 +2811,10 @@
           "Name": "DnD Cache Fallback Enabled",
           "Hint": "Allow last-drag payload cache fallback when drop payload parsing is incomplete."
         },
+        "containerDebug": {
+          "Name": "Container Bugtracker",
+          "Hint": "Record container pointer, snapshot, drop, and render diagnostics. Exposes game.uesrpg.debug.auditContainers(actorOrUuid)."
+        },
         "aeLifecycleDebug": {
           "Name": "Active Effect Lifecycle Debug",
           "Hint": "Log all AE fetch/delete operations (for troubleshooting only). Helps diagnose 'does not exist' errors."
