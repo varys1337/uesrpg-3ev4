@@ -70,17 +70,15 @@ export function buildAdvancementPlan(item, flatData) {
 
   if (item.type === "combatStyle") {
     const oldTE = Array.isArray(item.system?.trainedEquipment) ? item.system.trainedEquipment : [];
-    const nextTE = Array.isArray(foundry.utils.getProperty(flatData, "system.trainedEquipment"))
-      ? foundry.utils.getProperty(flatData, "system.trainedEquipment")
+    const nextTE = Array.isArray(flatData?.["system.trainedEquipment"])
+      ? flatData["system.trainedEquipment"]
+      : Array.isArray(foundry.utils.getProperty(flatData, "system.trainedEquipment"))
+        ? foundry.utils.getProperty(flatData, "system.trainedEquipment")
       : oldTE;
-    const oldCount = oldTE.map(v => String(v ?? "").trim()).filter(Boolean).length;
     const newCount = nextTE.map(v => String(v ?? "").trim()).filter(Boolean).length;
     if (newCount > 10) {
       return { ok: false, reason: "Combat Style trained equipment is capped at 10 entries (Chapter 3)." };
     }
-    const oldExpanded = Math.max(0, oldCount - 5);
-    const newExpanded = Math.max(0, newCount - 5);
-    if (newExpanded > oldExpanded) xpCost += (newExpanded - oldExpanded) * 25;
 
     const oldSA = item.system?.specialAdvantages ?? {};
     let oldEnabled = 0;

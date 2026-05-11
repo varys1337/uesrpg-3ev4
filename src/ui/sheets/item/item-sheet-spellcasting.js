@@ -673,18 +673,24 @@ export function registerScrollListeners(sheet, el) {
   };
 
   if (uuidInput) {
-    uuidInput.addEventListener("change", async () => {
-      await commitInputValue();
-    });
+    if (uuidInput.dataset.scrollSpellInputBound !== "true") {
+      uuidInput.dataset.scrollSpellInputBound = "true";
 
-    uuidInput.addEventListener("keydown", async (ev) => {
-      if (ev.key !== "Enter") return;
-      ev.preventDefault();
-      await commitInputValue();
-    });
+      uuidInput.addEventListener("change", async () => {
+        await commitInputValue();
+      });
+
+      uuidInput.addEventListener("keydown", async (ev) => {
+        if (ev.key !== "Enter") return;
+        ev.preventDefault();
+        await commitInputValue();
+      });
+    }
   }
 
   if (!dropZone) return;
+  if (dropZone.dataset.scrollSpellDropBound === "true") return;
+  dropZone.dataset.scrollSpellDropBound = "true";
 
   dropZone.addEventListener("dragover", (ev) => {
     ev.preventDefault();

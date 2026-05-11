@@ -151,6 +151,7 @@ function _collectContainersToRender(actor, item, formerContainerId = "") {
 }
 
 function _renderContainmentLifecycle(actor, item, formerContainerId = "") {
+  if (!_settingEnabled()) return;
   if (!actor || actor.documentName !== "Actor" || !item) return;
   _clearActorSheetCaches(actor);
   const containers = _collectContainersToRender(actor, item, formerContainerId);

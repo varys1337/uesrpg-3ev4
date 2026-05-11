@@ -39,7 +39,7 @@ import {
   applyWoundThresholdAEs
 } from "../actors/ae/modifiers.js";
 import { FLAG_SCOPE } from "../constants.js";
-import { ensureIndex, getDocumentsByIds } from "../compendium/access-service.js";
+import { getCoreSkillSourcesSorted } from "../compendium/core-skills.js";
 import { getCachedPrepareContext, invalidateActorDerivedCache, setCachedPrepareContext } from "../actors/derived-cache/actor-derived-cache.js";
 import { buildActorPrepareContext, hasTalentCached } from "./actor/prepare-context.js";
 import {
@@ -56,24 +56,6 @@ import { wouldCreateCircularGroupReference } from "./actor/group-membership.js";
 
 /** Item types that carry a TN via baseCha and implement _prepareCombatStyleData. */
 const TN_ITEM_TYPES = new Set(["skill", "combatStyle", "magicSkill"]);
-let _coreSkillsCachePromise = null;
-
-async function _getCoreSkillSourcesSorted() {
-  if (_coreSkillsCachePromise) return _coreSkillsCachePromise;
-
-  _coreSkillsCachePromise = (async () => {
-    const index = await ensureIndex("uesrpg-3ev4.core-skills", { fields: ["name"] });
-    if (!index.length) {
-      console.warn("uesrpg-3ev4 | Core skills compendium pack not found; skipping skill pre-population.");
-      return [];
-    }
-    const sorted = [...index].sort((a, b) => String(a?.name ?? "").localeCompare(String(b?.name ?? "")));
-    const collection = await getDocumentsByIds("uesrpg-3ev4.core-skills", sorted.map((entry) => entry?._id));
-    return collection.map(i => i.toObject());
-  })();
-
-  return _coreSkillsCachePromise;
-}
 
 export class SimpleActor extends Actor {
   async _preCreate(data, options, user) {
@@ -118,7 +100,7 @@ export class SimpleActor extends Actor {
     if (this.type === 'Warfare Unit') return;
     if (this.type === 'Player Character') {
       if (Array.isArray(data?.items) && data.items.length > 0) return;
-      const sources = await _getCoreSkillSourcesSorted();
+      const sources = await getCoreSkillSourcesSorted();
       if (!Array.isArray(sources) || sources.length === 0) return;
 
       this.updateSource({

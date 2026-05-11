@@ -30,6 +30,7 @@ const _attachmentStates = new Map();
 const _leaderToWarfare = new Map();
 const _tokenPositionCache = new Map();
 const LEADER_UPDATE_SUPPRESS_MS = 200;
+let _warfareAttachmentHooksRegistered = false;
 
 function esc(value) {
   return foundry.utils.escapeHTML(String(value ?? ""));
@@ -1428,6 +1429,9 @@ async function syncFromLeaderToken(leaderTokenDoc) {
 }
 
 export function registerWarfareAttachmentHooks() {
+  if (_warfareAttachmentHooksRegistered) return;
+  _warfareAttachmentHooksRegistered = true;
+
   Hooks.on("refreshToken", async (token) => {
     if (!game.user?.isGM) return;
     const tokenDoc = token?.document ?? null;

@@ -1,4 +1,4 @@
-import { findOpenAppInstance, focusOpenApp, resolveMacroActor, resolveMacroActorInput } from "./shared.js";
+import { resolveMacroActorInput } from "./shared.js";
 
 /**
  * Character Generation Wizard macro entrypoint.
@@ -8,22 +8,27 @@ import { findOpenAppInstance, focusOpenApp, resolveMacroActor, resolveMacroActor
  */
 
 export async function openCharGenWizard(opts = {}) {
-  const actor = await resolveMacroActor({
-    actorUuid: opts.actorUuid ?? null,
-    multipleSelectionWarning: "Character Generation Wizard: select exactly one token, or none.",
-    noActorWarning: "Character Generation Wizard: No actor found. Control a token or assign a character to your user account.",
-  });
-  if (!actor) return;
+  let actor = null;
+
+  if (opts.actorUuid) {
+    const resolved = await fromUuid(String(opts.actorUuid));
+    if (resolved?.documentName === "Actor") actor = resolved;
+    else ui.notifications?.warn?.("Character Generation Wizard: actor UUID could not be resolved. Opening without a preselected actor.");
+  }
+
+  if (!actor) {
+    const controlled = Array.from(canvas?.tokens?.controlled ?? []);
+    if (controlled.length === 1) actor = controlled[0]?.actor ?? null;
+    else if (controlled.length > 1) {
+      ui.notifications?.warn?.("Character Generation Wizard: multiple tokens selected. Opening without a preselected actor.");
+    }
+  }
 
   const { CharGenWizardAppV2 } = await import("../ui/apps/v2/char-gen/char-gen-wizard.js");
 
-  const existing = findOpenAppInstance(CharGenWizardAppV2);
-  if (existing) return focusOpenApp(existing, { maximize: true });
-
-  return CharGenWizardAppV2.prompt({
-    actorUuid: actor.uuid,
-    name: opts.name ?? "",
-  });
+  const promptOptions = { name: opts.name ?? "" };
+  if (actor?.uuid) promptOptions.actorUuid = actor.uuid;
+  return CharGenWizardAppV2.prompt(promptOptions);
 }
 
 export async function runRawChargenFlow(actorOrOpts = {}) {

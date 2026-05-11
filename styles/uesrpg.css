@@ -1312,14 +1312,22 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   flex-basis: calc(50% - var(--uesrpg-dialog-gap, 8px) / 2);
 }
 
-#context-menu.uesrpg-item-quickmenu-context {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) {
   box-sizing: border-box;
   width: max-content !important;
   min-width: 0 !important;
-  max-width: 220px !important;
+  max-width: 300px !important;
   height: auto !important;
   max-height: none !important;
   overflow: visible !important;
+  transform: none !important;
+  scale: 1 !important;
+  opacity: 1 !important;
+  clip-path: none !important;
+  transition: none !important;
+  animation: none !important;
   padding: 11px 10px;
   border: 12px solid transparent;
   border-image: url("../images/elements/interface/borders/dialog-frame-wood.webp") 70/12px stretch;
@@ -1335,24 +1343,40 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   line-height: 1.15;
 }
 
-#context-menu.uesrpg-item-quickmenu-context :is(ol.context-items, li.context-group > ol) {
+:is(#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu),
+:is(#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) * {
+  transition: none !important;
+  animation: none !important;
+}
+
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) :is(ol.context-items, li.context-group > ol) {
   margin: 0;
   padding: 0;
 }
 
-#context-menu.uesrpg-item-quickmenu-context li.context-group {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) li.context-group {
   margin: 3px 0 0;
   padding: 4px 0 0;
   border-top: 1px solid rgba(89, 54, 20, 0.28);
 }
 
-#context-menu.uesrpg-item-quickmenu-context li.context-group:first-child {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) li.context-group:first-child {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
 }
 
-#context-menu.uesrpg-item-quickmenu-context li.context-item {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) li.context-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1367,30 +1391,40 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   max-width: 100%;
 }
 
-#context-menu.uesrpg-item-quickmenu-context li.context-item > i {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) li.context-item > i {
   flex: 0 0 16px;
   color: #5f3a18;
   font-size: 12px;
   text-align: center;
 }
 
-#context-menu.uesrpg-item-quickmenu-context li.context-item > span {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) li.context-item > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#context-menu.uesrpg-item-quickmenu-context li.context-item:hover {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) li.context-item:hover {
   background: rgba(122, 30, 31, 0.14);
   color: #111;
 }
 
-#context-menu.uesrpg-item-quickmenu-context li.context-item:hover > i {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) li.context-item:hover > i {
   color: #7b1d1f;
 }
 
-#context-menu.uesrpg-item-quickmenu-context li.context-item.uesrpg-item-quickmenu-delete > i {
+:is(#context-menu.uesrpg-item-quickmenu-context,
+#context-menu.uesrpg-chat-context-menu,
+body.uesrpg-chat-context-menu-pending #context-menu) li.context-item.uesrpg-item-quickmenu-delete > i {
   color: #b00020;
 }
 
@@ -13962,7 +13996,42 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   padding: 6px 8px;
 }
 
+.uesrpg-cg-combat-style-dialog {
+  min-width: 560px;
+  min-height: 420px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+}
+
+.uesrpg-cg-combat-style-dialog .window-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.uesrpg-cg-combat-style-dialog .window-content > form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.uesrpg-cg-combat-style-dialog :is(.dialog-content, .window-content > form > .uesrpg-cg-dialog) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+
+.uesrpg-cg-combat-style-dialog :is(.form-footer, .dialog-buttons),
 .uesrpg-cg-compact-dialog .form-footer {
+  flex: 0 0 auto;
   margin-top: 6px;
 }
 

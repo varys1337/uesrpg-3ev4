@@ -653,7 +653,7 @@
       "StableImportKey": "Stable import key",
       "ImportSourcePath": "Import source path",
       "TrainedEquipmentExample": "e.g., Long Blade, Bow, Shield",
-      "ElementType": "e.g., fire / frost / shock вЂ¦",
+      "ElementType": "e.g., fire / frost / shock ...",
       "Label": "Label",
       "SlotName": "Slot Name",
       "CustomEndeavourLabel": "Custom endeavour label",
@@ -684,7 +684,7 @@
       "ConjureItemUUID": "Drop an Item here or paste UUID",
       "ConjureActorUUID": "Drop an Actor here or paste UUID",
       "SummonedActorUUID": "Drop a summoned Actor or paste UUID",
-      "MaxTicks": "в€ћ",
+      "MaxTicks": "∞",
       "OverTimeLabel": "e.g. Burning, Poison",
       "CompendiumActorUUID": "Compendium.uesrpg-3ev4.inhabitants-of-tamriel....",
       "RecipeLabel": "Label",
@@ -1281,7 +1281,7 @@
           "SPD": "SPD"
         },
         "Leaderless": "Leaderless",
-        "InitiateClash": "вљ” Initiate Clash",
+        "InitiateClash": "Initiate Clash",
         "StrikeCharacter": "Strike Character",
         "RollDiscipline": "Roll Discipline",
         "LeaderActions": "Leader Actions",
@@ -1622,8 +1622,8 @@
         "OnlyAppliedToWeaponsOrAmmunition": "Poisons and toxins can only be applied to equipped weapons or ammunition.",
         "PoisonResistanceNoTarget": "Poison resistance: target actor not found.",
         "ToxinResistanceNoTarget": "Toxin resistance: target actor not found.",
-        "CreationBackfireFormat": "Backfire ({d4} + SL{highestSL} = {total}): {label} вЂ” {description}",
-        "MinorEffectFormat": "Minor Effect (2d8 = {roll}): {label} вЂ” {description}",
+        "CreationBackfireFormat": "Backfire ({d4} + SL{highestSL} = {total}): {label} - {description}",
+        "MinorEffectFormat": "Minor Effect (2d8 = {roll}): {label} - {description}",
         "UnknownBackfireResult": "Unknown backfire result.",
         "BackfireLabel": "Backfire",
         "CreatedLabel": "Created",
@@ -2252,7 +2252,7 @@
         "Title": "Oppose - Choose Skill"
       },
       "OpposedSkillTestAttacker": {
-        "Title": "Opposed Skill Test вЂ” Attacker"
+        "Title": "Opposed Skill Test - Attacker"
       },
       "WarfareEncounter": {
         "Title": "Warfare Encounter"
@@ -2332,6 +2332,13 @@
         "Test": "Test",
         "TN": "TN",
         "TnBreakdown": "TN breakdown"
+      },
+      "Context": {
+        "ApplyAsDamage": "Apply As Damage",
+        "ApplyAsHealing": "Apply As Healing",
+        "ApplyAsTemporaryHp": "Apply As Temporary HP",
+        "ApplyDoubleAsDamage": "Apply Double As Damage",
+        "ApplyHalfAsDamage": "Apply Half As Damage"
       },
       "Status": {
         "AwaitingChoice": "Awaiting choice",
@@ -2472,7 +2479,7 @@
         "LostStamina": "Lost Stamina (1)",
         "Burning": "Burning (1)",
         "AvoidedBurning": "Avoided Burning",
-        "FireWoundAvoidBurningFlavor": "Fire Wound вЂ” {actor} rolls {key} to avoid Burning (1)",
+        "FireWoundAvoidBurningFlavor": "Fire Wound - {actor} rolls {key} to avoid Burning (1)",
         "EffectCrippledBody": "Crippled Body ({location})",
         "EffectLostLimb": "Lost Limb ({location})",
         "EffectLostEar": "Lost Ear ({location})",

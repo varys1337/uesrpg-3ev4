@@ -2,7 +2,12 @@ import { emitDynamicInitiativeRoundSummary } from "./initiative-ui.js";
 import { getActionPointAutomationSetting, isDynamicInitiativeEnabledSetting } from "./settings.js";
 import { isPerfEnabled, perfRecord } from "../../../utils/perf-tracker.js";
 
+let _combatApHooksRegistered = false;
+
 export function registerCombatApHooks(SystemCombatClass) {
+  if (_combatApHooksRegistered) return;
+  _combatApHooksRegistered = true;
+
   Hooks.on("updateCombat", (combat, changed, _options, _userId) => {
     if (!game.user?.isGM) return;
     if (!("round" in changed)) return;

@@ -647,14 +647,15 @@ async function _executeBurn(actor, message, info, opt) {
 
 export function registerLuckContextMenuOptions(_hookName, options) {
   if (!Array.isArray(options)) return;
-  const hasLP = options.some((option) => String(option?.name ?? "").trim() === "Spend Luck Point");
-  const hasBurn = options.some((option) => String(option?.name ?? "").trim() === "Burn Luck");
+  const optionLabel = (option) => String(option?.label ?? option?.name ?? "").trim();
+  const hasLP = options.some((option) => optionLabel(option) === "Spend Luck Point");
+  const hasBurn = options.some((option) => optionLabel(option) === "Burn Luck");
 
   if (!hasLP) {
     options.push({
-      name: "Spend Luck Point",
+      label: "Spend Luck Point",
       icon: '<i class="fas fa-clover"></i>',
-      condition: (li) => {
+      visible: (li) => {
         const msgId = getMessageIdFromContextLi(li);
         if (!msgId) return false;
         const message = game.messages?.get?.(msgId);
@@ -671,7 +672,8 @@ export function registerLuckContextMenuOptions(_hookName, options) {
         });
         return hasEligibleSide && !info.staminaUsed;
       },
-      callback: async (li) => {
+      onClick: async (event, target) => {
+        const li = target ?? event;
         const msgId = getMessageIdFromContextLi(li);
         const message = game.messages?.get?.(msgId);
         if (!message) return;
@@ -702,9 +704,9 @@ export function registerLuckContextMenuOptions(_hookName, options) {
 
   if (!hasBurn) {
     options.push({
-      name: "Burn Luck",
+      label: "Burn Luck",
       icon: '<i class="fas fa-fire"></i>',
-      condition: (li) => {
+      visible: (li) => {
         const msgId = getMessageIdFromContextLi(li);
         if (!msgId) return false;
         const message = game.messages?.get?.(msgId);
@@ -719,7 +721,8 @@ export function registerLuckContextMenuOptions(_hookName, options) {
           return canMutateLuckResult(message, info, side, { classifyMessage: _classifyMessage }).ok;
         });
       },
-      callback: async (li) => {
+      onClick: async (event, target) => {
+        const li = target ?? event;
         const msgId = getMessageIdFromContextLi(li);
         const message = game.messages?.get?.(msgId);
         if (!message) return;

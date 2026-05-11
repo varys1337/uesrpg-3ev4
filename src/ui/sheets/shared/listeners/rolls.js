@@ -223,7 +223,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
 
     try {
       decl = await customDialog({
-        title: `${skillItem.name} вЂ” Roll Options`,
+        title: `${skillItem.name} - Roll Options`,
         content,
         buttons: {
           ok: {
@@ -573,7 +573,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
 
   // No target -> manual roll dialog
   await customDialog({
-    title: `${item.name} вЂ” Roll Options`,
+    title: `${item.name} - Roll Options`,
     content: `<div>
                 <div class="form-group" style="margin-bottom:8px;">
                   <label style="display:block;"><b>Difficulty</b></label>

@@ -743,7 +743,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       ...styles.map((it) => `<option value="${it.id}">${it.name}</option>`),
     ].join("");
     const rankOptions = RANK_OPTIONS.map((rank) => {
-      const label = TRAINING_RANK_LABELS[rank] ?? rank;
+      const label = foundry.utils.escapeHTML(t(TRAINING_RANK_LABELS[rank] ?? rank));
       return `<option value="${rank}" ${rank === "novice" ? "selected" : ""}>${label}</option>`;
     }).join("");
     const saChecks = SPECIAL_ACTIONS.map((sa) => `<label style="display:flex; align-items:center; gap:6px;">
@@ -793,7 +793,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const desiredTeCount = desiredTe.filter(Boolean).length;
       const freeTe = styleIsNew ? 5 : currentTeCount;
       const teDeltaPaid = Math.max(0, desiredTeCount - freeTe);
-      const teCost = teDeltaPaid > 0 ? discountCostIfFavored(25 * teDeltaPaid, favored) : 0;
+      const teCost = teDeltaPaid > 0 ? 25 * teDeltaPaid : 0;
 
       const currentSa = styleIsNew ? {} : (style.system?.specialAdvantages ?? {});
       const currentSaCount = Object.values(currentSa).filter(Boolean).length;
@@ -802,7 +802,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const nextSaCount = Object.values(nextSa).filter(Boolean).length;
       const freeSa = styleIsNew ? 1 : currentSaCount;
       const saDeltaPaid = Math.max(0, nextSaCount - freeSa);
-      const saCost = saDeltaPaid > 0 ? discountCostIfFavored(25 * saDeltaPaid, favored) : 0;
+      const saCost = saDeltaPaid > 0 ? 25 * saDeltaPaid : 0;
 
       return {
         ok: true,
@@ -843,7 +843,9 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const result = await customDialog({
       title: t("UESRPG.Dialogs.CharGen.CombatStyleSetupTitle"),
       width: 820,
-      classes: ["uesrpg-cg-compact-dialog"],
+      height: 680,
+      resizable: true,
+      classes: ["uesrpg-cg-compact-dialog", "uesrpg-cg-combat-style-dialog"],
       content: `<div class="uesrpg-cg-dialog">
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.CombatStyleSetupNote")}</div>
         <label style="display:flex; flex-direction:column; gap:4px;">

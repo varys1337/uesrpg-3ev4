@@ -1169,6 +1169,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }, 150);
 
     equipInputs.forEach(input => {
+      if (input.dataset.uesrpgCombatStyleEquipmentBound === "true") return;
+      input.dataset.uesrpgCombatStyleEquipmentBound = "true";
       // Persist on blur/change, not keystroke, to prevent input jitter.
       input.addEventListener("change", debouncedEquipUpdate);
       // Prevent accidental form submit on Enter.
@@ -1181,6 +1183,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     });
 
     saInputs.forEach(input => {
+      if (input.dataset.uesrpgCombatStyleSpecialAdvantageBound === "true") return;
+      input.dataset.uesrpgCombatStyleSpecialAdvantageBound = "true";
       input.addEventListener("change", async (ev) => {
         try {
           const tgt = ev.target;
@@ -1214,31 +1218,42 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
     // Scaling input change (delegated)
     // Auto-save scaling field changes without rerender.
-    el.addEventListener("change", async (ev) => {
-      const target = ev.target;
-      if (!(target instanceof Element) || !target.closest("[data-scaling-input]")) return;
+    if (el.dataset.uesrpgSpellScalingBound !== "true") {
+      el.dataset.uesrpgSpellScalingBound = "true";
+      el.addEventListener("change", async (ev) => {
+        const target = ev.target;
+        if (!(target instanceof Element) || !target.closest("[data-scaling-input]")) return;
 
-      ev.uesrpgSkipScalingValidation = true;
-      logSpellDebug("Scaling input change", { name: ev.target?.name, value: ev.target?.value });
-      await autosaveSpellField(ev, { skipScalingValidation: true });
-    });
+        ev.uesrpgSkipScalingValidation = true;
+        logSpellDebug("Scaling input change", { name: ev.target?.name, value: ev.target?.value });
+        await autosaveSpellField(ev, { skipScalingValidation: true });
+      });
+    }
 
-    el.addEventListener("change", async (ev) => {
-      const target = ev.target;
-      if (!(target instanceof Element) || !target.closest("[data-spell-structure]")) return;
-      logSpellDebug("Spell structural change", { name: ev.target?.name, value: ev.target?.value, checked: ev.target?.checked });
-      await autosaveSpellField(ev, { rerender: true });
-    });
+    if (el.dataset.uesrpgSpellStructureBound !== "true") {
+      el.dataset.uesrpgSpellStructureBound = "true";
+      el.addEventListener("change", async (ev) => {
+        const target = ev.target;
+        if (!(target instanceof Element) || !target.closest("[data-spell-structure]")) return;
+        logSpellDebug("Spell structural change", { name: ev.target?.name, value: ev.target?.value, checked: ev.target?.checked });
+        await autosaveSpellField(ev, { rerender: true });
+      });
+    }
 
-    el.addEventListener("change", async (ev) => {
-      const target = ev.target;
-      if (!(target instanceof Element) || !target.closest("[data-spell-autosave]")) return;
-      logSpellDebug("Spell field autosave", { name: ev.target?.name, value: ev.target?.value, checked: ev.target?.checked });
-      await autosaveSpellField(ev);
-    });
+    if (el.dataset.uesrpgSpellAutosaveBound !== "true") {
+      el.dataset.uesrpgSpellAutosaveBound = "true";
+      el.addEventListener("change", async (ev) => {
+        const target = ev.target;
+        if (!(target instanceof Element) || !target.closest("[data-spell-autosave]")) return;
+        logSpellDebug("Spell field autosave", { name: ev.target?.name, value: ev.target?.value, checked: ev.target?.checked });
+        await autosaveSpellField(ev);
+      });
+    }
 
     // Prevent module label/title clicks from leaking into unrelated containers.
     el.querySelectorAll("[data-spell-structure], [data-spell-autosave], .spell-module-panel label.spell-check, .spell-module-title").forEach(node => {
+      if (node.dataset.uesrpgSpellClickStopBound === "true") return;
+      node.dataset.uesrpgSpellClickStopBound = "true";
       node.addEventListener("click", (ev) => ev.stopPropagation());
     });
 
@@ -1255,35 +1270,40 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         }
       }, 200);
 
-      el.addEventListener("change", async (ev) => {
-        if (!ev.target.closest("[data-recipe-input]")) return;
-        if (!this.isEditable) return;
+      if (el.dataset.uesrpgSpellRecipeBound !== "true") {
+        el.dataset.uesrpgSpellRecipeBound = "true";
+        el.addEventListener("change", async (ev) => {
+          if (!ev.target.closest("[data-recipe-input]")) return;
+          if (!this.isEditable) return;
 
-        // Patch only the row that changed.
-        const row = ev.target.closest(".spell-recipe-row");
-        const idx = Number(row?.dataset?.recipeIndex);
-        if (!row || Number.isNaN(idx) || idx < 0) return;
+          // Patch only the row that changed.
+          const row = ev.target.closest(".spell-recipe-row");
+          const idx = Number(row?.dataset?.recipeIndex);
+          if (!row || Number.isNaN(idx) || idx < 0) return;
 
-        const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
-        while (recipes.length <= idx) recipes.push({ key: "", mode: "add", value: "", target: "target", label: "" });
+          const recipes = foundry.utils.deepClone(this.document.system?.engine?.effects?.recipes ?? []);
+          while (recipes.length <= idx) recipes.push({ key: "", mode: "add", value: "", target: "target", label: "" });
 
-        recipes[idx] = {
-          key: row.querySelector('[name$=".key"]')?.value || "",
-          mode: row.querySelector('[name$=".mode"]')?.value || "add",
-          value: row.querySelector('[name$=".value"]')?.value || "",
-          target: row.querySelector('[name$=".target"]')?.value || "target",
-          label: row.querySelector('[name$=".label"]')?.value || ""
-        };
+          recipes[idx] = {
+            key: row.querySelector('[name$=".key"]')?.value || "",
+            mode: row.querySelector('[name$=".mode"]')?.value || "add",
+            value: row.querySelector('[name$=".value"]')?.value || "",
+            target: row.querySelector('[name$=".target"]')?.value || "target",
+            label: row.querySelector('[name$=".label"]')?.value || ""
+          };
 
-        logSpellDebug("Recipe auto-save", { recipeIndex: idx, recipeCount: recipes.length });
-        debouncedRecipeUpdate(recipes);
-      });
+          logSpellDebug("Recipe auto-save", { recipeIndex: idx, recipeCount: recipes.length });
+          debouncedRecipeUpdate(recipes);
+        });
+      }
     }
 
     // Conjure: drag-drop support for item/actor UUID fields
     el.querySelectorAll(".conjure-drop-target").forEach(input => {
       const dropType = input.dataset.conjureDrop; // "item" or "actor"
       if (!dropType) return;
+      if (input.dataset.uesrpgConjureDropBound === "true") return;
+      input.dataset.uesrpgConjureDropBound = "true";
 
       input.addEventListener("dragover", (ev) => {
         ev.preventDefault();
@@ -1342,6 +1362,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     // Right-click on "+ Item" header: bulk add all eligible items
     const addBtn = el.querySelector(".addToContainer");
     if (addBtn) {
+      if (addBtn.dataset.uesrpgBulkAddBound === "true") return;
+      addBtn.dataset.uesrpgBulkAddBound = "true";
       addBtn.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
         onBulkAddToContainer(this);

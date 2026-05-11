@@ -314,8 +314,7 @@ export function buildSkillAdvancementPlan({ actor, item, flatData, options = {} 
       const proposedCount = _countNonEmpty(proposedArr);
       const delta = Math.max(0, proposedCount - currentCount);
       if (delta > 0) {
-        const base = 25 * delta;
-        xpCost += discountCostIfFavored(base, favored);
+        xpCost += 25 * delta;
       }
     }
   }

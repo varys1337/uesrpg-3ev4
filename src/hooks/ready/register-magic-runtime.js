@@ -1,4 +1,20 @@
+let _magicRuntimeRegistrationPromise = null;
+let _magicRuntimeRegistered = false;
+
 export async function registerMagicRuntime() {
+  if (_magicRuntimeRegistered) return;
+  if (_magicRuntimeRegistrationPromise) return _magicRuntimeRegistrationPromise;
+
+  _magicRuntimeRegistrationPromise = _registerMagicRuntimeOnce();
+  try {
+    await _magicRuntimeRegistrationPromise;
+    _magicRuntimeRegistered = true;
+  } finally {
+    _magicRuntimeRegistrationPromise = null;
+  }
+}
+
+async function _registerMagicRuntimeOnce() {
   const [
     { initializeUpkeepSystem },
     { initializeSpellEffectExpirationSystem },

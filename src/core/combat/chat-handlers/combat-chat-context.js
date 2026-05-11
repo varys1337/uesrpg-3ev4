@@ -11,10 +11,16 @@ import { isDebugEnabled } from "../../../utils/debug.js";
 import { pushContextOptionOnce } from "./actions/handle-contextmenu.js";
 import { registerChatLogHostMount } from "./actions/handle-click.js";
 import { getMessageIdFromContextLi } from "../../../utils/chat/contextmenu.js";
+import { t } from "../../../utils/i18n.js";
 
 let _chatContextHooksRegistered = false;
 let _ctxMenuDebugHelperRegistered = false;
 let _chatLogContextProbeRegistered = false;
+let _chatContextMenuPatchRegistered = false;
+
+const CHAT_CONTEXT_MENU_CLASS = "uesrpg-chat-context-menu";
+const CHAT_CONTEXT_MENU_BODY_CLASS = "uesrpg-chat-context-menu-pending";
+const CHAT_ROLL_CONTEXT_SOURCE = "Chat Roll";
 
 // ── Debug helpers ─────────────────────────────────────────────────────────────
 
@@ -52,6 +58,176 @@ function _getSingleUserSelectedToken() {
   const controlled = Array.from(canvas?.tokens?.controlled ?? []);
   if (controlled.length !== 1) return null;
   return controlled[0] ?? null;
+}
+
+function _getControlledActors() {
+  const out = [];
+  const seen = new Set();
+  for (const token of Array.from(canvas?.tokens?.controlled ?? [])) {
+    const actor = token?.actor ?? null;
+    if (!actor?.uuid || (!game.user?.isGM && !actor.isOwner)) continue;
+    if (seen.has(actor.uuid)) continue;
+    seen.add(actor.uuid);
+    out.push(actor);
+  }
+  return out;
+}
+
+function _getContextMenuElement() {
+  const menu = document.querySelector("#context-menu");
+  return menu instanceof HTMLElement ? menu : null;
+}
+
+function _isChatContextMenuPending() {
+  return Boolean(document.body?.classList?.contains?.(CHAT_CONTEXT_MENU_BODY_CLASS));
+}
+
+function _isChatContextMenuElement(menu) {
+  return Boolean(menu?.dataset?.uesrpgChatContextMenu === "1" || menu?.classList?.contains?.(CHAT_CONTEXT_MENU_CLASS));
+}
+
+function _tagChatContextMenu(menu = _getContextMenuElement()) {
+  if (!(menu instanceof HTMLElement)) return false;
+  if (!_isChatContextMenuPending()) return false;
+  menu.classList.add(CHAT_CONTEXT_MENU_CLASS);
+  menu.dataset.uesrpgChatContextMenu = "1";
+  return true;
+}
+
+function _clearChatContextMenuMarker() {
+  document.body?.classList?.remove?.(CHAT_CONTEXT_MENU_BODY_CLASS);
+}
+
+function _clearChatContextMenuMarkerSoon() {
+  queueMicrotask(() => {
+    setTimeout(() => {
+      if (!_isChatContextMenuElement(_getContextMenuElement())) _clearChatContextMenuMarker();
+    }, 0);
+  });
+}
+
+function _registerChatContextMenuPatch() {
+  if (_chatContextMenuPatchRegistered) return;
+  _chatContextMenuPatchRegistered = true;
+
+  const ContextMenu = globalThis.foundry?.applications?.ux?.ContextMenu ?? globalThis.CONFIG?.ux?.ContextMenu;
+  const proto = ContextMenu?.prototype;
+  if (!proto || proto.__uesrpgChatContextMenuPatch === true) return;
+  Object.defineProperty(proto, "__uesrpgChatContextMenuPatch", {
+    value: true,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+
+  const originalPreRenderEntries = proto._preRenderEntries;
+  if (typeof originalPreRenderEntries === "function") {
+    proto._preRenderEntries = async function uesrpgChatContextPreRenderEntries(...args) {
+      if (_isChatContextMenuPending()) this.element?.classList?.add?.(CHAT_CONTEXT_MENU_CLASS);
+      return originalPreRenderEntries.apply(this, args);
+    };
+  }
+
+  const originalSetPosition = proto._setPosition;
+  if (typeof originalSetPosition === "function") {
+    proto._setPosition = function uesrpgChatContextSetPosition(html, target, options = {}) {
+      if (_isChatContextMenuPending()) _tagChatContextMenu(html);
+      return originalSetPosition.call(this, html, target, options);
+    };
+  }
+
+  const originalAnimate = proto._animate;
+  if (typeof originalAnimate === "function") {
+    proto._animate = async function uesrpgChatContextAnimate(...args) {
+      if (_isChatContextMenuPending() || _isChatContextMenuElement(this?.element) || _isChatContextMenuElement(_getContextMenuElement())) {
+        return undefined;
+      }
+      return originalAnimate.apply(this, args);
+    };
+  }
+
+  document.addEventListener("pointerdown", _clearChatContextMenuMarkerSoon, true);
+
+  document.addEventListener("keydown", (ev) => {
+    if (ev?.key === "Escape") _clearChatContextMenuMarkerSoon();
+  }, true);
+}
+
+function _getMessageRollTotal(message) {
+  const rolls = Array.isArray(message?.rolls)
+    ? message.rolls
+    : Array.from(message?.rolls ?? []);
+  let total = 0;
+  let count = 0;
+  for (const roll of rolls) {
+    const value = Number(roll?.total);
+    if (!Number.isFinite(value)) continue;
+    total += value;
+    count += 1;
+  }
+  return count > 0 ? total : null;
+}
+
+function _getContextMessage(li) {
+  const messageId = _getMessageIdFromContextLi(li);
+  return messageId ? (game.messages?.get?.(messageId) ?? null) : null;
+}
+
+function _canApplyChatRoll(li) {
+  const message = _getContextMessage(li);
+  const total = _getMessageRollTotal(message);
+  return Number.isFinite(total) && total > 0 && _getControlledActors().length > 0;
+}
+
+function _chatRollAmount(message, multiplier = 1) {
+  const total = Number(_getMessageRollTotal(message));
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  const scaled = total * Number(multiplier || 1);
+  return Math.max(0, Math.floor(scaled));
+}
+
+async function _applyChatRollToControlledActors(li, { mode = "damage", multiplier = 1 } = {}) {
+  const message = _getContextMessage(li);
+  if (!message) {
+    ui.notifications?.warn?.("No chat message found for roll application.");
+    return;
+  }
+
+  const actors = _getControlledActors();
+  if (!actors.length) {
+    ui.notifications?.warn?.("Select at least one token with an actor you can modify.");
+    return;
+  }
+
+  const amount = _chatRollAmount(message, multiplier);
+  if (amount <= 0) {
+    ui.notifications?.warn?.("No positive roll total found on this chat message.");
+    return;
+  }
+
+  const failures = [];
+  for (const actor of actors) {
+    try {
+      if (mode === "healing" || mode === "temporary") {
+        await actor.applyHealing(amount, {
+          source: CHAT_ROLL_CONTEXT_SOURCE,
+          isTemporary: mode === "temporary",
+        });
+      } else {
+        await actor.applyDamage(amount, "physical", {
+          source: CHAT_ROLL_CONTEXT_SOURCE,
+          ignoreReduction: true,
+        });
+      }
+    } catch (err) {
+      failures.push(actor.name ?? actor.uuid);
+      console.error("UESRPG | Failed to apply chat roll context action", { actor, mode, amount, err });
+    }
+  }
+
+  if (failures.length) {
+    ui.notifications?.warn?.(`Failed to apply roll to: ${failures.join(", ")}`);
+  }
 }
 
 function _isOpposedCardMessage(message) {
@@ -115,10 +291,16 @@ function _registerChatLogContextProbe() {
     host.dataset.uesrpgCtxProbe = "1";
 
     host.addEventListener("contextmenu", (ev) => {
-      if (!_ctxMenuDebugEnabled()) return;
       const target = ev.target instanceof HTMLElement ? ev.target : null;
       const li = target?.closest?.(".message");
       const messageId = li ? _getMessageIdFromContextLi(li) : null;
+      if (li) {
+        document.body?.classList?.add?.(CHAT_CONTEXT_MENU_BODY_CLASS);
+        _tagChatContextMenu();
+      } else {
+        _clearChatContextMenuMarker();
+      }
+      if (!_ctxMenuDebugEnabled()) return;
       _ctxMenuDebug("dom.contextmenu", {
         hasMessageLi: Boolean(li),
         messageId,
@@ -131,12 +313,66 @@ function _registerChatLogContextProbe() {
   });
 }
 
+function _registerChatRollContextOptions(hookName, options) {
+  if (!Array.isArray(options)) return;
+
+  const labels = {
+    damage: t("UESRPG.Chat.Context.ApplyAsDamage", "Apply As Damage"),
+    healing: t("UESRPG.Chat.Context.ApplyAsHealing", "Apply As Healing"),
+    temporary: t("UESRPG.Chat.Context.ApplyAsTemporaryHp", "Apply As Temporary HP"),
+    doubleDamage: t("UESRPG.Chat.Context.ApplyDoubleAsDamage", "Apply Double As Damage"),
+    halfDamage: t("UESRPG.Chat.Context.ApplyHalfAsDamage", "Apply Half As Damage"),
+  };
+
+  const entries = [
+    {
+      label: labels.damage,
+      icon: '<i class="fas fa-user-minus"></i>',
+      group: "damage",
+      visible: _canApplyChatRoll,
+      onClick: (event, target) => _applyChatRollToControlledActors(target ?? event, { mode: "damage", multiplier: 1 }),
+    },
+    {
+      label: labels.healing,
+      icon: '<i class="fas fa-user-plus"></i>',
+      group: "damage",
+      visible: _canApplyChatRoll,
+      onClick: (event, target) => _applyChatRollToControlledActors(target ?? event, { mode: "healing", multiplier: 1 }),
+    },
+    {
+      label: labels.temporary,
+      icon: '<i class="fas fa-user-clock"></i>',
+      group: "damage",
+      visible: _canApplyChatRoll,
+      onClick: (event, target) => _applyChatRollToControlledActors(target ?? event, { mode: "temporary", multiplier: 1 }),
+    },
+    {
+      label: labels.doubleDamage,
+      icon: '<i class="fas fa-user-injured"></i>',
+      group: "damage",
+      visible: _canApplyChatRoll,
+      onClick: (event, target) => _applyChatRollToControlledActors(target ?? event, { mode: "damage", multiplier: 2 }),
+    },
+    {
+      label: labels.halfDamage,
+      icon: '<i class="fas fa-user-shield"></i>',
+      group: "damage",
+      visible: _canApplyChatRoll,
+      onClick: (event, target) => _applyChatRollToControlledActors(target ?? event, { mode: "damage", multiplier: 0.5 }),
+    },
+  ];
+
+  for (const entry of entries) pushContextOptionOnce(options, entry);
+  _ctxMenuDebug(`hook.${hookName}.chatRollOptionsPushed`, { optionsCountAfter: options.length });
+}
+
 // ── Public registration ───────────────────────────────────────────────────────
 
 export function registerCombatChatContextHandlers() {
   if (_chatContextHooksRegistered) return;
 
   try {
+    _registerChatContextMenuPatch();
     _registerChatLogContextProbe();
   } catch (err) {
     console.error("UESRPG | Failed to register chat context probe", err);
@@ -224,9 +460,9 @@ export function registerCombatChatContextHandlers() {
     _ctxMenuDebug(`hook.${hookName}.fired`, { optionsCountBefore: options.length });
 
     pushContextOptionOnce(options, {
-      name: "Change attacker",
+      label: "Change attacker",
       icon: '<i class="fas fa-user-pen"></i>',
-      condition: (li) => {
+      visible: (li) => {
         const messageId = _getMessageIdFromContextLi(li);
         if (!messageId) {
           _ctxMenuDebug("condition.changeAttacker.noMessageId");
@@ -241,15 +477,16 @@ export function registerCombatChatContextHandlers() {
         _ctxMenuDebug("condition.changeAttacker.result", { messageId, allowed, userId: game.user?.id ?? null });
         return allowed;
       },
-      callback: async (li) => {
+      onClick: async (event, target) => {
+        const li = target ?? event;
         await _executeContextRetarget(li, { role: "attacker" });
       },
     });
 
     pushContextOptionOnce(options, {
-      name: "Change defender",
+      label: "Change defender",
       icon: '<i class="fas fa-user-shield"></i>',
-      condition: (li) => {
+      visible: (li) => {
         const messageId = _getMessageIdFromContextLi(li);
         if (!messageId) {
           _ctxMenuDebug("condition.changeDefender.noMessageId");
@@ -264,7 +501,8 @@ export function registerCombatChatContextHandlers() {
         _ctxMenuDebug("condition.changeDefender.result", { messageId, allowed, userId: game.user?.id ?? null });
         return allowed;
       },
-      callback: async (li) => {
+      onClick: async (event, target) => {
+        const li = target ?? event;
         await _executeContextRetarget(li, { role: "defender" });
       },
     });
@@ -273,10 +511,12 @@ export function registerCombatChatContextHandlers() {
   };
 
   Hooks.on("getChatMessageContextOptions", (_html, options) => {
+    _registerChatRollContextOptions("getChatMessageContextOptions", options);
     addOpposedContextOptions("getChatMessageContextOptions", options);
     registerLuckContextMenuOptions("getChatMessageContextOptions", options);
   });
   Hooks.on("getChatLogEntryContext", (_html, options) => {
+    _registerChatRollContextOptions("getChatLogEntryContext", options);
     addOpposedContextOptions("getChatLogEntryContext", options);
     registerLuckContextMenuOptions("getChatLogEntryContext", options);
   });

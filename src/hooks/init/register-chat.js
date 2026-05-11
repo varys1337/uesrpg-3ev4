@@ -23,72 +23,74 @@ export function registerChat({
   registerArmorCoverageOverlay,
   registerClashChatActions,
 } = {}) {
-  _chatDebug("start");
+  registerOnce("hooks:chat-orchestrator", () => {
+    _chatDebug("start");
 
-  try {
-    _chatDebug("registrar:start", { name: "combatHandlers" });
-    registerCombatChatHandlers?.();
-    _chatDebug("registrar:ok", { name: "combatHandlers" });
-  } catch (err) {
-    console.error("UESRPG | registerChat combatHandlers failed", err);
-    _chatDebug("registrar:fail", { name: "combatHandlers", error: String(err?.message ?? err) });
-  }
+    try {
+      _chatDebug("registrar:start", { name: "combatHandlers" });
+      registerCombatChatHandlers?.();
+      _chatDebug("registrar:ok", { name: "combatHandlers" });
+    } catch (err) {
+      console.error("UESRPG | registerChat combatHandlers failed", err);
+      _chatDebug("registrar:fail", { name: "combatHandlers", error: String(err?.message ?? err) });
+    }
 
-  try {
-    _chatDebug("registrar:start", { name: "activationHooks" });
-    registerActivationStateHooks?.();
-    _chatDebug("registrar:ok", { name: "activationHooks" });
-  } catch (err) {
-    console.error("UESRPG | registerChat activationHooks failed", err);
-    _chatDebug("registrar:fail", { name: "activationHooks", error: String(err?.message ?? err) });
-  }
+    try {
+      _chatDebug("registrar:start", { name: "activationHooks" });
+      registerActivationStateHooks?.();
+      _chatDebug("registrar:ok", { name: "activationHooks" });
+    } catch (err) {
+      console.error("UESRPG | registerChat activationHooks failed", err);
+      _chatDebug("registrar:fail", { name: "activationHooks", error: String(err?.message ?? err) });
+    }
 
-  try {
-    _chatDebug("registrar:start", { name: "socket" });
-    registerChatMessageSocket?.();
-    _chatDebug("registrar:ok", { name: "socket" });
-  } catch (err) {
-    console.error("UESRPG | registerChat socket failed", err);
-    _chatDebug("registrar:fail", { name: "socket", error: String(err?.message ?? err) });
-  }
+    try {
+      _chatDebug("registrar:start", { name: "socket" });
+      registerChatMessageSocket?.();
+      _chatDebug("registrar:ok", { name: "socket" });
+    } catch (err) {
+      console.error("UESRPG | registerChat socket failed", err);
+      _chatDebug("registrar:fail", { name: "socket", error: String(err?.message ?? err) });
+    }
 
-  try {
-    _chatDebug("registrar:start", { name: "authorityProxy" });
-    registerAuthorityProxy?.();
-    _chatDebug("registrar:ok", { name: "authorityProxy" });
-  } catch (err) {
-    console.error("UESRPG | registerChat authorityProxy failed", err);
-    _chatDebug("registrar:fail", { name: "authorityProxy", error: String(err?.message ?? err) });
-  }
+    try {
+      _chatDebug("registrar:start", { name: "authorityProxy" });
+      registerAuthorityProxy?.();
+      _chatDebug("registrar:ok", { name: "authorityProxy" });
+    } catch (err) {
+      console.error("UESRPG | registerChat authorityProxy failed", err);
+      _chatDebug("registrar:fail", { name: "authorityProxy", error: String(err?.message ?? err) });
+    }
 
-  try {
-    _chatDebug("registrar:start", { name: "reachVisualizer" });
-    registerReachVisualizer?.();
-    _chatDebug("registrar:ok", { name: "reachVisualizer" });
-  } catch (err) {
-    console.error("UESRPG | registerChat reachVisualizer failed", err);
-    _chatDebug("registrar:fail", { name: "reachVisualizer", error: String(err?.message ?? err) });
-  }
+    try {
+      _chatDebug("registrar:start", { name: "reachVisualizer" });
+      registerReachVisualizer?.();
+      _chatDebug("registrar:ok", { name: "reachVisualizer" });
+    } catch (err) {
+      console.error("UESRPG | registerChat reachVisualizer failed", err);
+      _chatDebug("registrar:fail", { name: "reachVisualizer", error: String(err?.message ?? err) });
+    }
 
-  try {
-    _chatDebug("registrar:start", { name: "armorCoverageOverlay" });
-    registerArmorCoverageOverlay?.();
-    _chatDebug("registrar:ok", { name: "armorCoverageOverlay" });
-  } catch (err) {
-    console.error("UESRPG | registerChat armorCoverageOverlay failed", err);
-    _chatDebug("registrar:fail", { name: "armorCoverageOverlay", error: String(err?.message ?? err) });
-  }
+    try {
+      _chatDebug("registrar:start", { name: "armorCoverageOverlay" });
+      registerArmorCoverageOverlay?.();
+      _chatDebug("registrar:ok", { name: "armorCoverageOverlay" });
+    } catch (err) {
+      console.error("UESRPG | registerChat armorCoverageOverlay failed", err);
+      _chatDebug("registrar:fail", { name: "armorCoverageOverlay", error: String(err?.message ?? err) });
+    }
 
-  try {
-    _chatDebug("registrar:start", { name: "clashChatActions" });
-    registerClashChatActions?.();
-    _chatDebug("registrar:ok", { name: "clashChatActions" });
-  } catch (err) {
-    console.error("UESRPG | registerChat clashChatActions failed", err);
-    _chatDebug("registrar:fail", { name: "clashChatActions", error: String(err?.message ?? err) });
-  }
+    try {
+      _chatDebug("registrar:start", { name: "clashChatActions" });
+      registerClashChatActions?.();
+      _chatDebug("registrar:ok", { name: "clashChatActions" });
+    } catch (err) {
+      console.error("UESRPG | registerChat clashChatActions failed", err);
+      _chatDebug("registrar:fail", { name: "clashChatActions", error: String(err?.message ?? err) });
+    }
 
-  _chatDebug("done");
+    _chatDebug("done");
+  });
 }
 
 /**

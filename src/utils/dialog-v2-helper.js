@@ -188,6 +188,7 @@ export async function promptDialog({
  * @param {boolean} [options.unstyled=false] - If true, skip default UESRPG dialog class injection
  * @param {number} [options.width] - Dialog width in pixels
  * @param {number} [options.height] - Dialog height in pixels
+ * @param {boolean} [options.resizable=false] - Whether the DialogV2 window can be resized by the user
  * @param {Function} [options.render] - Callback invoked after each render: `(event, dialog: HTMLElement) => void`
  * @returns {Promise<any>} The return value from the chosen button's callback, or the button action id if no callback is set
  */
@@ -204,6 +205,7 @@ export async function customDialog({
   unstyled = false,
   width,
   height,
+  resizable = false,
   render,
 } = {}) {
   // Support shorthand yes/no as top-level keys
@@ -249,8 +251,11 @@ export async function customDialog({
   if (width) position.width = width;
   if (height) position.height = height;
 
+  const windowOptions = { title };
+  if (resizable) windowOptions.resizable = true;
+
   const action = await DialogV2.wait({
-    window: { title },
+    window: windowOptions,
     content,
     buttons: dialogButtons,
     rejectClose,
