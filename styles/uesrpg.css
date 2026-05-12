@@ -10367,6 +10367,407 @@ body.theme-dark .worldbuilding :is(.sheet.actor.player-character, .sheet.actor.n
     flex-direction: column;
   }
 }
+/* ---
+   Native Journal chrome for UESRPG.
+   Styles Foundry's built-in journal entry and journal page sheets using
+   the existing system wood / leather / parchment visual language.
+   Scoped to the active system body class to avoid leaking across systems.
+   ---*/
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry),
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) {
+  box-sizing: border-box;
+  border: 20px solid transparent;
+  border-image: url("../images/elements/interface/borders/dialog-frame-wood.webp") 70/20px stretch;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .window-header,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .window-header {
+  background-image: url("../images/elements/backgrounds/wood-background.webp");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: #f4ead3;
+  border-bottom: 1px solid rgba(151, 114, 57, 0.65);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.72);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .window-header :is(.window-title, a, button, .header-control),
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .window-header :is(.window-title, a, button, .header-control) {
+  color: #f4ead3;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .window-content,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .window-content {
+  display: flex;
+  min-height: 0;
+  padding: 10px;
+  gap: 10px;
+  background-image: url("../images/elements/backgrounds/brown_leather.webp");
+  background-size: cover;
+  background-position: center;
+  border: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: var(--uesrpg-color-text);
+  overflow: hidden;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sheet-container,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .window-content > :is(form, .standard-form) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 10px;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-content,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .window-content > :is(form, .standard-form) {
+  border: 2px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.1), inset 1px 0 0 rgba(255, 255, 255, 0.06), inset -1px 0 0 rgba(0, 0, 0, 0.08);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar {
+  min-height: 0;
+  padding: 8px;
+  background-image: var(--uesrpg-sidebar-url);
+  background-size: cover;
+  background-position: center top;
+  color: #2a2014;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .directory-header,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .action-buttons,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .pages-list {
+  min-width: 0;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .directory-header,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .action-buttons {
+  padding: 6px;
+  border: 1px solid rgba(108, 84, 44, 0.24);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(248, 240, 219, 0.92), rgba(241, 233, 213, 0.9)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .action-buttons {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .directory-header {
+  margin: 0 0 8px;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .directory-header .header-search,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar search {
+  gap: 6px;
+  align-items: center;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .directory-header :is(.action-button, .collapse-toggle),
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar search .inline-control,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .action-buttons button {
+  border: 1px solid rgba(104, 71, 28, 0.9);
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(255, 252, 244, 0.82), rgba(232, 215, 182, 0.74)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  color: #24190d;
+  box-shadow: inset 0 1px 0 rgba(255, 250, 237, 0.52);
+  transition: background var(--uesrpg-transition-fast), border-color var(--uesrpg-transition-fast), box-shadow var(--uesrpg-transition-fast);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .directory-header :is(.action-button, .collapse-toggle):hover,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar search .inline-control:hover,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .action-buttons button:hover {
+  border-color: rgba(146, 100, 38, 0.98);
+  background: linear-gradient(180deg, rgba(255, 250, 238, 0.94), rgba(240, 223, 188, 0.82)), var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .directory-header input,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar search input {
+  background: rgba(255, 249, 236, 0.86);
+  border: 1px solid rgba(120, 90, 40, 0.35);
+  border-radius: 7px;
+  color: #1a1a1a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar .directory-header input::placeholder,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar search input::placeholder {
+  color: rgba(70, 50, 24, 0.72);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list, .toc) {
+  padding: 4px 0;
+  border: 1px solid rgba(108, 84, 44, 0.22);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 252, 244, 0.34), rgba(224, 209, 180, 0.2)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .pages-list .directory-list.scrollable,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .toc > ol {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+  padding-right: 0;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .directory-item, .toc li:not(.category)) {
+  box-sizing: border-box;
+  max-width: calc(100% - 8px);
+  margin: 0 4px;
+  border-top: 1px solid rgba(92, 69, 34, 0.18);
+  border-bottom: 1px solid rgba(92, 69, 34, 0.14);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .directory-item, .toc li:not(.category)):first-child {
+  border-top-color: transparent;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .directory-item, .toc li:not(.category)):last-child {
+  border-bottom-color: transparent;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .page-heading, .toc .page-heading, .pages-list .heading-link, .toc .heading-link) {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  color: #2a2014;
+  border-radius: 6px;
+  transition: background var(--uesrpg-transition-fast), color var(--uesrpg-transition-fast), box-shadow var(--uesrpg-transition-fast);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .page-heading, .toc .page-heading) {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding-right: 6px;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .page-heading .page-number, .toc .page-heading .page-number, .toc .page-heading .page-index) {
+  color: rgba(82, 57, 22, 0.72);
+  font-weight: 700;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .page-heading .page-title, .toc .page-heading .page-title) {
+  min-width: 0;
+  overflow: hidden;
+  text-indent: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .page-heading:hover, .toc .page-heading:hover, .pages-list .heading-link:hover, .toc .heading-link:hover) {
+  background: rgba(122, 30, 31, 0.1);
+  color: #140d08;
+  text-shadow: none;
+  box-shadow: inset 0 0 0 1px rgba(122, 30, 31, 0.12);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .directory-item.active, .toc li.active) {
+  background: transparent;
+  border-top-color: rgba(122, 82, 33, 0.32);
+  border-bottom-color: rgba(122, 82, 33, 0.32);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .directory-item.active .page-heading, .toc li.active .page-heading) {
+  box-shadow: none;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .directory-item.active::after, .toc li.active::after) {
+  content: none;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .directory-item.active .page-heading .page-number, .pages-list .directory-item.active .page-heading .page-title, .toc li.active .page-heading .page-number, .toc li.active .page-heading .page-index, .toc li.active .page-heading .page-title) {
+  color: #25170c;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .headings, .toc .headings) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  margin-left: 0;
+  margin-top: 2px;
+  padding-left: 0;
+  padding-bottom: 4px;
+  overflow-x: hidden;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .level2 .page-title, .pages-list .level3 .page-title, .toc .level2 .page-title, .toc .level3 .page-title, .pages-list .h2 .heading-link, .pages-list .h3 .heading-link, .toc .h2 .heading-link, .toc .h3 .heading-link) {
+  text-indent: 0;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .headings, .toc .headings) li:last-child {
+  margin-bottom: 0;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-content,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .window-content > :is(form, .standard-form) {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  background-image: var(--uesrpg-parchment-url);
+  background-repeat: repeat;
+  background-size: auto;
+  background-position: center top;
+  color: var(--uesrpg-color-text);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-header,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .journal-header {
+  flex: none;
+  margin: 0 0 10px;
+  padding: 5px 8px;
+  border: 1px solid rgba(87, 58, 26, 0.72);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(114, 78, 35, 0.98), rgba(70, 47, 24, 0.98)), url("../images/elements/backgrounds/wood-background.webp");
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 1px 0 rgba(255, 235, 200, 0.18), 0 2px 6px rgba(0, 0, 0, 0.14);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-header .title,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .journal-header .title {
+  margin: 0;
+  border: 1px solid rgba(255, 240, 210, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 249, 236, 0.82);
+  color: #2b2218;
+  text-align: center;
+  text-shadow: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-pages,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-pages .scrollable,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror {
+  box-sizing: border-box;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-pages {
+  position: relative;
+  flex: 1 1 auto;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-pages .scrollable {
+  position: absolute;
+  inset: 0;
+  padding-right: 2px;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror {
+  position: relative;
+  border: 1px solid rgba(108, 84, 44, 0.24);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(248, 240, 219, 0.88), rgba(241, 233, 213, 0.82)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page {
+  margin: 0 0 10px;
+  padding: 14px 14px;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page:last-child {
+  margin-bottom: 0;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page::before,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(184, 149, 82, 0.26);
+  border-radius: 8px;
+  pointer-events: none;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page :is(h1, h2, h3, h4, h5, h6),
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content :is(h1, h2, h3, h4, h5, h6) {
+  color: rgba(125, 20, 14, 0.92);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page :is(h1, h2),
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content :is(h1, h2) {
+  padding: 0 0 6px;
+  border-bottom: 3px solid rgba(122, 30, 31, 0.28);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page :is(p, li, blockquote, td, th, figcaption),
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content :is(p, li, blockquote, td, th, figcaption) {
+  color: #221a12;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page a,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.pages-list .heading-link, .toc .heading-link),
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content a {
+  color: #6b1f20;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page a:hover,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content a:hover {
+  color: #8c2f2f;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page hr,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content hr {
+  border: none;
+  border-top: 2px solid rgba(108, 84, 44, 0.28);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page blockquote,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content blockquote {
+  margin-inline: 0;
+  padding: 10px 14px;
+  border-left: 4px solid rgba(122, 30, 31, 0.42);
+  background: rgba(255, 249, 236, 0.56);
+  border-radius: 0 8px 8px 0;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page table,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content table {
+  background: rgba(255, 251, 241, 0.56);
+  border: 1px solid rgba(108, 84, 44, 0.22);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page th,
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content th {
+  background: rgba(114, 88, 42, 0.14);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page .editor-edit {
+  top: 10px;
+  right: 10px;
+  border: 1px solid rgba(104, 71, 28, 0.9);
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(255, 252, 244, 0.88), rgba(232, 215, 182, 0.78)), var(--uesrpg-parchment-url);
+  background-size: cover;
+  color: #24190d;
+  box-shadow: inset 0 1px 0 rgba(255, 250, 237, 0.52);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror {
+  display: flex;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror menu {
+  background: rgba(87, 58, 26, 0.08);
+  border-bottom: 1px solid rgba(108, 84, 44, 0.18);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content {
+  padding: 18px 22px;
+  color: #221a12;
+  background: transparent;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) :is(input, select, textarea) {
+  background: rgba(255, 249, 236, 0.86);
+  border: 1px solid rgba(120, 90, 40, 0.35);
+  color: #1a1a1a;
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .form-footer button {
+  background: linear-gradient(180deg, rgba(98, 70, 28, 0.96) 0%, rgba(58, 39, 15, 0.98) 100%);
+  color: #f5ecd9;
+  border: 1px solid rgba(132, 98, 44, 0.76);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 221, 0.2);
+}
+body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .form-footer button:hover {
+  background: linear-gradient(180deg, rgba(121, 88, 38, 0.98) 0%, rgb(74, 51, 21) 100%);
+  border-color: rgba(152, 111, 47, 0.84);
+  color: #fff8eb;
+}
+
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar,
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-content,
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .window-content > :is(form, .standard-form),
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page,
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror {
+  color: var(--uesrpg-color-text);
+}
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page,
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.1)), linear-gradient(180deg, rgba(248, 240, 219, 0.88), rgba(241, 233, 213, 0.82)), var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page :is(p, li, blockquote, td, th, figcaption),
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-page :is(a, h1, h2, h3, h4, h5, h6),
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content :is(p, li, blockquote, td, th, figcaption),
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .editor.prosemirror .editor-content :is(a, h1, h2, h3, h4, h5, h6) {
+  color: inherit;
+}
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) :is(.journal-sidebar .directory-header input, .journal-sidebar search input),
+body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) :is(input, select, textarea) {
+  color: var(--uesrpg-color-text);
+  background: var(--uesrpg-bg-input);
+  border-color: var(--uesrpg-border-color-light);
+}
+
 .application.uesrpg-resource-dialog .window-content,
 .worldbuilding.uesrpg-resource-dialog .window-content {
   overflow: hidden;

@@ -739,27 +739,25 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
           const res = computeResultFromRollTotal(this.actor, { rollTotal: Number(roll.total), target: tn, allowLucky: true, allowUnlucky: true });
           const degreesLine = `<br><b>${res.isSuccess ? "Degrees of Success" : "Degrees of Failure"}: ${res.degree}</b>`;
           const resultLabel = formatResultOutcomeLabel(res, { uppercase: true });
+          const resultColor = res.isSuccess ? "green" : "rgb(168, 5, 5)";
           let contentString = "";
           if (isLucky(this.actor, roll.result)) {
             contentString = `<h2>${element.getAttribute("name")}</h2>
           <p></p><b>Target Number: [[${this.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
           <b>Result: [[${roll.total}]]</b><p></p>
-          <span style='color:green; font-size:120%;'> <b>LUCKY NUMBER!</b></span>
+          <span style='color:${resultColor}; font-size:120%;'> <b>${resultLabel}!</b></span>
           ${degreesLine}`;
           } else if (isUnlucky(this.actor, roll.result)) {
             contentString = `<h2>${element.getAttribute("name")}</h2>
           <p></p><b>Target Number: [[${this.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
           <b>Result: [[${roll.total}]]</b><p></p>
-          <span style='color:rgb(168, 5, 5); font-size:120%;'> <b>UNLUCKY NUMBER!</b></span>
+          <span style='color:${resultColor}; font-size:120%;'> <b>${resultLabel}!</b></span>
           ${degreesLine}`;
           } else {
             contentString = `<h2>${element.getAttribute("name")}</h2>
           <p></p><b>Target Number: [[${this.actor.system.resistance[element.id]} + ${playerInput}]]</b> <p></p>
           <b>Result: [[${roll.total}]]</b><p></p>
-          <b>${res.isSuccess
-              ? ` <span style='color:green; font-size: 120%;'> <b>${resultLabel}!</b></span>`
-              : ` <span style='color: rgb(168, 5, 5); font-size: 120%;'> <b>${resultLabel}!</b></span>`
-          }</b>
+          <span style='color:${resultColor}; font-size:120%;'> <b>${resultLabel}!</b></span>
           ${degreesLine}`;
           }
           

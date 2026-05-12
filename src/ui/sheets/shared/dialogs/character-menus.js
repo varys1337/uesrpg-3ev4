@@ -8,6 +8,10 @@ import { SpendXpMenuAppV2 } from "../../../apps/v2/char-gen/spend-xp-menu.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { customDialog, alertDialog } from "../../../../utils/dialog-v2-helper.js";
 import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
+import coreRaces from "../../racemenu/data/core-races.js";
+import coreVariants from "../../racemenu/data/core-variants.js";
+import khajiitFurstocks from "../../racemenu/data/khajiit-furstocks.js";
+import expandedRaces from "../../racemenu/data/expanded-races.js";
 import {
   resolveLuckBonus,
   resolveLuckyUnluckyAllocation,
@@ -15,6 +19,7 @@ import {
   extractConfiguredUnluckyNumbers,
   hasThiefBirthsign,
 } from "../../../../core/luck/lucky-numbers.js";
+import { readActorBirthsignLabel } from "../../../../core/traits/starsigns/index.js";
 import { t, tf } from "../../../../utils/i18n.js";
 
 const RANK_THRESHOLDS = Object.freeze([
@@ -25,6 +30,13 @@ const RANK_THRESHOLDS = Object.freeze([
   { minXp: 1000, rank: "Apprentice" },
   { minXp: 0, rank: "Novice" },
 ]);
+
+const RACE_DATASETS = Object.freeze({
+  ...coreRaces,
+  ...coreVariants,
+  ...khajiitFurstocks,
+  ...expandedRaces,
+});
 
 export function campaignRankFromXpTotal(xpTotalRaw) {
   const xpTotal = Number(xpTotalRaw);
@@ -175,14 +187,24 @@ async function _showLuckyInfo(actor) {
 
 async function _showRaceInfo(actor) {
   const race = actor.system.race || t("UESRPG.Dialogs.CharGen.NoneSelected");
+  const raceData = RACE_DATASETS[race] ?? null;
+  const traitRows = Array.isArray(raceData?.traits) && raceData.traits.length
+    ? `<ul style="margin:6px 0 0 18px;">${raceData.traits.map((trait) => `<li>${trait}</li>`).join("")}</ul>`
+    : `<p style="margin:6px 0 0;">${t("UESRPG.UI.NoneSet")}</p>`;
   await alertDialog({
     title: t("UESRPG.UI.Race"),
-    content: `<p style="margin:4px 0;">${tf("UESRPG.Dialogs.CharGen.CurrentRace", { race })}</p>`,
+    content: `<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0;">
+      <p style="margin:0;">${tf("UESRPG.Dialogs.CharGen.CurrentRace", { race })}</p>
+      <div>
+        <strong>Features</strong>
+        ${traitRows}
+      </div>
+    </div>`,
   });
 }
 
 async function _showSignInfo(actor) {
-  const sign = actor.system.birthSign || t("UESRPG.Dialogs.CharGen.NoneSelected");
+  const sign = readActorBirthsignLabel(actor) || t("UESRPG.Dialogs.CharGen.NoneSelected");
   await alertDialog({
     title: t("UESRPG.Dialogs.CharGen.StageBirthsign"),
     content: `<p style="margin:4px 0;">${tf("UESRPG.Dialogs.CharGen.CurrentSign", { sign })}</p>`,
@@ -302,14 +324,14 @@ export async function onAdvancementMenu(event, _target) {
         <i class="fas fa-star"></i>
         <span>${tf("UESRPG.Dialogs.CharGen.ExperienceAvailable", { xp: actor.system.xp })}</span>
       </button>
-      <div class="adv-ref" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
+      <button type="button" class="adv-btn adv-ref" data-choice="race" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
         <i class="fas fa-users" aria-hidden="true"></i>
         <span><strong>${t("UESRPG.UI.Race")}:</strong> ${actor.system.race || t("UESRPG.UI.None")}</span>
-      </div>
-      <div class="adv-ref" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
+      </button>
+      <button type="button" class="adv-btn adv-ref" data-choice="sign" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
         <i class="fas fa-moon" aria-hidden="true"></i>
-        <span><strong>${t("UESRPG.Dialogs.CharGen.StageBirthsign")}:</strong> ${actor.system.birthSign || t("UESRPG.UI.None")}</span>
-      </div>
+        <span><strong>${t("UESRPG.Dialogs.CharGen.StageBirthsign")}:</strong> ${readActorBirthsignLabel(actor) || t("UESRPG.UI.None")}</span>
+      </button>
     </div>`,
     no: { label: t("UESRPG.UI.Cancel") },
     rejectClose: false,
@@ -326,6 +348,8 @@ export async function onAdvancementMenu(event, _target) {
 
   if (_choice === "lucky") return _showLuckyInfo(actor);
   if (_choice === "xp") return _showXpDialog(actor);
+  if (_choice === "race") return _showRaceInfo(actor);
+  if (_choice === "sign") return _showSignInfo(actor);
 }
 
 /**

@@ -61,6 +61,11 @@ function _invalidateEnableLoadoutsAndReRenderSheets() {
   _reRenderAllSheets();
 }
 
+function _applyCustomJournalStyling(enabled = null) {
+  const shouldEnable = enabled ?? game.settings.get(SYSTEM_ID, "enableCustomJournalStyling");
+  document.body?.classList?.toggle("uesrpg-custom-journals-enabled", Boolean(shouldEnable));
+}
+
 export function registerUiSettings() {
   _reg("changeUiFont", {
     name: "System Font",
@@ -110,6 +115,16 @@ export function registerUiSettings() {
     config: false,
     type: Boolean,
     default: true,
+  });
+
+  _reg("enableCustomJournalStyling", {
+    name: "Journals: Custom Styling",
+    hint: "Use the UESRPG wood, parchment, and sidebar styling for native Journal windows.",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: true,
+    onChange: _applyCustomJournalStyling,
   });
 
   _reg("encumbranceUiEnhanced", {
@@ -225,4 +240,6 @@ export function registerUiSettings() {
     default: false,
     type: Boolean,
   });
+
+  _applyCustomJournalStyling();
 }

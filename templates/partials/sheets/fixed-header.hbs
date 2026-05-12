@@ -127,7 +127,11 @@
 
                 <div class="characteristics-container">
                     <div class="section-header">
+                        {{#if (eq actor.type "NPC")}}
+                        <span class="section-header__label" data-action="advancementMenu" role="button" tabindex="0" title="{{localize "UESRPG.Sheets.FixedHeader.CharacteristicsOptions"}}">{{localize "UESRPG.UI.Characteristics"}}</span>
+                        {{else}}
                         <span class="section-header__label" data-action="advancementMenu" role="button" tabindex="0" title="{{localize "UESRPG.Sheets.FixedHeader.AdvancementOptions"}}">{{localize "UESRPG.UI.Advancement"}}</span>
+                        {{/if}}
                     </div>
                     <div class="characteristic-entry-container">
                         <div class="characteristic">

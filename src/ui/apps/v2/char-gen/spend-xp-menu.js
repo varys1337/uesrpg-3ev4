@@ -284,7 +284,6 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     for (const key of ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"]) {
       fp.characteristics[key] = {
         base: _asNumber(actor?.system?.characteristics?.[key]?.base, 0),
-        total: _asNumber(actor?.system?.characteristics?.[key]?.total, 0),
         favored: Boolean(actor?.system?.characteristics?.[key]?.favored),
       };
     }
@@ -683,13 +682,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
         }
         if (!touchedCharacteristics.has(key)) {
           const liveBase = _asNumber(liveCha.base, 0);
-          const liveTotal = _asNumber(liveCha.total, 0);
           const expectedBase = _asNumber(expectedCha.base, 0);
-          const expectedTotal = _asNumber(expectedCha.total, 0);
-          if (liveBase !== expectedBase || liveTotal !== expectedTotal) {
+          const liveFavored = Boolean(liveCha.favored);
+          const expectedFavored = Boolean(expectedCha.favored);
+          if (liveBase !== expectedBase || liveFavored !== expectedFavored) {
             return {
               ok: false,
-              reason: `${_chaLabel(key)} changed while Spend XP was open (base ${expectedBase} -> ${liveBase}, total ${expectedTotal} -> ${liveTotal}). Reopen Spend XP and stage again.`,
+              reason: `${_chaLabel(key)} changed while Spend XP was open (base ${expectedBase} -> ${liveBase}, favored ${expectedFavored ? "yes" : "no"} -> ${liveFavored ? "yes" : "no"}). Reopen Spend XP and stage again.`,
             };
           }
           touchedCharacteristics.add(key);
@@ -905,7 +904,6 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
         const cha = preflight.projectedCharacteristics?.[key];
         if (!cha) continue;
         actorUpdate[`system.characteristics.${key}.base`] = _asNumber(cha.base, 0);
-        actorUpdate[`system.characteristics.${key}.total`] = _asNumber(cha.total, 0);
       }
       await requestUpdateDocument(this.#actor, actorUpdate);
 
@@ -1042,7 +1040,6 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       const mode = getTalentLearningMode();
       const validation = validateTalentLearning(actorMock, item.toObject(), { source: "chargen-spendxp" });
 
-      if (mode === TALENT_LEARNING_MODE.WARN) notifyTalentLearningResult(validation);
       if (mode === TALENT_LEARNING_MODE.ENFORCE && !validation.ok) {
         notifyTalentLearningResult(validation, { force: true });
         return;
@@ -1051,6 +1048,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
         notifyTalentLearningResult(validation, { force: true });
         return;
       }
+      if (mode === TALENT_LEARNING_MODE.WARN) notifyTalentLearningResult(validation);
 
       const xpCost = Math.max(0, _asNumber(validation.xpCost, 0));
       if (xpCost > _asNumber(derived?.xp, 0)) {

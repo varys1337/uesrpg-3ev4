@@ -50,6 +50,7 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
         enableLoadouts: getSettingPresentation(NAMESPACE, "enableLoadouts"),
         customCursor: getSettingPresentation(NAMESPACE, "customCursor"),
         enableInlineRulesTooltips: getSettingPresentation(NAMESPACE, "enableInlineRulesTooltips"),
+        enableCustomJournalStyling: getSettingPresentation(NAMESPACE, "enableCustomJournalStyling"),
       },
     };
   }
@@ -68,5 +69,6 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     if ("enableLoadouts" in data) await game.settings.set(NAMESPACE, "enableLoadouts", toBool(data.enableLoadouts));
     if ("customCursor" in data) await game.settings.set(NAMESPACE, "customCursor", toBool(data.customCursor));
     if ("enableInlineRulesTooltips" in data) await game.settings.set(NAMESPACE, "enableInlineRulesTooltips", toBool(data.enableInlineRulesTooltips));
+    if ("enableCustomJournalStyling" in data) await game.settings.set(NAMESPACE, "enableCustomJournalStyling", toBool(data.enableCustomJournalStyling));
   }
 }

@@ -4,6 +4,7 @@ import {
   extractConfiguredLuckyNumbers,
   extractConfiguredUnluckyNumbers,
 } from "../../../../core/luck/lucky-numbers.js";
+import { readActorBirthsignLabel } from "../../../../core/traits/starsigns/index.js";
 
 function asNumber(value, fallback = 0) {
   const n = Number(value);
@@ -80,12 +81,28 @@ export function buildChargenSummary(actor, auditLog = []) {
     acc.byType[type] = (acc.byType[type] ?? 0) + 1;
     return acc;
   }, { spentXp: 0, spentWealth: 0, bySchool: {}, byType: {} });
+  const statsGeneration = actor?.getFlag(SYSTEM_ID, "chargen")?.statsGeneration ?? {};
+  const rawRollHistory = Array.isArray(statsGeneration?.rollHistory) ? statsGeneration.rollHistory : [];
+  const fallbackRollHistory = Array.isArray(statsGeneration?.rollPool) && statsGeneration.rollPool.length
+    ? [{
+      source: "initial",
+      pool: statsGeneration.rollPool,
+      luckRoll: asNumber(statsGeneration.luckRoll, 0),
+    }]
+    : [];
+  const rollHistory = (rawRollHistory.length ? rawRollHistory : fallbackRollHistory)
+    .map((entry, index) => ({
+      source: String(entry?.source ?? (index === 0 ? "initial" : "reroll")).trim() || (index === 0 ? "initial" : "reroll"),
+      pool: Array.isArray(entry?.pool) ? entry.pool.map((value) => asNumber(value, 0)) : [],
+      luckRoll: asNumber(entry?.luckRoll, 0),
+    }))
+    .filter((entry) => entry.pool.length > 0);
 
   return {
     actorUuid: actor?.uuid ?? null,
     actorName: actor?.name ?? "Unknown",
     race: system.race ?? "",
-    birthSign: system.birthSign ?? "",
+    birthSign: readActorBirthsignLabel(actor),
     resources: {
       wealth: asNumber(system.wealth, 0),
       xpTotal: asNumber(system.xpTotal, 0),
@@ -105,6 +122,10 @@ export function buildChargenSummary(actor, auditLog = []) {
     },
     luckyNumbers,
     unluckyNumbers,
+    statsGeneration: {
+      rerollCount: Math.max(0, rollHistory.length - 1),
+      rollHistory,
+    },
     spendLog,
     spellLearning: {
       entries: learnedSpells,
@@ -141,6 +162,12 @@ export function buildChargenSummaryChatHtml(summary) {
     return `<li><b>${row.name}</b> - ${row.reason}</li>`;
   }).join("");
   const spellTotals = summary.spellLearning?.totals ?? {};
+  const statsGeneration = summary.statsGeneration ?? {};
+  const statsPoolRows = (statsGeneration.rollHistory ?? []).map((entry, index) => {
+    const label = index === 0 ? "Initial Pool" : `Reroll ${index}`;
+    const luckPart = Number(entry?.luckRoll ?? 0) > 0 ? ` | Luck ${asNumber(entry.luckRoll, 0)}` : "";
+    return `<li><b>${label}:</b> ${(entry?.pool ?? []).join(", ")}${luckPart}</li>`;
+  }).join("");
 
   return `<div class="uesrpg-chat-summary">
     <h2 style="margin:0 0 6px;">Character Generation Complete</h2>
@@ -154,6 +181,10 @@ export function buildChargenSummaryChatHtml(summary) {
       Lucky: ${(summary.luckyNumbers ?? []).join(", ") || "None"} |
       Unlucky: ${(summary.unluckyNumbers ?? []).join(", ") || "None"}
     </p>
+    <details style="margin:0 0 8px;">
+      <summary>Characteristic Roll Pools (${asNumber(statsGeneration.rerollCount, 0)} rerolls)</summary>
+      <ul style="margin:6px 0 0 16px;">${statsPoolRows || "<li>None recorded</li>"}</ul>
+    </details>
     <details style="margin:0 0 8px;">
       <summary>Spend XP Summary</summary>
       <ul style="margin:6px 0 0 16px;">${spendRows || "<li>None</li>"}</ul>
@@ -176,4 +207,3 @@ export function buildChargenSummaryChatHtml(summary) {
     </details>
   </div>`;
 }
-

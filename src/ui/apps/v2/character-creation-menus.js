@@ -10,6 +10,7 @@ import { appendChargenAudit } from "./char-gen/audit-log.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { findIndexEntryByNormalizedName, getDocumentById } from "../../../core/compendium/access-service.js";
+import { buildBirthsignFieldUpdates } from "../../../core/traits/starsigns/index.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -123,7 +124,7 @@ export async function applyBirthsignSelection(actor, {
   const signLabel = selectedSign.name ?? signKey;
   const currentLuck = asNumber(actor.system?.characteristics?.lck?.base, 0);
   const nextLuck = Math.max(0, currentLuck - Math.max(0, asNumber(luckCost, 0)));
-  const updates = { "system.birthSign": signLabel };
+  const updates = buildBirthsignFieldUpdates(signLabel);
   if (luckCost > 0) {
     updates["system.characteristics.lck.base"] = nextLuck;
   }
@@ -382,7 +383,7 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       let signName;
       if (customSignLabel !== "") {
         signName = customSignLabel;
-        await requestUpdateDocument(this.#actor, { "system.birthSign": signName });
+        await requestUpdateDocument(this.#actor, buildBirthsignFieldUpdates(signName));
         await appendChargenAudit(this.#actor, {
           step: "birthsign",
           action: "apply",

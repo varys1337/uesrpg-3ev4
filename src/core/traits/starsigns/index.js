@@ -22,6 +22,12 @@ function _normalizeName(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function _readSystemBirthsign(system = {}) {
+  const canonical = String(system?.birthsign ?? "").trim();
+  if (canonical) return canonical;
+  return String(system?.birthSign ?? "").trim();
+}
+
 function _getItems(actor) {
   const items = actor?.items?.contents ?? actor?.items;
   return Array.isArray(items) ? items : Array.from(items ?? []);
@@ -55,6 +61,18 @@ export function listBirthsignItems(actor) {
     if (type !== "power") return false;
     return STARSIGN_POWER_NAMES.has(_normalizeName(item?.name));
   });
+}
+
+export function readActorBirthsignLabel(actor) {
+  return _readSystemBirthsign(actor?.system ?? {});
+}
+
+export function buildBirthsignFieldUpdates(signLabel) {
+  const normalized = String(signLabel ?? "").trim();
+  return {
+    "system.birthsign": normalized,
+    "system.birthSign": normalized,
+  };
 }
 
 export function hasBirthsignTrait(actor, name) {

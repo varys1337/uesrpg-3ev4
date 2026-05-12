@@ -53,6 +53,14 @@
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-custom-journal-styling">{{settings.enableCustomJournalStyling.name}}</label>
+        <p class="setting-help">{{settings.enableCustomJournalStyling.hint}}</p>
+      </div>
+      <input id="uesrpg-custom-journal-styling" type="checkbox" name="enableCustomJournalStyling" {{checked settings.enableCustomJournalStyling.value}}>
+    </div>
+
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
         <label class="setting-row__label" for="uesrpg-encumbrance-breakdown">{{settings.encumbranceUiEnhanced.name}}</label>
         <p class="setting-help">{{settings.encumbranceUiEnhanced.hint}}</p>
       </div>

@@ -57,6 +57,44 @@ function _resolveDialogRoot(dialogRef) {
   return node.querySelector(".uesrpg-cg-dialog") ?? node;
 }
 
+function _normalizeResultValues(raw = {}) {
+  return {
+    str: String(raw?.str ?? "").trim(),
+    end: String(raw?.end ?? "").trim(),
+    agi: String(raw?.agi ?? "").trim(),
+    int: String(raw?.int ?? "").trim(),
+    wp: String(raw?.wp ?? "").trim(),
+    prc: String(raw?.prc ?? "").trim(),
+    prs: String(raw?.prs ?? "").trim(),
+    lck: String(raw?.lck ?? "").trim(),
+  };
+}
+
+function _hasAnyResultValues(raw = {}) {
+  return Object.values(_normalizeResultValues(raw)).some((value) => value !== "");
+}
+
+function _normalizeRollHistory(rawHistory = [], fallbackPool = null, fallbackLuckRoll = null) {
+  const history = Array.isArray(rawHistory) ? rawHistory : [];
+  const normalized = history
+    .map((entry, index) => ({
+      source: String(entry?.source ?? (index === 0 ? "initial" : "reroll")).trim() || (index === 0 ? "initial" : "reroll"),
+      pool: Array.isArray(entry?.pool) ? entry.pool.map((value) => _num(value, 0)) : [],
+      luckRoll: _num(entry?.luckRoll, 0),
+    }))
+    .filter((entry) => entry.pool.length === CHA_KEYS.length);
+
+  if (normalized.length) return normalized;
+  if (Array.isArray(fallbackPool) && fallbackPool.length === CHA_KEYS.length) {
+    return [{
+      source: "initial",
+      pool: fallbackPool.map((value) => _num(value, 0)),
+      luckRoll: _num(fallbackLuckRoll, 0),
+    }];
+  }
+  return [];
+}
+
 /**
  * Open dialog to set base characteristics and favored flags.
  * @param {object} sheet
@@ -67,53 +105,96 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
 
   const actor = this.actor;
   const current = actor.system?.characteristics ?? {};
+  const savedStatsGeneration = foundry.utils.getProperty(actor, "flags.uesrpg-3ev4.chargen.statsGeneration") ?? {};
+  const savedResultValues = _normalizeResultValues(savedStatsGeneration?.resultValues ?? savedStatsGeneration?.finalValues ?? {});
+  const savedRollHistory = _normalizeRollHistory(
+    savedStatsGeneration?.rollHistory,
+    savedStatsGeneration?.rollPool,
+    savedStatsGeneration?.luckRoll,
+  );
+  const savedPointBuy = Object.fromEntries(
+    CHA_KEYS.map((key) => [key, Math.max(0, Math.min(20, _num(savedStatsGeneration?.pointBuyAllocation?.[key], 0)))])
+  );
   const baseline = {};
   for (const key of CHA_KEYS) baseline[key] = _num(current[key]?.base, 0);
   const state = {
-    mode: "roll",
-    assignmentMode: "auto",
-    hasRolled: false,
-    rerollsUsed: 0,
-    rollPool: CHA_KEYS.map(() => null),
-    luckRoll: null,
-    pointBuy: Object.fromEntries(CHA_KEYS.map((k) => [k, 0])),
+    mode: savedStatsGeneration?.mode === "pointbuy" ? "pointbuy" : "roll",
+    assignmentMode: savedStatsGeneration?.assignmentMode === "manual" ? "manual" : "auto",
+    hasRolled: savedRollHistory.length > 0,
+    rollHistory: savedRollHistory,
+    rollPool: savedRollHistory.at(-1)?.pool ? [...savedRollHistory.at(-1).pool] : CHA_KEYS.map(() => null),
+    luckRoll: savedRollHistory.at(-1)?.luckRoll ? _num(savedRollHistory.at(-1).luckRoll, 0) : null,
+    pointBuy: savedPointBuy,
+    savedResultValues,
+    preserveSavedResults: _hasAnyResultValues(savedResultValues),
   };
 
   function currentAssignMap(root) {
     if (!state.hasRolled) return null;
+    const savedAssignMap = savedStatsGeneration?.assignedMap && typeof savedStatsGeneration.assignedMap === "object"
+      ? savedStatsGeneration.assignedMap
+      : {};
     if (state.assignmentMode === "auto") {
       return Object.fromEntries(CHA_KEYS.map((k, idx) => [k, idx]));
     }
     const map = {};
     for (const key of CHA_KEYS) {
       const select = root?.querySelector(`#assign-${key}`);
-      map[key] = _num(select?.value, -1);
+      const fallback = _num(savedAssignMap?.[key], -1);
+      map[key] = _num(select?.value, fallback);
     }
     return map;
   }
 
+  function _writeResultInputs(root, values = {}) {
+    for (const key of CHA_KEYS) {
+      const input = root?.querySelector(`#${key}Input`);
+      if (input) input.value = String(values?.[key] ?? "");
+    }
+    const lckInput = root?.querySelector("#lckInput");
+    if (lckInput) lckInput.value = String(values?.lck ?? "");
+  }
+
   function writeRollTotals(root) {
     if (!state.hasRolled) return;
+    if (state.preserveSavedResults && _hasAnyResultValues(state.savedResultValues)) {
+      _writeResultInputs(root, state.savedResultValues);
+      return;
+    }
     const assignMap = currentAssignMap(root);
+    const resultValues = {};
     for (const key of CHA_KEYS) {
       const idx = _num(assignMap[key], -1);
       const value = idx >= 0 ? baseline[key] + _num(state.rollPool[idx], 0) : baseline[key];
-      const targetInput = root?.querySelector(`#${key}Input`);
-      if (targetInput) targetInput.value = String(value);
+      resultValues[key] = String(value);
     }
+    resultValues.lck = state.luckRoll !== null ? String(state.luckRoll) : "";
+    _writeResultInputs(root, resultValues);
   }
 
   function writePointBuyTotals(root) {
+    if (state.preserveSavedResults && _hasAnyResultValues(state.savedResultValues)) {
+      for (const key of CHA_KEYS) {
+        const allocInput = root?.querySelector(`#pb-${key}`);
+        if (allocInput) allocInput.value = String(_num(state.pointBuy[key], 0));
+      }
+      _writeResultInputs(root, state.savedResultValues);
+      const totalEl = root?.querySelector("#cgPointBuyTotal");
+      if (totalEl) totalEl.textContent = `${CHA_KEYS.reduce((sum, key) => sum + _num(state.pointBuy[key], 0), 0)}/80`;
+      return;
+    }
     let total = 0;
+    const resultValues = {};
     for (const key of CHA_KEYS) {
       const allocInput = root?.querySelector(`#pb-${key}`);
       const alloc = Math.max(0, Math.min(20, _num(allocInput?.value, 0)));
       if (allocInput) allocInput.value = String(alloc);
       total += alloc;
       state.pointBuy[key] = alloc;
-      const targetInput = root?.querySelector(`#${key}Input`);
-      if (targetInput) targetInput.value = String(baseline[key] + alloc);
+      resultValues[key] = String(baseline[key] + alloc);
     }
+    resultValues.lck = root?.querySelector("#lckInput")?.value ?? "";
+    _writeResultInputs(root, resultValues);
     const totalEl = root?.querySelector("#cgPointBuyTotal");
     if (totalEl) totalEl.textContent = `${total}/80`;
   }
@@ -140,14 +221,18 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
     const modeEl = root.querySelector("#cgModeLabel");
     if (modeEl) modeEl.textContent = state.mode === "pointbuy" ? "Point Buy" : "Roll";
     const rerollsEl = root.querySelector("#cgRerollCount");
-    if (rerollsEl) rerollsEl.textContent = `${state.rerollsUsed}/3`;
+    if (rerollsEl) rerollsEl.textContent = String(Math.max(0, state.rollHistory.length - 1));
     const lck = root.querySelector("#lckInput");
     if (lck) {
-      if (state.hasRolled && state.luckRoll !== null) lck.value = String(state.luckRoll);
-      else if (!String(lck.dataset.userEdited ?? "").trim()) lck.value = "";
+      if (state.preserveSavedResults && state.savedResultValues.lck !== "") lck.value = state.savedResultValues.lck;
+      else if (state.hasRolled && state.luckRoll !== null) lck.value = String(state.luckRoll);
     }
     const rerollBtn = root.querySelector("#cgReroll");
     if (rerollBtn) rerollBtn.disabled = !(isRoll && state.hasRolled);
+    const rollAssignBtn = root.querySelector("#cgRollAssign");
+    if (rollAssignBtn) rollAssignBtn.disabled = isRoll && state.hasRolled;
+    const rollDistributeBtn = root.querySelector("#cgRollDistribute");
+    if (rollDistributeBtn) rollDistributeBtn.disabled = isRoll && state.hasRolled;
     const rollSection = root.querySelector("#cgRollSection");
     const pbSection = root.querySelector("#cgPointBuySection");
     if (rollSection) rollSection.style.display = isRoll ? "" : "none";
@@ -178,7 +263,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         <button type="button" id="cgReroll" title="${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolTitle")}">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolButton")}</button>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.ModeLabel")} <b id="cgModeLabel">Roll</b></span>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.PoolLabel")} <span id="cgRollPool">Stand by</span></span>
-        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollsLabel")} <span id="cgRerollCount">0/3</span></span>
+        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollsLabel")} <span id="cgRerollCount">0</span></span>
       </div>
       <div id="cgRollSection" class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollSectionNote")}</div>
       <div id="cgManualAssignSection" style="display:none;">
@@ -206,14 +291,14 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         </tr>
         <tr>
           <th scope="row">${t("UESRPG.Dialogs.SetBaseCharacteristics.ResultLabel")}</th>
-          <td><input type="number" id="strInput"></td>
-          <td><input type="number" id="endInput"></td>
-          <td><input type="number" id="agiInput"></td>
-          <td><input type="number" id="intInput"></td>
-          <td><input type="number" id="wpInput"></td>
-          <td><input type="number" id="prcInput"></td>
-          <td><input type="number" id="prsInput"></td>
-          <td><input type="number" id="lckInput" value=""></td>
+          <td><input type="number" id="strInput" value="${savedResultValues.str}"></td>
+          <td><input type="number" id="endInput" value="${savedResultValues.end}"></td>
+          <td><input type="number" id="agiInput" value="${savedResultValues.agi}"></td>
+          <td><input type="number" id="intInput" value="${savedResultValues.int}"></td>
+          <td><input type="number" id="wpInput" value="${savedResultValues.wp}"></td>
+          <td><input type="number" id="prcInput" value="${savedResultValues.prc}"></td>
+          <td><input type="number" id="prsInput" value="${savedResultValues.prs}"></td>
+          <td><input type="number" id="lckInput" value="${savedResultValues.lck}"></td>
         </tr>
       </table>
       <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.SelectExactlyTwoFavored")}</div>
@@ -327,7 +412,9 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
             assignedMap,
             pointBuyAllocation,
             luckRoll: state.hasRolled ? values.lck : null,
-            rerollsUsed: state.rerollsUsed,
+            rerollsUsed: Math.max(0, state.rollHistory.length - 1),
+            rollHistory: state.mode === "roll" ? [...state.rollHistory] : [],
+            resultValues: values,
             final: values,
             favored: Object.entries(favored).filter(([, enabled]) => enabled).map(([k]) => k),
           },
@@ -340,7 +427,9 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
             assignedMap,
             pointBuyAllocation,
             luckRoll: state.hasRolled ? values.lck : null,
-            rerollsUsed: state.rerollsUsed,
+            rerollsUsed: Math.max(0, state.rollHistory.length - 1),
+            rollHistory: state.mode === "roll" ? [...state.rollHistory] : [],
+            resultValues: values,
           },
         });
       },
@@ -354,11 +443,17 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       refreshUi(root);
 
       const rollPool = (assignmentMode) => {
+        state.preserveSavedResults = false;
         state.mode = "roll";
         state.assignmentMode = assignmentMode;
         state.hasRolled = true;
         state.rollPool = CHA_KEYS.map(() => _roll2d10());
         state.luckRoll = Math.min(50, 30 + _roll2d10());
+        state.rollHistory = [{
+          source: "initial",
+          pool: [...state.rollPool],
+          luckRoll: state.luckRoll,
+        }];
         root.querySelector("#lckInput").value = String(state.luckRoll);
         renderRollAssignSelectors(root);
         refreshUi(root);
@@ -367,6 +462,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       root.querySelector("#cgRollDistribute")?.addEventListener("click", () => rollPool("manual"));
       root.querySelector("#cgUsePointBuy")?.addEventListener("click", () => {
         state.mode = "pointbuy";
+        state.preserveSavedResults = false;
         refreshUi(root);
       });
       root.querySelector("#cgReroll")?.addEventListener("click", () => {
@@ -374,29 +470,37 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
           ui.notifications?.warn?.("Roll a pool first.");
           return;
         }
-        if (state.rerollsUsed >= 3) {
-          ui.notifications?.warn?.("Maximum RAW rerolls reached (3).");
-          return;
-        }
         if (state.mode !== "roll") {
           ui.notifications?.warn?.("Reroll pool is only available in Roll mode.");
           return;
         }
-        state.rerollsUsed += 1;
+        state.preserveSavedResults = false;
         state.rollPool = CHA_KEYS.map(() => _roll2d10());
         state.luckRoll = Math.min(50, 30 + _roll2d10());
+        state.rollHistory.push({
+          source: "reroll",
+          pool: [...state.rollPool],
+          luckRoll: state.luckRoll,
+        });
         root.querySelector("#lckInput").value = String(state.luckRoll);
         renderRollAssignSelectors(root);
         refreshUi(root);
       });
       for (const key of CHA_KEYS) {
-        root.querySelector(`#pb-${key}`)?.addEventListener("input", () => refreshUi(root));
+        root.querySelector(`#pb-${key}`)?.addEventListener("input", () => {
+          state.preserveSavedResults = false;
+          refreshUi(root);
+        });
       }
       root.querySelector("#lckInput")?.addEventListener("input", (ev) => {
         ev.currentTarget.dataset.userEdited = "true";
+        state.preserveSavedResults = false;
       });
       root.addEventListener("change", (ev) => {
-        if (String(ev?.target?.id ?? "").startsWith("assign-")) refreshUi(root);
+        if (String(ev?.target?.id ?? "").startsWith("assign-")) {
+          state.preserveSavedResults = false;
+          refreshUi(root);
+        }
       });
     },
   });

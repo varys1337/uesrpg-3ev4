@@ -84,7 +84,14 @@ export function canUseHeroicActions(actor) {
 
 export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allowUnlucky = true } = {}) {
   const total = Number(rollTotal);
-  if (!Number.isFinite(total)) return { isCriticalSuccess: false, isCriticalFailure: false };
+  if (!Number.isFinite(total)) {
+    return {
+      isCriticalSuccess: false,
+      isCriticalFailure: false,
+      criticalSuccessSource: null,
+      criticalFailureSource: null,
+    };
+  }
 
   const npc = isNPC(actor);
   const luckUsable = canUseLuck(actor);
@@ -95,15 +102,26 @@ export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allo
     const { successMax, failureMin } = getNpcCriticalBands();
     return {
       isCriticalSuccess: total <= successMax,
-      isCriticalFailure: total >= failureMin
+      isCriticalFailure: total >= failureMin,
+      criticalSuccessSource: total <= successMax ? "npc-band" : null,
+      criticalFailureSource: total >= failureMin ? "npc-band" : null,
     };
   }
 
   // If Luck is not usable (or not present), no criticals.
-  if (!luckUsable) return { isCriticalSuccess: false, isCriticalFailure: false };
+  if (!luckUsable) {
+    return {
+      isCriticalSuccess: false,
+      isCriticalFailure: false,
+      criticalSuccessSource: null,
+      criticalFailureSource: null,
+    };
+  }
 
   let isCriticalSuccess = false;
   let isCriticalFailure = false;
+  let criticalSuccessSource = null;
+  let criticalFailureSource = null;
 
 
   const lnData = actor?.system?.lucky_numbers ?? {};
@@ -142,12 +160,20 @@ export function resolveCriticalFlags(actor, rollTotal, { allowLucky = true, allo
     const { successMax, failureMin } = getNpcCriticalBands();
     return {
       isCriticalSuccess: total <= successMax,
-      isCriticalFailure: total >= failureMin
+      isCriticalFailure: total >= failureMin,
+      criticalSuccessSource: total <= successMax ? "npc-band" : null,
+      criticalFailureSource: total >= failureMin ? "npc-band" : null,
     };
   }
 
-  if (allowLucky && luckyNums.includes(total)) isCriticalSuccess = true;
-  if (allowUnlucky && unluckyNums.includes(total)) isCriticalFailure = true;
+  if (allowLucky && luckyNums.includes(total)) {
+    isCriticalSuccess = true;
+    criticalSuccessSource = "lucky-number";
+  }
+  if (allowUnlucky && unluckyNums.includes(total)) {
+    isCriticalFailure = true;
+    criticalFailureSource = "unlucky-number";
+  }
 
-  return { isCriticalSuccess, isCriticalFailure };
+  return { isCriticalSuccess, isCriticalFailure, criticalSuccessSource, criticalFailureSource };
 }

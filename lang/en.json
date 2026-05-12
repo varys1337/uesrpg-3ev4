@@ -571,6 +571,7 @@
       "Yes": "Yes",
       "No": "No",
       "Advancement": "Advancement",
+      "Characteristics": "Characteristics",
       "Auto": "Auto",
       "Decrease": "Decrease",
       "DeleteItem": "Delete Item",
@@ -709,7 +710,8 @@
         "SetPrimaryRitualDomainFirst": "Set a primary ritual domain first",
         "ShortRestTitle": "Short Rest (1 hour)",
         "LongRestTitle": "Long Rest (8 hours)",
-        "AdvancementOptions": "Advancement Options"
+        "AdvancementOptions": "Advancement Options",
+        "CharacteristicsOptions": "Characteristics Options"
       },
       "Combat": {
         "Action": "Action",
@@ -2738,6 +2740,10 @@
         "enableInlineRulesTooltips": {
           "Name": "Sheets: Inline Rules Tooltips",
           "Hint": "Show inline tooltips for qualities/traits and special actions. Alt-click opens a help dialog."
+        },
+        "enableCustomJournalStyling": {
+          "Name": "Journals: Custom Styling",
+          "Hint": "Use the UESRPG wood, parchment, and sidebar styling for native Journal windows."
         },
         "encumbranceUiEnhanced": {
           "Name": "Sheets: Encumbrance Breakdown + Highlights",

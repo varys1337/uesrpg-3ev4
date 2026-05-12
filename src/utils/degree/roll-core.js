@@ -9,6 +9,13 @@ function applyThreatDegreeModifier(actor, isSuccess, degree, meta) {
   return Math.max(1, degree + threatTemplateDegreeMod);
 }
 
+function getCriticalSourceSuffix(result) {
+  if (!result) return "";
+  if (result.isCriticalSuccess === true && result.criticalSuccessSource === "lucky-number") return " - Lucky Number";
+  if (result.isCriticalFailure === true && result.criticalFailureSource === "unlucky-number") return " - Unlucky Number";
+  return "";
+}
+
 /**
  * Core DoS/DoF helper logic with minimal dependencies.
  */
@@ -20,6 +27,8 @@ export async function doTestRoll(actor, { rollFormula = SYSTEM_ROLL_FORMULA, tar
   const crit = resolveCriticalFlags(actor, total, { allowLucky, allowUnlucky });
   const isCriticalSuccess = crit.isCriticalSuccess;
   const isCriticalFailure = crit.isCriticalFailure;
+  const criticalSuccessSource = crit.criticalSuccessSource ?? null;
+  const criticalFailureSource = crit.criticalFailureSource ?? null;
 
   const tn = Number(target || 0);
   let isSuccess = (total <= tn);
@@ -53,6 +62,8 @@ export async function doTestRoll(actor, { rollFormula = SYSTEM_ROLL_FORMULA, tar
     isSuccess,
     isCriticalSuccess,
     isCriticalFailure,
+    criticalSuccessSource,
+    criticalFailureSource,
     degree,
     textual: isSuccess ? `${degree} DoS` : `${degree} DoF`,
     meta
@@ -70,6 +81,8 @@ export function computeResultFromRollTotal(actor, { rollTotal = 0, target = 0, a
   const crit = resolveCriticalFlags(actor, total, { allowLucky, allowUnlucky });
   const isCriticalSuccess = crit.isCriticalSuccess;
   const isCriticalFailure = crit.isCriticalFailure;
+  const criticalSuccessSource = crit.criticalSuccessSource ?? null;
+  const criticalFailureSource = crit.criticalFailureSource ?? null;
 
   let isSuccess = (total <= tn);
   if (isCriticalSuccess) isSuccess = true;
@@ -100,6 +113,8 @@ export function computeResultFromRollTotal(actor, { rollTotal = 0, target = 0, a
     isSuccess,
     isCriticalSuccess,
     isCriticalFailure,
+    criticalSuccessSource,
+    criticalFailureSource,
     degree,
     textual: isSuccess ? `${degree} DoS` : `${degree} DoF`,
     meta
@@ -129,6 +144,8 @@ export function formatResultOutcomeLabel(result, { uppercase = false } = {}) {
   if (result.isCriticalSuccess === true) label = "Critical Success";
   else if (result.isCriticalFailure === true) label = "Critical Failure";
   else if (result.isSuccess === true) label = "Success";
+
+  label += getCriticalSourceSuffix(result);
 
   return uppercase ? label.toUpperCase() : label;
 }
