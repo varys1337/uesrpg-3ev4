@@ -23,7 +23,7 @@ import { FLAG_SCOPE, SYSTEM_ID } from "../system/namespace.js";
 import { createUuidResolver, resolveUuidSync } from "../../utils/uuid-cache.js";
 import { getLinkedAreaEntities, getLinkedAreaUuids, getLinkedRegionUuids, buildRegionLink, resolveLinkedArea } from "./region-links.js";
 import { testAreaPoint } from "../aoe/containment.js";
-import { getSpellLevel } from "./magicka-utils.js";
+import { getSpellDamageType, getSpellLevel } from "./magicka-utils.js";
 
 // ── Shared Private Helpers ───────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ export function emitEffectApplied(payload) {
  */
 export function classifySpellForRouting(spell) {
   const isAttack = (spell?.system?.isAttackSpell === true) || (_str(spell?.system?.isAttackSpell).toLowerCase() === "true");
-  const damageType = _str(spell?.system?.damageType).toLowerCase();
+  const damageType = _str(getSpellDamageType(spell)).toLowerCase();
   // Check both the isHealingSpell toggle AND the damageType for backwards compatibility
   // Include temporary healing as healing type
   const isHealing = _bool(spell?.system?.isHealingSpell) ||

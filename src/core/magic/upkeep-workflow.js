@@ -53,6 +53,7 @@ import { requestBatchUpdateDocuments, requestUpdateChatMessage, requestUpdateDoc
 import { MagicTimekeeping } from "./timekeeping-helper.js";
 import { classifySpellForRouting } from "./spell-runtime.js";
 import { AttackTracker } from "../combat/attack-tracker.js";
+import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
 import { safeDeleteEmbeddedDocuments, safeGetEffect } from "../../utils/ae-helpers.js";
 import { findOriginAEByGroupKey, refreshOriginAEUpkeep, cancelOriginAEUpkeep } from "./effects/origin-effect.js";
 import { buildUpkeepGroupKey, parseUpkeepGroupKey } from "./effects/spell-effect-metadata.js";
@@ -1283,8 +1284,9 @@ export async function handleUpkeepGroupConfirm(message) {
 
   let useLivingArmory = false;
   if (canUseLivingArmory) {
+    const enforceAP = isActorInStartedCombatEncounter(casterActor);
     const currentAP = _num(casterActor.system?.action_points?.value, 0);
-    if (currentAP >= 1) {
+    if (!enforceAP || currentAP >= 1) {
       // Prefer AP over MP when Living Armory applies and AP is available
       useLivingArmory = true;
     }
@@ -1296,11 +1298,12 @@ export async function handleUpkeepGroupConfirm(message) {
   } else if (bufferUpkeepMode === "free") {
     // Free upkeep — no cost
   } else if (useLivingArmory) {
+    const enforceAP = isActorInStartedCombatEncounter(casterActor);
     const currentAP = _num(casterActor.system?.action_points?.value, 0);
     const newAP = currentAP - 1;
     try {
-      await requestUpdateDocument(casterActor, { "system.action_points.value": newAP });
-      ui.notifications?.info?.(`Living Armory: Paid 1 AP (instead of ${upkeepCost} MP) to upkeep ${data.spellName}.`);
+      if (enforceAP) await requestUpdateDocument(casterActor, { "system.action_points.value": newAP });
+      ui.notifications?.info?.(`Living Armory: ${enforceAP ? "Paid 1 AP" : "Used outside combat"} (instead of ${upkeepCost} MP) to upkeep ${data.spellName}.`);
     } catch (err) {
       console.error("UESRPG | upkeep-workflow | Failed to deduct AP (Living Armory)", err);
       ui.notifications?.error?.("Failed to deduct AP. See console.");

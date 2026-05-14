@@ -19,6 +19,7 @@ import {
   _buildDamagePanel
 } from "./template-helpers.js";
 import { AttackTracker } from "../../attack-tracker.js";
+import { isActorInStartedCombatEncounter } from "../../combat-scope.js";
 import { canAttackerRoll } from "../actions/eligibility.js";
 import { _resolveActor, _resolveActorViaToken } from "../helpers/docs.js";
 import { _isBankAutoRollInProgress } from "../banking/state.js";
@@ -73,7 +74,12 @@ function _getAttackerCommitGate(data) {
     return { allowed: false, reason: String(eligibility?.reason ?? "Unavailable") };
   }
 
-  if (!game?.combat) return { allowed: true };
+  const trackerContext = _getAttackerTrackerContext(data, attacker);
+  if (!isActorInStartedCombatEncounter(attacker, {
+    combat: trackerContext?.combat ?? game?.combat ?? null,
+    tokenUuid: trackerContext?.tokenUuid ?? null,
+    combatantId: trackerContext?.combatantId ?? null
+  })) return { allowed: true };
 
   const baseApCost = getPendingAttackApCost(data);
   const currentAP = Number(foundry.utils.getProperty(attacker, "system.action_points.value") ?? 0);
@@ -81,7 +87,6 @@ function _getAttackerCommitGate(data) {
     return { allowed: false, reason: `${currentAP}/${baseApCost} AP` };
   }
 
-  const trackerContext = _getAttackerTrackerContext(data, attacker);
   const attackMode = String(data?.context?.attackMode ?? "").toLowerCase();
   if (AttackTracker.hasExceededLimit(attacker, { attackMode }, trackerContext)) {
     return {
@@ -97,7 +102,10 @@ function _getAttackerCommitGate(data) {
 function _getDefenderCommitGate(defenderData) {
   const defender = _resolveActorViaToken(defenderData?.actorUuid, defenderData?.tokenUuid);
   if (!defender) return { allowed: false, reason: t("UESRPG.Chat.Opposed.DefenderUnavailable", "Defender unavailable") };
-  if (!game?.combat) return { allowed: true };
+  if (!isActorInStartedCombatEncounter(defender, {
+    tokenUuid: defenderData?.tokenUuid ?? null,
+    combatantId: defenderData?.combatantId ?? null
+  })) return { allowed: true };
 
   const apCost = Number(defenderData?.apCost ?? 1) || 1;
   const currentAP = Number(foundry.utils.getProperty(defender, "system.action_points.value") ?? 0);

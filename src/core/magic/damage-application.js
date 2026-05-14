@@ -255,15 +255,56 @@ export async function applyMagicDamage(targetActor, damage, damageType, spell, o
   const magicCost = Number(options.magicCost ?? 0) || 0;
   const allowSelfAbsorption = options.allowSelfAbsorption === true;
   const skipChatMessage = options.skipChatMessage === true;
+  const skipSpellAbsorption = options.skipSpellAbsorption === true;
+  const typedComponents = Array.isArray(options.damageComponents)
+    ? options.damageComponents
+        .map((component) => ({
+          ...component,
+          damageType: _str(component?.damageType).toLowerCase() || dt,
+          amount: Math.max(0, Number(component?.amount ?? 0) || 0),
+        }))
+        .filter((component) => component.amount > 0)
+    : [];
 
-  const absorption = await _applySpellAbsorption(targetActor, {
-    casterActor,
-    magicCost,
-    allowSelfAbsorption,
-    sourceLabel: source
-  });
-  if (absorption.absorbed) {
-    return { spellAbsorbed: true, absorption };
+  if (!skipSpellAbsorption) {
+    const absorption = await _applySpellAbsorption(targetActor, {
+      casterActor,
+      magicCost,
+      allowSelfAbsorption,
+      sourceLabel: source
+    });
+    if (absorption.absorbed) {
+      return { spellAbsorbed: true, absorption };
+    }
+
+    const shouldApplyTypedComponents = typedComponents.length > 1
+      || (typedComponents.length === 1 && typedComponents[0].damageType && typedComponents[0].damageType !== dt);
+    if (shouldApplyTypedComponents) {
+      const results = [];
+      let totalApplied = 0;
+      for (const component of typedComponents) {
+        const result = await applyMagicDamage(targetActor, component.amount, component.damageType, spell, {
+          ...options,
+          damageComponents: null,
+          skipSpellAbsorption: true,
+          isOverloaded: false,
+          overloadBonus: 0,
+          elementalBonus: 0,
+          elementalBonusLabel: "",
+          source: component.sourceLabel || source,
+        });
+        if (result) {
+          totalApplied += Number(result.damage ?? 0) || 0;
+          results.push(result);
+        }
+      }
+      const last = results[results.length - 1] ?? null;
+      if (last) {
+        last.damage = totalApplied;
+        last.componentResults = results;
+      }
+      return last;
+    }
   }
 
   let adjustedDamage = Number(damage || 0) || 0;

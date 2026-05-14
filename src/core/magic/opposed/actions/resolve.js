@@ -14,6 +14,16 @@ import { listEquippedShields } from "../../../items/shield-utils.js";
 import { buildMagicCastContextRows } from "../cast-context.js";
 
 function buildMagicDamageComponents(spell, damageType, damageInfo = null) {
+  if (Array.isArray(damageInfo?.components) && damageInfo.components.length) {
+    return damageInfo.components
+      .map((component) => ({
+        source: String(component?.source ?? "spell"),
+        sourceLabel: String(component?.sourceLabel ?? spell?.name ?? "Spell"),
+        damageType: String(component?.damageType ?? damageType ?? "magic").trim().toLowerCase() || "magic",
+        amount: Math.max(0, Number(component?.amount ?? 0) || 0),
+      }))
+      .filter((component) => component.amount > 0);
+  }
   const components = [];
   const normalizedType = String(damageType ?? "magic").trim().toLowerCase() || "magic";
   const baseDamage = Number(damageInfo?.baseDamage ?? damageInfo?.damageValue ?? 0) || 0;
@@ -80,12 +90,13 @@ export async function handleBlockResolve(ctx) {
   const isCritical = Boolean(data.attacker.result?.isCriticalSuccess);
   const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
   const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+  const effectiveDamageType = String(damageInfo?.damageType ?? damageType ?? "magic").trim().toLowerCase() || "magic";
   const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
   const rollHTML = damageInfo?.rollHTML ?? "";
   const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell);
 
   // Get Block Rating (magic damage treats BR as half, round up, unless magic BR exists)
-  const br = getBlockValue(shield, damageType);
+  const br = getBlockValue(shield, effectiveDamageType);
   const blocked = damageValue <= br;
 
   const shieldArm = "Left Arm";
@@ -104,7 +115,7 @@ export async function handleBlockResolve(ctx) {
     weaponImg: spell.img ?? "",
     qualityPillsHtml: "",
     panelMetadata: castContext.rows,
-    damageComponents: buildMagicDamageComponents(spell, damageType, damageInfo),
+    damageComponents: buildMagicDamageComponents(spell, effectiveDamageType, damageInfo),
     applied: blocked ? true : false,
     blockResult,
     applyPayload: {
@@ -114,7 +125,7 @@ export async function handleBlockResolve(ctx) {
     },
     _magicPayload: {
       damage: appliedDamage,
-      damageType,
+      damageType: effectiveDamageType,
       spellUuid: spell.uuid ?? "",
       casterUuid: attacker.uuid ?? "",
       casterTokenUuid: data.attacker?.tokenUuid ?? "",
@@ -129,6 +140,7 @@ export async function handleBlockResolve(ctx) {
       overchargeTotals: Array.isArray(damageInfo?.overchargeTotals) ? damageInfo.overchargeTotals : null,
       elementalBonus: Number(damageInfo?.elementalBonus ?? 0) || 0,
       elementalBonusLabel: String(damageInfo?.elementalBonusLabel ?? ""),
+      damageComponents: buildMagicDamageComponents(spell, effectiveDamageType, damageInfo),
       actualCost: _getResolvedMagicCost(data, spell),
       originalCastWorldTime: Number(data.context?.originalCastWorldTime ?? game?.time?.worldTime ?? 0) || 0,
       defenseType: "block",
@@ -184,6 +196,7 @@ export async function handleWardResolve(ctx) {
   const isCritical = Boolean(data.attacker.result?.isCriticalSuccess);
   const sharedDamage = await getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
   const damageInfo = sharedDamage ?? await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId: message.id });
+  const effectiveDamageType = String(damageInfo?.damageType ?? damageType ?? "magic").trim().toLowerCase() || "magic";
   const damageValue = Number(damageInfo?.damageValue ?? 0) || 0;
   const rollHTML = damageInfo?.rollHTML ?? "";
   const castContext = buildMagicCastContextRows(data?.attacker ?? {}, spell);
@@ -208,7 +221,7 @@ export async function handleWardResolve(ctx) {
     weaponImg: spell.img ?? "",
     qualityPillsHtml: "",
     panelMetadata: castContext.rows,
-    damageComponents: buildMagicDamageComponents(spell, damageType, damageInfo),
+    damageComponents: buildMagicDamageComponents(spell, effectiveDamageType, damageInfo),
     applied: blocked ? true : false,
     wardResult,
     applyPayload: {
@@ -218,7 +231,7 @@ export async function handleWardResolve(ctx) {
     },
     _magicPayload: {
       damage: appliedDamage,
-      damageType,
+      damageType: effectiveDamageType,
       spellUuid: spell.uuid ?? "",
       casterUuid: attacker.uuid ?? "",
       casterTokenUuid: data.attacker?.tokenUuid ?? "",
@@ -233,6 +246,7 @@ export async function handleWardResolve(ctx) {
       overchargeTotals: Array.isArray(damageInfo?.overchargeTotals) ? damageInfo.overchargeTotals : null,
       elementalBonus: Number(damageInfo?.elementalBonus ?? 0) || 0,
       elementalBonusLabel: String(damageInfo?.elementalBonusLabel ?? ""),
+      damageComponents: buildMagicDamageComponents(spell, effectiveDamageType, damageInfo),
       actualCost: _getResolvedMagicCost(data, spell),
       originalCastWorldTime: Number(data.context?.originalCastWorldTime ?? game?.time?.worldTime ?? 0) || 0,
       defenseType: "ward",

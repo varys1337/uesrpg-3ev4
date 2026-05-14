@@ -9,6 +9,7 @@
 import { getDefenderEntries, isMultiDefender, isBankChoicesEnabledForData, getBankCommitState, getDefenderOutcome, getMagicDefenderDamage } from "./schema.js";
 import { hasActiveWard } from "../../combat/ward-defense.js";
 import { AttackTracker } from "../../combat/attack-tracker.js";
+import { isActorInStartedCombatEncounter } from "../../combat/combat-scope.js";
 import { computeSpellAttemptMagickaCost } from "../magicka-utils.js";
 import { classifySpellForRouting } from "../spell-runtime.js";
 import { _buildDamagePanel } from "../../combat/opposed/cards/template-helpers.js";
@@ -302,7 +303,10 @@ function getMagicAttackerCommitGate(data, ctx) {
   const attacker = resolveActorFromUuid(data?.attacker?.actorUuid, ctx);
   if (!attacker) return { allowed: false, reason: t("UESRPG.Chat.Magic.CasterUnavailable", "Caster unavailable") };
 
-  if (game?.combat) {
+  if (isActorInStartedCombatEncounter(attacker, {
+    tokenUuid: data?.attacker?.tokenUuid ?? null,
+    combatantId: data?.attacker?.combatantId ?? null
+  })) {
     const apCost = Number(data?.attacker?.apCost ?? 1) || 1;
     const currentAP = Number(foundry.utils.getProperty(attacker, "system.action_points.value") ?? 0);
     if (currentAP < apCost) return { allowed: false, reason: `${currentAP}/${apCost} AP` };
@@ -313,7 +317,10 @@ function getMagicAttackerCommitGate(data, ctx) {
     const castSource = data?.attacker?.castSource ?? null;
     const castMode = String(castSource?.costMode ?? "soul").trim().toLowerCase();
     const isEnchantSource = castSource?.type === "enchantment";
-    if (game?.combat) {
+    if (isActorInStartedCombatEncounter(attacker, {
+      tokenUuid: data?.attacker?.tokenUuid ?? null,
+      combatantId: data?.attacker?.combatantId ?? null
+    })) {
       const cls = classifySpellForRouting(spell);
       const trackerContext = buildMagicTrackerContext(data, attacker);
       if (cls?.isAttack && AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
@@ -352,6 +359,10 @@ function getMagicAttackerCommitGate(data, ctx) {
 function getMagicDefenderCommitDefenseGate(defenderData, ctx) {
   const defender = resolveActorFromUuid(defenderData?.actorUuid, ctx);
   if (!defender) return { allowed: false, reason: t("UESRPG.Chat.Magic.TargetUnavailable", "Target unavailable") };
+  if (!isActorInStartedCombatEncounter(defender, {
+    tokenUuid: defenderData?.tokenUuid ?? null,
+    combatantId: defenderData?.combatantId ?? null
+  })) return { allowed: true };
   const apCost = Number(defenderData?.apCost ?? 1) || 1;
   const currentAP = Number(foundry.utils.getProperty(defender, "system.action_points.value") ?? 0);
   if (currentAP < apCost) return { allowed: false, reason: `${currentAP}/${apCost} AP` };

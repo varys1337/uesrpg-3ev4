@@ -14,6 +14,7 @@ import { applyRacialTalentAttackPreTN } from "../../../traits/racial-talents.js"
 import { applyWeaponExpertiseAttackerPreTN } from "../../../traits/weapon-expertise/index.js";
 import { AttackTracker } from "../../attack-tracker.js";
 import { ActionEconomy } from "../../action-economy.js";
+import { isActorInStartedCombatEncounter } from "../../combat-scope.js";
 import { isActorSkeletal } from "../../../traits/trait-registry.js";
 import { applyDamageResolved } from "../../damage-resolver.js";
 import { getAttackModeFromWeapon, getDamageTypeFromWeapon, getHitLocationFromRoll, resolveHitLocationForTarget, getWeaponCombatCapabilities } from "../../combat-utils.js";
@@ -100,6 +101,10 @@ export async function handleAttackerAction(action, ctx) {
     attackTraceId: String(data?.context?.attackTraceId ?? "").trim() || null,
     attackMode: String(data?.context?.attackMode ?? "").trim().toLowerCase() || "melee",
   };
+  const attackerInStartedCombat = isActorInStartedCombatEncounter(attacker, {
+    tokenUuid: baseTrackerContext.tokenUuid,
+    combatantId: baseTrackerContext.combatantId
+  });
 
   const isCommit = action === "attacker-commit";
   const isRollCommitted = action === "attacker-roll-committed";
@@ -250,7 +255,7 @@ export async function handleAttackerAction(action, ctx) {
   // Banked commit preflight gate:
   // - Do not offer/accept dead commits when base AP is unavailable.
   // - Do not allow commit when attack limit is already reached this round.
-  if (isCommit && game.combat) {
+  if (isCommit && attackerInStartedCombat) {
     const baseApCost = getPendingAttackApCost(data);
     const currentAP = Number(foundry.utils.getProperty(attacker, "system.action_points.value") ?? 0);
     if (currentAP < baseApCost) {
@@ -831,7 +836,12 @@ export async function handleAttackerAction(action, ctx) {
   const apVariant = String(data.attacker?.pendingApVariant ?? data.attacker.variant ?? "normal");
   let apOk = true;
   if (pendingApCost > 0 && !skipAP) {
-    apOk = await ActionEconomy.spendAP(attacker, pendingApCost, { reason: `attackVariant:${apVariant}`, silent: true });
+    apOk = await ActionEconomy.spendAP(attacker, pendingApCost, {
+      reason: `attackVariant:${apVariant}`,
+      silent: true,
+      tokenUuid: baseTrackerContext.tokenUuid,
+      combatantId: baseTrackerContext.combatantId
+    });
     if (!apOk) {
       ui.notifications.warn("Insufficient Action Points to perform this attack.");
     }

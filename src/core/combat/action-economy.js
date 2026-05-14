@@ -15,6 +15,7 @@
 
 import { requestDeleteEmbeddedDocuments, requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { isActorInStartedCombatEncounter } from "./combat-scope.js";
 
 /**
  * Safe, minimal HTML escaping for plain-text insertion into markup.
@@ -83,10 +84,11 @@ export const ActionEconomy = {
    * @param {{reason?: string, silent?: boolean}} opts
    * @returns {Promise<boolean>} true if spent (or cost<=0), false if insufficient or update failed
    */
-  async spendAP(actor, cost = 0, { reason = "", silent = false } = {}) {
+  async spendAP(actor, cost = 0, { reason = "", silent = false, combat = game?.combat ?? null, tokenUuid = null, combatantId = null } = {}) {
     const n = Number(cost ?? 0);
     const spend = Number.isFinite(n) ? n : 0;
     if (!actor || spend <= 0) return true;
+    if (!isActorInStartedCombatEncounter(actor, { combat, tokenUuid, combatantId })) return true;
 
     const current = _getAP(actor);
     if (current < spend) {
@@ -132,13 +134,15 @@ export const ActionEconomy = {
    * @param {{reason?: string}} opts
    * @returns {Promise<boolean>} true if allowed
    */
-  async assertCanAttack(actor, { reason = "" } = {}) {
+  async assertCanAttack(actor, { reason = "", combat = game?.combat ?? null, tokenUuid = null, combatantId = null } = {}) {
     if (!actor) return false;
 
-    const ap = _getAP(actor);
-    if (ap <= 0) {
-      ui.notifications?.warn?.(`${actor.name} has no Action Points left to attack.`);
-      return false;
+    if (isActorInStartedCombatEncounter(actor, { combat, tokenUuid, combatantId })) {
+      const ap = _getAP(actor);
+      if (ap <= 0) {
+        ui.notifications?.warn?.(`${actor.name} has no Action Points left to attack.`);
+        return false;
+      }
     }
 
     const defensive = _findEnabledEffectByKey(actor, "defensiveStance");

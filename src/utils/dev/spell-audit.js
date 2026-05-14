@@ -8,6 +8,7 @@
  */
 
 import { validateScalingLevels } from "../../core/magic/spell-config.js";
+import { getSpellStrengthFormula } from "../../core/magic/magicka-utils.js";
 import { customDialog } from "../dialog-v2-helper.js";
 
 /**
@@ -69,14 +70,16 @@ function _auditSpell(spell) {
     warnings.push("Missing form (defaults to Conventional)");
   }
   
-  // Check 4: Attack spells should have damage formula
-  if (spell.system.type === "Attack" && (!spell.system.damage?.formula || spell.system.damage.formula === "")) {
-    errors.push("Attack spell missing damageFormula");
+  const spellStrengthFormula = getSpellStrengthFormula(spell);
+
+  // Check 4: Attack spells should have Spell Strength or the WB fallback
+  if (spell.system.type === "Attack" && !spellStrengthFormula) {
+    warnings.push("Attack spell has no explicit Spell Strength formula (WB fallback will be used)");
   }
   
-  // Check 5: Healing spells should have damageFormula (used for healing amount)
-  if (spell.system.type === "Healing" && (!spell.system.damage?.formula || spell.system.damage.formula === "")) {
-    warnings.push("Healing spell missing damageFormula (healing amount)");
+  // Check 5: Healing spells should have Spell Strength or the WB fallback
+  if (spell.system.type === "Healing" && !spellStrengthFormula) {
+    warnings.push("Healing spell has no explicit Spell Strength formula (WB fallback will be used)");
   }
   
   // Check 6: Upkeep spells should have duration
@@ -97,7 +100,6 @@ function _auditSpell(spell) {
   // Check 8: Scaling levels validation
   if (spell.system.scaling?.levels && spell.system.scaling.levels.length > 0) {
     const scalingResult = validateScalingLevels(spell.system.scaling.levels, {
-      spellHasDamage: Boolean(spell.system.damage?.formula),
       baseDurationUnit: spell.system.duration?.unit
     });
     if (!scalingResult.valid) {

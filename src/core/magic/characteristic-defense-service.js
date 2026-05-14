@@ -39,13 +39,13 @@ const _debug = createDebugLogger("debugMagicRouting", "[UESRPG][CharDefense]");
 
 /**
  * Resolve the Spell Strength for modifier computation.
- * SS is typically the spell's numeric damage formula (flat value) or level × 10.
+ * SS is typically the spell's numeric strength formula (flat value) or level × 10.
  *
  * @param {Item} spell
  * @returns {number}
  */
 function _resolveSpellStrength(spell) {
-  // Try numeric damage formula first (same pattern as disintegrate-service)
+  // Try numeric spell strength first.
   const formula = _str(getSpellStrengthFormula(spell));
   const n = Number(formula);
   if (Number.isFinite(n) && n > 0) return Math.floor(n);

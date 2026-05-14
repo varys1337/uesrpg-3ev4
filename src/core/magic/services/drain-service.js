@@ -24,6 +24,7 @@
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { getEffectChanges } from "../../../utils/compat.js";
+import { resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -147,13 +148,14 @@ export async function drainHealth(targetActor, amount, opts = {}) {
 
 /**
  * Resolve drain amount from spell data.
- * For Drain spells, the SS/drain amount is stored in damageFormula or scaling.
+ * Drain spells use Spell Strength as their resolved drain amount.
  *
  * @param {Item} spell
+ * @param {Actor|null} [caster]
  * @returns {Promise<number>}
  */
-async function _resolveDrainAmount(spell) {
-  const formula = _str(spell.system?.damageFormula || spell.system?.spell_str || spell.system?.damage);
+async function _resolveDrainAmount(spell, caster = null) {
+  const formula = _str(resolveSpellStrengthFormulaForActor(spell, null, caster ?? spell?.actor ?? null));
   if (!formula) return 0;
 
   // Try as simple number first
@@ -240,7 +242,7 @@ async function _onEffectApplied(payload) {
     return;
   }
 
-  const drainAmount = await _resolveDrainAmount(spell);
+  const drainAmount = await _resolveDrainAmount(spell, caster);
   if (drainAmount <= 0) {
     _debug("Drain amount is 0 — skipping");
     return;
@@ -317,7 +319,7 @@ async function _onSpellHitTarget(payload) {
   const hasEnabledEffects = (spell.effects ?? []).some(e => !e.disabled);
   if (hasEnabledEffects) return;
 
-  const drainAmount = await _resolveDrainAmount(spell);
+  const drainAmount = await _resolveDrainAmount(spell, caster);
   if (drainAmount <= 0) return;
 
   _debug("Drain (via spellHitTarget):", {

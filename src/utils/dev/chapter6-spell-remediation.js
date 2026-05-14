@@ -91,8 +91,8 @@ function _buildSpellPatch(spell, catalogEntry, opts = {}) {
   }
 
   if (catalogEntry.requiredCapabilities.includes("core:damage")) {
-    const damageFormula = _str(sys.damageFormula || sys.damage?.formula);
-    if (damageFormula && !Boolean(sys.isDamagingSpell)) {
+    const strengthFormula = _str(sys.spellStrengthFormula || sys.spellStrength || sys.spell_str || sys.damageFormula || sys.damage?.formula);
+    if (strengthFormula && !Boolean(sys.isDamagingSpell)) {
       if (_setIfChanged(patch, "system.isDamagingSpell", true, current)) mark("system.isDamagingSpell", "Enable damaging spell metadata.");
     }
   }

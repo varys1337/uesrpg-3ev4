@@ -24,6 +24,7 @@ import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../..
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
 import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { t, tf } from "../../../../utils/i18n.js";
+import { isActorInStartedCombatEncounter } from "../../combat-scope.js";
 
 function _escapeHtml(value) {
   return String(value ?? "")
@@ -230,7 +231,8 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
             }, { extraApCost: apCost });
 
             const ap = Number(foundry.utils.getProperty(attackerActor, "system.action_points.value") ?? 0);
-            if (!Number.isFinite(ap) || ap < totalApCost) {
+            const tokenUuid = attackerToken?.document?.uuid ?? attackerToken?.uuid ?? null;
+            if (isActorInStartedCombatEncounter(attackerActor, { tokenUuid }) && (!Number.isFinite(ap) || ap < totalApCost)) {
               ui.notifications?.warn?.(tf("UESRPG.Notifications.Opposed.NotEnoughApAttack", { cost: totalApCost }, `Not enough Action Points to perform this attack (requires ${totalApCost} AP).`));
               return null;
             }

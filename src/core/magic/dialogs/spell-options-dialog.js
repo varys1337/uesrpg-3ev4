@@ -100,6 +100,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
     });
 
   const hasScaling = scalingLevels.length > 0;
+  const baseProfile = resolveSpellProfile(spell, actor, { level: baseLevel });
   const formatPreviewCostValue = (cost) => {
     const safeCost = Math.max(0, Number(cost ?? 0) || 0);
     if (resourcePresentation.fixedCost != null) {
@@ -137,8 +138,8 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
           <span id="previewCost" class="uesrpg-spell-profile-card__value">${buildPreviewCostHtml(baseCost)}</span>
         </div>
         <div class="uesrpg-spell-profile-card__item">
-          <span class="uesrpg-spell-profile-card__label">${t("UESRPG.Dialogs.SpellOptions.Formula", "Formula")}</span>
-          <span id="previewDamage" class="uesrpg-spell-profile-card__value">${_escapeHtml(spell.system.damageFormula || t("UESRPG.UI.NotAvailable", "N/A"))}</span>
+          <span class="uesrpg-spell-profile-card__label">${t("UESRPG.Dialogs.SpellOptions.SpellStrength", "Spell Strength")}</span>
+          <span id="previewDamage" class="uesrpg-spell-profile-card__value">${_escapeHtml(baseProfile.damage.formula || t("UESRPG.UI.NotAvailable", "N/A"))}</span>
         </div>
         <div class="uesrpg-spell-profile-card__item">
           <span class="uesrpg-spell-profile-card__label">${t("UESRPG.Dialogs.SpellOptions.DurationLabel", "Duration")}</span>

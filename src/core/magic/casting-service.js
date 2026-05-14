@@ -20,6 +20,7 @@ import { canActorCastSpell, getActorMagicka, getSpellCastingSchool } from "./mag
 import { MagicOpposedWorkflow } from "./opposed-workflow.js";
 import { showSpellOptionsDialog } from "./dialogs/spell-options-dialog.js";
 import { emitPreCast } from "./spell-runtime.js";
+import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
 
 /**
  * Unified spell casting service.
@@ -170,7 +171,7 @@ export const SpellCastingService = {
     const castActionType = cfg.castActionType ?? "primary";
     const requiresAP = !(profile.classification.isInstant && castActionType === "secondary");
 
-    if (requiresAP) {
+    if (requiresAP && isActorInStartedCombatEncounter(actor, { tokenUuid: cfg.casterTokenUuid ?? null })) {
       const currentAP = Number(actor.system?.action_points?.value ?? 0);
       if (currentAP < 1) {
         return { valid: false, reason: "Insufficient Action Points: 1 AP required" };

@@ -360,6 +360,12 @@ export function normalizeItemFormData(item, formData) {
 
     // ── Scaling levels (dot‑notation → array) ──
     const scalingPrefix = "system.scaling.levels.";
+    const rawExistingScalingLevels = item.system?.scaling?.levels;
+    const existingScalingLevels = Array.isArray(rawExistingScalingLevels)
+      ? rawExistingScalingLevels
+      : (rawExistingScalingLevels && typeof rawExistingScalingLevels === "object")
+        ? Object.values(rawExistingScalingLevels)
+        : [];
     const levelIndices = new Set();
     const levelEntries = new Map();
     let foundScalingKeys = false;
@@ -382,6 +388,14 @@ export function normalizeItemFormData(item, formData) {
       .sort((a, b) => Number(a) - Number(b))
       .map(idx => {
         const entry = levelEntries.get(idx) ?? {};
+        const existingEntry = existingScalingLevels[Number(idx)];
+        if (
+          existingEntry
+          && typeof existingEntry === "object"
+          && !Object.prototype.hasOwnProperty.call(entry, "description")
+        ) {
+          entry.description = existingEntry.description ?? "";
+        }
         if (!entry.duration || typeof entry.duration !== "object") {
           entry.duration = { value: 0, unit: fallbackDurationUnit };
         } else {
@@ -395,6 +409,11 @@ export function normalizeItemFormData(item, formData) {
         if (Object.prototype.hasOwnProperty.call(entry, "cost"))
           entry.cost = Number(entry.cost) || 0;
         entry.known = entry.known !== false && entry.known !== "false";
+        entry.damageType = String(
+          entry.damageType
+          ?? existingEntry?.damageType
+          ?? "none"
+        ).trim().toLowerCase() || "none";
         entry.spellStrengthFormula = String(
           entry.spellStrengthFormula
           ?? entry.spellStrength
@@ -551,14 +570,10 @@ export function normalizeItemFormData(item, formData) {
 export async function validateSpellScaling(item, formData, scalingLevels) {
   if (!scalingLevels.length) return false;
 
-  const spellHasDamage = Boolean(
-    formData["system.damageFormula"] || item.system?.damageFormula
-  );
   const baseDurationUnit =
     formData["system.duration.unit"] || item.system?.duration?.unit || "instant";
 
   const result = validateScalingLevels(scalingLevels, {
-    spellHasDamage,
     baseDurationUnit,
   });
 

@@ -26,6 +26,7 @@ import { buildCircumstanceOptionsHtml } from "../../../opposed/circumstance.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
 import { markDefenderNoDefense } from "../../../combat/opposed/actions/eligibility.js";
 import { t } from "../../../../utils/i18n.js";
+import { isActorInStartedCombatEncounter } from "../../../combat/combat-scope.js";
 
 /** @private */
 function syncDefenderToData(data, defender, defenderIndex) {
@@ -192,7 +193,10 @@ export async function handleDefenderCommit(ctx, action) {
   if (!commitAsNoDefense && !isCharacteristicAction) {
     const apCost = Number(defender?.apCost ?? 1) || 1;
     const currentAP = Number(foundry.utils.getProperty(defenderActor, "system.action_points.value") ?? 0);
-    if (currentAP < apCost) {
+    if (isActorInStartedCombatEncounter(defenderActor, {
+      tokenUuid: defender?.tokenUuid ?? null,
+      combatantId: defender?.combatantId ?? null
+    }) && currentAP < apCost) {
       ui.notifications.info(`Not enough Action Points for defense (${currentAP}/${apCost}); committing No Defense.`);
       commitAsNoDefense = true;
     }

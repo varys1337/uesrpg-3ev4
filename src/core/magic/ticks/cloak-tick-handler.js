@@ -17,7 +17,7 @@
  * Integration:
  *  - Uses `registerSpellTickHandler` for tick lifecycle management
  *  - Uses `getOriginAEs` to find active cloak spells on the current actor
- *  - Uses `rollSpellDamage` from magicka-utils for damage computation
+ *  - Uses Spell Strength damage helpers from magicka-utils for damage computation
  *  - Uses authority proxy for all mutations
  *
  * Target: Foundry VTT v13.351
@@ -26,7 +26,7 @@
 import { registerSpellTickHandler } from "./spell-tick-engine.js";
 import { getOriginAEs } from "../effects/origin-effect.js";
 import { normalizeSpellConfig } from "../spell-config.js";
-import { rollSpellDamage, getSpellDamageType, getSpellDamageFormula } from "../magicka-utils.js";
+import { getSpellStrengthDamageComponents, rollSpellDamage, getSpellDamageType, getSpellDamageFormula } from "../magicka-utils.js";
 import { _num, _strTrim as _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE, SYSTEM_ID } from "../../system/namespace.js";
 
@@ -234,7 +234,7 @@ async function _processCloakOriginAE(casterActor, originAE, ctx) {
  */
 async function _applyCloakToTarget(casterActor, targetActor, spell, config, ctx) {
   const spellName = _str(spell.name) || "Cloak Spell";
-  const damageFormula = getSpellDamageFormula(spell);
+  const damageFormula = getSpellDamageFormula(spell, null, { actor: casterActor });
   const damageType = getSpellDamageType(spell);
   const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
   const useSpellDamage = config.cloak.useSpellDamage !== false;
@@ -245,16 +245,38 @@ async function _applyCloakToTarget(casterActor, targetActor, spell, config, ctx)
   if (useSpellDamage && isDamaging) {
     try {
       const { applyMagicDamage } = await import("../damage-application.js");
-      const damageResult = await rollSpellDamage(spell, {});
-      const damageValue = _num(damageResult?.total, 0);
+      const strengthComponents = getSpellStrengthDamageComponents(spell, { actor: casterActor, damageType });
+      let rollHTML = "";
+      let damageComponents = [];
+      let damageValue = 0;
+
+      if (strengthComponents.length) {
+        for (const component of strengthComponents) {
+          const roll = await new Roll(component.formula).evaluate();
+          const amount = Math.max(0, _num(roll.total, 0));
+          damageValue += amount;
+          rollHTML += await roll.render();
+          damageComponents.push({
+            source: "spell",
+            sourceLabel: `${spellName} (Cloak)`,
+            damageType: component.damageType,
+            amount
+          });
+        }
+      } else {
+        const damageResult = await rollSpellDamage(spell, { actor: casterActor });
+        damageValue = _num(damageResult?.total, 0);
+        rollHTML = await damageResult.render();
+      }
 
       if (damageValue > 0) {
         await applyMagicDamage(targetActor, damageValue, damageType, spell, {
           hitLocation: "Body",
-          rollHTML: damageResult?.rollHTML ?? "",
+          rollHTML,
           source: `${spellName} (Cloak)`,
           casterActor,
-          isCritical: false
+          isCritical: false,
+          damageComponents
         });
 
         // Post damage to chat

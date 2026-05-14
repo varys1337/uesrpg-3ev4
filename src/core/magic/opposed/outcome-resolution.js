@@ -22,7 +22,27 @@ import { buildMagicCastContextRows } from "./cast-context.js";
 import { postMagicOpposedSubRoll } from "./subrolls.js";
 
 const _spellDebug = createDebugLogger("spellCastingDebug");
-function _buildMagicDamageComponents(spell, damageType, damageInfo = null) {
+function _buildMagicDamageComponents(spell, damageType, damageInfo = null, targetTotal = null) {
+  if (Array.isArray(damageInfo?.components) && damageInfo.components.length) {
+    const components = damageInfo.components
+      .map((component) => ({
+        source: String(component?.source ?? "spell"),
+        sourceLabel: String(component?.sourceLabel ?? spell?.name ?? "Spell"),
+        damageType: String(component?.damageType ?? damageType ?? "magic").trim().toLowerCase() || "magic",
+        amount: Math.max(0, Number(component?.amount ?? 0) || 0),
+      }))
+      .filter((component) => component.amount > 0);
+    const desired = Number(targetTotal);
+    const current = components.reduce((sum, component) => sum + component.amount, 0);
+    if (!Number.isFinite(desired) || desired <= 0 || current <= 0 || desired === current) return components;
+    let remaining = Math.max(0, Math.floor(desired));
+    return components.map((component, index) => {
+      if (index === components.length - 1) return { ...component, amount: remaining };
+      const amount = Math.min(remaining, Math.max(0, Math.round((component.amount / current) * desired)));
+      remaining -= amount;
+      return { ...component, amount };
+    }).filter((component) => component.amount > 0);
+  }
   const components = [];
   const normalizedType = String(damageType ?? "magic").trim().toLowerCase() || "magic";
   const baseDamage = Number(damageInfo?.baseDamage ?? damageInfo?.damageValue ?? 0) || 0;
@@ -81,6 +101,7 @@ function _buildMagicDamageData({
   wardResult = null,
 }) {
   const isHealing = mode === "healing";
+  const effectiveDamageType = String(damageInfo?.damageType ?? damageType ?? "").trim().toLowerCase();
   const hasBuffer = Boolean(spell?.system?.hasBuffer && spell?.system?.buffer?.type && spell.system.buffer.type !== "none");
   const actualCost = Number(
     data?.attacker?.mpSpent
@@ -102,7 +123,7 @@ function _buildMagicDamageData({
     weaponImg: spell?.img ?? "",
     qualityPillsHtml: "",
     panelMetadata: castContext.rows,
-    damageComponents: _buildMagicDamageComponents(spell, damageType, damageInfo),
+    damageComponents: _buildMagicDamageComponents(spell, effectiveDamageType, damageInfo, finalDamage),
     applied: false,
     blockResult: blockResult ?? null,
     wardResult: wardResult ?? null,
@@ -113,7 +134,7 @@ function _buildMagicDamageData({
     },
     _magicPayload: {
       damage: finalDamage,
-      damageType: damageType || "",
+      damageType: effectiveDamageType || "",
       spellUuid: spell?.uuid ?? "",
       casterUuid: attacker?.uuid ?? "",
       casterTokenUuid: data?.attacker?.tokenUuid ?? "",
@@ -128,6 +149,7 @@ function _buildMagicDamageData({
       overchargeTotals: Array.isArray(damageInfo?.overchargeTotals) ? damageInfo.overchargeTotals : null,
       elementalBonus: Number(damageInfo?.elementalBonus ?? 0) || 0,
       elementalBonusLabel: String(damageInfo?.elementalBonusLabel ?? ""),
+      damageComponents: _buildMagicDamageComponents(spell, effectiveDamageType, damageInfo, finalDamage),
       actualCost,
       originalCastWorldTime,
       defenseType,
@@ -195,7 +217,7 @@ async function _buildDeferredDirectApplicationData({
     };
   }
 
-  const damageFormula = getSpellDamageFormula(spell);
+  const damageFormula = getSpellDamageFormula(spell, null, { actor: attacker });
   const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
   if (isDamaging) {
     const spellOptions = data.attacker.spellOptions ?? {};
@@ -355,7 +377,7 @@ export async function resolveDirectUndefendable(ctx) {
 
   // ── Damage: roll and apply (damageType "none" suppresses damage even with a formula) ──
   else {
-    const damageFormula = getSpellDamageFormula(spell);
+    const damageFormula = getSpellDamageFormula(spell, null, { actor: attacker });
     const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
 
     if (isDamaging) {
@@ -467,7 +489,7 @@ export async function resolveDirectNoTest(ctx) {
 
   // ── Damage: roll and apply (damageType "none" suppresses damage even with a formula) ──
   else {
-    const damageFormula = getSpellDamageFormula(spell);
+    const damageFormula = getSpellDamageFormula(spell, null, { actor: attacker });
     const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
 
     if (isDamaging) {
@@ -708,7 +730,7 @@ export async function resolveOpposedTest(ctx) {
     // "redirect" — apply spell to caster as if it hit (no opposed test needed)
     const effectiveTarget = attacker;
     const isCritical = false; // reflected spells are not critical
-    const damageFormula = getSpellDamageFormula(spell);
+    const damageFormula = getSpellDamageFormula(spell, null, { actor: attacker });
     const damageType = getSpellDamageType(spell);
     const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
 
@@ -818,7 +840,7 @@ export async function resolveOpposedTest(ctx) {
     const isCritical = Boolean(aResult?.isCriticalSuccess);
     const hitLocation = forcedHitLocation || (isAoE ? "Body" : getHitLocationFromRoll(Number(aResult?.rollTotal ?? 0)));
 
-    const damageFormula = getSpellDamageFormula(spell);
+    const damageFormula = getSpellDamageFormula(spell, null, { actor: attacker });
     const damageType = getSpellDamageType(spell);
     const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
 
@@ -1063,7 +1085,7 @@ async function _applyCharDefDamageAndEffects(ctx, effectiveTarget, isCritical, o
   const { data, attacker, spell, isAoE, forcedHitLocation, defenderEntry } = ctx;
   const hitLocation = forcedHitLocation || (isAoE ? "Body" : getHitLocationFromRoll(Number(data.attacker.result?.rollTotal ?? 0)));
 
-  const damageFormula = getSpellDamageFormula(spell);
+  const damageFormula = getSpellDamageFormula(spell, null, { actor: attacker });
   const damageType = getSpellDamageType(spell);
   const isDamaging = Boolean(damageFormula && damageFormula !== "0" && damageType !== "none");
 

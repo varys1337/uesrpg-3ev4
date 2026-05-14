@@ -11607,25 +11607,84 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 
 /* --- Scaling Levels Table ---*/
 .spell-sheet .spell-table-scroll {
+  max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   margin-bottom: var(--spell-gap-xs);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  box-sizing: border-box;
 }
 
 .spell-sheet .spell-table {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 680px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0 2px;
   font-size: var(--spell-font-sm);
 }
 
+.spell-sheet .spell-col-known {
+  width: 44px;
+}
+
+.spell-sheet .spell-col-level {
+  width: 50px;
+}
+
+.spell-sheet .spell-col-cost {
+  width: 54px;
+}
+
+.spell-sheet .spell-col-strength {
+  width: 24%;
+}
+
+.spell-sheet .spell-col-damage-type {
+  width: 96px;
+}
+
+.spell-sheet .spell-col-duration {
+  width: 136px;
+}
+
+.spell-sheet .spell-col-action {
+  width: 36px;
+}
+
+.spell-sheet .spell-table thead {
+  background: linear-gradient(180deg, rgba(95, 66, 32, 0.96), rgba(52, 34, 17, 0.96)), var(--spell-bg-header);
+  box-shadow: 0 2px 5px rgba(35, 21, 8, 0.24);
+}
+
 .spell-sheet .spell-table th {
-  background: var(--spell-bg-header);
   padding: 4px 6px;
   text-align: left;
-  font-size: var(--spell-font-xs);
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  border-bottom: 2px solid rgba(0, 0, 0, 0.18);
+  color: #f1dfb6;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.7);
+  border-top: 1px solid rgba(211, 166, 90, 0.42);
+  border-bottom: 1px solid rgba(31, 19, 9, 0.86);
   white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.spell-sheet .spell-table thead th {
+  color: #f1dfb6 !important;
+}
+
+.spell-sheet .spell-table th:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.spell-sheet .spell-table th:last-child {
+  border-radius: 0 6px 6px 0;
 }
 
 .spell-sheet .spell-th-narrow {
@@ -11642,48 +11701,136 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 
 .spell-sheet .spell-table td {
   padding: 2px 4px;
-  border-bottom: var(--spell-border-light);
+  vertical-align: middle;
+  background: rgba(244, 232, 199, 0.64);
+  border-top: 1px solid rgba(255, 255, 255, 0.34);
+  border-bottom: 1px solid rgba(87, 60, 28, 0.26);
+  box-sizing: border-box;
+}
+
+.spell-sheet .spell-table tbody tr {
+  transition: filter 0.12s ease, box-shadow 0.12s ease;
+}
+
+.spell-sheet .spell-table tbody tr:hover td,
+.spell-sheet .spell-table tbody tr:focus-within td {
+  background: rgba(250, 238, 203, 0.88);
+  border-bottom-color: rgba(101, 67, 28, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(129, 88, 37, 0.14);
+}
+
+.spell-sheet .spell-table tbody td:first-child {
+  border-left: 1px solid rgba(87, 60, 28, 0.26);
+  border-radius: 6px 0 0 6px;
+}
+
+.spell-sheet .spell-table tbody td:last-child {
+  border-right: 1px solid rgba(87, 60, 28, 0.26);
+  border-radius: 0 6px 6px 0;
   vertical-align: middle;
 }
 
 .spell-sheet .spell-table tr:last-child td {
-  border-bottom: none;
+  border-bottom: 1px solid rgba(87, 60, 28, 0.26);
 }
 
 .spell-sheet .spell-table-input {
   width: 100%;
-  min-height: var(--spell-input-h);
-  height: auto;
-  font-size: var(--spell-font-sm);
-  padding: 1px 4px;
-  border: var(--spell-border);
-  border-radius: 3px;
+  min-width: 0;
+  min-height: 22px;
+  height: 22px;
+  font-size: 11px;
+  padding: 1px 6px;
+  color: #1e1a14;
+  background: rgba(253, 248, 231, 0.9);
+  border: 1px solid rgba(88, 64, 32, 0.42);
+  border-radius: 5px;
+  box-shadow: inset 0 1px 2px rgba(55, 37, 17, 0.18);
   box-sizing: border-box;
 }
 
+.spell-sheet .spell-table-input:focus,
+.spell-sheet .spell-table-select:focus {
+  border-color: rgba(112, 69, 18, 0.78);
+  outline: 2px solid rgba(187, 132, 45, 0.28);
+  outline-offset: 1px;
+  box-shadow: inset 0 1px 2px rgba(55, 37, 17, 0.18), 0 0 0 2px rgba(255, 231, 159, 0.2);
+}
+
+.spell-sheet .spell-table-input::placeholder {
+  color: rgba(56, 45, 31, 0.66);
+  opacity: 1;
+}
+
 .spell-sheet .spell-table-input-narrow {
-  width: 48px;
+  width: 100%;
+  text-align: center;
 }
 
 .spell-sheet .spell-table-select {
-  min-height: var(--spell-input-h);
-  height: auto;
-  font-size: var(--spell-font-xs);
-  padding: 1px 3px;
-  border: var(--spell-border);
-  border-radius: 3px;
+  width: 100%;
+  min-width: 0;
+  min-height: 22px;
+  height: 22px;
+  font-size: 11px;
+  padding: 1px 6px;
+  color: #1e1a14;
+  background: rgba(253, 248, 231, 0.9);
+  border: 1px solid rgba(88, 64, 32, 0.42);
+  border-radius: 5px;
+  box-shadow: inset 0 1px 2px rgba(55, 37, 17, 0.18);
+  box-sizing: border-box;
 }
 
 .spell-sheet .spell-td-duration {
-  display: flex;
+  display: grid;
+  grid-template-columns: 46px 78px;
   align-items: center;
-  gap: var(--spell-gap-xs);
-  padding: 3px 4px;
+  gap: 4px;
+  min-width: 0;
 }
 
+.spell-sheet .spell-table-select--duration {
+  width: 78px;
+}
+
+.spell-sheet .spell-th-known,
+.spell-sheet .spell-td-known,
 .spell-sheet .spell-td-action {
   text-align: center;
-  width: 36px;
+}
+
+.spell-sheet .spell-td-known input[type=checkbox] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #a55f17;
+  cursor: pointer;
+}
+
+.spell-sheet .spell-table .spell-btn-delete {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 1px solid rgba(101, 21, 19, 0.48);
+  border-radius: 5px;
+  background: rgba(128, 35, 31, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(45, 18, 12, 0.28);
+}
+
+.spell-sheet .spell-table .spell-btn-delete:hover:not(:disabled) {
+  background: rgba(166, 42, 37, 0.98);
+  border-color: rgba(122, 24, 21, 0.72);
+}
+
+.spell-sheet .spell-table :is(input, select, button):disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.spell-sheet .spell-table-scroll .spell-empty {
+  padding: 10px;
 }
 
 /* --- Buttons ---*/
@@ -12124,7 +12271,13 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--spell-gap-md);
-  align-items: start;
+  align-items: stretch;
+}
+
+.spell-sheet .spell-2col-grid > .spell-section {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* --- Advanced Options Collapsible ---*/
@@ -12175,22 +12328,27 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 /* --- Scaling Levels as <details> ---*/
 .spell-sheet .spell-details-section {
   position: relative;
-  border: var(--spell-border);
-  border-radius: var(--spell-radius);
-  background: var(--spell-bg-section);
+  border: 1px solid rgba(91, 62, 28, 0.32);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 247, 220, 0.36), rgba(96, 69, 31, 0.08)), rgba(244, 228, 185, 0.34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 1px 3px rgba(48, 31, 13, 0.14);
+  overflow: hidden;
 }
 
 .spell-sheet .spell-details-summary {
   display: flex;
   align-items: center;
   gap: var(--spell-gap-sm);
-  padding: 5px 84px 5px 8px;
+  padding: 8px 92px 8px 10px;
   font-size: var(--spell-font-md);
   font-weight: 600;
   cursor: pointer;
   user-select: none;
   list-style: none;
-  color: #333;
+  color: #f1dfb6;
+  background: linear-gradient(180deg, rgba(92, 63, 31, 0.98), rgba(49, 32, 16, 0.98)), var(--spell-bg-header);
+  border-bottom: 1px solid rgba(33, 21, 11, 0.72);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.72);
   transition: background 0.15s;
 }
 
@@ -12203,16 +12361,17 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 
 .spell-sheet .spell-details-summary:hover {
-  background: var(--spell-bg-hover);
+  background: linear-gradient(180deg, rgba(107, 73, 36, 0.98), rgba(57, 37, 18, 0.98)), var(--spell-bg-header);
 }
 
 .spell-sheet .spell-details-title {
   min-width: 0;
+  letter-spacing: 0.01em;
 }
 
 .spell-sheet .spell-details-actions {
   position: absolute;
-  top: 50%;
+  top: 16px;
   right: 8px;
   transform: translateY(-50%);
   display: flex;
@@ -12234,16 +12393,74 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .spell-sheet .spell-details-badge {
   font-size: var(--spell-font-xs);
   font-weight: 700;
-  background: var(--spell-color-primary);
-  color: #fff;
-  padding: 1px 7px;
-  border-radius: 8px;
+  background: rgba(244, 221, 165, 0.16);
+  color: #f8ebc8;
+  padding: 2px 8px;
+  border: 1px solid rgba(231, 197, 120, 0.34);
+  border-radius: 999px;
   min-width: 16px;
   text-align: center;
 }
 
 .spell-sheet .spell-details-body {
-  padding: 8px 10px 10px;
+  padding: 10px;
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] > .spell-details-summary {
+  border-radius: 8px;
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels][open] > .spell-details-summary {
+  border-radius: 8px 8px 0 0;
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels]:not([open]) > .spell-details-summary {
+  border-bottom-color: rgba(33, 21, 11, 0.72);
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] .spell-details-body {
+  padding: 0;
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] .spell-table-scroll {
+  margin: 0;
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] .spell-table {
+  margin: 0;
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] .spell-table thead th {
+  color: #f1dfb6 !important;
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] .spell-btn-inline {
+  min-height: 24px;
+  padding: 3px 9px;
+  color: #2a1d0e;
+  background: linear-gradient(180deg, rgba(248, 221, 159, 0.96), rgba(177, 124, 50, 0.96));
+  border: 1px solid rgba(72, 45, 19, 0.54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 1px 2px rgba(24, 15, 7, 0.28);
+  text-shadow: 0 1px 0 rgba(255, 243, 204, 0.45);
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] .spell-btn-inline:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(255, 232, 174, 0.98), rgba(196, 139, 57, 0.98));
+}
+
+.spell-sheet .spell-details-section[data-uesrpg=scaling-levels] .spell-empty {
+  padding: 12px;
+  border: 1px dashed rgba(92, 63, 31, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 248, 226, 0.36);
 }
 
 /* ---

@@ -27,6 +27,7 @@
  * }}
  */
 import { ActionEconomy } from "../../core/combat/action-economy.js";
+import { isActorInStartedCombatEncounter } from "../../core/combat/combat-scope.js";
 import { isShieldItem } from "../../core/items/shield-utils.js";
 import { getWeaponCombatCapabilities } from "../../core/combat/combat-utils.js";
 import { t } from "../../utils/i18n.js";
@@ -72,9 +73,11 @@ export function buildCombatQuickContext(actorData) {
   // - World setting controls whether AP<=0 disables attack buttons.
   // - If AP is missing/unparseable, quick actions remain enabled.
   const enableActionEconomyUI = Boolean(game?.settings?.get?.("uesrpg-3ev4", "enableActionEconomyUI"));
+  const actorDoc = game?.actors?.get?.(actorData?._id ?? actorData?.id ?? "") ?? null;
+  const enforceActionEconomy = actorDoc ? isActorInStartedCombatEncounter(actorDoc) : Boolean(game?.combat?.started);
   const apValueRaw = actorData?.system?.action_points?.value;
   const apValue = Number(apValueRaw);
-  const quickAttacksDisabled = enableActionEconomyUI && Number.isFinite(apValue) && apValue <= 0;
+  const quickAttacksDisabled = enforceActionEconomy && enableActionEconomyUI && Number.isFinite(apValue) && apValue <= 0;
   const quickAttacksDisabledReason = quickAttacksDisabled ? t("UESRPG.Sheets.Combat.NoActionPointsRemaining", "No Action Points remaining.") : "";
 
   return {

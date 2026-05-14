@@ -19,6 +19,7 @@ import {
   resolveStyleForCombatTest
 } from "../../../../core/combat/combat-style-utils.js";
 import { OpposedWorkflow } from "../../../../core/combat/opposed-workflow.js";
+import { isActorInStartedCombatEncounter } from "../../../../core/combat/combat-scope.js";
 import { setLastMeleeWeaponForActor } from "../../../canvas/reach-visualizer-state.js";
 import { hasOpponentWithTalentInMeleeRange } from "../../../../core/traits/combat-proximity.js";
 import { getWeaponCombatCapabilities, recordDashStart } from "../../../../core/combat/combat-utils.js";
@@ -863,13 +864,14 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       const isFreeReload = effectiveReloadCost === 0;
 
       const currentAP = Math.max(0, Math.trunc(_num(actor.system?.action_points?.value, 0)));
+      const enforceActionEconomy = isActorInStartedCombatEncounter(actor);
       const currentProgress = Math.min(
         reloadCost,
         Math.max(0, Math.trunc(_num(reloadState.reloadProgress, 0)))
       );
       const remaining = Math.max(0, effectiveReloadCost - currentProgress);
 
-      if (!isFreeReload && currentAP < 1) {
+      if (enforceActionEconomy && !isFreeReload && currentAP < 1) {
         ui.notifications.warn(`You have no AP remaining to spend on reloading ${rangedWeapon.name}.`);
         return;
       }
@@ -878,6 +880,8 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       let apToSpend;
       if (isFreeReload) {
         apToSpend = 0;
+      } else if (!enforceActionEconomy) {
+        apToSpend = remaining;
       } else if (effectiveReloadCost <= 1 && remaining <= 1) {
         // Single-AP reload — no dialog needed.
         apToSpend = 1;
@@ -928,12 +932,12 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
 
       const numericSpend = isFreeReload
         ? 0
-        : Math.max(0, Math.min(Math.trunc(_num(apToSpend, 0)), currentAP, remaining));
-      const newAP = isFreeReload ? currentAP : Math.max(0, currentAP - numericSpend);
+        : Math.max(0, Math.min(Math.trunc(_num(apToSpend, 0)), enforceActionEconomy ? currentAP : remaining, remaining));
+      const newAP = (isFreeReload || !enforceActionEconomy) ? currentAP : Math.max(0, currentAP - numericSpend);
       const newProgress = isFreeReload ? 0 : Math.max(0, currentProgress + numericSpend);
       const reloadComplete = isFreeReload || newProgress >= effectiveReloadCost;
 
-      if (!isFreeReload) {
+      if (enforceActionEconomy && !isFreeReload) {
         await requestUpdateDocument(actor, { "system.action_points.value": newAP });
       }
 
@@ -1050,7 +1054,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
 	      if (!allowedTargets.length) return;
 
       const currentAP = Number(actor?.system?.action_points?.value ?? 0);
-      if (currentAP < 1) {
+      if (isActorInStartedCombatEncounter(actor) && currentAP < 1) {
         ui.notifications.warn(`${actor.name} does not have enough Action Points (${currentAP}/1).`);
         return;
       }

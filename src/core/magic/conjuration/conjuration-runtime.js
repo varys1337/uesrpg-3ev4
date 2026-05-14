@@ -35,6 +35,7 @@ import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { pickCanvasLocation as sharedPickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -87,14 +88,13 @@ function _resolveConjureTargets(casterActor) {
  * @param {object} conjureConfig - engine.conjure config
  * @returns {Promise<string|null>} The selected item UUID
  */
-async function _resolveConjureItemWithScaling(spell, conjureConfig) {
+async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor = null) {
   const summonConfig = spell.system?.engine?.conjure?.summonItems;
   if (!summonConfig || typeof summonConfig !== "object") {
     return _str(conjureConfig.itemUuid) || null;
   }
 
-  // Determine current spell strength from damageFormula
-  const ssRaw = _str(spell.system?.damageFormula || spell.system?.spell_str || "1");
+  const ssRaw = _str(resolveSpellStrengthFormulaForActor(spell, null, casterActor ?? spell?.actor ?? null) || "1");
   const ss = Math.max(1, _num(Number(ssRaw), 1));
 
   // Collect all refs whose minStrength <= current SS
@@ -207,7 +207,7 @@ async function _createConjuredItemOnActor(targetActor, casterActor, originAE, sp
  */
 async function _handleConjureItem(casterActor, originAE, spell, conjureConfig) {
   // Resolve item UUID (with optional scaling)
-  const itemUuid = await _resolveConjureItemWithScaling(spell, conjureConfig);
+  const itemUuid = await _resolveConjureItemWithScaling(spell, conjureConfig, casterActor);
 
   if (!itemUuid) {
     _debug("Conjure Item: no itemUuid configured or cancelled — skipping");

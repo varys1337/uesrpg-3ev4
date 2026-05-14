@@ -7,13 +7,14 @@
  */
 
 import { isMultiDefender } from "./schema.js";
-import { computeSpellMagickaCost, getSpellDamageFormula, getSpellDamageType, rollSpellDamage } from "../magicka-utils.js";
+import { computeSpellMagickaCost, getSpellDamageFormula, getSpellDamageType, getSpellStrengthDamageComponents } from "../magicka-utils.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
 import { computeElementalDamageBonus } from "../magic-modifiers.js";
 import { canTokenEscapeArea } from "../../../utils/aoe-utils.js";
 import { getCoreRollMode, isPublicChatMessageMode } from "../../../utils/chat-roll-mode.js";
 import { canUserRollActor } from "../../../utils/permissions.js";
 import { resolveToken } from "./schema.js";
+import { getNpcThreatDamageModifier } from "../../rules/npc-threat-templates.js";
 
 export function emitSuppressedOpposedSubRollDice(roll, { rollMode = null } = {}) {
   if (!roll) return null;
@@ -111,7 +112,7 @@ export function spellNeedsDeferredDirectApplication(spell) {
   const damageType = getSpellDamageType(spell);
   if (isHealingType(damageType)) return true;
 
-  const damageFormula = String(getSpellDamageFormula(spell) ?? "").trim();
+  const damageFormula = String(getSpellDamageFormula(spell, null, { actor: spell?.actor ?? null }) ?? "").trim();
   if (damageFormula && damageFormula !== "0" && String(damageType ?? "").trim().toLowerCase() !== "none") {
     return true;
   }
@@ -165,6 +166,66 @@ export function isTemporaryHealingType(damageType) {
   return dt === "temporaryhealing" || dt === "temporary healing";
 }
 
+function _getMaxRollFormulaTotal(formula) {
+  const cleaned = String(formula ?? "").replace(/\s+/g, "");
+  if (!cleaned) return 0;
+
+  let total = 0;
+  const diceRe = /(\d+)d(\d+)/g;
+  for (const m of cleaned.matchAll(diceRe)) {
+    total += (Number(m[1]) || 0) * (Number(m[2]) || 0);
+  }
+
+  const withoutDice = cleaned.replace(diceRe, "");
+  const leading = withoutDice.match(/^\d+/);
+  if (leading) total += Number(leading[0]) || 0;
+  for (const m of withoutDice.matchAll(/([+-])(\d+)/g)) {
+    total += (m[1] === "-" ? -1 : 1) * (Number(m[2]) || 0);
+  }
+  return Math.max(0, total);
+}
+
+async function _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker = null, damageType = "magic", targetActor = null } = {}) {
+  const components = getSpellStrengthDamageComponents(spell, {
+    ...commonRollOptions,
+    actor: attacker ?? commonRollOptions?.actor ?? null,
+    damageType
+  });
+  if (!components.length) {
+    const zero = await new Roll("0").evaluate();
+    return { components: [], rolls: [zero], total: 0, rollHTML: await zero.render() };
+  }
+
+  const rolls = [];
+  const resolvedComponents = [];
+  let total = 0;
+  for (const component of components) {
+    const roll = await new Roll(component.formula).evaluate();
+    if (commonRollOptions?.isCritical) {
+      roll._total = _getMaxRollFormulaTotal(component.formula);
+    }
+    rolls.push(roll);
+    const baseDamage = Math.max(0, Number(roll.total ?? roll._total ?? 0) || 0);
+    const elemBonusInfo = computeElementalDamageBonus(attacker, component.damageType, { opposingActor: targetActor, targetActor });
+    const elementalBonus = Math.max(0, Number(elemBonusInfo?.bonus ?? 0) || 0);
+    const amount = baseDamage + elementalBonus;
+    total += amount;
+    resolvedComponents.push({
+      source: "spell",
+      sourceLabel: String(spell?.name ?? "Spell"),
+      damageType: component.damageType,
+      formula: component.formula,
+      baseDamage,
+      elementalBonus,
+      elementalBonusLabel: elemBonusInfo?.label || "",
+      amount
+    });
+  }
+
+  const rollHTML = (await Promise.all(rolls.map((roll) => roll.render()))).join("");
+  return { components: resolvedComponents, rolls, total, rollHTML };
+}
+
 /**
  * Check if spell damage should be shared across multiple targets.
  * @param {object} data
@@ -186,6 +247,7 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
     ...(spellOptions ?? {}),
     level: spellOptions?.castLevel ?? spellOptions?.level ?? null
   };
+  const resolvedDamageType = getSpellDamageType(spell, normalizedOptions.level);
   
   const costInfo = computeSpellMagickaCost(attacker, spell, {
     ...normalizedOptions,
@@ -200,31 +262,67 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
     isCritical, 
     isOverloaded, 
     wpBonus,
+    actor: attacker,
     level: normalizedOptions.level // Include level for damage scaling
   };
 
   const wantsOvercharge = Boolean(costInfo?.isOvercharged);
-  let damageRoll = null;
+  let damageSet = null;
   let rollMessages = null;
   let overchargeTotals = null;
   if (wantsOvercharge) {
-    const r1 = await rollSpellDamage(spell, commonRollOptions);
-    const r2 = await rollSpellDamage(spell, commonRollOptions);
-    const t1 = Number(r1.total) || 0;
-    const t2 = Number(r2.total) || 0;
-    damageRoll = (t2 > t1) ? r2 : r1;
-    rollMessages = [r1, r2];
+    const s1 = await _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker, damageType: resolvedDamageType, targetActor });
+    const s2 = await _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker, damageType: resolvedDamageType, targetActor });
+    const t1 = Number(s1.total) || 0;
+    const t2 = Number(s2.total) || 0;
+    damageSet = (t2 > t1) ? s2 : s1;
+    rollMessages = [...(s1.rolls ?? []), ...(s2.rolls ?? [])];
     overchargeTotals = [t1, t2];
   } else {
-    damageRoll = await rollSpellDamage(spell, commonRollOptions);
-    rollMessages = [damageRoll];
+    damageSet = await _rollSpellDamageComponentSet(spell, commonRollOptions, { attacker, damageType: resolvedDamageType, targetActor });
+    rollMessages = damageSet.rolls ?? [];
   }
 
-  const baseDamage = Number(damageRoll.total) || 0;
-  const elemBonusInfo = computeElementalDamageBonus(attacker, damageType, { opposingActor: targetActor, targetActor });
-  const elementalBonus = Number(elemBonusInfo?.bonus ?? 0) || 0;
-  const damageValue = baseDamage + overloadBonus + elementalBonus;
-  const rollHTML = await damageRoll.render();
+  const components = Array.isArray(damageSet?.components) ? damageSet.components.slice() : [];
+  if (overloadBonus > 0) {
+    const overloadType = resolvedDamageType === "none" ? "magic" : resolvedDamageType;
+    components.push({
+      source: "overload",
+      sourceLabel: "Overload Bonus",
+      damageType: overloadType,
+      formula: String(overloadBonus),
+      baseDamage: overloadBonus,
+      elementalBonus: 0,
+      elementalBonusLabel: "",
+      amount: overloadBonus
+    });
+  }
+  const threatDamageMod = getNpcThreatDamageModifier(attacker);
+  if (threatDamageMod > 0) {
+    const threatType = resolvedDamageType === "none" ? "magic" : resolvedDamageType;
+    components.push({
+      source: "threat",
+      sourceLabel: "Threat Damage",
+      damageType: threatType,
+      formula: String(threatDamageMod),
+      baseDamage: threatDamageMod,
+      elementalBonus: 0,
+      elementalBonusLabel: "",
+      amount: threatDamageMod
+    });
+  } else if (threatDamageMod < 0 && components.length) {
+    const index = components.reduce((best, component, idx) => Number(component.amount ?? 0) > Number(components[best]?.amount ?? 0) ? idx : best, 0);
+    const nextAmount = Math.max(0, Number(components[index].amount ?? 0) + threatDamageMod);
+    components[index] = {
+      ...components[index],
+      amount: nextAmount,
+      baseDamage: Math.max(0, Number(components[index].baseDamage ?? components[index].amount ?? 0) + threatDamageMod)
+    };
+  }
+  const baseDamage = components.reduce((sum, c) => sum + (Number(c?.baseDamage ?? c?.amount ?? 0) || 0), 0);
+  const elementalBonus = components.reduce((sum, c) => sum + (Number(c?.elementalBonus ?? 0) || 0), 0);
+  const damageValue = components.reduce((sum, c) => sum + (Number(c?.amount ?? 0) || 0), 0);
+  const rollHTML = damageSet?.rollHTML ?? "";
   const rollMessage = await _postSpellDamageRollMessage({
     attacker,
     spell,
@@ -234,16 +332,17 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
 
   return {
     spellUuid: spell?.uuid ?? null,
-    damageType,
+    damageType: resolvedDamageType,
     baseDamage,
     damageValue,
+    components,
     rollHTML,
     isOverloaded,
     overloadBonus,
     isOvercharged: wantsOvercharge,
     overchargeTotals,
     elementalBonus,
-    elementalBonusLabel: elemBonusInfo?.label || "",
+    elementalBonusLabel: components.find((c) => c?.elementalBonusLabel)?.elementalBonusLabel || "",
     rollMessageId: rollMessage?.id ?? null
   };
 }
@@ -256,11 +355,12 @@ export async function computeSpellDamageShared({ attacker, spell, spellOptions, 
 export async function getOrCreateSharedSpellDamage({ data, attacker, spell, spellOptions, isCritical, damageType, parentMessageId = null } = {}) {
   if (!shouldShareSpellDamage(data)) return null;
   data.context = data.context ?? {};
+  const resolvedDamageType = getSpellDamageType(spell, spellOptions?.castLevel ?? spellOptions?.level ?? null);
   const existing = data.context.sharedSpellDamage;
-  if (existing && existing.spellUuid === spell?.uuid && existing.damageType === damageType) {
+  if (existing && existing.spellUuid === spell?.uuid && existing.damageType === resolvedDamageType) {
     return existing;
   }
-  const computed = await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType, parentMessageId });
+  const computed = await computeSpellDamageShared({ attacker, spell, spellOptions, isCritical, damageType: resolvedDamageType, parentMessageId });
   data.context.sharedSpellDamage = computed;
   return computed;
 }

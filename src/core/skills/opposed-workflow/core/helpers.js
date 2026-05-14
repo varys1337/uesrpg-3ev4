@@ -7,6 +7,7 @@ import { resolveOpposed } from "../../../../utils/degree-roll-helper.js";
 import { normalizeTalentKey, hasTalent } from "../../../traits/talents-api.js";
 import { applySenseLossPenaltyAdjustments } from "../../../traits/awareness-talents.js";
 import { hasCondition } from "../../../conditions/condition-engine.js";
+import { isActorInStartedCombatEncounter } from "../../../combat/combat-scope.js";
 import { _esc } from "./util.js";
 import { _resolveActor } from "./docs.js";
 
@@ -95,7 +96,7 @@ async function _triggerInCloseFailureAoO(attackerActor, defenderActor) {
     }
 
     const defenderAp = Number(defenderActor?.system?.action_points?.value ?? 0);
-    if (defenderAp < 1) {
+    if (isActorInStartedCombatEncounter(defenderActor) && defenderAp < 1) {
       ui.notifications?.warn?.(`${defenderActor.name} does not have enough Action Points for Attack of Opportunity.`);
       return;
     }
@@ -181,4 +182,3 @@ export async function _executeSpecialActionIfWinner(data) {
     await _triggerInCloseFailureAoO(attackerActor, defenderActor);
   }
 }
-

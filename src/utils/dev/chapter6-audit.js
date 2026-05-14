@@ -85,7 +85,7 @@ function _spellMetadataCapabilities(spell) {
   const out = new Set();
   const sys = spell?.system ?? {};
   if (Boolean(sys.isAttackSpell)) out.add("core:attack");
-  if (_str(sys.damageFormula) || _str(sys?.damage?.formula)) out.add("core:damage");
+  if (_str(sys.spellStrengthFormula) || _str(sys.spellStrength) || _str(sys.spell_str) || _str(sys.damageFormula) || _str(sys?.damage?.formula)) out.add("core:damage");
   if (_str(sys.rangeType).toLowerCase() === "aoe" || Number(sys.aoeSize ?? 0) > 0) out.add("core:aoe");
   if (Boolean(sys.isZonePersistent)) out.add("core:zone");
   if (Boolean(sys.hasUpkeep)) out.add("core:upkeep");

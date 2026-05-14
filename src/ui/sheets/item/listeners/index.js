@@ -138,6 +138,8 @@ export function registerItemSheetListeners(sheet, html) {
       const normalized = { ...(entry ?? {}) };
       if (normalized.damageFormula == null) normalized.damageFormula = "";
       if (normalized.description == null) normalized.description = "";
+      if (normalized.damageType == null || normalized.damageType === "") normalized.damageType = "none";
+      normalized.damageType = String(normalized.damageType).trim().toLowerCase() || "none";
       if (normalized.level == null || normalized.level === "") normalized.level = 1;
       if (normalized.cost == null || normalized.cost === "") normalized.cost = 0;
 
@@ -180,6 +182,7 @@ export function registerItemSheetListeners(sheet, html) {
         level: nextLevel,
         cost: 0,
         spellStrengthFormula: "",
+        damageType: "none",
         damageFormula: "",
         duration: { value: 0, unit: fallbackDurationUnit },
         description: ""

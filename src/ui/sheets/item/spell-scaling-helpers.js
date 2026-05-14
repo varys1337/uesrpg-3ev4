@@ -34,6 +34,8 @@ export function normalizeScalingEntry(entry, fallbackDurationUnit = "instant") {
   const normalized = { ...(entry ?? {}) };
   if (normalized.known == null) normalized.known = true;
   normalized.known = normalized.known !== false && normalized.known !== "false";
+  if (normalized.damageType == null || normalized.damageType === "") normalized.damageType = "none";
+  normalized.damageType = String(normalized.damageType).trim().toLowerCase() || "none";
   if (normalized.damageFormula == null) normalized.damageFormula = "";
   if (normalized.spellStrengthFormula == null) {
     normalized.spellStrengthFormula = String(

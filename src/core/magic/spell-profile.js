@@ -176,9 +176,9 @@ function _resolveCostProfile(actor, spell, options = {}) {
  * @param {object} options - { level, isOverloaded, isCritical }
  * @returns {{formula: string, type: string, isHealing: boolean, overloadBonusFormula: string, criticalBehavior: string}}
  */
-function _resolveDamageProfile(spell, options = {}) {
-  const formula = getSpellDamageFormula(spell, options.level ?? null);
-  const type = getSpellDamageType(spell);
+function _resolveDamageProfile(spell, actor, options = {}) {
+  const formula = getSpellDamageFormula(spell, options.level ?? null, { actor });
+  const type = getSpellDamageType(spell, options.level ?? null);
   const isHealing = _isHealingSpell(spell);
   
   const overloadBonusFormula = _str(spell?.system?.overloadBonusDamage);
@@ -318,7 +318,7 @@ export function resolveSpellProfile(spell, actor, options = {}) {
   const metadata = _resolveMetadata(spell);
   const classification = _resolveClassification(spell);
   const cost = _resolveCostProfile(actor, spell, options);
-  const damage = _resolveDamageProfile(spell, options);
+  const damage = _resolveDamageProfile(spell, actor, options);
   const duration = _resolveDuration(spell, options);
   const range = _resolveRangeProfile(spell);
   const aoe = _resolveAoEProfile(spell);

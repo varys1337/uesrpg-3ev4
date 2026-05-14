@@ -16,6 +16,7 @@ import { isAttackTrackerEagerResetSkipped } from "../config/automation-policy.js
 import { createDebugLogger } from "../../utils/debug.js";
 import { recordAttackTrackerDiagnostic } from "./attack-tracker-diagnostics.js";
 import { buildAttackTrackerContext, resolveAttackTrackerActor } from "./attack-tracker-context.js";
+import { isActorInStartedCombatEncounter } from "./combat-scope.js";
 
 const ATTACK_OVERRIDE_MAX_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.max`;
 const ATTACK_OVERRIDE_CURRENT_PATH = `flags.${FLAG_SCOPE}.combat.attackTrackerOverrides.current`;
@@ -511,6 +512,11 @@ export class AttackTracker {
     const normalizedContext = authority.trackerContext;
     const trackedActor = authority.trackedActor;
     if (!trackedActor) return;
+    if (!isActorInStartedCombatEncounter(trackedActor, {
+      combat: normalizedContext?.combat ?? game?.combat ?? null,
+      tokenUuid: normalizedContext?.tokenUuid ?? null,
+      combatantId: normalizedContext?.combatantId ?? null
+    })) return;
     this._recordTrackerPhase(actor, {
       type: "phase",
       reason: "increment-request",
@@ -559,6 +565,11 @@ export class AttackTracker {
     const normalizedContext = authority.trackerContext;
     const trackedActor = authority.trackedActor;
     if (!trackedActor) return "";
+    if (!isActorInStartedCombatEncounter(trackedActor, {
+      combat: normalizedContext?.combat ?? game?.combat ?? null,
+      tokenUuid: normalizedContext?.tokenUuid ?? null,
+      combatantId: normalizedContext?.combatantId ?? null
+    })) return "";
     this._recordTrackerPhase(actor, {
       type: "phase",
       reason: "weapon-use-request",
@@ -784,6 +795,13 @@ export class AttackTracker {
    * @returns {boolean} - True if >= 2 attacks made
    */
   static hasExceededLimit(actor, context = {}, trackerContext = {}) {
+    const normalizedContext = buildAttackTrackerContext(actor, trackerContext);
+    const trackedActor = normalizedContext.trackerDocument ?? normalizedContext.combatantActor ?? actor ?? null;
+    if (!isActorInStartedCombatEncounter(trackedActor, {
+      combat: normalizedContext?.combat ?? game?.combat ?? null,
+      tokenUuid: normalizedContext?.tokenUuid ?? null,
+      combatantId: normalizedContext?.combatantId ?? null
+    })) return false;
     const limit = this.getAttackLimit(actor, context, trackerContext);
     return this.getAttackCount(actor, trackerContext) >= limit;
   }
@@ -794,6 +812,13 @@ export class AttackTracker {
    * @returns {string} - Warning message or empty string
    */
   static getLimitWarning(actor, context = {}, trackerContext = {}) {
+    const normalizedContext = buildAttackTrackerContext(actor, trackerContext);
+    const trackedActor = normalizedContext.trackerDocument ?? normalizedContext.combatantActor ?? actor ?? null;
+    if (!isActorInStartedCombatEncounter(trackedActor, {
+      combat: normalizedContext?.combat ?? game?.combat ?? null,
+      tokenUuid: normalizedContext?.tokenUuid ?? null,
+      combatantId: normalizedContext?.combatantId ?? null
+    })) return "";
     const count = this.getAttackCount(actor, trackerContext);
     const limit = this.getAttackLimit(actor, context, trackerContext);
 

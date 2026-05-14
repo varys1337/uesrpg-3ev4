@@ -347,6 +347,7 @@ async function _onApplyMagicDamage(ev, message, btn) {
     overchargeTotals: mp.overchargeTotals ?? null,
     elementalBonus: Number(mp.elementalBonus ?? 0),
     elementalBonusLabel: mp.elementalBonusLabel ?? "",
+    damageComponents: Array.isArray(mp.damageComponents) ? mp.damageComponents : null,
     casterActor,
     magicCost: Number(mp.magicCost ?? 0),
     skipChatMessage: true,

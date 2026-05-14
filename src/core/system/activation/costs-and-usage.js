@@ -1,5 +1,6 @@
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { isActorUndead } from "../../traits/trait-registry.js";
+import { isActorInStartedCombatEncounter } from "../../combat/combat-scope.js";
 import { SYSTEM_ID } from "../system-id.js";
 import {
   getActorResource,
@@ -79,13 +80,14 @@ export async function applyActivationCosts({ actor, activation, label = "Ability
   if (!apCost && !spCost && !mpCost && !lpCost && !hpCost) return { ok: true, spent: false };
 
   const ap = getActorResource(actor, "action_points.value");
+  const enforceAP = isActorInStartedCombatEncounter(actor);
   const sp = getActorResource(actor, "stamina.value");
   const mp = getActorResource(actor, "magicka.value");
   const lp = getActorResource(actor, "luck_points.value");
   const hp = getActorResource(actor, "hp.value");
 
   const missing = [];
-  if (ap < apCost) missing.push("AP");
+  if (enforceAP && ap < apCost) missing.push("AP");
   if (sp < spCost) missing.push("SP");
   if (!missing.length && spCost > 0 && isActorUndead(actor) && (sp - spCost) < 0) {
     ui.notifications?.warn?.(`Undead cannot spend SP below 0 for ${label}.`);
@@ -101,11 +103,13 @@ export async function applyActivationCosts({ actor, activation, label = "Ability
   }
 
   const updateData = {};
-  if (apCost) updateData["system.action_points.value"] = ap - apCost;
+  if (enforceAP && apCost) updateData["system.action_points.value"] = ap - apCost;
   if (spCost) updateData["system.stamina.value"] = sp - spCost;
   if (mpCost) updateData["system.magicka.value"] = mp - mpCost;
   if (lpCost) updateData["system.luck_points.value"] = lp - lpCost;
   if (hpCost) updateData["system.hp.value"] = hp - hpCost;
+
+  if (!Object.keys(updateData).length) return { ok: true, spent: false };
 
   const ok = await requestUpdateDocument(actor, updateData);
   if (!ok) {

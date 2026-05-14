@@ -12,6 +12,7 @@
 import { doTestRoll } from "../../../../utils/degree-roll-helper.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
+import { isActorInStartedCombatEncounter } from "../../../combat/combat-scope.js";
 import { getActiveWardSpell } from "../../../combat/ward-defense.js";
 import { computeSpellAttemptMagickaCost, consumeSpellMagicka } from "../../magicka-utils.js";
 import { resolveToken } from "../schema.js";
@@ -123,7 +124,11 @@ export async function handleDefenderRoll(ctx, action) {
 
   const apCost = Number(defender?.apCost ?? 1) || 1;
   const currentAP = Number(defenderActor?.system?.action_points?.value ?? 0) || 0;
-  if (currentAP < apCost) {
+  const defenderInStartedCombat = isActorInStartedCombatEncounter(defenderActor, {
+    tokenUuid: defender?.tokenUuid ?? null,
+    combatantId: defender?.combatantId ?? null
+  });
+  if (defenderInStartedCombat && currentAP < apCost) {
     ui.notifications.info("No Action Points available for defense; resolving as No Defense.");
     defender.noDefense = true;
     defender.defenseType = "-";
@@ -152,14 +157,19 @@ export async function handleDefenderRoll(ctx, action) {
     }
   }
 
-  const apSpentOk = await ActionEconomy.spendAP(defenderActor, apCost, { reason: `Defense (${defenseLabel})`, silent: false });
+  const apSpentOk = await ActionEconomy.spendAP(defenderActor, apCost, {
+    reason: `Defense (${defenseLabel})`,
+    silent: false,
+    tokenUuid: defender?.tokenUuid ?? null,
+    combatantId: defender?.combatantId ?? null
+  });
   if (!apSpentOk) return;
 
   if (wardSpell) {
     const wardSpend = await consumeSpellMagicka(defenderActor, wardSpell, {});
     if (!wardSpend?.ok) {
       try {
-        await requestUpdateDocument(defenderActor, { "system.action_points.value": currentAP });
+        if (defenderInStartedCombat) await requestUpdateDocument(defenderActor, { "system.action_points.value": currentAP });
       } catch (_e) {
         // best-effort
       }

@@ -146,9 +146,15 @@ export async function prepareItemSheetData(sheet, data) {
           ?? l.value
           ?? ""
         ).trim();
+        const damageType = String(
+          l.damageType
+          ?? data.item?.system?.damageType
+          ?? "none"
+        ).trim().toLowerCase() || "none";
         return {
           ...l,
           known: l.known !== false && l.known !== "false",
+          damageType,
           spellStrengthFormula,
           duration
         };
@@ -315,10 +321,12 @@ export async function prepareItemSheetData(sheet, data) {
     frost: "Frost",
     shock: "Shock",
     poison: "Poison",
+    disease: "Disease",
     magic: "Magic",
     silver: "Silver",
     sunlight: "Sunlight",
-    healing: "Healing"
+    healing: "Healing",
+    temporaryhealing: "Temporary Healing"
   };
 
   // Normalize damageInstances for rendering (spells only)

@@ -897,6 +897,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         known: true,
         cost: 0,
         spellStrengthFormula: "",
+        damageType: "none",
         damageFormula: "",
         duration: { value: 0, unit: fallbackUnit },
         description: ""

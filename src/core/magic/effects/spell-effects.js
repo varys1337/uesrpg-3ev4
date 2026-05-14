@@ -479,10 +479,10 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
 
   // ── Buffer / Barrier application ──────────────────────────────────────
   // If the spell has a buffer config, set the target's buffer pool to the computed value.
-  // "SS" in the formula is replaced with the spell's damageFormula value (evaluated).
+  // "SS" in the formula is replaced with the resolved Spell Strength value.
   if (spell.system?.hasBuffer && spell.system?.buffer?.type && spell.system.buffer.type !== "none") {
     const bufferType = spell.system.buffer.type; // "physical", "magical", "elemental"
-    const bufferFormula = String(spell.system.buffer.formula || spell.system.damageFormula || "0").trim();
+    const bufferFormula = String(spell.system.buffer.formula || "SS").trim();
 
     if (bufferFormula && bufferType) {
       try {

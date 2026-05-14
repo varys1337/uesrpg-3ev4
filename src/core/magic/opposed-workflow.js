@@ -28,6 +28,7 @@ import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { ActionEconomy } from "../combat/action-economy.js";
 import { AttackTracker } from "../combat/attack-tracker.js";
+import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
 import { classifySpellForRouting, getUserSpellTargets, emitCastResolved } from "./spell-runtime.js";
 import { getBlockingNoDurationUpkeep, spellNeedsDeferredDirectApplication, spellNeedsEffectApplication } from "./opposed/spell-helpers.js";
 import { isCharacteristicDefense } from "./characteristic-defense-service.js";
@@ -453,14 +454,18 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
-    if (spellClassification.isAttack && game.combat) {
-      const trackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-direct", {
-        attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-direct"),
-        phase: "direct-gate"
-      });
-      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+    const directTrackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-direct", {
+      attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-direct"),
+      phase: "direct-gate"
+    });
+    const directInStartedCombat = isActorInStartedCombatEncounter(attacker, {
+      tokenUuid: directTrackerContext.tokenUuid,
+      combatantId: directTrackerContext.combatantId
+    });
+    if (spellClassification.isAttack && directInStartedCombat) {
+      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, directTrackerContext)) {
         ui.notifications.warn(
-          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, directTrackerContext)
             || "Attack limit reached for this round."
         );
         return null;
@@ -470,7 +475,7 @@ export const MagicOpposedWorkflow = {
     // Preflight: check ALL resources before consuming ANY.
     const apCost = 1;
     const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
-    if (!ignoreAP && currentAP < apCost) {
+    if (!ignoreAP && directInStartedCombat && currentAP < apCost) {
       ui.notifications.warn(`${attacker.name} does not have enough Action Points to cast.`);
       return null;
     }
@@ -511,7 +516,12 @@ export const MagicOpposedWorkflow = {
     // All pre-checks passed — now consume resources.
     const apReason = `Cast (Direct): ${spell.name}`;
     if (!ignoreAP) {
-      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
+      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, {
+        reason: apReason,
+        silent: false,
+        tokenUuid: directTrackerContext.tokenUuid,
+        combatantId: directTrackerContext.combatantId
+      });
       if (!apSpentOk) return null;
     }
 
@@ -519,7 +529,7 @@ export const MagicOpposedWorkflow = {
     if (isEnchantmentSource && castSourceMode === "soul") {
       const soulSpend = await spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
       if (!soulSpend?.ok) {
-        if (!ignoreAP) {
+        if (!ignoreAP && directInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) { /* best-effort */ }
@@ -531,7 +541,7 @@ export const MagicOpposedWorkflow = {
     } else if (isEnchantmentSource && castSourceMode === "magicka") {
       magickaSpend = await _spendActorMagickaFixed(attacker, configuredEnchantmentCost);
       if (!magickaSpend?.ok) {
-        if (!ignoreAP) {
+        if (!ignoreAP && directInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) { /* best-effort */ }
@@ -542,7 +552,7 @@ export const MagicOpposedWorkflow = {
       magickaSpend = await consumeSpellMagicka(attacker, spell, { ...spellOptions, costSnapshot: magickaCostSnapshot });
       if (!magickaSpend?.ok) {
         // Rollback AP on magicka failure
-        if (!ignoreAP) {
+        if (!ignoreAP && directInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) { /* best-effort */ }
@@ -559,7 +569,7 @@ export const MagicOpposedWorkflow = {
           allowUnlucky: true
         });
 
-    if (spellClassification.isAttack && game.combat) {
+    if (spellClassification.isAttack) {
       try {
         const trackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-direct", {
           attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-direct"),
@@ -780,7 +790,15 @@ export const MagicOpposedWorkflow = {
 
     const apCost = 1;
     const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
-    if (!ignoreAP && currentAP < apCost) {
+    const castTrackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-cast", {
+      attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-cast"),
+      phase: "cast-gate"
+    });
+    const castInStartedCombat = isActorInStartedCombatEncounter(attacker, {
+      tokenUuid: castTrackerContext.tokenUuid,
+      combatantId: castTrackerContext.combatantId
+    });
+    if (!ignoreAP && castInStartedCombat && currentAP < apCost) {
       ui.notifications.warn("Not enough Action Points to cast the spell.");
       return null;
     }
@@ -819,14 +837,10 @@ export const MagicOpposedWorkflow = {
 
     // Gate attack limit BEFORE consuming resources.
     const spellClassification = classifySpellForRouting(spell);
-    if (spellClassification.isAttack && game.combat) {
-      const trackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-cast", {
-        attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-cast"),
-        phase: "cast-gate"
-      });
-      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+    if (spellClassification.isAttack && castInStartedCombat) {
+      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, castTrackerContext)) {
         ui.notifications.warn(
-          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, castTrackerContext)
             || "Attack limit reached for this round."
         );
         return null;
@@ -836,7 +850,12 @@ export const MagicOpposedWorkflow = {
     const castActionType = String(cfg.castActionType ?? "primary");
     const apReason = (castActionType === "secondary") ? "Cast Magic (Instant)" : "Cast Magic";
     if (!ignoreAP) {
-      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
+      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, {
+        reason: apReason,
+        silent: false,
+        tokenUuid: castTrackerContext.tokenUuid,
+        combatantId: castTrackerContext.combatantId
+      });
       if (!apSpentOk) return null;
     }
 
@@ -858,7 +877,7 @@ export const MagicOpposedWorkflow = {
     if (isEnchantmentSource && castSourceMode === "soul") {
       const soulSpend = await spendItemSoulCost({ itemCtx, cost: enchantSoulCost });
       if (!soulSpend?.ok) {
-        if (!ignoreAP) {
+        if (!ignoreAP && castInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) {
@@ -872,7 +891,7 @@ export const MagicOpposedWorkflow = {
     } else if (isEnchantmentSource && castSourceMode === "magicka") {
       magickaSpend = await _spendActorMagickaFixed(attacker, configuredEnchantmentCost);
       if (!magickaSpend?.ok) {
-        if (!ignoreAP) {
+        if (!ignoreAP && castInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) {
@@ -884,7 +903,7 @@ export const MagicOpposedWorkflow = {
     } else if (!(isEnchantmentSource && castSourceMode === "none")) {
       magickaSpend = await consumeSpellMagicka(attacker, spell, { ...spellOptions, costSnapshot: magickaCostSnapshot });
       if (!magickaSpend?.ok) {
-        if (!ignoreAP) {
+        if (!ignoreAP && castInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) {

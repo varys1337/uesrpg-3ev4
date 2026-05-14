@@ -22,6 +22,39 @@
 import { _num, _strTrim as _str } from "./_primitives.js";
 import { _bool } from "../../utils/coerce.js";
 
+const SPELL_STRENGTH_DAMAGE_TAGS = new Set([
+  "physical",
+  "fire",
+  "frost",
+  "shock",
+  "poison",
+  "disease",
+  "magic",
+  "silver",
+  "sunlight",
+  "healing",
+  "temporaryhealing",
+  "temporary healing",
+]);
+
+function _collectSpellStrengthTagWarnings(formula, label) {
+  const warnings = [];
+  const raw = _str(formula);
+  if (!raw) return warnings;
+  const tagRe = /\[([^\]]*)\]/g;
+  for (const match of raw.matchAll(tagRe)) {
+    const tag = _str(match[1]).toLowerCase();
+    if (!tag || !SPELL_STRENGTH_DAMAGE_TAGS.has(tag)) {
+      warnings.push(`${label}: Unknown Spell Strength damage tag "[${tag || "blank"}]"; runtime falls back to the default damage type.`);
+    }
+  }
+  const stripped = raw.replace(tagRe, "");
+  if (stripped.includes("[") || stripped.includes("]")) {
+    warnings.push(`${label}: Malformed Spell Strength damage tag; runtime falls back to the default damage type for malformed terms.`);
+  }
+  return warnings;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 1: Scaling Validation (from scaling-validator.js)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -33,12 +66,10 @@ import { _bool } from "../../utils/coerce.js";
  * 1. Level values must be 1-7
  * 2. Level values must be unique within the array
  * 3. Cost must be >= 0
- * 4. If spell has damage, scaling entries should have damageFormula (warning)
- * 5. Duration unit consistency (warning)
+ * 4. Duration unit consistency (warning)
  *
  * @param {Array} levels - Array of scaling level objects
  * @param {object} [options] - Validation options
- * @param {boolean} [options.spellHasDamage] - Whether parent spell has damage
  * @param {string} [options.baseDurationUnit] - Base spell duration unit for consistency checks
  * @returns {{valid: boolean, errors: string[], warnings: string[]}}
  */
@@ -78,16 +109,7 @@ export function validateScalingLevels(levels, options = {}) {
     }
   }
 
-  // Rule 4: If spell has damage, scaling entries should have damageFormula (warning)
-  if (options.spellHasDamage) {
-    for (const [idx, entry] of levels.entries()) {
-      if (!entry.damageFormula || entry.damageFormula.trim() === "") {
-        warnings.push(`Scaling entry ${idx + 1}: Missing damageFormula (spell has damage)`);
-      }
-    }
-  }
-
-  // Rule 5: Duration unit consistency (warning)
+  // Rule 4: Duration unit consistency (warning)
   if (options.baseDurationUnit && options.baseDurationUnit !== "instant") {
     for (const [idx, entry] of levels.entries()) {
       const unit = entry.duration?.unit;
@@ -95,6 +117,18 @@ export function validateScalingLevels(levels, options = {}) {
         warnings.push(`Scaling entry ${idx + 1}: Duration unit "${unit}" differs from base "${options.baseDurationUnit}"`);
       }
     }
+  }
+
+  for (const [idx, entry] of levels.entries()) {
+    const formula = _str(
+      entry?.spellStrengthFormula
+      ?? entry?.spellStrength
+      ?? entry?.spell_str
+      ?? entry?.strength
+      ?? entry?.value
+      ?? ""
+    );
+    warnings.push(..._collectSpellStrengthTagWarnings(formula, `Scaling entry ${idx + 1}`));
   }
 
   return {
@@ -231,11 +265,14 @@ export function getSpellCoverageReport(item) {
     details: `${_num(sys.cost)} MP`
   });
 
-  report.push({
-    capability: "Damage",
-    configured: !!_str(sys.damageFormula),
-    details: _str(sys.damageFormula) ? `${sys.damageFormula} (${sys.damageType})` : "None"
-  });
+  {
+    const strength = _getRawSpellStrengthFormula(sys);
+    report.push({
+      capability: "Spell Strength",
+      configured: !!strength || _bool(sys.isAttackSpell) || _bool(sys.isDamagingSpell) || _bool(sys.isHealingSpell),
+      details: strength || (_bool(sys.isAttackSpell) || _bool(sys.isDamagingSpell) || _bool(sys.isHealingSpell) ? "WB fallback" : "None")
+    });
+  }
 
   report.push({
     capability: "Range & Delivery",
@@ -339,12 +376,13 @@ function _validateCasting(sys, errors, warnings) {
   if (_bool(sys.hasOverload) && !_str(sys.overloadBonusDamage) && !_str(sys.overloadEffect)) {
     warnings.push("Overload enabled but no bonus damage or effect description set.");
   }
-  if (_bool(sys.isDamagingSpell) && !_str(sys.damageFormula)) {
-    warnings.push("Marked as damaging but no damage formula set.");
+  if (_bool(sys.isDamagingSpell) && !_getRawSpellStrengthFormula(sys)) {
+    warnings.push("Marked as damaging with no Spell Strength formula; WB fallback will be used.");
   }
-  if (_str(sys.damageFormula) && !_bool(sys.isAttackSpell) && !_bool(sys.isDirect)) {
-    warnings.push("Has damage formula but is neither Attack nor Direct spell.");
+  if (_getRawSpellStrengthFormula(sys) && !_bool(sys.isAttackSpell) && !_bool(sys.isDirect) && !_bool(sys.isDamagingSpell) && !_bool(sys.isHealingSpell)) {
+    warnings.push("Has Spell Strength formula but is not marked as Attack, Direct, Damaging, or Healing.");
   }
+  warnings.push(..._collectSpellStrengthTagWarnings(_getRawSpellStrengthFormula(sys), "Spell Strength"));
 }
 
 function _validateTargeting(sys, errors, warnings) {
@@ -462,10 +500,9 @@ function _validateScaling(sys, errors, warnings) {
   const levels = sys?.scaling?.levels;
   if (!Array.isArray(levels) || levels.length === 0) return;
 
-  const spellHasDamage = !!_str(sys.damageFormula);
   const baseDurationUnit = _str(sys.duration?.unit) || "instant";
 
-  const result = validateScalingLevels(levels, { spellHasDamage, baseDurationUnit });
+  const result = validateScalingLevels(levels, { baseDurationUnit });
   errors.push(...result.errors);
   warnings.push(...result.warnings);
 }
@@ -624,9 +661,9 @@ export function normalizeSpellConfig(item) {
       reinforceDescription: _str(sys.reinforceDescription)
     },
     damage: {
-      formula: _str(sys.damageFormula),
+      formula: _getRawSpellStrengthFormula(sys),
       type: _normalizeDamageType(sys.damageType),
-      isHealing: _isHealingType(sys.damageType)
+      isHealing: _bool(sys.isHealingSpell) || _isHealingType(sys.damageType)
     },
     targeting: _normalizeTargetingConfig(sys),
     range: {
@@ -864,8 +901,20 @@ function _isHealingType(v) {
 }
 
 function _hasDamageFormula(sys) {
-  const f = _str(sys?.damageFormula);
+  const f = _getRawSpellStrengthFormula(sys);
   return f !== "" && f !== "0";
+}
+
+function _getRawSpellStrengthFormula(sys) {
+  return _str(
+    sys?.spellStrengthFormula
+    || sys?.spellStrength
+    || sys?.spell_str
+    || sys?.strength
+    || sys?.value
+    || sys?.damageFormula
+    || sys?.damage
+  );
 }
 
 function _normalizeRangeType(v) {
@@ -940,6 +989,8 @@ function _normalizeScaling(scaling) {
     level: _num(l.level, 1),
     cost: _num(l.cost, 0),
     damageFormula: _str(l.damageFormula),
+    damageType: _str(l.damageType).toLowerCase(),
+    spellStrengthFormula: _str(l.spellStrengthFormula || l.spellStrength || l.spell_str || l.strength || l.value || l.damageFormula),
     duration: _normalizeDuration(l.duration),
     description: _str(l.description)
   }));

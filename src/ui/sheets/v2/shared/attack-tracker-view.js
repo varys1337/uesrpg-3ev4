@@ -1,4 +1,5 @@
 import { AttackTracker } from "../../../../core/combat/attack-tracker.js";
+import { isActorInStartedCombatEncounter } from "../../../../core/combat/combat-scope.js";
 import { recordAttackTrackerDiagnostic } from "../../../../core/combat/attack-tracker-diagnostics.js";
 import { isDebugEnabled } from "../../../../utils/debug.js";
 import { buildSheetAttackTrackerContext } from "./attack-tracker-sheet-context.js";
@@ -60,14 +61,19 @@ export function buildCombatTabAttackTrackerView(sheet, actor, { emitDiagnostics 
   const trackerContext = buildSheetAttackTrackerContext(sheet, actor);
   const trackerState = AttackTracker.getTrackerViewState(actor, {}, trackerContext);
   const trackedActor = trackerState?.trackedActor ?? trackerContext?.combatantActor ?? actor ?? null;
+  const inStartedCombat = isActorInStartedCombatEncounter(trackedActor, {
+    combat: trackerContext?.combat ?? game?.combat ?? null,
+    tokenUuid: trackerContext?.tokenUuid ?? null,
+    combatantId: trackerContext?.combatantId ?? null
+  });
   const view = {
     current: trackerState.current,
     max: trackerState.max,
     overrides: trackerState.overrides,
-    authoritative: trackerContext.authoritative !== false,
-    authorityState: trackerContext.authorityState ?? "actor-fallback",
+    authoritative: inStartedCombat && trackerContext.authoritative !== false,
+    authorityState: inStartedCombat ? (trackerContext.authorityState ?? "actor-fallback") : "out-of-combat",
     ambiguityState: trackerContext.ambiguityState ?? "none",
-    notice: trackerContext.notice ?? null,
+    notice: inStartedCombat ? (trackerContext.notice ?? null) : null,
     trackedActorUuid: String(trackedActor?.uuid ?? "").trim() || null,
     sourceActorUuid: String(actor?.uuid ?? "").trim() || null,
     tokenUuid: String(trackerContext?.tokenUuid ?? "").trim() || null,

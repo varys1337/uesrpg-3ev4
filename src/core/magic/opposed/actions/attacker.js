@@ -12,6 +12,7 @@ import { applySpellRestraintRefund, canActorCastSpell, computeMagicCastingTN, co
 import { shouldBackfire, triggerBackfire } from "../../backfire.js";
 import { ActionEconomy } from "../../../combat/action-economy.js";
 import { AttackTracker } from "../../../combat/attack-tracker.js";
+import { isActorInStartedCombatEncounter } from "../../../combat/combat-scope.js";
 import { classifySpellForRouting, emitCastResolved } from "../../spell-runtime.js";
 import { ensureBankedScaffold, getDefenderEntries } from "../schema.js";
 import { SKILL_DIFFICULTIES } from "../../../skills/skill-tn.js";
@@ -465,8 +466,17 @@ export async function handleAttackerCommit(ctx) {
   if (!bankMode) return;
   if (data.attacker.result) return;
 
+  const commitTrackerContext = _buildMagicAttackTrackerContext(attacker, data?.attacker, "magic-opposed-commit", {
+    attackTraceId: data?.context?.attackTraceId ?? null,
+    phase: "commit-gate"
+  });
+  const attackerInStartedCombat = isActorInStartedCombatEncounter(attacker, {
+    tokenUuid: commitTrackerContext.tokenUuid,
+    combatantId: commitTrackerContext.combatantId
+  });
+
   // Gate commit if the actor cannot currently pay the AP cost (prevents dead commits).
-  if (game.combat) {
+  if (attackerInStartedCombat) {
     const apCost = Number(data.attacker.apCost ?? 1) || 1;
     const currentAP = Number(foundry.utils.getProperty(attacker, "system.action_points.value") ?? 0);
     if (currentAP < apCost) {
@@ -489,14 +499,10 @@ export async function handleAttackerCommit(ctx) {
 
     // Commit-time preflight: prevent dead commits that would certainly fail on roll.
     const spellClassification = classifySpellForRouting(spell);
-    if (spellClassification.isAttack && game.combat) {
-      const trackerContext = _buildMagicAttackTrackerContext(attacker, data?.attacker, "magic-opposed-commit", {
-        attackTraceId: data?.context?.attackTraceId ?? null,
-        phase: "commit-gate"
-      });
-      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+    if (spellClassification.isAttack && attackerInStartedCombat) {
+      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, commitTrackerContext)) {
         ui.notifications.warn(
-          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, commitTrackerContext)
             || "Attack limit reached for this round."
         );
         return;
@@ -640,14 +646,18 @@ export async function handleAttackerRoll(ctx) {
 
     // Preflight: gate attack limit BEFORE any resource consumption.
     const spellClassification = classifySpellForRouting(spell);
-    if (spellClassification.isAttack && game.combat) {
-      const trackerContext = _buildMagicAttackTrackerContext(attacker, workingData?.attacker, "magic-opposed-roll", {
-        attackTraceId: workingData?.context?.attackTraceId ?? null,
-        phase: "roll-gate"
-      });
-      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, trackerContext)) {
+    const rollTrackerContext = _buildMagicAttackTrackerContext(attacker, workingData?.attacker, "magic-opposed-roll", {
+      attackTraceId: workingData?.context?.attackTraceId ?? null,
+      phase: "roll-gate"
+    });
+    const rollInStartedCombat = isActorInStartedCombatEncounter(attacker, {
+      tokenUuid: rollTrackerContext.tokenUuid,
+      combatantId: rollTrackerContext.combatantId
+    });
+    if (spellClassification.isAttack && rollInStartedCombat) {
+      if (AttackTracker.hasExceededLimit(attacker, { attackMode: "magic" }, rollTrackerContext)) {
         ui.notifications.warn(
-          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, trackerContext)
+          AttackTracker.getLimitWarning(attacker, { attackMode: "magic" }, rollTrackerContext)
             || "Attack limit reached for this round."
         );
         return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
@@ -658,7 +668,7 @@ export async function handleAttackerRoll(ctx) {
     const apCost = Number(workingData.attacker?.apCost ?? 1) || 1;
     const currentAP = Number(attacker?.system?.action_points?.value ?? 0) || 0;
     const ignoreAP = _ignoreActionPoints(workingData);
-    if (!ignoreAP && currentAP < apCost) {
+    if (!ignoreAP && rollInStartedCombat && currentAP < apCost) {
       ui.notifications.warn("Not enough Action Points to cast a spell.");
       return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
     }
@@ -684,7 +694,12 @@ export async function handleAttackerRoll(ctx) {
 
     const apReason = (String(workingData.attacker?.castActionType ?? "primary") === "secondary") ? "Cast Magic (Instant)" : "Cast Magic";
     if (!ignoreAP) {
-      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, { reason: apReason, silent: false });
+      const apSpentOk = await ActionEconomy.spendAP(attacker, apCost, {
+        reason: apReason,
+        silent: false,
+        tokenUuid: rollTrackerContext.tokenUuid,
+        combatantId: rollTrackerContext.combatantId
+      });
       if (!apSpentOk) {
         return await _releaseAttackerRollClaim(message, workingData, _updateCard, claimId, { persist: true });
       }
@@ -714,7 +729,7 @@ export async function handleAttackerRoll(ctx) {
       };
       const ok = resourceSpec?.itemCtx?.item ? await requestUpdateDocument(resourceSpec.itemCtx.item, updates) : false;
       if (!ok) {
-        if (!ignoreAP) {
+        if (!ignoreAP && rollInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) {
@@ -734,7 +749,7 @@ export async function handleAttackerRoll(ctx) {
         ? await requestUpdateDocument(attacker, { "system.magicka.value": nextMagicka })
         : false;
       if (!ok) {
-        if (!ignoreAP) {
+        if (!ignoreAP && rollInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) {
@@ -754,7 +769,7 @@ export async function handleAttackerRoll(ctx) {
         costSnapshot: resourceSpec?.costSnapshot ?? null
       });
       if (!magickaSpend?.ok) {
-        if (!ignoreAP) {
+        if (!ignoreAP && rollInStartedCombat) {
           try {
             await requestUpdateDocument(attacker, { "system.action_points.value": currentAP });
           } catch (_e) {

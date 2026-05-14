@@ -29,8 +29,10 @@ const _RULE_ELEMENT_RETIREMENT_CLEANUP_REVISION = 1;
 const _ITEMS_MIGRATION_REVISION = 1;
 const _SCROLL_CASTING_CONTROLS_REVISION = 1;
 const _SCROLL_CONSUME_ON_CAST_REVISION = 1;
+const _SPELL_DAMAGE_TYPE_NORMALIZATION_REVISION = 1;
 const _RETIRED_SOCIAL_ITEM_TYPES = new Set(["language", "faction"]);
 const _RETIRED_RULE_ELEMENT_ITEM_TYPES = new Set(["trait", "talent", "power"]);
+const _SPELL_DAMAGE_TYPES = new Set(["none", "physical", "fire", "frost", "shock", "poison", "disease", "magic", "silver", "sunlight", "healing", "temporaryhealing", "temporary healing"]);
 const _combatLegacyItemStats = {
   weaponsEnhancedFromQualities: 0,
   weaponsEnhancedFromRange: 0,
@@ -890,6 +892,64 @@ function _readScrollCastingDefaults() {
   return { defaultRequireTraining, defaultConsumeMagicka, defaultConsumeOnCast };
 }
 
+function _normalizeSpellDamageTypeValue(item) {
+  if (item?.type !== "spell") return null;
+  const sys = item.system ?? {};
+  const raw = String(sys.damageType ?? "").trim().toLowerCase();
+  const normalizedRaw = raw === "temporary healing" ? "temporaryhealing" : raw;
+  if (normalizedRaw && normalizedRaw !== "none" && _SPELL_DAMAGE_TYPES.has(raw)) {
+    return normalizedRaw === raw ? null : normalizedRaw;
+  }
+
+  if (sys.isHealingSpell === true) return "healing";
+  if (sys.isAttackSpell === true || sys.isDamagingSpell === true) return "magic";
+  return raw && raw !== "none" ? "none" : null;
+}
+
+async function _normalizeSpellDamageTypesWorld() {
+  const updates = [];
+  for (const item of game.items.contents ?? []) {
+    const damageType = _normalizeSpellDamageTypeValue(item);
+    if (!damageType) continue;
+    updates.push({ _id: item.id, "system.damageType": damageType });
+  }
+  if (updates.length) await Item.updateDocuments(updates, { diff: false });
+  return updates.length;
+}
+
+async function _normalizeSpellDamageTypesActorItems() {
+  let updated = 0;
+  let actorsTouched = 0;
+  for (const actor of game.actors.contents ?? []) {
+    const updates = [];
+    for (const item of actor.items.contents ?? []) {
+      const damageType = _normalizeSpellDamageTypeValue(item);
+      if (!damageType) continue;
+      updates.push({ _id: item.id, "system.damageType": damageType });
+    }
+    if (!updates.length) continue;
+    actorsTouched += 1;
+    updated += updates.length;
+    await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+  }
+  return { updated, actorsTouched };
+}
+
+async function _runSpellDamageTypeNormalizationPass({ state }) {
+  const worldUpdated = await _normalizeSpellDamageTypesWorld();
+  const actorResult = await _normalizeSpellDamageTypesActorItems();
+  const telemetry = {
+    worldUpdated,
+    actorUpdated: actorResult.updated,
+    actorsTouched: actorResult.actorsTouched,
+    totalUpdated: worldUpdated + actorResult.updated,
+  };
+  if (telemetry.totalUpdated > 0 || _debugEnabled()) {
+    console.log(`${MODULE_ID} | Spell damage type normalization`, telemetry);
+  }
+  markMigrationRevisionApplied(state, "spellDamageTypeNormalization", _SPELL_DAMAGE_TYPE_NORMALIZATION_REVISION, telemetry);
+}
+
 async function _runLegacyItemRepairPasses({ state }) {
   try {
     const socialCleanup = await _cleanupRetiredSocialItems();
@@ -1002,7 +1062,8 @@ export async function migrateItemsIfNeeded() {
   const needsItemMigration = !isMigrationRevisionApplied("items", _ITEMS_MIGRATION_REVISION, state);
   const needsScrollCastingBackfill = !isMigrationRevisionApplied("scrollCastingControls", _SCROLL_CASTING_CONTROLS_REVISION, state);
   const needsScrollConsumeOnCastBackfill = !isMigrationRevisionApplied("scrollConsumeOnCast", _SCROLL_CONSUME_ON_CAST_REVISION, state);
-  if (!needsSocialRetirementCleanup && !needsItemLegacyRepair && !needsRuleElementRetirementCleanup && !needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill) {
+  const needsSpellDamageTypeNormalization = !isMigrationRevisionApplied("spellDamageTypeNormalization", _SPELL_DAMAGE_TYPE_NORMALIZATION_REVISION, state);
+  if (!needsSocialRetirementCleanup && !needsItemLegacyRepair && !needsRuleElementRetirementCleanup && !needsItemMigration && !needsScrollCastingBackfill && !needsScrollConsumeOnCastBackfill && !needsSpellDamageTypeNormalization) {
     await _runLegacyItemRepairPasses({ state });
     return;
   }
@@ -1022,6 +1083,10 @@ export async function migrateItemsIfNeeded() {
 
     if (needsItemMigration) {
       await _runVersionedItemMigrationPass({ state });
+    }
+
+    if (needsSpellDamageTypeNormalization) {
+      await _runSpellDamageTypeNormalizationPass({ state });
     }
 
     if (needsItemLegacyRepair) {

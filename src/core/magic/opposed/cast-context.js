@@ -1,4 +1,4 @@
-import { getSpellLevel, getSpellStrengthFormula } from "../magicka-utils.js";
+import { getSpellLevel, resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
 import { evaluateNumericExpression } from "../../../utils/numeric-expression.js";
 import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
 import { getActorWillpowerBonus } from "../magicka-utils.js";
@@ -8,8 +8,8 @@ function toPositiveInt(value) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }
 
-export function resolveNumericSpellStrength(spell, castLevel = null) {
-  const formula = String(getSpellStrengthFormula(spell, castLevel) || "").trim();
+export function resolveNumericSpellStrength(spell, castLevel = null, actor = null) {
+  const formula = String(resolveSpellStrengthFormulaForActor(spell, castLevel, actor) || "").trim();
   if (!formula) return null;
 
   const directValue = Number(formula);
@@ -28,7 +28,7 @@ function _resolveCastActor(attacker = {}, options = {}) {
 }
 
 function _resolveSpellStrengthFormula(spell, castLevel, actor) {
-  const rawFormula = String(getSpellStrengthFormula(spell, castLevel) || "").trim();
+  const rawFormula = String(resolveSpellStrengthFormulaForActor(spell, castLevel, actor) || "").trim();
   if (rawFormula) return rawFormula;
   const wb = Number(getActorWillpowerBonus(actor) ?? 0) || 0;
   return String(Math.max(0, Math.floor(wb)));

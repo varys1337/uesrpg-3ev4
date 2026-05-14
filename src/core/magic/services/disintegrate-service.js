@@ -32,6 +32,7 @@
 import { _num, _str, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { listEquippedShields, isShieldItem } from "../../items/shield-utils.js";
+import { resolveSpellStrengthFormulaForActor } from "../magicka-utils.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -172,14 +173,14 @@ function _findEquippedWeapon(actor) {
 }
 
 /**
- * Resolve the Spell Strength from the spell's damage formula / scaling.
- * Disintegrate spells store SS in the damageFormula field.
+ * Resolve the numeric Spell Strength used for Disintegrate quality damage.
  *
  * @param {Item} spell
+ * @param {Actor|null} [caster]
  * @returns {number}
  */
-function _resolveSpellStrength(spell) {
-  const formula = _str(spell.system?.damageFormula || spell.system?.spell_str || spell.system?.damage);
+function _resolveSpellStrength(spell, caster = null) {
+  const formula = _str(resolveSpellStrengthFormulaForActor(spell, null, caster ?? spell?.actor ?? null));
   const n = Number(formula);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
 }
@@ -207,7 +208,7 @@ async function _onEffectApplied(payload) {
   if (!game.user.isGM) return;
 
   const targetType = _str(disintConfig.target).toLowerCase() || "armor";
-  const ss = _resolveSpellStrength(spell);
+  const ss = _resolveSpellStrength(spell, caster);
 
   _debug("Disintegrate triggered:", {
     spell: spell.name,
@@ -336,7 +337,7 @@ async function _onSpellHitTarget(payload) {
   if (hasEnabledEffects) return;
 
   const targetType = _str(disintConfig.target).toLowerCase() || "armor";
-  const ss = _resolveSpellStrength(spell);
+  const ss = _resolveSpellStrength(spell, caster);
 
   _debug("Disintegrate (via spellHitTarget):", {
     spell: spell.name,

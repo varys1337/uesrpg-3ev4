@@ -7,8 +7,8 @@
  *
  * Notes:
  * - This file is intentionally "schema-tolerant": spells in this repository currently have
- *   multiple historical lanes for cost/damage (e.g. system.cost vs system.scaling.levels[].cost,
- *   system.damage vs system.damageFormula vs system.scaling.levels[].damageFormula).
+ *   multiple historical lanes for cost/strength (e.g. system.cost vs system.scaling.levels[].cost,
+ *   system.spellStrengthFormula vs legacy system.damageFormula).
  * - Package 1 normalizes reads without migrating or renaming any data fields.
  */
 
@@ -31,6 +31,23 @@ import { getNpcThreatDamageModifier } from "../rules/npc-threat-templates.js";
 
 // Re-export for backward compatibility - canonical definition lives in magic-modifiers.js
 export { getActorWillpowerBonus };
+
+const STRENGTH_TEMPLATE_RE = /{{\s*([A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*)\s*}}/g;
+const UNSAFE_TEMPLATE_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);
+const SPELL_STRENGTH_DAMAGE_TYPES = new Set([
+  "physical",
+  "fire",
+  "frost",
+  "shock",
+  "poison",
+  "disease",
+  "magic",
+  "silver",
+  "sunlight",
+  "healing",
+  "temporaryhealing",
+  "temporary healing",
+]);
 
 /**
  * Options bag for spell casting operations (cost, TN, consumption).
@@ -161,8 +178,44 @@ function _computeSpellBaseCost(actor, spell, options = {}) {
 }
 
 function _spellHasDamage(spell, options = {}) {
-  const formula = getSpellDamageFormula(spell, options.level ?? null);
-  return Boolean(formula && formula !== "0" && getSpellDamageType(spell) !== "healing");
+  const formula = getSpellDamageFormula(spell, options.level ?? null, options);
+  return Boolean(formula && formula !== "0" && getSpellDamageType(spell, options.level ?? null) !== "healing");
+}
+
+function _safeGetTemplatePath(root, path) {
+  if (!root || !path) return undefined;
+  if (globalThis.foundry?.utils?.getProperty) return globalThis.foundry.utils.getProperty(root, path);
+  let cur = root;
+  for (const part of String(path).split(".")) {
+    if (!part) return undefined;
+    cur = cur?.[part];
+    if (cur === undefined || cur === null) return cur;
+  }
+  return cur;
+}
+
+function _spellHasLegacyDamageData(spell) {
+  const sys = spell?.system ?? {};
+  const scaling = getSpellScalingEntry(spell, null);
+  return Boolean(
+    _str(scaling?.damageFormula)
+    || _str(sys.damageFormula)
+    || _str(sys.damage)
+  );
+}
+
+function _spellUsesStrengthDamageLane(spell) {
+  const sys = spell?.system ?? {};
+  const rawDamageType = _str(sys.damageType).toLowerCase();
+  return Boolean(
+    _bool(sys.isAttackSpell)
+    || _bool(sys.isDamagingSpell)
+    || _bool(sys.isHealingSpell)
+    || rawDamageType === "healing"
+    || rawDamageType === "temporaryhealing"
+    || rawDamageType === "temporary healing"
+    || _spellHasLegacyDamageData(spell)
+  );
 }
 
 function _normalizeCostOptions(actor, spell, options = {}) {
@@ -360,6 +413,7 @@ function _normalizeScalingRow(entry, idx = 0, fallbackDurationUnit = "instant") 
     known: entry.known !== false && entry.known !== "false",
     cost: _num(entry.cost, 0),
     damageFormula: _str(entry.damageFormula),
+    damageType: _str(entry.damageType).toLowerCase(),
     spellStrengthFormula: _str(
       entry.spellStrengthFormula
       ?? entry.spellStrength
@@ -545,45 +599,72 @@ export function getSpellCost(spell, level = null) {
   return Math.max(0, baseCost);
 }
 
+export function resolveSpellStrengthFormulaForActor(spell, level = null, actor = null) {
+  let formula = _str(getSpellStrengthFormula(spell, level));
+  if (!formula && _spellUsesStrengthDamageLane(spell)) {
+    formula = "WB";
+  }
+  if (!formula) return "";
+
+  const hasActor = actor != null;
+  const wb = Math.max(0, Math.floor(Number(getActorWillpowerBonus(actor) ?? 0) || 0));
+  const roots = { actor, item: spell, spell };
+  let unresolved = false;
+  const templated = formula.replace(STRENGTH_TEMPLATE_RE, (_match, path) => {
+    const segments = String(path).split(".");
+    if (segments.some((segment) => UNSAFE_TEMPLATE_SEGMENTS.has(segment))) {
+      unresolved = true;
+      return "";
+    }
+    const rootName = segments.shift();
+    const root = roots[rootName] ?? null;
+    if (!root) {
+      unresolved = true;
+      return "";
+    }
+    const resolved = _safeGetTemplatePath(root, segments.join("."));
+    if (resolved === null || resolved === undefined) {
+      unresolved = true;
+      return "";
+    }
+    return String(resolved).trim();
+  });
+
+  if (unresolved) return "";
+  if (!hasActor) return templated;
+  return templated
+    .replace(/\bWPB\b/gi, String(wb))
+    .replace(/\bWB\b/gi, String(wb))
+    .replace(/\bWillpower Bonus\b/gi, String(wb));
+}
+
 /**
  * Canonical spell damage formula getter.
- * Checks scaling entry for the specified level, then falls back to base damageFormula.
+ * Attack/damaging/healing spells use Spell Strength as their damage lane.
+ * Legacy damageFormula fields remain a fallback through getSpellStrengthFormula.
  * @param {Item} spell
  * @param {number|null} level - Spell level (uses scaling entry if available)
+ * @param {object} [options]
+ * @param {Actor|null} [options.actor]
  * @returns {string} Damage formula or "0" for non-damaging spells
  */
-export function getSpellDamageFormula(spell, level = null) {
+export function getSpellDamageFormula(spell, level = null, options = {}) {
   const DEBUG = isDebugEnabled("spellCastingDebug");
-  
-  // Damage formula stays in the dedicated damage lane. Scaling rows override when authored.
-  const scaling = getSpellScalingEntry(spell, level);
-  const scaledDamage = scaling ? _str(scaling.damageFormula) : "";
-  
+  const usesStrengthDamage = _spellUsesStrengthDamageLane(spell);
+  const actor = options?.actor ?? options?.attacker ?? spell?.actor ?? null;
+  const strengthFormula = usesStrengthDamage
+    ? resolveSpellStrengthFormulaForActor(spell, level, actor)
+    : "";
+
   if (DEBUG) {
-    console.log(`\n⚔️ getSpellDamageFormula for "${spell?.name}":`, {
+    console.log(`\n[UESRPG][SpellDamage] getSpellDamageFormula for "${spell?.name}":`, {
       requestedLevel: level,
-      scalingEntry: scaling,
-      scaledDamage
+      usesStrengthDamage,
+      strengthFormula
     });
   }
-  
-  if (scaledDamage) {
-    if (DEBUG) console.log(`  ✅ Using scaled damage: ${scaledDamage}`);
-    return scaledDamage;
-  }
 
-  // Prefer primary damageFormula field
-  const primary = _str(spell?.system?.damageFormula);
-  if (primary) {
-    if (DEBUG) console.log(`  ⚠️ No scaled damage, using base formula: ${primary}`);
-    return primary;
-  }
-
-  // Legacy fallback for older spells
-  const legacy = _str(spell?.system?.damage);
-  if (DEBUG) console.log(`  ⚠️ No scaled or primary damage, using legacy: ${legacy || "0"}`);
-  // Return "0" for spells without damage (used in isDamaging checks)
-  return legacy || "0";
+  return strengthFormula || "0";
 }
 
 function _firstUsableSpellStrengthCandidate(candidates = []) {
@@ -658,11 +739,134 @@ export function getSpellStrengthFormula(spell, level = null) {
 /**
  * Canonical spell damage type getter.
  * @param {Item} spell
+ * @param {number|null} level
  * @returns {string}
  */
-export function getSpellDamageType(spell) {
+export function getSpellDamageType(spell, level = null) {
+  const scaling = getSpellScalingEntry(spell, level);
+  const scalingDamageType = _str(scaling?.damageType).toLowerCase();
+  const rootRawDamageType = _str(spell?.system?.damageType).toLowerCase();
+  const rootDamageType = rootRawDamageType && rootRawDamageType !== "none"
+    ? _normalizeSpellStrengthDamageType(rootRawDamageType, "magic")
+    : "";
+  if (scalingDamageType && scalingDamageType !== "none") {
+    return _normalizeSpellStrengthDamageType(scalingDamageType, "magic");
+  }
+  if (scalingDamageType === "none") {
+    if (rootDamageType === "temporaryhealing") return "temporaryhealing";
+    if (_bool(spell?.system?.isHealingSpell)) return "healing";
+    return _spellUsesStrengthDamageLane(spell) ? "magic" : "none";
+  }
+
   const dt = _str(spell?.system?.damageType).toLowerCase();
-  return dt || "none";
+  if (dt && dt !== "none") return rootDamageType || _normalizeSpellStrengthDamageType(dt, "magic");
+  if (_bool(spell?.system?.isHealingSpell)) return "healing";
+  return _spellUsesStrengthDamageLane(spell) ? "magic" : "none";
+}
+
+function _normalizeSpellStrengthDamageType(value, fallback = "magic") {
+  const raw = _str(value).toLowerCase();
+  if (raw === "temporary healing") return "temporaryhealing";
+  if (raw && raw !== "none" && SPELL_STRENGTH_DAMAGE_TYPES.has(raw)) return raw;
+  const fb = _str(fallback).toLowerCase();
+  if (fb === "temporary healing") return "temporaryhealing";
+  if (fb && fb !== "none" && SPELL_STRENGTH_DAMAGE_TYPES.has(fb)) return fb;
+  return "magic";
+}
+
+function _warnSpellStrengthTag(spell, message) {
+  const text = `${spell?.name ?? "Spell"}: ${message}`;
+  try {
+    ui?.notifications?.warn?.(text);
+  } catch (_e) {
+    // no-op outside Foundry UI
+  }
+  if (isDebugEnabled("spellCastingDebug")) console.warn(`UESRPG | ${text}`);
+}
+
+function _splitSpellStrengthTerms(formula) {
+  const raw = _str(formula);
+  if (!raw) return [];
+  const terms = [];
+  let start = 0;
+  let square = 0;
+  let paren = 0;
+  let brace = 0;
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch === "[") square += 1;
+    else if (ch === "]") square = Math.max(0, square - 1);
+    else if (ch === "(") paren += 1;
+    else if (ch === ")") paren = Math.max(0, paren - 1);
+    else if (ch === "{") brace += 1;
+    else if (ch === "}") brace = Math.max(0, brace - 1);
+    else if ((ch === "+" || ch === "-") && i > start && square === 0 && paren === 0 && brace === 0) {
+      const previous = raw[i - 1];
+      if (previous && /[eE]/.test(previous) && /\d/.test(raw[i + 1] ?? "")) continue;
+      const term = raw.slice(start, i).trim();
+      if (term) terms.push(term);
+      start = i;
+    }
+  }
+
+  const tail = raw.slice(start).trim();
+  if (tail) terms.push(tail);
+  return terms;
+}
+
+function _parseSpellStrengthTerm(term, defaultType, spell) {
+  const raw = _str(term);
+  if (!raw) return null;
+  const fallbackType = _normalizeSpellStrengthDamageType(defaultType, "magic");
+  const trailing = raw.match(/^(.*)\[([^\]]+)\]\s*$/);
+  if (trailing) {
+    const formula = _str(trailing[1]);
+    const tag = _str(trailing[2]).toLowerCase();
+    if (!formula) return null;
+    if (!SPELL_STRENGTH_DAMAGE_TYPES.has(tag)) {
+      _warnSpellStrengthTag(spell, `Unknown Spell Strength damage tag "[${tag}]"; using ${fallbackType}.`);
+      return { formula, damageType: fallbackType, tag, invalidTag: true };
+    }
+    return { formula, damageType: _normalizeSpellStrengthDamageType(tag, fallbackType), tag };
+  }
+  if (raw.includes("[") || raw.includes("]")) {
+    _warnSpellStrengthTag(spell, `Malformed Spell Strength damage tag in "${raw}"; using ${fallbackType}.`);
+    return { formula: raw.replace(/\[[^\]]*$/g, "").replace(/\]/g, ""), damageType: fallbackType, malformedTag: true };
+  }
+  return { formula: raw, damageType: fallbackType };
+}
+
+/**
+ * Split a resolved Spell Strength formula into rollable typed components.
+ * Inline tags are removed before formulas are handed to Foundry Roll.
+ *
+ * @param {Item} spell
+ * @param {object} options
+ * @returns {Array<{formula:string, damageType:string, label:string}>}
+ */
+export function getSpellStrengthDamageComponents(spell, options = {}) {
+  const actor = options.actor ?? options.attacker ?? spell?.actor ?? null;
+  const level = options.level ?? options.castLevel ?? null;
+  const formula = getSpellDamageFormula(spell, level, { actor });
+  if (!formula || formula === "0") return [];
+  const defaultType = _normalizeSpellStrengthDamageType(options.damageType ?? getSpellDamageType(spell, level), "magic");
+  const byType = new Map();
+
+  for (const term of _splitSpellStrengthTerms(formula)) {
+    const parsed = _parseSpellStrengthTerm(term, defaultType, spell);
+    if (!parsed?.formula) continue;
+    const key = parsed.damageType;
+    const list = byType.get(key) ?? [];
+    list.push(parsed.formula);
+    byType.set(key, list);
+  }
+
+  return Array.from(byType.entries()).map(([damageType, formulas]) => ({
+    formula: formulas.join(" + "),
+    damageType,
+    label: damageType
+  }));
 }
 
 /**
@@ -678,7 +882,7 @@ export function getSpellDamageInstances(spell, level = null) {
 
   // Primary instance from legacy fields
   const primaryFormula = getSpellDamageFormula(spell, level);
-  const primaryType = getSpellDamageType(spell);
+  const primaryType = getSpellDamageType(spell, level);
   if (primaryFormula && primaryFormula !== "0") {
     instances.push({
       formula: primaryFormula,
@@ -965,17 +1169,21 @@ if (activeNoDuration) {
  * @returns {Promise<Roll>} - Evaluated damage roll
  */
 export async function rollSpellDamage(spell, options = {}) {
-  const damageFormula = getSpellDamageFormula(spell, options.level ?? null);
+  const actor = options.actor ?? options.attacker ?? spell?.actor ?? null;
+  const damageFormula = getSpellDamageFormula(spell, options.level ?? null, { actor });
   if (!damageFormula || damageFormula === "0") {
     return await new Roll("0").evaluate();
   }
 
-  const actor = options.actor ?? options.attacker ?? spell?.actor ?? null;
-  const roll = await new Roll(damageFormula).evaluate();
+  const safeFormula = getSpellStrengthDamageComponents(spell, options)
+    .map((component) => component.formula)
+    .filter(Boolean)
+    .join(" + ") || damageFormula.replace(/\[[^\]]+\]/g, "");
+  const roll = await new Roll(safeFormula).evaluate();
 
   // Critical success: return max damage instead
   if (options.isCritical) {
-    const maxDamage = getMaxSpellDamage(spell, { level: options.level ?? null });
+    const maxDamage = getMaxSpellDamage(spell, { level: options.level ?? null, actor });
     // Foundry computes total at evaluate time; we preserve formula but override total for reporting.
     // This is a controlled internal assignment used elsewhere in the codebase.
     roll._total = maxDamage;
@@ -987,7 +1195,7 @@ export async function rollSpellDamage(spell, options = {}) {
     if (b) roll._total = _num(roll._total, roll.total) + b;
   }
 
-  const damageType = getSpellDamageType(spell);
+  const damageType = getSpellDamageType(spell, options.level ?? null);
   const isHealingDamageType = damageType === "temporaryhealing" || damageType === "temporary healing";
   if (!isHealingSpell(spell) && !isHealingDamageType) {
     const threatDamageMod = getNpcThreatDamageModifier(actor);
@@ -1037,7 +1245,7 @@ export function computeSpellOverloadBonusDamage(actor, spell) {
 /**
  * Roll spell healing.
  *
- * Healing spells in this system use the same formula lane as damage (system.damageFormula/scaling).
+ * Healing spells in this system use the same resolved Spell Strength formula lane as damage.
  * This helper exists to keep the modern magic workflow deterministic and to keep imports stable.
  *
  * Note:
@@ -1049,11 +1257,16 @@ export function computeSpellOverloadBonusDamage(actor, spell) {
  * @returns {Promise<Roll>} - Evaluated healing roll
  */
 export async function rollSpellHealing(spell, options = {}) {
-  const healingFormula = getSpellDamageFormula(spell, options.level ?? null);
+  const actor = options.actor ?? options.attacker ?? spell?.actor ?? null;
+  const healingFormula = getSpellDamageFormula(spell, options.level ?? null, { actor });
   if (!healingFormula || healingFormula === "0") {
     return await new Roll("0").evaluate();
   }
-  return await new Roll(healingFormula).evaluate();
+  const safeFormula = getSpellStrengthDamageComponents(spell, options)
+    .map((component) => component.formula)
+    .filter(Boolean)
+    .join(" + ") || healingFormula.replace(/\[[^\]]+\]/g, "");
+  return await new Roll(safeFormula).evaluate();
 }
 
 
@@ -1067,10 +1280,10 @@ export async function rollSpellHealing(spell, options = {}) {
  * @returns {number} - Maximum damage value
  */
 export function getMaxSpellDamage(spell, options = {}) {
-  const formula = _str(getSpellDamageFormula(spell, options.level ?? null));
+  const formula = _str(getSpellDamageFormula(spell, options.level ?? null, options));
   if (!formula || formula === "0") return 0;
 
-  const cleaned = formula.replace(/\s+/g, "");
+  const cleaned = formula.replace(/\[[^\]]+\]/g, "").replace(/\s+/g, "");
 
   // Sum max dice
   let total = 0;

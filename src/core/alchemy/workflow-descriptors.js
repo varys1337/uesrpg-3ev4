@@ -72,7 +72,7 @@ function _scaleSpellDuration(duration, multiplier) {
   };
 }
 
-function _buildAlchemySpellSnapshot(spell, { spellLevel = 1, cost = 0, finalDuration = null } = {}) {
+function _buildAlchemySpellSnapshot(spell, { actor = null, spellLevel = 1, cost = 0, finalDuration = null } = {}) {
   if (!spell) return null;
 
   const snapshot = cloneAlchemyData(spell.toObject?.(false) ?? spell);
@@ -86,7 +86,7 @@ function _buildAlchemySpellSnapshot(spell, { spellLevel = 1, cost = 0, finalDura
   snapshot.system.level = Math.max(1, Number(spellLevel ?? snapshot.system.level ?? 1) || 1);
   snapshot.system.cost = Math.max(0, Number(cost ?? snapshot.system.cost ?? 0) || 0);
 
-  const formula = String(getSpellDamageFormula(spell, snapshot.system.level) ?? "").trim();
+  const formula = String(getSpellDamageFormula(spell, snapshot.system.level, { actor }) ?? "").trim();
   if (formula) snapshot.system.damageFormula = formula;
 
   if (finalDuration) {
@@ -105,6 +105,7 @@ export function buildDirectAlchemyPayloadForSpell(spell, {
   spellLevel = 1,
   cost = 0,
   finalDuration = null,
+  actor = null,
 } = {}) {
   if (!spell || spell.type !== "spell") {
     return { ok: false, reason: "Only spell items can be serialized into alchemy effects." };
@@ -114,7 +115,7 @@ export function buildDirectAlchemyPayloadForSpell(spell, {
   const routing = classifySpellForRouting(spell);
   const damageType = String(getSpellDamageType(spell) ?? "").trim().toLowerCase();
   const healing = Boolean(isHealingSpell(spell)) || damageType === "temporaryhealing" || damageType === "temporary healing";
-  const snapshot = _buildAlchemySpellSnapshot(spell, { spellLevel, cost, finalDuration });
+  const snapshot = _buildAlchemySpellSnapshot(spell, { actor, spellLevel, cost, finalDuration });
   const hasEffects = Array.isArray(snapshot?.effects) && snapshot.effects.length > 0;
   const hasEffectPayload = hasEffects
     || Boolean(snapshot?.system?.hasUpkeep)
@@ -207,6 +208,7 @@ function _buildSpellDescriptor(actor, slot, ingredient = null, talents = null, m
   const finalDuration = _scaleSpellDuration(duration, upkeepMultiplier);
   const directPayloadResult = buildDirectAlchemyPayloadForSpell(spell, {
     mode,
+    actor,
     spellLevel: normalized.spellLevel,
     cost,
     finalDuration,
