@@ -8,9 +8,8 @@
  * and opposing effects override each other.
  */
 
-import { MagicTimekeeping } from "../timekeeping-helper.js";
 import { isDebugEnabled, createDebugLogger } from "../_primitives.js";
-import { spellRequiresOriginAE, createOriginAE, registerTargetAEs, findOriginAE } from "./origin-effect.js";
+import { registerTargetAEs, findOriginAE } from "./origin-effect.js";
 import { emitEffectApplied } from "../spell-runtime.js";
 import { validateAEChanges } from "../../active-effects/modifier-registry.js";
 import { buildOverTimeChange } from "../ticks/overtime-engine.js";
@@ -21,6 +20,7 @@ import { buildSpellExpirationAnchor } from "../../../utils/document-resolution.j
 import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
 import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
 import { buildSpellEffectMetadataFlags } from "./spell-effect-metadata.js";
+import { buildSpellActiveEffectDuration, isFiniteDuration, SPELL_EFFECT_DURATION_FLAG_KEY } from "./spell-effect-duration.js";
 import { resolveNumericSpellStrength } from "../opposed/cast-context.js";
 import { getSpellCost, getSpellScalingEntry } from "../magicka-utils.js";
 
@@ -36,12 +36,43 @@ const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellEffect
  * @returns {object[]} Array of OverTime config objects (may be empty).
  */
 function _getOverTimeEntries(spell) {
+  if (spell?.system?.hasOverTime !== true) return [];
   const entries = spell?.system?.overTimeEntries;
   if (Array.isArray(entries) && entries.length > 0) return entries;
   // Legacy fallback: wrap single overTime object
   const ot = spell?.system?.overTime;
   if (ot && typeof ot === "object" && Object.keys(ot).length > 0) return [ot];
   return [];
+}
+
+function _buildOverTimeChanges(spell) {
+  const entries = _getOverTimeEntries(spell).filter((entry) => entry && typeof entry === "object");
+  if (!entries.length) {
+    if (spell?.system?.hasOverTime === true) {
+      _anchorDebug("OverTime enabled but no usable entries were found", {
+        spell: spell?.name ?? null,
+        spellUuid: spell?.uuid ?? null
+      });
+    }
+    return [];
+  }
+
+  return entries.map((ot) => buildOverTimeChange({
+    trigger: ot.trigger,
+    cadenceEvery: ot.cadenceEvery,
+    cadenceUnit: ot.cadenceUnit,
+    payloadType: ot.payloadType,
+    formula: ot.formula,
+    damageType: ot.damageType,
+    ignoreReduction: ot.ignoreReduction,
+    saveKey: ot.saveKey,
+    saveTN: ot.saveTN,
+    saveSuccess: ot.saveSuccess,
+    saveFailure: ot.saveFailure ?? ot.saeFailure,
+    maxTicks: ot.maxTicks,
+    label: ot.label || spell.name,
+    chatLog: ot.chatLog
+  }));
 }
 
 /* ── Spell-defense identification helpers (private) ─────────────────────── */
@@ -127,46 +158,24 @@ export async function applyResolvedSpellEffects({ casterActor, targetActor, spel
  */
 export async function applySpellEffectsToTarget(casterActor, targetActor, spell, options = {}) {
   const spellUuid = spell.uuid;
-  const durData = spell.system?.duration ?? {};
-  const durValue = Number(durData.value ?? 0);
-  const durUnit = durData.unit ?? "rounds";
   const hasUpkeep = Boolean(spell.system?.hasUpkeep);
-  const noListedDuration = (durUnit === "instant") || (durValue <= 0);
-
-  // Compute the nominal duration from item data.
-  let duration = computeSpellDuration(spell, options);
-
-  // RAW (Upkeep cadence): if a spell has Upkeep but no listed duration, treat it as 1 round.
-  // IMPORTANT: this must *not* be tracked as "instant" or it will never prompt/expire correctly.
-  if (hasUpkeep && noListedDuration) {
-    const rt = MagicTimekeeping.roundTimeSeconds();
-    duration = { rounds: 1, seconds: rt, unit: "rounds" };
-  }
-
-  // RAW: Spell Absorption and Reflect always last exactly 1 round, regardless
-  // of what duration the item data says.  Override AFTER the upkeep default so
-  // these two spells can never exceed 1 round.
-  if (_isSpellAbsorptionSpell(spell) || _isReflectSpell(spell)) {
-    const rt = MagicTimekeeping.roundTimeSeconds();
-    duration = { rounds: 1, seconds: rt, unit: "rounds" };
-  }
-
-  // Determine tracking mode for the resulting target effects.
-  // - "rounds" track via combat when combat is active, otherwise via seconds (world-time).
-  // - longer durations track via seconds (world-time).
-  // - "instant" means no duration tracking (used for instantaneous spell results; typically no AEs).
-  const isCombat = MagicTimekeeping.isCombatActive();
-  const effectiveUnit = (hasUpkeep && noListedDuration) ? "rounds" : durUnit;
-  const trackingMode = (() => {
-    if (effectiveUnit === "instant") return "none";
-    if (effectiveUnit === "permanent") return "permanent";
-    if (effectiveUnit === "rounds") return isCombat ? "combat" : "time";
-    return "time";
-  })();
-  const nowTime = MagicTimekeeping.nowWorldTimeSeconds();
+  const forcedDuration = (_isSpellAbsorptionSpell(spell) || _isReflectSpell(spell))
+    ? { value: 1, unit: "rounds" }
+    : null;
+  const baseDurationInfo = buildSpellActiveEffectDuration({
+    actor: targetActor,
+    casterActor,
+    spell,
+    spellOptions: options.spellOptions ?? null,
+    scalingChoices: options.scalingChoices ?? null,
+    castContext: options.castContext ?? null,
+    hasUpkeep,
+    forcedDuration
+  });
+  const noListedDuration = Boolean(baseDurationInfo.noListedDuration);
+  const duration = baseDurationInfo.canonicalDuration;
+  const nowTime = Number(baseDurationInfo.spellEffectDuration?.createdAtWorldTime ?? game?.time?.worldTime ?? 0);
   const originalCastWorldTime = Number(options.originalCastWorldTime ?? options.originalCastTime ?? nowTime);
-  const nowRound = MagicTimekeeping.combatRound();
-  const nowTurn = MagicTimekeeping.combatTurn();
   const expirationAnchor = buildSpellExpirationAnchor({
     casterActor,
     casterTokenUuid: options.casterTokenUuid ?? null,
@@ -193,38 +202,6 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
     itemCastContext: options.itemCastContext ?? null,
     magickaSpend: options.magickaSpend ?? null,
     casterTokenUuid: options.casterTokenUuid ?? null
-  };
-
-  const _buildCanonicalDuration = () => {
-    if (trackingMode === "none") return { startTime: nowTime, seconds: 0, rounds: 0, turns: 0, combat: null };
-    if (trackingMode === "permanent") return { startTime: nowTime, seconds: Infinity, rounds: Infinity, turns: 0, combat: null };
-    if (trackingMode === "combat") {
-      return {
-        combat: game?.combat?.id ?? null,
-        startTime: nowTime,
-        startRound: nowRound,
-        startTurn: nowTurn,
-        rounds: Number.isFinite(duration.rounds) ? duration.rounds : 0,
-        seconds: Number.isFinite(duration.seconds) ? duration.seconds : 0,
-        turns: 0
-      };
-    }
-    // trackingMode === "time"
-    return {
-      combat: null,
-      startTime: nowTime,
-      seconds: Number.isFinite(duration.seconds) ? duration.seconds : 0,
-      rounds: 0,
-      turns: 0
-    };
-  };
-  const _buildLiveEffectDuration = (canonicalDuration) => {
-    const live = foundry.utils.deepClone(canonicalDuration ?? {});
-    if (!hasUpkeep) return live;
-    live.seconds = 0;
-    live.rounds = 0;
-    live.turns = 0;
-    return live;
   };
 
   
@@ -261,12 +238,26 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
     
     // Validate changes against the modifier registry (dev-mode warnings)
     const clonedChanges = foundry.utils.deepClone(getEffectChanges(ef));
+    if (toCreate.length === 0) {
+      clonedChanges.push(..._buildOverTimeChanges(spell));
+    }
     if (isDebugEnabled("spellCastingDebug")) {
       validateAEChanges(clonedChanges, { context: `spell "${spell.name}" effect "${ef.name}"` });
     }
 
-      const canonicalEffectDuration = _buildCanonicalDuration();
-      const effectDuration = _buildLiveEffectDuration(canonicalEffectDuration);
+      const effectDurationInfo = buildSpellActiveEffectDuration({
+        actor: targetActor,
+        casterActor,
+        spell,
+        sourceEffect: ef,
+        spellOptions: options.spellOptions ?? null,
+        scalingChoices: options.scalingChoices ?? null,
+        castContext: options.castContext ?? null,
+        hasUpkeep,
+        forcedDuration
+      });
+      const canonicalEffectDuration = effectDurationInfo.canonicalDuration;
+      const effectDuration = effectDurationInfo.liveDuration;
       const resolvedCost = Number(options.actualCost ?? getSpellCost(spell, options?.castContext?.castLevel ?? options?.spellOptions?.castLevel ?? options?.scalingChoices?.level ?? null) ?? spell.system?.cost ?? 0) || 0;
       const spellEffectFlags = buildSpellEffectMetadataFlags({
         ...baseMetadataOptions,
@@ -292,6 +283,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
           [FLAG_SCOPE]: {
             ...spellEffectFlags,
             spellEffect: true,
+            [SPELL_EFFECT_DURATION_FLAG_KEY]: effectDurationInfo.spellEffectDuration,
             expirationAnchor,
             noListedDuration,
             hasUpkeep: Boolean(spell.system?.hasUpkeep),
@@ -303,32 +295,6 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
         changes: clonedChanges
       });
 
-    // Inject OverTime changes entries (midi-qol / DAE style) if the spell has OverTime configuration.
-    // Supports both the new overTimeEntries array and legacy single overTime object.
-    // Only inject into the FIRST enabled embedded AE to prevent multi-fire per tick when a spell
-    // has multiple embedded effects (each AE would independently tick its OverTime payload).
-    if (toCreate.length === 0 && spell.system?.hasOverTime) {
-      const otEntries = _getOverTimeEntries(spell);
-      for (const ot of otEntries) {
-        const otChange = buildOverTimeChange({
-          trigger: ot.trigger,
-          cadenceEvery: ot.cadenceEvery,
-          cadenceUnit: ot.cadenceUnit,
-          payloadType: ot.payloadType,
-          formula: ot.formula,
-          damageType: ot.damageType,
-          saveKey: ot.saveKey,
-          saveTN: ot.saveTN,
-          saveSuccess: ot.saveSuccess,
-          saveFailure: ot.saveFailure,
-          maxTicks: ot.maxTicks,
-          label: ot.label || spell.name,
-          chatLog: ot.chatLog
-        });
-        effectData.changes.push(otChange);
-      }
-    }
-    
     toCreate.push(effectData);
   }
 
@@ -337,18 +303,28 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
 // - For non-Upkeep spells that still have a duration but no embedded effects, this tracker exists solely to enforce expiry.
   if (!toCreate.length) {
     const hasUpkeep = Boolean(spell.system?.hasUpkeep);
-    const hasOverTime = Boolean(spell.system?.hasOverTime);
+    const overTimeChanges = _buildOverTimeChanges(spell);
+    const hasOverTime = overTimeChanges.length > 0;
     const hasFiniteDuration =
-      (Number.isFinite(duration?.seconds) && duration.seconds > 0) ||
-      (Number.isFinite(duration?.rounds) && duration.rounds > 0);
+      isFiniteDuration(duration);
 
     if (hasUpkeep || hasFiniteDuration || hasOverTime) {
       const effectGroup = hasUpkeep
         ? `spell.effect.${spell.id || spellUuid}.upkeep`
         : `spell.effect.${spell.id || spellUuid}.duration`;
 
-      const canonicalTrackerDuration = _buildCanonicalDuration();
-      const trackerDuration = _buildLiveEffectDuration(canonicalTrackerDuration);
+      const trackerDurationInfo = buildSpellActiveEffectDuration({
+        actor: targetActor,
+        casterActor,
+        spell,
+        spellOptions: options.spellOptions ?? null,
+        scalingChoices: options.scalingChoices ?? null,
+        castContext: options.castContext ?? null,
+        hasUpkeep,
+        forcedDuration
+      });
+      const canonicalTrackerDuration = trackerDurationInfo.canonicalDuration;
+      const trackerDuration = trackerDurationInfo.liveDuration;
       const trackerFlags = {
         ...buildSpellEffectMetadataFlags({
           ...baseMetadataOptions,
@@ -357,6 +333,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
           targetUuids: [targetActor.uuid]
         }),
         spellEffect: true,
+        [SPELL_EFFECT_DURATION_FLAG_KEY]: trackerDurationInfo.spellEffectDuration,
         expirationAnchor,
         noListedDuration,
         hasUpkeep,
@@ -366,27 +343,7 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
       };
 
       // Build tracker AE changes array with OverTime entries (midi-qol / DAE style)
-      const trackerChanges = [];
-      if (hasOverTime) {
-        const otEntries = _getOverTimeEntries(spell);
-        for (const ot of otEntries) {
-          trackerChanges.push(buildOverTimeChange({
-            trigger: ot.trigger,
-            cadenceEvery: ot.cadenceEvery,
-            cadenceUnit: ot.cadenceUnit,
-            payloadType: ot.payloadType,
-            formula: ot.formula,
-            damageType: ot.damageType,
-            saveKey: ot.saveKey,
-            saveTN: ot.saveTN,
-            saveSuccess: ot.saveSuccess,
-            saveFailure: ot.saveFailure,
-            maxTicks: ot.maxTicks,
-            label: ot.label || spell.name,
-            chatLog: ot.chatLog
-          }));
-        }
-      }
+      const trackerChanges = [...overTimeChanges];
 
       // ── Spell Absorption / Reflect: ensure tracker AE grants the
       //    mechanical effect even when the spell has no embedded AEs. ──
@@ -529,57 +486,6 @@ export async function applySpellEffectsToTarget(casterActor, targetActor, spell,
       }
     }
   }
-}
-
-/**
- * Compute spell duration from spell data
- * @param {Item} spell - The spell
- * @returns {object} - Object with rounds and seconds
- */
-function computeSpellDuration(spell, options = {}) {
-  const scaling = getSpellScalingEntry(
-    spell,
-    options?.castContext?.castLevel
-    ?? options?.spellOptions?.castLevel
-    ?? options?.scalingChoices?.level
-    ?? null
-  );
-  const dur = scaling?.duration ?? spell.system?.duration ?? {};
-  const value = Number(dur.value ?? 0);
-  const unitRaw = String(dur.unit || "rounds").toLowerCase();
-  const unit = (unitRaw === "round") ? "rounds"
-    : (unitRaw === "minute") ? "minutes"
-    : (unitRaw === "hour") ? "hours"
-    : (unitRaw === "day") ? "days"
-    : unitRaw;
-  
-  let rounds = 0;
-  let seconds = 0;
-  
-  switch (unit) {
-    case "instant":
-      return { rounds: 0, seconds: 0 };
-    case "rounds":
-      rounds = value;
-      seconds = value * MagicTimekeeping.roundTimeSeconds();
-      break;
-    case "minutes":
-      rounds = value * 10; // 1 minute = 10 rounds
-      seconds = value * 60;
-      break;
-    case "hours":
-      rounds = value * 600;
-      seconds = value * 3600;
-      break;
-    case "days":
-      rounds = value * 14400;
-      seconds = value * 86400;
-      break;
-    case "permanent":
-      return { rounds: Infinity, seconds: Infinity };
-  }
-  
-  return { rounds, seconds };
 }
 
 /**

@@ -17,6 +17,7 @@ import {
 import { renderCard as renderMagicCard } from "../../magic/opposed/render.js";
 import { applyMagicDamage, applyMagicHealing } from "../../magic/damage-application.js";
 import { applyResolvedSpellEffects } from "../../magic/effects/spell-effects.js";
+import { applySpellResourceRestoration } from "../../magic/services/resource-restoration-service.js";
 import { safeUpdateChatMessage } from "../../../utils/chat-message-socket.js";
 import {
   _isMultiDefender, _getDefenderDamage, _setDefenderDamage,
@@ -332,6 +333,18 @@ async function _onApplyMagicDamage(ev, message, btn) {
       });
     } catch (_e) { /* no-op */ }
 
+    try {
+      await applySpellResourceRestoration({
+        caster: casterActor,
+        target: targetActor,
+        spell,
+        payload: mp,
+        message
+      });
+    } catch (err) {
+      console.error("UESRPG | Failed to apply spell resource restoration:", err);
+    }
+
     await _markMagicInlineDamageApplied(message, targetUuid);
     return;
   }
@@ -377,6 +390,18 @@ async function _onApplyMagicDamage(ev, message, btn) {
       isDamaging: true,
     });
   } catch (_e) { /* no-op */ }
+
+  try {
+    await applySpellResourceRestoration({
+      caster: casterActor,
+      target: targetActor,
+      spell,
+      payload: mp,
+      message
+    });
+  } catch (err) {
+    console.error("UESRPG | Failed to apply spell resource restoration:", err);
+  }
 
   await _markMagicInlineDamageApplied(message, targetUuid, {
     gmDamageReport: damageResult?.gmDamageReport ?? null
@@ -440,6 +465,18 @@ async function _onApplyMagicHealing(ev, message, btn) {
     } catch (err) {
       console.error("UESRPG | Failed to apply deferred spell effects after healing:", err);
     }
+  }
+
+  try {
+    await applySpellResourceRestoration({
+      caster: casterActor,
+      target: targetActor,
+      spell,
+      payload: mp,
+      message
+    });
+  } catch (err) {
+    console.error("UESRPG | Failed to apply spell resource restoration:", err);
   }
 
   await _markMagicInlineDamageApplied(message, targetUuid);

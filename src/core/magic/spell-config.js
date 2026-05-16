@@ -596,6 +596,17 @@ const ENGINE_DEFAULTS = Object.freeze({
     type: "none",
     transferToCaster: false
   }),
+  resourceRestore: Object.freeze({
+    enabled: false,
+    kind: "restoreResource",
+    resource: "hp",
+    target: "target",
+    amount: "SS",
+    capMode: "none",
+    cap: "COST",
+    removeFatigueLevels: 1,
+    chat: true
+  }),
   defenseModel: "opposed",
   characteristicDefense: Object.freeze({
     defenderCharacteristic: "end",
@@ -698,6 +709,7 @@ export function normalizeSpellConfig(item) {
     persistence: _normalizePersistenceConfig(sys),
     disintegrate: _normalizeDisintegrate(sys),
     drain: _normalizeDrain(sys),
+    resourceRestore: _normalizeResourceRestore(sys),
     defenseModel: _normalizeDefenseModel(sys),
     characteristicDefense: _normalizeCharacteristicDefense(sys),
     consequences: _normalizeConsequences(sys),
@@ -809,6 +821,52 @@ export function getDrainTypeOptions() {
     none: "None",
     magicka: "Magicka (current pool)",
     health: "Health (current pool)"
+  };
+}
+
+/**
+ * Get available resource restoration operation kinds.
+ * @returns {object}
+ */
+export function getResourceRestoreKindOptions() {
+  return {
+    restoreResource: "Restore Resource",
+    restoreStaminaOrRemoveFatigue: "Remove Fatigue / Restore Stamina"
+  };
+}
+
+/**
+ * Get available resource restoration pools.
+ * @returns {object}
+ */
+export function getResourceRestoreResourceOptions() {
+  return {
+    hp: "Health Points",
+    magicka: "Magicka Points",
+    stamina: "Stamina Points"
+  };
+}
+
+/**
+ * Get available resource restoration targets.
+ * @returns {object}
+ */
+export function getResourceRestoreTargetOptions() {
+  return {
+    target: "Target",
+    self: "Caster"
+  };
+}
+
+/**
+ * Get available resource restoration cap modes.
+ * @returns {object}
+ */
+export function getResourceRestoreCapModeOptions() {
+  return {
+    none: "No Cap",
+    castingCost: "Casting Cost",
+    custom: "Custom"
   };
 }
 
@@ -1069,6 +1127,29 @@ function _normalizeDrain(sys) {
     enabled: _bool(engine?.enabled),
     type: validTypes.includes(rawType) ? rawType : "none",
     transferToCaster: _bool(engine?.transferToCaster)
+  };
+}
+
+function _normalizeResourceRestore(sys) {
+  const engine = sys?.engine?.resourceRestore;
+  const validKinds = ["restoreResource", "restoreStaminaOrRemoveFatigue"];
+  const validResources = ["hp", "magicka", "stamina"];
+  const validTargets = ["target", "self"];
+  const validCapModes = ["none", "castingCost", "custom"];
+  const rawKind = _str(engine?.kind);
+  const rawResource = _str(engine?.resource).toLowerCase();
+  const rawTarget = _str(engine?.target).toLowerCase();
+  const rawCapMode = _str(engine?.capMode);
+  return {
+    enabled: _bool(engine?.enabled),
+    kind: validKinds.includes(rawKind) ? rawKind : "restoreResource",
+    resource: validResources.includes(rawResource) ? rawResource : "hp",
+    target: validTargets.includes(rawTarget) ? rawTarget : "target",
+    amount: _str(engine?.amount) || "SS",
+    capMode: validCapModes.includes(rawCapMode) ? rawCapMode : "none",
+    cap: _str(engine?.cap) || "COST",
+    removeFatigueLevels: Math.max(1, _num(engine?.removeFatigueLevels, 1)),
+    chat: engine?.chat !== false
   };
 }
 

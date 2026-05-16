@@ -1466,6 +1466,17 @@ export const ITEM_TYPE_MODEL_SEEDS = {
         "excludeSelf": true,
         "requireAttackTest": false,
         "useSpellDamage": true
+      },
+      "resourceRestore": {
+        "enabled": false,
+        "kind": "restoreResource",
+        "resource": "hp",
+        "target": "target",
+        "amount": "SS",
+        "capMode": "none",
+        "cap": "COST",
+        "removeFatigueLevels": 1,
+        "chat": true
       }
     }
   },

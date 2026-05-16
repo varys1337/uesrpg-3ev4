@@ -4,6 +4,12 @@ import { buildEffectChangesUpdate, getEffectChanges, normalizeEffectChanges } fr
 import { createDebugLogger } from "../../utils/debug.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 import { getGenericAEMetadata, isConditionEffect } from "./metadata.js";
+import { resolveUuidSync } from "../../utils/uuid-cache.js";
+import {
+  buildSpellEffectDurationV14,
+  isFiniteDuration,
+  SPELL_EFFECT_DURATION_FLAG_KEY
+} from "./effect-duration-v14.js";
 
 const _debug = createDebugLogger("aeLifecycleDebug", "[UESRPG][AEIntegrity]");
 
@@ -81,6 +87,67 @@ function _buildGenericMetadataBackfill(effect) {
   };
 }
 
+function _isSystemSpellEffect(effect) {
+  const flags = getSystemFlagsWithFallback(effect) ?? {};
+  return Boolean(flags?.spellEffect) && String(flags?.owner ?? "") === "system";
+}
+
+function _resolveOriginSpell(effect) {
+  const origin = String(effect?.origin ?? "").trim();
+  if (!origin) return null;
+  const doc = resolveUuidSync(origin);
+  return doc?.documentName === "Item" ? doc : null;
+}
+
+function _buildSpellDurationBackfill(effect) {
+  if (!_isSystemSpellEffect(effect)) return {};
+
+  const flags = getSystemFlagsWithFallback(effect) ?? {};
+  let canonical = flags?.[SPELL_EFFECT_DURATION_FLAG_KEY] ?? null;
+
+  if (!canonical) {
+    const spell = _resolveOriginSpell(effect);
+    if (spell) {
+      const durationInfo = buildSpellEffectDurationV14(spell, effect.parent, {
+        actor: effect.parent,
+        spellOptions: flags?.spellOptions ?? null,
+        scalingChoices: flags?.scalingChoices ?? null,
+        castContext: flags?.castContext ?? null,
+        hasUpkeep: Boolean(flags?.hasUpkeep)
+      });
+      canonical = durationInfo.spellEffectDuration;
+    }
+  }
+
+  if (!canonical) return {};
+  const normalized = {
+    value: canonical.value,
+    units: canonical.units,
+    expiry: canonical.expiry ?? null
+  };
+  const liveDuration = effect.duration ?? {};
+  const update = {};
+
+  const hasNativeDuration = Object.prototype.hasOwnProperty.call(liveDuration, "value")
+    && typeof liveDuration.units === "string"
+    && Object.prototype.hasOwnProperty.call(liveDuration, "expiry");
+  if (!hasNativeDuration) {
+    if (liveDuration.value !== normalized.value) update["duration.value"] = normalized.value;
+    if (liveDuration.units !== normalized.units) update["duration.units"] = normalized.units;
+    if ((liveDuration.expiry ?? null) !== normalized.expiry) update["duration.expiry"] = normalized.expiry;
+  }
+  if (flags?.[SPELL_EFFECT_DURATION_FLAG_KEY] == null) {
+    update[`flags.${FLAG_SCOPE}.${SPELL_EFFECT_DURATION_FLAG_KEY}`] = canonical;
+  }
+
+  if (!isFiniteDuration(normalized) && liveDuration.value == null && liveDuration.expiry == null) {
+    delete update["duration.value"];
+    delete update["duration.expiry"];
+  }
+
+  return update;
+}
+
 export function buildActiveEffectIntegrityUpdate(effect) {
   if (!effect || effect.documentName !== "ActiveEffect") return {};
 
@@ -90,6 +157,7 @@ export function buildActiveEffectIntegrityUpdate(effect) {
   }
 
   Object.assign(update, _buildGenericMetadataBackfill(effect));
+  Object.assign(update, _buildSpellDurationBackfill(effect));
   return update;
 }
 
@@ -141,6 +209,13 @@ export async function runActiveEffectIntegrityNormalization({ actors = null } = 
     const result = await normalizeActorActiveEffectsIntegrity(actor);
     checked += result.checked;
     updated += result.updated;
+  }
+
+  try {
+    const { cleanupExpiredSpellEffects } = await import("../magic/effects/spell-effect-expiration.js");
+    await cleanupExpiredSpellEffects({ actors: actorList, source: "ready-integrity" });
+  } catch (err) {
+    console.warn("UESRPG | AEIntegrity | Expired spell cleanup failed", err);
   }
 
   if (updated > 0) _debug("ready normalization complete", { checked, updated });

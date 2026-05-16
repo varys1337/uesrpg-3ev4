@@ -1,87 +1,73 @@
 /**
  * @module magic/effects/spell-effect-expiration
  *
- * src/core/magic/effects/spell-effect-expiration.js
+ * v14 ActiveEffectRegistry bridge for spell-created ActiveEffects.
  *
- * GM-side expiration & combat-binding refresh for spell-created Active Effects.
+ * Spell effects now use native duration.value/units/expiry data. This module
+ * keeps only system-specific bookkeeping: tracking spell AEs, coordinating
+ * upkeep prompts before registry expiry, and invoking the v14 registry at
+ * combat/time boundaries.
  */
 
 import { MagicTimekeeping } from "../timekeeping-helper.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
-import { safeGetEffect, isMissingDocError as _isMissingDocError } from "../../../utils/ae-helpers.js";
+import { safeDeleteEmbeddedDocument, safeGetEffect } from "../../../utils/ae-helpers.js";
 import { _num, createDebugLogger } from "../_primitives.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { registerCombatBoundaryConsumer, noteCombatBoundaryLegacyFallbackSkip } from "../../time/combat-boundary-orchestrator.js";
-import { normalizeSpellExpirationAnchor, explainSpellAnchorResolution } from "../../../utils/document-resolution.js";
-import { findOriginAEByGroupKey } from "./origin-effect.js";
+import { findOriginAEByGroupKey, cancelOriginAEUpkeep } from "./origin-effect.js";
+import { isFiniteDuration } from "./spell-effect-duration.js";
+import { resolveUuidSync } from "../../../utils/uuid-cache.js";
 
 const _FLAG_NS = FLAG_SCOPE;
-const _deleteInFlight = new Map();
-const _trackedSpellEffects = new Map(); // Map<actorId, Set<effectId>>
+const _trackedSpellEffects = new Map();
 const _anchorDebug = createDebugLogger("aeLifecycleDebug", "[UESRPG][SpellExpiration]");
 
 function _actorId(actor) {
   return String(actor?.id ?? "").trim();
 }
 
+function _isSystemSpellEffect(effect) {
+  const flags = effect?.flags?.[_FLAG_NS] ?? null;
+  return Boolean(flags?.spellEffect) && String(flags?.owner ?? "") === "system";
+}
+
+function _isDeleteActionSpellEffect(effect) {
+  if (!_isSystemSpellEffect(effect)) return false;
+  const flags = effect?.flags?.[_FLAG_NS] ?? {};
+  const action = String(flags?.ae?.expiryAction ?? "delete").trim().toLowerCase();
+  return action === "delete";
+}
+
+function _isExpired(effect) {
+  return effect?.duration?.expired === true;
+}
+
 function _trackActorEffect(actor, effect) {
   const actorId = _actorId(actor);
   const effectId = String(effect?.id ?? "").trim();
-  if (!actorId || !effectId) return;
-  let bucket = _trackedSpellEffects.get(actorId);
-  if (!bucket) {
-    bucket = new Set();
-    _trackedSpellEffects.set(actorId, bucket);
-  }
+  if (!actorId || !effectId || !_isSystemSpellEffect(effect)) return;
+  const bucket = _trackedSpellEffects.get(actorId) ?? new Set();
   bucket.add(effectId);
+  _trackedSpellEffects.set(actorId, bucket);
 }
 
 function _untrackActorEffect(actorId, effectId) {
-  const aId = String(actorId ?? "").trim();
-  const eId = String(effectId ?? "").trim();
-  if (!aId || !eId) return;
-  const bucket = _trackedSpellEffects.get(aId);
+  const bucket = _trackedSpellEffects.get(String(actorId ?? ""));
   if (!bucket) return;
-  bucket.delete(eId);
-  if (!bucket.size) _trackedSpellEffects.delete(aId);
-}
-
-function _dropActor(actorId) {
-  const aId = String(actorId ?? "").trim();
-  if (!aId) return;
-  _trackedSpellEffects.delete(aId);
-}
-
-function _hasTrackedEffects(actorId) {
-  const aId = String(actorId ?? "").trim();
-  if (!aId) return false;
-  return (_trackedSpellEffects.get(aId)?.size ?? 0) > 0;
-}
-
-function _isSystemSpellEffect(effect) {
-  if (!effect) return false;
-  const f = effect.flags?.[_FLAG_NS];
-  return Boolean(f?.spellEffect) && String(f?.owner ?? "") === "system";
-}
-
-function _trackEffectIfRelevant(actor, effect) {
-  if (!_isSystemSpellEffect(effect)) return;
-  _trackActorEffect(actor, effect);
+  bucket.delete(String(effectId ?? ""));
+  if (!bucket.size) _trackedSpellEffects.delete(String(actorId ?? ""));
 }
 
 function _reconcileTrackedActor(actor) {
   const actorId = _actorId(actor);
   if (!actorId) return;
-
   const liveIds = new Set();
   for (const effect of (actor?.effects ?? [])) {
     if (!_isSystemSpellEffect(effect)) continue;
-    const effectId = String(effect?.id ?? "").trim();
-    if (!effectId) continue;
-    liveIds.add(effectId);
+    liveIds.add(String(effect.id));
     _trackActorEffect(actor, effect);
   }
-
   const bucket = _trackedSpellEffects.get(actorId);
   if (!bucket) return;
   for (const effectId of Array.from(bucket)) {
@@ -98,10 +84,10 @@ function _seedTrackedSpellEffects() {
 
 function _getTrackedActors() {
   const out = [];
-  for (const [actorId] of _trackedSpellEffects) {
+  for (const actorId of Array.from(_trackedSpellEffects.keys())) {
     const actor = game.actors?.get?.(actorId) ?? null;
     if (!actor) {
-      _dropActor(actorId);
+      _trackedSpellEffects.delete(actorId);
       continue;
     }
     out.push(actor);
@@ -109,148 +95,62 @@ function _getTrackedActors() {
   return out;
 }
 
-function _getCasterCombatTurnIndex(combat, effect) {
-  if (!combat || !effect) return null;
-  const flags = effect.flags?.[_FLAG_NS] ?? {};
-  const anchor = normalizeSpellExpirationAnchor(flags, { combat });
-  const explanation = explainSpellAnchorResolution(combat, anchor);
-  _anchorDebug("Resolved expiry anchor", {
-    effect: effect?.name ?? null,
-    targetActor: effect?.parent?.name ?? null,
-    casterUuid: explanation?.actorUuid ?? anchor?.casterUuid ?? null,
-    source: explanation?.source ?? "unresolved",
-    reason: explanation?.reason ?? "",
-    combatantId: explanation?.combatantId ?? null,
-    round: combat?.round ?? null,
-    turn: combat?.turn ?? null
-  });
-  return explanation?.turnIndex ?? null;
+function _contextForEvent(event, { combat = null, combatant = null, worldTime = null } = {}) {
+  return {
+    event,
+    combat: combat ?? game?.combat ?? null,
+    combatant: combatant ?? (combat ?? game?.combat)?.combatant ?? null,
+    round: _num((combat ?? game?.combat)?.round, 0),
+    turn: _num((combat ?? game?.combat)?.turn, 0),
+    worldTime: _num(worldTime, MagicTimekeeping.nowWorldTimeSeconds())
+  };
 }
 
-function _deleteKey(actor, effect) {
-  if (!actor?.uuid || !effect?.id) return "";
-  return `${actor.uuid}::${effect.id}`;
+function _registryContextFrom(context = {}) {
+  return {
+    actors: new Set(_getTrackedActors()),
+    combat: context?.combat ?? game?.combat ?? null
+  };
 }
 
-function _isDeleteInFlight(actor, effect, nowTime) {
-  const key = _deleteKey(actor, effect);
-  if (!key) return false;
-  const entry = _deleteInFlight.get(key);
-  if (!entry) return false;
-  const ttl = Math.max(1, _num(MagicTimekeeping.roundTimeSeconds(), 6));
-  if ((_num(nowTime, 0) - entry.time) <= ttl) return true;
-  _deleteInFlight.delete(key);
-  return false;
-}
-
-function _markDeleteInFlight(actor, effect, nowTime) {
-  const key = _deleteKey(actor, effect);
-  if (!key) return;
-  _deleteInFlight.set(key, { time: _num(nowTime, MagicTimekeeping.nowWorldTimeSeconds()) });
-}
-
-function _getEndTime(effect) {
-  const d = effect?.duration ?? {};
-  const flags = effect?.flags?.[_FLAG_NS] ?? {};
-  const seconds = _num(flags?.durationSeconds, _num(d.seconds, 0));
-  const startTime = _num(flags?.durationStartTime, _num(d.startTime, 0));
-  if (!(seconds > 0) || !(startTime > 0)) return null;
-  if (!Number.isFinite(seconds)) return null;
-  return startTime + seconds;
-}
-
-function _isExpiredByWorldTime(effect, nowTime) {
-  const end = _getEndTime(effect);
-  if (end == null) return false;
-  return nowTime >= end;
-}
-
-function _isExpiredByCombat(effect, combat, { inclusive = false, endTurnOverride = null } = {}) {
-  if (!combat) return false;
-  const d = effect?.duration ?? {};
-  const flags = effect?.flags?.[_FLAG_NS] ?? {};
-
-  const rounds = _num(flags?.durationRounds, _num(d.rounds, 0));
-  if (!(rounds > 0) || !Number.isFinite(rounds)) return false;
-
-  const srRaw = flags?.durationStartRound ?? d.startRound;
-  const stRaw = flags?.durationStartTurn ?? d.startTurn;
-  if (srRaw === null || srRaw === undefined) return false;
-  if (stRaw === null || stRaw === undefined) return false;
-
-  const startRound = _num(srRaw, 0);
-  const startTurn = _num(stRaw, 0);
-
-  const endRound = startRound + rounds;
-  const endTurn = Number.isFinite(Number(endTurnOverride)) ? _num(endTurnOverride, startTurn) : startTurn;
-
-  const curRound = _num(combat.round, 0);
-  const curTurn = _num(combat.turn, 0);
-
-  if (inclusive) {
-    return (curRound > endRound) || (curRound === endRound && curTurn >= endTurn);
-  }
-  return (curRound > endRound) || (curRound === endRound && curTurn > endTurn);
-}
-
-async function _deleteEffectOnActor(actor, effect, nowTime) {
-  if (!actor || !effect?.id) return false;
-  const effectExists = actor.effects?.get?.(effect.id);
-  if (!effectExists) {
-    _untrackActorEffect(actor?.id, effect?.id);
-    return false;
-  }
-
-  if (_isDeleteInFlight(actor, effect, nowTime)) return false;
-  _markDeleteInFlight(actor, effect, nowTime);
-
-  try {
-    if (!actor.effects?.get?.(effect.id)) {
-      _untrackActorEffect(actor?.id, effect?.id);
-      return false;
-    }
-
-    await actor.deleteEmbeddedDocuments("ActiveEffect", [effect.id], { uesrpgExpirationSweep: true });
-    const deleted = !actor.effects?.get?.(effect.id);
-    _untrackActorEffect(actor?.id, effect?.id);
-    return deleted;
-  } catch (err) {
-    if (_isMissingDocError(err)) {
-      _untrackActorEffect(actor?.id, effect?.id);
-      return false;
-    }
-    console.error("UESRPG | spell-effect-expiration | Failed to delete effect", { actor: actor?.uuid, effectId: effect?.id, err });
-    return false;
-  }
+function _effectReadyToExpire(effect, event, context) {
+  if (!_isSystemSpellEffect(effect)) return false;
+  if (!isFiniteDuration(effect.duration)) return false;
+  const prepared = typeof effect.updateDuration === "function"
+    ? effect.updateDuration(context)
+    : effect.duration;
+  const remaining = Number(prepared?.remaining ?? effect.duration?.remaining ?? 1);
+  if (!(remaining <= 0)) return false;
+  return typeof effect.isExpiryEvent === "function"
+    ? effect.isExpiryEvent(event, context)
+    : true;
 }
 
 async function _updateEffect(effect, updates) {
-  if (!effect || !updates) return false;
-  if (!effect.id) return false;
+  if (!effect?.id || !updates || !Object.keys(updates).length) return false;
   const parent = effect.parent;
   if (!parent) return false;
-  const currentEffect = safeGetEffect(parent, effect.id);
-  if (!currentEffect) return false;
+  const live = safeGetEffect(parent, effect.id);
+  if (!live) return false;
   try {
-    await requestUpdateDocument(currentEffect, updates);
+    await requestUpdateDocument(live, updates);
     return true;
   } catch (err) {
-    if (_isMissingDocError(err)) return false;
-    console.error("UESRPG | spell-effect-expiration | Failed to update effect", { effectId: effect?.id, updates, err });
+    console.warn("UESRPG | spell-effect-expiration | Failed to update effect before registry refresh", err);
     return false;
   }
 }
 
 async function _collectEffectsForGroup(groupKey) {
-  const gk = String(groupKey ?? "").trim();
-  if (!gk) return [];
+  const wanted = String(groupKey ?? "").trim();
+  if (!wanted) return [];
   const matches = [];
   for (const actor of _getTrackedActors()) {
     _reconcileTrackedActor(actor);
-    for (const effect of (actor?.effects ?? [])) {
+    for (const effect of (actor.effects ?? [])) {
       const flags = effect?.flags?.[_FLAG_NS] ?? {};
       if (!_isSystemSpellEffect(effect)) continue;
-      if (String(flags?.upkeepGroupKey ?? "").trim() !== gk) continue;
+      if (String(flags.upkeepGroupKey ?? "").trim() !== wanted) continue;
       matches.push({ actor, effect, flags });
     }
   }
@@ -258,266 +158,235 @@ async function _collectEffectsForGroup(groupKey) {
   return matches;
 }
 
-function _buildBoundaryState(effect, flags, { combat = null, worldTime = 0, casterTurnIndex = null } = {}) {
-  const d = effect?.duration ?? {};
-  const rounds = _num(flags?.durationRounds, _num(d.rounds, 0));
-  if (combat?.id && rounds > 0) {
-    const startRound = _num(flags?.durationStartRound, _num(d.startRound, 0));
-    const startTurn = _num(flags?.durationStartTurn, _num(d.startTurn, 0));
-    const endTurn = Number.isFinite(Number(casterTurnIndex)) ? _num(casterTurnIndex, startTurn) : startTurn;
-    return {
-      mode: "combat",
-      endRound: startRound + rounds,
-      endTurn,
-      expiredAtWorldTime: _num(worldTime, 0),
-      expiredAtCombatRound: _num(combat.round, 0)
-    };
+function _resolveOriginEffectFor(effect, flags = null) {
+  const f = flags ?? effect?.flags?.[_FLAG_NS] ?? {};
+  if (f?.isOriginAE) return effect;
+
+  const byUuid = String(f?.originAEUuid ?? "").trim();
+  if (byUuid) {
+    const resolved = resolveUuidSync(byUuid);
+    if (resolved?.documentName === "ActiveEffect") return resolved;
   }
 
-  const seconds = _num(flags?.durationSeconds, _num(d.seconds, 0));
-  const startTime = _num(flags?.durationStartTime, _num(d.startTime, 0));
+  const parent = effect?.parent ?? null;
+  const byId = String(f?.originAEId ?? "").trim();
+  if (parent?.effects && byId) {
+    const resolved = safeGetEffect(parent, byId);
+    if (resolved?.documentName === "ActiveEffect") return resolved;
+  }
+
+  const byGroup = findOriginAEByGroupKey(f?.upkeepGroupKey);
+  return byGroup?.documentName === "ActiveEffect" ? byGroup : null;
+}
+
+function _graceExtensionFor(effect) {
+  const duration = effect?.duration ?? {};
+  const units = String(duration.units ?? "").trim();
+  const current = _num(duration.value, 0);
+  if (!(current > 0)) return null;
+
+  const roundSeconds = Math.max(1, _num(MagicTimekeeping.roundTimeSeconds(), 6));
+  const unitSeconds = {
+    seconds: 1,
+    minutes: 60,
+    hours: 3600,
+    days: 86400,
+    months: 2592000,
+    years: 31536000
+  };
+  const increment = units === "rounds" || units === "turns"
+    ? 1
+    : (roundSeconds / (unitSeconds[units] ?? roundSeconds));
+
   return {
-    mode: "realtime",
-    endTime: (seconds > 0 && startTime > 0) ? (startTime + seconds) : _num(worldTime, 0),
-    expiredAtWorldTime: _num(worldTime, 0),
-    expiredAtCombatRound: combat ? _num(combat.round, 0) : -1
+    "duration.value": current + increment,
+    "duration.units": units,
+    "duration.expiry": duration.expiry ?? null
   };
 }
 
-async function _markGroupAwaitingUpkeep(originEffect, originActor, boundaryState) {
+function _awaitingGraceExpired(effect, context = {}) {
+  const flags = effect?.flags?.[_FLAG_NS] ?? {};
+  if (!flags?.upkeepAwaiting) return false;
+
+  const mode = String(flags?.upkeepBoundaryMode ?? "").trim();
+  if (mode === "combat") {
+    const expiredRound = _num(flags?.expiredAtCombatRound, -1);
+    const currentRound = _num(context?.combat?.round ?? game?.combat?.round, 0);
+    return expiredRound >= 0 && (currentRound - expiredRound) >= 1;
+  }
+
+  const expiredAt = _num(flags?.expiredAtWorldTime, 0);
+  const worldTime = _num(context?.worldTime, MagicTimekeeping.nowWorldTimeSeconds());
+  return expiredAt > 0 && (worldTime - expiredAt) > Math.max(1, _num(MagicTimekeeping.roundTimeSeconds(), 6));
+}
+
+async function _deleteEffectDirect(effect, reason = "expired spell effect") {
+  const parent = effect?.parent;
+  if (!parent || !effect?.id) return false;
+  return safeDeleteEmbeddedDocument(parent, "ActiveEffect", effect.id, {
+    context: `UESRPG | spell-effect-expiration | ${reason}`,
+    deleteOptions: { uesrpgExpirationSweep: true }
+  });
+}
+
+async function _deleteOriginCascade(originEffect) {
+  if (!originEffect?.id) return false;
+  return cancelOriginAEUpkeep(originEffect);
+}
+
+export async function deleteSpellEffectWithLifecycle(effect, { reason = "spell effect lifecycle delete" } = {}) {
+  if (!effect?.id) return false;
+  const flags = effect?.flags?.[_FLAG_NS] ?? {};
+
+  if (_isSystemSpellEffect(effect)) {
+    const origin = _resolveOriginEffectFor(effect, flags);
+    if (origin?.id) return _deleteOriginCascade(origin);
+  }
+
+  return _deleteEffectDirect(effect, reason);
+}
+
+function _promptContextFromNativeBoundary(event, context) {
+  const units = String(context?.units ?? "");
+  if (units === "rounds" || units === "turns" || String(event).toLowerCase().includes("round") || String(event).toLowerCase().includes("turn")) {
+    return {
+      mode: "combat",
+      endRound: _num(context?.round, _num(game?.combat?.round, 0)),
+      endTurn: _num(context?.turn, _num(game?.combat?.turn, 0)),
+      atWorldTime: _num(context?.worldTime, MagicTimekeeping.nowWorldTimeSeconds())
+    };
+  }
+  return {
+    mode: "realtime",
+    endTime: _num(context?.worldTime, MagicTimekeeping.nowWorldTimeSeconds()),
+    atWorldTime: _num(context?.worldTime, MagicTimekeeping.nowWorldTimeSeconds())
+  };
+}
+
+async function _markGroupAwaitingUpkeep(originEffect, event, context) {
   const originFlags = originEffect?.flags?.[_FLAG_NS] ?? {};
   const groupKey = String(originFlags?.upkeepGroupKey ?? "").trim();
-  if (!originEffect?.id || !originActor?.id || !groupKey) return false;
+  if (!groupKey) return false;
+
+  const promptContext = _promptContextFromNativeBoundary(event, {
+    ...context,
+    units: originEffect?.duration?.units
+  });
+  const promptSignature = promptContext.mode === "combat"
+    ? `cb:${promptContext.endRound}:${promptContext.endTurn}`
+    : `rt:${promptContext.endTime}`;
+
+  if (originFlags.upkeepAwaiting && String(originFlags.upkeepPromptSignature ?? "") === promptSignature) return false;
 
   const matches = await _collectEffectsForGroup(groupKey);
   if (!matches.length) return false;
 
-  const promptSignature = boundaryState.mode === "combat"
-    ? `cb:${_num(boundaryState.endRound, 0)}:${_num(boundaryState.endTurn, 0)}`
-    : `rt:${_num(boundaryState.endTime, 0)}`;
-  const alreadyAwaiting = Boolean(originFlags?.upkeepAwaiting);
-  const alreadySignature = String(originFlags?.upkeepPromptSignature ?? "");
-  if (alreadyAwaiting && alreadySignature === promptSignature) return false;
-
   for (const match of matches) {
-    const live = safeGetEffect(match.actor, match.effect?.id);
-    if (!live) continue;
+    const extension = _graceExtensionFor(match.effect) ?? {};
     const updates = {
+      ...extension,
       disabled: !Boolean(match.flags?.isOriginAE),
       [`flags.${_FLAG_NS}.upkeepAwaiting`]: true,
-      [`flags.${_FLAG_NS}.expiredAtWorldTime`]: boundaryState.expiredAtWorldTime,
-      [`flags.${_FLAG_NS}.expiredAtCombatRound`]: boundaryState.expiredAtCombatRound,
-      [`flags.${_FLAG_NS}.upkeepBoundaryMode`]: boundaryState.mode,
-      [`flags.${_FLAG_NS}.upkeepBoundaryEndTime`]: boundaryState.mode === "realtime" ? _num(boundaryState.endTime, 0) : null,
-      [`flags.${_FLAG_NS}.upkeepBoundaryEndRound`]: boundaryState.mode === "combat" ? _num(boundaryState.endRound, 0) : null,
-      [`flags.${_FLAG_NS}.upkeepBoundaryEndTurn`]: boundaryState.mode === "combat" ? _num(boundaryState.endTurn, 0) : null,
+      [`flags.${_FLAG_NS}.upkeepPendingNativeExtension`]: null,
+      [`flags.${_FLAG_NS}.upkeepPendingGraceExtension`]: Boolean(Object.keys(extension).length),
+      [`flags.${_FLAG_NS}.expiredAtWorldTime`]: promptContext.atWorldTime,
+      [`flags.${_FLAG_NS}.expiredAtCombatRound`]: promptContext.mode === "combat" ? promptContext.endRound : -1,
+      [`flags.${_FLAG_NS}.upkeepBoundaryMode`]: promptContext.mode,
+      [`flags.${_FLAG_NS}.upkeepBoundaryEndTime`]: promptContext.mode === "realtime" ? promptContext.endTime : null,
+      [`flags.${_FLAG_NS}.upkeepBoundaryEndRound`]: promptContext.mode === "combat" ? promptContext.endRound : null,
+      [`flags.${_FLAG_NS}.upkeepBoundaryEndTurn`]: promptContext.mode === "combat" ? promptContext.endTurn : null,
       [`flags.${_FLAG_NS}.upkeepPromptSignature`]: promptSignature
     };
-    await _updateEffect(live, updates);
+    await _updateEffect(match.effect, updates);
   }
 
+  const { ensureUpkeepPromptForGroup } = await import("../upkeep-workflow.js");
+  await ensureUpkeepPromptForGroup(groupKey, promptContext);
+  _anchorDebug("Upkeep spell moved to awaiting state before v14 registry refresh", {
+    groupKey,
+    spellName: originFlags.spellName ?? originEffect.name,
+    event,
+    promptSignature
+  });
   return true;
 }
 
-async function _promptAwaitingUpkeep(originEffect, boundaryState) {
-  const groupKey = String(originEffect?.flags?.[_FLAG_NS]?.upkeepGroupKey ?? "").trim();
-  if (!groupKey) return false;
-  const { ensureUpkeepPromptForGroup } = await import("../upkeep-workflow.js");
-  const promptContext = boundaryState.mode === "combat"
-    ? {
-        mode: "combat",
-        endRound: _num(boundaryState.endRound, 0),
-        endTurn: _num(boundaryState.endTurn, 0),
-        atWorldTime: _num(boundaryState.expiredAtWorldTime, MagicTimekeeping.nowWorldTimeSeconds())
-      }
-    : {
-        mode: "realtime",
-        endTime: _num(boundaryState.endTime, 0),
-        atWorldTime: _num(boundaryState.expiredAtWorldTime, MagicTimekeeping.nowWorldTimeSeconds())
-      };
-  return ensureUpkeepPromptForGroup(groupKey, promptContext);
-}
-
-async function _expireSpellEffects({ nowTime } = {}) {
+async function _processUpkeepPreExpiry(event, context) {
   if (!game.user?.isGM) return;
-
-  const worldTime = _num(nowTime, MagicTimekeeping.nowWorldTimeSeconds());
-  const combat = game.combat ?? null;
-  const rt = _num(MagicTimekeeping.roundTimeSeconds(), 6);
-
   for (const actor of _getTrackedActors()) {
     _reconcileTrackedActor(actor);
-    const actorId = _actorId(actor);
-    const effectIds = Array.from(_trackedSpellEffects.get(actorId) ?? []);
+    for (const effect of (actor.effects ?? [])) {
+      const flags = effect?.flags?.[_FLAG_NS] ?? {};
+      if (!_isSystemSpellEffect(effect) || !flags?.hasUpkeep) continue;
+      if (flags?.upkeepAwaiting) continue;
+      if (!_effectReadyToExpire(effect, event, context)) continue;
 
-    for (const effectId of effectIds) {
-      const effect = safeGetEffect(actor, effectId);
-      if (!effect) {
-        _untrackActorEffect(actorId, effectId);
+      const origin = flags?.isOriginAE ? effect : findOriginAEByGroupKey(flags.upkeepGroupKey);
+      if (!origin?.id) {
+        await _deleteEffectDirect(effect, "orphan upkeep target expiry");
         continue;
       }
-      if (!_isSystemSpellEffect(effect)) {
-        _untrackActorEffect(actorId, effectId);
-        continue;
-      }
-
-      const flags = effect.flags?.[_FLAG_NS] ?? {};
-      const hasUpkeep = Boolean(flags?.hasUpkeep);
-
-      const d = effect?.duration ?? {};
-      const rounds = _num(flags?.durationRounds, _num(d.rounds, 0));
-      const combatTracked = Boolean(combat?.id) && (rounds > 0);
-      const casterTurnIndex = hasUpkeep ? _getCasterCombatTurnIndex(combat, effect) : null;
-      const expired = combatTracked
-        ? _isExpiredByCombat(effect, combat, { inclusive: hasUpkeep, endTurnOverride: casterTurnIndex })
-        : _isExpiredByWorldTime(effect, worldTime);
-      if (!expired) continue;
-
-      if (!hasUpkeep) {
-        await _deleteEffectOnActor(actor, effect, worldTime);
-        continue;
-      }
-
-      const expiredAt = _num(flags?.expiredAtWorldTime, 0);
-      const expiredAtRound = _num(flags?.expiredAtCombatRound, -1);
-      const upkeepGraceWindow = rt;
-      const groupKey = String(flags?.upkeepGroupKey ?? "").trim();
-      const originEffect = Boolean(flags?.isOriginAE) ? effect : findOriginAEByGroupKey(groupKey);
-      const originActor = originEffect?.parent ?? null;
-      const originFlags = originEffect?.flags?.[_FLAG_NS] ?? {};
-      const awaiting = Boolean(originFlags?.upkeepAwaiting);
-
-      if (awaiting) {
-        let graceExpired = false;
-        const authoritativeExpiredAt = _num(originFlags?.expiredAtWorldTime, expiredAt);
-        const authoritativeExpiredAtRound = _num(originFlags?.expiredAtCombatRound, expiredAtRound);
-        if (combat && authoritativeExpiredAtRound >= 0) {
-          const currentRound = _num(combat.round, 0);
-          graceExpired = (currentRound - authoritativeExpiredAtRound) >= 1;
-        } else if (authoritativeExpiredAt > 0) {
-          graceExpired = (worldTime - authoritativeExpiredAt) > upkeepGraceWindow;
-        }
-
-        if (!graceExpired) continue;
-
-        if (originEffect?.id) {
-          const { cancelOriginAEUpkeep } = await import("./origin-effect.js");
-          await cancelOriginAEUpkeep(originEffect);
-          continue;
-        }
-        await _deleteEffectOnActor(actor, effect, worldTime);
-        continue;
-      }
-
-      if (originEffect?.id && originActor?.id) {
-        const boundaryState = _buildBoundaryState(originEffect, originFlags, {
-          combat,
-          worldTime,
-          casterTurnIndex
-        });
-        _anchorDebug("Marking upkeep spell instance as awaiting", {
-          effect: effect?.name ?? null,
-          origin: originEffect?.name ?? null,
-          actor: actor?.name ?? null,
-          originActor: originActor?.name ?? null,
-          round: combat?.round ?? null,
-          turn: combat?.turn ?? null,
-          groupKey
-        });
-        const transitioned = await _markGroupAwaitingUpkeep(originEffect, originActor, boundaryState);
-        if (transitioned) await _promptAwaitingUpkeep(originEffect, boundaryState);
-        continue;
-      }
+      await _markGroupAwaitingUpkeep(origin, event, context);
     }
-
-    if (!_hasTrackedEffects(actorId)) _dropActor(actorId);
   }
 }
 
-async function _ensureCombatStartMarkers(effect, combat) {
-  try {
-    if (!effect || !combat) return;
-    const d = effect.duration ?? {};
-    const rounds = _num(d.rounds, 0);
-    if (!(rounds > 0)) return;
-
-    const sr = d.startRound;
-    const st = d.startTurn;
-    const hasMarkers = (sr !== null && sr !== undefined) && (st !== null && st !== undefined);
-    if (hasMarkers) return;
-
-    await _updateEffect(effect, {
-      "duration.combat": combat.id,
-      "duration.startRound": _num(combat.round, 0),
-      "duration.startTurn": _num(combat.turn, 0)
-    });
-  } catch (_e) {
-    // no-op
-  }
-}
-
-async function _refreshCombatBinding() {
+async function _processAwaitingUpkeepGrace(context) {
   if (!game.user?.isGM) return;
-  const combat = game.combat;
-  if (!combat?.id) return;
-
+  const handledOrigins = new Set();
   for (const actor of _getTrackedActors()) {
     _reconcileTrackedActor(actor);
-    const actorId = _actorId(actor);
-    const effectIds = Array.from(_trackedSpellEffects.get(actorId) ?? []);
+    for (const effect of (actor.effects ?? [])) {
+      const flags = effect?.flags?.[_FLAG_NS] ?? {};
+      if (!_isSystemSpellEffect(effect) || !flags?.hasUpkeep || !flags?.upkeepAwaiting) continue;
+      if (!_awaitingGraceExpired(effect, context)) continue;
 
-    for (const effectId of effectIds) {
-      const effect = safeGetEffect(actor, effectId);
-      if (!effect) {
-        _untrackActorEffect(actorId, effectId);
-        continue;
+      const origin = _resolveOriginEffectFor(effect, flags);
+      if (origin?.id) {
+        const key = String(origin.uuid ?? origin.id);
+        if (handledOrigins.has(key)) continue;
+        handledOrigins.add(key);
+        await _deleteOriginCascade(origin);
+      } else {
+        await _deleteEffectDirect(effect, "unresolved upkeep grace expiry");
       }
-      if (!_isSystemSpellEffect(effect)) {
-        _untrackActorEffect(actorId, effectId);
-        continue;
-      }
-
-      const flags = effect.flags?.[_FLAG_NS] ?? {};
-      const d = effect.duration ?? {};
-      const rounds = _num(flags?.durationRounds, _num(d.rounds, 0));
-      if (!(rounds > 0)) continue;
-      if (_isExpiredByCombat(effect, combat, { inclusive: Boolean(flags?.hasUpkeep) })) continue;
-
-      if (String(d.combat ?? "") !== String(combat.id)) {
-        await _updateEffect(effect, {
-          "duration.combat": combat.id,
-          "duration.startRound": _num(combat.round, 0),
-          "duration.startTurn": _num(combat.turn, 0)
-        });
-      }
-      await _ensureCombatStartMarkers(effect, combat);
     }
-
-    if (!_hasTrackedEffects(actorId)) _dropActor(actorId);
   }
+}
+
+async function _refreshRegistry(event, context) {
+  const registry = CONFIG?.ActiveEffect?.documentClass?.registry ?? foundry?.documents?.ActiveEffect?.registry ?? null;
+  if (typeof registry?.refresh !== "function") return;
+  await registry.refresh(event, _registryContextFrom(context));
+}
+
+async function _handleNativeBoundary(event, context) {
+  await _processAwaitingUpkeepGrace(context);
+  await _processUpkeepPreExpiry(event, context);
+  await _refreshRegistry(event, context);
+  await cleanupExpiredSpellEffects({ actors: _getTrackedActors(), context, source: `registry:${event}` });
 }
 
 function _registerTrackingHooks() {
   Hooks.on("createActiveEffect", (effect) => {
     if (!game.user?.isGM) return;
     const actor = effect?.parent;
-    if (!actor || actor.documentName !== "Actor") return;
-    _trackEffectIfRelevant(actor, effect);
+    if (actor?.documentName !== "Actor") return;
+    _trackActorEffect(actor, effect);
   });
 
   Hooks.on("updateActiveEffect", (effect) => {
     if (!game.user?.isGM) return;
     const actor = effect?.parent;
-    if (!actor || actor.documentName !== "Actor") return;
-
+    if (actor?.documentName !== "Actor") return;
     if (_isSystemSpellEffect(effect)) _trackActorEffect(actor, effect);
     else _untrackActorEffect(actor?.id, effect?.id);
   });
 
   Hooks.on("deleteActiveEffect", (effect) => {
     if (!game.user?.isGM) return;
-    const actor = effect?.parent;
-    _untrackActorEffect(actor?.id, effect?.id);
+    _untrackActorEffect(effect?.parent?.id, effect?.id);
   });
 }
 
@@ -525,7 +394,19 @@ async function _handleCombatBoundaryExpiration(payload) {
   if (!game.user?.isGM) return;
   if (payload?.source !== "combat") return;
   if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-  await _expireSpellEffects({ nowTime: _num(payload?.worldTime, MagicTimekeeping.nowWorldTimeSeconds()) });
+  const combat = game.combat ?? payload?.combat ?? null;
+  if (!combat?.id) return;
+
+  const context = _contextForEvent("turnEnd", {
+    combat,
+    worldTime: _num(payload?.worldTime, MagicTimekeeping.nowWorldTimeSeconds())
+  });
+  await _handleNativeBoundary("turnEnd", context);
+  await _handleNativeBoundary("turnStart", _contextForEvent("turnStart", context));
+  if (payload?.combat?.prior?.round !== undefined && _num(payload.combat.prior.round, 0) !== _num(combat.round, 0)) {
+    await _handleNativeBoundary("roundEnd", _contextForEvent("roundEnd", context));
+    await _handleNativeBoundary("roundStart", _contextForEvent("roundStart", context));
+  }
 }
 
 export function initializeSpellEffectExpirationSystem() {
@@ -536,8 +417,9 @@ export function initializeSpellEffectExpirationSystem() {
   _registerTrackingHooks();
 
   MagicTimekeeping.onTimeChange(async ({ worldTime } = {}) => {
+    if (!game.user?.isGM) return;
     if (game.combat) return;
-    await _expireSpellEffects({ nowTime: worldTime });
+    await _handleNativeBoundary("worldTime", _contextForEvent("worldTime", { worldTime }));
   });
 
   registerCombatBoundaryConsumer({
@@ -551,17 +433,69 @@ export function initializeSpellEffectExpirationSystem() {
     await _handleCombatBoundaryExpiration(payload);
   });
 
-  Hooks.on("createCombat", async () => {
-    await _refreshCombatBinding();
+  Hooks.on("createCombat", async (combat) => {
     if (!game.user?.isGM) return;
-    await _expireSpellEffects({ nowTime: MagicTimekeeping.nowWorldTimeSeconds() });
+    await _handleNativeBoundary("combatStart", _contextForEvent("combatStart", { combat: combat ?? game.combat }));
+  });
+
+  Hooks.on("deleteCombat", async (combat) => {
+    if (!game.user?.isGM) return;
+    await _handleNativeBoundary("combatEnd", _contextForEvent("combatEnd", { combat }));
   });
 }
 
+export async function cleanupExpiredSpellEffects({ actors = null, context = null, source = "maintenance" } = {}) {
+  if (!game.user?.isGM) return { checked: 0, deleted: 0 };
+
+  const actorList = actors
+    ? Array.from(actors)
+    : (MagicTimekeeping.relevantActorsArray?.() ?? []);
+  let checked = 0;
+  let deleted = 0;
+  const handledOrigins = new Set();
+  const targetDeletes = [];
+
+  for (const actor of actorList) {
+    if (!actor?.effects) continue;
+    _reconcileTrackedActor(actor);
+    for (const effect of (actor.effects ?? [])) {
+      if (!_isDeleteActionSpellEffect(effect)) continue;
+      checked += 1;
+      if (!_isExpired(effect)) continue;
+
+      const flags = effect.flags?.[_FLAG_NS] ?? {};
+      if (flags?.hasUpkeep && flags?.upkeepAwaiting && !_awaitingGraceExpired(effect, context ?? {})) continue;
+
+      const origin = _resolveOriginEffectFor(effect, flags);
+      if (origin?.id) {
+        const key = String(origin.uuid ?? origin.id);
+        if (handledOrigins.has(key)) continue;
+        handledOrigins.add(key);
+        if (await _deleteOriginCascade(origin)) deleted += 1;
+        continue;
+      }
+
+      if (!flags?.isOriginAE) targetDeletes.push(effect);
+    }
+  }
+
+  for (const effect of targetDeletes) {
+    if (await _deleteEffectDirect(effect, source)) deleted += 1;
+  }
+
+  if (deleted > 0) _anchorDebug("Cleaned expired spell effects", { source, checked, deleted });
+  return { checked, deleted };
+}
+
 export function isEffectExpiredByWorldTime(effect, nowTime) {
-  return _isExpiredByWorldTime(effect, nowTime);
+  const prepared = typeof effect?.updateDuration === "function"
+    ? effect.updateDuration({ worldTime: _num(nowTime, MagicTimekeeping.nowWorldTimeSeconds()) })
+    : effect?.duration;
+  return Number(prepared?.remaining ?? 1) <= 0;
 }
 
 export function isEffectExpiredByCombat(effect, combat, options = {}) {
-  return _isExpiredByCombat(effect, combat, options);
+  const event = options?.event ?? effect?.duration?.expiry ?? "turnEnd";
+  const context = _contextForEvent(event, { combat: combat ?? game?.combat ?? null });
+  return _effectReadyToExpire(effect, event, context);
 }

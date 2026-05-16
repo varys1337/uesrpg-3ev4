@@ -273,6 +273,38 @@ export function normalizeItemFormData(item, formData) {
   // 4. Damage Instances normalization (spells)
   // ──────────────────────────────────────────────────────────────
   if (itemType === "spell") {
+    const rrPrefix = "system.engine.resourceRestore.";
+    const rrTouched = Object.keys(formData).some((key) => key.startsWith(rrPrefix));
+    if (rrTouched) {
+      const existing = item?.system?.engine?.resourceRestore ?? {};
+      const rawKind = String(formData[`${rrPrefix}kind`] ?? existing.kind ?? "restoreResource").trim();
+      const rawResource = String(formData[`${rrPrefix}resource`] ?? existing.resource ?? "hp").trim().toLowerCase();
+      const rawTarget = String(formData[`${rrPrefix}target`] ?? existing.target ?? "target").trim().toLowerCase();
+      const rawCapMode = String(formData[`${rrPrefix}capMode`] ?? existing.capMode ?? "none").trim();
+      const rawLevels = Number(formData[`${rrPrefix}removeFatigueLevels`] ?? existing.removeFatigueLevels ?? 1);
+      const validKinds = new Set(["restoreResource", "restoreStaminaOrRemoveFatigue"]);
+      const validResources = new Set(["hp", "magicka", "stamina"]);
+      const validTargets = new Set(["target", "self"]);
+      const validCapModes = new Set(["none", "castingCost", "custom"]);
+
+      formData[`${rrPrefix}enabled`] = formData[`${rrPrefix}enabled`] === true
+        || formData[`${rrPrefix}enabled`] === "true"
+        || formData[`${rrPrefix}enabled`] === "on"
+        || formData[`${rrPrefix}enabled`] === 1
+        || formData[`${rrPrefix}enabled`] === "1";
+      formData[`${rrPrefix}kind`] = validKinds.has(rawKind) ? rawKind : "restoreResource";
+      formData[`${rrPrefix}resource`] = validResources.has(rawResource) ? rawResource : "hp";
+      formData[`${rrPrefix}target`] = validTargets.has(rawTarget) ? rawTarget : "target";
+      formData[`${rrPrefix}amount`] = String(formData[`${rrPrefix}amount`] ?? existing.amount ?? "SS").trim() || "SS";
+      formData[`${rrPrefix}capMode`] = validCapModes.has(rawCapMode) ? rawCapMode : "none";
+      formData[`${rrPrefix}cap`] = String(formData[`${rrPrefix}cap`] ?? existing.cap ?? "COST").trim() || "COST";
+      formData[`${rrPrefix}removeFatigueLevels`] = Number.isFinite(rawLevels) && rawLevels > 0 ? Math.floor(rawLevels) : 1;
+      formData[`${rrPrefix}chat`] = formData[`${rrPrefix}chat`] !== false
+        && formData[`${rrPrefix}chat`] !== "false"
+        && formData[`${rrPrefix}chat`] !== 0
+        && formData[`${rrPrefix}chat`] !== "0";
+    }
+
     const defenseModelKey = "system.engine.defenseModel";
     if (Object.prototype.hasOwnProperty.call(formData, defenseModelKey)) {
       const rawDefenseModel = String(formData[defenseModelKey] ?? "").trim();
@@ -498,14 +530,15 @@ export function normalizeItemFormData(item, formData) {
             payloadType: String(e.payloadType ?? "damage"),
             formula: String(e.formula ?? "1d6"),
             damageType: String(e.damageType ?? "fire"),
+            ignoreReduction: e.ignoreReduction === true || e.ignoreReduction === "true" || e.ignoreReduction === "on" || e.ignoreReduction === 1 || e.ignoreReduction === "1",
             saveKey: String(e.saveKey ?? ""),
             saveTN: Number(e.saveTN) || 0,
             saveSuccess: String(e.saveSuccess ?? "endEffect"),
-            saveFailure: String(e.saveFailure ?? "damage"),
+            saveFailure: String(e.saveFailure ?? e.saeFailure ?? "damage"),
             maxTicks:
               e.maxTicks != null && e.maxTicks !== "" ? Number(e.maxTicks) || null : null,
             label: String(e.label ?? ""),
-            chatLog: e.chatLog !== false && e.chatLog !== "false",
+            chatLog: e.chatLog === true || e.chatLog === "true" || e.chatLog === "on" || e.chatLog === 1 || e.chatLog === "1",
           };
         });
     }

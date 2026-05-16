@@ -540,6 +540,58 @@
               {{/if}}
             </section>
 
+            {{!-- Module: Resource Restoration --}}
+            <section class="spell-module-panel {{#if spellEngine.resourceRestore.enabled}}spell-module-panel--expanded{{/if}}">
+              <h4 class="spell-module-title"><i class="fas fa-hand-holding-medical"></i> Resource Restoration</h4>
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.engine.resourceRestore.enabled" {{checked spellEngine.resourceRestore.enabled}} data-spell-structure /> Restore current resource pool</label>
+              </div>
+              {{#if spellEngine.resourceRestore.enabled}}
+              <div class="spell-row">
+                <label class="spell-label">Mode</label>
+                <select name="system.engine.resourceRestore.kind" class="spell-input spell-input-med" data-spell-structure>
+                  {{selectOptions resourceRestoreKindOptions selected=spellEngine.resourceRestore.kind}}
+                </select>
+                <label class="spell-label spell-label-sm">Target</label>
+                <select name="system.engine.resourceRestore.target" class="spell-input spell-input-sm">
+                  {{selectOptions resourceRestoreTargetOptions selected=spellEngine.resourceRestore.target}}
+                </select>
+              </div>
+
+              {{#if (eq spellEngine.resourceRestore.kind "restoreResource")}}
+              <div class="spell-row">
+                <label class="spell-label">Resource</label>
+                <select name="system.engine.resourceRestore.resource" class="spell-input spell-input-med">
+                  {{selectOptions resourceRestoreResourceOptions selected=spellEngine.resourceRestore.resource}}
+                </select>
+                <label class="spell-label spell-label-sm">Amount</label>
+                <input type="text" name="system.engine.resourceRestore.amount" value="{{spellEngine.resourceRestore.amount}}" placeholder="SS" class="spell-input spell-input-sm" />
+              </div>
+              <div class="spell-row">
+                <label class="spell-label">Cap</label>
+                <select name="system.engine.resourceRestore.capMode" class="spell-input spell-input-med" data-spell-structure>
+                  {{selectOptions resourceRestoreCapModeOptions selected=spellEngine.resourceRestore.capMode}}
+                </select>
+                {{#if (eq spellEngine.resourceRestore.capMode "custom")}}
+                <input type="text" name="system.engine.resourceRestore.cap" value="{{spellEngine.resourceRestore.cap}}" placeholder="COST" class="spell-input spell-input-sm" />
+                {{/if}}
+              </div>
+              {{else}}
+              <div class="spell-row">
+                <label class="spell-label">Fatigue</label>
+                <input type="number" name="system.engine.resourceRestore.removeFatigueLevels" value="{{spellEngine.resourceRestore.removeFatigueLevels}}" min="1" class="spell-input spell-input-xs" />
+                <label class="spell-label spell-label--offset">SP Amount</label>
+                <input type="text" name="system.engine.resourceRestore.amount" value="{{spellEngine.resourceRestore.amount}}" placeholder="SS" class="spell-input spell-input-sm" />
+              </div>
+              {{/if}}
+
+              <div class="spell-row spell-row-checks">
+                <label class="spell-check"><input type="checkbox" name="system.engine.resourceRestore.chat" {{checked spellEngine.resourceRestore.chat}} /> Post chat summary</label>
+              </div>
+              <p class="spell-hint">Supports SS, COST, LEVEL, arithmetic, min(a,b), and max(a,b). Values are clamped to the target's current maximum.</p>
+              {{/if}}
+            </section>
+
             {{!-- Module: Cloak (Aura) --}}
             <section class="spell-module-panel {{#if spellEngine.cloak.enabled}}spell-module-panel--expanded{{/if}}">
               <h4 class="spell-module-title"><i class="fas fa-spinner"></i> Cloak (Aura)</h4>
@@ -631,7 +683,7 @@
                 </legend>
                 <div class="spell-row">
                   <label class="spell-label">Trigger</label>
-                  <select name="system.overTimeEntries.{{idx}}.trigger" class="spell-input spell-input-med">
+                  <select name="system.overTimeEntries.{{idx}}.trigger" class="spell-input spell-input-med" data-spell-autosave>
                     <option value="turnStart" {{#if (eq ot.trigger "turnStart")}}selected{{/if}}>Turn Start</option>
                     <option value="turnEnd" {{#if (eq ot.trigger "turnEnd")}}selected{{/if}}>Turn End</option>
                     <option value="roundStart" {{#if (eq ot.trigger "roundStart")}}selected{{/if}}>Round Start</option>
@@ -639,13 +691,13 @@
                     <option value="worldTime" {{#if (eq ot.trigger "worldTime")}}selected{{/if}}>World Time</option>
                   </select>
                   <label class="spell-label spell-label-sm">Every</label>
-                  <input type="number" name="system.overTimeEntries.{{idx}}.cadenceEvery" value="{{ot.cadenceEvery}}" min="1" class="spell-input spell-input-xs" />
-                  <select name="system.overTimeEntries.{{idx}}.cadenceUnit" class="spell-input spell-input-sm">
+                  <input type="number" name="system.overTimeEntries.{{idx}}.cadenceEvery" value="{{ot.cadenceEvery}}" min="1" class="spell-input spell-input-xs" data-spell-autosave />
+                  <select name="system.overTimeEntries.{{idx}}.cadenceUnit" class="spell-input spell-input-sm" data-spell-autosave>
                     <option value="rounds" {{#if (eq ot.cadenceUnit "rounds")}}selected{{/if}}>Rounds</option>
                     <option value="seconds" {{#if (eq ot.cadenceUnit "seconds")}}selected{{/if}}>Seconds</option>
                   </select>
                   <label class="spell-label spell-label-sm">Max</label>
-                  <input type="number" name="system.overTimeEntries.{{idx}}.maxTicks" value="{{ot.maxTicks}}" min="0" placeholder="∞" class="spell-input spell-input-xs" />
+                  <input type="number" name="system.overTimeEntries.{{idx}}.maxTicks" value="{{ot.maxTicks}}" min="0" placeholder="∞" class="spell-input spell-input-xs" data-spell-autosave />
                 </div>
                 <div class="spell-row">
                   <label class="spell-label">Payload</label>
@@ -656,18 +708,18 @@
                     <option value="saveThenApply" {{#if (eq ot.payloadType "saveThenApply")}}selected{{/if}}>Save Then Apply</option>
                   </select>
                   <label class="spell-label spell-label-sm">Formula</label>
-                  <input type="text" name="system.overTimeEntries.{{idx}}.formula" value="{{ot.formula}}" placeholder="1d6" class="spell-input spell-input-sm" />
+                  <input type="text" name="system.overTimeEntries.{{idx}}.formula" value="{{ot.formula}}" placeholder="1d6" class="spell-input spell-input-sm" data-spell-autosave />
                   <label class="spell-label spell-label-sm">Dmg Type</label>
-                  <select name="system.overTimeEntries.{{idx}}.damageType" class="spell-input spell-input-sm">
+                  <select name="system.overTimeEntries.{{idx}}.damageType" class="spell-input spell-input-sm" data-spell-autosave>
                     {{selectOptions @root.item.system.damageTypes selected=ot.damageType}}
                   </select>
-                  <label class="spell-check"><input type="checkbox" name="system.overTimeEntries.{{idx}}.ignoreReduction" {{checked ot.ignoreReduction}} /> Ignore Reduction</label>
+                  <label class="spell-check"><input type="checkbox" name="system.overTimeEntries.{{idx}}.ignoreReduction" {{checked ot.ignoreReduction}} data-spell-autosave /> Ignore Reduction</label>
                 </div>
 
                 {{#if (eq ot.payloadType "saveThenApply")}}
                 <div class="spell-row">
                   <label class="spell-label">Save</label>
-                  <select name="system.overTimeEntries.{{idx}}.saveKey" class="spell-input spell-input-sm">
+                  <select name="system.overTimeEntries.{{idx}}.saveKey" class="spell-input spell-input-sm" data-spell-autosave>
                     <option value="str" {{#if (eq ot.saveKey "str")}}selected{{/if}}>STR</option>
                     <option value="end" {{#if (eq ot.saveKey "end")}}selected{{/if}}>END</option>
                     <option value="agi" {{#if (eq ot.saveKey "agi")}}selected{{/if}}>AGI</option>
@@ -678,15 +730,15 @@
                     <option value="lck" {{#if (eq ot.saveKey "lck")}}selected{{/if}}>LCK</option>
                   </select>
                   <label class="spell-label spell-label-sm">TN</label>
-                  <input type="number" name="system.overTimeEntries.{{idx}}.saveTN" value="{{ot.saveTN}}" min="0" class="spell-input spell-input-xs" />
+                  <input type="number" name="system.overTimeEntries.{{idx}}.saveTN" value="{{ot.saveTN}}" min="0" class="spell-input spell-input-xs" data-spell-autosave />
                   <label class="spell-label spell-label-sm">Pass</label>
-                  <select name="system.overTimeEntries.{{idx}}.saveSuccess" class="spell-input spell-input-sm">
+                  <select name="system.overTimeEntries.{{idx}}.saveSuccess" class="spell-input spell-input-sm" data-spell-autosave>
                     <option value="endEffect" {{#if (eq ot.saveSuccess "endEffect")}}selected{{/if}}>End Effect</option>
                     <option value="halve" {{#if (eq ot.saveSuccess "halve")}}selected{{/if}}>Halve Dmg</option>
                     <option value="negate" {{#if (eq ot.saveSuccess "negate")}}selected{{/if}}>Negate</option>
                   </select>
                   <label class="spell-label spell-label-sm">Fail</label>
-                  <select name="system.overTimeEntries.{{idx}}.saveFailure" class="spell-input spell-input-sm">
+                  <select name="system.overTimeEntries.{{idx}}.saveFailure" class="spell-input spell-input-sm" data-spell-autosave>
                     <option value="damage" {{#if (eq ot.saveFailure "damage")}}selected{{/if}}>Damage</option>
                     <option value="condition" {{#if (eq ot.saveFailure "condition")}}selected{{/if}}>Condition</option>
                   </select>
@@ -695,8 +747,8 @@
 
                 <div class="spell-row">
                   <label class="spell-label">Label</label>
-                  <input type="text" name="system.overTimeEntries.{{idx}}.label" value="{{ot.label}}" placeholder="e.g. Burning, Poison" class="spell-input spell-input-fill" />
-                  <label class="spell-check"><input type="checkbox" name="system.overTimeEntries.{{idx}}.chatLog" {{checked ot.chatLog}} /> Chat Log</label>
+                  <input type="text" name="system.overTimeEntries.{{idx}}.label" value="{{ot.label}}" placeholder="e.g. Burning, Poison" class="spell-input spell-input-fill" data-spell-autosave />
+                  <label class="spell-check"><input type="checkbox" name="system.overTimeEntries.{{idx}}.chatLog" {{checked ot.chatLog}} data-spell-autosave /> Chat Log</label>
                 </div>
               </fieldset>
               {{/each}}

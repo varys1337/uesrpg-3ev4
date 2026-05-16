@@ -333,7 +333,10 @@ export function registerItemSheetListeners(sheet, html) {
         maxTicks: null, label: "", chatLog: true
       });
 
-      await sheet.item.update({ "system.overTimeEntries": entries });
+      await sheet.item.update({
+        "system.hasOverTime": true,
+        "system.overTimeEntries": entries
+      });
     });
 
     html.off("click.uesrpg", "[data-action='remove-overtime-entry']").on("click.uesrpg", "[data-action='remove-overtime-entry']", async (ev) => {

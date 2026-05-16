@@ -21,7 +21,11 @@ function _effectClassification(effect) {
   const wound = Boolean(flags?.wounds);
   const spell = Boolean(flags?.spellEffect);
   const suppressed = isGenericAESuppressed(effect);
-  const temporary = Boolean(effect?.isTemporary || effect?.duration?.rounds || effect?.duration?.seconds);
+  const expired = effect?.duration?.expired === true;
+  const systemOwnedSpell = spell && String(flags?.owner ?? "") === "system";
+  const stale = expired && systemOwnedSpell && String(flags?.ae?.expiryAction ?? "delete").trim().toLowerCase() === "delete";
+  const hasNativeDuration = effect?.duration?.value !== undefined && effect?.duration?.value !== null;
+  const temporary = Boolean(effect?.isTemporary || hasNativeDuration || effect?.duration?.rounds || effect?.duration?.seconds);
   return {
     meta,
     hasLegacy,
@@ -29,6 +33,8 @@ function _effectClassification(effect) {
     wound,
     spell,
     suppressed,
+    expired,
+    stale,
     temporary,
     generic: Boolean(meta) && !condition && !wound,
   };
@@ -42,6 +48,8 @@ function _localize(key, fallback) {
 function _effectBadges(effect) {
   const c = _effectClassification(effect);
   const out = [];
+  if (c.stale && globalThis.game?.user?.isGM) out.push({ label: _localize("UESRPG.ActiveEffects.Badges.StaleExpired", "Expired/Stale"), class: "is-stale-expired", title: _localize("UESRPG.ActiveEffects.Badges.StaleExpiredHint", "This expired system spell effect is still embedded and should be cleaned by GM maintenance.") });
+  else if (c.expired) out.push({ label: _localize("UESRPG.ActiveEffects.Badges.Expired", "Expired"), class: "is-expired", title: _localize("UESRPG.ActiveEffects.Badges.ExpiredHint", "Foundry duration has expired.") });
   if (effect?.disabled) out.push({ label: _localize("UESRPG.ActiveEffects.Badges.Disabled", "Disabled"), class: "is-disabled", title: _localize("UESRPG.ActiveEffects.Badges.DisabledHint", "This effect is disabled.") });
   if (c.suppressed) out.push({ label: _localize("UESRPG.ActiveEffects.Badges.Suppressed", "Suppressed"), class: "is-suppressed", title: _localize("UESRPG.ActiveEffects.Badges.SuppressedHint", "Expired with suppression instead of deletion.") });
   if (effect?.transfer) out.push({ label: _localize("UESRPG.ActiveEffects.Badges.Transfer", "Transfer"), class: "is-transfer", title: _localize("UESRPG.ActiveEffects.Badges.TransferHint", "Transfers from item to actor.") });
@@ -92,8 +100,10 @@ export function buildActorSheetEffectView(effect) {
     disabled: Boolean(effect?.disabled),
     badges: _effectBadges(effect),
     filters: {
-      enabled: !effect?.disabled && !classification.suppressed,
+      enabled: !effect?.disabled && !classification.suppressed && !classification.expired,
       suppressed: classification.suppressed,
+      expired: classification.expired,
+      stale: classification.stale,
       temporary: classification.temporary,
       generic: classification.generic,
       condition: classification.condition,

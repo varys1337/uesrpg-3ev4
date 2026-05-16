@@ -953,7 +953,10 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         saveKey: "", saveTN: 0, saveSuccess: "endEffect", saveFailure: "damage",
         maxTicks: null, label: "", chatLog: true
       });
-      await requestUpdateDocument(this.document, { "system.overTimeEntries": entries });
+      await requestUpdateDocument(this.document, {
+        "system.hasOverTime": true,
+        "system.overTimeEntries": entries
+      });
     });
   }
 

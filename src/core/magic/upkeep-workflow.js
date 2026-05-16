@@ -57,6 +57,7 @@ import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
 import { safeDeleteEmbeddedDocuments, safeGetEffect } from "../../utils/ae-helpers.js";
 import { findOriginAEByGroupKey, refreshOriginAEUpkeep, cancelOriginAEUpkeep } from "./effects/origin-effect.js";
 import { buildUpkeepGroupKey, parseUpkeepGroupKey } from "./effects/spell-effect-metadata.js";
+import { extendEffectDurationByCanonicalPeriod, SPELL_EFFECT_DURATION_FLAG_KEY } from "./effects/spell-effect-duration.js";
 import { hasTalent } from "../traits/talents-api.js";
 import { resolveActorFromUuidSync, resolveUuidSync } from "../../utils/uuid-cache.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
@@ -325,10 +326,22 @@ function _parseGroupKey(key) {
 
 function _getNominalDuration(effect, flags = null) {
   const effectFlags = flags ?? effect?.flags?.[_FLAG_NS] ?? {};
+  const canonical = effectFlags?.[SPELL_EFFECT_DURATION_FLAG_KEY] ?? null;
+  if (Number(canonical?.value) > 0) {
+    return {
+      value: Number(canonical.value),
+      units: String(canonical.units ?? "seconds"),
+      expiry: canonical.expiry ?? null,
+      seconds: 0,
+      rounds: String(canonical.units ?? "") === "rounds" ? Number(canonical.value) : 0,
+      turns: String(canonical.units ?? "") === "turns" ? Number(canonical.value) : 0
+    };
+  }
   const live = effect?.duration ?? {};
   return {
     seconds: _num(effectFlags?.durationSeconds, _num(live.seconds, 0)),
-    rounds: _num(effectFlags?.durationRounds, _num(live.rounds, 0))
+    rounds: _num(effectFlags?.durationRounds, _num(live.rounds, 0)),
+    turns: _num(effectFlags?.durationTurns, _num(live.turns, 0))
   };
 }
 
@@ -695,45 +708,6 @@ export function initializeUpkeepSystem() {
   // Guard against multi-registration on hot reload.
   if (globalThis.__UESRPG_UPKEEP_SYSTEM_HOOKS_INSTALLED__) return;
   globalThis.__UESRPG_UPKEEP_SYSTEM_HOOKS_INSTALLED__ = true;
-
-  // Combat cadence (time service): authoritative post-commit ingress only.
-  registerCombatBoundaryConsumer({
-    id: "upkeep-workflow",
-    // Upkeep prompting runs after core expiry/reset lanes have finalized boundary state.
-    order: 400,
-    handle: _handleCombatBoundaryUpkeep
-  });
-
-  Hooks.on("uesrpg.combatTimeChanged", async (payload) => {
-    if (noteCombatBoundaryLegacyFallbackSkip("upkeep-workflow", payload)) return;
-    await _handleCombatBoundaryUpkeep(payload);
-  });
-
-  // Out of combat cadence: listen to the system-normalized time dispatcher.
-  // This covers core time advancement and optional Calendaria UI changes without duplicating ingress.
-  Hooks.on("uesrpg.timeChanged", async (payload) => {
-    const p = payload ?? {};
-    const source = String(p.source ?? "");
-
-    // Only treat canonical (out-of-combat) time changes as realtime cadence.
-    if (source !== "worldTime" && source !== "calendaria") return;
-
-    // If combat is running, upkeep cadence is handled by combat cadence hooks.
-    if (game.combat?.started || Boolean(p?.combat?.started)) return;
-    if (!game.user?.isGM) return;
-
-    // Let the expiration listener stamp awaiting-upkeep state first on the same time-change tick.
-    await Promise.resolve();
-
-    const nowTime = Number(p.worldTime ?? game.time?.worldTime ?? 0) || 0;
-    await _checkUpkeepRealtime(nowTime);
-  });
-
-  Hooks.on("deleteCombat", (combat) => {
-    const combatId = String(combat?.id ?? "");
-    if (!combatId) return;
-    _lastCombatUpkeepBoundaryKey.delete(combatId);
-  });
 }
 
 /**
@@ -1358,10 +1332,7 @@ export async function handleUpkeepGroupConfirm(message) {
 
   // Refresh duration by resetting start markers on all currently-matched effects.
   // Buffer / barrier restoration is merged into the same pass to avoid iterating twice.
-  const nowRound = _currentRound();
-  const nowTurn = _currentTurn();
   const nowTime = _nowWorldTime();
-  const inCombat = Boolean(game.combat);
 
   const effectUpdatesByActor = new Map();
   const actorBufferUpdates = new Map();
@@ -1382,24 +1353,17 @@ export async function handleUpkeepGroupConfirm(message) {
   for (const m of linkedMatches) {
     const live = _getActorEffect(m.targetActor, m.effect?.id);
     if (!live) continue;
-    const nominalDuration = _getNominalDuration(live, m.flags);
+    const canonicalDuration = m.flags?.[SPELL_EFFECT_DURATION_FLAG_KEY] ?? _getNominalDuration(live, m.flags);
+    const durationExtension = m.flags?.upkeepPendingNativeExtension
+      ? {}
+      : (extendEffectDurationByCanonicalPeriod(live, canonicalDuration) ?? {});
 
     // ── Duration refresh ─────────────────────────────────────────────────
     const updates = {
-      "duration.startTime": nowTime,
       "disabled": false,
-      "duration.seconds": 0,
-      "duration.rounds": 0
+      ...durationExtension
     };
     _clearSuppressionFlags(live, updates);
-
-    if (inCombat) {
-      updates["duration.combat"] = game.combat.id;
-      updates["duration.startRound"] = nowRound;
-      updates["duration.startTurn"] = nowTurn;
-    } else {
-      updates["duration.combat"] = null;
-    }
 
     // Clear prompt de-dup and expiration flags so the next expiry cycle prompts cleanly.
     updates[`flags.${_FLAG_NS}.upkeepPromptedEndTime`] = null;
@@ -1414,9 +1378,11 @@ export async function handleUpkeepGroupConfirm(message) {
     updates[`flags.${_FLAG_NS}.expiredAtWorldTime`] = null;
     updates[`flags.${_FLAG_NS}.expiredAtCombatRound`] = null;
     updates[`flags.${_FLAG_NS}.upkeepAwaiting`] = null;
+    updates[`flags.${_FLAG_NS}.upkeepPendingNativeExtension`] = null;
+    updates[`flags.${_FLAG_NS}.upkeepPendingGraceExtension`] = null;
     updates[`flags.${_FLAG_NS}.durationStartTime`] = nowTime;
-    updates[`flags.${_FLAG_NS}.durationStartRound`] = inCombat ? nowRound : null;
-    updates[`flags.${_FLAG_NS}.durationStartTurn`] = inCombat ? nowTurn : null;
+    updates[`flags.${_FLAG_NS}.durationStartRound`] = null;
+    updates[`flags.${_FLAG_NS}.durationStartTurn`] = null;
     updates[`flags.${_FLAG_NS}.expirationAnchor`] = buildSpellExpirationAnchor({
       casterActor,
       casterTokenUuid: m.flags?.expirationAnchor?.casterTokenUuid ?? refreshedAnchor?.casterTokenUuid ?? null,

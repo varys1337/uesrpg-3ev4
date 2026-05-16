@@ -30,6 +30,7 @@ async function _registerMagicRuntimeOnce() {
     { initializeSoulTrapService },
     { initializeDisintegrateService },
     { initializeDrainService },
+    { initializeResourceRestorationService },
     { initializeCloakTickHandler, seedCloakRegistry },
     _magicOpposed,
     { seedZoneRegistry }
@@ -48,15 +49,16 @@ async function _registerMagicRuntimeOnce() {
     import("../../core/magic/services/soul-trap-service.js"),
     import("../../core/magic/services/disintegrate-service.js"),
     import("../../core/magic/services/drain-service.js"),
+    import("../../core/magic/services/resource-restoration-service.js"),
     import("../../core/magic/ticks/cloak-tick-handler.js"),
     import("../../core/magic/opposed-workflow.js"),
     import("../../core/magic/spell-runtime.js")
   ]);
 
+  initializeSpellTickEngine();
   initializeSpellEffectExpirationSystem();
   initializeUpkeepSystem();
   initializeOriginAELifecycle();
-  initializeSpellTickEngine();
   registerZoneTickHandler();
   initializeOverTimeEngine();
   initializeRuneTriggerService();
@@ -68,6 +70,7 @@ async function _registerMagicRuntimeOnce() {
   initializeSoulTrapService();
   initializeDisintegrateService();
   initializeDrainService();
+  initializeResourceRestorationService();
   initializeCloakTickHandler();
 
   seedZoneRegistry();

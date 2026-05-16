@@ -1,6 +1,7 @@
 import { UESRPG, SYSTEM_ID } from "../core/constants.js";
 import { SimpleActor } from "../core/documents/actor.js";
 import { SimpleItem } from "../core/documents/item.js";
+import { UESRPGActiveEffect } from "../core/documents/active-effect.js";
 import { registerPolyglotLanguages } from "../core/integrations/polyglot.js";
 
 import { preloadHandlebarsTemplates } from "./init/register-templates.js";
@@ -160,6 +161,8 @@ export default async function initHandler() {
 
   CONFIG.Actor.documentClass = SimpleActor;
   CONFIG.Item.documentClass = SimpleItem;
+  CONFIG.ActiveEffect.documentClass = UESRPGActiveEffect;
+  CONFIG.ActiveEffect.expiryAction = "delete";
 
   registerHandlebarsHelpers();
   

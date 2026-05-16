@@ -34,6 +34,10 @@ import {
   getBindingCharacteristicOptions,
   getDisintegrateTargetOptions,
   getDrainTypeOptions,
+  getResourceRestoreKindOptions,
+  getResourceRestoreResourceOptions,
+  getResourceRestoreTargetOptions,
+  getResourceRestoreCapModeOptions,
   getDefenseModelOptions,
   getCharacteristicDefenseSuccessOptions,
   getCharacteristicDefenseFailureOptions,
@@ -191,6 +195,7 @@ export async function prepareItemSheetData(sheet, data) {
         conjure: { mode: "none", itemUuid: "", itemLabel: "", actorUuid: "", actorLabel: "", bindingCharacteristic: "wp", bindingModifier: 0, summonItems: null, summonActors: null },
         disintegrate: { enabled: false, target: "armor" },
         drain: { enabled: false, type: "none", transferToCaster: false },
+        resourceRestore: { enabled: false, kind: "restoreResource", resource: "hp", target: "target", amount: "SS", capMode: "none", cap: "COST", removeFatigueLevels: 1, chat: true },
         defenseModel: "opposed",
         characteristicDefense: { defenderCharacteristic: "end", modifierMode: "spellStrength", modifierFormula: "", onSuccess: "negate", onFailure: "consequences" },
         consequences: { staminaDelta: 0, healthDelta: 0, magickaDelta: 0, applyCondition: "", description: "" },
@@ -208,6 +213,10 @@ export async function prepareItemSheetData(sheet, data) {
     data.bindingCharacteristicOptions = getBindingCharacteristicOptions();
     data.disintegrateTargetOptions = getDisintegrateTargetOptions();
     data.drainTypeOptions = getDrainTypeOptions();
+    data.resourceRestoreKindOptions = getResourceRestoreKindOptions();
+    data.resourceRestoreResourceOptions = getResourceRestoreResourceOptions();
+    data.resourceRestoreTargetOptions = getResourceRestoreTargetOptions();
+    data.resourceRestoreCapModeOptions = getResourceRestoreCapModeOptions();
     data.defenseModelOptions = getDefenseModelOptions();
     data.selectedDefenseModel = itemDoc?.system?.isDirect ? "direct" : data.spellEngine.defenseModel;
     data.charDefModifierModeOptions = { spellStrength: "Spell Strength (SS)", formula: "Custom Formula" };
@@ -236,6 +245,7 @@ export async function prepareItemSheetData(sheet, data) {
       const se = data.spellEngine;
       if (se.disintegrate?.enabled) count++;
       if (se.drain?.enabled) count++;
+      if (se.resourceRestore?.enabled) count++;
       if (se.cloak?.enabled) count++;
       if (data.item?.system?.isRuneSpell) count++;
       if (data.item?.system?.isZonePersistent) count++;

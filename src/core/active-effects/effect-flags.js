@@ -5,6 +5,7 @@ export const SYSTEM_EFFECT_FLAG_SCOPE = FLAG_SCOPE;
 export const SYSTEM_EFFECT_FLAG_KEYS = Object.freeze({
   ae: "ae",
   spellEffect: "spellEffect",
+  spellEffectDuration: "spellEffectDuration",
   spellEffectMetadata: "spellEffectMetadata",
   spellUuid: "spellUuid",
   spellName: "spellName",

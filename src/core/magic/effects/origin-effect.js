@@ -28,7 +28,13 @@ import { createUuidResolver, resolveUuidSync } from "../../../utils/uuid-cache.j
 import { getLinkedAreaEntities } from "../region-links.js";
 import { buildGenericAEData } from "../../active-effects/modifier-evaluator.js";
 import { buildSpellEffectMetadataFlags, parseUpkeepGroupKey } from "./spell-effect-metadata.js";
-import { getSpellCost, getSpellLevel, getSpellScalingEntry } from "../magicka-utils.js";
+import {
+  buildSpellActiveEffectDuration,
+  buildSpellActiveEffectDurationFromValues,
+  extendEffectDurationByCanonicalPeriod,
+  SPELL_EFFECT_DURATION_FLAG_KEY
+} from "./spell-effect-duration.js";
+import { getSpellCost, getSpellLevel } from "../magicka-utils.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -48,14 +54,6 @@ function _isNoListedDuration(spell) {
   const unit = _str(dur.unit).toLowerCase();
   const value = _num(dur.value, 0);
   return (unit === "instant") || (value <= 0);
-}
-
-function _buildManagedUpkeepLiveDuration(durationData) {
-  const live = foundry.utils.deepClone(durationData ?? {});
-  live.seconds = 0;
-  live.rounds = 0;
-  live.turns = 0;
-  return live;
 }
 
 // ─── Creation ────────────────────────────────────────────────────────────────
@@ -119,10 +117,28 @@ export async function createOriginAE(casterActor, spell, options = {}) {
   });
 
   // Build duration for the Origin AE (mirrors what spell-effects.js does for target AEs)
-  const canonicalDuration = options.durationOverride ?? _buildOriginDuration(spell, options);
-  const duration = spell.system?.hasUpkeep
-    ? _buildManagedUpkeepLiveDuration(canonicalDuration)
-    : canonicalDuration;
+  const durationInfo = options.durationOverride
+    ? buildSpellActiveEffectDurationFromValues({
+        value: options.durationOverride.value,
+        unit: options.durationOverride.unit,
+        units: options.durationOverride.units,
+        expiry: options.durationOverride.expiry,
+        seconds: options.durationOverride.seconds,
+        rounds: options.durationOverride.rounds,
+        turns: options.durationOverride.turns,
+        hasUpkeep: Boolean(spell.system?.hasUpkeep)
+      })
+    : buildSpellActiveEffectDuration({
+        actor: casterActor,
+        casterActor,
+        spell,
+        spellOptions: options.spellOptions ?? null,
+        scalingChoices: options.scalingChoices ?? null,
+        castContext: options.castContext ?? null,
+        hasUpkeep: Boolean(spell.system?.hasUpkeep)
+      });
+  const canonicalDuration = durationInfo.canonicalDuration;
+  const duration = durationInfo.liveDuration;
   const castLevel = Number(options?.castContext?.castLevel ?? options?.scalingChoices?.level ?? null) || null;
   const resolvedCost = _num(options.costPaid, _num(getSpellCost(spell, castLevel), _num(spell.system?.cost, 0)));
 
@@ -160,6 +176,7 @@ export async function createOriginAE(casterActor, spell, options = {}) {
         }),
         isOriginAE: true,
         spellEffect: true,
+        [SPELL_EFFECT_DURATION_FLAG_KEY]: durationInfo.spellEffectDuration,
         expirationAnchor,
         linkedEntities: [], // Will be populated as target AEs / regions / summons are created
         hasUpkeep: Boolean(spell.system?.hasUpkeep),
@@ -169,7 +186,7 @@ export async function createOriginAE(casterActor, spell, options = {}) {
           lastRefreshWorldTime: null,
           lastRefreshRound: null,
           targetLock: Array.isArray(options.targetUuids) ? [...options.targetUuids] : [],
-          noListedDuration: _isNoListedDuration(spell)
+          noListedDuration: Boolean(durationInfo.noListedDuration)
         } : null,
         owner: "system",
         source: "spell-origin"
@@ -483,6 +500,7 @@ export async function refreshOriginAEUpkeep(originEffect, opts = {}) {
     [`flags.${_FLAG_NS}.upkeep.lastRefreshWorldTime`]: nowTime,
     [`flags.${_FLAG_NS}.upkeep.lastRefreshRound`]: nowRound,
     [`flags.${_FLAG_NS}.upkeepAwaiting`]: null,
+    [`flags.${_FLAG_NS}.upkeepPendingNativeExtension`]: null,
     [`flags.${_FLAG_NS}.upkeepPromptMessageId`]: null,
     [`flags.${_FLAG_NS}.upkeepPromptSignature`]: null,
     [`flags.${_FLAG_NS}.upkeepPromptedAtWorldTime`]: null,
@@ -493,6 +511,7 @@ export async function refreshOriginAEUpkeep(originEffect, opts = {}) {
     [`flags.${_FLAG_NS}.upkeepBoundaryEndTime`]: null,
     [`flags.${_FLAG_NS}.upkeepBoundaryEndRound`]: null,
     [`flags.${_FLAG_NS}.upkeepBoundaryEndTurn`]: null,
+    [`flags.${_FLAG_NS}.upkeepPendingGraceExtension`]: null,
     [`flags.${_FLAG_NS}.expiredAtWorldTime`]: null,
     [`flags.${_FLAG_NS}.expiredAtCombatRound`]: null,
     [`flags.${_FLAG_NS}.expirationAnchor`]: buildSpellExpirationAnchor({
@@ -511,32 +530,17 @@ export async function refreshOriginAEUpkeep(originEffect, opts = {}) {
     anchor: updates[`flags.${_FLAG_NS}.expirationAnchor`]
   });
 
-  // Reset Origin AE duration markers so it mirrors the refreshed target AEs
-  if (game?.combat?.id) {
-    updates["duration.startRound"] = _num(game.combat.round, 0);
-    updates["duration.startTurn"] = _num(game.combat.turn, 0);
-    updates["duration.combat"] = game.combat.id;
-  } else {
-    updates["duration.combat"] = null;
-  }
-  updates["duration.startTime"] = nowTime;
-  const durationSeconds = _num(flags?.durationSeconds, 0);
-  const durationRounds = _num(flags?.durationRounds, 0);
-  if (flags?.hasUpkeep) {
-    updates["duration.seconds"] = 0;
-    updates["duration.rounds"] = 0;
-  } else {
-    if (durationSeconds > 0) updates["duration.seconds"] = durationSeconds;
-    if (durationRounds > 0) updates["duration.rounds"] = durationRounds;
-  }
+  const canonical = flags?.[SPELL_EFFECT_DURATION_FLAG_KEY] ?? null;
+  const durationExtension = extendEffectDurationByCanonicalPeriod(originEffect, canonical);
+  if (durationExtension) Object.assign(updates, durationExtension);
   updates["disabled"] = false;
   updates[`flags.${_FLAG_NS}.ae.suppressed.expired`] = false;
   updates[`flags.${_FLAG_NS}.ae.suppressed.atWorldTime`] = null;
   updates[`flags.${_FLAG_NS}.ae.suppressed.atCombatRound`] = null;
   updates[`flags.${_FLAG_NS}.ae.suppressed.reason`] = null;
   updates[`flags.${_FLAG_NS}.durationStartTime`] = nowTime;
-  updates[`flags.${_FLAG_NS}.durationStartRound`] = game?.combat?.id ? _num(game.combat.round, 0) : null;
-  updates[`flags.${_FLAG_NS}.durationStartTurn`] = game?.combat?.id ? _num(game.combat.turn, 0) : null;
+  updates[`flags.${_FLAG_NS}.durationStartRound`] = null;
+  updates[`flags.${_FLAG_NS}.durationStartTurn`] = null;
 
   _originDebug("Refreshing Origin AE upkeep", {
     originId: originEffect.id,
@@ -690,6 +694,7 @@ function _buildCasterBuffData(targetEffect, spell, casterActor) {
         spellEffectMetadataVersion: targetFlags.spellEffectMetadataVersion ?? 1,
         spellEffectMetadataTier: targetFlags.spellEffectMetadataTier ?? 2,
         spellEffect: true,
+        [SPELL_EFFECT_DURATION_FLAG_KEY]: foundry.utils.deepClone(targetFlags[SPELL_EFFECT_DURATION_FLAG_KEY] ?? null),
         pairedBuff: true,
         spellUuid: spell.uuid,
         spellName: spell.name,
@@ -815,82 +820,6 @@ export function initializeOriginAELifecycle() {
 }
 
 // ─── Internal Helpers ────────────────────────────────────────────────────────
-
-/**
- * Build a duration object for the Origin AE based on spell data.
- * @param {Item} spell
- * @returns {object}
- */
-function _buildOriginDuration(spell, options = {}) {
-  const scaling = getSpellScalingEntry(
-    spell,
-    options?.castContext?.castLevel
-    ?? options?.scalingChoices?.level
-    ?? null
-  );
-  const dur = scaling?.duration ?? spell?.system?.duration ?? {};
-  const value = _num(dur.value, 0);
-  const unit = _str(dur.unit || "rounds").toLowerCase();
-  const nowTime = _num(game.time?.worldTime, 0);
-  const roundTime = _num(CONFIG.time?.roundTime, 6);
-
-  if (unit === "instant" || value === 0) {
-    // For upkeep spells with no listed duration, treat as 1 round
-    if (spell.system?.hasUpkeep) {
-      return {
-        startTime: nowTime,
-        seconds: roundTime,
-        rounds: 1,
-        turns: 0,
-        combat: game?.combat?.id ?? null,
-        startRound: _num(game?.combat?.round, 0),
-        startTurn: _num(game?.combat?.turn, 0)
-      };
-    }
-    return { startTime: nowTime, seconds: 0, rounds: 0, turns: 0 };
-  }
-
-  if (unit === "permanent") {
-    return { startTime: nowTime, seconds: Infinity, rounds: Infinity, turns: 0 };
-  }
-
-  let seconds = 0;
-  let rounds = 0;
-  switch (unit) {
-    case "rounds":
-      rounds = value;
-      seconds = value * roundTime;
-      break;
-    case "minutes":
-      rounds = value * 10;
-      seconds = value * 60;
-      break;
-    case "hours":
-      rounds = value * 600;
-      seconds = value * 3600;
-      break;
-    case "days":
-      rounds = value * 14400;
-      seconds = value * 86400;
-      break;
-  }
-
-  const result = {
-    startTime: nowTime,
-    seconds,
-    rounds,
-    turns: 0
-  };
-
-  // Add combat markers if in combat
-  if (game?.combat?.id) {
-    result.combat = game.combat.id;
-    result.startRound = _num(game.combat.round, 0);
-    result.startTurn = _num(game.combat.turn, 0);
-  }
-
-  return result;
-}
 
 /**
  * Delete a single linked entity by its link descriptor.

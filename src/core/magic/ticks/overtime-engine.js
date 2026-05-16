@@ -52,8 +52,11 @@ import { applyDamage, applyHealing } from "../../combat/damage/apply.js";
 import { DAMAGE_TYPES } from "../../combat/damage/types.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
 import { resolveActorFromUuidSync } from "../../../utils/uuid-cache.js";
-import { isMissingDocError as _isMissingDocError, safeDeleteEmbeddedDocument } from "../../../utils/ae-helpers.js";
+import { isMissingDocError as _isMissingDocError } from "../../../utils/ae-helpers.js";
 import { buildEffectChange, getEffectChanges } from "../../../utils/compat.js";
+import { isEffectCurrentlyApplicable } from "../../active-effects/collect.js";
+import { isGenericAESuppressed } from "../../active-effects/metadata.js";
+import { deleteSpellEffectWithLifecycle } from "../effects/spell-effect-expiration.js";
 import {
   doesCadenceMatch,
   normalizeOverTimeCadence,
@@ -90,6 +93,34 @@ function _trace(debug, event, data = {}) {
   _debug(event, data);
 }
 
+function _bool(value) {
+  return value === true || value === "true" || value === "on" || value === 1 || value === "1";
+}
+
+function _boolDefaultTrue(value) {
+  if (value === undefined || value === null) return true;
+  return _bool(value);
+}
+
+function _normalizeOverTimeConfig(config = {}) {
+  return {
+    trigger:      _str(config.trigger || "turnStart"),
+    cadenceEvery: _num(config.cadenceEvery, 1),
+    cadenceUnit:  _str(config.cadenceUnit || "rounds"),
+    payloadType:  _str(config.payloadType || "damage"),
+    formula:      _str(config.formula || "1d6"),
+    damageType:   _str(config.damageType || "fire"),
+    ignoreReduction: _bool(config.ignoreReduction),
+    saveKey:      _str(config.saveKey || ""),
+    saveTN:       _num(config.saveTN, 0),
+    saveSuccess:  _str(config.saveSuccess || "endEffect"),
+    saveFailure:  _str(config.saveFailure ?? config.saeFailure ?? "damage"),
+    maxTicks:     _numOrNull(config.maxTicks, null),
+    label:        _str(config.label || ""),
+    chatLog:      _boolDefaultTrue(config.chatLog)
+  };
+}
+
 function _provenanceBase(actor, effect, config, cadence, ctx) {
   return {
     actor: actor?.name ?? null,
@@ -117,6 +148,15 @@ function _isEffectAlive(parent, effect) {
   return parent.effects.has(effect.id);
 }
 
+function _ineligibleReason(effect) {
+  if (effect?.disabled) return "disabled";
+  if (effect?.duration?.expired === true) return "expired";
+  if (isGenericAESuppressed(effect)) return "suppressed";
+  if (effect?.flags?.[_FLAG_NS]?.upkeepAwaiting) return "upkeepAwaiting";
+  if (!isEffectCurrentlyApplicable(effect)) return "inactive";
+  return null;
+}
+
 async function _deleteEffectIfAlive(parent, effect, { context = "delete" } = {}) {
   if (!parent || !effect?.id) return false;
   if (!_isEffectAlive(parent, effect)) {
@@ -128,10 +168,7 @@ async function _deleteEffectIfAlive(parent, effect, { context = "delete" } = {})
   }
 
   try {
-    const deleted = await safeDeleteEmbeddedDocument(parent, "ActiveEffect", effect.id, {
-      context: `UESRPG | OverTime | ${context}`,
-      logUnexpected: false
-    });
+    const deleted = await deleteSpellEffectWithLifecycle(effect, { reason: `OverTime | ${context}` });
     if (deleted) {
       _indexDirty = true;
       _debug("effectDeleted", {
@@ -217,12 +254,20 @@ function _rebuildIndex() {
    * @param {Actor} actor
    */
   const indexActor = (actor) => {
-    if (!actor?.effects?.size) return;
+    const effects = Array.from(actor?.effects ?? []);
+    if (!effects.length) return;
     const uuid = actor.uuid;
+    if (!uuid) return;
+    const debug = isDebugEnabled("overTimeDebug");
+    let indexed = 0;
+    let withoutConfig = 0;
 
-    for (const ef of actor.effects) {
+    for (const ef of effects) {
       const configs = _getAllOverTimeConfigs(ef);
-      if (!configs.length) continue;
+      if (!configs.length) {
+        withoutConfig++;
+        continue;
+      }
       const entries = _buildRuntimeEntries(configs);
       if (!entries.length) continue;
 
@@ -232,6 +277,17 @@ function _rebuildIndex() {
         _effectIndex.set(uuid, actorMap);
       }
       actorMap.set(ef.id, entries);
+      indexed++;
+    }
+
+    if (debug && indexed) {
+      _debug("Indexed OverTime effects", {
+        actor: actor?.name ?? null,
+        actorUuid: uuid,
+        indexed,
+        scanned: effects.length,
+        withoutConfig
+      });
     }
   };
 
@@ -290,21 +346,7 @@ function _ensureIndex() {
  * @returns {{ key: string, mode: string, value: string, priority: number }}
  */
 export function buildOverTimeChange(config = {}) {
-  const normalized = {
-    trigger:      _str(config.trigger || "turnStart"),
-    cadenceEvery: _num(config.cadenceEvery, 1),
-    cadenceUnit:  _str(config.cadenceUnit || "rounds"),
-    payloadType:  _str(config.payloadType || "damage"),
-    formula:      _str(config.formula || "1d6"),
-    damageType:   _str(config.damageType || "fire"),
-    saveKey:      _str(config.saveKey || ""),
-    saveTN:       _num(config.saveTN, 0),
-    saveSuccess:  _str(config.saveSuccess || "endEffect"),
-    saveFailure:  _str(config.saveFailure || "damage"),
-    maxTicks:     _numOrNull(config.maxTicks, null),
-    label:        _str(config.label || ""),
-    chatLog:      config.chatLog !== false
-  };
+  const normalized = _normalizeOverTimeConfig(config);
 
   return buildEffectChange({
     key: OVERTIME_CHANGE_KEY,
@@ -328,6 +370,7 @@ export function createOverTimeConfig(overrides = {}) {
     payloadType: "damage",
     formula: "1d6",
     damageType: "fire",
+    ignoreReduction: false,
     saveKey: "",
     saveTN: 0,
     saveSuccess: "endEffect",
@@ -358,11 +401,34 @@ function _parseOverTimeChanges(effect) {
     const c = changes[i];
     if (!c.key || !c.key.startsWith(OVERTIME_CHANGE_KEY)) continue;
 
+    const value = c.value;
+    const valueType = Array.isArray(value) ? "array" : typeof value;
+
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      results.push(_normalizeOverTimeConfig(value));
+      continue;
+    }
+
+    if (typeof value !== "string") {
+      _warn(`Unsupported OverTime value type on "${effect?.name}" (${valueType})`, value);
+      continue;
+    }
+
+    const raw = value.trim();
+    if (!raw) {
+      _warn(`Empty OverTime JSON on "${effect?.name}"`);
+      continue;
+    }
+
     try {
-      const parsed = JSON.parse(c.value);
-      if (parsed && typeof parsed === "object") results.push(parsed);
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        results.push(_normalizeOverTimeConfig(parsed));
+      } else {
+        _warn(`Unsupported OverTime JSON value on "${effect?.name}" (${Array.isArray(parsed) ? "array" : typeof parsed})`, value);
+      }
     } catch (_e) {
-      _warn(`Failed to parse OverTime JSON on "${effect?.name}":`, c.value);
+      _warn(`Failed to parse OverTime JSON on "${effect?.name}" (string)`, value);
     }
   }
 
@@ -387,13 +453,14 @@ function _parseLegacyFlags(effect) {
     payloadType:  _str(ot.payload?.type ?? ot.payloadType ?? "damage"),
     formula:      _str(ot.payload?.formula ?? ot.formula ?? "1d6"),
     damageType:   _str(ot.payload?.damageType ?? ot.damageType ?? "fire"),
+    ignoreReduction: _bool(ot.payload?.ignoreReduction ?? ot.ignoreReduction),
     saveKey:      _str(ot.payload?.saveKey ?? ot.saveKey ?? ""),
     saveTN:       _num(ot.payload?.saveTN ?? ot.saveTN, 0),
     saveSuccess:  _str(ot.payload?.saveSuccess ?? ot.saveSuccess ?? "endEffect"),
-    saveFailure:  _str(ot.payload?.saveFailure ?? ot.saveFailure ?? "damage"),
+    saveFailure:  _str(ot.payload?.saveFailure ?? ot.saveFailure ?? ot.saeFailure ?? "damage"),
     maxTicks:     _numOrNull(ot.state?.maxTicks ?? ot.maxTicks, null),
     label:        _str(ot.label || ""),
-    chatLog:      ot.chatLog !== false
+    chatLog:      _boolDefaultTrue(ot.chatLog)
   };
 }
 
@@ -754,30 +821,22 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
         continue;
       }
 
-      // Gate 1: disabled
-      if (ef.disabled) {
-        skippedDisabled++;
+      // Gate 1: shared ActiveEffect lifecycle applicability
+      const ineligibleReason = _ineligibleReason(ef);
+      if (ineligibleReason) {
+        if (ineligibleReason === "disabled") skippedDisabled++;
+        else if (ineligibleReason === "upkeepAwaiting") skippedUpkeep++;
+        else skippedNoEffect++;
         for (const entry of cachedEntries) {
           _trace(debug, "skip", {
             ..._provenanceBase(actor, ef, entry.config, entry.cadence, ctx),
-            reason: "disabled"
+            reason: ineligibleReason
           });
         }
         continue;
       }
 
       // Gate 2: upkeep awaiting — do not tick while upkeep decision is pending
-      if (ef.flags?.[_FLAG_NS]?.upkeepAwaiting) {
-        skippedUpkeep++;
-        for (const entry of cachedEntries) {
-          _trace(debug, "skip", {
-            ..._provenanceBase(actor, ef, entry.config, entry.cadence, ctx),
-            reason: "upkeepAwaiting"
-          });
-        }
-        continue;
-      }
-
       // Read live tick state (mutable — must be fresh, not cached)
       const tickState = _getTickState(ef);
 
@@ -852,7 +911,7 @@ function _collectOverTimeEffects(trigger, ctx, debug) {
 
   if (debug) {
     _debug(`  Collection Summary: ${results.length} eligible | scanned ${totalEffects} effects on ${totalActors} actors`);
-    _debug(`    Skipped: disabled=${skippedDisabled}, upkeepAwaiting=${skippedUpkeep}, stale=${skippedNoEffect}, wrongTrigger=${skippedWrongTrigger}, wrongActor=${skippedWrongActor}, cadence=${skippedCadence}, maxTicks=${skippedMaxTicks}`);
+    _debug(`    Skipped: disabled=${skippedDisabled}, upkeepAwaiting=${skippedUpkeep}, inactive=${skippedNoEffect}, wrongTrigger=${skippedWrongTrigger}, wrongActor=${skippedWrongActor}, cadence=${skippedCadence}, maxTicks=${skippedMaxTicks}`);
   }
 
   return results;
@@ -959,20 +1018,14 @@ function _resolveBoundaryCandidates(trigger, ctx, refs, debug) {
       continue;
     }
 
-    if (ef.disabled) {
-      skippedDisabled++;
+    const ineligibleReason = _ineligibleReason(ef);
+    if (ineligibleReason) {
+      if (ineligibleReason === "disabled") skippedDisabled++;
+      else if (ineligibleReason === "upkeepAwaiting") skippedUpkeep++;
+      else skippedNoEffect++;
       _trace(debug, "skip", {
         ..._provenanceBase(actor, ef, config, cadence, ctx),
-        reason: "disabled"
-      });
-      continue;
-    }
-
-    if (ef.flags?.[_FLAG_NS]?.upkeepAwaiting) {
-      skippedUpkeep++;
-      _trace(debug, "skip", {
-        ..._provenanceBase(actor, ef, config, cadence, ctx),
-        reason: "upkeepAwaiting"
+        reason: ineligibleReason
       });
       continue;
     }
@@ -1040,7 +1093,7 @@ function _resolveBoundaryCandidates(trigger, ctx, refs, debug) {
 
   if (debug) {
     _debug(`  Boundary Materialize Summary (${trigger}): ${results.length} eligible | scanned ${totalRefs} refs`);
-    _debug(`    Skipped: noActor=${skippedNoActor}, stale=${skippedNoEffect}, disabled=${skippedDisabled}, upkeepAwaiting=${skippedUpkeep}, wrongTrigger=${skippedWrongTrigger}, wrongActor=${skippedWrongActor}, cadence=${skippedCadence}, maxTicks=${skippedMaxTicks}`);
+    _debug(`    Skipped: noActor=${skippedNoActor}, inactive=${skippedNoEffect}, disabled=${skippedDisabled}, upkeepAwaiting=${skippedUpkeep}, wrongTrigger=${skippedWrongTrigger}, wrongActor=${skippedWrongActor}, cadence=${skippedCadence}, maxTicks=${skippedMaxTicks}`);
   }
 
   return results;
@@ -1581,4 +1634,8 @@ export function hasOverTimeConfig(effect) {
 export function getOverTimeConfig(effect) {
   const configs = _getAllOverTimeConfigs(effect);
   return configs.length ? configs[0] : null;
+}
+
+export function isOverTimeEffectEligible(effect) {
+  return _ineligibleReason(effect) === null;
 }
