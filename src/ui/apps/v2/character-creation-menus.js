@@ -11,6 +11,13 @@ import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { findIndexEntryByNormalizedName, getDocumentById } from "../../../core/compendium/access-service.js";
 import { buildBirthsignFieldUpdates } from "../../../core/traits/starsigns/index.js";
+import { RACE_CATALOG } from "../../sheets/racemenu/race-catalog.js";
+import {
+  buildAdministrativeCorrectionAudit,
+  isChargenCompleted,
+  promptAndApplyAllMissingRacialGrants,
+  rollbackTrackedRacialGrants,
+} from "./char-gen/racial-grants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -47,8 +54,15 @@ export async function applyBirthsignSelection(actor, {
   charge = null,
   d5Roll = null,
   luckCost = 0,
+  administrativeReason = null,
 } = {}) {
   if (!actor || !signKey) return false;
+  if (isChargenCompleted(actor)) {
+    if (!game.user?.isGM || String(administrativeReason ?? "").trim().length < 3) {
+      ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+      return false;
+    }
+  }
   const selectedSign = birthsignSigns[String(signKey).toLowerCase()];
   if (!selectedSign) {
     ui.notifications?.error?.(t("UESRPG.Notifications.CharGen.SelectedBirthsignMissing"));
@@ -90,7 +104,8 @@ export async function applyBirthsignSelection(actor, {
 
     await promptDialog({
       title: t("UESRPG.Dialogs.CharGen.StarCursedPenaltyTitle"),
-      content: `<div><div class="form-group"><label>${tf("UESRPG.Dialogs.CharGen.StarCursedPenaltyLabel", { amount: Math.abs(choices.modifier) })}</label><select id="attr-select">${attrOptions}</select></div></div>`,
+      classes: ["uesrpg-chargen-dialog"],
+      content: `<div class="uesrpg-cg-dialog"><div class="form-group"><label>${tf("UESRPG.Dialogs.CharGen.StarCursedPenaltyLabel", { amount: Math.abs(choices.modifier) })}</label><select id="attr-select">${attrOptions}</select></div></div>`,
       okLabel: t("UESRPG.UI.OK"),
       callback: async (html) => {
         const el = html instanceof HTMLElement ? html : html?.[0];
@@ -141,6 +156,7 @@ export async function applyBirthsignSelection(actor, {
       signKey,
       starCursed: Boolean(starCursed),
       luckCost: Math.max(0, asNumber(luckCost, 0)),
+      administrativeReason: String(administrativeReason ?? ""),
     },
   });
   return true;
@@ -151,10 +167,12 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   #resolver = null;
   #resolved = false;
   #isSubmitting = false;
+  #administrativeReason = null;
 
   constructor(actor, options = {}) {
     super(options);
     this.#actor = actor;
+    this.#administrativeReason = String(options.administrativeReason ?? "").trim() || null;
   }
 
   static DEFAULT_OPTIONS = {
@@ -164,8 +182,8 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
       resizable: true,
     },
     position: {
-      width: 800,
-      height: 700,
+      width: 760,
+      height: 620,
     },
     actions: {
       submit: RaceMenuAppV2.prototype._onSubmit,
@@ -180,8 +198,12 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
     },
   };
 
-  static async prompt(actor) {
-    const app = new RaceMenuAppV2(actor);
+  static async prompt(actor, { administrativeReason = null } = {}) {
+    if (isChargenCompleted(actor) && (!game.user?.isGM || String(administrativeReason ?? "").trim().length < 3)) {
+      ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+      return false;
+    }
+    const app = new RaceMenuAppV2(actor, { administrativeReason });
     return new Promise((resolve) => {
       app.#resolver = resolve;
       app.render(true);
@@ -222,10 +244,20 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
       }
 
       let raceName;
-      const races = { ...coreRaces, ...coreVariants, ...khajiitFurstocks, ...expandedRaces };
+      const races = RACE_CATALOG;
+      const previousRace = String(this.#actor.system?.race ?? "").trim();
 
       if (customRaceLabel !== "") {
         raceName = customRaceLabel;
+        if (previousRace && previousRace.toLowerCase() !== raceName.toLowerCase()) {
+          const rollback = await rollbackTrackedRacialGrants(this.#actor, previousRace, {
+            reason: this.#administrativeReason ?? "custom race selected during character generation",
+          });
+          if (!rollback.ok) {
+            ui.notifications?.error?.(tf("UESRPG.DefectUpdate.RaceGrantConflict", { reason: rollback.error }, `Race change blocked: ${rollback.error}`));
+            return;
+          }
+        }
       } else {
         raceName = raceSelection[0].value;
         const selectedRace = races[raceName];
@@ -234,32 +266,57 @@ export class RaceMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
           return;
         }
 
-        const updates = {};
-        for (const value in this.#actor.system.characteristics) {
-          const baseChaPath = `system.characteristics.${value}.base`;
-          updates[baseChaPath] = selectedRace.baseline[value];
+        const raceChanged = previousRace.toLowerCase() !== raceName.toLowerCase();
+        if (raceChanged && previousRace) {
+          const rollback = await rollbackTrackedRacialGrants(this.#actor, previousRace, {
+            reason: this.#administrativeReason ?? "race changed during character generation",
+          });
+          if (!rollback.ok) {
+            ui.notifications?.error?.(tf("UESRPG.DefectUpdate.RaceGrantConflict", { reason: rollback.error }, `Race change blocked: ${rollback.error}`));
+            return;
+          }
         }
-        await requestUpdateDocument(this.#actor, updates);
 
-        const itemsToCreate = [];
-        for (const item of selectedRace.items) {
-          const itemData = {
-            name: item.name,
-            type: item.type,
-            img: item.img,
-            "system.description": item.desc,
-            [item.dataPath]: item.value,
-            [item.dataPath2]: item.qualities,
-          };
-          itemsToCreate.push(itemData);
-        }
-        const created = await requestCreateEmbeddedDocuments(this.#actor, "Item", itemsToCreate);
-        for (const createdItem of created) {
-          if (createdItem?.type === "weapon") createdItem.sheet?.render?.(true);
+        if (raceChanged) {
+          const updates = {};
+          for (const value in this.#actor.system.characteristics) {
+            const baseline = selectedRace.baseline?.[value];
+            if (baseline !== undefined) updates[`system.characteristics.${value}.base`] = baseline;
+          }
+          await requestUpdateDocument(this.#actor, updates);
+
+          const itemsToCreate = [];
+          for (const item of selectedRace.items ?? []) {
+            const itemData = {
+              name: item.name,
+              type: item.type,
+              img: item.img,
+              "system.description": item.desc,
+            };
+            if (item.dataPath) itemData[item.dataPath] = item.value;
+            if (item.dataPath2) itemData[item.dataPath2] = item.qualities;
+            itemsToCreate.push(itemData);
+          }
+          const created = itemsToCreate.length
+            ? await requestCreateEmbeddedDocuments(this.#actor, "Item", itemsToCreate)
+            : [];
+          for (const createdItem of created) {
+            if (createdItem?.type === "weapon") createdItem.sheet?.render?.(true);
+          }
         }
       }
 
       await requestUpdateDocument(this.#actor, { "system.race": raceName });
+      const grantResults = await promptAndApplyAllMissingRacialGrants(this.#actor);
+      const failedGrant = grantResults.find((result) => result && !result.ok && !result.cancelled);
+      if (failedGrant) ui.notifications?.warn?.(failedGrant.error ?? t("UESRPG.DefectUpdate.GrantApplyFailed", "Unable to apply racial grant."));
+      if (this.#administrativeReason) {
+        await appendChargenAudit(this.#actor, buildAdministrativeCorrectionAudit(this.#administrativeReason, {
+          field: "race",
+          before: previousRace,
+          after: raceName,
+        }));
+      }
       this.#resolveAndClose(true);
     } finally {
       this.#isSubmitting = false;
@@ -293,10 +350,12 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   #resolver = null;
   #resolved = false;
   #isSubmitting = false;
+  #administrativeReason = null;
 
   constructor(actor, options = {}) {
     super(options);
     this.#actor = actor;
+    this.#administrativeReason = String(options.administrativeReason ?? "").trim() || null;
   }
 
   static DEFAULT_OPTIONS = {
@@ -306,8 +365,8 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       resizable: true,
     },
     position: {
-      width: 800,
-      height: 700,
+      width: 760,
+      height: 620,
     },
     actions: {
       submit: BirthSignMenuAppV2.prototype._onSubmit,
@@ -322,8 +381,12 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     },
   };
 
-  static async prompt(actor) {
-    const app = new BirthSignMenuAppV2(actor);
+  static async prompt(actor, { administrativeReason = null } = {}) {
+    if (isChargenCompleted(actor) && (!game.user?.isGM || String(administrativeReason ?? "").trim().length < 3)) {
+      ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+      return false;
+    }
+    const app = new BirthSignMenuAppV2(actor, { administrativeReason });
     return new Promise((resolve) => {
       app.#resolver = resolve;
       app.render(true);
@@ -387,7 +450,7 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         await appendChargenAudit(this.#actor, {
           step: "birthsign",
           action: "apply",
-          payload: { mode: "manual-custom", result: signName },
+          payload: { mode: "manual-custom", result: signName, administrativeReason: this.#administrativeReason ?? "" },
         });
       } else {
         const rawValue = signSelection[0].value;
@@ -397,6 +460,7 @@ export class BirthSignMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           signKey: signName.toLowerCase(),
           starCursed: isStarCursed,
           mode: "manual",
+          administrativeReason: this.#administrativeReason,
         });
       }
       this.#resolveAndClose(true);

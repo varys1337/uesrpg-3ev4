@@ -56,6 +56,7 @@ function getCorrespondingRank({ actor, defenseType, styleUuid, testLabel } = {})
 
 export async function promptDoSReplacement({ title, rolledDoS, rankDoS, rankLabel } = {}) {
   const result = await customDialog({
+    layout: "workflow",
     title: title || "Talent: Degrees of Success",
     content: `
       <div class="uesrpg">

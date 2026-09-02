@@ -28,6 +28,7 @@ const DialogV2 = foundry.applications.api.DialogV2;
  * @param {string} [options.yesIcon="fas fa-check"] - Affirmative button icon
  * @param {string} [options.noIcon="fas fa-times"]  - Negative button icon
  * @param {string[]} [options.classes=[]]        - Additional CSS classes for the dialog window
+ * @param {"message"|"form"|"choices"|"workflow"|"table"|"document"} [options.layout="message"]
  * @param {boolean} [options.unstyled=false]     - If true, skip default UESRPG dialog class injection
  * @param {boolean} [options.rejectClose=false]  - If true, closing without choosing rejects the Promise
  * @returns {Promise<boolean|null>} true if confirmed, false if denied, null if closed without choosing (when rejectClose=false)
@@ -40,6 +41,7 @@ export async function confirmDialog({
   yesIcon = "fas fa-check",
   noIcon = "fas fa-times",
   classes = [],
+  layout = "message",
   unstyled = false,
   rejectClose = false,
   render,
@@ -49,7 +51,7 @@ export async function confirmDialog({
     content,
     yes: { label: yesLabel, icon: yesIcon },
     no: { label: noLabel, icon: noIcon },
-    classes: resolveDialogClasses({ classes, unstyled }),
+    classes: resolveDialogClasses({ classes, unstyled, variant: "confirm", layout, buttonCount: 2 }),
     rejectClose,
     render: _renderWithEnhancements(render, {
       defaultActionSelector: "[data-action='yes']",
@@ -71,6 +73,7 @@ export async function confirmDialog({
  * @param {string} [options.buttonLabel="OK"] - Button label
  * @param {string} [options.buttonIcon="fas fa-check"] - Button icon
  * @param {string[]} [options.classes=[]]      - Additional CSS classes for the dialog window
+ * @param {"message"|"form"|"choices"|"workflow"|"table"|"document"} [options.layout="message"]
  * @param {boolean} [options.unstyled=false]   - If true, skip default UESRPG dialog class injection
  * @returns {Promise<void>}
  */
@@ -80,6 +83,7 @@ export async function alertDialog({
   buttonLabel = "OK",
   buttonIcon = "fas fa-check",
   classes = [],
+  layout = "message",
   unstyled = false,
   render,
 } = {}) {
@@ -87,7 +91,7 @@ export async function alertDialog({
     window: { title },
     content,
     ok: { label: buttonLabel, icon: buttonIcon, callback: () => {} },
-    classes: resolveDialogClasses({ classes, unstyled }),
+    classes: resolveDialogClasses({ classes, unstyled, variant: "alert", layout, buttonCount: 1 }),
     rejectClose: false,
     render: _renderWithEnhancements(render, {
       defaultActionSelector: "[data-action='ok']",
@@ -111,6 +115,7 @@ export async function alertDialog({
  * @param {string} [options.okIcon="fas fa-check"] - OK button icon
  * @param {Function} options.callback           - `(html: HTMLElement) => any` — extracts data from the dialog
  * @param {string[]} [options.classes=[]]       - Additional CSS classes for the dialog window
+ * @param {"message"|"form"|"choices"|"workflow"|"table"|"document"} [options.layout="form"]
  * @param {boolean} [options.unstyled=false]    - If true, skip default UESRPG dialog class injection
  * @param {boolean} [options.rejectClose=false] - If true, closing without clicking OK rejects
  * @returns {Promise<any>} The return value of the callback, or null if closed
@@ -122,6 +127,7 @@ export async function promptDialog({
   okIcon = "fas fa-check",
   callback,
   classes = [],
+  layout = "form",
   unstyled = false,
   rejectClose = false,
   render,
@@ -149,7 +155,7 @@ export async function promptDialog({
     window: { title },
     content,
     ok: { label: okLabel, icon: okIcon, callback: wrappedCb },
-    classes: resolveDialogClasses({ classes, unstyled }),
+    classes: resolveDialogClasses({ classes, unstyled, variant: "prompt", layout, buttonCount: 1 }),
     rejectClose,
     render: _renderWithEnhancements(render, {
       defaultActionSelector: "[data-action='ok']",
@@ -185,6 +191,7 @@ export async function promptDialog({
  * @param {string} [options.defaultButton] - Alias for `default` (avoids reserved word awkwardness)
  * @param {boolean} [options.rejectClose=false]
  * @param {string[]} [options.classes=[]] - Additional CSS classes for the dialog window
+ * @param {"message"|"form"|"choices"|"workflow"|"table"|"document"} [options.layout="workflow"]
  * @param {boolean} [options.unstyled=false] - If true, skip default UESRPG dialog class injection
  * @param {number} [options.width] - Dialog width in pixels
  * @param {number} [options.height] - Dialog height in pixels
@@ -202,6 +209,7 @@ export async function customDialog({
   defaultButton: defaultButtonAlias,
   rejectClose = false,
   classes = [],
+  layout = "workflow",
   unstyled = false,
   width,
   height,
@@ -260,7 +268,13 @@ export async function customDialog({
     buttons: dialogButtons,
     rejectClose,
     ...(Object.keys(position).length ? { position } : {}),
-    classes: resolveDialogClasses({ classes, unstyled }),
+    classes: resolveDialogClasses({
+      classes,
+      unstyled,
+      variant: "custom",
+      layout,
+      buttonCount: dialogButtons.length,
+    }),
     render: _renderWithEnhancements(render, {
       defaultActionSelector: resolvedDefault ? `[data-action='${resolvedDefault}']` : null,
       cancelActionSelector: (buttons?.cancel || buttons?.no) ? (buttons?.cancel ? "[data-action='cancel']" : "[data-action='no']") : "[data-action='close']",

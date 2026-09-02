@@ -1,6 +1,6 @@
 <div class="uesrpg-char-gen__root">
   <section class="uesrpg-char-gen__layout">
-    <aside class="uesrpg-char-gen__stages">
+    <aside class="uesrpg-char-gen__stages" aria-label="{{localize "UESRPG.Apps.CharGen.Stages"}}">
       <h3>{{localize "UESRPG.Apps.CharGen.Stages"}}</h3>
       <ol>
         {{#each stageData}}
@@ -10,9 +10,10 @@
               class="uesrpg-char-gen__stage-link"
               data-action="goStage"
               data-stage="{{id}}"
+              {{#if active}}aria-current="step"{{/if}}
               {{#unless clickable}}disabled{{/unless}}
             >
-              <span class="status">{{#if complete}}OK{{else}}-{{/if}}</span>
+              <span class="status" aria-hidden="true">{{#if complete}}<i class="fas fa-check"></i>{{else}}<i class="fas fa-minus"></i>{{/if}}</span>
               <span class="label">{{label}}</span>
             </button>
           </li>
@@ -35,7 +36,12 @@
       <header class="uesrpg-char-gen__header">
         <h2>{{stageTitle}}</h2>
         <p>{{stageBody}}</p>
-        <div class="actor-pill">{{localize "UESRPG.Apps.CharGen.ActorLabel" actor=actorName}}</div>
+        {{#if actor}}
+          <div class="uesrpg-char-gen__actor-name">{{actorName}}</div>
+        {{/if}}
+        {{#if reviewMode}}
+          <div class="uesrpg-char-gen__review-note">{{localize "UESRPG.DefectUpdate.ReviewMode"}}</div>
+        {{/if}}
       </header>
 
       {{#if isStage.actor}}
@@ -57,15 +63,33 @@
       {{#if isStage.race}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="chooseRace">{{localize "UESRPG.Apps.CharGen.OpenRaceMenu"}}</button>
+            <button type="button" class="dialog-button" data-action="chooseRace" {{#unless canEditFoundations}}disabled{{/unless}}>{{localize "UESRPG.Apps.CharGen.OpenRaceMenu"}}</button>
           </div>
+          {{#if hasRacialGrants}}
+            <div class="uesrpg-char-gen__grant-review">
+              <h3>{{localize "UESRPG.DefectUpdate.RacialBenefits"}}</h3>
+              {{#each racialGrants}}
+                <div class="uesrpg-char-gen__grant-row {{#if applied}}is-applied{{else}}is-missing{{/if}}">
+                  <span>{{label}}{{#if optionLabel}}: {{optionLabel}}{{/if}}</span>
+                  {{#if applied}}
+                    <span>{{localize "UESRPG.DefectUpdate.Applied"}}</span>
+                    {{#if canChange}}
+                      <button type="button" class="dialog-button" data-action="reconcileGrant" data-grant-id="{{id}}">{{localize "UESRPG.DefectUpdate.ChangeGrant"}}</button>
+                    {{/if}}
+                  {{else}}
+                    <button type="button" class="dialog-button" data-action="reconcileGrant" data-grant-id="{{id}}">{{localize "UESRPG.DefectUpdate.Reconcile"}}</button>
+                  {{/if}}
+                </div>
+              {{/each}}
+            </div>
+          {{/if}}
         </section>
       {{/if}}
 
       {{#if isStage.stats}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="openStats">{{localize "UESRPG.Apps.CharGen.OpenCharacteristicsMenu"}}</button>
+            <button type="button" class="dialog-button" data-action="openStats" {{#unless canEditFoundations}}disabled{{/unless}}>{{localize "UESRPG.Apps.CharGen.OpenCharacteristicsMenu"}}</button>
           </div>
         </section>
       {{/if}}
@@ -73,7 +97,7 @@
       {{#if isStage.birthsign}}
         <section class="uesrpg-char-gen__stage uesrpg-char-gen__stage--compact">
           <div class="actions">
-            <button type="button" class="dialog-button" data-action="chooseBirthsign">{{localize "UESRPG.Apps.CharGen.RollChooseBirthsign"}}</button>
+            <button type="button" class="dialog-button" data-action="chooseBirthsign" {{#unless canEditFoundations}}disabled{{/unless}}>{{localize "UESRPG.Apps.CharGen.RollChooseBirthsign"}}</button>
           </div>
         </section>
       {{/if}}
@@ -131,6 +155,6 @@
   <footer class="uesrpg-char-gen__footer">
     <button type="button" class="dialog-button" data-action="back" {{#unless canBack}}disabled{{/unless}}>{{localize "UESRPG.Apps.CharGen.Back"}}</button>
     <button type="button" class="dialog-button" data-action="next" {{#unless canNext}}disabled{{/unless}}>{{localize "UESRPG.Apps.CharGen.Next"}}</button>
-    <button type="button" class="dialog-button" data-action="cancel">Cancel</button>
+    <button type="button" class="dialog-button" data-action="cancel">{{localize "UESRPG.UI.Cancel"}}</button>
   </footer>
 </div>

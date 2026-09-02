@@ -36,6 +36,7 @@ import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t, tf } from "../../../utils/i18n.js";
+import { activateOpenApplication } from "./application-focus.js";
 
 const TEMPLATE_PATH = templatePath("v2/apps/travel-planner.hbs");
 const TRACKER_DEFAULT_EFFECTS = {
@@ -281,8 +282,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const existing = this.getOpenInstance(key);
       if (existing?.rendered) {
         await existing.setActiveTab(tab);
-        existing.bringToTop?.();
-        return existing;
+        return activateOpenApplication(existing);
       }
     }
     const app = new TravelPlannerAppV2({ groupUuid, tab });
@@ -997,6 +997,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       </div>
     `;
     return customDialog({
+      layout: "workflow",
       title,
       content,
       buttons: {

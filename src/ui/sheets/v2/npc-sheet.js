@@ -93,7 +93,7 @@ import {
   buildActorSheetEffects,
   buildActorSheetItems,
 } from "./shared/sheet-context.js";
-import { bindWindowRestoreGuard, warnIfDuplicateSidebar } from "./shared/window-restore-guard.js";
+import { warnIfDuplicateSidebar } from "./shared/render-diagnostics.js";
 import { createPartContextScope } from "./shared/part-context.js";
 import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
 import {
@@ -201,8 +201,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   _uesrpgTabContextMenuHandler = null;
   _uesrpgTabChangeHandler = null;
   _uesrpgTabKeydownHandler = null;
-  _uesrpgRestoreDblClickHandler = null;
-  _uesrpgRestoreDblClickEl = null;
 
   /** @type {{raw: string, enriched: string}|null} */
   _uesrpgBioCache = null;
@@ -884,7 +882,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       if (!el) return;
       syncBookmarkTabsActiveClass(this);
       applySheetDensityClass(el);
-      bindWindowRestoreGuard(this, el);
       warnIfDuplicateSidebar(this, "NpcSheetV2", el, options);
       enableResizeMotionGuard(this, {
         onStateChange: (phase, meta = {}) => {
@@ -1608,6 +1605,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     let decl = null;
     try {
       decl = await customDialog({
+        layout: "workflow",
         title: `${profLabel} — Roll Options`,
         content: dialogContent,
         buttons: {
@@ -1953,11 +1951,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       this._uesrpgSheetUiCache = null;
       clearQueuedRenderPartsState(this);
       unregisterCombatTrackerSheetRefresh(this);
-      if (this._uesrpgRestoreDblClickEl && this._uesrpgRestoreDblClickHandler) {
-        this._uesrpgRestoreDblClickEl.removeEventListener("dblclick", this._uesrpgRestoreDblClickHandler, true);
-      }
-      this._uesrpgRestoreDblClickHandler = null;
-      this._uesrpgRestoreDblClickEl = null;
       disableResizeMotionGuard(this);
       clearItemDescriptionTooltip(this);
       return super._onClose(options);

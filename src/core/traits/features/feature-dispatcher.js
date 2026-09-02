@@ -159,6 +159,7 @@ async function _showConfirmDialog(item, cfg) {
 
   try {
     const confirmed = await customDialog({
+      layout: "workflow",
       title: `Confirm: ${item.name}`,
       content: `<p>Activate <strong>${item.name}</strong>?</p>`,
       buttons: {

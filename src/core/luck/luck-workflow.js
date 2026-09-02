@@ -465,6 +465,7 @@ async function openBurnLuckDialog(actorOrMessage) {
   }).join("");
 
   await customDialog({
+    layout: "workflow",
     title: "Burn Luck",
     content: `<div class="uesrpg" style="padding: 10px;">
       <div style="background: rgba(180, 180, 180, 0.562); border: solid 1px; padding: 10px; font-style: italic; margin-bottom: 10px;">
@@ -735,6 +736,7 @@ export function registerLuckContextMenuOptions(_hookName, options) {
 async function _askRerollOrDoS() {
   return new Promise((resolve) => {
     customDialog({
+      layout: "workflow",
       title: "Spend Luck Point",
       content: `<div class="uesrpg" style="padding:8px;">
         <p>This test has both failed and successful sides. What would you like to do?</p>

@@ -16,9 +16,9 @@ import { localizeHitLocation } from "../../combat-utils.js";
  */
 export function _fmtDegree(res) {
   if (!res) return "-";
-  const cls = res.isSuccess ? "green" : "red";
+  const cls = res.isSuccess ? "is-success" : "is-failure";
   const text = formatResultSummary(res, { includeDegree: true, degreeStyle: "paren" });
-  return `<span style="color: ${cls};">${text}</span>`;
+  return `<span class="uesrpg-chat-result ${cls}">${text}</span>`;
 }
 
 /**
@@ -37,6 +37,11 @@ export function _btn(label, action, extraDataset = {}, style = "") {
   return `<button type="button" data-ues-opposed-action="${action}" ${ds}${styleAttr}>${label}</button>`;
 }
 
+function _actionButtonLabel(label, meta = "") {
+  if (!meta) return label;
+  return `<span class="uesrpg-chat-action-label"><span>${label}</span><small>${meta}</small></span>`;
+}
+
 /**
  * Extract roll total from various result object structures.
  * 
@@ -53,7 +58,7 @@ function _buildBreakdownRows(tnObj) {
     const v = Number(b.value ?? 0);
     const sign = v >= 0 ? "+" : "";
     const label = String(b.label ?? "Modifier");
-    return `<div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:start;"><span style="overflow-wrap:anywhere; word-break:normal; text-align:left;">${label}</span><span style="white-space:nowrap; text-align:right;">${sign}${v}</span></div>`;
+    return `<div class="uesrpg-chat-kv-row"><span>${label}</span><span>${sign}${v}</span></div>`;
   }).join("");
 }
 
@@ -86,16 +91,16 @@ export function _renderBreakdown(tnObj, { inline = false } = {}) {
   if (!rows) return "";
   if (inline) {
     return `
-      <details style="display:inline-block; margin-left:6px; vertical-align:baseline;">
-        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}">&#9654;</summary>
-        <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
+      <details class="uesrpg-chat-details uesrpg-chat-details--inline">
+        <summary aria-label="${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}" title="${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}"></summary>
+        <div class="uesrpg-chat-details__body">${rows}</div>
       </details>
     `;
   }
   return `
-    <details style="margin-top:4px;">
-      <summary style="cursor:pointer; user-select:none; white-space:nowrap; overflow-wrap:normal; word-break:keep-all;">${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}</summary>
-      <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
+    <details class="uesrpg-chat-details">
+      <summary>${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}</summary>
+      <div class="uesrpg-chat-details__body">${rows}</div>
     </details>`;
 }
 
@@ -109,13 +114,13 @@ export function _renderBreakdown(tnObj, { inline = false } = {}) {
  */
 export function _renderTNLine({ value = "??", tnObj = null } = {}) {
   const rows = _buildBreakdownRows(tnObj);
-  if (!rows) return `<div><b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${value}</div>`;
+  if (!rows) return `<div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${value}</div>`;
   return `
-    <details style="margin:0;">
-      <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;">
-        <b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${value} &#9654;
+    <details class="uesrpg-chat-details uesrpg-chat-details--tn">
+      <summary>
+        <b>${t("UESRPG.Chat.Common.TN", "TN")}:</b> ${value}
       </summary>
-      <div style="margin:4px 0 0 0; padding-left:8px; width:100%; box-sizing:border-box; font-size:12px; opacity:0.9;">${rows}</div>
+      <div class="uesrpg-chat-details__body">${rows}</div>
     </details>
   `;
 }
@@ -132,16 +137,16 @@ export function _renderRollLine({ result = null, noDefense = false } = {}) {
   if (noDefense) {
     // Keep output consistent with normal failures: represent No Defense as a deterministic 1 DoF failure.
     const stub = { rollTotal: 100, isSuccess: false, degree: 1 };
-    return `<div><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> 100 - ${_fmtDegree(stub)}</div>`;
+    return `<div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> 100 - ${_fmtDegree(stub)}</div>`;
   }
   if (!result) return "";
   const total = _extractRollTotal(result);
   const totalText = (total == null) ? "??" : String(total);
   const notes = Array.isArray(result?.talentNotes) ? result.talentNotes.filter(Boolean) : [];
   const notesHtml = notes.length
-    ? `<div class="uesrpg-opposed-notes" style="font-size:0.85em; opacity:0.85;">${notes.map(n => `<div>${n}</div>`).join("")}</div>`
+    ? `<div class="uesrpg-opposed-notes">${notes.map(n => `<div>${n}</div>`).join("")}</div>`
     : "";
-  return `<div><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> ${totalText} - ${_fmtDegree(result)}</div>${notesHtml}`;
+  return `<div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Roll", "Roll")}:</b> ${totalText} - ${_fmtDegree(result)}</div>${notesHtml}`;
 }
 
 /**
@@ -163,7 +168,7 @@ export function _buildAttackerStatusLine({ bankMode, anyOutcome, rolled, aCommit
     : rolled
       ? t("UESRPG.Chat.Status.Rolled", "Rolled")
       : (aCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
-  return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
+  return `<div class="uesrpg-chat-status-line"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
 }
 
 /**
@@ -187,7 +192,7 @@ export function _buildDefenderStatusLine({ bankMode, outcome, rolled, dCommitted
     : actuallyRolled
       ? t("UESRPG.Chat.Status.Rolled", "Rolled")
       : (dCommitted ? t("UESRPG.Chat.Status.Committed", "Committed") : t("UESRPG.Chat.Status.AwaitingChoice", "Awaiting choice"));
-  return `<div style="margin-top:4px; font-size:12px; opacity:0.85;"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
+  return `<div class="uesrpg-chat-status-line"><b>${t("UESRPG.Chat.Common.Status", "Status")}:</b> ${statusText}</div>`;
 }
 
 /**
@@ -211,7 +216,7 @@ export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _s
       fus?.eligible === true && fus?.used !== true &&
       attacker.result?.isSuccess === false
     ) {
-      return `<div style="margin-top:6px;">${_btn(t("UESRPG.Chat.Opposed.FollowUpStrike1SP", "Follow-up Strike (1 SP)"), "followup-strike", { "defender-index": 0 })}</div>`;
+      return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn(t("UESRPG.Chat.Opposed.FollowUpStrike1SP", "Follow-up Strike (1 SP)"), "followup-strike", { "defender-index": 0 })}</div>`;
     }
     return "";
   }
@@ -220,7 +225,7 @@ export function _buildAttackerActions({ attacker, bankMode, aCommitted, data, _s
     if (!aCommitted) {
       if (commitGate?.allowed === false) {
         const reason = String(commitGate?.reason ?? "Unavailable");
-      return `<div style="margin-top:6px; font-size:12px; opacity:0.85;"><i>${tf("UESRPG.Chat.Opposed.AttackUnavailable", { reason }, `Attack unavailable: ${reason}`)}</i></div>`;
+      return `<div class="uesrpg-chat-status-note"><i>${tf("UESRPG.Chat.Opposed.AttackUnavailable", { reason }, `Attack unavailable: ${reason}`)}</i></div>`;
       }
       return `<div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">${_btn(t("UESRPG.Chat.Opposed.Attack", "Attack"), "attacker-commit")}</div>`;
     }
@@ -253,11 +258,11 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
         return `
         <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
           ${_btn(t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), "defender-commit-nodefense", { "defender-index": idx })}
-          <div style="font-size:12px; opacity:0.85;"><i>${tf("UESRPG.Chat.Opposed.DefenseUnavailable", { reason }, `Defense unavailable: ${reason}`)}</i></div>
+          <div class="uesrpg-chat-status-note"><i>${tf("UESRPG.Chat.Opposed.DefenseUnavailable", { reason }, `Defense unavailable: ${reason}`)}</i></div>
         </div>`;
       }
       return `
-        <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
+        <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair uesrpg-opposed-action-row--compact-choice">
           ${_btn(t("UESRPG.Chat.Opposed.Defense", "Defense"), "defender-commit", { "defender-index": idx })}
           ${_btn(t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), "defender-commit-nodefense", { "defender-index": idx })}
         </div>`;
@@ -276,7 +281,7 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
   }
 
   return `
-    <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair">
+    <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--pair uesrpg-opposed-action-row--compact-choice">
       ${_btn(t("UESRPG.Chat.Opposed.Defend", "Defend"), "defender-roll", { "defender-index": idx })}
       ${_btn(t("UESRPG.Chat.Opposed.NoDefense", "No Defense"), "defender-nodefense", { "defender-index": idx })}
     </div>`;
@@ -298,25 +303,25 @@ export function _buildDefenderActions({ defender, bankMode, dCommitted, idx, dat
  */
 export function _buildOutcomeLine({ outcome, bankMode, bothCommitted, allDefendersCommitted, aCommitted, anyGMOnline, data, isMulti }) {
   if (outcome) {
-    return `<div style="margin-top:10px; max-width:100%; overflow-wrap:break-word;"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${outcome.text ?? ""}</div>`;
+    return `<div class="uesrpg-chat-outcome"><b>${t("UESRPG.Chat.Common.Outcome", "Outcome")}:</b> ${outcome.text ?? ""}</div>`;
   }
 
   if (bankMode) {
     if (isMulti) {
       if (!allDefendersCommitted) {
         if (!aCommitted) {
-          return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.WaitingAttackerCommit", "Waiting for attacker to commit choice.")}</i></div>`;
+          return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.WaitingAttackerCommit", "Waiting for attacker to commit choice.")}</i></div>`;
         }
-        return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.WaitingDefendersCommit", "Waiting for all defenders to commit choices.")}</i></div>`;
+        return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.WaitingDefendersCommit", "Waiting for all defenders to commit choices.")}</i></div>`;
       }
-      return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.Rolling", "Rolling.")}</i></div>`;
+      return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.Rolling", "Rolling.")}</i></div>`;
     }
 
     if (!bothCommitted) {
-      return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
+      return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.WaitingBothCommit", "Waiting for both sides to commit choices...")}</i></div>`;
     }
 
-    return `<div style="margin-top:10px; font-size:13px;"><i>${t("UESRPG.Chat.Opposed.RollingEllipsis", "Rolling...")}</i></div>`;
+    return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Opposed.RollingEllipsis", "Rolling...")}</i></div>`;
   }
 
   // Legacy/non-banked pending hint
@@ -326,11 +331,11 @@ export function _buildOutcomeLine({ outcome, bankMode, bothCommitted, allDefende
   const isWaiting = (phase === "waitingdefender" || phase === "waitingDefender");
   const isStale = isWaiting && ageMs > 60000;
   const note = isStale
-    ? `<div style="margin-top:6px; font-size:12px; opacity:0.85;">
+    ? `<div class="uesrpg-chat-status-note">
          ${t("UESRPG.Chat.Opposed.StillWaitingDefenderResult", "Still waiting on the defender result. If this persists, ensure the defender roll message was posted, and have the attacker refresh the page to re-render the card.")}
        </div>`
     : "";
-  return `<div style="margin-top:10px;"><i>${t("UESRPG.Chat.Status.Pending", "Pending")}</i></div>${note}`;
+  return `<div class="uesrpg-chat-status-note"><i>${t("UESRPG.Chat.Status.Pending", "Pending")}</i></div>${note}`;
 }
 
 /**
@@ -368,9 +373,9 @@ export function _buildResolutionDetails({ showResolutionDetails, outcome, attack
   }
 
   return `
-    <details style="margin-top:8px;">
-      <summary style="cursor:pointer;">${t("UESRPG.Chat.Opposed.ResolutionDetails", "Resolution details")}</summary>
-      <div style="margin-top:6px; font-size:12px; opacity:0.9;">
+    <details class="uesrpg-chat-details uesrpg-chat-resolution-details">
+      <summary>${t("UESRPG.Chat.Opposed.ResolutionDetails", "Resolution details")}</summary>
+      <div class="uesrpg-chat-details__body">
         ${lines.join("")}
       </div>
     </details>`;
@@ -402,19 +407,25 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
   const advD = Number(advantage?.defender ?? 0);
 
   if (outcome.winner === "attacker") {
+    const label = _actionButtonLabel(
+      t("UESRPG.Chat.Opposed.RollDamage", "Roll Damage"),
+      advA > 0 ? `${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advA}` : "",
+    );
     return `
-      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        ${_btn(t("UESRPG.Chat.Opposed.RollDamage", "Roll Damage"), "damage-roll", { "defender-index": idx })}
-        ${advA > 0 ? `<span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advA}</span>` : ``}
+      <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+        ${_btn(label, "damage-roll", { "defender-index": idx })}
       </div>
     `;
   }
 
   if (outcome.winner === "defender" && (defender.defenseType ?? "none") === "counter") {
+    const label = _actionButtonLabel(
+      t("UESRPG.Chat.Opposed.RollDamage", "Roll Damage"),
+      advD > 0 ? `${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}` : "",
+    );
     return `
-      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-        ${_btn(t("UESRPG.Chat.Opposed.RollDamage", "Roll Damage"), "counter-damage-roll", { "defender-index": idx })}
-        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>` : ``}
+      <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single">
+        ${_btn(label, "counter-damage-roll", { "defender-index": idx })}
       </div>
     `;
   }
@@ -427,9 +438,9 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
   if (outcome.winner === "defender" && isShieldBlockDefense) {
     const blockLabel = isAoE ? t("UESRPG.Chat.Opposed.ResolveBlockHalfDamage", "Resolve Block (Half Damage)") : t("UESRPG.Chat.Opposed.ResolveBlock", "Resolve Block");
     return `
-      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single uesrpg-opposed-action-row--with-meta">
         ${_btn(blockLabel, "block-resolve", { "defender-index": idx, "ues-gm-only": "true" })}
-        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>` : ``}
+        ${advD > 0 ? `<span class="uesrpg-chat-action-meta">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>` : ``}
       </div>
     `;
   }
@@ -437,9 +448,9 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
   if (outcome.winner === "defender" && isWardDefense) {
     const wardLabel = isAoE ? t("UESRPG.Chat.Opposed.ResolveWardHalfDamage", "Resolve Ward (Half Damage)") : t("UESRPG.Chat.Opposed.ResolveWard", "Resolve Ward");
     return `
-      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single uesrpg-opposed-action-row--with-meta">
         ${_btn(wardLabel, "ward-resolve", { "defender-index": idx })}
-        ${advD > 0 ? `<span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>` : ``}
+        ${advD > 0 ? `<span class="uesrpg-chat-action-meta">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>` : ``}
       </div>
     `;
   }
@@ -455,9 +466,9 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
 
   if (defenderCanUseAdvantage) {
     return `
-      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <div class="uesrpg-opposed-action-row uesrpg-opposed-action-row--single uesrpg-opposed-action-row--with-meta">
         ${_btn(t("UESRPG.Chat.Opposed.ResolveAdvantage", "Resolve Advantage"), "defender-advantage", { "defender-index": idx })}
-        <span style="opacity:0.85; font-size:12px;">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>
+        <span class="uesrpg-chat-action-meta">${t("UESRPG.Chat.Common.Advantage", "Advantage")}: ${advD}</span>
       </div>
     `;
   }
@@ -473,7 +484,7 @@ export function _buildResolvedActions({ outcome, defender, advantage, resolution
  * @param {Object|null} damageData - Damage state from flags.
  * @returns {string} - HTML string for the damage panel, or empty string.
  */
-export function _buildDamagePanel(damageData, { markers = [] } = {}) {
+export function _buildDamagePanel(damageData) {
   if (!damageData || damageData.rolled !== true) return "";
 
   const mode = String(damageData.mode ?? "weapon");
@@ -535,10 +546,10 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
   const hitLocationDisplay = localizeHitLocation(damageData.hitLocation, t("UESRPG.Sheets.Item.HitLocation.Body", "Body"));
   const hdrRowHtml = fullyBlocked
     ? `<div class="dmg-hdr">${headerImg}</div>`
-    : `<div class="dmg-hdr" style="display:grid; grid-template-columns:${headerImg ? "auto " : ""}minmax(0,1fr) auto; gap:6px 16px; align-items:center;">${headerImg}<div class="dmg-title" style="font-weight:700;">${headerLabel}</div><div class="dmg-hitloc"><b>${t("UESRPG.Chat.DamagePanel.HitLocationShort", "Hit Loc.")}</b> ${hitLocationDisplay}</div></div>`;
+    : `<div class="dmg-hdr ${headerImg ? "has-icon" : ""}">${headerImg}<div class="dmg-title">${headerLabel}</div><div class="dmg-hitloc"><b>${t("UESRPG.Chat.DamagePanel.HitLocationShort", "Hit Loc.")}</b> ${hitLocationDisplay}</div></div>`;
   const pillsHtml = pills ? `<div class="val-pills">${pills}</div>` : "";
   const metadataHtml = metadataRows.length
-    ? `<div class="dmg-meta" style="display:grid; gap:2px; margin:6px 0 2px 0;">${metadataRows.map((row) => `<div><b>${_escapeHtml(maybeT(row.label, t("UESRPG.Chat.DamagePanel.Info", "Info")))}:</b> ${_escapeHtml(maybeT(row.value, row.value ?? ""))}</div>`).join("")}</div>`
+    ? `<div class="dmg-meta">${metadataRows.map((row) => `<div><b>${_escapeHtml(maybeT(row.label, t("UESRPG.Chat.DamagePanel.Info", "Info")))}:</b> ${_escapeHtml(maybeT(row.value, row.value ?? ""))}</div>`).join("")}</div>`
     : "";
   const damageDisplayHtml = fullyBlocked ? "" : `
     <div class="dmg-kv">
@@ -567,20 +578,11 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
     : "";
 
   // ── Action: apply button or applied state ──
-  const visibleMarkers = Array.isArray(markers)
-    ? markers.filter((marker) => marker && typeof marker === "object")
-    : [];
-  const markerHtml = visibleMarkers.length
-    ? visibleMarkers.map((marker) => `<span class="damage-applied-label">${String.raw`\u2713`} ${_escapeHtml(maybeT(marker.label, t("UESRPG.Chat.Opposed.AdvantageResolved", "Advantage Resolved")))}</span>`).join("")
-    : "";
-
   let actionSection = "";
   if (fullyBlocked) {
-    actionSection = markerHtml
-      ? `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;">${markerHtml}</div>`
-      : "";
+    actionSection = "";
   } else if (damageData.applied) {
-    actionSection = `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;"><span class="damage-applied-label">\u2713 ${tf("UESRPG.Chat.Common.Applied", { label: damageLabel }, `${damageLabel} Applied`)}</span>${markerHtml}</div>`;
+    actionSection = `<div class="dmg-action"><span class="damage-applied-label"><i class="fa-solid fa-check" aria-hidden="true"></i> ${tf("UESRPG.Chat.Common.Applied", { label: damageLabel }, `${damageLabel} Applied`)}</span></div>`;
   } else {
     const btnClass = isHealing ? "apply-healing-btn" : "apply-damage-btn";
     const btnLabel = tf("UESRPG.Chat.Common.ApplyToTarget", { target: p.targetName ?? t("UESRPG.Chat.Common.Target", "Target") }, `Apply \u2192 ${p.targetName ?? "Target"}`);
@@ -588,7 +590,7 @@ export function _buildDamagePanel(damageData, { markers = [] } = {}) {
       .filter(([k]) => k !== "buttonLabel" && k !== "targetName")
       .map(([k, v]) => `data-${_camelToKebab(k)}="${String(v ?? "").replace(/"/g, "&quot;")}"`) 
       .join(" ");
-    actionSection = `<div class="dmg-action" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center;"><button type="button" class="${btnClass}" ${dataAttrs}>${btnLabel}</button>${markerHtml}</div>`;
+    actionSection = `<div class="dmg-action"><button type="button" class="${btnClass}" ${dataAttrs}>${btnLabel}</button></div>`;
   }
 
   return `

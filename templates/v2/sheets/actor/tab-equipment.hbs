@@ -43,8 +43,8 @@
                         <div class="containerList" data-ues-section="container-list">
                             <table class="ues-table--container">
                                 <thead>
-                                    <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create ues-col-name" id="container"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="containers" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Container"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                    <tr class="uesrpg-equipment-group-header" data-action="groupToggle" data-group="containers">
+                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="containers" itemType="container" legacyId="container" nameCellClass="ues-col-name" label=(localize "UESRPG.Sheets.Equipment.Container")}}
                                         <th class="ues-col-stat" title="{{localize "UESRPG.Sheets.Equipment.EmptyContainerEncTitle"}}">ENC</th>
                                         <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Capacity"}}</th>
                                         <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.ItemCount"}}</th>
@@ -82,8 +82,8 @@
 
                             <table class="weapon-table">
                                 <thead>
-                                    <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create" id="weapon"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="weapons" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Weapons"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                    <tr class="uesrpg-equipment-group-header" data-action="groupToggle" data-group="weapons">
+                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="weapons" itemType="weapon" legacyId="weapon" label=(localize "UESRPG.Sheets.Equipment.Weapons")}}
                                         <th>{{localize "UESRPG.Sheets.Equipment.Damage"}}</th>
                                         <th>{{sheetUi.weaponDistanceHeaderLabel}}</th>
                                         <th>{{localize "UESRPG.Sheets.Equipment.TwoHandedAmmo"}}</th>
@@ -174,8 +174,8 @@
 
                             <table class="ammunition-table">
                                 <thead>
-                                    <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create" id="ammunition"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="ammunition" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Ammunition"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                    <tr class="uesrpg-equipment-group-header" data-action="groupToggle" data-group="ammunition">
+                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="ammunition" itemType="ammunition" legacyId="ammunition" label=(localize "UESRPG.Sheets.Equipment.Ammunition")}}
                                         <th>{{localize "UESRPG.Sheets.Equipment.Bonus"}}</th>
                                         <th>{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
                                         <th class="right-align-cell"><i class="fas fa-trash"></i></th>
@@ -227,8 +227,8 @@
 
                             <table class="shield-table">
                                 <thead>
-                                    <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create" id="shield"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="shield" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Shields"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                    <tr class="uesrpg-equipment-group-header" data-action="groupToggle" data-group="shield">
+                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="shield" itemType="shield" legacyId="shield" label=(localize "UESRPG.Sheets.Equipment.Shields")}}
                                         <th>BR</th>
                                         <th>MBR</th>
                                         <th>{{localize "UESRPG.Sheets.Equipment.Type"}}</th>
@@ -283,8 +283,8 @@
 
                             <table class="armor-table">
                                 <thead>
-                                    <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create" id="armor" data-alt-type="equipment"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="armor" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Armor"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                    <tr class="uesrpg-equipment-group-header" data-action="groupToggle" data-group="armor">
+                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="armor" itemType="armor" legacyId="armor" altType="equipment" label=(localize "UESRPG.Sheets.Equipment.Armor")}}
                                         <th>AR</th>
                                         <th>MR</th>
                                         <th>BR</th>
@@ -339,8 +339,8 @@
 
                             <table class="ues-table--gear">
                                 <thead>
-                                    <tr>
-                                        <th data-action="itemCreate" class="item-name-cell item-create ues-col-name" id="createSelect"><div class="ues-th-content"><a data-action="groupToggle" class="uesrpg-group-toggle" data-group="gear" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a><span class="item-group-label">{{localize "UESRPG.Sheets.Equipment.Equipment"}}</span><span class="item-group-add" aria-hidden="true">+</span></div></th>
+                                    <tr class="uesrpg-equipment-group-header" data-action="groupToggle" data-group="gear">
+                                        {{> "systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs" group="gear" itemType="createSelect" legacyId="createSelect" nameCellClass="ues-col-name" label=(localize "UESRPG.Sheets.Equipment.Equipment")}}
                                         <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Qty"}}</th>
                                         <th class="ues-col-stat">ENC</th>
                                         <th class="ues-col-stat">{{localize "UESRPG.Sheets.Equipment.Price"}}</th>

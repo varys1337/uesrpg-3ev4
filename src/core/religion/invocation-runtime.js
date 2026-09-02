@@ -43,6 +43,7 @@ async function chooseStoreDomain(actor, invocation) {
   if (!prepared.length) throw new Error("Invocation is not prepared in any eligible domain.");
   if (prepared.length === 1) return prepared[0];
   const choice = await customDialog({
+    layout: "workflow",
     title: "Choose Invocation Domain",
     content: `<div style="display:flex; flex-direction:column; gap:8px;">
       <label>Prepared Domain
@@ -72,6 +73,7 @@ async function chooseInvocationOptions(actor, invocation, {
 } = {}) {
   const aspects = Array.isArray(invocation?.system?.aspects) ? invocation.system.aspects : [];
   return customDialog({
+    layout: "workflow",
     title: "Invocation Options",
     content: `<div class="uesrpg-spell-options">
       <h3>${escapeHtml(getLocalizedInvocationName(invocation) || invocation?.name || "Invocation")}</h3>
@@ -143,6 +145,7 @@ async function chooseSeasonedTheurgePotency(invocation, rolledDegree, rankNumber
   if (!rolled || rolled === rank) return Math.max(rolled, rank);
 
   const choice = await customDialog({
+    layout: "workflow",
     title: "Seasoned Theurge",
     content: `<div style="display:flex; flex-direction:column; gap:8px;">
       <div><b>${escapeHtml(invocation?.name ?? "Invocation")}</b> succeeded.</div>

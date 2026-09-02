@@ -315,6 +315,7 @@ export async function pickAlchemyWeapon(actor) {
   const content = `<p>${t("UESRPG.Dialogs.ApplyToWeapon.Prompt")}</p><select name="weaponId" style="width:100%;">${options}</select>`;
 
   const result = await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.ApplyToWeapon.Title"),
     content,
     buttons: {
@@ -350,6 +351,7 @@ export async function pickAlchemyCoatingTarget(actor) {
   const content = `<p>Select a weapon or ammunition item to coat:</p><select name="targetId" style="width:100%;">${options}</select>`;
 
   const result = await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.ApplyPoisonToxin.Title"),
     content,
     buttons: {

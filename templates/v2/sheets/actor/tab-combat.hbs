@@ -239,27 +239,7 @@
         </div>
 
         <div class="tab uesrpg-actions-panel" data-group="actions" data-tab="reactions">
-            <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">
-                <div class="quickbar-title">{{localize "UESRPG.Sheets.Combat.Reactions"}}</div>
-                
-                <div class="reaction-section compact">
-                    <h4>{{localize "UESRPG.Sheets.Combat.DefensiveReactions"}}</h4>
-                    <p class="actions-help-small">{{localize "UESRPG.Sheets.Combat.DefensiveReactionsHelp"}}</p>
-                </div>
-
-                <div class="reaction-section compact">
-                    <h4>{{localize "UESRPG.Sheets.Combat.AttackOfOpportunity"}}</h4>
-                    <div class="quickbar-buttons">
-                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="attack-of-opportunity" data-label="{{localize "UESRPG.Sheets.Combat.AttackOfOpportunity"}}">
-                            <i class="fas fa-crosshairs"></i> {{localize "UESRPG.Sheets.Combat.AttackOfOpportunity"}}
-                        </button>
-                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="grapple" data-action-type="reaction" data-label="{{localize "UESRPG.Sheets.Combat.GrappleReaction"}}">
-                            {{localize "UESRPG.Sheets.Combat.GrappleReaction"}}
-                        </button>
-                    </div>
-                    <p class="actions-help-small">{{localize "UESRPG.Sheets.Combat.AttackOfOpportunityHelp"}}</p>
-                </div>
-            </div>
+            {{> "systems/uesrpg-3ev4/templates/partials/sheets/combat-reactions.hbs" isNpc=false}}
         </div>
         <div class="tab uesrpg-actions-panel" data-group="actions" data-tab="special">
             <div class="uesrpg-actions-card uesrpg-panel uesrpg-panel--alt">

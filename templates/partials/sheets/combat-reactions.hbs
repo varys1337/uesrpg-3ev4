@@ -1,0 +1,30 @@
+<div class="uesrpg-reaction-strip" role="group" aria-label="{{localize "UESRPG.Sheets.Combat.Reactions"}}">
+  <span class="uesrpg-reaction-info"
+        tabindex="0"
+        data-tooltip="UESRPG.Sheets.Combat.DefensiveReactionsHelp"
+        aria-label="{{localize "UESRPG.Sheets.Combat.DefensiveReactions"}}: {{localize "UESRPG.Sheets.Combat.DefensiveReactionsHelp"}}">
+    <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+    <span>{{localize "UESRPG.Sheets.Combat.DefensiveReactions"}}</span>
+  </span>
+  <button type="button"
+          class="uesrpg-quick-action uesrpg-combat-quick-action"
+          data-action="combatQuickAction"
+          data-combat-action="attack-of-opportunity"
+          data-label="{{localize "UESRPG.Sheets.Combat.AttackOfOpportunity"}}"
+          data-tooltip="{{#if isNpc}}UESRPG.Sheets.Combat.AttackOfOpportunityNpcHelp{{else}}UESRPG.Sheets.Combat.AttackOfOpportunityHelp{{/if}}"
+          aria-label="{{localize "UESRPG.Sheets.Combat.AttackOfOpportunity"}}: {{#if isNpc}}{{localize "UESRPG.Sheets.Combat.AttackOfOpportunityNpcHelp"}}{{else}}{{localize "UESRPG.Sheets.Combat.AttackOfOpportunityHelp"}}{{/if}}">
+    <i class="fa-solid fa-crosshairs" aria-hidden="true"></i>
+    <span>{{localize "UESRPG.Sheets.Combat.AttackOfOpportunity"}}</span>
+  </button>
+  <button type="button"
+          class="uesrpg-quick-action uesrpg-combat-quick-action"
+          data-action="combatQuickAction"
+          data-combat-action="grapple"
+          data-action-type="reaction"
+          data-label="{{localize "UESRPG.Sheets.Combat.GrappleReaction"}}"
+          data-tooltip="UESRPG.Sheets.Combat.GrappleReactionHelp"
+          aria-label="{{localize "UESRPG.Sheets.Combat.Grapple"}}: {{localize "UESRPG.Sheets.Combat.GrappleReactionHelp"}}">
+    <i class="fa-solid fa-hand-fist" aria-hidden="true"></i>
+    <span>{{localize "UESRPG.Sheets.Combat.GrappleReaction"}}</span>
+  </button>
+</div>

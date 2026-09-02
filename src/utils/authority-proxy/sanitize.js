@@ -273,10 +273,17 @@ export function sanitizeEmbeddedDocData(embeddedName, data) {
   }
 
   if (embeddedName === "Item") {
-    const allowed = new Set(["name", "img", "type", "system", "flags"]);
+    const allowed = new Set(["name", "img", "type", "system", "flags", "effects"]);
     const out = {};
     for (const [k, v] of Object.entries(data)) {
       if (!allowed.has(k) && !k.startsWith("system.") && !k.startsWith("flags.")) continue;
+      if (k === "effects") {
+        if (!Array.isArray(v)) continue;
+        out.effects = v
+          .map((effect) => sanitizeEmbeddedDocData("ActiveEffect", effect))
+          .filter((effect) => effect && Object.keys(effect).length > 0);
+        continue;
+      }
       out[k] = deepClonePlain(v);
     }
     return out;

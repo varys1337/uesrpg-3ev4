@@ -1092,6 +1092,17 @@ body.theme-dark .worldbuilding.sheet.actor .sheet-fixed-container {
   pointer-events: none;
 }
 
+/* The compact ApplicationV2 header only needs to reserve the close control.
+   Normal sheets retain their centered-title allowance for header tools. */
+:is(.worldbuilding.sheet.actor, .worldbuilding.sheet.item):is(.minimized, .minimizing, .maximizing) .window-header .window-title {
+  left: 12px;
+  right: 44px;
+  width: auto;
+  max-width: none;
+  transform: none;
+  text-align: center;
+}
+
 body.system-uesrpg-3ev4 .window-app .window-content,
 .worldbuilding .window-content,
 .uesrpg .window-content {
@@ -1116,9 +1127,38 @@ body.system-uesrpg-3ev4 .window-app .window-content,
 .application.uesrpg-attack-declare,
 .application.uesrpg-social-selector {
   box-sizing: border-box;
+  border: 0;
+  border-image: none;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* Decorative application frames must not consume core window geometry.
+   Keeping the frame in a pointer-transparent overlay preserves title-bar,
+   minimize/maximize, and resize interactions even for very small windows. */
+:is(
+  .application.uesrpg,
+  .application.uesrpg-dialog,
+  .worldbuilding.uesrpg-dialog,
+  .application.uesrpg-attack-declare,
+  .application.uesrpg-social-selector,
+  .worldbuilding.sheet.actor,
+  .worldbuilding.sheet.item,
+  .application.uesrpg-resource-dialog,
+  .worldbuilding.uesrpg-resource-dialog,
+  body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled .application.journal-sheet.journal-entry,
+  body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled .sheet.journal-entry,
+  body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled .application.journal-sheet.journal-entry-page,
+  body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled .sheet.journal-entry-page
+)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  box-sizing: border-box;
   border: 20px solid transparent;
   border-image: url("../images/elements/interface/borders/dialog-frame-wood.webp") 70/20px stretch;
-  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 /* Solid parchment background --- remove semi-transparent dark glass look*/
@@ -1256,65 +1296,8 @@ body.system-uesrpg-3ev4 .window-app .window-content,
   line-height: 1.25;
 }
 
-.application.uesrpg-dialog :is(.dialog-buttons, .form-footer),
-.worldbuilding.uesrpg-dialog :is(.dialog-buttons, .form-footer) {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--uesrpg-dialog-gap, 8px);
-  margin-top: var(--uesrpg-dialog-gap, 8px);
-  padding: var(--uesrpg-space-xs, 4px) 0 0;
-  background: transparent;
-}
-
-.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button,
-.worldbuilding.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button {
-  flex: 1 1 160px;
-  min-height: var(--uesrpg-control-h-md, 30px);
-  width: auto;
-  font-size: 14px;
-  line-height: 1.2;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  background: linear-gradient(180deg, rgba(98, 70, 28, 0.96) 0%, rgba(58, 39, 15, 0.98) 100%);
-  color: #f5ecd9;
-  border: 1px solid rgba(132, 98, 44, 0.76);
-  box-shadow: inset 0 1px 0 rgba(255, 244, 221, 0.2);
-}
-
-.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button:hover,
-.worldbuilding.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button:hover {
-  background: linear-gradient(180deg, rgba(121, 88, 38, 0.98) 0%, rgb(74, 51, 21) 100%);
-  border-color: rgba(152, 111, 47, 0.84);
-  color: #fff8eb;
-}
-
-.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button:disabled,
-.worldbuilding.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button:disabled,
-.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button[disabled],
-.worldbuilding.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button[disabled] {
-  opacity: 1;
-  color: #e8dcc8;
-  border-color: rgba(112, 84, 36, 0.62);
-  background: linear-gradient(180deg, rgba(93, 82, 64, 0.95) 0%, rgba(72, 62, 48, 0.96) 100%);
-}
-
-.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button:only-child,
-.worldbuilding.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button:only-child {
-  flex-basis: 100%;
-  max-width: 360px;
-  margin-inline: auto;
-}
-
-.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > :nth-last-child(2):first-child,
-.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > :nth-last-child(2):first-child + *,
-.worldbuilding.uesrpg-dialog :is(.dialog-buttons, .form-footer) > :nth-last-child(2):first-child,
-.worldbuilding.uesrpg-dialog :is(.dialog-buttons, .form-footer) > :nth-last-child(2):first-child + * {
-  flex-basis: calc(50% - var(--uesrpg-dialog-gap, 8px) / 2);
-}
-
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) {
+#context-menu:has(li.uesrpg-chat-context-action)) {
   box-sizing: border-box;
   width: max-content !important;
   min-width: 0 !important;
@@ -1343,40 +1326,34 @@ body.uesrpg-chat-context-menu-pending #context-menu) {
   line-height: 1.15;
 }
 
-:is(#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu),
-:is(#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) * {
+#context-menu:has(li.uesrpg-chat-context-action),
+#context-menu:has(li.uesrpg-chat-context-action) * {
   transition: none !important;
   animation: none !important;
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) :is(ol.context-items, li.context-group > ol) {
+#context-menu:has(li.uesrpg-chat-context-action)) :is(ol.context-items, li.context-group > ol) {
   margin: 0;
   padding: 0;
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) li.context-group {
+#context-menu:has(li.uesrpg-chat-context-action)) li.context-group {
   margin: 3px 0 0;
   padding: 4px 0 0;
   border-top: 1px solid rgba(89, 54, 20, 0.28);
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) li.context-group:first-child {
+#context-menu:has(li.uesrpg-chat-context-action)) li.context-group:first-child {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) li.context-item {
+#context-menu:has(li.uesrpg-chat-context-action)) li.context-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1392,8 +1369,7 @@ body.uesrpg-chat-context-menu-pending #context-menu) li.context-item {
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) li.context-item > i {
+#context-menu:has(li.uesrpg-chat-context-action)) li.context-item > i {
   flex: 0 0 16px;
   color: #5f3a18;
   font-size: 12px;
@@ -1401,8 +1377,7 @@ body.uesrpg-chat-context-menu-pending #context-menu) li.context-item > i {
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) li.context-item > span {
+#context-menu:has(li.uesrpg-chat-context-action)) li.context-item > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1410,21 +1385,18 @@ body.uesrpg-chat-context-menu-pending #context-menu) li.context-item > span {
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) li.context-item:hover {
+#context-menu:has(li.uesrpg-chat-context-action)) li.context-item:hover {
   background: rgba(122, 30, 31, 0.14);
   color: #111;
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) li.context-item:hover > i {
+#context-menu:has(li.uesrpg-chat-context-action)) li.context-item:hover > i {
   color: #7b1d1f;
 }
 
 :is(#context-menu.uesrpg-item-quickmenu-context,
-#context-menu.uesrpg-chat-context-menu,
-body.uesrpg-chat-context-menu-pending #context-menu) li.context-item.uesrpg-item-quickmenu-delete > i {
+#context-menu:has(li.uesrpg-chat-context-action)) li.context-item.uesrpg-item-quickmenu-delete > i {
   color: #b00020;
 }
 
@@ -1436,8 +1408,8 @@ body.uesrpg-chat-context-menu-pending #context-menu) li.context-item.uesrpg-item
 .worldbuilding.sheet.actor,
 .worldbuilding.sheet.item {
   box-sizing: border-box;
-  border: 20px solid transparent;
-  border-image: url("../images/elements/interface/borders/dialog-frame-wood.webp") 70/20px stretch;
+  border: 0;
+  border-image: none;
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
@@ -2011,10 +1983,15 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
 
 /* Header: icon + label*/
 .ues-opposed-card .uesrpg-damage-panel .dmg-hdr {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 5px;
   align-items: center;
   margin-bottom: 3px;
+}
+
+.ues-opposed-card .uesrpg-damage-panel .dmg-hdr.has-icon {
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .ues-opposed-card .uesrpg-damage-panel .dmg-icon {
@@ -2279,20 +2256,36 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
    Uniform parchment, leather header, gold frame on combat cards,
    ornamental dividers --- consistent with sheet/dialog visual language.
    ==========================================================================*/
-/* 1. Universal parchment + wood frame --- ALL chat messages
-   padding:0 + overflow:hidden override Foundry's default padding so the
-   header bar and card body fill edge-to-edge inside the wood frame border.*/
+/* 1. Universal parchment + a pointer-transparent wood overlay. The frame no
+   longer consumes 40px of the narrow chat column. */
 .chat-message {
   background-image: url("../images/elements/backgrounds/pale_parchment.webp");
   background-repeat: repeat;
   background-size: auto;
   box-sizing: border-box;
   position: relative;
-  border: 20px solid transparent;
-  border-image: url("../images/elements/interface/borders/window-frame-wood.webp") 70/20px stretch;
+  border: 0;
+  border-image: none;
   margin: 6px 0;
-  padding: 0 !important;
+  padding: 9px !important;
   overflow: visible;
+}
+
+.chat-message::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  box-sizing: border-box;
+  border: 10px solid transparent;
+  border-image: url("../images/elements/interface/borders/window-frame-wood.webp") 70/10px stretch;
+  pointer-events: none;
+}
+
+.chat-message > :is(.message-header, .message-content) {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
 }
 
 /* 2. Message header --- frameline only, no fill; text readable on parchment*/
@@ -2300,6 +2293,7 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
   background: transparent;
   color: #2a1f0f;
   margin: 0;
+  padding: 2px 3px 4px;
   border-bottom: 2px solid rgba(88, 64, 28, 0.45);
 }
 
@@ -2323,12 +2317,13 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
   opacity: 0.9;
 }
 
-/* Card body fills the frame --- no outer padding, overflow hidden prevents
-   any inner element from creating a horizontal scrollbar.*/
+/* Keep the body within the decorative frame and prevent individual cards from
+   forcing a horizontal chat-log scrollbar. */
 .chat-message .message-content {
-  padding: 0;
+  padding: 5px 3px 3px;
   margin: 0;
   overflow-x: hidden;
+  container-type: inline-size;
 }
 
 /* 3. Combat/weapon cards --- no extra inner frame; the outer message frame handles decoration*/
@@ -2341,19 +2336,19 @@ body.theme-dark .worldbuilding) :is(.sheet.actor.player-character .tab.equipment
 /* 4. Damage panel --- ornamental divider replaces plain border*/
 .ues-opposed-card .uesrpg-damage-panel {
   border-top: none;
-  padding-top: 16px;
+  padding-top: 10px;
 }
 
 .ues-opposed-card .uesrpg-damage-panel::before {
   content: "";
   display: block;
   width: 100%;
-  height: 12px;
+  height: 8px;
   background-image: url("../images/elements/interface/chat/divider.webp");
   background-repeat: no-repeat;
   background-size: 100% auto;
   background-position: center;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 /* 5. Native roll card polish --- formula + result on parchment*/
@@ -2504,7 +2499,8 @@ button[data-ues-skill-opposed-action]) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
+  min-height: 30px;
+  height: auto;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -2512,9 +2508,9 @@ button[data-ues-skill-opposed-action]) {
   line-height: 1.15;
   white-space: normal;
   word-break: normal;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   hyphens: none;
-  overflow: hidden;
+  overflow: visible;
   text-align: center;
   font-size: 13px;
   font-weight: 700;
@@ -2526,12 +2522,13 @@ button[data-ues-skill-opposed-action]) {
   margin-top: 6px;
   display: grid;
   gap: 6px;
-  align-items: stretch;
+  align-items: start;
+  justify-content: center;
   width: 100%;
 }
 
 .chat-message .uesrpg-opposed-action-row--single {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 210px);
 }
 
 .chat-message .uesrpg-opposed-action-row--pair {
@@ -2539,7 +2536,7 @@ button[data-ues-skill-opposed-action]) {
 }
 
 .chat-message .uesrpg-opposed-action-row--triple {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(90px, 100%), 1fr));
 }
 
 .chat-message .uesrpg-opposed-action-row--quad {
@@ -2549,6 +2546,339 @@ button[data-ues-skill-opposed-action]) {
 .chat-message .uesrpg-opposed-action-row > button {
   width: 100%;
   min-width: 0;
+  height: auto;
+}
+
+.chat-message .uesrpg-opposed-action-row--with-meta {
+  grid-template-columns: minmax(0, 210px);
+  justify-items: center;
+}
+
+.chat-message .uesrpg-chat-action-meta {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+  opacity: 0.82;
+}
+
+/* Shared internal surface contract for every system-generated card family. */
+.chat-message .uesrpg-chat-surface {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  color: #261d12;
+  font-size: 12.5px;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.chat-message .uesrpg-chat-surface :is(h1, h2, h3, h4, p, ul, ol, table) {
+  margin-block: 0 5px;
+}
+
+.chat-message .uesrpg-chat-surface :is(h1, h2, h3, h4) {
+  line-height: 1.18;
+}
+
+.chat-message .uesrpg-chat-surface > :is(header, .card-header, .hdr) {
+  margin-bottom: 5px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(88, 64, 28, 0.26);
+}
+
+.chat-message .uesrpg-chat-surface > :is(header, .card-header, .hdr) :is(h2, h3, h4, .title) {
+  margin: 0;
+  text-align: center;
+}
+
+.chat-message .uesrpg-chat-surface > :is(.card-content, .body) {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-message .uesrpg-chat-surface > :is(footer, .card-footer, .footer),
+.chat-message .uesrpg-chat-surface :is(.uesrpg-upkeep-buttons, .uesrpg-action-row) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.chat-message .uesrpg-chat-surface > :is(footer, .card-footer, .footer) > button,
+.chat-message .uesrpg-chat-surface :is(.uesrpg-upkeep-buttons, .uesrpg-action-row) > button {
+  flex: 0 1 210px;
+  width: auto;
+  min-width: 0;
+}
+
+.chat-message .uesrpg-chat-surface button {
+  max-width: 100%;
+  height: auto;
+  min-height: 30px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.chat-message .uesrpg-chat-surface :is(table, .uesrpg-chat-table) {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.chat-message .uesrpg-chat-surface :is(th, td) {
+  padding: 2px 4px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.chat-message .uesrpg-chat-surface :is(td:last-child, .uesrpg-chat-value, .uesrpg-chat-kv-row > :last-child) {
+  text-align: right;
+}
+
+.chat-message .uesrpg-chat-kv-row,
+.chat-message .uesrpg-chat-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.chat-message .uesrpg-chat-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  font-size: 12px;
+}
+
+.chat-message .uesrpg-chat-result {
+  font-weight: 500;
+}
+
+.chat-message .uesrpg-chat-result.is-success {
+  color: #167326;
+}
+
+.chat-message .uesrpg-chat-result.is-failure {
+  color: #b20f16;
+}
+
+.chat-message .uesrpg-chat-status-line,
+.chat-message .uesrpg-chat-status-note,
+.chat-message .uesrpg-chat-outcome {
+  margin-top: 4px;
+}
+
+.chat-message .uesrpg-chat-status-line,
+.chat-message .uesrpg-chat-status-note {
+  font-size: 11px;
+  opacity: 0.86;
+}
+
+.chat-message .uesrpg-chat-outcome {
+  text-align: center;
+}
+
+.chat-message .uesrpg-chat-details {
+  margin-top: 4px;
+  font-size: 11.5px;
+}
+
+.chat-message .uesrpg-chat-details > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.chat-message .uesrpg-chat-details__body {
+  display: grid;
+  gap: 2px;
+  margin-top: 3px;
+  padding-left: 8px;
+}
+
+.chat-message .uesrpg-chat-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.chat-message .uesrpg-chat-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid rgba(93, 69, 36, 0.48);
+  border-radius: 999px;
+  background: rgba(229, 211, 174, 0.68);
+  color: #372a19;
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.chat-message .uesrpg-opposed-stack,
+.chat-message .uesrpg-opposed-defenders,
+.chat-message .uesrpg-opposed-stats {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.chat-message .uesrpg-opposed-defenders {
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+}
+
+.chat-message .uesrpg-opposed-duel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(135px, 100%), 1fr));
+  align-items: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-message :is(.uesrpg-opposed-lane, .uesrpg-opposed-defender-card) {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid rgba(88, 64, 28, 0.18);
+  border-radius: 5px;
+  background: rgba(255, 248, 231, 0.2);
+}
+
+.chat-message .uesrpg-opposed-lane-header {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-bottom: 3px;
+  font-weight: 700;
+}
+
+.chat-message .uesrpg-opposed-lane-icon {
+  text-align: center;
+}
+
+.chat-message .uesrpg-opposed-lane-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-message .uesrpg-opposed-stat {
+  min-width: 0;
+}
+
+.chat-message .uesrpg-chat-actions,
+.chat-message .dmg-action {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.chat-message .uesrpg-chat-actions > :is(button, a.button),
+.chat-message .dmg-action > button {
+  flex: 0 1 210px;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  min-height: 30px;
+  padding: 4px 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.chat-message .dmg-hdr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.chat-message .dmg-hdr.has-icon {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.chat-message .dmg-hitloc {
+  text-align: right;
+}
+
+.chat-message .dmg-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
+  grid-column: 1 / -1;
+  gap: 2px 8px;
+}
+
+.chat-message .uesrpg-chat-details-panel {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.chat-message .uesrpg-chat-details-panel__title {
+  margin-bottom: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.chat-message .uesrpg-chat-damage-segment {
+  margin-top: 5px;
+}
+
+.chat-message .uesrpg-chat-damage-segment__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 12px;
+}
+
+.chat-message .uesrpg-chat-damage-note {
+  font-size: 11px;
+  opacity: 0.82;
+}
+
+.chat-message .uesrpg-chat-damage-note--total {
+  margin-top: 2px;
+  text-align: right;
+  opacity: 0.9;
+}
+
+@container (max-width: 290px) {
+  .chat-message .ues-magic-opposed-card .ues-magic-opposed-duel-grid,
+  .chat-message .uesrpg-opposed-action-row--pair,
+  .chat-message .uesrpg-opposed-action-row--triple,
+  .chat-message .uesrpg-opposed-action-row--quad,
+  .chat-message .uesrpg-chat-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-message .ues-magic-opposed-card .ues-magic-opposed-lane--attacker {
+    padding-right: 0;
+    padding-bottom: 6px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  }
+
+  .chat-message .ues-magic-opposed-card .ues-magic-opposed-lane--defender {
+    padding-left: 0;
+  }
+
+  .chat-message .uesrpg-damage-panel .dmg-kv {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
 }
 
 .chat-message .ues-magic-opposed-card .ues-magic-opposed-duel-grid {
@@ -2623,6 +2953,40 @@ button[data-ues-skill-opposed-action]) {
   .chat-message .ues-magic-opposed-card .ues-magic-opposed-lane--defender {
     padding-left: 0;
   }
+}
+
+/* Defense and No Defense are short peer choices and remain a single compact
+   row even when other paired workflow actions stack in narrow chat cards. */
+.chat-message .uesrpg-opposed-action-row--compact-choice {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 4px;
+}
+
+.chat-message .uesrpg-opposed-action-row--compact-choice > button {
+  min-height: 28px;
+  padding: 3px 2px !important;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-message .uesrpg-chat-action-label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  line-height: 1.05;
+}
+
+.chat-message .uesrpg-chat-action-label > small {
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.05;
+  opacity: 0.78;
 }
 /* 8. Status badge gradient depth*/
 .ues-opposed-card .dmg-status--blocked {
@@ -2835,38 +3199,284 @@ button[data-ues-skill-opposed-action]) {
   white-space: nowrap;
 }
 
-/* ---
-   Alchemy Workshop AppV2
----*/
-.alchemy-workshop .alchemy-workshop-wrap {
-  padding: 0.75rem;
+/* --- Alchemy Workshop AppV2 --- */
+.application.uesrpg.alchemy-workshop > .window-content {
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-wrap {
+  box-sizing: border-box;
   display: flex;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow: auto;
 }
 
-.alchemy-workshop .workshop-header {
-  display: flex;
+.application.uesrpg.alchemy-workshop .workshop-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 260px);
+  align-items: end;
+  gap: 8px 12px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid rgba(83, 58, 27, 0.28);
+}
+
+.application.uesrpg.alchemy-workshop .actor-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-meta {
+  margin-top: 2px;
+  font-size: 0.8rem;
+  opacity: 0.82;
+}
+
+.application.uesrpg.alchemy-workshop :is(.alchemy-workshop-mode, .alchemy-gather-row, .alchemy-slot-level) {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) minmax(0, 1fr);
   align-items: center;
-  gap: 0.75rem;
+  gap: 6px;
+  min-width: 0;
+}
+
+.application.uesrpg.alchemy-workshop :is(.alchemy-workshop-select, .alchemy-workshop-input) {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-section,
+.application.uesrpg.alchemy-workshop .alchemy-summary-panel {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(91, 66, 34, 0.32);
+  border-radius: 7px;
+  background: rgba(255, 248, 231, 0.32);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-section__header {
+  display: grid;
+  gap: 2px;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-section__header h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-section__header p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.application.uesrpg.alchemy-workshop :is(.alchemy-known-dropzone, .alchemy-slot-dropzone) {
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px 9px;
+  border: 1px dashed rgba(89, 66, 35, 0.55);
+  border-radius: 6px;
+  background: rgba(250, 242, 219, 0.5);
+}
+
+.application.uesrpg.alchemy-workshop :is(.alchemy-known-dropzone, .alchemy-slot-dropzone).drag-over {
+  border-color: rgba(119, 79, 21, 0.95);
+  background: rgba(225, 187, 104, 0.25);
+  box-shadow: inset 0 0 0 1px rgba(119, 79, 21, 0.35);
+}
+
+.application.uesrpg.alchemy-workshop :is(.alchemy-known-dropzone__title, .alchemy-known-entry__title, .alchemy-slot-dropzone__title, .alchemy-slot-card__label) {
+  font-weight: 700;
+}
+
+.application.uesrpg.alchemy-workshop :is(.alchemy-known-dropzone__text, .alchemy-known-entry__meta, .alchemy-slot-dropzone__meta, .alchemy-slot-dropzone__hint, .alchemy-workshop-empty) {
+  font-size: 0.78rem;
+  line-height: 1.25;
+  opacity: 0.8;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-empty {
+  padding: 7px;
+  text-align: center;
+}
+
+.application.uesrpg.alchemy-workshop :is(.alchemy-known-list, .alchemy-slot-list) {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-known-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(91, 66, 34, 0.24);
+  border-radius: 5px;
+  background: rgba(255, 251, 240, 0.42);
+}
+
+.application.uesrpg.alchemy-workshop :is(.alchemy-known-entry.is-invalid, .alchemy-workshop-banner.is-danger, .alchemy-slot-dropzone__warning) {
+  border-color: rgba(155, 45, 38, 0.55);
+  background: rgba(155, 45, 38, 0.1);
+  color: #6b1712;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-banner {
+  padding: 6px 8px;
+  border: 1px solid rgba(116, 82, 31, 0.45);
+  border-radius: 5px;
+  font-size: 0.82rem;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-banner.is-warning {
+  border-color: rgba(151, 102, 15, 0.55);
+  background: rgba(205, 153, 52, 0.13);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-slot-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid rgba(91, 66, 34, 0.28);
+  border-radius: 6px;
+  background: rgba(247, 236, 207, 0.38);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-slot-card.is-active {
+  border-color: rgba(119, 79, 21, 0.62);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-slot-card__top,
+.application.uesrpg.alchemy-workshop .alchemy-slot-dropzone__top,
+.application.uesrpg.alchemy-workshop .alchemy-poison-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-slot-dropzone__top {
+  align-items: start;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-slot-dropzone__stats,
+.application.uesrpg.alchemy-workshop .alchemy-poison-row__summary {
+  font-size: 0.78rem;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-summary-panel__badges {
+  display: flex;
   flex-wrap: wrap;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 4px;
 }
 
-.alchemy-workshop .ingredient-slot {
-  transition: border-color 0.15s;
+.application.uesrpg.alchemy-workshop .badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid rgba(91, 66, 34, 0.38);
+  border-radius: 999px;
+  background: rgba(229, 211, 174, 0.68);
+  font-size: 0.72rem;
 }
 
-.alchemy-workshop .ingredient-slot:hover {
-  border-color: rgba(100, 200, 100, 0.35) !important;
+.application.uesrpg.alchemy-workshop .alchemy-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
 }
 
-.alchemy-workshop .badge {
-  display: inline-block;
-  font-size: 0.78em;
-  padding: 0.15rem 0.45rem;
-  border-radius: 3px;
-  margin-right: 0.25rem;
+.application.uesrpg.alchemy-workshop .alchemy-summary-grid__value {
+  text-align: right;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-summary-grid__value.is-negative,
+.application.uesrpg.alchemy-workshop .alchemy-workshop-text-danger {
+  color: #8d1814;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-summary-grid__value.is-positive {
+  color: #255f24;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-summary-grid .is-strong {
+  font-weight: 700;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-inline-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: auto;
+  max-width: 100%;
+  min-height: 30px;
+  height: auto;
+  padding: 4px 9px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-button.is-compact {
+  min-height: 26px;
+  padding: 2px 7px;
+  font-size: 0.76rem;
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-footer {
+  position: sticky;
+  z-index: 2;
+  bottom: -10px;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  padding: 8px 0 10px;
+  background: linear-gradient(180deg, rgba(239, 222, 179, 0), rgba(239, 222, 179, 0.98) 28%);
+}
+
+.application.uesrpg.alchemy-workshop .alchemy-workshop-footer .alchemy-workshop-button {
+  flex: 0 1 240px;
+  width: 240px;
+}
+
+@media (max-width: 620px) {
+  .application.uesrpg.alchemy-workshop .workshop-header,
+  .application.uesrpg.alchemy-workshop .alchemy-slot-card__top,
+  .application.uesrpg.alchemy-workshop .alchemy-slot-dropzone__top,
+  .application.uesrpg.alchemy-workshop .alchemy-poison-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .application.uesrpg.alchemy-workshop .alchemy-slot-dropzone__stats,
+  .application.uesrpg.alchemy-workshop .alchemy-poison-row__summary {
+    text-align: left;
+  }
 }
 
 /*---
@@ -2890,9 +3500,6 @@ button[data-ues-skill-opposed-action]) {
 }
 
 .worldbuilding.sheet.actor:not(.group) > .window-content {
-  --uesrpg-sheet-frame-width: 20px;
-  --uesrpg-bookmark-rail-width: 34px;
-  --uesrpg-bookmark-border-overlap: 0px;
   display: flex;
   flex-direction: row;
   position: relative;
@@ -2907,9 +3514,6 @@ button[data-ues-skill-opposed-action]) {
 
 /* Group sheet: same 2-part layout*/
 .worldbuilding.sheet.group > .window-content {
-  --uesrpg-sheet-frame-width: 20px;
-  --uesrpg-bookmark-rail-width: 40px;
-  --uesrpg-bookmark-border-overlap: 6px;
   display: flex;
   flex-direction: row;
   position: relative;
@@ -2922,9 +3526,6 @@ button[data-ues-skill-opposed-action]) {
 }
 
 .worldbuilding.sheet.actor.group > .window-content {
-  --uesrpg-sheet-frame-width: 20px;
-  --uesrpg-bookmark-rail-width: 40px;
-  --uesrpg-bookmark-border-overlap: 6px;
   display: flex;
   flex-direction: row;
   position: relative;
@@ -2980,13 +3581,12 @@ button[data-ues-skill-opposed-action]) {
 }
 
 .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookmark-tabs {
-  --uesrpg-sheet-frame-width: 20px;
-  --uesrpg-bookmark-rail-width: 40px;
-  --uesrpg-bookmark-border-overlap: 6px;
+  --uesrpg-bookmark-rail-width: 37px;
+  --uesrpg-bookmark-border-overlap: 0px;
   position: absolute;
   top: 74px;
   bottom: auto;
-  left: calc(100% + var(--uesrpg-sheet-frame-width) - var(--uesrpg-bookmark-border-overlap));
+  left: calc(100% - var(--uesrpg-bookmark-border-overlap));
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -3051,8 +3651,6 @@ button[data-ues-skill-opposed-action]) {
 
 .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookmark-tabs {
   gap: 4px;
-  --uesrpg-bookmark-rail-width: 37px;
-  --uesrpg-bookmark-border-overlap: 0px;
 }
 
 .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookmark-tabs > [data-tab] {
@@ -4447,25 +5045,66 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 
 /* Advancement Menu Dialog*/
 .uesrpg-advancement-menu {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-  padding: 4px 0;
+  width: 100%;
+  padding: 2px 0;
 }
 
 .uesrpg-advancement-menu .adv-btn {
-  display: flex;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  justify-items: center;
+  gap: 4px;
   width: 100%;
-  padding: 8px 12px;
+  min-width: 0;
+  min-height: 40px;
+  height: auto;
+  margin: 0;
+  padding: 4px 6px;
   font-size: var(--uesrpg-font-sm, 13px);
-  text-align: left;
+  line-height: 1.15;
+  text-align: center;
   cursor: pointer;
+}
+
+.uesrpg-advancement-menu .adv-btn > i {
+  width: 18px;
+  margin: 0;
+  text-align: center;
+}
+
+.uesrpg-advancement-menu .adv-btn > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.uesrpg-advancement-menu .adv-btn strong {
+  font-weight: 700;
+}
+
+.uesrpg-advancement-menu .adv-btn small {
+  max-width: 100%;
+  font-size: 0.86em;
+  font-weight: 400;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .uesrpg-advancement-menu .adv-btn:hover {
   background: var(--uesrpg-bg-hover);
+}
+
+@media (max-width: 420px) {
+  .uesrpg-advancement-menu {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .worldbuilding .npc-button-stats {
@@ -7060,103 +7699,6 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
   min-width: 0;
 }
 
-/* ==========================================================================
-   Shared combat dialog polish --- applied via classes: ["uesrpg-attack-declare"]
-   on defender, defense, skill, char, magic dialogs for visual uniformity.
-   ==========================================================================*/
-/* Defense-type choice cards (.def-opt) --- same gold hover/selected as .uesrpg-adv-choice*/
-.application.uesrpg-attack-declare .def-opt {
-  position: relative;
-  display: block;
-  cursor: pointer;
-}
-
-.application.uesrpg-attack-declare .def-opt > .def-opt__card {
-  background: rgba(255, 248, 231, 0.7) !important;
-  border: 1px solid rgba(106, 76, 38, 0.32) !important;
-  border-radius: 4px !important;
-  padding: 7px 9px !important;
-  color: #1a1209;
-  text-shadow: 0 1px 0 rgba(255, 246, 226, 0.26);
-  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
-}
-
-.application.uesrpg-attack-declare .def-opt:hover > .def-opt__card {
-  background: rgba(223, 182, 95, 0.24) !important;
-  border-color: rgba(152, 108, 46, 0.5) !important;
-}
-
-.application.uesrpg-attack-declare .def-opt > input[type=radio]:checked + .def-opt__card {
-  background: rgba(224, 180, 84, 0.35) !important;
-  border-color: rgba(150, 103, 32, 0.92) !important;
-  color: #120d08;
-  box-shadow: inset 0 1px 0 rgba(255, 245, 214, 0.84), 0 0 0 1px rgba(125, 85, 24, 0.42), 0 2px 8px rgba(74, 50, 16, 0.24);
-}
-
-/* Hide native radio inputs inside .def-opt --- visual state comes from card border*/
-.application.uesrpg-attack-declare .def-opt input[type=radio],
-.application.uesrpg-attack-declare .def-opt input[type=checkbox] {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-  margin: 0;
-  pointer-events: none;
-}
-
-/* Generic .uesrpg content wrapper --- form-group label+input connected row*/
-.application.uesrpg-attack-declare .uesrpg .form-group,
-.application.uesrpg-attack-declare .uesrpg-skill-declare .form-group,
-.application.uesrpg-attack-declare .uesrpg-char-declare .form-group,
-.application.uesrpg-attack-declare .defense-dialog .form-group {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0;
-  margin: 6px 0 0;
-  align-items: stretch;
-}
-
-.application.uesrpg-attack-declare .uesrpg .form-group > label:first-child,
-.application.uesrpg-attack-declare .uesrpg-skill-declare .form-group > label:first-child,
-.application.uesrpg-attack-declare .uesrpg-char-declare .form-group > label:first-child,
-.application.uesrpg-attack-declare .defense-dialog .form-group > label:first-child {
-  padding: 0 10px;
-  height: 28px;
-  line-height: 28px;
-  font-weight: 600;
-  white-space: nowrap;
-  font-size: 12px;
-  margin: 0;
-}
-
-.application.uesrpg-attack-declare .uesrpg .form-group > select,
-.application.uesrpg-attack-declare .uesrpg .form-group > input[type=number],
-.application.uesrpg-attack-declare .uesrpg .form-group > input[type=text],
-.application.uesrpg-attack-declare .uesrpg-skill-declare .form-group > select,
-.application.uesrpg-attack-declare .uesrpg-skill-declare .form-group > input[type=number],
-.application.uesrpg-attack-declare .uesrpg-char-declare .form-group > select,
-.application.uesrpg-attack-declare .uesrpg-char-declare .form-group > input[type=number],
-.application.uesrpg-attack-declare .defense-dialog .form-group > select,
-.application.uesrpg-attack-declare .defense-dialog .form-group > input[type=number] {
-  border-left: none;
-  height: 28px;
-  line-height: 28px;
-  padding: 0 6px;
-  min-width: 0;
-  width: 100%;
-}
-
-/* Checkbox/inline-label form-groups: full-width single column*/
-.application.uesrpg-attack-declare .uesrpg .form-group > label:only-child,
-.application.uesrpg-attack-declare .uesrpg-skill-declare .form-group > label:only-child {
-  grid-column: 1/-1;
-  height: auto;
-  line-height: 1.4;
-  padding: 4px 6px;
-  font-weight: normal;
-}
-
-/* UESRPG: Keep dead selector removed --- defense-dialog now uses uesrpg-attack-declare*/
 /* ---*/
 /* Active Effects (AppV1 sheets)*/
 /* ---*/
@@ -7488,8 +8030,8 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 48px;
-  padding: 0.45rem 0.55rem;
+  min-height: 36px;
+  padding: 5px 8px;
   border: 1px solid rgba(106, 76, 38, 0.28);
   border-radius: 6px;
   background: rgba(255, 248, 231, 0.62);
@@ -7532,6 +8074,7 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
   display: block;
   font-weight: 700;
   line-height: 1.1;
+  text-align: center;
 }
 
 .uesrpg-adv-dialog .uesrpg-adv-choice__desc {
@@ -7602,16 +8145,16 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
    ==========================================================================*/
 /* Attack grid: tighter gap than the shared adv-grid default*/
 .application.uesrpg-attack-declare .uesrpg-adv-grid {
-  gap: 7px;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 4px;
 }
 
 /* Section header --- "ATTACK VARIATION" with ruled lines*/
 .application.uesrpg-attack-declare .uesrpg-dialog-section-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 10px 0 5px;
+  gap: 6px;
+  margin: 6px 0 3px;
   font-size: 0.8em;
   font-weight: 600;
   letter-spacing: 0.09em;
@@ -7635,18 +8178,18 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
 /* Form group rows --- connected label + input pair*/
 .application.uesrpg-attack-declare .form-group {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0;
-  margin: 6px 0 0;
-  align-items: stretch;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 6px;
+  margin: 0;
+  align-items: center;
 }
 
 .application.uesrpg-attack-declare .form-group > label {
-  padding: 0 10px;
-  height: 28px;
-  line-height: 28px;
+  padding: 0;
+  height: auto;
+  line-height: 1.2;
   font-weight: 600;
-  white-space: nowrap;
+  white-space: normal;
   font-size: 12px;
   margin: 0;
 }
@@ -7654,9 +8197,8 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
 .application.uesrpg-attack-declare .form-group > select,
 .application.uesrpg-attack-declare .form-group > input[type=number],
 .application.uesrpg-attack-declare .form-group > input[type=text] {
-  border-left: none;
-  height: 28px;
-  line-height: 28px;
+  height: 30px;
+  line-height: 30px;
   padding: 0 6px;
   min-width: 0;
   width: 100%;
@@ -7670,8 +8212,8 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
 }
 
 .application.uesrpg-attack-declare .uesrpg-adv-choice > .uesrpg-adv-choice__label {
-  min-height: 52px;
-  padding: 6px 10px;
+  min-height: 36px;
+  padding: 5px 8px;
   color: #1d1710;
   text-shadow: 0 1px 0 rgba(255, 246, 226, 0.34);
   background: rgba(255, 248, 231, 0.62);
@@ -7743,8 +8285,8 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
 
 .application.uesrpg-attack-declare .uesrpg-defense-flags {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 6px;
   align-items: start;
   margin-top: 6px;
 }
@@ -7786,17 +8328,18 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
 }
 
 .application.uesrpg-attack-declare .uesrpg-spell-options__title {
-  margin: 0 0 2px;
-  font-size: 1.45rem;
+  margin: 0;
+  font-size: 1.15rem;
   line-height: 1.05;
+  text-align: center;
 }
 
 .application.uesrpg-attack-declare .uesrpg-spell-profile-card {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 2px 0 4px;
-  padding: 8px 10px;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 8px;
   border: 1px solid rgba(106, 76, 38, 0.22);
   border-radius: 4px;
   background: rgba(255, 248, 231, 0.7);
@@ -7804,6 +8347,7 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
 
 .application.uesrpg-attack-declare .uesrpg-spell-profile-card__item {
   min-width: 0;
+  text-align: center;
 }
 
 .application.uesrpg-attack-declare .uesrpg-spell-profile-card__label {
@@ -7858,11 +8402,12 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
 }
 
 .application.uesrpg-attack-declare .uesrpg-spell-option-grid--single {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(180px, 320px);
+  justify-content: center;
 }
 
 .application.uesrpg-attack-declare .uesrpg-spell-option-grid .uesrpg-adv-choice > .uesrpg-adv-choice__label {
-  min-height: 40px;
+  min-height: 36px;
 }
 
 .application.uesrpg-attack-declare .uesrpg-adv-dialog--spell-options .uesrpg-adv-choice.is-incompatible > .uesrpg-adv-choice__label {
@@ -7925,28 +8470,6 @@ body.theme-dark .worldbuilding.sheet :is(prose-mirror, .editor-content, .ProseMi
   opacity: 0.68;
   font-size: 11px;
   margin-top: 4px;
-}
-
-/* Dialog footer buttons --- 2-column layout*/
-.application.uesrpg-attack-declare .dialog-buttons,
-.application.uesrpg-attack-declare .form-footer {
-  display: flex !important;
-  flex-wrap: wrap;
-  gap: var(--uesrpg-dialog-gap, 8px);
-  padding: 10px 0 2px;
-  margin-top: 10px;
-  background: transparent;
-}
-
-.application.uesrpg-attack-declare .dialog-buttons button,
-.application.uesrpg-attack-declare .form-footer button {
-  flex: 1 1 160px;
-  min-height: var(--uesrpg-control-h-md, 30px);
-  height: auto;
-  width: auto;
-  font-size: 14px;
-  line-height: 1.2;
-  padding: 2px 10px;
 }
 
 /* Attack Counter Warning Styles*/
@@ -10367,6 +10890,218 @@ body.theme-dark .worldbuilding :is(.sheet.actor.player-character, .sheet.actor.n
     flex-direction: column;
   }
 }
+
+/* Enchanting Workshop AppV2. These component names are also used by Item
+   surfaces above, so the long-lived application needs an explicit scope. */
+.application.uesrpg.enchanting-workshop > .window-content {
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-workshop-body {
+  box-sizing: border-box;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-actor-info {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  border: 1px solid rgba(91, 66, 34, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 248, 231, 0.3);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-actor-info p {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-skill-info {
+  text-align: right;
+}
+
+.application.uesrpg.enchanting-workshop .talent-badge {
+  display: inline-flex;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border: 1px solid rgba(91, 66, 34, 0.38);
+  border-radius: 999px;
+  background: rgba(229, 211, 174, 0.68);
+  font-size: 0.7rem;
+}
+
+.application.uesrpg.enchanting-workshop hr {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid rgba(83, 58, 27, 0.24);
+}
+
+.application.uesrpg.enchanting-workshop > .window-content .form-group {
+  display: grid;
+  grid-template-columns: minmax(130px, 180px) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  margin: 0;
+}
+
+.application.uesrpg.enchanting-workshop :is(input:not([type="checkbox"]), select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+}
+
+.application.uesrpg.enchanting-workshop :is(.enchanting-section, .spell-slot) {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid rgba(91, 66, 34, 0.32);
+  border-radius: 7px;
+  background: rgba(255, 248, 231, 0.32);
+}
+
+.application.uesrpg.enchanting-workshop fieldset > legend {
+  padding-inline: 5px;
+  font-weight: 700;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-summary-strip,
+.application.uesrpg.enchanting-workshop .enchanting-cast-setup,
+.application.uesrpg.enchanting-workshop .enchanting-cast-slot__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-summary-strip__card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 7px;
+  border: 1px solid rgba(91, 66, 34, 0.25);
+  border-radius: 5px;
+  background: rgba(255, 251, 240, 0.42);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-summary-strip__label {
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-cast-setup__field,
+.application.uesrpg.enchanting-workshop .enchanting-cast-slot__field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.application.uesrpg.enchanting-workshop :is(.enchanting-cast-setup__field, .enchanting-cast-slot__field) > span:first-child {
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-cast-slot__field--wide {
+  grid-column: 1 / -1;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-cast-slots {
+  display: grid;
+  gap: 7px;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-cast-slot {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid rgba(91, 66, 34, 0.28);
+  border-radius: 6px;
+  background: rgba(247, 236, 207, 0.38);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-cast-slot__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-cast-slot__advanced {
+  padding-top: 4px;
+  border-top: 1px solid rgba(91, 66, 34, 0.18);
+  font-size: 0.78rem;
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-cast-slot__advanced > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.application.uesrpg.enchanting-workshop .notes {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(92, 68, 35, 0.08);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.application.uesrpg.enchanting-workshop .notes.warning {
+  border: 1px solid rgba(151, 102, 15, 0.45);
+  background: rgba(205, 153, 52, 0.13);
+}
+
+.application.uesrpg.enchanting-workshop .sheet-footer {
+  position: sticky;
+  z-index: 2;
+  bottom: -10px;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  min-height: 0;
+  padding: 8px 0 10px;
+  background: linear-gradient(180deg, rgba(239, 222, 179, 0), rgba(239, 222, 179, 0.98) 28%);
+}
+
+.application.uesrpg.enchanting-workshop .enchanting-submit {
+  flex: 0 1 260px;
+  width: 260px;
+  max-width: 100%;
+  min-height: 30px;
+  height: auto;
+  padding: 4px 9px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 620px) {
+  .application.uesrpg.enchanting-workshop .enchanting-actor-info,
+  .application.uesrpg.enchanting-workshop > .window-content .form-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .application.uesrpg.enchanting-workshop .enchanting-skill-info {
+    text-align: left;
+  }
+}
 /* ---
    Native Journal chrome for UESRPG.
    Styles Foundry's built-in journal entry and journal page sheets using
@@ -10376,8 +11111,8 @@ body.theme-dark .worldbuilding :is(.sheet.actor.player-character, .sheet.actor.n
 body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry),
 body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) {
   box-sizing: border-box;
-  border: 20px solid transparent;
-  border-image: url("../images/elements/interface/borders/dialog-frame-wood.webp") 70/20px stretch;
+  border: 0;
+  border-image: none;
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .window-header,
@@ -10415,6 +11150,7 @@ body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-
   min-height: 0;
   gap: 10px;
 }
+
 body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-sidebar,
 body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry, .sheet.journal-entry) .journal-entry-content,
 body.system-uesrpg-3ev4.uesrpg-custom-journals-enabled :is(.application.journal-sheet.journal-entry-page, .sheet.journal-entry-page) .window-content > :is(form, .standard-form) {
@@ -11039,8 +11775,8 @@ body.system-uesrpg-3ev4.theme-dark.uesrpg-custom-journals-enabled :is(.applicati
 .application.uesrpg-resource-dialog,
 .worldbuilding.uesrpg-resource-dialog {
   box-sizing: border-box;
-  border: 20px solid transparent;
-  border-image: url("../images/elements/interface/borders/dialog-frame-wood.webp") 70/20px stretch;
+  border: 0;
+  border-image: none;
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
@@ -14000,10 +14736,23 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   margin-bottom: 6px;
 }
 
+.uesrpg-creation-dialog .menu-instructions p {
+  max-width: 62ch;
+  margin: 0 auto 4px;
+}
+
+.uesrpg-creation-dialog .menu-instructions label {
+  display: block;
+  margin: 0;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .uesrpg-creation-dialog .menu-instructions input[type=text] {
   display: block;
-  margin: 6px auto 0;
-  width: 220px;
+  width: min(280px, 100%);
+  min-height: 30px;
+  margin: 4px auto 0;
   text-align: center;
 }
 
@@ -14031,10 +14780,17 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 
 .uesrpg-creation-dialog .creation-footer {
   flex: none;
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 220px));
+  justify-content: center;
   gap: var(--uesrpg-dialog-gap, 8px);
-  padding: 6px 0 8px;
+  padding: 6px 0 2px;
+}
+
+.uesrpg-creation-dialog .creation-footer > button {
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
 }
 
 /* --- Section headings inside the scroll area ---*/
@@ -14053,6 +14809,16 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   grid-template-columns: 1fr 1fr;
   gap: var(--uesrpg-section-gap, 8px);
   padding: 4px 0;
+}
+
+@media (max-width: 720px) {
+  .uesrpg-creation-dialog .menu-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .uesrpg-creation-dialog .creation-footer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* ---
@@ -14254,8 +15020,8 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 10px 10px;
+  gap: 6px;
+  padding: 6px 8px 8px;
   box-sizing: border-box;
 }
 
@@ -14263,17 +15029,22 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   flex: none;
   display: grid;
   grid-template-columns: 1fr auto auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   border: 1px solid rgba(120, 120, 120, 0.5);
   background: rgba(85, 85, 85, 0.25);
   border-radius: 6px;
-  padding: 8px 10px;
+  padding: 6px 8px;
+}
+
+.uesrpg-spendxp__title {
+  text-align: center;
 }
 
 .uesrpg-spendxp__title h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
+  line-height: 1.1;
 }
 
 .uesrpg-spendxp__subtitle {
@@ -14284,14 +15055,14 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .uesrpg-spendxp__stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(90px, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .uesrpg-spendxp__stat {
   text-align: center;
   border: 1px solid rgba(120, 120, 120, 0.35);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 4px 6px;
   background: rgba(0, 0, 0, 0.08);
 }
 
@@ -14308,6 +15079,14 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .uesrpg-spendxp__header-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 5px;
+}
+
+.uesrpg-spendxp__header-actions > button {
+  width: auto;
+  min-height: 30px;
+  margin: 0;
+  padding-inline: 9px;
 }
 
 .uesrpg-spendxp__scroll {
@@ -14323,19 +15102,38 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   border: 1px solid rgba(120, 120, 120, 0.35);
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.06);
-  padding: 10px;
-  margin-bottom: 10px;
+  padding: 7px 8px;
+  margin-bottom: 6px;
 }
 
 .uesrpg-spendxp__section h3 {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   font-size: 14px;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .uesrpg-spendxp__hint {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   font-size: 11px;
   color: rgba(36, 36, 36, 0.58);
+}
+
+.uesrpg-spendxp__top-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 6px;
+}
+
+.uesrpg-spendxp__top-row > .uesrpg-spendxp__section {
+  height: 100%;
+}
+
+.uesrpg-spendxp__draft > .uesrpg-spendxp__hint,
+.uesrpg-spendxp__section--drop > .uesrpg-spendxp__hint,
+.uesrpg-spendxp__empty {
+  text-align: center;
 }
 
 .uesrpg-spendxp__row {
@@ -14350,6 +15148,10 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 
 .uesrpg-spendxp__btn {
   flex: none;
+  width: auto;
+  min-height: 30px;
+  margin: 0;
+  padding-inline: 9px;
   white-space: nowrap;
 }
 
@@ -14372,7 +15174,7 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .uesrpg-spendxp__skill-row {
   border: 1px solid rgba(120, 120, 120, 0.25);
   border-radius: 6px;
-  padding: 8px;
+  padding: 6px;
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -14420,16 +15222,16 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 
 .uesrpg-spendxp__skill-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .uesrpg-spendxp__skill-subrow {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .uesrpg-spendxp__skill-subrow input[type=text] {
@@ -14437,6 +15239,14 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 
 @media (max-width: 1100px) {
+  .uesrpg-spendxp__header {
+    grid-template-columns: 1fr;
+  }
+
+  .uesrpg-spendxp__header-actions {
+    justify-content: center;
+  }
+
   .uesrpg-spendxp__skill-list {
     grid-template-columns: 1fr;
   }
@@ -14444,7 +15254,7 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .uesrpg-spendxp__dropzone {
   border: 2px dashed rgba(120, 120, 120, 0.45);
   border-radius: 8px;
-  padding: 10px;
+  padding: 8px;
   background: rgba(0, 0, 0, 0.06);
 }
 
@@ -14512,10 +15322,31 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 
 .uesrpg-spendxp__confirm-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 220px));
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 6px;
+}
+
+.uesrpg-spendxp__confirm-actions > button {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .uesrpg-spendxp__top-row,
+  .uesrpg-spendxp__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .uesrpg-spendxp__top-row,
+  .uesrpg-spendxp__stats,
+  .uesrpg-spendxp__confirm-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .theme-dark .uesrpg-spendxp__subtitle,
@@ -14559,6 +15390,180 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   margin: 0 auto;
 }
 
+.uesrpg-cg-stack {
+  gap: 6px;
+}
+
+.uesrpg-cg-intro,
+.uesrpg-cg-empty,
+.uesrpg-cg-summary {
+  max-width: 62ch;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.uesrpg-cg-intro,
+.uesrpg-cg-empty,
+.uesrpg-cg-summary p,
+.uesrpg-cg-rules p {
+  margin-block: 0;
+}
+
+.uesrpg-cg-summary__row {
+  text-align: center;
+}
+
+.uesrpg-cg-rule-note {
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  color: var(--color-text-dark-secondary, #665947);
+  font-size: 0.86em;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.uesrpg-cg-rules {
+  min-width: 0;
+  text-align: left;
+}
+
+.uesrpg-cg-rules h3 {
+  margin: 0 0 4px;
+  text-align: center;
+}
+
+.uesrpg-cg-list {
+  margin: 4px 0 0 18px;
+  padding: 0;
+  text-align: left;
+}
+
+.uesrpg-cg-field,
+.uesrpg-cg-check {
+  min-width: 0;
+}
+
+.uesrpg-cg-field--stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  margin: 0;
+  text-align: left;
+}
+
+.uesrpg-cg-field--stacked > span:first-child {
+  font-weight: 700;
+}
+
+.uesrpg-cg-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.uesrpg-cg-check > input[type="checkbox"],
+.uesrpg-cg-check > input[type="radio"] {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.uesrpg-cg-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 6px;
+  margin: 0 0 2px;
+}
+
+.uesrpg-cg-option-grid--four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 5px;
+}
+
+.uesrpg-cg-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.uesrpg-cg-stat {
+  display: flex;
+  min-width: 0;
+  min-height: 54px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid rgba(106, 76, 38, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 248, 231, 0.58);
+  text-align: center;
+}
+
+.uesrpg-cg-stat__label {
+  font-size: 0.86em;
+  font-weight: 700;
+}
+
+.uesrpg-cg-stat__value {
+  font-weight: 700;
+}
+
+.uesrpg-cg-stat > input {
+  width: min(100%, 96px);
+  min-height: 28px;
+  text-align: center;
+}
+
+.uesrpg-cg-info-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(150px, 0.65fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.uesrpg-cg-rank-table {
+  margin: 0;
+  text-align: center;
+}
+
+.uesrpg-cg-rank-table :is(th, td) {
+  padding: 3px 6px;
+}
+
+.uesrpg-cg-field-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 100px;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.uesrpg-cg-field-grid > label {
+  margin: 0;
+  text-align: left;
+}
+
+.uesrpg-cg-field-grid > :is(input, .uesrpg-cg-field-value) {
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  text-align: right;
+}
+
+.uesrpg-cg-field-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-inline: 6px;
+  font-weight: 700;
+}
+
 .uesrpg-cg-dialog__note {
   font-size: 12px;
   line-height: 1.3;
@@ -14566,6 +15571,7 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   border: 1px solid rgba(120, 120, 120, 0.35);
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.06);
+  text-align: center;
 }
 
 .uesrpg-cg-dialog__tools {
@@ -14662,12 +15668,30 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
     padding: 2px;
   }
 }
+
+@media (max-width: 560px) {
+  .uesrpg-cg-stat-grid,
+  .uesrpg-cg-info-grid,
+  .uesrpg-cg-option-grid,
+  .uesrpg-cg-option-grid--four {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .uesrpg-cg-field-grid {
+    grid-template-columns: minmax(0, 1fr) 90px;
+  }
+
+  .uesrpg-cg-option-grid--four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .uesrpg.uesrpg-char-gen .window-content {
   display: flex;
   flex-direction: column;
   gap: 6px;
   height: 100%;
   min-height: 0;
+  padding: 8px 10px;
 }
 
 .uesrpg.uesrpg-char-gen .form-footer {
@@ -14677,7 +15701,7 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .uesrpg-char-gen__root {
   display: flex;
   flex-direction: column;
-  gap: var(--uesrpg-section-gap, 8px);
+  gap: 6px;
   height: 100%;
   min-height: 0;
   flex: 1;
@@ -14685,26 +15709,41 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 
 .uesrpg-char-gen__layout {
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr);
-  gap: var(--uesrpg-section-gap, 8px);
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 6px;
   min-height: 0;
   flex: 1;
 }
 
 .uesrpg-char-gen__stages {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border: 1px solid rgba(0, 0, 0, 0.25);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 6px;
   background: rgba(30, 30, 30, 0.05);
+}
+
+.uesrpg-char-gen__stages h3 {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .uesrpg-char-gen__stages ol {
   list-style: none;
-  margin: 6px 0 0;
+  margin: 5px 0 0;
   padding: 0;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .uesrpg-char-gen__stages li {
@@ -14713,17 +15752,35 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 
 .uesrpg-char-gen__stage-link {
+  position: relative;
   width: 100%;
-  display: flex;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
+  justify-items: center;
+  padding: 2px 26px;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  text-align: left;
+  text-align: center;
   color: inherit;
   cursor: pointer;
+}
+
+.uesrpg-char-gen__stage-link .status {
+  position: absolute;
+  left: 7px;
+  width: 14px;
+  color: rgba(43, 31, 18, 0.58);
+  font-size: 11px;
+  text-align: center;
+}
+
+.uesrpg-char-gen__stage-link .label {
+  min-width: 0;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .uesrpg-char-gen__stage-link:disabled {
@@ -14743,31 +15800,102 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .uesrpg-char-gen__content {
   border: 1px solid rgba(0, 0, 0, 0.25);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 10px 12px;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
 }
 
+.uesrpg-char-gen__header {
+  max-width: 62ch;
+  margin: 0 auto;
+  text-align: center;
+}
+
 .uesrpg-char-gen__header h2 {
-  margin: 0 0 2px;
+  margin: 0 0 3px;
+  font-size: 1.4rem;
+  line-height: 1.1;
 }
 
 .uesrpg-char-gen__header p {
-  margin: 0 0 6px;
+  margin: 0 0 5px;
+  line-height: 1.3;
+}
+
+.uesrpg-char-gen__actor-name {
+  margin: 2px auto 5px;
+  color: rgba(42, 30, 18, 0.76);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.uesrpg-char-gen__review-note {
+  max-width: 52ch;
+  margin: 0 auto 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(112, 84, 36, 0.28);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.uesrpg-char-gen__grant-review {
+  max-width: 620px;
+  margin-top: 8px;
+  margin-inline: auto;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.uesrpg-char-gen__grant-review h3 {
+  margin: 0 0 4px;
+  text-align: center;
+}
+
+.uesrpg-char-gen__grant-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 3px 0;
+}
+
+.uesrpg-char-gen__grant-row > :first-child {
+  flex: 1;
+}
+
+.uesrpg-char-gen__grant-row.is-missing {
+  font-weight: 700;
+}
+
+.uesrpg-char-gen__grant-row .dialog-button {
+  flex: 0 0 auto;
+  width: auto;
 }
 
 .uesrpg-char-gen__resume {
+  max-width: 620px;
   border: 1px solid rgba(0, 0, 0, 0.25);
   border-radius: 6px;
   padding: 6px 8px;
-  margin-bottom: 6px;
+  margin: 0 auto 6px;
   background: rgba(0, 0, 0, 0.04);
+  text-align: center;
+}
+
+.uesrpg-char-gen__resume p {
+  margin: 0;
 }
 
 .uesrpg-char-gen__stage label {
   display: block;
   margin-bottom: 4px;
   font-weight: 700;
+  text-align: center;
 }
 
 .uesrpg-char-gen__stage .actions,
@@ -14775,51 +15903,93 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   margin-top: 6px;
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
   gap: var(--uesrpg-field-gap, 6px);
 }
 
+.uesrpg-char-gen__stage .actions > button,
+.uesrpg-char-gen__resume .actions > button {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 150px;
+  max-width: 260px;
+  min-height: 30px;
+  margin: 0;
+  padding-inline: 12px;
+}
+
 .uesrpg-char-gen__stage--compact {
+  max-width: 620px;
   padding: 4px 0;
+  margin-inline: auto;
+}
+
+.uesrpg-char-gen__stage--compact > input:not([type="checkbox"]):not([type="radio"]) {
+  display: block;
+  width: min(360px, 100%);
+  min-height: 30px;
+  margin-inline: auto;
+  text-align: center;
 }
 
 .uesrpg-char-gen__footer {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--uesrpg-dialog-gap, 8px);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 6px;
   padding-top: 4px;
   border-top: 1px solid rgba(0, 0, 0, 0.15);
 }
 
 .uesrpg-char-gen__footer .dialog-button {
-  min-width: 84px;
-  min-height: var(--uesrpg-control-h-md, 30px);
+  width: 104px;
+  min-width: 0;
+  min-height: 30px;
+  margin: 0;
+  padding-inline: 8px;
 }
 
-.uesrpg-char-gen .actor-pill {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  font-size: 11px;
+.uesrpg-char-gen__footer [data-action="back"] {
+  justify-self: start;
 }
 
-@media (max-width: 880px) {
+.uesrpg-char-gen__footer [data-action="next"] {
+  justify-self: center;
+}
+
+.uesrpg-char-gen__footer [data-action="cancel"] {
+  justify-self: end;
+}
+
+@media (max-width: 760px) {
   .uesrpg-char-gen__layout {
     grid-template-columns: 1fr;
   }
+
+  .uesrpg-char-gen__stages {
+    max-height: 184px;
+  }
+
   .uesrpg-char-gen__stages ol {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 4px;
   }
 }
+
+@media (max-width: 520px) {
+  .uesrpg-char-gen__footer .dialog-button {
+    width: 88px;
+  }
+}
 .uesrpg-spelllearn {
   display: flex;
   flex-direction: column;
-  gap: var(--uesrpg-section-gap, 8px);
+  gap: 6px;
   height: 100%;
   min-height: 0;
-  padding: var(--uesrpg-dialog-pad, 10px 12px);
+  padding: 6px 8px 8px;
 }
 
 .uesrpg-spelllearn__header {
@@ -14829,23 +15999,36 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   align-items: center;
   border: 1px solid rgba(0, 0, 0, 0.25);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 5px 7px;
   background: rgba(30, 30, 30, 0.05);
 }
 
 .uesrpg-spelllearn__header h2 {
   margin: 0;
+  font-size: 17px;
+  line-height: 1.1;
+  text-align: center;
 }
 
 .uesrpg-spelllearn__subtitle {
   font-size: 12px;
   opacity: 0.8;
+  text-align: center;
 }
 
 .uesrpg-spelllearn__stats {
   display: flex;
+  justify-content: center;
   gap: 10px;
   font-size: 13px;
+}
+
+.uesrpg-spelllearn__header > button {
+  justify-self: end;
+  width: auto;
+  min-height: 30px;
+  margin: 0;
+  padding-inline: 9px;
 }
 
 .uesrpg-spelllearn__filters {
@@ -14865,12 +16048,15 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .uesrpg-spelllearn__section {
   border: 1px solid rgba(0, 0, 0, 0.25);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 6px 7px;
   background: rgba(0, 0, 0, 0.04);
 }
 
 .uesrpg-spelllearn__section h3 {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
+  font-size: 14px;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .uesrpg-spelllearn__section p {
@@ -14884,7 +16070,7 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 
 .uesrpg-spelllearn__dropzone {
-  min-height: 110px;
+  min-height: 76px;
   border: 1px dashed rgba(0, 0, 0, 0.35);
   border-radius: 6px;
   padding: 8px;
@@ -14893,6 +16079,7 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   gap: 4px;
   justify-content: center;
   background: rgba(0, 0, 0, 0.03);
+  text-align: center;
 }
 
 .uesrpg-spelllearn__dropzone.is-over {
@@ -15017,10 +16204,25 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 
 .uesrpg-spelllearn__confirm-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 220px));
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 6px;
+}
+
+.uesrpg-spelllearn__confirm-actions > button,
+.uesrpg-spelllearn__actions > button,
+.uesrpg-spelllearn__rollback-btn {
+  width: auto;
+  min-height: 30px;
+  margin: 0;
+  padding-inline: 9px;
+}
+
+.uesrpg-spelllearn__confirm-actions > button {
+  width: 100%;
 }
 
 .uesrpg-spelllearn__manual-grid {
@@ -15037,6 +16239,7 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 .uesrpg-spelllearn__empty {
   margin: 0;
   opacity: 0.8;
+  text-align: center;
 }
 
 @media (max-width: 980px) {
@@ -15045,6 +16248,12 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   }
   .uesrpg-spelllearn__dropzones {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .uesrpg-spelllearn__confirm-actions {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 .uesrpg.uesrpg-travel-planner .window-content {
@@ -16505,6 +17714,537 @@ body.theme-dark .uesrpg.sheet.actor.group .pace-table thead th {
 :is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory.equipment .itemEquip {
   width: 22px;
   height: 22px;
+}
+
+/* ========================================================================== 
+   UESRPG 14.0.4-14.0.5 — ApplicationV2 state containment and DialogV2 components
+   ========================================================================== */
+
+/* Expanded system layouts are intentionally more specific than Foundry's
+   generic window rules. Reassert the documented compact-window state after
+   every system declaration so no content is visible during transitions. */
+body.system-uesrpg-3ev4 :is(
+  .worldbuilding.sheet.actor,
+  .worldbuilding.sheet.item,
+  .application.uesrpg,
+  .application.uesrpg-dialog,
+  .worldbuilding.uesrpg-dialog,
+  .application.uesrpg-attack-declare,
+  .application.uesrpg-resource-dialog,
+  .worldbuilding.uesrpg-resource-dialog,
+  .application.uesrpg-social-selector,
+  .application.journal-sheet.journal-entry,
+  .sheet.journal-entry,
+  .application.journal-sheet.journal-entry-page,
+  .sheet.journal-entry-page
+):is(.minimized, .minimizing, .maximizing) {
+  overflow: hidden !important;
+}
+
+body.system-uesrpg-3ev4 :is(
+  .worldbuilding.sheet.actor,
+  .worldbuilding.sheet.item,
+  .application.uesrpg,
+  .application.uesrpg-dialog,
+  .worldbuilding.uesrpg-dialog,
+  .application.uesrpg-attack-declare,
+  .application.uesrpg-resource-dialog,
+  .worldbuilding.uesrpg-resource-dialog,
+  .application.uesrpg-social-selector,
+  .application.journal-sheet.journal-entry,
+  .sheet.journal-entry,
+  .application.journal-sheet.journal-entry-page,
+  .sheet.journal-entry-page
+):is(.minimized, .minimizing, .maximizing) > .window-content {
+  display: none !important;
+  visibility: hidden !important;
+  overflow: hidden !important;
+}
+
+.application.uesrpg-dialog {
+  --uesrpg-dialog-gap: 6px;
+  --uesrpg-dialog-pad: 8px 10px;
+  --uesrpg-dialog-control-height: 30px;
+  --uesrpg-dialog-label-width: 120px;
+  --uesrpg-dialog-card-min-height: 36px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+}
+
+.application.uesrpg-dialog > .window-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--uesrpg-dialog-gap);
+  padding: var(--uesrpg-dialog-pad);
+  overflow: hidden;
+}
+
+.application.uesrpg-dialog > .window-content > :is(form, [data-application-part="main"]) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--uesrpg-dialog-gap);
+  overflow: hidden;
+}
+
+.application.uesrpg-dialog .dialog-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--uesrpg-dialog-gap);
+  margin: 0;
+  padding: 0 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: auto;
+}
+
+.application.uesrpg-dialog :is(h1, h2, h3, h4, p) {
+  margin-block: 0;
+}
+
+.application.uesrpg-dialog :is(fieldset, .uesrpg-dialog-section) {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(106, 76, 38, 0.32);
+  border-radius: 7px;
+  background: rgba(255, 248, 231, 0.38);
+}
+
+.application.uesrpg-dialog fieldset > legend {
+  padding-inline: 5px;
+  font-weight: 700;
+}
+
+.application.uesrpg-dialog .form-group {
+  display: grid;
+  grid-template-columns: minmax(0, var(--uesrpg-dialog-label-width)) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--uesrpg-dialog-gap);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.application.uesrpg-dialog .form-group > label:first-child {
+  min-width: 0;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.application.uesrpg-dialog .form-group > label:only-child,
+.application.uesrpg-dialog .form-group.uesrpg-dialog-field--stacked > label,
+.application.uesrpg-dialog .form-group.uesrpg-dialog-field--stacked > :not(label) {
+  grid-column: 1 / -1;
+}
+
+.application.uesrpg-dialog :is(input:not([type="checkbox"]):not([type="radio"]), select, button) {
+  min-height: var(--uesrpg-dialog-control-height);
+}
+
+.application.uesrpg-dialog textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.application.uesrpg-dialog :is(input, select, textarea, button):focus-visible,
+.application.uesrpg-dialog :is(.uesrpg-dialog-choice, .uesrpg-adv-choice, .def-opt):focus-within {
+  outline: 2px solid rgba(139, 91, 23, 0.9);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(230, 190, 103, 0.28);
+}
+
+.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(auto-fit, minmax(0, 200px));
+  align-items: start;
+  justify-content: center;
+  gap: var(--uesrpg-dialog-gap);
+  margin: 0;
+  padding: 4px 0 0;
+  overflow: visible;
+  background: transparent;
+}
+
+.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--uesrpg-dialog-control-height);
+  height: auto;
+  max-height: none;
+  flex: 0 1 auto;
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid rgba(132, 98, 44, 0.76);
+  background: linear-gradient(180deg, rgba(98, 70, 28, 0.96) 0%, rgba(58, 39, 15, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 221, 0.2);
+  color: #f5ecd9;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-overflow: clip;
+}
+
+.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button:hover {
+  border-color: rgba(152, 111, 47, 0.84);
+  background: linear-gradient(180deg, rgba(121, 88, 38, 0.98) 0%, rgb(74, 51, 21) 100%);
+  color: #fff8eb;
+}
+
+.application.uesrpg-dialog :is(.dialog-buttons, .form-footer) > button:is(:disabled, [disabled]) {
+  border-color: rgba(112, 84, 36, 0.62);
+  background: linear-gradient(180deg, rgba(93, 82, 64, 0.95) 0%, rgba(72, 62, 48, 0.96) 100%);
+  color: #e8dcc8;
+  opacity: 1;
+}
+
+.application.uesrpg-dialog.uesrpg-dialog--buttons-1 :is(.dialog-buttons, .form-footer) {
+  grid-template-columns: minmax(0, 220px);
+  justify-content: center;
+}
+
+.application.uesrpg-dialog.uesrpg-dialog--buttons-2 :is(.dialog-buttons, .form-footer) {
+  grid-template-columns: repeat(2, minmax(0, 240px));
+  justify-content: center;
+}
+
+.application.uesrpg-dialog:is(.uesrpg-dialog--buttons-3, .uesrpg-dialog--buttons-many) :is(.dialog-buttons, .form-footer) {
+  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 200px));
+  justify-content: center;
+}
+
+.application.uesrpg-dialog--layout-message .dialog-content {
+  justify-content: center;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.application.uesrpg-dialog :is(.uesrpg-dialog-intro, .uesrpg-dialog-status, .uesrpg-dialog-summary > :is(h1, h2, h3, h4, p)) {
+  text-align: center;
+}
+
+.application.uesrpg-dialog--layout-choices .uesrpg-dialog-choices,
+.application.uesrpg-dialog--layout-workflow :is(.uesrpg-dialog-choices, .uesrpg-adv-grid, .def-grid) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: var(--uesrpg-dialog-gap);
+}
+
+.application.uesrpg-dialog :is(.uesrpg-dialog-choice, .uesrpg-adv-choice__label, .def-opt__card) {
+  min-height: var(--uesrpg-dialog-card-min-height);
+}
+
+.application.uesrpg-dialog :is(.uesrpg-dialog-choice, .uesrpg-adv-choice__label, .def-opt__card):hover {
+  border-color: rgba(152, 108, 46, 0.58);
+  background-color: rgba(223, 182, 95, 0.24);
+}
+
+.application.uesrpg-dialog :is(.uesrpg-dialog-choice, .uesrpg-adv-choice__label, .def-opt__card).disabled,
+.application.uesrpg-dialog :is(.uesrpg-dialog-choice, .uesrpg-adv-choice__label, .def-opt__card)[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.application.uesrpg-dialog--layout-table .dialog-content,
+.application.uesrpg-dialog .uesrpg-dialog-scroll-region {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.application.uesrpg-dialog--layout-table table,
+.application.uesrpg-dialog .uesrpg-dialog-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.application.uesrpg-dialog--layout-table thead,
+.application.uesrpg-dialog .uesrpg-dialog-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(220, 190, 132, 0.94);
+}
+
+.application.uesrpg-dialog--layout-document .dialog-content {
+  line-height: 1.45;
+}
+
+.application.uesrpg-dialog :is(.uesrpg-dialog-stack, .uesrpg-dialog-summary, .uesrpg-dialog-status) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--uesrpg-dialog-gap);
+}
+
+.application.uesrpg-dialog .uesrpg-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: var(--uesrpg-dialog-gap);
+  min-width: 0;
+}
+
+.application.uesrpg-dialog .uesrpg-dialog-summary {
+  padding: 7px 9px;
+  border: 1px solid rgba(106, 76, 38, 0.28);
+  border-radius: 7px;
+  background: rgba(255, 248, 231, 0.62);
+  text-align: center;
+}
+
+.application.uesrpg-dialog .uesrpg-dialog-note {
+  color: rgba(45, 32, 18, 0.82);
+  font-size: 0.9em;
+  line-height: 1.3;
+}
+
+.application.uesrpg-dialog .uesrpg-dialog-status:is(.warning, [data-status="warning"]),
+.application.uesrpg-dialog .warning {
+  color: #6e4300;
+}
+
+.application.uesrpg-dialog .uesrpg-dialog-status:is(.error, [data-status="error"]),
+.application.uesrpg-dialog .error {
+  color: #8f1717;
+}
+
+.application.uesrpg-dialog .uesrpg-dialog-divider,
+.application.uesrpg-dialog .uesrpg-adv-section {
+  grid-column: 1 / -1;
+  margin: 3px 0 0;
+  padding-top: 4px;
+  border-top: 1px solid rgba(127, 89, 37, 0.28);
+}
+
+@media (max-width: 520px) {
+  .application.uesrpg-dialog {
+    --uesrpg-dialog-label-width: 1fr;
+  }
+
+  .application.uesrpg-dialog .form-group,
+  .application.uesrpg-dialog--layout-choices .uesrpg-dialog-choices,
+  .application.uesrpg-dialog--layout-workflow :is(.uesrpg-dialog-choices, .uesrpg-adv-grid, .def-grid) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .application.uesrpg-dialog .form-group > label:first-child,
+  .application.uesrpg-dialog .form-group > :not(label) {
+    grid-column: 1;
+  }
+
+  .application.uesrpg-dialog:is(.uesrpg-dialog--buttons-2, .uesrpg-dialog--buttons-3, .uesrpg-dialog--buttons-many) :is(.dialog-buttons, .form-footer) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.application.uesrpg-dialog .uesrpg-known-specials {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(127, 89, 37, 0.28);
+}
+
+.application.uesrpg-dialog .uesrpg-known-specials__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 280px));
+  justify-content: center;
+  gap: 6px;
+}
+
+.application.uesrpg-dialog .uesrpg-known-specials__grid .uesrpg-adv-choice {
+  min-width: 0;
+}
+
+.application.uesrpg-dialog .uesrpg-block-source {
+  display: block;
+  margin-top: 4px;
+}
+
+.application.uesrpg-dialog .uesrpg-block-source select {
+  flex: 1 1 120px;
+  min-width: 120px;
+}
+
+@media (max-width: 520px) {
+  .application.uesrpg-attack-declare .form-group,
+  .application.uesrpg-attack-declare .uesrpg-defense-flags {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .application.uesrpg-attack-declare .uesrpg-spell-profile-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Compact shared reaction strip. Rule text is available through Foundry's
+   tooltip manager and accessible labels instead of occupying sheet height. */
+.worldbuilding.sheet.actor .uesrpg-actions-panel[data-tab="reactions"] {
+  padding-block: 4px;
+}
+
+.worldbuilding.sheet.actor .uesrpg-reaction-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: stretch;
+  padding: 6px;
+  border: 1px solid rgba(106, 76, 38, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 248, 231, 0.42);
+}
+
+.worldbuilding.sheet.actor .uesrpg-reaction-strip > :is(.uesrpg-reaction-info, .uesrpg-combat-quick-action) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 30px;
+  margin: 0;
+  padding: 4px 8px;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.worldbuilding.sheet.actor .uesrpg-reaction-info {
+  border: 1px solid rgba(106, 76, 38, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 248, 231, 0.55);
+  color: #2a2014;
+  cursor: help;
+}
+
+.worldbuilding.sheet.actor .uesrpg-reaction-strip > :is(.uesrpg-reaction-info, .uesrpg-combat-quick-action):focus-visible {
+  outline: 2px solid rgba(139, 91, 23, 0.9);
+  outline-offset: 1px;
+}
+
+/* Inventory headings toggle as rows; creation belongs exclusively to the
+   nested plus button. The glyph remains small while the button hit target is
+   large enough for mouse and keyboard use. */
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .uesrpg-equipment-group-header,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .uesrpg-equipment-group-header {
+  cursor: pointer;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .ues-th-content,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .ues-th-content {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .uesrpg-group-toggle-button,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .uesrpg-group-toggle-button {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 0;
+  min-height: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .uesrpg-group-toggle-button:hover,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .uesrpg-group-toggle-button:hover {
+  background: rgba(255, 247, 227, 0.2);
+  box-shadow: none;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .uesrpg-group-toggle-button:focus,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .uesrpg-group-toggle-button:focus {
+  outline: 0 !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .uesrpg-group-toggle-button:focus-visible :is(.fa-chevron-down, .fa-chevron-right),
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .uesrpg-group-toggle-button:focus-visible :is(.fa-chevron-down, .fa-chevron-right) {
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px rgba(98, 63, 18, 0.76);
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .uesrpg-group-toggle-button:focus-visible .item-group-label,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .uesrpg-group-toggle-button:focus-visible .item-group-label {
+  text-decoration: underline;
+  text-decoration-color: rgba(98, 63, 18, 0.76);
+  text-underline-offset: 2px;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .item-group-add:focus-visible,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .item-group-add:focus-visible {
+  outline: 2px solid rgba(98, 63, 18, 0.9);
+  outline-offset: 1px;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .item-group-add,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .item-group-add {
+  display: inline-flex;
+  flex: 0 0 26px;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  margin: -1px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .item-group-add__glyph,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .item-group-add__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(54, 43, 26, 0.46);
+  border-radius: 50%;
+  background: rgba(255, 247, 227, 0.28);
+  font: 700 13px/1 sans-serif;
+}
+
+:is(.worldbuilding, .uesrpg).sheet.actor .tab.equipment .item-group-add:hover .item-group-add__glyph,
+:is(.worldbuilding, .uesrpg).sheet.actor.group .tab.inventory .item-group-add:hover .item-group-add__glyph {
+  background: rgba(255, 247, 227, 0.65);
+  border-color: rgba(54, 43, 26, 0.72);
+}
+
+@media (max-width: 760px) {
+  .worldbuilding.sheet.actor .uesrpg-reaction-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /*# sourceMappingURL=uesrpg.css.map */

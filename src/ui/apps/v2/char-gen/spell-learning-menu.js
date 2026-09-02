@@ -61,7 +61,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
   static DEFAULT_OPTIONS = {
     id: "uesrpg-spell-learning-menu-v2",
     classes: ["worldbuilding", "uesrpg", "uesrpg-spell-learning-app"],
-    position: { width: 980, height: 760 },
+    position: { width: 900, height: 640 },
     window: {
       resizable: true,
     },
@@ -208,6 +208,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     if (!this.#dirty) return true;
     return confirmDialog({
       title: t("UESRPG.Dialogs.SpellLearning.DiscardUnconfirmedTitle"),
+      classes: ["uesrpg-chargen-dialog"],
       content: `<p>${t("UESRPG.Dialogs.SpellLearning.DiscardUnconfirmedContent")}</p>`,
       yesLabel: t("UESRPG.UI.Discard"),
       noLabel: t("UESRPG.UI.KeepEditing"),
@@ -425,12 +426,14 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     if (!xpOk && drakesOk) return { ok: true, paymentMode: "drakes" };
 
     const choice = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.SpellLearning.ChoosePaymentTitle"),
-      content: `<div style="display:flex; flex-direction:column; gap:6px;">
-        <p style="margin:0;"><b>${spell.name}</b></p>
-        <p style="margin:0;">${tf("UESRPG.Dialogs.SpellLearning.TypeLevel", { type: costs.type, level: costs.level })}</p>
-        <p style="margin:0;">${tf("UESRPG.Dialogs.SpellLearning.XpCost", { cost: costs.xpCost })}</p>
-        <p style="margin:0;">${tf("UESRPG.Dialogs.SpellLearning.DrakesCost", { cost: costs.drakesCost })}</p>
+      classes: ["uesrpg-chargen-dialog"],
+      content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack uesrpg-cg-summary">
+        <p><b>${spell.name}</b></p>
+        <p>${tf("UESRPG.Dialogs.SpellLearning.TypeLevel", { type: costs.type, level: costs.level })}</p>
+        <p>${tf("UESRPG.Dialogs.SpellLearning.XpCost", { cost: costs.xpCost })}</p>
+        <p>${tf("UESRPG.Dialogs.SpellLearning.DrakesCost", { cost: costs.drakesCost })}</p>
       </div>`,
       buttons: {
         xp: { label: tf("UESRPG.Dialogs.SpellLearning.LearnXpLabel", { cost: costs.xpCost }) },
@@ -522,6 +525,7 @@ export class SpellLearningMenuAppV2 extends HandlebarsApplicationMixin(Applicati
     if (!this.#dirty) return;
     const confirmed = await confirmDialog({
       title: t("UESRPG.Dialogs.SpellLearning.DiscardStagedTitle"),
+      classes: ["uesrpg-chargen-dialog"],
       content: `<p>${t("UESRPG.Dialogs.SpellLearning.DiscardStagedContent")}</p>`,
       yesLabel: t("UESRPG.UI.Discard"),
       noLabel: t("UESRPG.UI.Cancel"),

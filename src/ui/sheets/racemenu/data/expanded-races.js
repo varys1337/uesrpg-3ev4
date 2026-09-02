@@ -1,4 +1,5 @@
 const imgPath = 'systems/uesrpg-3ev4/images';
+import { combinedOption, grant, magicNoviceOptions, rankOption, skillNoviceOptions } from "./grant-builders.js";
 
 export default {
     Ayleid: {
@@ -19,6 +20,12 @@ export default {
             'Flesh Shaper: can choose to inflict damage instead of healing for spells. Can use the stabilize spell to treat wounds.',
             'During character creation, Ayleid characters can choose to begin with the Restoration or Enchanting skill trained to Novice rank for free.',
         ],
+        chargen: {
+            grants: [grant("free-restoration-or-enchant", "Free Novice Restoration or Enchant", [
+                ...magicNoviceOptions(["Restoration"]),
+                rankOption("Enchant", "magicSkill", "Enchant", { aliases: ["Enchanting"] }),
+            ])],
+        },
         items: [
             {
                 name: "Weakness (Magic, 1) (Racial)",
@@ -68,6 +75,9 @@ export default {
             'Depth-Dweller: Dwemer characters suffer a -10 penalty to Survival skill tests made while above ground.',
             'During character creation, Dwemer characters may choose to begin with the Logic skill trained to Novice rank for free.'
         ],
+        chargen: {
+            grants: [grant("free-logic", "Free Novice Logic", skillNoviceOptions(["Logic"]))],
+        },
         items: [
             {
                 name: "Power Well (5) (Racial)",
@@ -165,6 +175,9 @@ export default {
             'Sorcerous Serpent Speech: Can speak to and understand the speech of land and sea serpents.',
             'During character creation, Maormer characters may choose to begin with the Athletics skill trained to Novice for free.',
         ],
+        chargen: {
+            grants: [grant("free-athletics", "Free Novice Athletics", skillNoviceOptions(["Athletics"]))],
+        },
         items: [
             {
                 name: 'Weakness (Shock, 1) (Racial)',
@@ -218,6 +231,12 @@ export default {
             'Perfect Memory: never need to roll to remember something they\'ve seen or heard. +1 DoS to successful lore tests.',
             'During character creation, the Sload may choose to begin Necromancy, Mysticism, or Alteration skill trained to Novice for free, or have all three trained to Novice for 100 XP.'
         ],
+        chargen: {
+            grants: [grant("necromantic-training", "Sload Novice magic training", [
+                ...magicNoviceOptions(["Necromancy", "Mysticism", "Alteration"]),
+                combinedOption("all-three", "Necromancy, Mysticism, and Alteration (100 XP)", magicNoviceOptions(["Necromancy", "Mysticism", "Alteration"]), { xpCost: 100 }),
+            ])],
+        },
         items: [
             {
                 name: 'Power Well (10) (Racial)',

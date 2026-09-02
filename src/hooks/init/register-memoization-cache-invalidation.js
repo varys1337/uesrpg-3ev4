@@ -9,6 +9,7 @@
 
 import { registerOnce } from "../_internal/hook-registry.js";
 import { clearAllMemoizationCaches } from "../../utils/memoization.js";
+import { isDebugEnabled } from "../../utils/debug.js";
 
 /**
  * Resolve the owning actor for a document.
@@ -189,11 +190,11 @@ export function registerMemoizationCacheInvalidation() {
     
     // Debug command to manually clear caches
     Hooks.once("ready", () => {
-      if (game.user.isGM) {
+      if (game.user.isGM && isDebugEnabled("perfDebug")) {
         game.socket?.on("system.uesrpg-3ev4", (data) => {
           if (data.type === "clearMemoizationCaches") {
             clearAllMemoizationCaches();
-            console.log("UESRPG | Cleared all memoization caches via socket command");
+            console.debug("UESRPG | Cleared all memoization caches via socket command");
           }
         });
         
@@ -202,7 +203,9 @@ export function registerMemoizationCacheInvalidation() {
       }
     });
     
-    console.log("UESRPG | Registered memoization cache invalidation hooks");
+    if (isDebugEnabled("perfDebug")) {
+      console.debug("UESRPG | Registered memoization cache invalidation hooks");
+    }
   });
 }
 

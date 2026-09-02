@@ -348,6 +348,7 @@ async function _promptDeathRollOptions(actor, baseTn) {
   `;
 
   const picked = await customDialog({
+    layout: "workflow",
     title: `${foundry.utils.escapeHTML(String(actor?.name ?? "Actor"))} - Death Test (END)`,
     content,
     buttons: {

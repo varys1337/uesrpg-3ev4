@@ -127,6 +127,7 @@ export async function openEncumbranceBreakdownDialog(actor) {
   </div>`;
 
   return customDialog({
+    layout: "table",
     title: "Encumbrance Breakdown",
     content,
     classes: ["uesrpg-enc-breakdown-dialog"],

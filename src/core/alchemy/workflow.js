@@ -333,6 +333,7 @@ async function _promptAlchemyRollDeclaration(actor, skill) {
   let declaration = null;
   try {
     declaration = await customDialog({
+      layout: "workflow",
       title: `${skill.name} - Roll Options`,
       content,
       buttons: {

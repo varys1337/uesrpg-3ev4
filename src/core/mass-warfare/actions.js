@@ -104,6 +104,7 @@ async function _promptCommanderCommandRoll(commanderActor, targetActor) {
   }
 
   const declaration = await customDialog({
+    layout: "workflow",
     title: `${commanderActor.name} - Command Test`,
     content: `
       <div class="uesrpg-skill-roll">
@@ -283,6 +284,7 @@ async function showRoll3d(roll) {
 
 async function promptDisciplineModifier(title, baseTn, helperText) {
   return customDialog({
+    layout: "workflow",
     title,
     content: `
       <div class="warfare-discipline-dialog">
@@ -551,6 +553,7 @@ function buildRangedDamageFormula(actor, { extraDie = false } = {}) {
 async function promptRangedAttackOptions(actor) {
   const baseRange = Number(actor?.system?._derived?.rangedRange ?? 8) || 8;
   return customDialog({
+    layout: "workflow",
     title: `${actor?.name ?? "Unit"} - Ranged Attack`,
     content: `
       <div class="warfare-discipline-dialog">
@@ -664,6 +667,7 @@ async function promptSpellChoice(actor) {
     return `<option value="${optionIndex}">${name} (${family}, x${count})</option>`;
   }).join("");
   return customDialog({
+    layout: "workflow",
     title: `${actor?.name ?? "Unit"} - Cast a Spell`,
     content: `
       <div class="warfare-discipline-dialog">

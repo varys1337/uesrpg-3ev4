@@ -133,6 +133,7 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
   let decl = null;
   try {
     decl = await customDialog({
+      layout: "workflow",
       title: "Inspire Heroism — Command Test",
       content: `
         <div class="uesrpg-skill-roll">
@@ -251,4 +252,3 @@ export async function handleInspireHeroismActivation({ actor, item } = {}) {
 
   return res.isSuccess;
 }
-

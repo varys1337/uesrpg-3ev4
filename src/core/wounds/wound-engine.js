@@ -546,6 +546,7 @@ async function _promptActorChoice(title, actors = [], defaultId = "") {
     </div>
   `;
   const picked = await customDialog({
+    layout: "workflow",
     title,
     content,
     buttons: {
@@ -581,6 +582,7 @@ async function _promptWoundChoice(title, wounds = []) {
     </div>
   `;
   const picked = await customDialog({
+    layout: "workflow",
     title,
     content,
     buttons: {

@@ -4,6 +4,9 @@
  * Canonical wound constants and helpers.
  */
 import { isAnyDebugEnabled, isDebugEnabled } from "../../utils/debug.js";
+import { isActiveGMUser } from "../../utils/users.js";
+
+export { isActiveGMUser };
 
 export const WOUND_SOCKET_VERSION = 1;
 export const WOUND_SOCKET_TYPES = Object.freeze(["damageApplied", "healingApplied", "resolveShock"]);
@@ -136,25 +139,6 @@ export function normalizeHitLocation(hitLocation) {
   const region = _hitRegionFromKeyOrLabel(key, label);
 
   return { label, key, region };
-}
-
-function getActiveGMUser() {
-  try {
-    if (game.users?.activeGM) return game.users.activeGM;
-    const activeGMs = (game.users?.contents ?? []).filter(u => u?.active && u.isGM);
-    if (!activeGMs.length) return null;
-    activeGMs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    return activeGMs[0];
-  } catch (_e) {
-    return null;
-  }
-}
-
-export function isActiveGMUser(user) {
-  if (!user?.isGM) return false;
-  const active = getActiveGMUser();
-  if (!active) return true;
-  return active.id === user.id;
 }
 
 // Retained for local wounds debug gating compatibility.

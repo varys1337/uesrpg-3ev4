@@ -12,6 +12,7 @@ import {
   defaultEncounterSideFromDisposition,
   getWarfareUnitTokenDocs,
 } from "../../../core/mass-warfare/encounter/state.js";
+import { activateOpenApplication } from "./application-focus.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -211,8 +212,7 @@ export async function openWarfareEncounterApp(scene) {
   const sceneUuid = String(scene.uuid ?? "");
   const existing = _openApps.get(sceneUuid);
   if (existing) {
-    await existing.render(true);
-    return existing;
+    return activateOpenApplication(existing, { render: true });
   }
 
   const app = new WarfareEncounterAppV2(scene, {

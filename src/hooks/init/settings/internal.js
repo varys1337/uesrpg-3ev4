@@ -41,13 +41,13 @@ export function registerInternalSettings() {
     type: Boolean,
   });
 
-  // Template optimization setting
+  // Compatibility-only no-op retained for one release so existing world data remains readable.
   _reg("templateOptimization", {
     name: "Template Optimization",
-    hint: "Enables template compilation caching and optimization for improved performance.",
+    hint: "Deprecated compatibility setting. Foundry's documented template loader is always used.",
     scope: "world",
     config: false,
-    default: true,
+    default: false,
     type: Boolean,
   });
 }

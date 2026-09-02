@@ -67,42 +67,28 @@ let _lastTokenId = null;
 export function registerActorSelectDebug() {
   if (_actorSelectDebugRegistered) return;
   _actorSelectDebugRegistered = true;
-  game.settings.register("uesrpg-3ev4", SETTING_KEY, {
-    name: "Debug: Actor Select (TN Context)",
-    hint: "When enabled, logs TN-relevant actor context to the console whenever you control a token.",
-    scope: "client",
-    // Keep this out of the main System Settings list; it is surfaced via the
-    // "Configure Debugging" submenu.
-    config: false,
-    default: false,
-    type: Boolean,
-    restricted: true
-  });
 
-
-
-// Dev-only invariant snapshot on ready (helps catch silent sheet regressions).
-Hooks.once("ready", () => {
-  if (!isDebugEnabled(SETTING_KEY)) return;
-  try {
-    const sheetClasses = CONFIG?.Actor?.sheetClasses ?? null;
-    const npcSheets = [];
-    if (sheetClasses && typeof sheetClasses === "object") {
-      for (const [scope, entries] of Object.entries(sheetClasses)) {
-        if (!entries || typeof entries !== "object") continue;
-        for (const [clsKey, meta] of Object.entries(entries)) {
-          const types = Array.isArray(meta?.types) ? meta.types : [];
-          if (types.includes("NPC")) npcSheets.push({ scope, clsKey, label: meta?.label, types });
+  // Called during ready; capture the invariant immediately when explicitly enabled.
+  if (_isEnabled()) {
+    try {
+      const sheetClasses = CONFIG?.Actor?.sheetClasses ?? null;
+      const npcSheets = [];
+      if (sheetClasses && typeof sheetClasses === "object") {
+        for (const [scope, entries] of Object.entries(sheetClasses)) {
+          if (!entries || typeof entries !== "object") continue;
+          for (const [clsKey, meta] of Object.entries(entries)) {
+            const types = Array.isArray(meta?.types) ? meta.types : [];
+            if (types.includes("NPC")) npcSheets.push({ scope, clsKey, label: meta?.label, types });
+          }
         }
       }
+      console.groupCollapsed("[UESRPG][Invariant] ActorSheet registration snapshot");
+      console.log("NPC sheet registrations", npcSheets.length ? npcSheets : "(none detected via CONFIG.Actor.sheetClasses)");
+      console.groupEnd();
+    } catch (err) {
+      console.warn("[UESRPG][Invariant] Failed to capture sheet registration snapshot", err);
     }
-    console.groupCollapsed("[UESRPG][Invariant] ActorSheet registration snapshot");
-    console.log("NPC sheet registrations", npcSheets.length ? npcSheets : "(none detected via CONFIG.Actor.sheetClasses)");
-    console.groupEnd();
-  } catch (err) {
-    console.warn("[UESRPG][Invariant] Failed to capture sheet registration snapshot", err);
   }
-});
 
   Hooks.on("controlToken", (token, controlled) => {
     if (!controlled) return;

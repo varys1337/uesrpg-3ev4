@@ -1,4 +1,13 @@
 const imgPath = "systems/uesrpg-3ev4/images/dialogue/races";
+import {
+  combatStyleOption,
+  grant,
+  magicNoviceOptions,
+  rankOption,
+  skillNoviceOptions,
+} from "./grant-builders.js";
+
+const TRADITIONAL_MAGIC = ["Alteration", "Conjuration", "Destruction", "Illusion", "Mysticism", "Restoration"];
 
 export default {
   Altmer: {
@@ -20,6 +29,9 @@ export default {
       "Mental Strength: Ignores penalties to Willpower tests made to resist paralysis",
       "During character creation, Altmer characters may pick one of the traditional magic skills to begin trained at Novice rank for free.",
     ],
+    chargen: {
+      grants: [grant("free-magic-skill", "Free Novice traditional magic skill", magicNoviceOptions(TRADITIONAL_MAGIC))],
+    },
     items: [
       {
         name: "Disease Resistance (50%) (Racial)",
@@ -172,6 +184,9 @@ export default {
       "Power Well (10)",
       "During character creation, Breton characters may pick one of the traditional magic skills to begin trained at Novice rank for free.",
     ],
+    chargen: {
+      grants: [grant("free-magic-skill", "Free Novice traditional magic skill", magicNoviceOptions(TRADITIONAL_MAGIC))],
+    },
     items: [
       {
         name: "Resistance (Magic, 2) (Racial)",
@@ -209,6 +224,9 @@ export default {
       "Ancestor Guardian: See Powers section of Rules Compendium",
       "During Character Creation, Dunmer may begin with the Destruction skill trained to Novice rank for free",
     ],
+    chargen: {
+      grants: [grant("free-destruction", "Free Novice Destruction", magicNoviceOptions(["Destruction"]))],
+    },
     items: [
       {
         name: "Resistance (Fire, 3) (Racial)",
@@ -244,6 +262,9 @@ export default {
       "Voice of the Emperor: They may choose to use Willpower in place of the base characteristic for a Persuade, Command, or Deceive skill test.",
       "During Character Creation, may choose either Commerce, Persuade, or Deceive to begin at Novice rank for free",
     ],
+    chargen: {
+      grants: [grant("free-social-skill", "Free Novice social skill", skillNoviceOptions(["Commerce", "Persuade", "Deceive"]))],
+    },
     items: [
       {
         name: "Star of the West (Racial)",
@@ -367,6 +388,11 @@ export default {
       "Resistance (Magic, 1)",
       "During Character Creation, may choose to begin with Profession (Smithing) at Novice rank for free",
     ],
+    chargen: {
+      grants: [grant("free-smithing", "Free Novice Profession (Smithing)", [
+        rankOption("Profession (Smithing)", "skill", "Profession", { system: { trainedItems: "Smithing" } }),
+      ])],
+    },
     items: [
       {
         name: "Resilient (3) (Racial)",
@@ -413,6 +439,9 @@ export default {
       "Adrenaline Rush: See Powers section of the Rules Compendium",
       "During Character Creation, may choose to begin with a Combat Style skill at Novice rank for free",
     ],
+    chargen: {
+      grants: [grant("free-combat-style", "Free Novice Combat Style", [combatStyleOption()])],
+    },
     items: [
       {
         name: "Disease Resistance (75%) (Racial)",

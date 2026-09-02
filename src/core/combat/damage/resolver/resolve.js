@@ -74,6 +74,7 @@ async function _runEntanglingEscapeCheck({ attacker, defender } = {}) {
 
   const preferred = (agiTN > strTN) ? "agi" : "str";
   const choice = await customDialog({
+    layout: "workflow",
     title: "Entangling",
     content: `
       <div class="uesrpg">
@@ -130,6 +131,7 @@ async function _promptUntouchableLpSpend({ actor, availableLp, woundThreshold, d
   `;
 
   const result = await customDialog({
+    layout: "workflow",
     title,
     content,
     buttons: {
@@ -1330,11 +1332,20 @@ export async function applyDamageResolved(targetActor, payload = {}) {
 
       const reductionTotal = Number(r.reductions?.total ?? 0) || 0;
       const applied = Number(r.finalApplied ?? 0) || 0;
+      const dosBonus = Number(r.dosBonus ?? 0) || 0;
+      const weaponBonus = Number(r.weaponBonus ?? 0) || 0;
+      const preReductionTotal = Math.max(0, rawBase + dosBonus + weaponBonus);
+      const bonusParts = [
+        dosBonus ? `${fmt(dosBonus)} DoS` : null,
+        weaponBonus ? `${fmt(weaponBonus)} Weapon` : null,
+      ].filter(Boolean).join(" ");
 
       segs.push(`
         <div class="uesrpg-da-segment">
           <div class="uesrpg-da-row"><span class="k"><strong>${dtype}</strong></span><span class="v"></span></div>
-          <div class="uesrpg-da-row"><span class="k">Raw</span><span class="v">${rawBase}</span></div>
+          <div class="uesrpg-da-row"><span class="k">Rolled</span><span class="v">${rawBase}</span></div>
+          ${bonusParts ? `<div class="uesrpg-da-row"><span class="k">Bonuses</span><span class="v">${bonusParts}</span></div>` : ""}
+          <div class="uesrpg-da-row"><span class="k">Pre-Reduction Total</span><span class="v">${preReductionTotal}</span></div>
           ${rawLines.join("")}
           ${renderReductionProvenance(r)}
           ${defLines.join("")}
@@ -1357,6 +1368,11 @@ export async function applyDamageResolved(targetActor, payload = {}) {
         : "";
 
       const _actorThumb = updateTarget.img ?? "icons/svg/mystery-man.svg";
+      const preReductionTotal = results.reduce(
+        (sum, result) => sum + Math.max(0, Number(result.rawDamage ?? 0) + Number(result.dosBonus ?? 0) + Number(result.weaponBonus ?? 0)),
+        0
+      );
+      const reductionTotal = results.reduce((sum, result) => sum + Math.max(0, Number(result.reductions?.total ?? 0)), 0);
       const messageContent = `
         <div class="uesrpg-damage-applied-card">
           <div class="hdr">
@@ -1367,7 +1383,9 @@ export async function applyDamageResolved(targetActor, payload = {}) {
             </div>
           </div>
           <div class="body">
-            <div class="uesrpg-da-row"><span class="k">Total Damage</span><span class="v final">${Math.max(0, Number(totalApplied || 0))}</span></div>
+            <div class="uesrpg-da-row"><span class="k">Applied Damage</span><span class="v final">${Math.max(0, Number(totalApplied || 0))}</span></div>
+            <div class="uesrpg-da-row"><span class="k">Pre-Reduction</span><span class="v">${preReductionTotal}</span></div>
+            <div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${reductionTotal}</span></div>
             <div class="uesrpg-da-row"><span class="k">HP</span><span class="v">${newHP} / ${maxHP}${hpDelta ? ` <span class="muted">(\u2212${hpDelta})</span>` : ""}</span></div>
             ${tempHPAbsorbed > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed} absorbed)</span>` : ""}</span></div>` : (currentTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}</span></div>` : "")}
             ${bufferAbsorbedDetail.map(b => `<div class="uesrpg-da-row"><span class="k">${b.pool.charAt(0).toUpperCase() + b.pool.slice(1)} Buffer</span><span class="v">${b.remaining} <span class="muted">(\u2212${b.absorbed} absorbed)</span></span></div>`).join("")}

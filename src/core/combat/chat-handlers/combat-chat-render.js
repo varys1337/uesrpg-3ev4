@@ -22,6 +22,38 @@ import { getSkillOpposedState, getCharOpposedState } from "./combat-chat-opposed
 
 const _FLAG_NS = FLAG_SCOPE;
 
+const _CHAT_SURFACE_SELECTOR = [
+  ".message-content > .uesrpg",
+  ".message-content > .ues-opposed-card",
+  ".message-content > [class*='uesrpg-']",
+  ".message-content > [class*='ues-']",
+  ".message-content > [class*='warfare-']",
+  ".message-content .ues-opposed-card",
+  ".message-content .uesrpg-chat-card",
+].join(", ");
+
+/**
+ * Give every rendered UESRPG card the same presentation root without
+ * rewriting stored ChatMessage content. This runs inside the system's
+ * existing renderChatMessageHTML boundary and is idempotent.
+ */
+function _markChatSurfaces(message, root) {
+  if (!(root instanceof HTMLElement)) return;
+  const surfaces = new Set(root.querySelectorAll(_CHAT_SURFACE_SELECTOR));
+  const messageContent = root.matches?.(".message-content") ? root : root.querySelector(".message-content");
+  const systemFlags = message?.flags?.[_FLAG_NS];
+  if (messageContent && systemFlags && typeof systemFlags === "object" && Object.keys(systemFlags).length) {
+    for (const child of messageContent.children) surfaces.add(child);
+  }
+  messageContent?.querySelectorAll?.("[data-ues-opposed-action], [data-ues-magic-opposed-action], [data-ues-skill-opposed-action], [data-ues-special-action], [data-ues-shock-action], [data-ues-death-action]").forEach((control) => {
+    const directCard = control.closest(".message-content > *");
+    if (directCard) surfaces.add(directCard);
+  });
+  surfaces.forEach((element) => {
+    element.classList.add("uesrpg-chat-surface");
+  });
+}
+
 function _getOpposedDamageReportByKey(message, panelKey) {
   const raw = message?.flags?.[_FLAG_NS]?.opposed ?? null;
   if (!raw || !panelKey) return null;
@@ -140,24 +172,24 @@ function _renderGmDamageReportHtml(report) {
   }
 
   const segmentHtml = (Array.isArray(report.segments) ? report.segments : []).map((segment) => `
-    <div class="uesrpg-da-segment" style="margin-top:6px;">
-      <div style="display:grid; grid-template-columns:auto auto auto; gap:10px; font-size:12px;">
+    <div class="uesrpg-da-segment uesrpg-chat-damage-segment">
+      <div class="uesrpg-chat-damage-segment__summary">
         <div><b>${foundry.utils.escapeHTML(String(segment.damageType ?? "physical"))}</b></div>
         <div>Raw ${Number(segment.rawDamage ?? 0) || 0}</div>
         <div>Applied <b>${Number(segment.applied ?? 0) || 0}</b></div>
       </div>
-      ${(Array.isArray(segment.sourceNotes) ? segment.sourceNotes : []).map((note) => `<div style="font-size:11px; opacity:0.85;">${foundry.utils.escapeHTML(String(note ?? ""))}</div>`).join("")}
-      ${(Array.isArray(segment.reductionNotes) ? segment.reductionNotes : []).map((note) => `<div style="font-size:11px; opacity:0.85;">${foundry.utils.escapeHTML(String(note ?? ""))}</div>`).join("")}
-      <div style="font-size:11px; opacity:0.9; margin-top:2px;">Total Reduction -${Number(segment.reductionTotal ?? 0) || 0}</div>
+      ${(Array.isArray(segment.sourceNotes) ? segment.sourceNotes : []).map((note) => `<div class="uesrpg-chat-damage-note">${foundry.utils.escapeHTML(String(note ?? ""))}</div>`).join("")}
+      ${(Array.isArray(segment.reductionNotes) ? segment.reductionNotes : []).map((note) => `<div class="uesrpg-chat-damage-note">${foundry.utils.escapeHTML(String(note ?? ""))}</div>`).join("")}
+      <div class="uesrpg-chat-damage-note uesrpg-chat-damage-note--total">Total Reduction -${Number(segment.reductionTotal ?? 0) || 0}</div>
     </div>
   `).join("");
 
-  return `<div class="uesrpg-gm-damage-breakdown" style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,0,0,0.12);">
-    <div style="font-weight:700; margin-bottom:4px; font-size:12px;">Damage Breakdown</div>
-    <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px 10px; font-size:12px;">
+  return `<div class="uesrpg-gm-damage-breakdown uesrpg-chat-details-panel">
+    <div class="uesrpg-chat-details-panel__title">Damage Breakdown</div>
+    <div class="uesrpg-chat-summary-grid">
       ${summaryCells.join("")}
     </div>
-    ${statusBits.length ? `<div style="margin-top:4px; font-size:11px; opacity:0.9;">${statusBits.join(" | ")}</div>` : ``}
+    ${statusBits.length ? `<div class="uesrpg-chat-status-note">${statusBits.join(" | ")}</div>` : ``}
     ${segmentHtml}
   </div>`;
 }
@@ -234,9 +266,6 @@ function _injectTalentRerollButton(message, root) {
 
     const wrap = document.createElement("div");
     wrap.className = "uesrpg-chat-actions";
-    wrap.style.marginTop = "6px";
-    wrap.style.display = "flex";
-    wrap.style.gap = "8px";
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -308,9 +337,6 @@ function _injectImperialLuckDoSButton(message, root) {
 
     const wrap = document.createElement("div");
     wrap.className = "uesrpg-chat-actions";
-    wrap.style.marginTop = "6px";
-    wrap.style.display = "flex";
-    wrap.style.gap = "8px";
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -400,6 +426,7 @@ function _injectImperialLuckDoSButton(message, root) {
  * @param {HTMLElement} root
  */
 export function augmentChatMessageHTML(message, root) {
+  _markChatSurfaces(message, root);
   _injectOpposedGmDamageBreakdown(message, root);
 
   // Skill opposed-roll chat card buttons.

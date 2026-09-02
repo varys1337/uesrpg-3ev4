@@ -21,6 +21,7 @@ async function promptHitLocationChoice({ title = "Select Hit Location", defaultV
   }).join("\n");
 
   return customDialog({
+    layout: "workflow",
     title,
     content: `
       <div class="uesrpg-hit-location-choice">

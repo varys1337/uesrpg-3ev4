@@ -55,6 +55,7 @@ export async function _charTestDialog({
 
   try {
     const result = await customDialog({
+      layout: "workflow",
       title,
       content,
       classes: ["uesrpg-attack-declare"],

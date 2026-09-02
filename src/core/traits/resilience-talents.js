@@ -69,6 +69,7 @@ export async function applyIronWillReroll({ actor, chaKey, result, tn, isResista
   let wants;
   try {
     wants = await customDialog({
+      layout: "workflow",
       title: "Iron Will",
       content: `<p><b>${actorName}</b> failed a Willpower resistance test. Use <b>Iron Will</b> to reroll (once per test)?</p>`,
       buttons: {
@@ -102,4 +103,3 @@ export async function applyIronWillReroll({ actor, chaKey, result, tn, isResista
 
   return { rerolled: true, newResult: newRes };
 }
-

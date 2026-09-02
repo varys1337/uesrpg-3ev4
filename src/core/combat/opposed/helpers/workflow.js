@@ -212,6 +212,7 @@ export async function promptSelectToken({ title, prompt, tokens = [] } = {}) {
     </div>`;
 
   return customDialog({
+    layout: "workflow",
     title: title ?? t("UESRPG.Dialogs.Opposed.SelectTarget", "Select Target"),
     content,
     buttons: {

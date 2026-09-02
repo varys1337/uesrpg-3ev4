@@ -93,7 +93,7 @@ import {
   buildActorSheetEffects,
   buildActorSheetItems,
 } from "./shared/sheet-context.js";
-import { bindWindowRestoreGuard, warnIfDuplicateSidebar } from "./shared/window-restore-guard.js";
+import { warnIfDuplicateSidebar } from "./shared/render-diagnostics.js";
 import { createPartContextScope } from "./shared/part-context.js";
 import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
 import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/settings.js";
@@ -157,8 +157,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   _uesrpgTabContextMenuHandler = null;
   _uesrpgTabChangeHandler = null;
   _uesrpgTabKeydownHandler = null;
-  _uesrpgRestoreDblClickHandler = null;
-  _uesrpgRestoreDblClickEl = null;
   _uesrpgBioCache = null;
   _uesrpgItemsCache = null;
   _uesrpgCombatCache = null;
@@ -755,7 +753,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       if (!el) return;
       syncBookmarkTabsActiveClass(this);
       applySheetDensityClass(el);
-      bindWindowRestoreGuard(this, el);
       warnIfDuplicateSidebar(this, "PCActorSheetV2", el, options);
       enableResizeMotionGuard(this, {
         onStateChange: (phase, meta = {}) => {
@@ -1376,11 +1373,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       this._uesrpgTabContextMenuHandler = null;
       this._uesrpgTabChangeHandler = null;
       this._uesrpgTabKeydownHandler = null;
-      if (this._uesrpgRestoreDblClickEl && this._uesrpgRestoreDblClickHandler) {
-        this._uesrpgRestoreDblClickEl.removeEventListener("dblclick", this._uesrpgRestoreDblClickHandler, true);
-      }
-      this._uesrpgRestoreDblClickHandler = null;
-      this._uesrpgRestoreDblClickEl = null;
       clearQueuedRenderPartsState(this);
       this._uesrpgBioCache = null;
       this._uesrpgItemsCache = null;

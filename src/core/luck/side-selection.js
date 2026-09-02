@@ -38,6 +38,7 @@ export async function pickLuckSide(info, opts = {}) {
 
   return new Promise((resolve) => {
     customDialog({
+      layout: "workflow",
       title: "Choose Side",
       content: `<div class="uesrpg" style="padding:8px;"><p>Which side should receive the Luck effect?</p><select name="selected-side" style="width:100%;">${optionRows}</select></div>`,
       buttons: {

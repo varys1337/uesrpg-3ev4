@@ -161,6 +161,7 @@ async function _openSpellPickerDialog({
 
   const currentSummary = [selectedSpellName, selectedSpellSummary].filter(Boolean).join(" - ");
   return customDialog({
+    layout: "workflow",
     title: "Select stored spell",
     content: `
       <div class="uesrpg-stored-spell-picker">

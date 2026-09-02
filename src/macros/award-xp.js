@@ -42,6 +42,7 @@ export async function awardXpToSelectedPcs(opts = {}) {
   }
 
   const choice = await customDialog({
+    layout: "form",
     title: "Award XP to Selected PCs",
     content: `<div style="display:flex;flex-direction:column;gap:8px;">
       <p style="margin:0;">Selected PCs: <strong>${actors.length}</strong></p>

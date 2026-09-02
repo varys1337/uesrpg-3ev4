@@ -18,11 +18,13 @@ export function registerMigrations() {
       }
     }
 
-    try {
-      const mod = await import("../../utils/dev/actor-select-debug.js");
-      mod?.registerActorSelectDebug?.();
-    } catch (err) {
-      console.warn("UESRPG | Failed to load/register actor select debug tools", err);
+    if (isDebugEnabled?.("debugActorSelect")) {
+      try {
+        const mod = await import("../../utils/dev/actor-select-debug.js");
+        mod?.registerActorSelectDebug?.();
+      } catch (err) {
+        console.warn("UESRPG | Failed to load/register actor select debug tools", err);
+      }
     }
   });
 }

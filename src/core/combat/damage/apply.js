@@ -411,9 +411,13 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
     const db = Number(damageCalc.dosBonus ?? 0);
     const wb = Number(damageCalc.weaponBonus ?? 0);
     const showZeroDoS = Boolean(options?.showZeroDoS);
-    const dosPart = (db || showZeroDoS) ? `+${db} DoS` : null;
-    const rawLine = [rd, dosPart, wb ? `+${wb} Wpn` : null].filter(Boolean).join(" ");
-    parts.push(`<div class="uesrpg-da-row"><span class="k">Raw</span><span class="v">${rawLine}</span></div>`);
+    const bonuses = [
+      (db || showZeroDoS) ? `${db >= 0 ? "+" : ""}${db} DoS` : null,
+      wb ? `${wb >= 0 ? "+" : ""}${wb} Weapon` : null,
+    ].filter(Boolean).join(" ");
+    parts.push(`<div class="uesrpg-da-row"><span class="k">Rolled</span><span class="v">${rd}</span></div>`);
+    if (bonuses) parts.push(`<div class="uesrpg-da-row"><span class="k">Bonuses</span><span class="v">${bonuses}</span></div>`);
+    parts.push(`<div class="uesrpg-da-row"><span class="k">Pre-Reduction Total</span><span class="v">${Number(damageCalc.totalDamage ?? (rd + db + wb))}</span></div>`);
     parts.push(`<div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${damageCalc.reductions.total} <span class="muted">(AR ${damageCalc.reductions.armor} / R ${damageCalc.reductions.resistance} / T ${damageCalc.reductions.toughness}${damageCalc.reductions.penetrated ? ` / Pen ${damageCalc.reductions.penetrated}` : ""})</span></span></div>`);
   }
   const aeBreakdown = options?.aeBreakdown ?? null;
@@ -550,7 +554,9 @@ export async function applyDamage(actor, damage, damageType = DAMAGE_TYPES.PHYSI
         </div>
       </div>
       <div class="body">
-        <div class="uesrpg-da-row"><span class="k">Total Damage</span><span class="v final">${finalDamageAdjusted}</span></div>
+        <div class="uesrpg-da-row"><span class="k">Applied Damage</span><span class="v final">${finalDamageAdjusted}</span></div>
+        <div class="uesrpg-da-row"><span class="k">Pre-Reduction</span><span class="v">${Number(damageCalc.totalDamage ?? rawDamage)}</span></div>
+        <div class="uesrpg-da-row"><span class="k">Reduction</span><span class="v">-${Number(damageCalc.reductions?.total ?? 0)}</span></div>
         <div class="uesrpg-da-row"><span class="k">HP</span><span class="v">${newHP} / ${maxHP}${hpDelta ? ` <span class="muted">(\u2212${hpDelta})</span>` : ""}</span></div>
         ${currentTempHP > 0 || newTempHP > 0 ? `<div class="uesrpg-da-row"><span class="k">Temp HP</span><span class="v">${newTempHP}${tempHPAbsorbed ? ` <span class="muted">(\u2212${tempHPAbsorbed})</span>` : ""}</span></div>` : ""}
         ${woundStatus === "wounded" ? `<div class="status wounded">\u26A0 WOUNDED <span class="muted">(WT ${woundThreshold})</span></div>` : ""}

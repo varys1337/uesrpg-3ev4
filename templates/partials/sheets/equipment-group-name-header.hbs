@@ -1,0 +1,22 @@
+<th class="item-name-cell item-create {{nameCellClass}}" id="{{legacyId}}" {{#if altType}}data-alt-type="{{altType}}"{{/if}}>
+  <div class="ues-th-content">
+    <button type="button"
+            class="uesrpg-group-toggle uesrpg-group-toggle-button"
+            data-action="groupToggle"
+            data-group="{{group}}"
+            title="{{localize "UESRPG.UI.CollapseExpand"}}"
+            aria-label="{{localize "UESRPG.UI.CollapseExpand"}}: {{label}}">
+      <i class="fas fa-chevron-down" aria-hidden="true"></i>
+      <span class="item-group-label">{{label}}</span>
+    </button>
+    <button type="button"
+            class="item-group-add"
+            data-action="itemCreate"
+            data-item-type="{{itemType}}"
+            {{#if altType}}data-alt-type="{{altType}}"{{/if}}
+            title="{{localize "UESRPG.UI.Create"}}: {{label}}"
+            aria-label="{{localize "UESRPG.UI.Create"}}: {{label}}">
+      <span class="item-group-add__glyph" aria-hidden="true">+</span>
+    </button>
+  </div>
+</th>

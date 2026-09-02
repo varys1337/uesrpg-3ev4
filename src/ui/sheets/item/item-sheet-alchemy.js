@@ -87,6 +87,7 @@ export async function onEnableAlchemyProduct(sheet, event, target) {
   let kind = String(target?.dataset?.kind ?? "").trim().toLowerCase();
   if (!kind) {
     kind = String(await customDialog({
+      layout: "workflow",
       title: "Enable Alchemy Product",
       content: "<p>Select which alchemical product this item should become.</p>",
       buttons: {

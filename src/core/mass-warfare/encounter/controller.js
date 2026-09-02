@@ -82,6 +82,7 @@ function _resolveTargetedWarfareToken() {
 
 async function _promptChargeSide(actorName, defenderName) {
   return customDialog({
+    layout: "workflow",
     title: `${actorName} - Declare Charge`,
     content: `
       <div class="warfare-discipline-dialog">

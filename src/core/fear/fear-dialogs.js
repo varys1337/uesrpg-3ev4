@@ -4,6 +4,7 @@ import { t } from "../../utils/i18n.js";
 
 export async function showFearTestDialog({ defaultType = "panic", defaultModifier = 0, defaultSource = "Fear Source" } = {}) {
   return customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.Fear.ConfigureTitle"),
     content: `
       <div style="display:grid;gap:var(--form-gap,6px);padding:0 4px 4px">

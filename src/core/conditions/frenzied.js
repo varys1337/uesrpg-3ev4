@@ -790,6 +790,7 @@ export async function promptWillpowerTest(actor) {
   const tn = wpTotal - 20; // -20 penalty per RAW
 
   const result = await customDialog({
+    layout: "workflow",
     title: `${actor.name} - End Frenzied`,
     content: `<p><strong>Willpower Test (-20):</strong> Roll d100 ≤ ${tn} to end Frenzied.</p>`,
     buttons: {

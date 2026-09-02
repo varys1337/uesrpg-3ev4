@@ -33,7 +33,6 @@ import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop, inferDroppedItemType } from "../../../utils/drop-item-create-data.js";
 import { dndDebug, dndWarnFailure, makeDndTraceId } from "../../../utils/dnd-debugger.js";
-import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
 import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
 import { pickCanvasLocation } from "../../../utils/canvas-location-picker.js";
 import { openArmyCampaignApp } from "../../apps/v2/army-campaign-app.js";
@@ -246,8 +245,6 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /** @type {number|null} Hooks.on("updateActor") handle for member refresh */
   #memberUpdateHook = null;
   _uesrpgContextMenuHandler = null;
-  _uesrpgRestoreDblClickHandler = null;
-  _uesrpgRestoreDblClickEl = null;
   _uesrpgDebriefTooltipEl = null;
   _uesrpgDebriefTooltipHandlers = null;
 
@@ -495,7 +492,6 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       const el = this.element;
       syncBookmarkTabsActiveClass(this);
       applySheetDensityClass(el);
-      bindWindowRestoreGuard(this, el);
       clearItemDescriptionTooltip(this);
       this._hideSkillDebriefTooltip();
 
@@ -676,12 +672,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
         Hooks.off("updateActor", this.#memberUpdateHook);
         this.#memberUpdateHook = null;
       }
-      if (this._uesrpgRestoreDblClickEl && this._uesrpgRestoreDblClickHandler) {
-        this._uesrpgRestoreDblClickEl.removeEventListener("dblclick", this._uesrpgRestoreDblClickHandler, true);
-      }
       this._uesrpgContextMenuHandler = null;
-      this._uesrpgRestoreDblClickHandler = null;
-      this._uesrpgRestoreDblClickEl = null;
       this._uesrpgDebriefTooltipHandlers = null;
       this._destroySkillDebriefTooltip();
       return super._onClose(options);
@@ -1202,8 +1193,11 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   }
 
   /** Show item creation dialog with type selection */
-  async _onItemCreate(_event, _target) {
+  async _onItemCreate(event, _target) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     const type = await customDialog({
+      layout: "choices",
       title: t("UESRPG.Dialogs.GroupSheet.CreateItemTitle"),
       content: `<p>${t("UESRPG.Dialogs.GroupSheet.SelectItemType")}</p>`,
       buttons: {
@@ -1242,6 +1236,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
     if (!this.document?.isOwner) return;
 
     await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Sheets.Equipment.AddSubtract"),
       content: `<div class="dialogForm">
         <div class="form-group">

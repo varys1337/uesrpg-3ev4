@@ -58,6 +58,14 @@ import { buildAdvancementPlan } from "../item/advancement-plan.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { createDebugLogger, traceSheetPerf } from "../../../utils/debug.js";
 import { resolveUuidSync } from "../../../utils/uuid-cache.js";
+import { getArmorCategoryCoverage } from "../../../core/items/armor-coverage.js";
+import { t } from "../../../utils/i18n.js";
+import { appendChargenAudit } from "../../apps/v2/char-gen/audit-log.js";
+import {
+  buildAdministrativeCorrectionAudit,
+  isChargenCompleted,
+  promptAdministrativeCorrectionReason,
+} from "../../apps/v2/char-gen/racial-grants.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
@@ -285,6 +293,8 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       effectControl: SimpleItemSheetV2.prototype._onEffectControl,
       chargePlus: SimpleItemSheetV2.prototype._onChargePlus,
       chargeMinus: SimpleItemSheetV2.prototype._onChargeMinus,
+      applyCategoryCoverage: SimpleItemSheetV2.prototype._onApplyCategoryCoverage,
+      administrativeCorrection: SimpleItemSheetV2.prototype._onAdministrativeCorrection,
       talentUse: SimpleItemSheetV2.prototype._onTalentUse,
       powerUse: SimpleItemSheetV2.prototype._onPowerUse,
       traitUse: SimpleItemSheetV2.prototype._onTraitUse,
@@ -511,7 +521,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
     context.data = context.item.system; // legacy alias
     context.editable = this.isEditable;
-    context.isGM = game.user.isGM;
+      context.isGM = game.user.isGM;
+      context.canAdministrativeCorrect = Boolean(
+        game.user?.isGM
+        && ["skill", "magicSkill", "combatStyle"].includes(this.document.type)
+        && this.document.actor?.type === "Player Character"
+        && isChargenCompleted(this.document.actor)
+      );
       context.owner = this.document.isOwner;
       context.limited = this.document.limited;
       context.cssClass = this.isEditable ? "editable" : "locked";
@@ -673,18 +689,24 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       !event?.uesrpgSkipScalingValidation
     ) {
       const blocked = await validateSpellScaling(this.document, flatData, scalingLevels);
-      if (blocked) return;
+      if (blocked) return false;
     }
-    const advancement = buildAdvancementPlan(this.document, flatData);
+    const correctionReason = String(event?.uesrpgAdministrativeCorrectionReason ?? "").trim();
+    const administrativeCorrection = Boolean(
+      correctionReason.length >= 3
+      && game.user?.isGM
+      && isChargenCompleted(this.document?.actor)
+    );
+    const advancement = buildAdvancementPlan(this.document, flatData, { administrativeCorrection });
     if (!advancement.ok) {
       ui.notifications?.warn?.(advancement.reason || "Unable to apply advancement changes.");
-      return;
+      return false;
     }
 
     // Diff against current document state - only send changed fields
     const current = foundry.utils.flattenObject(this.document.toObject(false));
     flatData = foundry.utils.diffObject(current, flatData);
-    if (foundry.utils.isEmpty(flatData)) return;
+    if (foundry.utils.isEmpty(flatData)) return false;
 
     if (isShieldLaneDoc) {
       _shieldDebug("form submit diff", {
@@ -700,13 +722,44 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       await requestUpdateDocument(advancement.actor, { "system.xp": advancement.nextXp });
       ui.notifications?.info?.(`Spent ${advancement.xpCost} XP.`);
     }
+    return {
+      ok: true,
+      administrativeCorrection,
+      correctionReason,
+      waivedXp: Number(advancement.waivedXp ?? 0),
+      changed: foundry.utils.deepClone(flatData),
+    };
   }
 
   async _submitCurrentForm(event = null) {
     const formEl = this.element;
-    if (!formEl?.isConnected) return;
+    if (!formEl?.isConnected) return false;
     const fd = new foundry.applications.ux.FormDataExtended(formEl);
-    await this._onFormSubmit(event, formEl, fd);
+    return this._onFormSubmit(event, formEl, fd);
+  }
+
+  async _onAdministrativeCorrection(event, target) {
+    event?.preventDefault?.();
+    const actor = this.document?.actor;
+    if (!game.user?.isGM || !actor || !isChargenCompleted(actor)) {
+      ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+      return;
+    }
+    const reason = await promptAdministrativeCorrectionReason();
+    if (!reason) return;
+    const result = await this._submitCurrentForm({
+      preventDefault() {},
+      uesrpgAdministrativeCorrectionReason: reason,
+    });
+    if (!result?.ok) return;
+    await appendChargenAudit(actor, buildAdministrativeCorrectionAudit(reason, {
+      field: "skillAdvancement",
+      itemUuid: this.document.uuid,
+      itemName: this.document.name,
+      waivedXp: result.waivedXp,
+      changed: result.changed,
+    }));
+    ui.notifications?.info?.(t("UESRPG.DefectUpdate.CorrectionApplied", "Administrative correction applied and audited."));
   }
 
   /**
@@ -772,6 +825,31 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
    */
   _onChargeMinus(event, target) {
     return onChargeMinus(this, event);
+  }
+
+  async _onApplyCategoryCoverage(event, target) {
+    event?.preventDefault?.();
+    if (!this.isEditable || this.document?.type !== "armor") return;
+
+    const coverage = getArmorCategoryCoverage(this.document.system);
+    if (!coverage) {
+      ui.notifications?.warn?.(t(
+        "UESRPG.DefectUpdate.ArmorCoverageUnknown",
+        "Set a recognized armor category before applying category coverage."
+      ));
+      return;
+    }
+
+    const updated = await requestUpdateDocument(this.document, {
+      "system.hitLocations": coverage,
+      [`flags.${SYSTEM_ID}.coverageMode`]: "category",
+    });
+    if (updated) {
+      ui.notifications?.info?.(t(
+        "UESRPG.DefectUpdate.ArmorCoverageApplied",
+        "Armor coverage was restored from its category."
+      ));
+    }
   }
 
   /**

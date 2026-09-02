@@ -241,6 +241,7 @@ export async function _skillRollDialog({
 
   try {
     const result = await customDialog({
+      layout: "workflow",
       title,
       content,
       render: renderCallback,
@@ -278,5 +279,4 @@ export async function _skillRollDialog({
     return null;
   }
 }
-
 

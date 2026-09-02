@@ -134,6 +134,7 @@ export async function promptTreatWoundRollOptions(healer, candidates = []) {
   `;
 
   const result = await customDialog({
+    layout: "workflow",
     title: `Treat Wound - ${esc(healer?.name ?? "Healer")} Roll Options`,
     content,
     buttons: {

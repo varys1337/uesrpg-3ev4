@@ -45,6 +45,7 @@ export class BurnLuckDialog {
     const content = await _buildDialogContent(actor);
     let completed = false;
     const result = await customDialog({
+      layout: "workflow",
       title: tf("UESRPG.Dialogs.BurnLuck.Title", { actor: actor?.name ?? t("UESRPG.UI.Actor") }),
       content,
       classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--burn-luck"],

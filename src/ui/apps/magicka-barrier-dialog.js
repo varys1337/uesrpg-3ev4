@@ -97,6 +97,7 @@ export class MagickaBarrierDialog {
 
     const content = await _buildDialogContent(actor);
     const result = await customDialog({
+      layout: "workflow",
       title: tf("UESRPG.Dialogs.MagickaBarrier.Title", { actor: actor?.name ?? t("UESRPG.UI.Actor", "Actor") }, `Magicka & Barriers - ${actor?.name ?? "Actor"}`),
       content,
       classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--magicka"],

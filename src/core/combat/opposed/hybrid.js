@@ -138,6 +138,7 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
   }).join("");
 
   return customDialog({
+    layout: "workflow",
     title: tf("UESRPG.Dialogs.Opposed.MixedAttackTitle", { actor: actor?.name ?? t("UESRPG.Dialogs.Opposed.Unit", "Unit") }, `${actor?.name ?? "Unit"} - Mixed Attack`),
     content: `
       <div class="warfare-discipline-dialog">
@@ -204,6 +205,7 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
 export async function promptHybridWarfareDefense(actor, attacker) {
   const holdActive = hasHoldNextDefend(actor);
   return customDialog({
+    layout: "workflow",
     title: tf("UESRPG.Dialogs.Opposed.MixedDefenseTitle", { actor: actor?.name ?? t("UESRPG.Dialogs.Opposed.Unit", "Unit") }, `${actor?.name ?? "Unit"} - Mixed Defense`),
     content: `
       <div class="warfare-discipline-dialog">

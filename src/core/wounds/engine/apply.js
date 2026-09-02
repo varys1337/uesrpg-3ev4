@@ -60,6 +60,7 @@ async function _promptShockRollOptions(actor, baseTn) {
     </div>
   `;
   const picked = await customDialog({
+    layout: "workflow",
     title: tf("UESRPG.Dialogs.ShockTest.Title", { actor: esc(actor?.name ?? "Actor") }),
     content,
     buttons: {
@@ -330,6 +331,7 @@ export async function applyShockFailConsequence(actor, { hitLocation, applicatio
 
   if (region === "head") {
     const choice = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ShockTest.HeadWoundLostSenseTitle"),
       content: `<p>${t("UESRPG.Dialogs.ShockTest.HeadWoundLostSenseContent")}</p>`,
       buttons: {
@@ -388,6 +390,7 @@ export async function applyShockMagicSideEffect(actor, { chosenType, damageAppli
   if (type === "fire") {
     // Chapter 5: choose STR or AGI to avoid Burning(1).
     const choose = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ShockTest.FireWoundAvoidBurningTitle"),
       content: `<p>${t("UESRPG.Dialogs.ShockTest.FireWoundAvoidBurningContent")}</p>`,
       buttons: {
@@ -1322,6 +1325,7 @@ export async function resolveShockTestFromChat(...args) {
       const dieHardUsed = (w?.dieHardUsed === true);
       if (hasDieHard && !dieHardUsed && !passed) {
         const wants = await customDialog({
+          layout: "workflow",
           title: t("UESRPG.Dialogs.ShockTest.DieHardTitle"),
           content: `<p>${tf("UESRPG.Dialogs.ShockTest.DieHardContent", { actor: esc(actor.name ?? "Actor") })}</p>`,
           buttons: {
@@ -1369,6 +1373,7 @@ export async function resolveShockTestFromChat(...args) {
           buttons[c] = { label: c.toUpperCase(), callback: () => c };
         }
         chosen = await customDialog({
+          layout: "workflow",
           title: t("UESRPG.Dialogs.ShockTest.MagicShockSideEffectTitle"),
           content: `<p>${t("UESRPG.Dialogs.ShockTest.MagicShockSideEffectContent")}</p>`,
           buttons,

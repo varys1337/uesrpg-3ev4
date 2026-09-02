@@ -60,6 +60,7 @@ async function _handleRecall(caster, spell) {
 
   const anchor = caster?.flags?.[_FLAG_NS]?.magic?.recallAnchor ?? null;
   const action = await customDialog({
+    layout: "workflow",
     title: "Recall",
     content: `<p>Choose how to resolve <b>${spell.name}</b>.</p><p>Anchor currently ${anchor ? "exists" : "does not exist"}.</p>`,
     buttons: {
@@ -103,6 +104,7 @@ async function _handleRecall(caster, spell) {
 
 async function _handleDetect(caster, spell) {
   const pick = await customDialog({
+    layout: "workflow",
     title: "Detect Type",
     content: `<p>Select what ${spell.name} is detecting.</p>`,
     buttons: {
@@ -137,6 +139,7 @@ async function _handleTelepathy(caster, spell) {
 
   const options = targets.map((a) => `<option value="${a.uuid}">${a.name}</option>`).join("");
   const selectedUuid = await customDialog({
+    layout: "workflow",
     title: "Telepathy Target",
     content: `<div class="form-group"><label><b>Target</b></label><select name="target" style="width:100%;">${options}</select></div>`,
     buttons: {
@@ -170,6 +173,7 @@ async function _handleTelepathy(caster, spell) {
 
 async function _handleOpen(caster, spell) {
   const result = await customDialog({
+    layout: "workflow",
     title: "Open Resolution",
     content: `<div class="uesrpg"><p>Resolve <b>${spell.name}</b> target manually.</p><div class="form-group"><label><b>Object/Lock Label</b></label><input type="text" name="label" placeholder="Door, chest, seal..." /></div><div class="form-group"><label><b>Result</b></label><select name="result"><option value="opened">Opened</option><option value="failed">Failed</option></select></div></div>`,
     buttons: {

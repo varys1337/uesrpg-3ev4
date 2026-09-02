@@ -994,6 +994,7 @@ export async function attemptExtinguishBurning(actor) {
   if (burningX <= 0) return { ok: false, reason: t("UESRPG.Conditions.burning.NotActive", "Not burning") };
 
   const chooseAgi = await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.ExtinguishBurning.Title", "Put Out Fire"),
     content: `<p>${t("UESRPG.Dialogs.ExtinguishBurning.Content", "Choose Strength or Agility for the extinguish test.")}</p>`,
     buttons: {

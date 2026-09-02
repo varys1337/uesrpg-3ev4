@@ -125,6 +125,7 @@ function _buildDisciplineDialogContent(baseTn) {
 
 async function _showDisciplineDialog(unitName, baseTn) {
   return customDialog({
+    layout: "workflow",
     title: `${unitName} — Discipline Test`,
     content: _buildDisciplineDialogContent(baseTn),
     buttons: {

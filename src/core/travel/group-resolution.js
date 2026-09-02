@@ -47,6 +47,7 @@ async function pickGroupActorDialog(groupActors) {
   `;
 
   const pickedUuid = await customDialog({
+    layout: "workflow",
     title: "Travel Planner - Select Group",
     content,
     buttons: {

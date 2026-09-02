@@ -13,10 +13,10 @@ import { getTokenSpatialIndex } from './token-spatial-index.js';
  * Token query utilities class
  */
 export class TokenQuery {
-  constructor() {
+  constructor(options = {}) {
     this.spatialIndex = getTokenSpatialIndex();
     this.cache = new Map();
-    this.cacheTTL = 5000; // 5 seconds
+    this.cacheTTL = Number.isFinite(options.cacheTTL) ? options.cacheTTL : 5000;
     this.lastCleanup = Date.now();
     
     // Performance tracking
@@ -44,8 +44,7 @@ export class TokenQuery {
     // Check cache
     if (!forceRefresh && this._checkCache(cacheKey)) {
       this.stats.cacheHits++;
-      const cached = this.cache.get(cacheKey);
-      return filter ? cached.filter(filter) : cached;
+      return this.cache.get(cacheKey).value;
     }
     
     this.stats.cacheMisses++;
@@ -87,7 +86,7 @@ export class TokenQuery {
     // Check cache
     if (this._checkCache(cacheKey)) {
       this.stats.cacheHits++;
-      return this.cache.get(cacheKey);
+      return this.cache.get(cacheKey).value;
     }
     
     this.stats.cacheMisses++;
@@ -126,7 +125,7 @@ export class TokenQuery {
     // Check cache
     if (this._checkCache(cacheKey)) {
       this.stats.cacheHits++;
-      return this.cache.get(cacheKey);
+      return this.cache.get(cacheKey).value;
     }
     
     this.stats.cacheMisses++;
@@ -190,7 +189,7 @@ export class TokenQuery {
     // Check cache
     if (this._checkCache(cacheKey)) {
       this.stats.cacheHits++;
-      return this.cache.get(cacheKey);
+      return this.cache.get(cacheKey).value;
     }
     
     this.stats.cacheMisses++;
@@ -226,7 +225,7 @@ export class TokenQuery {
     // Check cache
     if (this._checkCache(cacheKey)) {
       this.stats.cacheHits++;
-      return this.cache.get(cacheKey);
+      return this.cache.get(cacheKey).value;
     }
     
     this.stats.cacheMisses++;
@@ -458,9 +457,9 @@ let singletonInstance = null;
  * Get the singleton TokenQuery instance
  * @returns {TokenQuery}
  */
-export function getTokenQuery() {
+export function getTokenQuery(options = {}) {
   if (!singletonInstance) {
-    singletonInstance = new TokenQuery();
+    singletonInstance = new TokenQuery(options);
   }
   return singletonInstance;
 }
@@ -471,7 +470,8 @@ export function getTokenQuery() {
  * @returns {TokenQuery}
  */
 export function initializeTokenQuery(config = {}) {
-  const query = getTokenQuery();
+  const query = getTokenQuery(config);
+  if (Number.isFinite(config.cacheTTL)) query.cacheTTL = config.cacheTTL;
   
   // Register debug commands if debug enabled
   if (config.debug) {

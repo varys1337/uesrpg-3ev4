@@ -642,6 +642,7 @@ export class SystemCombat extends Combat {
         <p>Choose which Initiative Rating to use for this roll.</p>
       `;
     const result = await customDialog({
+      layout: "workflow",
       title,
       content,
       buttons: {
@@ -680,6 +681,7 @@ export class SystemCombat extends Combat {
         <p><i>This choice is remembered for this combat for the current browser session.</i></p>
       `;
       const result = await customDialog({
+        layout: "workflow",
         title,
         content,
         buttons: {
@@ -733,6 +735,7 @@ export class SystemCombat extends Combat {
 	    `;
 
 	    return await customDialog({
+	      layout: "workflow",
 	      title: "Tactician",
 	      content,
 	      buttons: {

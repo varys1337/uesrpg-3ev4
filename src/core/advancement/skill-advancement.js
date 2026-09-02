@@ -207,6 +207,7 @@ function _rankValue(rankKey) {
  * @param {object} [args.options]
  * @param {number|null} [args.options.specializationCapOverride]
  * @param {number|null} [args.options.specializationUnitCostOverride]
+ * @param {boolean} [args.options.bypassXpPayment=false]
  * @returns {{ ok: boolean, xpCost: number, nextXp: number, actor: Actor|null, reason?: string }}
  */
 export function buildSkillAdvancementPlan({ actor, item, flatData, options = {} } = {}) {
@@ -216,6 +217,7 @@ export function buildSkillAdvancementPlan({ actor, item, flatData, options = {} 
 
   const currentXp = Math.max(0, _asNumber(actor.system?.xp, 0));
   const xpTotal = Math.max(0, _asNumber(actor.system?.xpTotal, 0));
+  const bypassXpPayment = options?.bypassXpPayment === true;
 
   const governingRaw = String(item.system?.governingCha ?? item.system?.baseCha ?? "");
   const favored = isFavoredSkillForActor(actor, governingRaw);
@@ -250,7 +252,7 @@ export function buildSkillAdvancementPlan({ actor, item, flatData, options = {} 
 
     // Campaign skill experience gating by Total XP.
     const maxIdx = getMaxPurchasableRankIndexFromXpTotal(xpTotal);
-    if (proposedIdx > maxIdx) {
+    if (!bypassXpPayment && proposedIdx > maxIdx) {
       return {
         ok: false,
         xpCost: 0,
@@ -320,7 +322,7 @@ export function buildSkillAdvancementPlan({ actor, item, flatData, options = {} 
   }
 
   xpCost = Math.max(0, Math.trunc(xpCost));
-  if (xpCost > currentXp) {
+  if (!bypassXpPayment && xpCost > currentXp) {
     return {
       ok: false,
       xpCost,
@@ -333,7 +335,8 @@ export function buildSkillAdvancementPlan({ actor, item, flatData, options = {} 
   return {
     ok: true,
     xpCost,
-    nextXp: Math.max(0, currentXp - xpCost),
+    nextXp: bypassXpPayment ? currentXp : Math.max(0, currentXp - xpCost),
+    waivedXp: bypassXpPayment ? xpCost : 0,
     actor,
   };
 }

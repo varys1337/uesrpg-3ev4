@@ -8,7 +8,7 @@
 > Some visual UI elements and presentation assets were assembled from licensed or stock source materials and manually edited by the author. Where AI-assisted visual processing was used, it was both limited to post-processing and editing of human-made source assets rather or standalone AI-originated prepared artwork.
 
 # UESRPG 3e v4 - Automation and QoL 
-This system is a fork of the original uesrpg d100 system created by DogBoneZone at https://gitlab.com/DogBoneZone/uesrpg-3e and the earlier compatibility fork at https://github.com/jamesjtb/uesrpg-3ev4. This fork targets Foundry VTT v14.359 and later v14 builds only.
+This system is a fork of the original uesrpg d100 system created by DogBoneZone at https://gitlab.com/DogBoneZone/uesrpg-3e and the earlier compatibility fork at https://github.com/jamesjtb/uesrpg-3ev4. This fork targets Foundry VTT v14.363 and later v14 builds only, and is verified against v14.367.
 
 This specific fork has advanced combat automation, active effects implementation and other up to date features of the current Foundry VTT iteration. 
 
@@ -17,3 +17,12 @@ A system and a few compendiums used to play the UESRPG game. Special thanks to 2
 Express permission to use the artwork and tokens included in the compendiums of this system was given by 2MinuteTabletop and the copyright holder.
 
 You can find the lively UESRPG Discord Community here: https://discord.gg/KAkXdf9
+
+Documentation:
+- Localization guide: [docs/Localization.md](docs/Localization.md)
+
+## Ready release folder
+
+Run `build-release-folder.cmd` on Windows, or run `npm run build:folder` from a terminal.
+
+The command validates the source and creates a ready-to-install Foundry system at `dist/uesrpg-3ev4`. The folder contains only runtime files required by the system; development dependencies, automation, repository metadata, and transient compendium lock/log files are excluded.

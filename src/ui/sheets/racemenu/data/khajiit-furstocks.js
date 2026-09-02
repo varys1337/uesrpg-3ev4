@@ -1,4 +1,7 @@
 const imgPath = "systems/uesrpg-3ev4/images";
+import { combinedOption, grant, rankOption, talentOption } from "./grant-builders.js";
+
+const CATFALL = talentOption("Catfall", "Catfall");
 
 export default {
   Alfiq: {
@@ -21,6 +24,9 @@ export default {
       "Alfiq are Tiny sized characters. Attempts to hit the Alfiq suffer a -20 penalty. However, the character’s Carry Rating and total HP are halved.",
       "The Alfiq cannot speak normally, and must communicate telepathically. Additionally, the Alfiq does not have opposable thumbs, and will suffer penalties to any tasks requiring fine motor skills or grip, such as using a weapon. This is left to GM arbitration."
     ],
+    chargen: {
+      grants: [grant("free-catfall", "Free Catfall talent", [CATFALL])],
+    },
     items: [
       {
         name: "Dark Sight (Racial)",
@@ -158,6 +164,16 @@ export default {
       'Power Well (20)',
       'During character creation, the Dagi-Raht may start with the Acrobatics skill trained to Novice, thay can take the Catfall talent for free, or both together for 100 XP.'
     ],
+    chargen: {
+      grants: [grant("dagiraht-training", "Dagi-Raht starting training", [
+        rankOption("Acrobatics", "skill", "Acrobatics"),
+        CATFALL,
+        combinedOption("acrobatics-and-catfall", "Acrobatics and Catfall (100 XP)", [
+          rankOption("Acrobatics", "skill", "Acrobatics"),
+          CATFALL,
+        ], { xpCost: 100 }),
+      ])],
+    },
     items: [
       {
         name: 'Dark Sight (Racial)',
@@ -205,6 +221,9 @@ export default {
       'Looted armor must be modified by a smith before the Pahmar can equip it.',
       'The Pahmar does not have opposable thumbs, and will suffer penalties to any tasks requiring fine motor skills or grip, such as using a weapon. This is left to GM arbitration.',
     ],
+    chargen: {
+      grants: [grant("free-catfall", "Free Catfall talent", [CATFALL])],
+    },
     items: [
       {
         name: 'Dark Sight (Racial)',
@@ -267,6 +286,9 @@ export default {
       'The Senche does not have opposable thumbs, and will suffer penalties to any tasks requiring fine motor skills or grip, such as using a weapon. This is left to GM arbitration.',
       'Senche are Large sized creatures. Attempts to hit the character with ranged attacks gain a +10 bonus.',
     ],
+    chargen: {
+      grants: [grant("free-catfall", "Free Catfall talent", [CATFALL])],
+    },
     items: [
       {
         name: 'Dark Sight (Racial)',

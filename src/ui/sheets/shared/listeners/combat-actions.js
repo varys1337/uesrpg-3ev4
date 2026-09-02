@@ -664,6 +664,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
         `;
 
         selectedUuid = await customDialog({
+          layout: "workflow",
           title: "Aim",
           width: 520,
           content,
@@ -782,6 +783,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
       `;
 
       return customDialog({
+        layout: "workflow",
         title: "Use Item",
         content,
         yes: {
@@ -902,6 +904,7 @@ export const onCombatQuickAction = asyncGuardSheet(async function onCombatQuickA
           .join("");
 
         apToSpend = await customDialog({
+          layout: "workflow",
           title: `Reload — ${rangedWeapon.name}`,
           content: `
             <div class="uesrpg-dialog-form">

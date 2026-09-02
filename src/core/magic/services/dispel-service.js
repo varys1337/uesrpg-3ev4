@@ -276,6 +276,7 @@ export async function showDispelDialog(targetActor, opts = {}) {
     </div>`;
 
   return customDialog({
+    layout: "workflow",
     title: `Dispel — ${targetActor.name}`,
     content,
     buttons: {

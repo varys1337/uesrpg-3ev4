@@ -53,19 +53,32 @@ import {
 } from "./actor/derived.js";
 import { applyMovementRestrictionSemantics, getActorConditionKeySet } from "./actor/conditions.js";
 import { wouldCreateCircularGroupReference } from "./actor/group-membership.js";
+import { isMassCombatEnabled } from "../homebrew/settings.js";
 
 /** Item types that carry a TN via baseCha and implement _prepareCombatStyleData. */
 const TN_ITEM_TYPES = new Set(["skill", "combatStyle", "magicSkill"]);
 
 export class SimpleActor extends Actor {
   async _preCreate(data, options, user) {
+    const allowed = await super._preCreate(data, options, user);
+    if (allowed === false) return false;
+
+    if (this.type === "Warfare Unit" && !isMassCombatEnabled()) {
+      const message = game.i18n?.localize?.("UESRPG.Notifications.MassCombatDisabled")
+        ?? "Enable the Mass Combat homebrew setting before creating a Warfare Unit.";
+      ui.notifications?.warn?.(message);
+      return false;
+    }
 
     if (this.type === 'Player Character') {
       // Updates token default settings for Character types
       this.prototypeToken.updateSource({
         'sight.enabled': true,
         actorLink: true,
-        disposition: 1
+        disposition: 1,
+        'displayBars': CONST.TOKEN_DISPLAY_MODES.OWNER,
+        'bar1.attribute': 'hp',
+        'bar2.attribute': 'magicka'
       })
     }
 
@@ -95,7 +108,6 @@ export class SimpleActor extends Actor {
 
 
     // Preps and adds standard skill items to Character types
-    await super._preCreate(data, options, user);
     // Warfare Unit: do not auto-populate skills or any PC items.
     if (this.type === 'Warfare Unit') return;
     if (this.type === 'Player Character') {

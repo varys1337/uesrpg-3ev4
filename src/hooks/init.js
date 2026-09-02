@@ -5,7 +5,6 @@ import { UESRPGActiveEffect } from "../core/documents/active-effect.js";
 import { registerPolyglotLanguages } from "../core/integrations/polyglot.js";
 
 import { preloadHandlebarsTemplates } from "./init/register-templates.js";
-import { preloadHandlebarsTemplatesOptimized } from "./init/register-templates-optimized.js";
 import { registerSettings } from "./init/register-settings.js";
 import { registerSheets } from "./init/register-sheets.js";
 import { registerHandlebarsHelpers } from "./init/register-handlebars.js";
@@ -17,7 +16,6 @@ import { registerMigrations } from "./init/register-migrations.js";
 import { registerKeybindings } from "./init/register-keybindings.js";
 import { registerDevTools } from "./init/register-devtools.js";
 import { registerFeatureHooks } from "./init/features/register-feature-hooks.js";
-import { registerCreateTypeGuards } from "./init/register-create-type-guards.js";
 import { registerAECacheInvalidation } from "./init/register-ae-cache-invalidation.js";
 import { registerItemPrepareCacheInvalidation } from "./init/register-item-prepare-cache-invalidation.js";
 import { registerMemoizationCacheInvalidation } from "./init/register-memoization-cache-invalidation.js";
@@ -26,14 +24,9 @@ import { registerCoreSubsystems } from "./init/register-core-subsystems.js";
 import { initializeCanvasOptimization } from "../utils/canvas/canvas-optimization.js";
 import { initializeMemoryMonitoring } from "../utils/memory-monitor.js";
 
-// Combat optimization systems
-import { initializeCombatUpdateScheduler } from "../core/combat/optimization/combat-update-scheduler.js";
-import { registerInitiativeCacheInvalidation } from "../core/combat/optimization/initiative-cache.js";
-import { initializeCombatTrackerDOMOptimization } from "../ui/apps/combat-tracker-dom-optimizer.js";
-import { initializeCombatHookThrottling } from "../utils/combat-throttler.js";
-
 import { SystemCombat, getInitiativeTieBreakTuple } from "../core/documents/combat.js";
 import { registerCombatChatHandlers } from "../core/combat/chat-handlers/index.js";
+import { registerUESRPGChatLogClass } from "../core/combat/chat-handlers/combat-chat-context.js";
 import { registerDndDebugObservers } from "../utils/dnd-debugger.js";
 import {
   resolveSurpriseState,
@@ -59,9 +52,6 @@ import { normalizeRollOption, buildBaseRollOptions } from "../core/rules/roll-op
 import { buildRollContext } from "../core/rules/roll-context.js";
 import { compileConditionsToPredicate } from "../core/traits/features/conditions-to-predicate.js";
 import { executeSpecialAction } from "../core/combat/special-actions-helper.js";
-import { migrateItemsIfNeeded, normalizeItems } from "../core/migrations/items.js";
-import { migrateActorsIfNeeded, normalizeActors } from "../core/migrations/actors.js";
-import { migrateCombatLegacyIfNeeded } from "../core/migrations/combat-legacy.js";
 import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
 import * as automationPolicyApi from "../core/config/automation-policy.js";
 import { registerShieldDebugObservers } from "../utils/dev/shield-debug.js";
@@ -95,11 +85,9 @@ function applyCustomCursorConfig() {
 }
 
 // ── Warfare Unit create-flow gating ─────────────────────────────────────────
-// When homebrew.massCombat.enabled === false, prune "Warfare Unit" from actor
-// create dialogs so GMs cannot accidentally create units they haven't opted in to.
-// Existing Warfare Unit actors remain openable (sheet is always registered).
+// Warfare Unit creation is gated by SimpleActor._preCreate; existing documents remain supported.
 
-export default async function initHandler() {
+export default function initHandler() {
   registerApi({
     isTypeDataModelsEnabled,
     getTypeDataModelDiagnosticsReport,
@@ -163,24 +151,14 @@ export default async function initHandler() {
   CONFIG.Item.documentClass = SimpleItem;
   CONFIG.ActiveEffect.documentClass = UESRPGActiveEffect;
   CONFIG.ActiveEffect.expiryAction = "delete";
+  registerUESRPGChatLogClass();
 
   registerHandlebarsHelpers();
   
-  await registerSettings();
+  registerSettings();
   
-  // Use optimized template loading if enabled, otherwise fallback to original
-  const useOptimizedTemplates = isAnyDebugEnabled(["perfDebug", "templateDebug"]) ||
-    game.settings.get(SYSTEM_ID, "templateOptimization") !== false;
-  
-  if (useOptimizedTemplates) {
-    Hooks.once("setup", preloadHandlebarsTemplatesOptimized);
-    console.debug("UESRPG | Using optimized template loading");
-  } else {
-    Hooks.once("setup", preloadHandlebarsTemplates);
-    console.debug("UESRPG | Using standard template loading");
-  }
+  Hooks.once("setup", preloadHandlebarsTemplates);
   registerTypeDataModels();
-  registerCreateTypeGuards();
   registerStaleEmbeddedDeleteSuppression();
   applyCustomCursorConfig();
 
@@ -204,13 +182,15 @@ export default async function initHandler() {
     }
   }
 
-  try {
-    registerContainerDebugObservers();
-  } catch (err) {
-    console.warn("UESRPG | Failed to register container diagnostics observers", err);
+  if (isAnyDebugEnabled(["containerDebug"])) {
+    try {
+      registerContainerDebugObservers();
+    } catch (err) {
+      console.warn("UESRPG | Failed to register container diagnostics observers", err);
+    }
   }
 
-  await registerSheets();
+  registerSheets();
   registerKeybindings();
 
   registerChat({
@@ -233,20 +213,22 @@ export default async function initHandler() {
 
   // Initialize canvas optimization system for token performance
   try {
+    const canvasDebugEnabled = isAnyDebugEnabled(["perfDebug", "canvasDebug"]);
     initializeCanvasOptimization({
       enabled: true,
-      debug: isAnyDebugEnabled(["perfDebug", "canvasDebug"])
+      debug: canvasDebugEnabled
     });
-    console.debug("UESRPG | Canvas optimization system initialized");
+    if (canvasDebugEnabled) console.debug("UESRPG | Canvas optimization system initialized");
   } catch (err) {
     console.warn("UESRPG | Failed to initialize canvas optimization system", err);
   }
 
   // Initialize memory monitoring system for leak detection
   try {
+    const memoryDebugEnabled = isAnyDebugEnabled(["perfDebug", "memoryDebug"]);
     initializeMemoryMonitoring({
-      enabled: true,
-      debug: isAnyDebugEnabled(["perfDebug", "memoryDebug"]),
+      enabled: memoryDebugEnabled,
+      debug: memoryDebugEnabled,
       warningThresholds: {
         templateCache: 500,
         memoizationCache: 1000,
@@ -256,53 +238,16 @@ export default async function initHandler() {
         sheetCache: 300,
       }
     });
-    console.debug("UESRPG | Memory monitoring system initialized");
+    if (memoryDebugEnabled) console.debug("UESRPG | Memory monitoring system initialized");
   } catch (err) {
     console.warn("UESRPG | Failed to initialize memory monitoring system", err);
   }
 
-  // Initialize combat optimization systems
-  // DISABLED: Combat optimizations causing issues with token actor initiative addition
-  // Re-enable by setting COMBAT_OPTIMIZATIONS_ENABLED = true
-  const COMBAT_OPTIMIZATIONS_ENABLED = false;
-  
-  if (COMBAT_OPTIMIZATIONS_ENABLED) {
-    try {
-      // Combat update scheduler for deferred non-critical updates
-      initializeCombatUpdateScheduler();
-      console.debug("UESRPG | Combat update scheduler initialized");
-      
-      // Initiative calculation cache
-      registerInitiativeCacheInvalidation();
-      console.debug("UESRPG | Initiative cache invalidation hooks registered");
-      
-      // Combat tracker DOM optimization
-      initializeCombatTrackerDOMOptimization();
-      console.debug("UESRPG | Combat tracker DOM optimization initialized");
-      
-      // Combat hook throttling
-      initializeCombatHookThrottling();
-      console.debug("UESRPG | Combat hook throttling initialized");
-      
-      console.info("UESRPG | Combat performance optimizations fully initialized");
-    } catch (err) {
-      console.warn("UESRPG | Failed to initialize combat optimization systems", err);
-    }
-  } else {
-    console.info("UESRPG | Combat performance optimizations DISABLED (token actor initiative issue)");
-  }
-
-  if (isTypeDataModelsEnabled()) {
+  if (isTypeDataModelsEnabled() && isAnyDebugEnabled(["debugEnabled", "perfDebug"])) {
     console.info("UESRPG | TypeDataModel diagnostics", getTypeDataModelDiagnosticsReport());
   }
 
-  registerMigrations({
-    migrateActorsIfNeeded,
-    normalizeActors,
-    migrateItemsIfNeeded,
-    normalizeItems,
-    migrateCombatLegacyIfNeeded,
-  });
+  registerMigrations();
 
   registerSpecialActionOutcomeHook({ executeSpecialAction });
 }

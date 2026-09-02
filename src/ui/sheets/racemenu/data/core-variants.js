@@ -1,4 +1,19 @@
 import coreRaces from './core-races.js';
+import { choiceOption, combatStyleOption, grant, magicNoviceOptions, skillNoviceOptions } from "./grant-builders.js";
+
+const WILD_SHAPE_TRAITS = [
+    "Amphibious",
+    "Climber (AB x 2)",
+    "Crawler",
+    "Dark Sight",
+    "Natural Toughness (1)",
+    "Natural Weapons (Horns or Claws, 1d6 Slashing or Crushing, 1m)",
+    "Natural Weapons (Fangs, 1d4 Slashing, 1m) and Strong Jaws",
+    "Quadruped",
+    "Regeneration (1)",
+    "Swimmer",
+];
+const WILD_SHAPE_WEAKNESSES = ["Silver-Scarred (2)", "Sun-Scarred (2)", "Weakness (Fire, 2)", "Weak Bones (1)"];
 
 export default {
     "Bosmer: The Unglamoured": {
@@ -10,6 +25,12 @@ export default {
             "The Beast Within",
             "Wild Shape"
         ],
+        chargen: {
+            grants: [
+                grant("wild-shape-trait", "Wild Shape trait", WILD_SHAPE_TRAITS.map((value) => choiceOption(value))),
+                grant("wild-shape-weakness", "Wild Shape weakness", WILD_SHAPE_WEAKNESSES.map((value) => choiceOption(value))),
+            ],
+        },
         items: [
             ...coreRaces.Bosmer.items,
             {
@@ -41,6 +62,12 @@ export default {
             "During character creation, a Reachman may choose to being with the Survival skill, or one of the traditional hedge magics (Alteration, Destruction, or Mysticism) trained to Novice rank for free.",
             "Reachmen do not count as their parent race for the purpose of Elite Advances (example: Tongue advance for Nords), but can still take the Racial Talents of their parent race.",
         ],
+        chargen: {
+            grants: [grant("free-reach-skill", "Free Novice Reach skill", [
+                ...skillNoviceOptions(["Survival"]),
+                ...magicNoviceOptions(["Alteration", "Destruction", "Mysticism"]),
+            ])],
+        },
         items: [
             {
                 name: "Fury of the Old Gods (Racial)",
@@ -66,6 +93,9 @@ export default {
             "Pride and Prejudice",
             "During character creation, Ashlanders may choose to begin with the Survival skill trained to Novice rank for free instead of Destruction."
         ],
+        chargen: {
+            grants: [grant("free-survival", "Free Novice Survival", skillNoviceOptions(["Survival"]))],
+        },
         items: [
             ...coreRaces.Dunmer.items,
             {
@@ -104,6 +134,12 @@ export default {
             "During character creation, a Reachman may choose to being with the Survival skill, or one of the traditional hedge magics (Alteration, Destruction, or Mysticism) trained to Novice rank for free.",
             "Reachmen do not count as their parent race for the purpose of Elite Advances (example: Tongue advance for Nords), but can still take the Racial Talents of their parent race.",
         ],
+        chargen: {
+            grants: [grant("free-reach-skill", "Free Novice Reach skill", [
+                ...skillNoviceOptions(["Survival"]),
+                ...magicNoviceOptions(["Alteration", "Destruction", "Mysticism"]),
+            ])],
+        },
         items: [
             {
                 name: "Fury of the Old Gods (Racial)",
@@ -135,6 +171,12 @@ export default {
             ...coreRaces.Redguard.traits,
             "The character can replace Combat Style with Commerce or Persuade as their free starting skill.",
         ],
+        chargen: {
+            grants: [grant("free-starting-skill", "Free Novice starting skill", [
+                combatStyleOption(),
+                ...skillNoviceOptions(["Commerce", "Persuade"]),
+            ])],
+        },
     },
     "Redguard (Forebear)": {
         ...coreRaces.Redguard,
@@ -152,5 +194,16 @@ export default {
             ...coreRaces.Redguard.traits,
             "The character picks one additional weapon for their Combat Style at character creation, but it must be a Sword or variant of a Sword such as a Sabre or Dagger.",
         ],
+        chargen: {
+            grants: [
+                ...(coreRaces.Redguard.chargen?.grants ?? []),
+                grant("free-sword-training", "Additional sword-family Combat Style weapon", [{
+                    id: "sword-family-weapon",
+                    label: "Add one Sword, Sabre, or Dagger to a Combat Style",
+                    xpCost: 0,
+                    operations: [{ kind: "addCombatStyleEquipment", selectTarget: true, allowedEquipment: ["Sword", "Sabre", "Dagger"] }],
+                }]),
+            ],
+        },
     }
 };

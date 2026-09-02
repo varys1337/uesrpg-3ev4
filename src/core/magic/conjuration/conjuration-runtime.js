@@ -125,6 +125,7 @@ async function _resolveConjureItemWithScaling(spell, conjureConfig, casterActor 
   }).join("");
 
   const selection = await customDialog({
+    layout: "workflow",
     title: "Select Summoned Item",
     content: `<div><div class="form-group">
       <label>Choose item to conjure (Spell Strength ${ss}):</label>
@@ -452,6 +453,7 @@ async function _handleSummonCreature(casterActor, originAE, spell, conjureConfig
     if (!position) {
       // Cancelled — notify but still create at fallback position
       const useFallback = await customDialog({
+        layout: "workflow",
         title: "Placement Cancelled",
         content: `<p>No location was selected. Place <strong>${summonActor.name}</strong> adjacent to the caster instead?</p>`,
         buttons: {

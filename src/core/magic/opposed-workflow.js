@@ -59,6 +59,56 @@ const _FLAG_KEY = "magicOpposed";
 const _CARD_VERSION = 2;
 const _magicAutoRollLocalLocks = new Set();
 
+function _collectDefenderRefs(cfg = {}) {
+  const refs = [];
+  const add = (ref) => {
+    const value = typeof ref === "string" ? ref : ref?.uuid;
+    const normalized = String(value ?? "").trim();
+    if (normalized) refs.push(normalized);
+  };
+
+  for (const defender of (Array.isArray(cfg.defenders) ? cfg.defenders : [])) {
+    add(defender?.tokenUuid ?? defender?.actorUuid ?? defender?.uuid ?? defender);
+  }
+  for (const ref of (Array.isArray(cfg.defenderTokenUuids) ? cfg.defenderTokenUuids : [])) add(ref);
+  for (const ref of (Array.isArray(cfg.defenderActorUuids) ? cfg.defenderActorUuids : [])) add(ref);
+  add(cfg.defenderTokenUuid ?? cfg.defenderActorUuid ?? cfg.defenderUuid);
+  return refs;
+}
+
+function _buildDefenderEntry(actor, token, { direct = false } = {}) {
+  return {
+    actorUuid: actor.uuid,
+    tokenUuid: token?.document?.uuid ?? token?.uuid ?? null,
+    tokenName: token?.name ?? token?.document?.name ?? null,
+    name: actor.name,
+    defenseType: direct ? "Cannot Defend" : null,
+    result: null,
+    tn: null,
+    noDefense: direct,
+    apCost: direct ? 0 : 1,
+    banked: { committed: direct, committedAt: direct ? Date.now() : null, committedBy: direct ? game.user?.id ?? null : null }
+  };
+}
+
+function _resolveDefenderEntries(cfg = {}, options = {}) {
+  const entries = [];
+  const seen = new Set();
+
+  for (const ref of _collectDefenderRefs(cfg)) {
+    const doc = resolveDoc(ref);
+    const token = resolveToken(doc);
+    const actor = resolveActor(doc);
+    if (!actor) continue;
+    const key = token?.document?.uuid ?? token?.uuid ?? actor.uuid;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push(_buildDefenderEntry(actor, token, options));
+  }
+
+  return entries;
+}
+
 function _getResolvedSpellLevel(spell) {
   return Number(getSpellLevel(spell) ?? 1) || 1;
 }
@@ -161,50 +211,7 @@ export const MagicOpposedWorkflow = {
     const aToken = resolveToken(aDoc);
     const attacker = resolveActor(aDoc);
 
-    const defenderRefs = [];
-    const addDefenderRef = (ref) => {
-      if (!ref) return;
-      if (typeof ref === "string") defenderRefs.push(ref);
-      else if (ref?.uuid) defenderRefs.push(ref.uuid);
-    };
-
-    if (Array.isArray(cfg.defenders)) {
-      for (const def of cfg.defenders) {
-        addDefenderRef(def?.tokenUuid ?? def?.actorUuid ?? def?.uuid ?? def);
-      }
-    }
-    if (Array.isArray(cfg.defenderTokenUuids)) {
-      for (const ref of cfg.defenderTokenUuids) addDefenderRef(ref);
-    }
-    if (Array.isArray(cfg.defenderActorUuids)) {
-      for (const ref of cfg.defenderActorUuids) addDefenderRef(ref);
-    }
-    addDefenderRef(cfg.defenderTokenUuid ?? cfg.defenderActorUuid ?? cfg.defenderUuid);
-
-    const defenderEntries = [];
-    const seen = new Set();
-    for (const ref of defenderRefs) {
-      const dDoc = resolveDoc(ref);
-      const dToken = resolveToken(dDoc);
-      const dActor = resolveActor(dDoc);
-      if (!dActor) continue;
-      const key = dToken?.document?.uuid ?? dToken?.uuid ?? dActor.uuid;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      defenderEntries.push({
-        actorUuid: dActor.uuid,
-        tokenUuid: dToken?.document?.uuid ?? dToken?.uuid ?? null,
-        tokenName: dToken?.name ?? dToken?.document?.name ?? null,
-        name: dActor.name,
-        defenseType: null,
-        result: null,
-        tn: null,
-        noDefense: false,
-        apCost: 1,
-        banked: { committed: false, committedAt: null, committedBy: null }
-      });
-    }
+    const defenderEntries = _resolveDefenderEntries(cfg);
 
     if (!attacker || defenderEntries.length === 0) {
       ui.notifications.warn("Magic attack requires both a caster and at least one target.");
@@ -246,22 +253,18 @@ export const MagicOpposedWorkflow = {
 
       // Direct spells resolve immediately (no casting/defense tests).
       if (Boolean(spell?.system?.isDirect) && !isCharacteristicDefense(spell)) {
-        for (const def of defenderEntries) {
-          await this.castDirectTargeted({
-            attackerTokenUuid: cfg.attackerTokenUuid,
-            attackerActorUuid: cfg.attackerActorUuid,
-            attackerUuid: cfg.attackerUuid,
-            defenderTokenUuid: def.tokenUuid ?? null,
-            defenderActorUuid: def.actorUuid ?? null,
-            defenderUuid: def.actorUuid ?? null,
-            spellUuid: cfg.spellUuid,
-            spellOptions: cfg.spellOptions,
-            castActionType: cfg.castActionType,
-            castSource: cfg.castSource ?? null,
-            itemCastContext: cfg.itemCastContext ?? null
-          });
-        }
-        return null;
+        return this.castDirectTargeted({
+          attackerTokenUuid: cfg.attackerTokenUuid,
+          attackerActorUuid: cfg.attackerActorUuid,
+          attackerUuid: cfg.attackerUuid,
+          defenderTokenUuids: defenderEntries.map((def) => def.tokenUuid).filter(Boolean),
+          defenderActorUuids: defenderEntries.filter((def) => !def.tokenUuid).map((def) => def.actorUuid).filter(Boolean),
+          spellUuid: cfg.spellUuid,
+          spellOptions: cfg.spellOptions,
+          castActionType: cfg.castActionType,
+          castSource: cfg.castSource ?? null,
+          itemCastContext: cfg.itemCastContext ?? null
+        });
       }
 
       const firstDefenderForCasting = defenderEntries[0]?.actorUuid ? resolveActor(defenderEntries[0].actorUuid) : null;
@@ -387,6 +390,7 @@ export const MagicOpposedWorkflow = {
    * @param {object} cfg
    * @param {string} [cfg.attackerTokenUuid] - Attacker token UUID
    * @param {string} [cfg.defenderTokenUuid] - Defender token UUID
+   * @param {string[]} [cfg.defenderTokenUuids] - Defender token UUIDs
    * @param {string} [cfg.spellUuid]         - Spell item UUID
    * @param {SpellCastOptions} [cfg.spellOptions] - Casting options
    * @param {string} [cfg.castActionType]    - "primary" | "secondary"
@@ -394,12 +398,8 @@ export const MagicOpposedWorkflow = {
    */
   async castDirectTargeted(cfg = {}) {
     const aDoc = resolveDoc(cfg.attackerTokenUuid) ?? resolveDoc(cfg.attackerActorUuid) ?? resolveDoc(cfg.attackerUuid);
-    const dDoc = resolveDoc(cfg.defenderTokenUuid) ?? resolveDoc(cfg.defenderActorUuid) ?? resolveDoc(cfg.defenderUuid);
-
     const aToken = resolveToken(aDoc);
     const attacker = resolveActor(aDoc);
-    let dToken = resolveToken(dDoc);
-    let defender = resolveActor(dDoc);
     if (!attacker) {
       ui.notifications.warn("Direct spell requires both a caster and a target.");
       return null;
@@ -416,12 +416,18 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
-    if (!defender && String(spell?.system?.engine?.targeting?.mode ?? "").trim().toLowerCase() === "self") {
-      defender = attacker;
-      dToken = aToken;
+    const defenderEntries = _resolveDefenderEntries(cfg, { direct: true });
+    if (!defenderEntries.length && String(spell?.system?.engine?.targeting?.mode ?? "").trim().toLowerCase() === "self") {
+      defenderEntries.push(_buildDefenderEntry(attacker, aToken, { direct: true }));
     }
-    if (!defender) {
+    if (!defenderEntries.length) {
       ui.notifications.warn("Direct spell requires both a caster and a target.");
+      return null;
+    }
+    const primaryDefenderEntry = defenderEntries[0];
+    const defender = resolveActor(primaryDefenderEntry.actorUuid);
+    if (!defender) {
+      ui.notifications.warn("Direct spell target could not be resolved.");
       return null;
     }
 
@@ -454,8 +460,9 @@ export const MagicOpposedWorkflow = {
       return null;
     }
 
+    const attackTraceId = String(cfg?.attackTraceId ?? "").trim() || createAttackTraceId("magic-direct");
     const directTrackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-direct", {
-      attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-direct"),
+      attackTraceId,
       phase: "direct-gate"
     });
     const directInStartedCombat = isActorInStartedCombatEncounter(attacker, {
@@ -572,7 +579,7 @@ export const MagicOpposedWorkflow = {
     if (spellClassification.isAttack) {
       try {
         const trackerContext = _buildMagicAttackTrackerContext(attacker, cfg.attackerTokenUuid, "magic-opposed-direct", {
-          attackTraceId: cfg?.attackTraceId ?? createAttackTraceId("magic-direct"),
+          attackTraceId,
           phase: "direct-increment"
         });
         await AttackTracker.incrementAttacks(attacker, trackerContext);
@@ -629,7 +636,7 @@ export const MagicOpposedWorkflow = {
           scalingChoices: spellOptions?.castLevel ? { level: spellOptions.castLevel } : null,
           spellOptions,
           castContext,
-          targetUuids: defender ? [defender.uuid] : [],
+          targetUuids: defenderEntries.map((entry) => entry.actorUuid).filter(Boolean),
           castWorldTime: Number(game.time?.worldTime ?? 0) || 0,
           castSource: castSource ?? null,
           itemCastContext: itemCastContext ?? null,
@@ -654,6 +661,7 @@ export const MagicOpposedWorkflow = {
 
     const data = {
       context: {
+        attackTraceId,
         schemaVersion: _CARD_VERSION,
         createdAt: Date.now(),
         createdBy: game.user.id,
@@ -665,6 +673,8 @@ export const MagicOpposedWorkflow = {
         rollOptions: Array.isArray(directRollContext?.rollOptions) ? directRollContext.rollOptions.slice() : [],
         itemCastContext: itemCastContext ?? null
       },
+      status: "resolved",
+      mode: "magic",
       attacker: {
         actorUuid: attacker.uuid,
         name: attacker.name,
@@ -687,17 +697,8 @@ export const MagicOpposedWorkflow = {
         ignoreActionPoints: ignoreAP,
         castSource: castSource ?? null
       },
-      defender: {
-        actorUuid: defender.uuid,
-        name: defender.name,
-        tokenUuid: dToken?.document?.uuid ?? dToken?.uuid ?? cfg.defenderTokenUuid ?? null,
-        tokenName: dToken?.name ?? dToken?.document?.name ?? defender.name,
-        defenseType: isCharacteristicDefense(spell) ? "characteristic-save" : "Cannot Defend",
-        tn: null,
-        result: null,
-        noDefense: true,
-        spellOptions: {}
-      },
+      defenders: defenderEntries,
+      defender: defenderEntries[0],
       outcome: null
     };
 
@@ -714,19 +715,27 @@ export const MagicOpposedWorkflow = {
     if (result.isSuccess) {
       const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
       const forcedHitLocation = String(data?.context?.forcedHitLocation ?? "").trim();
-      const defenderEntry = selectDefenderEntry(data, {}).defender;
-      
-      await resolveOutcome({
-        message,
-        data,
-        attacker,
-        defender,
-        defenderEntry,
-        spell,
-        isAoE,
-        forcedHitLocation,
-        _updateCard: (msg, d) => magicUpdateCard(msg, d, renderCard)
-      });
+      for (let index = 0; index < defenderEntries.length; index++) {
+        const defenderEntry = defenderEntries[index];
+        const targetActor = resolveActor(defenderEntry.actorUuid);
+        if (!targetActor) continue;
+        data.defender = defenderEntry;
+
+        await resolveOutcome({
+          message,
+          data,
+          attacker,
+          defender: targetActor,
+          defenderEntry,
+          spell,
+          isAoE,
+          forcedHitLocation,
+          skipAttackerSideEffects: index > 0,
+          _updateCard: (msg, d) => magicUpdateCard(msg, d, renderCard)
+        });
+      }
+      data.defender = defenderEntries[0];
+      await magicUpdateCard(message, data, renderCard);
     }
     
     return message;

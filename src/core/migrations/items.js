@@ -21,6 +21,14 @@ import {
   setMigrationState
 } from "./state.js";
 import { cleanSystemDataWithModel, isTypeDataModelsEnabled } from "../data-models/registry.js";
+import { MIGRATION_REVISIONS } from "./revisions.js";
+import { isActiveGMUser } from "../../utils/users.js";
+import {
+  ARMOR_HIT_LOCATION_KEYS,
+  getArmorCategoryCoverage,
+  hasAllArmorCoverage,
+  normalizeArmorHitLocations,
+} from "../items/armor-coverage.js";
 
 const MODULE_ID = SYSTEM_ID;
 const _SOCIAL_ITEM_RETIREMENT_CLEANUP_REVISION = 1;
@@ -30,6 +38,7 @@ const _ITEMS_MIGRATION_REVISION = 1;
 const _SCROLL_CASTING_CONTROLS_REVISION = 1;
 const _SCROLL_CONSUME_ON_CAST_REVISION = 1;
 const _SPELL_DAMAGE_TYPE_NORMALIZATION_REVISION = 1;
+const _NPC_ARMOR_COVERAGE_DEFAULTS_REVISION = MIGRATION_REVISIONS.npcArmorCoverageDefaultsV1;
 const _RETIRED_SOCIAL_ITEM_TYPES = new Set(["language", "faction"]);
 const _RETIRED_RULE_ELEMENT_ITEM_TYPES = new Set(["trait", "talent", "power"]);
 const _SPELL_DAMAGE_TYPES = new Set(["none", "physical", "fire", "frost", "shock", "poison", "disease", "magic", "silver", "sunlight", "healing", "temporaryhealing", "temporary healing"]);
@@ -616,44 +625,17 @@ function _normalizeArmorSystem(item, sys = {}) {
   // Backfill armorValues lanes from legacy root fields.
   _backfillArmorValues(sys, update);
 
-  const locationKeys = ["Head", "Body", "RightArm", "LeftArm", "RightLeg", "LeftLeg"];
-  const categoryToCoverage = {
-    head: { Head: true },
-    body: { Body: true },
-    l_arm: { LeftArm: true },
-    r_arm: { RightArm: true },
-    l_leg: { LeftLeg: true },
-    r_leg: { RightLeg: true },
-    shield: { LeftArm: true, RightArm: true },
-  };
-  const normalizeHitLocations = (raw) => {
-    const out = Object.fromEntries(locationKeys.map((k) => [k, false]));
-    const source = (raw && typeof raw === "object") ? raw : {};
-    let hasAnyBoolean = false;
-
-    for (const key of locationKeys) {
-      if (typeof source[key] === "boolean") {
-        out[key] = source[key] === true;
-        hasAnyBoolean = true;
-      }
-    }
-    return { out, hasAnyBoolean };
-  };
-
-  const current = normalizeHitLocations(sys?.hitLocations);
-  const isLegacyAllTrue = locationKeys.every((k) => current.out[k] === true);
-  if (!current.hasAnyBoolean || isLegacyAllTrue) {
-    const category = String(sys?.category ?? "").trim().toLowerCase();
-    const seeded = categoryToCoverage[category];
-    if (seeded) {
-      current.out = Object.fromEntries(locationKeys.map((k) => [k, seeded[k] === true]));
-    }
+  const sourceLocations = sys?.hitLocations ?? {};
+  const hasAnyBoolean = ARMOR_HIT_LOCATION_KEYS.some((key) => typeof sourceLocations?.[key] === "boolean");
+  let current = normalizeArmorHitLocations(sourceLocations);
+  if (!hasAnyBoolean || hasAllArmorCoverage(current)) {
+    current = getArmorCategoryCoverage(sys) ?? current;
   }
 
   const existing = sys?.hitLocations ?? {};
-  const needsHitLocationUpdate = locationKeys.some((k) => existing[k] !== current.out[k]);
+  const needsHitLocationUpdate = ARMOR_HIT_LOCATION_KEYS.some((key) => existing[key] !== current[key]);
   if (needsHitLocationUpdate) {
-    update["system.hitLocations"] = current.out;
+    update["system.hitLocations"] = current;
   }
 
   if (Object.prototype.hasOwnProperty.call(sys, "hitLocationStates")) {
@@ -1050,6 +1032,54 @@ async function _runScrollCastingBackfillPass({
   if (needsScrollConsumeOnCastBackfill) {
     markMigrationRevisionApplied(state, "scrollConsumeOnCast", _SCROLL_CONSUME_ON_CAST_REVISION);
   }
+}
+
+export async function migrateNpcArmorCoverageDefaultsIfNeeded() {
+  if (!isActiveGMUser(game.user)) return { applied: false, reason: "not-active-gm" };
+
+  const state = getMigrationState();
+  if (isMigrationRevisionApplied("npcArmorCoverageDefaultsV1", _NPC_ARMOR_COVERAGE_DEFAULTS_REVISION, state)) {
+    return { applied: false, reason: "already-applied" };
+  }
+
+  const changedItemUuids = [];
+  for (const actor of (game.actors?.contents ?? [])) {
+    if (actor?.type !== "NPC") continue;
+
+    const updates = [];
+    for (const item of (actor.items?.contents ?? [])) {
+      if (item?.type !== "armor") continue;
+      const coverageMode = String(item.getFlag?.(SYSTEM_ID, "coverageMode") ?? "").trim().toLowerCase();
+      if (coverageMode === "manual") continue;
+
+      const coverage = getArmorCategoryCoverage(item.system);
+      if (!coverage) continue;
+      const current = normalizeArmorHitLocations(item.system?.hitLocations);
+      if (ARMOR_HIT_LOCATION_KEYS.some((key) => current[key] === true)) continue;
+
+      updates.push({
+        _id: item.id,
+        "system.hitLocations": coverage,
+        [`flags.${SYSTEM_ID}.coverageMode`]: "category",
+      });
+      changedItemUuids.push(item.uuid);
+    }
+
+    if (updates.length) await actor.updateEmbeddedDocuments("Item", updates, { diff: false });
+  }
+
+  const telemetry = {
+    changedCount: changedItemUuids.length,
+    changedItemUuids,
+  };
+  markMigrationRevisionApplied(
+    state,
+    "npcArmorCoverageDefaultsV1",
+    _NPC_ARMOR_COVERAGE_DEFAULTS_REVISION,
+    telemetry
+  );
+  await setMigrationState(state);
+  return { applied: true, ...telemetry };
 }
 
 export async function migrateItemsIfNeeded() {

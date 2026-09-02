@@ -1,15 +1,17 @@
 import { SYSTEM_ID } from "../constants.js";
 import { migrateActiveEffectsIfNeeded } from "./active-effects.js";
 import { migrateActorsIfNeeded, migrateNpcThreatTemplateKeysIfNeeded, migrateNpcThreatTemplateOptionsIfNeeded, migrateWarfareUnitNeutralLanesIfNeeded } from "./actors.js";
-import { migrateItemsIfNeeded } from "./items.js";
+import { migrateItemsIfNeeded, migrateNpcArmorCoverageDefaultsIfNeeded } from "./items.js";
 import { migrateCombatLegacyIfNeeded } from "./combat-legacy.js";
 import { migrateWarfareFlagDocumentsIfNeeded } from "./warfare-flags.js";
 import { migrateAoeRegionLinksIfNeeded } from "./aoe-region-links.js";
+import { migrateWorldSettingsIfNeeded } from "./settings.js";
+import { isActiveGMUser } from "../../utils/users.js";
 
 let _inFlight = null;
 
 function _isGM() {
-  return Boolean(game.user?.isGM);
+  return isActiveGMUser(game.user);
 }
 
 /**
@@ -27,7 +29,7 @@ export async function runSystemMigrations({
   notifySuccess = false,
   notifyFailure = true,
 } = {}) {
-  if (!_isGM()) return { ok: false, reason: "not-gm" };
+  if (!_isGM()) return { ok: false, reason: "not-active-gm" };
   if (_inFlight) return _inFlight;
 
   const promise = (async () => {
@@ -37,9 +39,11 @@ export async function runSystemMigrations({
         ui.notifications?.info?.("UESRPG migration pass started.");
       }
 
+      await migrateWorldSettingsIfNeeded();
       await migrateActiveEffectsIfNeeded();
       await migrateActorsIfNeeded();
       await migrateItemsIfNeeded();
+      await migrateNpcArmorCoverageDefaultsIfNeeded();
       await migrateCombatLegacyIfNeeded();
       await migrateAoeRegionLinksIfNeeded();
       await migrateNpcThreatTemplateKeysIfNeeded();

@@ -296,6 +296,7 @@ export async function showSummonActorPicker(opts = {}) {
     </div>`;
 
   return customDialog({
+    layout: "workflow",
     title,
     content,
     buttons: {

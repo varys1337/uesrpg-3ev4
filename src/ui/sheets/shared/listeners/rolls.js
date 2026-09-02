@@ -223,6 +223,7 @@ export const onSkillRoll = asyncGuardSheet(async function onSkillRoll(event, tar
 
     try {
       decl = await customDialog({
+        layout: "workflow",
         title: `${skillItem.name} - Roll Options`,
         content,
         buttons: {
@@ -573,6 +574,7 @@ export const onCombatRoll = asyncGuardSheet(async function onCombatRoll(event, t
 
   // No target -> manual roll dialog
   await customDialog({
+    layout: "workflow",
     title: `${item.name} - Roll Options`,
     content: `<div>
                 <div class="form-group" style="margin-bottom:8px;">
@@ -722,6 +724,7 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
   const element = target ?? event.currentTarget;
   let tags = [];
   await customDialog({
+    layout: "workflow",
     title: "Apply Roll Modifier",
     content: `<div>
                 <div class="dialogForm">
@@ -774,4 +777,3 @@ export const onResistanceRoll = asyncGuardSheet(async function onResistanceRoll(
     defaultButton: "yes",
   });
 });
-

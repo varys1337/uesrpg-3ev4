@@ -34,7 +34,9 @@ export function tf(key, data = {}, fallback = null) {
     if (typeof game.i18n.has === "function" && !game.i18n.has(safeKey)) {
       return String(fallback ?? safeKey);
     }
-    const localized = game.i18n.localize(safeKey, data ?? {});
+    const localized = (typeof game.i18n.format === "function")
+      ? game.i18n.format(safeKey, data ?? {})
+      : game.i18n.localize(safeKey);
     if (localized !== safeKey) return localized;
   } catch (_err) {
     // Ignore and use fallback below.

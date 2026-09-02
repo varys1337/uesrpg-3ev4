@@ -319,6 +319,7 @@ async function _promptCastMagicSource({ castActionType, sources }) {
   const content = _buildCastMagicSourcePickerContent(groups);
 
   return await customDialog({
+    layout: "workflow",
     title: castActionType === "secondary" ? t("UESRPG.Dialogs.CastMagic.TitleInstant") : t("UESRPG.Dialogs.CastMagic.Title"),
     content,
     buttons: {

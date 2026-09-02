@@ -2,95 +2,12 @@ import { initSettingsCache } from "../../core/config/settings-cache.js";
 import { AUTOMATION_DEFAULTS } from "../../core/config/automation-policy.js";
 import { STARTUP_PENDING_MIGRATION_KEYS } from "../../core/migrations/revisions.js";
 import { getMigrationState, getPendingMigrationKeys } from "../../core/migrations/state.js";
+import { migrateWorldSettingsIfNeeded } from "../../core/migrations/settings.js";
 import { SYSTEM_ID } from "../../core/system/namespace.js";
+import { isActiveGMUser } from "../../utils/users.js";
+import { migrateNpcArmorCoverageDefaultsIfNeeded } from "../../core/migrations/items.js";
 
-const TIME_SETTINGS_MIGRATION_KEY = "timeDefaultsCompositeOrchestratorV1";
-const AUTOMATION_PROFILE_REMOVAL_MIGRATION_KEY = "automationProfileRemovalDefaultsV1";
 let _startupAttackTrackerPolicyLogged = false;
-
-function hasStoredWorldSetting(key) {
-  try {
-    const storage = game?.settings?.storage?.get?.("world");
-    if (!storage || typeof storage.has !== "function") return false;
-    return storage.has(`${SYSTEM_ID}.${String(key ?? "").trim()}`);
-  } catch (_e) {
-    return false;
-  }
-}
-
-async function migrateTimeDefaultsSafely() {
-  if (!game.user?.isGM) return;
-
-  let state = {};
-  try {
-    const raw = String(game.settings.get(SYSTEM_ID, "migrationState") ?? "{}");
-    const parsed = JSON.parse(raw);
-    state = (parsed && typeof parsed === "object") ? parsed : {};
-  } catch (_e) {
-    state = {};
-  }
-
-  if (state?.[TIME_SETTINGS_MIGRATION_KEY]) return;
-
-  const changed = [];
-  const targets = ["compositeBoundaryTickEnabled", "useCombatBoundaryOrchestrator"];
-  for (const key of targets) {
-    if (hasStoredWorldSetting(key)) continue;
-    try {
-      await game.settings.set(SYSTEM_ID, key, true);
-      changed.push(key);
-    } catch (err) {
-      console.warn(`UESRPG | Failed setting migration for "${key}"`, err);
-    }
-  }
-
-  state[TIME_SETTINGS_MIGRATION_KEY] = {
-    appliedAt: Date.now(),
-    changedKeys: changed
-  };
-
-  try {
-    await game.settings.set(SYSTEM_ID, "migrationState", JSON.stringify(state));
-  } catch (err) {
-    console.warn("UESRPG | Failed to persist time settings migration state", err);
-  }
-}
-
-async function migrateAutomationDefaultsAfterProfileRemoval() {
-  if (!game.user?.isGM) return;
-
-  let state = {};
-  try {
-    const raw = String(game.settings.get(SYSTEM_ID, "migrationState") ?? "{}");
-    const parsed = JSON.parse(raw);
-    state = (parsed && typeof parsed === "object") ? parsed : {};
-  } catch (_e) {
-    state = {};
-  }
-
-  if (state?.[AUTOMATION_PROFILE_REMOVAL_MIGRATION_KEY]) return;
-
-  const changed = [];
-  for (const [key, value] of Object.entries(AUTOMATION_DEFAULTS)) {
-    try {
-      await game.settings.set(SYSTEM_ID, key, value);
-      changed.push(key);
-    } catch (err) {
-      console.warn(`UESRPG | Failed automation default reset for "${key}"`, err);
-    }
-  }
-
-  state[AUTOMATION_PROFILE_REMOVAL_MIGRATION_KEY] = {
-    appliedAt: Date.now(),
-    changedKeys: changed
-  };
-
-  try {
-    await game.settings.set(SYSTEM_ID, "migrationState", JSON.stringify(state));
-  } catch (err) {
-    console.warn("UESRPG | Failed to persist automation profile removal migration state", err);
-  }
-}
 
 function readSettingIfRegistered(key, fallback = null) {
   try {
@@ -160,13 +77,15 @@ function logAttackTrackerPolicyDiagnosticsOnce() {
 }
 
 async function ensureWorldVersionStamp() {
+  if (!isActiveGMUser(game.user)) return;
   const currentVersion = game.system?.version ?? "";
   const stampedVersion = game.settings.get(SYSTEM_ID, "worldDataVersion");
+  const debugEnabled = Boolean(readSettingIfRegistered("migrationDebug", false));
 
   if (!stampedVersion) {
     try {
       await game.settings.set(SYSTEM_ID, "worldDataVersion", currentVersion);
-      console.log(`UESRPG | World data version stamped: ${currentVersion}`);
+      if (debugEnabled) console.debug(`UESRPG | World data version stamped: ${currentVersion}`);
     } catch (err) {
       console.warn("UESRPG | Failed to stamp world data version", err);
     }
@@ -175,12 +94,9 @@ async function ensureWorldVersionStamp() {
 
   if (stampedVersion === currentVersion) return;
 
-  console.log(`UESRPG | World version stamp update: ${stampedVersion} -> ${currentVersion}`);
-  if (!game.user?.isGM) return;
-
   try {
     await game.settings.set(SYSTEM_ID, "worldDataVersion", currentVersion);
-    console.log(`UESRPG | World data version updated: ${stampedVersion} -> ${currentVersion}`);
+    if (debugEnabled) console.debug(`UESRPG | World data version updated: ${stampedVersion} -> ${currentVersion}`);
   } catch (err) {
     console.warn("UESRPG | Failed to update world data version stamp", err);
   }
@@ -201,8 +117,8 @@ function notifyPendingMigrationsIfNeeded() {
 export async function runWorldReadyMaintenance() {
   // Critical path - must complete before world is usable
   await ensureWorldVersionStamp();
-  await migrateTimeDefaultsSafely();
-  await migrateAutomationDefaultsAfterProfileRemoval();
+  await migrateWorldSettingsIfNeeded();
+  await migrateNpcArmorCoverageDefaultsIfNeeded();
   notifyPendingMigrationsIfNeeded();
   initSettingsCache();
   logAttackTrackerPolicyDiagnosticsOnce();

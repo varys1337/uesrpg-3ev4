@@ -45,6 +45,7 @@ import {
 } from "../../../data/spell-i18n.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t } from "../../../utils/i18n.js";
+import { activateOpenApplication } from "./application-focus.js";
 import {
   buildActorStoredSpellOptions,
   buildStoredSpellSnapshot,
@@ -75,8 +76,8 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       resizable: true,
     },
     position: {
-      width: 600,
-      height: 720,
+      width: 680,
+      height: 640,
     },
     classes: ["uesrpg", "enchanting-workshop"],
   };
@@ -108,9 +109,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       if (existing?.rendered) {
         if (WORKSHOP_MODES.includes(mode)) existing._mode = mode;
         existing._previewResult = null;
-        await existing.render({ parts: ["form"] });
-        existing.bringToTop?.();
-        return existing;
+        return activateOpenApplication(existing, { render: { parts: ["form"] } });
       }
     }
 

@@ -200,6 +200,7 @@ async function _showCommitDialog(unitName, clashFeatures, opponentIsRanged, {
   lockBattlefieldMetadata = false,
 } = {}) {
   return customDialog({
+    layout: "workflow",
     title: `${unitName} — Choose Stance`,
     content: _buildCommitDialogContent(unitName, clashFeatures, opponentIsRanged, {
       forceJoinFray,

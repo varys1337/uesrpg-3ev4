@@ -22,6 +22,7 @@
  */
 
 import { isPerfEnabled, monoMs, perfRecord } from "./perf-tracker.js";
+import { getActiveGMUser } from "./users.js";
 import {
   QUERY_UPDATE_CHAT_MESSAGE_V1,
   QUERY_CREATE_ACTIVE_EFFECT_V1,
@@ -143,15 +144,7 @@ function _isAuthor(message, user) {
 }
 
 function _selectActiveGM() {
-  try {
-    if (game.users?.activeGM) return game.users.activeGM;
-    const activeGMs = (game.users?.contents ?? []).filter(u => u?.active && u.isGM);
-    if (!activeGMs.length) return null;
-    activeGMs.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    return activeGMs[0];
-  } catch (_e) {
-    return null;
-  }
+  return getActiveGMUser();
 }
 
 function _selectActorOwner(actor) {

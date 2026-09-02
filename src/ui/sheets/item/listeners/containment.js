@@ -886,6 +886,7 @@ export async function createContainerListDialog(sheetLike, bagListItems, tooLarg
     </div>`;
 
   await customDialog({
+    layout: "table",
     title: `Add Items to ${ctx.document.name}`,
     content,
     classes: ["uesrpg-container-picker-dialog"],

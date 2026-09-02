@@ -23,6 +23,7 @@ export default async function startupHandler() {
   });
 
   await customDialog({
+    layout: "document",
     title: t("UESRPG.Dialogs.Startup.Title"),
     content: startupDialogHtml,
     classes: ["uesrpg-dialog", "uesrpg-startup-dialog"],

@@ -169,8 +169,10 @@ export class TemplateCache {
     
     try {
       const systemTemplates = [
-        // Critical partials (from register-templates-optimized.js)
+        // Critical sheet partials
         'systems/uesrpg-3ev4/templates/partials/sheets/fixed-header.hbs',
+        'systems/uesrpg-3ev4/templates/partials/sheets/combat-reactions.hbs',
+        'systems/uesrpg-3ev4/templates/partials/sheets/equipment-group-name-header.hbs',
         'systems/uesrpg-3ev4/templates/partials/sheets/feature-inspector.hbs',
         'systems/uesrpg-3ev4/templates/partials/sheets/effects-tab.hbs',
         'systems/uesrpg-3ev4/templates/partials/sheets/item-spellcasting-config.hbs',

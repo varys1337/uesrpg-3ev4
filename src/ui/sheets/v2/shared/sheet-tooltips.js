@@ -21,6 +21,8 @@ const DATA_HELP_TEXT = "data-uesrpg-inline-help-text";
 const DATA_HELP_DIALOG_TEXT = "data-uesrpg-inline-help-dialog-text";
 const DATA_HELP_PREV_TITLE = "data-uesrpg-inline-help-prev-title";
 const DATA_HELP_HAD_TITLE = "data-uesrpg-inline-help-had-title";
+const DATA_HELP_PREV_TOOLTIP_TEXT = "data-uesrpg-inline-help-prev-tooltip-text";
+const DATA_HELP_HAD_TOOLTIP_TEXT = "data-uesrpg-inline-help-had-tooltip-text";
 const EMPTY_HELP_FALLBACK = "Rules reference available in the UESRPG compendium.";
 
 const _tooltipStateBySheet = new WeakMap();
@@ -78,7 +80,19 @@ function _annotateElement(element, { label, text, dialogText }, annotatedElement
       element.setAttribute(DATA_HELP_PREV_TITLE, element.getAttribute("title") ?? "");
     }
   }
-  element.setAttribute("title", text);
+  if (!element.hasAttribute(DATA_HELP_HAD_TOOLTIP_TEXT)) {
+    const hadTooltipText = element.hasAttribute("data-tooltip-text");
+    element.setAttribute(DATA_HELP_HAD_TOOLTIP_TEXT, hadTooltipText ? "1" : "0");
+    if (hadTooltipText) {
+      element.setAttribute(DATA_HELP_PREV_TOOLTIP_TEXT, element.getAttribute("data-tooltip-text") ?? "");
+    }
+  }
+
+  // Foundry's TooltipManager owns both localized data-tooltip content and
+  // generated data-tooltip-text content. Removing the native title avoids a
+  // second browser tooltip while leaving the template fallback intact.
+  element.removeAttribute("title");
+  element.setAttribute("data-tooltip-text", text);
   element.setAttribute(DATA_HELP, "true");
   element.setAttribute(DATA_HELP_LABEL, label);
   element.setAttribute(DATA_HELP_TEXT, text);
@@ -165,6 +179,15 @@ function _bindCombatActionTooltips(rootEl, annotatedElements) {
       continue;
     }
 
+    if (actionId === "grapple") {
+      const def = getSpecialActionById("grapple") ?? SPECIAL_ACTIONS_BY_ID?.grapple ?? null;
+      const actionType = String(button.getAttribute("data-action-type") ?? def?.actionType ?? "reaction").trim();
+      const text = buildSpecialActionTooltipText({ name: label, id: "grapple", actionType });
+      const dialogText = buildSpecialActionHelpText({ name: label, id: "grapple" });
+      _annotateElement(button, { label, text, dialogText }, annotatedElements);
+      continue;
+    }
+
     const text = buildCombatActionTooltipText({ label, actionId });
     const dialogText = buildCombatActionHelpText({ label, actionId });
     _annotateElement(button, { label, text, dialogText }, annotatedElements);
@@ -234,12 +257,22 @@ function _clearBoundRoot(sheetState, rootEl) {
         el.removeAttribute("title");
       }
 
+      const hadTooltipText = el.getAttribute(DATA_HELP_HAD_TOOLTIP_TEXT) === "1";
+      if (hadTooltipText) {
+        const previousTooltipText = el.getAttribute(DATA_HELP_PREV_TOOLTIP_TEXT) ?? "";
+        el.setAttribute("data-tooltip-text", previousTooltipText);
+      } else {
+        el.removeAttribute("data-tooltip-text");
+      }
+
       el.removeAttribute(DATA_HELP);
       el.removeAttribute(DATA_HELP_LABEL);
       el.removeAttribute(DATA_HELP_TEXT);
       el.removeAttribute(DATA_HELP_DIALOG_TEXT);
       el.removeAttribute(DATA_HELP_PREV_TITLE);
       el.removeAttribute(DATA_HELP_HAD_TITLE);
+      el.removeAttribute(DATA_HELP_PREV_TOOLTIP_TEXT);
+      el.removeAttribute(DATA_HELP_HAD_TOOLTIP_TEXT);
     }
   }
 

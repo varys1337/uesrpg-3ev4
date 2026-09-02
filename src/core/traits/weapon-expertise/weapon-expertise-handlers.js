@@ -449,6 +449,7 @@ export async function applyWeaponExpertisePostDamageEffects({
   if (damageContext._whirlingSchoolActive && dmg >= 1) {
     try {
       const wrapTarget = await customDialog({
+        layout: "workflow",
         title: "The Whirling School \u2014 Bola Wrap",
         content:
           `<p>Where does <strong>${attacker.name}</strong> wrap the bola ` +

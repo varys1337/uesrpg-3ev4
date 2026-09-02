@@ -26,6 +26,7 @@ import {
 } from "../../../core/alchemy/workflow.js";
 import { resolveDroppedItem } from "../../../utils/drop-data.js";
 import { t, tf } from "../../../utils/i18n.js";
+import { activateOpenApplication } from "./application-focus.js";
 
 const MAX_SLOTS = 3;
 const TEMPLATE_PATH = templatePath("v2/apps/alchemy-workshop.hbs");
@@ -254,7 +255,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     id: "alchemy-workshop",
     classes: ["uesrpg", "alchemy-workshop"],
     tag: "form",
-    position: { width: 760, height: "auto" },
+    position: { width: 720, height: 640 },
     window: {
       resizable: true,
     },
@@ -269,7 +270,10 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
   };
 
   static PARTS = {
-    workshop: { template: TEMPLATE_PATH },
+    workshop: {
+      template: TEMPLATE_PATH,
+      scrollable: [".alchemy-workshop-wrap"],
+    },
   };
 
   static getOpenInstance(actorUuid = "") {
@@ -290,9 +294,7 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
       const existing = this.getOpenInstance(key);
       if (existing?.rendered) {
         existing._ws = _defaultState(mode);
-        await existing.render(true);
-        existing.bringToTop?.();
-        return existing;
+        return activateOpenApplication(existing, { render: true });
       }
     }
 

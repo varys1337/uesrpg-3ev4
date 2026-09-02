@@ -52,6 +52,56 @@ function _shortenTestLabel(value) {
   return shortened || raw;
 }
 
+function _collectAdvantageMarkers(data) {
+  const source = Array.isArray(data?.context?.advantageMarkers) ? data.context.advantageMarkers : [];
+  const seen = new Set();
+  const markers = [];
+
+  source.forEach((marker, index) => {
+    if (!marker || typeof marker !== "object") return;
+    const explicitKey = String(marker.key ?? "").trim();
+    const fallbackKey = [marker.kind, marker.actorUuid, marker.tokenUuid, marker.label]
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean)
+      .join(":");
+    const renderKey = explicitKey || fallbackKey || `legacy:${index}`;
+    if (seen.has(renderKey)) return;
+    seen.add(renderKey);
+    markers.push({ marker, renderKey });
+  });
+
+  return markers;
+}
+
+function _takeAdvantageMarkers(markers, participant, consumed) {
+  const actorUuid = String(participant?.actorUuid ?? "").trim();
+  const tokenUuid = String(participant?.tokenUuid ?? "").trim();
+  if (!actorUuid && !tokenUuid) return [];
+
+  const matches = [];
+  for (const entry of markers) {
+    if (consumed.has(entry.renderKey)) continue;
+    const markerActorUuid = String(entry.marker?.actorUuid ?? "").trim();
+    const markerTokenUuid = String(entry.marker?.tokenUuid ?? "").trim();
+    const sameToken = markerTokenUuid && tokenUuid && markerTokenUuid === tokenUuid;
+    const sameActor = (!markerTokenUuid || !tokenUuid)
+      && markerActorUuid
+      && actorUuid
+      && markerActorUuid === actorUuid;
+    if (!sameToken && !sameActor) continue;
+    consumed.add(entry.renderKey);
+    matches.push(entry);
+  }
+  return matches;
+}
+
+function _renderAdvantageMarkers(markers) {
+  if (!markers.length) return "";
+  return `<div class="uesrpg-chat-status-row">
+    ${markers.map(({ marker }) => `<span class="uesrpg-chat-status-badge"><i class="fa-solid fa-check" aria-hidden="true"></i><span>${foundry.utils.escapeHTML(String(marker.label ?? t("UESRPG.Chat.Opposed.AdvantageResolved", "Advantage Resolved")))}</span></span>`).join("")}
+  </div>`;
+}
+
 function _getAttackerTrackerContext(data, attacker) {
   const explicitTokenUuid = String(data?.attacker?.tokenUuid ?? attacker?.token?.document?.uuid ?? attacker?.token?.uuid ?? "").trim();
   return {
@@ -116,15 +166,6 @@ function _getDefenderCommitGate(defenderData) {
   return { allowed: true };
 }
 
-function _renderAdvantageMarkers(data) {
-  const markers = Array.isArray(data?.context?.advantageMarkers) ? data.context.advantageMarkers : [];
-  const visible = markers.filter((marker) => marker && typeof marker === "object");
-  if (!visible.length) return "";
-  return `<div style="margin-top:8px; display:flex; gap:14px; flex-wrap:wrap; align-items:center;">
-    ${visible.map((marker) => `<div style="color:#1c8f45; font-size:12px; line-height:1.2;"><b>&#10003;</b> ${foundry.utils.escapeHTML(String(marker.label ?? t("UESRPG.Chat.Opposed.AdvantageResolved", "Advantage Resolved")))}</div>`).join("")}
-  </div>`;
-}
-
 /**
  * Render multi-defender opposed combat card.
  * 
@@ -166,6 +207,9 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
   // Keep banked choices mystified until the roll phase starts (or resolved).
   const revealAttacker = !bankMode || Boolean(a.result) || anyOutcome;
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
+  const markers = _collectAdvantageMarkers(data);
+  const consumedMarkerKeys = new Set();
+  const attackerMarkerHtml = _renderAdvantageMarkers(_takeAdvantageMarkers(markers, a, consumedMarkerKeys));
 
   const baseA = Number(a.baseTarget ?? 0);
   const modA = Number(a.totalMod ?? 0);
@@ -222,6 +266,7 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
       dCommitted,
       noDefense: d.noDefense
     });
+    const defenderMarkerHtml = _renderAdvantageMarkers(_takeAdvantageMarkers(markers, d, consumedMarkerKeys));
 
     const defenderActions = _buildDefenderActions({
       defender: d,
@@ -281,50 +326,52 @@ export function renderMultiDefenderCard(data, messageId, helpers) {
 
     const damagePanel = _buildDamagePanel(damageData);
     return `
-      <div style="padding:6px; border:1px solid rgba(0,0,0,0.12); border-radius:6px; max-width:100%; overflow:hidden; box-sizing:border-box;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
-          <div style="font-size:14px; font-weight:700; flex-shrink:0;">${t("UESRPG.Chat.Opposed.Defender", "Defender")}</div>
-          <div style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${d.tokenName ?? d.name}</b></div>
+      <section class="uesrpg-opposed-defender-card">
+        <div class="uesrpg-opposed-lane-header">
+          <span class="uesrpg-opposed-lane-icon" aria-hidden="true"><i class="fa-solid fa-shield-halved"></i></span>
+          <span class="uesrpg-opposed-lane-name">${d.tokenName ?? d.name}</span>
         </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${dTestLabel}</div>
-          <div><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefenseLabel}</div>
+        <div class="uesrpg-opposed-stats">
+          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${dTestLabel}</div>
+          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefenseLabel}</div>
           ${_renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null })}
           ${dRollLine}
           ${defenderCommitLine}
+          ${defenderMarkerHtml}
         </div>
         ${defenderActions}
         ${outcomeLine}
         ${resolutionDetails}
         ${resolvedActions}
         ${damagePanel}
-      </div>
+      </section>
     `;
   }).join("");
-  const advantageMarkers = _renderAdvantageMarkers(data);
+  const unmatchedMarkerHtml = _renderAdvantageMarkers(markers.filter(({ renderKey }) => !consumedMarkerKeys.has(renderKey)));
 
   return `
-    <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px 0;">
-      <div style="display:grid; grid-template-columns: 1fr; gap:12px; max-width:100%; overflow:hidden;">
-        <div style="padding-bottom:8px; border-bottom:1px solid rgba(0,0,0,0.12); min-width:0; overflow:hidden;">
-          <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
-            <div style="font-size:14px; font-weight:700; flex-shrink:0;">⚔️</div>
-            <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${a.tokenName ?? a.name}</b></div>
+    <div class="ues-opposed-card uesrpg-chat-surface" data-message-id="${messageId}">
+      <div class="uesrpg-opposed-stack">
+        <section class="uesrpg-opposed-lane uesrpg-opposed-lane--attacker">
+          <div class="uesrpg-opposed-lane-header">
+            <span class="uesrpg-opposed-lane-icon" aria-hidden="true"><i class="fa-solid fa-crosshairs"></i></span>
+            <span class="uesrpg-opposed-lane-name">${a.tokenName ?? a.name}</span>
           </div>
-          <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-            <div><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
-            <div><b>${t("UESRPG.Chat.Opposed.Attack", "Attack")}:</b> ${aVariantText}</div>
+          <div class="uesrpg-opposed-stats">
+            <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
+            <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Opposed.Attack", "Attack")}:</b> ${aVariantText}</div>
             ${_renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null })}
             ${aRollLine}
             ${attackerCommitLine}
+            ${attackerMarkerHtml}
           </div>
           ${attackerActions}
-        </div>
-      <div style="display:grid; grid-template-columns: 1fr; gap:10px; max-width:100%; overflow:hidden;">
+        </section>
+        <div class="uesrpg-opposed-defenders">
           ${defenderBlocks}
         </div>
       </div>
-      ${advantageMarkers}
+      ${unmatchedMarkerHtml}
     </div>
   `;
 }
@@ -363,6 +410,10 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
 
   const anyGMOnline = _anyActiveGMOnline();
   const isAoE = Boolean(data?.context?.aoe?.isAoE || data?.context?.isAoE);
+  const markers = _collectAdvantageMarkers(data);
+  const consumedMarkerKeys = new Set();
+  const attackerMarkerHtml = _renderAdvantageMarkers(_takeAdvantageMarkers(markers, a, consumedMarkerKeys));
+  const defenderMarkerHtml = _renderAdvantageMarkers(_takeAdvantageMarkers(markers, d, consumedMarkerKeys));
 
   // Keep banked choices mystified until the roll phase starts (or resolved).
   const anyOutcome = data.status === "resolved" || !!data.outcome;
@@ -468,45 +519,47 @@ export function renderSingleDefenderCard(data, messageId, helpers) {
     allowDefenderAdvantage: !_isHybridWarfareDefender(data, d)
   });
 
-  const damagePanel = _buildDamagePanel(damageData, {
-    markers: Array.isArray(data?.context?.advantageMarkers) ? data.context.advantageMarkers : []
-  });
+  const damagePanel = _buildDamagePanel(damageData);
+  const unmatchedMarkerHtml = _renderAdvantageMarkers(markers.filter(({ renderKey }) => !consumedMarkerKeys.has(renderKey)));
 
   return `
-  <div class="ues-opposed-card" data-message-id="${messageId}" style="max-width:100%; box-sizing:border-box; padding:6px 6px 0;">
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; max-width:100%; overflow:hidden;">
-      <div style="padding-right:10px; border-right:1px solid rgba(0,0,0,0.12); min-width:0; overflow:hidden;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
-          <div style="font-size:14px; font-weight:700; flex-shrink:0;">⚔️</div>
-          <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${a.tokenName ?? a.name}</b></div>
+  <div class="ues-opposed-card uesrpg-chat-surface" data-message-id="${messageId}">
+    <div class="uesrpg-opposed-duel-grid">
+      <section class="uesrpg-opposed-lane uesrpg-opposed-lane--attacker">
+        <div class="uesrpg-opposed-lane-header">
+          <span class="uesrpg-opposed-lane-icon" aria-hidden="true"><i class="fa-solid fa-crosshairs"></i></span>
+          <span class="uesrpg-opposed-lane-name">${a.tokenName ?? a.name}</span>
         </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
-          <div><b>${t("UESRPG.Chat.Opposed.Attack", "Attack")}:</b> ${aVariantText}</div>
+        <div class="uesrpg-opposed-stats">
+          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${revealAttacker ? _shortenTestLabel(_attackerTestLabel(a.label)) : "??"}</div>
+          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Opposed.Attack", "Attack")}:</b> ${aVariantText}</div>
           ${_renderTNLine({ value: aTargetLabel, tnObj: revealAttacker ? a.tn : null })}
           ${aRollLine}
           ${attackerCommitLine}
+          ${attackerMarkerHtml}
         </div>
         ${attackerActions}
-      </div>
-      <div style="padding-left:2px; min-width:0; overflow:hidden;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; min-width:0;">
-          <div style="font-size:14px; font-weight:700; flex-shrink:0;">🛡️</div>
-          <div style="font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;"><b>${d.tokenName ?? d.name}</b></div>
+      </section>
+      <section class="uesrpg-opposed-lane uesrpg-opposed-lane--defender">
+        <div class="uesrpg-opposed-lane-header">
+          <span class="uesrpg-opposed-lane-icon" aria-hidden="true"><i class="fa-solid fa-shield-halved"></i></span>
+          <span class="uesrpg-opposed-lane-name">${d.tokenName ?? d.name}</span>
         </div>
-        <div style="margin-top:4px; font-size:13px; line-height:1.25;">
-          <div><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${dTestLabel}</div>
-          <div><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefenseLabel}</div>
+        <div class="uesrpg-opposed-stats">
+          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Common.Test", "Test")}:</b> ${dTestLabel}</div>
+          <div class="uesrpg-opposed-stat"><b>${t("UESRPG.Chat.Opposed.Defense", "Defense")}:</b> ${dDefenseLabel}</div>
           ${_renderTNLine({ value: dTargetLabel, tnObj: revealDefender ? d.tn : null })}
           ${dRollLine}
           ${defenderCommitLine}
+          ${defenderMarkerHtml}
         </div>
         ${defenderActions}
-      </div>
+      </section>
     </div>
     ${outcomeLine}
     ${resolutionDetails}
     ${resolvedActions}
     ${damagePanel}
+    ${unmatchedMarkerHtml}
   </div>`;
 }

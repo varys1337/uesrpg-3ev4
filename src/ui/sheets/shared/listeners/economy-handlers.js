@@ -17,6 +17,7 @@ export const onWealthCalc = asyncGuardSheet(async function onWealthCalc(event, t
   event.preventDefault();
 
   await customDialog({
+    layout: "workflow",
     title: "Add/Subtract Wealth",
     content: `<div>
               <div class="dialogForm">

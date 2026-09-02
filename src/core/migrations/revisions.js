@@ -13,7 +13,9 @@ export const MIGRATION_REVISIONS = Object.freeze({
   npcThreatTemplateOptionsV1: 2,
   warfareUnitNeutralLanesV1: 1,
   warfareFlagsV1: 1,
-  timeDefaultsCompositeOrchestratorV1: 1
+  npcArmorCoverageDefaultsV1: 1,
+  timeDefaultsCompositeOrchestratorV1: 1,
+  automationProfileRemovalDefaultsV2: 1
 });
 
 export const STARTUP_PENDING_MIGRATION_KEYS = Object.freeze([
@@ -30,5 +32,6 @@ export const STARTUP_PENDING_MIGRATION_KEYS = Object.freeze([
   "npcThreatTemplateKeysV1",
   "npcThreatTemplateOptionsV1",
   "warfareUnitNeutralLanesV1",
-  "warfareFlagsV1"
+  "warfareFlagsV1",
+  "npcArmorCoverageDefaultsV1"
 ]);

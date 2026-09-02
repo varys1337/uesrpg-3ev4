@@ -70,6 +70,7 @@ export async function activateInClose(tokenPlaceable, tokenDoc, actor) {
         .join("");
       const content = `<p>Select the token to enter In Close with:</p>${rows}`;
       const chosen = await customDialog({
+        layout: "workflow",
         title: "In Close — Select Partner",
         content,
         buttons: [

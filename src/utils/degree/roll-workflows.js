@@ -122,6 +122,7 @@ async function _promptDefenderInterceptChoice(defenderToken, candidates) {
     .join("");
 
   const pickedIdx = await customDialog({
+    layout: "workflow",
     title: "Defender",
     content: `
       <div class="uesrpg">

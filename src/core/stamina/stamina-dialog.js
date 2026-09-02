@@ -72,6 +72,7 @@ export async function openStaminaDialog(actor) {
   });
 
   await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.Stamina.Title"),
     content,
     classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--stamina"],

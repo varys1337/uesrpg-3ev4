@@ -17,7 +17,7 @@ import { registerHomebrewSettings } from "./settings/homebrew.js";
 import { registerDebugSettings } from "./settings/debug.js";
 import { registerInternalSettings } from "./settings/internal.js";
 
-export async function registerSettings() {
+export function registerSettings() {
   registerUiSettings();
   registerCombatSettings();
   registerTalentsSettings();

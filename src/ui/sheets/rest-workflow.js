@@ -152,6 +152,7 @@ async function _promptRitualBlessingChoice(actor, { currentName = "" } = {}) {
     .join("");
 
   return customDialog({
+    layout: "workflow",
     title: "The Ritual",
     content: `
       <div class="uesrpg-ritual-refresh">
@@ -221,6 +222,7 @@ export function buildRestChatContent(title, lines) {
 
 async function _promptMeditationChoice(actor) {
   return await customDialog({
+    layout: "workflow",
     title: "Meditation",
     content: `
       <div class="uesrpg-meditation-short-rest">
@@ -246,6 +248,7 @@ async function _promptLongRestInvocationPreparation(actor) {
   if (!domainEntries.length) return { updatedDomains: [] };
 
   const shouldPrepare = await customDialog({
+    layout: "workflow",
     title: "Invocation Preparation",
     content: `
       <div class="uesrpg-long-rest-invocations">
@@ -287,6 +290,7 @@ async function _promptLongRestInvocationPreparation(actor) {
 
     const prepLimit = getDomainPreparationLimit(actor, domainKey);
     const picked = await customDialog({
+      layout: "workflow",
       title: `Prepare Invocations: ${foundry.utils.escapeHTML(domainEntry.label)}`,
       content: `<div style="display:flex; flex-direction:column; gap:8px;">
         <p style="margin:0;">Preparation limit: <b>${prepLimit}</b></p>

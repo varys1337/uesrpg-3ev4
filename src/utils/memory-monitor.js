@@ -11,7 +11,7 @@
  * Default configuration for memory monitoring.
  */
 const DEFAULT_CONFIG = {
-  enabled: true,
+  enabled: false,
   sampleInterval: 60 * 1000, // 1 minute between samples
   warningThresholds: {
     templateCache: 500,      // Maximum expected template cache entries
@@ -300,6 +300,8 @@ export class MemoryMonitor {
  * Global memory monitor instance.
  */
 let globalMemoryMonitor = null;
+let memoryMonitoringInitialized = false;
+let memoryDebugCommandRegistered = false;
 
 /**
  * Get or create the global memory monitor.
@@ -316,19 +318,16 @@ export function getMemoryMonitor(config = {}) {
  */
 export function initializeMemoryMonitoring(config = {}) {
   const monitor = getMemoryMonitor(config);
-  
-  // Only start automatically if enabled in config
-  if (config.enabled !== false) {
+
+  if (!memoryMonitoringInitialized && monitor.config.enabled === true) {
     // Wait for game to be ready
     Hooks.once('ready', () => {
       // Small delay to let other systems initialize
       setTimeout(() => monitor.start(), 5000);
     });
   }
-  
-  // Register debug command
+  memoryMonitoringInitialized = true;
   registerMemoryDebugCommand();
-  
   return monitor;
 }
 
@@ -336,7 +335,8 @@ export function initializeMemoryMonitoring(config = {}) {
  * Register debug command for memory monitoring.
  */
 function registerMemoryDebugCommand() {
-  if (game.uesrpg) {
+  if (!memoryDebugCommandRegistered && game.uesrpg) {
+    memoryDebugCommandRegistered = true;
     game.uesrpg.debug = game.uesrpg.debug || {};
     game.uesrpg.debug.memory = {
       /**

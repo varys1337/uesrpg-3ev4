@@ -106,6 +106,7 @@ export async function drawWorstOfTwo(table) {
   `;
 
   const picked = await customDialog({
+    layout: "workflow",
     title: "Select Worse Event Result",
     content,
     buttons: {

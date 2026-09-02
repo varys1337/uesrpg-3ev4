@@ -139,6 +139,7 @@ async function _pickSpellSlot(item) {
   }).join("");
 
   const chosen = await customDialog({
+    layout: "workflow",
     title: "Cast Enchantment",
     content: `
       <div class="uesrpg-cast-enchantment-form">

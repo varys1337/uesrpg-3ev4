@@ -39,11 +39,12 @@ export async function onItemCreate(sheet, event, {
   target = null,
 } = {}) {
   event?.preventDefault?.();
+  event?.stopPropagation?.();
 
   if (!sheet?.actor) return;
 
   const element = target ?? event?.currentTarget;
-  const type = String(element?.id ?? "").trim();
+  const type = String(element?.dataset?.itemType ?? element?.id ?? "").trim();
   if (!type) return;
   let createType = type;
 
@@ -54,6 +55,7 @@ export async function onItemCreate(sheet, event, {
   // Special case: createSelect opens a type picker dialog
   if (type === "createSelect") {
     await customDialog({
+      layout: "choices",
       title: t("UESRPG.Dialogs.CharGen.CreateItemTitle"),
       content: `<div style="padding: 10px 0;">
                   <h2>${t("UESRPG.Dialogs.CharGen.SelectItemType")}</h2>
@@ -126,6 +128,7 @@ export async function onItemCreate(sheet, event, {
 
   if (includeMagicSkillSeed && type === "magicSkill" && isReligionWorshipEnabled()) {
     createType = await customDialog({
+      layout: "choices",
       title: t("UESRPG.Dialogs.CharGen.CreateMagicSkillTitle"),
       content: `<div class="uesrpg-cast-magic-form">
         <div class="form-group">
@@ -177,6 +180,7 @@ export async function onItemCreate(sheet, event, {
     ).join("");
 
     const selectedDomainKey = await customDialog({
+      layout: "form",
       title: t("UESRPG.Dialogs.Worship.CreateRitualDomainTitle"),
       content: `<div class="uesrpg-cast-magic-form">
         <div class="form-group">
@@ -255,6 +259,7 @@ export async function onProfessionCreate(sheet, event) {
   let fieldName = null;
   try {
     fieldName = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.CharGen.AddProfessionFieldTitle"),
       content: `<div class="uesrpg-skill-roll">
         <div class="form-group">
@@ -507,6 +512,7 @@ export async function onEquipItems(sheet, event) {
   }
 
   await customDialog({
+    layout: "table",
     title: t("UESRPG.Dialogs.CharGen.ItemListTitle"),
     content: tableHeader,
     yes: {

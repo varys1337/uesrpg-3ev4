@@ -102,16 +102,18 @@ export async function promptDefenderAdvantage({
         </label>
         ${hasExploitTalent ? `
         <div class="uesrpg-adv-section">
-          <p class="hint" style="margin:0;">${exploitEligible ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendEligible", "Exploit Advantage: Overextend is doubled (-20) (isolated duel).") : t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendRequiresDuel", "Exploit Advantage: requires an isolated duel to double Overextend.")}</p>
+          <p class="hint uesrpg-dialog-note">${exploitEligible ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendEligible", "Exploit Advantage: Overextend is doubled (-20) (isolated duel).") : t("UESRPG.Dialogs.Opposed.ExploitAdvantageOverextendRequiresDuel", "Exploit Advantage: requires an isolated duel to double Overextend.")}</p>
         </div>
         ` : ``}
-        ${knownSpecial.length ? `
-          <div class="uesrpg-adv-section">
-            <div class="uesrpg-adv-section__title"><b>${t("UESRPG.Dialogs.Opposed.KnownSpecialActions", "Known Special Actions")}</b></div>
-          </div>
-          ${knownSpecial.map(renderSpecialOpt).join("\n")}
-        ` : ``}
       </div>
+      ${knownSpecial.length ? `
+        <section class="uesrpg-known-specials">
+          <div class="uesrpg-adv-section__title"><b>${t("UESRPG.Dialogs.Opposed.KnownSpecialActions", "Known Special Actions")}</b></div>
+          <div class="uesrpg-known-specials__grid">
+            ${knownSpecial.map(renderSpecialOpt).join("\n")}
+          </div>
+        </section>
+      ` : ``}
       <p class="hint">${tf("UESRPG.Dialogs.Opposed.SelectUpToOptions", { count: max }, `Select up to ${max} option(s).`)}</p>
     </div>
   `;
@@ -119,6 +121,7 @@ export async function promptDefenderAdvantage({
   const tooltipScope = { kind: "adv-dialog", domain: "defender-advantage" };
   try {
     return await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.Opposed.ResolveDefenderAdvantage", "Resolve Defender Advantage"),
       content,
       classes: ["uesrpg-attack-declare"],

@@ -210,6 +210,7 @@ export async function showSpellOptionsDialog(actor, spell, castContext = null) {
   `;
 
   return await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.SpellOptions.Title", "Spell Options"),
     content,
     buttons: {

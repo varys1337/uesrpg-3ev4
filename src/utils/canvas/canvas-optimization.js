@@ -48,6 +48,8 @@ export class CanvasOptimizationSystem {
     // State
     this.initialized = false;
     this.hooksRegistered = false;
+    this._hookIds = [];
+    this._debugCommands = null;
     
     // Performance tracking
     this.stats = {
@@ -67,12 +69,15 @@ export class CanvasOptimizationSystem {
     const startTime = Date.now();
     
     try {
-      console.debug('CanvasOptimizationSystem: Initializing...');
+      if (this.config.debug) {
+        console.debug('CanvasOptimizationSystem: Initializing...');
+      }
       
       // Initialize spatial index
       if (this.config.spatialIndex.enabled) {
         this.spatialIndex = initializeTokenSpatialIndex({
           ...this.config.spatialIndex,
+          manageTokenHooks: !this.config.tokenMonitor.enabled,
           debug: this.config.debug
         });
       }
@@ -99,11 +104,13 @@ export class CanvasOptimizationSystem {
       this.initialized = true;
       this.stats.initializationTime = Date.now() - startTime;
       
-      console.debug(`CanvasOptimizationSystem: Initialized in ${this.stats.initializationTime}ms`);
+      if (this.config.debug) {
+        console.debug(`CanvasOptimizationSystem: Initialized in ${this.stats.initializationTime}ms`);
+      }
       
     } catch (err) {
       console.error('CanvasOptimizationSystem: Failed to initialize', err);
-      this.initialized = false;
+      this.shutdown();
     }
   }
   
@@ -113,24 +120,27 @@ export class CanvasOptimizationSystem {
   registerHooks() {
     if (this.hooksRegistered) return;
     
-    // Canvas lifecycle hooks
-    Hooks.on('canvasReady', () => {
-      this.handleCanvasReady();
-    });
-    
-    Hooks.on('canvasTearDown', () => {
-      this.handleCanvasTearDown();
-    });
-    
     // World lifecycle hooks
-    Hooks.once('worldUnload', () => {
+    this._hookIds.push(['worldUnload', Hooks.once('worldUnload', () => {
       this.shutdown();
-    });
+    })]);
     
     // Register batch update listener for other systems
-    Hooks.on('uesrpg.tokensUpdatedBatch', (updates) => {
+    this._hookIds.push(['uesrpg.tokensUpdatedBatch', Hooks.on('uesrpg.tokensUpdatedBatch', (updates) => {
       this.handleTokensUpdatedBatch(updates);
-    });
+    })]);
+
+    // Query results can become stale when tokens are created, deleted, or
+    // receive an update which is intentionally processed without batching.
+    this._hookIds.push(['createToken', Hooks.on('createToken', () => {
+      this.tokenQuery?.clearCache();
+    })]);
+    this._hookIds.push(['deleteToken', Hooks.on('deleteToken', () => {
+      this.tokenQuery?.clearCache();
+    })]);
+    this._hookIds.push(['uesrpg.tokenUpdatedImmediate', Hooks.on('uesrpg.tokenUpdatedImmediate', () => {
+      this.tokenQuery?.clearCache();
+    })]);
     
     // Register debug commands if debug enabled
     if (this.config.debug) {
@@ -139,33 +149,16 @@ export class CanvasOptimizationSystem {
     
     this.hooksRegistered = true;
   }
-  
+
   /**
-   * Handle canvas ready event
+   * Remove all registered Foundry hooks.
    */
-  handleCanvasReady() {
-    if (!this.initialized || !this.config.enabled) return;
-    
-    console.debug('CanvasOptimizationSystem: Canvas ready, reinitializing spatial index');
-    
-    // Reinitialize spatial index with current canvas tokens
-    if (this.spatialIndex) {
-      this.spatialIndex.initializeFromCanvas();
+  unregisterHooks() {
+    for (const [event, hookId] of this._hookIds) {
+      Hooks.off(event, hookId);
     }
-  }
-  
-  /**
-   * Handle canvas tear down event
-   */
-  handleCanvasTearDown() {
-    if (!this.initialized) return;
-    
-    console.debug('CanvasOptimizationSystem: Canvas tearing down, clearing spatial index');
-    
-    // Clear spatial index but keep system initialized
-    if (this.spatialIndex) {
-      this.spatialIndex.clear();
-    }
+    this._hookIds.length = 0;
+    this.hooksRegistered = false;
   }
   
   /**
@@ -174,6 +167,7 @@ export class CanvasOptimizationSystem {
    */
   handleTokensUpdatedBatch(updates) {
     this.stats.tokenUpdatesProcessed += updates.length;
+    this.tokenQuery?.clearCache();
     
     // Update statistics
     if (this.spatialIndex) {
@@ -211,36 +205,66 @@ export class CanvasOptimizationSystem {
     }
     
     // Utility commands
-    game.uesrpg.debug.getCanvasOptimizationStats = () => this.getStats();
-    game.uesrpg.debug.resetCanvasOptimizationStats = () => this.resetStats();
-    game.uesrpg.debug.enableCanvasOptimization = (enabled) => this.setEnabled(enabled);
+    this._debugCommands = {
+      getStats: () => this.getStats(),
+      resetStats: () => this.resetStats(),
+      setEnabled: (enabled) => this.setEnabled(enabled),
+    };
+    game.uesrpg.debug.getCanvasOptimizationStats = this._debugCommands.getStats;
+    game.uesrpg.debug.resetCanvasOptimizationStats = this._debugCommands.resetStats;
+    game.uesrpg.debug.enableCanvasOptimization = this._debugCommands.setEnabled;
     
     console.debug('CanvasOptimizationSystem: Debug commands registered');
+  }
+
+  /**
+   * Remove debug commands owned by this instance without disturbing other tools.
+   */
+  unregisterDebugCommands() {
+    const debug = game?.uesrpg?.debug;
+    if (!debug) return;
+
+    if (debug.canvasOptimization === this) delete debug.canvasOptimization;
+    if (debug.tokenSpatialIndex === this.spatialIndex) delete debug.tokenSpatialIndex;
+    if (debug.tokenUpdateMonitor === this.tokenMonitor) delete debug.tokenUpdateMonitor;
+    if (debug.tokenQuery === this.tokenQuery) delete debug.tokenQuery;
+    if (debug.getCanvasOptimizationStats === this._debugCommands?.getStats) {
+      delete debug.getCanvasOptimizationStats;
+    }
+    if (debug.resetCanvasOptimizationStats === this._debugCommands?.resetStats) {
+      delete debug.resetCanvasOptimizationStats;
+    }
+    if (debug.enableCanvasOptimization === this._debugCommands?.setEnabled) {
+      delete debug.enableCanvasOptimization;
+    }
+    this._debugCommands = null;
   }
   
   /**
    * Shutdown the system
    */
-  shutdown() {
-    if (!this.initialized) return;
-    
-    console.debug('CanvasOptimizationSystem: Shutting down...');
+  shutdown({ removeDebugCommands = true } = {}) {
+    if (this.config.debug && (this.initialized || this.hooksRegistered)) {
+      console.debug('CanvasOptimizationSystem: Shutting down...');
+    }
     
     // Clear all subsystems
     if (this.spatialIndex) {
-      this.spatialIndex.clear();
+      this.spatialIndex.shutdown();
     }
     
     if (this.tokenMonitor) {
-      this.tokenMonitor.clearPending();
+      this.tokenMonitor.shutdown();
     }
     
     if (this.tokenQuery) {
       this.tokenQuery.clearCache();
     }
+
+    this.unregisterHooks();
+    if (removeDebugCommands) this.unregisterDebugCommands();
     
     this.initialized = false;
-    this.hooksRegistered = false;
   }
   
   /**
@@ -253,7 +277,7 @@ export class CanvasOptimizationSystem {
     if (enabled && !this.initialized) {
       this.initialize();
     } else if (!enabled && this.initialized) {
-      this.shutdown();
+      this.shutdown({ removeDebugCommands: false });
     }
     
     // Propagate to subsystems
@@ -265,7 +289,9 @@ export class CanvasOptimizationSystem {
       this.tokenMonitor.setEnabled(enabled);
     }
     
-    console.debug(`CanvasOptimizationSystem: ${enabled ? 'Enabled' : 'Disabled'}`);
+    if (this.config.debug) {
+      console.debug(`CanvasOptimizationSystem: ${enabled ? 'Enabled' : 'Disabled'}`);
+    }
   }
   
   /**
@@ -320,7 +346,9 @@ export class CanvasOptimizationSystem {
       this.tokenQuery.resetStats();
     }
     
-    console.debug('CanvasOptimizationSystem: Statistics reset');
+    if (this.config.debug) {
+      console.debug('CanvasOptimizationSystem: Statistics reset');
+    }
   }
   
   /**

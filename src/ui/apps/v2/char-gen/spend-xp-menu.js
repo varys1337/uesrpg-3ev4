@@ -36,6 +36,11 @@ import {
   getCoreSkillMetadata,
   getEmbeddedCoreSkillFolderId,
 } from "../../../../core/compendium/core-skills.js";
+import {
+  buildAdministrativeCorrectionAudit,
+  isChargenCompleted,
+  promptAdministrativeCorrectionReason,
+} from "./racial-grants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 const SPEND_XP_MANAGED_FLAG = "chargenSpendXpManaged";
@@ -187,7 +192,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   #onClose = null;
   #dropZonesBound = false;
   #selectedCharacteristic = "str";
-  #rankGateOverride = false;
+  #administrativeCorrectionReason = null;
   #sessionBase = null;
   #draftEntries = [];
   #draftDerived = null;
@@ -201,7 +206,6 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     this.#onClose = typeof options.onClose === "function" ? options.onClose : null;
     const initial = Object.keys(actor?.system?.characteristics ?? {}).find((k) => k !== "lck");
     this.#selectedCharacteristic = String(initial ?? "str");
-    this.#rankGateOverride = Boolean(actor?.getFlag?.("uesrpg-3ev4", "chargen")?.spendXp?.rankGateOverride ?? false);
     this.#captureSessionBase();
     this.#recomputeDraftDerived();
   }
@@ -209,13 +213,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   static DEFAULT_OPTIONS = {
     id: "uesrpg-spend-xp-menu-v2",
     classes: ["worldbuilding", "uesrpg", "uesrpg-spendxp-app"],
-    position: { width: 980, height: 760 },
+    position: { width: 900, height: 680 },
     window: { resizable: true },
     actions: {
       close: SpendXpMenuAppV2.prototype._onCloseClick,
       advanceCharacteristic: SpendXpMenuAppV2.prototype._onAdvanceCharacteristic,
       advanceRank: SpendXpMenuAppV2.prototype._onAdvanceRank,
-      toggleRankGate: SpendXpMenuAppV2.prototype._onToggleRankGate,
+      beginAdministrativeCorrection: SpendXpMenuAppV2.prototype._onBeginAdministrativeCorrection,
       addSpec: SpendXpMenuAppV2.prototype._onAddSpecialization,
       addEquipment: SpendXpMenuAppV2.prototype._onAddEquipment,
       openItem: SpendXpMenuAppV2.prototype._onOpenItem,
@@ -375,7 +379,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     for (const entry of this.#draftEntries) {
       projected.totals.costXp += _asNumber(entry.costXp, 0);
       projected.totals.costWealth += _asNumber(entry.costWealth, 0);
-      projected.xp -= _asNumber(entry.costXp, 0);
+      if (!this.#isAdministrativeCorrection()) projected.xp -= _asNumber(entry.costXp, 0);
       projected.wealth -= _asNumber(entry.costWealth, 0);
 
       switch (entry.kind) {
@@ -485,7 +489,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       type: this.#actor?.type ?? "Player Character",
       system: {
         ...foundry.utils.deepClone(this.#actor?.system ?? {}),
-        xp: derived.xp,
+        xp: this.#isAdministrativeCorrection() ? Number.MAX_SAFE_INTEGER : derived.xp,
         wealth: derived.wealth,
         characteristics: foundry.utils.deepClone(derived.characteristics),
       },
@@ -514,13 +518,18 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
   #planSkillChange(skill, flatData, derived) {
     const actorMock = {
       system: {
-        xp: derived.xp,
+        xp: this.#isAdministrativeCorrection() ? Number.MAX_SAFE_INTEGER : derived.xp,
         xpTotal: derived.xpTotal,
         characteristics: foundry.utils.deepClone(derived.characteristics),
       },
     };
     const itemMock = { type: skill.type, system: _cloneSystem(skill.system) };
-    return buildSkillAdvancementPlan({ actor: actorMock, item: itemMock, flatData });
+    return buildSkillAdvancementPlan({
+      actor: actorMock,
+      item: itemMock,
+      flatData,
+      options: { bypassXpPayment: this.#isAdministrativeCorrection() },
+    });
   }
 
   #nextEntryId() {
@@ -561,6 +570,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     if (!this.#dirty) return true;
     return confirmDialog({
       title: t("UESRPG.Dialogs.SpendXp.DiscardUnconfirmedTitle"),
+      classes: ["uesrpg-chargen-dialog"],
       content: `<p>${t("UESRPG.Dialogs.SpendXp.DiscardUnconfirmedContent")}</p>`,
       yesLabel: t("UESRPG.UI.Discard"),
       noLabel: t("UESRPG.UI.KeepEditing"),
@@ -624,12 +634,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     let projectedWealth = _asNumber(liveActor.system?.wealth, 0);
     const xpTotal = _asNumber(liveActor.system?.xpTotal, _asNumber(this.#sessionBase?.xpTotal, 0));
 
+    const administrativeCorrection = this.#isAdministrativeCorrection();
     const buildActorMock = () => ({
       documentName: "Actor",
       type: liveActor?.type ?? this.#actor?.type ?? "Player Character",
       system: {
         ...foundry.utils.deepClone(liveActor?.system ?? {}),
-        xp: projectedXp,
+        xp: administrativeCorrection ? Number.MAX_SAFE_INTEGER : projectedXp,
         wealth: projectedWealth,
         xpTotal,
         characteristics: foundry.utils.deepClone(projectedCharacteristics),
@@ -641,7 +652,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     const spend = (entry) => {
       const costXp = _asNumber(entry.costXp, 0);
       const costWealth = _asNumber(entry.costWealth, 0);
-      if (costXp > projectedXp) {
+      if (!administrativeCorrection && costXp > projectedXp) {
         return {
           ok: false,
           reason: `Not enough XP for ${entry.label}. Required ${costXp}, available ${projectedXp}.`,
@@ -653,7 +664,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
           reason: `Not enough Drakes for ${entry.label}. Required ${costWealth}, available ${projectedWealth}.`,
         };
       }
-      projectedXp -= costXp;
+      if (!administrativeCorrection) projectedXp -= costXp;
       projectedWealth -= costWealth;
       return { ok: true };
     };
@@ -771,6 +782,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
             system: _cloneSystem(projectedSkill.system),
           },
           flatData,
+          options: { bypassXpPayment: administrativeCorrection },
         });
         if (!plan.ok && !String(plan.reason ?? "").startsWith("Not enough XP.")) {
           return { ok: false, reason: plan.reason ?? `Unable to confirm staged purchase: ${entry.label}.` };
@@ -898,7 +910,6 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       const actorUpdate = {
         "system.xp": Math.max(0, _asNumber(preflight.projectedXp, 0)),
         "system.wealth": Math.max(0, _asNumber(preflight.projectedWealth, 0)),
-        "flags.uesrpg-3ev4.chargen.spendXp.rankGateOverride": Boolean(this.#rankGateOverride),
       };
       for (const key of ["str", "end", "agi", "int", "wp", "prc", "prs", "lck"]) {
         const cha = preflight.projectedCharacteristics?.[key];
@@ -919,13 +930,23 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
           totalWealth,
           remainingXp: Math.max(0, _asNumber(preflight.projectedXp, 0)),
           entries: this.#draftEntries.map((e) => ({ id: e.id, kind: e.kind, label: e.label, costXp: e.costXp, costWealth: e.costWealth })),
+          administrativeCorrection: Boolean(this.#administrativeCorrectionReason),
+          waivedXp: this.#administrativeCorrectionReason ? totalXp : 0,
         },
       });
+      if (this.#administrativeCorrectionReason) {
+        await appendChargenAudit(this.#actor, buildAdministrativeCorrectionAudit(this.#administrativeCorrectionReason, {
+          field: "spendXp",
+          waivedXp: totalXp,
+          entryCount: this.#draftEntries.length,
+        }));
+      }
     } catch (err) {
       return { ok: false, reason: String(err?.message ?? err ?? "Unknown finalize failure.") };
     }
 
     this.#draftEntries = [];
+    this.#administrativeCorrectionReason = null;
     this.#captureSessionBase();
     this.#recomputeDraftDerived();
     return { ok: true, applied: spendRows.length };
@@ -957,7 +978,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
         const nextRankXpCost = nextRank ? discountCostIfFavored(nextRankBase, favored) : 0;
         const maxIdx = getMaxPurchasableRankIndexFromXpTotal(xpTotal);
         const rankAllowedByXp = !nextRank ? false : SKILL_RANK_ORDER.indexOf(nextRank) <= maxIdx;
-        const canAdvance = Boolean(nextRank) && (this.#rankGateOverride || rankAllowedByXp);
+        const canAdvance = Boolean(nextRank) && (this.#isAdministrativeCorrection() || rankAllowedByXp);
         const specCount = parseSpecializations(s.system?.trainedItems ?? "").length;
         const teCount = Array.isArray(s.system?.trainedEquipment)
           ? s.system.trainedEquipment.map((v) => String(v ?? "").trim()).filter(Boolean).length
@@ -999,7 +1020,8 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       campaignRank: campaignRankFromXpTotal(_asNumber(this.#sessionBase?.xpTotal, 0)),
       chaOptions,
       selectedCharacteristic: this.#selectedCharacteristic,
-      rankGateOverride: this.#rankGateOverride,
+      administrativeCorrection: this.#isAdministrativeCorrection(),
+      canAdministrativeCorrect: Boolean(game.user?.isGM && isChargenCompleted(this.#actor)),
       skills,
       talentLearningMode: String(getTalentLearningMode() ?? TALENT_LEARNING_MODE.OFF).toUpperCase(),
       stagedEntries,
@@ -1051,7 +1073,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       if (mode === TALENT_LEARNING_MODE.WARN) notifyTalentLearningResult(validation);
 
       const xpCost = Math.max(0, _asNumber(validation.xpCost, 0));
-      if (xpCost > _asNumber(derived?.xp, 0)) {
+      if (!this.#isAdministrativeCorrection() && xpCost > _asNumber(derived?.xp, 0)) {
         ui.notifications?.warn?.(tf("UESRPG.Notifications.SpendXp.NotEnoughXp", { required: xpCost, available: _asNumber(derived?.xp, 0) }));
         return;
       }
@@ -1083,13 +1105,15 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       }
 
       const answer = await customDialog({
-      title: tf("UESRPG.Dialogs.SpendXp.StageSpellLearnTitle", { name: item.name }),
-      content: `<div style="display:flex; flex-direction:column; gap:8px;"><p style="margin:0;">${tf("UESRPG.Dialogs.SpendXp.StageSpellLearnInfo", { type: spellType, level: costs.level })}</p><p style="margin:0;">${t("UESRPG.Dialogs.SpendXp.ChoosePaymentMode")}</p></div>`,
-      buttons: {
-        ...(xpValidation.ok ? { xp: { label: xpLabel } } : {}),
-        ...(drakesValidation.ok ? { drakes: { label: tf("UESRPG.Dialogs.SpendXp.LearnDrakesLabel", { cost: costs.drakesCost }) } } : {}),
-        cancel: { label: t("UESRPG.UI.Cancel") },
-      },
+        layout: "workflow",
+        title: tf("UESRPG.Dialogs.SpendXp.StageSpellLearnTitle", { name: item.name }),
+        classes: ["uesrpg-chargen-dialog"],
+        content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack uesrpg-cg-summary"><p>${tf("UESRPG.Dialogs.SpendXp.StageSpellLearnInfo", { type: spellType, level: costs.level })}</p><p>${t("UESRPG.Dialogs.SpendXp.ChoosePaymentMode")}</p></div>`,
+        buttons: {
+          ...(xpValidation.ok ? { xp: { label: xpLabel } } : {}),
+          ...(drakesValidation.ok ? { drakes: { label: tf("UESRPG.Dialogs.SpendXp.LearnDrakesLabel", { cost: costs.drakesCost }) } } : {}),
+          cancel: { label: t("UESRPG.UI.Cancel") },
+        },
         default: xpValidation.ok ? "xp" : "drakes",
       });
 
@@ -1207,7 +1231,7 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
       ui.notifications?.warn?.(t("UESRPG.Notifications.SpendXp.RankAtMaximum"));
       return;
     }
-    if (!this.#rankGateOverride) {
+    if (!this.#isAdministrativeCorrection()) {
       const xpTotal = _asNumber(this.#draftDerived?.xpTotal, 0);
       const maxIdx = getMaxPurchasableRankIndexFromXpTotal(xpTotal);
       if (SKILL_RANK_ORDER.indexOf(nextRank) > maxIdx) {
@@ -1232,10 +1256,25 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     });
   }
 
-  async _onToggleRankGate(event, target) {
+  async _onBeginAdministrativeCorrection(event, target) {
     event?.preventDefault?.();
-    this.#rankGateOverride = Boolean(target?.checked);
+    if (!game.user?.isGM || !isChargenCompleted(this.#actor)) {
+      ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+      return;
+    }
+    const reason = await promptAdministrativeCorrectionReason();
+    if (!reason) return;
+    this.#administrativeCorrectionReason = reason;
+    this.#recomputeDraftDerived();
     await this.render();
+  }
+
+  #isAdministrativeCorrection() {
+    return Boolean(
+      game.user?.isGM
+      && isChargenCompleted(this.#actor)
+      && String(this.#administrativeCorrectionReason ?? "").trim().length >= 3
+    );
   }
 
   async _onAddSpecialization(event, target) {
@@ -1326,11 +1365,13 @@ export class SpendXpMenuAppV2 extends HandlebarsApplicationMixin(ApplicationV2) 
     if (!this.#dirty) return;
     const yes = await confirmDialog({
       title: t("UESRPG.Dialogs.SpendXp.DiscardStagedTitle"),
+      classes: ["uesrpg-chargen-dialog"],
       content: `<p>${t("UESRPG.Dialogs.SpendXp.DiscardStagedContent")}</p>`,
       yesLabel: t("UESRPG.UI.Discard"),
       noLabel: t("UESRPG.UI.Cancel"),
     });
     if (!yes) return;
+    this.#administrativeCorrectionReason = null;
     await this.#clearDraft();
   }
 

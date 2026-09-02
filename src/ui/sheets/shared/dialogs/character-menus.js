@@ -93,47 +93,44 @@ export async function onXPMenu(event, target) {
   }
 
   await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.CharGen.ExperienceMenuTitle"),
-    content: `<div>
-                  <div style="display: flex; flex-direction: column;">
-                      <div style="padding: 10px;">
-                          <div style="display: flex; flex-direction: row; justify-content: space-around; background: rgba(180, 180, 180, 0.562); padding: 10px; text-align: center; border: 1px solid;">
-                              <div style="width: 33.33%">
-                                  <div>${t("UESRPG.Dialogs.CharGen.CurrentXp")}</div>
-                                  ${isGM
+    classes: ["uesrpg-chargen-dialog"],
+    content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
+      <div class="uesrpg-cg-stat-grid">
+        <div class="uesrpg-cg-stat">
+          <span class="uesrpg-cg-stat__label">${t("UESRPG.Dialogs.CharGen.CurrentXp")}</span>
+          ${isGM
       ? `<input type="number" id="xp" value="${this.actor.system.xp}">`
-      : `<div style="padding: 6px 0;">${this.actor.system.xp}</div>`}
-                              </div>
-                              <div style="width: 33.33%">
-                                  <div>${t("UESRPG.Dialogs.CharGen.TotalXp")}</div>
-                                  ${isGM
+      : `<span class="uesrpg-cg-stat__value">${this.actor.system.xp}</span>`}
+        </div>
+        <div class="uesrpg-cg-stat">
+          <span class="uesrpg-cg-stat__label">${t("UESRPG.Dialogs.CharGen.TotalXp")}</span>
+          ${isGM
       ? `<input type="number" id="xpTotal" value="${this.actor.system.xpTotal}">`
-      : `<div style="padding: 6px 0;">${this.actor.system.xpTotal}</div>`}
-                              </div>
-                              <div style="width: 33.33%">
-                                  <div>${t("UESRPG.Dialogs.CharGen.CampaignRank")}</div>
-                                  <div style="padding: 5px 0;">${this.actor.system.campaignRank}</div>
-                              </div>
-                          </div>
-                      </div>
-
-                      <div style="display: flex; flex-direction: row; justify-content: space-around; align-items: center;">
-                          <div style="width: 50%">
-                              <p>${t("UESRPG.Dialogs.CharGen.ExperienceMenuBody1")}</p>
-                              <p>${t("UESRPG.Dialogs.CharGen.ExperienceMenuBody2")}</p>
-                          </div>
-                          <div>
-                              <table style="text-align: center;">
-                                  <tr>
-                                      <th>${t("UESRPG.Dialogs.CharGen.SkillRank")}</th>
-                                      <th>${t("UESRPG.Dialogs.CharGen.TotalXp")}</th>
-                                  </tr>
-                                  ${rankRows.join("")}
-                              </table>
-                          </div>
-                      </div>
-                  </div>
-              </div>`,
+      : `<span class="uesrpg-cg-stat__value">${this.actor.system.xpTotal}</span>`}
+        </div>
+        <div class="uesrpg-cg-stat">
+          <span class="uesrpg-cg-stat__label">${t("UESRPG.Dialogs.CharGen.CampaignRank")}</span>
+          <span class="uesrpg-cg-stat__value">${this.actor.system.campaignRank}</span>
+        </div>
+      </div>
+      <div class="uesrpg-cg-info-grid">
+        <div class="uesrpg-cg-rules">
+          <p>${t("UESRPG.Dialogs.CharGen.ExperienceMenuBody1")}</p>
+          <p>${t("UESRPG.Dialogs.CharGen.ExperienceMenuBody2")}</p>
+        </div>
+        <table class="uesrpg-dialog-table uesrpg-cg-rank-table">
+          <thead>
+            <tr>
+              <th>${t("UESRPG.Dialogs.CharGen.SkillRank")}</th>
+              <th>${t("UESRPG.Dialogs.CharGen.TotalXp")}</th>
+            </tr>
+          </thead>
+          <tbody>${rankRows.join("")}</tbody>
+        </table>
+      </div>
+    </div>`,
     yes: {
       label: isGM ? t("UESRPG.UI.Submit") : t("UESRPG.UI.Close"),
       callback: async (html) => {
@@ -171,14 +168,15 @@ async function _showLuckyInfo(actor) {
 
   await alertDialog({
     title: t("UESRPG.Dialogs.CharGen.LuckyNumbersTitle"),
-    content: `<div style="display:flex;flex-direction:column;gap:10px;padding:4px 0;">
-      <div>
+    classes: ["uesrpg-chargen-dialog"],
+    content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack uesrpg-cg-summary">
+      <div class="uesrpg-cg-summary__row">
         <strong>${t("UESRPG.Dialogs.CharGen.LuckyNumbers")}</strong> (${allocLucky} ${t("UESRPG.Dialogs.CharGen.Slots")}): ${luckyStr}
       </div>
-      <div>
+      <div class="uesrpg-cg-summary__row">
         <strong>${t("UESRPG.Dialogs.CharGen.UnluckyNumbers")}</strong> (${allocUnlucky} ${t("UESRPG.Dialogs.CharGen.Slots")}): ${unluckyStr}
       </div>
-      <div style="font-size:0.85em;color:var(--color-text-dark-secondary,#666);border-top:1px solid rgba(0,0,0,0.12);padding-top:6px;">
+      <div class="uesrpg-cg-rule-note">
         ${tf("UESRPG.Dialogs.CharGen.LuckBonusLine", { luck: lck, bonus: bonusLabel })}${thiefNote}
       </div>
     </div>`,
@@ -189,14 +187,15 @@ async function _showRaceInfo(actor) {
   const race = actor.system.race || t("UESRPG.Dialogs.CharGen.NoneSelected");
   const raceData = RACE_DATASETS[race] ?? null;
   const traitRows = Array.isArray(raceData?.traits) && raceData.traits.length
-    ? `<ul style="margin:6px 0 0 18px;">${raceData.traits.map((trait) => `<li>${trait}</li>`).join("")}</ul>`
-    : `<p style="margin:6px 0 0;">${t("UESRPG.UI.NoneSet")}</p>`;
+    ? `<ul class="uesrpg-cg-list">${raceData.traits.map((trait) => `<li>${trait}</li>`).join("")}</ul>`
+    : `<p class="uesrpg-cg-empty">${t("UESRPG.UI.NoneSet")}</p>`;
   await alertDialog({
     title: t("UESRPG.UI.Race"),
-    content: `<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0;">
-      <p style="margin:0;">${tf("UESRPG.Dialogs.CharGen.CurrentRace", { race })}</p>
-      <div>
-        <strong>Features</strong>
+    classes: ["uesrpg-chargen-dialog"],
+    content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
+      <p class="uesrpg-cg-intro">${tf("UESRPG.Dialogs.CharGen.CurrentRace", { race })}</p>
+      <div class="uesrpg-cg-rules">
+        <h3>${t("UESRPG.Dialogs.CharGen.Features")}</h3>
         ${traitRows}
       </div>
     </div>`,
@@ -207,7 +206,8 @@ async function _showSignInfo(actor) {
   const sign = readActorBirthsignLabel(actor) || t("UESRPG.Dialogs.CharGen.NoneSelected");
   await alertDialog({
     title: t("UESRPG.Dialogs.CharGen.StageBirthsign"),
-    content: `<p style="margin:4px 0;">${tf("UESRPG.Dialogs.CharGen.CurrentSign", { sign })}</p>`,
+    classes: ["uesrpg-chargen-dialog"],
+    content: `<p class="uesrpg-cg-intro">${tf("UESRPG.Dialogs.CharGen.CurrentSign", { sign })}</p>`,
   });
 }
 
@@ -219,26 +219,26 @@ async function _showXpDialog(actor) {
   const isGM = Boolean(game.user?.isGM);
 
   const xpTotalField = isGM
-    ? `<input type="number" id="adv-xp-total" value="${xpTotal}" min="0" style="width:90px;text-align:right;">`
-    : `<span id="adv-xp-total" style="text-align:right;padding-right:4px;">${xpTotal}</span>`;
+    ? `<input type="number" id="adv-xp-total" value="${xpTotal}" min="0">`
+    : `<span id="adv-xp-total" class="uesrpg-cg-field-value">${xpTotal}</span>`;
   const xpAvailField = isGM
-    ? `<input type="number" id="adv-xp-avail" value="${xpAvail}" min="0" style="width:90px;text-align:right;">`
-    : `<span id="adv-xp-avail" style="text-align:right;padding-right:4px;">${xpAvail}</span>`;
+    ? `<input type="number" id="adv-xp-avail" value="${xpAvail}" min="0">`
+    : `<span id="adv-xp-avail" class="uesrpg-cg-field-value">${xpAvail}</span>`;
 
   const choice = await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.CharGen.ExperienceAdvancementTitle"),
     width: 380,
-    content: `<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0;">
-      <div style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px;">
+    classes: ["uesrpg-chargen-dialog", "uesrpg-xp-advancement-dialog"],
+    content: `<div class="uesrpg-cg-dialog uesrpg-cg-field-grid">
         <label for="adv-xp-total">${t("UESRPG.Dialogs.CharGen.TotalXpReceived")}</label>
         ${xpTotalField}
         <label>${t("UESRPG.Dialogs.CharGen.XpSpent")}</label>
-        <span id="adv-xp-spent" style="text-align:right;padding-right:4px;">${xpSpent}</span>
+        <span id="adv-xp-spent" class="uesrpg-cg-field-value">${xpSpent}</span>
         <label for="adv-xp-avail">${t("UESRPG.Dialogs.CharGen.XpAvailable")}</label>
         ${xpAvailField}
         <label>${t("UESRPG.Dialogs.CharGen.CampaignRank")}</label>
-        <span id="adv-xp-rank" style="text-align:right;padding-right:4px;">${rank}</span>
-      </div>
+        <span id="adv-xp-rank" class="uesrpg-cg-field-value">${rank}</span>
     </div>`,
     buttons: isGM
       ? {
@@ -312,25 +312,26 @@ export async function onAdvancementMenu(event, _target) {
   let _choice = null;
 
   await customDialog({
+    layout: "choices",
     title: t("UESRPG.Dialogs.CharGen.AdvancementTitle"),
-    width: 320,
-    classes: ["uesrpg-advancement-dialog"],
+    width: 390,
+    classes: ["uesrpg-advancement-dialog", "uesrpg-chargen-dialog"],
     content: `<div class="uesrpg-advancement-menu">
       <button type="button" class="adv-btn" data-choice="lucky">
         <i class="fas fa-dice"></i>
-        <span>${t("UESRPG.Dialogs.CharGen.LuckyNumbersTitle")}</span>
+        <span><strong>${t("UESRPG.Dialogs.CharGen.LuckyNumbersTitle")}</strong></span>
       </button>
       <button type="button" class="adv-btn" data-choice="xp">
         <i class="fas fa-star"></i>
-        <span>${tf("UESRPG.Dialogs.CharGen.ExperienceAvailable", { xp: actor.system.xp })}</span>
+        <span><strong>${t("UESRPG.Dialogs.CharGen.ExperienceAdvancementTitle")}</strong><small>${tf("UESRPG.Dialogs.CharGen.XpAvailableValue", { xp: actor.system.xp }, `${actor.system.xp} XP available`)}</small></span>
       </button>
-      <button type="button" class="adv-btn adv-ref" data-choice="race" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
+      <button type="button" class="adv-btn adv-ref" data-choice="race">
         <i class="fas fa-users" aria-hidden="true"></i>
-        <span><strong>${t("UESRPG.UI.Race")}:</strong> ${actor.system.race || t("UESRPG.UI.None")}</span>
+        <span><strong>${t("UESRPG.UI.Race")}</strong><small>${actor.system.race || t("UESRPG.UI.None")}</small></span>
       </button>
-      <button type="button" class="adv-btn adv-ref" data-choice="sign" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(0,0,0,0.2);border-radius:4px;">
+      <button type="button" class="adv-btn adv-ref" data-choice="sign">
         <i class="fas fa-moon" aria-hidden="true"></i>
-        <span><strong>${t("UESRPG.Dialogs.CharGen.StageBirthsign")}:</strong> ${readActorBirthsignLabel(actor) || t("UESRPG.UI.None")}</span>
+        <span><strong>${t("UESRPG.Dialogs.CharGen.StageBirthsign")}</strong><small>${readActorBirthsignLabel(actor) || t("UESRPG.UI.None")}</small></span>
       </button>
     </div>`,
     no: { label: t("UESRPG.UI.Cancel") },
@@ -364,18 +365,20 @@ export async function onStartingResourcesMenu(event, target) {
   const currentXp = Number(this.actor?.system?.xp ?? currentXpTotal);
 
   await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.CharGen.StartingResourcesTitle"),
-    content: `<div class="uesrpg-cg-dialog" style="display: flex; flex-direction: column; gap: 8px;">
-      <p class="uesrpg-cg-dialog__note" style="margin: 0;">${t("UESRPG.Dialogs.CharGen.StartingResourcesNote")}</p>
-      <label style="display: flex; flex-direction: column; gap: 4px;">
+    classes: ["uesrpg-chargen-dialog"],
+    content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
+      <p class="uesrpg-cg-dialog__note uesrpg-cg-intro">${t("UESRPG.Dialogs.CharGen.StartingResourcesNote")}</p>
+      <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
         <span>${t("UESRPG.Dialogs.CharGen.StartingDrakes")}</span>
         <input type="number" id="startingWealth" value="${currentWealth}" min="0">
       </label>
-      <label style="display: flex; flex-direction: column; gap: 4px;">
+      <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
         <span>${t("UESRPG.Dialogs.CharGen.StartingTotalXp")}</span>
         <input type="number" id="startingXpTotal" value="${currentXpTotal}" min="0">
       </label>
-      <label style="display: flex; flex-direction: column; gap: 4px;">
+      <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
         <span>${t("UESRPG.Dialogs.CharGen.StartingUnspentXp")}</span>
         <input type="number" id="startingXp" value="${currentXp}" min="0">
       </label>

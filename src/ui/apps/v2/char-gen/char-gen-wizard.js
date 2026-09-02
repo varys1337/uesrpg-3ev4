@@ -21,6 +21,15 @@ import {
   extractConfiguredUnluckyNumbers,
 } from "../../../../core/luck/lucky-numbers.js";
 import { t, tf } from "../../../../utils/i18n.js";
+import { activateOpenApplication } from "../application-focus.js";
+import {
+  buildAdministrativeCorrectionAudit,
+  getRacialGrantReview,
+  isChargenCompleted,
+  promptAdministrativeCorrectionReason,
+  promptAndApplyRacialGrant,
+  promptAndApplyAllMissingRacialGrants,
+} from "./racial-grants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -58,6 +67,7 @@ function _defaultWizardState(name = "") {
     },
     newActorName: String(name ?? "").trim(),
     createdByWizard: false,
+    reviewMode: false,
   };
 }
 
@@ -91,6 +101,9 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     if (options.actorUuid) {
       this._ws.actorUuid = String(options.actorUuid);
       this._ws.completion.actor = true;
+      this._resumeCandidate = null;
+      const actor = fromUuidSync(this._ws.actorUuid);
+      if (isChargenCompleted(actor)) this.#enableReviewMode();
     }
   }
 
@@ -98,7 +111,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     id: "uesrpg-char-gen-wizard",
     classes: ["uesrpg", "uesrpg-char-gen", "uesrpg-creation-app"],
     tag: "form",
-    position: { width: 780, height: 680 },
+    position: { width: 720, height: 520 },
     window: {
       resizable: true,
     },
@@ -126,6 +139,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       openSpendXp: CharGenWizardAppV2._onOpenSpendXp,
       openLuckyNumbers: CharGenWizardAppV2._onOpenLuckyNumbers,
       finish: CharGenWizardAppV2._onFinish,
+      reconcileGrant: CharGenWizardAppV2._onReconcileGrant,
     },
   };
 
@@ -152,9 +166,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const key = String(options.actorUuid ?? "global");
     const existing = this.getOpenInstance(key);
     if (existing?.rendered) {
-      if (typeof existing.maximize === "function") await existing.maximize();
-      existing.bringToTop?.();
-      return existing;
+      return activateOpenApplication(existing);
     }
     const app = new CharGenWizardAppV2(options);
     this.#openByKey.set(key, app);
@@ -229,6 +241,13 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const canBack = STAGES.indexOf(stage) > 0;
     const canNext = STAGES.indexOf(stage) < (STAGES.length - 1) && this.#canAdvanceFromStage(stage);
     const resumeActorName = this._resumeCandidate?.actorName ?? t("UESRPG.Dialogs.CharGen.UnknownActor");
+    const completed = isChargenCompleted(actor);
+    const racialGrants = actor
+      ? getRacialGrantReview(actor).map((grant) => ({
+          ...grant,
+          canChange: grant.applied && (!completed || Boolean(game.user?.isGM)),
+        }))
+      : [];
 
     return {
       ...base,
@@ -246,6 +265,10 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       hasSingleControlledToken: (canvas?.tokens?.controlled?.length ?? 0) === 1,
       hasResumeCandidate: Boolean(this._resumeCandidate) && !this._resumePromptClosed,
       resumeActorName,
+      reviewMode: completed || Boolean(this._ws.reviewMode),
+      canEditFoundations: !completed || Boolean(game.user?.isGM),
+      racialGrants,
+      hasRacialGrants: racialGrants.length > 0,
     };
   }
 
@@ -292,6 +315,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
 
     normalized.createdByWizard = Boolean(raw.createdByWizard);
+    normalized.reviewMode = Boolean(raw.reviewMode);
 
     if (!normalized.actorUuid) {
       normalized.completion.actor = false;
@@ -317,6 +341,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         this.#persistState();
         return null;
       }
+      if (isChargenCompleted(actor) && !this._ws.reviewMode) this.#enableReviewMode();
       return actor;
     } catch (_err) {
       this._ws.actorUuid = null;
@@ -368,13 +393,16 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     if (!actor || actor.documentName !== "Actor") return;
     this._ws.actorUuid = actor.uuid;
     this._ws.completion.actor = true;
-    this._ws.tokenActorFreeNavigation = Boolean(tokenActorFreeNavigation);
+    const completed = isChargenCompleted(actor);
+    this._ws.tokenActorFreeNavigation = Boolean(tokenActorFreeNavigation) || completed;
+    if (completed) this.#enableReviewMode();
     if (this._ws.stage === "actor") this._ws.stage = "race";
     this.#persistState();
   }
 
   #isStageUnlocked(stage) {
     if (!STAGES.includes(stage)) return false;
+    if (this._ws.reviewMode) return true;
     if (stage === this._ws.stage) return true;
     if (Boolean(this._ws.completion[stage])) return true;
     if (!this._ws.tokenActorFreeNavigation) return false;
@@ -383,7 +411,15 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
   #canAdvanceFromStage(stage) {
     if (stage === "finish") return false;
+    if (this._ws.reviewMode) return true;
     return Boolean(this._ws.completion[stage]);
+  }
+
+  #enableReviewMode() {
+    this._ws.reviewMode = true;
+    this._ws.tokenActorFreeNavigation = true;
+    for (const stage of STAGES) this._ws.completion[stage] = true;
+    if (this._ws.stage === "actor" || this._ws.stage === "finish") this._ws.stage = "race";
   }
 
   #advance() {
@@ -452,6 +488,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     event?.preventDefault?.();
     const confirmed = await confirmDialog({
       title: t("UESRPG.Dialogs.CharGen.RestartTitle"),
+      classes: ["uesrpg-chargen-dialog"],
       content: `<p>${t("UESRPG.Dialogs.CharGen.RestartContent")}</p>`,
       yesLabel: t("UESRPG.Apps.CharGen.Restart"),
       noLabel: t("UESRPG.UI.Cancel"),
@@ -507,6 +544,12 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             completed: false,
           },
         },
+        [SYSTEM_ID]: {
+          chargen: {
+            inProgress: true,
+            completed: false,
+          },
+        },
       },
     });
 
@@ -528,7 +571,17 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
-    const result = await RaceMenuAppV2.prompt(actor);
+    let administrativeReason = null;
+    if (isChargenCompleted(actor)) {
+      if (!game.user?.isGM) {
+        ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+        return;
+      }
+      administrativeReason = await promptAdministrativeCorrectionReason();
+      if (!administrativeReason) return;
+    }
+
+    const result = await RaceMenuAppV2.prompt(actor, { administrativeReason });
     if (!result) return;
     this._ws.completion.race = true;
     await appendChargenAudit(actor, {
@@ -540,6 +593,37 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     await this.render();
   }
 
+  static async _onReconcileGrant(event, target) {
+    event?.preventDefault?.();
+    const actor = await this.#resolveActor();
+    if (!actor) return;
+    const grantId = String(target?.dataset?.grantId ?? "").trim();
+    if (!grantId) return;
+    const applied = getRacialGrantReview(actor).find((grant) => grant.id === grantId)?.applied === true;
+    let administrativeReason = null;
+    if (applied && isChargenCompleted(actor)) {
+      if (!game.user?.isGM) {
+        ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+        return;
+      }
+      administrativeReason = await promptAdministrativeCorrectionReason();
+      if (!administrativeReason) return;
+    }
+    const result = await promptAndApplyRacialGrant(actor, grantId, { administrativeReason });
+    if (!result?.ok && !result?.cancelled) ui.notifications?.warn?.(result?.error ?? t("UESRPG.DefectUpdate.GrantApplyFailed", "Unable to apply racial grant."));
+    if (result?.ok && result?.changed) {
+      if (administrativeReason) {
+        await appendChargenAudit(actor, buildAdministrativeCorrectionAudit(administrativeReason, {
+          field: "racialGrant",
+          grantId,
+          optionId: result.record?.optionId ?? null,
+        }));
+      }
+      ui.notifications?.info?.(t("UESRPG.DefectUpdate.GrantApplied", "Racial grant applied."));
+    }
+    await this.render();
+  }
+
   static async _onOpenStats(event, target) {
     event?.preventDefault?.();
     const actor = await this.#resolveActor();
@@ -548,6 +632,15 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
+    let administrativeReason = null;
+    if (isChargenCompleted(actor)) {
+      if (!game.user?.isGM) {
+        ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+        return;
+      }
+      administrativeReason = await promptAdministrativeCorrectionReason();
+      if (!administrativeReason) return;
+    }
     await onSetBaseCharacteristics.call({ actor }, _eventStub(), target);
     this._ws.completion.stats = true;
     await appendChargenAudit(actor, {
@@ -559,6 +652,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           .map(([key]) => key),
       },
     });
+    if (administrativeReason) await appendChargenAudit(actor, buildAdministrativeCorrectionAudit(administrativeReason, { field: "characteristics" }));
     this.#persistState();
     await this.render();
   }
@@ -571,11 +665,23 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
+    let administrativeReason = null;
+    if (isChargenCompleted(actor)) {
+      if (!game.user?.isGM) {
+        ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+        return;
+      }
+      administrativeReason = await promptAdministrativeCorrectionReason();
+      if (!administrativeReason) return;
+    }
+
     const choice = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.CharGen.BirthsignRawTitle"),
-      content: `<div style="display:flex; flex-direction:column; gap:8px;">
-        <p style="margin:0;">${t("UESRPG.Dialogs.CharGen.BirthsignRawContent")}</p>
-        <label style="display:flex; flex-direction:column; gap:4px;">
+      classes: ["uesrpg-chargen-dialog"],
+      content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
+        <p class="uesrpg-cg-intro">${t("UESRPG.Dialogs.CharGen.BirthsignRawContent")}</p>
+        <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
           <span>${t("UESRPG.Dialogs.CharGen.Charge")}</span>
           <select id="uesrpgBirthsignCharge">
             <option value="warrior">${t("UESRPG.Dialogs.CharGen.ChargeWarrior")}</option>
@@ -583,7 +689,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
             <option value="thief">${t("UESRPG.Dialogs.CharGen.ChargeThief")}</option>
           </select>
         </label>
-        <label style="display:flex; align-items:center; gap:6px;">
+        <label class="uesrpg-cg-check">
           <input type="checkbox" id="uesrpgLuckCostToggle">
           <span>${t("UESRPG.Dialogs.CharGen.OptionalLuckRule")}</span>
         </label>
@@ -622,13 +728,14 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       if (choice.luckCostToggle) {
         const spendLuck = await confirmDialog({
           title: t("UESRPG.Dialogs.CharGen.OptionalRuleTitle"),
+          classes: ["uesrpg-chargen-dialog"],
           content: `<p>${t("UESRPG.Dialogs.CharGen.OptionalRuleContent")}</p>`,
           yesLabel: t("UESRPG.Dialogs.CharGen.Spend5Luck"),
           noLabel: t("UESRPG.Dialogs.CharGen.NoLuckCost"),
         });
         if (spendLuck) pendingLuckCost = 5;
       }
-      ok = await BirthSignMenuAppV2.prompt(actor);
+      ok = await BirthSignMenuAppV2.prompt(actor, { administrativeReason });
       if (ok && pendingLuckCost > 0) {
         await requestUpdateDocument(actor, {
           "system.characteristics.lck.base": Math.max(0, Number(actor.system?.characteristics?.lck?.base ?? 0) - pendingLuckCost),
@@ -643,11 +750,13 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const rollResult = rollBirthsignSelection(choice.charge);
       if (!rollResult?.signKey) return;
       const review = await customDialog({
+        layout: "workflow",
         title: t("UESRPG.Dialogs.CharGen.BirthsignRollResultTitle"),
-        content: `<div style="display:flex; flex-direction:column; gap:8px;">
-          <p style="margin:0;">${tf("UESRPG.Dialogs.CharGen.RollResultCharge", { charge: rollResult.charge })}</p>
-          <p style="margin:0;">${tf("UESRPG.Dialogs.CharGen.RollResultD5", { roll: rollResult.d5Roll, extra: rollResult.d5Roll === 5 ? ` (${t("UESRPG.Dialogs.CharGen.StarCursedReroll")} ${rollResult.resolvedRoll})` : "" })}</p>
-          <p style="margin:0;">${tf("UESRPG.Dialogs.CharGen.RollResultSelected", { sign: rollResult.signKey, suffix: rollResult.starCursed ? ` (${t("UESRPG.Dialogs.CharGen.StarCursed")})` : "" })}</p>
+        classes: ["uesrpg-chargen-dialog"],
+        content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack uesrpg-cg-summary">
+          <p>${tf("UESRPG.Dialogs.CharGen.RollResultCharge", { charge: rollResult.charge })}</p>
+          <p>${tf("UESRPG.Dialogs.CharGen.RollResultD5", { roll: rollResult.d5Roll, extra: rollResult.d5Roll === 5 ? ` (${t("UESRPG.Dialogs.CharGen.StarCursedReroll")} ${rollResult.resolvedRoll})` : "" })}</p>
+          <p>${tf("UESRPG.Dialogs.CharGen.RollResultSelected", { sign: rollResult.signKey, suffix: rollResult.starCursed ? ` (${t("UESRPG.Dialogs.CharGen.StarCursed")})` : "" })}</p>
         </div>`,
         buttons: {
           accept: { label: t("UESRPG.Dialogs.CharGen.Accept") },
@@ -657,7 +766,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         default: "accept",
       });
       if (review === "manual") {
-        ok = await BirthSignMenuAppV2.prompt(actor);
+        ok = await BirthSignMenuAppV2.prompt(actor, { administrativeReason });
       } else if (review === "accept") {
         ok = await applyBirthsignSelection(actor, {
           signKey: rollResult.signKey,
@@ -665,11 +774,13 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           mode: "roll",
           charge: rollResult.charge,
           d5Roll: rollResult.d5Roll,
+          administrativeReason,
         });
       }
     }
 
     if (!ok) return;
+    if (administrativeReason) await appendChargenAudit(actor, buildAdministrativeCorrectionAudit(administrativeReason, { field: "birthsign" }));
     this._ws.completion.birthsign = true;
     this.#persistState();
     await this.render();
@@ -715,6 +826,9 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     }
 
     await onStartingResourcesMenu.call({ actor }, _eventStub(), target);
+    const grantResults = await promptAndApplyAllMissingRacialGrants(actor);
+    const failedGrant = grantResults.find((result) => result && !result.ok && !result.cancelled);
+    if (failedGrant) ui.notifications?.warn?.(failedGrant.error ?? t("UESRPG.DefectUpdate.GrantApplyFailed", "Unable to apply racial grant."));
     this._ws.completion.resources = true;
     await appendChargenAudit(actor, {
       step: "resources",
@@ -737,6 +851,16 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       return;
     }
 
+    let administrativeReason = null;
+    if (isChargenCompleted(actor)) {
+      if (!game.user?.isGM) {
+        ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
+        return;
+      }
+      administrativeReason = await promptAdministrativeCorrectionReason();
+      if (!administrativeReason) return;
+    }
+
     const styles = actor.items.filter((it) => it.type === "combatStyle");
     const styleOptions = [
       `<option value="__new__">${t("UESRPG.Dialogs.CharGen.CreateNewCombatStyle")}</option>`,
@@ -746,7 +870,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const label = foundry.utils.escapeHTML(t(TRAINING_RANK_LABELS[rank] ?? rank));
       return `<option value="${rank}" ${rank === "novice" ? "selected" : ""}>${label}</option>`;
     }).join("");
-    const saChecks = SPECIAL_ACTIONS.map((sa) => `<label style="display:flex; align-items:center; gap:6px;">
+    const saChecks = SPECIAL_ACTIONS.map((sa) => `<label class="uesrpg-cg-check">
       <input type="checkbox" class="cg-sa" value="${sa.id}">
       <span>${sa.name}</span>
     </label>`).join("");
@@ -841,27 +965,28 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     });
 
     const result = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.CharGen.CombatStyleSetupTitle"),
       width: 820,
       height: 680,
       resizable: true,
-      classes: ["uesrpg-cg-compact-dialog", "uesrpg-cg-combat-style-dialog"],
-      content: `<div class="uesrpg-cg-dialog">
-        <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.CombatStyleSetupNote")}</div>
-        <label style="display:flex; flex-direction:column; gap:4px;">
+      classes: ["uesrpg-cg-compact-dialog", "uesrpg-cg-combat-style-dialog", "uesrpg-chargen-dialog"],
+      content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
+        <div class="uesrpg-cg-dialog__note uesrpg-cg-intro">${t("UESRPG.Dialogs.CharGen.CombatStyleSetupNote")}</div>
+        <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
           <span>${t("UESRPG.Dialogs.CharGen.CombatStyle")}</span>
           <select id="cgCombatStyleSelect">${styleOptions}</select>
         </label>
-        <label style="display:flex; flex-direction:column; gap:4px;">
+        <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
           <span>${t("UESRPG.Dialogs.CharGen.NewStyleName")}</span>
           <input type="text" id="cgCombatStyleName" value="${t("UESRPG.Dialogs.CharGen.CombatStyleName")}">
         </label>
-        <label style="display:flex; flex-direction:column; gap:4px;">
+        <label class="uesrpg-cg-field uesrpg-cg-field--stacked">
           <span>${t("UESRPG.Dialogs.CharGen.Rank")}</span>
           <select id="cgCombatStyleRank">${rankOptions}</select>
         </label>
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.TrainedEquipmentSetup")}</div>
-        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:6px;">
+        <div class="uesrpg-cg-option-grid">
           <input type="text" id="cgTe1" placeholder="e.g., Long Blade">
           <input type="text" id="cgTe2" placeholder="e.g., Shield">
           <input type="text" id="cgTe3" placeholder="e.g., Bow">
@@ -869,7 +994,7 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           <input type="text" id="cgTe5" placeholder="e.g., Unarmed">
         </div>
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.CombatStyleExpansions")}</div>
-        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:6px;">
+        <div class="uesrpg-cg-option-grid">
           <input type="text" id="cgTe6" placeholder="Expansion slot 6">
           <input type="text" id="cgTe7" placeholder="Expansion slot 7">
           <input type="text" id="cgTe8" placeholder="Expansion slot 8">
@@ -877,15 +1002,15 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           <input type="text" id="cgTe10" placeholder="Expansion slot 10">
         </div>
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.CharGen.SpecialAdvantagesNote")}</div>
-        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px;">
+        <div class="uesrpg-cg-option-grid">
           ${saChecks}
         </div>
         <div class="uesrpg-cg-dialog__note"><b>${t("UESRPG.Dialogs.CharGen.EstimatedCost")}:</b> <span id="cgCombatStyleCost">0</span> XP <span id="cgCombatStyleCostBreakdown"></span></div>
-        <label style="display:flex; align-items:center; gap:6px;">
-          <input type="checkbox" id="cgFreeCombatStyle">
+        <label class="uesrpg-cg-check">
+          <input type="checkbox" id="cgFreeCombatStyle" ${administrativeReason ? "checked disabled" : ""}>
           <span>${t("UESRPG.Dialogs.CharGen.FreeCombatStyle")}</span>
         </label>
-        <label style="display:flex; align-items:center; gap:6px;">
+        <label class="uesrpg-cg-check">
           <input type="checkbox" id="cgSetActiveStyle" checked>
           <span>${t("UESRPG.Dialogs.CharGen.SetActiveCombatStyle")}</span>
         </label>
@@ -1077,6 +1202,13 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         freeCombatStyle,
       },
     });
+    if (administrativeReason) {
+      await appendChargenAudit(actor, buildAdministrativeCorrectionAudit(administrativeReason, {
+        field: "combatStyle",
+        itemUuid: style.uuid,
+        waivedXp: freeCombatStyle ? _asNum(computed.actualXpCost, 0) : 0,
+      }));
+    }
     this._ws.completion.combatstyle = true;
     this.#persistState();
     await this.render();
@@ -1147,6 +1279,8 @@ export class CharGenWizardAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     await requestUpdateDocument(actor, {
       "flags.uesrpg.charGen.completed": true,
       "flags.uesrpg.charGen.inProgress": false,
+      [`flags.${SYSTEM_ID}.chargen.completed`]: true,
+      [`flags.${SYSTEM_ID}.chargen.inProgress`]: false,
     });
 
     const chargenFlags = actor.getFlag(SYSTEM_ID, "chargen") ?? {};

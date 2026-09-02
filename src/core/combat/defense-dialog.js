@@ -40,10 +40,10 @@ function _renderBlockSourceSelect({ show, shieldOk, wardOk, defaultBlockSource =
   if (!show) return "";
   const selected = (defaultBlockSource === "ward" && wardOk) ? "ward" : "shield";
   return `
-    <span class="uesrpg-adv-choice__desc" style="display:block; margin-top:6px;">
-      <label style="display:flex; align-items:center; gap:8px;">
+    <span class="uesrpg-adv-choice__desc uesrpg-block-source">
+      <label class="uesrpg-dialog-row">
         <span>${t("UESRPG.Dialogs.Opposed.Source", "Source")}</span>
-        <select name="blockSource" ${disabled ? "disabled" : ""} style="min-width:120px;">
+        <select name="blockSource" ${disabled ? "disabled" : ""}>
           ${shieldOk ? `<option value="shield" ${selected === "shield" ? "selected" : ""}>${t("UESRPG.Dialogs.Opposed.Shield", "Shield")}</option>` : ""}
           ${wardOk ? `<option value="ward" ${selected === "ward" ? "selected" : ""}>${t("UESRPG.Chat.Opposed.Ward", "Ward")}</option>` : ""}
         </select>
@@ -91,10 +91,10 @@ function _renderContent({
   const showBlockSourceSelect = blockSourceShield && blockSourceWard;
 
   const notes = [];
-  if (gates.isRangedAttack) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>${t("UESRPG.UI.Ranged", "Ranged")}:</b> ${t("UESRPG.Dialogs.Opposed.RangedDefenseNote", "Ranged attacks cannot be parried or counter-attacked.")}</p>`);
-  if (gates.attackerHasFlail) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>${t("UESRPG.Dialogs.Opposed.Flail", "Flail")}:</b> ${t("UESRPG.Dialogs.Opposed.FlailDefenseNote", "Attacks with a flail cannot be parried or counter-attacked.")}</p>`);
-  if (gates.attackerHasEntangling) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>${t("UESRPG.Dialogs.Opposed.Entangling", "Entangling")}:</b> ${t("UESRPG.Dialogs.Opposed.EntanglingDefenseNote", "Attacks with an entangling weapon cannot be parried or blocked.")}</p>`);
-  if (gates.smallVsTwoHandedGate) notes.push(`<p class="notes" style="margin:6px 0 0 0;"><b>${t("UESRPG.Dialogs.Opposed.Small", "Small")}:</b> ${t("UESRPG.Dialogs.Opposed.SmallWeaponDefenseNote", "A Small weapon cannot be used to Parry or Counter-Attack against a two-handed weapon.")}</p>`);
+  if (gates.isRangedAttack) notes.push(`<p class="notes uesrpg-dialog-note"><b>${t("UESRPG.UI.Ranged", "Ranged")}:</b> ${t("UESRPG.Dialogs.Opposed.RangedDefenseNote", "Ranged attacks cannot be parried or counter-attacked.")}</p>`);
+  if (gates.attackerHasFlail) notes.push(`<p class="notes uesrpg-dialog-note"><b>${t("UESRPG.Dialogs.Opposed.Flail", "Flail")}:</b> ${t("UESRPG.Dialogs.Opposed.FlailDefenseNote", "Attacks with a flail cannot be parried or counter-attacked.")}</p>`);
+  if (gates.attackerHasEntangling) notes.push(`<p class="notes uesrpg-dialog-note"><b>${t("UESRPG.Dialogs.Opposed.Entangling", "Entangling")}:</b> ${t("UESRPG.Dialogs.Opposed.EntanglingDefenseNote", "Attacks with an entangling weapon cannot be parried or blocked.")}</p>`);
+  if (gates.smallVsTwoHandedGate) notes.push(`<p class="notes uesrpg-dialog-note"><b>${t("UESRPG.Dialogs.Opposed.Small", "Small")}:</b> ${t("UESRPG.Dialogs.Opposed.SmallWeaponDefenseNote", "A Small weapon cannot be used to Parry or Counter-Attack against a two-handed weapon.")}</p>`);
 
   const sensoryFlags = [
     hasBlinded ? `<label class="uesrpg-inline-check"><input type="checkbox" name="applyBlinded" ${defaultApplyBlinded ? "checked" : ""} /> <span>${t("UESRPG.Dialogs.Opposed.BlindedPenalty", "Blinded (-30, sight-based)")}</span></label>` : ``,
@@ -177,7 +177,7 @@ function _renderContent({
 
   <div class="form-group">
     <label><b>${t("UESRPG.Dialogs.Opposed.CircumstanceModifier", "Circumstance Modifier")}</b></label>
-    <select name="circMod" style="width: 100%;">
+    <select name="circMod">
       ${buildCircumstanceOptionsHtml(defaultCircMod)}
     </select>
   </div>
@@ -359,6 +359,7 @@ export async function showDefenseDialog(defender, options = {}) {
   }
 
   return await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.Opposed.DefenderResponse", "Defender Response"),
     content,
     classes: ["uesrpg-attack-declare"],

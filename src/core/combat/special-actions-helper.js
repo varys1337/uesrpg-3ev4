@@ -23,9 +23,12 @@ import { _resolveActorViaToken } from "./opposed/helpers/docs.js";
 import { safeUpdateChatMessage } from "../../utils/chat-message-socket.js";
 import { requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../utils/authority-proxy.js";
 import { getCoreRollMode } from "../../utils/chat-roll-mode.js";
+import { doTestRoll } from "../../utils/degree-roll-helper.js";
 import { SYSTEM_ID } from "../system/namespace.js";
 import { FLAG_SCOPE } from "../system/namespace.js";
 import { getFlagValueWithFallback } from "../system/flags.js";
+import { resolveUnusualCombatSkillLimit } from "./unusual-combat.js";
+import { tf } from "../../utils/i18n.js";
 const HOOKED_ACTION_IDS = new Set(["disarm", "trip", "takeWeapon", "take-weapon"]);
 const _GRAPPLE_ACTION_LOCKS = new Set();
 const _GRAPPLE_OWNER_PREFIX = "grappleOwner:";
@@ -94,6 +97,7 @@ function _isTargetGrappledByActor(target, actor) {
 
 async function _showGrappleFollowUpChoice() {
   const choice = await customDialog({
+    layout: "workflow",
     title: "Grapple Follow-Up",
     content: `<div style="display:flex;flex-direction:column;gap:8px;">
       <p style="margin:0;">Target is already grappled by you. Choose a follow-up action:</p>
@@ -175,6 +179,7 @@ export async function showSpecialAdvantageDialog(specialActionId) {
   if (!def) return null;
 
   return customDialog({
+    layout: "workflow",
     title: `Special Advantage: ${def.name}`,
     content: `
       <div style="padding: 10px;">
@@ -264,6 +269,7 @@ export async function showPreTestChoiceDialog({ specialActionId, actor, isDefend
 
   try {
     const result = await customDialog({
+      layout: "workflow",
       title: `Special Action: ${def.name}`,
       content,
       buttons: {
@@ -449,7 +455,7 @@ export async function createSpecialActionOpposedTest({
 export async function handleSpecialActionCardAction(message, action) {
   try {
     // Import helpers once at the start
-    const { doTestRoll, resolveOpposed } = await import("../../utils/degree-roll-helper.js");
+    const { resolveOpposed } = await import("../../utils/degree-roll-helper.js");
     
     const data = message.flags?.[SYSTEM_ID]?.specialActionOpposed?.state;
     if (!data) return;
@@ -778,36 +784,19 @@ export async function initiateSpecialActionFromSheet({
  * @param {Actor} target - The actor who was bashed
  */
 async function _createBashAcrobaticsTest(target) {
-  // Find Acrobatics skill (exact match, case-insensitive)
-  const acrobatics = target.items.find(i => 
-    i.type === "skill" && 
-    String(i.name || "").trim().toLowerCase() === "acrobatics"
-  );
-
-  if (!acrobatics) {
-    ui.notifications.warn(`${target.name} has no Acrobatics skill. Apply Prone manually if they fail.`);
-    return `${target.name} has no Acrobatics skill. Apply Prone manually if they fail.`;
+  const acrobatics = resolveUnusualCombatSkillLimit(target, "Acrobatics");
+  if (!(Number(acrobatics?.tn) > 0)) {
+    const warning = tf("UESRPG.DefectUpdate.BashNoAcrobatics", { actor: target.name }, `${target.name} has no Acrobatics skill or NPC physical profession. Apply Prone manually if they fail.`);
+    ui.notifications.warn(warning);
+    return warning;
   }
 
   // Find target's token
   const targetToken = canvas.tokens?.placeables?.find(t => t.actor?.uuid === target.uuid) ?? null;
 
-  // Create a simple skill test card (not opposed, just a single roll)
-  const { computeSkillTN } = await import("../skills/skill-tn.js");
-  const { doTestRoll } = await import("../../utils/degree-roll-helper.js");
-  
-  const tn = computeSkillTN({
-    actor: target,
-    skillItem: acrobatics,
-    difficultyKey: "average",
-    manualMod: 0,
-    useSpecialization: false,
-    situationalMods: []
-  });
-
   const result = await doTestRoll(target, {
     rollFormula: "1d100",
-    target: tn.finalTN,
+    target: Number(acrobatics.tn),
     allowLucky: true,
     allowUnlucky: true
   });
@@ -815,16 +804,16 @@ async function _createBashAcrobaticsTest(target) {
   // Post the roll to chat
   await result.roll.toMessage({
     speaker: ChatMessage.getSpeaker({ actor: target, token: targetToken?.document ?? null }),
-    flavor: `Acrobatics — Bash Follow-Up (avoid Prone)`,
+    flavor: tf("UESRPG.DefectUpdate.BashFlavor", {}, "Acrobatics — Bash Follow-Up (avoid Prone)"),
     rollMode: getCoreRollMode()
   });
 
   // Apply Prone if they failed
   if (!result.isSuccess) {
     await applyCondition(target, "prone", { source: "bash-failed-acrobatics" });
-    return `${target.name} fails the Acrobatics test and falls Prone.`;
+    return tf("UESRPG.DefectUpdate.BashFailure", { actor: target.name }, `${target.name} fails the Acrobatics test and falls Prone.`);
   }
-  return `${target.name} passes the Acrobatics test and avoids falling Prone.`;
+  return tf("UESRPG.DefectUpdate.BashSuccess", { actor: target.name }, `${target.name} passes the Acrobatics test and avoids falling Prone.`);
 }
 
 // ============================================================================

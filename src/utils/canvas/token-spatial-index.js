@@ -17,6 +17,10 @@ export class TokenSpatialIndex {
     this.gridSize = options.gridSize || 100; // pixels per grid cell
     this.maxCacheSize = options.maxCacheSize || 1000;
     this.enabled = options.enabled !== false;
+    this.debug = options.debug === true;
+    this.manageTokenHooks = options.manageTokenHooks !== false;
+    this._hookIds = [];
+    this._hooksRegistered = false;
     
     // Data stores
     this.tokens = new Map(); // tokenId -> {token, x, y, width, height, bounds}
@@ -58,7 +62,9 @@ export class TokenSpatialIndex {
       this.registerToken(token);
     }
     
-    console.debug(`TokenSpatialIndex: Initialized with ${this.tokens.size} tokens`);
+    if (this.debug) {
+      console.debug(`TokenSpatialIndex: Initialized with ${this.tokens.size} tokens`);
+    }
   }
   
   /**
@@ -68,40 +74,61 @@ export class TokenSpatialIndex {
     // Only register hooks once
     if (this._hooksRegistered) return;
     
-    // Token creation
-    Hooks.on('createToken', (tokenDoc, options, userId) => {
-      const token = canvas.tokens?.get(tokenDoc.id);
-      if (token) {
-        this.registerToken(token);
-      }
-    });
-    
-    // Token update (debounced)
-    Hooks.on('updateToken', (tokenDoc, changed, options, userId) => {
-      if (changed.x !== undefined || changed.y !== undefined) {
+    if (this.manageTokenHooks) {
+      // Standalone mode: monitor token document changes directly. The canvas
+      // optimization coordinator disables these when TokenUpdateMonitor owns
+      // the same events.
+      this._hookIds.push(['createToken', Hooks.on('createToken', (tokenDoc) => {
         const token = canvas.tokens?.get(tokenDoc.id);
         if (token) {
-          this.queueTokenUpdate(token);
+          this.registerToken(token);
         }
-      }
-    });
-    
-    // Token deletion
-    Hooks.on('deleteToken', (tokenDoc, options, userId) => {
-      this.unregisterToken(tokenDoc.id);
-    });
+      })]);
+
+      this._hookIds.push(['updateToken', Hooks.on('updateToken', (tokenDoc, changed) => {
+        if (changed.x !== undefined || changed.y !== undefined) {
+          const token = canvas.tokens?.get(tokenDoc.id);
+          if (token) {
+            this.queueTokenUpdate(token);
+          }
+        }
+      })]);
+
+      this._hookIds.push(['deleteToken', Hooks.on('deleteToken', (tokenDoc) => {
+        this.unregisterToken(tokenDoc.id);
+      })]);
+    }
     
     // Canvas tear down
-    Hooks.on('canvasTearDown', () => {
+    this._hookIds.push(['canvasTearDown', Hooks.on('canvasTearDown', () => {
       this.clear();
-    });
+    })]);
     
     // Canvas ready
-    Hooks.on('canvasReady', () => {
+    this._hookIds.push(['canvasReady', Hooks.on('canvasReady', () => {
       this.initializeFromCanvas();
-    });
+    })]);
     
     this._hooksRegistered = true;
+  }
+
+  /**
+   * Remove all registered Foundry hooks.
+   */
+  unregisterHooks() {
+    for (const [event, hookId] of this._hookIds) {
+      Hooks.off(event, hookId);
+    }
+    this._hookIds.length = 0;
+    this._hooksRegistered = false;
+  }
+
+  /**
+   * Release all scene state and long-lived listeners.
+   */
+  shutdown() {
+    this.clear();
+    this.unregisterHooks();
   }
   
   /**
@@ -416,8 +443,12 @@ export class TokenSpatialIndex {
     this.positionCache.clear();
     this.updateQueue.clear();
     
-    if (this.idleCallbackId) {
-      cancelIdleCallback(this.idleCallbackId);
+    if (this.idleCallbackId !== null) {
+      if (typeof cancelIdleCallback === 'function') {
+        cancelIdleCallback(this.idleCallbackId);
+      } else {
+        clearTimeout(this.idleCallbackId);
+      }
       this.idleCallbackId = null;
     }
     
@@ -738,6 +769,13 @@ export function getTokenSpatialIndex(options = {}) {
  */
 export function initializeTokenSpatialIndex(config = {}) {
   const index = getTokenSpatialIndex(config);
+  index.debug = config.debug === true;
+  const manageTokenHooks = config.manageTokenHooks !== false;
+  if (index.manageTokenHooks !== manageTokenHooks) {
+    index.unregisterHooks();
+    index.manageTokenHooks = manageTokenHooks;
+  }
+  index.registerHooks();
   
   // Register debug commands if debug enabled
   if (config.debug) {

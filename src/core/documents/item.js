@@ -13,10 +13,42 @@ import { prepareShieldItem } from "./item-prepare/shield.js";
 import { buildInjectedStructuredQualities } from "./item-prepare/shared.js";
 import { isLegacyShieldSystemData } from "../items/shield-utils.js";
 import { duplicateContainedItemsOnActor } from "./item/container-lifecycle.js";
+import {
+  ARMOR_HIT_LOCATION_KEYS,
+  getArmorCategoryCoverage,
+  hasAnyArmorCoverage,
+} from "../items/armor-coverage.js";
+import { FLAG_SCOPE } from "../constants.js";
+
+const ARMOR_COVERAGE_MODE_PATH = `flags.${FLAG_SCOPE}.coverageMode`;
+
+function readChangedValue(changed, path) {
+  if (Object.prototype.hasOwnProperty.call(changed ?? {}, path)) return changed[path];
+  return foundry.utils.getProperty(changed, path);
+}
+
+function hasChangedPath(changed, path) {
+  if (Object.prototype.hasOwnProperty.call(changed ?? {}, path)) return true;
+  return foundry.utils.hasProperty(changed, path);
+}
 
 export class SimpleItem extends Item {
   async _preCreate(data, options, user) {
-    await super._preCreate(data, options, user);
+    const allowed = await super._preCreate(data, options, user);
+    if (allowed === false) return false;
+
+    const owningActor = this.actor ?? (this.parent?.documentName === "Actor" ? this.parent : null);
+    if (this.type === "armor" && owningActor?.type === "NPC") {
+      const coverageMode = String(this.getFlag?.(FLAG_SCOPE, "coverageMode") ?? "").trim().toLowerCase();
+      const categoryCoverage = getArmorCategoryCoverage(this.system);
+      if (coverageMode !== "manual" && categoryCoverage && !hasAnyArmorCoverage(this.system?.hitLocations)) {
+        this.updateSource({
+          "system.hitLocations": categoryCoverage,
+          [ARMOR_COVERAGE_MODE_PATH]: "category",
+        });
+      }
+    }
+
     switch (data.type) {
       case 'combatStyle':
       case 'skill':
@@ -24,6 +56,40 @@ export class SimpleItem extends Item {
         this.updateSource({ 'system.rank': 'untrained' });
         break;
     }
+    return allowed;
+  }
+
+  async _preUpdate(changed, options, user) {
+    const allowed = await super._preUpdate(changed, options, user);
+    if (allowed === false) return false;
+    if (this.type !== "armor") return allowed;
+
+    const hitLocationsChanged = ARMOR_HIT_LOCATION_KEYS.some((key) =>
+      hasChangedPath(changed, `system.hitLocations.${key}`)
+    ) || hasChangedPath(changed, "system.hitLocations");
+    const explicitMode = String(readChangedValue(changed, ARMOR_COVERAGE_MODE_PATH) ?? "").trim().toLowerCase();
+
+    if (hitLocationsChanged) {
+      if (explicitMode !== "category") changed[ARMOR_COVERAGE_MODE_PATH] = "manual";
+      return allowed;
+    }
+
+    const categoryChanged = hasChangedPath(changed, "system.category") || hasChangedPath(changed, "system.item_cat");
+    const currentMode = String(this.getFlag?.(FLAG_SCOPE, "coverageMode") ?? "").trim().toLowerCase();
+    if (categoryChanged && currentMode !== "manual") {
+      const nextSystem = {
+        ...(this.system?.toObject?.() ?? this.system ?? {}),
+        category: readChangedValue(changed, "system.category") ?? this.system?.category,
+        item_cat: readChangedValue(changed, "system.item_cat") ?? this.system?.item_cat,
+      };
+      const categoryCoverage = getArmorCategoryCoverage(nextSystem);
+      if (categoryCoverage) {
+        changed["system.hitLocations"] = categoryCoverage;
+        changed[ARMOR_COVERAGE_MODE_PATH] = "category";
+      }
+    }
+
+    return allowed;
   }
 
   async _onCreate(data, options, user) {

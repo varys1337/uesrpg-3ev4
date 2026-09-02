@@ -14,6 +14,7 @@ import {
 } from "../../../core/religion/worship-service.js";
 import { getWorshipDomainState } from "../../../core/religion/worship-store.js";
 import { t, tf } from "../../../utils/i18n.js";
+import { activateOpenApplication } from "./application-focus.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -47,6 +48,7 @@ async function promptPreparedInvocations(actor, domainEntry) {
 
   const prepLimit = getDomainPreparationLimit(actor, domainKey);
   const picked = await customDialog({
+    layout: "workflow",
     title: tf("UESRPG.Dialogs.Worship.PrepareInvocationsTitle", { domain: domainEntry.label }),
     content: `<div style="display:flex; flex-direction:column; gap:8px;">
       <p style="margin:0;">${tf("UESRPG.Dialogs.Worship.PreparationLimit", { limit: prepLimit })}</p>
@@ -115,9 +117,7 @@ export class WorshipManagerAppV2 extends HandlebarsApplicationMixin(ApplicationV
     const key = String(actor?.uuid ?? actor?.id ?? "");
     const existing = this.#openByActor.get(key);
     if (existing?.rendered) {
-      await existing.render(true);
-      existing.bringToFront?.();
-      return existing;
+      return activateOpenApplication(existing, { render: true });
     }
     const app = new WorshipManagerAppV2(actor, options);
     this.#openByActor.set(key, app);

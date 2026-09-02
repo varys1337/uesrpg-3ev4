@@ -1,3 +1,5 @@
+import { activateOpenApplication } from "../ui/apps/v2/application-focus.js";
+
 export async function resolveMacroActor({
   actorUuid = null,
   multipleSelectionWarning = "Please select exactly one token.",
@@ -56,11 +58,11 @@ export function findOpenAppInstance(AppCtor, predicate = null) {
   return null;
 }
 
-export async function focusOpenApp(app, { maximize = false } = {}) {
+export async function focusOpenApp(app, { maximize = true } = {}) {
   if (!app) return app;
-  if (maximize && typeof app.maximize === "function") {
-    await app.maximize();
+  if (maximize) {
+    return activateOpenApplication(app);
   }
-  app.bringToTop?.();
+  app.bringToFront?.();
   return app;
 }

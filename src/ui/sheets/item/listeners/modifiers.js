@@ -37,6 +37,7 @@ export function onModifierCreate(sheet, event) {
 
   // Open dialog for selecting skill/item to modify
   customDialog({
+    layout: "workflow",
     title: "Create Modifier",
     content: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
       <div style="background: rgba(180, 180, 180, 0.562); border: solid 1px; padding: 10px; font-style: italic;">

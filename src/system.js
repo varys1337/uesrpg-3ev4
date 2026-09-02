@@ -22,7 +22,6 @@ function registerSystemHandlebarsHelpers() {
 
 Hooks.once("ready", async function () {
   const readyStartedAt = isPerfEnabled() ? monoMs() : 0;
-  console.log("UESRPG | Ready");
 
   await runWorldReadyMaintenance();
   await registerMagicRuntime();
@@ -37,11 +36,21 @@ Hooks.once("ready", async function () {
   }
 });
 
-Hooks.once("init", async function() {
-  const initStartedAt = isPerfEnabled() ? monoMs() : 0;
-  console.log("UESRPG | Initializing");
+Hooks.once("setup", function() {
+  void Promise.all([
+    registerWarfareProfiles(),
+    registerSystemRuntimeApi(),
+    registerSystemMacroApis(),
+  ]).catch((err) => {
+    console.error("UESRPG | Optional setup initialization failed", err);
+  });
+});
 
-  await initHandler();
+Hooks.once("init", function() {
+  const initStartedAt = isPerfEnabled() ? monoMs() : 0;
+
+  initHandler();
+  registerSystemHandlebarsHelpers();
   if (isPerfEnabled()) {
     perfRecord({
       event: "system.init.initHandler",
@@ -49,8 +58,4 @@ Hooks.once("init", async function() {
     });
   }
 
-  await registerWarfareProfiles();
-  registerSystemHandlebarsHelpers();
-  await registerSystemRuntimeApi();
-  await registerSystemMacroApis();
 });

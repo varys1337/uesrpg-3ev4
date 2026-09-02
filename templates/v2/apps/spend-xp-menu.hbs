@@ -1,14 +1,14 @@
 <div class="uesrpg-spendxp">
   <header class="uesrpg-spendxp__header">
     <div class="uesrpg-spendxp__title">
-      <h2>Spend XP (Chargen)</h2>
+      <h2>{{localize "UESRPG.Dialogs.SpendXp.Title"}}</h2>
       <div class="uesrpg-spendxp__subtitle">{{actorName}}</div>
     </div>
 
     <div class="uesrpg-spendxp__stats">
       <div class="uesrpg-spendxp__stat">
         <div class="uesrpg-spendxp__stat-label">Unspent XP</div>
-        <div class="uesrpg-spendxp__stat-value">{{xp}} -> {{xpProjected}}</div>
+        <div class="uesrpg-spendxp__stat-value">{{xp}} → {{xpProjected}}</div>
       </div>
       <div class="uesrpg-spendxp__stat">
         <div class="uesrpg-spendxp__stat-label">Total XP</div>
@@ -16,7 +16,7 @@
       </div>
       <div class="uesrpg-spendxp__stat">
         <div class="uesrpg-spendxp__stat-label">Drakes</div>
-        <div class="uesrpg-spendxp__stat-value">{{wealth}} -> {{wealthProjected}}</div>
+        <div class="uesrpg-spendxp__stat-value">{{wealth}} → {{wealthProjected}}</div>
       </div>
       <div class="uesrpg-spendxp__stat">
         <div class="uesrpg-spendxp__stat-label">Campaign Rank</div>
@@ -25,20 +25,22 @@
     </div>
 
     <div class="uesrpg-spendxp__header-actions">
-      <label class="uesrpg-spendxp__toggle">
-        <input type="checkbox" data-action="toggleRankGate" {{#if rankGateOverride}}checked{{/if}}>
-        <span>Enforce xpTotal Rank Cap</span>
-      </label>
-      <button type="button" data-action="close"><i class="fas fa-times"></i> Close</button>
+      {{#if canAdministrativeCorrect}}
+        <button type="button" data-action="beginAdministrativeCorrection" class="{{#if administrativeCorrection}}active{{/if}}">
+          <i class="fas fa-user-shield"></i> {{localize "UESRPG.DefectUpdate.AdministrativeCorrection"}}
+        </button>
+      {{/if}}
+      <button type="button" data-action="close"><i class="fas fa-times"></i> {{localize "UESRPG.UI.Close"}}</button>
     </div>
   </header>
 
   <div class="uesrpg-spendxp__scroll">
     <div class="uesrpg-spendxp__top-row">
       <section class="uesrpg-spendxp__section uesrpg-spendxp__section--top uesrpg-spendxp__draft">
-        <h3>Draft Summary</h3>
+        <h3>{{localize "UESRPG.Dialogs.SpendXp.PendingPurchases"}}</h3>
         <p class="uesrpg-spendxp__hint">
-          Staged entries: <b>{{stagedCount}}</b> | Staged XP: <b>{{stagedCostXp}}</b> | Staged Drakes: <b>{{stagedCostWealth}}</b>
+          {{localize "UESRPG.Dialogs.SpendXp.PendingSummary" count=stagedCount xp=stagedCostXp drakes=stagedCostWealth}}
+          {{#if administrativeCorrection}} | <b>{{localize "UESRPG.DefectUpdate.XpWillBeWaived"}}</b>{{/if}}
         </p>
 
         {{#if hasDraft}}
@@ -47,7 +49,7 @@
               <div class="uesrpg-spendxp__draft-row">
                 <div class="uesrpg-spendxp__draft-text">
                   <div class="uesrpg-spendxp__draft-label">{{row.label}}</div>
-                  <div class="uesrpg-spendxp__draft-meta">{{row.kind}} | XP {{row.costXp}} | Drakes {{row.costWealth}}</div>
+                  <div class="uesrpg-spendxp__draft-meta">XP {{row.costXp}} | Drakes {{row.costWealth}}</div>
                 </div>
                 <button type="button" data-action="removeDraftEntry" data-entry-id="{{row.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__rollback-btn">
                   <i class="fas fa-rotate-left"></i> Remove
@@ -56,29 +58,28 @@
             {{/each}}
           </div>
         {{else}}
-          <p class="uesrpg-spendxp__hint">No staged purchases yet.</p>
+          <p class="uesrpg-spendxp__hint uesrpg-spendxp__empty">{{localize "UESRPG.Dialogs.SpendXp.NoPendingPurchases"}}</p>
         {{/if}}
 
         <div class="uesrpg-spendxp__confirm-actions">
           <button type="button" data-action="confirmDraft" class="uesrpg-spendxp__btn">
-            <i class="fas fa-check"></i> Confirm Purchases
+            <i class="fas fa-check"></i> {{localize "UESRPG.Dialogs.SpendXp.ConfirmPurchases"}}
           </button>
           <button type="button" data-action="discardDraft" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--ghost">
-            <i class="fas fa-trash"></i> Discard Draft
+            <i class="fas fa-trash"></i> {{localize "UESRPG.Dialogs.SpendXp.DiscardPending"}}
           </button>
         </div>
       </section>
 
       <section class="uesrpg-spendxp__section uesrpg-spendxp__section--top uesrpg-spendxp__section--drop">
-        <h3>Learn Talents / Spells (Drag and Drop)</h3>
+        <h3>{{localize "UESRPG.Dialogs.SpendXp.AddItems"}}</h3>
         <p class="uesrpg-spendxp__hint">
-          Drop Items here: <b>Skill</b>, <b>Magic Skill</b>, <b>Combat Style</b>, <b>Talent</b>, or <b>Spell</b>.
-          Talent learning mode: <b>{{talentLearningMode}}</b>.
+          {{localize "UESRPG.Dialogs.SpendXp.AddItemsHint"}}
         </p>
         <div class="uesrpg-spendxp__dropzone" role="region" aria-label="Dropzone">
           <div class="uesrpg-spendxp__dropzone-inner">
             <i class="fas fa-hand-pointer"></i>
-            <div>Dropped purchases are staged and only applied on Confirm Purchases.</div>
+            <div>{{localize "UESRPG.Dialogs.SpendXp.DropItemsHere"}}</div>
           </div>
         </div>
       </section>
@@ -104,7 +105,7 @@
     <section class="uesrpg-spendxp__section">
       <h3>Skills / Magic Skills / Combat Styles</h3>
       <p class="uesrpg-spendxp__hint">
-        Rank purchases stage one step at a time. Total XP rank-cap is controlled by the header toggle.
+        {{localize "UESRPG.Dialogs.SpendXp.RankPurchaseHint"}}
       </p>
 
       <div class="uesrpg-spendxp__skill-list">
@@ -113,7 +114,7 @@
             <div class="uesrpg-spendxp__skill-main">
               <img class="uesrpg-spendxp__skill-img" src="{{s.img}}" alt="" />
               <div class="uesrpg-spendxp__skill-text">
-                <div class="uesrpg-spendxp__skill-name">{{s.name}}{{#if s.isTemp}} <span class="uesrpg-spendxp__pill">Staged</span>{{/if}}</div>
+                <div class="uesrpg-spendxp__skill-name">{{s.name}}{{#if s.isTemp}} <span class="uesrpg-spendxp__pill">{{localize "UESRPG.Dialogs.SpendXp.Pending"}}</span>{{/if}}</div>
                 <div class="uesrpg-spendxp__skill-meta">
                   <span class="uesrpg-spendxp__pill">{{s.type}}</span>
                   <span class="uesrpg-spendxp__pill">Rank: {{s.rankLabel}}</span>
@@ -161,7 +162,7 @@
         {{/each}}
 
         {{#unless skills.length}}
-          <p class="uesrpg-spendxp__hint">No skill-like items found on this actor yet. Drag and drop from compendiums below.</p>
+          <p class="uesrpg-spendxp__hint uesrpg-spendxp__empty">{{localize "UESRPG.Dialogs.SpendXp.NoSkills"}}</p>
         {{/unless}}
       </div>
     </section>

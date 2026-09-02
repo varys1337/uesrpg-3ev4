@@ -45,6 +45,10 @@ const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][Nor
  */
 export function normalizeItemFormData(item, formData) {
   const itemType = item?.type;
+  if (Object.prototype.hasOwnProperty.call(formData, "system.enc")) {
+    const enc = Number(formData["system.enc"]);
+    formData["system.enc"] = Number.isFinite(enc) ? Math.max(0, enc) : 0;
+  }
   const isShieldLaneDoc = String(itemType ?? "").toLowerCase() === "shield"
     || (String(itemType ?? "").toLowerCase() === "armor" && (
       item?.system?.isShield === true

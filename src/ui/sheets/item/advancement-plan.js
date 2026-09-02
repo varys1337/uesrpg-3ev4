@@ -28,7 +28,7 @@ import {
  * @param {object} flatData - Flattened form data from _onFormSubmit.
  * @returns {{ ok: boolean, actor?: Actor, xpCost?: number, nextXp?: number, reason?: string }}
  */
-export function buildAdvancementPlan(item, flatData) {
+export function buildAdvancementPlan(item, flatData, { administrativeCorrection = false } = {}) {
   const actor = item?.actor;
   if (!actor || actor.type !== "Player Character") return { ok: true, xpCost: 0, actor };
   if (!["skill", "magicSkill", "combatStyle"].includes(String(item.type ?? ""))) {
@@ -57,6 +57,7 @@ export function buildAdvancementPlan(item, flatData) {
     options: {
       specializationCapOverride: specializationCap,
       specializationUnitCostOverride: specializationUnitCost,
+      bypassXpPayment: administrativeCorrection === true,
     },
   });
   if (!plan.ok) {
@@ -100,9 +101,15 @@ export function buildAdvancementPlan(item, flatData) {
   }
 
   const currentXp = Number(actor?.system?.xp ?? 0);
-  if (xpCost > currentXp) {
+  if (!administrativeCorrection && xpCost > currentXp) {
     return { ok: false, reason: `Not enough XP. Required: ${xpCost}, Available: ${currentXp}.` };
   }
 
-  return { ok: true, actor, xpCost, nextXp: Math.max(0, currentXp - xpCost) };
+  return {
+    ok: true,
+    actor,
+    xpCost: administrativeCorrection ? 0 : xpCost,
+    waivedXp: administrativeCorrection ? xpCost : 0,
+    nextXp: administrativeCorrection ? currentXp : Math.max(0, currentXp - xpCost),
+  };
 }

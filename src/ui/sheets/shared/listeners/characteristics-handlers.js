@@ -206,7 +206,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
     wrap.innerHTML = CHA_KEYS.map((key, idx) => {
       const current = _num(existingMap[key], idx);
       const options = state.rollPool.map((roll, rIdx) => `<option value="${rIdx}" ${rIdx === current ? "selected" : ""}>${roll}</option>`).join("");
-      return `<label style="display:flex; flex-direction:column; gap:2px;">
+      return `<label class="uesrpg-cg-field uesrpg-cg-field--stacked">
         <span>${key.toUpperCase()}</span>
         <select id="assign-${key}">${options}</select>
       </label>`;
@@ -217,9 +217,11 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
     if (!root) return;
     const isRoll = state.mode === "roll";
     const poolEl = root.querySelector("#cgRollPool");
-    if (poolEl) poolEl.textContent = state.hasRolled ? state.rollPool.join(", ") : "Stand by";
+    if (poolEl) poolEl.textContent = state.hasRolled ? state.rollPool.join(", ") : t("UESRPG.Dialogs.SetBaseCharacteristics.ReadyToRoll");
     const modeEl = root.querySelector("#cgModeLabel");
-    if (modeEl) modeEl.textContent = state.mode === "pointbuy" ? "Point Buy" : "Roll";
+    if (modeEl) modeEl.textContent = state.mode === "pointbuy"
+      ? t("UESRPG.Dialogs.SetBaseCharacteristics.PointBuyMode")
+      : t("UESRPG.Dialogs.SetBaseCharacteristics.RollMode");
     const rerollsEl = root.querySelector("#cgRerollCount");
     if (rerollsEl) rerollsEl.textContent = String(Math.max(0, state.rollHistory.length - 1));
     const lck = root.querySelector("#lckInput");
@@ -249,11 +251,12 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
   }
 
   await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.SetBaseCharacteristics.Title"),
     width: 800,
-    classes: ["uesrpg-cg-compact-dialog"],
-    content: `<div class="uesrpg-cg-dialog">
-      <div class="uesrpg-cg-dialog__note">
+    classes: ["uesrpg-cg-compact-dialog", "uesrpg-chargen-dialog"],
+    content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
+      <div class="uesrpg-cg-dialog__note uesrpg-cg-intro">
         ${t("UESRPG.Dialogs.SetBaseCharacteristics.RawNote")}
       </div>
       <div class="uesrpg-cg-dialog__tools">
@@ -261,19 +264,19 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         <button type="button" id="cgRollDistribute">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollDistributeButton")}</button>
         <button type="button" id="cgUsePointBuy">${t("UESRPG.Dialogs.SetBaseCharacteristics.UsePointBuyButton")}</button>
         <button type="button" id="cgReroll" title="${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolTitle")}">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolButton")}</button>
-        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.ModeLabel")} <b id="cgModeLabel">Roll</b></span>
-        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.PoolLabel")} <span id="cgRollPool">Stand by</span></span>
+        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.ModeLabel")} <b id="cgModeLabel">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollMode")}</b></span>
+        <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.PoolLabel")} <span id="cgRollPool">${t("UESRPG.Dialogs.SetBaseCharacteristics.ReadyToRoll")}</span></span>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollsLabel")} <span id="cgRerollCount">0</span></span>
       </div>
       <div id="cgRollSection" class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollSectionNote")}</div>
       <div id="cgManualAssignSection" style="display:none;">
         <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.ManualAssignmentNote")}</div>
-        <div id="cgManualAssignWrap" style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px;"></div>
+        <div id="cgManualAssignWrap" class="uesrpg-cg-option-grid uesrpg-cg-option-grid--four"></div>
       </div>
       <div id="cgPointBuySection" style="display:none;">
-        <div class="uesrpg-cg-dialog__note">${tf("UESRPG.Dialogs.SetBaseCharacteristics.PointBuyAllocationNote", { total: "0/80" })}</div>
-        <div style="display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px;">
-          ${CHA_KEYS.map((k) => `<label style="display:flex; flex-direction:column; gap:2px;"><span>${k.toUpperCase()}</span><input type="number" id="pb-${k}" min="0" max="20" value="0"></label>`).join("")}
+        <div class="uesrpg-cg-dialog__note">${t("UESRPG.Dialogs.SetBaseCharacteristics.PointBuyAllocationNote")}: <span id="cgPointBuyTotal">0/80</span></div>
+        <div class="uesrpg-cg-option-grid uesrpg-cg-option-grid--four">
+          ${CHA_KEYS.map((k) => `<label class="uesrpg-cg-field uesrpg-cg-field--stacked"><span>${k.toUpperCase()}</span><input type="number" id="pb-${k}" min="0" max="20" value="0"></label>`).join("")}
         </div>
       </div>
       <table class="uesrpg-cg-dialog__table">
@@ -317,7 +320,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
       </table>
     </div>`,
     yes: {
-      label: "Submit",
+      label: t("UESRPG.UI.Submit"),
       callback: async (html) => {
         const root = _resolveDialogRoot(html);
         if (!root) return;
@@ -599,6 +602,7 @@ export const onClickCharacteristic = asyncGuardSheet(async function onClickChara
   let decl = null;
   try {
     decl = await customDialog({
+      layout: "workflow",
       title: `${chaLabel} — Roll Options`,
       content: dialogContent,
       buttons: {
@@ -782,25 +786,26 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
       if (input) input.value = String(data.unlucky[idx] ?? 0);
     });
     const countEl = root.querySelector("#cgLuckCounts");
-    if (countEl) countEl.textContent = `Lucky ${data.luckyCount} | Unlucky ${data.unluckyCount}`;
+    if (countEl) countEl.textContent = tf("UESRPG.Dialogs.LuckyUnluckyNumbers.Counts", { lucky: data.luckyCount, unlucky: data.unluckyCount });
     state.rollTrace = data;
   }
 
   const result = await customDialog({
-    title: "Lucky & Unlucky Numbers",
+    layout: "workflow",
+    title: t("UESRPG.Dialogs.LuckyUnluckyNumbers.Title"),
     width: 800,
-    classes: ["uesrpg-cg-compact-dialog"],
-    content: `<div class="uesrpg-cg-dialog">
-      <div class="uesrpg-cg-dialog__note">
-        RAW default: Lucky count = Luck bonus${allocation.thiefBonus ? " (+1 for Thief sign)" : ""}; Unlucky count = 5 - Luck bonus.
+    classes: ["uesrpg-cg-compact-dialog", "uesrpg-chargen-dialog"],
+    content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
+      <div class="uesrpg-cg-dialog__note uesrpg-cg-intro">
+        ${tf("UESRPG.Dialogs.LuckyUnluckyNumbers.RuleSummary", { thief: allocation.thiefBonus ? t("UESRPG.Dialogs.LuckyUnluckyNumbers.ThiefBonus") : "" })}
       </div>
       <div class="uesrpg-cg-dialog__tools">
-        <button type="button" id="cgRollLucky">Roll RAW</button>
-        <button type="button" id="cgManualLucky">Manual Edit</button>
-        <span class="uesrpg-cg-dialog__small" id="cgLuckCounts">Lucky ${allocation.luckyCount} | Unlucky ${allocation.unluckyCount}</span>
+        <button type="button" id="cgRollLucky">${t("UESRPG.Dialogs.LuckyUnluckyNumbers.RollNumbers")}</button>
+        <button type="button" id="cgManualLucky">${t("UESRPG.Dialogs.LuckyUnluckyNumbers.ManualEdit")}</button>
+        <span class="uesrpg-cg-dialog__small" id="cgLuckCounts">${tf("UESRPG.Dialogs.LuckyUnluckyNumbers.Counts", { lucky: allocation.luckyCount, unlucky: allocation.unluckyCount })}</span>
       </div>
       <table class="uesrpg-cg-dialog__table">
-        <tr><th colspan="6">Lucky Numbers</th></tr>
+        <tr><th colspan="6">${t("UESRPG.Dialogs.LuckyUnluckyNumbers.LuckyNumbers")}</th></tr>
         <tr>
           <td><input class="luckyNum" id="ln1" type="number" min="1" max="100" value="${initialLuckyMap.ln1 || ""}"></td>
           <td><input class="luckyNum" id="ln2" type="number" min="1" max="100" value="${initialLuckyMap.ln2 || ""}"></td>
@@ -811,7 +816,7 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
         </tr>
       </table>
       <table class="uesrpg-cg-dialog__table">
-        <tr><th colspan="6">Unlucky Numbers</th></tr>
+        <tr><th colspan="6">${t("UESRPG.Dialogs.LuckyUnluckyNumbers.UnluckyNumbers")}</th></tr>
         <tr>
           <td><input class="unluckyNum" id="ul1" type="number" min="1" max="100" value="${initialUnluckyMap.ul1 || ""}"></td>
           <td><input class="unluckyNum" id="ul2" type="number" min="1" max="100" value="${initialUnluckyMap.ul2 || ""}"></td>
@@ -823,7 +828,7 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
       </table>
     </div>`,
     yes: {
-      label: "Submit",
+      label: t("UESRPG.UI.Submit"),
       callback: async (html) => {
         const root = _resolveDialogRoot(html);
         if (!root) return null;
@@ -864,7 +869,7 @@ export const onLuckyMenu = asyncGuardSheet(async function onLuckyMenu(event, tar
         };
       },
     },
-    no: { label: "Cancel", callback: () => null },
+    no: { label: t("UESRPG.UI.Cancel"), callback: () => null },
     defaultButton: "yes",
     render: (_event, html) => {
       const root = _resolveDialogRoot(html);

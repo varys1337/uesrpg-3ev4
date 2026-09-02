@@ -1,7 +1,7 @@
 {
   "title": "UESRPG 3ev4",
   "description": "A system used to play the UESRPG (Unofficial Elder Scrolls Roleplaying Game) 3ev4 d100 system.",
-  "version": "v14.0.0",
+  "version": "14.0.7",
   "esmodules": [
     "src/system.js"
   ],
@@ -150,7 +150,7 @@
   "secondaryTokenAttribute": "magicka",
   "url": "https://github.com/varys1337/uesrpg-3ev4",
   "manifest": "https://github.com/varys1337/uesrpg-3ev4/releases/latest/download/system.json",
-  "download": "https://github.com/varys1337/uesrpg-3ev4/releases/download/v14.0.0/uesrpg-3ev4.zip",
+  "download": "https://github.com/varys1337/uesrpg-3ev4/releases/download/v14.0.5/uesrpg-3ev4.zip",
   "license": "LICENSE.txt",
   "id": "uesrpg-3ev4",
   "authors": [
@@ -168,9 +168,9 @@
     }
   ],
   "compatibility": {
-    "minimum": "14.359",
-    "verified": "14.361",
-    "maximum": "14.399"
+    "minimum": "14.363",
+    "verified": "14.367",
+    "maximum": "14"
   },
   "documentTypes": {
     "Actor": {

@@ -41,6 +41,7 @@ async function promptDefenseCommitChoice(defenderActor) {
   const canBlock = hasEquippedShield(defenderActor);
   const canWard = hasActiveWard(defenderActor);
   return await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Dialogs.Opposed.CommitDefense", "Commit Defense"),
     content: `
       <div class="uesrpg defense-dialog uesrpg-adv-dialog uesrpg-adv-dialog--magic-commit">

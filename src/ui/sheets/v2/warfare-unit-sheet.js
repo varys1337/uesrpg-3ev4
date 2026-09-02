@@ -22,7 +22,6 @@ import { readDropData } from "../../../utils/drop-data.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
 import { postItemToChat } from "../shared-handlers.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
-import { bindWindowRestoreGuard } from "./shared/window-restore-guard.js";
 import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import {
   buildAllowedChangePatch,
@@ -257,6 +256,7 @@ async function promptClashContactSides({
     .join("");
 
   return customDialog({
+    layout: "workflow",
     title: tf("UESRPG.Dialogs.Warfare.ContactSidesTitle", { actor: actorName }),
     content: `
       <div class="warfare-clash-commit-dialog">
@@ -602,8 +602,6 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     super._onRender(context, options);
     const el = this.element;
     applySheetDensityClass(el);
-    bindWindowRestoreGuard(this, el);
-
     if (context.limited) return;
 
     // Activate primary tab group
@@ -823,6 +821,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
 
     // Choose attack type before creating the clash card
     const attackType = await customDialog({
+      layout: "workflow",
       title: tf("UESRPG.Dialogs.Warfare.InitiateClashTitle", { actor: actor.name }),
       content: `<div class="warfare-clash-commit-dialog">
         <div class="form-group">

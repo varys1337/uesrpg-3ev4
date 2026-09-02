@@ -108,33 +108,59 @@ function createFieldFromDefault(key, value, htmlFieldSet) {
   return new fields.StringField({ initial: String(value ?? "") });
 }
 
-function createSchema(seed, htmlFields = []) {
+function createNestedNumberSchemaField(seed) {
+  const fields = getFieldsApi();
+  const schema = {};
+  for (const [key, value] of Object.entries(seed ?? {})) {
+    schema[key] = new fields.NumberField({
+      initial: Number(value) || 0,
+      integer: Number.isInteger(value),
+    });
+  }
+  return new fields.SchemaField(schema);
+}
+
+function createSchema(seed, htmlFields = [], options = {}) {
   const schema = {};
   const htmlFieldSet = new Set(htmlFields);
 
   for (const [key, value] of Object.entries(seed ?? {})) {
+    if (options.actorResources === true && (key === "hp" || key === "magicka") && isPlainObject(value)) {
+      schema[key] = createNestedNumberSchemaField(value);
+      continue;
+    }
+    if (options.decimalEnc === true && key === "enc") {
+      schema[key] = new (getFieldsApi().NumberField)({
+        initial: Number(value) || 0,
+        integer: false,
+        min: 0,
+      });
+      continue;
+    }
     schema[key] = createFieldFromDefault(key, value, htmlFieldSet);
   }
 
   return schema;
 }
 
-function createTypedSystemDataModel(seed, htmlFields = []) {
+function createTypedSystemDataModel(seed, htmlFields = [], options = {}) {
   return class extends foundry.abstract.TypeDataModel {
     static defineSchema() {
-      return createSchema(seed, htmlFields);
+      return createSchema(seed, htmlFields, options);
     }
   };
 }
 
 const PlayerCharacterActorSystemModel = createTypedSystemDataModel(
   ACTOR_MODEL_SEEDS["Player Character"],
-  ACTOR_HTML_FIELDS["Player Character"]
+  ACTOR_HTML_FIELDS["Player Character"],
+  { actorResources: true }
 );
 
 const NpcActorSystemModel = createTypedSystemDataModel(
   ACTOR_MODEL_SEEDS.NPC,
-  ACTOR_HTML_FIELDS.NPC
+  ACTOR_HTML_FIELDS.NPC,
+  { actorResources: true }
 );
 
 const GroupActorSystemModel = createTypedSystemDataModel(
@@ -149,32 +175,38 @@ const WarfareUnitActorSystemModel = createTypedSystemDataModel(
 
 const EquipmentItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.equipment,
-  ITEM_HTML_FIELDS.equipment
+  ITEM_HTML_FIELDS.equipment,
+  { decimalEnc: true }
 );
 
 const ItemItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.item,
-  ITEM_HTML_FIELDS.item
+  ITEM_HTML_FIELDS.item,
+  { decimalEnc: true }
 );
 
 const ContainerItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.container,
-  ITEM_HTML_FIELDS.container
+  ITEM_HTML_FIELDS.container,
+  { decimalEnc: true }
 );
 
 const ArmorItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.armor,
-  ITEM_HTML_FIELDS.armor
+  ITEM_HTML_FIELDS.armor,
+  { decimalEnc: true }
 );
 
 const ShieldItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.shield,
-  ITEM_HTML_FIELDS.shield
+  ITEM_HTML_FIELDS.shield,
+  { decimalEnc: true }
 );
 
 const WeaponItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.weapon,
-  ITEM_HTML_FIELDS.weapon
+  ITEM_HTML_FIELDS.weapon,
+  { decimalEnc: true }
 );
 
 const SpellItemSystemModel = createTypedSystemDataModel(
@@ -214,7 +246,8 @@ const MagicSkillItemSystemModel = createTypedSystemDataModel(
 
 const AmmunitionItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.ammunition,
-  ITEM_HTML_FIELDS.ammunition
+  ITEM_HTML_FIELDS.ammunition,
+  { decimalEnc: true }
 );
 
 const InvocationItemSystemModel = createTypedSystemDataModel(
@@ -224,7 +257,8 @@ const InvocationItemSystemModel = createTypedSystemDataModel(
 
 const ScrollItemSystemModel = createTypedSystemDataModel(
   ITEM_MODEL_SEEDS.scroll,
-  ITEM_HTML_FIELDS.scroll
+  ITEM_HTML_FIELDS.scroll,
+  { decimalEnc: true }
 );
 
 const ACTOR_MODELS = Object.freeze({

@@ -7,7 +7,6 @@
  */
 
 import { getTemplateCache } from './template-cache.js';
-import { getOptimizedHelperRegistry } from './handlebars-optimizer.js';
 
 /**
  * Template renderer class
@@ -15,7 +14,6 @@ import { getOptimizedHelperRegistry } from './handlebars-optimizer.js';
 export class TemplateRenderer {
   constructor() {
     this.templateCache = getTemplateCache();
-    this.helperRegistry = getOptimizedHelperRegistry();
     
     // Render cache (context-based)
     this.renderCache = new WeakMap(); // context -> rendered HTML
@@ -240,12 +238,10 @@ export class TemplateRenderer {
    */
   getStats() {
     const templateStats = this.templateCache.getStats();
-    const helperStats = this.helperRegistry.getStats();
     
     return {
       ...this.stats,
       templateCache: templateStats,
-      helperOptimization: helperStats,
       averageRenderTime: this.stats.renderTime / (this.stats.sheetRenders + this.stats.dialogRenders) || 0,
       cacheHitRate: this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses) || 0
     };

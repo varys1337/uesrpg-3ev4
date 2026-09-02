@@ -176,6 +176,7 @@ export async function showSpellAuditReport(packName) {
   `;
   
   customDialog({
+    layout: "table",
     title: "Spell Audit Report",
     content,
     buttons: {

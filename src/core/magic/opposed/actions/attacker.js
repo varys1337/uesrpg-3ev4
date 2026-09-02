@@ -257,6 +257,7 @@ async function promptCastingCommitChoice(attacker, attackerState = {}) {
   }).join("");
 
   return await customDialog({
+    layout: "workflow",
     title: t("UESRPG.Sheets.Combat.CastMagic", "Cast Magic"),
     content: `
         <div class="uesrpg uesrpg-adv-dialog uesrpg-adv-dialog--magic-cast">

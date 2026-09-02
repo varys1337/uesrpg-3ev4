@@ -21,6 +21,17 @@ import { MagicOpposedWorkflow } from "./opposed-workflow.js";
 import { showSpellOptionsDialog } from "./dialogs/spell-options-dialog.js";
 import { emitPreCast } from "./spell-runtime.js";
 import { isActorInStartedCombatEncounter } from "../combat/combat-scope.js";
+import { t } from "../../utils/i18n.js";
+
+const _castsInFlight = new Set();
+
+function _castLockKey(cfg = {}) {
+  return [
+    String(game?.user?.id ?? ""),
+    String(cfg?.casterActorUuid ?? ""),
+    String(cfg?.spellUuid ?? ""),
+  ].join(":");
+}
 
 /**
  * Unified spell casting service.
@@ -46,7 +57,14 @@ export const SpellCastingService = {
    * @param {boolean} [cfg.skipDialog] - Skip spell options dialog (use defaults or provided options)
    * @returns {Promise<object|null>} - { success: boolean, messageId: string|null, error: string|null }
    */
-  async cast(cfg) {
+  async cast(cfg = {}) {
+    const castLockKey = _castLockKey(cfg);
+    if (_castsInFlight.has(castLockKey)) {
+      ui.notifications?.warn?.(t("UESRPG.DefectUpdate.SpellCastAlreadyResolving", "That spell cast is already being resolved."));
+      return { success: false, messageId: null, error: "Duplicate spell cast blocked" };
+    }
+    _castsInFlight.add(castLockKey);
+
     try {
       // 1. Validate and resolve entities
       const spell = await fromUuid(cfg.spellUuid);
@@ -124,6 +142,8 @@ export const SpellCastingService = {
       console.error("uesrpg-3ev4 | SpellCastingService.cast error:", err);
       ui.notifications.error(`Spell casting failed: ${err.message}`);
       return { success: false, messageId: null, error: err.message };
+    } finally {
+      _castsInFlight.delete(castLockKey);
     }
   },
   
@@ -271,14 +291,11 @@ export const SpellCastingService = {
    */
   async _castDirect(actor, spell, profile, spellOptions, cfg = {}) {
     try {
-      const defenderTokenUuid = Array.isArray(cfg.targetTokenUuids) && cfg.targetTokenUuids.length
-        ? cfg.targetTokenUuids[0]
-        : null;
       // Direct casting uses MagicOpposedWorkflow.castDirectTargeted(cfg)
       const result = await MagicOpposedWorkflow.castDirectTargeted({
         attackerActorUuid: actor.uuid,
         attackerTokenUuid: cfg.casterTokenUuid ?? null,
-        defenderTokenUuid,
+        defenderTokenUuids: Array.isArray(cfg.targetTokenUuids) ? cfg.targetTokenUuids : [],
         spellUuid: spell.uuid,
         spellOptions,
         castActionType: cfg.castActionType ?? "primary",

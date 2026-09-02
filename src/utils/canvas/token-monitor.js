@@ -19,6 +19,9 @@ export class TokenUpdateMonitor {
     this.debounceMs = options.debounceMs || 50;
     this.batchSize = options.batchSize || 10;
     this.enabled = options.enabled !== false;
+    this.debug = options.debug === true;
+    this._hookIds = [];
+    this._hooksRegistered = false;
     
     // State
     this.pendingUpdates = new Map(); // tokenId -> {tokenDoc, changed, timestamp}
@@ -48,31 +51,45 @@ export class TokenUpdateMonitor {
     if (this._hooksRegistered) return;
     
     // Token update hook with debouncing
-    Hooks.on('updateToken', (tokenDoc, changed, options, userId) => {
+    this._hookIds.push(['updateToken', Hooks.on('updateToken', (tokenDoc, changed, options, userId) => {
       this.handleTokenUpdate(tokenDoc, changed, options, userId);
-    });
+    })]);
     
     // Token creation hook
-    Hooks.on('createToken', (tokenDoc, options, userId) => {
+    this._hookIds.push(['createToken', Hooks.on('createToken', (tokenDoc, options, userId) => {
       this.handleTokenCreate(tokenDoc, options, userId);
-    });
+    })]);
     
     // Token deletion hook
-    Hooks.on('deleteToken', (tokenDoc, options, userId) => {
+    this._hookIds.push(['deleteToken', Hooks.on('deleteToken', (tokenDoc, options, userId) => {
       this.handleTokenDelete(tokenDoc, options, userId);
-    });
+    })]);
     
     // Canvas lifecycle hooks
-    Hooks.on('canvasTearDown', () => {
+    this._hookIds.push(['canvasTearDown', Hooks.on('canvasTearDown', () => {
       this.clearPending();
-    });
-    
-    // Register batch update hook for other systems to listen to
-    Hooks.once('ready', () => {
-      console.debug('TokenUpdateMonitor: Registered batch update hook "uesrpg.tokensUpdatedBatch"');
-    });
+    })]);
     
     this._hooksRegistered = true;
+  }
+
+  /**
+   * Remove all registered Foundry hooks.
+   */
+  unregisterHooks() {
+    for (const [event, hookId] of this._hookIds) {
+      Hooks.off(event, hookId);
+    }
+    this._hookIds.length = 0;
+    this._hooksRegistered = false;
+  }
+
+  /**
+   * Release queued work and long-lived listeners.
+   */
+  shutdown() {
+    this.clearPending();
+    this.unregisterHooks();
   }
   
   /**
@@ -247,7 +264,7 @@ export class TokenUpdateMonitor {
     Hooks.callAll('uesrpg.tokensUpdatedBatch', updates);
     
     // Log if debug enabled
-    if (this.enabled && updates.length > 1) {
+    if (this.debug && updates.length > 1) {
       console.debug(`TokenUpdateMonitor: Processed batch of ${updates.length} token updates`);
     }
   }
@@ -337,6 +354,8 @@ export function getTokenUpdateMonitor(options = {}) {
  */
 export function initializeTokenUpdateMonitor(config = {}) {
   const monitor = getTokenUpdateMonitor(config);
+  monitor.debug = config.debug === true;
+  monitor.registerHooks();
   
   // Register debug commands if debug enabled
   if (config.debug) {

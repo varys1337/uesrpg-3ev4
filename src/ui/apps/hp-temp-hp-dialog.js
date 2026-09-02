@@ -59,6 +59,7 @@ export class HPTempHPDialog {
 
     const content = await _buildDialogContent(actor);
     const result = await customDialog({
+      layout: "workflow",
       title: tf("UESRPG.Dialogs.HpManagement.Title", { actor: actor?.name ?? t("UESRPG.UI.Actor", "Actor") }, `Manage HP - ${actor?.name ?? "Actor"}`),
       content,
       classes: ["uesrpg-resource-dialog", "uesrpg-resource-dialog--hp"],

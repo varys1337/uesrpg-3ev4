@@ -25,6 +25,7 @@ import { openWarfareEncounterApp } from "./warfare-encounter-app.js";
 import { startWarfareEncounter } from "../../../core/mass-warfare/encounter/controller.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { AdvanceCampaignTurnService } from "../../../application/campaign/advance-campaign-turn-service.js";
+import { activateOpenApplication } from "./application-focus.js";
 
 const TEMPLATE_PATH = templatePath("v2/apps/army-campaign/app.hbs");
 const _openApps = new Map();
@@ -86,6 +87,7 @@ async function chooseMember(group, title, { includeWarfareUnits = false } = {}) 
     .join("");
   if (!choices) return null;
   const picked = await customDialog({
+    layout: "workflow",
     title,
     content: `<div class="form-group"><label><b>${t("UESRPG.UI.Actor")}</b></label><select name="actorUuid">${choices}</select></div>`,
     buttons: {
@@ -105,6 +107,7 @@ async function chooseScene(title, extraContent = "") {
     .join("");
   if (!choices) return null;
   return customDialog({
+    layout: "workflow",
     title,
     content: `<div class="form-group"><label><b>${t("UESRPG.UI.Scene")}</b></label><select name="sceneUuid">${choices}</select></div>${extraContent}`,
     buttons: {
@@ -128,6 +131,7 @@ async function chooseRegion(scene, title, filter = null) {
   const choices = regions.map((region) => `<option value="${esc(region.uuid)}">${esc(region.name || region.id)}</option>`).join("");
   if (!choices) return null;
   const picked = await customDialog({
+    layout: "workflow",
     title,
     content: `<div class="form-group"><label><b>${t("UESRPG.UI.Region")}</b></label><select name="regionUuid">${choices}</select></div>`,
     buttons: {
@@ -380,6 +384,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     if (!region) return;
     const current = getRegionWarfareFeatureState(region);
     const picked = await customDialog({
+      layout: "workflow",
       title: tf("UESRPG.Dialogs.ArmyCampaign.ConfigureFeatureTitle", { region: region.name || region.id }),
       content: `
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.FeatureKind")}</b></label><select name="kind"><option value="fortification" ${current.kind === "fortification" ? "selected" : ""}>${t("UESRPG.Dialogs.ArmyCampaign.FeatureKindFortification")}</option><option value="deployable" ${current.kind === "deployable" ? "selected" : ""}>${t("UESRPG.Dialogs.ArmyCampaign.FeatureKindDeployable")}</option></select></div>
@@ -445,6 +450,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     const group = this._group;
     if (!group) return;
     const picked = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.MarchTitle"),
       content: `
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.LocationNote")}</b></label><input type="text" name="locationNote" value="${esc(getArmyCampaignState(group).locationNote || "")}"></div>
@@ -490,6 +496,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     const group = this._group;
     if (!group) return;
     const picked = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.ReinforceTitle"),
       content: `
         <div class="form-group"><label><input type="checkbox" name="clearForcedMarch" checked> ${t("UESRPG.Dialogs.ArmyCampaign.ClearForcedMarch")}</label></div>
@@ -567,6 +574,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     const group = this._group;
     if (!group) return;
     const picked = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.SpecialOperationTitle"),
       content: `
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.OperationNote")}</b></label><input type="text" name="note"></div>
@@ -608,6 +616,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     const marshal = await this._resolveMarshal(t("UESRPG.Dialogs.ArmyCampaign.ResolveContactTitle"));
     if (!marshal) return;
     const picked = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.ResolveContactTitle"),
       content: `
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.OpposingArmy")}</b></label><select name="armyUuid">${otherArmies}</select></div>
@@ -644,6 +653,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     const scene = await this._resolveSiegeScene();
     if (!scene) return ui.notifications?.warn?.(t("UESRPG.Notifications.ArmyCampaign.NoActiveSiegeScene"));
     const picked = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.BlockadeTitle"),
       content: `
         <div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.BlockadeState")}</b></label><select name="blockadeState"><option value="partial">${t("UESRPG.Dialogs.ArmyCampaign.BlockadePartial")}</option><option value="full">${t("UESRPG.Dialogs.ArmyCampaign.BlockadeFull")}</option><option value="none">${t("UESRPG.UI.None")}</option></select></div>
@@ -677,6 +687,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     if (!scene) return ui.notifications?.warn?.(t("UESRPG.Notifications.ArmyCampaign.NoActiveSiegeScene"));
     const region = await chooseRegion(scene, t("UESRPG.Dialogs.ArmyCampaign.RepairRegionTitle"), (entry) => getRegionWarfareFeatureState(entry).kind === "fortification");
     const amount = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.RepairTitle"),
       content: `<div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.RepairAmount")}</b></label><input type="number" name="amount" value="1" min="1"></div>`,
       buttons: {
@@ -709,6 +720,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     if (!scene) return ui.notifications?.warn?.(t("UESRPG.Notifications.ArmyCampaign.NoActiveSiegeScene"));
     const region = await chooseRegion(scene, t("UESRPG.Dialogs.ArmyCampaign.TargetFortificationRegionTitle"), (entry) => getRegionWarfareFeatureState(entry).kind === "fortification");
     const amount = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.SapTitle"),
       content: `<div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.BreachDamage")}</b></label><input type="number" name="amount" value="1" min="1"></div>`,
       buttons: {
@@ -742,6 +754,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     const scene = await this._resolveSiegeScene();
     if (!group || !scene) return ui.notifications?.warn?.(t("UESRPG.Notifications.ArmyCampaign.NoActiveSiegeScene"));
     const amount = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.ArmyCampaign.SmuggleTitle"),
       content: `<div class="form-group"><label><b>${t("UESRPG.Dialogs.ArmyCampaign.SupplyReserveChange")}</b></label><input type="number" name="amount" value="1"></div>`,
       buttons: {
@@ -790,8 +803,7 @@ export async function openArmyCampaignApp(groupActorOrUuid) {
   const key = String(group.uuid ?? "");
   const existing = _openApps.get(key);
   if (existing) {
-    await existing.render(true);
-    return existing;
+    return activateOpenApplication(existing, { render: true });
   }
   const app = new ArmyCampaignAppV2(group, { id: `uesrpg-army-campaign-${group.id}` });
   await app.render(true);

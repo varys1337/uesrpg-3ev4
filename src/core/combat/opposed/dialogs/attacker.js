@@ -191,6 +191,7 @@ export async function attackerDeclareDialog(attackerActor, attackerLabel, { styl
 `;
 
     return await customDialog({
+      layout: "workflow",
       title: tf("UESRPG.Dialogs.Opposed.AttackOptionsTitle", { label: attackerLabel }, `${attackerLabel} - Attack Options`),
       content,
       buttons: {
@@ -426,7 +427,7 @@ export async function promptWeaponAndAdvantages({
       ` : `<input type="hidden" name="weaponUuid" value="${_escapeHtml(resolvedWeaponUuid)}" />`}
 
       ${max > 0 ? `
-        <hr style="margin:0.5rem 0;" />
+        <hr class="uesrpg-dialog-divider" />
         <div class="uesrpg-adv-summary">
           <b>${t("UESRPG.Chat.Common.Advantage", "Advantage")}</b>: ${tf("UESRPG.Dialogs.Opposed.AvailableCount", { count: max }, `${max} available`)}
           <div class="uesrpg-adv-count" aria-live="polite"></div>
@@ -468,17 +469,19 @@ export async function promptWeaponAndAdvantages({
             </span>
           </label>
           ${hasExploitTalent ? `
-            <p class="hint" style="margin:0.25rem 0 0 0;">${exploitEligible ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageEligible", "Exploit Advantage: Press Advantage is doubled (+20) (isolated duel).") : t("UESRPG.Dialogs.Opposed.ExploitAdvantageRequiresDuel", "Exploit Advantage: requires an isolated duel to double Press Advantage.")}</p>
+            <p class="hint uesrpg-dialog-note">${exploitEligible ? t("UESRPG.Dialogs.Opposed.ExploitAdvantageEligible", "Exploit Advantage: Press Advantage is doubled (+20) (isolated duel).") : t("UESRPG.Dialogs.Opposed.ExploitAdvantageRequiresDuel", "Exploit Advantage: requires an isolated duel to double Press Advantage.")}</p>
           ` : ``}
           ` : ``}
 
-          ${knownSpecial.length ? `
-            <div class="uesrpg-adv-section">
-              <div class="uesrpg-adv-section__title"><b>${t("UESRPG.Dialogs.Opposed.KnownSpecialActions", "Known Special Actions")}</b></div>
-            </div>
-            ${knownSpecial.map(renderSpecialOpt).join("\n")}
-          ` : ``}
         </div>
+        ${knownSpecial.length ? `
+          <section class="uesrpg-known-specials">
+            <div class="uesrpg-adv-section__title"><b>${t("UESRPG.Dialogs.Opposed.KnownSpecialActions", "Known Special Actions")}</b></div>
+            <div class="uesrpg-known-specials__grid">
+              ${knownSpecial.map(renderSpecialOpt).join("\n")}
+            </div>
+          </section>
+        ` : ``}
         <p class="hint">${tf("UESRPG.Dialogs.Opposed.SelectUpToOptions", { count: max }, `Select up to ${max} option(s).`)}</p>
       ` : ``}
     </div>
@@ -488,6 +491,7 @@ export async function promptWeaponAndAdvantages({
   const tooltipScope = { kind: "adv-dialog", domain: "attacker-weapon-advantages" };
   try {
     return await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.Opposed.ResolveDamage", "Resolve Damage"),
       width: resolveDamageWidth,
       content,

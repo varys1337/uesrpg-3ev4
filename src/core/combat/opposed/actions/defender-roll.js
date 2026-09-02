@@ -344,6 +344,7 @@ export async function handleDefenderRoll(ctx) {
   let fearsomeTNOverride = null;
   if (choice.defenseType === "evade" && fearsomeContext?.fearsome?.available) {
     const usePersuade = await customDialog({
+      layout: "workflow",
       title: t("UESRPG.Dialogs.Opposed.Fearsome", "Fearsome"),
       content: `
         <div class="uesrpg">
