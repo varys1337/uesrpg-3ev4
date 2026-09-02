@@ -18,104 +18,36 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Build a distributable ZIP that includes pre-compiled packs
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install development dependencies
+        run: npm ci
+
+      - name: Build validated release folder
+        run: npm run build:folder
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          expected_tag="v$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "Release workflow requires tag $expected_tag; received $GITHUB_REF_TYPE $GITHUB_REF_NAME." >&2
+            exit 1
+          fi
+
+      # Package the same validated runtime folder produced by local builds.
       - name: Build system zip (uesrpg-3ev4.zip)
         shell: bash
         run: |
-          rm -rf dist
-          mkdir -p dist
-
-          # Copy everything into dist EXCEPT: git metadata, CI, dev tooling
-          rsync -a . dist/ \
-            --exclude ".git/" \
-            --exclude ".github/" \
-            --exclude "node_modules/" \
-            --exclude "automation/" \
-            --exclude ".editorconfig" \
-            --exclude ".gitattributes" \
-            --exclude "package.json" \
-            --exclude "package-lock.json"
-
           rm -f uesrpg-3ev4.zip
-          (cd dist && zip -r ../uesrpg-3ev4.zip .)
+          (cd dist/uesrpg-3ev4 && zip -r ../../uesrpg-3ev4.zip .)
 
-      - name: Verify ZIP contains compiled packs
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
-          import sys
-          import zipfile
-
-          zpath = "uesrpg-3ev4.zip"
-          manifest_path = "system.json"
-
-          try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-              manifest = json.load(f)
-          except Exception as exc:
-            print(f"ERROR: Could not read {manifest_path}: {exc}")
-            sys.exit(1)
-
-          try:
-            with zipfile.ZipFile(zpath) as zf:
-              names = set(zf.namelist())
-          except Exception as exc:
-            print(f"ERROR: Could not read {zpath}: {exc}")
-            sys.exit(1)
-
-          packs = manifest.get("packs", [])
-          if not isinstance(packs, list):
-            print("ERROR: system.json packs field is not a list.")
-            sys.exit(1)
-
-          missing = []
-          hits = []
-
-          for pack in packs:
-            if not isinstance(pack, dict):
-              continue
-
-            pack_name = pack.get("name", "<unnamed>")
-            pack_path = str(pack.get("path", "")).strip()
-
-            if not pack_path:
-              missing.append(f"{pack_name}: missing path in system.json")
-              continue
-
-            normalized = pack_path.replace("\\", "/")
-            while normalized.startswith("./"):
-              normalized = normalized[2:]
-            normalized = normalized.strip("/")
-
-            current_path = f"{normalized}/CURRENT"
-
-            if current_path in names:
-              hits.append(current_path)
-            else:
-              missing.append(f"{pack_name}: missing {current_path}")
-
-          if missing:
-            print("ERROR: ZIP is missing one or more compiled LevelDB pack CURRENT files declared in system.json:")
-            for item in missing:
-              print(" ", item)
-
-            print("Pack-related ZIP entries:")
-            for n in sorted(name for name in names if name.startswith("packs/"))[:300]:
-              print(" ", n)
-
-            sys.exit(1)
-
-          if not hits:
-            print("ERROR: system.json declares no verifiable compiled packs.")
-            sys.exit(1)
-
-          print(f"Found {len(hits)} compiled pack(s) declared in system.json:")
-          for n in hits:
-            print(" ", n)
-
-          print("ZIP verification passed.")
-          PY
+      - name: Validate release archive
+        run: npm run build:release -- --archive uesrpg-3ev4.zip
 
       - name: Create GitHub Release (if missing)
         env:

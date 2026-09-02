@@ -25,7 +25,7 @@ if (!rawVersion) {
   process.exit(1);
 }
 
-const packageVersion = `v${rawVersion}`;
+const releaseTag = `v${rawVersion}`;
 
 // Read current system.json
 let systemObj;
@@ -41,13 +41,13 @@ try {
 // - manifest should be stable so Foundry can always find the newest release metadata.
 // - download must match the exact ZIP filename uploaded as a Release asset by your workflow.
 const manifestUrl = "https://github.com/varys1337/uesrpg-3ev4/releases/latest/download/system.json";
-const downloadUrl = `https://github.com/varys1337/uesrpg-3ev4/releases/download/${packageVersion}/uesrpg-3ev4.zip`;
+const downloadUrl = `https://github.com/varys1337/uesrpg-3ev4/releases/download/${releaseTag}/uesrpg-3ev4.zip`;
 
-systemObj.version = packageVersion;
+systemObj.version = rawVersion;
 systemObj.manifest = manifestUrl;
 systemObj.download = downloadUrl;
 
-console.log(`Updating system.json with version '${packageVersion}'`);
+console.log(`Updating system.json with version '${rawVersion}'`);
 console.log(`Setting manifest: ${manifestUrl}`);
 console.log(`Setting download: ${downloadUrl}`);
 
@@ -59,10 +59,10 @@ try {
   process.exit(1);
 }
 
-// Stage system.json synchronously so npm version commit includes it
+// Stage system.json when this script is running inside a Git worktree.
 try {
+  execSync("git rev-parse --is-inside-work-tree", { stdio: "ignore" });
   execSync("git add system.json", { stdio: "inherit" });
 } catch (err) {
-  console.error("ERROR: Failed to stage system.json via `git add system.json`.", err);
-  process.exit(1);
+  console.warn("WARNING: system.json was updated but not staged because no Git worktree is available.");
 }
