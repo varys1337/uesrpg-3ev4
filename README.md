@@ -17,27 +17,3 @@ A system and a few compendiums used to play the UESRPG game. Special thanks to 2
 Express permission to use the artwork and tokens included in the compendiums of this system was given by 2MinuteTabletop and the copyright holder.
 
 You can find the lively UESRPG Discord Community here: https://discord.gg/KAkXdf9
-
-Documentation:
-- Localization guide: [docs/Localization.md](docs/Localization.md)
-
-## Ready release folder
-
-Run `build-release-folder.cmd` on Windows, or run `npm run build:folder` from a terminal.
-
-The command validates the source and creates a ready-to-install Foundry system at `dist/uesrpg-3ev4`. The folder contains only runtime files required by the system; development dependencies, automation, repository metadata, and transient compendium lock/log files are excluded.
-
-## Publishing a GitHub release
-
-The package version is plain SemVer (for example, `14.0.8`); only the Git tag has the `v` prefix (`v14.0.8`). Publish releases from a clean branch with:
-
-```powershell
-npm ci
-npm run build:release
-npm version patch
-git push origin main --follow-tags
-```
-
-`npm version patch` synchronizes `package.json`, `package-lock.json`, and `system.json`, including the version-specific Foundry download URL. The pushed tag starts the GitHub Actions workflow, which rebuilds the validated runtime folder, verifies that the tag matches the package version, creates `uesrpg-3ev4.zip`, validates its contents, and uploads both the ZIP and `system.json` to the matching GitHub Release.
-
-Do not create or reuse a release tag whose version differs from `package.json`, and do not edit the manifest download URL by hand. The release validator rejects either discrepancy.
