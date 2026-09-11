@@ -76,6 +76,15 @@ async function retry(label, operation) {
   throw new Error(`${label} failed after ${RETRY_DELAYS_MS.length} attempts: ${lastError?.message}`);
 }
 
+async function fetchDraftRelease(tag) {
+  const releases = await fetchJson(
+    `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases?per_page=100`,
+  );
+  const release = releases.find((candidate) => candidate.tag_name === tag && candidate.draft === true);
+  if (!release) throw new Error(`Draft release ${tag} was not found in the authenticated release listing.`);
+  return release;
+}
+
 function validateReleaseMetadata(release, expected, assets, stage) {
   assert(release.tag_name === expected.tag, `GitHub release tag ${release.tag_name} does not match ${expected.tag}.`);
   assert(release.prerelease === false, `${expected.tag} must not be a prerelease.`);
@@ -135,10 +144,10 @@ async function main() {
     };
   });
 
-  const endpoint = stage === "draft"
-    ? `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/tags/${expected.tag}`
-    : `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
-  const release = await retry(`GitHub ${stage} release verification`, () => fetchJson(endpoint));
+  const release = await retry(`GitHub ${stage} release verification`, () => {
+    if (stage === "draft") return fetchDraftRelease(expected.tag);
+    return fetchJson(`https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/tags/${expected.tag}`);
+  });
   validateReleaseMetadata(release, expected, assets, stage);
 
   if (stage === "published") {
