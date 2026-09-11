@@ -1,4 +1,6 @@
 import { findOpenAppInstance, focusOpenApp, resolveMacroActor } from "./shared.js";
+import { loadDeferredModule } from "../utils/deferred-module.js";
+import { t } from "../utils/i18n.js";
 
 /**
  * src/macros/alchemy-workshop.js
@@ -15,7 +17,7 @@ import { findOpenAppInstance, focusOpenApp, resolveMacroActor } from "./shared.j
  * De-duplication: if the workshop is already open for this actor, bring it
  * to the front instead of opening a second instance (mirrors enchanting workshop).
  *
- * Target: Foundry VTT v14.359+
+ * Target: Foundry VTT v14.363+
  *
  * Note: registerAlchemyApi() lives in src/core/alchemy/index.js and is called
  * once by system.js during the init hook. This file is responsible only for
@@ -32,13 +34,18 @@ import { findOpenAppInstance, focusOpenApp, resolveMacroActor } from "./shared.j
 export async function openAlchemyWorkshop({ actorUuid = null, mode = "potion" } = {}) {
   const resolvedActor = await resolveMacroActor({
     actorUuid,
-    multipleSelectionWarning: "Alchemy Workshop: Multiple tokens are selected. Please select exactly one token.",
-    noActorWarning: "Alchemy Workshop: No actor found. Control a token or assign a character to your user account.",
+    multipleSelectionWarning: t("UESRPG.Notifications.Alchemy.MultipleTokensSelected"),
+    noActorWarning: t("UESRPG.Notifications.Alchemy.NoWorkshopActor"),
   });
   if (!resolvedActor) return;
 
   // Lazy-load the AppV2 class to defer parse cost until first open.
-  const { AlchemyWorkshopAppV2 } = await import("../ui/apps/v2/alchemy-workshop-app.js");
+  const module = await loadDeferredModule(
+    () => import("../ui/apps/v2/alchemy-workshop-app.js"),
+    { label: t("UESRPG.Apps.AlchemyWorkshop.Title") },
+  );
+  if (!module) return null;
+  const { AlchemyWorkshopAppV2 } = module;
 
   const existing = findOpenAppInstance(
     AlchemyWorkshopAppV2,

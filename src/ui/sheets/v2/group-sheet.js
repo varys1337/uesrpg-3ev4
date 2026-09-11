@@ -6,11 +6,11 @@
  * Key improvements:
  * - Uses HandlebarsApplicationMixin(ActorSheetV2) base
  * - Native DOM event binding via data-action + _onRender (no jQuery)
- * - Single-registration updateActor hook (fixes V1 leak on re-render)
+ * - Single-registration member refresh hooks with deterministic close cleanup
  * - Integrated container-safe item deletion (fixes V1 dual-handler race)
  */
 
-import { prepareCharacterItemsHybrid } from "../sheet-prepare-items-optimized.js";
+import { prepareCharacterItems } from "../sheet-prepare-items.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
 import { applyShortRest, applyLongRest, buildRestChatContent } from "../rest-workflow.js";
 import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding.js";
@@ -26,6 +26,7 @@ import { onDropItemIntoContainer, removeItemFromContainer } from "../item/listen
 import { activateProseMirrorEditors, openProseMirrorEditor } from "../shared/editor-activation.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
+import { bindListFilters, clearListFilterState } from "./shared/list-filter.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { onToggleGroupCollapse } from "../shared/helpers/ui-state-handlers.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
@@ -49,6 +50,12 @@ import {
   buildAllowedSubmitPatch,
   createFormPathMatcher,
 } from "./shared/form-pipeline.js";
+import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
+import {
+  clearQueuedRenderPartsState,
+  partRendered,
+  queueRenderParts,
+} from "./shared/sheet-runtime-helpers.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -205,12 +212,29 @@ function getItemEncumbrance(item) {
   return enc * quantity;
 }
 
-function getGroupEncumbranceLabel(current, max) {
-  if (max <= 0) return t("UESRPG.UI.Unknown", "Unknown");
-  if (current > max * 3) return "Crushing";
-  if (current > max * 2) return "Severe";
-  if (current > max) return "Moderate";
-  return "Minimal";
+function getGroupEncumbranceState(current, max) {
+  if (max <= 0) {
+    return { key: "unknown", label: t("UESRPG.UI.Unknown", "Unknown"), penalty: 0 };
+  }
+
+  let key = "minimal";
+  let penalty = 0;
+  if (current > max * 3) {
+    key = "crushing";
+    penalty = -40;
+  } else if (current > max * 2) {
+    key = "severe";
+    penalty = -20;
+  } else if (current > max) {
+    key = "moderate";
+    penalty = -10;
+  }
+
+  return {
+    key,
+    label: t(`UESRPG.Choices.CarryRating.${key}`, humanizeKey(key)),
+    penalty,
+  };
 }
 
 function buildGroupInventorySummary({ groupActor, resolvedMembers }) {
@@ -225,7 +249,7 @@ function buildGroupInventorySummary({ groupActor, resolvedMembers }) {
   const groupItemsEnc = groupItems
     .filter((item) => !shouldHideFromMainInventory(item, { actor: groupActor, items: groupItems }))
     .reduce((sum, item) => sum + getItemEncumbrance(item), 0);
-  const label = getGroupEncumbranceLabel(carryCurrent, carryMax);
+  const encumbrance = getGroupEncumbranceState(carryCurrent, carryMax);
 
   return {
     memberCount: visibleActors.length,
@@ -235,18 +259,18 @@ function buildGroupInventorySummary({ groupActor, resolvedMembers }) {
     currentEnc: formatGroupNumber(carryCurrent),
     maxEnc: formatGroupNumber(carryMax),
     groupItemsEnc: formatGroupNumber(groupItemsEnc),
-    label,
-    penalty: label === "Crushing" ? -40 : label === "Severe" ? -20 : label === "Moderate" ? -10 : 0,
+    state: encumbrance.key,
+    label: encumbrance.label,
+    penalty: encumbrance.penalty,
   };
 }
 
 export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
-  /** @type {number|null} Hooks.on("updateActor") handle for member refresh */
-  #memberUpdateHook = null;
+  /** @type {Array<[string, number]>} Sheet-owned member refresh hooks. */
+  #memberUpdateHooks = [];
+  #resolvedMembersCache = null;
   _uesrpgContextMenuHandler = null;
-  _uesrpgDebriefTooltipEl = null;
-  _uesrpgDebriefTooltipHandlers = null;
 
   _isSheetPerfTraceEnabled() {
     try {
@@ -389,18 +413,14 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /* ────────────────────────── Render Options ─────────────────────────── */
 
   /** @override — select limited vs full template PARTS */
-  _configureRenderOptions(options) {
-    super._configureRenderOptions(options);
-    if (this.document.limited && !game.user.isGM) {
-      options.parts = ["limited"];
-    } else {
-      options.parts = ["sidebar", "body", "bookmarkTabs"];
-    }
+  _configureRenderParts(options) {
+    return selectDocumentSheetRenderParts(super._configureRenderParts(options), {
+      limited: Boolean(this.document?.limited && !game.user?.isGM),
+    });
   }
 
   /* ──────────────────────── Context Preparation ───────────────────────── */
 
-  /** @override */
   /** @override */
   async _prepareContext(options) {
     const perfStart = performance.now();
@@ -416,20 +436,42 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       context.owner = actor.isOwner;
       context.showArmyCampaign = isMassCombatEnabled();
       context.skillDebrief = [];
-      context.groupInventorySummary = buildGroupInventorySummary({ groupActor: actor, resolvedMembers: [] });
+      context.resolvedMembers = [];
 
-      context.resolvedMembers = await this.#resolveMembers(actor.system.members || []);
-      context.groupInventorySummary = buildGroupInventorySummary({ groupActor: actor, resolvedMembers: context.resolvedMembers });
-
-      const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
-      const _enrich = (raw) => enrichFn(raw || "");
+      const partScope = createPartContextScope({
+        options,
+        partDefinitions: this.constructor.PARTS,
+        fallbackTotal: 4,
+      });
+      const _needs = partScope.needs;
+      const needsMembers = _needs("sidebar") || _needs("body") || _needs("limited");
+      if (needsMembers) {
+        context.resolvedMembers = await this.#resolveMembers(actor.system.members || []);
+      }
 
       if (context.limited) {
-        context.enrichedDescription = await _enrich(actor.system.description ?? "");
+        if (_needs("limited")) {
+          const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
+          context.enrichedDescription = await cachedEnrichHTML(
+            this,
+            "group:limited-desc",
+            actor.system.description ?? "",
+            (raw) => enrichFn(raw || ""),
+          );
+        }
         return context;
       }
 
-      context.skillDebrief = buildSkillDebrief(context.resolvedMembers);
+      if (_needs("sidebar")) {
+        context.skillDebrief = buildSkillDebrief(context.resolvedMembers);
+      }
+
+      if (!_needs("body")) return context;
+
+      context.groupInventorySummary = buildGroupInventorySummary({
+        groupActor: actor,
+        resolvedMembers: context.resolvedMembers,
+      });
 
       const sheetData = {
         actor: actor.toObject(),
@@ -440,7 +482,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
           return obj;
         }),
       };
-      await prepareCharacterItemsHybrid(sheetData);
+      prepareCharacterItems(sheetData);
 
       context.gear = sheetData.actor.gear ?? { equipped: [], unequipped: [] };
       context.weapon = sheetData.actor.weapon ?? { equipped: [], unequipped: [] };
@@ -451,6 +493,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       context.sheetUi = {
         groupInventorySummary: context.groupInventorySummary,
         weaponDistanceHeaderLabel: t("UESRPG.Sheets.Equipment.Range", "Range"),
+        showSheetSearchBars: Boolean(game?.settings?.get?.(SYSTEM_ID, "showSheetSearchBars")),
       };
 
       const speeds = context.resolvedMembers
@@ -466,6 +509,8 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       context.displayAverageSpeedKmh = (context.displayAverageSpeed * 0.6).toFixed(1);
       context.currentPace = currentPace;
 
+      const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
+      const _enrich = (raw) => enrichFn(raw || "");
       context.enrichedDescription = await cachedEnrichHTML(
         this, "group:desc", actor.system.description ?? "", _enrich
       );
@@ -484,25 +529,18 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   /* ───────────────────────────── Lifecycle ─────────────────────────────── */
 
   /** @override */
-  /** @override */
   _onRender(context, options) {
     const perfStart = performance.now();
     try {
       super._onRender(context, options);
       const el = this.element;
-      syncBookmarkTabsActiveClass(this);
-      applySheetDensityClass(el);
-      clearItemDescriptionTooltip(this);
-      this._hideSkillDebriefTooltip();
-
-      if (!this.#memberUpdateHook) {
-        this.#memberUpdateHook = Hooks.on("updateActor", (updatedActor) => {
-          const members = this.document.system.members || [];
-          if (members.some(m => m.id === updatedActor?.uuid)) {
-            this.render(false);
-          }
-        });
+      if (partRendered(options, "body") || partRendered(options, "bookmarkTabs")) {
+        syncBookmarkTabsActiveClass(this);
       }
+      applySheetDensityClass(el);
+      if (partRendered(options, "body")) clearItemDescriptionTooltip(this);
+
+      this.#registerMemberUpdateHooks();
 
       if (context.limited) return;
 
@@ -514,8 +552,9 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
         syncBookmarkTabsActiveClass(this);
       }
 
-      activateProseMirrorEditors(this, el);
-      if (el?.querySelector?.(".uesrpg-group-toggle, [data-action='groupToggle']")) {
+      if (partRendered(options, "body")) activateProseMirrorEditors(this, el);
+      if ((partRendered(options, "body") || partRendered(options, "sidebar"))
+        && el?.querySelector?.(".uesrpg-group-toggle, [data-action='groupToggle']")) {
         applyCollapsedGroups(el);
       }
     } finally {
@@ -536,6 +575,7 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
       super._attachPartListeners(partId, htmlElement, options);
 
       if (partId === "body") {
+        bindListFilters(this, htmlElement);
         bindItemDescriptionTooltips(this, htmlElement);
         enableItemRowDragSources(htmlElement, { actor: this.document });
 
@@ -569,112 +609,56 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
           });
         }
       }
-      if (partId === "sidebar") {
-        this._bindSkillDebriefTooltip(htmlElement);
-      }
     } finally {
       this._traceSheetPerf("_attachPartListeners", perfStart, { partId });
     }
   }
 
-  _bindSkillDebriefTooltip(rootEl) {
-    if (!(rootEl instanceof HTMLElement)) return;
-    const debrief = rootEl.querySelector(".group-skill-debrief");
-    if (!(debrief instanceof HTMLElement) || debrief.dataset.debriefTooltipBound === "1") return;
-    debrief.dataset.debriefTooltipBound = "1";
-
-    if (!this._uesrpgDebriefTooltipHandlers) {
-      this._uesrpgDebriefTooltipHandlers = {
-        pointerEnter: (event) => this._showSkillDebriefTooltipForEvent(event),
-        pointerLeave: (event) => this._hideSkillDebriefTooltipForEvent(event),
-        focusIn: (event) => this._showSkillDebriefTooltipForEvent(event),
-        focusOut: (event) => this._hideSkillDebriefTooltipForEvent(event),
-      };
-    }
-
-    debrief.addEventListener("pointerenter", this._uesrpgDebriefTooltipHandlers.pointerEnter, true);
-    debrief.addEventListener("pointerleave", this._uesrpgDebriefTooltipHandlers.pointerLeave, true);
-    debrief.addEventListener("focusin", this._uesrpgDebriefTooltipHandlers.focusIn);
-    debrief.addEventListener("focusout", this._uesrpgDebriefTooltipHandlers.focusOut);
+  #isLinkedMemberActor(actor) {
+    const actorUuid = String(actor?.uuid ?? "");
+    if (!actorUuid) return false;
+    return (this.document.system.members ?? []).some((member) => String(member?.id ?? "") === actorUuid);
   }
 
-  _getSkillDebriefRowFromEvent(event) {
-    const target = event?.target instanceof Element ? event.target : null;
-    const row = target?.closest?.(".group-skill-debrief__row[data-debrief-tooltip]");
-    if (!(row instanceof HTMLElement)) return null;
-    const root = event?.currentTarget instanceof Element ? event.currentTarget : null;
-    return root?.contains?.(row) ? row : null;
+  #queueMemberRefresh() {
+    this.#resolvedMembersCache = null;
+    const parts = this.document.limited && !game.user.isGM
+      ? ["limited"]
+      : ["sidebar", "body"];
+    void queueRenderParts(this, parts);
   }
 
-  _ensureSkillDebriefTooltip() {
-    if (this._uesrpgDebriefTooltipEl instanceof HTMLElement) return this._uesrpgDebriefTooltipEl;
-    const tooltip = document.createElement("div");
-    tooltip.className = "uesrpg-group-debrief-tooltip";
-    tooltip.hidden = true;
-    document.body.appendChild(tooltip);
-    this._uesrpgDebriefTooltipEl = tooltip;
-    return tooltip;
+  #registerMemberUpdateHooks() {
+    if (this.#memberUpdateHooks.length) return;
+
+    const onActorChange = (actor) => {
+      if (this.#isLinkedMemberActor(actor)) this.#queueMemberRefresh();
+    };
+    const onItemChange = (item) => {
+      if (this.#isLinkedMemberActor(item?.parent)) this.#queueMemberRefresh();
+    };
+
+    this.#memberUpdateHooks.push(
+      ["updateActor", Hooks.on("updateActor", onActorChange)],
+      ["createItem", Hooks.on("createItem", onItemChange)],
+      ["updateItem", Hooks.on("updateItem", onItemChange)],
+      ["deleteItem", Hooks.on("deleteItem", onItemChange)],
+    );
   }
 
-  _showSkillDebriefTooltipForEvent(event) {
-    const row = this._getSkillDebriefRowFromEvent(event);
-    const text = row?.dataset?.debriefTooltip ?? "";
-    if (!row || !text.trim()) return this._hideSkillDebriefTooltip();
-
-    const tooltip = this._ensureSkillDebriefTooltip();
-    tooltip.textContent = text;
-    tooltip.hidden = false;
-    tooltip.style.left = "0px";
-    tooltip.style.top = "0px";
-
-    const rowRect = row.getBoundingClientRect();
-    const tipRect = tooltip.getBoundingClientRect();
-    const gap = 8;
-    const margin = 8;
-    const viewportWidth = document.documentElement.clientWidth || window.innerWidth || 0;
-    const viewportHeight = document.documentElement.clientHeight || window.innerHeight || 0;
-
-    let left = rowRect.right + gap;
-    if (left + tipRect.width > viewportWidth - margin) left = rowRect.left - tipRect.width - gap;
-    left = Math.min(Math.max(left, margin), Math.max(margin, viewportWidth - tipRect.width - margin));
-
-    let top = rowRect.top + (rowRect.height / 2) - (tipRect.height / 2);
-    top = Math.min(Math.max(top, margin), Math.max(margin, viewportHeight - tipRect.height - margin));
-
-    tooltip.style.left = `${Math.round(left)}px`;
-    tooltip.style.top = `${Math.round(top)}px`;
-  }
-
-  _hideSkillDebriefTooltipForEvent(event) {
-    const row = this._getSkillDebriefRowFromEvent(event);
-    const related = event?.relatedTarget instanceof Node ? event.relatedTarget : null;
-    if (row && related && row.contains(related)) return;
-    this._hideSkillDebriefTooltip();
-  }
-
-  _hideSkillDebriefTooltip() {
-    if (!(this._uesrpgDebriefTooltipEl instanceof HTMLElement)) return;
-    this._uesrpgDebriefTooltipEl.hidden = true;
-  }
-
-  _destroySkillDebriefTooltip() {
-    this._uesrpgDebriefTooltipEl?.remove?.();
-    this._uesrpgDebriefTooltipEl = null;
-  }
-
-  /** @override */
   /** @override */
   _onClose(options) {
     const perfStart = performance.now();
     try {
       clearItemDescriptionTooltip(this);
-      if (this.#memberUpdateHook) {
-        Hooks.off("updateActor", this.#memberUpdateHook);
-        this.#memberUpdateHook = null;
+      for (const [event, hookId] of this.#memberUpdateHooks) {
+        Hooks.off(event, hookId);
       }
+      this.#memberUpdateHooks = [];
+      this.#resolvedMembersCache = null;
+      clearListFilterState(this);
+      clearQueuedRenderPartsState(this);
       this._uesrpgContextMenuHandler = null;
-      this._uesrpgDebriefTooltipHandlers = null;
-      this._destroySkillDebriefTooltip();
       return super._onClose(options);
     } finally {
       this._traceSheetPerf("_onClose", perfStart, {});
@@ -751,23 +735,32 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
   /** Resolve member UUIDs to actor data with permission-gated stats */
   async #resolveMembers(members) {
-    const resolved = [];
-    for (const member of members) {
+    const normalizedMembers = Array.from(members ?? []);
+    const signature = JSON.stringify(normalizedMembers.map((member) => ({
+      id: String(member?.id ?? ""),
+      name: String(member?.name ?? ""),
+      img: String(member?.img ?? ""),
+      sortOrder: Number(member?.sortOrder ?? 0) || 0,
+    })));
+    if (this.#resolvedMembersCache?.signature === signature) {
+      return this.#resolvedMembersCache.members;
+    }
+
+    const resolved = await Promise.all(normalizedMembers.map(async (member) => {
       const actor = await fromUuid(member.id);
       if (!actor) {
-        resolved.push({
+        return {
           ...member,
           missing: true,
           canView: false,
-          name: member.name || "Unknown Actor",
+          name: member.name || t("UESRPG.UI.UnknownActor", "Unknown Actor"),
           img: member.img || "icons/svg/mystery-man.svg",
-        });
-        continue;
+        };
       }
       const canView = actor.testUserPermission(
         game.user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER
       );
-      resolved.push({
+      return {
         id: member.id,
         uuid: member.id,
         name: actor.name,
@@ -789,8 +782,10 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
             : null,
         speed: canView ? actor.system.speed.value : null,
         fatigue: canView ? actor.system.fatigue.level : 0,
-      });
-    }
+      };
+    }));
+
+    this.#resolvedMembersCache = { signature, members: resolved };
     return resolved;
   }
 
@@ -1227,7 +1222,6 @@ export class GroupSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
   }
 
   async _onToggleGroupCollapse(event, target) {
-    this._hideSkillDebriefTooltip();
     return onToggleGroupCollapse(this, event, target);
   }
 

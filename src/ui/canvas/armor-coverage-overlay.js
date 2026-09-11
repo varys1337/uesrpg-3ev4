@@ -43,6 +43,7 @@ export class ArmorCoverageOverlay {
     this.container = null;
     this.entries = new Map();
     this.transparency = 90; // Default 90% opacity
+    this.scalePercent = 100;
   }
 
   setTransparency(transparency) {
@@ -53,6 +54,27 @@ export class ArmorCoverageOverlay {
       if (!entry?.lastViewModel) continue;
       this._updateRows(entry, entry.lastViewModel);
     }
+  }
+
+  setScale(scalePercent) {
+    const value = Number(scalePercent);
+    this.scalePercent = Number.isFinite(value) ? value : 100;
+    for (const entry of this.entries.values()) {
+      this._applyEntryScale(entry);
+      if (entry?.token) this.positionToken(entry.token);
+    }
+  }
+
+  _getScaleFactor() {
+    const uiScale = Number(canvas?.dimensions?.uiScale ?? 1);
+    const normalizedUiScale = Number.isFinite(uiScale) && uiScale > 0 ? uiScale : 1;
+    return normalizedUiScale * (this.scalePercent / 100);
+  }
+
+  _applyEntryScale(entry) {
+    if (!entry?.container) return;
+    const scale = this._getScaleFactor();
+    entry.container.scale.set(scale, scale);
   }
 
   ensureContainer() {
@@ -104,6 +126,7 @@ export class ArmorCoverageOverlay {
 
     const entry = this._ensureEntry(tokenId, viewModel);
     if (!entry) return;
+    entry.token = token;
     this._updateRows(entry, viewModel);
     this.positionToken(token);
     entry.container.visible = true;
@@ -118,9 +141,11 @@ export class ArmorCoverageOverlay {
     const center = token.center;
     if (!center) return;
 
-    const pad = 8;
-    const width = entry.maxWidth || 90; // Use dynamic width, fallback to previous default
-    const height = entry.height || 92;
+    const scale = this._getScaleFactor();
+    this._applyEntryScale(entry);
+    const pad = 8 * scale;
+    const width = (entry.maxWidth || 90) * scale; // Use dynamic width, fallback to previous default
+    const height = (entry.height || 92) * scale;
     const right = center.x + (Number(token.w) || 0) / 2 + pad;
     const fallbackLeft = center.x - (Number(token.w) || 0) / 2 - width - pad;
     const maxX = Number(canvas?.dimensions?.width ?? right + width + pad) - width - pad;
@@ -169,7 +194,8 @@ export class ArmorCoverageOverlay {
     }
 
     root.addChild(container);
-    const entry = { container, rows, height, maxWidth: 0 };
+    const entry = { container, rows, height, maxWidth: 0, token: null };
+    this._applyEntryScale(entry);
     this.entries.set(tokenId, entry);
     return entry;
   }

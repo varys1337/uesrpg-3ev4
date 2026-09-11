@@ -253,18 +253,18 @@
     <footer class="alchemy-workshop-footer">
       {{#if (eq ws.mode "gather")}}
         <button type="button" data-action="rollGather" class="alchemy-workshop-button is-primary is-wide" {{#unless skillSnapshot.found}}disabled{{/unless}}>
-          <i class="fas fa-dice"></i> Roll Alchemy (TN {{skillSnapshot.tn}})
+          <i class="fas fa-dice" aria-hidden="true"></i> {{localize "UESRPG.Apps.AlchemyWorkshop.RollAlchemy"}} (TN {{skillSnapshot.tn}})
         </button>
       {{else}}
         <button
           type="button"
           data-action="commit"
           class="alchemy-workshop-button is-primary is-wide"
-          {{#if hasBlockingErrors}}disabled title="Fix blocking validation errors before committing."{{/if}}>
-          <i class="fas fa-flask"></i>
-          {{#if (eq ws.mode "potion")}}Brew Potion{{/if}}
-          {{#if (eq ws.mode "poison")}}Brew Poison{{/if}}
-          {{#if (eq ws.mode "toxin")}}Brew Toxin{{/if}}
+          {{#if hasBlockingErrors}}disabled data-tooltip-text="{{localize 'UESRPG.Apps.AlchemyWorkshop.FixBlockingErrors'}}"{{/if}} aria-label="{{localize 'UESRPG.Apps.AlchemyWorkshop.FixBlockingErrors'}}">
+          <i class="fas fa-flask" aria-hidden="true"></i>
+          {{#if (eq ws.mode "potion")}}{{localize "UESRPG.Apps.AlchemyWorkshop.BrewPotion"}}{{/if}}
+          {{#if (eq ws.mode "poison")}}{{localize "UESRPG.Apps.AlchemyWorkshop.BrewPoison"}}{{/if}}
+          {{#if (eq ws.mode "toxin")}}{{localize "UESRPG.Apps.AlchemyWorkshop.BrewToxin"}}{{/if}}
         </button>
       {{/if}}
     </footer>

@@ -6,12 +6,12 @@
  */
 
 import { registerConditionHooks, ConditionsAPI, auditConditionRegistry } from "./condition-engine.js";
-export { CONDITION_KEYS } from "./condition-engine.js";
+export { CONDITION_KEYS } from "./catalog.js";
 import { registerConditionTurnTicker } from "./turn-ticker.js";
 import { initializeRoundStartCandidateRegistry } from "./round-start-candidate-registry.js";
 import { registerSystemStatusEffects, registerStatusHudInterop } from "./status-hud.js";
 import { isAnyDebugEnabled } from "../../utils/debug.js";
-import { getSystemId } from "./constants.js";
+import { registerSystemSetting } from "../../utils/settings-registration.js";
 
 let _conditionsRegistered = false;
 
@@ -21,17 +21,13 @@ export function registerConditions() {
 
   // Hidden rollback/internal flag: gates the one-time Token HUD status-effect upgrade sweep.
   // Must be registered before ready so startup maintenance can read/write completion state.
-  try {
-    game.settings.register(getSystemId(), "conditionsHudUpgradeV2Done", {
-      name: "Conditions HUD Upgrade v2 Done",
-      scope: "world",
-      config: false,
-      type: Boolean,
-      default: false
-    });
-  } catch (_e) {
-    // Already registered (safe no-op if registerConditions is called more than once).
-  }
+  registerSystemSetting("Internal", "conditionsHudUpgradeV2Done", {
+    name: "Conditions HUD Upgrade v2 Done",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false
+  });
 
   // Token HUD: expose system conditions as status effects and route interactions through the
   // deterministic condition engine.

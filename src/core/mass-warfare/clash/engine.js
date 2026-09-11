@@ -3,6 +3,7 @@
  */
 
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
+import { requireMassCombatEnabled } from "../../homebrew/settings.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { buildWarfareDisciplineTN } from "../tn.js";
 import { hasHoldNextDefend } from "../actions.js";
@@ -254,6 +255,7 @@ export async function resolveClash({
   attackType = "melee",
   applyDamage = true,
 } = {}) {
+  if (!requireMassCombatEnabled()) return null;
   const attackerHolding = hasHoldNextDefend(attacker);
   const defenderHolding = hasHoldNextDefend(defender);
 

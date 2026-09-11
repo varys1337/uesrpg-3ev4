@@ -1,6 +1,8 @@
 import { createStarterEventTablesForGroup } from "../core/travel/events.js";
 import { resetTravelPlannerState, updateTravelPlannerState } from "../core/travel/state.js";
 import { resolveGroupActorForTravel } from "../core/travel/group-resolution.js";
+import { loadDeferredModule } from "../utils/deferred-module.js";
+import { t } from "../utils/i18n.js";
 
 export async function openTravelPlanner(opts = {}) {
   const group = await resolveGroupActorForTravel(opts);
@@ -16,7 +18,12 @@ export async function openTravelPlanner(opts = {}) {
     // Non-blocking metadata stamp.
   }
 
-  const { TravelPlannerAppV2 } = await import("../ui/apps/v2/travel-planner-app.js");
+  const module = await loadDeferredModule(
+    () => import("../ui/apps/v2/travel-planner-app.js"),
+    { label: t("UESRPG.Apps.TravelPlanner.Title") },
+  );
+  if (!module) return null;
+  const { TravelPlannerAppV2 } = module;
   return TravelPlannerAppV2.prompt({
     groupUuid: group.uuid,
     tab: opts?.tab ?? "planning",

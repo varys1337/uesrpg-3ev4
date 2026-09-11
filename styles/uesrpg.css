@@ -1,14 +1,9 @@
 @charset "UTF-8";
 /*!
- * Generated CSS target: styles/uesrpg.css
- * Do not edit styles/uesrpg.css directly.
- * Edit styles/scss/** and rebuild via standalone Sass CLI.
- *
- * UESRPG SCSS entrypoint
- * Order mirrors runtime cascade and includes tokens from SCSS source.
+ * UESRPG production stylesheet.
+ * This file is the canonical style source shipped by the system.
  */
 /* ---
-   styles/scss/tokens/_tokens.scss
    UESRPG 3ev4 - Design Tokens
    Shared variables consumed by all stylesheets.
    Scoped to body.system-uesrpg-3ev4 so they only apply in-system.
@@ -184,7 +179,7 @@ body.theme-dark .worldbuilding) {
 /* ---
    merged into styles/uesrpg.css
    UESRPG 3ev4 --- Shared Component Library
-   Reusable UI components consuming design tokens from tokens/_tokens.scss.
+   Reusable UI components consuming the design tokens above.
    All rules scoped to .worldbuilding for system isolation.
    ---*/
 /* ---
@@ -587,6 +582,19 @@ body.theme-dark .worldbuilding) {
   outline: none;
   box-shadow: var(--uesrpg-shadow-focus);
   border-radius: var(--uesrpg-border-radius-sm);
+}
+
+/* AppV2 applications do not use the legacy .worldbuilding root. */
+.application.uesrpg :is(button, [role="button"], [data-action]):focus-visible {
+  outline: none;
+  box-shadow: var(--uesrpg-shadow-focus);
+  border-radius: var(--uesrpg-border-radius-sm);
+}
+
+:is(.worldbuilding, .application.uesrpg) .uesrpg-busy,
+:is(.worldbuilding, .application.uesrpg) [aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.7;
 }
 
 /* ---
@@ -1107,7 +1115,7 @@ body.system-uesrpg-3ev4 .window-app .window-content,
 .worldbuilding .window-content,
 .uesrpg .window-content {
   /* Use the unified parchment token so in-sheet content and outer window
-     look consistent. Swap the variable in tokens/_tokens.scss to change visuals.*/
+     look consistent. Change the shared token above to update these surfaces.*/
   background-image: var(--uesrpg-parchment-url);
   background-repeat: repeat;
   background-size: auto;
@@ -5044,6 +5052,24 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 }
 
 /* Advancement Menu Dialog*/
+.uesrpg-advancement-dialog .window-header {
+  position: relative;
+  justify-content: flex-end;
+}
+
+.uesrpg-advancement-dialog .window-header .window-title {
+  position: absolute;
+  left: 50%;
+  width: calc(100% - 112px);
+  margin: 0;
+  transform: translateX(-50%);
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .uesrpg-advancement-menu {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6433,6 +6459,11 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
   padding: 2px 4px 6px;
 }
 
+.reach-visualizer-settings .window-content {
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+}
+
 .uesrpg-settings__header {
   display: flex;
   flex-direction: column;
@@ -7068,23 +7099,28 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 }
 
 /* === ITEM SHEET STRUCTURE ===*/
-/* Window content is a flex shell; scrolling happens in .sheet-body.*/
+/* The AppV2 document-sheet frame does not guarantee a definite block size for
+   an individual template part. Keep one dependable scroll lane on the bounded
+   window content so every Item type behaves identically at every window size.*/
 .worldbuilding.sheet.item .window-content {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  height: 100%;
-  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
-/* AppV2 wraps sheet HTML in a part container; make it the flex owner so
-   header + tabs + body can allocate height and scroll correctly.*/
+/* Retain compatibility with downstream overrides that wrap the parts in a
+   form, while allowing that form to contribute to the outer scroll height.*/
 .worldbuilding.sheet.item .window-content > form {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .worldbuilding.sheet.item :is(.window-content > [data-application-part=header],
@@ -7097,27 +7133,39 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 .worldbuilding.sheet.item :is(.window-content > [data-application-part=body],
 .window-content > form > [data-application-part=body]) {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
-/* Sticky header --- REMOVED: templates no longer use stickyHeader wrapper.
-   Structure is now: flat header --- nav --- scrollable sheet-body.
-   See item-sheet-compact.css for the replacement layout.*/
+/* Templates use a flat header --- nav --- sheet body structure in one bounded
+   window-content scroll lane. */
 /* .worldbuilding.sheet.item .stickyHeader { ... }*/
-/* Sheet body is the canonical scroll owner for item sheets.*/
+/* Native AppV2 parts place data-application-part on the template root itself;
+   keep both forms compatible while allowing their content to contribute to
+   the outer window's scroll height.*/
+.worldbuilding.sheet.item [data-application-part=body].sheet-body,
 .worldbuilding.sheet.item [data-application-part=body] > .sheet-body {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 6px;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: visible;
+  box-sizing: border-box;
 }
 
 /* Tabs are non-scrolling panes; active pane fills available height.*/
 .worldbuilding.sheet.item .sheet-body > .tab {
   display: none;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -7143,20 +7191,19 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
   min-height: 0 !important;
 }
 
-/* Spell sheets use different template structure - ensure proper scrolling*/
+/* Spell sheets share the same outer window scroll lane.*/
 .worldbuilding.sheet.item.spell .window-content {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  height: 100%;
-  max-height: 100%;
-}
-
-.worldbuilding.sheet.item.spell .sheet-body {
-  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.worldbuilding.sheet.item.spell .sheet-body {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
 }
 
 .worldbuilding.sheet.item.spell .sheet-body > .tab {
@@ -7238,14 +7285,21 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
   flex-wrap: wrap;
   gap: 10px;
   padding: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  box-sizing: border-box;
 }
 
 .worldbuilding .weapon-attributes-section {
   flex: 1 1 calc(50% - 10px);
-  min-width: 260px;
+  min-width: min(260px, 100%);
+  max-width: 100%;
   border: var(--uesrpg-border-input);
   background: var(--uesrpg-bg-card);
   padding: var(--uesrpg-space-md);
+  box-sizing: border-box;
 }
 
 .worldbuilding .weapon-attributes-section h3 {
@@ -7257,7 +7311,7 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 
 .worldbuilding .weapon-field-row {
   display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(120px, 1fr);
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 1fr);
   gap: 6px;
   align-items: center;
   padding: 3px 0;
@@ -7265,8 +7319,14 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
   min-width: 0;
 }
 
+.worldbuilding .weapon-field-row--reach {
+  grid-template-columns: minmax(88px, 0.65fr) minmax(0, 1.35fr);
+}
+
 .worldbuilding .weapon-field-row label {
   font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .worldbuilding .weapon-field-row input:not([type=checkbox]),
@@ -7318,8 +7378,10 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 /* Weapon Reach: inline Min/Max controls in a single row*/
 .worldbuilding .weapon-reach-inline {
   display: grid;
-  grid-template-columns: auto 44px auto 44px;
-  justify-content: start;
+  grid-template-columns: max-content minmax(40px, 44px) max-content minmax(40px, 44px);
+  width: 100%;
+  max-width: 100%;
+  justify-content: stretch;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -7332,21 +7394,19 @@ body.theme-dark .worldbuilding.sheet.actor > .window-content > nav.uesrpg-bookma
 }
 
 .worldbuilding .weapon-reach-input {
-  /*
-      Keep reach controls compact to prevent the weapon sheet from stretching.
-      We apply both width and flex-basis and add !important to ensure this wins
-      over any generic input width rules.
-  */
-  width: 44px !important;
-  flex: 0 0 44px !important;
-  min-width: 44px !important;
+  /* Keep reach controls compact without imposing a minimum wider than the
+     available grid track. */
+  width: 100% !important;
+  max-width: 44px !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
 }
 
-/* Even higher specificity for the reach row, to defeat any selector collisions*/
+/* Higher specificity keeps generic numeric-input rules from widening the row.*/
 .worldbuilding .weapon-field-row--reach .weapon-reach-input {
-  width: 44px !important;
-  flex: 0 0 44px !important;
-  min-width: 44px !important;
+  width: 100% !important;
+  max-width: 44px !important;
+  min-width: 0 !important;
 }
 
 /* Structured qualities: multi-column grid instead of a single vertical list*/
@@ -9864,6 +9924,27 @@ body.theme-dark .worldbuilding.sheet.actor :is(.skillList .item .item-name,
   line-height: 18px;
 }
 
+.worldbuilding.sheet.actor:not(.group) .tab.equipment .damage-entry > .weapon-damage-roll {
+  width: 100%;
+  height: 24px;
+  min-height: 24px;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.equipment .damage-entry > .weapon-damage-roll:is(:hover, :focus-visible) {
+  border-color: rgba(130, 82, 25, 0.65);
+  background: rgba(207, 151, 55, 0.16);
+  box-shadow: 0 0 0 1px rgba(255, 190, 72, 0.18);
+}
+
 .worldbuilding :is(.sheet.actor:not(.group), .sheet.npc) .tab.equipment :is(.containerList table, .equipmentList table) tbody tr.item.active:first-child td {
   border-top: none;
 }
@@ -10445,7 +10526,7 @@ body.theme-dark .worldbuilding :is(.sheet.actor.player-character, .sheet.actor.n
 }
 
 /* --- Limited View ---*/
-.worldbuilding.sheet.actor.group .limited-info {
+.worldbuilding.sheet.actor:is(.group, .player-character) .limited-info {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -10455,20 +10536,26 @@ body.theme-dark .worldbuilding :is(.sheet.actor.player-character, .sheet.actor.n
   color: var(--uesrpg-color-text-secondary);
 }
 
-.worldbuilding.sheet.actor.group .limited-info > i {
+.worldbuilding.sheet.actor:is(.group, .player-character) .limited-info > i {
   font-size: 36px;
   opacity: 0.55;
 }
 
-.worldbuilding.sheet.actor.group .limited-info h2 {
+.worldbuilding.sheet.actor:is(.group, .player-character) .limited-info h2 {
   margin: 0;
   font-size: var(--uesrpg-font-xl);
 }
 
-.worldbuilding.sheet.actor.group .limited-info p {
+.worldbuilding.sheet.actor:is(.group, .player-character) .limited-info p {
   margin: 0;
   font-size: var(--uesrpg-font-sm);
   font-style: italic;
+}
+
+.worldbuilding.sheet.actor.player-character [data-application-part="limited"] .sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .worldbuilding.sheet.actor.group .visible-members {
@@ -12200,10 +12287,13 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   display: flex;
   align-items: center;
   gap: var(--spell-gap-xs);
+  min-width: 0;
   font-size: var(--spell-font-sm);
   cursor: pointer;
   user-select: none;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .spell-sheet .spell-check input[type=checkbox] {
@@ -12783,6 +12873,10 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 
 .spell-sheet .effects-grid .effect-control {
+  appearance: none;
+  width: auto;
+  min-width: 0;
+  height: auto;
   padding: 1px 3px;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 2px;
@@ -13005,9 +13099,10 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 /* --- 2-Column Grid (Targeting + Duration side by side) ---*/
 .spell-sheet .spell-2col-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: var(--spell-gap-md);
   align-items: stretch;
+  min-width: 0;
 }
 
 .spell-sheet .spell-2col-grid > .spell-section {
@@ -13026,8 +13121,9 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 /* --- Automation Modules Grid (2-col when collapsed) ---*/
 .spell-sheet .spell-modules-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: var(--spell-gap-sm);
+  min-width: 0;
 }
 
 .spell-sheet .spell-modules-grid > .spell-module-panel--expanded {
@@ -13037,6 +13133,8 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 /* --- Automation Module Panels ---*/
 .spell-sheet .spell-module-panel {
   padding: 10px 12px;
+  min-width: 0;
+  max-width: 100%;
   background: rgba(255, 255, 255, 0.38);
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
@@ -13376,21 +13474,24 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 /* Grid row variants (override the default flex .spell-row)*/
 .spell-sheet .spell-row--grid-2col {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: var(--spell-gap-sm);
+  min-width: 0;
 }
 
 .spell-sheet .spell-row--grid-3col {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: var(--spell-gap-sm);
+  min-width: 0;
 }
 
 .spell-sheet .spell-row--grid-3col-auto {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   gap: var(--spell-gap-sm);
   align-items: center;
+  min-width: 0;
 }
 
 /* Damage instances container*/
@@ -13489,7 +13590,6 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   }
 }
 /* ---
-   item-sheet-compact.css
    Compact header layout + structural fixes for non-spell item sheets.
 
    Replaces the broken stickyHeader pattern with a flat flex layout:
@@ -13508,29 +13608,6 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   --item-val-color: var(--uesrpg-color-danger);
   --item-lbl-font: var(--uesrpg-font-2xs);
   --item-lbl-color: #555;
-}
-
-/* --- Application-Part Wrapper ---*/
-.worldbuilding.sheet.item {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.worldbuilding.sheet.item > [data-application-part=header],
-.worldbuilding.sheet.item > [data-application-part=tabs] {
-  flex: 0 0 auto;
-}
-
-.worldbuilding.sheet.item > [data-application-part=body] {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.worldbuilding.sheet.item > [data-application-part=body] > .sheet-body {
-  flex: 1 1 auto;
-  min-height: 0;
 }
 
 /* ---
@@ -13939,11 +14016,10 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   text-decoration: none;
 }
 
-/* Sheet body is the scroll container (replaces broken overflow: hidden)*/
+/* Non-spell bodies remain natural-height content in the shared window lane.*/
 .worldbuilding.sheet.item:not(.spell) .sheet-body {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  overflow-x: hidden;
+  flex: 0 0 auto;
+  overflow: visible;
   padding: 5px 6px;
   min-height: 0;
 }
@@ -13973,18 +14049,18 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 
 .worldbuilding.sheet.item.combatStyle .item-stats-row {
-  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
 }
 
 .worldbuilding.sheet.item.skill .item-stats-row,
 .worldbuilding.sheet.item.magicSkill .item-stats-row {
-  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(110px, 100%), 1fr));
 }
 
 .worldbuilding.sheet.item.power .item-stats-row,
 .worldbuilding.sheet.item.talent .item-stats-row,
 .worldbuilding.sheet.item.trait .item-stats-row {
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr));
 }
 
 /* ---
@@ -14221,7 +14297,7 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
 }
 /* ---
    CONTAINER ITEM SHEET — table header
-   Override _chrome.scss's .worldbuilding table thead { background: rgba(0,0,0,0.705) }
+   Override the base .worldbuilding table header background.
    by targeting thead directly with higher specificity and an opaque warm-brown background.
    ---*/
 /* Override dark thead background on the row-group element itself. */
@@ -16269,6 +16345,15 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   min-height: 0;
 }
 
+.travel-planner__header-part {
+  display: contents;
+}
+
+.travel-planner__body {
+  min-height: 0;
+  overflow: auto;
+}
+
 .travel-planner__header {
   display: flex;
   justify-content: space-between;
@@ -16992,35 +17077,6 @@ body.system-uesrpg-3ev4.theme-dark :is(.application.uesrpg-resource-dialog, .wor
   font-style: italic;
   line-height: 1.25;
   text-align: center;
-}
-
-.uesrpg-group-debrief-tooltip {
-  position: fixed;
-  z-index: 100000;
-  box-sizing: border-box;
-  width: max-content;
-  max-width: min(300px, 100vw - 18px);
-  padding: 11px 10px;
-  border: 12px solid transparent;
-  border-image: url("../images/elements/interface/borders/dialog-frame-wood.webp") 70/12px stretch;
-  border-radius: 3px;
-  background-color: transparent;
-  background-image: url("../images/elements/backgrounds/pale_parchment.webp");
-  background-repeat: repeat;
-  background-size: auto;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 4px rgba(0, 0, 0, 0.35);
-  color: #1c1712;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.25;
-  pointer-events: none;
-  text-align: left;
-  text-shadow: none;
-  white-space: pre-line;
-}
-
-.uesrpg-group-debrief-tooltip[hidden] {
-  display: none;
 }
 
 /* Tab navigation grid layout*/
@@ -18247,4 +18303,501 @@ body.system-uesrpg-3ev4 :is(
   }
 }
 
-/*# sourceMappingURL=uesrpg.css.map */
+.uesrpg-item-sheet-header-part {
+  display: contents;
+}
+
+.uesrpg-migration-status-list {
+  display: grid;
+  gap: 4px;
+  max-height: 390px;
+  padding-right: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.uesrpg-migration-status-row {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(72, 55, 46, 0.22);
+  border-radius: 4px;
+  background: rgba(255, 248, 231, 0.42);
+}
+
+.uesrpg-migration-status-row > .notes {
+  margin: 2px 0 0;
+}
+
+.uesrpg-list-filter {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 8px;
+  padding: 5px 7px;
+  border: 1px solid rgba(72, 55, 46, 0.28);
+  border-radius: 6px;
+  background: rgba(255, 248, 231, 0.72);
+}
+
+.uesrpg-list-filter > i {
+  opacity: 0.65;
+}
+
+.uesrpg-list-filter input[type="search"] {
+  min-width: 0;
+  width: 100%;
+}
+
+.uesrpg-list-filter button {
+  width: 30px;
+  min-width: 30px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+
+.uesrpg-list-filter__empty {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  text-align: center;
+  opacity: 0.75;
+}
+
+.uesrpg-list-filter-empty-group,
+[data-list-filter-root] [data-item-id][hidden],
+[data-list-filter-root] [data-list-filter-row][hidden] {
+  display: none !important;
+}
+
+/* ========================================================================== */
+/* Final AppV2 sheet polish: tables, scrollbars, and compact resource dialogs. */
+/* ========================================================================== */
+
+/* Combat and wounds tables share the same warm, compact presentation as the
+   spell-school lists while retaining their existing controls and data flow. */
+.worldbuilding.sheet.actor .uesrpg-sheet-table-frame {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 10px;
+  background: linear-gradient(
+      180deg,
+      var(--uesrpg-ornament-surface-top, rgba(248, 240, 219, 0.88)),
+      var(--uesrpg-ornament-surface-bottom, rgba(241, 233, 213, 0.82))
+    ),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.worldbuilding.sheet.actor .uesrpg-sheet-table {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-collapse: collapse;
+  background: transparent;
+  table-layout: fixed;
+}
+
+.worldbuilding.sheet.actor .uesrpg-sheet-table thead {
+  background: linear-gradient(180deg, rgba(136, 103, 53, 0.58), rgba(92, 69, 34, 0.54)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+.worldbuilding.sheet.actor .uesrpg-sheet-table thead th {
+  height: 30px;
+  padding: 4px 7px;
+  color: #2a2014;
+  font-size: var(--uesrpg-font-sm, 12px);
+  font-weight: 700;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(78, 57, 27, 0.42);
+  text-shadow: 0 1px 0 rgba(255, 245, 225, 0.18);
+}
+
+.worldbuilding.sheet.actor .uesrpg-sheet-table tbody tr {
+  background: linear-gradient(180deg, rgba(255, 250, 238, 0.68), rgba(241, 228, 198, 0.58)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  border-bottom: 1px solid rgba(92, 69, 34, 0.18);
+}
+
+.worldbuilding.sheet.actor .uesrpg-sheet-table tbody tr:last-child {
+  border-bottom: 0;
+}
+
+.worldbuilding.sheet.actor .uesrpg-sheet-table tbody tr:hover {
+  background: linear-gradient(180deg, rgba(255, 249, 229, 0.88), rgba(229, 207, 163, 0.72)),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+}
+
+.worldbuilding.sheet.actor .uesrpg-sheet-table tbody :is(td, a, i, .item-name) {
+  color: #1f1b14;
+  text-shadow: none;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table .item-name-cell,
+.worldbuilding.sheet.actor:not(.group) .combat-style-table :is(th, td):nth-child(1) {
+  width: 58%;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table :is(th, td):nth-child(2) {
+  width: 12%;
+  text-align: center;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table :is(th, td):nth-child(3) {
+  width: 22%;
+  overflow: visible;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table :is(th, td):nth-child(4) {
+  width: 8%;
+  text-align: center;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table tbody td {
+  padding: 4px 7px;
+  vertical-align: middle;
+}
+
+.worldbuilding.sheet.actor:not(.group) .combat-style-table .item-name {
+  font-size: var(--uesrpg-font-sm, 12px);
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table-wrap.uesrpg-sheet-table-frame {
+  margin-top: 2px;
+}
+
+.worldbuilding.sheet.actor .uesrpg-wounds-table .actions-help-small {
+  background: rgba(104, 86, 58, 0.16);
+  color: rgba(42, 32, 20, 0.74);
+}
+
+/* Apply the item-sheet's compact viewport treatment to every existing AppV2
+   sheet scroll lane. These rules style scrollbars only; they do not create new
+   scrolling containers or alter ApplicationV2 scroll ownership. */
+.worldbuilding.sheet :is(
+  .window-content,
+  .sheet-body,
+  .tabContainer,
+  .combatTabContainer,
+  .magicTabContainer,
+  .equipmentTabContainer,
+  .effectsTabContainer,
+  .single-column-list,
+  .member-list-scrollable,
+  .inventory-sections,
+  .warfare-sidebar__content,
+  .qualities-traits-multiselect,
+  .structured-traits-pills
+) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--uesrpg-scrollbar-color) var(--uesrpg-scrollbar-track);
+}
+
+.worldbuilding.sheet :is(
+  .window-content,
+  .sheet-body,
+  .tabContainer,
+  .combatTabContainer,
+  .magicTabContainer,
+  .equipmentTabContainer,
+  .effectsTabContainer,
+  .single-column-list,
+  .member-list-scrollable,
+  .inventory-sections,
+  .warfare-sidebar__content,
+  .qualities-traits-multiselect,
+  .structured-traits-pills
+)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.worldbuilding.sheet :is(
+  .window-content,
+  .sheet-body,
+  .tabContainer,
+  .combatTabContainer,
+  .magicTabContainer,
+  .equipmentTabContainer,
+  .effectsTabContainer,
+  .single-column-list,
+  .member-list-scrollable,
+  .inventory-sections,
+  .warfare-sidebar__content,
+  .qualities-traits-multiselect,
+  .structured-traits-pills
+)::-webkit-scrollbar-track {
+  background: var(--uesrpg-scrollbar-track, transparent);
+}
+
+.worldbuilding.sheet :is(
+  .window-content,
+  .sheet-body,
+  .tabContainer,
+  .combatTabContainer,
+  .magicTabContainer,
+  .equipmentTabContainer,
+  .effectsTabContainer,
+  .single-column-list,
+  .member-list-scrollable,
+  .inventory-sections,
+  .warfare-sidebar__content,
+  .qualities-traits-multiselect,
+  .structured-traits-pills
+)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--uesrpg-scrollbar-color, rgba(40, 30, 14, 0.38));
+  background-clip: content-box;
+}
+
+.worldbuilding.sheet :is(
+  .window-content,
+  .sheet-body,
+  .tabContainer,
+  .combatTabContainer,
+  .magicTabContainer,
+  .equipmentTabContainer,
+  .effectsTabContainer,
+  .single-column-list,
+  .member-list-scrollable,
+  .inventory-sections,
+  .warfare-sidebar__content,
+  .qualities-traits-multiselect,
+  .structured-traits-pills
+)::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(76, 51, 22, 0.64);
+}
+
+/* Resource dialogs use one compact label/value grid and one unbroken action
+   row. The inputs and button callbacks remain owned by their existing apps. */
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__body {
+  gap: 7px;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__group--inline {
+  display: grid;
+  grid-template-columns: minmax(128px, 0.42fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(248, 240, 219, 0.76), rgba(231, 214, 179, 0.58));
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__group--inline .uesrpg-resource-dialog__label {
+  margin: 0;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__group--inline > input,
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__value-control {
+  min-width: 0;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__value-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__maximum {
+  min-width: 30px;
+  color: #4a3823;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-status {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+  justify-content: space-evenly;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(248, 240, 219, 0.82), rgba(225, 205, 164, 0.66));
+  color: #2a1d11;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-status__line {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  white-space: nowrap;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-form .form-group,
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-power-attack {
+  display: grid;
+  grid-template-columns: minmax(128px, 0.42fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 7px;
+  background: linear-gradient(180deg, rgba(248, 240, 219, 0.76), rgba(231, 214, 179, 0.58));
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-form .form-group > label,
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-power-attack > label {
+  margin: 0;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-power-attack.is-hidden {
+  display: none;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-burn-luck__summary,
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-burn-luck__card {
+  border: 1px solid var(--uesrpg-ornament-border, rgba(108, 84, 44, 0.24));
+  border-radius: 8px;
+  background: linear-gradient(
+      180deg,
+      var(--uesrpg-ornament-surface-top, rgba(248, 240, 219, 0.88)),
+      var(--uesrpg-ornament-surface-bottom, rgba(223, 208, 176, 0.86))
+    ),
+    var(--uesrpg-parchment-url);
+  background-size: cover;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog :is(.form-footer, .dialog-buttons) {
+  display: flex;
+  flex-flow: row nowrap;
+  gap: 7px;
+  width: 100%;
+  overflow: hidden;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog :is(.form-footer, .dialog-buttons) > button {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  padding-inline: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 460px) {
+  :is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__group--inline,
+  :is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-form .form-group,
+  :is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-stamina-power-attack {
+    grid-template-columns: minmax(104px, 0.42fr) minmax(0, 1fr);
+  }
+
+  :is(.application, .worldbuilding).uesrpg-resource-dialog :is(.form-footer, .dialog-buttons) > button {
+    font-size: var(--uesrpg-font-sm, 12px);
+  }
+}
+
+/* ========================================================================== */
+/* Sharp Combat/Magic geometry and compact resource editors.                  */
+/* ========================================================================== */
+
+/* Match the square table language of the Equipment tab without changing the
+   shape of form controls. Wounds & Injuries deliberately retains its existing
+   rounded panel, table frame, chips, and action controls. */
+.worldbuilding.sheet.actor:not(.group) :is(.tab.combat, .tab.magic) > :is(.combatTabContainer, .magicTabContainer),
+.worldbuilding.sheet.actor:not(.group) .tab.combat :is(
+  .uesrpg-panel:not(.uesrpg-wounds-panel),
+  .uesrpg-sheet-table-frame:not(.uesrpg-wounds-table-wrap),
+  .uesrpg-actions-section,
+  .uesrpg-actions-card,
+  .uesrpg-actions-subtab
+),
+.worldbuilding.sheet.actor:not(.group) .tab.magic :is(
+  .uesrpg-panel,
+  .spell-school-section,
+  .spell-school-header,
+  .spell-effects-breakdown,
+  .spell-effect-entry
+) {
+  border-radius: 0;
+}
+
+.worldbuilding.sheet.actor:not(.group) .tab.combat .uesrpg-panel:not(.uesrpg-wounds-panel)::before,
+.worldbuilding.sheet.actor:not(.group) .tab.magic .uesrpg-panel::before {
+  border-radius: 0;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__grid--two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 7px;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__layout {
+  container-type: inline-size;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog
+  .uesrpg-resource-dialog__grid--two-column > .uesrpg-resource-dialog__group--inline {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog
+  .uesrpg-resource-dialog__grid--two-column > .uesrpg-resource-dialog__group--inline > input[type="number"] {
+  justify-self: end;
+  width: 84px;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog
+  .uesrpg-resource-dialog__grid--two-column .uesrpg-resource-dialog__value-control {
+  grid-template-columns: minmax(0, 1fr) auto;
+  justify-self: end;
+  width: 112px;
+  gap: 6px;
+}
+
+:is(.application, .worldbuilding).uesrpg-resource-dialog
+  .uesrpg-resource-dialog__grid--two-column .uesrpg-resource-dialog__value-control > input[type="number"] {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 460px) {
+  :is(.application, .worldbuilding).uesrpg-resource-dialog .uesrpg-resource-dialog__grid--two-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container (max-width: 460px) {
+  .uesrpg-resource-dialog__grid--two-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Applied only when a UESRPG-owned render scope supplies the class through
+   Foundry's TooltipManager. Core and third-party tooltips remain untouched. */
+#tooltip.uesrpg-tooltip,
+.locked-tooltip.uesrpg-tooltip {
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 0.5rem 1rem;
+  background: rgba(24, 22, 27, 0.96);
+  color: var(--color-light-1);
+  border-radius: 4px;
+  box-shadow: 0 0 4px #000;
+  font-family: var(--font-body);
+  font-size: var(--font-size-14);
+  line-height: var(--font-size-16);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

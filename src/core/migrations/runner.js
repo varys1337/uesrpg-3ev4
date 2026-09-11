@@ -7,6 +7,7 @@ import { migrateWarfareFlagDocumentsIfNeeded } from "./warfare-flags.js";
 import { migrateAoeRegionLinksIfNeeded } from "./aoe-region-links.js";
 import { migrateWorldSettingsIfNeeded } from "./settings.js";
 import { isActiveGMUser } from "../../utils/users.js";
+import { t, tf } from "../../utils/i18n.js";
 
 let _inFlight = null;
 
@@ -36,7 +37,7 @@ export async function runSystemMigrations({
     const startedAt = Date.now();
     try {
       if (notifyStart) {
-        ui.notifications?.info?.("UESRPG migration pass started.");
+        ui.notifications?.info?.(t("UESRPG.Notifications.MigrationsStarted", "UESRPG migration pass started."));
       }
 
       await migrateWorldSettingsIfNeeded();
@@ -56,14 +57,14 @@ export async function runSystemMigrations({
       console.log(`${SYSTEM_ID} | Migration pass complete`, { origin, elapsedMs });
 
       if (notifySuccess) {
-        ui.notifications?.info?.(`UESRPG migrations complete (${elapsedSec}s).`);
+        ui.notifications?.info?.(tf("UESRPG.Notifications.MigrationsComplete", { elapsed: elapsedSec }, `UESRPG migrations complete (${elapsedSec}s).`));
       }
 
       return { ok: true, elapsedMs };
     } catch (err) {
       console.error(`${SYSTEM_ID} | Migration pass failed`, { origin, err });
       if (notifyFailure) {
-        ui.notifications?.warn?.("UESRPG migration pass failed; check console for details.");
+        ui.notifications?.warn?.(t("UESRPG.Notifications.MigrationsFailed", "UESRPG migration pass failed; check console for details."));
       }
       return { ok: false, reason: "error", err };
     } finally {

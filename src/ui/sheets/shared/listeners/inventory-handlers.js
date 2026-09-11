@@ -7,6 +7,8 @@
 
 import { requestUpdateEmbeddedDocuments } from "../../../../utils/authority-proxy.js";
 import { setOwnedItemEquipped, setOwnedItemQuantityOrDelete, updateOwnedItem } from "../../../../core/items/owned-item-quantity.js";
+import { rollWeaponDamage } from "../../../../core/combat/opposed/damage/roller.js";
+import { postWeaponDamageChatCard } from "../../../../core/combat/opposed/damage/chat-cards.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 
 /**
@@ -95,4 +97,29 @@ export const onWeaponAmmoSelect = asyncGuardSheet(async function onWeaponAmmoSel
     _id: item.id,
     "system.ammoId": ammoId,
   }]);
+});
+
+/**
+ * Roll the effective damage of a weapon directly from an Actor equipment tab.
+ * This reuses the opposed-combat damage roller so weapon modes, ammunition,
+ * qualities, and other effective modifiers remain consistent.
+ */
+export const onWeaponDamageRoll = asyncGuardSheet(async function onWeaponDamageRoll(event, target) {
+  event?.preventDefault?.();
+  const row = (target ?? event?.currentTarget)?.closest?.(".item");
+  const weapon = this.actor?.getEmbeddedDocument?.("Item", row?.dataset?.itemId);
+  if (!weapon || weapon.type !== "weapon") return;
+
+  const damage = await rollWeaponDamage({ weapon });
+  if (!damage) return;
+
+  const token = this.token?.object ?? this.token ?? null;
+  return postWeaponDamageChatCard({
+    attacker: this.actor,
+    aToken: token,
+    weapon,
+    dmg: damage,
+    hitLocation: null,
+    stage: "sheet-damage-roll",
+  });
 });

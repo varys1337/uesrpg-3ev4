@@ -1,6 +1,7 @@
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { cloneFlagState, clonePlain } from "../../../utils/clone.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { isMassCombatEnabled } from "../../homebrew/settings.js";
 
 export const WARFARE_ARMY_FLAG_KEY = "massWarfareArmy";
 export const WARFARE_ARMY_STATE_VERSION = 1;
@@ -117,6 +118,7 @@ export async function deriveArmyCampaignStateForGroup(groupActor, rawState = nul
 }
 
 export async function updateArmyCampaignState(groupActor, updater) {
+  if (!isMassCombatEnabled()) return null;
   if (!groupActor) throw new Error("Missing Group actor for army campaign update.");
   const current = getArmyCampaignState(groupActor);
   const next = typeof updater === "function"

@@ -31,6 +31,29 @@
  */
 const _inFlight = new WeakSet();
 
+function markBusy(target, busyClass) {
+  const state = {
+    ariaBusy: target?.getAttribute?.("aria-busy"),
+    ariaDisabled: target?.getAttribute?.("aria-disabled"),
+    disabled: "disabled" in (target ?? {}) ? Boolean(target.disabled) : null,
+  };
+
+  if (busyClass && target?.classList) target.classList.add(busyClass);
+  target?.setAttribute?.("aria-busy", "true");
+  target?.setAttribute?.("aria-disabled", "true");
+  if (state.disabled !== null) target.disabled = true;
+  return state;
+}
+
+function restoreBusy(target, busyClass, state) {
+  if (busyClass && target?.classList) target.classList.remove(busyClass);
+  if (state?.ariaBusy == null) target?.removeAttribute?.("aria-busy");
+  else target?.setAttribute?.("aria-busy", state.ariaBusy);
+  if (state?.ariaDisabled == null) target?.removeAttribute?.("aria-disabled");
+  else target?.setAttribute?.("aria-disabled", state.ariaDisabled);
+  if (state?.disabled !== null) target.disabled = state.disabled;
+}
+
 /**
  * Wrap an async event handler so it cannot fire twice concurrently
  * on the same DOM element.
@@ -48,21 +71,22 @@ const _inFlight = new WeakSet();
  * @param {string}   [opts.busyClass="uesrpg-busy"] - CSS class added while busy (falsy to skip)
  * @returns {Function}  Guarded wrapper with the same signature
  */
-export function asyncGuard(handler, { busyClass = "uesrpg-busy" } = {}) {
+export function asyncGuard(handler, { busyClass = "uesrpg-busy", onError = null } = {}) {
   return async function guardedHandler(event, ...args) {
     const target = event?.currentTarget ?? event?.target;
     if (!target || _inFlight.has(target)) return;
 
     _inFlight.add(target);
-    if (busyClass && target.classList) target.classList.add(busyClass);
+    const busyState = markBusy(target, busyClass);
 
     try {
       return await handler.call(this, event, ...args);
     } catch (err) {
       console.error("UESRPG | Async handler error:", err);
+      try { onError?.(err); } catch (_notifyError) { /* no-op */ }
     } finally {
       _inFlight.delete(target);
-      if (busyClass && target.classList) target.classList.remove(busyClass);
+      restoreBusy(target, busyClass, busyState);
     }
   };
 }
@@ -81,21 +105,27 @@ export function asyncGuard(handler, { busyClass = "uesrpg-busy" } = {}) {
  * @param {string}   [opts.busyClass="uesrpg-busy"] - CSS class added while busy
  * @returns {Function}  Guarded wrapper with `(event, target, ...rest)` signature
  */
-export function asyncGuardSheet(handler, { busyClass = "uesrpg-busy" } = {}) {
+export function asyncGuardSheet(handler, { busyClass = "uesrpg-busy", onError = null } = {}) {
   return async function guardedSheetHandler(event, target, ...rest) {
     const el = target ?? event?.currentTarget ?? event?.target;
     if (!el || _inFlight.has(el)) return;
 
     _inFlight.add(el);
-    if (busyClass && el.classList) el.classList.add(busyClass);
+    const busyState = markBusy(el, busyClass);
+    const submitter = el?.tagName === "FORM" ? event?.submitter : null;
+    const submitterBusyState = submitter && submitter !== el
+      ? markBusy(submitter, busyClass)
+      : null;
 
     try {
       return await handler.call(this, event, target, ...rest);
     } catch (err) {
       console.error("UESRPG | Async handler error:", err);
+      try { onError?.(err); } catch (_notifyError) { /* no-op */ }
     } finally {
       _inFlight.delete(el);
-      if (busyClass && el.classList) el.classList.remove(busyClass);
+      if (submitterBusyState) restoreBusy(submitter, busyClass, submitterBusyState);
+      restoreBusy(el, busyClass, busyState);
     }
   };
 }

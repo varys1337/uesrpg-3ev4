@@ -5,13 +5,13 @@
  *
  * Key improvements:
  * - Uses HandlebarsApplicationMixin(ItemSheetV2) base
- * - Dynamic per-type template selection via _renderHTML override
+ * - Native per-type header, tabs, and body render parts
  * - Deterministic form handler -> normalizer -> document.update pipeline
  * - _preRender / _onRender lifecycle for cross-render UI state preservation
  */
 
 import { normalizeItemFormData, validateSpellScaling } from "../item/normalize-item-form-data.js";
-import { prepareItemSheetData } from "../item/prepare.js";
+import { prepareItemSheetData, prepareItemSheetHeaderData } from "../item/prepare.js";
 import {
   onAddToContainer, onBulkAddToContainer, onBulkRemoveFromContainer,
   onBulkDeleteContained, onRemoveContainedItem, onDeleteContainedItem,
@@ -60,35 +60,38 @@ import { createDebugLogger, traceSheetPerf } from "../../../utils/debug.js";
 import { resolveUuidSync } from "../../../utils/uuid-cache.js";
 import { getArmorCategoryCoverage } from "../../../core/items/armor-coverage.js";
 import { t } from "../../../utils/i18n.js";
-import { appendChargenAudit } from "../../apps/v2/char-gen/audit-log.js";
-import {
-  buildAdministrativeCorrectionAudit,
-  isChargenCompleted,
-  promptAdministrativeCorrectionReason,
-} from "../../apps/v2/char-gen/racial-grants.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ItemSheetV2Base = foundry.applications.sheets.ItemSheetV2;
 const ITEM_SHEET_TEMPLATE_BASE = templatePath("v2/sheets");
-const ITEM_SHEET_TEMPLATE_MAP = Object.freeze({
-  ammunition: `${ITEM_SHEET_TEMPLATE_BASE}/ammunition-sheet.hbs`,
-  armor: `${ITEM_SHEET_TEMPLATE_BASE}/armor-sheet.hbs`,
-  shield: `${ITEM_SHEET_TEMPLATE_BASE}/shield-sheet.hbs`,
-  combatStyle: `${ITEM_SHEET_TEMPLATE_BASE}/combatStyle-sheet.hbs`,
-  container: `${ITEM_SHEET_TEMPLATE_BASE}/container-sheet.hbs`,
-  equipment: `${ITEM_SHEET_TEMPLATE_BASE}/equipment-sheet.hbs`,
-  item: `${ITEM_SHEET_TEMPLATE_BASE}/item-sheet.hbs`,
-  invocation: `${ITEM_SHEET_TEMPLATE_BASE}/invocation-sheet.hbs`,
-  magicSkill: `${ITEM_SHEET_TEMPLATE_BASE}/magicSkill-sheet.hbs`,
-  power: `${ITEM_SHEET_TEMPLATE_BASE}/power-sheet.hbs`,
-  scroll: `${ITEM_SHEET_TEMPLATE_BASE}/scroll-sheet.hbs`,
-  skill: `${ITEM_SHEET_TEMPLATE_BASE}/skill-sheet.hbs`,
-  spell: `${ITEM_SHEET_TEMPLATE_BASE}/spell-sheet.hbs`,
-  talent: `${ITEM_SHEET_TEMPLATE_BASE}/talent-sheet.hbs`,
-  trait: `${ITEM_SHEET_TEMPLATE_BASE}/trait-sheet.hbs`,
-  weapon: `${ITEM_SHEET_TEMPLATE_BASE}/weapon-sheet.hbs`,
+const ITEM_SHEET_PART_TEMPLATE_BASE = `${ITEM_SHEET_TEMPLATE_BASE}/item-parts`;
+const ITEM_SHEET_TYPES = Object.freeze([
+  "ammunition", "armor", "shield", "combatStyle", "container", "equipment", "item", "invocation",
+  "magicSkill", "power", "scroll", "skill", "spell", "talent", "trait", "weapon",
+]);
+const ITEM_SHEET_PART_MAP = Object.freeze(Object.fromEntries(ITEM_SHEET_TYPES.map((type) => [type, Object.freeze({
+  header: `${ITEM_SHEET_PART_TEMPLATE_BASE}/${type}-header.hbs`,
+  body: `${ITEM_SHEET_TEMPLATE_BASE}/${type}-sheet.hbs`,
+})])));
+const DEFAULT_ITEM_SHEET_PARTS = ITEM_SHEET_PART_MAP.equipment;
+const ITEM_SHEET_TABS = Object.freeze({
+  ammunition: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  armor: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  shield: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  combatStyle: [["description", "UESRPG.UI.Description"], ["combatStyle", "UESRPG.Sheets.Item.CombatStyle"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  container: [["attributes", "UESRPG.Sheets.Container.Contents"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  equipment: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  item: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  invocation: [["overview", "UESRPG.Sheets.Item.Overview"], ["ritual", "UESRPG.Sheets.Item.Ritual"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  magicSkill: [["description", "UESRPG.UI.Description"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  power: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["automation", "UESRPG.Sheets.Feature.Automation", "enableRuleElements"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  scroll: [["description", "UESRPG.UI.Description"], ["spell", "UESRPG.Sheets.Item.SpellReference"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  skill: [["description", "UESRPG.UI.Description"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  spell: [["description", "UESRPG.Sheets.Item.Overview"], ["casting", "UESRPG.Sheets.Item.Casting"], ["automation", "UESRPG.Sheets.Feature.Automation"]],
+  talent: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["automation", "UESRPG.Sheets.Feature.Automation", "enableRuleElements"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  trait: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["automation", "UESRPG.Sheets.Feature.Automation", "enableRuleElements"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
+  weapon: [["description", "UESRPG.UI.Description"], ["attributes", "UESRPG.Sheets.Item.Attributes"], ["effects", "UESRPG.Sheets.Equipment.Effects"]],
 });
-const DEFAULT_ITEM_SHEET_TEMPLATE = ITEM_SHEET_TEMPLATE_MAP.equipment;
 
 const _ARMOR_TYPED_NUMERIC_FIELDS = new Set(["magic_ar", "special_ar", "armor", "blockRating"]);
 const _shieldDebug = createDebugLogger("shieldDebug", "[UESRPG][ShieldDebug][ItemSheet]");
@@ -255,11 +258,14 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     primary: {
       tabs: [
         { id: "description" },
+        { id: "overview" },
         { id: "attributes" },
         { id: "casting" },
         { id: "information" },
         { id: "automation" },
         { id: "combatStyle" },
+        { id: "ritual" },
+        { id: "spell" },
         { id: "effects" },
       ],
       initial: "description",
@@ -294,7 +300,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       chargePlus: SimpleItemSheetV2.prototype._onChargePlus,
       chargeMinus: SimpleItemSheetV2.prototype._onChargeMinus,
       applyCategoryCoverage: SimpleItemSheetV2.prototype._onApplyCategoryCoverage,
-      administrativeCorrection: SimpleItemSheetV2.prototype._onAdministrativeCorrection,
       talentUse: SimpleItemSheetV2.prototype._onTalentUse,
       powerUse: SimpleItemSheetV2.prototype._onPowerUse,
       traitUse: SimpleItemSheetV2.prototype._onTraitUse,
@@ -339,14 +344,13 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   static PARTS = {
     header: {
-      template: templatePath("v2/sheets/equipment-sheet.hbs"),
+      template: templatePath("v2/sheets/item-parts/equipment-header.hbs"),
     },
     tabs: {
-      template: templatePath("v2/sheets/equipment-sheet.hbs"),
+      template: templatePath("v2/sheets/item-parts/tabs.hbs"),
     },
     body: {
       template: templatePath("v2/sheets/equipment-sheet.hbs"),
-      scrollable: [".sheet-body"],
     },
   };
 
@@ -374,116 +378,16 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
   /**
    * @override
-   * Dynamic per-type template selection.
-   * Dynamically configure render parts to resolve the correct per-type template.
-   * This is the documented v13 approach for varying template paths per instance.
+   * Select the native header and body fragments for the current Item type.
    * @override
    */
   _configureRenderParts(options) {
     const parts = super._configureRenderParts(options);
     const type = this.document.type;
-    const template = ITEM_SHEET_TEMPLATE_MAP[type] ?? DEFAULT_ITEM_SHEET_TEMPLATE;
-    this._uesrpgResolvedItemSheetTemplate = template;
-    parts.header = { ...(parts.header ?? {}), template };
-    parts.tabs = { ...(parts.tabs ?? {}), template };
-    parts.body = { ...(parts.body ?? {}), template };
+    const templates = ITEM_SHEET_PART_MAP[type] ?? DEFAULT_ITEM_SHEET_PARTS;
+    parts.header = { ...(parts.header ?? {}), template: templates.header };
+    parts.body = { ...(parts.body ?? {}), template: templates.body };
     return parts;
-  }
-
-  _createItemSheetPartElement(partId, sourceEl) {
-    const wrapper = document.createElement("div");
-    wrapper.dataset.applicationPart = partId;
-    if (sourceEl) {
-      wrapper.appendChild(sourceEl);
-      return wrapper;
-    }
-
-    // Keep per-part DOM contracts stable even when the source template is missing
-    // a region, so AppV2 scroll targets and tab chrome never bind to null roots.
-    if (partId === "header") {
-      wrapper.appendChild(document.createElement("header"));
-    } else if (partId === "tabs") {
-      const nav = document.createElement("nav");
-      nav.className = "sheet-tabs tabs";
-      nav.dataset.group = "primary";
-      wrapper.appendChild(nav);
-    } else if (partId === "body") {
-      const body = document.createElement("section");
-      body.className = "sheet-body";
-      wrapper.appendChild(body);
-    }
-
-    return wrapper;
-  }
-
-  _warnMissingItemSheetPart(partId, templatePath) {
-    console.warn("UESRPG | Item sheet render part missing; using empty fallback", {
-      itemType: this.document?.type ?? null,
-      itemId: this.document?.id ?? null,
-      partId,
-      templatePath,
-    });
-  }
-
-  /**
-   * @override
-   * Custom _renderHTML to handle multi-root element templates.
-   *
-   * Item templates have two root siblings (<header> + <section class="sheet-body">).
-   * We render once and split stable regions into AppV2 render parts.
-   */
-  async _renderHTML(context, options) {
-    this._configureRenderParts(options);
-    const templatePath = this._uesrpgResolvedItemSheetTemplate ?? DEFAULT_ITEM_SHEET_TEMPLATE;
-
-    // Use per-part context preparation (preserves mixin lifecycle)
-    const partContext = await this._preparePartContext("body", context, options);
-    let htmlString;
-    try {
-      htmlString = await foundry.applications.handlebars.renderTemplate(templatePath, partContext);
-    } catch (err) {
-      const fallback = DEFAULT_ITEM_SHEET_TEMPLATE;
-      const isMappedType = Object.prototype.hasOwnProperty.call(ITEM_SHEET_TEMPLATE_MAP, this.document.type);
-      console.error("UESRPG | Item sheet template render failed", {
-        type: this.document.type,
-        templatePath,
-        fallback,
-        mappedType: isMappedType,
-        error: err?.message ?? err,
-        contextKeys: Object.keys(partContext ?? {}),
-        itemSystemKeys: Object.keys(partContext?.item?.system ?? {}),
-      });
-      if (isMappedType) throw err;
-      htmlString = await foundry.applications.handlebars.renderTemplate(fallback, partContext);
-    }
-
-    // Split single-template output into stable AppV2 parts.
-    const tmp = document.createElement("div");
-    tmp.innerHTML = htmlString;
-    const headerEl = tmp.querySelector("header");
-    const tabsEl = tmp.querySelector("nav.sheet-tabs.tabs");
-    const bodyEl = tmp.querySelector("section.sheet-body");
-
-    if (!headerEl) this._warnMissingItemSheetPart("header", templatePath);
-    if (!tabsEl) this._warnMissingItemSheetPart("tabs", templatePath);
-    if (!bodyEl) this._warnMissingItemSheetPart("body", templatePath);
-
-    const allParts = {
-      header: this._createItemSheetPartElement("header", headerEl),
-      tabs: this._createItemSheetPartElement("tabs", tabsEl),
-      body: this._createItemSheetPartElement("body", bodyEl),
-    };
-
-    const requested = Array.isArray(options?.parts) && options.parts.length
-      ? new Set(options.parts)
-      : null;
-    if (!requested) return allParts;
-
-    const out = {};
-    for (const partId of requested) {
-      if (allParts[partId]) out[partId] = allParts[partId];
-    }
-    return out;
   }
 
   /**
@@ -522,21 +426,23 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     context.data = context.item.system; // legacy alias
     context.editable = this.isEditable;
       context.isGM = game.user.isGM;
-      context.canAdministrativeCorrect = Boolean(
-        game.user?.isGM
-        && ["skill", "magicSkill", "combatStyle"].includes(this.document.type)
-        && this.document.actor?.type === "Player Character"
-        && isChargenCompleted(this.document.actor)
-      );
       context.owner = this.document.isOwner;
       context.limited = this.document.limited;
       context.cssClass = this.isEditable ? "editable" : "locked";
       context.options = { editable: this.isEditable };
 
-      // Shared data preparation (enriches description, derives computed values, etc.)
-      const prepared = await prepareItemSheetData(this, context);
+      const requestedParts = Array.isArray(options?.parts) && options.parts.length
+        ? new Set(options.parts)
+        : null;
+      const bodyRequested = !requestedParts || requestedParts.has("body");
 
-      if (this.document.type === "container" && this.document.isOwned && this.document.actor) {
+      // Header/tab-only renders intentionally skip description enrichment,
+      // effect preparation, spell-engine normalization, and UUID resolution.
+      const prepared = bodyRequested
+        ? await prepareItemSheetData(this, context)
+        : prepareItemSheetHeaderData(this, context);
+
+      if (bodyRequested && this.document.type === "container" && this.document.isOwned && this.document.actor) {
         const containedItems = buildContainerContainedItemsSnapshot(this.document.actor, this.document);
         const staleSnapshotCount = Array.isArray(this.document.system?.contained_items)
           ? this.document.system.contained_items.length
@@ -566,7 +472,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         prepared.data = prepared.item.system;
       }
 
-      if (this.document.type === "scroll") {
+      if (bodyRequested && this.document.type === "scroll") {
         prepared.scrollLinkedSpell = null;
         prepared.hasLinkedSpell = false;
         prepared.linkedSpellUnresolved = false;
@@ -606,6 +512,20 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
           }
         }
       }
+
+      const configuredTabs = ITEM_SHEET_TABS[this.document.type] ?? ITEM_SHEET_TABS.equipment;
+      const visibleTabs = configuredTabs.filter(([, , condition]) => !condition || prepared[condition] === true);
+      const requestedTab = String(this.tabGroups?.primary ?? "");
+      const activeTab = visibleTabs.some(([id]) => id === requestedTab)
+        ? requestedTab
+        : (visibleTabs[0]?.[0] ?? "description");
+      this.tabGroups.primary = activeTab;
+      prepared.itemSheetTabs = visibleTabs.map(([id, label]) => ({
+        id,
+        label,
+        active: id === activeTab,
+      }));
+      prepared.itemSheetSpellTabs = ["spell", "invocation"].includes(this.document.type);
 
       return prepared;
     } finally {
@@ -691,13 +611,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
       const blocked = await validateSpellScaling(this.document, flatData, scalingLevels);
       if (blocked) return false;
     }
-    const correctionReason = String(event?.uesrpgAdministrativeCorrectionReason ?? "").trim();
-    const administrativeCorrection = Boolean(
-      correctionReason.length >= 3
-      && game.user?.isGM
-      && isChargenCompleted(this.document?.actor)
-    );
-    const advancement = buildAdvancementPlan(this.document, flatData, { administrativeCorrection });
+    const advancement = buildAdvancementPlan(this.document, flatData);
     if (!advancement.ok) {
       ui.notifications?.warn?.(advancement.reason || "Unable to apply advancement changes.");
       return false;
@@ -724,9 +638,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     }
     return {
       ok: true,
-      administrativeCorrection,
-      correctionReason,
-      waivedXp: Number(advancement.waivedXp ?? 0),
       changed: foundry.utils.deepClone(flatData),
     };
   }
@@ -736,30 +647,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
     if (!formEl?.isConnected) return false;
     const fd = new foundry.applications.ux.FormDataExtended(formEl);
     return this._onFormSubmit(event, formEl, fd);
-  }
-
-  async _onAdministrativeCorrection(event, target) {
-    event?.preventDefault?.();
-    const actor = this.document?.actor;
-    if (!game.user?.isGM || !actor || !isChargenCompleted(actor)) {
-      ui.notifications?.warn?.(t("UESRPG.DefectUpdate.GmCorrectionRequired", "A GM Administrative Correction is required after character generation."));
-      return;
-    }
-    const reason = await promptAdministrativeCorrectionReason();
-    if (!reason) return;
-    const result = await this._submitCurrentForm({
-      preventDefault() {},
-      uesrpgAdministrativeCorrectionReason: reason,
-    });
-    if (!result?.ok) return;
-    await appendChargenAudit(actor, buildAdministrativeCorrectionAudit(reason, {
-      field: "skillAdvancement",
-      itemUuid: this.document.uuid,
-      itemName: this.document.name,
-      waivedXp: result.waivedXp,
-      changed: result.changed,
-    }));
-    ui.notifications?.info?.(t("UESRPG.DefectUpdate.CorrectionApplied", "Administrative correction applied and audited."));
   }
 
   /**
@@ -1476,7 +1363,7 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
 
     const state = {
       openDetails: new Set(),
-      sheetBodyScrollTop: 0,
+      windowContentScrollTop: el.querySelector(".window-content")?.scrollTop ?? 0,
     };
 
     // <details> open state (spell scaling / advanced options)
@@ -1486,9 +1373,6 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         if (key) state.openDetails.add(key);
       }
     });
-
-    const sheetBody = el.querySelector(".sheet-body");
-    if (sheetBody) state.sheetBodyScrollTop = sheetBody.scrollTop;
 
     this._savedState = state;
   }
@@ -1544,11 +1428,11 @@ export class SimpleItemSheetV2 extends HandlebarsApplicationMixin(ItemSheetV2Bas
         this.changeTab(targetSecondaryTab, "secondary", { force: true });
       }
 
-      if (state && bodyRendered) {
-        const restoreScrollTop = Number(state.sheetBodyScrollTop) || 0;
+      if (state) {
+        const restoreScrollTop = Number(state.windowContentScrollTop) || 0;
         requestAnimationFrame(() => {
-          const currentBody = this.element?.querySelector(".sheet-body");
-          if (currentBody) currentBody.scrollTop = restoreScrollTop;
+          const windowContent = this.element?.querySelector(".window-content");
+          if (windowContent) windowContent.scrollTop = restoreScrollTop;
         });
         this._savedState = null;
       }

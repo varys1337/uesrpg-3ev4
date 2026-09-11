@@ -68,6 +68,14 @@
       <input id="uesrpg-enforce-char-gen-milestones" type="checkbox" name="enforceCharGenMilestones" {{checked settings.enforceCharGenMilestones.value}}>
     </div>
 
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-use-raw-chargen-wizard">{{settings.useRawChargenWizard.name}}</label>
+        <p class="setting-help">{{settings.useRawChargenWizard.hint}}</p>
+      </div>
+      <input id="uesrpg-use-raw-chargen-wizard" type="checkbox" name="useRawChargenWizard" {{checked settings.useRawChargenWizard.value}}>
+    </div>
+
     <div class="setting-row setting-row--select">
       <label class="setting-row__label" for="uesrpg-spell-learning-log-cap">{{settings.chargenSpellLearningLogCap.name}}</label>
       <input id="uesrpg-spell-learning-log-cap" type="number" name="chargenSpellLearningLogCap" value="{{settings.chargenSpellLearningLogCap.value}}" min="0" max="5000" step="10">

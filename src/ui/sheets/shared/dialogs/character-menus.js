@@ -4,7 +4,6 @@
  */
 
 import { RaceMenuAppV2, BirthSignMenuAppV2 } from "../../../apps/v2/character-creation-menus.js";
-import { SpendXpMenuAppV2 } from "../../../apps/v2/char-gen/spend-xp-menu.js";
 import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { customDialog, alertDialog } from "../../../../utils/dialog-v2-helper.js";
 import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
@@ -19,17 +18,9 @@ import {
   extractConfiguredUnluckyNumbers,
   hasThiefBirthsign,
 } from "../../../../core/luck/lucky-numbers.js";
-import { readActorBirthsignLabel } from "../../../../core/traits/starsigns/index.js";
+import { buildBirthsignFieldUpdates, readActorBirthsignLabel } from "../../../../core/traits/starsigns/index.js";
 import { t, tf } from "../../../../utils/i18n.js";
-
-const RANK_THRESHOLDS = Object.freeze([
-  { minXp: 7000, rank: "Master" },
-  { minXp: 5500, rank: "Expert" },
-  { minXp: 4000, rank: "Adept" },
-  { minXp: 2500, rank: "Journeyman" },
-  { minXp: 1000, rank: "Apprentice" },
-  { minXp: 0, rank: "Novice" },
-]);
+import { getCampaignRankFromXpTotal } from "../../../../core/advancement/progression.js";
 
 const RACE_DATASETS = Object.freeze({
   ...coreRaces,
@@ -38,13 +29,61 @@ const RACE_DATASETS = Object.freeze({
   ...expandedRaces,
 });
 
-export function campaignRankFromXpTotal(xpTotalRaw) {
-  const xpTotal = Number(xpTotalRaw);
-  const safeXpTotal = Number.isFinite(xpTotal) ? xpTotal : 0;
-  for (const row of RANK_THRESHOLDS) {
-    if (safeXpTotal >= row.minXp) return row.rank;
+const MISSING_FOUNDATION_LABELS = new Set(["", "none", "(none)"]);
+
+function _isMissingFoundationLabel(value) {
+  return MISSING_FOUNDATION_LABELS.has(String(value ?? "").trim().toLowerCase());
+}
+
+async function _promptMissingFoundationLabel(actor, field) {
+  const isRace = field === "race";
+  const fieldLabel = isRace
+    ? t("UESRPG.UI.Race")
+    : t("UESRPG.Dialogs.CharGen.StageBirthsign");
+
+  while (true) {
+    const result = await customDialog({
+      layout: "form",
+      title: tf("UESRPG.Dialogs.CharGen.ManualFoundationTitle", { field: fieldLabel }, `Set ${fieldLabel} manually`),
+      width: 360,
+      classes: ["uesrpg-chargen-dialog", "uesrpg-advancement-manual-dialog"],
+      content: `<div class="uesrpg-cg-dialog uesrpg-cg-stack">
+        <p class="uesrpg-cg-dialog__note">${tf("UESRPG.Dialogs.CharGen.ManualFoundationHint", { field: fieldLabel }, `No ${fieldLabel} was recorded during character generation. Enter its text name to repair this actor.`)}</p>
+        <label class="uesrpg-cg-field uesrpg-cg-field--stacked" for="advancement-foundation-label">
+          <span>${fieldLabel}</span>
+          <input type="text" id="advancement-foundation-label" maxlength="128" autocomplete="off">
+        </label>
+      </div>`,
+      buttons: {
+        save: {
+          label: t("UESRPG.UI.Save"),
+          icon: "fas fa-check",
+          callback: (html) => ({
+            submitted: true,
+            value: html?.querySelector?.("#advancement-foundation-label")?.value ?? "",
+          }),
+        },
+        cancel: { label: t("UESRPG.UI.Cancel") },
+      },
+      defaultButton: "save",
+      rejectClose: false,
+    });
+
+    if (!result?.submitted) return false;
+    const label = String(result.value ?? "").trim();
+    if (_isMissingFoundationLabel(label)) {
+      ui.notifications?.warn?.(t("UESRPG.Dialogs.CharGen.ManualFoundationInvalid", "Enter a name other than None."));
+      continue;
+    }
+
+    const updates = isRace ? { "system.race": label } : buildBirthsignFieldUpdates(label);
+    await requestUpdateDocument(actor, updates);
+    return true;
   }
-  return "Novice";
+}
+
+export function campaignRankFromXpTotal(xpTotalRaw) {
+  return getCampaignRankFromXpTotal(xpTotalRaw);
 }
 
 /**
@@ -184,7 +223,10 @@ async function _showLuckyInfo(actor) {
 }
 
 async function _showRaceInfo(actor) {
-  const race = actor.system.race || t("UESRPG.Dialogs.CharGen.NoneSelected");
+  const rawRace = String(actor.system?.race ?? "").trim();
+  const race = _isMissingFoundationLabel(rawRace)
+    ? t("UESRPG.Dialogs.CharGen.NoneSelected")
+    : rawRace;
   const raceData = RACE_DATASETS[race] ?? null;
   const traitRows = Array.isArray(raceData?.traits) && raceData.traits.length
     ? `<ul class="uesrpg-cg-list">${raceData.traits.map((trait) => `<li>${trait}</li>`).join("")}</ul>`
@@ -203,7 +245,10 @@ async function _showRaceInfo(actor) {
 }
 
 async function _showSignInfo(actor) {
-  const sign = readActorBirthsignLabel(actor) || t("UESRPG.Dialogs.CharGen.NoneSelected");
+  const rawSign = String(readActorBirthsignLabel(actor) ?? "").trim();
+  const sign = _isMissingFoundationLabel(rawSign)
+    ? t("UESRPG.Dialogs.CharGen.NoneSelected")
+    : rawSign;
   await alertDialog({
     title: t("UESRPG.Dialogs.CharGen.StageBirthsign"),
     classes: ["uesrpg-chargen-dialog"],
@@ -296,6 +341,7 @@ async function _showXpDialog(actor) {
   });
 
   if (choice === "wizard") {
+    const { SpendXpMenuAppV2 } = await import("../../../apps/v2/char-gen/spend-xp-menu.js");
     await SpendXpMenuAppV2.prompt(actor);
   }
 }
@@ -309,6 +355,14 @@ async function _showXpDialog(actor) {
 export async function onAdvancementMenu(event, _target) {
   event?.preventDefault?.();
   const actor = this.actor;
+  const raceLabel = String(actor.system?.race ?? "").trim();
+  const signLabel = String(readActorBirthsignLabel(actor) ?? "").trim();
+  const raceMissing = _isMissingFoundationLabel(raceLabel);
+  const signMissing = _isMissingFoundationLabel(signLabel);
+  const canRepairFoundations = Boolean(this.isEditable && actor?.isOwner);
+  const missingLabel = canRepairFoundations
+    ? t("UESRPG.Dialogs.CharGen.EnterManually", "Enter manually")
+    : t("UESRPG.UI.None");
   let _choice = null;
 
   await customDialog({
@@ -327,11 +381,11 @@ export async function onAdvancementMenu(event, _target) {
       </button>
       <button type="button" class="adv-btn adv-ref" data-choice="race">
         <i class="fas fa-users" aria-hidden="true"></i>
-        <span><strong>${t("UESRPG.UI.Race")}</strong><small>${actor.system.race || t("UESRPG.UI.None")}</small></span>
+        <span><strong>${t("UESRPG.UI.Race")}</strong><small>${raceMissing ? missingLabel : raceLabel}</small></span>
       </button>
       <button type="button" class="adv-btn adv-ref" data-choice="sign">
         <i class="fas fa-moon" aria-hidden="true"></i>
-        <span><strong>${t("UESRPG.Dialogs.CharGen.StageBirthsign")}</strong><small>${readActorBirthsignLabel(actor) || t("UESRPG.UI.None")}</small></span>
+        <span><strong>${t("UESRPG.Dialogs.CharGen.StageBirthsign")}</strong><small>${signMissing ? missingLabel : signLabel}</small></span>
       </button>
     </div>`,
     no: { label: t("UESRPG.UI.Cancel") },
@@ -349,8 +403,14 @@ export async function onAdvancementMenu(event, _target) {
 
   if (_choice === "lucky") return _showLuckyInfo(actor);
   if (_choice === "xp") return _showXpDialog(actor);
-  if (_choice === "race") return _showRaceInfo(actor);
-  if (_choice === "sign") return _showSignInfo(actor);
+  if (_choice === "race") {
+    if (raceMissing && canRepairFoundations) return _promptMissingFoundationLabel(actor, "race");
+    return _showRaceInfo(actor);
+  }
+  if (_choice === "sign") {
+    if (signMissing && canRepairFoundations) return _promptMissingFoundationLabel(actor, "birthsign");
+    return _showSignInfo(actor);
+  }
 }
 
 /**

@@ -22,7 +22,6 @@
 import { applyDamage, DAMAGE_TYPES } from "../../combat/damage-automation.js";
 import { requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments, requestUpdateDocument, requestUpdateEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { isActorSkeletal, isActorUndead, isActorUndeadBloodless, isActorImmuneToCondition as isActorImmuneToConditionProfile } from "../../traits/trait-registry.js";
-import { CONDITION_DESCRIPTIONS } from "../../../data/conditions/conditions-data.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { isDebugEnabled } from "../../../utils/debug.js";
@@ -42,8 +41,29 @@ import {
 
 // Stage-06: per-actor condition index cache.
 import { getConditionIndex, invalidateConditionIndex } from "./index-cache.js";
+import {
+  findAllConditionEffects as _findAllConditionEffects,
+  findConditionEffect as _findConditionEffect,
+  hasCondition,
+} from "./queries.js";
+import { removeCondition } from "./mutations.js";
 import { getStatusEffectConfigs } from "../status-effects-registry.js";
-import { getConditionDescription, getConditionName } from "./condition-i18n.js";
+import { getConditionName } from "./condition-i18n.js";
+import {
+  CONDITION_KEYS,
+  getLocalizedConditionDescription as _conditionDescription,
+  STATIC_CONDITIONS,
+  SYSTEM_TOKEN_HUD_STATUS_ID_SET,
+  TOKEN_HUD_CONDITION_ORDER,
+  TOKEN_HUD_XVALUE_STATUS_ID_SET,
+} from "../catalog.js";
+
+export {
+  CONDITION_KEYS,
+  SYSTEM_TOKEN_HUD_STATUS_ID_SET,
+  TOKEN_HUD_CONDITION_ORDER,
+  TOKEN_HUD_XVALUE_STATUS_ID_SET,
+} from "../catalog.js";
 
 // Stage-06: centralized flag scope constant.
 import { FLAG_SCOPE } from "../constants.js";
@@ -93,21 +113,6 @@ function _immunityFlagIsTrue(raw) {
  * @param {string} key
  * @returns {ActiveEffect|null}
  */
-function _findConditionEffect(actor, key) {
-  const k = _normalizeConditionKey(key);
-  if (!k || !actor) return null;
-
-  const idx = getConditionIndex(actor);
-
-  // Lane 1: canonical system-scoped flag.
-  const fromFlag = idx.byFlag.get(k);
-  if (fromFlag?.length) return fromFlag[0];
-
-  // Lane 2: core status interop fallback.
-  const fromCore = idx.byCore.get(k);
-  return fromCore?.[0] ?? null;
-}
-
 function _getConditionData(effect) {
   return effect?.getFlag?.(FLAG_SCOPE, "condition") ?? null;
 }
@@ -129,12 +134,6 @@ function _conditionBaseName(key, fallback = null) {
         ? "Flanked"
         : String(def?.name ?? fallback ?? k).replace(/\s*\(X\)\s*$/, "");
   return getConditionName(k, defaultName);
-}
-
-function _conditionDescription(key, fallback = null) {
-  const k = _normalizeConditionKey(key);
-  if (!k) return String(fallback ?? "");
-  return getConditionDescription(k, CONDITION_DESCRIPTIONS.get(k) ?? fallback);
 }
 
 function _numericConditionName(key, value) {
@@ -224,201 +223,6 @@ function _mkBaseEffectData({ name, img = null, icon = null, description = null, 
 // changes or direct document mutation.
 // -------------------------------------------------------------------------------------
 
-const STATIC_CONDITIONS = {
-  // Package 2: common static conditions with deterministic TN modifiers.
-  blinded: {
-    name: "Blinded",
-    img: "icons/svg/blind.svg",
-    description: _conditionDescription("blinded"),
-    // RAW: -30 penalty to tests benefitting from sight.
-    // Deterministic automation scope: Combat Style tests + Observe.
-    changes: [
-      buildEffectChange({ key: "system.modifiers.skills.observe", type: "add", value: -30, priority: 20 })
-    ]
-  },
-
-  deafened: {
-    name: "Deafened",
-    img: "icons/svg/deaf.svg",
-    description: _conditionDescription("deafened"),
-    // RAW: -30 penalty to tests benefitting from hearing.
-    // Deterministic automation scope: Observe.
-    changes: [
-      buildEffectChange({ key: "system.modifiers.skills.observe", type: "add", value: -30, priority: 20 })
-    ]
-  },
-
-  crippled: {
-    name: "Crippled",
-    img: "icons/svg/bones.svg",
-    description: _conditionDescription("crippled"),
-    // Tracking-only condition for now (no hard automation yet).
-    changes: []
-  },
-
-  helpless: {
-    name: "Helpless",
-    img: "icons/svg/ice-aura.svg",
-    description: _conditionDescription("helpless"),
-    // Tracking-only condition; defensive lockout is enforced in opposed workflows.
-    changes: []
-  },
-
-  silenced: {
-    name: "Silenced",
-    img: "icons/svg/sound-off.svg",
-    description: _conditionDescription("silenced"),
-    // Tracking-only condition for now (no hard automation yet).
-    changes: []
-  },
-
-  stunned: {
-    name: "Stunned",
-    img: "icons/svg/stoned.svg",
-    description: _conditionDescription("stunned"),
-    // Tracking-only condition for now (no hard automation yet).
-    changes: []
-  },
-
-  entangled: {
-    name: "Entangled",
-    img: "icons/svg/net.svg",
-    description: _conditionDescription("entangled"),
-    // RAW: -20 penalty to all Combat Style tests.
-    // NOTE: Movement halving is enforced in actor derived Speed (Package 4).
-    changes: [
-      buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: -20, priority: 20 }),
-      buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: -20, priority: 20 })
-    ]
-  },
-
-  dazed: {
-    name: "Dazed",
-    img: "icons/svg/daze.svg",
-    description: _conditionDescription("dazed"),
-    // RAW: Gain 1 fewer Action Point at the beginning of each round (minimum 1).
-    // Automation approach: reduce AP max by 1; combat AP refresh clamps to minimum 1 while Dazed.
-    changes: [
-      buildEffectChange({ key: "system.action_points.max", type: "add", value: -1, priority: 20 })
-    ]
-  },
-
-  hidden: {
-    name: "Hidden",
-    img: "icons/svg/cowled.svg",
-    description: _conditionDescription("hidden"),
-    // Core icon (Foundry) used in the Token HUD palette.
-    // RAW: Enemies cannot defend themselves against attacks from hidden characters.
-    // Movement costs double (handled via derived Speed in Actor data).
-    // Auto-removal after making an attack is handled in the opposed workflow.
-    changes: []
-  },
-
-  invisible: {
-    name: "Invisible",
-    img: "icons/svg/invisible.svg",
-    description: _conditionDescription("invisible"),
-    // RAW: Attacks made against invisible targets suffer -30 TN (handled in opposed workflow).
-    changes: []
-  },
-
-  frenzied: {
-    name: "Frenzied",
-    img: "icons/svg/terror.svg",
-    description: _conditionDescription("frenzied"),
-    // Automated via frenzied.js; changes are dynamic based on talents
-    changes: []
-  },
-
-
-  prone: {
-    name: "Prone",
-    img: "icons/svg/falling.svg",
-    description: _conditionDescription("prone"),
-    // RAW: -20 penalty to all Combat related tests.
-    // NOTE: Movement restriction + stand-up cost are enforced via Package 4 semantics.
-    changes: [
-      buildEffectChange({ key: "system.modifiers.combat.attackTN", type: "add", value: -20, priority: 20 }),
-      buildEffectChange({ key: "system.modifiers.combat.defenseTN.total", type: "add", value: -20, priority: 20 })
-    ]
-  },
-
-  // Package 3 gating conditions (primarily action/defense restrictions elsewhere)
-  unconscious: {
-    name: "Unconscious",
-    img: "icons/svg/unconscious.svg",
-    description: _conditionDescription("unconscious"),
-    changes: []
-  },
-  paralyzed: {
-    name: "Paralyzed",
-    img: "icons/svg/paralysis.svg",
-    description: _conditionDescription("paralyzed"),
-    changes: []
-  },
-  restrained: {
-    name: "Restrained",
-    img: "icons/svg/anchor.svg",
-    description: _conditionDescription("restrained"),
-    changes: []
-  },
-  grappled: {
-    name: "Grappled",
-    img: "icons/svg/grab.svg",
-    description: _conditionDescription("grappled"),
-    changes: []
-  },
-
-  // Special Actions conditions
-  feinted: {
-    name: "Feinted",
-    img: "icons/svg/combat.svg",
-    description: _conditionDescription("feinted"),
-    changes: []
-  },
-
-  // Package 4: movement restriction semantics (no TN modifiers; applied in derived Speed)
-  slowed: {
-    name: "Slowed",
-    img: "icons/svg/wingfoot.svg",
-    description: _conditionDescription("slowed"),
-    // Core icon (Foundry) used in the Token HUD palette.
-    changes: []
-  },
-  immobilized: {
-    name: "Immobilized",
-    img: "icons/svg/statue.svg",
-    description: _conditionDescription("immobilized"),
-    changes: []
-  },
-
-  mounted: {
-    name: "Mounted",
-    img: "icons/svg/pawprint.svg",
-    description: _conditionDescription("mounted"),
-    // Tracking-only condition for future mounted combat automation.
-    changes: []
-  },
-
-  // Homebrew — Engagement & Flanking
-  // Numeric tracking condition; effects are applied in combat TN computation.
-  flanked: {
-    name: "Flanked (X)",
-    img: "icons/svg/target.svg",
-    description: _conditionDescription("flanked"),
-    changes: []
-  },
-
-  // Homebrew — Reach & Length Overhaul
-  // No persistent AE modifiers; the Length Penalty direction is resolved at TN time.
-  inclose: {
-    name: "In Close",
-    img: "icons/svg/combat.svg",
-    description: _conditionDescription("inclose"),
-    changes: []
-  }
-};
-
 // -------------------------------------------------------------------------------------
 // Token HUD status parity
 //
@@ -432,55 +236,6 @@ const STATIC_CONDITIONS = {
  *
  * Keep this list conservative: only include conditions that are safe and already implemented.
  */
-const TOKEN_HUD_CONDITION_ORDER = [
-  "bleeding",
-  "blinded",
-  "burning",
-  "dazed",
-  "deafened",
-  "crippled",
-  "entangled",
-  "flanked",
-  "frenzied",
-  "helpless",
-  "hidden",
-  "immobilized",
-  "inclose",
-  "invisible",
-  "mounted",
-  "paralyzed",
-  "prone",
-  "restrained",
-  "silenced",
-  "slowed",
-  "stunned",
-  "surprised",
-  "unconscious",
-];
-
-/** @type {Set<string>} */
-export const SYSTEM_TOKEN_HUD_STATUS_ID_SET = new Set(TOKEN_HUD_CONDITION_ORDER);
-
-/**
- * Canonical condition keys for traits and immunities.
- * Built from the Token HUD list plus any static conditions not shown in the HUD.
- */
-export const CONDITION_KEYS = Object.freeze((() => {
-  const out = new Set();
-  for (const key of TOKEN_HUD_CONDITION_ORDER) {
-    const k = _normalizeConditionKey(key);
-    if (k) out.add(k);
-  }
-  for (const key of Object.keys(STATIC_CONDITIONS ?? {})) {
-    const k = _normalizeConditionKey(key);
-    if (k) out.add(k);
-  }
-  return Array.from(out);
-})());
-
-/** @type {Set<string>} */
-export const TOKEN_HUD_XVALUE_STATUS_ID_SET = new Set(["bleeding", "burning", "flanked"]);
-
 function _deepClone(obj) {
   try {
     return foundry?.utils?.deepClone ? foundry.utils.deepClone(obj) : JSON.parse(JSON.stringify(obj));
@@ -762,29 +517,7 @@ export async function upgradeTokenHudStatusEffects(actor) {
 
 }
 
-function _fallbackHasConditionByName(actor, key) {
-  const k = _normalizeConditionKey(key);
-  if (!k) return false;
-
-  // Core status interop (including aliases).
-  if (_findCoreStatusEffect(actor, k)) return true;
-
-  const aliases = new Set(_coreStatusAliasesForKey(k));
-  return _effects(actor).some(e => {
-    const n = String(e?.name ?? "").trim().toLowerCase();
-    for (const a of aliases) {
-      if (n === a || n.startsWith(`${a} (`) || n.startsWith(`${a} `)) return true;
-    }
-    return false;
-  });
-}
-
-export function hasCondition(actor, key) {
-  const k = _normalizeConditionKey(key);
-  if (!actor || !k) return false;
-  if (_findConditionEffect(actor, k)) return true;
-  return _fallbackHasConditionByName(actor, k);
-}
+export { hasCondition } from "./queries.js";
 
 /**
  * Determine whether an actor is immune to a condition.
@@ -1115,14 +848,6 @@ function _mkBleedingWTChanges(x) {
  * @param {string} key
  * @returns {ActiveEffect[]}
  */
-function _findAllConditionEffects(actor, key) {
-  const k = _normalizeConditionKey(key);
-  if (!k || !actor) return [];
-
-  const idx = getConditionIndex(actor);
-  return [...(idx.byFlag.get(k) ?? []), ...(idx.byCore.get(k) ?? [])];
-}
-
 async function _dedupeConditionEffects(actor, key) {
   if (!actor) return null;
   const k = _normalizeConditionKey(key);
@@ -1479,16 +1204,7 @@ export async function adjustConditionValue(actor, key, delta, options = {}) {
 }
 
 
-export async function removeCondition(actor, key) {
-  if (!actor) return;
-  const k = _normalizeConditionKey(key);
-  const all = _findAllConditionEffects(actor, k);
-  const ids = all.map((ef) => ef?.id).filter(Boolean);
-  if (!ids.length) return;
-  try {
-    await requestDeleteEmbeddedDocuments(actor, "ActiveEffect", ids);
-  } catch (_e) {}
-}
+export { removeCondition } from "./mutations.js";
 
 export function getConditionValue(actor, key) {
   const k = _normalizeConditionKey(key);

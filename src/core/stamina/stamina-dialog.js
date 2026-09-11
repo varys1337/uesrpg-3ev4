@@ -4,7 +4,6 @@
  */
 
 import { canUseHeroicActions } from "../rules/npc-rules.js";
-import { hasTalent } from "../traits/talents-api.js";
 import { customDialog } from "../../utils/dialog-v2-helper.js";
 import { systemRootPath } from "../constants.js";
 import { STAMINA_EFFECT_KEYS, getActiveStaminaEffect, consumeStaminaEffect } from "./stamina-effects.js";
@@ -16,29 +15,16 @@ export { STAMINA_EFFECT_KEYS, getActiveStaminaEffect, consumeStaminaEffect };
 
 function buildDialogOptions(actor) {
   const allowHeroic = canUseHeroicActions(actor);
-  const hasKillingBlow = hasTalent(actor, "killingblow");
-  return STAMINA_OPTIONS
-    .filter((option) => option.id !== "heroic-action" || allowHeroic)
-    .map((option) => {
-      if (option.id !== "power-attack" || !hasKillingBlow) return option;
-      return {
-        ...option,
-        description: "+3 damage per SP spent (max +9), spend before damage roll"
-      };
-    });
+  return STAMINA_OPTIONS.filter((option) => option.id !== "heroic-action" || allowHeroic);
 }
 
 function syncDialogState(root) {
   const select = root?.querySelector('select[name="stamina-action"]');
   const amountDiv = root?.querySelector(".uesrpg-stamina-power-attack");
-  const help = root?.querySelector(".uesrpg-stamina-action-help");
 
   const sync = () => {
     const isPowerAttack = select?.value === "power-attack";
     amountDiv?.classList.toggle("is-hidden", !isPowerAttack);
-    const option = select?.selectedOptions?.[0];
-    const description = String(option?.dataset?.description ?? "").trim();
-    if (help) help.textContent = description || t("UESRPG.Dialogs.Stamina.ActionHelp");
   };
 
   select?.addEventListener("change", sync);
@@ -62,12 +48,10 @@ export async function openStaminaDialog(actor) {
     tempSP,
     maxSP,
     effectiveSP,
-    showWarning: effectiveSP <= 0,
     options: options.map((option) => ({
       id: option.id,
       name: option.name,
-      cost: option.cost,
-      description: option.description
+      cost: option.cost
     }))
   });
 

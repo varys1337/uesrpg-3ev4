@@ -1,14 +1,8 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
-import { localizeSettingConfig } from "../../../utils/i18n.js";
+import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
 
-function _reg(key, config) {
-  if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
-    console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
-    return;
-  }
-  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Combat", key, config));
-}
+const _reg = createSystemSettingRegistrar("Combat");
 
 export function registerCombatSettings() {
   // Hidden GM rules/system policy: combat automation and measurement semantics.

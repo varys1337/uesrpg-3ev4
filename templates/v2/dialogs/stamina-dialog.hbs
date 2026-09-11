@@ -1,13 +1,10 @@
 <div class="uesrpg-stamina-dialog">
-  <div class="uesrpg-stamina-status{{#if showWarning}} is-warning{{/if}}">
-    <p class="uesrpg-stamina-status__line"><b>{{localize "UESRPG.Dialogs.Stamina.CurrentSP"}}:</b> {{currentSP}}</p>
+  <div class="uesrpg-stamina-status">
+    <p class="uesrpg-stamina-status__line"><b>{{localize "UESRPG.Dialogs.Stamina.CurrentSP"}}:</b> {{currentSP}} / {{maxSP}}</p>
     {{#if (gt tempSP 0)}}
-    <p class="uesrpg-stamina-status__line"><b>{{localize "UESRPG.Dialogs.Stamina.TemporarySP"}}:</b> +{{tempSP}} <span class="u-text-faint u-text-sm">({{localize "UESRPG.Dialogs.Stamina.ConsumedFirst"}})</span></p>
+    <p class="uesrpg-stamina-status__line"><b>{{localize "UESRPG.Dialogs.Stamina.TemporarySP"}}:</b> +{{tempSP}}</p>
     {{/if}}
     <p class="uesrpg-stamina-status__line"><b>{{localize "UESRPG.Dialogs.Stamina.EffectiveSP"}}:</b> {{effectiveSP}} / {{maxSP}}</p>
-    {{#if showWarning}}
-      <p class="uesrpg-stamina-warning">{{localize "UESRPG.Dialogs.Stamina.Warning"}}</p>
-    {{/if}}
   </div>
   <div class="uesrpg-resource-dialog__form uesrpg-stamina-form">
     <div class="form-group">
@@ -15,10 +12,9 @@
       <select name="stamina-action" class="uesrpg-stamina-select">
         <option value="">{{localize "UESRPG.Dialogs.Stamina.SelectOption"}}</option>
         {{#each options}}
-          <option value="{{id}}" data-description="{{description}}">{{name}} ({{cost}} SP)</option>
+          <option value="{{id}}">{{name}} ({{cost}} SP)</option>
         {{/each}}
       </select>
-      <p class="uesrpg-stamina-action-help uesrpg-resource-dialog__hint">{{localize "UESRPG.Dialogs.Stamina.ActionHelp"}}</p>
     </div>
     <div class="uesrpg-stamina-power-attack is-hidden">
       <label><b>{{localize "UESRPG.Dialogs.Stamina.PowerAttackAmount"}}:</b></label>

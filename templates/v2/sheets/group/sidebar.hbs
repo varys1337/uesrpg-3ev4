@@ -1,13 +1,13 @@
     <div class="sheet-fixed-container group-sidebar">
       <div class="character-profile-container group-profile-frame">
         <div class="profile-img-container">
-          <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" title="{{actor.name}}">
+          <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{actor.name}}" alt="{{actor.name}}">
         </div>
       </div>
       <h1 class="charname group-name-bar"><input type="text" name="name" value="{{actor.name}}" placeholder="{{localize "UESRPG.UI.GroupName"}}"></h1>
       <section class="group-skill-debrief uesrpg-collapsible" aria-label="{{localize "UESRPG.UI.SkillsDebrief"}}">
         <div class="group-skill-debrief__header">
-          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="group-skill-debrief" title="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
+          <a data-action="groupToggle" class="section-header__toggle uesrpg-group-toggle" data-group="group-skill-debrief" data-tooltip="UESRPG.UI.CollapseExpand" aria-label="{{localize "UESRPG.UI.CollapseExpand"}}"><i class="fas fa-chevron-down"></i></a>
           <i class="fas fa-scroll"></i>
           <span>{{localize "UESRPG.UI.SkillsDebrief"}}</span>
         </div>
@@ -15,7 +15,7 @@
         {{#if skillDebrief.length}}
         <ol class="group-skill-debrief__list">
           {{#each skillDebrief as |entry|}}
-          <li class="group-skill-debrief__row" tabindex="0" data-debrief-tooltip="{{entry.tooltip}}">
+          <li class="group-skill-debrief__row" tabindex="0" data-tooltip-text="{{entry.tooltip}}" aria-label="{{entry.tooltip}}">
             <span class="group-skill-debrief__name">{{entry.label}}</span>
           </li>
           {{/each}}

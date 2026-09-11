@@ -90,6 +90,25 @@ export function isMassCombatEnabled() {
 }
 
 /**
+ * Require the Mass Combat subsystem for a user-initiated operation.
+ * Passive hooks should use isMassCombatEnabled directly to avoid notification
+ * noise during ordinary document and canvas updates.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.notify=true]
+ * @returns {boolean}
+ */
+export function requireMassCombatEnabled({ notify = true } = {}) {
+  if (isMassCombatEnabled()) return true;
+  if (notify) {
+    const message = game?.i18n?.localize?.("UESRPG.Notifications.MassCombatMechanicsDisabled")
+      ?? "Enable Warfare in Configure Homebrew before using Warfare mechanics.";
+    ui?.notifications?.warn?.(message);
+  }
+  return false;
+}
+
+/**
  * Returns true when the Religion & Worship homebrew subsystem is enabled.
  * @returns {boolean}
  */

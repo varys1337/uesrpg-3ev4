@@ -18,3 +18,28 @@ export function createPartContextScope({ options, partDefinitions, fallbackTotal
     needs,
   };
 }
+
+/**
+ * Select mutually exclusive full or limited Actor-sheet part descriptors before
+ * HandlebarsApplication establishes the requested parts for the render cycle.
+ *
+ * @param {Record<string, object>} parts
+ * @param {object} [options]
+ * @param {boolean} [options.limited=false]
+ * @param {string} [options.limitedPart="limited"]
+ * @returns {Record<string, object>}
+ */
+export function selectDocumentSheetRenderParts(parts, {
+  limited = false,
+  limitedPart = "limited",
+} = {}) {
+  const configured = { ...(parts ?? {}) };
+  if (limited) {
+    return Object.hasOwn(configured, limitedPart)
+      ? { [limitedPart]: configured[limitedPart] }
+      : {};
+  }
+
+  delete configured[limitedPart];
+  return configured;
+}

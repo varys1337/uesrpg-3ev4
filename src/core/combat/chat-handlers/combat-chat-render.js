@@ -19,6 +19,7 @@ import {
 import { requestUpdateDocument, requestUpdateChatMessage } from "../../../utils/authority-proxy.js";
 import { resolveActor, getWhisperRecipients } from "./combat-chat-apply.js";
 import { getSkillOpposedState, getCharOpposedState } from "./combat-chat-opposed.js";
+import { markSystemTooltipScope, setSystemTooltip } from "../../../ui/shared/system-tooltips.js";
 
 const _FLAG_NS = FLAG_SCOPE;
 
@@ -51,6 +52,7 @@ function _markChatSurfaces(message, root) {
   });
   surfaces.forEach((element) => {
     element.classList.add("uesrpg-chat-surface");
+    markSystemTooltipScope(element);
   });
 }
 
@@ -275,9 +277,9 @@ function _injectTalentRerollButton(message, root) {
 
     if (!canExec) {
       btn.setAttribute("disabled", "disabled");
-      btn.setAttribute("title", "Only the roll author or a GM can execute a talent reroll.");
+      setSystemTooltip(btn, { text: "Only the roll author or a GM can execute a talent reroll." });
     } else {
-      btn.setAttribute("title", `Talent reroll: ${eligibility.source === "grandmaster" ? "Grandmaster" : "Expert"}`);
+      setSystemTooltip(btn, { text: `Talent reroll: ${eligibility.source === "grandmaster" ? "Grandmaster" : "Expert"}` });
     }
 
     btn.addEventListener("click", async (ev) => {
@@ -346,9 +348,9 @@ function _injectImperialLuckDoSButton(message, root) {
 
     if (!canSpend) {
       btn.setAttribute("disabled", "disabled");
-      btn.setAttribute("title", "You do not have permission to spend Luck Points for this actor.");
+      setSystemTooltip(btn, { text: "You do not have permission to spend Luck Points for this actor." });
     } else {
-      btn.setAttribute("title", "Imperial Luck: first LP spent on this test adds +2 DoS, then +1 per LP.");
+      setSystemTooltip(btn, { text: "Imperial Luck: first LP spent on this test adds +2 DoS, then +1 per LP." });
     }
 
     btn.addEventListener("click", async (ev) => {
@@ -438,7 +440,7 @@ export function augmentChatMessageHTML(message, root) {
 
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
-      el.setAttribute("title", "You do not have permission to roll for this actor.");
+      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
     }
   });
 
@@ -458,7 +460,7 @@ export function augmentChatMessageHTML(message, root) {
 
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
-      el.setAttribute("title", "You do not have permission to roll for this actor.");
+      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
     }
   });
 
@@ -478,7 +480,7 @@ export function augmentChatMessageHTML(message, root) {
 
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
-      el.setAttribute("title", "You do not have permission to roll for this actor.");
+      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
     }
   });
 
@@ -489,7 +491,7 @@ export function augmentChatMessageHTML(message, root) {
 
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
-      el.setAttribute("title", "You do not have permission to roll for this actor.");
+      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
     }
   });
 
@@ -500,7 +502,7 @@ export function augmentChatMessageHTML(message, root) {
 
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
-      el.setAttribute("title", "You do not have permission to roll for this actor.");
+      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
     }
   });
 
@@ -511,7 +513,7 @@ export function augmentChatMessageHTML(message, root) {
 
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
-      el.setAttribute("title", "You do not have permission to roll for this actor.");
+      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
     }
   });
 
@@ -522,7 +524,7 @@ export function augmentChatMessageHTML(message, root) {
 
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
-      el.setAttribute("title", "You do not have permission to roll for this actor.");
+      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
     }
   });
 
@@ -540,7 +542,7 @@ export function augmentChatMessageHTML(message, root) {
 
     if (actor && !canUserRollActor(game.user, actor)) {
       el.setAttribute("disabled", "disabled");
-      el.setAttribute("title", "You do not have permission to roll for this actor.");
+      setSystemTooltip(el, { text: "You do not have permission to roll for this actor." });
     }
   });
 

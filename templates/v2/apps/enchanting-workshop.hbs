@@ -481,12 +481,12 @@
 {{!-- ── Submit ───────────────────────────────────────────────────────────────── --}}
 <footer class="sheet-footer flexrow">
   <button type="submit" class="enchanting-submit">
-    <i class="fas fa-magic"></i>
-    {{#if (eq mode "cast")}}Create Cast Enchantment{{/if}}
-    {{#if (eq mode "strike")}}Create Strike Enchantment{{/if}}
-    {{#if (eq mode "constant")}}Create Constant Enchantment{{/if}}
-    {{#if (eq mode "recharge")}}Recharge{{/if}}
-    {{#if (eq mode "toggle")}}Toggle{{/if}}
+    <i class="fas fa-magic" aria-hidden="true"></i>
+    {{#if (eq mode "cast")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateCast"}}{{/if}}
+    {{#if (eq mode "strike")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateStrike"}}{{/if}}
+    {{#if (eq mode "constant")}}{{localize "UESRPG.Apps.EnchantingWorkshop.CreateConstant"}}{{/if}}
+    {{#if (eq mode "recharge")}}{{localize "UESRPG.Apps.EnchantingWorkshop.Recharge"}}{{/if}}
+    {{#if (eq mode "toggle")}}{{localize "UESRPG.Apps.EnchantingWorkshop.Toggle"}}{{/if}}
   </button>
 </footer>
 

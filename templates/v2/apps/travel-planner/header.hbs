@@ -1,0 +1,67 @@
+<div class="travel-planner__header-part">
+{{#if error}}
+<section class="travel-planner__error"><p>{{error}}</p></section>
+{{else}}
+<header class="travel-planner__header">
+    <div class="travel-planner__header-left">
+      <h2>{{group.name}}</h2>
+      <p>{{localize "UESRPG.Apps.TravelPlanner.Subtitle"}}</p>
+      <div class="travel-planner__header-roster">
+        <h3>{{localize "UESRPG.Apps.TravelPlanner.GroupRoster"}}</h3>
+        <ul class="travel-planner__roster travel-planner__roster--header">
+          {{#each members}}
+          <li draggable="true" data-drag-actor-uuid="{{this.uuid}}">
+            <img src="{{this.img}}" alt="{{this.name}}" />
+            <span>{{this.name}}</span>
+          </li>
+          {{/each}}
+        </ul>
+      </div>
+    </div>
+    <div class="travel-planner__header-controls">
+      <div class="travel-planner__journey-box">
+        <div class="travel-planner__section-header">
+          <h3>{{localize "UESRPG.Apps.TravelPlanner.JourneyEntries"}}</h3>
+          <button type="button" data-action="addJourneyEntry" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.AddEntry"}}</button>
+        </div>
+        <div class="travel-planner__journey-list">
+          {{#each journeyEntries}}
+          <div class="travel-planner__journey-row {{#if (eq this.id ../activeJourneyEntryId)}}is-active{{/if}}">
+            <label>
+              <span>{{localize "UESRPG.Apps.TravelPlanner.Terrain"}}</span>
+              <select name="journey:{{this.id}}:terrain" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../terrains}}
+                <option value="{{this.key}}" {{#if (eq this.key ../terrain)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </label>
+            <label>
+              <span>{{localize "UESRPG.Apps.TravelPlanner.Current"}}</span>
+              <input type="number" min="1" name="journey:{{this.id}}:currentStage" value="{{this.currentStage}}" {{#unless ../editable}}disabled{{/unless}} />
+            </label>
+            <label>
+              <span>{{localize "UESRPG.Apps.TravelPlanner.Total"}}</span>
+              <input type="number" min="1" name="journey:{{this.id}}:totalStages" value="{{this.totalStages}}" {{#unless ../editable}}disabled{{/unless}} />
+            </label>
+            <div class="travel-planner__actions">
+              <button type="button" data-action="useJourneyEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.Use"}}</button>
+              <button type="button" data-action="removeJourneyEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.UI.Remove"}}</button>
+            </div>
+          </div>
+          {{/each}}
+        </div>
+      </div>
+      <label class="travel-planner__checkbox">
+        <input type="checkbox" name="session.navigateLostPenaltyActive" {{checked state.session.navigateLostPenaltyActive}} {{#unless editable}}disabled{{/unless}} />
+        <span>{{localize "UESRPG.Apps.TravelPlanner.NavigateLostPenalty"}}</span>
+      </label>
+      <div class="travel-planner__header-actions-row">
+        <button type="button" data-action="shortRestGroup" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.UI.ShortRest"}}</button>
+        <button type="button" data-action="longRestGroup" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.UI.LongRest"}}</button>
+        <button type="button" data-action="createStarterTables" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.StarterTables"}}</button>
+        <button type="button" data-action="resetPlanner" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.ResetPlanner"}}</button>
+      </div>
+    </div>
+  </header>
+{{/if}}
+</div>

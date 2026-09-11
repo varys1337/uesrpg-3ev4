@@ -25,6 +25,7 @@ import {
 import { createDefaultBattlefieldUnitState } from "../battlefield/state.js";
 import { buildClashGroupForPair } from "../battlefield/groups.js";
 import { getWarfareTerrainAtPoint } from "../battlefield/terrain.js";
+import { isMassCombatEnabled, requireMassCombatEnabled } from "../../homebrew/settings.js";
 
 const ONE_ROUND_WARFARE_EFFECT_KEYS = new Set([
   "joinFrayNextClash",
@@ -316,6 +317,7 @@ export function getWarfareEncounterState(scene) {
 }
 
 export async function synchronizeWarfareEncounter(scene) {
+  if (!isMassCombatEnabled()) return null;
   const resolvedScene = _resolveScene(scene);
   if (!resolvedScene) return null;
   const synchronized = await updateSceneWarfareEncounterState(resolvedScene, (current) => _normalizeClashLogStatuses(current));
@@ -324,6 +326,7 @@ export async function synchronizeWarfareEncounter(scene) {
 }
 
 export async function startWarfareEncounter(scene) {
+  if (!requireMassCombatEnabled()) return null;
   const resolvedScene = _resolveScene(scene);
   if (!resolvedScene) return null;
   const started = await updateSceneWarfareEncounterState(resolvedScene, (current) => ({
@@ -346,6 +349,7 @@ export async function startWarfareEncounter(scene) {
 }
 
 export async function endWarfareEncounter(scene) {
+  if (!requireMassCombatEnabled()) return null;
   const resolvedScene = _resolveScene(scene);
   if (!resolvedScene) return null;
   const ended = await updateSceneWarfareEncounterState(resolvedScene, (current) => ({
@@ -365,6 +369,7 @@ export async function endWarfareEncounter(scene) {
 }
 
 export async function advanceWarfareEncounter(scene) {
+  if (!requireMassCombatEnabled()) return null;
   const resolvedScene = _resolveScene(scene);
   if (!resolvedScene) return null;
 
@@ -404,6 +409,7 @@ export async function advanceWarfareEncounter(scene) {
 }
 
 export async function passWarfareEncounterStrategic(scene) {
+  if (!requireMassCombatEnabled()) return null;
   const resolvedScene = _resolveScene(scene);
   if (!resolvedScene) return null;
   const current = getSceneWarfareEncounterState(resolvedScene);
@@ -421,6 +427,7 @@ export async function ensureEncounterAllowsUtilityAction(actor, {
   actionLabel = "This action",
   openAppOnFail = false,
 } = {}) {
+  if (!requireMassCombatEnabled()) return { allowed: false, scene: null, state: null };
   const scene = getEncounterSceneForActor(actor);
   if (!scene) return { allowed: true, scene: null, state: null };
 
@@ -439,6 +446,9 @@ export async function ensureEncounterAllowsActorAction(actor, {
   actionLabel = "This action",
   openAppOnFail = false,
 } = {}) {
+  if (!requireMassCombatEnabled()) {
+    return { allowed: false, scene: null, state: null, tokenDoc: null, tokenUuid: "", side: null };
+  }
   const scene = getEncounterSceneForActor(actor);
   if (!scene) return { allowed: true, scene: null, state: null, tokenDoc: null, tokenUuid: "", side: null };
 
@@ -501,6 +511,7 @@ export async function ensureEncounterAllowsActorAction(actor, {
 export async function commitWarfareEncounterStrategicActivation(actor, {
   gate = null,
 } = {}) {
+  if (!requireMassCombatEnabled()) return false;
   const resolvedGate = gate?.allowed ? gate : await ensureEncounterAllowsActorAction(actor, { openAppOnFail: false });
   if (!resolvedGate?.allowed || !resolvedGate.scene || !resolvedGate.tokenUuid) return false;
 
@@ -520,6 +531,7 @@ export async function declareWarfareEncounterChargeForActor(actor, {
   actionLabel = "Charge",
   targetTokenDoc = null,
 } = {}) {
+  if (!requireMassCombatEnabled()) return { handled: true, declared: false, scene: null, state: null };
   const scene = getEncounterSceneForActor(actor);
   if (!scene) return { handled: false, declared: false, scene: null, state: null };
 
@@ -632,6 +644,7 @@ export async function validateWarfareEncounterClash(actor, {
   actionLabel = "Initiate Clash",
   targetTokenDoc = null,
 } = {}) {
+  if (!requireMassCombatEnabled()) return { active: false, allowed: false, scene: null, state: null };
   const scene = getEncounterSceneForActor(actor);
   if (!scene) return { active: false, allowed: true, scene: null, state: null };
 
@@ -724,6 +737,7 @@ export async function recordWarfareEncounterClash(actor, {
   commanderJoinFray = { unit1: null, unit2: null },
   messageId = "",
 } = {}) {
+  if (!requireMassCombatEnabled()) return null;
   const scene = getEncounterSceneForActor(actor);
   if (!scene || !messageId || !attackerTokenUuid || !defenderTokenUuid) return null;
 
@@ -776,6 +790,7 @@ export async function recordWarfareEncounterClash(actor, {
 }
 
 export async function syncWarfareEncounterForChatMessage(message) {
+  if (!isMassCombatEnabled()) return false;
   if (!message?.id) return false;
   const scenes = Array.from(game?.scenes?.contents ?? []);
   let updated = false;
@@ -790,6 +805,7 @@ export async function syncWarfareEncounterForChatMessage(message) {
 }
 
 export async function openWarfareEncounterApp(scene = null) {
+  if (!requireMassCombatEnabled()) return null;
   const resolvedScene = _resolveScene(scene);
   if (!resolvedScene) {
     _uiWarn("Open a scene before launching the warfare encounter app.");

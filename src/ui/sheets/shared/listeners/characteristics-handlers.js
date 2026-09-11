@@ -21,6 +21,7 @@ import { requestUpdateDocument } from "../../../../utils/authority-proxy.js";
 import { asyncGuardSheet } from "../../../../utils/async-guard.js";
 import { getCoreRollMode } from "../../../../utils/chat-roll-mode.js";
 import { t, tf } from "../../../../utils/i18n.js";
+import { systemTooltipAttributes } from "../../../shared/system-tooltips.js";
 import { appendChargenAudit } from "../../../apps/v2/char-gen/audit-log.js";
 import {
   LUCKY_SLOT_KEYS,
@@ -263,7 +264,7 @@ export const onSetBaseCharacteristics = asyncGuardSheet(async function onSetBase
         <button type="button" id="cgRollAssign">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollAssignButton")}</button>
         <button type="button" id="cgRollDistribute">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollDistributeButton")}</button>
         <button type="button" id="cgUsePointBuy">${t("UESRPG.Dialogs.SetBaseCharacteristics.UsePointBuyButton")}</button>
-        <button type="button" id="cgReroll" title="${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolTitle")}">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolButton")}</button>
+        <button type="button" id="cgReroll" ${systemTooltipAttributes({ text: t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolTitle") })}>${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollPoolButton")}</button>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.ModeLabel")} <b id="cgModeLabel">${t("UESRPG.Dialogs.SetBaseCharacteristics.RollMode")}</b></span>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.PoolLabel")} <span id="cgRollPool">${t("UESRPG.Dialogs.SetBaseCharacteristics.ReadyToRoll")}</span></span>
         <span class="uesrpg-cg-dialog__small">${t("UESRPG.Dialogs.SetBaseCharacteristics.RerollsLabel")} <span id="cgRerollCount">0</span></span>

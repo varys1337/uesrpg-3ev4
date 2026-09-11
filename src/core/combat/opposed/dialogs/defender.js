@@ -15,6 +15,7 @@ import { customDialog } from "../../../../utils/dialog-v2-helper.js";
 import { t, tf } from "../../../../utils/i18n.js";
 import { buildSpecialActionTooltipText, buildSpecialActionHelpText } from "../../../../data/tooltips/index.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "../../../../ui/sheets/v2/shared/sheet-tooltips.js";
+import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.js";
 
 function _escapeHtml(value) {
   return String(value ?? "")
@@ -69,7 +70,7 @@ export async function promptDefenderAdvantage({
       ? t("UESRPG.Sheets.Combat.Primary", "Primary")
       : t("UESRPG.Sheets.Combat.Secondary", "Secondary");
     return `
-      <label class="uesrpg-adv-choice" title="${_escapeHtml(tooltip)}" data-uesrpg-inline-help="true" data-uesrpg-inline-help-label="${_escapeHtml(label)}" data-uesrpg-inline-help-text="${_escapeHtml(tooltip)}" data-uesrpg-inline-help-dialog-text="${_escapeHtml(helpText)}">
+      <label class="uesrpg-adv-choice" ${systemTooltipAttributes({ text: tooltip })} data-uesrpg-inline-help="true" data-uesrpg-inline-help-label="${_escapeHtml(label)}" data-uesrpg-inline-help-text="${_escapeHtml(tooltip)}" data-uesrpg-inline-help-dialog-text="${_escapeHtml(helpText)}">
         <input type="checkbox" name="sa_${id}" />
         <span class="uesrpg-adv-choice__label">
           <span class="uesrpg-adv-choice__title">${label}</span>

@@ -1,6 +1,7 @@
 import { SYSTEM_ID } from "../../constants.js";
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { synchronizeBattlefieldStateForScene } from "../battlefield/state.js";
+import { isMassCombatEnabled } from "../../homebrew/settings.js";
 
 export const WARFARE_ENCOUNTER_FLAG = "warfareEncounter";
 export const WARFARE_ENCOUNTER_VERSION = 1;
@@ -248,6 +249,7 @@ export function getSceneWarfareEncounterState(scene) {
 }
 
 export async function updateSceneWarfareEncounterState(scene, updater) {
+  if (!isMassCombatEnabled()) return null;
   if (!scene) throw new Error("A Scene is required for warfare encounter updates.");
   const current = getSceneWarfareEncounterState(scene);
   const next = typeof updater === "function"

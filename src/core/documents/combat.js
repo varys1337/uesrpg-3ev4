@@ -110,82 +110,10 @@ export class SystemCombat extends Combat {
 
   async _refreshActionPoints(actor) {
     await refreshActionPointsForCombatActor(actor);
-    return;
-
-    if (!actor) return;
-
-    const maxRaw = Number(actor?.system?.action_points?.max ?? 0);
-    const max = Number.isFinite(maxRaw) ? maxRaw : 0;
-
-    // Chapter 5: Stunned -> do not regain AP at the start of rounds/turns.
-    if (this._actorHasCondition(actor, "stunned")) {
-      const currentAP = Number(actor?.system?.action_points?.value ?? -1);
-      if (currentAP === 0) return; // Already suppressed — skip the write.
-      await requestUpdateDocument(actor, {
-        "system.action_points.value": 0
-      }).catch(err => {
-        console.warn("UESRPG | Failed to suppress AP refresh for stunned actor", actor?.name, err);
-      });
-      return;
-    }
-
-    // Chapter 5: Dazed -> gain 1 fewer AP at the beginning of each round (minimum 1).
-    // We implement this by reducing action_points.max via ActiveEffects, then clamping
-    // the refresh to at least 1 while Dazed is present.
-    const min = this._actorHasCondition(actor, "dazed") ? 1 : 0;
-    let next = Math.max(min, max);
-
-    // Chapter 5: Wounds to the body cause the target to lose 1 AP, or start next refresh
-    // with 1 fewer AP if already at 0. We implement the "next refresh" rule as a debt flag
-    // that is consumed on the next AP refresh.
-    const debtRaw = Number(actor.getFlag(FLAG_SCOPE, "wounds.apDebtNextRefresh") ?? 0);
-    const debt = Number.isFinite(debtRaw) ? debtRaw : 0;
-    const updateData = { "system.action_points.value": next };
-    if (debt > 0) {
-      next = Math.max(min, next - debt);
-      updateData["system.action_points.value"] = next;
-      // Clear debt once consumed.
-      updateData[`flags.${FLAG_SCOPE}.wounds.-=apDebtNextRefresh`] = null;
-    }
-
-    // Skip the write entirely if AP is already at the target value and there is no debt
-    // to clear. This avoids a document update for actors that started the round at max AP
-    // with no conditions or debt — the common case in a healthy party.
-    if (!debt) {
-      const currentAP = Number(actor?.system?.action_points?.value ?? -1);
-      if (currentAP === next) return;
-    }
-
-    await requestUpdateDocument(actor, updateData).catch(err => {
-      console.warn("UESRPG | Failed to refresh action points for", actor?.name, err);
-    });
   }
 
   async resetAllActionPoints() {
     await resetAllActionPointsForCombat(this);
-    return;
-
-    const _perf = isPerfEnabled();
-    const _t0 = _perf ? monoMs() : 0;
-    const BATCH_SIZE = 25;
-    const turns = Array.from(this.turns ?? []);
-    let _updatesAttempted = 0;
-    for (let i = 0; i < turns.length; i += BATCH_SIZE) {
-      const slice = turns.slice(i, i + BATCH_SIZE);
-      _updatesAttempted += slice.filter(c => c?.actor).length;
-      const promises = slice.map(combatant => this._refreshActionPoints(combatant?.actor));
-      await Promise.allSettled(promises);
-    }
-    if (_perf) {
-      perfRecord({
-        event: "combat.resetAllAP",
-        combatId: this.id,
-        round: this.round,
-        combatantsTotal: turns.length,
-        documentUpdatesAttempted: _updatesAttempted,
-        durationMs: monoMs() - _t0,
-      });
-    }
   }
 
   /** @override */
@@ -325,77 +253,6 @@ export class SystemCombat extends Combat {
    */
   static registerAPHooks() {
     registerCombatApHooks(SystemCombat);
-    return;
-
-    Hooks.on("updateCombat", (combat, changed, _options, _userId) => {
-      if (!game.user?.isGM) return;
-      if (!("round" in changed)) return;
-
-      let apType;
-      try { apType = game.settings.get("uesrpg-3ev4", "actionPointAutomation"); }
-      catch (_e) { return; }
-      if (apType !== "round") return;
-
-      const newRound = Number(combat.round ?? 0);
-      const lastRound = SystemCombat._apLastProcessedRound.get(combat.id) ?? -1;
-      // Already handled by nextRound() override or an earlier hook call for this round.
-      if (newRound <= lastRound) return;
-
-      SystemCombat._apLastProcessedRound.set(combat.id, newRound);
-      combat.resetAllActionPoints?.().catch(err =>
-        console.warn("UESRPG | AP round-restore hook failed", err)
-      );
-    });
-
-    Hooks.on("deleteCombat", (combat) => {
-      SystemCombat._apLastProcessedRound.delete(String(combat.id ?? ""));
-    });
-
-    // Keep direct ingress for now: this observes committed dynamic-initiative results and
-    // emits validation/perf summaries rather than acting as a subsystem boundary consumer.
-    Hooks.on("uesrpg.combatTimeChanged", (payload) => {
-      if (!game.user?.isGM) return;
-      if (payload?.source !== "combat") return;
-      if (payload?.combat?.phase && payload.combat.phase !== "post") return;
-
-      const combat = game?.combat ?? null;
-      if (!combat?.id) return;
-      if (payload?.combat?.id && String(payload.combat.id) !== String(combat.id)) return;
-
-      const round = Number(payload?.combat?.round ?? combat.round ?? 0);
-      const boundaryKey = `${String(combat.id)}:${round}`;
-      const expectedFirstCombatantId = String(SystemCombat._dynamicInitiativeExpectedFirstByBoundary.get(boundaryKey) ?? "");
-      if (!expectedFirstCombatantId) return;
-      const pendingSummary = SystemCombat._dynamicInitiativePendingSummaryByBoundary.get(boundaryKey) ?? null;
-
-      const committedCombatantId = String(combat.combatant?.id ?? combat.combatantId ?? "");
-      const match = committedCombatantId === expectedFirstCombatantId;
-
-      if (isPerfEnabled()) {
-        perfRecord({
-          event: "dynamicInitiative.commitObserved",
-          combatId: combat.id,
-          round,
-          enabled: (() => {
-            try { return Boolean(game.settings.get("uesrpg-3ev4", "dynamicInitiativeEnabled")); }
-            catch (_e) { return false; }
-          })(),
-          expectedFirstCombatantId,
-          committedFirstCombatantId: committedCombatantId || null,
-          match,
-        });
-      }
-
-      if (pendingSummary) {
-        SystemCombat._emitDynamicInitiativeRoundSummary(pendingSummary, {
-          combatId: combat.id,
-          round,
-        }).catch((err) => console.warn("UESRPG | Dynamic initiative summary chat failed", err));
-      }
-
-      SystemCombat._dynamicInitiativeExpectedFirstByBoundary.delete(boundaryKey);
-      SystemCombat._dynamicInitiativePendingSummaryByBoundary.delete(boundaryKey);
-    });
   }
 
   nextCombatant() {

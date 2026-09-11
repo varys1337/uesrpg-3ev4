@@ -26,10 +26,14 @@ import {
 } from "../../../core/alchemy/workflow.js";
 import { resolveDroppedItem } from "../../../utils/drop-data.js";
 import { t, tf } from "../../../utils/i18n.js";
+import { asyncGuardSheet } from "../../../utils/async-guard.js";
 import { activateOpenApplication } from "./application-focus.js";
 
 const MAX_SLOTS = 3;
 const TEMPLATE_PATH = templatePath("v2/apps/alchemy-workshop.hbs");
+const guardAlchemyAction = (handler) => asyncGuardSheet(handler, {
+  onError: () => ui.notifications?.error?.(t("UESRPG.Notifications.Alchemy.ActionFailed")),
+});
 
 function _defaultSlot() {
   return {
@@ -264,8 +268,8 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
       closeOnSubmit: false,
     },
     actions: {
-      commit: AlchemyWorkshopAppV2._onCommit,
-      rollGather: AlchemyWorkshopAppV2._onRollGather,
+      commit: guardAlchemyAction(AlchemyWorkshopAppV2._onCommit),
+      rollGather: guardAlchemyAction(AlchemyWorkshopAppV2._onRollGather),
     },
   };
 
@@ -763,7 +767,9 @@ export class AlchemyWorkshopAppV2 extends HandlebarsApplicationMixin(Application
     const validation = validateBrewRecipe(actor, recipe);
 
     if ((validation.errors?.length ?? 0) > 0) {
-      ui.notifications.warn(`${t("UESRPG.Notifications.Alchemy.CannotBrew")}\n- ${validation.errors.join("\n- ")}`);
+      ui.notifications.warn(tf("UESRPG.Notifications.Alchemy.CannotBrewWithReasons", {
+        reasons: validation.errors.join("\n- "),
+      }));
       return;
     }
 

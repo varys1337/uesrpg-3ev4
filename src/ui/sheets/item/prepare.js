@@ -90,6 +90,48 @@ function _coerceStoredSpellLevel(currentLevel, levelOptions) {
 }
 
 /**
+ * Prepare only data required by native Item header and tab parts.
+ * Heavy description, effect, spell-engine, and stored-spell work remains in
+ * prepareItemSheetData for body renders.
+ *
+ * @param {ItemSheet} sheet
+ * @param {object} data
+ * @returns {object}
+ */
+export function prepareItemSheetHeaderData(sheet, data) {
+  const itemDoc = sheet.document;
+  const itemType = itemDoc?.type ?? data.item?.type ?? null;
+  const actorDoc = itemDoc?.actor ?? null;
+  data.enableRuleElements = getCachedSetting("enableRuleElementsRuntime") === true;
+
+  if (["skill", "magicSkill", "combatStyle"].includes(itemType)) {
+    data.skillRankOptions = TRAINING_RANK_LABELS;
+    data.characteristicOptionList = getAllCharacteristicOptions(actorDoc);
+    data.characteristicOptions = Object.fromEntries(
+      data.characteristicOptionList.map(({ key, label }) => [key, label])
+    );
+  }
+
+  if (itemType === "invocation") {
+    data.religionDomainOptions = RELIGION_DOMAIN_LABELS;
+    data.invocationCircleOptions = INVOCATION_CIRCLE_LABELS;
+  }
+
+  if (itemType === "spell") data.spellSchoolOptions = SPELL_SCHOOL_LABELS;
+
+  if (itemType === "weapon") {
+    const attackMode = String(itemDoc?.system?.attackMode ?? "melee").toLowerCase();
+    const baseReach = getWeaponBaseReachState(itemDoc, { attackMode, includeLegacyFallback: true });
+    const effectiveReach = getWeaponReachBoundsEffective(itemDoc);
+    data.weaponSheetPersistedReachMinValue = baseReach.min ?? 0;
+    data.weaponSheetPersistedReachValue = baseReach.max ?? 0;
+    data.weaponSheetHeaderReachValue = effectiveReach.max ?? data.weaponSheetPersistedReachValue;
+  }
+
+  return data;
+}
+
+/**
  * Prepare item sheet data for rendering
  *
  * @param {ItemSheet} sheet
@@ -99,6 +141,7 @@ function _coerceStoredSpellLevel(currentLevel, levelOptions) {
 export async function prepareItemSheetData(sheet, data) {
   data.dtypes = ["String", "Number", "Boolean"];
   data.isGM = game.user.isGM;
+  data.enableRuleElements = getCachedSetting("enableRuleElementsRuntime") === true;
   // Fall back to sheet.isEditable if a caller didn't provide it.
   if (typeof data.editable !== "boolean") data.editable = Boolean(sheet.isEditable);
   const itemDoc = sheet.document;

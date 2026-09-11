@@ -1,0 +1,33 @@
+<div class="uesrpg-item-sheet-header-part">
+<header class="sheet-header spell-header">
+  <img class="profile-img" alt="{{item.name}}" src="{{item.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{item.name}}" height="50" width="50"/>
+  <div class="spell-header-fields">
+    <h1 class="spell-name">
+      <input name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.Sheets.Item.InvocationName"}}"/>
+    </h1>
+    <div class="spell-stats-row">
+      <div class="spell-stat spell-stat-wide">
+        <label>{{localize "UESRPG.Sheets.Item.Domain"}}</label>
+        <select name="system.domainKey" data-dtype="String">
+          {{selectOptions religionDomainOptions selected=item.system.domainKey localize=true}}
+        </select>
+      </div>
+      <div class="spell-stat">
+        <label>{{localize "UESRPG.Sheets.Item.Circle"}}</label>
+        <select name="system.circle" data-dtype="Number">
+          {{selectOptions invocationCircleOptions selected=item.system.circle localize=true}}
+        </select>
+      </div>
+      <div class="spell-stat">
+        <label>{{localize "UESRPG.Sheets.Item.PPCost"}}</label>
+        <input type="number" name="system.pietyCost" value="{{item.system.pietyCost}}" min="0"/>
+      </div>
+      <div class="spell-stat spell-stat-wide">
+        <label>{{localize "UESRPG.Sheets.Item.Time"}}</label>
+        <input type="text" name="system.time" value="{{item.system.time}}" placeholder="{{localize "UESRPG.Sheets.Item.TimePlaceholder"}}"/>
+      </div>
+    </div>
+  </div>
+</header>
+</div>
+

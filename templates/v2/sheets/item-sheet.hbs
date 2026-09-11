@@ -1,33 +1,3 @@
-{{!-- Equipment Sheet (Generic) --}}
-<header class="item-compact-header">
-    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
-    <div class="item-header-fields">
-        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="Name"/>
-        <div class="item-stats-row">
-            <div class="item-stat">
-                <input type="number" name="system.quantity" value="{{#if item.system.quantity}}{{item.system.quantity}}{{else}}0{{/if}}"/>
-                <span class="item-stat-label">Quantity</span>
-            </div>
-            <div class="item-stat">
-                <input type="number" name="system.enc" value="{{#if item.system.enc}}{{item.system.enc}}{{else}}0{{/if}}" min="0" step="0.1"/>
-                <span class="item-stat-label">ENC</span>
-            </div>
-            <div class="item-stat">
-                <input type="number" name="system.price" value="{{#if item.system.price}}{{item.system.price}}{{else}}0{{/if}}"/>
-                <span class="item-stat-label">Price</span>
-            </div>
-        </div>
-    </div>
-</header>
-
-{{!-- Sheet Tab Navigation --}}
-<nav class="sheet-tabs tabs" data-group="primary">
-    <a class="item" data-action="tab" data-group="primary" data-tab="description">Description</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">Attributes</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="effects">Effects</a>
-</nav>
-
-        {{!-- Sheet Body --}}
         <section class="sheet-body">
 
             {{!-- Description Tab --}}
@@ -51,20 +21,20 @@
                                     <div class="uesrpg-alchemy-action-row">
                                         {{#if isAlchemyIngredient}}
                                         <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyIngredient">
-                                            <i class="fas fa-times"></i> Remove Ingredient
+                                            <i class="fas fa-times" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.RemoveIngredient"}}
                                         </button>
                                         {{else}}
                                         <button type="button" class="uesrpg-alchemy-compact-btn" data-action="enableAlchemyIngredient">
-                                            <i class="fas fa-flask"></i> Enable Ingredient
+                                            <i class="fas fa-flask" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.EnableIngredient"}}
                                         </button>
                                         {{/if}}
                                         {{#if isAlchemyProduct}}
                                         <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyProduct">
-                                            <i class="fas fa-times"></i> Remove Product
+                                            <i class="fas fa-times" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.RemoveProduct"}}
                                         </button>
                                         {{else}}
                                         <button type="button" class="uesrpg-alchemy-compact-btn" data-action="enableAlchemyProduct">
-                                            <i class="fas fa-vial"></i> Enable Product
+                                            <i class="fas fa-vial" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.EnableProduct"}}
                                         </button>
                                         {{/if}}
                                     </div>
@@ -204,7 +174,7 @@
                                                 </div>
                                                 <div class="uesrpg-alchemy-inline-actions">
                                                     <button type="button" class="uesrpg-alchemy-compact-btn" data-action="clearAlchemyProductEffect" data-slot-idx="{{slot.idx}}" {{#unless @root.alchemyProduct.canManageEffects}}disabled{{else}}{{#unless slot.hasEffect}}disabled{{/unless}}{{/unless}}>
-                                                        <i class="fas fa-times"></i> Clear Slot
+                                                        <i class="fas fa-times" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.ClearSlot"}}
                                                     </button>
                                                 </div>
                                             </div>
@@ -216,11 +186,11 @@
                                     <div class="uesrpg-alchemy-inline-actions">
                                         {{#if (eq alchemyProduct.kind "potion")}}
                                         <button type="button" class="uesrpg-alchemy-compact-btn" data-action="drinkAlchemyProduct">
-                                            <i class="fas fa-glass-whiskey"></i> Drink
+                                            <i class="fas fa-glass-whiskey" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.Drink"}}
                                         </button>
                                         {{else}}
                                         <button type="button" class="uesrpg-alchemy-compact-btn" data-action="applyAlchemyProductToWeapon">
-                                            <i class="fas fa-syringe"></i> Apply to Weapon
+                                            <i class="fas fa-syringe" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Item.ApplyToWeapon"}}
                                         </button>
                                         {{/if}}
                                     </div>
@@ -256,14 +226,14 @@
                             <div class="grid-container">
                                 <div>Charge</div>
                                 <div class="right-align-content enchant-inline enchant-charge-inline">
-                                    <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="Decrease current charge">
-                                        <i class="fas fa-minus"></i>
+                                    <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" data-tooltip-text="{{localize 'UESRPG.Sheets.Item.DecreaseCurrentCharge'}}" aria-label="{{localize 'UESRPG.Sheets.Item.DecreaseCurrentCharge'}}">
+                                        <i class="fas fa-minus" aria-hidden="true"></i>
                                     </button>
                                     <input type="number" name="system.charge.value" value="{{#if item.system.charge.value}}{{item.system.charge.value}}{{else}}0{{/if}}" class="enchant-charge-input"/>
                                     <span class="enchant-charge-sep">/</span>
                                     <input type="number" name="system.charge.max" value="{{#if item.system.charge.max}}{{item.system.charge.max}}{{else}}0{{/if}}" class="enchant-charge-input"/>
-                                    <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="Increase current charge">
-                                        <i class="fas fa-plus"></i>
+                                    <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" data-tooltip-text="{{localize 'UESRPG.Sheets.Item.IncreaseCurrentCharge'}}" aria-label="{{localize 'UESRPG.Sheets.Item.IncreaseCurrentCharge'}}">
+                                        <i class="fas fa-plus" aria-hidden="true"></i>
                                     </button>
                                 </div>
                             </div>

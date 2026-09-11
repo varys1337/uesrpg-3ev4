@@ -26,10 +26,11 @@ import { startWarfareEncounter } from "../../../core/mass-warfare/encounter/cont
 import { t, tf } from "../../../utils/i18n.js";
 import { AdvanceCampaignTurnService } from "../../../application/campaign/advance-campaign-turn-service.js";
 import { activateOpenApplication } from "./application-focus.js";
+import { isMassCombatEnabled, requireMassCombatEnabled } from "../../../core/homebrew/settings.js";
 
 const TEMPLATE_PATH = templatePath("v2/apps/army-campaign/app.hbs");
 const _openApps = new Map();
-let _hooksRegistered = false;
+const _hookIds = [];
 
 function esc(v) {
   return String(v ?? "")
@@ -57,26 +58,51 @@ function normalizeGroup(groupActorOrUuid) {
   return game.actors?.get?.(raw.split(".").pop()) ?? null;
 }
 
+function _queueAppsForMemberActor(actor) {
+  const actorUuid = String(actor?.uuid ?? "");
+  if (!actorUuid) return;
+  for (const app of _openApps.values()) {
+    const isMember = Array.from(app?._group?.system?.members ?? [])
+      .some((member) => String(member?.id ?? "") === actorUuid);
+    if (isMember) app._queueRender();
+  }
+}
+
 function _registerHooks() {
-  if (_hooksRegistered) return;
-  _hooksRegistered = true;
-  Hooks.on("updateActor", (actor, changed) => {
-    if (String(actor?.type ?? "") !== "Group") return;
-    const stateChanged = changed?.flags?.["uesrpg-3ev4"]?.massWarfareArmy !== undefined
-      || foundry.utils.hasProperty(changed, "flags.uesrpg-3ev4.massWarfareArmy")
-      || foundry.utils.hasProperty(changed, "system.members");
-    if (!stateChanged) return;
-    const app = _openApps.get(String(actor?.uuid ?? ""));
-    if (app) void app.render();
-  });
-  Hooks.on("updateScene", (scene, changed) => {
+  if (_hookIds.length) return;
+  _hookIds.push(["updateActor", Hooks.on("updateActor", (actor, changed) => {
+    if (!isMassCombatEnabled()) return;
+    if (String(actor?.type ?? "") === "Group") {
+      const stateChanged = changed?.flags?.["uesrpg-3ev4"]?.massWarfareArmy !== undefined
+        || foundry.utils.hasProperty(changed, "flags.uesrpg-3ev4.massWarfareArmy")
+        || foundry.utils.hasProperty(changed, "system.members");
+      if (!stateChanged) return;
+      _openApps.get(String(actor?.uuid ?? ""))?._queueRender?.();
+      return;
+    }
+
+    _queueAppsForMemberActor(actor);
+  })]);
+  for (const eventName of ["createItem", "updateItem", "deleteItem"]) {
+    _hookIds.push([eventName, Hooks.on(eventName, (item) => {
+      if (!isMassCombatEnabled()) return;
+      _queueAppsForMemberActor(item?.parent);
+    })]);
+  }
+  _hookIds.push(["updateScene", Hooks.on("updateScene", (scene, changed) => {
+    if (!isMassCombatEnabled()) return;
     const siegeChanged = changed?.flags?.["uesrpg-3ev4"]?.warfareSiege !== undefined
       || foundry.utils.hasProperty(changed, "flags.uesrpg-3ev4.warfareSiege");
     if (!siegeChanged) return;
     for (const app of _openApps.values()) {
-      if (String(app?._activeSiegeSceneUuid ?? "") === String(scene?.uuid ?? "")) void app.render();
+      if (String(app?._activeSiegeSceneUuid ?? "") === String(scene?.uuid ?? "")) app?._queueRender?.();
     }
-  });
+  })]);
+}
+
+function _unregisterHooksIfIdle() {
+  if (_openApps.size) return;
+  for (const [eventName, hookId] of _hookIds.splice(0)) Hooks.off(eventName, hookId);
 }
 
 async function chooseMember(group, title, { includeWarfareUnits = false } = {}) {
@@ -168,6 +194,8 @@ async function performArmySkillTest(actor, skillNames, difficultyKey = "average"
 }
 
 export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
+  _renderFrameId = null;
+
   static DEFAULT_OPTIONS = {
     classes: ["uesrpg", "uesrpg-army-campaign"],
     position: { width: 760, height: 720 },
@@ -195,7 +223,14 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
     super(options);
     this._groupUuid = String(group?.uuid ?? options?.groupUuid ?? "");
     this._activeSiegeSceneUuid = "";
-    _registerHooks();
+  }
+
+  _queueRender() {
+    if (this._renderFrameId != null) return;
+    this._renderFrameId = requestAnimationFrame(() => {
+      this._renderFrameId = null;
+      void this.render();
+    });
   }
 
   get _group() {
@@ -209,16 +244,29 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
+    if (!isMassCombatEnabled()) {
+      return {
+        ...context,
+        error: t(
+          "UESRPG.Notifications.MassCombatMechanicsDisabled",
+          "Enable Warfare in Configure Homebrew before using Warfare mechanics.",
+        ),
+      };
+    }
     const group = this._group;
     if (!group || String(group?.type ?? "") !== "Group") {
-      return { ...context, error: "Group actor not found." };
+      return { ...context, error: t("UESRPG.Apps.ArmyCampaign.GroupNotFound", "Group actor not found.") };
     }
 
-    const state = await deriveArmyCampaignStateForGroup(group, getArmyCampaignState(group));
-    const members = await getArmyCampaignMemberActors(group);
+    const [state, members] = await Promise.all([
+      deriveArmyCampaignStateForGroup(group, getArmyCampaignState(group)),
+      getArmyCampaignMemberActors(group),
+    ]);
     const warfareMembers = members.filter((actor) => String(actor?.type ?? "") === "Warfare Unit");
-    const marshal = state.marshalActorUuid ? await fromUuid(String(state.marshalActorUuid)) : null;
-    const siegeScene = state.siege?.activeSiegeSceneUuid ? await fromUuid(String(state.siege.activeSiegeSceneUuid)) : null;
+    const [marshal, siegeScene] = await Promise.all([
+      state.marshalActorUuid ? fromUuid(String(state.marshalActorUuid)) : null,
+      state.siege?.activeSiegeSceneUuid ? fromUuid(String(state.siege.activeSiegeSceneUuid)) : null,
+    ]);
     const siegeState = siegeScene?.documentName === "Scene" ? getSceneWarfareSiegeState(siegeScene) : createDefaultWarfareSiegeState();
     this._activeSiegeSceneUuid = String(siegeScene?.uuid ?? "");
 
@@ -251,10 +299,14 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
   _onRender(context, options) {
     super._onRender(context, options);
     _openApps.set(String(this._groupUuid ?? ""), this);
+    _registerHooks();
   }
 
   _onClose(options) {
     _openApps.delete(String(this._groupUuid ?? ""));
+    if (this._renderFrameId != null) cancelAnimationFrame(this._renderFrameId);
+    this._renderFrameId = null;
+    _unregisterHooksIfIdle();
     return super._onClose(options);
   }
 
@@ -291,6 +343,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 
   async _onAdvanceTurn(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const group = this._group;
     if (!group) return;
     await AdvanceCampaignTurnService.advanceTurn({ groupActorOrUuid: group });
@@ -299,6 +352,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 
   async _onSetMarshal(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const group = this._group;
     if (!group) return;
     const marshal = await chooseMember(group, "Assign Army Marshal");
@@ -313,6 +367,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 
   async _onOpenMarshal(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const marshal = await this._resolveMarshal("Open Marshal");
     if (!marshal?.sheet) {
       ui.notifications?.warn?.(t("UESRPG.Notifications.ArmyCampaign.NoMarshalAssigned"));
@@ -323,6 +378,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 
   async _onToggleSupply(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const group = this._group;
     if (!group) return;
     await updateArmyCampaignState(group, (next) => {
@@ -339,6 +395,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 
   async _onArmyAction(event, target) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const action = String(target?.dataset?.armyAction ?? "").trim();
     if (!action) return;
     if (action === "march") return this.#handleMarch();
@@ -362,6 +419,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 
   async _onSiegeAction(event, target) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const action = String(target?.dataset?.siegeAction ?? "").trim();
     if (!action) return;
     if (action === "blockade") return this.#handleBlockade();
@@ -374,6 +432,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 
   async _onConfigureFeature(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const group = this._group;
     const scene = await this._resolveSiegeScene();
     if (!group || !scene) {
@@ -798,6 +857,7 @@ export class ArmyCampaignAppV2 extends HandlebarsApplicationMixin(ApplicationV2)
 }
 
 export async function openArmyCampaignApp(groupActorOrUuid) {
+  if (!requireMassCombatEnabled()) return null;
   const group = normalizeGroup(groupActorOrUuid);
   if (!group || String(group?.type ?? "") !== "Group") return null;
   const key = String(group.uuid ?? "");
@@ -808,4 +868,9 @@ export async function openArmyCampaignApp(groupActorOrUuid) {
   const app = new ArmyCampaignAppV2(group, { id: `uesrpg-army-campaign-${group.id}` });
   await app.render(true);
   return app;
+}
+
+export async function closeOpenArmyCampaignApps() {
+  const apps = Array.from(_openApps.values());
+  await Promise.allSettled(apps.map((app) => app.close()));
 }

@@ -5,6 +5,7 @@
 
 import { _esc, _fmtDegree } from "./util.js";
 import { t } from "../../../../utils/i18n.js";
+import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.js";
 
 export function _renderDeclared(declared, tnObj) {
   if (!declared) return "";
@@ -47,7 +48,7 @@ export function _renderBreakdown(tnObj, { inline = false } = {}) {
   if (inline) {
     return `
       <details style="display:inline-block; margin-left:6px; vertical-align:baseline;">
-        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}">&#9654;</summary>
+        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" ${systemTooltipAttributes({ text: t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown"), ariaLabel: t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown") })}>&#9654;</summary>
         <div style="margin-top:4px; font-size:12px; opacity:0.9;">${rows}</div>
       </details>`;
   }

@@ -1,5 +1,6 @@
 import { FLAG_SCOPE } from "../constants.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
+import { isMassCombatEnabled, requireMassCombatEnabled } from "../homebrew/settings.js";
 
 export const WARFARE_CONDITION_INIT_FLAG = "warfareConditionInitialized";
 
@@ -95,6 +96,7 @@ export function isWarfareConditionInitialized(document) {
 }
 
 export async function markWarfareConditionInitialized(document) {
+  if (!isMassCombatEnabled()) return false;
   if (!document || isWarfareConditionInitialized(document)) return false;
   await requestUpdateDocument(document, {
     [`flags.${FLAG_SCOPE}.${WARFARE_CONDITION_INIT_FLAG}`]: true,
@@ -103,6 +105,7 @@ export async function markWarfareConditionInitialized(document) {
 }
 
 export async function applyWarfareConditionDelta(reference, delta = 0) {
+  if (!requireMassCombatEnabled()) return { applied: false, restored: 0 };
   const target = await resolveWarfareConditionTarget(reference);
   if (!target?.updateTarget) return { applied: false, ...target };
 
@@ -135,6 +138,7 @@ export async function applyWarfareConditionDelta(reference, delta = 0) {
 }
 
 export async function maybeInitializeWarfareCondition(document, { maxCondition = null } = {}) {
+  if (!isMassCombatEnabled()) return false;
   if (!document || String(document.type ?? "") !== "Warfare Unit") return false;
   if (isWarfareConditionInitialized(document)) return false;
 

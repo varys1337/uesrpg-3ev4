@@ -3,7 +3,6 @@ import { isWithinMeleeRange } from "../../core/traits/combat-proximity.js";
 import { ActionEconomy } from "../../core/combat/action-economy.js";
 import { requestUpdateDocument } from "../authority-proxy.js";
 import { confirmDialog, customDialog } from "../dialog-v2-helper.js";
-import { getTokensInRadius } from "../canvas/token-query.js";
 
 function _asNumber(v, fallback = 0) {
   const n = Number(v);
@@ -37,53 +36,19 @@ function _collectDefenderCandidates(defenderToken, { rangeMeters = 2 } = {}) {
   if (disp == null || disp === 0) return [];
 
   const out = [];
-  
-  try {
-    // Use spatial index for efficient radius queries
-    const center = defenderToken.center;
-    if (!center) return [];
-    
-    const nearbyTokens = getTokensInRadius(center.x, center.y, rangeMeters, (token) => {
-      // Filter conditions
-      if (!token || token.id === defenderToken.id) return false;
-      if (_isHiddenOrNeutral(token)) return false;
-      if (token.document?.disposition !== disp) return false;
-      if (!token.actor) return false;
-      if (!hasTalent(token.actor, "defender")) return false;
-      
-      // AP check
-      const ap = _asNumber(token.actor.system?.action_points?.value, 0);
-      if (ap < 1) return false;
-      
-      // Ownership check
-      if (!(game.user?.isGM || token.actor.isOwner === true)) return false;
-      
-      return true;
-    });
-    
-    // Convert to expected format
-    for (const { token } of nearbyTokens) {
-      const ap = _asNumber(token.actor.system?.action_points?.value, 0);
-      out.push({ token, actor: token.actor, ap });
-    }
-    
-  } catch (err) {
-    // Fallback to original iteration if token query fails
-    console.debug("UESRPG | Token query failed, falling back to direct iteration", err);
-    for (const t of canvas.tokens.placeables) {
-      if (!t || t.id === defenderToken.id) continue;
-      if (_isHiddenOrNeutral(t)) continue;
-      if (t.document?.disposition !== disp) continue;
-      if (!t.actor) continue;
-      if (!hasTalent(t.actor, "defender")) continue;
-      if (!isWithinMeleeRange(defenderToken, t, rangeMeters)) continue;
+  for (const token of canvas.tokens.placeables) {
+    if (!token || token.id === defenderToken.id) continue;
+    if (_isHiddenOrNeutral(token)) continue;
+    if (token.document?.disposition !== disp) continue;
+    if (!token.actor) continue;
+    if (!hasTalent(token.actor, "defender")) continue;
+    if (!isWithinMeleeRange(defenderToken, token, rangeMeters)) continue;
 
-      const ap = _asNumber(t.actor.system?.action_points?.value, 0);
-      if (ap < 1) continue;
-      if (!(game.user?.isGM || t.actor.isOwner === true)) continue;
+    const ap = _asNumber(token.actor.system?.action_points?.value, 0);
+    if (ap < 1) continue;
+    if (!(game.user?.isGM || token.actor.isOwner === true)) continue;
 
-      out.push({ token: t, actor: t.actor, ap });
-    }
+    out.push({ token, actor: token.actor, ap });
   }
 
   out.sort((a, b) => {

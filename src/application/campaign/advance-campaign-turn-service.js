@@ -4,9 +4,11 @@ import {
   WARFARE_ARMY_ACTIONS_PER_TURN,
 } from "../../core/mass-warfare/campaign/state.js";
 import { resolveGroupActorDocument } from "../foundry/adapters.js";
+import { requireMassCombatEnabled } from "../../core/homebrew/settings.js";
 
 export const AdvanceCampaignTurnService = {
   async advanceTurn({ groupActorOrUuid } = {}) {
+    if (!requireMassCombatEnabled()) return null;
     const group = await resolveGroupActorDocument(groupActorOrUuid);
     if (!group) throw new Error("Missing Group actor for campaign turn advancement.");
 

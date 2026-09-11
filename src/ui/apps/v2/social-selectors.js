@@ -10,6 +10,7 @@ import {
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t } from "../../../utils/i18n.js";
+import { bindListFilters, clearListFilterState } from "../../sheets/v2/shared/list-filter.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -197,7 +198,6 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
   #resolver = null;
   #resolved = false;
   #isSaving = false;
-  #search = "";
   #entries = [];
 
   constructor(actor, options = {}) {
@@ -241,31 +241,18 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
 
   _onRender(context, options) {
     super._onRender(context, options);
-    const searchInput = this.element?.querySelector("#social-faction-search");
-    if (searchInput) {
-      searchInput.addEventListener("input", (ev) => {
-        this.#search = String(ev.currentTarget?.value ?? "").trim().toLowerCase();
-        this.render(false);
-      });
-    }
+    bindListFilters(this, this.element);
   }
 
   async _prepareContext(options) {
     const selected = new Set(this.#entries.map((f) => f.name.toLowerCase()));
-    const choices = FACTION_CHOICES
-      .filter((choice) => {
-        if (!this.#search) return true;
-        const label = getChoiceLabel(choice).toLowerCase();
-        return choice.name.toLowerCase().includes(this.#search) || label.includes(this.#search);
-      })
-      .map((choice) => ({
+    const choices = FACTION_CHOICES.map((choice) => ({
         ...choice,
         label: getChoiceLabel(choice),
         disabled: selected.has(choice.name.toLowerCase()),
       }));
 
     return {
-      search: this.#search,
       choices,
       entries: this.#entries,
     };
@@ -363,6 +350,7 @@ export class FactionSelectorAppV2 extends HandlebarsApplicationMixin(Application
   }
 
   async close(options = {}) {
+    clearListFilterState(this);
     if (!this.#resolved && this.#resolver) {
       this.#resolved = true;
       this.#resolver(false);

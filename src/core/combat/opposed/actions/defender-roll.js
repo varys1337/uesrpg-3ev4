@@ -54,6 +54,7 @@ import {
   promptHybridWarfareDefense,
   rollHybridWarfareTest
 } from "../hybrid.js";
+import { requireMassCombatEnabled } from "../../../homebrew/settings.js";
 
 async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
   try {
@@ -81,6 +82,7 @@ async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
  * @param {Object} ctx - Context: { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, opts }
  */
 export async function handleDefenderNoDefense(ctx) {
+  if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, attacker, defender, defenderData, defenderIndex, dToken, _updateCard } = ctx;
 
   if (data.defender.result || data.defender.noDefense) return;
@@ -148,6 +150,7 @@ export async function handleDefenderNoDefense(ctx) {
  * @param {Object} ctx - Context: { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, opts }
  */
 export async function handleDefenderRoll(ctx) {
+  if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, defenderIndex, aToken, _updateCard } = ctx;
   const { attacker, defender, defenderData, dToken } = ctx;
 

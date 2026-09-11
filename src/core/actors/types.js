@@ -5,8 +5,6 @@
  * Single source of truth for actor type string checks used across the system.
  */
 
-import { getHomebrewSetting } from "../homebrew/settings.js";
-
 /** Canonical actor type string constants. */
 export const ACTOR_TYPES = Object.freeze({
   PC: "Player Character",
@@ -46,12 +44,4 @@ export function isWarfareUnitActorType(type) {
  */
 export function isHumanoidActorType(type) {
   return type === ACTOR_TYPES.PC || type === ACTOR_TYPES.NPC;
-}
-
-/**
- * Returns true when the Mass Combat homebrew subsystem is enabled.
- * @returns {boolean}
- */
-export function isMassCombatEnabled() {
-  return Boolean(getHomebrewSetting("homebrew.massCombat.enabled", false));
 }

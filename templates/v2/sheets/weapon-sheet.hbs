@@ -1,56 +1,3 @@
-{{!-- Weapon Sheet - Compact Layout --}}
-<header class="item-compact-header">
-    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
-    <div class="item-header-fields">
-        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
-        <div class="item-stats-row item-stats-row--weapon-armor">
-            <div class="item-stats-grid item-stats-grid--two-rows">
-                <div class="item-stat">
-                    <input type="number" name="system.quantity" value="{{item.system.quantity}}"/>
-                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Quantity"}}</span>
-                </div>
-                <div class="item-stat">
-                    <input type="number" name="system.enc" value="{{item.system.enc}}" min="0" step="0.1"/>
-                    <span class="item-stat-label">ENC</span>
-                </div>
-                <div class="item-stat">
-                    <input type="number" name="system.price" value="{{item.system.price}}"/>
-                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Price"}}</span>
-                </div>
-                <div class="item-stat">
-                    <input type="text" name="system.damage" value="{{item.system.damage}}"/>
-                    <span class="item-stat-label">{{localize "UESRPG.Chat.Common.Damage"}}</span>
-                </div>
-                <div class="item-stat">
-                    <input type="text" name="system.damage2" value="{{item.system.damage2}}"/>
-                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Weapon2HDamage"}}</span>
-                </div>
-                <div class="item-stat">
-                    {{#if (eq item.system.attackMode "ranged")}}
-                    <input type="text" name="system.range" value="{{item.system.range}}" placeholder="{{localize "UESRPG.Placeholders.RangeFormat"}}"/>
-                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Range"}}</span>
-                    {{else}}
-                    <input type="number" value="{{weaponSheetHeaderReachValue}}" min="0" step="1" disabled class="u-input-disabled"/>
-                    <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Reach"}}</span>
-                    {{/if}}
-                </div>
-            </div>
-            <div class="item-stat item-stat--equipped-side">
-                <input class="checkbox" type="checkbox" name="system.equipped" {{checked item.system.equipped}}>
-                <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Equipped"}}</span>
-            </div>
-        </div>
-    </div>
-</header>
-
-{{!-- Sheet Tab Navigation --}}
-<nav class="sheet-tabs tabs" data-group="primary">
-    <a class="item" data-action="tab" data-group="primary" data-tab="description">{{localize "UESRPG.UI.Description"}}</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="attributes">{{localize "UESRPG.Sheets.Item.Attributes"}}</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
-</nav>
-
-    {{!-- Sheet Body --}}
     <section class="sheet-body">
 
         {{!-- Description Tab --}}
@@ -206,13 +153,13 @@
                                 <div class="weapon-field-row">
                                     <label>{{localize "UESRPG.Sheets.Item.Charge"}}</label>
                                     <div class="flex-container weapon-charge-row enchant-inline enchant-charge-inline">
-                                        <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" title="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
+                                        <button type="button" class="uesrpg-charge-btn" data-action="chargeMinus" data-tooltip="UESRPG.Sheets.Item.DecreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.DecreaseCurrentCharge"}}">
                                             <i class="fas fa-minus"></i>
                                         </button>
                                         <input type="number" name="system.charge.value" value="{{item.system.charge.value}}" class="enchant-charge-input"/>
                                         <span class="enchant-charge-sep">/</span>
                                         <input type="number" name="system.charge.max" value="{{item.system.charge.max}}" class="enchant-charge-input"/>
-                                        <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" title="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
+                                        <button type="button" class="uesrpg-charge-btn" data-action="chargePlus" data-tooltip="UESRPG.Sheets.Item.IncreaseCurrentCharge" aria-label="{{localize "UESRPG.Sheets.Item.IncreaseCurrentCharge"}}">
                                             <i class="fas fa-plus"></i>
                                         </button>
                                     </div>

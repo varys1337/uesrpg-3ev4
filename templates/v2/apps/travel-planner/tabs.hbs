@@ -1,0 +1,5 @@
+<nav class="travel-planner__tabs" aria-label="{{localize "UESRPG.Apps.TravelPlanner.Navigation"}}" {{#if error}}hidden{{/if}}>
+    <button type="button" data-action="switchTab" data-tab="planning" class="{{#if (eq activeTab 'planning')}}is-active{{/if}}">{{localize "UESRPG.Apps.TravelPlanner.Planning"}}</button>
+    <button type="button" data-action="switchTab" data-tab="travel" class="{{#if (eq activeTab 'travel')}}is-active{{/if}}">{{localize "UESRPG.Apps.TravelPlanner.Travelling"}}</button>
+    <button type="button" data-action="switchTab" data-tab="camping" class="{{#if (eq activeTab 'camping')}}is-active{{/if}}">{{localize "UESRPG.Apps.TravelPlanner.Camping"}}</button>
+  </nav>

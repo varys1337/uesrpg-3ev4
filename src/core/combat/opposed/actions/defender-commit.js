@@ -46,6 +46,7 @@ import {
   promptHybridWarfareDefense,
   rollHybridWarfareTest
 } from "../hybrid.js";
+import { requireMassCombatEnabled } from "../../../homebrew/settings.js";
 
 /** @private — Clone current opposed flag state from a live message for lane-commit merging. */
 function _readCombatOpposedFlagState(fm) {
@@ -128,6 +129,7 @@ async function _maybeGrantConcussiveNextBash(attacker, data, advantage) {
  * @param {Object} ctx - Context: { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, opts }
  */
 export async function handleDefenderCommitNoDefense(ctx) {
+  if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, defender, defenderData, bankMode, isAoE, _updateCard } = ctx;
 
   if (!bankMode) {
@@ -207,6 +209,7 @@ export async function handleDefenderCommitNoDefense(ctx) {
  * @param {Object} ctx - Context: { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, opts }
  */
 export async function handleDefenderCommit(ctx) {
+  if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, defenderIndex, aToken, bankMode, isAoE, _updateCard } = ctx;
   const { attacker, defender, defenderData, dToken } = ctx;
 
@@ -697,6 +700,7 @@ export async function handleDefenderCommit(ctx) {
  * @param {Object} ctx - Context: { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, opts }
  */
 export async function handleDefenderRollCommitted(ctx) {
+  if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, attacker, defender, defenderIndex, aToken, dToken, bankMode, batchedUpdate, _updateCard } = ctx;
 
   if (isHybridOpposed(data) && getHybridDomain(data, "defender", defender) === "warfare") {

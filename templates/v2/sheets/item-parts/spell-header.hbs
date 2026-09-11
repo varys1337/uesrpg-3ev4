@@ -1,0 +1,24 @@
+<div class="uesrpg-item-sheet-header-part">
+<header class="sheet-header spell-header">
+    <img class="profile-img" alt="{{item.name}}" src="{{item.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{item.name}}" height="88" width="88"/>
+    <div class="spell-header-fields">
+      <h1 class="spell-name">
+        <input name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.Sheets.Item.SpellName"}}"/>
+      </h1>
+      <div class="spell-stats-row">
+        <div class="spell-stat spell-stat-wide">
+          <label>{{localize "UESRPG.Sheets.Item.School"}}</label>
+          <select name="system.school" data-dtype="String" data-spell-structure>
+            {{selectOptions spellSchoolOptions selected=item.system.school localize=true}}
+          </select>
+        </div>
+        <div class="spell-stat spell-stat-wide">
+          <label>{{localize "UESRPG.Sheets.Equipment.Type"}}</label>
+          <select name="system.spellType" data-dtype="String">
+            {{selectOptions item.system.spellTypes selected=item.system.spellType localize=true}}
+          </select>
+        </div>
+      </div>
+    </div>
+  </header>
+</div>

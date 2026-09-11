@@ -66,6 +66,7 @@ import {
   promptHybridWarfareAttack,
   rollHybridWarfareTest
 } from "../hybrid.js";
+import { requireMassCombatEnabled } from "../../../homebrew/settings.js";
 
 /** @private — Clone current opposed flag state from a live message for lane-commit merging. */
 function _readCombatOpposedFlagState(fm) {
@@ -92,6 +93,7 @@ function _readCombatOpposedFlagState(fm) {
  * @param {object} ctx.opts - Additional options passed to the workflow
  */
 export async function handleAttackerAction(action, ctx) {
+  if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, attacker, defender, defenderData, defenderIndex, defenders, isMulti, aToken, dToken, bankMode, isAoE, batchedUpdate, opts, _updateCard } = ctx;
   const baseTrackerContext = {
     combatantId: data?.attacker?.combatantId ?? null,

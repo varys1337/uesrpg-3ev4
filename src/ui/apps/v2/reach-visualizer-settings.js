@@ -17,10 +17,24 @@ import {
 import { scheduleEngagementFlankingRefresh } from "../../../core/homebrew/engagement-flanking/index.js";
 import { isEngagementFlankingHomebrewEnabled } from "../../../core/system/homebrew.js";
 import { localizeChoiceObject, t } from "../../../utils/i18n.js";
+import {
+  ARMOR_COVERAGE_MODE_SETTING,
+  ARMOR_COVERAGE_SCALE_RANGE,
+  ARMOR_COVERAGE_SCALE_SETTING,
+  ARMOR_COVERAGE_TRANSPARENCY_SETTING,
+  DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS,
+  normalizeArmorCoverageOverlaySettings,
+} from "../../canvas/armor-coverage-controller.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-const ARMOR_COVERAGE_MODE_SETTING = "armorCoverageOverlayMode";
-const ARMOR_COVERAGE_TRANSPARENCY_SETTING = "armorCoverageOverlayTransparency";
+
+function _readSetting(key, fallback) {
+  try {
+    return game?.settings?.get?.(SYSTEM_ID, key) ?? fallback;
+  } catch (_e) {
+    return fallback;
+  }
+}
 
 export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static DEFAULT_OPTIONS = {
@@ -52,24 +66,18 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
 
   async _prepareContext(options) {
     const settings = getReachVisualizerSettings();
-    const armorCoverageMode = (() => {
-      try {
-        return String(game?.settings?.get?.(SYSTEM_ID, ARMOR_COVERAGE_MODE_SETTING) ?? "disabled");
-      } catch (_e) {
-        return "disabled";
-      }
-    })();
-    const armorCoverageTransparency = (() => {
-      try {
-        return Number(game?.settings?.get?.(SYSTEM_ID, ARMOR_COVERAGE_TRANSPARENCY_SETTING) ?? 90);
-      } catch (_e) {
-        return 90;
-      }
-    })();
+    const armorCoverage = normalizeArmorCoverageOverlaySettings({
+      mode: _readSetting(ARMOR_COVERAGE_MODE_SETTING, DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.mode),
+      transparency: _readSetting(ARMOR_COVERAGE_TRANSPARENCY_SETTING, DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.transparency),
+      scale: _readSetting(ARMOR_COVERAGE_SCALE_SETTING, DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.scale),
+    });
     return {
       settings,
-      armorCoverageEnabled: armorCoverageMode === "compact",
-      armorCoverageTransparency,
+      armorCoverageEnabled: armorCoverage.mode === "compact",
+      armorCoverageTransparency: armorCoverage.transparency,
+      armorCoverageScale: armorCoverage.scale,
+      armorCoverageScaleRange: ARMOR_COVERAGE_SCALE_RANGE,
+      canConfigureSharedArmorCoverage: Boolean(game.user?.isGM),
       visibilityChoices: localizeChoiceObject({
         [REACH_VISIBILITY.ALWAYS]: "Show always",
         [REACH_VISIBILITY.HOVER]: "Show on hover",
@@ -93,7 +101,9 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
       const key = range.dataset.rangeValue;
       const out = el.querySelector(`.range-value[data-range-value='${key}']`);
       if (!out) continue;
-      range.addEventListener("input", () => { out.textContent = range.value; });
+      range.addEventListener("input", () => {
+        out.textContent = `${range.value}${range.dataset.rangeSuffix ?? ""}`;
+      });
     }
 
     // Conditional visibility for dynamic vs single opacity.
@@ -133,14 +143,19 @@ export class ReachVisualizerSettingsAppV2 extends HandlebarsApplicationMixin(App
 
     await setReachVisualizerSettings(partial);
 
-    if ("armorCoverageEnabled" in data) {
+    if (game.user?.isGM && "armorCoverageEnabled" in data) {
       await game.settings.set(SYSTEM_ID, ARMOR_COVERAGE_MODE_SETTING, Boolean(data.armorCoverageEnabled) ? "compact" : "disabled");
     }
 
-    if ("armorCoverageTransparency" in data) {
+    if (game.user?.isGM && "armorCoverageTransparency" in data) {
       const rawTransparency = Number(data.armorCoverageTransparency);
-      const transparency = Number.isFinite(rawTransparency) ? Math.max(0, Math.min(100, rawTransparency)) : 90;
+      const transparency = normalizeArmorCoverageOverlaySettings({ transparency: rawTransparency }).transparency;
       await game.settings.set(SYSTEM_ID, ARMOR_COVERAGE_TRANSPARENCY_SETTING, transparency);
+    }
+
+    if ("armorCoverageScale" in data) {
+      const scale = normalizeArmorCoverageOverlaySettings({ scale: data.armorCoverageScale }).scale;
+      await game.settings.set(SYSTEM_ID, ARMOR_COVERAGE_SCALE_SETTING, scale);
     }
 
     // Apply immediately if the overlay controller is present.

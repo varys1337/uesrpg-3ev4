@@ -5,9 +5,18 @@
 
   <div class="form-group">
     <label>{{localize "UESRPG.Apps.MigrationSettings.StatusLabel" currentVersion=currentVersion}}</label>
-    <p class="notes">{{localize "UESRPG.Apps.MigrationSettings.StatusActorsPrefix" version=status.actors.version}} {{#if status.actors.upToDate}}({{localize "UESRPG.UI.UpToDate"}}){{else}}({{localize "UESRPG.UI.Outdated"}}){{/if}}</p>
-    <p class="notes">{{localize "UESRPG.Apps.MigrationSettings.StatusItemsPrefix" version=status.items.version}} {{#if status.items.upToDate}}({{localize "UESRPG.UI.UpToDate"}}){{else}}({{localize "UESRPG.UI.Outdated"}}){{/if}}</p>
-    <p class="notes">{{localize "UESRPG.Apps.MigrationSettings.StatusCombatLegacyPrefix" version=status.combatLegacy.version}} {{#if status.combatLegacy.upToDate}}({{localize "UESRPG.UI.UpToDate"}}){{else}}({{localize "UESRPG.UI.Outdated"}}){{/if}}</p>
+    <p class="notes">{{localize "UESRPG.Apps.MigrationSettings.PendingSummary" count=pendingCount}}</p>
+    <div class="uesrpg-migration-status-list">
+      {{#each statuses as |entry|}}
+        <div class="form-group stacked uesrpg-migration-status-row">
+          <label>{{entry.label}}</label>
+          <p class="notes">
+            {{localize "UESRPG.Apps.MigrationSettings.RevisionStatus" applied=entry.appliedRevision required=entry.requiredRevision}}
+            {{#if entry.upToDate}}({{localize "UESRPG.UI.UpToDate"}}){{else}}({{localize "UESRPG.UI.Outdated"}}){{/if}}
+          </p>
+        </div>
+      {{/each}}
+    </div>
   </div>
 
   <div class="form-group">
@@ -15,6 +24,7 @@
       type="button"
       data-action="runMigrations"
       class="save"
+      {{#unless canRun}}disabled{{/unless}}
       {{#if isRunning}}disabled{{/if}}>
       <i class="fas fa-play"></i>
       {{#if isRunning}}{{localize "UESRPG.Apps.MigrationSettings.Running"}}{{else}}{{localize "UESRPG.Apps.MigrationSettings.RunNow"}}{{/if}}

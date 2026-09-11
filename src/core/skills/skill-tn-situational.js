@@ -1,8 +1,8 @@
-import { computeDefenderTNOverride } from "../combat/tn.js";
+import { computeDefenderTNOverride } from "../combat/defender-tn-override.js";
 import { hasTalent } from "../traits/talents-api.js";
-import { applySenseLossPenaltyAdjustments } from "../traits/awareness-talents.js";
+import { applySenseLossPenaltyAdjustments } from "../traits/sense-loss.js";
 import { getArmoredAgilityAcrobaticsBonus } from "../traits/mobility-talents.js";
-import { hasCondition } from "../conditions/condition-engine.js";
+import { hasCondition } from "../conditions/engine/queries.js";
 import { normalizeKey } from "./key-utils.js";
 import {
   resolveEffectiveSkillCharacteristicKey,

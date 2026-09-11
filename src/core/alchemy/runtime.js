@@ -457,11 +457,11 @@ function _buildPotionAE(actor, effectDef, sl, magnitude, durationRounds, _params
 function _buildAEChanges(effectKey, magnitude) {
   switch (effectKey) {
     case "shieldSpell":
-      return [buildEffectChange({ key: "magic_ar", type: "add", value: String(magnitude) })];
+      return [buildEffectChange({ key: "magic_ar", type: "add", value: String(magnitude), priority: 20 })];
     case "fortifyAttribute":
       return [];
     case "feather":
-      return [buildEffectChange({ key: "system.encumbrance.bonus", type: "add", value: String(-magnitude * 5) })];
+      return [buildEffectChange({ key: "system.encumbrance.bonus", type: "add", value: String(-magnitude * 5), priority: 20 })];
     default:
       return [];
   }
@@ -861,7 +861,7 @@ async function _applyCatalogToxinEffect(targetActor, effectEntry, {
         ? { rounds: durationRounds, combat: game.combat.id }
         : { seconds: durationRounds * 6 },
       flags: { [FLAG_NS]: { spellEffect: true, alchemyToxin: true } },
-      changes: [buildEffectChange({ key: "system.encumbrance.penalty", type: "add", value: String(sl * 5) })],
+      changes: [buildEffectChange({ key: "system.encumbrance.penalty", type: "add", value: String(sl * 5), priority: 20 })],
     }));
     noteRows.push(_alchemyNoteHtml(effectDef.label, `Encumbrance penalty +${sl * 5} for ${durationRounds} rounds.`));
   } else {

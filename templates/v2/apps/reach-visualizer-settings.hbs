@@ -5,28 +5,45 @@
     <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.Description"}}</p>
   </header>
 
-  <fieldset class="uesrpg-settings__section">
-    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.Behaviour"}}</legend>
+  <fieldset class="uesrpg-settings__section uesrpg-settings__section--armor-coverage">
+    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.ArmorCoverage"}}</legend>
 
     <div class="setting-row setting-row--toggle">
       <div class="setting-row__main">
-        <label class="setting-row__label" for="uesrpg-armor-coverage-enabled">Armor Coverage Overlay</label>
-        <p class="setting-help">Show compact armor coverage badges beside hovered or targeted tokens.</p>
+        <label class="setting-row__label" for="uesrpg-armor-coverage-enabled">{{localize "UESRPG.Settings.Homebrew.armorCoverageOverlayMode.Name"}}</label>
+        <p class="setting-help">{{localize "UESRPG.Settings.Homebrew.armorCoverageOverlayMode.Hint"}}</p>
       </div>
-      <input id="uesrpg-armor-coverage-enabled" type="checkbox" name="armorCoverageEnabled" {{checked armorCoverageEnabled}} />
+      <input id="uesrpg-armor-coverage-enabled" type="checkbox" name="armorCoverageEnabled" {{checked armorCoverageEnabled}} {{#unless canConfigureSharedArmorCoverage}}disabled{{/unless}} />
+    </div>
+
+    <div class="setting-row setting-row--slider">
+      <label class="setting-row__label" for="uesrpg-armor-coverage-scale" data-tooltip="UESRPG.Apps.ReachVisualizer.ArmorCoverageScaleTitle">{{localize "UESRPG.Apps.ReachVisualizer.ArmorCoverageScale"}}</label>
+      <div class="form-fields">
+        <input id="uesrpg-armor-coverage-scale" type="range" name="armorCoverageScale" min="{{armorCoverageScaleRange.min}}" max="{{armorCoverageScaleRange.max}}" step="{{armorCoverageScaleRange.step}}" value="{{armorCoverageScale}}" data-range-value="armorCoverageScale" data-range-suffix="%" />
+        <span class="range-value" data-range-value="armorCoverageScale">{{armorCoverageScale}}%</span>
+      </div>
+      <p class="setting-help">{{localize "UESRPG.Apps.ReachVisualizer.ArmorCoverageScaleHint"}}</p>
     </div>
 
     <div class="setting-row setting-row--slider" id="uesrpg-armor-coverage-transparency-row">
-      <label class="setting-row__label" for="uesrpg-armor-coverage-transparency">Armor Coverage Transparency</label>
+      <label class="setting-row__label" for="uesrpg-armor-coverage-transparency">{{localize "UESRPG.Settings.Homebrew.armorCoverageOverlayTransparency.Name"}}</label>
       <div class="form-fields">
-        <input id="uesrpg-armor-coverage-transparency" type="range" name="armorCoverageTransparency" min="0" max="100" step="5" value="{{armorCoverageTransparency}}" data-range-value="armorCoverageTransparency" />
+        <input id="uesrpg-armor-coverage-transparency" type="range" name="armorCoverageTransparency" min="0" max="100" step="5" value="{{armorCoverageTransparency}}" data-range-value="armorCoverageTransparency" data-range-suffix="%" {{#unless canConfigureSharedArmorCoverage}}disabled{{/unless}} />
         <span class="range-value" data-range-value="armorCoverageTransparency">{{armorCoverageTransparency}}%</span>
       </div>
-      <p class="setting-help">Transparency of armor coverage overlay badges (0 = fully transparent, 100 = fully opaque).</p>
+      <p class="setting-help">{{localize "UESRPG.Settings.Homebrew.armorCoverageOverlayTransparency.Hint"}}</p>
     </div>
 
+    {{#unless canConfigureSharedArmorCoverage}}
+      <p class="setting-note">{{localize "UESRPG.Apps.ReachVisualizer.ArmorSharedGmOnly"}}</p>
+    {{/unless}}
+  </fieldset>
+
+  <fieldset class="uesrpg-settings__section">
+    <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.Behaviour"}}</legend>
+
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-reach-visibility" title="{{localize "UESRPG.Apps.ReachVisualizer.VisibilityTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.Visibility"}}</label>
+      <label class="setting-row__label" for="uesrpg-reach-visibility" data-tooltip="UESRPG.Apps.ReachVisualizer.VisibilityTitle">{{localize "UESRPG.Apps.ReachVisualizer.Visibility"}}</label>
       <select id="uesrpg-reach-visibility" name="visibility">
         {{selectOptions visibilityChoices selected=settings.visibility}}
       </select>
@@ -38,7 +55,7 @@
     <legend>{{localize "UESRPG.Apps.ReachVisualizer.Sections.Appearance"}}</legend>
 
     <div class="setting-row setting-row--select">
-      <label class="setting-row__label" for="uesrpg-grid-diagonal-mode" title="{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonalsTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonals"}}</label>
+      <label class="setting-row__label" for="uesrpg-grid-diagonal-mode" data-tooltip="UESRPG.Apps.ReachVisualizer.GridDiagonalsTitle">{{localize "UESRPG.Apps.ReachVisualizer.GridDiagonals"}}</label>
       <select id="uesrpg-grid-diagonal-mode" name="gridDiagonalMode">
         {{selectOptions gridDiagonalChoices selected=settings.gridDiagonalMode}}
       </select>
@@ -46,7 +63,7 @@
     </div>
 
     <div class="setting-row setting-row--slider rv-opacity-single">
-      <label class="setting-row__label" for="uesrpg-reach-opacity" title="{{localize "UESRPG.Apps.ReachVisualizer.OpacityTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.Opacity"}}</label>
+      <label class="setting-row__label" for="uesrpg-reach-opacity" data-tooltip="UESRPG.Apps.ReachVisualizer.OpacityTitle">{{localize "UESRPG.Apps.ReachVisualizer.Opacity"}}</label>
       <div class="form-fields">
         <input id="uesrpg-reach-opacity" type="range" name="opacity" min="0.05" max="1" step="0.05" value="{{settings.opacity}}" data-range-value="opacity" />
         <span class="range-value" data-range-value="opacity">{{settings.opacity}}</span>
@@ -55,7 +72,7 @@
 
     <div class="rv-opacity-dynamic">
       <div class="setting-row setting-row--slider">
-        <label class="setting-row__label" for="uesrpg-reach-passive-opacity" title="{{localize "UESRPG.Apps.ReachVisualizer.PassiveOpacityTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.PassiveOpacity"}}</label>
+        <label class="setting-row__label" for="uesrpg-reach-passive-opacity" data-tooltip="UESRPG.Apps.ReachVisualizer.PassiveOpacityTitle">{{localize "UESRPG.Apps.ReachVisualizer.PassiveOpacity"}}</label>
         <div class="form-fields">
           <input id="uesrpg-reach-passive-opacity" type="range" name="passiveOpacity" min="0.05" max="1" step="0.05" value="{{settings.passiveOpacity}}" data-range-value="passiveOpacity" />
           <span class="range-value" data-range-value="passiveOpacity">{{settings.passiveOpacity}}</span>
@@ -63,7 +80,7 @@
       </div>
 
       <div class="setting-row setting-row--slider">
-        <label class="setting-row__label" for="uesrpg-reach-active-opacity" title="{{localize "UESRPG.Apps.ReachVisualizer.ActiveOpacityTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.ActiveOpacity"}}</label>
+        <label class="setting-row__label" for="uesrpg-reach-active-opacity" data-tooltip="UESRPG.Apps.ReachVisualizer.ActiveOpacityTitle">{{localize "UESRPG.Apps.ReachVisualizer.ActiveOpacity"}}</label>
         <div class="form-fields">
           <input id="uesrpg-reach-active-opacity" type="range" name="activeOpacity" min="0.05" max="1" step="0.05" value="{{settings.activeOpacity}}" data-range-value="activeOpacity" />
           <span class="range-value" data-range-value="activeOpacity">{{settings.activeOpacity}}</span>
@@ -72,7 +89,7 @@
     </div>
 
     <div class="setting-row setting-row--slider">
-      <label class="setting-row__label" for="uesrpg-reach-line-width" title="{{localize "UESRPG.Apps.ReachVisualizer.LineWidthTitle"}}">{{localize "UESRPG.Apps.ReachVisualizer.LineWidth"}}</label>
+      <label class="setting-row__label" for="uesrpg-reach-line-width" data-tooltip="UESRPG.Apps.ReachVisualizer.LineWidthTitle">{{localize "UESRPG.Apps.ReachVisualizer.LineWidth"}}</label>
       <div class="form-fields">
         <input id="uesrpg-reach-line-width" type="range" name="lineWidth" min="1" max="12" step="1" value="{{settings.lineWidth}}" data-range-value="lineWidth" />
         <span class="range-value" data-range-value="lineWidth">{{settings.lineWidth}}</span>

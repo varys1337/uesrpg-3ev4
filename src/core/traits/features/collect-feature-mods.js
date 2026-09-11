@@ -141,7 +141,7 @@ export function filterModsForApplication(mods) {
  * Three classes of modification:
  *  1. **Numeric flat modifiers** (flatModifier) — additive to the existing value at the
  *     target path (e.g. `system.hp.bonus += 5`).
- *  2. **Boolean flags** (booleanFlag) вЂ” stored on `actorSystemData._reFlags` so downstream
+ *  2. **Boolean flags** (booleanFlag) — stored on `actorSystemData._reFlags` so downstream
  *     derived-data consumers can check resolved boolean toggles.
  *  3. **Override / set values** (overrideValue, senseLossReduction) — stored on
  *     `actorSystemData._reOverrides` for well-known paths consumed by `_iniCalc`,

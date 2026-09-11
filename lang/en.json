@@ -197,13 +197,35 @@
         "RunNow": "Run Migrations Now",
         "Running": "Migration Running...",
         "RunHint": "Runs version-gated actor, item, and combat legacy migrations manually.",
+        "PendingSummary": "{count} targeted migration(s) are pending.",
+        "RevisionStatus": "Applied revision {applied}; required revision {required}",
+        "Migrations": {
+          "activeEffectChangeTypes": "Active Effect change types",
+          "actors": "Actor data",
+          "socialItemRetirementCleanup": "Retired social items",
+          "itemLegacyRepair": "Legacy item repair",
+          "ruleElementRetirementCleanup": "Retired rule elements",
+          "items": "Item data",
+          "scrollCastingControls": "Scroll casting controls",
+          "scrollConsumeOnCast": "Scroll consumption",
+          "combatLegacy": "Legacy combat data",
+          "aoeRegionLinks": "Area-of-effect region links",
+          "npcThreatTemplateKeysV1": "NPC threat template keys",
+          "npcThreatTemplateOptionsV1": "NPC threat template options",
+          "warfareUnitNeutralLanesV1": "Warfare Unit canonical data",
+          "warfareFlagsV1": "Warfare document flags",
+          "npcArmorCoverageDefaultsV1": "NPC armor coverage defaults",
+          "timeDefaultsCompositeOrchestratorV1": "Time orchestration defaults",
+          "automationProfileRemovalDefaultsV2": "Automation setting defaults"
+        },
         "Locked": "locked",
         "Unlocked": "unlocked"
       },
       "ReachVisualizer": {
         "Title": "Configure Visualiser",
-        "Description": "Visualize active melee reach on the canvas. Grid-aware mode supports square and hex grids and falls back to smooth rings on gridless scenes.",
+        "Description": "Configure the reach visualiser and the armor coverage assistant shown beside tokens.",
         "Sections": {
+          "ArmorCoverage": "Armor Coverage Assistant",
           "Behaviour": "Behaviour",
           "Appearance": "Appearance"
         },
@@ -219,6 +241,10 @@
         "PassiveOpacityTitle": "Opacity for non-hovered tokens in Dynamic mode.",
         "ActiveOpacity": "Active opacity",
         "ActiveOpacityTitle": "Opacity for the hovered token in Dynamic mode.",
+        "ArmorSharedGmOnly": "Armor coverage enablement and transparency are shared world settings and can only be changed by a GM.",
+        "ArmorCoverageScale": "Armor coverage scale",
+        "ArmorCoverageScaleTitle": "Relative size of the armor coverage badges for this client.",
+        "ArmorCoverageScaleHint": "Per-user setting. 100% uses Foundry's scene UI scale; the badges continue to grow and shrink naturally with canvas zoom.",
         "LineWidth": "Line width",
         "LineWidthTitle": "Line thickness in pixels.",
         "AppearanceNote": "Minimum reach is always shown when present as a dashed inner boundary. Maximum reach is shown as a solid boundary."
@@ -298,6 +324,13 @@
         "OpenMarshal": "Open Marshal",
         "ToggleSupply": "Toggle Supply",
         "SupplyAndState": "Supply and State",
+        "Reserve": "Reserve",
+        "InSupply": "In Supply",
+        "OutOfSupplyTurns": "Out of Supply Turns",
+        "SourceNote": "Source Note",
+        "ContactState": "Contact State",
+        "Surprise": "Surprise",
+        "BattleRole": "Battle Role",
         "March": "March",
         "Scout": "Scout",
         "ForageRequisition": "Forage / Requisition",
@@ -308,12 +341,40 @@
         "SpecialOperation": "Special Operation",
         "ResolveContact": "Resolve Contact",
         "Siege": "Siege",
+        "Role": "Role",
+        "Settlement": "Settlement",
+        "Fortification": "Fortification",
+        "Rating": "Rating",
+        "HP": "HP",
+        "Blockade": "Blockade",
+        "Sap": "Sap",
+        "Breach": "Breach",
+        "Repair": "Repair",
+        "SapBreach": "Sap / Breach",
+        "SmuggleSupply": "Smuggle / Supply",
+        "Assault": "Assault",
+        "Sally": "Sally",
+        "ConfigureRegionFeature": "Configure Region Feature",
+        "LinkSiegeHint": "Link a siege scene with Besiege to unlock siege actions and Region-backed feature configuration.",
         "LinkedScene": "Linked Scene",
         "History": "History",
         "NoHistory": "No campaign history recorded yet.",
-        "Title": "Army Campaign"
+        "Title": "Army Campaign",
+        "GroupNotFound": "Group actor not found."
       },
       "WarfareEncounter": {
+        "Title": "Warfare Encounter",
+        "SceneNotFound": "Scene not found.",
+        "Allies": "Allies",
+        "Enemies": "Enemies",
+        "Neutral": "Neutral",
+        "Strategic": "Strategic",
+        "Clash": "Clash",
+        "Charge": "Charge",
+        "NextRoundCharge": "Next Round: Charge",
+        "AdvanceTo": "Advance to {phase}",
+        "Versus": "vs",
+        "RoundSummary": "Round {round} | {type} | {status}",
         "Scene": "Scene",
         "Encounter": "Encounter",
         "Active": "Active",
@@ -339,7 +400,78 @@
         "Defeated": "Defeated"
       },
       "TravelPlanner": {
-        "Title": "Travel Planner"
+        "Title": "Travel Planner",
+        "Navigation": "Travel planner sections",
+        "GroupNotFound": "Group actor not found.",
+        "Subtitle": "Wilderness Travel Planner",
+        "GroupRoster": "Group Roster",
+        "JourneyEntries": "Journey Entries",
+        "AddEntry": "Add Entry",
+        "Terrain": "Terrain",
+        "Current": "Current",
+        "Total": "Total",
+        "Use": "Use",
+        "NavigateLostPenalty": "Navigate Lost Penalty (-30 active)",
+        "StarterTables": "Starter Tables",
+        "ResetPlanner": "Reset Planner",
+        "Planning": "Planning",
+        "Travelling": "Travelling",
+        "Camping": "Camping",
+        "PlanningPool": "Planning Pool",
+        "TotalDoS": "Total DoS",
+        "TotalDoF": "Total DoF",
+        "Benefits": "Benefits",
+        "Benefit": "Benefit",
+        "Impairments": "Impairments",
+        "Impairment": "Impairment",
+        "Spent": "spent",
+        "Available": "available",
+        "SpendBenefits": "Spend Benefits",
+        "SpendImpairments": "Spend Impairments",
+        "SpendCustomBenefit": "Spend Custom Benefit",
+        "SpendCustomImpairment": "Spend Custom Impairment",
+        "SpendLog": "Spend Log",
+        "Spend": "Spend",
+        "Undo": "Undo",
+        "NoSpends": "No spends recorded.",
+        "PlanningTests": "Planning Tests",
+        "AddTest": "Add Test",
+        "Actor": "Actor",
+        "Mode": "Mode",
+        "SkillCharacteristic": "Skill / Characteristic",
+        "Manual": "Manual",
+        "Spec": "Spec",
+        "Result": "Result",
+        "Actions": "Actions",
+        "Select": "-- Select --",
+        "SelectSkill": "-- Skill --",
+        "Skill": "Skill",
+        "Characteristic": "Characteristic",
+        "NoPlanningTests": "No planning tests yet.",
+        "SurvivalTracking": "Survival Tracking",
+        "FoodDays": "Food Days",
+        "CookedFoodDays": "Cooked Food Days",
+        "WaterDays": "Water Days",
+        "FodderDays": "Fodder Days",
+        "ChooseRollTable": "-- Choose RollTable --",
+        "TravelEvents": "Travel Events",
+        "CampingEvents": "Camping Events",
+        "MultipleTerrainTables": "Multiple entries are supported per terrain.",
+        "AddTableEntry": "Add Table Entry",
+        "RollEventCheck": "Roll Event Check (2d10)",
+        "RemoveEntry": "Remove Entry",
+        "TravelEndeavours": "Travel Endeavours",
+        "CampEndeavours": "Camp Endeavours",
+        "AddEndeavour": "Add Endeavour",
+        "Endeavour": "Endeavour",
+        "EndeavourDetails": "Endeavour details",
+        "CustomEndeavourRequired": "Custom endeavour label is required.",
+        "NoTravelEndeavours": "No travel endeavours assigned.",
+        "NoCampEndeavours": "No camp endeavours assigned.",
+        "SpendBenefitAria": "Spend one benefit",
+        "UndoBenefitAria": "Undo the latest benefit spend",
+        "SpendImpairmentAria": "Spend one impairment",
+        "UndoImpairmentAria": "Undo the latest impairment spend"
       },
       "DebugSettings": {
         "Title": "Debug Settings",
@@ -350,7 +482,20 @@
       },
       "EnchantingWorkshop": {
         "Title": "Enchanting Workshop",
-        "PoolRule": "Pool max = min(Item EL, Soul Gem Energy)."
+        "PoolRule": "Pool max = min(Item EL, Soul Gem Energy).",
+        "CreateCast": "Create Cast Enchantment",
+        "CreateStrike": "Create Strike Enchantment",
+        "CreateConstant": "Create Constant Enchantment",
+        "Recharge": "Recharge",
+        "Toggle": "Toggle"
+      },
+      "AlchemyWorkshop": {
+        "Title": "Alchemy Workshop",
+        "RollAlchemy": "Roll Alchemy",
+        "BrewPotion": "Brew Potion",
+        "BrewPoison": "Brew Poison",
+        "BrewToxin": "Brew Toxin",
+        "FixBlockingErrors": "Fix blocking validation errors before committing."
       }
     },
     "Tooltips": {
@@ -429,6 +574,9 @@
         }
       }
     },
+    "ItemTypes": {
+      "Scroll": "Scroll"
+    },
     "UI": {
       "Actor": "Actor",
       "ActorMissing": "Actor missing",
@@ -455,6 +603,7 @@
       "FirstAid": "First Aid",
       "ItemActions": "Item actions",
       "ItemInformation": "Item Information",
+      "Item": "Item",
       "ItemQuickActions": "Item Quick Actions",
       "Later": "Later",
       "Location": "Location",
@@ -488,6 +637,7 @@
       "Strength": "Strength",
       "Unequip": "Unequip",
       "Unknown": "Unknown",
+      "UnknownActor": "Unknown Actor",
       "Unavailable": "Unavailable",
       "Upkeep": "upkeep",
       "UpToDate": "up to date",
@@ -585,6 +735,8 @@
       "Characteristics": "Characteristics",
       "Auto": "Auto",
       "Decrease": "Decrease",
+      "ClearSearch": "Clear search",
+      "NoSearchMatches": "No items match your search.",
       "DeleteItem": "Delete Item",
       "Endurance": "Endurance",
       "Expand": "Expand",
@@ -645,6 +797,7 @@
         "Targeting": "Targeting",
         "Visibility": "Visibility"
       },
+      "LimitedCharacterView": "Limited character information",
       "ManualModifier": "Manual modifier",
       "Roll": "Roll"
     },
@@ -815,6 +968,7 @@
         "QuantityAdjustTitle": "Click to increase, right-click to decrease",
         "Range": "Range",
         "Reach": "Reach",
+        "RollDamage": "Roll weapon damage",
         "SaveCurrent": "Save Current",
         "SearchItems": "Search items...",
         "SelectAmmunition": "Select ammunition",
@@ -837,6 +991,9 @@
       },
       "Item": {
         "ActiveEnchantment": "Active Enchantment",
+        "Navigation": "Item sheet sections",
+        "Casting": "Casting",
+        "SpellName": "Spell Name",
         "AddSlot": "Add Slot",
         "AddSpellSlot": "Add Spell Slot",
         "Alchemy": "Alchemy",
@@ -945,6 +1102,9 @@
         "SpecialAR": "Special AR",
         "SpecialARType": "Special AR Type",
         "StoredSpell": "Stored Spell",
+        "StoredSpellDropHint": "Drop a spell here to store it.",
+        "StoredSpellReplaceHint": "Drop another spell here to replace the stored spell.",
+        "StoredSpellStored": "Stored spell",
         "StoredSpellMissing": "Missing / unresolved",
         "StoredSpellMissingSelection": "Missing stored spell:",
         "StoredSpellResolved": "Resolved",
@@ -1063,6 +1223,14 @@
         "StructuredQualities": "Structured Qualities",
         "ActiveEnchantmentRaw": "Active Enchantment (RAW)",
         "SpellcastingConfigurationAmmoHelp": "Configure slot name, spell, binding strength, and cost mode/value, then save."
+      },
+      "Spell": {
+        "Add": "Add",
+        "AddScalingLevel": "Add Scaling Level",
+        "DeleteScalingLevel": "Delete scaling level",
+        "AddOvertimeEntry": "Add OverTime Entry",
+        "AddEffectRecipe": "Add Effect Recipe",
+        "RemoveEffectRecipe": "Remove Effect Recipe"
       },
       "Feature": {
         "Automation": "Automation",
@@ -1280,6 +1448,8 @@
       "WarfareUnit": {
         "LegacyTemplate": "Legacy Template",
         "LegacyTemplateDescription": "This compatibility template is retained for older references. The active Warfare Unit sheet uses the AppV2 tab parts: Core, Actions, Implements, and Loadout.",
+        "MechanicsDisabledTitle": "Warfare Disabled",
+        "MechanicsDisabled": "Warfare mechanics are disabled. Enable Warfare in Configure Homebrew to use actions and automation.",
         "Tabs": {
           "Core": "Core",
           "Actions": "Actions",
@@ -1287,6 +1457,9 @@
           "Loadout": "Loadout"
         },
         "Commander": "Commander",
+        "ChangePortrait": "Change Portrait",
+        "UnitName": "Unit Name",
+        "RemoveCommander": "Remove Commander",
         "DragPCNPC": "Drag a PC or NPC here",
         "Stats": {
           "RES": "RES",
@@ -1364,6 +1537,8 @@
         "DerivedEquipmentSummary": "Derived Equipment Summary",
         "Implements": "Implements",
         "MagicMode": "Magic Mode",
+        "CastSpell": "Cast Spell",
+        "PassiveImplementHelp": "Passive implement effects are always derived. Use Cast Spell from the Actions tab for active effects and Battle Scrolls.",
         "PassiveBonuses": "Passive Bonuses",
         "BulkThresholdBonus": "Bulk Threshold Bonus",
         "PassiveImplementEffects": "Passive implement effects are always derived. Use",
@@ -1375,6 +1550,9 @@
       }
     },
     "Notifications": {
+      "Workflows": {
+        "LoadFailed": "{workflow} could not be loaded. No changes were made; try again or review the console for details."
+      },
       "BarriersCleared": "All barriers cleared for {actor}",
       "ConditionImmune": "{actor} is immune to {condition}.",
       "FactionSelectionSaveFailed": "Failed to save faction selection.",
@@ -1387,10 +1565,19 @@
       "MagickaBarrierUpdated": "Magicka & barriers updated for {actor}",
       "MigrationsAlreadyRunning": "Migration pass is already running.",
       "MigrationsOnlyGM": "Only a GM can run migrations.",
+      "MigrationsStarted": "UESRPG migration pass started.",
+      "MigrationsComplete": "UESRPG migrations complete ({elapsed}s).",
+      "MigrationsFailed": "UESRPG migration pass failed; check console for details.",
+      "MigrationsPending": "UESRPG | World has {count} pending targeted data migration(s). Review or run them from System Settings > Migration.",
       "AutomationSettingsReview": "Automation settings may have been reset by an earlier system version. Review them in System Settings; no values were changed by this update.",
-      "MassCombatDisabled": "Enable the Mass Combat homebrew setting before creating a Warfare Unit.",
+      "MassCombatDisabled": "Enable Warfare in Configure Homebrew before creating a Warfare Unit.",
+      "MassCombatMechanicsDisabled": "Enable Warfare in Configure Homebrew before using Warfare mechanics.",
       "UnknownConditionKey": "Unknown condition key: {key}",
       "Sheets": {
+        "CharacterWorkflowLoadFailed": "The character workflow could not be opened. No character data was changed; try again or review the console for details.",
+        "SpellNotFound": "Spell not found.",
+        "ProfessionNotFound": "Profession not found.",
+        "NoAttackerTokenOnCanvas": "No attacker token found on the canvas. Select your token and try again.",
         "CombatAttackHelperUnavailable": "Combat attack helper is unavailable (Uesrpg3e.combat.performWeaponAttack).",
         "InvalidMedicineTarget": "No valid Profession[Medicine] / Survival test target.",
         "InvalidWoundTarget": "Invalid wound target.",
@@ -1506,6 +1693,7 @@
         "SiegeActionRoleOnly": "This siege action is only available to the {role}."
       },
       "TravelPlanner": {
+        "ActionFailed": "The travel action could not be completed. Your planner entries were kept; review the inputs and try again.",
         "OnlyGroupMembersDrag": "Only Group members can be assigned by drag-and-drop.",
         "StarterTablesReady": "Starter travel/camping event tables are ready.",
         "NoUnspentBenefits": "No unspent benefits available.",
@@ -1529,6 +1717,9 @@
         "ReadOnly": "This planner is read-only for your user."
       },
       "CharGen": {
+        "ActorUuidUnresolved": "Character Generation Wizard: the actor UUID could not be resolved. Opening without a preselected actor.",
+        "MultipleTokensSelected": "Character Generation Wizard: multiple tokens are selected. Opening without a preselected actor.",
+        "NoActorForRawFlow": "No actor found for the RAW character-generation flow.",
         "SelectedBirthsignMissing": "Selected birthsign data was not found.",
         "SelectRaceOrCustom": "Please select a race or input a custom race label.",
         "SelectedRaceMissing": "Selected race data was not found.",
@@ -1592,6 +1783,10 @@
         "AlreadyHasEveryRitualDomain": "{actor} already has every ritual domain."
       },
       "Alchemy": {
+        "ActionFailed": "The alchemy action could not be completed. Your workshop selections were kept; review them and try again.",
+        "MultipleTokensSelected": "Alchemy Workshop: Multiple tokens are selected. Select exactly one token.",
+        "NoWorkshopActor": "Alchemy Workshop: No actor found. Control a token or assign a character to your user account.",
+        "CannotBrewWithReasons": "Cannot brew:\n- {reasons}",
         "ActorNotFound": "Actor not found.",
         "ActorNotFoundWithPrefix": "UESRPG | Alchemy: Actor not found.",
         "BrewAlreadyResolved": "This brew has already been resolved.",
@@ -1649,6 +1844,25 @@
         "Success": "Success",
         "CriticalFailure": "Critical Failure",
         "Failure": "Failure"
+      },
+      "Enchanting": {
+        "ActorNotFound": "Enchanting Workshop: No actor found.",
+        "MultipleTokensSelected": "Enchanting Workshop: Multiple tokens are selected. Select exactly one token.",
+        "NoWorkshopActor": "Enchanting Workshop: No actor found. Control a token or assign a character to your user account.",
+        "SelectEnchantedItem": "Enchanting Workshop: Select an enchanted item.",
+        "SelectSoulGem": "Enchanting Workshop: Select a soul gem.",
+        "SelectTargetItem": "Enchanting Workshop: Select a target item.",
+        "AddSpell": "Enchanting Workshop: Add at least one spell.",
+        "SelectStrikeEffect": "Enchanting Workshop: Select at least one strike effect.",
+        "SelectConstantEffect": "Enchanting Workshop: Select at least one constant effect.",
+        "UnknownError": "Unknown error",
+        "FailedWithReasons": "Enchanting failed: {reasons}",
+        "TestFailed": "Enchanting test failed - enchantment not applied.",
+        "CastApplied": "Cast enchantment applied to \"{item}\".",
+        "StrikeApplied": "Strike enchantment applied to \"{item}\".",
+        "ConstantApplied": "Constant enchantment applied to \"{item}\".",
+        "UnknownMode": "Enchanting Workshop: Unknown mode \"{mode}\".",
+        "UnexpectedError": "Enchanting Workshop: An unexpected error occurred. See the console (F12) for details."
       },
       "Fear": {
         "NoTokensSelected": "Fear Test: No tokens selected. Select one or more tokens to run a fear test.",
@@ -1831,26 +2045,36 @@
         "BaseMpCost": "Base MP Cost: <b>{cost}</b>",
         "CastAtLevel": "Cast at Level",
         "CastingOptions": "Casting Options",
+        "Cost": "Cost",
         "CostMp": "Cost: {cost} MP",
         "CostMpWithSuffix": "Cost: {cost} MP{suffix}",
         "Damage": "Damage: {damage}",
         "Difficulty": "Difficulty",
         "Duration": "Duration: {value} {unit}",
+        "DurationLabel": "Duration",
+        "DurationValue": "{value} {unit}",
         "Instant": "instant",
         "LevelAbbrev": "L",
         "LevelOption": "Level {level} ({cost} MP{extra})",
         "MagickaCycling": "Magicka Cycling",
+        "MasterOfMagickaAllowsBoth": "Master of Magicka allows Overcharge and Spell Restraint together.",
         "Overcharge": "Overcharge",
+        "OverchargeCostShort": "+{value} MP",
         "Overload": "Overload",
+        "OverloadCostShort": "2x cost",
         "OverloadCostSuffix": " (2x overload)",
         "OverloadDefault": "double cost for enhanced effect",
         "ProfilePreview": "Profile Preview",
         "ReduceCostMin": "(reduce cost by {value} to min 1)",
         "RefundOnSuccess": " (refund on success: {value} MP)",
+        "RefundOnSuccessShort": "Refund {value} MP on success",
         "SelectSpellToCommit": "Select Spell to Commit",
         "SpellRestraint": "Spell Restraint",
+        "SpellStrength": "Spell Strength",
         "TalentOption": "(talent option)",
-        "Title": "Spell Options"
+        "Title": "Spell Options",
+        "UnavailableWithOverload": "Unavailable while Overload is selected.",
+        "UnavailableWithRestraint": "Unavailable while Spell Restraint is selected."
       },
       "ReloadRequired": {
         "Title": "Reload Required",
@@ -2005,6 +2229,10 @@
         "XpAvailable": "XP Available",
         "AdvancementWizard": "Advancement Wizard",
         "AdvancementTitle": "Advancement",
+        "EnterManually": "Enter manually",
+        "ManualFoundationTitle": "Set {field} manually",
+        "ManualFoundationHint": "No {field} was recorded during character generation. Enter its text name to repair this actor.",
+        "ManualFoundationInvalid": "Enter a name other than None.",
         "ExperienceAvailable": "Experience - {xp} XP available",
         "StartingResourcesTitle": "Starting Resources",
         "StartingResourcesNote": "Set starting drakes and experience. Campaign Rank is calculated from Total XP.",
@@ -2251,7 +2479,12 @@
         "Title": "Grapple Follow-Up"
       },
       "DuplicateItem": {
-        "Title": "Duplicate Item"
+        "Title": "Duplicate Item",
+        "Content": "Create a duplicate of <strong>{item}</strong>?"
+      },
+      "CancelSpell": {
+        "Title": "Cancel Spell",
+        "Content": "Cancel <strong>{spell}</strong>? This will end the spell and remove all linked effects."
       },
       "FirstAid": {
         "Title": "First Aid"
@@ -2500,7 +2733,15 @@
         "UnknownUser": "Unknown User",
         "CustomEffect": "Custom",
         "CustomEffectWithNote": "Custom: {note}",
-        "WatchFatigueGuidance": "Watch taken as an extra endeavour: apply 1 Fatigue to the watcher (manual apply)."
+        "WatchFatigueGuidance": "Watch taken as an extra endeavour: apply 1 Fatigue to the watcher (manual apply).",
+        "PlanningTest": "Planning Test",
+        "TravelPhase": "Travel",
+        "CampingPhase": "Camping",
+        "PhaseEndeavour": "{phase} - {endeavour}",
+        "SuggestedOutcome": "Suggested Outcome",
+        "Actor": "Actor",
+        "Result": "Result",
+        "TerrainModifier": "Terrain Modifier"
       },
       "Resources": {
         "ShortRest": "Short Rest (1 hour)",
@@ -2807,6 +3048,10 @@
           "Name": "Sheets: Item Row Quick Actions Menu",
           "Hint": "When enabled, right-click on an item row opens a quick actions menu."
         },
+        "showSheetSearchBars": {
+          "Name": "Sheets: Show List Search Bars",
+          "Hint": "Show compact search fields above item and spell lists on UESRPG sheets. This preference applies only to this client."
+        },
         "sheetDensity": {
           "Name": "Sheets: Density",
           "Hint": "Controls vertical spacing and row height for UESRPG AppV2 sheets.",
@@ -2815,14 +3060,6 @@
             "compact": "Compact",
             "ultra": "Ultra Compact"
           }
-        },
-        "useActorSheetV2": {
-          "Name": "Actor Sheet V2 Compatibility Flag",
-          "Hint": "Internal compatibility flag retained for migrated worlds. Actor sheets now use the AppV2 production path."
-        },
-        "useItemSheetV2": {
-          "Name": "Item Sheet V2 Compatibility Flag",
-          "Hint": "Internal compatibility flag retained for migrated worlds. Item sheets now use the AppV2 production path."
         },
         "sheetPerfTrace": {
           "Name": "Sheet Performance Trace",
@@ -3122,8 +3359,8 @@
           "Hint": "When enabled, /char opens the Character Generation Wizard."
         },
         "useRawChargenWizard": {
-          "Name": "Character Generation: Use RAW Wizard Button",
-          "Hint": "When enabled, actor sheets show a Character Creation (RAW) button that runs the RAW chargen flow."
+          "Name": "Character Generation: Show Header Button",
+          "Hint": "When enabled, editable Player Character sheets show a header button that opens the Character Generation Wizard for that actor."
         },
         "chargenMagicPurchaseMode": {
           "Name": "Character Generation: Spell Purchase Mode",
@@ -3194,6 +3431,10 @@
           "Name": "Armor Coverage Transparency",
           "Hint": "Transparency of armor coverage overlay badges (0 = fully transparent, 100 = fully opaque)."
         },
+        "armorCoverageOverlayScale": {
+          "Name": "Armor Coverage Scale",
+          "Hint": "Sets the armor coverage badge size for this client. The final size is normalized to the scene UI scale and follows canvas zoom."
+        },
         "homebrew": {
           "speedFormulaSBAB": {
             "Name": "Homebrew: Speed Formula (SB + AB)",
@@ -3229,7 +3470,7 @@
           },
           "massCombat": {
             "enabled": {
-              "Name": "Homebrew: Mass Combat System",
+              "Name": "Enable Warfare",
               "Hint": "Enables Warfare Unit creation and mass combat UI. Existing Warfare Unit actors remain openable when disabled."
             }
           },

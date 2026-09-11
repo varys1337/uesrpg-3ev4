@@ -16,6 +16,8 @@ import { resolveHtmlRoot } from "../../combat/chat-handlers/render/render-chat-m
 import { CLASH_FLAG_KEY } from "./pending.js";
 import { handleClashCommit } from "./commit.js";
 import { maybeAutoRollClash } from "./auto-roll.js";
+import { isMassCombatEnabled } from "../../homebrew/settings.js";
+import { markSystemTooltipScope, setSystemTooltip } from "../../../ui/shared/system-tooltips.js";
 
 let _renderHookRegistered = false;
 let _updateHookRegistered = false;
@@ -37,6 +39,17 @@ function _registerRenderHook() {
     const root = resolveHtmlRoot(html);
     if (!root) return;
     if (!_isClashCard(message)) return;
+    markSystemTooltipScope(root);
+    if (!isMassCombatEnabled()) {
+      const title = game?.i18n?.localize?.("UESRPG.Notifications.MassCombatMechanicsDisabled")
+        ?? "Enable Warfare in Configure Homebrew before using Warfare mechanics.";
+      for (const button of root.querySelectorAll("button[data-ues-warfare-clash-action]")) {
+        button.disabled = true;
+        setSystemTooltip(button, { text: title });
+        button.setAttribute("aria-label", title);
+      }
+      return;
+    }
 
     // Delegated listener — one handler per card, not per button
     root.addEventListener("click", (ev) => {
@@ -67,6 +80,7 @@ function _registerUpdateHook() {
   _updateHookRegistered = true;
 
   Hooks.on("updateChatMessage", (message, _changes) => {
+    if (!isMassCombatEnabled()) return;
     if (!_isClashCard(message)) return;
 
     maybeAutoRollClash(message).catch((err) => {

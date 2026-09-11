@@ -18,6 +18,8 @@ import { renderClashCard } from "./card.js";
 import { CATEGORIES } from "../profiles/uesrpg-0_2.js";
 import { WARFARE_EFFECT_KEYS, hasWarfareActionEffect } from "../actions.js";
 import { resolveWarfareUnitReference } from "../condition-target.js";
+import { requireMassCombatEnabled } from "../../homebrew/settings.js";
+import { systemTooltipAttributes } from "../../../ui/shared/system-tooltips.js";
 
 /**
  * Show a stance dialog for one unit and commit the choices to the ChatMessage.
@@ -29,6 +31,7 @@ import { resolveWarfareUnitReference } from "../condition-target.js";
  * @returns {Promise<void>}
  */
 export async function handleClashCommit(message, unitKey) {
+  if (!requireMassCombatEnabled()) return false;
   const snapshot = readClashState(message);
   if (!snapshot) return;
 
@@ -127,7 +130,7 @@ function _buildCommitDialogContent(unitName, clashFeatures, opponentIsRanged, {
 } = {}) {
   const featureToggles = clashFeatures.map(f => {
     const checked = (f.id === "halfRangedDamage" && opponentIsRanged) ? "checked" : "";
-    return `<label class="warfare-clash-toggle" title="${f.description}">
+    return `<label class="warfare-clash-toggle" ${systemTooltipAttributes({ text: f.description })}>
       <input type="checkbox" name="feature-${f.id}" ${checked}>
       ${f.label}${f.isPassive ? " <span style='color:#888;font-size:0.75em;'>(passive)</span>" : ""}
     </label>`;

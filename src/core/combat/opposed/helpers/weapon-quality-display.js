@@ -15,6 +15,7 @@ import { UESRPG } from "../../../constants.js";
 import { ITEM_QUALITY_LABELS } from "../../../config/label-catalog.js";
 import { buildQualityTooltipText } from "../../../../data/tooltips/index.js";
 import { maybeT } from "../../../../utils/i18n.js";
+import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.js";
 
 let _qualityLabelIndexCache = null;
 
@@ -35,7 +36,7 @@ function _buildQualityTagHtml({ label, key, value = null, className = "tag" } = 
     ? `${normalizedLabel} (${numericValue})`
     : normalizedLabel;
   const tooltip = buildQualityTooltipText({ label: normalizedLabel, key: normalizedKey, itemType: "weapon" });
-  return `<span class="${_escapeHtml(className)}" title="${_escapeHtml(tooltip)}">${_escapeHtml(display)}</span>`;
+  return `<span class="${_escapeHtml(className)}" ${systemTooltipAttributes({ text: tooltip })}>${_escapeHtml(display)}</span>`;
 }
 
 function _humanizeKey(key) {

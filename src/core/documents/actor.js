@@ -59,13 +59,43 @@ import { isMassCombatEnabled } from "../homebrew/settings.js";
 const TN_ITEM_TYPES = new Set(["skill", "combatStyle", "magicSkill"]);
 
 export class SimpleActor extends Actor {
+  static async createDialog(data = {}, createOptions = {}, dialogOptions = {}, renderOptions = {}) {
+    if (isMassCombatEnabled()) {
+      return super.createDialog(data, createOptions, dialogOptions, renderOptions);
+    }
+
+    const requestedType = String(data?.type ?? "").trim();
+    if (requestedType === "Warfare Unit") {
+      const message = game.i18n?.localize?.("UESRPG.Notifications.MassCombatDisabled")
+        ?? "Enable Warfare in Configure Homebrew before creating a Warfare Unit.";
+      ui.notifications?.warn?.(message);
+      return null;
+    }
+
+    const requestedTypes = Array.isArray(dialogOptions?.types)
+      ? dialogOptions.types
+      : Array.from(this.TYPES ?? []);
+    const allowedTypes = requestedTypes.filter((type) => type !== "Warfare Unit");
+    if (!allowedTypes.length) {
+      const message = game.i18n?.localize?.("UESRPG.Notifications.MassCombatDisabled")
+        ?? "Enable Warfare in Configure Homebrew before creating a Warfare Unit.";
+      ui.notifications?.warn?.(message);
+      return null;
+    }
+
+    return super.createDialog(data, createOptions, {
+      ...dialogOptions,
+      types: allowedTypes,
+    }, renderOptions);
+  }
+
   async _preCreate(data, options, user) {
     const allowed = await super._preCreate(data, options, user);
     if (allowed === false) return false;
 
     if (this.type === "Warfare Unit" && !isMassCombatEnabled()) {
       const message = game.i18n?.localize?.("UESRPG.Notifications.MassCombatDisabled")
-        ?? "Enable the Mass Combat homebrew setting before creating a Warfare Unit.";
+        ?? "Enable Warfare in Configure Homebrew before creating a Warfare Unit.";
       ui.notifications?.warn?.(message);
       return false;
     }

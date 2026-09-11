@@ -7,6 +7,7 @@ import {
   isSceneWarfareEncounterActive,
 } from "../encounter/state.js";
 import { synchronizeWarfareEncounter } from "../encounter/controller.js";
+import { isMassCombatEnabled } from "../../homebrew/settings.js";
 let _registered = false;
 
 function _previewTokenDoc(tokenDoc, changed) {
@@ -32,6 +33,7 @@ export function registerWarfareBattlefieldHooks() {
   _registered = true;
 
   Hooks.on("preUpdateToken", (tokenDoc, changed) => {
+    if (!isMassCombatEnabled()) return undefined;
     if (!game.user?.isGM || tokenDoc?.actor?.type !== "Warfare Unit") return undefined;
     const scene = tokenDoc?.parent ?? game?.scenes?.current ?? null;
     if (!scene) return undefined;
@@ -53,11 +55,13 @@ export function registerWarfareBattlefieldHooks() {
   });
 
   Hooks.on("updateToken", (tokenDoc, changed) => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM || !_shouldSyncBattlefieldToken(tokenDoc, changed)) return;
     void synchronizeWarfareEncounter(tokenDoc?.parent ?? game?.scenes?.current ?? null);
   });
 
   Hooks.on("updateActor", (actor) => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM || actor?.type !== "Warfare Unit") return;
     const scenes = Array.from(game?.scenes?.contents ?? []);
     for (const scene of scenes) {
@@ -68,16 +72,19 @@ export function registerWarfareBattlefieldHooks() {
   });
 
   Hooks.on("updateRegion", (region) => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM) return;
     void synchronizeWarfareEncounter(region?.parent ?? null);
   });
 
   Hooks.on("createRegion", (region) => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM) return;
     void synchronizeWarfareEncounter(region?.parent ?? null);
   });
 
   Hooks.on("deleteRegion", (region) => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM) return;
     void synchronizeWarfareEncounter(region?.parent ?? null);
   });

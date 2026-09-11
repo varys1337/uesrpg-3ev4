@@ -12,6 +12,7 @@
 
 import { SYSTEM_ID } from "../../../core/constants.js";
 import { renderClashCard } from "./card.js";
+import { requireMassCombatEnabled } from "../../homebrew/settings.js";
 
 export const CLASH_FLAG_KEY = "warfareClash";
 
@@ -99,6 +100,7 @@ export async function createClashPending(attacker, defender, {
   groupMembers = [],
   commanderJoinFray = { unit1: null, unit2: null },
 } = {}) {
+  if (!requireMassCombatEnabled()) return null;
   const unit1 = _emptyUnitState(attacker, attackerTokenDoc);
   unit1.attackType = attackType === "ranged" ? "ranged" : "melee";
   unit1.charged = Boolean(attackerCharged);

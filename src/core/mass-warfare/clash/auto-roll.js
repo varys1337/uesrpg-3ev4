@@ -22,6 +22,7 @@ import { renderClashCard } from "./card.js";
 import { resolveClash } from "./engine.js";
 import { consumeHoldNextDefend, consumeJoinFrayNextClash } from "../actions.js";
 import { resolveWarfareUnitReference } from "../condition-target.js";
+import { isMassCombatEnabled } from "../../homebrew/settings.js";
 
 /** Prevents concurrent auto-roll executions for the same message on this client. */
 const _autoRollLocks = new Set();
@@ -34,6 +35,7 @@ const _autoRollLocks = new Set();
  * @returns {Promise<void>}
  */
 export async function maybeAutoRollClash(message) {
+  if (!isMassCombatEnabled()) return;
   const data = readClashState(message);
   if (!data)                              return;
   if (!data.autoRollRequested)            return;

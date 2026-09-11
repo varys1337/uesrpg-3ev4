@@ -83,6 +83,14 @@
       <input id="uesrpg-item-row-quick-menu" type="checkbox" name="enableItemRowQuickMenu" {{checked settings.enableItemRowQuickMenu.value}}>
     </div>
 
+    <div class="setting-row setting-row--toggle">
+      <div class="setting-row__main">
+        <label class="setting-row__label" for="uesrpg-sheet-search-bars">{{settings.showSheetSearchBars.name}}</label>
+        <p class="setting-help">{{settings.showSheetSearchBars.hint}}</p>
+      </div>
+      <input id="uesrpg-sheet-search-bars" type="checkbox" name="showSheetSearchBars" {{checked settings.showSheetSearchBars.value}}>
+    </div>
+
   </fieldset>
 
   <footer class="uesrpg-settings__footer">

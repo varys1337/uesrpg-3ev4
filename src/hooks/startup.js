@@ -18,7 +18,7 @@ export default async function startupHandler() {
 
   const startupDialogHtml = await renderDialogContent(startupDialogTemplatePath, {
     discordInviteUrl: "https://discord.gg/pBRJwy3Ec5",
-    githubUrl: "https://github.com/jamesjtb/uesrpg-3ev4",
+    githubUrl: "https://github.com/varys1337/uesrpg-3ev4",
     contentModLink: "https://github.com/95Gman/UESRPG-revised",
   });
 

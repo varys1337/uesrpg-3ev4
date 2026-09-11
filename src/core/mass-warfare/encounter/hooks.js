@@ -43,6 +43,7 @@ export function registerWarfareEncounterHooks() {
   });
 
   Hooks.on("updateChatMessage", (message) => {
+    if (!isMassCombatEnabled()) return;
     void syncWarfareEncounterForChatMessage(message);
   });
 }

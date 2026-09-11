@@ -6,6 +6,7 @@ import { migrateWorldSettingsIfNeeded } from "../../core/migrations/settings.js"
 import { SYSTEM_ID } from "../../core/system/namespace.js";
 import { isActiveGMUser } from "../../utils/users.js";
 import { migrateNpcArmorCoverageDefaultsIfNeeded } from "../../core/migrations/items.js";
+import { tf } from "../../utils/i18n.js";
 
 let _startupAttackTrackerPolicyLogged = false;
 
@@ -109,7 +110,11 @@ function notifyPendingMigrationsIfNeeded() {
   if (!pendingKeys.length) return;
 
   ui.notifications?.warn?.(
-    `UESRPG | World has ${pendingKeys.length} pending targeted data migration(s). Review/run them from System Settings -> Migration.`,
+    tf(
+      "UESRPG.Notifications.MigrationsPending",
+      { count: pendingKeys.length },
+      `UESRPG | World has ${pendingKeys.length} pending targeted data migration(s). Review/run them from System Settings -> Migration.`
+    ),
     { permanent: true }
   );
 }

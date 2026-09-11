@@ -16,9 +16,12 @@ export const ARMOR_COVERAGE_OVERLAY_MODES = Object.freeze({
 const NAMESPACE = "uesrpg-3ev4";
 export const ARMOR_COVERAGE_MODE_SETTING = "armorCoverageOverlayMode";
 export const ARMOR_COVERAGE_TRANSPARENCY_SETTING = "armorCoverageOverlayTransparency";
+export const ARMOR_COVERAGE_SCALE_SETTING = "armorCoverageOverlayScale";
+export const ARMOR_COVERAGE_SCALE_RANGE = Object.freeze({ min: 50, max: 150, step: 5 });
 export const DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS = Object.freeze({
   mode: ARMOR_COVERAGE_OVERLAY_MODES.DISABLED,
-  transparency: 90
+  transparency: 90,
+  scale: 100
 });
 
 let _hooksRegistered = false;
@@ -31,22 +34,28 @@ export function normalizeArmorCoverageOverlaySettings(raw = {}) {
   const source = raw && typeof raw === "object" ? raw : {};
   let mode = String(source.mode ?? DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.mode);
   const transparency = Number(source.transparency ?? DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.transparency);
+  const scale = Number(source.scale ?? DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.scale);
 
   if (!Object.values(ARMOR_COVERAGE_OVERLAY_MODES).includes(mode)) mode = ARMOR_COVERAGE_OVERLAY_MODES.DISABLED;
   return {
     mode,
     transparency: Number.isFinite(transparency)
       ? Math.max(0, Math.min(100, transparency))
-      : DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.transparency
+      : DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.transparency,
+    scale: Number.isFinite(scale)
+      ? Math.max(ARMOR_COVERAGE_SCALE_RANGE.min, Math.min(ARMOR_COVERAGE_SCALE_RANGE.max, scale))
+      : DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.scale
   };
 }
 
 function _readSettings() {
   let mode = DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.mode;
   let transparency = DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.transparency;
+  let scale = DEFAULT_ARMOR_COVERAGE_OVERLAY_SETTINGS.scale;
   try { mode = game?.settings?.get?.(NAMESPACE, ARMOR_COVERAGE_MODE_SETTING) ?? mode; } catch (_e) { /* no-op */ }
   try { transparency = game?.settings?.get?.(NAMESPACE, ARMOR_COVERAGE_TRANSPARENCY_SETTING) ?? transparency; } catch (_e) { /* no-op */ }
-  return normalizeArmorCoverageOverlaySettings({ mode, transparency });
+  try { scale = game?.settings?.get?.(NAMESPACE, ARMOR_COVERAGE_SCALE_SETTING) ?? scale; } catch (_e) { /* no-op */ }
+  return normalizeArmorCoverageOverlaySettings({ mode, transparency, scale });
 }
 
 function _isEnabled() {
@@ -56,8 +65,8 @@ function _isEnabled() {
 function _getOverlay() {
   if (!_overlay) {
     _overlay = new ArmorCoverageOverlay();
-    // Set initial transparency from settings
     _overlay.setTransparency(_settings.transparency);
+    _overlay.setScale(_settings.scale);
   }
   return _overlay;
 }
@@ -193,6 +202,7 @@ export function applyArmorCoverageOverlaySettings() {
   // Update overlay transparency if it exists
   if (_overlay) {
     _overlay.setTransparency(_settings.transparency);
+    _overlay.setScale(_settings.scale);
   }
   _scheduleRender();
 }

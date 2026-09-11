@@ -1,12 +1,12 @@
-<div class="social-selector-app">
+<div class="social-selector-app" data-list-filter-root="factions">
   <div class="social-selector-layout">
     <section class="social-panel">
       <h2 class="social-panel-title">{{localize "UESRPG.Apps.FactionSelector.Available"}}</h2>
-      <input id="social-faction-search" type="text" value="{{search}}" placeholder="{{localize "UESRPG.Apps.FactionSelector.SearchPlaceholder"}}">
+      {{> "systems/uesrpg-3ev4/templates/partials/sheets/list-filter.hbs" scope="factions" placeholderKey="UESRPG.Apps.FactionSelector.SearchPlaceholder" emptyKey="UESRPG.Apps.FactionSelector.NoMatches"}}
       <div class="social-choice-list social-choice-list--factions">
         {{#each choices as |choice|}}
-          <div class="social-choice-row">
-            <span>{{choice.label}}</span>
+          <div class="social-choice-row" data-list-filter-row>
+            <span data-list-filter-label>{{choice.label}}</span>
             <button
               type="button"
               data-action="addFaction"

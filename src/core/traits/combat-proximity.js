@@ -13,7 +13,6 @@
 
 import { hasTalent } from "./talents-api.js";
 import { _num as _asNumber } from "./_primitives.js";
-import { getTokensByActorId } from "../../utils/canvas/token-query.js";
 
 function _distanceMeters(tokenA, tokenB) {
   try {
@@ -89,16 +88,7 @@ export function getActorCanvasToken(actor) {
   const ownedControlled = controlled.find(t => t?.actor?.id === actor.id) ?? null;
   if (ownedControlled) return ownedControlled;
   
-  // Use token query utility for efficient lookup
-  try {
-    const tokens = getTokensByActorId(actor.id);
-    return tokens.length > 0 ? tokens[0] : null;
-  } catch (err) {
-    // Fallback to direct iteration if token query fails
-    console.debug("UESRPG | Token query failed, falling back to direct iteration", err);
-    const placeables = canvas.tokens.placeables ?? [];
-    return placeables.find(t => t?.actor?.id === actor.id) ?? null;
-  }
+  return _iterPlaceables().find((token) => token?.actor?.id === actor.id) ?? null;
 }
 
 /**

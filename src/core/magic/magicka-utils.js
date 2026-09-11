@@ -15,7 +15,7 @@
 import { MagicTimekeeping } from "./timekeeping-helper.js";
 import { requestUpdateDocument } from "../../utils/authority-proxy.js";
 
-import { getDifficultyByKey } from "../skills/skill-tn.js";
+import { getDifficultyByKey } from "../skills/difficulties.js";
 import { evaluateAEModifierKeysDetailed, buildAEBreakdownEntries, getActorCapabilityFlag } from "../active-effects/modifier-evaluator.js";
 import { hasGrandmasterForSkill } from "../traits/general-talents.js";
 import { getActorWillpowerBonus, getSpellRestraintReduction } from "./magic-modifiers.js";

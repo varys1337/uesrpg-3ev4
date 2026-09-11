@@ -38,6 +38,7 @@ import { FLAG_SCOPE, getSystemId } from "./constants.js";
 import { activateInClose, deactivateInClose } from "./in-close.js";
 import { clearActorSurpriseState, resolveSurpriseState, setActorSurprised } from "../combat/surprise-state.js";
 import { getStatusEffectConfigs, setStatusEffectConfigs } from "./status-effects-registry.js";
+import { bindSystemTooltipFocusScope, markSystemTooltipElement } from "../../ui/shared/system-tooltips.js";
 
 // Backward-compat re-exports: external importers continue to resolve from this module.
 export { pruneInClosePair, toggleInCloseForActor } from "./in-close.js";
@@ -183,6 +184,18 @@ export function registerStatusHudInterop() {
 
       const container = root.querySelector?.(".status-effects") ?? null;
       if (!container) return;
+
+      bindSystemTooltipFocusScope(container);
+      for (const element of container.querySelectorAll?.("[data-status-id], [data-effect-id]") ?? []) {
+        let statusId = _normalizeHudStatusId(element?.dataset?.statusId ?? null);
+        if (!statusId) {
+          const effect = safeGetEffect(actor, String(element?.dataset?.effectId ?? ""));
+          statusId = _normalizeHudStatusId(effect?.flags?.core?.statusId ?? null);
+        }
+        if (SYSTEM_TOKEN_HUD_STATUS_ID_SET.has(statusId)) {
+          markSystemTooltipElement(element, { ensureAccessibleName: true });
+        }
+      }
 
       _syncSpecialStatusVisuals(root, actor);
 

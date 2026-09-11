@@ -1,35 +1,3 @@
-
-  {{!-- Header --}}
-  <header class="sheet-header spell-header">
-    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" height="88" width="88"/>
-    <div class="spell-header-fields">
-      <h1 class="spell-name">
-        <input name="name" type="text" value="{{item.name}}" placeholder="Spell Name"/>
-      </h1>
-      <div class="spell-stats-row">
-        <div class="spell-stat spell-stat-wide">
-          <label>School</label>
-          <select name="system.school" data-dtype="String" data-spell-structure>
-            {{selectOptions spellSchoolOptions selected=item.system.school localize=true}}
-          </select>
-        </div>
-        <div class="spell-stat spell-stat-wide">
-          <label>Type</label>
-          <select name="system.spellType" data-dtype="String">
-            {{selectOptions item.system.spellTypes selected=item.system.spellType localize=true}}
-          </select>
-        </div>
-      </div>
-    </div>
-  </header>
-
-  {{!-- Tabs --}}
-  <nav class="sheet-tabs tabs spell-tabs" data-group="primary">
-    <a class="item" data-action="tab" data-group="primary" data-tab="description">Overview</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="casting">Casting</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="automation">Automation</a>
-  </nav>
-
   <section class="sheet-body">
 
     {{!-- Tab 1 - Overview --}}
@@ -257,8 +225,8 @@
             <span class="spell-details-badge">{{item.system.scaling.levels.length}}</span>
           </summary>
           <div class="spell-details-actions">
-            <button class="spell-btn-inline add-scaling-level" type="button" data-action="addScalingLevel" title="Add Scaling Level" {{#unless @root.editable}}disabled{{/unless}}>
-              <i class="fas fa-plus"></i> Add
+            <button class="spell-btn-inline add-scaling-level" type="button" data-action="addScalingLevel" data-tooltip-text="{{localize 'UESRPG.Sheets.Spell.AddScalingLevel'}}" {{#unless @root.editable}}disabled{{/unless}} aria-label="{{localize 'UESRPG.Sheets.Spell.AddScalingLevel'}}">
+              <i class="fas fa-plus" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Spell.Add"}}
             </button>
           </div>
           <div class="spell-details-body">
@@ -289,7 +257,7 @@
                 {{#each item.system.scaling.levels as |scalingEntry idx|}}
                 <tr data-index="{{idx}}">
                   <td class="spell-td-known">
-                    <input type="checkbox" name="system.scaling.levels.{{idx}}.known" {{checked scalingEntry.known}} data-scaling-input="true" title="Known at this level" aria-label="Known at level {{scalingEntry.level}}" {{#unless @root.editable}}disabled{{/unless}} />
+                    <input type="checkbox" name="system.scaling.levels.{{idx}}.known" {{checked scalingEntry.known}} data-scaling-input="true" data-tooltip-text="Known at this level" aria-label="Known at level {{scalingEntry.level}}" {{#unless @root.editable}}disabled{{/unless}} />
                   </td>
                   <td class="spell-td-level"><input type="number" name="system.scaling.levels.{{idx}}.level" value="{{scalingEntry.level}}" min="1" max="7" class="spell-table-input spell-table-input-narrow" data-dtype="Number" data-scaling-input="true" {{#unless @root.editable}}disabled{{/unless}} /></td>
                   <td class="spell-td-cost"><input type="number" name="system.scaling.levels.{{idx}}.cost" value="{{scalingEntry.cost}}" min="0" class="spell-table-input spell-table-input-narrow" data-dtype="Number" data-scaling-input="true" {{#unless @root.editable}}disabled{{/unless}} /></td>
@@ -310,8 +278,8 @@
                     </select>
                   </td>
                   <td class="spell-td-action">
-                    <button class="spell-btn-delete remove-scaling-level" type="button" data-action="removeScalingLevel" data-index="{{idx}}" title="Delete scaling level" aria-label="Delete scaling level {{scalingEntry.level}}" {{#unless @root.editable}}disabled{{/unless}}>
-                      <i class="fas fa-trash"></i>
+                    <button class="spell-btn-delete remove-scaling-level" type="button" data-action="removeScalingLevel" data-index="{{idx}}" data-tooltip-text="{{localize 'UESRPG.Sheets.Spell.DeleteScalingLevel'}}" aria-label="{{localize 'UESRPG.Sheets.Spell.DeleteScalingLevel'}} {{scalingEntry.level}}" {{#unless @root.editable}}disabled{{/unless}}>
+                      <i class="fas fa-trash" aria-hidden="true"></i>
                     </button>
                   </td>
                 </tr>
@@ -334,19 +302,19 @@
         <section class="spell-section">
           <h4 class="spell-section-title">
             Active Effects
-            <a class="effect-control spell-btn-inline" data-action="effectControl" data-effect-action="create" title="Create Effect"><i class="fas fa-plus"></i></a>
+            <button type="button" class="effect-control spell-btn-inline" data-action="effectControl" data-effect-action="create" data-tooltip-text="{{localize 'UESRPG.Sheets.Equipment.CreateEffect'}}" aria-label="{{localize 'UESRPG.Sheets.Equipment.CreateEffect'}}"><i class="fas fa-plus" aria-hidden="true"></i></button>
           </h4>
           <div class="effects-grid">
             {{#each effects as |effect id|}}
             <div class="effect-row" data-effect-id="{{effect._id}}">
-              <img class="effect-icon" src="{{effect.img}}" title="{{effect.name}}" alt="{{effect.name}}"/>
+              <img class="effect-icon" src="{{effect.img}}" data-tooltip-text="{{effect.name}}" alt="{{effect.name}}"/>
               <span class="effect-name">{{effect.name}}</span>
               <div class="effect-controls">
-                <a class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" title="Edit"><i class="fas fa-edit"></i></a>
-                <a class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" title="Delete"><i class="fas fa-trash"></i></a>
-                <a class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" title="{{#if effect.disabled}}Enable{{else}}Disable{{/if}}">
-                  <i class="fas {{#if effect.disabled}}fa-check{{else}}fa-times{{/if}}"></i>
-                </a>
+                <button type="button" class="effect-control" data-action="effectControl" data-effect-action="edit" data-effect-id="{{effect._id}}" data-tooltip-text="{{localize 'UESRPG.Sheets.Equipment.EditEffect'}}" aria-label="{{localize 'UESRPG.Sheets.Equipment.EditEffect'}}"><i class="fas fa-edit" aria-hidden="true"></i></button>
+                <button type="button" class="effect-control" data-action="effectControl" data-effect-action="delete" data-effect-id="{{effect._id}}" data-tooltip-text="{{localize 'UESRPG.Sheets.Equipment.DeleteEffect'}}" aria-label="{{localize 'UESRPG.Sheets.Equipment.DeleteEffect'}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
+                <button type="button" class="effect-control" data-action="effectControl" data-effect-action="toggle" data-effect-id="{{effect._id}}" data-tooltip-text="{{#if effect.disabled}}{{localize 'UESRPG.Sheets.Item.Enable'}}{{else}}{{localize 'UESRPG.Sheets.Item.Disable'}}{{/if}}" aria-label="{{#if effect.disabled}}{{localize 'UESRPG.Sheets.Item.Enable'}}{{else}}{{localize 'UESRPG.Sheets.Item.Disable'}}{{/if}}">
+                  <i class="fas {{#if effect.disabled}}fa-check{{else}}fa-times{{/if}}" aria-hidden="true"></i>
+                </button>
               </div>
             </div>
             {{/each}}
@@ -426,8 +394,8 @@
                     {{#if spellEngine.conjure.itemLabel}}
                     <span class="spell-hint spell-hint--nowrap">{{spellEngine.conjure.itemLabel}}</span>
                     {{/if}}
-                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-action="conjureClear" data-conjure-clear="item" title="Clear">
-                      <i class="fas fa-times"></i>
+                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-action="conjureClear" data-conjure-clear="item" data-tooltip-text="{{localize 'UESRPG.Buttons.Clear'}}" aria-label="{{localize 'UESRPG.Buttons.Clear'}}">
+                      <i class="fas fa-times" aria-hidden="true"></i>
                     </button>
                   </div>
                 </div>
@@ -450,8 +418,8 @@
                     {{#if spellEngine.conjure.actorLabel}}
                     <span class="spell-hint spell-hint--nowrap">{{spellEngine.conjure.actorLabel}}</span>
                     {{/if}}
-                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-action="conjureClear" data-conjure-clear="actor" title="Clear">
-                      <i class="fas fa-times"></i>
+                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-action="conjureClear" data-conjure-clear="actor" data-tooltip-text="{{localize 'UESRPG.Buttons.Clear'}}" aria-label="{{localize 'UESRPG.Buttons.Clear'}}">
+                      <i class="fas fa-times" aria-hidden="true"></i>
                     </button>
                   </div>
                 </div>
@@ -484,8 +452,8 @@
                     {{#if spellEngine.conjure.actorLabel}}
                     <span class="spell-hint spell-hint--nowrap">{{spellEngine.conjure.actorLabel}}</span>
                     {{/if}}
-                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-action="conjureClear" data-conjure-clear="actor" title="Clear">
-                      <i class="fas fa-times"></i>
+                    <button type="button" class="spell-btn-inline conjure-clear-btn" data-action="conjureClear" data-conjure-clear="actor" data-tooltip-text="{{localize 'UESRPG.Buttons.Clear'}}" aria-label="{{localize 'UESRPG.Buttons.Clear'}}">
+                      <i class="fas fa-times" aria-hidden="true"></i>
                     </button>
                   </div>
                 </div>
@@ -676,8 +644,8 @@
               <fieldset class="spell-fieldset spell-fieldset--relative">
                 <legend>Entry {{inc idx}}
                   {{#if @root.editable}}
-                  <button class="spell-btn-delete spell-btn-delete--legend" type="button" data-action="removeOvertimeEntry" data-index="{{idx}}" title="Remove Entry">
-                    <i class="fas fa-trash"></i>
+                  <button class="spell-btn-delete spell-btn-delete--legend" type="button" data-action="removeOvertimeEntry" data-index="{{idx}}" data-tooltip-text="{{localize 'UESRPG.Apps.TravelPlanner.RemoveEntry'}}" aria-label="{{localize 'UESRPG.Apps.TravelPlanner.RemoveEntry'}}">
+                    <i class="fas fa-trash" aria-hidden="true"></i>
                   </button>
                   {{/if}}
                 </legend>
@@ -755,7 +723,7 @@
 
               {{#if @root.editable}}
               <button type="button" data-action="addOvertimeEntry" class="spell-btn-add">
-                <i class="fas fa-plus"></i> Add OverTime Entry
+                <i class="fas fa-plus" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Spell.AddOvertimeEntry"}}
               </button>
               {{/if}}
               {{/if}}
@@ -788,8 +756,8 @@
               <h4 class="spell-module-title">
                 <i class="fas fa-flask"></i> Effect Recipes
                 <span class="spell-hint spell-hint--inline">(Experimental)</span>
-                <button type="button" class="spell-btn-inline add-effect-recipe" data-action="addEffectRecipe" title="Add Effect Recipe" {{#unless @root.editable}}disabled{{/unless}}>
-                  <i class="fas fa-plus"></i> Add
+                <button type="button" class="spell-btn-inline add-effect-recipe" data-action="addEffectRecipe" data-tooltip-text="{{localize 'UESRPG.Sheets.Spell.AddEffectRecipe'}}" {{#unless @root.editable}}disabled{{/unless}} aria-label="{{localize 'UESRPG.Sheets.Spell.AddEffectRecipe'}}">
+                  <i class="fas fa-plus" aria-hidden="true"></i> {{localize "UESRPG.Sheets.Spell.Add"}}
                 </button>
               </h4>
 
@@ -812,8 +780,8 @@
                     <option value="self" {{#if (eq recipe.target "self")}}selected{{/if}}>Self</option>
                   </select>
                   <input type="text" name="system.engine.effects.recipes.{{idx}}.label" value="{{recipe.label}}" placeholder="Label" class="spell-recipe-label" data-recipe-input="true" />
-                  <button type="button" class="spell-btn-delete remove-effect-recipe" data-action="removeEffectRecipe" data-recipe-index="{{idx}}" title="Remove" {{#unless @root.editable}}disabled{{/unless}}>
-                    <i class="fas fa-trash"></i>
+                  <button type="button" class="spell-btn-delete remove-effect-recipe" data-action="removeEffectRecipe" data-recipe-index="{{idx}}" data-tooltip-text="{{localize 'UESRPG.Sheets.Spell.RemoveEffectRecipe'}}" aria-label="{{localize 'UESRPG.Sheets.Spell.RemoveEffectRecipe'}}" {{#unless @root.editable}}disabled{{/unless}}>
+                    <i class="fas fa-trash" aria-hidden="true"></i>
                   </button>
                 </div>
                 {{/each}}

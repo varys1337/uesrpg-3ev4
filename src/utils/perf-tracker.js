@@ -12,6 +12,7 @@ import {
   readPerfEntries,
   resetPerfEntries,
   summarizePerfEntries,
+  summarizeRenderImpact,
   getPerfHelpText
 } from "./perf-tracker-support.js";
 
@@ -61,6 +62,56 @@ export function initializePerfApi() {
     reset: resetPerfRecords,
     records: getPerfRecords,
     summarize: summarizePerfRecords,
+    renderImpact(windowMs = 500) {
+      return summarizeRenderImpact(getPerfRecords(), windowMs);
+    },
+
+    async runSheetBenchmark(n = 5) {
+      if (!isPerfEnabled()) {
+        console.warn(`[UESRPG][TimePref] Enable ${PERF_SETTING} before running sheet benchmarks.`);
+        return null;
+      }
+
+      const registry = foundry?.applications?.instances;
+      if (typeof registry?.values !== "function") return null;
+      const count = Math.max(1, Math.min(Number(n) || 5, 20));
+      const wanted = ["player-character", "npc", "item"];
+      const sheets = new Map();
+      for (const app of registry.values()) {
+        if (!app?.rendered || typeof app?.render !== "function") continue;
+        const classes = app?.element?.classList;
+        const kind = wanted.find((name) => classes?.contains?.(name));
+        if (kind && !sheets.has(kind)) sheets.set(kind, app);
+      }
+
+      if (!sheets.size) {
+        console.warn("[UESRPG][TimePref] Open an Actor, NPC, or Item sheet before running the sheet benchmark.");
+        return null;
+      }
+
+      const results = {};
+      for (const [kind, app] of sheets) {
+        const durations = [];
+        for (let index = 0; index < count; index += 1) {
+          const startedAt = monoMs();
+          await app.render();
+          durations.push(monoMs() - startedAt);
+        }
+        const sorted = durations.slice().sort((a, b) => a - b);
+        const middle = Math.floor(sorted.length / 2);
+        const median = sorted.length % 2
+          ? sorted[middle]
+          : (sorted[middle - 1] + sorted[middle]) / 2;
+        results[kind] = {
+          count,
+          median: Number(median.toFixed(3)),
+          min: Number(sorted[0].toFixed(3)),
+          max: Number(sorted.at(-1).toFixed(3)),
+        };
+      }
+      console.table(results);
+      return results;
+    },
 
     help() {
       console.log(getPerfHelpText(SYSTEM_ID));

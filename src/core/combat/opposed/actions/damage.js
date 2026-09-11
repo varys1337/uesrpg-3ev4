@@ -29,6 +29,7 @@ import {
   getHybridWarfareDamageFormula,
   isHybridOpposed
 } from "../hybrid.js";
+import { requireMassCombatEnabled } from "../../../homebrew/settings.js";
 
 const DAMAGE_TYPES = {
   PHYSICAL: "physical",
@@ -227,6 +228,7 @@ async function _applyCoupDeGrace({ ctx, coupMode, defenderActor, data, message, 
  * Handle damage-roll action: attacker rolls damage after winning opposed test
  */
 export async function handleDamageRoll(ctx) {
+  if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, attacker, defender, defenderData, defenderIndex, aToken, dToken, isAoE, opts, _updateCard } = ctx;
 
   const ok = await _ensureResolvedForPostActions(message, data, { defenderIndex });
@@ -835,6 +837,7 @@ export async function handleDamageRoll(ctx) {
  * Handle counter-damage-roll action: defender rolls damage after winning via counter-attack
  */
 export async function handleCounterDamageRoll(ctx) {
+  if (isHybridOpposed(ctx?.data) && !requireMassCombatEnabled()) return;
   const { message, data, attacker, defender, defenderData, defenderIndex, aToken, dToken, opts, _updateCard } = ctx;
 
   const ok = await _ensureResolvedForPostActions(message, data, { defenderIndex });

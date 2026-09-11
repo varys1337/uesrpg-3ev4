@@ -2,7 +2,7 @@
   <legend>{{localize "UESRPG.UI.Activation"}}</legend>
   <div class="uesrpg-feature-activation">
     <div class="uesrpg-feature-row">
-      <label title="{{localize "UESRPG.Sheets.Feature.ActivatedTitle" itemKind=itemKind}}">
+      <label data-tooltip-text="{{localize "UESRPG.Sheets.Feature.ActivatedTitle" itemKind=itemKind}}">
         <input class="checkbox" type="checkbox" name="system.activation.enabled" {{checked item.system.activation.enabled}}>
         {{localize "UESRPG.UI.Activated"}}
       </label>
@@ -12,11 +12,11 @@
           {{selectOptions actionTypeOptions selected=item.system.activation.actionType localize=false}}
         </select>
       </label>
-      <label title="{{localize "UESRPG.Sheets.Feature.SpendCostsTitle"}}">
+      <label data-tooltip="UESRPG.Sheets.Feature.SpendCostsTitle">
         <input class="checkbox" type="checkbox" name="system.activation.spendCosts" {{checked item.system.activation.spendCosts}}>
         {{localize "UESRPG.UI.SpendCosts"}}
       </label>
-      <label title="{{localize "UESRPG.Sheets.Feature.ConsumeUseTitle"}}">
+      <label data-tooltip="UESRPG.Sheets.Feature.ConsumeUseTitle">
         <input class="checkbox" type="checkbox" name="system.activation.consumeUse" {{checked item.system.activation.consumeUse}}>
         {{localize "UESRPG.UI.ConsumeUse"}}
       </label>

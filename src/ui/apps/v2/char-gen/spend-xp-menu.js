@@ -26,7 +26,7 @@ import {
   spellSignature,
   buildKnownSpellIndex,
 } from "../../../../core/advancement/spell-learning.js";
-import { campaignRankFromXpTotal } from "../../../sheets/shared/dialogs/character-menus.js";
+import { getCampaignRankFromXpTotal as campaignRankFromXpTotal } from "../../../../core/advancement/progression.js";
 import { appendChargenAudit } from "./audit-log.js";
 import { SYSTEM_ID, templatePath } from "../../../constants.js";
 import { t, tf } from "../../../../utils/i18n.js";

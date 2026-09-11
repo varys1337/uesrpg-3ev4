@@ -1,0 +1,13 @@
+<div class="uesrpg-list-filter" role="search" data-list-filter-controls data-list-filter-scope="{{scope}}">
+  <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+  <input
+    type="search"
+    data-list-filter-input
+    autocomplete="off"
+    placeholder="{{#if placeholderKey}}{{localize placeholderKey}}{{else}}{{localize "UESRPG.Sheets.Equipment.SearchItems"}}{{/if}}"
+    aria-label="{{#if placeholderKey}}{{localize placeholderKey}}{{else}}{{localize "UESRPG.Sheets.Equipment.SearchItems"}}{{/if}}">
+  <button type="button" data-list-filter-clear data-tooltip="UESRPG.UI.ClearSearch" aria-label="{{localize "UESRPG.UI.ClearSearch"}}">
+    <i class="fas fa-xmark" aria-hidden="true"></i>
+  </button>
+</div>
+<p class="uesrpg-list-filter__empty" data-list-filter-empty hidden>{{#if emptyKey}}{{localize emptyKey}}{{else}}{{localize "UESRPG.UI.NoSearchMatches"}}{{/if}}</p>

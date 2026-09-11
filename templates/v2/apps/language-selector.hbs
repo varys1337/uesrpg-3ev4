@@ -29,11 +29,11 @@
         {{#each entries as |entry|}}
           <div class="social-language-row" data-entry-id="{{entry.id}}">
             <input data-field="name" type="text" value="{{entry.name}}" placeholder="{{localize "UESRPG.Apps.LanguageSelector.LanguagePlaceholder"}}">
-            <label class="social-toggle-pill" title="{{localize "UESRPG.Apps.LanguageSelector.CanSpeak"}}">
+            <label class="social-toggle-pill" data-tooltip="UESRPG.Apps.LanguageSelector.CanSpeak">
               <input data-field="speak" type="checkbox" {{#if entry.speak}}checked{{/if}}>
               <span>{{localize "UESRPG.Apps.LanguageSelector.Speak"}}</span>
             </label>
-            <label class="social-toggle-pill" title="{{localize "UESRPG.Apps.LanguageSelector.CanReadWrite"}}">
+            <label class="social-toggle-pill" data-tooltip="UESRPG.Apps.LanguageSelector.CanReadWrite">
               <input data-field="readWrite" type="checkbox" {{#if entry.readWrite}}checked{{/if}}>
               <span>{{localize "UESRPG.Apps.LanguageSelector.ReadWriteShort"}}</span>
             </label>

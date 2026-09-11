@@ -9,9 +9,9 @@
  */
 import { resolveDialogClasses } from "./dialog-v2/classes.js";
 import { renderWithDialogEnhancements as _renderWithEnhancements } from "./dialog-v2/enhancements.js";
-import { renderTemplate } from "./template-renderer.js";
 
 const DialogV2 = foundry.applications.api.DialogV2;
+const { renderTemplate } = foundry.applications.handlebars;
 
 /* ──────────────────────────────────────────────────────────────────────
  * confirmDialog — Yes/No confirmation prompt (returns boolean | null)

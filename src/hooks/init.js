@@ -14,15 +14,11 @@ import { registerChat, registerSpecialActionOutcomeHook } from "./init/register-
 import { registerChatCommands } from "./init/register-chat-commands.js";
 import { registerMigrations } from "./init/register-migrations.js";
 import { registerKeybindings } from "./init/register-keybindings.js";
-import { registerDevTools } from "./init/register-devtools.js";
 import { registerFeatureHooks } from "./init/features/register-feature-hooks.js";
 import { registerAECacheInvalidation } from "./init/register-ae-cache-invalidation.js";
 import { registerItemPrepareCacheInvalidation } from "./init/register-item-prepare-cache-invalidation.js";
-import { registerMemoizationCacheInvalidation } from "./init/register-memoization-cache-invalidation.js";
 import { registerInCloseAutoPrune } from "./init/register-in-close-auto-prune.js";
 import { registerCoreSubsystems } from "./init/register-core-subsystems.js";
-import { initializeCanvasOptimization } from "../utils/canvas/canvas-optimization.js";
-import { initializeMemoryMonitoring } from "../utils/memory-monitor.js";
 
 import { SystemCombat, getInitiativeTieBreakTuple } from "../core/documents/combat.js";
 import { registerCombatChatHandlers } from "../core/combat/chat-handlers/index.js";
@@ -54,8 +50,6 @@ import { compileConditionsToPredicate } from "../core/traits/features/conditions
 import { executeSpecialAction } from "../core/combat/special-actions-helper.js";
 import { runCombatLegacyReadinessScan } from "../core/combat/legacy-readiness-scanner.js";
 import * as automationPolicyApi from "../core/config/automation-policy.js";
-import { registerShieldDebugObservers } from "../utils/dev/shield-debug.js";
-import { registerContainerDebugObservers } from "../utils/dev/container-debug.js";
 import { registerStaleEmbeddedDeleteSuppression } from "../utils/embedded-delete-guard.js";
 import { registerClashChatActions } from "../core/mass-warfare/clash/chat-actions.js";
 import { registerWarfareAttachmentHooks } from "../core/mass-warfare/actions.js";
@@ -65,6 +59,7 @@ import {
   registerTypeDataModels,
 } from "../core/data-models/registry.js";
 import { ApplyDamageService } from "../application/combat/apply-damage-service.js";
+import { registerSystemTooltipHooks } from "../ui/shared/system-tooltips.js";
 
 function applyCustomCursorConfig() {
   try {
@@ -85,7 +80,7 @@ function applyCustomCursorConfig() {
 }
 
 // ── Warfare Unit create-flow gating ─────────────────────────────────────────
-// Warfare Unit creation is gated by SimpleActor._preCreate; existing documents remain supported.
+// The creation dialog filters Warfare Unit while disabled; _preCreate remains a direct-API safeguard.
 
 export default function initHandler() {
   registerApi({
@@ -163,7 +158,9 @@ export default function initHandler() {
   applyCustomCursorConfig();
 
   if (isAnyDebugEnabled(["opposedDebug", "perfDebug"])) {
-    void registerDevTools();
+    void import("./init/register-devtools.js")
+      .then(({ registerDevTools }) => registerDevTools())
+      .catch((err) => console.warn("UESRPG | Failed to load developer tools", err));
   }
 
   if (isAnyDebugEnabled(["dndDebugEnabled"])) {
@@ -175,23 +172,20 @@ export default function initHandler() {
   }
 
   if (isAnyDebugEnabled(["shieldDebug"])) {
-    try {
-      registerShieldDebugObservers();
-    } catch (err) {
-      console.warn("UESRPG | Failed to register shield debug observers", err);
-    }
+    void import("../utils/dev/shield-debug.js")
+      .then(({ registerShieldDebugObservers }) => registerShieldDebugObservers())
+      .catch((err) => console.warn("UESRPG | Failed to register shield debug observers", err));
   }
 
   if (isAnyDebugEnabled(["containerDebug"])) {
-    try {
-      registerContainerDebugObservers();
-    } catch (err) {
-      console.warn("UESRPG | Failed to register container diagnostics observers", err);
-    }
+    void import("../utils/dev/container-debug.js")
+      .then(({ registerContainerDebugObservers }) => registerContainerDebugObservers())
+      .catch((err) => console.warn("UESRPG | Failed to register container diagnostics observers", err));
   }
 
   registerSheets();
   registerKeybindings();
+  registerSystemTooltipHooks();
 
   registerChat({
     registerCombatChatHandlers,
@@ -208,39 +202,27 @@ export default function initHandler() {
   registerInCloseAutoPrune();
   registerAECacheInvalidation();
   registerItemPrepareCacheInvalidation();
-  registerMemoizationCacheInvalidation();
   registerCoreSubsystems();
 
-  // Initialize canvas optimization system for token performance
-  try {
-    const canvasDebugEnabled = isAnyDebugEnabled(["perfDebug", "canvasDebug"]);
-    initializeCanvasOptimization({
-      enabled: true,
-      debug: canvasDebugEnabled
-    });
-    if (canvasDebugEnabled) console.debug("UESRPG | Canvas optimization system initialized");
-  } catch (err) {
-    console.warn("UESRPG | Failed to initialize canvas optimization system", err);
-  }
-
-  // Initialize memory monitoring system for leak detection
-  try {
-    const memoryDebugEnabled = isAnyDebugEnabled(["perfDebug", "memoryDebug"]);
-    initializeMemoryMonitoring({
-      enabled: memoryDebugEnabled,
-      debug: memoryDebugEnabled,
-      warningThresholds: {
-        templateCache: 500,
-        memoizationCache: 1000,
-        tokenQueryCache: 500,
-        spatialIndexCache: 2000,
-        handlebarsHelperCache: 200,
-        sheetCache: 300,
-      }
-    });
-    if (memoryDebugEnabled) console.debug("UESRPG | Memory monitoring system initialized");
-  } catch (err) {
-    console.warn("UESRPG | Failed to initialize memory monitoring system", err);
+  // The memory monitor is a diagnostics-only subsystem. Keep it out of normal
+  // startup and load it only when a performance diagnostic gate is enabled.
+  const memoryDebugEnabled = isAnyDebugEnabled(["perfDebug"]);
+  if (memoryDebugEnabled) {
+    void import("../utils/memory-monitor.js")
+      .then(({ initializeMemoryMonitoring }) => {
+        initializeMemoryMonitoring({
+          enabled: true,
+          debug: true,
+          warningThresholds: {
+            handlebarsHelperCache: 200,
+            sheetCache: 300,
+          },
+        });
+        console.debug("UESRPG | Memory monitoring system initialized");
+      })
+      .catch((err) => {
+        console.warn("UESRPG | Failed to initialize memory monitoring system", err);
+      });
   }
 
   if (isTypeDataModelsEnabled() && isAnyDebugEnabled(["debugEnabled", "perfDebug"])) {

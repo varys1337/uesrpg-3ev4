@@ -1,19 +1,13 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
-import { localizeSettingConfig } from "../../../utils/i18n.js";
+import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
 import {
   TALENT_LEARNING_MODE,
   TALENT_NO_GOVERNING_COST_RULE,
   TALENT_LEARNING_NOTICE_MODE,
 } from "../../../core/traits/talent-learning.js";
 
-function _reg(key, config) {
-  if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
-    console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
-    return;
-  }
-  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Talents", key, config));
-}
+const _reg = createSystemSettingRegistrar("Talents");
 
 export function registerTalentsSettings() {
   // Hidden GM rules/system policy: talent automation and enforcement semantics.
@@ -110,14 +104,19 @@ export function registerTalentsSettings() {
   });
 
   _reg("useRawChargenWizard", {
-    name: "Character Generation: Use RAW Wizard Button",
-    hint: "When enabled, actor sheets show a Character Creation (RAW) button that runs the RAW chargen flow.",
+    name: "Character Generation: Show Header Button",
+    hint: "When enabled, editable Player Character sheets show a header button that opens the Character Generation Wizard for that actor.",
     scope: "world",
     config: false,
     type: Boolean,
-    default: false,
+    default: true,
     requiresReload: false,
-    onChange: () => invalidateCachedSetting("useRawChargenWizard"),
+    onChange: () => {
+      invalidateCachedSetting("useRawChargenWizard");
+      void import("../../../ui/sheets/v2/actor-sheet.js")
+        .then(({ syncOpenRawChargenFrameButtons }) => syncOpenRawChargenFrameButtons?.())
+        .catch((err) => console.warn("UESRPG | Failed to refresh Character Generation header buttons", err));
+    },
   });
 
   _reg("chargenMagicPurchaseMode", {

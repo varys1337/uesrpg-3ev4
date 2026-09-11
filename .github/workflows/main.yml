@@ -1,22 +1,27 @@
-name: Build and Publish Foundry System (GitHub Release Assets)
+name: Build and Publish Foundry System
 
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   build_release_assets:
-    name: Build zip and upload release assets
+    name: Validate and publish immutable release
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout tagged commit
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -24,48 +29,87 @@ jobs:
           node-version: "22"
           cache: npm
 
-      - name: Install development dependencies
-        run: npm ci
-
-      - name: Build validated release folder
-        run: npm run build:folder
-
-      - name: Validate release tag
+      - name: Validate release identity and channel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          expected_tag="v$(node -p "require('./package.json').version")"
+          expected_tag="$(node -p "require('./automation/release-metadata.js').getReleaseTag(require('./package.json').version)")"
           if [[ "$GITHUB_REF_TYPE" != "tag" || "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
             echo "Release workflow requires tag $expected_tag; received $GITHUB_REF_TYPE $GITHUB_REF_NAME." >&2
             exit 1
           fi
 
-      # Package the same validated runtime folder produced by local builds.
-      - name: Build system zip (uesrpg-3ev4.zip)
+          tag_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          head_commit="$(git rev-parse HEAD)"
+          if [[ "$tag_commit" != "$head_commit" || "$head_commit" != "$GITHUB_SHA" ]]; then
+            echo "Tag $GITHUB_REF_NAME, checkout HEAD, and workflow SHA must identify the same commit." >&2
+            exit 1
+          fi
+
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; published releases must never be replaced." >&2
+            exit 1
+          fi
+
+          latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          npm run build:release -- --previous-release "$latest_tag"
+          echo "LATEST_RELEASE_TAG=$latest_tag" >> "$GITHUB_ENV"
+
+      - name: Install development dependencies
+        run: npm ci
+
+      - name: Validate JavaScript syntax
+        shell: bash
+        run: find src automation scripts -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Build validated release folder
+        run: npm run build:folder
+
+      - name: Build root-layout system ZIP
         shell: bash
         run: |
           rm -f uesrpg-3ev4.zip
           (cd dist/uesrpg-3ev4 && zip -r ../../uesrpg-3ev4.zip .)
 
       - name: Validate release archive
-        run: npm run build:release -- --archive uesrpg-3ev4.zip
+        run: npm run build:release -- --archive uesrpg-3ev4.zip --previous-release "$LATEST_RELEASE_TAG"
 
-      - name: Create GitHub Release (if missing)
+      - name: Create draft release with assets
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          tag="${{ github.ref_name }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release for $tag already exists."
-          else
-            echo "Creating release for $tag"
-            gh release create "$tag" --repo="$GITHUB_REPOSITORY" --title="$tag" --generate-notes
+          gh release create "$GITHUB_REF_NAME" system.json uesrpg-3ev4.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
+          echo "RELEASE_DRAFT_CREATED=true" >> "$GITHUB_ENV"
+
+      - name: Verify draft asset integrity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node automation/verify-github-release.js --stage draft --tag "$GITHUB_REF_NAME" --archive uesrpg-3ev4.zip
+
+      - name: Publish as the latest stable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest --verify-tag
+
+      - name: Verify public Foundry update endpoints
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node automation/verify-github-release.js --stage published --tag "$GITHUB_REF_NAME" --archive uesrpg-3ev4.zip
+
+      - name: Remove an unpublished failed draft
+        if: ${{ failure() && env.RELEASE_DRAFT_CREATED == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          is_draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq '.draft' 2>/dev/null || echo false)"
+          if [[ "$is_draft" == "true" ]]; then
+            gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
           fi
-
-      - name: Upload release assets (system.json + uesrpg-3ev4.zip)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          tag="${{ github.ref_name }}"
-          gh release upload "$tag" system.json uesrpg-3ev4.zip --clobber

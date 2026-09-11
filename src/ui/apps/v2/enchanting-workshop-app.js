@@ -20,7 +20,7 @@
  *  - Form submitted via static _onSubmit - buildCast/buildStrike/buildConstant
  *    are called there, then finalizeEnchantment.
  *
- * Target: Foundry VTT v14.359+
+ * Target: Foundry VTT v14.363+
  */
 
 import {
@@ -44,7 +44,8 @@ import {
   localizeStrikeEnchantment,
 } from "../../../data/spell-i18n.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
-import { t } from "../../../utils/i18n.js";
+import { asyncGuardSheet } from "../../../utils/async-guard.js";
+import { t, tf } from "../../../utils/i18n.js";
 import { activateOpenApplication } from "./application-focus.js";
 import {
   buildActorStoredSpellOptions,
@@ -65,7 +66,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
     id: "uesrpg-enchanting-workshop",
     tag: "form",
     form: {
-      handler: EnchantingWorkshopAppV2._onSubmit,
+      handler: asyncGuardSheet(EnchantingWorkshopAppV2._onSubmit),
       closeOnSubmit: false,
       submitOnChange: false,
     },
@@ -314,7 +315,7 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       const actor = actorUuid ? await fromUuid(actorUuid) : null;
 
       if (!actor) {
-        ui.notifications?.error("Enchanting Workshop: No actor found.");
+        ui.notifications?.error(t("UESRPG.Notifications.Enchanting.ActorNotFound"));
         return;
       }
 
@@ -338,14 +339,14 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       if (mode === "recharge" || mode === "toggle") {
         const enchantedItem = await resolveActorItem(data.enchantedItemUuid);
         if (!enchantedItem) {
-          ui.notifications?.error("Enchanting Workshop: Select an enchanted item.");
+          ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectEnchantedItem"));
           return;
         }
 
         if (mode === "recharge") {
           const soulGemItem = await resolveActorItem(data.gemUuid);
           if (!soulGemItem) {
-            ui.notifications?.error("Enchanting Workshop: Select a soul gem.");
+            ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectSoulGem"));
             return;
           }
           await rechargeEnchantment({ actor, enchantedItem, soulGemItem });
@@ -360,30 +361,31 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
       const soulGemItem = await resolveActorItem(data.gemUuid);
 
       if (!targetItem) {
-        ui.notifications?.error("Enchanting Workshop: Select a target item.");
+        ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectTargetItem"));
         return;
       }
       if (!soulGemItem) {
-        ui.notifications?.error("Enchanting Workshop: Select a soul gem.");
+        ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectSoulGem"));
         return;
       }
 
       if (mode === "cast") {
         const spells = await EnchantingWorkshopAppV2._parseSpellsFromForm(data, actor);
         if (!spells.length) {
-          ui.notifications?.error("Enchanting Workshop: Add at least one spell.");
+          ui.notifications?.error(t("UESRPG.Notifications.Enchanting.AddSpell"));
           return;
         }
 
         const result = await buildCast({ actor, targetItem, soulGemItem, spells });
 
         if (!result?.valid) {
-          ui.notifications?.error(`Enchanting failed: ${(result?.errors ?? ["Unknown error"]).join("; ")}`);
+          const reasons = (result?.errors ?? [t("UESRPG.Notifications.Enchanting.UnknownError")]).join("; ");
+          ui.notifications?.error(tf("UESRPG.Notifications.Enchanting.FailedWithReasons", { reasons }));
           return;
         }
 
         if (!result.anySuccess) {
-          ui.notifications?.warn("Enchanting test failed - enchantment not applied.");
+          ui.notifications?.warn(t("UESRPG.Notifications.Enchanting.TestFailed"));
           if (!result.gemPreserved && soulGemItem) {
             const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
             await consumeSoulGem(actor, soulGemItem);
@@ -402,26 +404,27 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
           enchantType: "cast",
         });
 
-        ui.notifications?.info(`Cast enchantment applied to "${targetItem.name}".`);
+        ui.notifications?.info(tf("UESRPG.Notifications.Enchanting.CastApplied", { item: targetItem.name }));
         return;
       }
 
       if (mode === "strike") {
         const effects = EnchantingWorkshopAppV2._parseStrikeEffectsFromForm(data);
         if (!effects.length) {
-          ui.notifications?.error("Enchanting Workshop: Select at least one strike effect.");
+          ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectStrikeEffect"));
           return;
         }
 
         const result = await buildStrike({ actor, targetItem, soulGemItem, effects });
 
         if (!result?.valid) {
-          ui.notifications?.error(`Enchanting failed: ${(result?.errors ?? ["Unknown error"]).join("; ")}`);
+          const reasons = (result?.errors ?? [t("UESRPG.Notifications.Enchanting.UnknownError")]).join("; ");
+          ui.notifications?.error(tf("UESRPG.Notifications.Enchanting.FailedWithReasons", { reasons }));
           return;
         }
 
         if (!result.anySuccess) {
-          ui.notifications?.warn("Enchanting test failed - enchantment not applied.");
+          ui.notifications?.warn(t("UESRPG.Notifications.Enchanting.TestFailed"));
           if (!result.gemPreserved && soulGemItem) {
             const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
             await consumeSoulGem(actor, soulGemItem);
@@ -440,14 +443,14 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
           enchantType: "strike",
         });
 
-        ui.notifications?.info(`Strike enchantment applied to "${targetItem.name}".`);
+        ui.notifications?.info(tf("UESRPG.Notifications.Enchanting.StrikeApplied", { item: targetItem.name }));
         return;
       }
 
       if (mode === "constant") {
         const effects = EnchantingWorkshopAppV2._parseConstantEffectsFromForm(data);
         if (!effects.length) {
-          ui.notifications?.error("Enchanting Workshop: Select at least one constant effect.");
+          ui.notifications?.error(t("UESRPG.Notifications.Enchanting.SelectConstantEffect"));
           return;
         }
 
@@ -455,12 +458,13 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
         const result = await buildConstant({ actor, targetItem, soulGemItem, effects, cursed });
 
         if (!result?.valid) {
-          ui.notifications?.error(`Enchanting failed: ${(result?.errors ?? ["Unknown error"]).join("; ")}`);
+          const reasons = (result?.errors ?? [t("UESRPG.Notifications.Enchanting.UnknownError")]).join("; ");
+          ui.notifications?.error(tf("UESRPG.Notifications.Enchanting.FailedWithReasons", { reasons }));
           return;
         }
 
         if (!result.anySuccess) {
-          ui.notifications?.warn("Enchanting test failed - enchantment not applied.");
+          ui.notifications?.warn(t("UESRPG.Notifications.Enchanting.TestFailed"));
           if (!result.gemPreserved && soulGemItem) {
             const { consumeSoulGem } = await import("../../../core/enchanting/soul-gems.js");
             await consumeSoulGem(actor, soulGemItem);
@@ -479,14 +483,14 @@ export class EnchantingWorkshopAppV2 extends HandlebarsApplicationMixin(Applicat
           enchantType: "constant",
         });
 
-        ui.notifications?.info(`Constant enchantment applied to "${targetItem.name}".`);
+        ui.notifications?.info(tf("UESRPG.Notifications.Enchanting.ConstantApplied", { item: targetItem.name }));
         return;
       }
 
-      ui.notifications?.warn(`Enchanting Workshop: Unknown mode "${mode}".`);
+      ui.notifications?.warn(tf("UESRPG.Notifications.Enchanting.UnknownMode", { mode }));
     } catch (err) {
       console.error("UESRPG | Enchanting Workshop submit failed", err);
-      ui.notifications?.error("Enchanting Workshop: An unexpected error occurred. See console (F12). ");
+      ui.notifications?.error(t("UESRPG.Notifications.Enchanting.UnexpectedError"));
     }
   }
 

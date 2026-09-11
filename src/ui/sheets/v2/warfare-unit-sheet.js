@@ -48,6 +48,9 @@ import { maybeInitializeWarfareCondition } from "../../../core/mass-warfare/cond
 import { areTokensInBaseContact } from "../../../core/mass-warfare/battlefield/geometry.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { buildActorSheetEffectView } from "./shared/sheet-context.js";
+import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
+import { clearQueuedRenderPartsState, queueRenderParts } from "./shared/sheet-runtime-helpers.js";
+import { isMassCombatEnabled, requireMassCombatEnabled } from "../../../core/homebrew/settings.js";
 
 const { HandlebarsApplicationMixin } = foundry.applications.api;
 const ActorSheetV2 = foundry.applications.sheets.ActorSheetV2;
@@ -290,6 +293,9 @@ async function promptClashContactSides({
 
 export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2) {
 
+  _uesrpgCommanderCache = null;
+  _uesrpgCommanderHookId = null;
+
   static DEFAULT_OPTIONS = {
     classes: ["worldbuilding", "sheet", "actor", "warfare-unit", "uesrpg-sheet-root"],
     position: { width: 940, height: 900 },
@@ -415,13 +421,10 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
 
   // ── Render configuration ──────────────────────────────────────────────────
 
-  _configureRenderOptions(options) {
-    super._configureRenderOptions(options);
-    if (this.document.limited && !game.user.isGM) {
-      options.parts = ["limited"];
-    } else {
-      options.parts = ["sidebar", "core", "actions", "magic", "items"];
-    }
+  _configureRenderParts(options) {
+    return selectDocumentSheetRenderParts(super._configureRenderParts(options), {
+      limited: Boolean(this.document?.limited && !game.user?.isGM),
+    });
   }
 
   // ── Context preparation ───────────────────────────────────────────────────
@@ -437,6 +440,32 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     context.editable = this.isEditable;
     context.limited = !game.user.isGM && actor.limited;
     context.owner = actor.isOwner;
+    context.derived = sys._derived ?? {};
+    context.warfareEnabled = isMassCombatEnabled();
+    context.warfareMechanicsDisabledMessage = t(
+      "UESRPG.Sheets.WarfareUnit.MechanicsDisabled",
+      "Warfare mechanics are disabled. Enable Warfare in Configure Homebrew to use actions and automation.",
+    );
+
+    const partScope = createPartContextScope({
+      options,
+      partDefinitions: this.constructor.PARTS,
+      fallbackTotal: 6,
+    });
+    const needs = partScope.needs;
+
+    // Limited viewers only receive the public summary. Do not prepare
+    // commander, action, equipment, magic, or effect data for this path.
+    if (context.limited) {
+      const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
+      context.enrichedDescription = await cachedEnrichHTML(
+        this,
+        "wf:desc",
+        sys.description ?? "",
+        (raw) => enrichFn(raw || "")
+      );
+      return context;
+    }
 
     // ── Profile resolution ────────────────────────────────────────────────
     const profileId = String(sys.profile?.id ?? "uesrpg-0_2");
@@ -446,148 +475,172 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     context.profileWarnings = Array.isArray(sys._derived?.warnings) ? sys._derived.warnings : [];
 
     // ── Category options (unit type) ──────────────────────────────────────
-    const currentCategory = String(
-      sys.identity?.category || sys.classification?.unitType || ""
-    ).toLowerCase();
-    const profileCategories = profile?.categories ?? {};
-    context.categoryOptions = Object.entries(profileCategories).map(([key, cat]) => ({
-      value: key,
-      label: cat.label ?? (key.charAt(0).toUpperCase() + key.slice(1)),
-      selected: key === currentCategory,
-    }));
-    context.currentCategory = currentCategory;
+    if (needs("core")) {
+      const currentCategory = String(
+        sys.identity?.category || sys.classification?.unitType || ""
+      ).toLowerCase();
+      const profileCategories = profile?.categories ?? {};
+      context.categoryOptions = Object.entries(profileCategories).map(([key, cat]) => ({
+        value: key,
+        label: cat.label ?? (key.charAt(0).toUpperCase() + key.slice(1)),
+        selected: key === currentCategory,
+      }));
+      context.currentCategory = currentCategory;
+    }
 
     // ── Ancestry options (unified with racial preset) ─────────────────────
     // racialPresetKey and identity.ancestry are kept in sync; use the first
     // non-empty value across all lanes as the canonical current selection.
-    const currentRank = String(sys.identity?.rank || "").toLowerCase();
-    context.rankOptions = RANK_OPTIONS.map((opt) => ({
-      ...opt,
-      selected: opt.value === currentRank,
-    }));
-    context.currentRank = currentRank;
+    if (needs("core")) {
+      const currentRank = String(sys.identity?.rank || "").toLowerCase();
+      context.rankOptions = RANK_OPTIONS.map((opt) => ({
+        ...opt,
+        selected: opt.value === currentRank,
+      }));
+      context.currentRank = currentRank;
 
-    const currentTradition = String(sys.doctrine?.tradition || "").toLowerCase();
-    context.traditionOptions = TRADITION_OPTIONS.map((opt) => ({
-      ...opt,
-      selected: opt.value === currentTradition,
-    }));
-    context.currentTradition = currentTradition;
+      const currentTradition = String(sys.doctrine?.tradition || "").toLowerCase();
+      context.traditionOptions = TRADITION_OPTIONS.map((opt) => ({
+        ...opt,
+        selected: opt.value === currentTradition,
+      }));
+      context.currentTradition = currentTradition;
+    }
 
     // ── Mount options ─────────────────────────────────────────────────────
-    const currentMount = String(
-      sys.mounts?.primary || sys.classification?.mount || "none"
-    );
-    const profileMounts = profile?.mounts ?? {};
-    context.mountOptions = Object.entries(profileMounts).map(([key, data]) => ({
-      value: key,
-      label: data.label ?? (key.charAt(0).toUpperCase() + key.slice(1)),
-      selected: key === currentMount,
-    }));
-    context.currentMount = currentMount;
-    context.currentMountData = profileMounts[currentMount] ?? null;
+    if (needs("items")) {
+      const currentMount = String(
+        sys.mounts?.primary || sys.classification?.mount || "none"
+      );
+      const profileMounts = profile?.mounts ?? {};
+      context.mountOptions = Object.entries(profileMounts).map(([key, data]) => ({
+        value: key,
+        label: data.label ?? (key.charAt(0).toUpperCase() + key.slice(1)),
+        selected: key === currentMount,
+      }));
+      context.currentMount = currentMount;
+      context.currentMountData = profileMounts[currentMount] ?? null;
+    }
 
     // ── Gear tier options ─────────────────────────────────────────────────
-    const currentTier = String(sys.gear?.apparel || sys.gear?.tier || sys.classification?.tier || "light");
-    const profileGearTiers = profile?.apparel ?? profile?.gearTiers ?? {};
-    context.tierOptions = Object.entries(profileGearTiers).map(([key, data]) => ({
-      value: key,
-      label: data.label ?? (key.charAt(0).toUpperCase() + key.slice(1)),
-      selected: key === currentTier,
-    }));
-    context.currentTier = currentTier;
-    context.apparelOptions = context.tierOptions;
+    if (needs("items")) {
+      const currentTier = String(sys.gear?.apparel || sys.gear?.tier || sys.classification?.tier || "light");
+      const profileGearTiers = profile?.apparel ?? profile?.gearTiers ?? {};
+      context.tierOptions = Object.entries(profileGearTiers).map(([key, data]) => ({
+        value: key,
+        label: data.label ?? (key.charAt(0).toUpperCase() + key.slice(1)),
+        selected: key === currentTier,
+      }));
+      context.currentTier = currentTier;
+      context.apparelOptions = context.tierOptions;
+    }
 
     // ── Profile action lists ──────────────────────────────────────────────
-    context.unitActions = transformWarfareActionEntries(actor, profile?.actions?.unitActions ?? []);
-    context.leaderActions = transformWarfareActionEntries(actor, profile?.actions?.leaderActions ?? []);
+    if (needs("actions") && context.warfareEnabled) {
+      context.unitActions = transformWarfareActionEntries(actor, profile?.actions?.unitActions ?? []);
+      context.leaderActions = transformWarfareActionEntries(actor, profile?.actions?.leaderActions ?? []);
+    } else if (needs("actions")) {
+      context.unitActions = [];
+      context.leaderActions = [];
+    }
 
     // ── Economy lane ──────────────────────────────────────────────────────
-    const economyModel = profile?.economy ?? {};
-    context.economy = {
-      cadence: sys.economy?.cadence ?? economyModel.defaultCadence ?? "weekly",
-      amount:  sys.economy?.amount  ?? 0,
-      unpaidWeeks: Number(sys.economy?.unpaidWeeks ?? 0) || 0,
-      specialModifier: Number(sys.economy?.specialModifier ?? 0) || 0,
-      supportedCadences: economyModel.supportedCadences ?? ["weekly"],
-    };
+    if (needs("items")) {
+      const economyModel = profile?.economy ?? {};
+      context.economy = {
+        cadence: sys.economy?.cadence ?? economyModel.defaultCadence ?? "weekly",
+        amount:  sys.economy?.amount  ?? 0,
+        unpaidWeeks: Number(sys.economy?.unpaidWeeks ?? 0) || 0,
+        specialModifier: Number(sys.economy?.specialModifier ?? 0) || 0,
+        supportedCadences: economyModel.supportedCadences ?? ["weekly"],
+      };
+    }
 
     // ── Magic lane ────────────────────────────────────────────────────────
-    const magicModel = profile?.magic ?? {};
-    context.magic = {
-      mode:       sys.magic?.mode    ?? magicModel.defaultMode ?? "implements",
-      entries:    Array.isArray(sys.magic?.entries) ? sys.magic.entries : [],
-      modeLabels: magicModel.modeLabels ?? {},
-      supportedModes: magicModel.supportedModes ?? ["implements"],
-    };
+    if (needs("magic")) {
+      const magicModel = profile?.magic ?? {};
+      context.magic = {
+        mode:       sys.magic?.mode    ?? magicModel.defaultMode ?? "implements",
+        entries:    Array.isArray(sys.magic?.entries) ? sys.magic.entries : [],
+        modeLabels: magicModel.modeLabels ?? {},
+        supportedModes: magicModel.supportedModes ?? ["implements"],
+      };
+    }
 
     // ── Equipment lane ────────────────────────────────────────────────────
-    context.equipmentOwned = Array.isArray(sys.equipment?.owned) ? sys.equipment.owned : [];
+    if (needs("items")) {
+      context.equipmentOwned = Array.isArray(sys.equipment?.owned) ? sys.equipment.owned : [];
+    }
 
     // Traits/Talents/Powers removed from Core tab — no context needed.
 
     // ── Legacy presence flags ─────────────────────────────────────────────
-    context.hasLegacyNotes = typeof sys.notes === "string" && sys.notes.trim().length > 0;
+    context.hasLegacyNotes = needs("core") && typeof sys.notes === "string" && sys.notes.trim().length > 0;
 
     // ── Derived display cache ─────────────────────────────────────────────
     context.derived = sys._derived ?? {};
 
     // ── Fill-bar percentages for sidebar trackers ─────────────────────────
-    const resolveMax = sys.stats?.resolve?.max ?? sys.stats?.condition?.max ?? 0;
-    context.resolvePct = resolveMax > 0
-      ? Math.min(100, Math.round((sys.stats.resolve?.value ?? sys.stats.condition.value ?? 0) / resolveMax * 100))
-      : 0;
-    context.conditionPct = context.resolvePct;
-    // Discipline: fill proportion = effective value / unpenalized max
-    const discValue = sys.stats?.discipline?.value ?? 0;
-    const discMax   = sys._derived?.disciplineMax ?? 0;
-    context.disciplinePct = discMax > 0
-      ? Math.min(100, Math.round(discValue / discMax * 100))
-      : 0;
-    const magMax = sys.stats?.magicka?.max ?? 0;
-    context.magickaPct = magMax > 0
-      ? Math.min(100, Math.round((sys.stats.magicka.value ?? 0) / magMax * 100))
-      : 0;
-    const bulkVal = sys.stats?.bulk?.value ?? 0;
-    const bulkMaxVal = sys._derived?.bulkMax ?? bulkVal;
-    context.bulkPct = bulkMaxVal > 0
-      ? Math.min(100, Math.round(bulkVal / bulkMaxVal * 100))
-      : 0;
-    const speedValue = Math.max(0, Number(sys.stats?.speed?.value ?? 0) || 0);
-    context.speedDisplayMax = speedValue;
-    context.speedPct = speedValue > 0 ? 100 : 0;
+    if (needs("sidebar")) {
+      const resolveMax = sys.stats?.resolve?.max ?? sys.stats?.condition?.max ?? 0;
+      context.resolvePct = resolveMax > 0
+        ? Math.min(100, Math.round((sys.stats.resolve?.value ?? sys.stats.condition.value ?? 0) / resolveMax * 100))
+        : 0;
+      context.conditionPct = context.resolvePct;
+      const discValue = sys.stats?.discipline?.value ?? 0;
+      const discMax   = sys._derived?.disciplineMax ?? 0;
+      context.disciplinePct = discMax > 0
+        ? Math.min(100, Math.round(discValue / discMax * 100))
+        : 0;
+      const bulkVal = sys.stats?.bulk?.value ?? 0;
+      const bulkMaxVal = sys._derived?.bulkMax ?? bulkVal;
+      context.bulkPct = bulkMaxVal > 0
+        ? Math.min(100, Math.round(bulkVal / bulkMaxVal * 100))
+        : 0;
+      const speedValue = Math.max(0, Number(sys.stats?.speed?.value ?? 0) || 0);
+      context.speedDisplayMax = speedValue;
+      context.speedPct = speedValue > 0 ? 100 : 0;
+    }
 
     // ── Commander resolution ──────────────────────────────────────────────
-    context.commanderResolved = null;
-    const cmdUuid = sys.commander?.uuid;
-    if (cmdUuid) {
-      try {
-        const cmdActor = await fromUuid(cmdUuid);
-        if (cmdActor) {
-          context.commanderResolved = {
-            name: cmdActor.name,
-            img: cmdActor.img,
-            uuid: cmdActor.uuid,
-            type: cmdActor.type,
-          };
-        }
-      } catch (_e) {
+    if (needs("sidebar")) {
+      context.commanderResolved = null;
+      const cmdUuid = String(sys.commander?.uuid ?? "");
+      if (cmdUuid) {
+        if (this._uesrpgCommanderCache?.uuid === cmdUuid) {
+          context.commanderResolved = this._uesrpgCommanderCache.value;
+        } else {
+          try {
+            const cmdActor = await fromUuid(cmdUuid);
+            if (cmdActor) {
+              context.commanderResolved = {
+                name: cmdActor.name,
+                img: cmdActor.img,
+                uuid: cmdActor.uuid,
+                type: cmdActor.type,
+              };
+            }
+          } catch (_e) {
         // Stale link — cached name/img shown from commander payload
+          }
+          this._uesrpgCommanderCache = { uuid: cmdUuid, value: context.commanderResolved };
+        }
       }
     }
 
     // ── Effects list ──────────────────────────────────────────────────────
-    context.effects = Array.from(actor.effects ?? []).map(buildActorSheetEffectView);
+    context.effects = needs("items")
+      ? Array.from(actor.effects ?? []).map(buildActorSheetEffectView)
+      : [];
 
     // ── Rich text ─────────────────────────────────────────────────────────
     const enrichFn = foundry.applications.ux.TextEditor.implementation.enrichHTML;
     const _enrich = (raw) => enrichFn(raw || "");
 
-    context.enrichedDescription = await cachedEnrichHTML(
-      this, "wf:desc", sys.description ?? "", _enrich
-    );
-
-    if (!context.limited) {
+    if (needs("core")) {
+      context.enrichedDescription = await cachedEnrichHTML(
+        this, "wf:desc", sys.description ?? "", _enrich
+      );
       context.enrichedNotes = await cachedEnrichHTML(
         this, "wf:notes", sys.notes ?? "", _enrich
       );
@@ -604,6 +657,15 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
     applySheetDensityClass(el);
     if (context.limited) return;
 
+    if (this._uesrpgCommanderHookId == null) {
+      this._uesrpgCommanderHookId = Hooks.on("updateActor", (updatedActor) => {
+        const commanderUuid = String(this.document?.system?.commander?.uuid ?? "");
+        if (!commanderUuid || updatedActor?.uuid !== commanderUuid) return;
+        this._uesrpgCommanderCache = null;
+        void queueRenderParts(this, ["sidebar"]);
+      });
+    }
+
     // Activate primary tab group
     const expectedPrimary = this.tabGroups.primary ?? "core";
     const activePrimary = el.querySelector('.tab[data-group="primary"].active')?.dataset?.tab ?? null;
@@ -614,6 +676,10 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
   }
 
   _onClose(options) {
+    if (this._uesrpgCommanderHookId != null) Hooks.off("updateActor", this._uesrpgCommanderHookId);
+    this._uesrpgCommanderHookId = null;
+    this._uesrpgCommanderCache = null;
+    clearQueuedRenderPartsState(this);
     return super._onClose(options);
   }
 
@@ -634,6 +700,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
    */
   async _onDropActor(_event, data) {
     if (!this.isEditable) return;
+    if (!requireMassCombatEnabled()) return;
     const actor = await fromUuid(data.uuid);
     if (!actor) {
       ui.notifications.warn(t("UESRPG.Notifications.Warfare.CouldNotFindActor"));
@@ -691,6 +758,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
 
   async _onClearCommander(_event, _target) {
     if (!this.isEditable) return;
+    if (!requireMassCombatEnabled()) return;
     await clearCommanderAttachment(this.document, { clearCommander: true });
   }
 
@@ -787,6 +855,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
   // ── Warfare action buttons ────────────────────────────────────────────────
 
   async _onRollWarfareAction(_event, target) {
+    if (!requireMassCombatEnabled()) return;
     const actionId   = target?.dataset?.actionId ?? "";
     const actionType = target?.dataset?.actionType ?? "unit";
     await handleWarfareAction(this.document, { actionId, actionType });
@@ -795,6 +864,7 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
   // ── Clash automation ──────────────────────────────────────────────────────
 
   async _onInitiateClash(_event, _target) {
+    if (!requireMassCombatEnabled()) return;
     const actor = this.document;
     if (actor?.system?.status?.battle?.broken || actor?.system?.status?.battle?.defeated) {
       ui.notifications.warn(t("UESRPG.Notifications.Warfare.CannotClashBroken"));
@@ -897,18 +967,22 @@ export class WarfareUnitSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2)
   }
 
   async _onRollDiscipline(_event, _target) {
+    if (!requireMassCombatEnabled()) return;
     await rollDisciplineForUnit(this.document);
   }
 
   async _onRollRangedAttack(_event, _target) {
+    if (!requireMassCombatEnabled()) return;
     await rollWarfareRangedAttack(this.document);
   }
 
   async _onCastSpellDirect(_event, _target) {
+    if (!requireMassCombatEnabled()) return;
     await castWarfareSpell(this.document);
   }
 
   async _onStartMixedOpposed(_event, _target) {
+    if (!requireMassCombatEnabled()) return;
     await startMixedWarfareOpposed(this.document, { initialAttackFamily: "melee" });
   }
 

@@ -57,7 +57,7 @@
                   {{slot.statusLabel}}
                 </span>
                 <div class="item-spellcasting-slot__toggles">
-                  <label class="item-spellcasting-slot__toggle item-spellcasting-slot__toggle--inline" title="{{localize "UESRPG.Sheets.Item.SkipCastingTestHint"}}">
+                  <label class="item-spellcasting-slot__toggle item-spellcasting-slot__toggle--inline" data-tooltip="UESRPG.Sheets.Item.SkipCastingTestHint">
                     <input type="checkbox" data-spellcasting-field="skipCastingTest" {{checked slot.skipCastingTest}} />
                     <span>{{localize "UESRPG.Sheets.Item.SkipCastingTest"}}</span>
                   </label>
@@ -75,7 +75,7 @@
                    role="button"
                    aria-label="{{localize "UESRPG.Sheets.Item.SpellDropHere"}}"
                    aria-disabled="{{#if ../editable}}false{{else}}true{{/if}}"
-                   title="{{#if ../editable}}{{localize "UESRPG.Sheets.Item.SpellDropzoneAccept"}}{{else}}{{localize "UESRPG.Sheets.Item.SpellDropzonePermission"}}{{/if}}">
+                   data-tooltip-text="{{#if ../editable}}{{localize "UESRPG.Sheets.Item.SpellDropzoneAccept"}}{{else}}{{localize "UESRPG.Sheets.Item.SpellDropzonePermission"}}{{/if}}">
                 <div class="item-spellcasting-slot__drop-main">
                   <i class="fas fa-hand"></i>
                   <div>

@@ -3,46 +3,48 @@
 
   {{!-- Portrait (fills full sidebar width; frame decoration overlays via ::before) --}}
   <div class="warfare-sidebar__portrait">
-    <img src="{{actor.img}}" alt="{{actor.name}}" data-action="editPortrait" title="Change Portrait">
+    <img src="{{actor.img}}" alt="{{actor.name}}" data-action="editPortrait" data-tooltip="UESRPG.Sheets.WarfareUnit.ChangePortrait">
   </div>
 
   <div class="fixed-data-container warfare-sidebar__content">
 
     {{!-- Unit name below portrait, above nav --}}
     <h1 class="charname warfare-sidebar__name">
-      <input type="text" name="name" value="{{actor.name}}" placeholder="Unit Name" {{#unless editable}}disabled{{/unless}}>
+      <input type="text" name="name" value="{{actor.name}}" placeholder="{{localize "UESRPG.Sheets.WarfareUnit.UnitName"}}" {{#unless editable}}disabled{{/unless}}>
     </h1>
 
     {{!-- Primary tab navigation --}}
     <nav class="sheet-tabs tabs" data-group="primary">
-      <a class="item" data-action="tab" data-group="primary" data-tab="core">Core</a>
-      <a class="item" data-action="tab" data-group="primary" data-tab="actions">Actions</a>
-      <a class="item" data-action="tab" data-group="primary" data-tab="magic">Implements</a>
-      <a class="item" data-action="tab" data-group="primary" data-tab="items">Loadout</a>
+      <a class="item" data-action="tab" data-group="primary" data-tab="core">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Core"}}</a>
+      <a class="item" data-action="tab" data-group="primary" data-tab="actions">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Actions"}}</a>
+      <a class="item" data-action="tab" data-group="primary" data-tab="magic">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Implements"}}</a>
+      <a class="item" data-action="tab" data-group="primary" data-tab="items">{{localize "UESRPG.Sheets.WarfareUnit.Tabs.Loadout"}}</a>
     </nav>
 
     {{!-- Commander Card --}}
     <div class="warfare-sidebar__commander" data-drop-zone="commander">
-      <h3>Commander</h3>
+      <h3>{{localize "UESRPG.Sheets.WarfareUnit.Commander"}}</h3>
       {{#if commanderResolved}}
-        <div class="commander-card" title="Click to view commander sheet">
+        <div class="commander-card" data-tooltip-text="Click to view commander sheet">
           <img class="commander-card__img" src="{{commanderResolved.img}}" alt="{{commanderResolved.name}}" data-action="viewCommander">
           <span class="commander-card__name" data-action="viewCommander">{{commanderResolved.name}}</span>
-          {{#if editable}}
-          <button type="button" class="commander-card__clear" data-action="clearCommander" title="Remove Commander"><i class="fas fa-times"></i></button>
-          {{/if}}
+          {{#if editable}}{{#if warfareEnabled}}
+          <button type="button" class="commander-card__clear" data-action="clearCommander" data-tooltip="UESRPG.Sheets.WarfareUnit.RemoveCommander" aria-label="{{localize "UESRPG.Sheets.WarfareUnit.RemoveCommander"}}"><i class="fas fa-times" aria-hidden="true"></i></button>
+          {{/if}}{{/if}}
         </div>
       {{else if system.commander.name}}
-        <div class="commander-card commander-card--stale" title="Linked actor not found">
+        <div class="commander-card commander-card--stale" data-tooltip-text="Linked actor not found">
           <img class="commander-card__img" src="{{system.commander.img}}" alt="{{system.commander.name}}">
           <span class="commander-card__name">{{system.commander.name}} (missing)</span>
-          {{#if editable}}
-          <button type="button" class="commander-card__clear" data-action="clearCommander" title="Remove Commander"><i class="fas fa-times"></i></button>
-          {{/if}}
+          {{#if editable}}{{#if warfareEnabled}}
+          <button type="button" class="commander-card__clear" data-action="clearCommander" data-tooltip="UESRPG.Sheets.WarfareUnit.RemoveCommander" aria-label="{{localize "UESRPG.Sheets.WarfareUnit.RemoveCommander"}}"><i class="fas fa-times" aria-hidden="true"></i></button>
+          {{/if}}{{/if}}
         </div>
       {{else}}
         <div class="commander-card commander-card--empty">
-          <p class="commander-card__hint">Drag a PC or NPC here</p>
+          <p class="commander-card__hint">
+            {{#if warfareEnabled}}{{localize "UESRPG.Sheets.WarfareUnit.DragPCNPC"}}{{else}}{{warfareMechanicsDisabledMessage}}{{/if}}
+          </p>
         </div>
       {{/if}}
     </div>
@@ -52,67 +54,67 @@
 
       {{!-- Resolve --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--condition" title="Resolve (current / max)">RES</span>
+        <span class="warfare-rname warfare-rname--condition" data-tooltip-text="Resolve (current / max)">RES</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--condition" style="width:{{resolvePct}}%"></div>
           <div class="bar-values">
             <input type="number" name="system.stats.resolve.value"
               value="{{system.stats.resolve.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" title="Current Resolve">
+              min="0" data-tooltip-text="Current Resolve" aria-label="Current Resolve">
             /
-            <label title="Resolve Max">{{system.stats.resolve.max}}</label>
+            <label data-tooltip-text="Resolve Max">{{system.stats.resolve.max}}</label>
           </div>
         </div>
       </div>
 
       {{!-- Bulk --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--bulk" title="Bulk (current / max)">BULK</span>
+        <span class="warfare-rname warfare-rname--bulk" data-tooltip-text="Bulk (current / max)">BULK</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--bulk" style="width:{{bulkPct}}%"></div>
           <div class="bar-values">
             <input type="number" name="system.stats.bulk.value"
               value="{{system.stats.bulk.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" title="Current Bulk">
+              min="0" data-tooltip-text="Current Bulk" aria-label="Current Bulk">
             /
             <input type="number" name="system.stats.bulk.max"
               value="{{derived.bulkMax}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" class="warfare-bar-input--max" title="Bulk Max (editable)">
+              min="0" class="warfare-bar-input--max" data-tooltip-text="Bulk Max (editable)" aria-label="Bulk Max (editable)">
           </div>
         </div>
       </div>
 
       {{!-- Discipline --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--discipline" title="Discipline (current / max)">DISC</span>
+        <span class="warfare-rname warfare-rname--discipline" data-tooltip-text="Discipline (current / max)">DISC</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--discipline" style="width:{{disciplinePct}}%"></div>
           <div class="bar-values bar-values--single">
             <input type="number" name="system.stats.discipline.value"
               value="{{system.stats.discipline.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" title="Current Discipline">
+              min="0" data-tooltip-text="Current Discipline" aria-label="Current Discipline">
             /
-            <label title="Discipline Max">{{derived.disciplineMax}}</label>
+            <label data-tooltip-text="Discipline Max">{{derived.disciplineMax}}</label>
           </div>
         </div>
       </div>
 
       {{!-- Speed --}}
       <div class="resource-row">
-        <span class="warfare-rname warfare-rname--speed" title="Speed (effective / displayed max)">SPD</span>
+        <span class="warfare-rname warfare-rname--speed" data-tooltip-text="Speed (effective / displayed max)">SPD</span>
         <div class="warfare-stat-bar">
           <div class="warfare-bar-fill warfare-bar-fill--speed" style="width:{{speedPct}}%"></div>
           <div class="bar-values bar-values--single">
             <input type="number" name="system.stats.speed.value"
               value="{{system.stats.speed.value}}"
               {{#unless editable}}disabled{{/unless}}
-              min="0" title="Effective Speed">
+              min="0" data-tooltip-text="Effective Speed" aria-label="Effective Speed">
             /
-            <label title="Displayed Speed Max">{{speedDisplayMax}}</label>
+            <label data-tooltip-text="Displayed Speed Max">{{speedDisplayMax}}</label>
           </div>
         </div>
       </div>
@@ -121,7 +123,7 @@
 
     {{!-- Status badges --}}
     {{#if derived.leaderless}}
-    <div class="warfare-sidebar__status-badge warfare-sidebar__status-badge--leaderless">Leaderless</div>
+    <div class="warfare-sidebar__status-badge warfare-sidebar__status-badge--leaderless">{{localize "UESRPG.Sheets.WarfareUnit.Leaderless"}}</div>
     {{/if}}
 
     {{#if profileWarnings.length}}

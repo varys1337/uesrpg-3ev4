@@ -46,6 +46,7 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
         encumbranceUiEnhanced: getSettingPresentation(NAMESPACE, "encumbranceUiEnhanced"),
         dialogKeyboardEnhancements: getSettingPresentation(NAMESPACE, "dialogKeyboardEnhancements"),
         enableItemRowQuickMenu: getSettingPresentation(NAMESPACE, "enableItemRowQuickMenu"),
+        showSheetSearchBars: getSettingPresentation(NAMESPACE, "showSheetSearchBars"),
         noStartUpDialog: getSettingPresentation(NAMESPACE, "noStartUpDialog"),
         enableLoadouts: getSettingPresentation(NAMESPACE, "enableLoadouts"),
         customCursor: getSettingPresentation(NAMESPACE, "customCursor"),
@@ -65,6 +66,7 @@ export class InterfaceSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     if ("encumbranceUiEnhanced" in data) await game.settings.set(NAMESPACE, "encumbranceUiEnhanced", toBool(data.encumbranceUiEnhanced));
     if ("dialogKeyboardEnhancements" in data) await game.settings.set(NAMESPACE, "dialogKeyboardEnhancements", toBool(data.dialogKeyboardEnhancements));
     if ("enableItemRowQuickMenu" in data) await game.settings.set(NAMESPACE, "enableItemRowQuickMenu", toBool(data.enableItemRowQuickMenu));
+    if ("showSheetSearchBars" in data) await game.settings.set(NAMESPACE, "showSheetSearchBars", toBool(data.showSheetSearchBars));
     if ("noStartUpDialog" in data) await game.settings.set(NAMESPACE, "noStartUpDialog", toBool(data.noStartUpDialog));
     if ("enableLoadouts" in data) await game.settings.set(NAMESPACE, "enableLoadouts", toBool(data.enableLoadouts));
     if ("customCursor" in data) await game.settings.set(NAMESPACE, "customCursor", toBool(data.customCursor));

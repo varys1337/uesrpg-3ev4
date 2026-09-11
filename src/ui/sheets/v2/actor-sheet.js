@@ -10,7 +10,7 @@
  * - Explicit AppV2 form pipeline for deterministic minimal actor updates
  */
 
-import { prepareCharacterItemsHybrid } from "../sheet-prepare-items-optimized.js";
+import { prepareCharacterItems } from "../sheet-prepare-items.js";
 import { collectSkillAEModifiers } from "../../../core/actors/ae/modifiers.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
@@ -18,6 +18,8 @@ import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-c
 import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmbeddedDocuments } from "../../../utils/authority-proxy.js";
 import { buildGenericAEData } from "../../../core/active-effects/modifier-evaluator.js";
 import { confirmDialog } from "../../../utils/dialog-v2-helper.js";
+import { t, tf } from "../../../utils/i18n.js";
+import { asyncGuardSheet } from "../../../utils/async-guard.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop } from "../../../utils/drop-item-create-data.js";
@@ -32,10 +34,9 @@ import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
 import { onCastMagicAction } from "../shared/listeners/magic-cast.js";
 import { onSkillRoll, onSpellRoll, onCombatRoll, onResistanceRoll } from "../shared/listeners/rolls.js";
 
-import { onRaceMenu, onBirthSignMenu, onXPMenu, onStartingResourcesMenu, onAdvancementMenu } from "../shared/dialogs/character-menus.js";
 import { onClickCharacteristic, onLuckyMenu } from "../shared/listeners/characteristics-handlers.js";
 
-import { onToggle2H, onItemEquip, onWeaponAmmoSelect } from "../shared/listeners/inventory-handlers.js";
+import { onToggle2H, onItemEquip, onWeaponAmmoSelect, onWeaponDamageRoll } from "../shared/listeners/inventory-handlers.js";
 import { onWealthCalc } from "../shared/listeners/economy-handlers.js";
 import { onToggleGroupCollapse, onLoadoutSave, onLoadoutApply, onLoadoutDelete } from "../shared/helpers/ui-state-handlers.js";
 import { onItemCreate } from "../shared/dialogs/equipment-dialogs.js";
@@ -45,6 +46,7 @@ import { registerResourceButtonHandlers } from "../shared/listeners/resource-but
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
+import { bindListFilters, clearListFilterState } from "./shared/list-filter.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { enableResizeMotionGuard, disableResizeMotionGuard } from "./shared/resize-motion-guard.js";
@@ -81,6 +83,7 @@ import {
   normalizeItemRanks,
 } from "../shared/prepare.js";
 import { getCachedSetting } from "../../../core/config/settings-cache.js";
+import { setSystemTooltip } from "../../shared/system-tooltips.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import {
   buildEffectsSignature,
@@ -94,7 +97,7 @@ import {
   buildActorSheetItems,
 } from "./shared/sheet-context.js";
 import { warnIfDuplicateSidebar } from "./shared/render-diagnostics.js";
-import { createPartContextScope } from "./shared/part-context.js";
+import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
 import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
 import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/settings.js";
 import {
@@ -126,6 +129,9 @@ const ActorSheetV2Base = foundry.applications.sheets.ActorSheetV2;
 const MAX_ENGAGEMENT_SCORE_PATH = `flags.${SYSTEM_ID}.homebrew.maxEngagementScore`;
 const ATTACK_TRACKER_CURRENT_PATH = `flags.${SYSTEM_ID}.combat.attackTrackerOverrides.current`;
 const ATTACK_TRACKER_MAX_PATH = `flags.${SYSTEM_ID}.combat.attackTrackerOverrides.max`;
+const guardCharacterAction = (handler) => asyncGuardSheet(handler, {
+  onError: () => ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.CharacterWorkflowLoadFailed")),
+});
 const ALLOWED_PC_FORM_PATH = createFormPathMatcher({
   exact: [
     "name",
@@ -164,10 +170,6 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   _uesrpgEffectsCache = null;
   _uesrpgEncumbranceCache = null;
   _uesrpgSheetUiCache = null;
-  _uesrpgRenderPartsRafId = null;
-  _uesrpgRenderPartsPromise = null;
-  _uesrpgRenderPartsResolvers = [];
-  _uesrpgQueuedParts = null;
 
   _buildItemsSignature(actor) {
     const parts = [
@@ -277,17 +279,17 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       closeOnSubmit: false,
     },
     actions: {
-      raceMenu: PCActorSheetV2.prototype._onRaceMenu,
-      birthSignMenu: PCActorSheetV2.prototype._onBirthSignMenu,
+      raceMenu: guardCharacterAction(PCActorSheetV2.prototype._onRaceMenu),
+      birthSignMenu: guardCharacterAction(PCActorSheetV2.prototype._onBirthSignMenu),
       openLanguageSelector: PCActorSheetV2.prototype._onOpenLanguageSelector,
       openFactionSelector: PCActorSheetV2.prototype._onOpenFactionSelector,
-      xpMenu: PCActorSheetV2.prototype._onXPMenu,
-      startingResourcesMenu: PCActorSheetV2.prototype._onStartingResourcesMenu,
-      spendXpMenu: PCActorSheetV2.prototype._onSpendXpMenu,
-      rawChargenWizard: PCActorSheetV2.prototype._onRawChargenWizard,
+      xpMenu: guardCharacterAction(PCActorSheetV2.prototype._onXPMenu),
+      startingResourcesMenu: guardCharacterAction(PCActorSheetV2.prototype._onStartingResourcesMenu),
+      spendXpMenu: guardCharacterAction(PCActorSheetV2.prototype._onSpendXpMenu),
+      rawChargenWizard: guardCharacterAction(PCActorSheetV2.prototype._onRawChargenWizard),
       luckyMenu: PCActorSheetV2.prototype._onLuckyMenu,
       burnLuck: PCActorSheetV2.prototype._onBurnLuck,
-      advancementMenu: PCActorSheetV2.prototype._onAdvancementMenu,
+      advancementMenu: guardCharacterAction(PCActorSheetV2.prototype._onAdvancementMenu),
       characteristicRoll: PCActorSheetV2.prototype._onClickCharacteristic,
       editPortrait: PCActorSheetV2.prototype._onEditPortrait,
       incrementResource: PCActorSheetV2.prototype._onIncrementResource,
@@ -311,6 +313,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       woundsInjuriesControl: PCActorSheetV2.prototype._onWoundsInjuriesControl,
       effectControl: PCActorSheetV2.prototype._onEffectControl,
       toggle2H: PCActorSheetV2.prototype._onToggle2H,
+      weaponDamageRoll: PCActorSheetV2.prototype._onWeaponDamageRoll,
       itemEquip: PCActorSheetV2.prototype._onItemEquip,
       itemCreate: PCActorSheetV2.prototype._onItemCreate,
       itemOpen: PCActorSheetV2.prototype._onItemOpen,
@@ -366,6 +369,10 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     bookmarkTabs: {
       template: templatePath("partials/sheets/bookmark-tabs.hbs"),
     },
+    limited: {
+      template: templatePath("v2/sheets/actor/limited.hbs"),
+      scrollable: [".sheet-body"],
+    },
   };
 
   get title() {
@@ -378,6 +385,34 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
 
   get form() {
     return this.element;
+  }
+
+  /** @override */
+  _getFrameButtons(options) {
+    const buttons = super._getFrameButtons(options);
+    buttons.unshift({
+      action: "rawChargenWizard",
+      icon: "fa-solid fa-user-plus uesrpg-raw-chargen-frame-button hidden",
+      label: "UESRPG.Dialogs.CharGen.WizardTitle",
+    });
+    return buttons;
+  }
+
+  /** @override */
+  async _renderFrameButtons(options) {
+    await super._renderFrameButtons(options);
+    const button = this.window?.header?.querySelector?.("button[data-action='rawChargenWizard']");
+    const controls = this.window?.controls;
+    if (button && controls) controls.before(button);
+    this._syncRawChargenFrameButton();
+  }
+
+  _syncRawChargenFrameButton() {
+    const button = this.window?.header?.querySelector?.("button[data-action='rawChargenWizard']");
+    if (!button) return;
+    const visible = Boolean(this.isEditable && getCachedSetting("useRawChargenWizard"));
+    button.classList.toggle("hidden", !visible);
+    button.disabled = !visible;
   }
 
   async _onChangeForm(formConfig, event) {
@@ -435,10 +470,10 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     await requestUpdateDocument(this.document, patch);
   }
 
-  _configureRenderOptions(options) {
-    super._configureRenderOptions(options);
-    if (Array.isArray(options?.parts) && options.parts.length) return;
-    options.parts = ["sidebar", "core", "combat", "magic", "equipment", "effects", "bookmarkTabs"];
+  _configureRenderParts(options) {
+    return selectDocumentSheetRenderParts(super._configureRenderParts(options), {
+      limited: Boolean(!game.user?.isGM && this.document?.limited),
+    });
   }
 
   /* Context Preparation */
@@ -457,7 +492,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       context.isGM = game.user.isGM;
       context.editable = this.isEditable;
       context.owner = actor.isOwner;
-      context.limited = actor.limited;
+      context.limited = !game.user?.isGM && actor.limited;
       context.cssClass = this.isEditable ? "editable" : "locked";
       context.options = { editable: this.isEditable };
       context.sizeOptions = localizeSheetChoiceLabels(ACTOR_SIZE_LABELS, "UESRPG.Choices.ActorSizes");
@@ -465,6 +500,16 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       context.carryRatingLabel = resolveCarryRatingDisplayLabel(context.actor.system?.carry_rating);
       context.supplyOptions = SUPPLY_DICE_LABELS;
       context.skillRankOptions = TRAINING_RANK_LABELS;
+
+      // Limited viewers receive only public identity, biography, and social
+      // information. Returning here prevents private inventory, combat,
+      // effects, and automation context from being prepared or rendered.
+      if (context.limited) {
+        const rawBio = String(context.actor.system?.bio ?? "");
+        context.actor.system.enrichedBio = await enrichBiography(rawBio, this);
+        context.actor.system.socialDisplay = buildSocialDisplay(context.actor.system);
+        return context;
+      }
 
       // Part-gating: skip expensive builders when AppV2 requests only specific parts.
       const partScope = createPartContextScope({
@@ -518,7 +563,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         } else {
           context.items = buildActorSheetItems(actor);
           context.document = actor;
-          await prepareCharacterItemsHybrid(context, { includeSkills: true, includeMagicSkills: true });
+          prepareCharacterItems(context, { includeSkills: true, includeMagicSkills: true });
           normalizeItemRanks(context.items);
 
           // Apply AE modifiers for custom skill items (non-persistent, sheet-only).
@@ -645,6 +690,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       const diagnosticsFlag = context.sheetUi.showDiagnostics ?? Boolean(game?.settings?.get?.(SYSTEM_ID, "sheetDiagnostics"));
       const diagnosticsEnabled = Boolean(diagnosticsFlag && game.user?.isGM);
       context.sheetUi.weaponDistanceHeaderLabel = resolveWeaponDistanceHeaderLabel(context.actor?.weapon);
+      context.sheetUi.showSheetSearchBars = Boolean(game?.settings?.get?.(SYSTEM_ID, "showSheetSearchBars"));
       const encumbranceUiEnhanced = Boolean(game?.settings?.get?.(SYSTEM_ID, "encumbranceUiEnhanced"));
       context.sheetUi.encBreakdownEnabled = encumbranceUiEnhanced;
       if (encumbranceUiEnhanced && _needs("equipment")) {
@@ -716,7 +762,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         context.effects = [];
       }
 
-      // Core tab: feature inspector + chargen wizard flag
+      // Core tab: feature inspector
       if (_needs("core")) {
         if (diagnosticsEnabled && getCachedSetting("showFeatureInspector")) {
           try {
@@ -729,10 +775,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
         } else {
           context.featureInspector = null;
         }
-        context.useRawChargenWizard = Boolean(getCachedSetting("useRawChargenWizard"));
       } else {
         context.featureInspector = null;
-        context.useRawChargenWizard = false;
       }
 
       return context;
@@ -751,6 +795,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       super._onRender(context, options);
       const el = this.element;
       if (!el) return;
+      this._syncRawChargenFrameButton();
       syncBookmarkTabsActiveClass(this);
       applySheetDensityClass(el);
       warnIfDuplicateSidebar(this, "PCActorSheetV2", el, options);
@@ -851,11 +896,14 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     if (!el || el.dataset.uesrpgListeners === "1") return;
     el.dataset.uesrpgListeners = "1";
     enableItemRowDragSources(el, { actor: this.document });
+    bindListFilters(this, el);
     for (const quickBtn of el.querySelectorAll(".uesrpg-item-quickmenu-btn")) quickBtn.remove();
 
     for (const nameEl of el.querySelectorAll(".item-name")) {
       const txt = String(nameEl?.textContent ?? "").trim();
-      if (txt && !nameEl.getAttribute("title")) nameEl.setAttribute("title", txt);
+      if (txt && !nameEl.hasAttribute("data-tooltip") && !nameEl.hasAttribute("data-tooltip-text")) {
+        setSystemTooltip(nameEl, { text: txt });
+      }
     }
     bindItemRowQuickMenus(this, el);
 
@@ -925,52 +973,54 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   async _onWoundFirstAid() {
     const fn = game?.uesrpg?.wounds?.attemptFirstAid;
     if (typeof fn === "function") await fn(this.document, {});
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundRemoveFirstAid() {
     const fn = game?.uesrpg?.wounds?.removeFirstAid;
     if (typeof fn === "function") await fn(this.document);
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundTreat(_event, target) {
     const id = String(target?.dataset?.woundId ?? "").trim();
     if (!id) return;
     const fn = game?.uesrpg?.wounds?.attemptTreatWound;
     if (typeof fn === "function") await fn(this.document, id, {});
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundTreatAll() {
     const fn = game?.uesrpg?.wounds?.attemptTreatAllWounds;
     if (typeof fn === "function") await fn(this.document, {});
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundClear(_event, target) {
     const id = String(target?.dataset?.woundId ?? "").trim();
     if (!id) return;
     const fn = game?.uesrpg?.wounds?.clearWound;
     if (typeof fn === "function") await fn(this.document, id);
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundClearAll() {
     const fn = game?.uesrpg?.wounds?.clearAllWounds;
     if (typeof fn === "function") await fn(this.document);
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundReconcile() {
     const fn = game?.uesrpg?.wounds?.reconcileWoundState;
     if (typeof fn === "function") await fn(this.document, { reason: "sheet", emitLog: true });
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundsInjuriesControl(event, target) {
-    const result = await onWoundsInjuriesControl.call(this, event, target);
-    await this._queueRenderParts(["combat"]);
-    return result;
+    return onWoundsInjuriesControl.call(this, event, target);
   }
   async _onToggleGroupCollapse(event, target) { return onToggleGroupCollapse(this, event, target); }
   async _onLoadoutSave(event) { return onLoadoutSave(this, event); }
   async _onLoadoutApply(event) { return onLoadoutApply(this, event); }
   async _onLoadoutDelete(event) { return onLoadoutDelete(this, event); }
-  async _onAdvancementMenu(event, target) { return onAdvancementMenu.call(this, event, target); }
+  async _onCharacterMenuAction(exportName, event, target) {
+    try {
+      const menuModule = await import("../shared/dialogs/character-menus.js");
+      const handler = menuModule?.[exportName];
+      if (typeof handler !== "function") throw new Error(`Missing character menu action: ${exportName}`);
+      return await handler.call(this, event, target);
+    } catch (error) {
+      console.error("UESRPG | Failed to open character workflow", { exportName, error });
+      ui.notifications?.error?.(t("UESRPG.Notifications.Sheets.CharacterWorkflowLoadFailed"));
+    }
+  }
+  async _onAdvancementMenu(event, target) { return this._onCharacterMenuAction("onAdvancementMenu", event, target); }
   async _onClickCharacteristic(event, target) { return onClickCharacteristic.call(this, event, target); }
   async _onSkillRoll(event, target) { return onSkillRoll.call(this, event, target); }
   async _onSpellRoll(event, target) { return onSpellRoll.call(this, event, target); }
@@ -1094,19 +1144,19 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     const effect = this.document.effects?.get(effectId);
     if (!effect) return;
     const confirmed = await confirmDialog({
-      title: "Cancel Spell",
-      content: `<p>Cancel <strong>${effect.flags?.[SYSTEM_ID]?.spellName ?? effect.name}</strong>? This will end the spell and remove all linked effects.</p>`,
+      title: t("UESRPG.Dialogs.CancelSpell.Title"),
+      content: `<p>${tf("UESRPG.Dialogs.CancelSpell.Content", { spell: effect.flags?.[SYSTEM_ID]?.spellName ?? effect.name })}</p>`,
     });
     if (confirmed) await cancelOriginAEUpkeep(effect);
   }
 
   async _onToggle2H(event, target) { return onToggle2H.call(this, event, target); }
+  async _onWeaponDamageRoll(event, target) { return onWeaponDamageRoll.call(this, event, target); }
   async _onItemEquip(event, target) { return onItemEquip.call(this, event, target); }
   async _onWeaponAmmoSelect(event, target) {
     const result = await onWeaponAmmoSelect.call(this, event, target);
     if (result === false || result === null) return result;
     this._uesrpgItemsCache = null;
-    await this._queueRenderParts(["equipment"]);
     return result;
   }
   async _onItemCreate(event, target) { return onItemCreate(this, event, { target }); }
@@ -1124,8 +1174,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     }
 
     const confirmed = await confirmDialog({
-      title: "Duplicate Item",
-      content: `<div style="padding: 10px; display: flex; flex-direction: row; align-items: center; justify-content: center;"><div>Duplicate Item?</div></div>`,
+      title: t("UESRPG.Dialogs.DuplicateItem.Title"),
+      content: `<p>${tf("UESRPG.Dialogs.DuplicateItem.Content", { item: item.name })}</p>`,
     });
     if (confirmed) {
       const created = await requestCreateEmbeddedDocuments(this.document, "Item", [item.toObject()]);
@@ -1143,8 +1193,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     const { openBurnLuckFromSheet } = await import("../../../core/luck/luck-workflow.js");
     return openBurnLuckFromSheet(this.document);
   }
-  async _onRaceMenu(event, target) { return onRaceMenu.call(this, event, target); }
-  async _onBirthSignMenu(event, target) { return onBirthSignMenu.call(this, event, target); }
+  async _onRaceMenu(event, target) { return this._onCharacterMenuAction("onRaceMenu", event, target); }
+  async _onBirthSignMenu(event, target) { return this._onCharacterMenuAction("onBirthSignMenu", event, target); }
   async _onOpenLanguageSelector(event, target) {
     event?.preventDefault?.();
     const { LanguageSelectorAppV2 } = await import("../../apps/v2/social-selectors.js");
@@ -1155,8 +1205,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     const { FactionSelectorAppV2 } = await import("../../apps/v2/social-selectors.js");
     await FactionSelectorAppV2.prompt(this.document);
   }
-  _onXPMenu(event, target) { return onXPMenu.call(this, event, target); }
-  async _onStartingResourcesMenu(event, target) { return onStartingResourcesMenu.call(this, event, target); }
+  _onXPMenu(event, target) { return this._onCharacterMenuAction("onXPMenu", event, target); }
+  async _onStartingResourcesMenu(event, target) { return this._onCharacterMenuAction("onStartingResourcesMenu", event, target); }
   async _onSpendXpMenu(event, _target) {
     event?.preventDefault?.();
     const { SpendXpMenuAppV2 } = await import("../../apps/v2/char-gen/spend-xp-menu.js");
@@ -1164,6 +1214,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
   }
   async _onRawChargenWizard(event, _target) {
     event?.preventDefault?.();
+    if (!this.isEditable || !getCachedSetting("useRawChargenWizard")) return;
     const { CharGenWizardAppV2 } = await import("../../apps/v2/char-gen/char-gen-wizard.js");
     await CharGenWizardAppV2.prompt({
       actorUuid: this.document?.uuid ?? null,
@@ -1384,6 +1435,7 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
       disableResizeMotionGuard(this);
       unregisterCombatTrackerSheetRefresh(this);
       clearItemDescriptionTooltip(this);
+      clearListFilterState(this);
       return super._onClose(options);
     } finally {
       this._traceSheetPerf("_onClose", perfStart, {});
@@ -1434,4 +1486,8 @@ export class PCActorSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base)
     }
   }
 
+}
+
+export function syncOpenRawChargenFrameButtons() {
+  for (const sheet of PCActorSheetV2.instances()) sheet._syncRawChargenFrameButton();
 }

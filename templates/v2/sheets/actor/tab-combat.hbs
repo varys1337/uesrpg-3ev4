@@ -113,7 +113,7 @@
                             <div class="status-grid-container"><div class="flex-container">
                                     <div>{{localize "UESRPG.UI.Fatigue"}}</div>
                                     <div class="label-flex-container">
-                                        <label title="{{localize "UESRPG.Sheets.Combat.FatigueLevelModifier"}}">{{actor.system.fatigue.level}} ({{actor.system.fatigue.bonus}})</label>
+                                        <label data-tooltip="UESRPG.Sheets.Combat.FatigueLevelModifier">{{actor.system.fatigue.level}} ({{actor.system.fatigue.bonus}})</label>
                                         <div class="resourceButton">
                                             <i class="fas fa-angle-up incrementFatigue" data-action="incrementFatigue" data-direction="increase"></i>
                                             <i class="fas fa-angle-down incrementFatigue" data-action="incrementFatigue" data-direction="decrease"></i>
@@ -122,7 +122,7 @@
                                 </div>
                                 <div class="flex-container">
                                     <div>ENC</div>
-                                    <label title="{{actor.system.carry_rating.current}} / {{actor.system.carry_rating.max}}">{{carryRatingLabel}}</label>
+                                    <label data-tooltip-text="{{actor.system.carry_rating.current}} / {{actor.system.carry_rating.max}}">{{carryRatingLabel}}</label>
                                 </div>
                                 <div class="flex-container">
                                     <div>{{localize "UESRPG.Sheets.Combat.Size"}}</div>
@@ -151,8 +151,8 @@
                     <!-- Combat Equipped Summary removed — Quick Info bar was unused -->
 
 <!-- Combat Style section -->
-<div class="combat-item-container">
-    <table class="combat-style-table">
+<div class="combat-item-container uesrpg-sheet-table-frame">
+    <table class="combat-style-table uesrpg-sheet-table">
         <thead>
             <tr>
                 <th data-action="itemCreate" class="item-name-cell item-create" id="combatStyle">+ {{localize "UESRPG.Sheets.Combat.CombatStyle"}}</th>
@@ -167,13 +167,13 @@
                     <td class="item-name-cell">
                         <div class="flex-container">
                             <i data-action="combatRoll" class="fas fa-dice-d20 combat-roll"></i>
-                            <img class="item-img" src="{{item.img}}">
-                            <div data-action="itemOpen" class="item-name">{{item.name}}</div>
+                            <img class="item-img" src="{{item.img}}" alt="{{item.name}}">
+                            <div data-action="itemOpen" class="item-name" data-tooltip-text="{{item.name}}">{{item.name}}</div>
                         </div>
                     </td>
                     <td>{{item.system.value}}%</td>
                     <td>{{item.system.rank}}</td>
-                    <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
+                    <td class="right-align-cell"><a data-action="itemDelete" class="item-control item-delete" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a></td>
                 </tr>
             {{/each}}
         </tbody>
@@ -194,12 +194,12 @@
                 <div class="quickbar-title">{{localize "UESRPG.Sheets.Combat.Primary"}}</div>
                 <div class="quickbar-buttons quickbar-buttons--compact">
                     {{#if actor.sheetCombatQuick.meleeWeaponId}}
-                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.meleeWeaponId}}" data-attack-mode="melee" data-label="{{localize "UESRPG.Sheets.Combat.AttackMelee"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" title="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}}>{{localize "UESRPG.Sheets.Combat.AttackMelee"}}</button>
+                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.meleeWeaponId}}" data-attack-mode="melee" data-label="{{localize "UESRPG.Sheets.Combat.AttackMelee"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}">{{localize "UESRPG.Sheets.Combat.AttackMelee"}}</button>
                     {{/if}}
                     {{#if actor.sheetCombatQuick.rangedWeaponId}}
-                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.rangedWeaponId}}" data-attack-mode="ranged" data-label="{{localize "UESRPG.Sheets.Combat.AttackRanged"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" title="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}}>{{localize "UESRPG.Sheets.Combat.AttackRanged"}}</button>
+                        <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="attack" data-weapon-id="{{actor.sheetCombatQuick.rangedWeaponId}}" data-attack-mode="ranged" data-label="{{localize "UESRPG.Sheets.Combat.AttackRanged"}}" {{#if actor.sheetCombatQuick.quickAttacksDisabled}}disabled="disabled" data-tooltip-text="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}"{{/if}} aria-label="{{actor.sheetCombatQuick.quickAttacksDisabledReason}}">{{localize "UESRPG.Sheets.Combat.AttackRanged"}}</button>
                     {{/if}}
-                    <button type="button" data-action="castMagic" class="uesrpg-cast-magic" data-action-type="primary" {{#unless actor.sheetCombatActions.canCastMagic}}disabled="disabled" title="{{localize "UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"}}"{{/unless}}>{{localize "UESRPG.Sheets.Combat.CastMagic"}}</button>
+                    <button type="button" data-action="castMagic" class="uesrpg-cast-magic" data-action-type="primary" {{#unless actor.sheetCombatActions.canCastMagic}}disabled="disabled" data-tooltip="UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"{{/unless}} aria-label="{{localize "UESRPG.Sheets.Combat.NoCastableSourcesOnSheet"}}">{{localize "UESRPG.Sheets.Combat.CastMagic"}}</button>
 
                     
                     <button type="button" data-action="combatQuickAction" class="uesrpg-quick-action" data-combat-action="disengage" data-label="{{localize "UESRPG.Sheets.Combat.Disengage"}}">{{localize "UESRPG.Sheets.Combat.Disengage"}}</button>
@@ -254,9 +254,9 @@
                                     data-combat-action="specialAction"
                                     data-special-id="{{sa.id}}"
                                     data-action-type="{{sa.actionType}}"
-                                    title="{{sa.description}}"
+                                    data-tooltip-text="{{sa.description}}"
                                     {{#if (eq sa.actionType "primary")}}{{#unless sa.usableNow}}disabled="disabled"{{/unless}}{{/if}}
-                            >{{sa.name}}</button>
+                             aria-label="{{sa.description}}">{{sa.name}}</button>
                         {{/each}}
                     </div>
                 {{else}}
@@ -271,8 +271,8 @@
 {{#if woundsInjuriesUi.enabled}}
 <div class="uesrpg-panel uesrpg-panel--subtle uesrpg-wounds-panel">
     <div class="section-header"><span class="section-header__label">{{localize "UESRPG.Sheets.Wounds.Title"}}</span></div>
-    <div class="uesrpg-wounds-table-wrap uesrpg-wounds-table-wrap--compact">
-        <table class="uesrpg-wounds-table uesrpg-wounds-table--compact">
+    <div class="uesrpg-wounds-table-wrap uesrpg-wounds-table-wrap--compact uesrpg-sheet-table-frame">
+        <table class="uesrpg-wounds-table uesrpg-wounds-table--compact uesrpg-sheet-table">
             <thead>
                 <tr>
                     <th>{{localize "UESRPG.UI.Location"}}</th>
@@ -298,8 +298,8 @@
                                 data-effect-id="{{row.wound.id}}"
                                 data-wi-progress-input="{{row.wound.id}}"
                                 class="uesrpg-wounds-progress-input-plain"
-                                title="{{localize "UESRPG.Sheets.Wounds.PressEnterToApply"}}"
-                            /> /
+                                data-tooltip="UESRPG.Sheets.Wounds.PressEnterToApply"
+                             aria-label="{{localize "UESRPG.Sheets.Wounds.PressEnterToApply"}}"/> /
                             <input
                                 type="number"
                                 min="0"
@@ -308,8 +308,8 @@
                                 data-effect-id="{{row.wound.id}}"
                                 data-wi-damage-input="{{row.wound.id}}"
                                 class="uesrpg-wounds-progress-input-plain"
-                                title="{{localize "UESRPG.Sheets.Wounds.PressEnterToApply"}}"
-                            />
+                                data-tooltip="UESRPG.Sheets.Wounds.PressEnterToApply"
+                             aria-label="{{localize "UESRPG.Sheets.Wounds.PressEnterToApply"}}"/>
                         </span>
                         {{else}}
                         {{row.wound.progress}} / {{row.wound.damage}}
@@ -335,8 +335,8 @@
                                 data-wi-action="{{action.wiAction}}"
                                 data-effect-id="{{action.effectId}}"
                                 {{#if action.disabled}}disabled="disabled"{{/if}}
-                                {{#if action.title}}title="{{action.title}}"{{/if}}
-                            >{{action.label}}</button>
+                                {{#if action.title}}data-tooltip-text="{{action.title}}"{{/if}}
+                             aria-label="{{action.title}}">{{action.label}}</button>
                             {{/each}}
                         </div>
                     </td>

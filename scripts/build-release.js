@@ -4,14 +4,20 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const zlib = require("node:zlib");
+const {
+  LEGACY_INSTALLED_VERSIONS,
+  RELEASE_ARCHIVE_NAME,
+  RELEASE_MANIFEST_URL,
+  compareStablePackageVersions,
+  getReleaseMetadata,
+  isFoundryNewerVersion,
+  parseReleaseTag,
+  requireStablePackageVersion,
+} = require("../automation/release-metadata.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const SYSTEM_PREFIX = "systems/uesrpg-3ev4/";
 const RELEASE_FOLDER_NAME = "uesrpg-3ev4";
-const RELEASE_REPOSITORY_URL = "https://github.com/varys1337/uesrpg-3ev4";
-const RELEASE_MANIFEST_URL = `${RELEASE_REPOSITORY_URL}/releases/latest/download/system.json`;
-const RELEASE_ARCHIVE_NAME = "uesrpg-3ev4.zip";
-const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const RELEASE_DIRECTORIES = Object.freeze(["fonts", "images", "lang", "packs", "src", "styles", "templates"]);
 const RELEASE_FILES = Object.freeze(["system.json", "template.json"]);
 const OPTIONAL_RELEASE_FILES = Object.freeze(["CHANGELOG.md", "LICENSE.txt", "README.md"]);
@@ -225,6 +231,7 @@ function resolveRelativeModule(importer, specifier) {
 function validateImportsAndTemplates() {
   const files = walkFiles(ROOT);
   const jsFiles = files.filter((file) => file.endsWith(".js"));
+  const hbsFiles = files.filter((file) => file.endsWith(".hbs"));
   const staticImportPattern = /^\s*(?:import|export)\s+(?:[^"'\r\n]*?\s+from\s+)?["']([^"']+)["']/gm;
   const dynamicImportPattern = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
   const templatePattern = /["'`]systems\/uesrpg-3ev4\/([^"'`]+?\.hbs)["'`]/g;
@@ -254,7 +261,368 @@ function validateImportsAndTemplates() {
     }
   }
 
-  notes.push(`Checked ${jsFiles.length} JavaScript files for relative imports and template references.`);
+  const partialPattern = /{{>\s*["']systems\/uesrpg-3ev4\/([^"']+?\.hbs)["']/g;
+  for (const file of hbsFiles) {
+    const source = fs.readFileSync(file, "utf8");
+    for (const match of source.matchAll(partialPattern)) {
+      if (!sourcePathExists(match[1])) {
+        fail(`${path.relative(ROOT, file)} references missing partial ${SYSTEM_PREFIX}${match[1]}`);
+      }
+    }
+  }
+
+  notes.push(`Checked ${jsFiles.length} JavaScript files and ${hbsFiles.length} templates for resolvable references.`);
+}
+
+function buildStaticImportGraph() {
+  const sourceRoot = path.join(ROOT, "src");
+  const files = walkDirectoryFiles(sourceRoot).filter((file) => file.endsWith(".js"));
+  const fileSet = new Set(files.map((file) => path.normalize(file)));
+  const graph = new Map(files.map((file) => [path.normalize(file), []]));
+  const staticImportPatterns = [
+    /^\s*import\s+(?:[^;]*?\s+from\s+)?["']([^"']+)["']\s*;?/gm,
+    /^\s*export\s+[^;]*?\s+from\s+["']([^"']+)["']\s*;?/gm,
+  ];
+
+  for (const file of files) {
+    const normalizedFile = path.normalize(file);
+    const source = fs.readFileSync(file, "utf8");
+    for (const pattern of staticImportPatterns) {
+      for (const match of source.matchAll(pattern)) {
+        const specifier = match[1];
+        if (!specifier?.startsWith(".")) continue;
+        const resolved = resolveRelativeModule(file, specifier);
+        if (!resolved) continue;
+        const normalizedResolved = path.normalize(resolved);
+        if (fileSet.has(normalizedResolved) && !graph.get(normalizedFile).includes(normalizedResolved)) {
+          graph.get(normalizedFile).push(normalizedResolved);
+        }
+      }
+    }
+  }
+
+  return graph;
+}
+
+function findStronglyConnectedComponents(graph) {
+  let nextIndex = 0;
+  const indices = new Map();
+  const lowLinks = new Map();
+  const stack = [];
+  const onStack = new Set();
+  const components = [];
+
+  function visit(node) {
+    indices.set(node, nextIndex);
+    lowLinks.set(node, nextIndex);
+    nextIndex += 1;
+    stack.push(node);
+    onStack.add(node);
+
+    for (const target of graph.get(node) ?? []) {
+      if (!indices.has(target)) {
+        visit(target);
+        lowLinks.set(node, Math.min(lowLinks.get(node), lowLinks.get(target)));
+      } else if (onStack.has(target)) {
+        lowLinks.set(node, Math.min(lowLinks.get(node), indices.get(target)));
+      }
+    }
+
+    if (lowLinks.get(node) !== indices.get(node)) return;
+    const component = [];
+    let current;
+    do {
+      current = stack.pop();
+      onStack.delete(current);
+      component.push(current);
+    } while (current !== node);
+    components.push(component);
+  }
+
+  for (const node of graph.keys()) {
+    if (!indices.has(node)) visit(node);
+  }
+  return components;
+}
+
+function findShortestCycle(graph, component) {
+  const allowed = new Set(component);
+  let shortest = null;
+
+  for (const start of component) {
+    if ((graph.get(start) ?? []).includes(start)) return [start, start];
+    const queue = [[start]];
+    const visited = new Set([start]);
+
+    while (queue.length) {
+      const pathToNode = queue.shift();
+      const node = pathToNode[pathToNode.length - 1];
+      if (shortest && pathToNode.length + 1 >= shortest.length) continue;
+
+      for (const target of graph.get(node) ?? []) {
+        if (!allowed.has(target)) continue;
+        if (target === start) {
+          shortest = [...pathToNode, start];
+          continue;
+        }
+        if (visited.has(target)) continue;
+        visited.add(target);
+        queue.push([...pathToNode, target]);
+      }
+    }
+  }
+  return shortest;
+}
+
+function validateStaticImportGraph() {
+  const graph = buildStaticImportGraph();
+  const cyclicComponents = findStronglyConnectedComponents(graph).filter((component) => (
+    component.length > 1 || (graph.get(component[0]) ?? []).includes(component[0])
+  ));
+
+  for (const component of cyclicComponents) {
+    const cycle = findShortestCycle(graph, component) ?? component;
+    const display = cycle.map((file) => normalizePackagePath(path.relative(ROOT, file))).join(" -> ");
+    fail(`Static JavaScript import cycle: ${display}`);
+  }
+
+  const entry = path.normalize(path.join(ROOT, "src", "system.js"));
+  const reachable = new Set();
+  const pending = graph.has(entry) ? [entry] : [];
+  while (pending.length) {
+    const node = pending.pop();
+    if (reachable.has(node)) continue;
+    reachable.add(node);
+    for (const target of graph.get(node) ?? []) pending.push(target);
+  }
+
+  const edgeCount = Array.from(graph.values()).reduce((total, edges) => total + edges.length, 0);
+  notes.push(`Static import graph contains ${graph.size} modules and ${edgeCount} edges; ${reachable.size} modules are reachable from src/system.js.`);
+}
+
+function getObjectPath(root, objectPath) {
+  let current = root;
+  for (const segment of String(objectPath ?? "").split(".").filter(Boolean)) {
+    if (!isPlainObject(current) || !Object.hasOwn(current, segment)) return undefined;
+    current = current[segment];
+  }
+  return current;
+}
+
+function validateLocalizationAndTemplates(language) {
+  if (!language) return;
+  const files = walkFiles(ROOT).filter((file) => file.endsWith(".js") || file.endsWith(".hbs"));
+  const patterns = [
+    /{{localize\s+["'](UESRPG\.[^"']+)["']/g,
+    /(?:\bt|\btf|game\.i18n\.localize|game\.i18n\.format)\(\s*["'](UESRPG\.[^"']+)["']/g,
+  ];
+
+  for (const file of files) {
+    const source = fs.readFileSync(file, "utf8");
+    for (const pattern of patterns) {
+      pattern.lastIndex = 0;
+      for (const match of source.matchAll(pattern)) {
+        if (getObjectPath(language, match[1]) === undefined) {
+          fail(`${path.relative(ROOT, file)} references missing localization key ${match[1]}`);
+        }
+      }
+    }
+
+    if (!file.endsWith(".hbs")) continue;
+    for (const attribute of source.matchAll(/\bdata-tooltip\s*=\s*(["'])(.*?)\1/gi)) {
+      for (const keyMatch of attribute[2].matchAll(/\b(UESRPG\.[A-Za-z0-9_.-]+)/g)) {
+        if (getObjectPath(language, keyMatch[1]) === undefined) {
+          fail(`${path.relative(ROOT, file)} references missing tooltip localization key ${keyMatch[1]}`);
+        }
+      }
+    }
+    for (const match of source.matchAll(/<img\b[^>]*>/gi)) {
+      if (!/\balt\s*=/.test(match[0])) {
+        fail(`${path.relative(ROOT, file)} contains an image without explicit alt text`);
+      }
+    }
+  }
+
+  notes.push("Validated static localization references and template image alternatives.");
+}
+
+function validateIncrementalUiSafety() {
+  const templateFiles = walkDirectoryFiles(path.join(ROOT, "templates"))
+    .filter((file) => file.endsWith(".hbs"));
+  const localizedActionTemplates = new Set([
+    "templates/v2/sheets/spell-sheet.hbs",
+    "templates/v2/sheets/item-sheet.hbs",
+    "templates/v2/apps/alchemy-workshop.hbs",
+    "templates/v2/apps/enchanting-workshop.hbs",
+  ]);
+
+  for (const file of templateFiles) {
+    const relative = normalizePackagePath(path.relative(ROOT, file));
+    const source = fs.readFileSync(file, "utf8");
+    if (/\btitle\s*=/i.test(source)) {
+      fail(`${relative} contains a native HTML title attribute; use the shared UESRPG tooltip attributes`);
+    }
+
+    for (const attribute of source.matchAll(/\bdata-tooltip\s*=\s*(["'])(.*?)\1/gi)) {
+      const value = attribute[2].trim();
+      const isStaticKey = /^[A-Za-z0-9_.-]+$/.test(value);
+      const isKeyConditional = /^{{#if\s+[^}]+}}[A-Za-z0-9_.-]+{{else}}[A-Za-z0-9_.-]+{{\/if}}$/.test(value);
+      if (!isStaticKey && !isKeyConditional) {
+        fail(`${relative} places non-key tooltip content in data-tooltip; use data-tooltip-text`);
+      }
+    }
+
+    for (const match of source.matchAll(/<(?:a|button|i|summary|input|select|textarea)\b[^>]*>/gi)) {
+      const control = match[0];
+      if (!/\bdata-tooltip(?:-text)?\s*=/.test(control)) continue;
+      if (!/\baria-label\s*=/.test(control)) {
+        fail(`${relative} contains a tooltip-bearing interactive control without an accessible name: ${control}`);
+      }
+    }
+
+    for (const match of source.matchAll(/<button\b[^>]*>/gi)) {
+      if (!/\btype\s*=/.test(match[0])) fail(`${relative} contains a button without an explicit type`);
+    }
+
+    if (!localizedActionTemplates.has(relative)) continue;
+    if (/<a\b[^>]*\bdata-action\s*=/i.test(source)) {
+      fail(`${relative} contains an action anchor; use a semantic button`);
+    }
+
+    for (const match of source.matchAll(/<(button)\b[^>]*\bdata-action\s*=[^>]*>([\s\S]*?)<\/\1>/gi)) {
+      const full = match[0];
+      const open = full.slice(0, full.indexOf(">") + 1);
+      const body = match[2]
+        .replace(/{{!--[\s\S]*?--}}/g, "")
+        .replace(/<(?:i|svg)\b[\s\S]*?<\/(?:i|svg)>/gi, "")
+        .replace(/<img\b[^>]*>/gi, "")
+        .replace(/<[^>]*>/g, "")
+        .trim();
+      if (!body && !/\baria-label\s*=/.test(open)) {
+        fail(`${relative} contains an icon-only action without an accessible name: ${open}`);
+      }
+      for (const attribute of open.matchAll(/\b(?:title|aria-label)\s*=\s*(["'])(.*?)\1/gi)) {
+        if (attribute[2] && !attribute[2].includes("{{")) {
+          fail(`${relative} embeds a raw ${attribute[0].split("=")[0].trim()} string in an action control`);
+        }
+      }
+      const rawText = body
+        .replace(/{{[\s\S]*?}}/g, " ")
+        .replace(/\b(?:TN|MP|AP|XP|SL)\b/g, " ");
+      if (/[A-Za-z]{2,}/.test(rawText)) {
+        fail(`${relative} embeds raw visible action text: ${rawText.trim()}`);
+      }
+    }
+  }
+
+  const localizedNotificationSources = [
+    "src/ui/apps/v2/alchemy-workshop-app.js",
+    "src/ui/apps/v2/enchanting-workshop-app.js",
+    "src/ui/apps/v2/travel-planner-app.js",
+    "src/ui/sheets/v2/actor-sheet.js",
+    "src/ui/sheets/v2/npc-sheet.js",
+  ];
+  const literalNotificationPattern = /ui\.notifications(?:\?\.)?\.(?:info|warn|error)(?:\?\.)?\(\s*(?:["'`])/g;
+  for (const relative of localizedNotificationSources) {
+    const source = fs.readFileSync(path.join(ROOT, relative), "utf8");
+    if (literalNotificationPattern.test(source)) {
+      fail(`${relative} contains a directly embedded runtime notification string`);
+    }
+    literalNotificationPattern.lastIndex = 0;
+  }
+
+  const javascriptFiles = walkDirectoryFiles(path.join(ROOT, "src")).filter((file) => file.endsWith(".js"));
+  const nativeTooltipPatterns = [
+    [/setAttribute\(\s*["']title["']/, "sets a native title attribute"],
+    [/\.\s*title\s*=/, "assigns a native title property"],
+    [/\btitle=(?:["']|\$\{)/, "generates native title markup"],
+  ];
+  for (const file of javascriptFiles) {
+    const relative = normalizePackagePath(path.relative(ROOT, file));
+    const source = fs.readFileSync(file, "utf8");
+    for (const [pattern, description] of nativeTooltipPatterns) {
+      if (pattern.test(source)) fail(`${relative} ${description}; use the shared UESRPG tooltip utility`);
+    }
+  }
+
+  notes.push("Validated explicit button types, accessible action names, shared tooltip attributes, localized action controls, and localized UI notifications for the current migration tranche.");
+}
+
+function validateFoundryPatchCompatibility() {
+  const files = [
+    ...walkDirectoryFiles(path.join(ROOT, "src")).filter((file) => file.endsWith(".js")),
+    ...walkDirectoryFiles(path.join(ROOT, "templates")).filter((file) => file.endsWith(".hbs")),
+  ];
+  const forbidden = [
+    [/_processSubmitData\s*\(/, "DocumentSheetV2#_processSubmitData dependency"],
+    [/\._refit\s*\(/, "ApplicationV2#_refit usage"],
+    [/\.getDependentTokens\s*\(/, "Actor#getDependentTokens usage"],
+    [/\.getReplacementData\s*\(/, "ActiveEffect#getReplacementData usage"],
+    [/<autocomplete-tags\b/i, "autocomplete-tags usage"],
+    [/<file-picker\b/i, "file-picker usage"],
+    [/<formula-input\b/i, "formula-input usage"],
+  ];
+
+  for (const file of files) {
+    const source = fs.readFileSync(file, "utf8");
+    for (const [pattern, label] of forbidden) {
+      if (pattern.test(source)) fail(`${path.relative(ROOT, file)} contains post-14.363 ${label}`);
+    }
+  }
+
+  for (const file of files.filter((entry) => entry.endsWith(".js"))) {
+    if (normalizePackagePath(path.relative(ROOT, file)) === "src/utils/compat.js") continue;
+    const source = fs.readFileSync(file, "utf8");
+    for (const match of source.matchAll(/\bbuildEffectChange\s*\(\s*\{([\s\S]*?)\}\s*\)/g)) {
+      if (!/\bpriority\s*:/.test(match[1])) {
+        fail(`${path.relative(ROOT, file)} creates an Active Effect change without explicit priority`);
+      }
+    }
+  }
+
+  notes.push("Validated the 14.363 API floor and explicit priorities for system-built Active Effect changes.");
+}
+
+function validateUiArchitectureAndTextEncoding() {
+  const sourceFiles = walkDirectoryFiles(path.join(ROOT, "src")).filter((file) => file.endsWith(".js"));
+  const legacyPatterns = [
+    [/extends\s+(?:Application|ActorSheet|ItemSheet|FormApplication)\b/g, "legacy ApplicationV1 inheritance"],
+    [/new\s+Dialog\s*\(/g, "legacy Dialog construction"],
+  ];
+  for (const file of sourceFiles) {
+    const source = fs.readFileSync(file, "utf8");
+    for (const [pattern, label] of legacyPatterns) {
+      pattern.lastIndex = 0;
+      if (pattern.test(source)) fail(`${path.relative(ROOT, file)} contains ${label}`);
+    }
+  }
+
+  const englishSourceFiles = [
+    ...sourceFiles,
+    ...walkDirectoryFiles(path.join(ROOT, "templates")).filter((file) => file.endsWith(".hbs")),
+    path.join(ROOT, "lang", "en.json"),
+  ];
+  for (const file of englishSourceFiles) {
+    const source = fs.readFileSync(file, "utf8");
+    if (/\uFFFD|[\u0400-\u04FF]/u.test(source)) {
+      fail(`${path.relative(ROOT, file)} contains replacement or mojibake characters`);
+    }
+  }
+
+  notes.push("Validated ApplicationV2-only UI patterns and English-source text encoding.");
+}
+
+function validateStylesheetReferences(manifest) {
+  for (const stylesheet of manifest?.styles ?? []) {
+    const normalized = normalizePackagePath(stylesheet);
+    const absolutePath = path.join(ROOT, ...normalized.split("/"));
+    if (!fs.existsSync(absolutePath)) continue;
+    const source = fs.readFileSync(absolutePath, "utf8");
+    for (const match of source.matchAll(/\/\*#\s*sourceMappingURL=([^*\s]+)\s*\*\//g)) {
+      const mapPath = path.resolve(path.dirname(absolutePath), match[1]);
+      if (!fs.existsSync(mapPath)) fail(`${normalized} references missing source map ${match[1]}`);
+    }
+  }
 }
 
 function validateCoreIntegrationSafety() {
@@ -277,28 +645,73 @@ function validateCoreIntegrationSafety() {
         fail(`${path.relative(ROOT, file)} contains forbidden ${label}`);
       }
     }
+    const relative = normalizePackagePath(path.relative(ROOT, file));
+    if (relative !== "src/utils/settings-registration.js" && /game\.settings\.register(?:Menu)?\s*\(/.test(source)) {
+      fail(`${relative} registers a setting or menu outside the shared registration helper`);
+    }
   }
+}
+
+function validateUpgradeChannel(manifest, packageJson) {
+  if (!manifest || !packageJson) return null;
+
+  let release;
+  try {
+    release = getReleaseMetadata(packageJson.version);
+  } catch (error) {
+    fail(error.message);
+    return null;
+  }
+
+  if (isFoundryNewerVersion("14.0.7", "v14.0.0")) {
+    fail("The release-time Foundry version comparator no longer reproduces the historical v14.0.0 update failure");
+  }
+  for (const legacyVersion of LEGACY_INSTALLED_VERSIONS) {
+    if (!isFoundryNewerVersion(release.systemVersion, legacyVersion)) {
+      fail(`Foundry version ${release.systemVersion} does not upgrade legacy installation ${legacyVersion}`);
+    }
+  }
+  if (isFoundryNewerVersion(release.systemVersion, release.systemVersion)) {
+    fail(`Foundry version ${release.systemVersion} incorrectly compares as newer than itself`);
+  }
+
+  const [major, minor, patch] = release.packageVersion.split(".").map(Number);
+  const futureVersion = getReleaseMetadata(`${major}.${minor}.${patch + 1}`).systemVersion;
+  if (!isFoundryNewerVersion(futureVersion, release.systemVersion)) {
+    fail(`Future Foundry version ${futureVersion} does not upgrade ${release.systemVersion}`);
+  }
+
+  notes.push(`Verified Foundry upgrade paths from ${LEGACY_INSTALLED_VERSIONS.join(" and ")} to ${release.systemVersion}.`);
+  return release;
 }
 
 function validateSourceLayout(manifest, packageJson, packageLock) {
   if (!manifest || !packageJson || !packageLock) return;
 
+  const release = validateUpgradeChannel(manifest, packageJson);
+  if (!release) return;
+
   if (manifest.id !== packageJson.name) fail(`Manifest id ${manifest.id} does not match package name ${packageJson.name}`);
-  if (manifest.version !== packageJson.version) fail(`Manifest version ${manifest.version} does not match package version ${packageJson.version}`);
+  if (manifest.version !== release.systemVersion) {
+    fail(`Manifest version ${manifest.version} must match Foundry release version ${release.systemVersion}`);
+  }
   if (packageLock.name !== packageJson.name || packageLock.packages?.[""]?.name !== packageJson.name) {
     fail(`package-lock.json package name does not match package.json name ${packageJson.name}`);
   }
   if (packageLock.version !== packageJson.version || packageLock.packages?.[""]?.version !== packageJson.version) {
     fail(`package-lock.json version does not match package.json version ${packageJson.version}`);
   }
-  if (!SEMVER_PATTERN.test(String(manifest.version ?? ""))) fail(`Manifest version ${manifest.version} is not plain SemVer`);
+  if (manifest?.compatibility?.minimum !== "14.363"
+      || manifest?.compatibility?.verified !== "14.367"
+      || String(manifest?.compatibility?.maximum ?? "") !== "14") {
+    fail("system.json compatibility must remain minimum 14.363, verified 14.367, maximum 14");
+  }
 
-  const expectedDownloadUrl = `${RELEASE_REPOSITORY_URL}/releases/download/v${manifest.version}/${RELEASE_ARCHIVE_NAME}`;
   if (manifest.manifest !== RELEASE_MANIFEST_URL) {
     fail(`Manifest update URL must be ${RELEASE_MANIFEST_URL}`);
   }
-  if (manifest.download !== expectedDownloadUrl) {
-    fail(`Manifest download URL must match version ${manifest.version}: ${expectedDownloadUrl}`);
+  if (manifest.download !== release.downloadUrl) {
+    fail(`Manifest download URL must match release ${release.tag}: ${release.downloadUrl}`);
   }
 
   const requiredPaths = [
@@ -541,14 +954,10 @@ function validateArchive(archiveArgument, manifest) {
 
   try {
     const archivedManifest = JSON.parse(readZipEntry(zip, "system.json").toString("utf8"));
-    if (archivedManifest.id !== manifest?.id) {
-      fail(`Archived manifest id ${archivedManifest.id} does not match source manifest id ${manifest?.id}`);
-    }
-    if (archivedManifest.version !== manifest?.version) {
-      fail(`Archived manifest version ${archivedManifest.version} does not match source manifest version ${manifest?.version}`);
-    }
-    if (!SEMVER_PATTERN.test(String(archivedManifest.version ?? ""))) {
-      fail(`Archived manifest version ${archivedManifest.version} is not plain SemVer`);
+    for (const field of ["id", "version", "manifest", "download", "compatibility"]) {
+      if (!equalData(archivedManifest[field], manifest?.[field])) {
+        fail(`Archived manifest ${field} does not match the source manifest`);
+      }
     }
   } catch (error) {
     fail(`Archived system.json is missing or invalid: ${error.message}`);
@@ -557,15 +966,31 @@ function validateArchive(archiveArgument, manifest) {
   notes.push(`Checked ${entries.size} release archive entries in ${path.basename(archivePath)}.`);
 }
 
-function parseArchiveArgument(argv) {
-  const index = argv.indexOf("--archive");
+function parseOptionArgument(argv, option) {
+  const index = argv.indexOf(option);
   if (index < 0) return null;
   const value = argv[index + 1];
   if (!value || value.startsWith("--")) {
-    fail("--archive requires a ZIP path");
+    fail(`${option} requires a value`);
     return null;
   }
   return value;
+}
+
+function validatePreviousRelease(packageJson, previousReleaseTag) {
+  if (!packageJson || !previousReleaseTag) return;
+
+  try {
+    const proposedVersion = requireStablePackageVersion(packageJson.version, "Proposed package version");
+    const previousVersion = parseReleaseTag(previousReleaseTag, "Latest stable release tag");
+    if (compareStablePackageVersions(proposedVersion, previousVersion) <= 0) {
+      fail(`Proposed release v${proposedVersion} must be newer than latest stable release ${previousReleaseTag}`);
+      return;
+    }
+    notes.push(`Verified v${proposedVersion} is newer than latest stable release ${previousReleaseTag}.`);
+  } catch (error) {
+    fail(error.message);
+  }
 }
 
 function main() {
@@ -574,16 +999,26 @@ function main() {
   const packageJson = readJson("package.json");
   const packageLock = readJson("package-lock.json");
   const template = readJson("template.json");
+  const language = readJson("lang/en.json");
 
   validateSourceLayout(manifest, packageJson, packageLock);
   validateImportsAndTemplates();
+  validateStaticImportGraph();
+  validateLocalizationAndTemplates(language);
+  validateIncrementalUiSafety();
+  validateFoundryPatchCompatibility();
+  validateUiArchitectureAndTextEncoding();
+  validateStylesheetReferences(manifest);
   validateCoreIntegrationSafety();
   validateSchemaDrift(manifest, template);
 
   if (argv.includes("--build-folder") && !errors.length) buildReleaseFolder(manifest);
 
-  const archiveArgument = parseArchiveArgument(argv);
+  const archiveArgument = parseOptionArgument(argv, "--archive");
   if (archiveArgument) validateArchive(archiveArgument, manifest);
+
+  const previousReleaseTag = parseOptionArgument(argv, "--previous-release");
+  if (previousReleaseTag) validatePreviousRelease(packageJson, previousReleaseTag);
 
   if (errors.length) {
     console.error(`UESRPG release validation failed with ${errors.length} error(s):`);

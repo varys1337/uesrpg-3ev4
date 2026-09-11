@@ -12,12 +12,6 @@ import { customDialog, renderDialogContent } from "../../utils/dialog-v2-helper.
 import { clampNumber, toFiniteNumber } from "./resource-dialog-utils.js";
 import { t, tf } from "../../utils/i18n.js";
 
-const BUFFER_TYPE_LABELS = {
-  physical: "UESRPG.UI.Physical",
-  magical: "UESRPG.UI.Magical",
-  elemental: "UESRPG.UI.Elemental",
-};
-
 async function _buildDialogContent(actor) {
   const currentMP = toFiniteNumber(actor?.system?.magicka?.value, 0);
   const maxMP = toFiniteNumber(actor?.system?.magicka?.max, 0);
@@ -25,41 +19,12 @@ async function _buildDialogContent(actor) {
   const magBuf = toFiniteNumber(actor?.system?.buffers?.magical, 0);
   const elemBuf = toFiniteNumber(actor?.system?.buffers?.elemental, 0);
 
-  const barriersByType = {
-    physical: [],
-    magical: [],
-    elemental: [],
-  };
-  const barrierEffects = [];
-  for (const ef of (actor?.effects ?? [])) {
-    const flags = ef.flags?.["uesrpg-3ev4"];
-    if (!flags?.bufferApplied) continue;
-    const data = {
-      id: ef.id,
-      name: flags.spellName || ef.name || t("UESRPG.UI.Unknown", "Unknown"),
-      type: String(flags.bufferType || "?"),
-      typeLabel: t(BUFFER_TYPE_LABELS[flags.bufferType], String(flags.bufferType || "?")),
-      originalValue: toFiniteNumber(flags.bufferOriginalValue, 0),
-      hasUpkeep: Boolean(flags.hasUpkeep),
-    };
-    barrierEffects.push(data);
-    if (barriersByType[data.type]) barriersByType[data.type].push(data);
-  }
-
   return renderDialogContent(templatePath("v2/dialogs/magicka-barrier-dialog.hbs"), {
     currentMP,
     maxMP,
     physBuf,
     magBuf,
     elemBuf,
-    barrierEffects,
-    hasBarrierEffects: barrierEffects.length > 0,
-    physicalSourceCount: barriersByType.physical.length,
-    magicalSourceCount: barriersByType.magical.length,
-    elementalSourceCount: barriersByType.elemental.length,
-    physicalSourceTitle: barriersByType.physical.map((s) => s.name).join(", "),
-    magicalSourceTitle: barriersByType.magical.map((s) => s.name).join(", "),
-    elementalSourceTitle: barriersByType.elemental.map((s) => s.name).join(", "),
   });
 }
 

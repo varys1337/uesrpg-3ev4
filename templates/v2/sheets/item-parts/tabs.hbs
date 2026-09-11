@@ -1,0 +1,5 @@
+<nav class="sheet-tabs tabs{{#if itemSheetSpellTabs}} spell-tabs{{/if}}" data-group="primary" aria-label="{{localize "UESRPG.Sheets.Item.Navigation"}}">
+  {{#each itemSheetTabs}}
+  <a class="item{{#if active}} active{{/if}}" data-action="tab" data-group="primary" data-tab="{{id}}">{{localize label}}</a>
+  {{/each}}
+</nav>

@@ -13,46 +13,49 @@ import {
   getWarfareUnitTokenDocs,
 } from "../../../core/mass-warfare/encounter/state.js";
 import { activateOpenApplication } from "./application-focus.js";
+import { t } from "../../../utils/i18n.js";
+import { isMassCombatEnabled, requireMassCombatEnabled } from "../../../core/homebrew/settings.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 const APP_TEMPLATE = templatePath("v2/apps/warfare-encounter/app.hbs");
 const _openApps = new Map();
-let _hooksRegistered = false;
+const _hookIds = [];
 
 function _sideLabel(side) {
-  if (side === WARFARE_ENCOUNTER_SIDES.ALLIES) return "Allies";
-  if (side === WARFARE_ENCOUNTER_SIDES.ENEMIES) return "Enemies";
-  return "Neutral";
+  if (side === WARFARE_ENCOUNTER_SIDES.ALLIES) return t("UESRPG.Apps.WarfareEncounter.Allies", "Allies");
+  if (side === WARFARE_ENCOUNTER_SIDES.ENEMIES) return t("UESRPG.Apps.WarfareEncounter.Enemies", "Enemies");
+  return t("UESRPG.Apps.WarfareEncounter.Neutral", "Neutral");
 }
 
 function _phaseLabel(phase) {
-  if (phase === WARFARE_ENCOUNTER_PHASES.STRATEGIC) return "Strategic";
-  if (phase === WARFARE_ENCOUNTER_PHASES.CLASH) return "Clash";
-  return "Charge";
+  if (phase === WARFARE_ENCOUNTER_PHASES.STRATEGIC) return t("UESRPG.Apps.WarfareEncounter.Strategic", "Strategic");
+  if (phase === WARFARE_ENCOUNTER_PHASES.CLASH) return t("UESRPG.Apps.WarfareEncounter.Clash", "Clash");
+  return t("UESRPG.Apps.WarfareEncounter.Charge", "Charge");
 }
 
 function _nextPhaseLabel(phase) {
-  if (phase === WARFARE_ENCOUNTER_PHASES.CHARGE) return "Strategic";
-  if (phase === WARFARE_ENCOUNTER_PHASES.STRATEGIC) return "Clash";
-  return "Next Round: Charge";
+  if (phase === WARFARE_ENCOUNTER_PHASES.CHARGE) return t("UESRPG.Apps.WarfareEncounter.Strategic", "Strategic");
+  if (phase === WARFARE_ENCOUNTER_PHASES.STRATEGIC) return t("UESRPG.Apps.WarfareEncounter.Clash", "Clash");
+  return t("UESRPG.Apps.WarfareEncounter.NextRoundCharge", "Next Round: Charge");
 }
 
 function _registerHooks() {
-  if (_hooksRegistered) return;
-  _hooksRegistered = true;
+  if (_hookIds.length) return;
 
-  Hooks.on("updateScene", (scene, changed) => {
+  _hookIds.push(Hooks.on("updateScene", (scene, changed) => {
+    if (!isMassCombatEnabled()) return;
     const sceneFlagsChanged = changed?.flags?.["uesrpg-3ev4"]?.warfareEncounter !== undefined
       || foundry.utils.hasProperty(changed, "flags.uesrpg-3ev4.warfareEncounter");
     if (!sceneFlagsChanged) return;
     const app = _openApps.get(String(scene?.uuid ?? ""));
-    if (app) void app.render();
-  });
+    app?._queueRender?.();
+  }));
+}
 
-  Hooks.on("updateChatMessage", () => {
-    for (const app of _openApps.values()) void app.render();
-  });
+function _unregisterHooksIfIdle() {
+  if (_openApps.size) return;
+  for (const hookId of _hookIds.splice(0)) Hooks.off("updateScene", hookId);
 }
 
 function _sceneUnitSummary(scene) {
@@ -77,11 +80,13 @@ function _sceneUnitSummary(scene) {
 }
 
 export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
+  _renderFrameId = null;
+
   static DEFAULT_OPTIONS = {
     classes: ["uesrpg", "uesrpg-warfare-encounter"],
     position: { width: 640, height: 520 },
     window: {
-      title: "Warfare Encounter",
+      title: "UESRPG.Apps.WarfareEncounter.Title",
       resizable: true,
     },
     tag: "section",
@@ -103,11 +108,19 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
   constructor(scene, options = {}) {
     super(options);
     this._sceneUuid = String(scene?.uuid ?? options?.sceneUuid ?? "");
-    _registerHooks();
+  }
+
+  _queueRender() {
+    if (this._renderFrameId != null) return;
+    this._renderFrameId = requestAnimationFrame(() => {
+      this._renderFrameId = null;
+      void this.render();
+    });
   }
 
   get title() {
-    return this._scene ? `Warfare Encounter - ${this._scene.name}` : "Warfare Encounter";
+    const baseTitle = t("UESRPG.Apps.WarfareEncounter.Title", "Warfare Encounter");
+    return this._scene ? `${baseTitle} - ${this._scene.name}` : baseTitle;
   }
 
   get _scene() {
@@ -118,11 +131,20 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
 
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
+    if (!isMassCombatEnabled()) {
+      return {
+        ...context,
+        error: t(
+          "UESRPG.Notifications.MassCombatMechanicsDisabled",
+          "Enable Warfare in Configure Homebrew before using Warfare mechanics.",
+        ),
+      };
+    }
     const scene = this._scene;
     if (!scene || scene.documentName !== "Scene") {
       return {
         ...context,
-        error: "Scene not found.",
+        error: t("UESRPG.Apps.WarfareEncounter.SceneNotFound", "Scene not found."),
       };
     }
 
@@ -162,15 +184,20 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
   _onRender(context, options) {
     super._onRender(context, options);
     _openApps.set(String(this._sceneUuid ?? ""), this);
+    _registerHooks();
   }
 
   _onClose(options) {
     _openApps.delete(String(this._sceneUuid ?? ""));
+    if (this._renderFrameId != null) cancelAnimationFrame(this._renderFrameId);
+    this._renderFrameId = null;
+    _unregisterHooksIfIdle();
     return super._onClose(options);
   }
 
   async _onStartEncounter(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const scene = this._scene;
     if (!scene) return;
     await startWarfareEncounter(scene);
@@ -179,6 +206,7 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
 
   async _onAdvanceEncounter(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const scene = this._scene;
     if (!scene) return;
     await advanceWarfareEncounter(scene);
@@ -187,6 +215,7 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
 
   async _onPassStrategic(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const scene = this._scene;
     if (!scene) return;
     await passWarfareEncounterStrategic(scene);
@@ -195,6 +224,7 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
 
   async _onEndEncounter(event) {
     event?.preventDefault?.();
+    if (!requireMassCombatEnabled()) return;
     const scene = this._scene;
     if (!scene) return;
     await endWarfareEncounter(scene);
@@ -204,10 +234,11 @@ export class WarfareEncounterAppV2 extends HandlebarsApplicationMixin(Applicatio
 
 function _findTokenName(scene, tokenUuid) {
   const tokenDoc = Array.from(scene?.tokens?.contents ?? []).find((entry) => String(entry?.uuid ?? "") === String(tokenUuid ?? ""));
-  return tokenDoc?.actor?.name ?? tokenDoc?.name ?? "Unknown";
+  return tokenDoc?.actor?.name ?? tokenDoc?.name ?? t("UESRPG.UI.Unknown", "Unknown");
 }
 
 export async function openWarfareEncounterApp(scene) {
+  if (!requireMassCombatEnabled()) return null;
   if (!scene) return null;
   const sceneUuid = String(scene.uuid ?? "");
   const existing = _openApps.get(sceneUuid);
@@ -220,4 +251,9 @@ export async function openWarfareEncounterApp(scene) {
   });
   await app.render(true);
   return app;
+}
+
+export async function closeOpenWarfareEncounterApps() {
+  const apps = Array.from(_openApps.values());
+  await Promise.allSettled(apps.map((app) => app.close()));
 }

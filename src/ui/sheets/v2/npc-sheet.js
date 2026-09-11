@@ -5,7 +5,7 @@
  *
  * Key improvements:
  * - Uses HandlebarsApplicationMixin(ActorSheetV2) base
- * - Native AppV2 lifecycle (_preRender / _onRender / _configureRenderOptions)
+ * - Native AppV2 lifecycle (_preRender / _onRender / _configureRenderParts)
  * - Fixes dual-registration of resource handlers — all resource/rest/fatigue
  *   operations now route exclusively through shared/ui/resources.js which
  *   uses requestUpdateDocument (authority-proxy safe).
@@ -13,7 +13,7 @@
  * - Delegates to existing shared handler modules for rolls, combat, magic, & inventory.
  */
 
-import { prepareCharacterItemsHybrid } from "../sheet-prepare-items-optimized.js";
+import { prepareCharacterItems } from "../sheet-prepare-items.js";
 import { applyCollapsedGroups } from "../shared/helpers/collapsed-group-dom.js";
 import { postItemToChat } from "../shared-handlers.js";
 import { unlinkAllItemsFromContainer, unlinkItemFromContainer } from "../sheet-containers.js";
@@ -21,6 +21,7 @@ import { requestUpdateDocument, requestCreateEmbeddedDocuments, requestDeleteEmb
 import { buildGenericAEData } from "../../../core/active-effects/modifier-evaluator.js";
 import { getCoreRollMode } from "../../../utils/chat-roll-mode.js";
 import { customDialog, confirmDialog } from "../../../utils/dialog-v2-helper.js";
+import { t, tf } from "../../../utils/i18n.js";
 import { readDropData, resolveDroppedItemDetailed } from "../../../utils/drop-data.js";
 import { buildItemDragPayload } from "../../../utils/drag-payload.js";
 import { handleExternalItemDrop } from "../../../utils/drop-item-create-data.js";
@@ -45,7 +46,7 @@ import { onCombatQuickAction } from "../shared/listeners/combat-actions.js";
 import { onSetBaseCharacteristics, onClickCharacteristic } from "../shared/listeners/characteristics-handlers.js";
 
 // Shared inventory / economy
-import { onToggle2H, onItemEquip, onWeaponAmmoSelect } from "../shared/listeners/inventory-handlers.js";
+import { onToggle2H, onItemEquip, onWeaponAmmoSelect, onWeaponDamageRoll } from "../shared/listeners/inventory-handlers.js";
 import { onWealthCalc } from "../shared/listeners/economy-handlers.js";
 
 // Shared UI-state handlers (collapse, loadouts, item create)
@@ -70,12 +71,14 @@ import { isEngagementFlankingHomebrewEnabled } from "../../../core/homebrew/sett
 import { buildSocialDisplay } from "../../../core/social/social-data.js";
 import { bindItemDescriptionTooltips, clearItemDescriptionTooltip } from "./shared/sheet-tooltips.js";
 import { enableItemRowDragSources } from "./shared/drag-sources.js";
+import { bindListFilters, clearListFilterState } from "./shared/list-filter.js";
 import { applySheetDensityClass } from "./shared/sheet-density.js";
 import { createImageVideoFilePicker } from "./shared/file-picker.js";
 import { enableResizeMotionGuard, disableResizeMotionGuard } from "./shared/resize-motion-guard.js";
 import { annotateEncumbranceHighlights, openEncumbranceBreakdownDialog } from "./shared/encumbrance-ui.js";
 import { bindItemRowQuickMenus, openItemRowQuickMenu, handleItemRowContextMenu } from "./shared/item-row-quick-menu.js";
 import { registerCombatTrackerSheetRefresh, unregisterCombatTrackerSheetRefresh } from "./shared/combat-tracker-refresh.js";
+import { setSystemTooltip } from "../../shared/system-tooltips.js";
 import {
   buildWoundsInjuriesPanelContext,
   isWoundsOrShockEffect,
@@ -94,7 +97,7 @@ import {
   buildActorSheetItems,
 } from "./shared/sheet-context.js";
 import { warnIfDuplicateSidebar } from "./shared/render-diagnostics.js";
-import { createPartContextScope } from "./shared/part-context.js";
+import { createPartContextScope, selectDocumentSheetRenderParts } from "./shared/part-context.js";
 import { syncBookmarkTabsActiveClass } from "./shared/bookmark-tabs-position.js";
 import {
   buildAllowedChangePatch,
@@ -215,10 +218,6 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   _uesrpgEffectsCache = null;
   _uesrpgEncumbranceCache = null;
   _uesrpgSheetUiCache = null;
-  _uesrpgRenderPartsRafId = null;
-  _uesrpgRenderPartsPromise = null;
-  _uesrpgRenderPartsResolvers = [];
-  _uesrpgQueuedParts = null;
 
   /**
    * Build a conservative signature for the Actor's embedded items which changes when
@@ -397,6 +396,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
       // Inventory
       toggle2H: NpcSheetV2.prototype._onToggle2H,
+      weaponDamageRoll: NpcSheetV2.prototype._onWeaponDamageRoll,
       itemEquip: NpcSheetV2.prototype._onItemEquip,
       itemCreate: NpcSheetV2.prototype._onItemCreate,
       itemOpen: NpcSheetV2.prototype._onItemOpen,
@@ -543,60 +543,13 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   }
 
 
-  _warnConfigureRenderOptions(message, details = {}) {
-    if (!this._isSheetPerfTraceEnabled()) return;
-    const payload = {
-      sheet: "NpcSheetV2",
-      actorId: this.document?.id ?? null,
-      actorName: this.document?.name ?? null,
-      ...details,
-    };
-    console.warn(`UESRPG | ${message} ${JSON.stringify(payload)}`);
-  }
-
-  _normalizeNpcRenderParts(parts, { limited } = {}) {
-    if (limited) return { parts: ["limited"], dropped: [] };
-
-    const canonical = ["sidebar", "core", "combat", "magic", "equipment", "effects", "bookmarkTabs"];
-    const allowed = new Set(canonical);
-    const incoming = Array.isArray(parts) ? parts : [];
-    const normalized = [];
-    const dropped = [];
-
-    for (const part of incoming) {
-      if (part === "limited") {
-        dropped.push(part);
-        continue;
-      }
-      if (!allowed.has(part)) {
-        dropped.push(part);
-        continue;
-      }
-      if (!normalized.includes(part)) normalized.push(part);
-    }
-
-    if (!normalized.length) return { parts: canonical, dropped };
-    return { parts: normalized, dropped };
-  }
   /* ═══════════════════════ Render Options ════════════════════════════ */
 
   /** @override — select limited vs full template PARTS */
-  _configureRenderOptions(options) {
-    super._configureRenderOptions(options);
-    const requested = Array.isArray(options?.parts) ? [...options.parts] : [];
-    const normalized = this._normalizeNpcRenderParts(requested, {
-      limited: Boolean(this.document?.limited),
+  _configureRenderParts(options) {
+    return selectDocumentSheetRenderParts(super._configureRenderParts(options), {
+      limited: Boolean(!game.user?.isGM && this.document?.limited),
     });
-
-    options.parts = normalized.parts;
-
-    if (normalized.dropped?.length) {
-      this._warnConfigureRenderOptions("npc-render-parts-dropped", {
-        requested,
-        dropped: normalized.dropped,
-        applied: normalized.parts,
-      });
-    }
   }
 
   /* ═══════════════════════ Context Preparation ═══════════════════════ */
@@ -691,7 +644,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
           context.document = actor;
 
           // This mutates `context.actor` with categorized buckets used by templates.
-          await prepareCharacterItemsHybrid(context, { includeSkills: false, includeMagicSkills: true });
+          prepareCharacterItems(context, { includeSkills: false, includeMagicSkills: true });
 
           // Cache only the derived patch fields that prepareCharacterItems attaches.
           const ui = context.actor.ui ?? {};
@@ -801,6 +754,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       const diagnosticsFlag = context.sheetUi.showDiagnostics ?? Boolean(game?.settings?.get?.(SYSTEM_ID, "sheetDiagnostics"));
       const diagnosticsEnabled = Boolean(diagnosticsFlag && game.user?.isGM);
       context.sheetUi.weaponDistanceHeaderLabel = resolveWeaponDistanceHeaderLabel(context.actor?.weapon);
+      context.sheetUi.showSheetSearchBars = Boolean(game?.settings?.get?.(SYSTEM_ID, "showSheetSearchBars"));
       const encumbranceUiEnhanced = Boolean(game?.settings?.get?.(SYSTEM_ID, "encumbranceUiEnhanced"));
       context.sheetUi.encBreakdownEnabled = encumbranceUiEnhanced;
       if (encumbranceUiEnhanced && _needs("equipment")) {
@@ -982,11 +936,14 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     if (!el || el.dataset.uesrpgListeners === "1") return;
     el.dataset.uesrpgListeners = "1";
     enableItemRowDragSources(el, { actor: this.document });
+    bindListFilters(this, el);
     for (const quickBtn of el.querySelectorAll(".uesrpg-item-quickmenu-btn")) quickBtn.remove();
 
     for (const nameEl of el.querySelectorAll(".item-name")) {
       const txt = String(nameEl?.textContent ?? "").trim();
-      if (txt && !nameEl.getAttribute("title")) nameEl.setAttribute("title", txt);
+      if (txt && !nameEl.hasAttribute("data-tooltip") && !nameEl.hasAttribute("data-tooltip-text")) {
+        setSystemTooltip(nameEl, { text: txt });
+      }
     }
     bindItemRowQuickMenus(this, el);
 
@@ -1071,46 +1028,37 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   async _onWoundFirstAid() {
     const fn = game?.uesrpg?.wounds?.attemptFirstAid;
     if (typeof fn === "function") await fn(this.document, {});
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundRemoveFirstAid() {
     const fn = game?.uesrpg?.wounds?.removeFirstAid;
     if (typeof fn === "function") await fn(this.document);
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundTreat(_event, target) {
     const id = String(target?.dataset?.woundId ?? "").trim();
     if (!id) return;
     const fn = game?.uesrpg?.wounds?.attemptTreatWound;
     if (typeof fn === "function") await fn(this.document, id, {});
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundTreatAll() {
     const fn = game?.uesrpg?.wounds?.attemptTreatAllWounds;
     if (typeof fn === "function") await fn(this.document, {});
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundClear(_event, target) {
     const id = String(target?.dataset?.woundId ?? "").trim();
     if (!id) return;
     const fn = game?.uesrpg?.wounds?.clearWound;
     if (typeof fn === "function") await fn(this.document, id);
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundClearAll() {
     const fn = game?.uesrpg?.wounds?.clearAllWounds;
     if (typeof fn === "function") await fn(this.document);
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundReconcile() {
     const fn = game?.uesrpg?.wounds?.reconcileWoundState;
     if (typeof fn === "function") await fn(this.document, { reason: "sheet", emitLog: true });
-    await this._queueRenderParts(["combat"]);
   }
   async _onWoundsInjuriesControl(event, target) {
-    const result = await onWoundsInjuriesControl.call(this, event, target);
-    await this._queueRenderParts(["combat"]);
-    return result;
+    return onWoundsInjuriesControl.call(this, event, target);
   }
   async _onToggleGroupCollapse(event, target) { return onToggleGroupCollapse(this, event, target); }
   async _onLoadoutSave(event) { return onLoadoutSave(this, event); }
@@ -1164,12 +1112,12 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
 
   // Inventory
   async _onToggle2H(event, target) { return onToggle2H.call(this, event, target); }
+  async _onWeaponDamageRoll(event, target) { return onWeaponDamageRoll.call(this, event, target); }
   async _onItemEquip(event, target) { return onItemEquip.call(this, event, target); }
   async _onWeaponAmmoSelect(event, target) {
     const result = await onWeaponAmmoSelect.call(this, event, target);
     if (result === false || result === null) return result;
     this._uesrpgItemsCache = null;
-    await this._queueRenderParts(["equipment"]);
     return result;
   }
   async _onItemCreate(event, target) {
@@ -1262,8 +1210,8 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
   /** Duplicate an item after user confirmation */
   async _duplicateItem(item) {
     const confirmed = await confirmDialog({
-      title: "Duplicate Item",
-      content: `<div style="padding: 10px; display: flex; flex-direction: row; align-items: center; justify-content: center;"><div>Duplicate Item?</div></div>`,
+      title: t("UESRPG.Dialogs.DuplicateItem.Title"),
+      content: `<p>${tf("UESRPG.Dialogs.DuplicateItem.Content", { item: item.name })}</p>`,
     });
     if (confirmed) {
       const created = await requestCreateEmbeddedDocuments(this.document, "Item", [item.toObject()]);
@@ -1343,7 +1291,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     const li = button.closest(".item");
     const spell = li ? this.document.items.get(li.dataset.itemId) : null;
     if (!spell) {
-      ui.notifications.warn("Spell not found.");
+      ui.notifications.warn(t("UESRPG.Notifications.Sheets.SpellNotFound"));
       return;
     }
     await this._onCastMagicAction(event, null, spell);
@@ -1358,7 +1306,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
     const li = button.closest(".item");
     const spell = li ? this.document.items.get(li.dataset.itemId) : null;
     if (!spell) {
-      ui.notifications.warn("Spell not found.");
+      ui.notifications.warn(t("UESRPG.Notifications.Sheets.SpellNotFound"));
       return;
     }
 
@@ -1533,7 +1481,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         null;
     }
     if (!profKey) {
-      ui.notifications.warn("Profession not found.");
+      ui.notifications.warn(t("UESRPG.Notifications.Sheets.ProfessionNotFound"));
       return;
     }
 
@@ -1558,7 +1506,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
         null;
 
       if (!attackerToken) {
-        ui.notifications.warn("No attacker token found on the canvas. Select your token and try again.");
+        ui.notifications.warn(t("UESRPG.Notifications.Sheets.NoAttackerTokenOnCanvas"));
         return;
       }
 
@@ -1953,6 +1901,7 @@ export class NpcSheetV2 extends HandlebarsApplicationMixin(ActorSheetV2Base) {
       unregisterCombatTrackerSheetRefresh(this);
       disableResizeMotionGuard(this);
       clearItemDescriptionTooltip(this);
+      clearListFilterState(this);
       return super._onClose(options);
     } finally {
       this._traceSheetPerf("_onClose", perfStart, {});

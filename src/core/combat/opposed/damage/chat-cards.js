@@ -34,7 +34,7 @@ import { t } from "../../../../utils/i18n.js";
  * @param {Roll} params.dmg.rollA - Primary damage roll
  * @param {Roll} [params.dmg.rollB] - Secondary damage roll (qualities)
  * @param {boolean} [params.dmg.usedAltDamage] - If 2H damage was used
- * @param {string} params.hitLocation - Hit location text
+ * @param {string|null} [params.hitLocation] - Hit location text; omitted for standalone damage rolls
  * @param {string} [params.applyButtonHtml=""] - HTML for apply buttons
  * @param {string} [params.extraNoteHtml=""] - HTML for additional notes
  * @param {string} [params.parentMessageId=null] - Parent message for threading
@@ -61,7 +61,7 @@ export async function postWeaponDamageChatCard({
   const resultLabel = t("UESRPG.Chat.DamagePanel.Result", "Result");
   const detailLabel = t("UESRPG.Chat.DamagePanel.Detail", "Detail");
   const hitLocationLabel = t("UESRPG.UI.HitLocation", "Hit Location");
-  const hitLocationDisplay = localizeHitLocation(hitLocation, hitLocation);
+  const hitLocationDisplay = hitLocation ? localizeHitLocation(hitLocation, hitLocation) : "";
   const fromAttackRollLabel = t("UESRPG.Chat.DamagePanel.FromAttackRoll", "from attack roll");
 
   const cardHtml = `
@@ -88,11 +88,11 @@ export async function postWeaponDamageChatCard({
               <div style="margin-top:0.35rem;">${pillsInline}</div>
             </td>
           </tr>
-          <tr>
+          ${hitLocation ? `<tr>
             <td class="tableAttribute">${hitLocationLabel}</td>
             <td class="tableCenterText">${hitLocationDisplay}</td>
             <td class="tableCenterText">${fromAttackRollLabel}</td>
-          </tr>
+          </tr>` : ""}
         </tbody>
       </table>
       ${extraNoteHtml ? `<div style="margin-top:0.5rem; opacity:0.9;">${extraNoteHtml}</div>` : ""}

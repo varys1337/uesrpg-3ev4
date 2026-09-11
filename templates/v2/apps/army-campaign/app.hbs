@@ -18,10 +18,10 @@
 
   <section class="warfare-fieldset">
     <h3>{{localize "UESRPG.Apps.ArmyCampaign.SupplyAndState"}}</h3>
-    <p><strong>Reserve:</strong> {{state.supply.reserve}} / {{state.supply.capacity}}</p>
-    <p><strong>In Supply:</strong> {{#if state.supply.inSupply}}Yes{{else}}No{{/if}} | <strong>Out of Supply Turns:</strong> {{state.supply.consecutiveOutOfSupplyTurns}}</p>
-    <p><strong>Source Note:</strong> {{#if state.supply.sourceNote}}{{state.supply.sourceNote}}{{else}}Unset{{/if}}</p>
-    <p><strong>Contact State:</strong> {{contactStateLabel}} | <strong>Surprise:</strong> {{surpriseStateLabel}} | <strong>Battle Role:</strong> {{battleRoleLabel}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.Reserve"}}:</strong> {{state.supply.reserve}} / {{state.supply.capacity}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.InSupply"}}:</strong> {{#if state.supply.inSupply}}{{localize "UESRPG.UI.Yes"}}{{else}}{{localize "UESRPG.UI.No"}}{{/if}} | <strong>{{localize "UESRPG.Apps.ArmyCampaign.OutOfSupplyTurns"}}:</strong> {{state.supply.consecutiveOutOfSupplyTurns}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.SourceNote"}}:</strong> {{#if state.supply.sourceNote}}{{state.supply.sourceNote}}{{else}}{{localize "UESRPG.Apps.ArmyCampaign.Unset"}}{{/if}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.ContactState"}}:</strong> {{contactStateLabel}} | <strong>{{localize "UESRPG.Apps.ArmyCampaign.Surprise"}}:</strong> {{surpriseStateLabel}} | <strong>{{localize "UESRPG.Apps.ArmyCampaign.BattleRole"}}:</strong> {{battleRoleLabel}}</p>
   </section>
 
   <section class="warfare-fieldset">
@@ -41,23 +41,23 @@
 
   <section class="warfare-fieldset">
     <h3>{{localize "UESRPG.Apps.ArmyCampaign.Siege"}}</h3>
-    <p><strong>Role:</strong> {{siegeRoleLabel}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.Role"}}:</strong> {{siegeRoleLabel}}</p>
     <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.LinkedScene"}}:</strong> {{#if siegeScene}}{{siegeScene.name}}{{else}}{{localize "UESRPG.UI.None"}}{{/if}}</p>
     {{#if hasActiveSiege}}
-    <p><strong>Settlement:</strong> {{#if siegeState.settlementName}}{{siegeState.settlementName}}{{else}}Unset{{/if}}</p>
-    <p><strong>Fortification:</strong> Rating {{siegeState.fortificationRating}} | HP {{siegeState.fortificationHp}} / {{siegeState.fortificationHpMax}}</p>
-    <p><strong>Blockade:</strong> {{siegeState.blockadeState}} | <strong>Sap:</strong> {{siegeState.sapProgress}} | <strong>Breach:</strong> {{siegeState.breachProgress}} | <strong>Repair:</strong> {{siegeState.repairProgress}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.Settlement"}}:</strong> {{#if siegeState.settlementName}}{{siegeState.settlementName}}{{else}}{{localize "UESRPG.Apps.ArmyCampaign.Unset"}}{{/if}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.Fortification"}}:</strong> {{localize "UESRPG.Apps.ArmyCampaign.Rating"}} {{siegeState.fortificationRating}} | {{localize "UESRPG.Apps.ArmyCampaign.HP"}} {{siegeState.fortificationHp}} / {{siegeState.fortificationHpMax}}</p>
+    <p><strong>{{localize "UESRPG.Apps.ArmyCampaign.Blockade"}}:</strong> {{siegeState.blockadeState}} | <strong>{{localize "UESRPG.Apps.ArmyCampaign.Sap"}}:</strong> {{siegeState.sapProgress}} | <strong>{{localize "UESRPG.Apps.ArmyCampaign.Breach"}}:</strong> {{siegeState.breachProgress}} | <strong>{{localize "UESRPG.Apps.ArmyCampaign.Repair"}}:</strong> {{siegeState.repairProgress}}</p>
     <div class="controls">
-      <button type="button" data-action="siegeAction" data-siege-action="blockade">Blockade</button>
-      <button type="button" data-action="siegeAction" data-siege-action="repair">Repair</button>
-      <button type="button" data-action="siegeAction" data-siege-action="sap">Sap / Breach</button>
-      <button type="button" data-action="siegeAction" data-siege-action="smuggle">Smuggle / Supply</button>
-      <button type="button" data-action="siegeAction" data-siege-action="assault">Assault</button>
-      <button type="button" data-action="siegeAction" data-siege-action="sally">Sally</button>
-      <button type="button" data-action="configureFeature">Configure Region Feature</button>
+      <button type="button" data-action="siegeAction" data-siege-action="blockade">{{localize "UESRPG.Apps.ArmyCampaign.Blockade"}}</button>
+      <button type="button" data-action="siegeAction" data-siege-action="repair">{{localize "UESRPG.Apps.ArmyCampaign.Repair"}}</button>
+      <button type="button" data-action="siegeAction" data-siege-action="sap">{{localize "UESRPG.Apps.ArmyCampaign.SapBreach"}}</button>
+      <button type="button" data-action="siegeAction" data-siege-action="smuggle">{{localize "UESRPG.Apps.ArmyCampaign.SmuggleSupply"}}</button>
+      <button type="button" data-action="siegeAction" data-siege-action="assault">{{localize "UESRPG.Apps.ArmyCampaign.Assault"}}</button>
+      <button type="button" data-action="siegeAction" data-siege-action="sally">{{localize "UESRPG.Apps.ArmyCampaign.Sally"}}</button>
+      <button type="button" data-action="configureFeature">{{localize "UESRPG.Apps.ArmyCampaign.ConfigureRegionFeature"}}</button>
     </div>
     {{else}}
-    <p class="warfare-hint">Link a siege scene with <strong>Besiege</strong> to unlock siege actions and Region-backed feature configuration.</p>
+    <p class="warfare-hint">{{localize "UESRPG.Apps.ArmyCampaign.LinkSiegeHint"}}</p>
     {{/if}}
   </section>
 

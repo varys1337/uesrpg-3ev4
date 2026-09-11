@@ -1,0 +1,27 @@
+<div class="uesrpg-item-sheet-header-part">
+<header class="item-compact-header">
+    <img class="profile-img" alt="{{item.name}}" src="{{item.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{item.name}}" width="64" height="64"/>
+    <div class="item-header-fields">
+        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
+        <div class="item-stats-row">
+            <div class="item-stat">
+                <input type="number" name="system.quantity" value="{{item.system.quantity}}" data-dtype="Number"/>
+                <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Quantity"}}</span>
+            </div>
+            <div class="item-stat">
+                <input type="number" name="system.enc" value="{{item.system.enc}}" min="0" step="0.1" data-dtype="Number"/>
+                <span class="item-stat-label">{{localize "UESRPG.UI.ENC"}}</span>
+            </div>
+            <div class="item-stat">
+                <input type="number" name="system.price" value="{{item.system.price}}" data-dtype="Number"/>
+                <span class="item-stat-label">{{localize "UESRPG.Sheets.Equipment.Price"}}</span>
+            </div>
+            <div class="item-stat">
+                <input type="number" name="system.damage" value="{{item.system.damage}}" data-dtype="Number"/>
+                <span class="item-stat-label">{{localize "UESRPG.Chat.Common.Damage"}}</span>
+            </div>
+        </div>
+    </div>
+</header>
+</div>
+

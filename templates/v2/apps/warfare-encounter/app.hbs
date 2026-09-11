@@ -17,7 +17,7 @@
 
     <div class="warfare-action-column__list" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;">
       {{#if state.active}}
-      <button type="button" class="warfare-action-btn" data-action="advanceEncounter">Advance to {{nextPhaseLabel}}</button>
+      <button type="button" class="warfare-action-btn" data-action="advanceEncounter">{{localize "UESRPG.Apps.WarfareEncounter.AdvanceTo" phase=nextPhaseLabel}}</button>
       <button type="button" class="warfare-action-btn" data-action="passStrategic" {{#unless isStrategicPhase}}disabled{{/unless}}>{{localize "UESRPG.Apps.WarfareEncounter.PassSide"}}</button>
       <button type="button" class="warfare-action-btn" data-action="endEncounter">{{localize "UESRPG.Apps.WarfareEncounter.EndEncounter"}}</button>
       {{else}}
@@ -51,8 +51,8 @@
       <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
         {{#each latestClashes}}
         <div class="warfare-effect-row">
-          <div><strong>{{this.attackerName}}</strong> vs <strong>{{this.defenderName}}</strong></div>
-          <div style="font-size:12px; opacity:0.8;">Round {{this.round}} | {{this.attackType}} | {{this.status}}</div>
+          <div><strong>{{this.attackerName}}</strong> {{localize "UESRPG.Apps.WarfareEncounter.Versus"}} <strong>{{this.defenderName}}</strong></div>
+          <div style="font-size:12px; opacity:0.8;">{{localize "UESRPG.Apps.WarfareEncounter.RoundSummary" round=this.round type=this.attackType status=this.status}}</div>
         </div>
         {{else}}
         <p class="warfare-hint">{{localize "UESRPG.Apps.WarfareEncounter.NoClashes"}}</p>

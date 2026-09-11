@@ -3,6 +3,7 @@
  * Centralized debug-gating helpers for UESRPG.
  */
 import { SYSTEM_ID } from "../core/constants.js";
+import { isPerfEnabled, perfRecord } from "./perf-tracker.js";
 
 const DEBUG_NAMESPACE = SYSTEM_ID;
 const DEBUG_MASTER_SETTING = "debugEnabled";
@@ -178,7 +179,9 @@ export function isSheetPerfTraceEnabled() {
  * @param {number|null} [params.warnThresholdMs] - Warn if elapsed exceeds threshold
  */
 export function traceSheetPerf({ sheet, document, stage, startedAtMs, details = {}, warnThresholdMs = null }) {
-  if (!isSheetPerfTraceEnabled()) return;
+  const traceEnabled = isSheetPerfTraceEnabled();
+  const perfEnabled = isPerfEnabled();
+  if (!traceEnabled && !perfEnabled) return;
 
   const elapsedMs = Number((performance.now() - startedAtMs).toFixed(2));
   const payload = {
@@ -190,6 +193,9 @@ export function traceSheetPerf({ sheet, document, stage, startedAtMs, details = 
     elapsedMs,
     ...details,
   };
+
+  if (perfEnabled) perfRecord({ event: `sheet.render.${sheet}.${stage}`, ...payload, durationMs: elapsedMs });
+  if (!traceEnabled) return;
 
   const line = `UESRPG | sheetPerfTrace ${JSON.stringify(payload)}`;
   if (warnThresholdMs !== null && elapsedMs > warnThresholdMs) console.warn(line);

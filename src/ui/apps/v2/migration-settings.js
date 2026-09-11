@@ -25,6 +25,10 @@ function _stateSummary(state, key) {
       : "legacy";
   }
   return {
+    key,
+    label: t(`UESRPG.Apps.MigrationSettings.Migrations.${key}`, key),
+    appliedRevision,
+    requiredRevision,
     version,
     upToDate: isMigrationRevisionApplied(key, requiredRevision, state),
   };
@@ -39,6 +43,7 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
     },
     position: {
       width: 560,
+      height: 700,
     },
     classes: ["uesrpg"],
     actions: {
@@ -49,6 +54,7 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
   static PARTS = {
     form: {
       template: templatePath("v2/apps/migration-settings.hbs"),
+      scrollable: [".uesrpg-migration-status-list"],
     },
   };
 
@@ -57,17 +63,18 @@ export class MigrationSettingsAppV2 extends HandlebarsApplicationMixin(Applicati
   }
 
   async _prepareContext(options) {
+    const context = await super._prepareContext(options);
     const currentVersion = getSystemVersionString();
     const state = getMigrationState();
+    const statuses = Object.keys(MIGRATION_REVISIONS).map((key) => _stateSummary(state, key));
 
     return {
+      ...context,
       isRunning: isSystemMigrationRunning(),
+      canRun: Boolean(game.user?.isGM),
       currentVersion,
-      status: {
-        actors: _stateSummary(state, "actors"),
-        items: _stateSummary(state, "items"),
-        combatLegacy: _stateSummary(state, "combatLegacy"),
-      },
+      statuses,
+      pendingCount: statuses.filter((entry) => !entry.upToDate).length,
     };
   }
 

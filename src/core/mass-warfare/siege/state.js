@@ -1,6 +1,7 @@
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { cloneFlagState, clonePlain } from "../../../utils/clone.js";
 import { FLAG_SCOPE } from "../../system/namespace.js";
+import { isMassCombatEnabled } from "../../homebrew/settings.js";
 
 export const WARFARE_SIEGE_FLAG_KEY = "warfareSiege";
 export const WARFARE_FEATURE_FLAG_KEY = "warfareFeature";
@@ -65,6 +66,7 @@ export function getSceneWarfareSiegeState(scene) {
 }
 
 export async function updateSceneWarfareSiegeState(scene, updater) {
+  if (!isMassCombatEnabled()) return null;
   if (!scene) throw new Error("Missing scene for warfare siege update.");
   const current = getSceneWarfareSiegeState(scene);
   const next = typeof updater === "function"
@@ -134,6 +136,7 @@ export function getRegionWarfareFeatureState(region) {
 }
 
 export async function updateRegionWarfareFeatureState(region, updater) {
+  if (!isMassCombatEnabled()) return null;
   if (!region) throw new Error("Missing region for warfare feature update.");
   const current = getRegionWarfareFeatureState(region);
   const next = typeof updater === "function"

@@ -36,13 +36,22 @@ import { forwardTimeForGroupRest } from "../../../core/time/rest-time-forwarding
 import { requestUpdateDocument } from "../../../utils/authority-proxy.js";
 import { SYSTEM_ID, templatePath } from "../../constants.js";
 import { t, tf } from "../../../utils/i18n.js";
+import { asyncGuardSheet } from "../../../utils/async-guard.js";
 import { activateOpenApplication } from "./application-focus.js";
+import {
+  clearQueuedRenderPartsState,
+  queueRenderParts,
+} from "../../sheets/v2/shared/sheet-runtime-helpers.js";
 
-const TEMPLATE_PATH = templatePath("v2/apps/travel-planner.hbs");
+const TEMPLATE_BASE = templatePath("v2/apps/travel-planner");
 const TRACKER_DEFAULT_EFFECTS = {
   benefit: "favorableWeather",
   impairment: "extraFatigue",
 };
+
+const guardTravelAction = (handler) => asyncGuardSheet(handler, {
+  onError: () => ui.notifications?.error?.(t("UESRPG.Notifications.TravelPlanner.ActionFailed")),
+});
 
 function toNum(v, fallback = 0) {
   const n = Number(v);
@@ -199,9 +208,16 @@ async function resolveActorFromUuid(uuid) {
 export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2) {
   static #openByGroup = new Map();
 
+  static TABS = {
+    primary: {
+      tabs: [{ id: "planning" }, { id: "travel" }, { id: "camping" }],
+      initial: "planning",
+    },
+  };
+
   static DEFAULT_OPTIONS = {
     id: "uesrpg-travel-planner",
-    classes: ["uesrpg", "uesrpg-travel-planner"],
+    classes: ["uesrpg", "uesrpg-travel-planner", "uesrpg-travel-planner-root"],
     tag: "form",
     position: { width: 920, height: 740 },
     window: {
@@ -215,52 +231,57 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     dragDrop: [{ dragSelector: "[data-drag-actor-uuid]", dropSelector: ".uesrpg-travel-planner-root" }],
     actions: {
       switchTab: TravelPlannerAppV2.prototype._onSwitchTab,
-      addJourneyEntry: TravelPlannerAppV2.prototype._onAddJourneyEntry,
-      removeJourneyEntry: TravelPlannerAppV2.prototype._onRemoveJourneyEntry,
-      useJourneyEntry: TravelPlannerAppV2.prototype._onUseJourneyEntry,
-      shortRestGroup: TravelPlannerAppV2.prototype._onShortRestGroup,
-      longRestGroup: TravelPlannerAppV2.prototype._onLongRestGroup,
-      addPlanningEntry: TravelPlannerAppV2.prototype._onAddPlanningEntry,
-      removePlanningEntry: TravelPlannerAppV2.prototype._onRemovePlanningEntry,
-      rollPlanningEntry: TravelPlannerAppV2.prototype._onRollPlanningEntry,
-      clearPlanningResult: TravelPlannerAppV2.prototype._onClearPlanningResult,
-      addTravelAssignment: TravelPlannerAppV2.prototype._onAddTravelAssignment,
-      removeTravelAssignment: TravelPlannerAppV2.prototype._onRemoveTravelAssignment,
-      rollTravelAssignment: TravelPlannerAppV2.prototype._onRollTravelAssignment,
-      clearTravelResult: TravelPlannerAppV2.prototype._onClearTravelResult,
-      applyNavigateAdvice: TravelPlannerAppV2.prototype._onApplyNavigateAdvice,
-      addCampAssignment: TravelPlannerAppV2.prototype._onAddCampAssignment,
-      removeCampAssignment: TravelPlannerAppV2.prototype._onRemoveCampAssignment,
-      rollCampAssignment: TravelPlannerAppV2.prototype._onRollCampAssignment,
-      clearCampResult: TravelPlannerAppV2.prototype._onClearCampResult,
-      rollTravelEvent: TravelPlannerAppV2.prototype._onRollTravelEvent,
-      rollCampEvent: TravelPlannerAppV2.prototype._onRollCampEvent,
-      addTravelTableEntry: TravelPlannerAppV2.prototype._onAddTravelTableEntry,
-      removeTravelTableEntry: TravelPlannerAppV2.prototype._onRemoveTravelTableEntry,
-      addCampingTableEntry: TravelPlannerAppV2.prototype._onAddCampingTableEntry,
-      removeCampingTableEntry: TravelPlannerAppV2.prototype._onRemoveCampingTableEntry,
-      incrementResource: TravelPlannerAppV2.prototype._onIncrementResource,
-      decrementResource: TravelPlannerAppV2.prototype._onDecrementResource,
-      clearTravelTable: TravelPlannerAppV2.prototype._onClearTravelTable,
-      clearCampingTable: TravelPlannerAppV2.prototype._onClearCampingTable,
-      createStarterTables: TravelPlannerAppV2.prototype._onCreateStarterTables,
-      spendBenefit: TravelPlannerAppV2.prototype._onSpendBenefit,
-      spendImpairment: TravelPlannerAppV2.prototype._onSpendImpairment,
-      spendCustomBenefit: TravelPlannerAppV2.prototype._onSpendCustomBenefit,
-      spendCustomImpairment: TravelPlannerAppV2.prototype._onSpendCustomImpairment,
-      trackerSpendBenefit: TravelPlannerAppV2.prototype._onTrackerSpendBenefit,
-      trackerSpendImpairment: TravelPlannerAppV2.prototype._onTrackerSpendImpairment,
-      trackerUndoBenefit: TravelPlannerAppV2.prototype._onTrackerUndoBenefit,
-      trackerUndoImpairment: TravelPlannerAppV2.prototype._onTrackerUndoImpairment,
-      removeSpend: TravelPlannerAppV2.prototype._onRemoveSpend,
-      duplicateTravelAssignment: TravelPlannerAppV2.prototype._onDuplicateTravelAssignment,
-      duplicateCampAssignment: TravelPlannerAppV2.prototype._onDuplicateCampAssignment,
-      resetPlanner: TravelPlannerAppV2.prototype._onResetPlanner,
+      addJourneyEntry: guardTravelAction(TravelPlannerAppV2.prototype._onAddJourneyEntry),
+      removeJourneyEntry: guardTravelAction(TravelPlannerAppV2.prototype._onRemoveJourneyEntry),
+      useJourneyEntry: guardTravelAction(TravelPlannerAppV2.prototype._onUseJourneyEntry),
+      shortRestGroup: guardTravelAction(TravelPlannerAppV2.prototype._onShortRestGroup),
+      longRestGroup: guardTravelAction(TravelPlannerAppV2.prototype._onLongRestGroup),
+      addPlanningEntry: guardTravelAction(TravelPlannerAppV2.prototype._onAddPlanningEntry),
+      removePlanningEntry: guardTravelAction(TravelPlannerAppV2.prototype._onRemovePlanningEntry),
+      rollPlanningEntry: guardTravelAction(TravelPlannerAppV2.prototype._onRollPlanningEntry),
+      clearPlanningResult: guardTravelAction(TravelPlannerAppV2.prototype._onClearPlanningResult),
+      addTravelAssignment: guardTravelAction(TravelPlannerAppV2.prototype._onAddTravelAssignment),
+      removeTravelAssignment: guardTravelAction(TravelPlannerAppV2.prototype._onRemoveTravelAssignment),
+      rollTravelAssignment: guardTravelAction(TravelPlannerAppV2.prototype._onRollTravelAssignment),
+      clearTravelResult: guardTravelAction(TravelPlannerAppV2.prototype._onClearTravelResult),
+      applyNavigateAdvice: guardTravelAction(TravelPlannerAppV2.prototype._onApplyNavigateAdvice),
+      addCampAssignment: guardTravelAction(TravelPlannerAppV2.prototype._onAddCampAssignment),
+      removeCampAssignment: guardTravelAction(TravelPlannerAppV2.prototype._onRemoveCampAssignment),
+      rollCampAssignment: guardTravelAction(TravelPlannerAppV2.prototype._onRollCampAssignment),
+      clearCampResult: guardTravelAction(TravelPlannerAppV2.prototype._onClearCampResult),
+      rollTravelEvent: guardTravelAction(TravelPlannerAppV2.prototype._onRollTravelEvent),
+      rollCampEvent: guardTravelAction(TravelPlannerAppV2.prototype._onRollCampEvent),
+      addTravelTableEntry: guardTravelAction(TravelPlannerAppV2.prototype._onAddTravelTableEntry),
+      removeTravelTableEntry: guardTravelAction(TravelPlannerAppV2.prototype._onRemoveTravelTableEntry),
+      addCampingTableEntry: guardTravelAction(TravelPlannerAppV2.prototype._onAddCampingTableEntry),
+      removeCampingTableEntry: guardTravelAction(TravelPlannerAppV2.prototype._onRemoveCampingTableEntry),
+      incrementResource: guardTravelAction(TravelPlannerAppV2.prototype._onIncrementResource),
+      decrementResource: guardTravelAction(TravelPlannerAppV2.prototype._onDecrementResource),
+      clearTravelTable: guardTravelAction(TravelPlannerAppV2.prototype._onClearTravelTable),
+      clearCampingTable: guardTravelAction(TravelPlannerAppV2.prototype._onClearCampingTable),
+      createStarterTables: guardTravelAction(TravelPlannerAppV2.prototype._onCreateStarterTables),
+      spendBenefit: guardTravelAction(TravelPlannerAppV2.prototype._onSpendBenefit),
+      spendImpairment: guardTravelAction(TravelPlannerAppV2.prototype._onSpendImpairment),
+      spendCustomBenefit: guardTravelAction(TravelPlannerAppV2.prototype._onSpendCustomBenefit),
+      spendCustomImpairment: guardTravelAction(TravelPlannerAppV2.prototype._onSpendCustomImpairment),
+      trackerSpendBenefit: guardTravelAction(TravelPlannerAppV2.prototype._onTrackerSpendBenefit),
+      trackerSpendImpairment: guardTravelAction(TravelPlannerAppV2.prototype._onTrackerSpendImpairment),
+      trackerUndoBenefit: guardTravelAction(TravelPlannerAppV2.prototype._onTrackerUndoBenefit),
+      trackerUndoImpairment: guardTravelAction(TravelPlannerAppV2.prototype._onTrackerUndoImpairment),
+      removeSpend: guardTravelAction(TravelPlannerAppV2.prototype._onRemoveSpend),
+      duplicateTravelAssignment: guardTravelAction(TravelPlannerAppV2.prototype._onDuplicateTravelAssignment),
+      duplicateCampAssignment: guardTravelAction(TravelPlannerAppV2.prototype._onDuplicateCampAssignment),
+      resetPlanner: guardTravelAction(TravelPlannerAppV2.prototype._onResetPlanner),
     },
   };
 
   static PARTS = {
-    planner: { template: TEMPLATE_PATH },
+    header: { template: `${TEMPLATE_BASE}/header.hbs` },
+    tabs: { template: `${TEMPLATE_BASE}/tabs.hbs` },
+    body: {
+      template: `${TEMPLATE_BASE}/body.hbs`,
+      scrollable: [".travel-planner__body"],
+    },
   };
 
   static getOpenInstance(groupOrUuid = "") {
@@ -296,20 +317,30 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     this._groupUuid = options.groupUuid ?? null;
     this._initialTab = String(options.tab ?? "planning");
     this._memberCache = [];
+    this._memberCacheSignature = "";
+    this._ownedHooks = [];
+    this._pendingGroupMutations = 0;
+    this.#registerDocumentHooks();
   }
 
   async close(options = {}) {
     const key = String(this._groupUuid ?? "").trim();
     if (key) TravelPlannerAppV2.#openByGroup.delete(key);
+    for (const [event, hookId] of this._ownedHooks) Hooks.off(event, hookId);
+    this._ownedHooks = [];
+    this._memberCache = [];
+    this._memberCacheSignature = "";
+    clearQueuedRenderPartsState(this);
     return super.close(options);
   }
 
   async setActiveTab(tab) {
-    const key = String(tab || "planning");
+    const key = ["planning", "travel", "camping"].includes(String(tab)) ? String(tab) : "planning";
+    this.tabGroups.primary = key;
     await this.#mutateState((next) => {
       next.ui.activeTab = key;
       return next;
-    });
+    }, { parts: ["tabs", "body"] });
   }
 
   get title() {
@@ -319,70 +350,98 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   async _prepareContext(options) {
     const context = await super._prepareContext(options);
     const group = await this.#resolveGroup();
-    if (!group) return { ...context, error: "Group actor not found." };
+    if (!group) return { ...context, error: t("UESRPG.Apps.TravelPlanner.GroupNotFound", "Group actor not found.") };
 
     const state = getTravelPlannerState(group);
     if (!state?.ui?.activeTab && this._initialTab) state.ui.activeTab = this._initialTab;
+    const activeTab = ["planning", "travel", "camping"].includes(String(state.ui.activeTab))
+      ? String(state.ui.activeTab)
+      : "planning";
+    this.tabGroups.primary = activeTab;
+
+    const requestedParts = Array.isArray(options?.parts) && options.parts.length
+      ? new Set(options.parts)
+      : null;
+    const needsHeader = !requestedParts || requestedParts.has("header");
+    const needsBody = !requestedParts || requestedParts.has("body");
+    const shared = {
+      ...context,
+      group,
+      state,
+      editable: Boolean(group.isOwner),
+      activeTab,
+    };
+    if (!needsHeader && !needsBody) return shared;
 
     const members = await this.#resolveGroupMembers(group);
-    this._memberCache = members;
     const actorOptions = members.map((m) => ({
       uuid: m.uuid,
       name: m.name,
       img: m.img,
     }));
-
-    const planningTotals = computePlanningTotals(state.planning.entries, state.planning.spends);
-    const spendable = availableSpends(planningTotals);
-    const benefitTracker = buildSpendTracker(planningTotals.benefits, planningTotals.spentBenefits);
-    const impairmentTracker = buildSpendTracker(planningTotals.impairments, planningTotals.spentImpairments);
-    const spendRows = ensureArray(state.planning.spends).map((s) => ({
-      ...s,
-      effectLabel: spendEffectLabel(s.type, s.effectKey, s.note),
-      typeLabel: s.type === "benefit" ? "Benefit" : "Impairment",
-    }));
     const journeyEntries = normalizeJourneyEntries(state);
     const activeJourney = selectedJourneyEntry(state);
     const terrainKey = String(activeJourney?.terrain ?? state?.session?.terrain ?? "lightWoodland");
-    const tableOptions = (game.tables ?? [])
-      .map((t) => ({ uuid: t.uuid, name: t.name }))
-      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-
-    const planningRows = ensureArray(state.planning.entries).map((row) => this.#enrichPlanningRow(row, members));
-    const travelRows = ensureArray(state.travel.assignments).map((row) => this.#enrichPhaseRow("travel", row, members, state));
-    const campRows = ensureArray(state.camping.assignments).map((row) => this.#enrichPhaseRow("camping", row, members, state));
-    const hasteValidation = validateHasteAssignments(state.travel.assignments, members.length);
-
-    const travelTableUuids = getMappedTableUuids(state, "travel", terrainKey);
-    const campTableUuids = getMappedTableUuids(state, "camping", terrainKey);
-    const travelEventRows = (travelTableUuids.length ? travelTableUuids : [""]).map((uuid, idx) => ({
-      idx,
-      uuid: String(uuid || ""),
-      name: tableOptions.find((t) => String(t.uuid) === String(uuid))?.name ?? "",
-    }));
-    const campEventRows = (campTableUuids.length ? campTableUuids : [""]).map((uuid, idx) => ({
-      idx,
-      uuid: String(uuid || ""),
-      name: tableOptions.find((t) => String(t.uuid) === String(uuid))?.name ?? "",
-    }));
-    const terrainModifierOptions = [-30, -20, -10, 0, 10, 20, 30].map((value) => ({
-      value,
-      label: `${value >= 0 ? "+" : ""}${value}`,
-    }));
-
-    return {
-      ...context,
-      group,
-      state,
-      editable: Boolean(group.isOwner),
-      activeTab: String(state.ui.activeTab ?? "planning"),
+    const headerContext = {
+      ...shared,
       journeyEntries,
       activeJourneyEntryId: String(state?.session?.activeJourneyEntryId ?? activeJourney?.id ?? ""),
       terrains: TRAVEL_TERRAINS,
       terrainLabel: findTerrainLabel(terrainKey),
-      difficultyOptions: SKILL_DIFFICULTIES,
       actorOptions,
       members,
+    };
+    if (!needsBody) return headerContext;
+
+    const isPlanning = activeTab === "planning";
+    const isTravel = activeTab === "travel";
+    const isCamping = activeTab === "camping";
+    const planningTotals = isPlanning
+      ? computePlanningTotals(state.planning.entries, state.planning.spends)
+      : null;
+    const spendable = isPlanning ? availableSpends(planningTotals) : null;
+    const benefitTracker = isPlanning ? buildSpendTracker(planningTotals.benefits, planningTotals.spentBenefits) : [];
+    const impairmentTracker = isPlanning ? buildSpendTracker(planningTotals.impairments, planningTotals.spentImpairments) : [];
+    const spendRows = isPlanning ? ensureArray(state.planning.spends).map((s) => ({
+      ...s,
+      effectLabel: spendEffectLabel(s.type, s.effectKey, s.note),
+      typeLabel: s.type === "benefit"
+        ? t("UESRPG.Apps.TravelPlanner.Benefit", "Benefit")
+        : t("UESRPG.Apps.TravelPlanner.Impairment", "Impairment"),
+    })) : [];
+    const tableOptions = (isTravel || isCamping) ? (game.tables ?? [])
+      .map((table) => ({ uuid: table.uuid, name: table.name }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name))) : [];
+    const planningRows = isPlanning
+      ? ensureArray(state.planning.entries).map((row) => this.#enrichPlanningRow(row, members))
+      : [];
+    const travelRows = isTravel
+      ? ensureArray(state.travel.assignments).map((row) => this.#enrichPhaseRow("travel", row, members, state))
+      : [];
+    const campRows = isCamping
+      ? ensureArray(state.camping.assignments).map((row) => this.#enrichPhaseRow("camping", row, members, state))
+      : [];
+    const hasteValidation = isTravel
+      ? validateHasteAssignments(state.travel.assignments, members.length)
+      : null;
+    const mappedTableUuids = (isTravel || isCamping)
+      ? getMappedTableUuids(state, isCamping ? "camping" : "travel", terrainKey)
+      : [];
+    const eventRows = (mappedTableUuids.length ? mappedTableUuids : [""]).map((uuid, idx) => ({
+      idx,
+      uuid: String(uuid || ""),
+      name: tableOptions.find((table) => String(table.uuid) === String(uuid))?.name ?? "",
+    }));
+    const terrainModifierOptions = (isTravel || isCamping)
+      ? [-30, -20, -10, 0, 10, 20, 30].map((value) => ({
+          value,
+          label: `${value >= 0 ? "+" : ""}${value}`,
+        }))
+      : [];
+
+    return {
+      ...headerContext,
+      difficultyOptions: SKILL_DIFFICULTIES,
       planningRows,
       travelRows,
       campRows,
@@ -396,8 +455,8 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       travelEndeavours: TRAVEL_ENDEAVOURS,
       campEndeavours: CAMP_ENDEAVOURS,
       tableOptions,
-      travelEventRows,
-      campEventRows,
+      travelEventRows: isTravel ? eventRows : [],
+      campEventRows: isCamping ? eventRows : [],
       terrainModifierOptions,
       hasteValidation,
     };
@@ -405,9 +464,12 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
 
   _onRender(context, options) {
     super._onRender(context, options);
-    const root = this.element;
-    if (!root) return;
-    root.querySelectorAll("[data-drag-actor-uuid]").forEach((el) => {
+  }
+
+  _attachPartListeners(partId, htmlElement, options) {
+    super._attachPartListeners(partId, htmlElement, options);
+    if (partId !== "header") return;
+    htmlElement.querySelectorAll("[data-drag-actor-uuid]").forEach((el) => {
       el.addEventListener("dragstart", (event) => {
         const uuid = String(el.dataset.dragActorUuid ?? "");
         if (!uuid) return;
@@ -477,7 +539,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       void this.#mutateState((next) => {
         next.session.navigateLostPenaltyActive = Boolean(value);
         return next;
-      });
+      }, { parts: ["header", "body"] });
       return;
     }
 
@@ -530,7 +592,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const state = getTravelPlannerState(group);
     const terrain = String(state.session.terrain ?? "lightWoodland");
     await setMappedTable(group, phase, terrain, tableUuid || "", { index });
-    await this.render();
+    await queueRenderParts(this, ["body"]);
   }
 
   async #updateJourneyField(rowId, field, value) {
@@ -550,7 +612,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         next.session.totalStages = Math.max(next.session.currentStage, Number(row.totalStages ?? 1));
       }
       return next;
-    });
+    }, { parts: ["header", "body"] });
   }
 
   async #updateRowField(phase, rowId, field, value) {
@@ -603,7 +665,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       const entry = createJourneyEntry();
       next.session.journeyEntries.push(entry);
       return next;
-    });
+    }, { parts: ["header", "body"] });
   }
 
   async _onRemoveJourneyEntry(event, target) {
@@ -627,7 +689,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
         next.session.totalStages = active.totalStages;
       }
       return next;
-    });
+    }, { parts: ["header", "body"] });
   }
 
   async _onUseJourneyEntry(event, target) {
@@ -643,7 +705,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       next.session.currentStage = row.currentStage;
       next.session.totalStages = row.totalStages;
       return next;
-    });
+    }, { parts: ["header", "body"] });
   }
 
   async _onShortRestGroup(event) {
@@ -819,7 +881,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const state = getTravelPlannerState(group);
     const terrain = String(state.session.terrain ?? "lightWoodland");
     await addMappedTableEntry(group, "travel", terrain);
-    await this.render();
+    await queueRenderParts(this, ["body"]);
   }
 
   async _onRemoveTravelTableEntry(event, target) {
@@ -830,7 +892,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const terrain = String(state.session.terrain ?? "lightWoodland");
     const idx = Math.max(0, Number(target?.dataset?.tableIndex ?? 0));
     await removeMappedTableEntry(group, "travel", terrain, idx);
-    await this.render();
+    await queueRenderParts(this, ["body"]);
   }
 
   async _onAddCampingTableEntry(event) {
@@ -840,7 +902,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const state = getTravelPlannerState(group);
     const terrain = String(state.session.terrain ?? "lightWoodland");
     await addMappedTableEntry(group, "camping", terrain);
-    await this.render();
+    await queueRenderParts(this, ["body"]);
   }
 
   async _onRemoveCampingTableEntry(event, target) {
@@ -851,7 +913,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const terrain = String(state.session.terrain ?? "lightWoodland");
     const idx = Math.max(0, Number(target?.dataset?.tableIndex ?? 0));
     await removeMappedTableEntry(group, "camping", terrain, idx);
-    await this.render();
+    await queueRenderParts(this, ["body"]);
   }
 
   async _onIncrementResource(event, target) {
@@ -875,7 +937,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const state = getTravelPlannerState(group);
     const terrain = String(state.session.terrain ?? "lightWoodland");
     await setMappedTable(group, "travel", terrain, "", { index: 0 });
-    await this.render();
+    await queueRenderParts(this, ["body"]);
   }
 
   async _onClearCampingTable(event) {
@@ -885,7 +947,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const state = getTravelPlannerState(group);
     const terrain = String(state.session.terrain ?? "lightWoodland");
     await setMappedTable(group, "camping", terrain, "", { index: 0 });
-    await this.render();
+    await queueRenderParts(this, ["body"]);
   }
 
   async _onCreateStarterTables(event) {
@@ -893,7 +955,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const group = await this.#resolveGroup();
     if (!group?.isOwner) return;
     await createStarterEventTablesForGroup(group, { overwrite: false });
-    await this.render();
+    await queueRenderParts(this, ["body"]);
     ui.notifications.info(t("UESRPG.Notifications.TravelPlanner.StarterTablesReady"));
   }
 
@@ -986,7 +1048,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
     const group = await this.#resolveGroup();
     if (!group?.isOwner) return;
     await resetTravelPlannerState(group, { keepTables: true });
-    await this.render();
+    await queueRenderParts(this, ["header", "tabs", "body"]);
   }
 
   async #promptCustomNote(title) {
@@ -1238,7 +1300,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       terrainMod,
       advice,
     });
-    await this.render();
+    await queueRenderParts(this, ["body"]);
   }
 
   async #postRollChat({ phase, actor, row, rolled, terrainMod, advice }) {
@@ -1247,13 +1309,18 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       ? String(row.note).trim()
       : baseEndeavourLabel;
     const rowLabel = phase === "planning"
-      ? "Planning Test"
-      : `${phase === "camping" ? "Camping" : "Travel"} - ${endeavourLabel}`;
+      ? t("UESRPG.Chat.TravelPlanner.PlanningTest", "Planning Test")
+      : tf("UESRPG.Chat.TravelPlanner.PhaseEndeavour", {
+          phase: phase === "camping"
+            ? t("UESRPG.Chat.TravelPlanner.CampingPhase", "Camping")
+            : t("UESRPG.Chat.TravelPlanner.TravelPhase", "Travel"),
+          endeavour: endeavourLabel,
+        });
     const breakdownRows = ensureArray(rolled.breakdown)
       .map((b) => `<li>${esc(b.label)}: ${Number(b.value || 0) >= 0 ? "+" : ""}${Number(b.value || 0)}</li>`)
       .join("");
     const adviceHtml = advice
-      ? `<p><b>Suggested Outcome:</b> ${esc(advice.label)} - ${esc(advice.description)}</p>`
+      ? `<p><b>${t("UESRPG.Chat.TravelPlanner.SuggestedOutcome", "Suggested Outcome")}:</b> ${esc(advice.label)} - ${esc(advice.description)}</p>`
       : "";
 
     const roll = rolled?.result?.roll ?? null;
@@ -1264,13 +1331,13 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
           flavor: `
             <div class="uesrpg-travel-roll-card">
               <h3>${esc(rowLabel)}</h3>
-              <p><b>Actor:</b> ${esc(actor.name)}</p>
-              <p><b>Test:</b> ${esc(rolled.label)} | <b>TN:</b> ${Number(rolled.target)} | <b>Roll:</b> ${Number(rolled.result.rollTotal)}</p>
-              <p><b>Result:</b> ${esc(formatResultSummary(rolled.result, { includeDegree: true, degreeStyle: "paren" }))}</p>
+              <p><b>${t("UESRPG.Chat.TravelPlanner.Actor", "Actor")}:</b> ${esc(actor.name)}</p>
+              <p><b>${t("UESRPG.Chat.Common.Test")}:</b> ${esc(rolled.label)} | <b>${t("UESRPG.Chat.Common.TN")}:</b> ${Number(rolled.target)} | <b>${t("UESRPG.Chat.Common.Roll")}:</b> ${Number(rolled.result.rollTotal)}</p>
+              <p><b>${t("UESRPG.Chat.TravelPlanner.Result", "Result")}:</b> ${esc(formatResultSummary(rolled.result, { includeDegree: true, degreeStyle: "paren" }))}</p>
               <details>
-                <summary>TN Breakdown</summary>
+                <summary>${t("UESRPG.Chat.Common.TnBreakdown")}</summary>
                 <ul>${breakdownRows}</ul>
-                <p><b>Terrain Modifier:</b> ${terrainMod >= 0 ? "+" : ""}${terrainMod}</p>
+                <p><b>${t("UESRPG.Chat.TravelPlanner.TerrainModifier", "Terrain Modifier")}:</b> ${terrainMod >= 0 ? "+" : ""}${terrainMod}</p>
               </details>
               ${adviceHtml}
             </div>
@@ -1287,13 +1354,13 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       content: `
         <div class="uesrpg-travel-roll-card">
           <h3>${esc(rowLabel)}</h3>
-          <p><b>Actor:</b> ${esc(actor.name)}</p>
-          <p><b>Test:</b> ${esc(rolled.label)} | <b>TN:</b> ${Number(rolled.target)} | <b>Roll:</b> ${Number(rolled.result.rollTotal)}</p>
-          <p><b>Result:</b> ${esc(formatResultSummary(rolled.result, { includeDegree: true, degreeStyle: "paren" }))}</p>
+          <p><b>${t("UESRPG.Chat.TravelPlanner.Actor", "Actor")}:</b> ${esc(actor.name)}</p>
+          <p><b>${t("UESRPG.Chat.Common.Test")}:</b> ${esc(rolled.label)} | <b>${t("UESRPG.Chat.Common.TN")}:</b> ${Number(rolled.target)} | <b>${t("UESRPG.Chat.Common.Roll")}:</b> ${Number(rolled.result.rollTotal)}</p>
+          <p><b>${t("UESRPG.Chat.TravelPlanner.Result", "Result")}:</b> ${esc(formatResultSummary(rolled.result, { includeDegree: true, degreeStyle: "paren" }))}</p>
           <details>
-            <summary>TN Breakdown</summary>
+            <summary>${t("UESRPG.Chat.Common.TnBreakdown")}</summary>
             <ul>${breakdownRows}</ul>
-            <p><b>Terrain Modifier:</b> ${terrainMod >= 0 ? "+" : ""}${terrainMod}</p>
+            <p><b>${t("UESRPG.Chat.TravelPlanner.TerrainModifier", "Terrain Modifier")}:</b> ${terrainMod >= 0 ? "+" : ""}${terrainMod}</p>
           </details>
           ${adviceHtml}
         </div>
@@ -1377,7 +1444,9 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       actorLabel: group?.name ?? null,
     });
 
-    const heading = restType === "long" ? "Long Rest (8 hours)" : "Short Rest (1 hour)";
+    const heading = restType === "long"
+      ? t("UESRPG.Chat.Resources.LongRest", "Long Rest (8 hours)")
+      : t("UESRPG.Chat.Resources.ShortRest", "Short Rest (1 hour)");
     const content = buildRestChatContent(heading, lines);
     await requestUpdateDocument(group, {
       [`system.lastRest.${restType === "long" ? "long" : "short"}`]: game.time.worldTime,
@@ -1389,7 +1458,7 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
       whisper: game.users.filter((u) => u.isGM).map((u) => u.id),
       style: CONST.CHAT_MESSAGE_STYLES.OTHER,
     });
-    await this.render(false);
+    await queueRenderParts(this, ["header", "body"]);
     if (restType === "long") {
       if (!timeForward.applied && timeForward.reason && timeForward.reason.includes("did not change")) {
         ui.notifications.warn(tf("UESRPG.Notifications.TravelPlanner.LongRestCompletedReason", { reason: timeForward.reason }));
@@ -1459,29 +1528,81 @@ export class TravelPlannerAppV2 extends HandlebarsApplicationMixin(ApplicationV2
   }
 
   async #resolveGroupMembers(group) {
-    const members = [];
-    for (const member of ensureArray(group?.system?.members)) {
-      const actor = await resolveActorFromUuid(member?.id ?? member?.uuid ?? "");
-      if (!actor) continue;
-      members.push({
+    const references = ensureArray(group?.system?.members)
+      .map((member) => String(member?.id ?? member?.uuid ?? "").trim());
+    const signature = references.join("\u001f");
+    if (signature === this._memberCacheSignature) {
+      this._memberCache = this._memberCache.map((member) => ({
+        ...member,
+        uuid: member.actor?.uuid ?? member.uuid,
+        name: member.actor?.name ?? member.name,
+        img: member.actor?.img ?? member.img,
+      }));
+      return this._memberCache;
+    }
+
+    const actors = await Promise.all(references.map((uuid) => resolveActorFromUuid(uuid)));
+    const members = actors
+      .filter(Boolean)
+      .map((actor) => ({
         uuid: actor.uuid,
         name: actor.name,
         img: actor.img,
         actor,
-      });
-    }
-    return members;
+      }));
+    this._memberCacheSignature = signature;
+    this._memberCache = members;
+    return this._memberCache;
   }
 
-  async #mutateState(mutator, { render = true } = {}) {
+  #isMemberActor(actor) {
+    const uuid = String(actor?.uuid ?? "");
+    return Boolean(uuid) && this._memberCache.some((member) => String(member.uuid) === uuid);
+  }
+
+  #queueDocumentRefresh(parts) {
+    if (!this.rendered) return;
+    void queueRenderParts(this, parts);
+  }
+
+  #registerDocumentHooks() {
+    if (this._ownedHooks.length) return;
+    const onActorChange = (actor, changes = {}) => {
+      const uuid = String(actor?.uuid ?? "");
+      if (uuid === String(this._groupUuid ?? "")) {
+        if (this._pendingGroupMutations > 0) return;
+        if (foundry.utils.hasProperty(changes, "system.members")) this._memberCacheSignature = "";
+        this.#queueDocumentRefresh(["header", "tabs", "body"]);
+      } else if (this.#isMemberActor(actor)) {
+        this.#queueDocumentRefresh(["header", "body"]);
+      }
+    };
+    const onItemChange = (item) => {
+      if (this.#isMemberActor(item?.parent)) this.#queueDocumentRefresh(["body"]);
+    };
+    this._ownedHooks.push(
+      ["updateActor", Hooks.on("updateActor", onActorChange)],
+      ["createItem", Hooks.on("createItem", onItemChange)],
+      ["updateItem", Hooks.on("updateItem", onItemChange)],
+      ["deleteItem", Hooks.on("deleteItem", onItemChange)],
+    );
+  }
+
+  async #mutateState(mutator, { render = true, parts = ["body"] } = {}) {
     const group = await this.#resolveGroup();
     if (!group) return null;
     if (!group.isOwner) {
       ui.notifications.warn(t("UESRPG.Notifications.TravelPlanner.ReadOnly"));
       return null;
     }
-    const next = await updateTravelPlannerState(group, mutator);
-    if (render) await this.render();
+    let next;
+    this._pendingGroupMutations += 1;
+    try {
+      next = await updateTravelPlannerState(group, mutator);
+    } finally {
+      this._pendingGroupMutations = Math.max(0, this._pendingGroupMutations - 1);
+    }
+    if (render) await queueRenderParts(this, parts);
     return next;
   }
 }

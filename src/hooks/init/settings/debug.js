@@ -1,18 +1,12 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
-import { localizeSettingConfig } from "../../../utils/i18n.js";
+import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
 
-function _reg(key, config) {
-  if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
-    console.warn(`UESRPG | Settings: duplicate key "${key}" вЂ” skipping.`);
-    return;
-  }
-  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Debug", key, config));
-}
+const _reg = createSystemSettingRegistrar("Debug");
 
 export function registerDebugSettings() {
   // Hidden diagnostics: developer-only logging and tracing lanes.
-  // в”Ђв”Ђ Drag-and-Drop diagnostics в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Drag-and-Drop diagnostics ─────────────────────────────────────────────
 
   _reg("dndDebugEnabled", {
     name: "DnD Debug Logging",
@@ -68,7 +62,7 @@ export function registerDebugSettings() {
     default: true,
   });
 
-  // в”Ђв”Ђ Active Effect diagnostics в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Active Effect diagnostics ──────────────────────────────────────────────
 
   _reg("containerDebug", {
     name: "Container Bugtracker",
@@ -88,7 +82,7 @@ export function registerDebugSettings() {
     default: false,
   });
 
-  // в”Ђв”Ђ Performance в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Performance ──────────────────────────────────────────────────────────────
 
   _reg("perfDebug", {
     name: "Performance Profiling",
@@ -117,7 +111,7 @@ export function registerDebugSettings() {
     default: false,
   });
 
-  // в”Ђв”Ђ Spell / magic diagnostics в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
+  // ── Spell / magic diagnostics ─────────────────────────────────────────────
 
   _reg("spellTickDebug", {
     name: "Spell Tick Engine: Debug Logging",
@@ -185,7 +179,7 @@ export function registerDebugSettings() {
 
   _reg("useZoneRegistry", {
     name: "Timed Magic: Zone Registry",
-    hint: "When enabled, active spell zones are tracked in an indexed registry (Map<aeUuid, ZoneEntry>) instead of scanning all actors on every turnEnd tick. Seeded at system ready; maintained incrementally via AE lifecycle hooks. Eliminates O(all_actors Г— all_effects) scans in getActiveSpellZones(). Default: false.",
+    hint: "When enabled, active spell zones are tracked in an indexed registry (Map<aeUuid, ZoneEntry>) instead of scanning all actors on every turnEnd tick. Seeded at system ready; maintained incrementally via AE lifecycle hooks. Eliminates O(all_actors × all_effects) scans in getActiveSpellZones(). Default: false.",
     scope: "world",
     config: false,
     default: false,
@@ -249,7 +243,7 @@ export function registerDebugSettings() {
 
   _reg("showFeatureInspector", {
     name: "Show Feature Inspector",
-    hint: "When enabled, shows the Feature Inspector provenance panel on PC and NPC actor sheets. Debug tool вЂ” hidden by default.",
+    hint: "When enabled, shows the Feature Inspector provenance panel on PC and NPC actor sheets. Debug tool — hidden by default.",
     scope: "world",
     config: false,
     default: false,

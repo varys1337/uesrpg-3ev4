@@ -1,5 +1,8 @@
-            <div class="tab magic" data-group="primary" data-tab="magic">
+            <div class="tab magic" data-group="primary" data-tab="magic" data-list-filter-root="magic">
                 <div class="magicTabContainer">
+                    {{#if sheetUi.showSheetSearchBars}}
+                    {{> "systems/uesrpg-3ev4/templates/partials/sheets/list-filter.hbs" scope="magic"}}
+                    {{/if}}
                     <div class="magicSkillContainer">
                         <div class="section-header">
                             <span class="section-header__label">{{localize "UESRPG.Sheets.Magic.MagicSkills"}}</span>
@@ -8,14 +11,14 @@
                             {{#each actor.magicSkill as |item|}}
                                 <li class="item" data-item-id="{{item._id}}">
                                     <div class="itemInfo skill-roll-target" data-action="skillRoll" role="button" tabindex="0">
-                                        <img class="item-img" src="{{item.img}}" title="{{localize "UESRPG.UI.PostToChat"}}"/>
+                                        <img class="item-img" src="{{item.img}}" data-tooltip="UESRPG.UI.PostToChat" alt="{{item.name}}" />
                                         <div class="item-name skill-open-item">
                                             {{item.name}}
                                         </div>
                                     </div>
                                     <div class="item-controls">
                                         <div class="item-value">{{item.system.value}}%</div>
-                                        <a data-action="itemDelete" class="item-control item-delete" title="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a>
+                                        <a data-action="itemDelete" class="item-control item-delete" data-tooltip="UESRPG.UI.DeleteItem" aria-label="{{localize "UESRPG.UI.DeleteItem"}}"><i class="fas fa-trash"></i></a>
                                     </div>
                                 </li>
                             {{/each}}
@@ -51,14 +54,14 @@
                                             {{#each group.invocations as |invocation|}}
                                                 <tr class="spell-row item active" data-item-id="{{invocation._id}}">
                                                     <td class="spell-name-cell">
-                                                        <i class="fas fa-dice-d20 magic-roll" data-action="castInvocation" title="{{localize "UESRPG.Sheets.Magic.InvokeRite"}}"></i>
-                                                        <img class="item-img" src="{{invocation.img}}" data-action="itemOpen" />
+                                                        <i class="fas fa-dice-d20 magic-roll" data-action="castInvocation" data-tooltip="UESRPG.Sheets.Magic.InvokeRite" aria-label="{{localize "UESRPG.Sheets.Magic.InvokeRite"}}"></i>
+                                                        <img class="item-img" src="{{invocation.img}}" data-action="itemOpen" alt="{{invocation.name}}" />
                                                         <span class="item-name" data-action="itemOpen">{{invocation.name}}</span>
                                                     </td>
                                                     <td class="spell-rank-cell">{{localize "UESRPG.Sheets.Magic.Circle"}} {{invocation.system.circle}}</td>
                                                     <td class="spell-mp-cell">{{invocation.system.pietyCost}}</td>
                                                     <td class="spell-actions-cell">
-                                                        <a class="item-delete" data-action="itemDelete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
+                                                        <a class="item-delete" data-action="itemDelete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
                                                     </td>
                                                 </tr>
                                             {{/each}}
@@ -102,8 +105,8 @@
                                             {{#each schoolData.spells as |spell|}}
                                                 <tr class="spell-row item active" data-item-id="{{spell._id}}">
                                                     <td class="spell-name-cell">
-                                                        <i class="fas fa-dice-d20 magic-roll" data-action="magicRoll" title="{{localize "UESRPG.Sheets.Magic.CastSpellPostDescription"}}"></i>
-                                                        <img class="item-img" src="{{spell.img}}" data-action="itemOpen" />
+                                                        <i class="fas fa-dice-d20 magic-roll" data-action="magicRoll" data-tooltip="UESRPG.Sheets.Magic.CastSpellPostDescription" aria-label="{{localize "UESRPG.Sheets.Magic.CastSpellPostDescription"}}"></i>
+                                                        <img class="item-img" src="{{spell.img}}" data-action="itemOpen" alt="{{spell.name}}" />
                                                         <span class="item-name" data-action="itemOpen">{{spell.name}}</span>
                                                     </td>
                                                     <td class="spell-rank-cell">
@@ -117,7 +120,7 @@
                                                     </td>
                                                     <td class="spell-mp-cell">{{spell.system.cost}}</td>
                                                     <td class="spell-actions-cell">
-                                                        <a class="item-delete" data-action="itemDelete" title="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
+                                                        <a class="item-delete" data-action="itemDelete" data-tooltip="UESRPG.UI.Delete" aria-label="{{localize "UESRPG.UI.Delete"}}"><i class="fas fa-trash"></i></a>
                                                     </td>
                                                 </tr>
                                             {{/each}}

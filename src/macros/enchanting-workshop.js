@@ -1,4 +1,6 @@
 import { findOpenAppInstance, focusOpenApp, resolveMacroActor } from "./shared.js";
+import { loadDeferredModule } from "../utils/deferred-module.js";
+import { t } from "../utils/i18n.js";
 
 /**
  * src/macros/enchanting-workshop.js
@@ -17,7 +19,7 @@ import { findOpenAppInstance, focusOpenApp, resolveMacroActor } from "./shared.j
  *   - The first controlled token's actor
  *   - Falling back to game.user.character
  *
- * Target: Foundry VTT v14.359+
+ * Target: Foundry VTT v14.363+
  */
 
 const NAMESPACE = "uesrpg-3ev4";
@@ -30,13 +32,18 @@ const NAMESPACE = "uesrpg-3ev4";
 export async function openEnchantingWorkshop(opts = {}) {
   const actor = await resolveMacroActor({
     actorUuid: opts.actorUuid ?? null,
-    multipleSelectionWarning: "Enchanting Workshop: Multiple tokens are selected. Please select exactly one token.",
-    noActorWarning: "Enchanting Workshop: No actor found. Control a token or assign a character to your user account.",
+    multipleSelectionWarning: t("UESRPG.Notifications.Enchanting.MultipleTokensSelected"),
+    noActorWarning: t("UESRPG.Notifications.Enchanting.NoWorkshopActor"),
   });
   if (!actor) return;
 
   const actorUuid = actor.uuid;
-  const { EnchantingWorkshopAppV2 } = await import("../ui/apps/v2/enchanting-workshop-app.js");
+  const module = await loadDeferredModule(
+    () => import("../ui/apps/v2/enchanting-workshop-app.js"),
+    { label: t("UESRPG.Apps.EnchantingWorkshop.Title") },
+  );
+  if (!module) return null;
+  const { EnchantingWorkshopAppV2 } = module;
 
   const existing = findOpenAppInstance(
     EnchantingWorkshopAppV2,

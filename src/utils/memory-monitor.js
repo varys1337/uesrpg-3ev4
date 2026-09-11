@@ -14,10 +14,6 @@ const DEFAULT_CONFIG = {
   enabled: false,
   sampleInterval: 60 * 1000, // 1 minute between samples
   warningThresholds: {
-    templateCache: 500,      // Maximum expected template cache entries
-    memoizationCache: 1000,  // Maximum expected memoization entries
-    tokenQueryCache: 500,    // Maximum expected token query entries
-    spatialIndexCache: 2000, // Maximum expected spatial index entries
     handlebarsHelperCache: 200, // Maximum expected helper cache entries
   },
   logLevel: 'warn',          // 'debug', 'info', 'warn', 'error'
@@ -130,42 +126,6 @@ export class MemoryMonitor {
    * Collect cache sizes from various systems.
    */
   _collectCacheSizes(sample) {
-    // Try to get template cache stats
-    try {
-      const templateCache = game.uesrpg?.templateCache;
-      if (templateCache?.cache) {
-        sample.cacheSizes.templateCache = templateCache.cache.size;
-        sample.totalEstimatedSize += templateCache.cache.size * 1024; // Rough estimate
-      }
-    } catch (e) { /* Ignore if not available */ }
-    
-    // Try to get memoization cache stats
-    try {
-      const memoization = game.uesrpg?.memoization;
-      if (memoization?.cache) {
-        sample.cacheSizes.memoizationCache = memoization.cache.size;
-        sample.totalEstimatedSize += memoization.cache.size * 512; // Rough estimate
-      }
-    } catch (e) { /* Ignore if not available */ }
-    
-    // Try to get token query cache stats
-    try {
-      const tokenQuery = game.uesrpg?.tokenQuery;
-      if (tokenQuery?.cache) {
-        sample.cacheSizes.tokenQueryCache = tokenQuery.cache.size;
-        sample.totalEstimatedSize += tokenQuery.cache.size * 256; // Rough estimate
-      }
-    } catch (e) { /* Ignore if not available */ }
-    
-    // Try to get spatial index cache stats
-    try {
-      const spatialIndex = game.uesrpg?.spatialIndex;
-      if (spatialIndex?.cache) {
-        sample.cacheSizes.spatialIndexCache = spatialIndex.cache.size;
-        sample.totalEstimatedSize += spatialIndex.cache.size * 128; // Rough estimate
-      }
-    } catch (e) { /* Ignore if not available */ }
-    
     // Try to get handlebars helper cache stats
     try {
       const handlebarsOptimizer = game.uesrpg?.handlebarsOptimizer;

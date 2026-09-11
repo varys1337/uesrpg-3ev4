@@ -3,21 +3,37 @@ import {
   scheduleEngagementFlankingRefresh,
   clearFlankedConditions,
 } from "../../../core/homebrew/engagement-flanking/index.js";
-import { localizeSettingConfig } from "../../../utils/i18n.js";
+import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
+import { renderSystemSheets } from "../../../ui/shared/rendered-applications.js";
 
-function _reg(key, config) {
-  if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
-    console.warn(`UESRPG | Settings: duplicate key "${key}" вЂ” skipping.`);
-    return;
+const _reg = createSystemSettingRegistrar("Homebrew");
+
+async function _refreshMassCombatAvailability(enabled) {
+  try {
+    const [campaignModule, encounterModule] = await Promise.all([
+      import("../../../ui/apps/v2/army-campaign-app.js"),
+      import("../../../ui/apps/v2/warfare-encounter-app.js"),
+    ]);
+
+    if (!enabled) {
+      await Promise.all([
+        campaignModule.closeOpenArmyCampaignApps?.(),
+        encounterModule.closeOpenWarfareEncounterApps?.(),
+      ]);
+    }
+
+    renderSystemSheets({ classNames: ["group", "warfare-unit"], reason: "homebrew.warfare-enabled" });
+    await ui?.controls?.render?.({ reset: true });
+  } catch (error) {
+    console.error("UESRPG | Failed to refresh Warfare availability", error);
   }
-  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Homebrew", key, config));
 }
 
 export function registerHomebrewSettings() {
   // Hidden GM rules/system policy: long-term table rules that intentionally branch runtime behavior.
   _reg("homebrew.speedFormulaSBAB", {
     name: "Homebrew: Speed Formula (SB + AB)",
-    hint: "When enabled, base Speed is computed as SB + AB (instead of SB + 2Г—AB). Requires a reload to apply consistently.",
+    hint: "When enabled, base Speed is computed as SB + AB (instead of SB + 2×AB). Requires a reload to apply consistently.",
     scope: "world",
     config: false,
     requiresReload: true,
@@ -125,13 +141,14 @@ export function registerHomebrewSettings() {
   });
 
   _reg("homebrew.massCombat.enabled", {
-    name: "Homebrew: Mass Combat System",
+    name: "Enable Warfare",
     hint: "Enables Warfare Unit creation and mass combat UI. Existing Warfare Unit actors remain openable when disabled.",
     scope: "world",
     config: false,
     requiresReload: false,
     default: false,
     type: Boolean,
+    onChange: (enabled) => void _refreshMassCombatAvailability(Boolean(enabled)),
   });
 
   _reg("homebrew.religionWorship.enabled", {

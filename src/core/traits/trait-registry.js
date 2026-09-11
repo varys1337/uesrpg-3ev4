@@ -6,7 +6,7 @@
  * Target: Foundry VTT v13.351
  */
 
-import { CONDITION_KEYS as CANONICAL_CONDITION_KEYS } from "../conditions/index.js";
+import { CONDITION_KEYS as CANONICAL_CONDITION_KEYS } from "../conditions/catalog.js";
 
 const DAMAGE_TYPE_MAP = {
   // RAW: "Resistance (Normal Weapons, X)" is treated as Physical resistance.

@@ -14,6 +14,7 @@ import { applyWarfareConditionDelta } from "./condition-target.js";
 import { computeSkillTN, SKILL_DIFFICULTIES } from "../skills/skill-tn.js";
 import { measureTokenDistanceChebyshev } from "../combat/opposed/range.js";
 import { areTokensInBaseContact } from "./battlefield/geometry.js";
+import { isMassCombatEnabled, requireMassCombatEnabled } from "../homebrew/settings.js";
 
 export const WARFARE_EFFECT_KEYS = Object.freeze({
   JOIN_FRAY_NEXT_CLASH: "joinFrayNextClash",
@@ -212,6 +213,7 @@ export function hasWarfareActionEffect(actor, key) {
 }
 
 export async function consumeJoinFrayNextClash(actor) {
+  if (!isMassCombatEnabled()) return false;
   const effect = getEnabledEffectByKey(actor, WARFARE_EFFECT_KEYS.JOIN_FRAY_NEXT_CLASH);
   if (!effect) return false;
   await deleteEffect(effect);
@@ -223,6 +225,7 @@ export function hasHoldNextDefend(actor) {
 }
 
 export async function consumeHoldNextDefend(actor) {
+  if (!isMassCombatEnabled()) return false;
   const effect = getEnabledEffectByKey(actor, WARFARE_EFFECT_KEYS.HOLD_NEXT_DEFEND);
   if (!effect) return false;
   await deleteEffect(effect);
@@ -474,6 +477,7 @@ function getTargetWarfareUnit(sourceActor, { allowSelf = false } = {}) {
 }
 
 export async function applyResolveLoss(actor, amount, { suppressed = null } = {}) {
+  if (!requireMassCombatEnabled()) return null;
   const current = Number(actor?.system?.stats?.resolve?.value ?? actor?.system?.stats?.condition?.value ?? 0) || 0;
   const max = Number(actor?.system?.stats?.resolve?.max ?? actor?.system?.stats?.condition?.max ?? current) || current;
   const loss = Math.max(0, Number(amount ?? 0) || 0);
@@ -511,6 +515,7 @@ function isMixedLeaderTarget(target) {
 }
 
 export async function startMixedWarfareOpposed(actor, { initialAttackFamily = "melee" } = {}) {
+  if (!requireMassCombatEnabled()) return null;
   const target = getSingleTargetActor();
   if (!target?.actor || !isMixedLeaderTarget(target)) {
     ui.notifications?.warn?.("Target exactly one PC or NPC token for mixed warfare combat.");
@@ -588,6 +593,7 @@ async function promptRangedAttackOptions(actor) {
 }
 
 export async function rollWarfareRangedAttack(actor) {
+  if (!requireMassCombatEnabled()) return null;
   if (!_guardBattleState(actor, "Ranged Attack")) return false;
   const target = getSingleTargetActor();
   if (target?.actor && isMixedLeaderTarget(target)) {
@@ -708,6 +714,7 @@ function applyDisciplineRestorePatch(targetActor, amount) {
 }
 
 export async function castWarfareSpell(actor) {
+  if (!requireMassCombatEnabled()) return null;
   if (!_guardBattleState(actor, "Cast Spell")) return false;
   const target = getSingleTargetActor();
   if (target?.actor && isMixedLeaderTarget(target)) {
@@ -1062,6 +1069,7 @@ export async function clearCommanderAttachment(actor, {
   skipWarfareTokenFlagClear = false,
   skipLeaderTokenFlagClear = false,
 } = {}) {
+  if (!requireMassCombatEnabled()) return false;
   const warfareTokenDoc = warfareTokenDocOverride ?? fromUuidSync(actor?.system?.commanderAttachment?.warfareTokenUuid ?? "") ?? null;
   const leaderTokenDoc = leaderTokenDocOverride ?? fromUuidSync(actor?.system?.commanderAttachment?.leaderTokenUuid ?? "") ?? null;
   clearAttachmentRuntimeState({
@@ -1258,6 +1266,7 @@ async function handleAdvance(actor, entry, actionType) {
 }
 
 export async function handleWarfareAction(actor, { actionId = "", actionType = "unit" } = {}) {
+  if (!requireMassCombatEnabled()) return false;
   const entry = getActionEntry(actor, actionId, actionType);
   if (!entry) return false;
   const actionLabel = getActionLabel(actor, entry);
@@ -1437,6 +1446,7 @@ export function registerWarfareAttachmentHooks() {
   _warfareAttachmentHooksRegistered = true;
 
   Hooks.on("refreshToken", async (token) => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM) return;
     const tokenDoc = token?.document ?? null;
     if (!tokenDoc) return;
@@ -1457,6 +1467,7 @@ export function registerWarfareAttachmentHooks() {
   });
 
   Hooks.on("updateToken", async (tokenDoc, changed) => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM) return;
     if (!tokenDoc) return;
     if ("x" in (changed ?? {}) || "y" in (changed ?? {})) {
@@ -1474,11 +1485,13 @@ export function registerWarfareAttachmentHooks() {
   });
 
   Hooks.on("deleteToken", async (tokenDoc) => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM) return;
     await clearBrokenAttachment(tokenDoc);
   });
 
   Hooks.on("canvasReady", async () => {
+    if (!isMassCombatEnabled()) return;
     if (!game.user?.isGM) return;
     const scene = game?.scenes?.current;
     if (!scene) return;

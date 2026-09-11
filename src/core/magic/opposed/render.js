@@ -17,6 +17,7 @@ import { createUuidResolver, getActorFromResolvedDocument, resolveUuidSync } fro
 import { formatResultSummary } from "../../../utils/degree-roll-helper.js";
 import { buildMagicCastContextRows } from "./cast-context.js";
 import { t, tf } from "../../../utils/i18n.js";
+import { systemTooltipAttributes } from "../../../ui/shared/system-tooltips.js";
 
 /**
  * Format signed number (+/-).
@@ -128,9 +129,9 @@ function renderTNLine(tnValue, entries) {
 }
 
 function renderLaneHeader({ icon = "", name = "", title = "" } = {}) {
-  const safeTitle = String(title ?? "").replaceAll('"', "&quot;");
+  const tooltipAttributes = systemTooltipAttributes({ text: title });
   return `
-    <div class="ues-magic-opposed-lane-header" ${safeTitle ? `title="${safeTitle}"` : ""}>
+    <div class="ues-magic-opposed-lane-header" ${tooltipAttributes}>
       <span class="ues-magic-opposed-lane-icon" aria-hidden="true">${icon}</span>
       <span class="ues-magic-opposed-lane-name"><b>${name}</b></span>
     </div>
@@ -192,9 +193,10 @@ function renderBreakdownDetails(title, entries, { inline = false } = {}) {
     .join("");
 
   if (inline) {
+    const tooltipText = String(title ?? t("UESRPG.Chat.Common.Breakdown", "Breakdown"));
     return `
       <details style="display:inline-block; margin-left:6px; vertical-align:baseline;">
-        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" title="${String(title ?? t("UESRPG.Chat.Common.Breakdown", "Breakdown"))}">&#9654;</summary>
+        <summary style="display:inline-block; cursor:pointer; user-select:none; white-space:nowrap;" ${systemTooltipAttributes({ text: tooltipText, ariaLabel: tooltipText })}>&#9654;</summary>
         <div style="margin-top:4px; font-size:12px; opacity:0.95;">${rows}</div>
       </details>
     `;
@@ -227,7 +229,7 @@ function btn({ label, action, disabled = false, title = "", dataset = null, styl
       type="button"
       data-ues-magic-opposed-action="${safeAction}"
       ${disabled ? "disabled=\"disabled\"" : ""}
-      ${safeTitle ? `title="${safeTitle.replaceAll('"', "&quot;")}"` : ""}
+      ${safeTitle ? systemTooltipAttributes({ text: safeTitle }) : ""}
       ${dataAttrs}
       ${safeStyle ? `style="${safeStyle.replaceAll('"', "&quot;")}"` : ""}
     >${safeLabel}</button>

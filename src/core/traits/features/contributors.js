@@ -8,8 +8,8 @@
  * `_emitCharacteristicOverrides`) are now defined once.
  *
  * Design invariants:
- *  - Pure read РІР‚вЂќ never mutates documents.
- *  - Deterministic РІР‚вЂќ same items in РІвЂ вЂ™ same mods out.
+ *  - Pure read — never mutates documents.
+ *  - Deterministic — same items in → same mods out.
  *  - Follows Chapter 4 stacking rules.
  *
  * Target: Foundry VTT v13.351
@@ -19,9 +19,9 @@ import { makeFeatureMod, FEATURE_DOMAINS, STACKING_MODES, normalizeFeatureKey } 
 import { normalizeTalentKey, resolveTalentSlug } from "../talents-api.js";
 import { canApplyCharGenGatedImperialTalents } from "../racial-talents.js";
 
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 // Shared constants
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Item-level numeric bonus fields shared by traits, talents, and powers.
@@ -56,9 +56,9 @@ const RESIST_FIELDS = Object.freeze([
 ]);
 
 
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 // Shared helpers
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Emit FeatureMods for item-level bonus fields (hpBonus, resistances, etc.).
@@ -176,9 +176,9 @@ function _emitCharacteristicOverrides(sys, item, source, mods) {
 }
 
 
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 // Trait contributor
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Exported so that the stacking reducer and inspector can reference these.
@@ -213,7 +213,7 @@ export const TRAIT_STACKING_META = Object.freeze({
   "flag.stuntedMagicka":   { stacking: STACKING_MODES.ANY, label: "Stunted Magicka" },
 });
 
-// РІвЂќР‚РІвЂќР‚РІвЂќР‚ Trait damage type maps РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+// ─── Trait damage type maps ──────────────────────────────────────────
 
 const RESISTANCE_KEY_MAP = {
   physical:  "physicalR",
@@ -227,7 +227,7 @@ const RESISTANCE_KEY_MAP = {
   disease:   "diseaseR",
 };
 
-// РІвЂќР‚РІвЂќР‚РІвЂќР‚ Trait key parsing РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚РІвЂќР‚
+// ─── Trait key parsing ───────────────────────────────────────────────
 
 const CATEGORY_KEYS = ["resistance", "weakness", "immunity"];
 
@@ -293,7 +293,7 @@ export function contributeTraitMods(actor, item) {
 
   const mods = [];
 
-  // РІвЂќР‚РІвЂќР‚ Incorporeal flag РІвЂќР‚РІвЂќР‚
+  // ── Incorporeal flag ──
   if (_normFlat(traitKey).includes("incorporeal") || _normFlat(traitParam) === "incorporeal") {
     mods.push(makeFeatureMod({
       domain: FEATURE_DOMAINS.FLAG,
@@ -309,7 +309,7 @@ export function contributeTraitMods(actor, item) {
     return mods;
   }
 
-  // РІвЂќР‚РІвЂќР‚ Undead / Skeletal / Bloodless flags РІвЂќР‚РІвЂќР‚
+  // ── Undead / Skeletal / Bloodless flags ──
   if (keyFlat === "undead" || keyFlat.includes("undead")) {
     mods.push(makeFeatureMod({
       domain: FEATURE_DOMAINS.FLAG,
@@ -343,7 +343,7 @@ export function contributeTraitMods(actor, item) {
     }));
   }
 
-  // РІвЂќР‚РІвЂќР‚ Disease Resistance (percentage, non-damage-type) РІвЂќР‚РІвЂќР‚
+  // ── Disease Resistance (percentage, non-damage-type) ──
   if (keyFlat.includes("diseaseresistance") || (keyFlat === "diseaseresistance")) {
     const pct = Number.isFinite(traitValue) ? traitValue : 0;
     if (pct > 0) {
@@ -361,7 +361,7 @@ export function contributeTraitMods(actor, item) {
     return mods;
   }
 
-  // РІвЂќР‚РІвЂќР‚ Parse category.type (resistance/weakness/immunity) РІвЂќР‚РІвЂќР‚
+  // ── Parse category.type (resistance/weakness/immunity) ──
   let category = "";
   let typeRaw = "";
 
@@ -375,11 +375,11 @@ export function contributeTraitMods(actor, item) {
   }
 
   if (!category) {
-    // Not a standard resistance/weakness/immunity trait РІР‚вЂќ emit item bonus mods
+    // Not a standard resistance/weakness/immunity trait — emit item bonus mods
     return _emitItemBonusMods(item, source);
   }
 
-  // РІвЂќР‚РІвЂќР‚ Immunity РІвЂќР‚РІвЂќР‚
+  // ── Immunity ──
   if (category === "immunity") {
     const dmgType = _parseDamageType(typeRaw);
     const condType = dmgType ? "" : _parseConditionType(typeRaw);
@@ -408,7 +408,7 @@ export function contributeTraitMods(actor, item) {
     return mods;
   }
 
-  // РІвЂќР‚РІвЂќР‚ Resistance / Weakness (X-trait) РІвЂќР‚РІвЂќР‚
+  // ── Resistance / Weakness (X-trait) ──
   const damageType = _parseDamageType(typeRaw);
   if (!damageType) {
     return _emitItemBonusMods(item, source);
@@ -456,16 +456,16 @@ export function contributeTraitMods(actor, item) {
 }
 
 
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 // Talent contributor
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * (#6) Racial talent passive effects (Chapter 4).
  * Numeric bonuses that were previously hardcoded in `applyRacialTalentDerivedBonuses()`
  * are now emitted as FeatureMods for Feature Inspector visibility and proper stacking.
  *
- * Non-numeric effects (disease immunity flag, Histskin swimР“вЂ”2) remain in racial-talents.js.
+ * Non-numeric effects (disease immunity flag, Histskin swim×2) remain in racial-talents.js.
  * Imperial talents (Red Diamond / Imperial Luck) compute dynamically in contributeTalentMods.
  */
 const RACIAL_TALENT_EFFECTS = Object.freeze({
@@ -506,12 +506,12 @@ function _getStarOfTheWestBonus(actor) {
  */
 const PASSIVE_TALENT_EFFECTS = {
   "untouchable": {
-    note: "WT = 3Р“вЂ”LB (override; computed in prepare)",
+    note: "WT = 3×LB (override; computed in prepare)",
     domain: FEATURE_DOMAINS.WOUND_THRESHOLD,
     path: "system.wound_threshold.override",
     mode: "set",
     stacking: STACKING_MODES.OVERRIDE,
-    label: "Untouchable (WT = 3Р“вЂ”LB)",
+    label: "Untouchable (WT = 3×LB)",
   },
   "enduring": {
     note: "Halve fatigue penalties",
@@ -565,15 +565,15 @@ export function contributeTalentMods(actor, item) {
 
   const mods = [];
 
-  // РІвЂќР‚РІвЂќР‚ Item-level bonus fields РІвЂќР‚РІвЂќР‚
+  // ── Item-level bonus fields ──
   mods.push(..._emitItemBonusMods(item, source));
 
-  // РІвЂќР‚РІвЂќР‚ Known passive effects РІвЂќР‚РІвЂќР‚
+  // ── Known passive effects ──
   const passiveEntry = PASSIVE_TALENT_EFFECTS[talentSlug];
   if (passiveEntry) {
     let value = passiveEntry.value;
 
-    // Dynamic value for Untouchable: 3 Р“вЂ” LB
+    // Dynamic value for Untouchable: 3 × LB
     if (talentSlug === "untouchable") {
       const lckBonus = Math.max(0, Math.floor(Number(actor?.system?.characteristics?.lck?.total ?? 0) / 10));
       value = 3 * lckBonus;
@@ -591,7 +591,7 @@ export function contributeTalentMods(actor, item) {
     }
   }
 
-  // РІвЂќР‚РІвЂќР‚ (#6) Racial talent passive effects РІвЂќР‚РІвЂќР‚
+  // ── (#6) Racial talent passive effects ──
   const racialSource = {
     type: "talent",
     key: `racial-talent:${talentSlug}`,
@@ -614,7 +614,7 @@ export function contributeTalentMods(actor, item) {
     }
   }
 
-  // (#6) Imperial: Red Diamond / Imperial Luck РІР‚вЂќ dynamic SP computation
+  // (#6) Imperial: Red Diamond / Imperial Luck — dynamic SP computation
   if (talentSlug === "reddiamond" || talentSlug === "imperialluck") {
     const imperialSource = {
       type: "talent",
@@ -643,16 +643,16 @@ export function contributeTalentMods(actor, item) {
     }
   }
 
-  // РІвЂќР‚РІвЂќР‚ Characteristic bonus overrides РІвЂќР‚РІвЂќР‚
+  // ── Characteristic bonus overrides ──
   _emitCharacteristicOverrides(sys, item, source, mods);
 
   return mods;
 }
 
 
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 // Power contributor
-// РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’РІвЂўС’
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Emit FeatureMods for a single Power item.
@@ -676,10 +676,10 @@ export function contributePowerMods(actor, item) {
 
   const mods = [];
 
-  // РІвЂќР‚РІвЂќР‚ Item-level bonus fields РІвЂќР‚РІвЂќР‚
+  // ── Item-level bonus fields ──
   mods.push(..._emitItemBonusMods(item, source));
 
-  // РІвЂќР‚РІвЂќР‚ Characteristic bonus overrides РІвЂќР‚РІвЂќР‚
+  // ── Characteristic bonus overrides ──
   _emitCharacteristicOverrides(sys, item, source, mods);
 
   return mods;

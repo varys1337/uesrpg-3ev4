@@ -1,4 +1,6 @@
 import { resolveMacroActorInput } from "./shared.js";
+import { loadDeferredModule } from "../utils/deferred-module.js";
+import { t } from "../utils/i18n.js";
 
 /**
  * Character Generation Wizard macro entrypoint.
@@ -13,18 +15,23 @@ export async function openCharGenWizard(opts = {}) {
   if (opts.actorUuid) {
     const resolved = await fromUuid(String(opts.actorUuid));
     if (resolved?.documentName === "Actor") actor = resolved;
-    else ui.notifications?.warn?.("Character Generation Wizard: actor UUID could not be resolved. Opening without a preselected actor.");
+    else ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.ActorUuidUnresolved"));
   }
 
   if (!actor) {
     const controlled = Array.from(canvas?.tokens?.controlled ?? []);
     if (controlled.length === 1) actor = controlled[0]?.actor ?? null;
     else if (controlled.length > 1) {
-      ui.notifications?.warn?.("Character Generation Wizard: multiple tokens selected. Opening without a preselected actor.");
+      ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.MultipleTokensSelected"));
     }
   }
 
-  const { CharGenWizardAppV2 } = await import("../ui/apps/v2/char-gen/char-gen-wizard.js");
+  const module = await loadDeferredModule(
+    () => import("../ui/apps/v2/char-gen/char-gen-wizard.js"),
+    { label: t("UESRPG.Dialogs.CharGen.WizardTitle") },
+  );
+  if (!module) return null;
+  const { CharGenWizardAppV2 } = module;
 
   const promptOptions = { name: opts.name ?? "" };
   if (actor?.uuid) promptOptions.actorUuid = actor.uuid;
@@ -34,11 +41,16 @@ export async function openCharGenWizard(opts = {}) {
 export async function runRawChargenFlow(actorOrOpts = {}) {
   const actor = await resolveMacroActorInput(actorOrOpts);
   if (!actor || actor.documentName !== "Actor") {
-    ui.notifications?.warn?.("No actor found for RAW chargen flow.");
+    ui.notifications?.warn?.(t("UESRPG.Notifications.CharGen.NoActorForRawFlow"));
     return false;
   }
 
-  const { runRawChargen } = await import("../ui/apps/v2/char-gen/run-raw-chargen.js");
+  const module = await loadDeferredModule(
+    () => import("../ui/apps/v2/char-gen/run-raw-chargen.js"),
+    { label: t("UESRPG.Dialogs.CharGen.WizardTitle") },
+  );
+  if (!module) return false;
+  const { runRawChargen } = module;
   return runRawChargen(actor);
 }
 

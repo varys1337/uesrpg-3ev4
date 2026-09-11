@@ -4,12 +4,12 @@
   <div class="sheet-fixed-container">
     <div class="character-profile-container">
       <div class="profile-img-container">
-        <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" title="{{actor.name}}">
+        <img class="profile-img" src="{{actor.img}}" data-edit="img" data-action="editPortrait" data-tooltip-text="{{actor.name}}" alt="{{actor.name}}">
         <div class="status-column">
           <div class="vertical-flex-container">
-            <img id="wound-icon" src="icons/skills/wounds/blood-drip-droplet-red.webp" title="{{localize "UESRPG.UI.WoundedPenalty" value=actor.system.woundPenalty}}">
-            <img id="fatigue-icon" src="icons/magic/control/debuff-energy-hold-green.webp" title="{{localize "UESRPG.UI.FatiguedPenalty" value=actor.system.fatigue.penalty}}">
-            <img id="enc-icon" src="icons/containers/bags/pack-leather-brown.webp" title="{{carryRatingLabel}} {{actor.system.carry_rating.penalty}}">
+            <img id="wound-icon" src="icons/skills/wounds/blood-drip-droplet-red.webp" data-tooltip-text="{{localize "UESRPG.UI.WoundedPenalty" value=actor.system.woundPenalty}}" alt="">
+            <img id="fatigue-icon" src="icons/magic/control/debuff-energy-hold-green.webp" data-tooltip-text="{{localize "UESRPG.UI.FatiguedPenalty" value=actor.system.fatigue.penalty}}" alt="">
+            <img id="enc-icon" src="icons/containers/bags/pack-leather-brown.webp" data-tooltip-text="{{carryRatingLabel}} {{actor.system.carry_rating.penalty}}" alt="">
           </div>
         </div>
       </div>

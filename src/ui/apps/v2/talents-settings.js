@@ -48,6 +48,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
         talentNoGoverningCostRule: getSettingPresentation(NAMESPACE, "talentNoGoverningCostRule"),
         talentLearningNoticeMode: getSettingPresentation(NAMESPACE, "talentLearningNoticeMode"),
         enforceCharGenMilestones: getSettingPresentation(NAMESPACE, "enforceCharGenMilestones"),
+        useRawChargenWizard: getSettingPresentation(NAMESPACE, "useRawChargenWizard"),
         chargenSpellLearningLogCap: getSettingPresentation(NAMESPACE, "chargenSpellLearningLogCap"),
         passiveTransferItemTypes: getSettingPresentation(NAMESPACE, "passiveTransferItemTypes"),
       },
@@ -72,6 +73,7 @@ export class TalentsSettingsAppV2 extends HandlebarsApplicationMixin(Application
     if ("talentNoGoverningCostRule" in data) await game.settings.set(NAMESPACE, "talentNoGoverningCostRule", String(data.talentNoGoverningCostRule ?? "discounted"));
     if ("talentLearningNoticeMode" in data) await game.settings.set(NAMESPACE, "talentLearningNoticeMode", String(data.talentLearningNoticeMode ?? "problems"));
     if ("enforceCharGenMilestones" in data) await game.settings.set(NAMESPACE, "enforceCharGenMilestones", toBool(data.enforceCharGenMilestones));
+    if ("useRawChargenWizard" in data) await game.settings.set(NAMESPACE, "useRawChargenWizard", toBool(data.useRawChargenWizard));
     if ("chargenSpellLearningLogCap" in data) await game.settings.set(NAMESPACE, "chargenSpellLearningLogCap", Math.max(0, Math.trunc(Number(data.chargenSpellLearningLogCap) || 0)));
     if ("passiveTransferItemTypes" in data) await game.settings.set(NAMESPACE, "passiveTransferItemTypes", String(data.passiveTransferItemTypes ?? "talent,trait,power,skill").trim());
   }

@@ -7,6 +7,7 @@
 import { formatResultSummary } from "../../../../utils/degree-roll-helper.js";
 import { maybeT, t, tf } from "../../../../utils/i18n.js";
 import { localizeHitLocation } from "../../combat-utils.js";
+import { systemTooltipAttributes } from "../../../../ui/shared/system-tooltips.js";
 
 /**
  * Format degree of success/failure for display.
@@ -92,7 +93,7 @@ export function _renderBreakdown(tnObj, { inline = false } = {}) {
   if (inline) {
     return `
       <details class="uesrpg-chat-details uesrpg-chat-details--inline">
-        <summary aria-label="${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}" title="${t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown")}"></summary>
+        <summary ${systemTooltipAttributes({ text: t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown"), ariaLabel: t("UESRPG.Chat.Common.TnBreakdown", "TN breakdown") })}></summary>
         <div class="uesrpg-chat-details__body">${rows}</div>
       </details>
     `;

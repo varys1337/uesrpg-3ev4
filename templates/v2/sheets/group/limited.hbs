@@ -2,7 +2,7 @@
     <div class="sheet-fixed-container">
       <div class="character-profile-container">
         <div class="profile-img-container">
-          <img class="profile-img" src="{{actor.img}}" title="{{actor.name}}">
+          <img class="profile-img" src="{{actor.img}}" data-tooltip-text="{{actor.name}}" alt="{{actor.name}}">
         </div>
         <div>
           <h1 class="charname">{{actor.name}}</h1>
@@ -24,7 +24,7 @@
           {{#each resolvedMembers as |member|}}
           {{#if member.canView}}
           <div class="member-portrait-limited">
-            <img src="{{member.img}}" title="{{member.name}}" data-uuid="{{member.uuid}}"
+            <img src="{{member.img}}" data-tooltip-text="{{member.name}}" alt="{{member.name}}" data-uuid="{{member.uuid}}"
                  data-action="viewMember" class="member-portrait-clickable">
             <div>{{member.name}}</div>
           </div>

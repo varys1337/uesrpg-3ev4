@@ -1059,6 +1059,17 @@ export async function requestCreateEmbeddedDocuments(actor, embeddedName, docsDa
       .filter((d) => d && typeof d === "object" && Object.keys(d).length > 0);
   if (!cleanedList.length) return [];
 
+  if (isPerfEnabled()) {
+    perfRecord({
+      event: "authorityProxy.createEmbedded",
+      docType: actor.documentName ?? "Actor",
+      embeddedName,
+      count: cleanedList.length,
+      actorId: actor.id ?? null,
+      isDirectPath: !!(game.user?.isGM || actor.isOwner),
+    });
+  }
+
   // Direct path.
   if (game.user?.isGM || actor.isOwner) {
     return await actor.createEmbeddedDocuments(embeddedName, cleanedList);
@@ -1115,6 +1126,17 @@ export async function requestUpdateEmbeddedDocuments(actor, embeddedName, update
     })
     .filter((u) => u && Object.keys(u).length > 0);
   if (!cleanedUpdates.length) return false;
+
+  if (isPerfEnabled()) {
+    perfRecord({
+      event: "authorityProxy.updateEmbedded",
+      docType: actor.documentName ?? "Actor",
+      embeddedName,
+      count: cleanedUpdates.length,
+      actorId: actor.id ?? null,
+      isDirectPath: !!(game.user?.isGM || actor.isOwner),
+    });
+  }
 
   // Direct path.
   if (game.user?.isGM || actor.isOwner) {

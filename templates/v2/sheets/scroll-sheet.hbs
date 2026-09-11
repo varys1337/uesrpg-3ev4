@@ -1,29 +1,3 @@
-{{!-- Scroll Sheet --}}
-<header class="item-compact-header">
-    <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
-    <div class="item-header-fields">
-        <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.Sheets.Item.ScrollName"}}"/>
-        <div class="item-stats-row">
-            <div class="item-stat">
-                <input type="number" name="system.quantity" value="{{#if item.system.quantity}}{{item.system.quantity}}{{else}}1{{/if}}" min="0"/>
-                <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Quantity"}}</span>
-            </div>
-            <div class="item-stat">
-                <input type="number" name="system.enc" value="{{#if item.system.enc}}{{item.system.enc}}{{else}}0{{/if}}" min="0" step="0.1"/>
-                <span class="item-stat-label">ENC</span>
-            </div>
-        </div>
-    </div>
-</header>
-
-{{!-- Sheet Tab Navigation --}}
-<nav class="sheet-tabs tabs" data-group="primary">
-    <a class="item" data-action="tab" data-group="primary" data-tab="description">{{localize "UESRPG.UI.Description"}}</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="spell">{{localize "UESRPG.Sheets.Item.SpellReference"}}</a>
-    <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
-</nav>
-
-{{!-- Sheet Body --}}
 <section class="sheet-body">
 
     {{!-- Description Tab --}}
@@ -106,7 +80,7 @@
                 <h2>{{localize "UESRPG.Sheets.Item.Cast"}}</h2>
                 <div class="activation-use-btn-wrap">
                     <button type="button" class="uesrpg-scroll-cast" data-action="castScroll"
-                            {{#unless hasLinkedSpell}}disabled title="{{localize "UESRPG.Sheets.Item.NoValidSpellAssigned"}}"{{/unless}}>
+                            {{#unless hasLinkedSpell}}disabled data-tooltip="UESRPG.Sheets.Item.NoValidSpellAssigned"{{/unless}} aria-label="{{localize "UESRPG.Sheets.Item.NoValidSpellAssigned"}}">
                         <i class="fas fa-scroll"></i> {{localize "UESRPG.Sheets.Item.CastScroll"}}
                     </button>
                 </div>

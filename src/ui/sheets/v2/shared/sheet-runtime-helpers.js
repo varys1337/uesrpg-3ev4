@@ -61,44 +61,107 @@ function normalizeRenderParts(sheet, parts = []) {
   return out;
 }
 
+const renderQueueStates = new WeakMap();
+const closedRenderQueues = new WeakSet();
+
+function createRenderQueueState() {
+  return {
+    activeResolvers: [],
+    cancelled: false,
+    draining: false,
+    queuedParts: new Set(),
+    queuedResolvers: [],
+    rafId: null,
+  };
+}
+
+function getRenderQueueState(sheet) {
+  if (closedRenderQueues.has(sheet)) return null;
+  let state = renderQueueStates.get(sheet);
+  if (!state) {
+    state = createRenderQueueState();
+    renderQueueStates.set(sheet, state);
+  }
+  return state;
+}
+
+function settleResolvers(resolvers = []) {
+  for (const resolve of resolvers.splice(0)) {
+    try {
+      resolve();
+    } catch (_err) {
+      // Promise resolvers are expected to be inert, but one must not block the rest.
+    }
+  }
+}
+
+async function renderQueuedParts(sheet, state, queued) {
+  if (state.cancelled || closedRenderQueues.has(sheet)) return;
+  try {
+    if (queued === null) await sheet.render(true);
+    else if (queued.length) await sheet.render({ parts: queued });
+    return;
+  } catch (partialError) {
+    if (state.cancelled || closedRenderQueues.has(sheet)) return;
+    try {
+      await sheet.render(true);
+      console.warn("UESRPG | Partial sheet render failed; full render fallback succeeded.", partialError);
+      return;
+    } catch (fullError) {
+      console.error("UESRPG | Partial and full sheet renders failed.", { partialError, fullError });
+    }
+  }
+}
+
+function scheduleRenderQueueDrain(sheet, state) {
+  if (state.cancelled || state.draining || state.rafId != null || !state.queuedResolvers.length) return;
+
+  state.rafId = requestAnimationFrame(async () => {
+    state.rafId = null;
+    if (state.cancelled) {
+      settleResolvers(state.queuedResolvers);
+      state.queuedParts.clear();
+      return;
+    }
+
+    const queued = normalizeRenderParts(sheet, Array.from(state.queuedParts));
+    state.queuedParts.clear();
+    state.activeResolvers = state.queuedResolvers.splice(0);
+    state.draining = true;
+
+    try {
+      await renderQueuedParts(sheet, state, queued);
+    } finally {
+      settleResolvers(state.activeResolvers);
+      state.draining = false;
+      if (!state.cancelled && state.queuedResolvers.length) scheduleRenderQueueDrain(sheet, state);
+    }
+  });
+}
+
 export async function queueRenderParts(sheet, parts = []) {
   if (!Array.isArray(parts) || !parts.length) return;
-  if (!sheet._uesrpgQueuedParts) sheet._uesrpgQueuedParts = new Set();
-  for (const part of parts) sheet._uesrpgQueuedParts.add(part);
+  const state = getRenderQueueState(sheet);
+  if (!state) return;
+  for (const part of parts) state.queuedParts.add(part);
 
-  if (!sheet._uesrpgRenderPartsPromise) {
-    sheet._uesrpgRenderPartsPromise = new Promise((resolve) => {
-      sheet._uesrpgRenderPartsResolvers.push(resolve);
-    });
-    sheet._uesrpgRenderPartsRafId = requestAnimationFrame(async () => {
-      const queued = normalizeRenderParts(sheet, Array.from(sheet._uesrpgQueuedParts ?? []));
-      sheet._uesrpgQueuedParts = new Set();
-      try {
-        if (queued === null) await sheet.render(true);
-        else if (queued.length) await sheet.render({ parts: queued });
-      } catch (err) {
-        console.warn("UESRPG | Partial sheet render failed; falling back to full render.", err);
-        await sheet.render(true);
-      } finally {
-        const resolvers = sheet._uesrpgRenderPartsResolvers.splice(0);
-        for (const resolve of resolvers) resolve();
-        sheet._uesrpgRenderPartsPromise = null;
-        sheet._uesrpgRenderPartsRafId = null;
-      }
-    });
-  }
-
-  return sheet._uesrpgRenderPartsPromise;
+  const promise = new Promise((resolve) => state.queuedResolvers.push(resolve));
+  scheduleRenderQueueDrain(sheet, state);
+  return promise;
 }
 
 export function clearQueuedRenderPartsState(sheet) {
-  if (sheet._uesrpgRenderPartsRafId != null) {
-    cancelAnimationFrame(sheet._uesrpgRenderPartsRafId);
-  }
-  sheet._uesrpgRenderPartsRafId = null;
-  sheet._uesrpgRenderPartsPromise = null;
-  sheet._uesrpgRenderPartsResolvers = [];
-  sheet._uesrpgQueuedParts = null;
+  closedRenderQueues.add(sheet);
+  const state = renderQueueStates.get(sheet);
+  if (!state) return;
+
+  state.cancelled = true;
+  if (state.rafId != null) cancelAnimationFrame(state.rafId);
+  state.rafId = null;
+  state.queuedParts.clear();
+  settleResolvers(state.queuedResolvers);
+  settleResolvers(state.activeResolvers);
+  renderQueueStates.delete(sheet);
 }
 
 export function isSheetPerfTraceEnabled(systemId) {
@@ -127,7 +190,7 @@ export function traceSheetPerf(sheet, { systemId, sheetName, stage, startedAtMs,
 
   if (perfEnabled) {
     perfRecord({
-      event: "sheet.render",
+      event: `sheet.render.${sheetName}.${stage}`,
       ...payload,
       durationMs: elapsedMs,
     });

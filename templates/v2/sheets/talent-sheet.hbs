@@ -1,36 +1,3 @@
-﻿{{!-- Talent Sheet - Compact Layout --}}
-<header class="item-compact-header">
-  <img class="profile-img" src="{{item.img}}" data-edit="img" data-action="editPortrait" title="{{item.name}}" width="64" height="64"/>
-  <div class="item-header-fields">
-    <input class="item-compact-name" name="name" type="text" value="{{item.name}}" placeholder="{{localize "UESRPG.UI.Name"}}"/>
-    <div class="item-stats-row">
-      <div class="item-stat">
-        <input type="text" name="system.level" value="{{item.system.level}}"/>
-        <span class="item-stat-label">{{localize "UESRPG.Chat.Magic.Level"}}</span>
-      </div>
-      <div class="item-stat">
-        <input type="text" name="system.governingCharacteristics" value="{{item.system.governingCharacteristics}}"/>
-        <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.GoverningChars"}}</span>
-      </div>
-      <div class="item-stat">
-        <input type="number" name="system.xpCost" value="{{item.system.xpCost}}"/>
-        <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.XPCost"}}</span>
-      </div>
-      <div class="item-stat">
-        <input type="text" name="system.talentReq" value="{{item.system.talentReq}}"/>
-        <span class="item-stat-label">{{localize "UESRPG.Sheets.Item.Requirements"}}</span>
-      </div>
-    </div>
-  </div>
-</header>
-
-<nav class="sheet-tabs tabs" data-group="primary">
-  <a class="item" data-action="tab" data-group="primary" data-tab="description">{{localize "UESRPG.UI.Description"}}</a>
-  <a class="item" data-action="tab" data-group="primary" data-tab="attributes">{{localize "UESRPG.Sheets.Item.Attributes"}}</a>
-  {{#if enableRuleElements}}<a class="item" data-action="tab" data-group="primary" data-tab="automation">{{localize "UESRPG.Sheets.Feature.Automation"}}</a>{{/if}}
-  <a class="item" data-action="tab" data-group="primary" data-tab="effects">{{localize "UESRPG.Sheets.Equipment.Effects"}}</a>
-</nav>
-
 <section class="sheet-body">
   <div class="tab" data-group="primary" data-tab="description">
     <div class="item-description-container">
@@ -45,13 +12,13 @@
       <fieldset class="attr-fieldset uesrpg-feature-section">
         <legend>{{localize "UESRPG.Sheets.Feature.FlagsOverrides"}}</legend>
         <div class="uesrpg-feature-row">
-          <label title="{{localize "UESRPG.Sheets.Feature.ReplaceIniTitle"}}">
+          <label data-tooltip="UESRPG.Sheets.Feature.ReplaceIniTitle">
             {{localize "UESRPG.Sheets.Feature.ReplaceIni"}}
             <select name="system.replace.ini.characteristic" data-type="String">
               {{selectOptions characteristicOptions selected=item.system.replace.ini.characteristic}}
             </select>
           </label>
-          <label title="{{localize "UESRPG.Sheets.Feature.ReplaceWtTitle"}}">
+          <label data-tooltip="UESRPG.Sheets.Feature.ReplaceWtTitle">
             {{localize "UESRPG.Sheets.Feature.ReplaceWt"}}
             <select name="system.replace.wt.characteristic" data-type="String">
               {{selectOptions characteristicOptions selected=item.system.replace.wt.characteristic}}
@@ -67,7 +34,7 @@
           <label><input class="checkbox" type="checkbox" name="system.doubleSwimSpeed" {{checked item.system.doubleSwimSpeed}}> {{localize "UESRPG.Sheets.Feature.DoubleSwimSpeed"}}</label>
           <label class="attr-combo-field">
             <input class="checkbox" type="checkbox" name="system.addIBToMP" {{checked item.system.addIBToMP}}> {{localize "UESRPG.Sheets.Feature.AddIbToMp"}}
-            <input type="number" name="system.addIntToMPMultiplier" value="{{item.system.addIntToMPMultiplier}}" class="attr-tiny-num" title="{{localize "UESRPG.Sheets.Feature.Multiplier"}}">
+            <input type="number" name="system.addIntToMPMultiplier" value="{{item.system.addIntToMPMultiplier}}" class="attr-tiny-num" data-tooltip="UESRPG.Sheets.Feature.Multiplier" aria-label="{{localize "UESRPG.Sheets.Feature.Multiplier"}}">
           </label>
         </div>
       </fieldset>

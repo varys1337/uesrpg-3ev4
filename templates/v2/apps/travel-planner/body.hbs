@@ -1,0 +1,452 @@
+<section class="travel-planner__body">
+{{#unless error}}
+{{#if (eq activeTab "planning")}}
+  <div class="travel-planner__tab tab-planning">
+    <section class="travel-planner__summary-grid">
+      <article class="travel-planner__card">
+        <h3>{{localize "UESRPG.Apps.TravelPlanner.PlanningPool"}}</h3>
+        <p><b>{{localize "UESRPG.Apps.TravelPlanner.TotalDoS"}}:</b> {{planningTotals.dos}}</p>
+        <p><b>{{localize "UESRPG.Apps.TravelPlanner.TotalDoF"}}:</b> {{planningTotals.dof}}</p>
+        <p><b>{{localize "UESRPG.Apps.TravelPlanner.Benefits"}}:</b> {{planningTotals.benefits}} ({{localize "UESRPG.Apps.TravelPlanner.Spent"}} {{planningTotals.spentBenefits}}, {{localize "UESRPG.Apps.TravelPlanner.Available"}} {{spendable.benefits}})</p>
+        <div class="travel-planner__tracker">
+          {{#each benefitTracker}}
+          <button
+            type="button"
+            class="tracker-dot {{#if this.spent}}is-spent{{else}}is-available{{/if}}"
+            data-action="{{#if this.spent}}trackerUndoBenefit{{else}}trackerSpendBenefit{{/if}}"
+            data-tooltip-text="{{#if this.spent}}{{localize "UESRPG.Apps.TravelPlanner.UndoBenefitAria"}}{{else}}{{localize "UESRPG.Apps.TravelPlanner.SpendBenefitAria"}}{{/if}}" aria-label="{{#if this.spent}}{{localize "UESRPG.Apps.TravelPlanner.UndoBenefitAria"}}{{else}}{{localize "UESRPG.Apps.TravelPlanner.SpendBenefitAria"}}{{/if}}"
+            {{#unless ../editable}}disabled{{/unless}}
+          ></button>
+          {{/each}}
+        </div>
+        <p><b>{{localize "UESRPG.Apps.TravelPlanner.Impairments"}}:</b> {{planningTotals.impairments}} ({{localize "UESRPG.Apps.TravelPlanner.Spent"}} {{planningTotals.spentImpairments}}, {{localize "UESRPG.Apps.TravelPlanner.Available"}} {{spendable.impairments}})</p>
+        <div class="travel-planner__tracker">
+          {{#each impairmentTracker}}
+          <button
+            type="button"
+            class="tracker-dot {{#if this.spent}}is-spent{{else}}is-available{{/if}}"
+            data-action="{{#if this.spent}}trackerUndoImpairment{{else}}trackerSpendImpairment{{/if}}"
+            data-tooltip-text="{{#if this.spent}}{{localize "UESRPG.Apps.TravelPlanner.UndoImpairmentAria"}}{{else}}{{localize "UESRPG.Apps.TravelPlanner.SpendImpairmentAria"}}{{/if}}" aria-label="{{#if this.spent}}{{localize "UESRPG.Apps.TravelPlanner.UndoImpairmentAria"}}{{else}}{{localize "UESRPG.Apps.TravelPlanner.SpendImpairmentAria"}}{{/if}}"
+            {{#unless ../editable}}disabled{{/unless}}
+          ></button>
+          {{/each}}
+        </div>
+      </article>
+      <article class="travel-planner__card">
+        <h3>{{localize "UESRPG.Apps.TravelPlanner.SpendBenefits"}}</h3>
+        {{#each planningBenefits}}
+        <div class="travel-planner__spend-row">
+          <div>
+            <b>{{this.label}}</b>
+            <p>{{this.description}}</p>
+          </div>
+          <button type="button" data-action="spendBenefit" data-effect-key="{{this.key}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.Spend"}}</button>
+        </div>
+        {{/each}}
+        <button type="button" data-action="spendCustomBenefit" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.SpendCustomBenefit"}}</button>
+      </article>
+      <article class="travel-planner__card">
+        <h3>{{localize "UESRPG.Apps.TravelPlanner.SpendImpairments"}}</h3>
+        {{#each planningImpairments}}
+        <div class="travel-planner__spend-row">
+          <div>
+            <b>{{this.label}}</b>
+            <p>{{this.description}}</p>
+          </div>
+          <button type="button" data-action="spendImpairment" data-effect-key="{{this.key}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.Spend"}}</button>
+        </div>
+        {{/each}}
+        <button type="button" data-action="spendCustomImpairment" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.SpendCustomImpairment"}}</button>
+      </article>
+      <article class="travel-planner__card">
+        <h3>{{localize "UESRPG.Apps.TravelPlanner.SpendLog"}}</h3>
+        <div class="travel-planner__spend-log">
+          {{#each spendRows}}
+          <div class="travel-planner__spend-log-row">
+            <div>
+              <b>{{this.typeLabel}}:</b> {{this.effectLabel}}
+            </div>
+            <button type="button" data-action="removeSpend" data-spend-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.Undo"}}</button>
+          </div>
+          {{/each}}
+          {{#unless spendRows.length}}
+          <p>{{localize "UESRPG.Apps.TravelPlanner.NoSpends"}}</p>
+          {{/unless}}
+        </div>
+      </article>
+    </section>
+
+    <section class="travel-planner__card">
+      <div class="travel-planner__section-header">
+        <h3>{{localize "UESRPG.Apps.TravelPlanner.PlanningTests"}}</h3>
+        <button type="button" data-action="addPlanningEntry" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.AddTest"}}</button>
+      </div>
+      <table class="travel-planner__table">
+        <thead>
+          <tr>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Actor"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Mode"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.SkillCharacteristic"}}</th>
+            <th>{{localize "UESRPG.UI.Difficulty"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Manual"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Spec"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Result"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Actions"}}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each planningRows}}
+          <tr data-assign-drop data-phase="planning" data-assign-id="{{this.id}}" class="{{#if this.missingActor}}is-missing-actor{{/if}} {{#if this.missingInput}}is-missing-input{{/if}} {{#if this.hasResult}}is-has-result{{/if}}">
+            <td>
+              <select name="planning:{{this.id}}:actorUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">{{localize "UESRPG.Apps.TravelPlanner.Select"}}</option>
+                {{#each ../actorOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../actorUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>
+              <select name="planning:{{this.id}}:testMode" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="skill" {{#if (eq this.testMode "skill")}}selected{{/if}}>{{localize "UESRPG.Apps.TravelPlanner.Skill"}}</option>
+                <option value="characteristic" {{#if (eq this.testMode "characteristic")}}selected{{/if}}>{{localize "UESRPG.Apps.TravelPlanner.Characteristic"}}</option>
+              </select>
+            </td>
+            <td>
+              {{#if (eq this.testMode "skill")}}
+              <select name="planning:{{this.id}}:skillUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">{{localize "UESRPG.Apps.TravelPlanner.SelectSkill"}}</option>
+                {{#each this.skillOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../skillUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+              {{else}}
+              <select name="planning:{{this.id}}:charKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each this.charOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../charKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{/if}}
+            </td>
+            <td>
+              <select name="planning:{{this.id}}:difficultyKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../difficultyOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../difficultyKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td><input type="number" name="planning:{{this.id}}:manualMod" value="{{this.manualMod}}" {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td><input type="checkbox" name="planning:{{this.id}}:useSpec" {{checked this.useSpec}} {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td>{{#if this.result}}{{this.result.textual}} ({{this.result.rollTotal}}/{{this.result.target}}){{/if}}</td>
+            <td class="travel-planner__actions">
+              <button type="button" data-action="rollPlanningEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.UI.Roll"}}</button>
+              <button type="button" data-action="removePlanningEntry" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.UI.Remove"}}</button>
+            </td>
+          </tr>
+          {{/each}}
+          {{#unless planningRows.length}}
+          <tr><td colspan="8">{{localize "UESRPG.Apps.TravelPlanner.NoPlanningTests"}}</td></tr>
+          {{/unless}}
+        </tbody>
+      </table>
+    </section>
+  </div>
+  {{/if}}
+
+  {{#if (eq activeTab "travel")}}
+  <div class="travel-planner__tab tab-travel">
+    <section class="travel-planner__card">
+      <h3>{{localize "UESRPG.Apps.TravelPlanner.SurvivalTracking"}}</h3>
+      <div class="travel-planner__resources">
+        <label>
+          {{localize "UESRPG.Apps.TravelPlanner.FoodDays"}}
+          <div class="travel-planner__stepper">
+            <button type="button" data-action="decrementResource" data-field="foodDays" aria-label="{{localize "UESRPG.UI.Decrease"}}" {{#unless editable}}disabled{{/unless}}>-</button>
+            <input type="number" min="0" name="travel.resources.foodDays" value="{{state.travel.resources.foodDays}}" {{#unless editable}}disabled{{/unless}} />
+            <button type="button" data-action="incrementResource" data-field="foodDays" aria-label="{{localize "UESRPG.UI.Increase"}}" {{#unless editable}}disabled{{/unless}}>+</button>
+          </div>
+        </label>
+        <label>
+          {{localize "UESRPG.Apps.TravelPlanner.CookedFoodDays"}}
+          <div class="travel-planner__stepper">
+            <button type="button" data-action="decrementResource" data-field="cookedFoodDays" aria-label="{{localize "UESRPG.UI.Decrease"}}" {{#unless editable}}disabled{{/unless}}>-</button>
+            <input type="number" min="0" name="travel.resources.cookedFoodDays" value="{{state.travel.resources.cookedFoodDays}}" {{#unless editable}}disabled{{/unless}} />
+            <button type="button" data-action="incrementResource" data-field="cookedFoodDays" aria-label="{{localize "UESRPG.UI.Increase"}}" {{#unless editable}}disabled{{/unless}}>+</button>
+          </div>
+        </label>
+        <label>
+          {{localize "UESRPG.Apps.TravelPlanner.WaterDays"}}
+          <div class="travel-planner__stepper">
+            <button type="button" data-action="decrementResource" data-field="waterDays" aria-label="{{localize "UESRPG.UI.Decrease"}}" {{#unless editable}}disabled{{/unless}}>-</button>
+            <input type="number" min="0" name="travel.resources.waterDays" value="{{state.travel.resources.waterDays}}" {{#unless editable}}disabled{{/unless}} />
+            <button type="button" data-action="incrementResource" data-field="waterDays" aria-label="{{localize "UESRPG.UI.Increase"}}" {{#unless editable}}disabled{{/unless}}>+</button>
+          </div>
+        </label>
+        <label>
+          {{localize "UESRPG.Apps.TravelPlanner.FodderDays"}}
+          <div class="travel-planner__stepper">
+            <button type="button" data-action="decrementResource" data-field="fodderDays" aria-label="{{localize "UESRPG.UI.Decrease"}}" {{#unless editable}}disabled{{/unless}}>-</button>
+            <input type="number" min="0" name="travel.resources.fodderDays" value="{{state.travel.resources.fodderDays}}" {{#unless editable}}disabled{{/unless}} />
+            <button type="button" data-action="incrementResource" data-field="fodderDays" aria-label="{{localize "UESRPG.UI.Increase"}}" {{#unless editable}}disabled{{/unless}}>+</button>
+          </div>
+        </label>
+      </div>
+    </section>
+
+    <section class="travel-planner__card travel-planner__events">
+      <h3>{{localize "UESRPG.Apps.TravelPlanner.TravelEvents"}} ({{terrainLabel}})</h3>
+      <div class="travel-planner__section-header">
+        <p>{{localize "UESRPG.Apps.TravelPlanner.MultipleTerrainTables"}}</p>
+        <button type="button" data-action="addTravelTableEntry" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.AddTableEntry"}}</button>
+      </div>
+      <div class="travel-planner__event-list">
+        {{#each travelEventRows}}
+        <div class="travel-planner__event-controls">
+          <select name="table:travel:{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>
+            <option value="">{{localize "UESRPG.Apps.TravelPlanner.ChooseRollTable"}}</option>
+            {{#each ../tableOptions}}
+            <option value="{{this.uuid}}" {{#if (eq this.uuid ../uuid)}}selected{{/if}}>{{this.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" data-action="rollTravelEvent" data-table-index="{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.RollEventCheck"}}</button>
+          <button type="button" data-action="removeTravelTableEntry" data-table-index="{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.RemoveEntry"}}</button>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    <section class="travel-planner__card">
+      <div class="travel-planner__section-header">
+        <h3>{{localize "UESRPG.Apps.TravelPlanner.TravelEndeavours"}}</h3>
+        <button type="button" data-action="addTravelAssignment" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.AddEndeavour"}}</button>
+      </div>
+      {{#unless hasteValidation.valid}}
+      <p class="travel-planner__warning">{{hasteValidation.reason}}</p>
+      {{/unless}}
+      <table class="travel-planner__table">
+        <thead>
+          <tr>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Endeavour"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Actor"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Mode"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.SkillCharacteristic"}}</th>
+            <th>{{localize "UESRPG.UI.Difficulty"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Manual"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Terrain"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Result"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Actions"}}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each travelRows}}
+          <tr data-assign-drop data-phase="travel" data-assign-id="{{this.id}}" class="{{#if this.missingActor}}is-missing-actor{{/if}} {{#if this.missingInput}}is-missing-input{{/if}} {{#if this.customLabelMissing}}is-missing-input{{/if}} {{#if this.hasResult}}is-has-result{{/if}}">
+            <td>
+              <select name="travel:{{this.id}}:endeavourKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../travelEndeavours}}
+                <option value="{{this.key}}" {{#if (eq this.key ../endeavourKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{#if (eq this.endeavourKey "custom")}}
+              <input type="text" name="travel:{{this.id}}:note" value="{{this.note}}" placeholder="{{localize "UESRPG.Placeholders.CustomEndeavourLabel"}}" {{#unless ../editable}}disabled{{/unless}} />
+              {{#if this.customLabelMissing}}
+              <div class="travel-planner__warning">{{localize "UESRPG.Apps.TravelPlanner.CustomEndeavourRequired"}}</div>
+              {{/if}}
+              {{/if}}
+            </td>
+            <td>
+              <select name="travel:{{this.id}}:actorUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">{{localize "UESRPG.Apps.TravelPlanner.Select"}}</option>
+                {{#each ../actorOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../actorUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>
+              <select name="travel:{{this.id}}:testMode" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="skill" {{#if (eq this.testMode "skill")}}selected{{/if}}>{{localize "UESRPG.Apps.TravelPlanner.Skill"}}</option>
+                <option value="characteristic" {{#if (eq this.testMode "characteristic")}}selected{{/if}}>{{localize "UESRPG.Apps.TravelPlanner.Characteristic"}}</option>
+              </select>
+            </td>
+            <td>
+              {{#if (eq this.testMode "skill")}}
+              <select name="travel:{{this.id}}:skillUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">{{localize "UESRPG.Apps.TravelPlanner.SelectSkill"}}</option>
+                {{#each this.skillOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../skillUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+              {{else}}
+              <select name="travel:{{this.id}}:charKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each this.charOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../charKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{/if}}
+            </td>
+            <td>
+              <select name="travel:{{this.id}}:difficultyKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../difficultyOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../difficultyKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td><input type="number" name="travel:{{this.id}}:manualMod" value="{{this.manualMod}}" {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td>
+              <select name="travel:{{this.id}}:terrainMod" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../terrainModifierOptions}}
+                <option value="{{this.value}}" {{#if (eq this.value ../terrainMod)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>
+              {{#if this.result}}
+              {{this.result.textual}} ({{this.result.rollTotal}}/{{this.result.target}})
+              {{/if}}
+              {{#if this.advice}}
+              <div class="travel-planner__hint">{{this.advice.label}}</div>
+              {{/if}}
+            </td>
+            <td class="travel-planner__actions">
+              <button type="button" data-action="rollTravelAssignment" data-id="{{this.id}}" {{#unless this.canRoll}}disabled{{/unless}} {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.UI.Roll"}}</button>
+              <button type="button" data-action="removeTravelAssignment" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.UI.Remove"}}</button>
+            </td>
+          </tr>
+          <tr class="travel-planner__desc-row">
+            <td colspan="9">
+              <div class="travel-planner__row-description"><b>{{localize "UESRPG.Apps.TravelPlanner.EndeavourDetails"}}:</b> {{this.meta.description}}</div>
+            </td>
+          </tr>
+          {{/each}}
+          {{#unless travelRows.length}}
+          <tr><td colspan="9">{{localize "UESRPG.Apps.TravelPlanner.NoTravelEndeavours"}}</td></tr>
+          {{/unless}}
+        </tbody>
+      </table>
+    </section>
+  </div>
+  {{/if}}
+
+  {{#if (eq activeTab "camping")}}
+  <div class="travel-planner__tab tab-camping">
+    <section class="travel-planner__card travel-planner__events">
+      <h3>{{localize "UESRPG.Apps.TravelPlanner.CampingEvents"}} ({{terrainLabel}})</h3>
+      <div class="travel-planner__section-header">
+        <p>{{localize "UESRPG.Apps.TravelPlanner.MultipleTerrainTables"}}</p>
+        <button type="button" data-action="addCampingTableEntry" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.AddTableEntry"}}</button>
+      </div>
+      <div class="travel-planner__event-list">
+        {{#each campEventRows}}
+        <div class="travel-planner__event-controls">
+          <select name="table:camping:{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>
+            <option value="">{{localize "UESRPG.Apps.TravelPlanner.ChooseRollTable"}}</option>
+            {{#each ../tableOptions}}
+            <option value="{{this.uuid}}" {{#if (eq this.uuid ../uuid)}}selected{{/if}}>{{this.name}}</option>
+            {{/each}}
+          </select>
+          <button type="button" data-action="rollCampEvent" data-table-index="{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.RollEventCheck"}}</button>
+          <button type="button" data-action="removeCampingTableEntry" data-table-index="{{this.idx}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.RemoveEntry"}}</button>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    <section class="travel-planner__card">
+      <div class="travel-planner__section-header">
+        <h3>{{localize "UESRPG.Apps.TravelPlanner.CampEndeavours"}}</h3>
+        <button type="button" data-action="addCampAssignment" {{#unless editable}}disabled{{/unless}}>{{localize "UESRPG.Apps.TravelPlanner.AddEndeavour"}}</button>
+      </div>
+      <table class="travel-planner__table">
+        <thead>
+          <tr>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Endeavour"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Actor"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Mode"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.SkillCharacteristic"}}</th>
+            <th>{{localize "UESRPG.UI.Difficulty"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Manual"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Terrain"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Result"}}</th>
+            <th>{{localize "UESRPG.Apps.TravelPlanner.Actions"}}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{#each campRows}}
+          <tr data-assign-drop data-phase="camping" data-assign-id="{{this.id}}" class="{{#if this.missingActor}}is-missing-actor{{/if}} {{#if this.missingInput}}is-missing-input{{/if}} {{#if this.customLabelMissing}}is-missing-input{{/if}} {{#if this.hasResult}}is-has-result{{/if}}">
+            <td>
+              <select name="camping:{{this.id}}:endeavourKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../campEndeavours}}
+                <option value="{{this.key}}" {{#if (eq this.key ../endeavourKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{#if (eq this.endeavourKey "custom")}}
+              <input type="text" name="camping:{{this.id}}:note" value="{{this.note}}" placeholder="{{localize "UESRPG.Placeholders.CustomEndeavourLabel"}}" {{#unless ../editable}}disabled{{/unless}} />
+              {{#if this.customLabelMissing}}
+              <div class="travel-planner__warning">{{localize "UESRPG.Apps.TravelPlanner.CustomEndeavourRequired"}}</div>
+              {{/if}}
+              {{/if}}
+              <details class="travel-planner__hint">
+                <summary>{{localize "UESRPG.Apps.TravelPlanner.EndeavourDetails"}}</summary>
+                <div data-tooltip-text="{{this.meta.description}}">{{this.meta.description}}</div>
+              </details>
+            </td>
+            <td>
+              <select name="camping:{{this.id}}:actorUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">{{localize "UESRPG.Apps.TravelPlanner.Select"}}</option>
+                {{#each ../actorOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../actorUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>
+              <select name="camping:{{this.id}}:testMode" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="skill" {{#if (eq this.testMode "skill")}}selected{{/if}}>{{localize "UESRPG.Apps.TravelPlanner.Skill"}}</option>
+                <option value="characteristic" {{#if (eq this.testMode "characteristic")}}selected{{/if}}>{{localize "UESRPG.Apps.TravelPlanner.Characteristic"}}</option>
+              </select>
+            </td>
+            <td>
+              {{#if (eq this.testMode "skill")}}
+              <select name="camping:{{this.id}}:skillUuid" {{#unless ../editable}}disabled{{/unless}}>
+                <option value="">{{localize "UESRPG.Apps.TravelPlanner.SelectSkill"}}</option>
+                {{#each this.skillOptions}}
+                <option value="{{this.uuid}}" {{#if (eq this.uuid ../skillUuid)}}selected{{/if}}>{{this.name}}</option>
+                {{/each}}
+              </select>
+              {{else}}
+              <select name="camping:{{this.id}}:charKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each this.charOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../charKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+              {{/if}}
+            </td>
+            <td>
+              <select name="camping:{{this.id}}:difficultyKey" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../difficultyOptions}}
+                <option value="{{this.key}}" {{#if (eq this.key ../difficultyKey)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td><input type="number" name="camping:{{this.id}}:manualMod" value="{{this.manualMod}}" {{#unless ../editable}}disabled{{/unless}} /></td>
+            <td>
+              <select name="camping:{{this.id}}:terrainMod" {{#unless ../editable}}disabled{{/unless}}>
+                {{#each ../terrainModifierOptions}}
+                <option value="{{this.value}}" {{#if (eq this.value ../terrainMod)}}selected{{/if}}>{{this.label}}</option>
+                {{/each}}
+              </select>
+            </td>
+            <td>{{#if this.result}}{{this.result.textual}} ({{this.result.rollTotal}}/{{this.result.target}}){{/if}}</td>
+            <td class="travel-planner__actions">
+              <button type="button" data-action="rollCampAssignment" data-id="{{this.id}}" {{#unless this.canRoll}}disabled{{/unless}} {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.UI.Roll"}}</button>
+              <button type="button" data-action="removeCampAssignment" data-id="{{this.id}}" {{#unless ../editable}}disabled{{/unless}}>{{localize "UESRPG.UI.Remove"}}</button>
+            </td>
+          </tr>
+          {{/each}}
+          {{#unless campRows.length}}
+          <tr><td colspan="9">{{localize "UESRPG.Apps.TravelPlanner.NoCampEndeavours"}}</td></tr>
+          {{/unless}}
+        </tbody>
+      </table>
+    </section>
+  </div>
+  {{/if}}
+{{/unless}}
+</section>

@@ -1,13 +1,6 @@
-import { SYSTEM_ID } from "../../../core/system/namespace.js";
-import { localizeSettingConfig } from "../../../utils/i18n.js";
+import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
 
-function _reg(key, config) {
-  if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
-    console.warn(`UESRPG | Settings: duplicate key "${key}" вЂ” skipping.`);
-    return;
-  }
-  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("Crafting", key, config));
-}
+const _reg = createSystemSettingRegistrar("Crafting");
 
 export function registerCraftingSettings() {
   // Hidden GM rules/policy: long-term crafting toggles that still branch live runtime behavior.

@@ -16,6 +16,7 @@ import { customDialog } from "../../../utils/dialog-v2-helper.js";
 import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { buildWarfareDisciplineTN } from "../tn.js";
 import { ensureEncounterAllowsUtilityAction } from "../encounter/controller.js";
+import { requireMassCombatEnabled } from "../../homebrew/settings.js";
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ import { ensureEncounterAllowsUtilityAction } from "../encounter/controller.js";
  * @returns {Promise<void>}
  */
 export async function rollDisciplineForUnit(actor) {
+  if (!requireMassCombatEnabled()) return false;
   const gate = await ensureEncounterAllowsUtilityAction(actor, { actionLabel: "Discipline Test" });
   if (!gate?.allowed) return;
 

@@ -1,59 +1,30 @@
 import { SYSTEM_ID } from "../../../core/system/namespace.js";
 import { invalidateCachedSetting } from "../../../core/config/settings-cache.js";
-import { localizeSettingConfig } from "../../../utils/i18n.js";
+import { createSystemSettingRegistrar } from "../../../utils/settings-registration.js";
+import { renderSystemSheets } from "../../../ui/shared/rendered-applications.js";
 
-function _reg(key, config) {
-  if (game.settings.settings?.has(`${SYSTEM_ID}.${key}`)) {
-    console.warn(`UESRPG | Settings: duplicate key "${key}" — skipping.`);
-    return;
-  }
-  game.settings.register(SYSTEM_ID, key, localizeSettingConfig("UI", key, config));
-}
+const _reg = createSystemSettingRegistrar("UI");
 
 /** Shared onChange handler: re-render all open actor and NPC sheets. */
 function _reRenderActorSheets() {
-  try {
-    const windows = Object.values(ui?.windows ?? {});
-    for (const win of windows) {
-      try {
-        const el = win?.element;
-        if (!el?.classList?.contains?.("uesrpg-sheet-root")) continue;
-        const classList = el.classList;
-        const isTargetSheet = classList.contains("actor") || classList.contains("npc");
-        if (!isTargetSheet) continue;
-        if (typeof win?.render === "function") win.render(false);
-      } catch (_innerErr) {
-        // no-op
-      }
-    }
-  } catch (_err) {
-    // no-op
-  }
+  renderSystemSheets({ classNames: ["player-character", "npc"], reason: "ui.actor-sheets" });
 }
 
 /** Shared onChange handler: re-render all open actor, NPC, item, and group sheets. */
 function _reRenderAllSheets() {
-  try {
-    const windows = Object.values(ui?.windows ?? {});
-    for (const win of windows) {
-      try {
-        const el = win?.element;
-        if (!el?.classList?.contains?.("uesrpg-sheet-root")) continue;
-        const classList = el.classList;
-        const isTargetSheet =
-          classList.contains("actor") ||
-          classList.contains("item") ||
-          classList.contains("group") ||
-          classList.contains("npc");
-        if (!isTargetSheet) continue;
-        if (typeof win?.render === "function") win.render(false);
-      } catch (_innerErr) {
-        // ignore one-off window render failures
-      }
-    }
-  } catch (_err) {
-    // no-op
-  }
+  renderSystemSheets({ classNames: ["player-character", "npc", "item", "group", "warfare-unit"], reason: "ui.all-sheets" });
+}
+
+/** Clear any transient list-filter query before refreshing sheet search controls. */
+function _resetSheetSearchAndReRender() {
+  renderSystemSheets({
+    classNames: ["player-character", "npc", "item", "group", "warfare-unit"],
+    reason: "ui.sheet-search",
+    beforeRender: (sheet) => {
+      sheet._uesrpgListFilterQueries?.clear?.();
+      sheet._uesrpgListFilterQueries = null;
+    },
+  });
 }
 
 function _invalidateEnableLoadoutsAndReRenderSheets() {
@@ -75,7 +46,7 @@ export function registerUiSettings() {
     config: false,
     type: String,
     choices: {
-      "Cyrodiil": "Сyrodiil - Default",
+      "Cyrodiil": "Cyrodiil - Default",
       "Magic-Cyr": "Magic-Cyr",
       "Dorovar Carolus": "Dorovar Carolus",
       "Futura Condensed Medium": "Futura Condensed Medium",
@@ -156,6 +127,16 @@ export function registerUiSettings() {
     onChange: _reRenderActorSheets,
   });
 
+  _reg("showSheetSearchBars", {
+    name: "Sheets: Show List Search Bars",
+    hint: "Show compact search fields above item and spell lists on UESRPG sheets.",
+    scope: "client",
+    config: false,
+    type: Boolean,
+    default: false,
+    onChange: _resetSheetSearchAndReRender,
+  });
+
   _reg("sheetDensity", {
     name: "Sheets: Density",
     hint: "Controls vertical spacing and row height for UESRPG AppV2 sheets.",
@@ -169,26 +150,6 @@ export function registerUiSettings() {
       ultra: "Ultra Compact",
     },
     onChange: _reRenderAllSheets,
-  });
-
-  _reg("useActorSheetV2", {
-    name: "Actor Sheet V2 Compatibility Flag",
-    hint: "Internal compatibility flag retained for migrated worlds. Actor sheets now use the AppV2 production path.",
-    scope: "world",
-    config: false,
-    requiresReload: true,
-    default: true,
-    type: Boolean,
-  });
-
-  _reg("useItemSheetV2", {
-    name: "Item Sheet V2 Compatibility Flag",
-    hint: "Internal compatibility flag retained for migrated worlds. Item sheets now use the AppV2 production path.",
-    scope: "world",
-    config: false,
-    requiresReload: true,
-    default: true,
-    type: Boolean,
   });
 
   // Hidden diagnostics: client-only tracing for AppV2 sheet lifecycle timings.

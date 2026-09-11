@@ -126,16 +126,16 @@
             </div>
 
             <div class="uesrpg-spendxp__skill-actions">
-              <button type="button" data-action="openItem" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--ghost" title="Open item sheet">
+              <button type="button" data-action="openItem" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn uesrpg-spendxp__btn--ghost" data-tooltip-text="Open item sheet" aria-label="Open item sheet">
                 <i class="fas fa-up-right-from-square"></i>
               </button>
 
               {{#if s.canAdvance}}
-                <button type="button" data-action="advanceRank" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn" title="Stage rank advance">
+                <button type="button" data-action="advanceRank" data-item-id="{{s.id}}" class="uesrpg-spendxp__btn" data-tooltip-text="Stage rank advance" aria-label="Stage rank advance">
                   <i class="fas fa-arrow-up"></i> Stage Rank ({{s.nextRankXpCost}} XP)
                 </button>
               {{else}}
-                <button type="button" class="uesrpg-spendxp__btn" disabled title="Cannot advance (already at maximum rank)">
+                <button type="button" class="uesrpg-spendxp__btn" disabled data-tooltip-text="Cannot advance (already at maximum rank)" aria-label="Cannot advance (already at maximum rank)">
                   Rank (-)
                 </button>
               {{/if}}

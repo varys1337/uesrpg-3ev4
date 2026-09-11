@@ -4,10 +4,10 @@
     <div class="warfare-sheet-content">
 
       <fieldset class="warfare-fieldset">
-        <legend>Implements</legend>
+        <legend>{{localize "UESRPG.Sheets.WarfareUnit.Implements"}}</legend>
         <div class="warfare-form-grid">
           <div class="form-group">
-            <label for="wf-magic-mode">Magic Mode</label>
+            <label for="wf-magic-mode">{{localize "UESRPG.Sheets.WarfareUnit.MagicMode"}}</label>
             <select id="wf-magic-mode" name="system.magic.mode" {{#unless editable}}disabled{{/unless}}>
               {{#each magic.supportedModes}}
               <option value="{{this}}" {{#if (eq this ../magic.mode)}}selected{{/if}}>
@@ -17,25 +17,25 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Cast Spell</label>
+            <label>{{localize "UESRPG.Sheets.WarfareUnit.CastSpell"}}</label>
             <span class="warfare-derived-value">{{#if derived.canCastSpell}}Available{{else}}Unavailable{{/if}}</span>
           </div>
           <div class="form-group">
-            <label>Passive Bonuses</label>
+            <label>{{localize "UESRPG.Sheets.WarfareUnit.PassiveBonuses"}}</label>
             <span class="warfare-derived-value">AR +{{derived.passiveImplementBonuses.ar}} / MAR +{{derived.passiveImplementBonuses.mar}}</span>
           </div>
           <div class="form-group">
-            <label>Bulk Threshold Bonus</label>
+            <label>{{localize "UESRPG.Sheets.WarfareUnit.BulkThresholdBonus"}}</label>
             <span class="warfare-derived-value">+{{derived.passiveImplementBonuses.bulkLossDb}}</span>
           </div>
         </div>
-        <p class="warfare-hint">Passive implement effects are always derived. Use <strong>Cast Spell</strong> from the Actions tab for active effects and Battle Scrolls.</p>
+        <p class="warfare-hint">{{localize "UESRPG.Sheets.WarfareUnit.PassiveImplementHelp"}}</p>
       </fieldset>
 
       <fieldset class="warfare-fieldset">
-        <legend>Implement Entries</legend>
+        <legend>{{localize "UESRPG.Sheets.WarfareUnit.ImplementEntries"}}</legend>
         {{#if editable}}
-        <button type="button" data-action="addMagicEntry" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> Add Implement</button>
+        <button type="button" data-action="addMagicEntry" class="warfare-btn warfare-btn--small"><i class="fas fa-plus"></i> {{localize "UESRPG.Sheets.WarfareUnit.AddImplement"}}</button>
         {{/if}}
         {{#each magic.entries}}
         <div class="warfare-spell-row" data-entry-index="{{@index}}">
@@ -45,17 +45,17 @@
           <input type="number" name="system.magic.entries.{{@index}}.count" value="{{this.count}}" min="1" {{#unless ../editable}}disabled{{/unless}}>
           <input type="text" name="system.magic.entries.{{@index}}.effect" value="{{this.effect}}" placeholder="Notes / Effect" {{#unless ../editable}}disabled{{/unless}}>
           {{#if ../editable}}
-          <button type="button" data-action="removeMagicEntry" data-entry-index="{{@index}}" class="warfare-btn warfare-btn--icon" title="Remove"><i class="fas fa-trash"></i></button>
+          <button type="button" data-action="removeMagicEntry" data-entry-index="{{@index}}" class="warfare-btn warfare-btn--icon" data-tooltip="UESRPG.UI.Remove" aria-label="{{localize "UESRPG.UI.Remove"}}"><i class="fas fa-trash" aria-hidden="true"></i></button>
           {{/if}}
         </div>
         {{else}}
-        <p class="warfare-hint">No implements configured.</p>
+        <p class="warfare-hint">{{localize "UESRPG.Sheets.WarfareUnit.NoImplements"}}</p>
         {{/each}}
       </fieldset>
 
       {{#if derived.implementEntries.length}}
       <fieldset class="warfare-fieldset">
-        <legend>Derived Implement Summary</legend>
+        <legend>{{localize "UESRPG.Sheets.WarfareUnit.DerivedImplementSummary"}}</legend>
         <div class="warfare-action-column__list">
           {{#each derived.implementEntries}}
           <div class="warfare-effect-row">

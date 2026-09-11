@@ -3,6 +3,7 @@ import { doTestRoll } from "../../../utils/degree-roll-helper.js";
 import { t, tf } from "../../../utils/i18n.js";
 import { buildWarfareDisciplineTN } from "../../mass-warfare/tn.js";
 import { applyResolveLoss, hasHoldNextDefend, WARFARE_EFFECT_KEYS } from "../../mass-warfare/actions.js";
+import { isMassCombatEnabled, requireMassCombatEnabled } from "../../homebrew/settings.js";
 
 const HUMANOID_TYPES = new Set(["player character", "npc"]);
 
@@ -94,6 +95,14 @@ function findHybridEngagement(attacker, defender, cfg = {}) {
 export function prepareHybridPendingData(attacker, defenders, cfg = {}) {
   if (!attacker || !Array.isArray(defenders) || defenders.length === 0) return null;
   const mixedCount = defenders.filter((defender) => getCombatDomain(defender) !== getCombatDomain(attacker)).length;
+  if (mixedCount > 0 && !isMassCombatEnabled()) {
+    return {
+      error: t(
+        "UESRPG.Notifications.MassCombatMechanicsDisabled",
+        "Enable Warfare in Configure Homebrew before using Warfare mechanics.",
+      ),
+    };
+  }
   if (mixedCount > 0 && defenders.length !== 1) {
     return { error: "Mixed Warfare <-> PC/NPC opposed combat currently supports exactly one defender." };
   }
@@ -120,6 +129,7 @@ function getDamagingSpellEntries(actor) {
 }
 
 export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "" } = {}) {
+  if (!requireMassCombatEnabled()) return null;
   const canRanged = Boolean(actor?.system?._derived?.canRangedAttack);
   const spellEntries = getDamagingSpellEntries(actor);
   const hasSpell = spellEntries.length > 0;
@@ -203,6 +213,7 @@ export async function promptHybridWarfareAttack(actor, { initialAttackFamily = "
 }
 
 export async function promptHybridWarfareDefense(actor, attacker) {
+  if (!requireMassCombatEnabled()) return null;
   const holdActive = hasHoldNextDefend(actor);
   return customDialog({
     layout: "workflow",
@@ -287,6 +298,7 @@ export function buildHybridWarfareTn(actor, declaration = {}, { joinFray = false
 }
 
 export async function rollHybridWarfareTest(actor, tn) {
+  if (!requireMassCombatEnabled()) return null;
   return doTestRoll(actor, {
     target: Number(tn ?? 0) || 0,
     allowLucky: false,
@@ -343,6 +355,7 @@ export async function applyHybridDamageToWarfareUnit(targetActor, {
   damageType = "physical",
   magicSource = false,
 } = {}) {
+  if (!requireMassCombatEnabled()) return null;
   const incoming = Math.max(0, Number(rawDamage ?? 0) || 0);
   const magical = Boolean(magicSource || String(damageType ?? "").toLowerCase() === "magic");
   const mitigation = magical
