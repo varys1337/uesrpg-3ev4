@@ -109,7 +109,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          is_draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq '.draft' 2>/dev/null || echo false)"
-          if [[ "$is_draft" == "true" ]]; then
-            gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
+          draft_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\" and .draft == true) | .id" \
+            | head -n 1)"
+          if [[ -n "$draft_id" ]]; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$draft_id"
           fi
