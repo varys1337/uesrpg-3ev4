@@ -22,11 +22,3 @@ Documentation:
 
 - [Localization guide](docs/Localization.md)
 - [Release and deployment guide](docs/Release.md)
-
-## Ready release folder
-
-Run `build-release-folder.cmd` on Windows, or run `npm run build:folder` from a terminal.
-
-The command validates the source and creates a ready-to-install Foundry system at `dist/uesrpg-3ev4`. The folder contains only runtime files required by the system; development dependencies, automation, repository metadata, and transient compendium lock/log files are excluded.
-
-Use Node.js 24 for local validation and release builds. Run `npm ci`, `npm run lint`, and `npm run build:release` before publishing.
